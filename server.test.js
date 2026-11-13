@@ -3201,7 +3201,7 @@ test('a write another website could send is refused, whatever route it names', a
   }
 });
 
-test('the create route answers a real creation with the record the screen is built on', { skip: skipOnWin32('it checks the job was loaded through launchctl (or systemctl on Linux), the runner this test stubs, and the launchd step it records; a Windows create registers a Scheduled Task instead; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
+test('the create route answers a real creation with the record the screen is built on', async () => {
   // ⚠️ The route test beside this one is named "makes an agent" and never makes
   // one — both its cases assert 400. So the 200 answer, which is the ENTIRE
   // contract the creation screen consumes (`outcome`, the ordered `steps` list
@@ -3220,6 +3220,23 @@ test('the create route answers a real creation with the record the screen is bui
   // comment claims the sandbox exists so the writes can happen.
   create.setDryRun(false);
   status.setPaneSource(() => '');
+  /* kosmos#8456: on Windows the job is a Scheduled Task, registered and started through the stand-in Task Scheduler
+     (test-support/jobfixture), never through the runner above, so its acts are watched there. */
+  const scheduled = [];
+  const unwatch = jobfix.watchScheduler((a) => { scheduled.push(a); });
+  /* kosmos#8456: and the shared supervisor a Windows task runs is the boot shim win32anchor writes, which the stand-in
+     replaces with a bare path. Here the real anchoring writes it (into this file's sandboxed data root, where
+     anchorDir puts it under AGENT_WORKFORCE_DATA), told that node is already in place so 92 MB is never copied. */
+  let anchoredBoot = null;
+  if (process.platform === 'win32') {
+    const win32anchor = require('./engine/win32anchor');
+    const nodeAt = nodePath.join(win32anchor.anchorDir('win32', os.homedir(), process.env), win32anchor.NODE_NAME);
+    require('./engine/win32job').setAnchorer(() => {
+      const a = win32anchor.ensureAnchored({ node: nodeAt });
+      anchoredBoot = a.boot || null;
+      return a;
+    });
+  }
   try {
     const res = await req('/api/agents', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -3239,7 +3256,10 @@ test('the create route answers a real creation with the record the screen is bui
       assert.equal(typeof s.label, 'string', 'a step with no label would draw as a blank line');
       assert.equal(typeof s.ok, 'boolean', 'a step with no verdict cannot be drawn as done or failed');
     }
-    assert.ok(body.steps.some((s) => /keep running/.test(s.label)), 'the job step is missing from the record');
+    /* kosmos#8456: on Windows the job's own step is "set it up to start again at every login" (create.js: the Scheduled
+       Task's at-logon registration), where a Mac's is writing the plist that keeps it running. */
+    const jobStep = process.platform === 'win32' ? /start again at every login/ : /keep running/;
+    assert.ok(body.steps.some((s) => jobStep.test(s.label)), 'the job step is missing from the record');
 
     // ⚠️ And the first action is the ROLE's own words, not something the screen
     // invented — the whole point of serving it from the same library the agent
@@ -3250,16 +3270,34 @@ test('the create route answers a real creation with the record the screen is bui
     // ⚠️ The route must NOT let a caller choose the programs. `claudeBin` in the
     // body above is ignored: honouring it would let any local page name any
     // executable to be launched under launchd forever.
-    const started = calls.find((c) => (linuxHost() ? startsJob(c[0], c[1]) : /launchctl$/.test(c[0])));
+    /* kosmos#8456: on Windows "loaded" is the task registered (/Create) and then run (/Run), by its own name. */
+    const tn = process.platform === 'win32' ? require('./engine/win32job').taskName('route-made') : null;
+    const act = (verb) => scheduled.findIndex((a) => a[0] === verb && a[a.indexOf('/TN') + 1] === tn);
+    const started = process.platform === 'win32'
+      ? act('/Create') >= 0 && act('/Run') > act('/Create')
+      : calls.find((c) => (linuxHost() ? startsJob(c[0], c[1]) : /launchctl$/.test(c[0])));
     assert.ok(started, 'the job was never loaded, so nothing would start');
 
     // And the files are really there, in the sandbox this file sets up.
     assert.ok(fs.existsSync(create.instructionFile('route-made')), 'no instruction file was written');
-    assert.ok(fs.existsSync(create.supervisorPath()), 'the shared supervisor was not installed');
+    /* kosmos#8456: on Windows the shared supervisor is the boot shim the anchor keeps beside the tasks (the task's line
+       runs it, and it runs engine/win32supervisor.js), so it must be on disk AND be what this agent's task runs. */
+    const supervisorAt = process.platform === 'win32' ? anchoredBoot : create.supervisorPath();
+    assert.ok(supervisorAt && fs.existsSync(supervisorAt), 'the shared supervisor was not installed');
+    if (process.platform === 'win32') {
+      // The paths on the task's line, compared as the files they name (a short 8.3 spelling is the same file).
+      const line = /<Arguments>([\s\S]*?)<\/Arguments>/.exec(fs.readFileSync(jobfix.jobPath('route-made'), 'utf8'));
+      const named = line ? [...require('./engine/win32job').xmlUnescape(line[1]).matchAll(/"([^"]*)"/g)].map((m) => m[1]) : [];
+      const real = (p) => { try { return fs.realpathSync.native(p); } catch { return null; } };
+      assert.ok(named.some((p) => real(p) !== null && real(p) === real(supervisorAt)),
+        'the startup job does not run the shared supervisor, so nothing would keep the agent going');
+    }
     assert.ok(fs.existsSync(jobfix.jobPath('route-made')), 'no startup job was written');
   } finally {
+    unwatch();
     create.setRunner(null);
     status.setPaneSource(null);
+    if (process.platform === 'win32') jobfix.useJobStore();   // the stand-in's own anchoring back
   }
 });
 
@@ -4676,13 +4714,19 @@ test('the open-sleep-settings route: guard-inherited, honest 409, and the engine
   }
 });
 
-test('the removal routes ask, remove, and put back, over the wire', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
+test('the removal routes ask, remove, and put back, over the wire', async () => {
   // ⚠️ The engine was well covered and the surface a browser talks to was not.
   // These routes are how the fleet is managed, and the restore route is what
   // makes the removal safe to offer.
   const create = require('./engine/create');
   const status = require('./engine/status');
   const removal = require('./engine/remove');
+  /* kosmos#8456: on Windows the agent is a process the stand-in Task Scheduler starts when create runs its task, and
+     the removal ends it with taskkill (engine/win32stop.js): test-support/jobfixture's process table stands in for
+     both. Its job acts are watched at the stand-in, where the Windows removal and restore make them. */
+  const procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
+  const scheduled = [];
+  const unwatch = jobfix.watchScheduler((a) => { scheduled.push(a); });
 
   // An agent that exists, made the way the product makes them.
   create.setRunner(() => ({ ok: true, stdout: '' }));
@@ -4789,7 +4833,7 @@ test('the removal routes ask, remove, and put back, over the wire', { skip: skip
   assert.match(alive.type, /application\/json/, 'the server died on a malformed name');
 
   const seenRemoved = [];
-  removal.setRunner((f, a) => { seenRemoved.push([f, a]); return a && a[0] === 'has-session' ? { ok: false, code: 1 } : { ok: true, stdout: '' }; });
+  removal.setRunner((f, a) => { seenRemoved.push([f, a]); return jobfix.win32Step(f, a) || (a && a[0] === 'has-session' ? { ok: false, code: 1 } : { ok: true, stdout: '' }); });
   removal.setDryRun(false);
   // ⚠️ THE AGENT HAS TO BE ON THE BOARD BEFORE ANY OF THIS MEANS ANYTHING. An
   // earlier version of this test asserted "it is gone from the board" without
@@ -4851,8 +4895,12 @@ test('the removal routes ask, remove, and put back, over the wire', { skip: skip
     });
     assert.equal(back.status, 200, 'restore was refused: ' + back.body);
     assert.equal(JSON.parse(back.body).outcome, 'restored');
-    assert.ok(seenRemoved.some(([f, a]) => enablesJob(f, a)),
-      'nothing was re-enabled, so the agent is "restored" but will not start again');
+    /* kosmos#8456: on Windows re-enabling is the task's /Change /ENABLE, made at the stand-in Task Scheduler. */
+    const tn = process.platform === 'win32' ? require('./engine/win32job').taskName('route-removable') : null;
+    assert.ok(process.platform === 'win32'
+      ? scheduled.some((a) => a[0] === '/Change' && a.includes('/ENABLE') && a[a.indexOf('/TN') + 1] === tn)
+      : seenRemoved.some(([f, a]) => enablesJob(f, a)),
+    'nothing was re-enabled, so the agent is "restored" but will not start again');
     const after = JSON.parse((await req('/api/status')).body).agents.map((a) => a.name);
     assert.ok(after.includes('route-removable'), 'a restored agent never came back to the board');
   } finally {
@@ -4862,6 +4910,8 @@ test('the removal routes ask, remove, and put back, over the wire', { skip: skip
     // ⚠️ Put the capture back too, or this test's stub leaks onto every test
     // that runs after it -- including the ones that read the real fleet.
     status.setPaneCapture(null);
+    unwatch();
+    if (procs) procs.stop();
   }
 
   // ⚠️ AND BOTH WRITES ARE COVERED BY THE CROSS-SITE GUARD. They are
@@ -5063,7 +5113,7 @@ test('kosmos#8475: on Windows the removed list marks a task still registered wit
  * This one builds a REAL plist naming a REAL account dir, deletes the dir, and
  * asserts the route ships `true`.
  */
-test('#2615 the removed list reports a gone account folder as gone', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
+test('#2615 the removed list reports a gone account folder as gone', async () => {
   const removal = require('./engine/remove');
   const create = require('./engine/create');
   const status = require('./engine/status');
@@ -5081,6 +5131,10 @@ test('#2615 the removed list reports a gone account folder as gone', { skip: ski
     'the fixture plist does not name the account dir, so this arm proves nothing');
   status.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
   status.setPaneCapture(() => null);
+  /* kosmos#8456: on Windows the agent behind the pane is a process, which the removal ends with taskkill
+     (engine/win32stop.js): it runs in test-support/jobfixture's process table, as tmux answers for it below on a Mac. */
+  const procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
+  if (procs) procs.start(name);
   removal.setRunner((file, args) => (args && args[0] === 'has-session'
     ? { ok: false, code: 1 }
     : { ok: true, stdout: '' }));
@@ -5104,13 +5158,14 @@ test('#2615 the removed list reports a gone account folder as gone', { skip: ski
     removal.setRunner(null);
     status.setPaneSource(null);
     status.setPaneCapture(null);
+    if (procs) procs.stop();
     try { fs.rmSync(jobfix.jobPath(name), { force: true }); } catch { /* best effort */ }
     try { fs.rmSync(acctDir, { recursive: true, force: true }); } catch { /* best effort */ }
     try { fs.rmSync(removal.REMOVED_FILE, { force: true }); } catch { /* best effort */ }
   }
 });
 
-test('the removed list gives the browser only what it draws', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
+test('the removed list gives the browser only what it draws', async () => {
   /**
    * ⚠️ Pins an ALLOWLIST, which is the only shape that can catch the regression
    * that matters. The stored record carries the launchd label, the absolute
@@ -5133,6 +5188,9 @@ test('the removed list gives the browser only what it draws', { skip: skipOnWin3
   fs.writeFileSync(jobfix.jobPath(name), '<plist/>', 'utf8');
   status.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
   status.setPaneCapture(() => null);
+  // kosmos#8456: on Windows the agent is a process in the stand-in process table, ended with taskkill (see #2615 above).
+  const procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
+  if (procs) procs.start(name);
   // ⚠️ `has-session` must answer "gone" (exit 1) or the look-again after the
   // kill reads as a session that survived, and the removal is a PARTIAL.
   removal.setRunner((file, args) => (args && args[0] === 'has-session'
@@ -5146,9 +5204,12 @@ test('the removed list gives the browser only what it draws', { skip: skipOnWin3
     // or "they are absent from the response" is true of nothing.
     const stored = removal.removedAgents().find((r) => r.name === name);
     /* #5500: on Linux the record keeps the unit's name as its label and no plist (remove.js keeps plist null there), so
-       on Linux this control proves only the label half: there is no path in the record to withhold. */
-    assert.ok(linuxHost() ? stored.label === require('./engine/linuxjob').unitName(name) && stored.plist === null : stored.label && stored.plist,
-      'the fixture has no machine detail to withhold');
+       on Linux this control proves only the label half: there is no path in the record to withhold. kosmos#8456: the
+       same on Windows, where the label is the Scheduled Task's name (remove.jobFor keeps plist null there too). */
+    assert.ok(linuxHost() ? stored.label === require('./engine/linuxjob').unitName(name) && stored.plist === null
+      : process.platform === 'win32' ? stored.label === require('./engine/win32job').taskName(name) && stored.plist === null
+        : stored.label && stored.plist,
+    'the fixture has no machine detail to withhold');
 
     const res = await req('/api/removed');
     const row = JSON.parse(res.body).agents.find((a) => a.name === name);
@@ -5184,6 +5245,7 @@ test('the removed list gives the browser only what it draws', { skip: skipOnWin3
       + 'control and the engine answer have drifted');
   } finally {
     removal.setRunner(null);
+    if (procs) procs.stop();
     status.setPaneSource(null);
     status.setPaneCapture(null);
     try { fs.rmSync(removal.REMOVED_FILE, { force: true }); } catch { /* best effort */ }
@@ -5592,7 +5654,7 @@ test('no style rule depends on a custom property that is never defined', () => {
 });
 
 
-test('an agent whose card shows a different name than its session still leaves the board', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
+test('an agent whose card shows a different name than its session still leaves the board', async () => {
   // #5432: the legacy com.<session>.discord.plist below is a macOS fixture; on Linux nothing reads it, so there the
   // test measures the name-versus-session removal with no legacy job.
   /**
@@ -5641,6 +5703,10 @@ test('an agent whose card shows a different name than its session still leaves t
    */
   status.setPaneSource(() => fleet.line({ session: `${session}-discord`, title: '✳ Claude Code' }));
   status.setPaneCapture(() => null);
+  /* kosmos#8456: on Windows the session the roster shows is a process, under the name the roster gives it, in the stand-in
+     process table; the removal ends it with taskkill, where a Mac's ends the tmux session. */
+  const procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
+  if (procs) procs.start(`${session}-discord`);
   removal.setRunner((f, a) => (a && a[0] === 'has-session' ? { ok: false, code: 1 } : { ok: true, stdout: '' }));
   removal.setDryRun(false);
   try {
@@ -5674,6 +5740,7 @@ test('an agent whose card shows a different name than its session still leaves t
     // no cleanup, because it looks handled.
     await req(`/api/agent/${session}/restore`, { method: 'POST' }).catch(() => {});
     removal.setRunner(null);
+    if (procs) procs.stop();
     status.setPaneSource(null);
     // ⚠️ Put the capture back too, or this test's stub leaks onto every test
     // that runs after it -- including the ones that read the real fleet.
@@ -5735,7 +5802,7 @@ test('a half-removed agent is on the removed list AND still on the board', async
 });
 
 
-test('a job that is disabled but will not unload is recorded, not reported as untouched', { skip: skipOnWin32('it makes launchctl bootout fail, through the runner this test stubs, to check the removal a job that will not unload records; a Windows job is a Scheduled Task, whose same state (disabled, but /End fails) the stand-in Task Scheduler cannot make here; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
+test('a job that is disabled but will not unload is recorded, not reported as untouched', async () => {
   /**
    * ⚠️ THE WORST STATE THIS MODULE CAN REACH, and it used to be invisible.
    *
@@ -5761,6 +5828,16 @@ test('a job that is disabled but will not unload is recorded, not reported as un
     status.setPaneSource(null);
   }
 
+  /* kosmos#8456: on Windows the same state is a Scheduled Task switched off (/Change /DISABLE) whose /End fails: the
+     stand-in Task Scheduler (test-support/jobfixture) is told to refuse that /End the way schtasks refuses one it may
+     not end, and every act is watched there, where the Windows removal makes them. */
+  const scheduled = [];
+  const tn = process.platform === 'win32' ? require('./engine/win32job').taskName('wont-unload') : null;
+  const unwatch = jobfix.watchScheduler((a) => {
+    scheduled.push(a);
+    if (a[0] === '/End' && a[a.indexOf('/TN') + 1] === tn) return { ok: false, out: 'ERROR: Access is denied.' };
+    return undefined;
+  });
   const removalCalls = [];
   removal.setRunner((f, a) => {
     removalCalls.push([String(f), a]);
@@ -5786,6 +5863,11 @@ test('a job that is disabled but will not unload is recorded, not reported as un
       assert.ok(removalCalls.some(([f, a]) => /systemctl$/.test(f) && a && a[1] === 'disable'),
         'on Linux the unit was never disabled, so this is not the disabled-but-still-running state');
     }
+    if (process.platform === 'win32') {
+      const at = (verb, flag) => scheduled.findIndex((a) => a[0] === verb && (!flag || a.includes(flag)) && a[a.indexOf('/TN') + 1] === tn);
+      assert.ok(at('/Change', '/DISABLE') >= 0 && at('/Change', '/DISABLE') < at('/End'),
+        'on Windows the task was not switched off before the /End that failed, so this is not the disabled-but-still-running state');
+    }
 
     // ⚠️ AND THERE IS A WAY BACK. This is the half that made the old behaviour
     // unrecoverable rather than merely mis-worded.
@@ -5796,6 +5878,7 @@ test('a job that is disabled but will not unload is recorded, not reported as un
     // Same ordering rule as above: undo while the runner is still armed.
     await req('/api/agent/wont-unload/restore', { method: 'POST' }).catch(() => {});
     removal.setRunner(null);
+    unwatch();
   }
 });
 
@@ -10710,7 +10793,7 @@ test('the footer answers only a question that was asked, and never sits on news'
     'a failure stayed silent until it was asked for');
 });
 
-test('the model route writes the choice AND restarts, because either alone is a lie', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
+test('the model route writes the choice AND restarts, because either alone is a lie', async () => {
   /**
    * 🛑 TWO WRITES AND THE SECOND IS NOT OPTIONAL. `setModel` rewrites the
    * startup file; the restart is what makes launchd read it. Ship the first
@@ -10727,6 +10810,10 @@ test('the model route writes the choice AND restarts, because either alone is a 
   const name = 'routeswitch';
   // #5500: systemd's answers for the Linux job (on a Mac it answers nothing and each runner answers as before).
   const systemd = jobfix.systemdStub();
+  /* kosmos#8456: on Windows the agent is a process the stand-in Task Scheduler starts when its task is run, and a restart
+     ends it with taskkill, then runs the task again (/End, /Run), yielding each to remove.js's runner: jobfix.win32Step
+     answers those from the stand-ins, and anything else is answered as before. */
+  const procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
 
   create.setRunner((f, a) => systemd(f, a) || { ok: true, stdout: '' });
   create.setDryRun(false);
@@ -10741,10 +10828,12 @@ test('the model route writes the choice AND restarts, because either alone is a 
   removal.setRunner((f, a) => {
     calls.push([f, a]);
     if (a && a[0] === 'has-session') return { ok: false, code: 1 };   // the kill worked
-    return systemd(f, a) || { ok: true, stdout: '' };
+    return jobfix.win32Step(f, a) || systemd(f, a) || { ok: true, stdout: '' };
   });
   removal.setDryRun(false);
+  const pid = procs ? procs.pidOf(name) : null;
   try {
+    if (procs) assert.ok(pid, 'the agent was not running before its model changed, so there is no window to close');
     const r = await req('/api/agent/' + name + '/model', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -10756,9 +10845,12 @@ test('the model route writes the choice AND restarts, because either alone is a 
 
     assert.equal(plannedModel(name), 'claude-haiku-4-5-20251001',
       'the startup file still names the old model');
-    assert.ok(calls.some((c) => c[1][0] === 'kill-session'),
+    /* kosmos#8456: on Windows closing the window is taskkill on the agent's process, and the relaunch is the task's /Run
+       (a task re-reads its command line when it is run, as launchd does at a bootstrap). */
+    const tn = procs ? require('./engine/win32job').taskName(name) : null;
+    assert.ok(calls.some((c) => (procs ? /taskkill\.exe$/i.test(c[0]) && c[1].join(' ') === `/PID ${pid} /T /F` : c[1][0] === 'kill-session')),
       'nothing closed the window, so the supervisor would adopt an agent still on the old model');
-    assert.ok(calls.some((c) => startsJob(c[0], c[1])),
+    assert.ok(calls.some((c) => (procs ? /schtasks\.exe$/i.test(c[0]) && c[1][0] === '/Run' && c[1][c[1].indexOf('/TN') + 1] === tn : startsJob(c[0], c[1]))),
       'launchd was never re-bootstrapped, so it keeps the arguments it already had');
 
     /* A model nobody offers is refused before anything is written. */
@@ -10780,10 +10872,11 @@ test('the model route writes the choice AND restarts, because either alone is a 
     removal.setDryRun(true);
     create.setDryRun(true);
     statusEngine.setPaneSource(null);
+    if (procs) procs.stop();
   }
 });
 
-test('#2019: the restart route threads an optional cause, and a bodyless POST stays backward-compatible', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
+test('#2019: the restart route threads an optional cause, and a bodyless POST stays backward-compatible', async () => {
   /* The route was rewritten from a synchronous handler to an async readBody so
      the stale-instructions notice can send {cause:'instructions'} and the board
      can name WHY the agent went quiet. A bodyless POST (a plain Restart click)
@@ -10797,6 +10890,8 @@ test('#2019: the restart route threads an optional cause, and a bodyless POST st
   const name = 'routecause';
   // #5500: systemd's answers for the Linux job (on a Mac it answers nothing and each runner answers as before).
   const systemd = jobfix.systemdStub();
+  // kosmos#8456: on Windows the running agent and its restart, through the stand-ins (as in the model route test above).
+  const procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
 
   create.setRunner((f, a) => systemd(f, a) || { ok: true, stdout: '' });
   create.setDryRun(false);
@@ -10806,9 +10901,10 @@ test('#2019: the restart route threads an optional cause, and a bodyless POST st
   create.setRunner(null);
 
   statusEngine.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
-  removal.setRunner((f, a) => (a && a[0] === 'has-session' ? { ok: false, code: 1 } : systemd(f, a) || { ok: true, stdout: '' }));
+  removal.setRunner((f, a) => (a && a[0] === 'has-session' ? { ok: false, code: 1 } : jobfix.win32Step(f, a) || systemd(f, a) || { ok: true, stdout: '' }));
   removal.setDryRun(false);
   try {
+    if (procs) assert.ok(procs.pidOf(name), 'the agent was not running, so this restart would be a first start, not a restart');
     disruption.clear(name);
     // A cause in the body rides through to the disruption record.
     const withCause = await req('/api/agent/' + name + '/restart', {
@@ -10834,6 +10930,7 @@ test('#2019: the restart route threads an optional cause, and a bodyless POST st
     create.setDryRun(true);
     statusEngine.setPaneSource(null);
     disruption.clear(name);
+    if (procs) procs.stop();
   }
 });
 

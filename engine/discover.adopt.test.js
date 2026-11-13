@@ -564,7 +564,27 @@ test('#1159 CONTROL: adopting a Claude agent does NOT stamp a provider', () => {
  */
 const projectsMod = require('./projects');
 
-test('#1349: an imported agent gets the project block, BEFORE it is started', { skip: skipOnWin32('it watches the start through create.setRunner, the launchctl runner seam, which a Windows start never calls: Windows starts the agent through Task Scheduler; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, () => {
+/* The instructions file as it stood when the agent was started. On a Mac and on Linux the start goes through
+   create.setRunner (launchctl, systemctl), so the file is read at the first call that runner gets. kosmos#8456: on
+   Windows the start is the agent's Scheduled Task being run, so the file is read when the stand-in Task Scheduler
+   (test-support/jobfixture) is asked to /Run it; create's runner does not read there, so nothing else can be taken
+   for the start. `.text` stays null until the start happens; `.stop()` ends the watch. */
+function startWatch(file) {
+  const seen = { text: null, stop: null };
+  const read = () => {
+    if (seen.text === null) {
+      try { seen.text = fs.readFileSync(file, 'utf8'); } catch { seen.text = ''; }
+    }
+  };
+  create.setRunner(() => {
+    if (process.platform !== 'win32') read();
+    return { ok: true, stdout: '' };
+  });
+  seen.stop = jobfix.watchScheduler((a) => { if (process.platform === 'win32' && a[0] === '/Run') read(); });
+  return seen;
+}
+
+test('#1349: an imported agent gets the project block, BEFORE it is started', () => {
   /* 🔑 THE ORDERING IS PROVEN, NOT ASSERTED. The injected runner is what
      `installJob` calls to start the agent, so reading the instructions file from
      INSIDE it captures their state at the moment of start. If the block is
@@ -575,15 +595,10 @@ test('#1349: an imported agent gets the project block, BEFORE it is started', { 
     description: 'seeded by the test', made: { via: 'kosmos' },
   });
   const dir = agentFolder('impcodex', 'AGENTS.md', '# You are Imp Codex\n');
-  let atStart = null;
-  create.setRunner(() => {
-    if (atStart === null) {
-      try { atStart = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'); } catch { atStart = ''; }
-    }
-    return { ok: true, stdout: '' };
-  });
-
-  const r = discover.connect(dir, { projects: [proj.id] });
+  const watched = startWatch(path.join(dir, 'AGENTS.md'));
+  let r;
+  try { r = discover.connect(dir, { projects: [proj.id] }); } finally { watched.stop(); }
+  const atStart = watched.text;
   assert.equal(r.ok, true, r.because);
   assert.ok(atStart !== null, 'the runner never ran, so this proves nothing about ordering');
   assert.match(atStart, /kosmos:projects:start/,
@@ -652,16 +667,12 @@ test('#1349: an instructions file already at the ceiling is left alone', () => {
  * MEASURED ASYMMETRY: `create.js` composes both before an agent is born;
  * `discover.js` mentioned `defaults` ZERO times.
  */
-test('#1363: an imported agent is born with the rules and the connector words', { skip: skipOnWin32('it watches the start through create.setRunner, the launchctl runner seam, which a Windows start never calls: Windows starts the agent through Task Scheduler; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, () => {
+test('#1363: an imported agent is born with the rules and the connector words', () => {
   const dir = agentFolder('rulesimp', 'AGENTS.md', '# You are Rules Imp\n');
-  let atStart = null;
-  create.setRunner(() => {
-    if (atStart === null) {
-      try { atStart = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'); } catch { atStart = ''; }
-    }
-    return { ok: true, stdout: '' };
-  });
-  const r = discover.connect(dir, {});
+  const watched = startWatch(path.join(dir, 'AGENTS.md'));
+  let r;
+  try { r = discover.connect(dir, {}); } finally { watched.stop(); }
+  const atStart = watched.text;
   assert.equal(r.ok, true, r.because);
   assert.ok(atStart !== null, 'the runner never ran, so this proves nothing about ordering');
 

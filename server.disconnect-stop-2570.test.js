@@ -90,6 +90,7 @@ test.after(() => {
   /* Clearing the runner re-arms dry-run (remove.js:96), so the process cannot
      end up in a state where a stray call reaches a real launchctl. */
   removal.setRunner(null);
+  if (procs) procs.stop();   // kosmos#8456: win32stop's own seams back, and the state files it wrote gone
   try { server.close(); } catch { /* already down */ }
 });
 
@@ -99,9 +100,26 @@ test.after(() => {
    and a route that skipped the kill would leave the session alive here. */
 let sessionsStillAlive = new Set();
 let calls = [];
+/* kosmos#8456: on Windows the running agent is a process, not a pane. The stop reaches it through engine/win32stop.js
+   (the live list, `taskkill /PID <pid> /T /F`, and a look at whether the pid is still there) and reaches its job through
+   the Task Scheduler, so both stand-ins from test-support/jobfixture are installed, and both report into `calls` the
+   way the runner above does on a Mac: the scheduler's acts as `schtasks <args>`, and the table's kills and looks as
+   `taskkill.exe /PID <pid> /T /F` and `alive <pid>`. Its reads (/Query) are not acts, as tmux's and launchctl's reads
+   never reach the runner here either. `sessionsStillAlive` means the same there: the kill answers SUCCESS and the
+   process is still there when it is looked at again. */
+const procs = process.platform === 'win32' ? jobfix.win32Processes({ onCall: (line) => calls.push(line) }) : null;
+const SCHEDULER_ACTS = new Set(['/Change', '/End', '/Run', '/Create', '/Delete']);
+if (procs) jobfix.watchScheduler((a) => { if (SCHEDULER_ACTS.has(a[0])) calls.push(['schtasks', ...a].join(' ')); });
+let survivals = [];
 function installRunner() {
   sessionsStillAlive = new Set();
   calls = [];
+  if (procs) {
+    procs.calls.length = 0;
+    for (const undo of survivals.splice(0)) undo();
+    const add = sessionsStillAlive.add.bind(sessionsStillAlive);
+    sessionsStillAlive.add = (name) => { survivals.push(procs.survive(name)); return add(name); };
+  }
   /* 🛑 THE PANE LIST IS TRUNCATED PER ARM, NOT APPENDED TO. Appending made every
      arm inherit every earlier arm's agents, and the enumeration is fail-closed:
      ONE undiagnosable agent anywhere makes `complete` false for every account,
@@ -125,6 +143,33 @@ function installRunner() {
 function readRemoved() {
   try { return JSON.parse(fs.readFileSync(REMOVED_JSON, 'utf8')); } catch { return []; }
 }
+/* The acts a stop of `name` is made of, as `calls` records them on this platform: switch the job off, end it, end the
+   agent's session, and look again. On a Mac launchctl and tmux; on Linux systemctl and tmux; kosmos#8456: on Windows the
+   Scheduled Task's /Change /DISABLE and /End, `taskkill /PID <pid> /T /F` on the agent's process, and the look at
+   whether that pid is still there (`pid` is the one agentOn gave it). */
+function stopActs(name, pid) {
+  if (process.platform === 'win32') {
+    const tn = require('./engine/win32job').taskName(name);
+    return {
+      disable: (c) => c === `schtasks /Change /TN ${tn} /DISABLE`,
+      unload: (c) => c === `schtasks /End /TN ${tn}`,
+      unloadSaid: 'the scheduled task was never ended',
+      kill: (c) => c === `taskkill.exe /PID ${pid} /T /F`,
+      lookAgain: (c) => c === `alive ${pid}`,
+    };
+  }
+  const linux = process.platform === 'linux';
+  const DISABLE = linux ? new RegExp(`systemctl --user disable kosmos-agent-${name}\\.service`) : new RegExp(`launchctl disable .*${name}`);
+  const UNLOAD = linux ? new RegExp(`systemctl --user stop kosmos-agent-${name}\\.service`) : new RegExp(`launchctl bootout .*${name}`);
+  return {
+    disable: (c) => DISABLE.test(c),
+    unload: (c) => UNLOAD.test(c),
+    unloadSaid: linux ? 'the unit was never stopped' : 'the launchd job was never booted out',
+    kill: (c) => new RegExp(`kill-session -t =${name}`).test(c),
+    lookAgain: (c) => new RegExp(`has-session -t =${name}`).test(c),
+  };
+}
+
 function removedNames() {
   const list = readRemoved();
   return (Array.isArray(list) ? list : []).map((r) => r && r.name).filter(Boolean);
@@ -170,6 +215,9 @@ function agentOn(name, configDir, runner, claim) {
     fleet.line({ session: name, claim: claim === undefined ? name : claim }) + '\n');
   assert.ok(fs.existsSync(jobfix.jobPath(name)),
     'the seeded launch file is missing, so every assertion below would be right for the wrong reason');
+  /* kosmos#8456: on Windows the pane line above is the roster, and the agent behind it is a process: running now, in
+     the process table (its ownership row, a live entry and its pid), which is what a Windows stop finds and ends. */
+  return procs ? procs.start(name, runner).pid : null;
 }
 
 /* Registered but NOT running: a launch file and a profile, no pane. The
@@ -205,34 +253,35 @@ test('#2570 CONTROL: with no stopAgents the route still REFUSES and names the ag
 
 /* ── the feature ─────────────────────────────────────────────────────────── */
 
-test('#2570: with stopAgents the agent is really stopped and the account IS disconnected', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
+test('#2570: with stopAgents the agent is really stopped and the account IS disconnected', async () => {
   installRunner();
   const dir = claudeAccount('busy2');
-  agentOn('spade', dir, 'claude');
+  const pid = agentOn('spade', dir, 'claude');
   const r = await del('claude', { dir, stopAgents: true });
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
   assert.equal(r.json.forgotten, true);
   assert.deepEqual(r.json.stopped, ['spade'], 'the answer must name who was stopped');
   assert.ok(!fs.existsSync(dir), 'the account directory did not move, so the stop bought nothing');
   /* THE STOP IS REAL, not a reported one. Both halves of the primitive ran. #5500: on Linux the job is a systemd
-     unit, disabled and then stopped (remove.js's Linux ops), in the same order. */
-  const linux = process.platform === 'linux';
-  const DISABLE = linux ? /systemctl --user disable kosmos-agent-spade\.service/ : /launchctl disable .*spade/;
-  const UNLOAD = linux ? /systemctl --user stop kosmos-agent-spade\.service/ : /launchctl bootout .*spade/;
-  assert.ok(calls.some((c) => DISABLE.test(c)), 'the job was never disabled');
-  assert.ok(calls.some((c) => UNLOAD.test(c)), linux ? 'the unit was never stopped' : 'the launchd job was never booted out');
-  assert.ok(calls.some((c) => /kill-session -t =spade/.test(c)), 'the session was never killed');
-  assert.ok(calls.some((c) => /has-session -t =spade/.test(c)),
+     unit, disabled and then stopped (remove.js's Linux ops), in the same order. kosmos#8456: on Windows the job is a
+     Scheduled Task, switched off (/Change /DISABLE) and then ended (/End), in the same order; the agent is a process,
+     ended with taskkill on its pid, and the look-again asks whether that pid is still there. */
+  const acts = stopActs('spade', pid);
+  assert.ok(calls.some(acts.disable), 'the job was never disabled');
+  assert.ok(calls.some(acts.unload), acts.unloadSaid);
+  const killAt = calls.findIndex(acts.kill);
+  assert.ok(killAt >= 0, 'the session was never killed');
+  assert.ok(calls.slice(killAt + 1).some(acts.lookAgain),
     'nothing looked again after the kill, so a reported stop was never verified');
-  const disableAt = calls.findIndex((c) => (linux ? /systemctl --user disable/ : /launchctl disable/).test(c));
-  const bootoutAt = calls.findIndex((c) => (linux ? /systemctl --user stop/ : /launchctl bootout/).test(c));
+  const disableAt = calls.findIndex(acts.disable);
+  const bootoutAt = calls.findIndex(acts.unload);
   assert.ok(disableAt >= 0 && disableAt < bootoutAt,
     'bootout ran before disable, so KeepAlive can revive the job it just stopped');
 });
 
 /* 🔑 THE SENTENCE IS PART OF THE FEATURE, AND THE RECORD IS WHAT MAKES IT TRUE.
    A stop the person cannot undo is a different product from one they can. */
-test('#2570: the stopped agent is on the removed list, which is what the answer promises', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
+test('#2570: the stopped agent is on the removed list, which is what the answer promises', async () => {
   installRunner();
   const dir = claudeAccount('busy3');
   agentOn('archer', dir, 'claude');
@@ -800,7 +849,7 @@ test('#2570 CONTROL: a caller that sends no stopNames is not held to a consent s
 
 /* #2264 put DELETE behind the same route. It is strictly more dangerous than a
    disconnect, so assert the pairing rather than assuming the shared code path. */
-test('#2570: the DELETE door honours stopAgents, and does NOT promise a restore', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
+test('#2570: the DELETE door honours stopAgents, and does NOT promise a restore', async () => {
   installRunner();
   const dir = claudeAccount('doomed');
   agentOn('maigret', dir, 'claude');
@@ -822,7 +871,7 @@ test('#2570: the DELETE door honours stopAgents, and does NOT promise a restore'
   assert.match(String(r.json.because), /needs a different one before it can start again/);
 });
 
-test('#2570: the OpenAI route stops its own agents the same way', { skip: skipOnWin32('its running agent is a tmux pane, which the stop ends with kill-session and checks with has-session through the runner this file stubs; a Windows stop ends the agent process with taskkill (engine/win32stop.js), which this file does not stand in for; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, async () => {
+test('#2570: the OpenAI route stops its own agents the same way', async () => {
   installRunner();
   const dir = codexAccount('busy');
   agentOn('poirot', dir, 'codex');

@@ -25,6 +25,12 @@
  * again (loud, never a false pass). The stand-in lives in this process only: a board a test spawns does not see it
  * (jobPathIn still writes a plist there). It also stands in for the start: /Run writes the ownership row the agent's
  * supervisor would (win32sessions, in the sandboxed store).
+ *
+ * kosmos#8456: three more, for the Windows arms of tests whose Mac arm stops, restarts or watches an agent through a
+ * runner stub. watchScheduler lets a test see every schtasks call at the stand-in (and answer one itself: an /End that
+ * fails); win32Step answers the schtasks and taskkill calls a Windows act yields to engine/remove.js's runner, from the
+ * same stand-ins; win32Processes is a stand-in process table for engine/win32stop.js, so an agent can be running, be
+ * ended with taskkill, and be looked at again. Each says below what it does not stand in for.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -37,7 +43,7 @@ const win32 = () => process.platform === 'win32';
    through its own runner (setRunner: /Query /XML, /Query /FO LIST, the two /FO CSV lists, /Create, /Delete, /Change,
    /Run, /End) from those files. NOT the step forms (installSteps, startSteps, endSteps, taskEnabledSteps): those hand
    `schtasks.exe` to engine/remove.js's runner, which a test stubs on its own, so a put-back or restore through them
-   registers nothing here, whatever that stub answers. It answers /Query /XML in UTF-8, so win32job's UTF-16 decode of
+   registers nothing here, whatever that stub answers, unless the stub passes them on with win32Step (kosmos#8456). It answers /Query /XML in UTF-8, so win32job's UTF-16 decode of
    a real answer (taskXmlFromQuery) is not exercised here; that has its own tests. */
 const NOT_FOUND = 'ERROR: The system cannot find the file specified.';
 
@@ -71,6 +77,8 @@ function switchedOff(text) {
 }
 
 let runs = 0;   // the /Run count, so each started task gets its own ownership-row id
+let currentScheduler = null;   // kosmos#8456: the stand-in last installed, for win32Step
+let processTable = null;   // kosmos#8456: the running agents, while win32Processes has a table installed
 
 /* The agent facts on a task's argument line (name, folder, model, account, runner, runner binary), read the way
    win32job.taskSpec reads them; null when the definition has no argument line. */
@@ -96,10 +104,22 @@ function taskRows(dir) {
 /* A task file the stand-in cannot read (a folder where the file should be, say) is a look that failed, the way
    schtasks failing to answer is: never thrown at the caller, and never "no such task". */
 const STAND_IN = Symbol('jobfixture stand-in Task Scheduler');
+
+/* kosmos#8456: the watchers watchScheduler installs. Kept at module level, not on one installed runner, because jobPath
+   installs a fresh stand-in on every call: a watcher a test set must keep seeing the calls made after its next jobPath. */
+const watchers = new Set();
+
 function stubScheduler(dir) {
   const answer = stubAnswer(dir);
   const run = (args) => {
-    try { return answer(args); } catch (e) { return { ok: false, out: `ERROR: ${(e && e.message) || 'the stand-in Task Scheduler could not read the task'}` }; }
+    const a = Array.isArray(args) ? args.map(String) : [];
+    /* A watcher sees each call before the stand-in answers it, and may answer it itself (a refusal the test needs,
+       such as an /End that fails); one that returns nothing leaves the call to the stand-in. */
+    for (const w of [...watchers]) {
+      const said = w(a.slice());
+      if (said && typeof said === 'object') return { ok: Boolean(said.ok), out: String(said.out || '') };
+    }
+    try { return answer(a); } catch (e) { return { ok: false, out: `ERROR: ${(e && e.message) || 'the stand-in Task Scheduler could not read the task'}` }; }
   };
   run[STAND_IN] = true;
   return run;
@@ -181,7 +201,10 @@ function stubAnswer(dir) {
          line, into the sandboxed store, as engine/create.test.js's own Windows runner does. */
       const spec = taskLine(fs.readFileSync(file, 'utf8'));
       if (spec && spec.name) {
-        require('../engine/win32sessions').record(`fixture-run-${process.pid}-${++runs}`, { name: spec.name, runner: spec.runner || 'claude' });
+        const id = `fixture-run-${process.pid}-${++runs}`;
+        require('../engine/win32sessions').record(id, { name: spec.name, runner: spec.runner || 'claude' });
+        // kosmos#8456: and with a process table installed, the agent the supervisor starts is running (see win32Processes).
+        if (processTable) processTable.started(spec.name, id);
       }
       return { ok: true, out: `SUCCESS: Attempted to run the scheduled task "${tn}".` };
     }
@@ -203,8 +226,141 @@ function useWin32Scheduler() {
   /* Registering a task copies node beside the task first (win32anchor); here that is a path, never a copy. Installed on
      every call, as the runner is, so a test that put the real anchorer back (setAnchorer(null)) never copies node. */
   win32job.setAnchorer(() => ({ ok: true, node: process.execPath, boot: path.join(dir, 'supervisor-boot.js') }));
-  win32job.setRunner(stubScheduler(dir));
+  currentScheduler = stubScheduler(dir);
+  win32job.setRunner(currentScheduler);
   return dir;
+}
+
+/** kosmos#8456: watch the stand-in Task Scheduler. `fn(args)` sees every schtasks call (its arguments, `/Run`, `/TN`,
+    the task name...) before the stand-in answers it, whether win32job made it through its own runner or a test passed it
+    on with win32Step. Returning `{ ok, out }` answers the call instead of the stand-in (`{ ok: false, out: 'ERROR: Access
+    is denied.' }` for an /End that fails, say); returning nothing leaves it to the stand-in. Reading a file from inside
+    `fn` reads it at the moment of the call, which is how a test proves something was written BEFORE an agent was started.
+    Returns the function that stops watching: call it in the test's finally, since watchers outlive a fresh jobPath. */
+function watchScheduler(fn) {
+  if (typeof fn !== 'function') throw new TypeError('jobfixture.watchScheduler needs a function');
+  watchers.add(fn);
+  return () => { watchers.delete(fn); };
+}
+
+/** kosmos#8456: an answer for the commands a Windows act YIELDS to engine/remove.js's runner instead of running itself
+    (win32job's step forms, win32stop.endSteps): `schtasks.exe` goes to the stand-in Task Scheduler (so a restart's /End
+    and /Run, or a put-back's /Create, reach the same task files the sync forms do) and `taskkill.exe` to the process
+    table when win32Processes installed one. Answers in remove.js's runner shape ({ ok, stdout } / { ok: false, code,
+    stderr }); null for any other program, or on a platform with no stand-in, so the test's own stub answers those. */
+function win32Step(file, args) {
+  if (!win32()) return null;
+  const base = path.win32.basename(String(file || '')).toLowerCase().replace(/\.exe$/, '');
+  const a = Array.isArray(args) ? args.map(String) : [];
+  let r = null;
+  if (base === 'schtasks') r = (currentScheduler || (useWin32Scheduler(), currentScheduler))(a);
+  else if (base === 'taskkill' && processTable) r = processTable.taskkill(a);
+  if (!r) return null;
+  return r.ok ? { ok: true, stdout: r.out } : { ok: false, code: r.code == null ? 1 : r.code, stdout: '', stderr: r.out };
+}
+
+/* kosmos#8456: the pids the process table hands out. Above any pid this machine gives a real process (Windows numbers
+   them in the low millions), so a taskkill that ever escaped its seam would name nothing real. */
+const TABLE_PID_BASE = 2000000000;
+
+/** kosmos#8456: the running agents, for a Windows test that stops or restarts one. On a Mac a running agent is a tmux
+    pane, ended with kill-session and looked at again with has-session; on Windows it is a process, which engine/win32stop.js
+    finds through the live list (win32live: `claude agents --json` joined to the ownership record), ends with
+    `taskkill /PID <pid> /T /F`, and looks at again by asking whether the pid is still there. This installs a stand-in for
+    each of those three seams of win32stop (setLive, setRunner, setAlive), answering from one table:
+
+      start(name, runner)  an agent running now: its ownership row (win32sessions, in the sandboxed store), a live entry
+                           with its own pid, and the state file its supervisor writes (win32streamstate), which is what
+                           a restart reads to see the new supervisor came up. Returns { sessionId, pid }.
+      a stand-in /Run      the same, for the task's agent, while the table is installed: starting the task starts it.
+      taskkill             ends the entry with that pid (gone from the live list, its supervisor's state file cleared),
+                           answering as taskkill does; a pid it does not hold answers "not found" (exit 128).
+      pidOf(name)          the pid that agent is running under now, or null when it is not running.
+      survive(name)        the next kills of that agent answer SUCCESS and leave it running, so a test can show the
+                           look-again catches a kill that did not take. Returns the undo.
+      calls                each act and look, in order: 'taskkill.exe /PID <pid> /T /F' and 'alive <pid>' (and each is
+                           handed to opts.onCall too, for a test that keeps one log of every platform's acts).
+      stop()               puts win32stop's seams back and removes the state files it wrote.
+
+    ⚠️ What it does not stand in for, said so a reader does not assume it: every running agent is answered through the
+    one live list, whatever its runner, so the codex presence read (win32codexlive) is not exercised here (it has its own
+    tests). The state file names THIS test process as the agent's pid, because a restart's "did it come up" check asks the
+    real process table (win32orphan.pidAlive has no seam on that path) and the test process is one that is certainly
+    alive; nothing ever kills it, since every kill goes to the table, which only holds its own pids. Windows only. */
+function win32Processes(opts) {
+  if (!win32()) throw new Error('jobfixture.win32Processes: the process table stands in for Windows only');
+  const win32stop = require('../engine/win32stop');
+  const win32live = require('../engine/win32live');
+  const win32sessions = require('../engine/win32sessions');
+  const streamstate = require('../engine/win32streamstate');
+  const store = require('../engine/store');
+  const live = new Map();   // sessionId -> { sessionId, pid, name }
+  const survivors = new Set();
+  const written = new Set();
+  const calls = [];
+  const onCall = opts && typeof opts.onCall === 'function' ? opts.onCall : null;
+  const note = (line) => { calls.push(line); if (onCall) onCall(line); };
+  let pids = 0;
+  const statePath = (name) => path.join(store.ROOT, 'win32-state', store.safeKey(name) + '.json');
+
+  const table = {
+    calls,
+    started(name, sessionId) {
+      const pid = TABLE_PID_BASE + 4 * ++pids;
+      live.set(sessionId, { sessionId, pid, name });
+      const at = statePath(name);
+      fs.mkdirSync(path.dirname(at), { recursive: true });
+      fs.writeFileSync(at, JSON.stringify({ v: streamstate.STATE_FILE_VERSION, pid: process.pid, sessionId }));
+      written.add(at);
+      return { sessionId, pid };
+    },
+    start(name, runner) {
+      const id = `fixture-proc-${process.pid}-${++runs}`;
+      win32sessions.record(id, { name, runner: runner || 'claude' });
+      return table.started(name, id);
+    },
+    taskkill(args) {
+      note(['taskkill.exe', ...args].join(' '));
+      const pid = Number(args[args.indexOf('/PID') + 1]);
+      const hit = [...live.values()].find((p) => p.pid === pid);
+      if (!hit) return { ok: false, code: 128, out: `ERROR: The process "${pid}" not found.` };
+      if (!survivors.has(hit.name)) {
+        live.delete(hit.sessionId);
+        // The supervisor clears the state file naming the child that exited (only its own: a newer one is left).
+        const at = statePath(hit.name);
+        try { if (JSON.parse(fs.readFileSync(at, 'utf8')).sessionId === hit.sessionId) fs.rmSync(at, { force: true }); } catch { /* none */ }
+      }
+      return { ok: true, out: `SUCCESS: The process with PID ${pid} has been terminated.` };
+    },
+    alive(pid) {
+      note(`alive ${pid}`);
+      return [...live.values()].some((p) => p.pid === pid);
+    },
+    pidOf(name) {
+      const hit = [...live.values()].find((p) => p.name === name);
+      return hit ? hit.pid : null;
+    },
+    survive(name) {
+      survivors.add(name);
+      return () => { survivors.delete(name); };
+    },
+    stop() {
+      if (processTable === table) processTable = null;
+      win32stop.setRunner(null);
+      win32stop.setAlive(null);
+      win32stop.setLive(null);
+      for (const at of written) fs.rmSync(at, { force: true });
+    },
+  };
+  win32stop.setRunner((args) => table.taskkill((Array.isArray(args) ? args : []).map(String)));
+  win32stop.setAlive((pid) => table.alive(pid));
+  win32stop.setLive((opts) => win32live.byName({
+    ...(opts || {}),
+    run: () => [...live.values()].map((p) => ({ sessionId: p.sessionId, pid: p.pid, name: p.name, status: 'running' })),
+    codexLive: () => [],
+  }));
+  processTable = table;
+  return table;
 }
 
 /** kosmos#8378: for a test that lets create write a real job and reads it back without seeding one first. On Windows
@@ -297,4 +453,4 @@ function systemdStub() {
   return answer;
 }
 
-module.exports = { jobPath, jobPathIn, jobFor, systemdStub, useJobStore };
+module.exports = { jobPath, jobPathIn, jobFor, systemdStub, useJobStore, watchScheduler, win32Step, win32Processes };
