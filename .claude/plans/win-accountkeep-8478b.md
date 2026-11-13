@@ -61,6 +61,19 @@ and the last model it ran.
   folder repair kept. Tests set a recorded agent up as a person does: account chosen, then model.
 - Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (20).
 
+## CI round (PR #8490 closed; this branch, win-accountkeep-8478b, replaces it)
+CI failed two tests the earlier local runs did not include:
+- engine/team.newrole-4474.test.js: create.js now reads six internal options (orTask, modelRecorded, accountRecorded,
+  keepRecordedAccount, keepRecordedIdentity, accountVerified) that were in neither list. All six are now in
+  NOT_FROM_AN_AGENT, each with why. Checked that none can arrive from an agent or a request: team.AGENT_MEMBER_KEYS
+  holds none of them; no route spreads a request body into create's options (the create route, setProvider, setModel
+  and setAccount take named fields; the connect route passes projects, name, provider and anyway); installJob is
+  called only by register.repair, discover.connect and worldstarts, each building its own options; the server's
+  repair route passes only `only` and modelFor. No boundary needed a strip.
+- engine/connect-keep-8293.test.js: two exact-options checks now include accountVerified: true (round 7, intended).
+  They still pin the whole option set, so nothing else can ride along unnoticed.
+The new proof file is written by the coordinator.
+
 ## Decided, not missed
 - Windows only: on macOS and Linux the plist or unit is the source of truth and nothing in Kosmos removes it alone.
 - The weakest part: the Start at login report itself does not say when an account folder was gone (the delete and
