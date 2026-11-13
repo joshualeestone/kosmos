@@ -58,7 +58,7 @@ function leftoverFolder(name) {
 }
 const win = {
   plan: (name) => leftover.plan(name, { platform: 'win32' }),
-  del: (name, o) => leftover.del(name, { platform: 'win32', ...(o || {}) }),
+  del: (name, o) => leftover.del(name, { unchecked: true, platform: 'win32', ...(o || {}) }),
 };
 const trashEntries = () => { try { return fs.readdirSync(process.env.AGENT_WORKFORCE_TRASH); } catch { return []; } };
 
@@ -520,6 +520,6 @@ test('#7820 CONTROL: the Mac still says the Trash and never asks PowerShell', ()
   assert.equal(p.verb, 'Move 3 files to the Trash');
   assert.doesNotMatch(p.reassurance, /Recycle Bin/);
   assert.equal(calls.filter((c) => /powershell/i.test(c.file)).length, 0, 'the Mac arm spawned PowerShell');
-  const done = leftover.del('rb7820g', { platform: 'darwin' });
+  const done = leftover.del('rb7820g', { unchecked: true, platform: 'darwin' });
   assert.equal(done.said, 'rb7820g\'s files are in the Trash. The name is free.');
 });

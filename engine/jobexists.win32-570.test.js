@@ -270,7 +270,7 @@ test('#570 freeing a name SEES a leftover Scheduled Task, and unregisters it', (
   /* No files are at risk, so the name-typing gate would be ceremony. */
   assert.equal(p.typeToConfirm, null);
 
-  const done = leftover.del('ghosted', { platform: 'win32' });
+  const done = leftover.del('ghosted', { unchecked: true, platform: 'win32' });
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
   assert.ok(tasks.some((c) => c.startsWith('/Delete /F /TN Kosmos\\agent-ghosted')),
     'the name was reported free while the Scheduled Task was still registered');

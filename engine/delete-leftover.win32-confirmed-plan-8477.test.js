@@ -235,10 +235,18 @@ test('kosmos#8477: no fingerprint from a request (null): the full delete is refu
   assert.ok(deletes.includes(win32job.taskName(lone)));
 });
 
-test('kosmos#8477: an in-process caller that passes no `confirmed` at all is not checked (as before)', () => {
+test('kosmos#8477 review 7: a caller that leaves `confirmed` out is refused the full delete; only `unchecked: true` by name skips the check', (t) => {
   const whole = agent('inproc8477');
+  const seen = watchIrreversible(t);
   const done = win.del(whole);
-  assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
+  assert.equal(done.outcome, leftover.OUTCOME.REFUSED, 'a caller that forgot `confirmed` ran the full delete: ' + JSON.stringify(done).slice(0, 300));
+  assert.equal(done.because, leftover.UNCONFIRMED_FULL_DELETE_BECAUSE);
+  assert.deepEqual(seen, []);
+  untouched(whole, { folder: true });
+  t.mock.restoreAll();
+  const ran = win.del(whole, { unchecked: true });
+  assert.equal(ran.outcome, leftover.OUTCOME.DELETED, JSON.stringify(ran));
+  assert.equal(leftover.UNCONFIRMED_FULL_DELETE_BECAUSE, 'Kosmos was not told what you agreed to delete, perhaps because this page is from before an update, so nothing was deleted. Reload the page and look again before deleting.');
 });
 
 test('kosmos#8477 review 1: unsent community posts that appear after the dialog opened: refused, nothing marked', (t) => {

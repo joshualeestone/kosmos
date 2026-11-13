@@ -51817,8 +51817,9 @@ const DEL_UNKNOWN_LINE = 'We could not reach the board just now, so we cannot te
 function deleteNoAnswerLine(plan, onScreen) {
   if (!plan) return DEL_UNKNOWN_LINE;
   // kosmos#8477 review 6: the plan asked again promises something other than the one confirmed (`onScreen`), so "try
-  // again" would invite a click on an act nobody read; the dialog shows the new plan and says it is different.
-  if (plan.ok && onScreen && plan.confirm !== onScreen.confirm) return 'We could not reach the board just now, and what Kosmos would do here is different now. Look at what it says now before deleting.';
+  // again" would invite a click on an act nobody read; the dialog shows the new plan and says it is different. Review 7:
+  // the likeliest cause is the delete getting partway, so the sentence does not imply nothing happened.
+  if (plan.ok && onScreen && plan.confirm !== onScreen.confirm) return 'We could not reach the board just now, so we cannot tell whether anything was deleted, and what Kosmos would do here is different now. Look at what it says now before deleting.';
   if (plan.ok) return 'We could not reach the board just now, and what is left of this agent is still here. Try again.';
   return plan.because || DEL_UNKNOWN_LINE;
 }

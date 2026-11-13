@@ -44,7 +44,7 @@ remove.setRunner(() => ({ ok: true, stdout: '' }));
    platform in jobexists.win32-570.test.js. */
 const mac = {
   plan: (name, o) => leftover.plan(name, { platform: 'darwin', ...(o || {}) }),
-  del: (name, o) => leftover.del(name, { platform: 'darwin', ...(o || {}) }),
+  del: (name, o) => leftover.del(name, { unchecked: true, platform: 'darwin', ...(o || {}) }),
 };
 
 function leftoverAgent(name, { files = 3, job = true } = {}) {
@@ -785,7 +785,7 @@ test('#7819: a profile another agent shares (same stored name, other case) is ke
   store.writeProfile(name, { displayName: 'miles' });
   status.setPaneSource(() => fleet.line({ session: 'Miles7819', claim: 'Miles7819', title: '✳ Claude Code' }));
   // On Linux names are case-sensitive, so the running Miles7819 does not hold miles7819's leftover.
-  const r = leftover.del(name, { platform: 'linux' });
+  const r = leftover.del(name, { unchecked: true, platform: 'linux' });
   assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
   assert.equal(fs.existsSync(store.profilePath(name)), true, 'the delete took a profile the running Miles7819 also reads');
   assert.ok(r.steps.some((s) => s.step === 'its settings and picture' && /kept: Miles7819 uses the same stored name/.test(s.because || '')), JSON.stringify(r.steps));
@@ -867,7 +867,7 @@ test('#7819: settings kept for another agent are said in the plan and in the res
   status.setPaneSource(() => fleet.line({ session: 'Kim7819', claim: 'Kim7819', title: '✳ Claude Code' }));
   const p = leftover.plan(name, { platform: 'linux' });
   assert.ok(p.loses.includes('Its settings stay: Kim7819 uses the same stored name, and a new agent with this name shares them'), JSON.stringify(p.loses));
-  const r = leftover.del(name, { platform: 'linux' });
+  const r = leftover.del(name, { unchecked: true, platform: 'linux' });
   assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
   assert.match(r.said, /Its settings stay \(Kim7819 uses the same stored name\), so a new agent with this name shares them\.$/);
   assert.equal(fs.existsSync(store.profilePath(name)), true);
@@ -881,7 +881,7 @@ test('#7819: with nothing stored, a shared stored name says nothing about settin
   const p = leftover.plan(name, { platform: 'linux' });
   assert.equal(p.ok, true, p.because);
   assert.ok(!p.loses.some((l) => /stay/.test(l)), 'the plan says settings stay that do not exist: ' + JSON.stringify(p.loses));
-  const r = leftover.del(name, { platform: 'linux' });
+  const r = leftover.del(name, { unchecked: true, platform: 'linux' });
   assert.doesNotMatch(String(r.said || r.because), /stay/, 'the result says settings stayed that do not exist');
 });
 

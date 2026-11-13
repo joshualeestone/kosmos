@@ -1074,7 +1074,8 @@ const COULD_NOT_READ_BECAUSE = 'Kosmos could not read part of what is left of th
 /* review 5: true in every case. The plan can differ with nothing changed on disk (a drive probe that timed out for the
    dialog said "for good", the delete's own probe answered), so the sentence speaks of what Kosmos would do, not of the files. */
 const CHANGED_SINCE_SHOWN_BECAUSE = 'What Kosmos would do here is different now, so nothing was deleted. Look at what it says now before deleting.';
-const UNCONFIRMED_FULL_DELETE_BECAUSE = 'This page did not say what you agreed to delete, so nothing was deleted. Reload the page and look again before deleting.';
+// review 7: "perhaps", because a request with no fingerprint can come from something other than an old page too.
+const UNCONFIRMED_FULL_DELETE_BECAUSE = 'Kosmos was not told what you agreed to delete, perhaps because this page is from before an update, so nothing was deleted. Reload the page and look again before deleting.';
 
 /* Moves the plan's records where the plan said: the Trash when p.records.trash, else deleted for good. One step per
    kind (settings, picture), failed if any file of it would not go. A dead writer's temps beside the picture
@@ -1151,12 +1152,13 @@ function* delSteps(name, opts) {
      folder can come back (a task-only removal would become the full delete, folder to the Recycle Bin with nothing to
      type), a drive can stop taking the Recycle Bin, settings can appear. So the delete runs only when this plan promises
      what that one did; otherwise nothing is touched and the fresh plan travels back for the page to show.
-     `confirmed` present (the board's route always passes it): checked. Null there (a request that carried none: a page
-     from before this change, or anything else) is never let through to the full delete, which retires the community
-     account and standing whatever the Trash keeps; the startup job alone can still go, since Start at login undoes it.
-     Absent (an in-process caller that planned itself; only tests today): not checked, as before. */
-  if (opts && opts.confirmed !== undefined) {
-    const sent = typeof opts.confirmed === 'string' ? opts.confirmed : null;
+     A string `confirmed` (the board's route passes what the request carried): checked. Anything else, null or left out
+     (a page from before this change, another caller, a caller that forgot it) is never let through to the full delete,
+     which retires the community account and standing whatever the Trash keeps; the startup job alone can still go, since
+     Start at login undoes it. Review 7: fails closed, so only a caller that says so by name (`unchecked: true`, which
+     only tests that planned in the same tick pass today) skips the check. */
+  if (!(opts && opts.unchecked === true)) {
+    const sent = opts && typeof opts.confirmed === 'string' ? opts.confirmed : null;
     if (sent === null ? !p.taskOnly : sent !== p.confirm) {
       return { outcome: OUTCOME.REFUSED, because: sent === null ? UNCONFIRMED_FULL_DELETE_BECAUSE : p.readFailed ? COULD_NOT_READ_BECAUSE : CHANGED_SINCE_SHOWN_BECAUSE, changed: true, plan: p };
     }
@@ -1586,4 +1588,4 @@ async function delAsync(name, opts) {
   }
 }
 
-module.exports = { sizeStep, OUTCOME, plan, del, startsAgainWords, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, DELETING_MOVE_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict, CHANGED_SINCE_SHOWN_BECAUSE, UNCONFIRMED_FULL_DELETE_BECAUSE, COULD_NOT_READ_BECAUSE };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835); the two kosmos#8477 refusals too
+module.exports = { sizeStep, OUTCOME, plan, del, startsAgainWords, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, DELETING_MOVE_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict, CHANGED_SINCE_SHOWN_BECAUSE, UNCONFIRMED_FULL_DELETE_BECAUSE, COULD_NOT_READ_BECAUSE };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835); the three kosmos#8477 refusals too

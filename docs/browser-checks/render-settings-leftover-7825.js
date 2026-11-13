@@ -299,7 +299,7 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   const rp = r.repaints || {};
   check(rp.noAnswerSame === false && rp.noAnswerChanged === true && rp.noAnswerAfter === false,
     'kosmos#8477 review 3: a no-answer repaint holds Delete off for the pause only when what the plan promises changed', JSON.stringify(rp));
-  check(/still here. Try again./.test(rp.noAnswerSameMsg || '') && /different now. Look at what it says now before deleting./.test(rp.noAnswerChangedMsg || '') && !/Try again/.test(rp.noAnswerChangedMsg || ''),
+  check(/still here. Try again./.test(rp.noAnswerSameMsg || '') && /cannot tell whether anything was deleted, and what Kosmos would do here is different now. Look at what it says now before deleting./.test(rp.noAnswerChangedMsg || '') && !/Try again/.test(rp.noAnswerChangedMsg || ''),
     'kosmos#8477 review 6: with no answer, the same plan says try again; a plan that changed says it is different, never try again', JSON.stringify({ same: rp.noAnswerSameMsg, changed: rp.noAnswerChangedMsg }));
   check(rp.runningAfterPause === true, 'kosmos#8477 review 5: a delete of this agent started elsewhere during the pause keeps Delete off after it', JSON.stringify(rp));
   check(rp.secondInsidePause === true, 'kosmos#8477 review 4: a second repaint with the same plan inside the pause keeps Delete off', JSON.stringify(rp));
