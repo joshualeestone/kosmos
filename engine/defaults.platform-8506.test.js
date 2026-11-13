@@ -65,3 +65,24 @@ test('blockFor in this process composes the same text a board on that platform w
   for (const p of d.PLATFORMS) assert.equal(d.blockFor(p), writtenOn(p).block, p);
   assert.equal(d.block(), d.blockFor(process.platform), 'block() is not this board\'s own platform');
 });
+
+test('a platform the file does not name gets every line not kept for a named platform, and reads whole', () => {
+  const d = require('./defaults');
+  const other = d.blockFor('freebsd');
+  assert.equal(other, d.blockFor('linux'), 'an unnamed platform does not read as Linux does');
+  assert.match(other, /give it on stdin instead \(the shell trap under "Send readable\nmessages"\)\.\n/, 'the shell-trap sentence broke on an unnamed platform');
+  assert.doesNotMatch(other, /\n\n\n/);
+});
+
+test('the PM role names the PowerShell feedback form on Windows only (kosmos#8506)', () => {
+  const pm = (platform) => JSON.parse(execFileSync(process.execPath, ['-e', `Object.defineProperty(process, 'platform', { value: ${JSON.stringify(platform)} });
+    const r = require(${JSON.stringify(path.join(__dirname, 'roles.js'))});
+    process.stdout.write(JSON.stringify(r.byKey('pm').instructions));`], { encoding: 'utf8' }));
+  const win = pm('win32');
+  assert.match(win, /in PowerShell,\nsave it in a file and run `kosmos feedback write --body-file <file>`/);
+  for (const p of ['darwin', 'linux']) {
+    const t = pm(p);
+    assert.doesNotMatch(t, /PowerShell/, p + ': a PM was written the PowerShell form');
+    assert.match(t, /`kosmos feedback write` \(type it, or pipe it in on stdin\)\. If this session\nstarted after your day's work,\nrun `kosmos feedback day` first/, p + ': the feedback sentence does not read whole');
+  }
+});

@@ -290,11 +290,17 @@ const ROLES = [
       '',
       'Kosmos gets better when its agents say what is rough. Once a day, answer',
       'these four questions about Kosmos itself and save it with',
-      /* #5946: piped text never reaches kosmos in PowerShell, so the form that works there is named too. */
-      '`kosmos feedback write` (type it, or pipe it in on stdin; in PowerShell,',
-      'save it in a file and run `kosmos feedback write --body-file <file>`,',
-      'because piped text never arrives there and an apostrophe ends a',
-      'single-quoted argument). If this session started after your day\'s work,',
+      /* #5946: piped text never reaches kosmos in PowerShell, so the form that works there is named too. kosmos#8506:
+         on Windows only, where PowerShell is; the board writes its agents' instructions on their own platform. */
+      ...(process.platform === 'win32' ? [
+        '`kosmos feedback write` (type it, or pipe it in on stdin; in PowerShell,',
+        'save it in a file and run `kosmos feedback write --body-file <file>`,',
+        'because piped text never arrives there and an apostrophe ends a',
+        'single-quoted argument). If this session started after your day\'s work,',
+      ] : [
+        '`kosmos feedback write` (type it, or pipe it in on stdin). If this session',
+        'started after your day\'s work,',
+      ]),
       'run `kosmos feedback day` first to see what you and your person said today',
       'and which tasks you changed. (If nothing has changed since your own last report,',
       'which `kosmos feedback list` names, not another agent\'s,',
