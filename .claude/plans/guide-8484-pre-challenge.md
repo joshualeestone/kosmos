@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: guide-8484
-diff_hash: 4440320463d775fc5fc8de0cadd9667ae57f4bc58e6aa29339bcc1d70be846ae
+diff_hash: 81c7b7e229e014c410d1bdbba28ee06305cad6ec78ecea848afa9e0b4f0683c0
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-13T02:46:42Z
-iterations: 6
-converged: true
+timestamp: 2026-11-13T04:11:18Z
+iterations: 8
+converged: false
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 6 (plus two final-validation passes that went back into the loop)
-**Converged:** Yes (iteration 3 converged, final validation 1 found 2 guard failures and the loop resumed; iteration 5 converged, then the branch was rebased on #8466 and state 4 built, so the loop resumed; iteration 6 converged and final validation passed: 28974 tests, 0 fail)
-**Total findings:** 22 (0 BLOCKERs from reviewers, 2 synthetic final-validation BLOCKERs, 10 WARNINGs, 1 CONVENTION, 9+ NITs)
-**Fixed:** 12 | **Deferred:** 1 | **Asked (awaiting user):** 0
+**Iterations:** 8 (plus final-validation passes that went back into the loop)
+**Converged:** No. Stopped at the 8-round cap (a standing rule for this agent, recorded 10-22), not at user request: iteration 8 found a WARNING, fixed and tested (control red), and no review round has looked at that fix. Iterations 3, 5 and 6 each converged before later changes reopened the loop (final-validation guard failures; the rebase on #8466 and state 4; the Windows CI red on #8466's test). Final validation on 4ad2bdd460: 28977 tests, 0 fail; subdir audit passed.
+**Total findings:** 26 (2 synthetic final-validation BLOCKERs, 13 WARNINGs, 1 CONVENTION, many NITs)
+**Fixed:** 15 | **Deferred:** 1 | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
@@ -73,6 +73,22 @@ converged: true
 - [NIT] three more create refusals still say "Try again in a moment"; [NIT] profile read and second adoptExisting; [NIT] page's unclear sentence names only Josh --> carried to the card as follow-ups
 **Converged** - final validation 3 on 4236dfb7fd: 28974 tests, 0 fail; subdir audit passed.
 
+#### Iteration 7
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 3 NITs
+**Self-generated:** 2 of the above (both on lines written for state 4)
+- [WARNING] seedSetupAssistant - one real Windows agent named Josh fell to "Try again" and hourly paid checks --> FIXED (heldByAgent, held for the process)
+- [WARNING] seedSetupAssistant - first leftover named whatever the last refusal was --> FIXED (only after a real-agent refusal)
+Before it: the PR's Windows CI was red on #8466's test pinning one refused create; its assertion now pins adoption.
+
+#### Iteration 8
+**Reviewer model:** opus (the whole branch)
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 6 NITs
+**Self-generated:** 1 of the above
+- [WARNING] adoptExisting - a guide known by its birth line adopted though its marker would not write --> FIXED (unclear, no flag)
+- [NIT] seed docblock; shownOf; unclear lost in a race --> FIXED
+**Not converged:** the 8-round cap.
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
@@ -89,6 +105,10 @@ converged: true
 | 10 | 3 | BLOCKER | engine/windows-tests-1777.test.js | BRANCH | final-validation: win32 branch unrun | FIXED | 8125fa4908 |
 | 11 | 4 | WARNING | engine/setup-assistant.js adoptExisting | SELF | failed removed check counted removed | FIXED | 5a0a047ce1 |
 | 12 | 4 | WARNING | engine/setup-assistant.js adoptExisting | SELF | broken Josh hid working Josh AI | FIXED | 5a0a047ce1 |
+
+| 13 | 7 | WARNING | engine/setup-assistant.js seedSetupAssistant | SELF | one real Windows agent retried hourly | FIXED | cfe69e5c87 |
+| 14 | 7 | WARNING | engine/setup-assistant.js seedSetupAssistant | SELF | first leftover named for any refusal | FIXED | cfe69e5c87 |
+| 15 | 8 | WARNING | engine/setup-assistant.js adoptExisting | SELF | unmarked birth-line guide adopted | FIXED | 4ad2bdd460 |
 
 (The iteration commits were applied onto main as one change, 13c18d653f, after #8466 merged; the shas above are on the local backup branch guide-8484-pre-rebase.)
 
