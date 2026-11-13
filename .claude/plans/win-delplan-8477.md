@@ -55,14 +55,21 @@ standing reset, community account retired, tokens revoked. Nobody confirmed that
   delete, perhaps because this page is from before an update, so nothing was deleted. Reload the page and look again
   before deleting." ("perhaps": the route passes `null` for any request that carried none, which an old page sends but
   so could any other client.) Only a caller that says so by name, `unchecked: true`, skips the check; only tests that
-  plan in the same tick pass it (19 call sites in 8 files, each a wrapper or a single call).
+  plan in the same tick pass it (19 call sites in 9 files, counting this card's own test file, each a wrapper or a
+  single call).
 - **The refusals.** A mismatch says "What Kosmos would do here is different now, so nothing was deleted. Look at what it
   says now before deleting." (review 5: true even when nothing on disk changed and only a drive probe answered
   differently). When the fresh plan's community read threw (`readFailed`, review 4) it says "Kosmos could not read part
   of what is left of this agent just now, so nothing was deleted. Look at what it says now before deleting." Both
   return `changed: true` and the fresh plan.
-- **The route** always passes `confirmed`: the string sent, or `null`. There is no CLI caller (grep of install/kosmos
-  and tools/windows/kosmos-cli.js finds none); the route is the only production caller of `delAsync`/`del`.
+- **The route** always passes `confirmed`: the string sent, or `null`. It is the only production caller of
+  `delAsync`/`del` in the engine. Callers of the ROUTE (review 8, grep of the whole repo for the leftover path in
+  tools/, install/, docs/, *.sh, *.ps1, *.js, *.mjs): the page (web/index.html, the del-go handler) and
+  `tools/staging-agent-online-check.sh` (`tidy_agent`, run by `tools/promote-channel.sh` in a release promote), which
+  clears its own throwaway agents. Review 8 found the second sending only `{typed}`, so every staging run would have
+  left its agents' job files behind. It now sends the plan's `confirm` as `confirmed` in both DELETE bodies; when it has
+  no plan (its GET failed or refused) it takes the confirm from the refusal's returned plan for its one retry. These are
+  the gate's own agents, and it already acted on the board's plan as given. No CLI or other script calls the route.
 
 ### The page
 
@@ -77,7 +84,8 @@ standing reset, community account retired, tokens revoked. Nobody confirmed that
   `DEL_CHANGED_PAUSE_MS` (1 s) so a click already on its way cannot confirm a plan nobody read. The pause has a deadline,
   `DEL_PAUSE_UNTIL`, so a second repaint inside it keeps Delete off (review 4). A pause ending leaves Delete off in a
   dialog that `paintLeftoverRunning` turned off because a delete of its agent is running elsewhere (`DEL_HELD_RUNNING`,
-  review 5). A dialog closed or opened again meanwhile is left alone (`DEL_OPENED`).
+  review 5), and typing the name there does not turn it back on (review 8). A dialog closed or opened again meanwhile
+  is left alone (`DEL_OPENED`).
 - **A delete with no answer** whose plan, asked again, differs from the dialog's says "We could not reach the board just
   now, so we cannot tell whether anything was deleted, and what Kosmos would do here is different now. Look at what it
   says now before deleting." (review 6; review 7: the likeliest cause is the delete getting partway, so it does not imply
@@ -111,7 +119,7 @@ standing reset, community account retired, tokens revoked. Nobody confirmed that
 
 `grep` for `delete-leftover'` and `leftover.`: `server.js` route (the only `delAsync` caller); `accountmove`, `create`,
 `discover`, `remove`, `teamseed` use only `deletingName`, `deletingNow`, `startsAgainWords`, `settingsLeftovers`.
-Page: `web/index.html` del-go handler is the only DELETE sender. Test callers of `del`/`delAsync`: the delete-leftover
+Route callers: the page's del-go handler and `tools/staging-agent-online-check.sh` (see The route above). Test callers of `del`/`delAsync`: the delete-leftover
 suites, `create.win32-namehold-8466`, `jobexists.win32-570` and `linuxwiring-4918`, all now `unchecked: true`.
 
 ## Tests
@@ -136,5 +144,8 @@ suites, `create.win32-namehold-8466`, `jobexists.win32-570` and `linuxwiring-491
   a name-asked refusal shows the name box whatever the poll stored; the no-answer and running-ended repaints pause only
   on a changed plan; a second repaint inside the pause keeps Delete off; a delete running elsewhere keeps it off after
   the pause; the no-answer words for a changed plan. Each assertion failed against the previous round's page.
+- `tools/test-staging-agent-online-check.sh` (review 8): its fake board's leftover route now refuses a DELETE without
+  the plan's confirm, as the real route does, and sends the plan back; so a gate that stops sending it fails the cases
+  that expect a clear.
 - Policy: fixture-discipline, no-name-refs-3071, engine.reachable, windows-tests-1777, win32-separator-guard,
   windows-coupling-audit-1732, web.api-routes-3957; both browser-check gates.

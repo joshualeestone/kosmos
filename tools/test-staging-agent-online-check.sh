@@ -222,7 +222,8 @@ case "$route" in
     # is still listed. MOCK_LEFTOVER=refuse (files kept) / partial (files kept) / partial-tokens (files gone, tokens
         # stuck) / nothing / notrash (deleted for good) / lost (the first DELETE gets no answer and does nothing) / landed
     # (the first DELETE acts, then its answer is lost) / running and nocheck (the real safety refusals) / noroute (an old board);
-    # MOCK_LEFTOVER_TYPED=1 refuses unless the body types the name.
+    # MOCK_LEFTOVER_TYPED=1 refuses unless the body types the name. kosmos#8477: like the real route, the DELETE refuses
+    # (deleting nothing) unless the body carries the plan confirm as "confirmed", and its refusal sends the plan back.
     nm="${route#/api/agent/}"; nm="${nm%/leftover}"
     if [ "$method" = GET ] || [ -z "$method" ]; then
       # typeToConfirm is the agent's shown name when the route asks for it (MOCK_SHOWN stands for a display name).
@@ -239,7 +240,7 @@ case "$route" in
       fi
       if [ "${MOCK_PLAN:-}" = refused ]; then emit '{"ok":false,"because":"we could not check whether it is running right now"}' 200; exit 0; fi
       if [ "${MOCK_PLAN:-}" = fail ]; then emit '{"error":"boom"}' 500; exit 0; fi
-      emit "{\"ok\":true,\"name\":\"$nm\",\"job\":{\"path\":\"/x/com.kosmos.agent.$nm.plist\",\"label\":\"com.kosmos.agent.$nm${MOCK_LABEL_SUFFIX:-}\"},\"toTrash\":true,\"typeToConfirm\":$ttc}" 200
+      emit "{\"ok\":true,\"name\":\"$nm\",\"job\":{\"path\":\"/x/com.kosmos.agent.$nm.plist\",\"label\":\"com.kosmos.agent.$nm${MOCK_LABEL_SUFFIX:-}\"},\"toTrash\":true,\"typeToConfirm\":$ttc,\"confirm\":\"4.mock-$nm\"}" 200
     elif [ "$method" = DELETE ]; then
       printf '%s\n' "$nm" >> "${STATE}.leftover"
       if [ "${MOCK_LEFTOVER:-ok}" = lost ] && [ "$(grep -cx "$nm" "${STATE}.leftover")" = 1 ]; then printf '000'; exit 0; fi
@@ -266,6 +267,8 @@ case "$route" in
         emit "{\"outcome\":\"refused\",\"because\":\"$nm is running, so there is nothing left over to delete\"}" 400; exit 0
       fi
       if grep -qx "$nm" "$STATE" 2>/dev/null; then emit "{\"outcome\":\"refused\",\"because\":\"$nm is still on the board\"}" 400; exit 0; fi
+      case "$data" in *"\"confirmed\":\"4.mock-$nm\""*) ;; *)
+        emit "{\"outcome\":\"refused\",\"changed\":true,\"because\":\"Kosmos was not told what you agreed to delete, perhaps because this page is from before an update, so nothing was deleted. Reload the page and look again before deleting.\",\"plan\":{\"ok\":true,\"name\":\"$nm\",\"confirm\":\"4.mock-$nm\"}}" 400; exit 0;; esac
       if [ "${MOCK_LEFTOVER_TYPED:-}" = 1 ]; then
         case "$data" in *"\"typed\":\"${MOCK_SHOWN:-$nm}\""*) ;; *) emit "{\"outcome\":\"refused\",\"because\":\"type $nm to confirm; nothing was deleted\"}" 400; exit 0;; esac
       fi

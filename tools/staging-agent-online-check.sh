@@ -162,10 +162,16 @@ paths_of() {
 # One field of the JSON in $_BODYF ('' if absent or unreadable). job.label is the launchd label, and only for a launchd job.
 body_field() {
   "$NODE" -e 'let j;try{j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))||{}}catch{process.exit(0)}
-    const f=process.argv[2];let v=f==="label"?(j.job&&!j.job.unit&&!j.job.task?j.job.label:""):f==="steps"?(Array.isArray(j.steps)?"yes":""):j[f];
+    const f=process.argv[2];let v=f==="label"?(j.job&&!j.job.unit&&!j.job.task?j.job.label:""):f==="steps"?(Array.isArray(j.steps)?"yes":""):f==="planconfirm"?(j.plan&&j.plan.confirm):j[f];
     if(v===undefined||v===null)process.exit(0);
-    // The typed words go back exactly as the board gave them; everything else is for a message, so one line.
-    process.stdout.write(f==="typeToConfirm"?String(v):String(v).replace(/\s+/g," ").slice(0,300))' "$_BODYF" "$1" 2>/dev/null
+    // The typed words and the plan confirm (kosmos#8477) go back exactly as the board gave them; everything else is
+    // for a message, so one line.
+    process.stdout.write(f==="typeToConfirm"||f==="confirm"||f==="planconfirm"?String(v):String(v).replace(/\s+/g," ").slice(0,300))' "$_BODYF" "$1" 2>/dev/null
+}
+# The DELETE body: the typed words, and (kosmos#8477) the plan's confirm, which the board needs before it runs the full
+# delete; without it the board refuses, deleting nothing. An empty confirm (no plan read) is left out, and the board refuses.
+delete_body() {
+  "$NODE" -e 'const b={typed:process.argv[1]};if(process.argv[2])b.confirmed=process.argv[2];process.stdout.write(JSON.stringify(b))' "$1" "$2"
 }
 # Removal disabled the job's launchd label (that is how it stays off) and a clear does not re-enable it; a gate name is
 # never made again, so flip the override back rather than leave it disabled. The label is the BOARD's (its leftover
@@ -178,16 +184,16 @@ reenable_label() {
   fi
 }
 tidy_agent() {
-  local nm="$1" code outcome because toTrash steps body pp plist dir label typed gcode tries=0 waited=""
+  local nm="$1" code outcome because toTrash steps body pp plist dir label typed confirm gcode tries=0 waited=""
   case "$nm" in verify2129-claude-*|verify2129-openai-*) ;; *) return ;; esac
   case "${nm#verify2129-*-}" in *[!0-9-]*|'') return ;; esac
   # The board's own plan first, ONE try (this runs in cleanup, where a second Ctrl-C is ignored): the label it will boot
   # out, and the words it wants typed (its display name; the session name when it has none, as gate agents do).
   : > "$_BODYF"
   gcode="$("$CURL" -sS --max-time 20 -H @"$HF" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
-  label=""; typed=""
-  if [ "$gcode" = 200 ]; then label="$(body_field label)"; typed="$(body_field typeToConfirm)"; fi
-  body="$("$NODE" -e 'process.stdout.write(JSON.stringify({typed:process.argv[1]}))' "${typed:-$nm}")"
+  label=""; typed=""; confirm=""
+  if [ "$gcode" = 200 ]; then label="$(body_field label)"; typed="$(body_field typeToConfirm)"; confirm="$(body_field confirm)"; fi
+  body="$(delete_body "${typed:-$nm}" "$confirm")"
   # A transport blip (no code, or 000) is tried once more: a second DELETE after one that DID land finds "nothing of" it,
   # which below counts as cleared. A plan refusal (400, no steps) is asked once more after 3 s: the two that can pass in
   # a moment are "is running" while its pane closes and "could not check ... right now" (review 4). Once each: this runs
@@ -205,15 +211,20 @@ tidy_agent() {
       ""|000) [ "$tries" -ge 1 ] && break; tries=$((tries+1)); sleep 1 ;;
       400) [ -z "$waited" ] && [ -z "$(body_field steps)" ] || break
            case "$(body_field because)" in "nothing of "*) break ;; esac
+           # kosmos#8477: a refusal because the request did not carry the plan confirm (no plan read first) sends the
+           # board's fresh plan back; its confirm is used when the plan read below gives none. These are the gate's own
+           # throwaway agents, and the gate already acts on the board's plan as given.
+           local refusedconfirm; refusedconfirm="$(body_field planconfirm)"
            waited=1; sleep 3
            # The plan again before the second DELETE: after a refusal the first GET had no label and no typed words,
            # and a board that now cannot Trash the files asks for its shown name (review 6).
            : > "$_BODYF"
            gcode="$("$CURL" -sS --max-time 20 -H @"$HF" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
            if [ "$gcode" = 200 ]; then
-             label="$(body_field label)"; typed="$(body_field typeToConfirm)"
-             body="$("$NODE" -e 'process.stdout.write(JSON.stringify({typed:process.argv[1]}))' "${typed:-$nm}")"
-           fi ;;
+             label="$(body_field label)"; typed="$(body_field typeToConfirm)"; confirm="$(body_field confirm)"
+           fi
+           [ -n "$confirm" ] || confirm="$refusedconfirm"
+           body="$(delete_body "${typed:-$nm}" "$confirm")" ;;
       *) break ;;
     esac
   done

@@ -169,6 +169,14 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     typedBox.value = 'Stray';
     typedBox.dispatchEvent(new Event('input', { bubbles: true }));
     out.typedOn = !document.getElementById('del-go').disabled;
+    // review 8: a delete of this agent starts elsewhere; typing the name again does not turn Delete back on.
+    paintLeftoverRunning({ ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' }, 'stray-7825');
+    typedBox.value = 'Stra';
+    typedBox.dispatchEvent(new Event('input', { bubbles: true }));
+    typedBox.value = 'Stray';
+    typedBox.dispatchEvent(new Event('input', { bubbles: true }));
+    out.typedWhileRunning = !document.getElementById('del-go').disabled;
+    DEL_RUNNING_FOR = null;
     closeDeleteModal();
     // 3f. kosmos#8477 review 2: the dialog asks for no name; the poll stores the same plan now asking for one (its folder
     // went out of sight), and the board refuses for the name. The dialog shows the box to type it in.
@@ -305,6 +313,7 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   check(rp.secondInsidePause === true, 'kosmos#8477 review 4: a second repaint with the same plan inside the pause keeps Delete off', JSON.stringify(rp));
   check(rp.runningEnded === true && rp.runningEndedTitle === 'Delete what is left of Tasked?',
     'kosmos#8477 review 3: a running delete that ended repaints the dialog with Delete held off', JSON.stringify(rp));
+  check(r.typedWhileRunning === false, 'kosmos#8477 review 8: while a delete of this agent runs elsewhere, typing the name does not turn Delete on', String(r.typedWhileRunning));
   check(r.typedOn === true, 'kosmos#8477 review 1: typing the name the dialog shows turns Delete on, whatever a fresher plan read meanwhile asks', String(r.typedOn));
   check(r.none.wrapHidden === true, 'NEGATIVE: nothing removed and nothing left over hides the section', JSON.stringify(r.none));
 

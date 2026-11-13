@@ -52009,7 +52009,8 @@ function closeDeleteModal() {
 }
 document.getElementById('del-typed').addEventListener('input', (e) => {
   // kosmos#8477 review 1: the name the dialog on screen asks for, not a fresher DEL_PLAN's (which may ask for none).
-  document.getElementById('del-go').disabled = !(DEL_SHOWN && DEL_SHOWN.typeToConfirm && e.target.value.trim() === DEL_SHOWN.typeToConfirm);
+  // Review 8: and never while a delete of this agent is running elsewhere (paintLeftoverRunning turned Delete off).
+  document.getElementById('del-go').disabled = !(DEL_HELD_RUNNING !== DEL_OPENED && DEL_SHOWN && DEL_SHOWN.typeToConfirm && e.target.value.trim() === DEL_SHOWN.typeToConfirm);
 });
 document.getElementById('d-delete-start').addEventListener('click', async () => {
   // kosmos#7852: the agent page's button opens only that agent's plan (a dialog opened from the removed list can hold
