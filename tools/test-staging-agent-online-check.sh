@@ -226,6 +226,19 @@ case "$route" in
     # (deleting nothing) unless the body carries the plan confirm as "confirmed", and its refusal sends the plan back.
     nm="${route#/api/agent/}"; nm="${nm%/leftover}"
     if [ "$method" = GET ] || [ -z "$method" ]; then
+      # kosmos#8477 review 11: MOCK_SEQ, a scripted board for the combination table. The plan has a version (bumped by a
+      # `changed` answer); its confirm is 4.v<version>-<name>. MOCK_SEQ_GET: ok, fail (every read), okonce (the first only).
+      if [ -n "${MOCK_SEQ:-}" ]; then
+        if [ ! -e "${AGENT_WORKFORCE_LAUNCH:-/nonexistent}/com.kosmos.agent.$nm.plist" ] && [ ! -e "${AGENT_WORKFORCE_WORKERS:-/nonexistent}/$nm" ]; then
+          emit "{\"ok\":false,\"because\":\"nothing of $nm is left on this computer, so there is nothing to delete.\"}" 200; exit 0
+        fi
+        case "${MOCK_SEQ_GET:-ok}" in
+          fail) emit '{"error":"boom"}' 500; exit 0;;
+          okonce) if [ -e "${STATE}.g.$nm" ]; then emit '{"error":"boom"}' 500; exit 0; fi; : > "${STATE}.g.$nm";;
+        esac
+        v="$(cat "${STATE}.v.$nm" 2>/dev/null || echo 1)"
+        emit "{\"ok\":true,\"name\":\"$nm\",\"job\":{\"path\":\"/x/com.kosmos.agent.$nm.plist\",\"label\":\"com.kosmos.agent.$nm${MOCK_LABEL_SUFFIX:-}\"},\"toTrash\":true,\"typeToConfirm\":null,\"confirm\":\"4.v$v-$nm\"}" 200; exit 0
+      fi
       # typeToConfirm is the agent's shown name when the route asks for it (MOCK_SHOWN stands for a display name).
       ttc=null; [ "${MOCK_LEFTOVER_TYPED:-}" = 1 ] && ttc="\"${MOCK_SHOWN:-$nm}\""
       if [ "${MOCK_LEFTOVER:-ok}" = noroute ]; then emit '{}' 404; exit 0; fi
@@ -247,6 +260,38 @@ case "$route" in
       emit "{\"ok\":true,\"name\":\"$nm\",\"job\":{\"path\":\"/x/com.kosmos.agent.$nm.plist\",\"label\":\"com.kosmos.agent.$nm${MOCK_LABEL_SUFFIX:-}\"},\"toTrash\":true,\"typeToConfirm\":$ttc,\"confirm\":\"4.mock-$nm\"}" 200
     elif [ "$method" = DELETE ]; then
       printf '%s\n' "$nm" >> "${STATE}.leftover"
+      # kosmos#8477 review 11: MOCK_SEQ, the n-th DELETE's answer, one item per DELETE (past the list: ok). Items: ok,
+      # lost (no answer, nothing done), landed (done, the answer lost), safety (the pane running), changed (the plan
+      # moved on: a new version, sent back), unconfirmed (sent back with the plan). MOCK_SEQ_ENFORCE=1 is the new board:
+      # ok and landed need the current confirm, or it refuses as the engine does. Without it (main's board), changed and
+      # unconfirmed do not exist and are answered as ok.
+      if [ -n "${MOCK_SEQ:-}" ]; then
+        sqplist="${AGENT_WORKFORCE_LAUNCH:-/nonexistent}/com.kosmos.agent.$nm.plist"; sqdir="${AGENT_WORKFORCE_WORKERS:-/nonexistent}/$nm"
+        if [ ! -e "$sqplist" ] && [ ! -e "$sqdir" ]; then emit "{\"outcome\":\"refused\",\"because\":\"nothing of $nm is left on this computer, so there is nothing to delete.\"}" 400; exit 0; fi
+        n="$(grep -cx "$nm" "${STATE}.leftover")"
+        item="$(printf '%s,' "$MOCK_SEQ" | cut -d, -f"$n")"; [ -n "$item" ] || item=ok
+        v="$(cat "${STATE}.v.$nm" 2>/dev/null || echo 1)"
+        plan=",\"plan\":{\"ok\":true,\"name\":\"$nm\",\"confirm\":\"4.v$v-$nm\"}"
+        if [ -n "${MOCK_SEQ_ENFORCE:-}" ]; then
+          case "$item" in ok|landed)
+            case "$data" in *"\"confirmed\":\"4.v$v-$nm\""*) ;;
+              *"\"confirmed\":"*) emit "{\"outcome\":\"refused\",\"changed\":true,\"because\":\"What Kosmos would do here is different now, so nothing was deleted. Look at what it says now before deleting.\"$plan}" 400; exit 0;;
+              *) emit "{\"outcome\":\"refused\",\"changed\":true,\"unconfirmed\":true,\"because\":\"Kosmos was not told what you agreed to delete, perhaps because this page is from before an update, so nothing was deleted. Reload the page and look again before deleting.\"$plan}" 400; exit 0;;
+            esac;;
+          esac
+        else
+          case "$item" in changed|unconfirmed) item=ok;; esac
+        fi
+        case "$item" in
+          ok) rm -f "$sqplist"; rm -rf "$sqdir"; emit "{\"outcome\":\"deleted\",\"toTrash\":true,\"shown\":\"$nm\"}" 200;;
+          landed) rm -f "$sqplist"; rm -rf "$sqdir"; printf '000';;
+          lost) printf '000';;
+          safety) emit "{\"outcome\":\"refused\",\"because\":\"$nm is running, so there is nothing left over to delete\"}" 400;;
+          changed) v=$((v+1)); printf '%s' "$v" > "${STATE}.v.$nm"
+                   emit "{\"outcome\":\"refused\",\"changed\":true,\"because\":\"What Kosmos would do here is different now, so nothing was deleted. Look at what it says now before deleting.\",\"plan\":{\"ok\":true,\"name\":\"$nm\",\"confirm\":\"4.v$v-$nm\"}}" 400;;
+          unconfirmed) emit "{\"outcome\":\"refused\",\"changed\":true,\"unconfirmed\":true,\"because\":\"Kosmos was not told what you agreed to delete, perhaps because this page is from before an update, so nothing was deleted. Reload the page and look again before deleting.\"$plan}" 400;;
+        esac; exit 0
+      fi
       if [ "${MOCK_LEFTOVER:-ok}" = lost ] && [ "$(grep -cx "$nm" "${STATE}.leftover")" = 1 ]; then printf '000'; exit 0; fi
       if [ "${MOCK_LEFTOVER:-ok}" = noroute ]; then emit '{}' 404; exit 0; fi
       # err500: the route failed part way; lost2: no answer, twice; lostnothing: the first DELETE is lost and does nothing,
@@ -277,8 +322,7 @@ case "$route" in
         differs) emit "{\"outcome\":\"refused\",\"changed\":true,\"because\":\"What Kosmos would do here is different now, so nothing was deleted. Look at what it says now before deleting.\",\"plan\":{\"ok\":true,\"name\":\"$nm\",\"confirm\":\"4.other-$nm\"}}" 400; exit 0;;
         unreadable) emit "{\"outcome\":\"refused\",\"changed\":true,\"because\":\"Kosmos could not read part of what is left of this agent just now, so nothing was deleted. Look at what it says now before deleting.\",\"plan\":{\"ok\":true,\"name\":\"$nm\",\"readFailed\":true,\"confirm\":\"4.other-$nm\"}}" 400; exit 0;;
       esac
-      # MOCK_UNCONFIRMED_NOPLAN=1: an unconfirmed refusal that sends no plan back (so nothing can be resent).
-      planback=",\"plan\":{\"ok\":true,\"name\":\"$nm\",\"confirm\":\"4.mock-$nm\"}"; [ "${MOCK_UNCONFIRMED_NOPLAN:-}" = 1 ] && planback=""
+      planback=",\"plan\":{\"ok\":true,\"name\":\"$nm\",\"confirm\":\"4.mock-$nm\"}"
       case "$data" in *"\"confirmed\":\"4.mock-$nm\""*) ;; *)
         emit "{\"outcome\":\"refused\",\"changed\":true,\"unconfirmed\":true,\"because\":\"Kosmos was not told what you agreed to delete, perhaps because this page is from before an update, so nothing was deleted. Reload the page and look again before deleting.\"$planback}" 400; exit 0;; esac
       if [ "${MOCK_LEFTOVER_TYPED:-}" = 1 ]; then
@@ -331,7 +375,7 @@ run_case() {
   # exported scenario and goes red with nothing naming why. The "CALLER exports" case below is the control for this
   # list: the caller exports every name on it.
   outp="$(env -u KOSMOS_HOME -u KOSMOS_AGENT_REPLY_TIMEOUT -u KOSMOS_WORLD \
-    -u MOCK_ACCOUNTS -u MOCK_AGENT_STATE -u MOCK_CREATE -u MOCK_PREEXISTING -u MOCK_REPLY -u MOCK_SEND -u MOCK_REMOVE -u MOCK_STATUS_AFTER_RM -u MOCK_LEFTOVER -u MOCK_LEFTOVER_TYPED -u MOCK_LABEL_SUFFIX -u MOCK_SHOWN -u MOCK_WRITE_HOME -u MOCK_PLAN -u MOCK_NO_FILES -u MOCK_UNCONFIRMED_NOPLAN \
+    -u MOCK_ACCOUNTS -u MOCK_AGENT_STATE -u MOCK_CREATE -u MOCK_PREEXISTING -u MOCK_REPLY -u MOCK_SEND -u MOCK_REMOVE -u MOCK_STATUS_AFTER_RM -u MOCK_LEFTOVER -u MOCK_LEFTOVER_TYPED -u MOCK_LABEL_SUFFIX -u MOCK_SHOWN -u MOCK_WRITE_HOME -u MOCK_PLAN -u MOCK_NO_FILES -u MOCK_SEQ -u MOCK_SEQ_GET -u MOCK_SEQ_ENFORCE \
     AGENT_WORKFORCE_LAUNCH="$root/LaunchAgents" AGENT_WORKFORCE_WORKERS="$root/workers" AGENT_WORKFORCE_DATA="$root/data" \
     `# #7086: before "$@", so a case's own value wins (env keeps the last one)` \
     KOSMOS_AOC_LOST_TRIES=3 KOSMOS_AOC_LOST_GAP=0 \
@@ -412,25 +456,28 @@ run_case "a refusal, then lost answers: the refusal still holds, files left (0)"
 run_case "a deleted answer without toTrash claims neither Trash nor gone for good (0)" 0 --expect "', and the name is free." MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=notrashfield
 run_case "a plan refusal that passes in a moment (a pane closing) is asked once more and clears (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=transient
 run_case "after a refusal, the board's typed words from the plan read again (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=transient MOCK_LEFTOVER_TYPED=1 MOCK_SHOWN=Gate-Display
-# kosmos#8496: the plan read fails and the first DELETE gets no answer. The retry reads the plan again and clears.
-run_case "a failed plan read and a lost first DELETE: the retry reads the plan again and clears (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=failonce MOCK_LEFTOVER=lost
-# review 10: a plan never read and a lost first DELETE: the unconfirmed refusal's plan is sent back once, and it clears.
-run_case "a plan never read and a lost first DELETE: the board's plan sent back is resent and clears (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=fail MOCK_LEFTOVER=lost
-# ... and with no plan sent back either, the board's "not told what you agreed to delete" is no safety refusal: the gate
-# goes on to its own fallback (never "its files were left"), in its own words, not the page's.
-run_case "a plan never read, a lost first DELETE, then unconfirmed: not a safety refusal, the fallback runs (0)" 0 --expect "this script could not read that plan in time to confirm it" --reject "so its files were left" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=fail MOCK_LEFTOVER=lost MOCK_UNCONFIRMED_NOPLAN=1
-run_case "the gate's own words for an unconfirmed refusal, not the page's (0)" 0 --expect "this script could not read that plan" --reject "before an update" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=fail MOCK_LEFTOVER=lost MOCK_UNCONFIRMED_NOPLAN=1
-# review 10 (WARNING 2): both plan reads fail and the first DELETE meets a closing pane; as on main, it clears.
+# kosmos#8496: the plan read fails and the first DELETE gets no answer. The next attempt reads the plan again and clears.
+run_case "a failed plan read and a lost first DELETE: the next attempt reads the plan again and clears (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=failonce MOCK_LEFTOVER=lost
+# Every plan read fails and the first DELETE gets no answer: the plan an unconfirmed refusal sends back is used, and it clears.
+run_case "a plan never read and a lost first DELETE: the plan a refusal sends back is used, and it clears (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=fail MOCK_LEFTOVER=lost
+# Both plan reads fail and the first DELETE meets a closing pane: as on main, it clears.
 run_case "both plan reads fail and the pane was closing: cleared, as on main (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=fail MOCK_LEFTOVER=transient
-# A real safety refusal (the pane running) and then an unconfirmed one with nothing to resend: the files stay.
-run_case "a running refusal, then an unconfirmed one: the safety refusal still keeps the files (0)" 0 --kept --expect "before that the board refused" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=fail MOCK_LEFTOVER=transient MOCK_UNCONFIRMED_NOPLAN=1
-# review 10 (WARNING 1): "different now" and "could not read part of it" are refusals: the files stay, said truly.
-run_case "a plan that changed under every DELETE: a refusal, the files stay, said truly (0)" 0 --kept --expect "changed between this script's plan read and its delete" --reject "could not read that plan" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=differs
-run_case "a board that could not read part of it: a refusal, the files stay, said truly (0)" 0 --kept --expect "could not read part of what is left of it just now" --reject "could not read that plan" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=unreadable
+# "Different now" and "could not read part of it" on every attempt: the files stay, said in this script's own words.
+run_case "a plan that changed under every DELETE: the files stay, said in the script's words (0)" 0 --kept --expect "kept changing between this script's plan read and its delete" --reject "before deleting" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=differs
+run_case "a board that could not read part of it: the files stay, said in the script's words (0)" 0 --kept --expect "could not read part of what is left of it, so it deleted nothing" --reject "before deleting" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=unreadable
+# kosmos#8477 review 11: the scripted board (MOCK_SEQ, MOCK_SEQ_ENFORCE=1 as the engine now answers). The reviewer's three:
+# every plan read fails, and the DELETE that carries the board's plan back lands with its answer lost, or is lost.
+run_case "plans never read; the DELETE with the plan sent back lands, its answer lost: cleared (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_SEQ_ENFORCE=1 MOCK_SEQ_GET=fail MOCK_SEQ=ok,landed
+run_case "plans never read; the DELETE with the plan sent back is lost: retried, cleared (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_SEQ_ENFORCE=1 MOCK_SEQ_GET=fail MOCK_SEQ=ok,lost
+# ... and the plan changed once, then every read fails: the confirm the refusal sent back (the newer one) is the one used.
+run_case "a plan changed once, then every read fails: the newer confirm is sent, cleared (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_SEQ_ENFORCE=1 MOCK_SEQ_GET=okonce MOCK_SEQ=changed
+run_case "a plan changed once and then a lost answer, every later read failing: cleared (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_SEQ_ENFORCE=1 MOCK_SEQ_GET=okonce MOCK_SEQ=changed,lost
+# A safety refusal twice: as main, the files stay and nothing is deleted here.
+run_case "two safety refusals: the files stay, never deleted here (0)" 0 --kept --expect "is running" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_SEQ_ENFORCE=1 MOCK_SEQ=safety,safety
 run_case "a plan that answers ok:false, then a DELETE that clears, is cleared (0)" 0 --expect "cleared 'verify2129-openai-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=refused
 run_case "the typed words are the board's (its shown name), not the session name (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER_TYPED=1 MOCK_SHOWN=Gate-Display
 run_case "a board with no leftover route (404): the gate deletes the files itself (0)" 0 --expect "were deleted here instead" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=noroute
-run_case "a clear that landed but whose answer was lost counts as cleared (0)" 0 --expect "the retry found nothing left" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=landed
+run_case "a clear that landed but whose answer was lost counts as cleared (0)" 0 --expect "the next try found nothing left" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=landed
 run_case "a PARTIAL clear (200) is not read as cleared: the files are deleted here (0)" 0 --expect "were deleted here instead" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=partial
 run_case "a PARTIAL clear with its files gone names what is left, not the files (0)" 0 --expect "Its files are gone" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=partial-tokens
 run_case "a clear whose first answer is lost is tried again (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER=lost

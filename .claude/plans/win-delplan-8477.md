@@ -66,25 +66,110 @@ standing reset, community account retired, tokens revoked. Nobody confirmed that
   `delAsync`/`del` in the engine. Callers of the ROUTE (review 8, grep of the whole repo for the leftover path in
   tools/, install/, docs/, *.sh, *.ps1, *.js, *.mjs): the page (web/index.html, the del-go handler) and
   `tools/staging-agent-online-check.sh` (`tidy_agent`, run by `tools/promote-channel.sh` in a release promote), which
-  clears its own throwaway agents. Review 8 found the second sending only `{typed}`, so every staging run would have
-  left its agents' job files behind. It now sends the plan's `confirm` as `confirmed` in both DELETE bodies; when it has
-  no plan (its GET failed or refused) it takes the confirm from the refusal's returned plan for its one retry. These are
-  the gate's own agents, and it already acted on the board's plan as given. No CLI or other script calls the route.
-  Kosmos#8496 (review 9, a regression against main): with the plan read failed and the first DELETE unanswered, the
-  retry went without a confirm, the board refused it as unconfirmed, and that refusal blocked the gate's own fallback,
-  so the files stayed where main cleared them. Now the no-answer retry reads the plan again when it has no confirm yet;
-  an unconfirmed refusal (`changed`, which the board sends only after its plan passed every safety check) is not
-  counted as a safety refusal, so the fallback still runs unless a real refusal came first; and the gate logs its own
-  sentence ("this script could not read that plan in time to confirm it"), not the page's.
-  Review 10 (two more regressions against main): the engine marked three refusals `changed` (nothing sent, the plan
-  changed, a read failed) and the script treated all three as "unconfirmed". Now the engine adds `unconfirmed: true`
-  only when nothing was sent (`changed` stays on all three, which is what the page reads to repaint). The script sends
-  the plan an `unconfirmed` refusal carries straight back, once and at once (so a DELETE that had to go without a
-  confirm, after a running refusal or a lost answer with every plan read failing, still clears as on main; at most three
-  DELETEs now, the third only for that); falls back on its own only after `unconfirmed`; and counts "different now" and
-  "could not read part of it" as refusals that keep the files, each with its own true line. Every case main clears
-  (plan read failed with a lost DELETE, or with a closing pane; plan refused; closing pane; lost answer; plain; typed
-  name, with and without a closing pane) was run against an origin/main export and the branch: all clear on both.
+  clears its own throwaway agents. No CLI or other script calls the route.
+- **The engine's three `changed` refusals.** `changed: true` (with the fresh plan) on all three, which is what the page
+  reads to repaint; `unconfirmed: true` only when no fingerprint was sent (review 10), so a script can tell "not told"
+  from "different now" and "could not read part of it".
+
+### The release gate's tidy (`tidy_agent`), rebuilt in review 11
+
+Reviews 8 to 11 each found a new regression against main in special-case retry branches (#8496 among them), so the
+DELETE part was rebuilt as ONE bounded loop. Up to `TIDY_ATTEMPTS` (4) attempts; each reads the plan afresh (label,
+typed words, confirm), then sends one DELETE with the newest confirm the board gave (this read's, or when the read fails,
+the one the last refusal sent back with its plan). The answer:
+
+- deleted, or "nothing of" it: stop (a "nothing of" after a lost answer is cleared, as on main);
+- a safety refusal (no steps, not `changed`: running, a move holding it): as main, the first waits 3 s and tries
+  again, a second stops; it is remembered, and the files are then never deleted here;
+- `changed` (either kind): wait 3 s, as main waits after a refusal, and try again;
+- no answer: wait 1 s, as main does, and try again;
+- anything else (steps, PARTIAL, 404, 409, 5xx): stop. After the loop the fallback (the gate deletes the files itself)
+  runs exactly where main's does: no answer, 404 or 5xx with no safety refusal seen, a PARTIAL, or a refusal with steps.
+  It never runs after a `changed` refusal the attempts ran out on (main had no such answer to act on).
+
+Why 4: main's two DELETEs, plus one to learn the board's plan from a refusal when every plan read fails, plus one to act
+on it. It runs in cleanup, where signals are ignored, so the bound matters: at worst 4 x (20 s read + 60 s DELETE + 3 s).
+
+Every log line is the script's own: the `changed` refusals get "the board deletes only a plan it was sent back, and this
+script never had one to send", "the board could not read part of what is left of it, so it deleted nothing" or "the
+board's plan for it kept changing between this script's plan read and its delete, so it deleted nothing"; a safety
+refusal is quoted from the board's plan sentence, as main does.
+
+**The combination table** (review 11). Each combination was run with the scripted fake board (`MOCK_SEQ`, added to the
+script's test file) on an origin/main export and on the branch. Answers past the second are "ok". On main's tree
+`changed` and `unconfirmed` cannot occur (main's board has no fingerprint), so they are answered as a delete there:
+that is what main would have done at that point. On the branch the board enforces the confirm as the engine does
+(`MOCK_SEQ_ENFORCE=1`): a DELETE that should delete but carries no or a stale confirm is refused `unconfirmed` or
+`changed`, with the plan. "fallback" is the gate deleting the files itself; on this Windows box its delete reports
+"could not delete its files here" (the known Mac-path failures), which is counted as the fallback having run.
+
+| Plan read | 1st DELETE | 2nd DELETE | main | branch |
+|---|---|---|---|---|
+| ok | ok | ok | cleared | cleared |
+| ok | ok | lost | cleared | cleared |
+| ok | ok | safety | cleared | cleared |
+| ok | ok | changed | cleared | cleared |
+| ok | ok | unconfirmed | cleared | cleared |
+| ok | lost | ok | cleared | cleared |
+| ok | lost | lost | fallback | cleared (differs) |
+| ok | lost | safety | kept | cleared (differs) |
+| ok | lost | changed | cleared | cleared |
+| ok | lost | unconfirmed | cleared | cleared |
+| ok | safety | ok | cleared | cleared |
+| ok | safety | lost | kept | cleared (differs) |
+| ok | safety | safety | kept | kept |
+| ok | safety | changed | cleared | cleared |
+| ok | safety | unconfirmed | cleared | cleared |
+| ok | changed | ok | cleared | cleared |
+| ok | changed | lost | cleared | cleared |
+| ok | changed | safety | cleared | cleared |
+| ok | changed | changed | cleared | cleared |
+| ok | changed | unconfirmed | cleared | cleared |
+| ok | unconfirmed | ok | cleared | cleared |
+| ok | unconfirmed | lost | cleared | cleared |
+| ok | unconfirmed | safety | cleared | cleared |
+| ok | unconfirmed | changed | cleared | cleared |
+| ok | unconfirmed | unconfirmed | cleared | cleared |
+| fail | ok | ok | cleared | cleared |
+| fail | ok | lost | cleared | cleared |
+| fail | ok | safety | cleared | cleared |
+| fail | ok | changed | cleared | cleared |
+| fail | ok | unconfirmed | cleared | cleared |
+| fail | lost | ok | cleared | cleared |
+| fail | lost | lost | fallback | cleared (differs) |
+| fail | lost | safety | kept | cleared (differs) |
+| fail | lost | changed | cleared | cleared |
+| fail | lost | unconfirmed | cleared | cleared |
+| fail | safety | ok | cleared | cleared |
+| fail | safety | lost | kept | cleared (differs) |
+| fail | safety | safety | kept | kept |
+| fail | safety | changed | cleared | cleared |
+| fail | safety | unconfirmed | cleared | cleared |
+| fail | changed | ok | cleared | cleared |
+| fail | changed | lost | cleared | cleared |
+| fail | changed | safety | cleared | cleared |
+| fail | changed | changed | cleared | cleared |
+| fail | changed | unconfirmed | cleared | cleared |
+| fail | unconfirmed | ok | cleared | cleared |
+| fail | unconfirmed | lost | cleared | cleared |
+| fail | unconfirmed | safety | cleared | cleared |
+| fail | unconfirmed | changed | cleared | cleared |
+| fail | unconfirmed | unconfirmed | cleared | cleared |
+
+The reviewer's cases and the plan-changed-once cases, on the same two trees:
+
+| Case | main | branch |
+|---|---|---|
+| Plan reads fail; the DELETE that carries the plan back lands, its answer lost (fail:ok,landed) | cleared | cleared |
+| Plan read ok; the first DELETE lands, its answer lost (ok:landed) | cleared | cleared |
+| Only the first plan read answers; the first DELETE meets a changed plan (the newer confirm must be used) (okonce:changed) | cleared | cleared |
+| As above, then a lost answer (okonce:changed,lost) | cleared | cleared |
+
+50 combinations plus 4 extra cases. The branch clears every combination main clears, and falls back in none (main
+falls back in 2). It differs in 6, each a clear where main kept the files or fell back: lost/lost (main falls back
+after its two DELETEs; the branch's third attempt is answered and clears), lost/safety and safety/lost (main stops at two
+DELETEs with a refusal on record and keeps the files; the branch tries again and the board, re-checking safety itself,
+deletes). Those clears come from the attempts past main's two, against a board that answers them.
 
 ### The page
 
@@ -161,8 +246,12 @@ suites, `create.win32-namehold-8466`, `jobexists.win32-570` and `linuxwiring-491
   the pause; the no-answer words for a changed plan. Each assertion failed against the previous round's page.
 - `tools/test-staging-agent-online-check.sh` (review 8): its fake board's leftover route now refuses a DELETE without
   the plan's confirm, as the real route does, and sends the plan back; so a gate that stops sending it fails the cases
-  that expect a clear. Kosmos#8496 adds four cases: a plan read failing once with a lost first DELETE clears; a plan
-  never read ends in the gate's fallback with its own words (never "its files were left", never "before an update");
-  and a real refusal (the pane running) followed by an unconfirmed one keeps the files.
+  that expect a clear. Review 11 adds the scripted board (`MOCK_SEQ`, `MOCK_SEQ_GET`, `MOCK_SEQ_ENFORCE`) used for the
+  combination table above, and cases for: a failed plan read with a lost first DELETE (clears); every plan read failing
+  with a lost first DELETE, or a closing pane (clears, as on main); the reviewer's three (the DELETE carrying the plan
+  back lands with its answer lost, or is lost; a plan that changed once with every later read failing, which must send
+  the newer confirm); a plan changing, or unreadable, on every attempt (files kept, said in the script's own words, never
+  the page's); and two safety refusals (files kept, never deleted here). The round-9 and round-10 cases that tested
+  the removed special branches (a board that sends no plan back) are gone with them.
 - Policy: fixture-discipline, no-name-refs-3071, engine.reachable, windows-tests-1777, win32-separator-guard,
   windows-coupling-audit-1732, web.api-routes-3957; both browser-check gates.
