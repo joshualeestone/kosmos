@@ -184,10 +184,14 @@ test('kosmos#8477: the same plan confirmed runs, task-only and full', () => {
   const whole = agent('whole8477');
   const f = win.plan(whole);
   assert.ok(f.ok && !f.taskOnly && f.toTrash, 'CONTROL: not the full delete to the Recycle Bin: ' + JSON.stringify(f));
+  // The engine may hand the Recycle Bin the folder's real path, which differs from the test's spelling when TEMP is an
+  // 8.3 short name (Windows runners) or a symlink (/var on macOS). So compare real paths, read before the folder goes.
+  const sameFile = (a, b) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+  const wantBin = [folderOf(whole), fs.realpathSync.native(folderOf(whole))];
   const gone = win.del(whole, { confirmed: f.confirm });
   assert.equal(gone.outcome, leftover.OUTCOME.DELETED, JSON.stringify(gone));
   assert.equal(fs.existsSync(folderOf(whole)), false, 'the folder is still there');
-  assert.ok(recycled.includes(folderOf(whole)), 'the folder did not go to the Recycle Bin');
+  assert.ok(recycled.some((r) => wantBin.some((w) => sameFile(r, w))), 'the folder did not go to the Recycle Bin: ' + JSON.stringify({ recycled, wantBin }));
   assert.deepEqual(deletes, [win32job.taskName(whole)]);
 });
 

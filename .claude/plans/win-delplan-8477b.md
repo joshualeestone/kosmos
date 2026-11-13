@@ -286,3 +286,11 @@ suites, `create.win32-namehold-8466`, `jobexists.win32-570` and `linuxwiring-491
   times then lost (files kept, the earlier refusal named), and four lost answers (the gate's own delete, main's trigger).
 - Policy: fixture-discipline, no-name-refs-3071, engine.reachable, windows-tests-1777, win32-separator-guard,
   windows-coupling-audit-1732, web.api-routes-3957; both browser-check gates.
+
+## CI round (branch win-delplan-8477b)
+
+The first PR (#8503) failed CI on macOS and Windows in one test of the new file: "the same plan confirmed runs". It
+compared the path handed to the Recycle Bin with the test's own spelling of the folder. On a Windows runner TEMP is an
+8.3 short name, and on macOS /var is a symlink, so the engine's real path differed. Reproduced here with an 8.3 TEMP.
+The test now compares real paths, read before the folder goes. Engine code is unchanged. 15/15 with an 8.3 TEMP and with
+the default one, with and without the preload.
