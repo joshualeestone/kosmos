@@ -165,6 +165,7 @@ test('kosmos#8477: the startup job alone was confirmed, then the folder came bac
   const done = win.del(name, { confirmed: shown.confirm });
   assert.equal(done.outcome, leftover.OUTCOME.REFUSED, JSON.stringify(done));
   assert.equal(done.because, leftover.CHANGED_SINCE_SHOWN_BECAUSE);
+  assert.equal(done.unconfirmed, undefined, 'review 10: a plan that really changed is marked as if nothing was sent');
   assert.equal(done.changed, true);
   assert.equal(done.plan && done.plan.confirm, now.confirm, 'the fresh plan does not travel back for the page to show');
   assert.deepEqual(seen, [], 'a step that cannot be undone ran: ' + seen.join(', '));
@@ -216,6 +217,7 @@ test('kosmos#8477: no fingerprint from a request (null): the full delete is refu
   const done = win.del(whole, { confirmed: null });
   assert.equal(done.outcome, leftover.OUTCOME.REFUSED, JSON.stringify(done));
   assert.equal(done.because, leftover.UNCONFIRMED_FULL_DELETE_BECAUSE);
+  assert.equal(done.unconfirmed, true, 'review 10: a refusal for no fingerprint is not marked so a script can tell it apart');
   assert.deepEqual(seen, []);
   untouched(whole, { folder: true });
   // Not a string either (a page that sent something else) reads as none.

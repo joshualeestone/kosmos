@@ -1212,7 +1212,10 @@ function* delSteps(name, opts) {
   if (!(opts && opts.unchecked === true)) {
     const sent = opts && typeof opts.confirmed === 'string' ? opts.confirmed : null;
     if (sent === null ? !p.taskOnly : sent !== p.confirm) {
-      return { outcome: OUTCOME.REFUSED, because: sent === null ? UNCONFIRMED_FULL_DELETE_BECAUSE : p.readFailed ? COULD_NOT_READ_BECAUSE : CHANGED_SINCE_SHOWN_BECAUSE, changed: true, plan: p };
+      /* `changed` (all three) tells the page to show the plan sent back. review 10: `unconfirmed` marks only the one
+         that says nothing about the agent (no fingerprint sent), so a script can tell it from a plan that really changed
+         or a read that failed, which are refusals. */
+      return { outcome: OUTCOME.REFUSED, because: sent === null ? UNCONFIRMED_FULL_DELETE_BECAUSE : p.readFailed ? COULD_NOT_READ_BECAUSE : CHANGED_SINCE_SHOWN_BECAUSE, changed: true, ...(sent === null ? { unconfirmed: true } : {}), plan: p };
     }
   }
   const platform = (opts && opts.platform) || process.platform;

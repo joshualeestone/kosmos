@@ -162,7 +162,7 @@ paths_of() {
 # One field of the JSON in $_BODYF ('' if absent or unreadable). job.label is the launchd label, and only for a launchd job.
 body_field() {
   "$NODE" -e 'let j;try{j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))||{}}catch{process.exit(0)}
-    const f=process.argv[2];let v=f==="label"?(j.job&&!j.job.unit&&!j.job.task?j.job.label:""):f==="steps"?(Array.isArray(j.steps)?"yes":""):f==="planconfirm"?(j.plan&&j.plan.confirm):j[f];
+    const f=process.argv[2];let v=f==="label"?(j.job&&!j.job.unit&&!j.job.task?j.job.label:""):f==="steps"?(Array.isArray(j.steps)?"yes":""):f==="planconfirm"?(j.plan&&j.plan.confirm):f==="planreadfailed"?(j.plan&&j.plan.readFailed):j[f];
     if(v===undefined||v===null)process.exit(0);
     // The typed words and the plan confirm (kosmos#8477) go back exactly as the board gave them; everything else is
     // for a message, so one line.
@@ -198,16 +198,28 @@ tidy_agent() {
   # which below counts as cleared. A plan refusal (400, no steps) is asked once more after 3 s: the two that can pass in
   # a moment are "is running" while its pane closes and "could not check ... right now" (review 4). Once each: this runs
   # inside cleanup, where a second Ctrl-C is ignored (review 2).
-  # At most two DELETEs in all (review 7): cleanup ignores signals, so the bound is part of the contract.
-  local sent=0 refusal=""
+  # At most two DELETEs in all (review 7): cleanup ignores signals, so the bound is part of the contract. kosmos#8477
+  # review 10: plus at most one more, sent at once and only to resend the board's own plan after an `unconfirmed`
+  # refusal (a DELETE that went without the plan confirm because no plan read had answered), so three at the most.
+  local sent=0 refusal="" resent=""
   while :; do
     : > "$_BODYF"
     code="$("$CURL" -sS --max-time 60 -H @"$HF" -H 'Content-Type: application/json' -X DELETE --data "$body" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
     sent=$((sent+1))
-    # A plan refusal is remembered, so a later lost answer cannot turn it into a delete (review 7). kosmos#8496: not one
-    # that says only that the body lacked the plan confirm (`changed`, sent with the board's plan, which passed every
-    # safety check): that is no judgement about the agent, and it must not keep the files from the fallback below.
-    [ "$code" = 400 ] && [ -z "$(body_field steps)" ] && [ "$(body_field changed)" != true ] && case "$(body_field because)" in "nothing of "*) ;; *) refusal="$(body_field because)" ;; esac
+    # review 10: `unconfirmed` is the board saying only that no plan confirm came, and it sends its plan, which passed
+    # every safety check. That plan is what this script would have confirmed (it acts on the board's plan as given), so it
+    # is sent back once, at once. Not `changed` alone: "different now" and "could not read part of it" are refusals.
+    if [ "$code" = 400 ] && [ -z "$resent" ] && [ "$(body_field unconfirmed)" = true ]; then
+      local backconfirm; backconfirm="$(body_field planconfirm)"
+      if [ -n "$backconfirm" ]; then
+        resent=1; confirm="$backconfirm"; body="$(delete_body "${typed:-$nm}" "$confirm")"
+        continue
+      fi
+    fi
+    # A plan refusal is remembered, so a later lost answer cannot turn it into a delete (review 7). kosmos#8496: not an
+    # `unconfirmed` one, which says nothing about the agent (its plan passed every safety check) and must not keep the files
+    # from the fallback below. Every other refusal without steps counts, "different now" and "could not read" included.
+    [ "$code" = 400 ] && [ -z "$(body_field steps)" ] && [ "$(body_field unconfirmed)" != true ] && case "$(body_field because)" in "nothing of "*) ;; *) refusal="$(body_field because)" ;; esac
     [ "$sent" -ge 2 ] && break
     case "$code" in
       ""|000) [ "$tries" -ge 1 ] && break; tries=$((tries+1)); sleep 1
@@ -223,9 +235,9 @@ tidy_agent() {
               fi ;;
       400) [ -z "$waited" ] && [ -z "$(body_field steps)" ] || break
            case "$(body_field because)" in "nothing of "*) break ;; esac
-           # kosmos#8477: a refusal because the request did not carry the plan confirm (no plan read first) sends the
-           # board's fresh plan back; its confirm is used when the plan read below gives none. These are the gate's own
-           # throwaway agents, and the gate already acts on the board's plan as given.
+           # kosmos#8477: a refusal that sends the board's plan back (`changed`: "different now") gives the confirm to
+           # use when the plan read below gives none. These are the gate's own throwaway agents, and the gate already acts
+           # on the board's plan as given.
            local refusedconfirm; refusedconfirm="$(body_field planconfirm)"
            waited=1; sleep 3
            # The plan again before the second DELETE: after a refusal the first GET had no label and no typed words,
@@ -241,9 +253,22 @@ tidy_agent() {
     esac
   done
   outcome="$(body_field outcome)"; because="$(body_field because)"; toTrash="$(body_field toTrash)"; steps="$(body_field steps)"
-  # kosmos#8496: the board's words for this refusal are written for a person at a page; this script says what is true here.
+  # kosmos#8496, review 10: the board's words for these refusals are written for a person at a page; this script says
+  # what is true here, one line for each of the three.
   local unconfirmed=""
-  [ "$code" = 400 ] && [ -z "$steps" ] && [ "$(body_field changed)" = true ] && unconfirmed=1     && because="the board deletes only the plan it showed, and this script could not read that plan in time to confirm it"
+  if [ "$code" = 400 ] && [ -z "$steps" ] && [ "$(body_field changed)" = true ]; then
+    # This last answer was recorded as the refusal in the board's words: said once, in this script's words, below. An
+    # EARLIER refusal (a running pane, say) stays, and keeps the files.
+    [ "$refusal" = "$because" ] && refusal=""
+    if [ "$(body_field unconfirmed)" = true ]; then
+      unconfirmed=1
+      because="the board deletes only the plan it showed, and this script could not read that plan in time to confirm it"
+    elif [ "$(body_field planreadfailed)" = true ]; then
+      because="the board could not read part of what is left of it just now, so it deleted nothing"
+    else
+      because="the board's plan for it changed between this script's plan read and its delete, so it deleted nothing"
+    fi
+  fi
   # No plan (its GET failed, or an old board): the label this machine's engine gives the name, which reenable_label
   # still requires to be a gate agent's.
   if [ -z "$label" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ]; then pp="$(paths_of "$nm")" && label="$(basename "${pp%%$'\n'*}" .plist)"; fi
@@ -280,14 +305,15 @@ tidy_agent() {
   # (every move, or the community standing). A refusal WITHOUT steps is the plan's own judgement, and some are safety
   # ones the gate cannot see (the session still running, tmux unreadable, an account move holding it), so its files
   # are left alone (reviews 2 and 3); so is any other answer (401, 409, a 200 it cannot read). The one refusal without
-  # steps that is not a judgement is kosmos#8477's "not told what you agreed to delete" (`changed`, sent only once the
-  # board's plan passed every safety check): it lets the gate act unless a real refusal came first (kosmos#8496).
+  # steps that is not a judgement is kosmos#8477's `unconfirmed` (no plan confirm was sent; the board sends it only once
+  # its plan passed every safety check): it lets the gate act unless a real refusal came first (kosmos#8496). "Different
+  # now" and "could not read part of it" (`changed` without `unconfirmed`) are refusals and keep the files.
   local act="$here"
   case "$code" in
     ""|000|404|5[0-9][0-9]) [ -z "$refusal" ] && act=1 ;;   # never after the board refused (review 7)
     200) [ "$outcome" = partial ] && act=1 ;;
     400) [ -n "$steps" ] && act=1
-         [ -n "$unconfirmed" ] && [ -z "$refusal" ] && act=1 ;;   # kosmos#8496: its plan passed every safety check
+         [ -n "$unconfirmed" ] && [ -z "$refusal" ] && act=1 ;;   # kosmos#8496: `unconfirmed` only; its plan passed every safety check
   esac
   if [ -z "$act" ]; then
     pp="$(paths_of "$nm" | tr '\n' ' ')"

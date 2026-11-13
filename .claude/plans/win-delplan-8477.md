@@ -76,6 +76,15 @@ standing reset, community account retired, tokens revoked. Nobody confirmed that
   an unconfirmed refusal (`changed`, which the board sends only after its plan passed every safety check) is not
   counted as a safety refusal, so the fallback still runs unless a real refusal came first; and the gate logs its own
   sentence ("this script could not read that plan in time to confirm it"), not the page's.
+  Review 10 (two more regressions against main): the engine marked three refusals `changed` (nothing sent, the plan
+  changed, a read failed) and the script treated all three as "unconfirmed". Now the engine adds `unconfirmed: true`
+  only when nothing was sent (`changed` stays on all three, which is what the page reads to repaint). The script sends
+  the plan an `unconfirmed` refusal carries straight back, once and at once (so a DELETE that had to go without a
+  confirm, after a running refusal or a lost answer with every plan read failing, still clears as on main; at most three
+  DELETEs now, the third only for that); falls back on its own only after `unconfirmed`; and counts "different now" and
+  "could not read part of it" as refusals that keep the files, each with its own true line. Every case main clears
+  (plan read failed with a lost DELETE, or with a closing pane; plan refused; closing pane; lost answer; plain; typed
+  name, with and without a closing pane) was run against an origin/main export and the branch: all clear on both.
 
 ### The page
 
