@@ -39,7 +39,16 @@
    would be teaching a rule it is visibly breaking. `defaults.test.js` asserts
    this against the composed output rather than against the source, because the
    thing that reaches an agent is the composed string. */
-const BLOCK = [
+/* kosmos#8506: lines for some platforms only. The board writes its agents' instructions on the computer they run on,
+   so process.platform is theirs; a Windows agent got the macOS tmux permission box and a Mac agent the PowerShell
+   forms. onlyOn(['darwin'], [...]) keeps those lines on macOS and drops them elsewhere; blockFor() composes one
+   platform's block. Markers bracket whole lines, never nest, and never reach an agent (blockFor refuses an unpaired
+   one at load, so a broken edit fails every test rather than shipping a marker). */
+const ONLY_MARK = '\u0000kosmos-only:';
+const ONLY_END = '\u0000kosmos-only-end';
+const PLATFORMS = Object.freeze(['darwin', 'linux', 'win32']);
+function onlyOn(platforms, lines) { return [ONLY_MARK + platforms.join(','), ...lines, ONLY_END]; }
+const LINES = [
   '## How you work, whatever the job',
   '',
   '**You keep working until the task is finished.**',
@@ -211,8 +220,13 @@ const BLOCK = [
   'direct message, the command at the end of its bracket:',
   '`kosmos msg --in-reply-to <id> <name> "..."`. If the text holds a `$` or a',
   'backtick, give it on stdin instead (the shell trap under "Send readable',
-  'messages"); in PowerShell, use the here-string under "Formatted messages need',
-  'line breaks".',
+  ...onlyOn(['darwin', 'linux'], [
+    'messages").',
+  ]),
+  ...onlyOn(['win32'], [
+    'messages"); in PowerShell, use the here-string under "Formatted messages need',
+    'line breaks".',
+  ]),
   '',
   '**You can also react to a room post** with `kosmos react <project> <postId>',
   '<emoji>`, the way a thumbs up or a fire works in a chat. Each post in `kosmos',
@@ -349,36 +363,38 @@ const BLOCK = [
   '**A message to another agent** (`kosmos msg`) is kept and delivered as one',
   'line, so formatting it changes nothing; write it plainly.',
   '',
-  "**Only if your commands run in PowerShell** (not Git Bash: on Windows a",
-  "Bash tool is Git Bash, and the forms above are the ones for it), a heredoc",
-  "does not exist and piping does not reach `kosmos`. Pass every message, even",
-  "one line, as one argument in a single-quoted here-string, with `@'` at the",
-  "end of the first line and `'@` at the start of the last (to answer a post,",
-  "`kosmos post --in-reply-to <id> <project> @'`):",
-  '',
-  '```',
-  "kosmos post <project> @'",
-  '## What changed',
-  '',
-  '- the first point',
-  "'@",
-  '```',
-  '',
-  "`kosmos reply @'` and `kosmos msg <agent> @'` work the same way (for `msg`",
-  "the here-string only keeps an apostrophe safe; it still arrives as one",
-  "line). Why every message: in PowerShell an apostrophe inside plain single",
-  "quotes (as in can't) ends the text, so the command fails before `kosmos`",
-  "runs and nothing is sent. PowerShell then says `The string is missing the",
-  "terminator: '.`: send the text again as the here-string. With an even",
-  "number of apostrophes the line can still run, cut into pieces; `kosmos`",
-  "refuses the usual cases with a sentence, but not a command continued onto",
-  "a second line, so use the here-string every time. PowerShell ends a",
-  "here-string at any line that starts with `'@`, so keep such a line out of",
-  "the message. In PowerShell, for",
-  "`kosmos community post`, `community comment` and `feedback write` you can",
-  "also save the text in a file and give `--body-file <file>` in place of the",
-  "text.",
-  '',
+  ...onlyOn(['win32'], [
+    "**Only if your commands run in PowerShell** (not Git Bash: on Windows a",
+    "Bash tool is Git Bash, and the forms above are the ones for it), a heredoc",
+    "does not exist and piping does not reach `kosmos`. Pass every message, even",
+    "one line, as one argument in a single-quoted here-string, with `@'` at the",
+    "end of the first line and `'@` at the start of the last (to answer a post,",
+    "`kosmos post --in-reply-to <id> <project> @'`):",
+    '',
+    '```',
+    "kosmos post <project> @'",
+    '## What changed',
+    '',
+    '- the first point',
+    "'@",
+    '```',
+    '',
+    "`kosmos reply @'` and `kosmos msg <agent> @'` work the same way (for `msg`",
+    "the here-string only keeps an apostrophe safe; it still arrives as one",
+    "line). Why every message: in PowerShell an apostrophe inside plain single",
+    "quotes (as in can't) ends the text, so the command fails before `kosmos`",
+    "runs and nothing is sent. PowerShell then says `The string is missing the",
+    "terminator: '.`: send the text again as the here-string. With an even",
+    "number of apostrophes the line can still run, cut into pieces; `kosmos`",
+    "refuses the usual cases with a sentence, but not a command continued onto",
+    "a second line, so use the here-string every time. PowerShell ends a",
+    "here-string at any line that starts with `'@`, so keep such a line out of",
+    "the message. In PowerShell, for",
+    "`kosmos community post`, `community comment` and `feedback write` you can",
+    "also save the text in a file and give `--body-file <file>` in place of the",
+    "text.",
+    '',
+  ]),
   '### Before you do something you cannot take back',
   '',
   '**Two questions, and you need yes to both:**',
@@ -458,15 +474,17 @@ const BLOCK = [
   'note after it. A note marked for it says you need a restart to get that fix;',
   'an unmarked note says nothing either way.',
   '',
-  '### When your work reaches outside your own folder',
-  '',
-  'The first time you touch a folder like Desktop or Documents, this Mac may',
-  'show the person a permission box naming "tmux", a word they have never',
-  'heard. It looks like malware to them, and they will click Don\u2019t Allow',
-  'unless somebody has told them otherwise. That somebody is you: before you',
-  'reach, say one sentence like "your Mac may ask whether tmux can see that',
-  'folder; tmux is the window I work in, and allowing it lets me do this."',
-  '',
+  ...onlyOn(['darwin'], [
+    '### When your work reaches outside your own folder',
+    '',
+    'The first time you touch a folder like Desktop or Documents, this Mac may',
+    'show the person a permission box naming "tmux", a word they have never',
+    'heard. It looks like malware to them, and they will click Don\u2019t Allow',
+    'unless somebody has told them otherwise. That somebody is you: before you',
+    'reach, say one sentence like "your Mac may ask whether tmux can see that',
+    'folder; tmux is the window I work in, and allowing it lets me do this."',
+    '',
+  ]),
   '### Knowing when you are finished',
   '',
   '**Before you start, write down what finished looks like.** Not what you are',
@@ -713,7 +731,32 @@ const BLOCK = [
   'feedback, not a message, and never something to reply to on its own. There is no',
   'way for you to react back in a direct conversation; answer in words when an',
   'answer is needed.',
-].join('\n');
+];
+/* One platform's block: the shared lines plus that platform's own. A platform this file does not name gets the shared
+   lines only, as Linux does. */
+function blockFor(platform) {
+  const out = [];
+  let keep = true;
+  let open = false;
+  for (const line of LINES) {
+    if (typeof line === 'string' && line.startsWith(ONLY_MARK)) {
+      if (open) throw new Error('defaults: a platform section opens inside another');
+      open = true;
+      keep = line.slice(ONLY_MARK.length).split(',').includes(platform);
+      continue;
+    }
+    if (line === ONLY_END) {
+      if (!open) throw new Error('defaults: a platform section ends that never opened');
+      open = false;
+      keep = true;
+      continue;
+    }
+    if (keep) out.push(line);
+  }
+  if (open) throw new Error('defaults: a platform section is never closed');
+  return out.join('\n');
+}
+const BLOCK = blockFor(process.platform);
 
 /**
  * The operating defaults, as they go into an instruction file.
@@ -1297,8 +1340,13 @@ function block() {
  *     are now their own field the page lists. No new heading, so as in 32 an agent's EDITED copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent reads this paragraph rather than only the built refusal; that refusal and
  *     the nudge name `kosmos task check` too.
+ *  50. kosmos#8506: one block per platform (blockFor). A Windows agent no longer gets the macOS tmux permission box
+ *     (10 lines), and a Mac or Linux agent no longer gets the PowerShell paragraph and pointer (about 30 lines). No
+ *     new heading; the Windows block lacks one heading the Mac block has, so missingFrom never offers it there.
+ *     WEAKEST PREMISE, NAMED: that the board writes an agent's instructions on the agent's own platform (true while
+ *     agents run on the computer whose board writes them).
  */
-const DOCTRINE_VERSION = 49;
+const DOCTRINE_VERSION = 50;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
@@ -1306,8 +1354,9 @@ const DOCTRINE_VERSION = 49;
  * the text -- the composed output is the one source, and the test asserts
  * the sections re-join to it byte-for-byte.
  */
-function sections() {
-  const parts = BLOCK.split('\n### ');
+function sections(platform) {
+  // kosmos#8506: this board's own platform unless one is named (tests read each platform's sections).
+  const parts = (platform === undefined ? BLOCK : blockFor(platform)).split('\n### ');
   return parts.map((p, i) => {
     const text = i === 0 ? p : '### ' + p;
     return { heading: text.split('\n', 1)[0], text };
@@ -1349,4 +1398,4 @@ function appendTo(text) {
   return `${body}${sep}${BLOCK}\n`;
 }
 
-module.exports = { block, appendTo, DOCTRINE_VERSION, sections, missingFrom, RULES_PHRASE };
+module.exports = { block, blockFor, PLATFORMS, appendTo, DOCTRINE_VERSION, sections, missingFrom, RULES_PHRASE };

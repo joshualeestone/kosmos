@@ -69,13 +69,19 @@ function generateDoctrinePast(root = path.resolve(__dirname, '..'), log = consol
       fs.writeFileSync(file, src.text);
       let mod;
       try { mod = require(file); } catch (err) { log.warn(`skipped ${src.from}: ${err.message}`); skipped += 1; return; }
-      const block = typeof mod.block === 'function' ? mod.block() : null;
-      if (typeof block !== 'string' || !block) return;
-      const sha256 = crypto.createHash('sha256').update(block).digest('hex');
-      if (!seen.has(sha256)) seen.set(sha256, { version: Number.isFinite(mod.DOCTRINE_VERSION) ? mod.DOCTRINE_VERSION : null, length: block.length, sha256 });
-      texts.set(sha256, block);
-      // Each section, split as defaults.sections() splits, so a span holding only some sections can be recognised.
-      block.split('\n### ').forEach((p, j) => sectionShas.add(crypto.createHash('sha256').update(j === 0 ? p : '### ' + p).digest('hex')));
+      /* kosmos#8506: a version that composes one block per platform (blockFor) has a row for each, since an agent on
+         each platform holds its own; an earlier version has its one block. */
+      const blocks = typeof mod.blockFor === 'function' && Array.isArray(mod.PLATFORMS)
+        ? mod.PLATFORMS.map((p) => mod.blockFor(p))
+        : [typeof mod.block === 'function' ? mod.block() : null];
+      for (const block of blocks) {
+        if (typeof block !== 'string' || !block) continue;
+        const sha256 = crypto.createHash('sha256').update(block).digest('hex');
+        if (!seen.has(sha256)) seen.set(sha256, { version: Number.isFinite(mod.DOCTRINE_VERSION) ? mod.DOCTRINE_VERSION : null, length: block.length, sha256 });
+        texts.set(sha256, block);
+        // Each section, split as defaults.sections() splits, so a span holding only some sections can be recognised.
+        block.split('\n### ').forEach((p, j) => sectionShas.add(crypto.createHash('sha256').update(j === 0 ? p : '### ' + p).digest('hex')));
+      }
     });
     if (skipped) throw new Error(`${skipped} version(s) of engine/defaults.js could not be loaded; the table would miss them`);
     /* doctrine.pastBlockIn tells an earlier block from a longer one it is a prefix of by what follows it: a longer
