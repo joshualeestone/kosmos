@@ -51814,8 +51814,11 @@ async function fetchLeftoverPlan(name) {
    finished, or is still running), an offer means something is still here, and no plan at all means nobody knows. */
 const DEL_REFUSED_LINE = 'The board did not delete it, and gave no reason. Try again in a moment.';
 const DEL_UNKNOWN_LINE = 'We could not reach the board just now, so we cannot tell whether anything was deleted. Look again in a moment.';
-function deleteNoAnswerLine(plan) {
+function deleteNoAnswerLine(plan, onScreen) {
   if (!plan) return DEL_UNKNOWN_LINE;
+  // kosmos#8477 review 6: the plan asked again promises something other than the one confirmed (`onScreen`), so "try
+  // again" would invite a click on an act nobody read; the dialog shows the new plan and says it is different.
+  if (plan.ok && onScreen && plan.confirm !== onScreen.confirm) return 'We could not reach the board just now, and what Kosmos would do here is different now. Look at what it says now before deleting.';
   if (plan.ok) return 'We could not reach the board just now, and what is left of this agent is still here. Try again.';
   return plan.because || DEL_UNKNOWN_LINE;
 }
@@ -51827,7 +51830,7 @@ function deleteNoAnswerLine(plan) {
    are left to the next read: a refusal can be "try again in a moment" or "is running", not only "nothing is left".
    No plan: the line, and the button as `onScreen` gates it, so the person can try again (the board re-plans first). */
 function deleteNoAnswerShow(plan, name, onScreen) {
-  const say = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(deleteNoAnswerLine(plan));
+  const say = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(deleteNoAnswerLine(plan, onScreen));
   if (plan && plan.ok) {
     repaintDeleteModal(plan);
     document.getElementById('del-msg').textContent = say;

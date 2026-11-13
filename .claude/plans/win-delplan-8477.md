@@ -91,6 +91,12 @@ standing reset, community account retired, tokens revoked. Nobody confirmed that
   (9 and 10 differ, 10 and 99 do not). A pause timer leaves Delete off while a delete of the dialog's agent is running
   (`DEL_RUNNING_FOR`), which `paintLeftoverRunning` turned off.
 
+- **Review 6:** a delete that got no answer, whose plan asked again promises something other than the dialog's, says
+  "We could not reach the board just now, and what Kosmos would do here is different now. Look at what it says now
+  before deleting." rather than "still here. Try again." The size-step comment now says plainly that a for-good folder
+  may grow up to tenfold without a refusal (the name is typed there). Left, as safe: a flapping drive probe refusing
+  more than once, and a refusal dropped after the dialog is reopened.
+
 ## Weakest part of this reasoning
 
 The `confirmed === undefined` exemption. A future production caller of `del`/`delAsync` that forgets to pass `confirmed`

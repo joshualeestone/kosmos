@@ -1045,7 +1045,8 @@ const CONFIRM_FINGERPRINT_VERSION = '4';   // 2: unsent posts in, the typed name
    materially since the dialog (3 files to thousands) is refused and an ordinary small write is not. A write that crosses
    a power of ten (9 files to 10) is refused too: that is the price of a coarse bucket, and the refusal touches nothing.
    The step is floor(log10(n)), with none (0) a step of its own below 1-9: 0 | 1-9 | 10-99 | 100-999 ...
-   Not for the Recycle Bin, where the files can be got back whatever their size. */
+   So a folder going for good may grow up to tenfold (3 files to 9, 12 KB to 99 KB) without a refusal; the name is typed
+   there, and that is the margin accepted. Not for the Recycle Bin, where the files can be got back whatever their size. */
 function sizeStep(n) { const v = Math.max(0, Number(n) || 0); return v < 1 ? -1 : Math.floor(Math.log10(v)); }
 const CONFIRM_FINGERPRINT_HEX_CHARS = 16;   // 64 bits: a short value for the page to carry, far past any chance collision between two plans of one name
 function confirmFingerprint(p, { retiresCommunity, marksUnsent }) {
