@@ -28,7 +28,13 @@ and the last model it ran.
   main account, marked accountRemoved (why 'missing'), and the words say the folder was not there when the startup
   job was removed. A task can outlive its account (disconnect-and-stop leaves it), and a record made after the account
   went cannot be cleared by the removal.
-- Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (12).
+- Round 3: a folder NAME is not an account. Every record now keeps whose account the folder held when the task was
+  written (create.win32AccountIdentity, from the account modules' own identityOf: Claude sign-in email and organization,
+  or a Claude API key's last four; OpenAI, Gemini and Grok sign-in email or key ending). Repair, the plan's words and
+  Restore's words put the folder back only while it holds that same account now; a folder whose account signed out or
+  changed, or a record with no identity (written before this, or a folder that held no readable account then), means
+  the main account, with words that say which. Repair keeps only an unreachable folder in the record, with its identity.
+- Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (15).
 
 ## Decided, not missed
 - Windows only: on macOS and Linux the plist or unit is the source of truth and nothing in Kosmos removes it alone.
@@ -37,7 +43,11 @@ and the last model it ran.
   the delete is about to record), so if that record's read or write then fails, the plan promised the account and model
   and the outcome, read after, says the main account and the model it last ran (true, but different from the plan).
   A task removed some other way (by hand in Task Scheduler) still loses an unrecorded agent's account and model.
-  Round 1 residuals: the clearing reaches this Kosmos's profiles only (another world on this computer keeps its
-  records); an account folder deleted by hand outside Kosmos AFTER it was recorded (kept in a record as "cannot
-  reach") could be reused by a later sign-in. Round 2: a legacy agent whose account folder is on a disk not connected
-  at the moment of the task-only delete is recorded on the main account (safe, as main did; its folder is not kept).
+  Round 2: a legacy agent whose account folder is on a disk not connected at the moment of the task-only delete is
+  recorded on the main account (safe, as main did; its folder is not kept).
+  Round 3 closes the wrong-account paths named before (a folder signed out of and refused removal, a folder deleted by
+  hand while kept as "cannot reach", another world's records, a removal whose delete failed partway): each still has
+  its record, but the folder's current account no longer matches it, so the agent comes back on the main account.
+  What is left: an API key account is matched by its key's last four characters (as the accounts list shows it), so
+  a different key ending in the same four in the same folder would match; and the same person signing in again in
+  that folder counts as the same account (by design).

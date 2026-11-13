@@ -4484,7 +4484,47 @@ function win32RegisterJob(name, o) {
 function win32TaskRecord(o) {
   const s = o || {};
   const model = typeof s.model === 'string' && s.model.trim() ? s.model.trim() : null;
-  return { runner: s.runner || 'claude', configDir: (typeof s.configDir === 'string' && s.configDir) ? s.configDir : null, model };
+  const runner = s.runner || 'claude';
+  const configDir = (typeof s.configDir === 'string' && s.configDir) ? s.configDir : null;
+  /* round 3: whose account the folder held when the task was written. A folder NAME is not an account: its sign-in can
+     go and another person's take its place under the same name (nextWorkDir reuses it), so the record keeps who it was,
+     and the readers put the folder back only while it still holds that account. `s.account` (register.repair keeping a
+     folder it could not reach) carries the identity it already had; otherwise it is read now. Null for the main account. */
+  const account = configDir === null ? null
+    : (s.account !== undefined ? (s.account || null) : win32AccountIdentity(runner, configDir));
+  return { runner, configDir, model, account };
+}
+/* kosmos#8478 round 3: the account a folder holds, as the account modules themselves read it (the identity their lists
+   show): Claude's sign-in (email and organization) or, for a Claude API key account, the key's last four characters;
+   OpenAI, Gemini and Grok through their own identityOf (sign-in email, or key ending). Lower-cased email, so a change of
+   case is not a different person. null when the folder holds no account Kosmos can read, or for a runner Kosmos keeps
+   no accounts for: then nothing can be checked, and a record holding null is never trusted with a folder. */
+function win32AccountIdentity(runner, dir) {
+  if (typeof dir !== 'string' || !dir) return null;
+  const shape = (who, extra) => {
+    if (!who) return null;
+    const email = typeof who.email === 'string' && who.email ? who.email.toLowerCase() : null;
+    const keyTail = typeof who.keyTail === 'string' && who.keyTail ? who.keyTail : null;
+    const org = extra && typeof extra.org === 'string' && extra.org ? extra.org : null;
+    if (!email && !keyTail) return null;
+    return { kind: (extra && extra.kind) || who.authMode || null, email, keyTail, org };
+  };
+  try {
+    if (!runner || runner === 'claude') {
+      const who = require('./accounts').identityOf(dir);
+      if (who) return shape(who, { kind: 'signin', org: who.organizationUuid || who.organization || null });
+      let key = '';
+      try { key = String(fs.readFileSync(require('./claudeaccounts').keyFile(dir), 'utf8')).trim(); } catch { key = ''; }
+      return key ? { kind: 'apikey', email: null, keyTail: key.slice(-4), org: null } : null;
+    }
+    const mod = runner === 'codex' ? './openaiaccounts' : runner === 'gemini' ? './geminiaccounts' : runner === 'grok' ? './grokaccounts' : null;
+    if (!mod) return null;
+    return shape(require(mod).identityOf(dir), null);
+  } catch { return null; }
+}
+function sameAccount(a, b) {
+  if (!a || !b) return false;
+  return ['kind', 'email', 'keyTail', 'org'].every((k) => (a[k] || null) === (b[k] || null));
 }
 /* Best effort and never a gate: a task that was written is the truth whether or not its note was. Written only into a
    profile that is already there (lstat: a profile that is a link still counts as there), so a task written before the
@@ -4534,7 +4574,7 @@ function win32TaskOnTask(name, fresh) {
   if (rec.configDir) {
     let there = false;
     try { there = fs.statSync(rec.configDir).isDirectory(); } catch { there = false; }
-    if (!there) return { ...rec, configDir: null, accountRemoved: true, why: 'missing' };
+    if (!there) return { ...rec, configDir: null, account: null, accountRemoved: true, why: 'missing' };
   }
   return rec;
 }
@@ -4579,9 +4619,27 @@ function win32RecordedTask(name, opts) {
   const accountRemoved = rec.accountRemoved === true;   // round 1: its account was removed (forgetWin32TaskAccount)
   // round 2: why 'missing' when the delete found the task's account folder not there (win32TaskOnTask), else removed.
   const accountGone = accountRemoved ? (rec.why === 'missing' ? 'missing' : 'removed') : null;
+  /* round 3: why a recorded folder cannot be put back, for the words and for the repair (which keeps only an
+     'unreachable' one in the record). 'unverifiable': the record holds no identity (written before the check, or the
+     folder held no account Kosmos could read then), so nothing says the folder still holds the same account, checked
+     FIRST so a folder on a disk not connected is never promised back once it returns. 'unreachable': the folder is not
+     a folder Kosmos can reach now. 'changed': its account now is not the recorded one, or cannot be read. 'unusable':
+     a folder this runner cannot be put on (win32AccountThere's other refusals), or a damaged value. */
+  let accountWhy = null;
+  const identity = rec.account && typeof rec.account === 'object' ? rec.account : null;
+  if (accountRemoved) accountWhy = accountGone;
+  else if (!dirShaped) accountWhy = 'unusable';
+  else if (configDir !== null) {
+    let reachable = false;
+    try { reachable = fs.statSync(configDir).isDirectory(); } catch { reachable = false; }
+    if (!identity) accountWhy = 'unverifiable';
+    else if (!reachable) accountWhy = 'unreachable';
+    else if (!win32AccountThere(runner, configDir)) accountWhy = 'unusable';
+    else if (!sameAccount(identity, win32AccountIdentity(runner, configDir))) accountWhy = 'changed';
+  }
   return {
-    configDir, model, accountRemoved, accountGone,
-    accountOk: !accountRemoved && dirShaped && win32AccountThere(runner, configDir),
+    configDir, model, identity, accountRemoved, accountGone, accountWhy,
+    accountOk: accountWhy === null,
     modelOk: modelShaped && win32ModelOffered(runner, model),
   };
 }
@@ -4828,6 +4886,8 @@ function installJob(name, opts) {
      the main account the task runs on, so the agent comes back on it at the next Start at login, if no change to the
      agent rewrites its task first (round 2). */
   const keepAccountWin = (opts && typeof opts.keepRecordedAccount === 'string' && opts.keepRecordedAccount) ? opts.keepRecordedAccount : null;
+  // round 3: with the identity it was recorded with (it cannot be read from a folder out of reach).
+  const keepIdentityWin = keepAccountWin && opts.keepRecordedIdentity && typeof opts.keepRecordedIdentity === 'object' ? opts.keepRecordedIdentity : null;
   /* 🛑 #570: WINDOWS HAS NO LAUNCHD, SO EVERYTHING BELOW THIS POINT IS MAC-ONLY.
      The rest of this function installs the supervisor script, writes a `.plist`,
      `launchctl enable`s the label and `bootstrap`s it. None of those exist on
@@ -4874,7 +4934,9 @@ function installJob(name, opts) {
       runner, runnerBin, configDir: configDirWin, model: modelArgWin,
     });
     if (!launched.ok) return { ok: false, because: launched.because };
-    recordWin32Task(clean, { runner, configDir: configDirWin || keepAccountWin, model: modelArgWin });   // kosmos#8478
+    recordWin32Task(clean, configDirWin || !keepAccountWin
+      ? { runner, configDir: configDirWin, model: modelArgWin }
+      : { runner, configDir: keepAccountWin, model: modelArgWin, account: keepIdentityWin });   // kosmos#8478
     return {
       ok: true,
       started: true,

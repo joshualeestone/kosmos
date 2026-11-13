@@ -900,7 +900,12 @@ function repair(opts) {
            comes back on it at the next Start at login, if no change to the agent rewrites its task first (round 2: a
            rewrite records what it wrote, the main account); the task itself runs on the main account meanwhile, and the
            agent never moves back on its own. */
-        if (!rec.accountOk && rec.configDir) recordOpts.keepRecordedAccount = rec.configDir;
+        /* round 3: only a folder it could not REACH, with the identity it was recorded with, so it is checked again
+           when it is back. One whose account changed or was never recorded is not kept: the record moves to main. */
+        if (rec.accountWhy === 'unreachable' && rec.configDir) {
+          recordOpts.keepRecordedAccount = rec.configDir;
+          recordOpts.keepRecordedIdentity = rec.identity;
+        }
         if (rec.modelOk) { model = rec.model; modelRecorded = true; }
       }
     }

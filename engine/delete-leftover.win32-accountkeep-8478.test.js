@@ -61,6 +61,14 @@ const ACCOUNT = nodePath.join(SANDBOX, '.claude-second8478');
 const SET_MODEL = 'claude-opus-5-5';      // setModel('opus55')
 const LAST_RAN = 'claude-haiku-4-5-20251001';
 const modelFor = () => LAST_RAN;
+/* round 3: ACCOUNT holds a real Claude sign-in (a record keeps whose account a folder held), and this is how the
+   record names it (create.win32AccountIdentity: email lower-cased, the organization). */
+const OWNER = { emailAddress: 'Owner@example.test', organizationUuid: 'org-8478' };
+const OWNER_IDENTITY = { kind: 'signin', email: 'owner@example.test', keyTail: null, org: 'org-8478' };
+const signIn = (dir, oauthAccount) => {   // an account as Claude Code leaves it: its folder, its sign-in in its config
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(require('./accounts').configFile(dir), JSON.stringify(oauthAccount ? { oauthAccount } : { theme: 'dark' }));
+};
 
 const win = {
   plan: (name) => leftover.plan(name, { platform: 'win32' }),
@@ -127,7 +135,7 @@ test.after(() => {
 });
 test.beforeEach(() => {
   status.setPaneSource(() => '');
-  fs.mkdirSync(ACCOUNT, { recursive: true });
+  signIn(ACCOUNT, OWNER);
 });
 test.afterEach(() => {
   status.setPaneSource(null);
@@ -145,7 +153,7 @@ test('kosmos#8478: an agent on another account and a chosen model comes back on 
   // The person changes its model: the real rewrite writes the task, and now records what it wrote.
   const set = create.setModel(name, 'opus55', { platform: 'win32' });
   assert.equal(set.outcome, create.OUTCOME.CREATED, JSON.stringify(set));
-  assert.deepEqual(store.readProfile(name).win32Task, { runner: 'claude', configDir: ACCOUNT, model: SET_MODEL },
+  assert.deepEqual(store.readProfile(name).win32Task, { runner: 'claude', configDir: ACCOUNT, model: SET_MODEL, account: OWNER_IDENTITY },
     'the task write did not record the account folder and model it wrote');
 
   const p = taskOnlyDelete(name);
@@ -163,7 +171,7 @@ test('kosmos#8478: an agent with NO record (its task written before this change)
   assert.equal(store.readProfile(name).win32Task, undefined, 'fixture: something is recorded');
   const p = taskOnlyDelete(name);
   // The delete read them from the task and recorded them before removing it.
-  assert.deepEqual(store.readProfile(name).win32Task, { runner: 'claude', configDir: ACCOUNT, model: SET_MODEL },
+  assert.deepEqual(store.readProfile(name).win32Task, { runner: 'claude', configDir: ACCOUNT, model: SET_MODEL, account: OWNER_IDENTITY },
     'the task-only delete did not record the account folder and model from the task first');
   assert.match(p.reassurance, /then use Start at login when Kosmos offers it; it starts on the account and model it was set to before\./);
   assert.match(p.said, /then use Start at login when Kosmos offers it; it starts on the account and model it was set to before\./);
@@ -186,11 +194,11 @@ test('kosmos#8478: an agent with nothing recorded whose task cannot be read at t
   startAtLogin(name);
   assert.deepEqual(writtenTask(name), { configDir: null, model: LAST_RAN }, 'with nothing recorded the repair did not fall back as before');
   // The task Start at login wrote is recorded, so the next time the agent comes back as it is now.
-  assert.deepEqual(store.readProfile(name).win32Task, { runner: 'claude', configDir: null, model: LAST_RAN },
+  assert.deepEqual(store.readProfile(name).win32Task, { runner: 'claude', configDir: null, model: LAST_RAN, account: null },
     'Start at login wrote a task and did not record it');
 });
 
-const CANNOT_REACH = /it starts on the model it was set to, but Kosmos cannot reach the account folder it used right now, so it starts on your main account unless that folder can be reached by then\. If that folder is on a disk or shared folder that is not connected, connect it first; otherwise choose its account again afterwards if it should use another\./;
+const CANNOT_REACH = /it starts on the model it was set to, but Kosmos cannot reach the account folder it used right now, so it starts on your main account unless that folder can be reached by then and still holds the same account\. If that folder is on a disk or shared folder that is not connected, connect it first; otherwise choose its account again afterwards if it should use another\./;
 
 test('kosmos#8478: a recorded account folder that cannot be reached falls back to the main account, says so, and comes back on it at the next Start at login, if no change to the agent rewrites its task first', WINDOWS_ONLY, () => {
   const name = agent('gone8478');
@@ -294,6 +302,60 @@ test('kosmos#8478 round 2: a Gemini account removed is forgotten in the records 
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
+test('kosmos#8478 round 3: a folder name is not an account: alice signs out, Kosmos will not remove the folder, bob signs in there, and the agent comes back on the main account', WINDOWS_ONLY, () => {
+  const accounts = require('./accounts');
+  const alice = accounts.nextWorkDir();
+  signIn(alice.dir, { emailAddress: 'alice@example.test', organizationUuid: 'org-alice' });
+  const name = agent('alice8478', { account: alice.dir });
+  try {
+    assert.equal(create.setModel(name, 'opus55', { platform: 'win32' }).outcome, create.OUTCOME.CREATED);
+    const recorded = store.readProfile(name).win32Task;
+    // Alice signs out of that folder: no account in it now, so Kosmos refuses to remove it, and the record stays.
+    signIn(alice.dir, null);
+    const refused = accounts.removeAccount(alice.dir, []);
+    assert.equal(refused.ok, false, 'fixture: the signed-out folder was removed after all: ' + JSON.stringify(refused));
+    // The folder holds no account, so the next sign-in is given it: bob.
+    const next = accounts.nextWorkDir();
+    assert.equal(nodePath.resolve(next.dir), nodePath.resolve(alice.dir), 'fixture: the folder name was not reused, so this guards nothing');
+    signIn(next.dir, { emailAddress: 'bob@example.test', organizationUuid: 'org-bob' });
+    const p = taskOnlyDelete(name);
+    startAtLogin(name);
+    // The outcome first, so a control against code without the check shows the wrong account, not only other words.
+    assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, 'the agent was put on bob\'s account');
+    const words = /it starts on the model it was set to, but on your main account, because the account in the folder it used has signed out or changed, so choose its account again if it should use another\./;
+    assert.match(p.reassurance, words);
+    assert.doesNotMatch(p.reassurance, /account and model it was set to before/, 'it promised the account it was set to, which is now bob\'s');
+    assert.match(p.said, words);
+    assert.equal(recorded.account && recorded.account.email, 'alice@example.test', 'the record did not keep whose account it was');
+  } finally { fs.rmSync(alice.dir, { recursive: true, force: true }); }
+});
+
+test('kosmos#8478 round 3: a record of a folder with no identity is never trusted: main account, and the words say so', WINDOWS_ONLY, () => {
+  const name = agent('noid8478');
+  // A record written before records kept whose account it was: the folder is there and holds an account, unverifiable.
+  store.writeProfile(name, { win32Task: { runner: 'claude', configDir: ACCOUNT, model: SET_MODEL } });
+  const p = taskOnlyDelete(name);
+  assert.match(p.reassurance, /it starts on the model it was set to, but on your main account, because Kosmos did not record whose account the folder it used held, so it cannot tell that folder still holds the same account, so choose its account again if it should use another\./);
+  startAtLogin(name);
+  assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
+});
+
+test('kosmos#8478 round 3: a Grok account removed is forgotten in the records that name it', () => {
+  const grok = require('./grokaccounts');
+  const home = nodePath.join(SANDBOX, grok.DIR_PREFIX + 'work8478');
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(grok.keyFile(home), 'xai-KosmosTestKeyNotARealKey0000000000');
+  assert.ok(grok.identityOf(home), 'fixture: the folder is not a Grok account');
+  const name = 'grok8478';
+  made.push(name);
+  store.writeProfile(name, { displayName: name, provider: 'xai', win32Task: { runner: 'grok', configDir: home, model: null } });
+  try {
+    const out = grok.removeAccount(home, []);
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.deepEqual(store.readProfile(name).win32Task, { runner: 'grok', configDir: null, model: null, accountRemoved: true });
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
 test('kosmos#8478 round 1: an OpenAI account removed or disconnected is forgotten in the records that name it, and only those', () => {
   const oa = require('./openaiaccounts');
   const home = nodePath.join(SANDBOX, '.codex-work8478');
@@ -341,7 +403,7 @@ test('kosmos#8478: a recorded account folder that is a junction leading nowhere 
 test('kosmos#8478: a recorded model no longer offered falls back to the model it last ran, and says so; the account stays', WINDOWS_ONLY, () => {
   const name = agent('retired8478');
   // A model that has since left the list (setModel would refuse it now, so the record is written as an old task left it).
-  store.writeProfile(name, { win32Task: { runner: 'claude', configDir: ACCOUNT, model: 'claude-opus-3' } });
+  store.writeProfile(name, { win32Task: { runner: 'claude', configDir: ACCOUNT, model: 'claude-opus-3', account: OWNER_IDENTITY } });
   const p = taskOnlyDelete(name);
   assert.match(p.reassurance, /it starts on the account it was set to, but on the model it last ran, because the model it was set to is no longer offered, so choose its model again if it used another\./);
   startAtLogin(name);
@@ -380,5 +442,12 @@ test('kosmos#8478: a record for another runner, and a Qwen agent, are never read
   assert.equal(create.win32RecordedTask(qwen), null, 'a Qwen agent is restored from qwenAccount, never from this record');
   // CONTROL: the same record, for the runner the agent does run, is read.
   store.writeProfile(codex, { win32Task: { runner: 'codex', configDir: ACCOUNT, model: 'gpt-5.5' } });
-  assert.deepEqual(create.win32RecordedTask(codex), { configDir: ACCOUNT, model: 'gpt-5.5', accountRemoved: false, accountGone: null, accountOk: true, modelOk: true });
+  const read = create.win32RecordedTask(codex);
+  assert.ok(read, 'the record for the runner the agent runs was not read');
+  assert.equal(read.configDir, ACCOUNT);
+  assert.equal(read.model, 'gpt-5.5');
+  assert.equal(read.modelOk, true);
+  // round 3: it holds no identity, so its folder is never trusted.
+  assert.equal(read.accountOk, false);
+  assert.equal(read.accountWhy, 'unverifiable');
 });
