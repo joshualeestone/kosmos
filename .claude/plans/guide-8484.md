@@ -96,8 +96,8 @@ that wording turns them red.
   Fixed: excused as a test seam with its reason, as its neighbours are.
 - [BLOCKER] final-validation: engine/windows-tests-1777.test.js, the new test file branched on a win32 host and
   nothing runs it on Windows. Fixed: the one Windows branch is now skipOnWin32 with the kosmos#8378 exception reason
-  (what it checks exists on Windows; the arm is owed by kosmos#8466), and the file is in HOST_BRANCH_EXCLUDED.
-  So this file does not run on Windows yet; its Windows arm comes with #8466.
+  (what it checks exists on Windows), and the file is in HOST_BRANCH_EXCLUDED, so it does not run on Windows.
+  (The reason first named #8466 as owing the arm; after the rebase it names this card, see below.)
 
 #### Iteration 3 (sonnet)
 - WARNING, DEFERRED: a removed guide with no flag is refused every sweep with no back-off, and "Put it back" might
@@ -132,3 +132,11 @@ that wording turns them red.
   platform seam; running the real-create job arm against a real Scheduled Task is owed on this card.
 - Final validation 2 (before the rebase) had 1 failure in 28927, a #6668 watchdog test unrelated to this branch; the
   whole suite run twice more passed 28438 with 0 failures.
+
+#### Iteration 6 (opus, after the rebase and state 4)
+- No BLOCKERs, WARNINGs or CONVENTIONs. Converged.
+- NITs fixed: the existingGuide comment says partial lines count and can only block; this plan's older #8466 lines.
+- NITs left, carried to the card as follow-ups: three more create refusals that never clear by waiting (a startup
+  file Kosmos did not make, systemd still running it, a job with nothing else left) still show "Try again in a
+  moment"; the profile read when no line matched, and the second adoptExisting inside the seed; the page's unclear
+  sentence names only Josh when the guide in doubt is Josh AI.

@@ -3153,7 +3153,8 @@ function guideNameStrict() {
    create and the write). The seed then found "Josh" taken and made a SECOND guide, "Josh AI". So before any create,
    each guide name is checked for the guide itself, by one of two things:
    - its marker (.kosmos-setup-guide) in its folder, which only the seed writes;
-   - or, when the marker was never written, its birth record: the NEWEST created line for that machine name, if it is
+   - or, when the marker was never written, its birth record: the NEWEST created or partial line for that machine name
+     (a partial line carries no id, so it can only block adoption, never cause it), if it is
      the guide's (create.isAutoGuideBirth) and its id is the id the agent's profile carries now. Only the newest
      line counts, so a person's own later agent under that name stays theirs; and a line whose id does not match the
      profile (a torn line, or an older guide's folder reused) adopts nothing. A read only: the caller writes the
