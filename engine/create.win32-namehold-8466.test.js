@@ -292,3 +292,75 @@ test('kosmos#8466: a leftover task under the setup guide\'s first name makes the
   assert.equal(again.seeded, false);
   assert.deepEqual(tried, [setupAssistant.GUIDE_NAME], 'a removed guide was made again under its second name');
 });
+
+/* kosmos#8466 review 2: ensureGuide, the automatic path, with the real create behind it (no model fields: the test's
+   account rows are placeholders). Explicit, so the arm and the retry wait do not stand in the way. */
+async function ensureNow(tried) {
+  const setupAssistant = require('./setup-assistant');
+  setupAssistant.resetEnsureGuideForTests();
+  create.setRunner(() => ({ ok: true, stdout: '' }));
+  create.setDryRun(false);
+  jobfixture.useJobStore();
+  try {
+    return await setupAssistant.ensureGuide({
+      createAgent: (o) => { tried.push(o.name); return create.createAgent({ ...BINS, name: o.name, role: o.role, createdBy: o.createdBy, purpose: o.purpose }); },
+      explicit: true,
+      via: 'settings',
+      deps: {
+        enabled: true,
+        listFor: (mod) => (mod === './accounts' ? [{ dir: nodePath.join(SANDBOX, 'claude-home'), isDefault: true }] : []),
+        connectable: async () => ({ ok: true }),
+        liveDefault: async () => true,
+        avatarDir: nodePath.join(SANDBOX, 'avatars'),
+      },
+    });
+  } finally { create.setDryRun(true); create.setRunner(null); }
+}
+
+test('kosmos#8466 review 2: a guide already here with no seeded flag is adopted, never made a second time', onlyWin, async () => {
+  const setupAssistant = require('./setup-assistant');
+  const first = create.slugFor(setupAssistant.GUIDE_NAME);
+  const second = create.slugFor(setupAssistant.GUIDE_FALLBACK_NAME);
+  made.push(first, second);
+  try {
+    // The guide, made and marked; then its flag lost (a failed write, or the board died before it).
+    const tried = [];
+    const made1 = await ensureNow(tried);
+    assert.equal(made1.seeded, true, made1.reason || '');
+    assert.equal(made1.name, first, 'PREMISE: the guide was not made under its first name');
+    assert.ok(setupAssistant.isGuideFolder(first) && taskThere(first), 'PREMISE: the guide is not whole');
+    fs.rmSync(setupAssistant.flagPath(), { force: true });
+
+    // Healthy (folder, marker and task): adopted, nothing made, the flag written again.
+    tried.length = 0;
+    const r = await ensureNow(tried);
+    assert.deepEqual(tried, [setupAssistant.GUIDE_NAME], 'a second guide was made beside a healthy one');
+    assert.equal(r.seeded, true, r.reason || '');
+    assert.equal(r.name, first);
+    assert.equal(setupAssistant.guideName(), first, 'the seeded flag was not written for the guide already here');
+    assert.ok(!fs.existsSync(create.workerDir(second)), 'a second guide folder was made');
+
+    // Its folder with no startup job: still the guide, so adopted too (a second guide would not mend its job).
+    fs.rmSync(setupAssistant.flagPath(), { force: true });
+    fs.rmSync(jobfixture.jobPath(first), { force: true });
+    tried.length = 0;
+    const r2 = await ensureNow(tried);
+    assert.deepEqual(tried, [setupAssistant.GUIDE_NAME], 'a second guide was made beside a guide folder with no job');
+    assert.equal(r2.seeded, true, r2.reason || '');
+    assert.equal(setupAssistant.guideName(), first);
+  } finally { fs.rmSync(setupAssistant.flagPath(), { force: true }); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('kosmos#8466 review 2: both guide names held by something else stop the automatic path for good (names taken)', onlyWin, async () => {
+  const setupAssistant = require('./setup-assistant');
+  const first = leftoverTask(create.slugFor(setupAssistant.GUIDE_NAME));
+  const second = leftoverTask(create.slugFor(setupAssistant.GUIDE_FALLBACK_NAME));
+  try {
+    const tried = [];
+    const r = await ensureNow(tried);
+    assert.deepEqual(tried, [setupAssistant.GUIDE_NAME, setupAssistant.GUIDE_FALLBACK_NAME]);
+    assert.equal(r.seeded, false);
+    assert.equal(r.state, 'names-taken', 'both names refused as held, and the guide still retries: ' + r.reason);
+    assert.ok(taskThere(first) && taskThere(second), 'a leftover task was overwritten');
+  } finally { fs.rmSync(setupAssistant.flagPath(), { force: true }); setupAssistant.resetEnsureGuideForTests(); }
+});

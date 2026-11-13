@@ -24,7 +24,20 @@ job", whose delete removes only the task.
     about the name (field 'name', #2606; the old sentence still counts for a caller with no field), except a name on
     the removed list: the person took that guide off the board, and a second guide would undo that (as before, nothing
     is made then). This also helps macOS and Linux, where a leftover job or folder, or a name already running, under
-    the guide's first name had the same silent gap. A healthy Windows guide keeps working (the "already an agent" case).
+    the guide's first name had the same silent gap. (Corrected in review 2: as written in round 1 this made a SECOND
+    guide whenever the guide itself held the name and its seeded flag was missing; see below.)
+- Review 2 (no blocker; 1 warning, 1 nit), both fixed:
+  - WARNING (reproduced by the reviewer): a guide "Josh" already here (folder, marker, task) whose seeded flag is
+    missing (a failed write, or the board died between the create and the write) was refused as "already an agent
+    called", and the seed then made "Josh AI" beside it. On macOS main did the same (that sentence was the one it
+    moved on for); on Windows main stopped. Now a name whose folder carries the guide's marker (isGuideFolder) is
+    ADOPTED: returned as seeded, ensureGuide writes the flag, nothing is made. Also when its folder has no startup job:
+    it is still the guide, and a second guide would not mend its job (its page and the restart notice deal with that).
+    Only a name held by something that is not the guide (a leftover task, another agent) moves on. Weakest part: a
+    guide whose marker was never written (the board died after the create, before the mark) still reads as another
+    agent's name, so the second name is tried. Would change my mind: a birth record readable here that names the guide.
+  - Nit: ensureGuide stops for the process (names-taken) on the seed's own answer that both names are held by
+    something other than the guide (namesTaken), not only on the "already an agent called" sentence.
   - Nit: the team step gives a seat held only by a leftover Windows task create's own words (create.win32HeldTaskWords,
     after "the <seat>'s name:"), not "there is already an agent ... already on your board".
   - Nit: the comment above win32HeldTaskWords reworded (each sentence ends with its own full stop) and wrapped.
@@ -45,5 +58,6 @@ job", whose delete removes only the task.
 New file 7 tests: 6 fail on main's create.js (test 1 pins macOS and Linux, unchanged, by design). create.test.js 130/1
 on main's source, 131/0 here (111 skipped either way). teamseed 29, the delete-leftover files and the policy tests
 unchanged and passing.
+After review 2: 10/10; against e56dd9f28c's setup-assistant.js, tests 9 and 10 fail.
 After review 1: 8/8. Against ca23722255's source, one file at a time: setup-assistant.js fails test 8; teamseed.js fails
 test 7; create.js fails 3, 4 and 7. Test 8's removed-list control fails with that exception taken out.
