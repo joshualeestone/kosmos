@@ -5007,9 +5007,15 @@ function installJob(name, opts) {
       runner, runnerBin, configDir: configDirWin, model: modelArgWin,
     });
     if (!launched.ok) return { ok: false, because: launched.because };
+    /* kosmos#8478 round 7: an identity is read only when the caller says the folder is verified now
+       (opts.accountVerified: register.repair after its identity check, discover's adoption that just chose it). A
+       folder carried from elsewhere (worldstarts: read from another Kosmos's task at import, used when this one next
+       opens, by which time its account may have been disconnected and its name reused) is recorded with none, which
+       Start at login never trusts. */
+    const verifiedWin = Boolean(opts && opts.accountVerified === true);
     recordWin32Task(clean, configDirWin || !keepAccountWin
-      ? { runner, configDir: configDirWin, model: modelArgWin, accountChosen: true }   // round 6: repair onto a verified account, or an adoption
-      : { runner, configDir: keepAccountWin, model: modelArgWin, account: keepIdentityWin, kept: true, accountChosen: true });   // kosmos#8478
+      ? { runner, configDir: configDirWin, model: modelArgWin, accountChosen: true, ...(verifiedWin ? {} : { account: null }) }
+      : { runner, configDir: keepAccountWin, model: modelArgWin, account: keepIdentityWin, kept: true, accountChosen: true });
     return {
       ok: true,
       started: true,

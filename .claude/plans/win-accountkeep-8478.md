@@ -52,12 +52,14 @@ and the last model it ran.
   its chosen model but comes back on the main account. The account wrappers run the removal first and the record step
   after it inside a try, Windows only, so the step can never fail a removal.
 - Round 6: the same rule at WRITE time. An identity is read only when the account folder is newly chosen: creation,
-  an account move (setAccount and the per-provider setters, the put-back), a provider switch, and installJob (repair
-  onto a verified account, or an adoption). A rewrite that keeps the task's folder (setModel) reads none and carries
+  an account move (setAccount and the per-provider setters, the put-back), a provider switch, and installJob only
+  when its caller passes accountVerified (round 7: register.repair after its identity check, discover's adoption that
+  just chose the account). Any other installJob folder (worldstarts' import, read from another Kosmos's task earlier)
+  is recorded with no identity. A rewrite that keeps the task's folder (setModel) reads none and carries
   the record over by refreshedRecord's rules: main, or disconnected or removed, stays so; the same folder keeps the
   identity recorded when it was chosen; another folder, or no record, gets none (main at Start at login). It drops a
   folder repair kept. Tests set a recorded agent up as a person does: account chosen, then model.
-- Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (19).
+- Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (20).
 
 ## Decided, not missed
 - Windows only: on macOS and Linux the plist or unit is the source of truth and nothing in Kosmos removes it alone.

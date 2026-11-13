@@ -257,6 +257,37 @@ test('kosmos#8478 round 6: a model change after the disconnect and bob\'s sign-i
   }
 });
 
+test('kosmos#8478 round 7: installJob given a folder it was not told is verified (an import read it earlier) records no identity, so bob\'s reused folder is never trusted', WINDOWS_ONLY, () => {
+  const accounts = require('./accounts');
+  const alice = accounts.nextWorkDir();
+  signIn(alice.dir, { emailAddress: 'alice@example.test', organizationUuid: 'org-alice' });
+  const name = agent('import8478', { account: alice.dir });
+  fs.rmSync(jobfix.jobPath(name), { force: true });   // no task yet: an imported agent waiting for this Kosmos to open
+  let aside = null;
+  try {
+    // Between the import reading alice's folder and this Kosmos starting it: alice disconnected, bob reuses the name.
+    const out = accounts.forgetAccount(alice.dir, []);
+    assert.equal(out.ok, true, JSON.stringify(out));
+    aside = out.movedTo || null;
+    const next = accounts.nextWorkDir();
+    assert.equal(nodePath.resolve(next.dir), nodePath.resolve(alice.dir), 'fixture: the folder name was not reused, so this guards nothing');
+    signIn(next.dir, { emailAddress: 'bob@example.test', organizationUuid: 'org-bob' });
+    // The import's start (worldstarts) hands installJob the folder it read, without saying it is verified.
+    const started = create.installJob(name, { platform: 'win32', configDir: alice.dir, model: SET_MODEL });
+    assert.equal(started.ok, true, JSON.stringify(started));
+    const rec = store.readProfile(name).win32Task;
+    assert.equal(rec.configDir, alice.dir, 'fixture: the task folder was not recorded');
+    assert.equal(rec.account, null, 'installJob recorded bob as the account of a folder nobody verified: ' + JSON.stringify(rec.account));
+    // So when its task goes, Start at login does not trust it.
+    taskOnlyDelete(name);
+    startAtLogin(name);
+    assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, 'the agent was put on bob\'s account');
+  } finally {
+    fs.rmSync(alice.dir, { recursive: true, force: true });
+    if (aside) fs.rmSync(aside, { recursive: true, force: true });
+  }
+});
+
 test('kosmos#8478: an agent with nothing recorded whose task cannot be read at the delete comes back on the main account and the model it last ran, as before, and is recorded from then on', WINDOWS_ONLY, (t) => {
   const name = agent('old8478');
   assert.equal(store.readProfile(name).win32Task, undefined, 'fixture: something is recorded');
