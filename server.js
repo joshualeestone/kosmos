@@ -6911,8 +6911,9 @@ function rosterNameFor(name, roster) {
 /* kosmos#8501: `kosmos task add --who <agent> --add-member` and `kosmos task assign ... --add-member` put an agent that
    is not on the project on it, then give it the task, in one request. Without it the non-member refusal named no way
    forward, so agents gave the task to someone else and messaged the specialist, and the board showed the wrong owner.
-   Who may: whoever may call the member route (POST /api/project/<id>/agent/<name>), which is not an agent-token route,
-   so a caller the board let in on an agent token alone (tokenOnly) is refused here as it would be there. A process is
+   Who may: whoever may call the member route (POST /api/project/<id>/agent/<name>). It is not in AGENT_TOKEN_ROUTES or
+   AGENT_TOKEN_ROUTE_PATTERNS, so the board-token gate refuses a caller holding only an agent token; tokenOnly is that
+   caller here (agentTokenOnlyCaller), refused the same way. A process is
    counted by the membership valve and recorded in memberChanges. The agent must be one this board runs
    (rosterNameFor), so a mistyped name adds nobody. The routes take the member off again if the task is then not given
    (undoJoinForTask), and type the joined line only once it has.
@@ -6973,8 +6974,9 @@ function undoJoinForTask(id, name, viaScreen, heldAtAdd) {
 /* kosmos#8501: the answer for a refused task after an add: the words, with addedMember when the agent stayed on. */
 function joinFailure(joined, outcome, msg, notDone) {
   if (!joined || outcome === 'off') return { error: msg };
-  const why = outcome === 'kept' ? ' stays on the project, because it holds work there now, but ' : ' was put on the project and could not be taken off again, and ';
-  return { error: oneLinePlain(joined) + why + notDone + ': ' + msg, addedMember: joined };
+  // Kept: work reached it, possibly this very task (an error after the create), so nothing is said about the task.
+  if (outcome === 'kept') return { error: oneLinePlain(joined) + ' stays on the project, because it holds work there now: ' + msg, addedMember: joined };
+  return { error: oneLinePlain(joined) + ' was put on the project and could not be taken off again, and ' + notDone + ': ' + msg, addedMember: joined };
 }
 /* kosmos#8501: once the task is given, the joined line the member route types into a running agent's pane. Best effort:
    the task's own tell has already written the project into the agent's instructions. */
@@ -27342,7 +27344,6 @@ const server = http.createServer(async (req, res) => {
         if (typeof j.name === 'string' && j.name) asked.who = j.name;   // the agent as the board runs it
         if (j.added) { joined = j.name; heldAtAdd = j.heldAtAdd; }
       }
-      // A member added above for a task that is then not moved is taken off again; only if that fails does it stay.
       // A member added above for a task that is then not moved is taken off again unless it holds work there by now.
       const failed = (code, msg, extra = {}) => sendJson(res, code,
         { ...joinFailure(joined, joined ? undoJoinForTask(id, joined, viaScreen, heldAtAdd) : 'off', msg, 'the task was not moved'), ...extra });
