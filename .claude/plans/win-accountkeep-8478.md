@@ -8,8 +8,9 @@ removing the task (#8475's task-only leftover delete) lost them, and Start at lo
 and the last model it ran.
 
 ## Change (Windows only)
-- create.js records profile.win32Task = { runner, configDir, model } whenever the task is written (sync rewrite, async
-  put-back, installJob's Windows arm, creation); win32RecordedTask reads it and says whether the folder and model are
+- create.js records profile.win32Task = { runner, configDir, model, account } whenever the task is written (sync
+  rewrite, async put-back, installJob's Windows arm, creation), where `account` is whose account the folder held, read
+  only when that folder is newly chosen (round 6; see below); win32RecordedTask reads it and says whether the folder and model are
   still usable (statSync: a dead junction is unusable).
 - register.js repair uses the recorded folder and model where usable, falling back per item.
 - delete-leftover.js startsAgainWords and remove.js's Restore say which comes back, with the same reader as repair.
@@ -50,7 +51,13 @@ and the last model it ran.
   login never trusts (main account, words that say so). So an agent whose task was written before this change keeps
   its chosen model but comes back on the main account. The account wrappers run the removal first and the record step
   after it inside a try, Windows only, so the step can never fail a removal.
-- Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (18).
+- Round 6: the same rule at WRITE time. An identity is read only when the account folder is newly chosen: creation,
+  an account move (setAccount and the per-provider setters, the put-back), a provider switch, and installJob (repair
+  onto a verified account, or an adoption). A rewrite that keeps the task's folder (setModel) reads none and carries
+  the record over by refreshedRecord's rules: main, or disconnected or removed, stays so; the same folder keeps the
+  identity recorded when it was chosen; another folder, or no record, gets none (main at Start at login). It drops a
+  folder repair kept. Tests set a recorded agent up as a person does: account chosen, then model.
+- Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (19).
 
 ## Decided, not missed
 - Windows only: on macOS and Linux the plist or unit is the source of truth and nothing in Kosmos removes it alone.

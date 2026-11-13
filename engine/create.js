@@ -1755,7 +1755,7 @@ function setAccount(name, dir, opts) {
   }
 
   const unwritten = rewriteAgentJob(clean, spoken, {
-    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir: acct.isDefault ? null : acct.dir, runner: job.runner,
+    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir: acct.isDefault ? null : acct.dir, runner: job.runner, accountChosen: true,   // kosmos#8478 round 6: a newly chosen account
   }, platform);
   if (unwritten) return unwritten;
 
@@ -1872,7 +1872,7 @@ function restoreAccountPrep(name, dir, platform) {
   }
   return {
     ok: true, clean, spoken, job, configDir, qwenJob, qwenBefore,
-    fields: { runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: job.runner },
+    fields: { runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: job.runner, accountChosen: true },   // kosmos#8478 round 6: the put-back chooses it
   };
 }
 
@@ -1989,7 +1989,7 @@ function setCodexAccount(clean, spoken, dir, job, platform) {
      a task) and `job.model` is kept: an account swap is not a runner or model
      change. Runner stays codex. */
   const unwritten = rewriteAgentJob(clean, spoken, {
-    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir: homeArg, runner: 'codex',
+    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir: homeArg, runner: 'codex', accountChosen: true,   // kosmos#8478 round 6: a newly chosen account
   }, platform);
   if (unwritten) return unwritten;
   /* 🛑 TRUST THE FOLDER IN THE HOME THE AGENT WILL ACTUALLY BOOT, tied to
@@ -2050,7 +2050,7 @@ function setGeminiAccount(clean, spoken, dir, job, platform) {
     configDir = acct.isDefault ? null : acct.dir;
   }
   const unwritten = rewriteAgentJob(clean, spoken, {
-    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: 'gemini',
+    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: 'gemini', accountChosen: true,   // kosmos#8478 round 6: a newly chosen account
   }, platform);
   if (unwritten) return unwritten;
   // #6231 item 8: report the configDir written so account-move can cache the `to` read.
@@ -2089,7 +2089,7 @@ function setQwenAccount(clean, spoken, dir, job, platform) {
   try { store.writeProfile(clean, { qwenAccount: acct.dir }); }
   catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which Qwen account ${spoken} is on, so nothing was changed` }; }
   const unwritten = rewriteAgentJob(clean, spoken, {
-    runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'codex',
+    runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'codex', accountChosen: true,   // kosmos#8478 round 6: a newly chosen account
   }, platform);
   if (unwritten) {
     try { store.writeProfile(clean, { qwenAccount: before }); } catch { /* the job did not move, so Repair finds it */ }
@@ -2120,7 +2120,7 @@ function setVendorAccount(clean, spoken, dir, job, platform, v) {
   try { store.writeProfile(clean, { vendorAccount: acct.dir }); }
   catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which ${v.name} account ${spoken} is on, so nothing was changed` }; }
   const unwritten = rewriteAgentJob(clean, spoken, {
-    runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'claude',
+    runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'claude', accountChosen: true,   // kosmos#8478 round 6: a newly chosen account
   }, platform);
   if (unwritten) {
     try { store.writeProfile(clean, { vendorAccount: before }); } catch { /* the job did not move, so Repair finds it */ }
@@ -2143,7 +2143,7 @@ function setGrokAccount(clean, spoken, dir, job, platform) {
     configDir = acct.isDefault ? null : acct.dir;
   }
   const unwritten = rewriteAgentJob(clean, spoken, {
-    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: 'grok',
+    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: 'grok', accountChosen: true,   // kosmos#8478 round 6: a newly chosen account
   }, platform);
   if (unwritten) return unwritten;
   // #6231 item 8: report the configDir written so account-move can cache the `to` read.
@@ -2677,7 +2677,7 @@ function setProvider(name, provider, opts) {
     /* The account rides into the launch job as CODEX_HOME (#1313). `null` here
        meant the default home, which is the home the add path never writes. */
     const unwritten = rewriteAgentJob(clean, spoken, {
-      runnerBin, tmux: job.tmux, model: null, runner, configDir:
+      runnerBin, tmux: job.tmux, model: null, runner, accountChosen: true, configDir:   // kosmos#8478 round 6: a newly chosen account
       /* 🔑 #1600: THE DEFAULT ROW WRITES NO HOME, WHICH IS THE RULE THE REST OF THIS
          FILE ALREADY FOLLOWS. This used to write `openaiAccount.dir` for EVERY row
          including the default one, so an agent SWITCHED onto the default row had that
@@ -4545,9 +4545,25 @@ function sameAccount(a, b) {
 /* Best effort and never a gate: a task that was written is the truth whether or not its note was. Written only into a
    profile that is already there (lstat: a profile that is a link still counts as there), so a task written before the
    profile exists (an adoption) never makes a profile appear; creation records it in its own profile write instead. */
+/* round 6: an identity is read only when the account folder is NEWLY CHOSEN (`o.accountChosen`: creation, an account
+   move or provider switch, installJob's repair onto a verified account). A rewrite that keeps the folder the task
+   already had (setModel) reads none: after a disconnect the task still names the old folder, and whoever signed in
+   there since is not who the agent was set up on. So such a write carries the record over by refreshedRecord's rules
+   (a record on the main account or for a disconnected or removed account stays so; the same folder keeps the identity
+   recorded when it was chosen; any other folder, or no record, gets none, which Start at login never trusts), with the
+   new model. A folder repair kept (`kept`) is dropped by any such rewrite, as the plan says. */
 function recordWin32Task(name, o) {
   try { fs.lstatSync(store.profilePath(name)); } catch { return false; }
-  try { store.writeProfile(name, { win32Task: win32TaskRecord(o) }); return true; } catch { return false; }
+  let rec;
+  if (o && o.accountChosen === true) rec = win32TaskRecord(o);
+  else {
+    let existing = null;
+    try { existing = store.readProfile(name).win32Task || null; } catch { existing = null; }
+    if (existing && existing.kept === true) existing = null;
+    rec = refreshedRecord(existing, win32TaskRecord({ ...(o || {}), account: null }));
+  }
+  if (!rec) return false;
+  try { store.writeProfile(name, { win32Task: rec }); return true; } catch { return false; }
 }
 /* Whether a recorded model can still be put back in a task for this runner: none (the runner's own default); a Claude
    model still on the list (a retired one is not); for Codex, Gemini, Grok and Antigravity, a well-formed id that is not
@@ -4597,10 +4613,6 @@ function win32TaskOnTask(name, fresh) {
   }
   return rec;
 }
-/* kosmos#8478: every agent whose task was last written before the record existed has none, and those are the agents a
-   task-only leftover delete (delete-leftover.del) reaches first. So just before that delete removes the task, an agent
-   with no record gets one, read from the task itself. Best effort: false when a record is already there (it is the
-   newer truth), the task cannot be read, or the write fails, and the delete goes ahead either way. */
 /* kosmos#8478 round 4: the record to keep when the task can be read just before it goes. The TASK is the truth: a
    record can be stale (its write is best effort, and an older Kosmos can rewrite the task after a downgrade), so the
    record is refreshed from it. Two things of the old record survive: a folder repair deliberately kept because it
@@ -4633,6 +4645,10 @@ function refreshedRecord(existing, fromTask) {
   }
   return task;
 }
+/* kosmos#8478: just before the task-only leftover delete (delete-leftover.del) removes the task, the record is refreshed
+   from it (round 4: the task is the truth, by refreshedRecord's rules above, and never with an identity read now). Best
+   effort: false when the task cannot be read, the kept record stays as it is, or the write fails; the delete goes
+   ahead either way. */
 function recordWin32TaskFromTask(name) {
   let existing;
   try { existing = store.readProfile(name).win32Task; } catch { return false; }
@@ -4723,8 +4739,9 @@ function forgetWin32TaskAccount(dir) {
   }
   return cleared;
 }
-/* The one step the account modules' forgetAccount and removeAccount take after they answer (accounts.js and
-   openaiaccounts.js wrap their exports with it): on success, forget the folder in the records. Hands the answer back
+/* The one step the account modules' forgetAccount and removeAccount take after they answer (accounts.js,
+   openaiaccounts.js, geminiaccounts.js and grokaccounts.js wrap their exports with it): on success, forget the folder
+   in the records. Hands the answer back
    unchanged; a failure here is swallowed, because the account is gone either way. */
 function afterAccountGone(dir, out) {
   // round 5: Windows only, and never able to fail the removal (the wrappers call this after it, inside a try).
@@ -4991,8 +5008,8 @@ function installJob(name, opts) {
     });
     if (!launched.ok) return { ok: false, because: launched.because };
     recordWin32Task(clean, configDirWin || !keepAccountWin
-      ? { runner, configDir: configDirWin, model: modelArgWin }
-      : { runner, configDir: keepAccountWin, model: modelArgWin, account: keepIdentityWin, kept: true });   // kosmos#8478
+      ? { runner, configDir: configDirWin, model: modelArgWin, accountChosen: true }   // round 6: repair onto a verified account, or an adoption
+      : { runner, configDir: keepAccountWin, model: modelArgWin, account: keepIdentityWin, kept: true, accountChosen: true });   // kosmos#8478
     return {
       ok: true,
       started: true,

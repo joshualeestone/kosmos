@@ -575,7 +575,8 @@ function plan(name, opts) {
      `missing` (folder, profile, no job) and Start at login (register.repair, create.installJob) registers the task again,
      on the account folder and model the profile recorded when the task was written (kosmos#8478), or, where nothing was
      recorded or it cannot be put back, the main account and the model it last ran (see startsAgainWords). So the
-     recorded-folder checks settings alone need (strandedRefusal) do not refuse here: nothing they protect is touched. Refused: a name waiting to start (the list leaves it out), and any task while the workers
+     recorded-folder checks settings alone need (strandedRefusal) do not refuse here: nothing they protect is touched.
+     Refused: a name waiting to start (the list leaves it out), and any task while the workers
      folder itself is missing, behind a dead link or cannot be checked (every agent would read like this). review 4: when
      strandedRefusal would have refused (its recorded folder out of sight, gone or behind a dead link: perhaps an
      unplugged disk or a dropped share), the task still goes alone, but the name is typed and the plan says why first. */

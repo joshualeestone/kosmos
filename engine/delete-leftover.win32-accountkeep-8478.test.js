@@ -68,7 +68,17 @@ const OWNER_IDENTITY = { kind: 'signin', email: 'owner@example.test', keyTail: n
 const signIn = (dir, oauthAccount) => {   // an account as Claude Code leaves it: its folder, its sign-in in its config
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(require('./accounts').configFile(dir), JSON.stringify(oauthAccount ? { oauthAccount } : { theme: 'dark' }));
+  // Sharing this computer's agent history, as Kosmos sets an account up, so an agent may be moved onto it (setAccount).
+  fs.mkdirSync(nodePath.join(SANDBOX, '.claude', 'projects'), { recursive: true });
+  if (oauthAccount) require('./accounts').share(dir);
 };
+/* round 6: an identity is read only when an account is CHOSEN, so a recorded agent is set up the way a person does it:
+   its account chosen (setAccount), then its model (setModel, which reads none). */
+function chooseThenModel(name, dir, modelKey) {
+  const moved = create.setAccount(name, dir, { platform: 'win32' });
+  assert.equal(moved.outcome, create.OUTCOME.CREATED, 'fixture: the account move was refused: ' + JSON.stringify(moved));
+  return create.setModel(name, modelKey, { platform: 'win32' });
+}
 
 const win = {
   plan: (name) => leftover.plan(name, { platform: 'win32' }),
@@ -151,7 +161,7 @@ test.afterEach(() => {
 test('kosmos#8478: an agent on another account and a chosen model comes back on both after its task alone was removed', WINDOWS_ONLY, () => {
   const name = agent('keep8478');
   // The person changes its model: the real rewrite writes the task, and now records what it wrote.
-  const set = create.setModel(name, 'opus55', { platform: 'win32' });
+  const set = chooseThenModel(name, ACCOUNT, 'opus55');
   assert.equal(set.outcome, create.OUTCOME.CREATED, JSON.stringify(set));
   assert.deepEqual(store.readProfile(name).win32Task, { runner: 'claude', configDir: ACCOUNT, model: SET_MODEL, account: OWNER_IDENTITY },
     'the task write did not record the account folder and model it wrote');
@@ -190,7 +200,7 @@ test('kosmos#8478 round 5: a disconnected account whose folder name bob reuses n
   const legacy = agent('discold8478', { account: alice.dir, model: SET_MODEL });   // never recorded
   let aside = null;
   try {
-    assert.equal(create.setModel(rec, 'opus55', { platform: 'win32' }).outcome, create.OUTCOME.CREATED);
+    assert.equal(chooseThenModel(rec, alice.dir, 'opus55').outcome, create.OUTCOME.CREATED);
     // Alice's account is disconnected; both tasks still name the folder.
     const out = accounts.forgetAccount(alice.dir, []);
     assert.equal(out.ok, true, JSON.stringify(out));
@@ -208,6 +218,38 @@ test('kosmos#8478 round 5: a disconnected account whose folder name bob reuses n
       assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, `${name} was put on bob's account`);
       assert.match(p.reassurance, why, `${name}: the plan's words`);
       assert.match(p.said, why, `${name}: the outcome's words`);
+    }
+  } finally {
+    fs.rmSync(alice.dir, { recursive: true, force: true });
+    if (aside) fs.rmSync(aside, { recursive: true, force: true });
+  }
+});
+
+test('kosmos#8478 round 6: a model change after the disconnect and bob\'s sign-in reads no identity, so the agent still comes back on the main account', WINDOWS_ONLY, () => {
+  const accounts = require('./accounts');
+  const alice = accounts.nextWorkDir();
+  signIn(alice.dir, { emailAddress: 'alice@example.test', organizationUuid: 'org-alice' });
+  const rec = agent('rewrite8478', { account: alice.dir });   // recorded below
+  const legacy = agent('rewriteold8478', { account: alice.dir });   // never recorded
+  let aside = null;
+  try {
+    assert.equal(chooseThenModel(rec, alice.dir, 'haiku55').outcome, create.OUTCOME.CREATED);
+    const out = accounts.forgetAccount(alice.dir, []);   // alice disconnected; both tasks still name the folder
+    assert.equal(out.ok, true, JSON.stringify(out));
+    aside = out.movedTo || null;
+    const next = accounts.nextWorkDir();
+    assert.equal(nodePath.resolve(next.dir), nodePath.resolve(alice.dir), 'fixture: the folder name was not reused, so this guards nothing');
+    signIn(next.dir, { emailAddress: 'bob@example.test', organizationUuid: 'org-bob' });
+    for (const [name, why] of [[rec, /because the account it used was disconnected or removed, so choose its account again if it should use another\./],
+      [legacy, /because Kosmos did not record whose account was in the folder it used\. Choose its account again if it should use another\./]]) {
+      // The person changes its model now: the rewrite keeps the folder the task names, which bob is signed in to.
+      assert.equal(create.setModel(name, 'opus55', { platform: 'win32' }).outcome, create.OUTCOME.CREATED, `${name}: fixture`);
+      const p = taskOnlyDelete(name);
+      startAtLogin(name);
+      // The outcome first, so a control against the old code shows the wrong account, not only other words.
+      assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, `${name} was put on bob's account`);
+      assert.match(p.reassurance, why, `${name}: the plan's words`);
+      assert.doesNotMatch(p.reassurance, /account and model it was set to before/, `${name}: promised bob's account`);
     }
   } finally {
     fs.rmSync(alice.dir, { recursive: true, force: true });
@@ -237,7 +279,7 @@ const CANNOT_REACH = /it starts on the model it was set to, but Kosmos cannot re
 
 test('kosmos#8478: a recorded account folder that cannot be reached falls back to the main account, says so, and comes back on it at the next Start at login, if no change to the agent rewrites its task first', WINDOWS_ONLY, () => {
   const name = agent('gone8478');
-  assert.equal(create.setModel(name, 'opus55', { platform: 'win32' }).outcome, create.OUTCOME.CREATED);
+  assert.equal(chooseThenModel(name, ACCOUNT, 'opus55').outcome, create.OUTCOME.CREATED);
   // round 1: out of reach, as a disk that is not connected is (a folder moved away reads the same to Kosmos).
   const unplugged = ACCOUNT + '-unplugged';
   fs.renameSync(ACCOUNT, unplugged);
@@ -257,16 +299,13 @@ test('kosmos#8478: a recorded account folder that cannot be reached falls back t
 
 test('kosmos#8478 round 1: an account removed after the task-only delete is forgotten in the record, so a new sign-in reusing its folder name never gets the agent', WINDOWS_ONLY, () => {
   const accounts = require('./accounts');
-  const signIn = (dir, email) => {   // an account as Claude Code leaves it: its folder, with its sign-in in its config
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(accounts.configFile(dir), JSON.stringify({ oauthAccount: { emailAddress: email } }));
-  };
+  const signInAs = (dir, email) => signIn(dir, { emailAddress: email });   // the file-level fixture (shares history)
   const first = accounts.nextWorkDir();
   assert.ok(first && first.dir, 'fixture: no free account folder name');
-  signIn(first.dir, 'first@example.test');
+  signInAs(first.dir, 'first@example.test');
   const name = agent('reuse8478', { account: first.dir });
   try {
-    assert.equal(create.setModel(name, 'opus55', { platform: 'win32' }).outcome, create.OUTCOME.CREATED);
+    assert.equal(chooseThenModel(name, first.dir, 'opus55').outcome, create.OUTCOME.CREATED);
     assert.equal(store.readProfile(name).win32Task.configDir, first.dir, 'fixture: the account was not recorded');
     taskOnlyDelete(name);
     // The person removes that account: its agents are found through their tasks, and this one has none, so none refuses.
@@ -277,7 +316,7 @@ test('kosmos#8478 round 1: an account removed after the task-only delete is forg
     // Someone else signs in, and Kosmos gives the new account the same folder name.
     const next = accounts.nextWorkDir();
     assert.equal(nodePath.resolve(next.dir), nodePath.resolve(first.dir), 'fixture: the folder name was not reused, so this guards nothing');
-    signIn(next.dir, 'someone-else@example.test');
+    signInAs(next.dir, 'someone-else@example.test');
     assert.match(leftover.startsAgainWords(name), /it starts on the model it was set to, but on your main account, because the account it used was disconnected or removed, so choose its account again if it should use another\./);
     startAtLogin(name);
     assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, 'the agent was put on the new account that reused the folder name');
@@ -327,7 +366,7 @@ test('kosmos#8478 round 4: a stale record loses to the task: recorded on alice, 
   signIn(alice.dir, { emailAddress: 'alice@example.test', organizationUuid: 'org-alice' });
   const name = agent('stalerec8478', { account: alice.dir });
   try {
-    assert.equal(create.setModel(name, 'opus55', { platform: 'win32' }).outcome, create.OUTCOME.CREATED);
+    assert.equal(chooseThenModel(name, alice.dir, 'opus55').outcome, create.OUTCOME.CREATED);
     assert.equal(store.readProfile(name).win32Task.configDir, alice.dir, 'fixture: not recorded on alice');
     // An older Kosmos (or a record write that failed) rewrites the task onto the main account and records nothing.
     fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, process.execPath, null, SET_MODEL, null, 'claude'));
@@ -363,7 +402,7 @@ test('kosmos#8478 round 3: a folder name is not an account: alice signs out, Kos
   signIn(alice.dir, { emailAddress: 'alice@example.test', organizationUuid: 'org-alice' });
   const name = agent('alice8478', { account: alice.dir });
   try {
-    assert.equal(create.setModel(name, 'opus55', { platform: 'win32' }).outcome, create.OUTCOME.CREATED);
+    assert.equal(chooseThenModel(name, alice.dir, 'opus55').outcome, create.OUTCOME.CREATED);
     const recorded = store.readProfile(name).win32Task;
     // Alice signs out of that folder: no account in it now, so Kosmos refuses to remove it, and the record stays.
     signIn(alice.dir, null);
@@ -455,7 +494,7 @@ test('kosmos#8478 round 1: an OpenAI account removed or disconnected is forgotte
 
 test('kosmos#8478: a recorded account folder that is a junction leading nowhere is not put back', WINDOWS_ONLY, () => {
   const name = agent('junction8478');
-  assert.equal(create.setModel(name, 'opus55', { platform: 'win32' }).outcome, create.OUTCOME.CREATED);
+  assert.equal(chooseThenModel(name, ACCOUNT, 'opus55').outcome, create.OUTCOME.CREATED);
   const target = nodePath.join(SANDBOX, 'account-target8478');
   fs.rmSync(ACCOUNT, { recursive: true, force: true });
   fs.mkdirSync(target);
@@ -484,7 +523,7 @@ test('kosmos#8478: a recorded model no longer offered falls back to the model it
 
 test('kosmos#8478: Restore after the task-only delete says the agent starts on the account and model it was set to', WINDOWS_ONLY, () => {
   const name = agent('restore8478');
-  assert.equal(create.setModel(name, 'opus55', { platform: 'win32' }).outcome, create.OUTCOME.CREATED);
+  assert.equal(chooseThenModel(name, ACCOUNT, 'opus55').outcome, create.OUTCOME.CREATED);
   const sr = require('./selfreport').fileFor(name);   // what a removed agent that ran here keeps (register.hasRun)
   fs.mkdirSync(nodePath.dirname(sr), { recursive: true });
   fs.writeFileSync(sr, '');
