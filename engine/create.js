@@ -7379,12 +7379,14 @@ function nameHeld(name, platform) {
    told apart: deleting its task would not stop it, and a second agent of the same name would then be made beside it.
    Each sentence ends with its own full stop, as create's other refusals do: the caller adds none. The screen's words are
    quoted exactly as web/index.html draws them (the toggle at the bottom of the Agents tab and the row's button). */
-function win32HeldTaskWords(name, shown) {
+function win32HeldTaskWords(name, shown, leftovers) {
   const lead = `something called ${shown} is still set to start on this computer, though Kosmos cannot find a folder for it.`;
   const fold = (n) => String(n).toLowerCase();   // Windows names are case-blind, as settingsLeftovers folds them
   let listed = null;
   try {
-    const r = require('./delete-leftover').settingsLeftovers({ platform: 'win32' });
+    /* `leftovers` (review 5): a caller asking for several names (the team step) passes one settingsLeftovers answer as
+       a function, so the survey runs once for all of them. */
+    const r = typeof leftovers === 'function' ? leftovers() : require('./delete-leftover').settingsLeftovers({ platform: 'win32' });
     listed = (r && r.ok && r.names.find((x) => x.startsAtLogin && fold(x.name) === fold(name))) || null;
   } catch { listed = null; }
   if (listed) {

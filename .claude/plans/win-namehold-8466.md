@@ -25,14 +25,14 @@ true way to free it from the screen: since #8482 the list at the bottom of the A
   every taken seat is still said in one answer (the agents' sentence first).
 - Setup guide (setup-assistant.js seedSetupAssistant), ONE narrow Windows rule on main's version. Main moves on to the
   second name ("Josh AI") only on create's "already an agent called". On win32, after a refused first name:
-  - a folder under the name: STOP, whatever the sentence. Main read a Windows guide as "already a folder" and stopped;
+  - anything at the folder path (a folder, a link, even one that leads nowhere): STOP, whatever the sentence. Main read a Windows guide as "already a folder" and stopped;
     with the task now read, a healthy guide whose seeded flag is missing reads "already an agent called", and main's
     rule would make a second guide beside it;
   - a leftover task with no folder (which now holds the name, where main overwrote it): move on, unless the name is on
     the removed list (main stops there, and still does);
   - anything else, and a look that fails: main's rule. macOS and Linux: main's rule exactly. A tests-only `platform`
     option lets a Windows host pin that.
-- Tests: new engine/create.win32-namehold-8466.test.js (12); create.test.js's leftover-job test writes the job through
+- Tests: new engine/create.win32-namehold-8466.test.js (14); create.test.js's leftover-job test writes the job through
   jobfixture (it passed on Windows only by reading a plist).
 
 ## Decided, not missed
@@ -54,9 +54,13 @@ true way to free it from the screen: since #8482 the list at the bottom of the A
 - Round 2: the widened rule made a second guide beside a healthy one (adoption added, since removed).
 - Round 3: a guide with no marker duplicated; names-taken shown for leftovers; team step one answer (kept).
 - Round 4: further guide problems; DECISION: narrow to the one Windows rule above. Nit: the row's own shownAs (kept).
+- Round 5: the folder test was existsSync, so a guide folder behind a link that leads nowhere (a disk not connected)
+  read as no folder and "Josh AI" was made beside it; now lstat, as settingsLeftovers and win32HeldTaskWords look
+  (test 13). Nit: the team step reads the leftover list once per answer, not once per held seat (test 14).
 
 ## Measured on the Windows box
-New file 12/12. Negative controls, one file at a time:
+New file 14/14. Negative controls, one file at a time:
+- 72041a54ff's setup-assistant.js fails 13; its teamseed.js or create.js fails 14.
 - origin/main's setup-assistant.js: fails 9 (leftover task moves on), 10 (no second guide beside a healthy one) and 12
   (only its win32 CONTROL arm, since main has no platform option; the macOS and Linux pins pass on main).
 - the win32 folder-stop removed: fails 10 and 12. The removed-list check removed: fails 11.

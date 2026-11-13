@@ -3202,7 +3202,7 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
     let taken = refused && /already an agent called/.test(String(out.because || ''));
     /* kosmos#8466, Windows only: create.nameHeld now reads a Windows agent's Scheduled Task, which changes two of
        create's sentences there, so the sentence alone no longer decides on win32.
-       - A folder under the name: STOP, whatever the sentence. Main read a Windows guide as "already a folder" and
+       - Anything at the folder path (a folder, a link, even one that leads nowhere): STOP, whatever the sentence. Main read a Windows guide as "already a folder" and
          stopped; with the task read, a healthy guide whose seeded flag is missing reads "already an agent called",
          which would move on and make a second guide beside it.
        - A leftover task with no folder (which now holds the name, where main overwrote it): move on, as for a taken
@@ -3212,7 +3212,12 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
       try {
         const slug = create.slugFor(candidate);
         const held = create.nameHeld(slug, 'win32');
-        if (held.folder) taken = false;
+        /* Review 5: what is at the folder path, by lstat (as delete-leftover's settingsLeftovers and create's
+           win32HeldTaskWords look), not nameHeld's existsSync, which reads a link that leads nowhere (a guide folder on
+           a disk that is not connected) as nothing. Anything there, or a look that fails other than "not there", stops. */
+        let nothingAtFolder = false;
+        try { fs.lstatSync(create.workerDir(slug)); } catch (e) { nothingAtFolder = Boolean(e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')); }
+        if (held.folder || !nothingAtFolder) taken = false;
         else if (held.job && require('./remove').isRemoved(slug) !== true) taken = true;
       } catch { /* the sentence's answer stands */ }
     }

@@ -31,10 +31,20 @@ function takenDefault(slug) {
 /* kosmos#8466: on Windows a name held only by a leftover Scheduled Task (no folder) is not "an agent on your board", and
    the generic sentence gave no way to free it. Such a seat gets create's own words for that name (create.win32HeldTaskWords:
    the row that removes the task, or the task to delete in Task Scheduler), so the two screens agree. null otherwise. */
-function heldWordsDefault(slug, raw) {
-  if (process.platform !== 'win32') return null;
-  const held = create.nameHeld(slug, 'win32');
-  return (held.job && !held.folder) ? create.win32HeldTaskWords(slug, raw) : null;
+function heldWordsDefault() {
+  /* One per specs call (review 5): the leftover list (a full survey) is read at most once for every seat it is asked for. */
+  let leftovers;
+  const once = () => {
+    if (leftovers === undefined) {
+      try { leftovers = require('./delete-leftover').settingsLeftovers({ platform: 'win32' }); } catch { leftovers = null; }
+    }
+    return leftovers;
+  };
+  return (slug, raw) => {
+    if (process.platform !== 'win32') return null;
+    const held = create.nameHeld(slug, 'win32');
+    return (held.job && !held.folder) ? create.win32HeldTaskWords(slug, raw, once) : null;
+  };
 }
 
 /* Whether that machine name belongs to an agent the person removed (remove keeps its folder). Loaded
@@ -199,7 +209,7 @@ function specs(req, cat, deps) {
   const removed = deps ? (typeof deps.removed === 'function' ? deps.removed : () => false) : removedDefault;
   // kosmos#8466: the words for a seat a leftover Windows task holds; replaced with the taken check, as removed is.
   const heldWords = (deps && typeof deps.heldWords === 'function') ? deps.heldWords
-    : (deps && typeof deps.taken === 'function') ? () => null : heldWordsDefault;
+    : (deps && typeof deps.taken === 'function') ? () => null : heldWordsDefault();
   const gone = notHeld(c);
   if (gone) return { ok: false, because: gone, unavailable: true };
   const key = req && req.team;

@@ -359,3 +359,46 @@ test('kosmos#8466: macOS and Linux keep main\'s rule: the sentence decides, what
   fs.rmSync(taskFile, { force: true });
   fs.rmSync(setupAssistant.flagPath(), { force: true });
 });
+
+test('kosmos#8466 review 5: a guide whose folder is behind a link that leads nowhere gets no second guide', onlyWin, () => {
+  made.push(GUIDE, GUIDE2);
+  const away = nodePath.join(SANDBOX, 'unplugged-guide8466');
+  const tried = [];
+  assert.equal(seedNow(tried).name, GUIDE, 'PREMISE: the guide was not made under its first name');
+  // Its folder moved to a disk, reached by a link; then the disk is not connected (the link leads nowhere).
+  const dir = create.workerDir(GUIDE);
+  fs.renameSync(dir, away);
+  fs.symlinkSync(away, dir, 'junction');
+  fs.renameSync(away, away + '-unplugged');
+  try {
+    assert.deepEqual(create.nameHeld(GUIDE, 'win32'), { folder: false, job: true }, 'PREMISE: the link does not read as no folder');
+    tried.length = 0;
+    const r = seedNow(tried);
+    assert.deepEqual(tried, [setupAssistant.GUIDE_NAME], 'a second guide was made beside a guide on a disk that is not connected');
+    assert.equal(r.seeded, false);
+    assert.ok(!fs.existsSync(create.workerDir(GUIDE2)), 'a second guide folder was made');
+  } finally {
+    try { fs.unlinkSync(dir); } catch { /* gone */ }
+    fs.rmSync(away + '-unplugged', { recursive: true, force: true });
+  }
+});
+
+test('kosmos#8466 review 5: the team step reads the leftover list once for all the seats it asks about', onlyWin, (t) => {
+  const a = leftoverTask('seata8466');
+  const b = leftoverTask('seatb8466');
+  const team = {
+    key: 'duo', kind: 'business', rank: 1, label: 'Duo', blurb: 'b', purpose: 'p',
+    members: [
+      { slot: 'lead', role: 'pm', title: 'Lead', name: 'L', reportsTo: null, avatar: {} },
+      { slot: 'helper', role: 'pm', title: 'Helper', name: 'H', reportsTo: 'lead', avatar: {} },
+    ],
+  };
+  const cat = { teams: () => [team], team: (k) => (k === 'duo' ? team : null), memberInstructions: () => 'brief' };
+  const real = leftover.settingsLeftovers;
+  let reads = 0;
+  t.mock.method(leftover, 'settingsLeftovers', (...args) => { reads += 1; return real(...args); });
+  const r = teamseed.specs({ team: 'duo', names: { lead: a, helper: b }, checkTaken: true }, cat, { removed: () => false });
+  assert.equal(r.ok, false);
+  assert.equal(r.because, "the Lead's name: " + rowWords(a, ONLY_LEFT) + " The Helper's name: " + rowWords(b, ONLY_LEFT));
+  assert.equal(reads, 1, 'the leftover list was read once per seat');
+});
