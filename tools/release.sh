@@ -2054,8 +2054,8 @@ if [ "$_vdep_rc" != 0 ]; then
   # kosmos-$V-arm64.tar.gz.sha256 is the one this cut wrote. Only a deploy carrying this cut's files can serve it: an
   # earlier attempt at $V passes a pointer check but not this, because no two bundles share bytes (see
   # site_deploy_serves_this_build). One Vercel deploy goes live as a whole (pages, pointer, installer and
-  # artifacts together), so this cut's .sha256 being served means its deploy is live. That is the same
-  # position as a CLI success, so DEPLOYED=1 follows and
+  # artifacts together), so this cut's .sha256 being served means its deploy is live. That is the position a CLI
+  # success must also reach since kosmos#8494 (the else branch below), so DEPLOYED=1 follows and
   # step 9 verifies everything a user receives, with its own retries. One host serves every channel (a
   # staging cut differs only in its pointer file), so this reads the HOST step 9 reads. Asked up to
   # KOSMOS_DEPLOY_LANDED_TRIES times, KOSMOS_DEPLOY_LANDED_WAIT_S apart (default 24 x 15 s: about 6 min,
@@ -2088,13 +2088,15 @@ else
   # step 9 found the old pointer six times. So a CLI success is checked the same way a failure is (#5471): this cut's
   # own .sha256 served. A real deploy goes live as a whole when the CLI returns, so this is usually one fetch.
   [ -n "$_my_sha" ] || { echo "vercel deploy exited 0, but this cut's own kosmos-$V-arm64.tar.gz.sha256 cannot be read, so whether it was deployed cannot be checked (kosmos#8494)"; exit 1; }
+  echo "   vercel deploy exited 0; checking that this cut's build is served before calling it deployed (kosmos#8494; usually one check, at most about $((10#${KOSMOS_DEPLOY_LANDED_TRIES:-24} * 10#${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}))s of waiting plus each check's fetch; Ctrl-C ends the wait safely: the trap restores as on any failure)"
   if site_deploy_landed "${KOSMOS_DEPLOY_LANDED_TRIES:-24}" "${KOSMOS_DEPLOY_LANDED_WAIT_S:-15}" \
        site_deploy_serves_this_build "${HOST:-https://installkosmos.com}" "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" "kosmos-$V-arm64.tar.gz"; then
     echo "   vercel deploy exited 0 and this cut's build is served (kosmos#8494): the served kosmos-$V-arm64.tar.gz.sha256 is this cut's."
   else
-    echo "vercel deploy exited 0, but this cut's $V build was not seen served after $((10#${KOSMOS_DEPLOY_LANDED_TRIES:-24})) checks: the upload did not become a deployment (kosmos#8494). It may still land."
-    echo "   Before any revert or re-cut: compare the served .sha256 with this cut's sha, printed above ($_my_sha). The local copy is about to be removed."
+    echo "vercel deploy exited 0, but no deployment of this cut's $V build was seen served after $((10#${KOSMOS_DEPLOY_LANDED_TRIES:-24})) checks (kosmos#8494): the upload may not have become a deployment, or it may still land."
+    echo "   Before any revert or re-cut: compare the served .sha256 with this cut's sha, printed above ($_my_sha). The local copy is about to be removed if this cut created it."
     echo "   If it did land: do not revert or re-cut; before any promote, fast-forward $SITE to origin and fetch the served tarball pair back into its dist (docs/releasing.md, after a failed cut)."
+    echo "   This cut now restores the site checkout and removes its local tarball if it created it, as on any failure before step 8 finished; its \"removed: ... (this cut created it and never served it ...)\" lines mean \"not seen served\"."
     exit 1
   fi
 fi

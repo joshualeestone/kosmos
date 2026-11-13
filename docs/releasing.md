@@ -230,13 +230,16 @@ a different problem.
 
 **First: did it actually fail? (#5471)** A cut that stopped at step 8 may have shipped. `vercel deploy`
 has exited non-zero ("Error: fetch failed") after uploading everything while Vercel finished the build
-and went live a minute later (0.7.26, 0.7.27). Step 8 now checks for that itself. On a non-zero exit it
+and went live a minute later (0.7.26, 0.7.27). Step 8 now checks for that itself. And an exit 0 is not
+proof either: on 0.8.05 the CLI returned 0 after a partial upload with no deployment made (#8494). So on ANY exit it
 compares the served `dist/kosmos-<V>-arm64.tar.gz.sha256` with the one the cut wrote, up to
 `KOSMOS_DEPLOY_LANDED_TRIES` times (default 24, a whole number from 1 to 9999), `KOSMOS_DEPLOY_LANDED_WAIT_S`
 apart (default 15 s, 0 to 9999; step 1 refuses a bad value before anything is built or pushed). It prints this
 cut's sha before it starts waiting:
-- **It matched:** the log says `THE DEPLOY LANDED although vercel deploy exited N` and the cut carries on
-  as a success.
+- **It matched:** the log says `THE DEPLOY LANDED although vercel deploy exited N` (after a failure) or
+  `vercel deploy exited 0 and this cut's build is served` (after a success), and the cut carries on.
+- **An exit 0 that never matched** says `vercel deploy exited 0, but no deployment of this cut's <V> build was
+  seen served` and fails the same way as the next case.
 - **It never matched:** the cut fails. Compare the sha it printed with the served one before you revert
   anything or re-cut (a re-cut rebuilds a cache-immutable tarball name with different bytes):
 

@@ -150,12 +150,16 @@ out="$(run_step8 0 none)"; rc=$?
 [ -f "$T/vercel.called" ] || bad "#8494 exit 0, nothing served: the vercel stub was never called, so this arm proves nothing"
 [ "$rc" = 1 ] && ok "#8494: the CLI exited 0 but nothing was served: step 8 fails (1)" || bad "#8494 exit 0 never served: rc=$rc"
 case "$out" in *"DEPLOYED="*) bad "#8494 exit 0 never served: DEPLOYED was reached, so the trap would not restore the site" ;; *) ok "#8494: DEPLOYED is never set, so the trap still restores" ;; esac
-case "$out" in *"vercel deploy exited 0, but this cut's 9.9.9 build was not seen served after 3 checks: the upload did not become a deployment (kosmos#8494)"*"aaa111"*) ok "#8494: the message says the upload did not become a deployment and points at this cut's sha" ;; *) bad "#8494 message (out=$out)" ;; esac
+case "$out" in *"vercel deploy exited 0, but no deployment of this cut's 9.9.9 build was seen served after 3 checks (kosmos#8494)"*"aaa111"*"not seen served"*) ok "#8494: the message says no deployment was seen served, points at this cut's sha, and explains the trap's lines" ;; *) bad "#8494 message (out=$out)" ;; esac
 [ "$(fetches)" = 3 ] && ok "#8494: asked exactly KOSMOS_DEPLOY_LANDED_TRIES (3) times" || bad "#8494: asked $(fetches) times"
 
 out="$(run_step8 0 aaa111)"; rc=$?
 case "$out" in *"vercel deploy exited 0 and this cut's build is served (kosmos#8494)"*"DEPLOYED=1") : ;; *) bad "#8494 control: did not reach DEPLOYED=1 with the served line (out=$out)" ;; esac
 [ "$rc" = 0 ] && [ "$(fetches)" = 1 ] && ok "#8494 CONTROL: exit 0 with this cut's build served passes after one fetch" || bad "#8494 control: rc=$rc fetches=$(fetches)"
+
+out="$(run_step8 0 aaa111 1)"; rc=$?
+case "$out" in *"DEPLOYED=1") [ "$rc" = 0 ] && [ "$(fetches)" = 2 ] && ok "#8494: exit 0 served only from the 2nd check (propagation) waits and then passes" || bad "#8494 late: rc=$rc fetches=$(fetches)" ;; *) bad "#8494 late: did not reach DEPLOYED=1 (out=$out)" ;; esac
+case "$out" in *"vercel deploy exited 0; checking that this cut's build is served before calling it deployed"*"Ctrl-C ends the wait safely"*) ok "#8494: before it polls, the exit-0 branch says what it is doing and that Ctrl-C is safe" ;; *) bad "#8494: no line before the poll (out=$out)" ;; esac
 
 out="$(run_step8 0 bbb222)"; rc=$?
 [ "$rc" = 1 ] && case "$out" in *"DEPLOYED="*) false ;; *) true ;; esac && ok "#8494: exit 0 with an EARLIER attempt's build served is not this deploy: fails" || bad "#8494 earlier attempt: rc=$rc"
