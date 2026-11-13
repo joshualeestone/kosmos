@@ -37,7 +37,11 @@ Card: joshualeestone/kosmos#8501. The measurement and the decision are on the ca
 - No joined line is typed into the caller's own pane when it gives the task to itself (toSelf, as the task's own page
   line). Untested: that needs a process-made project with nobody on it.
 - A refused add leaves an add and a remove in memberChanges, so the project's room reads as live for the day
-  (roomLive counts any add); accepted, as with the double valve count.
+  (roomLive counts any add). It also counts twice against the valve, including for a task add refused for bad input
+  (the add comes before create's own checks). Accepted: both CLIs refuse most bad input before the board (--parent
+  digits, --done text, --add-member without --who), and the valve is the bound a looping caller meets either way.
+- A kept agent's answer names only the agent and the error, never "the task was not added": the work that kept it
+  may be this very task, created before a later error.
 - The joined pane line is typed only after the task is given, after the task's own tell has written the project into
   the agent's instructions (the member route's order: sync, then speak).
 - Assign: the add happens after the route's own checks (task exists, part chosen, task not done).
@@ -65,7 +69,7 @@ valve, and no ruling makes membership the person's alone (searched).
 - tools/windows-tests.js: the new CLI test is listed as its sibling cli.task-assign-4914 is.
 - Tests: server.task-addmember-8501.test.js (18), cli.task-addmember-8501.test.js (3, both CLIs against a real board).
 
-## Proof so far (after review round 3)
+## Proof so far (after review round 4)
 - server.task-addmember-8501: 18 pass; cli.task-addmember-8501: 3 pass. Mutations: 19 before review, then 5, 3 and 8
   after rounds 1 to 3; every one red.
 - 2140 test files before review (effectively the whole suite): 29012 tests, 0 fail.

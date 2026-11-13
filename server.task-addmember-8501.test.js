@@ -230,7 +230,7 @@ test('a refused assign does not take zed off when zed was given other work on th
   try {
     const r = await post(`/task/${n}/assign`, { who: 'zed', addMember: true });
     assert.notEqual(r.code, 200, r.text);
-    assert.match(r.json.error, /^zed stays on the project, because it holds work there now, but the task was not moved: /);
+    assert.match(r.json.error, /^zed stays on the project, because it holds work there now: refused for this test$/);
     assert.equal(r.json.addedMember, 'zed');
   } finally { tasks.assignPart = real; }
   assert.equal(members().includes('zed'), true, 'zed was taken off while holding work on the project');
