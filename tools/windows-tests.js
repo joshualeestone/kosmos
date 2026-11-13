@@ -139,6 +139,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'engine/setup-assistant.adopt-8484.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: what it checks exists on Windows (a startup job with no folder is a Scheduled Task there), but this arm writes a plist or a systemd unit; the Windows sentences are pinned in this file through the platform seam of seedSetupAssistant, and running this arm against a real Scheduled Task is owed on kosmos#8484',
   'engine/status.panes-async-6173.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it fakes tmux with a #!/bin/sh script run by its shebang line, which Windows cannot run',
   'engine/last-look.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it reads a real tmux server of its own, and Kosmos runs no tmux on Windows',
   'cli.inputkeep-6774.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do',

@@ -181,3 +181,26 @@ test('#4405: a recorded guide whose folder is GONE from disk is NOT forgotten or
     fs.rmSync(box.sb, { recursive: true, force: true });
   }
 });
+
+/* kosmos#8484: a guide name held by a leftover folder (a board that stopped in the middle of making the guide leaves
+   one) does not clear by waiting, so the reply carries the sentence that says how to free it, and the page shows it in
+   place of "Try again in a moment". */
+test('kosmos#8484: switched ON while a leftover folder holds the guide\'s name, the reply says how to free it', async () => {
+  const box = sandbox();
+  let child;
+  try {
+    fs.mkdirSync(path.join(box.sb, 'workers', 'josh'), { recursive: true });
+    const booted = await boot(box, { AGENT_WORKFORCE_SETUP_GUIDE: 'on' });
+    child = booted.child;
+    const on = await save(booted.base, true);
+    assert.equal(on.status, 200);
+    assert.equal(on.body.guide.state, 'refused', JSON.stringify(on.body));
+    assert.equal(on.body.guide.seeded, false);
+    assert.match(on.body.guide.because || '', /^Kosmos did not set up the Kosmos Guide, because the name Josh is in use\. .* Then choose Set it up now\.$/, JSON.stringify(on.body));
+    assert.equal(fs.existsSync(flagFile(box)), false, 'a guide was recorded beside a leftover');
+    assert.equal(fs.existsSync(path.join(box.sb, 'workers', 'josh-ai')), false, 'a second guide was made under the fallback name');
+  } finally {
+    if (child) await stopBoard(child);
+    fs.rmSync(box.sb, { recursive: true, force: true });
+  }
+});
