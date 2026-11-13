@@ -217,3 +217,43 @@ test('the membership valve counts an add made through a task: past it, 429 with 
     projects.mutate(projectId, (p) => ({ ...p, memberChanges: keep }));
   }
 });
+
+test('a refused assign does not take zed off when zed was given other work on the project meanwhile (two requests at once)', async () => {
+  zedOff();
+  const n = fresh('The one that will be refused');
+  const real = tasks.assignPart;
+  // While this request waits on the give, another request gives zed a task here; then this give is refused.
+  tasks.assignPart = () => {
+    tasks.create(projectId, { sentence: 'Given meanwhile', who: 'zed' });
+    throw new Error('refused for this test');
+  };
+  try {
+    const r = await post(`/task/${n}/assign`, { who: 'zed', addMember: true });
+    assert.notEqual(r.code, 200, r.text);
+  } finally { tasks.assignPart = real; }
+  assert.equal(members().includes('zed'), true, 'zed was taken off while holding work on the project');
+  // CONTROL: the same refusal with no other work given takes zed off again.
+  zedOff();
+  const m = fresh('Refused, nothing else given');
+  tasks.assignPart = () => { throw new Error('refused for this test'); };
+  try {
+    const r = await post(`/task/${m}/assign`, { who: 'zed', addMember: true });
+    assert.notEqual(r.code, 200, r.text);
+  } finally { tasks.assignPart = real; }
+  assert.equal(members().includes('zed'), false);
+});
+
+test('a caller on its agent token alone is not offered the --add-member step it could not use', async () => {
+  zedOff();
+  const BOARD = 'c'.repeat(64);
+  boardAuthState.on = true;
+  boardAuthState.token = BOARD;
+  try {
+    const only = await post('/tasks', { sentence: 'x', who: 'zed' });
+    assert.equal(only.code, 400, only.text);
+    assert.doesNotMatch(only.json.error, /--add-member/);
+    // CONTROL: with the board token as well, the step is offered.
+    const both = await post('/tasks', { sentence: 'x', who: 'zed' }, { ...asAgent('mara'), 'x-kosmos-board-token': BOARD });
+    assert.match(both.json.error, /--add-member/);
+  } finally { boardAuthState.on = false; boardAuthState.token = null; }
+});
