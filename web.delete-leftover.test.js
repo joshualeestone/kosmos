@@ -34,7 +34,8 @@ test('the words are the engine’s and the typed name gates the button only when
   assert.match(JS, /textContent = plan\.reassurance/);
   assert.match(JS, /go\.textContent = plan\.verb/);
   assert.match(JS, /if \(plan\.typeToConfirm\) \{[\s\S]*?go\.disabled = true;/);
-  assert.match(JS, /e\.target\.value\.trim\(\) === DEL_PLAN\.typeToConfirm/);
+  // kosmos#8477 review 1: the name the dialog on screen asks for (DEL_SHOWN), not a fresher DEL_PLAN's.
+  assert.match(JS, /e\.target\.value\.trim\(\) === DEL_SHOWN\.typeToConfirm/);
   assert.doesNotMatch(JS, /confirm\(/, 'a browser confirm crept in');
 });
 

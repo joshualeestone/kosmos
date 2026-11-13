@@ -92,9 +92,9 @@ const putFolder = (name) => {
 };
 /* An agent that has run here, with its settings and a startup task, its folder in the workers folder unless `folder`
    is false. */
-function agent(name, { folder = true } = {}) {
+function agent(name, { folder = true, profile = {} } = {}) {
   made.push(name);
-  store.writeProfile(name, { displayName: name });
+  store.writeProfile(name, { displayName: name, ...profile });
   fs.mkdirSync(nodePath.dirname(liveness.fileFor(name)), { recursive: true });
   fs.writeFileSync(liveness.fileFor(name), JSON.stringify({ at: new Date().toISOString(), state: 'idle' }));
   sendertoken.mint(name);
@@ -144,12 +144,12 @@ test('kosmos#8477: every offered plan carries a short fingerprint, the same for 
   const a = agent('same8477', { folder: false });
   const first = win.plan(a);
   assert.equal(first.ok, true, first.because);
-  assert.match(String(first.confirm), /^1\.[0-9a-f]{16}$/, 'the task-only plan carries no fingerprint');
+  assert.match(String(first.confirm), /^2\.[0-9a-f]{16}$/, 'the task-only plan carries no fingerprint');
   assert.equal(win.plan(a).confirm, first.confirm, 'the same leftover planned twice reads as changed');
   const b = agent('full8477');
   const full = win.plan(b);
   assert.equal(full.ok, true, full.because);
-  assert.match(String(full.confirm), /^1\.[0-9a-f]{16}$/, 'the full plan carries no fingerprint');
+  assert.match(String(full.confirm), /^2\.[0-9a-f]{16}$/, 'the full plan carries no fingerprint');
   assert.notEqual(full.confirm, first.confirm);
 });
 
@@ -239,6 +239,53 @@ test('kosmos#8477: an in-process caller that passes no `confirmed` at all is not
   const whole = agent('inproc8477');
   const done = win.del(whole);
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
+});
+
+test('kosmos#8477 review 1: unsent community posts that appear after the dialog opened: refused, nothing marked', (t) => {
+  const communitysend = require('./communitysend');
+  t.mock.method(communitysend, 'hasAccount', () => false);   // no account, so only the unsent posts can be named
+  let unsent = 0;
+  t.mock.method(communitysend, 'unsentCount', () => unsent);
+  const name = agent('unsent8477');
+  const shown = win.plan(name);
+  assert.ok(shown.ok && !shown.loses.some((l) => /has not gone out/.test(l)), 'CONTROL: the shown dialog already names unsent posts: ' + JSON.stringify(shown.loses));
+  unsent = 1;   // an item becomes due, or a store file it cannot read answers 1
+  const now = win.plan(name);
+  assert.ok(now.loses.some((l) => /has not gone out/.test(l)), 'CONTROL: the fresh plan does not name the unsent posts');
+  const retired = t.mock.method(communitysend, 'requestRetire', () => ({ ok: true }));
+  const done = win.del(name, { confirmed: shown.confirm });
+  assert.equal(done.outcome, leftover.OUTCOME.REFUSED, JSON.stringify(done));
+  assert.equal(done.changed, true);
+  assert.equal(retired.mock.callCount(), 0, 'its unsent posts were marked never to send');
+  untouched(name, { folder: true });
+  // With the posts named in the dialog it was shown, the same delete runs.
+  const ran = win.del(name, { confirmed: now.confirm });
+  assert.equal(ran.outcome, leftover.OUTCOME.DELETED, JSON.stringify(ran));
+  assert.equal(retired.mock.callCount(), 1);
+});
+
+test('kosmos#8477 review 1: the name no longer asked for on the same act still runs; newly asked for, the typed check refuses', { skip: process.platform !== 'win32' ? 'the recorded folder out of sight is read with Windows paths here' : false }, () => {
+  // A recorded folder that is not there makes the task-only plan ask for the name (kosmos#8475 review 4).
+  const gone = nodePath.join(SANDBOX, 'not-here-8477');
+  const name = agent('typed8477', { folder: false, profile: { dir: gone } });
+  const typedPlan = win.plan(name);
+  assert.ok(typedPlan.taskOnly && typedPlan.typeToConfirm === name, 'CONTROL: the plan does not ask for the name: ' + JSON.stringify(typedPlan));
+  store.writeProfile(name, { dir: create.workerDir(name) });   // the record points back into the workers folder: no name asked for
+  const plainPlan = win.plan(name);
+  assert.ok(plainPlan.taskOnly && plainPlan.typeToConfirm === null, 'CONTROL: the plan still asks for the name');
+  const done = win.del(name, { confirmed: typedPlan.confirm, typed: name });
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, 'the same act was refused as changed: ' + JSON.stringify(done));
+
+  // The other way round: confirmed with no name asked, now one is: refused by the typed check, the plan sent back.
+  const other = agent('typed2-8477', { folder: false });
+  const before = win.plan(other);
+  assert.equal(before.typeToConfirm, null);
+  store.writeProfile(other, { displayName: other, dir: gone });
+  deletes.length = 0;
+  const refused = win.del(other, { confirmed: before.confirm });
+  assert.equal(refused.outcome, leftover.OUTCOME.REFUSED, JSON.stringify(refused));
+  assert.equal(refused.plan && refused.plan.typeToConfirm, other, 'the plan asking for the name does not travel back');
+  untouched(other, { folder: false });
 });
 
 test('kosmos#8477: delAsync (the route\'s path) refuses the same way', async () => {

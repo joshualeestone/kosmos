@@ -51789,6 +51789,10 @@ let DEL_OPENED = 0;   // bumped by openDeleteModal (an in-place repaint too) and
 /* kosmos#8477: the plan whose words the dialog shows now. A detail page's fresher read can replace DEL_PLAN while the
    dialog stays painted with the older one, so what the person confirmed is read from here, never from DEL_PLAN. */
 let DEL_SHOWN = null;
+/* kosmos#8477 review 1: after the dialog is repainted because what is left changed, Delete stays off this long, so the
+   second click of a double click cannot confirm a plan nobody has read yet. About the gap between the two clicks of a
+   slow double click, and short enough not to feel stuck. */
+const DEL_CHANGED_PAUSE_MS = 1000;
 async function fetchLeftoverPlan(name) {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/leftover', { cache: 'no-store' });
@@ -51978,7 +51982,8 @@ function closeDeleteModal() {
   DEL_RETURN = null;
 }
 document.getElementById('del-typed').addEventListener('input', (e) => {
-  document.getElementById('del-go').disabled = !(DEL_PLAN && DEL_PLAN.typeToConfirm && e.target.value.trim() === DEL_PLAN.typeToConfirm);
+  // kosmos#8477 review 1: the name the dialog on screen asks for, not a fresher DEL_PLAN's (which may ask for none).
+  document.getElementById('del-go').disabled = !(DEL_SHOWN && DEL_SHOWN.typeToConfirm && e.target.value.trim() === DEL_SHOWN.typeToConfirm);
 });
 document.getElementById('d-delete-start').addEventListener('click', async () => {
   // kosmos#7852: the agent page's button opens only that agent's plan (a dialog opened from the removed list can hold
@@ -52042,6 +52047,12 @@ document.getElementById('del-go').addEventListener('click', async () => {
       repainted = true;
       // kosmos#7835 item 6: the name is what the person has to give next, and typing in the box cannot delete anything.
       if (body.plan.typeToConfirm) document.getElementById('del-typed').focus();
+      // kosmos#8477 review 1: a plan just changed under the person is not confirmed by a click already on its way.
+      if (body.changed && !body.plan.typeToConfirm) {
+        go.disabled = true;
+        const repaintedAs = DEL_OPENED;
+        setTimeout(() => { if (repaintedAs === DEL_OPENED) go.disabled = false; }, DEL_CHANGED_PAUSE_MS);
+      }
     }
     msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(body.because || body.error || DEL_REFUSED_LINE);
     if (!repainted) go.disabled = false;

@@ -645,7 +645,7 @@ function plan(name, opts) {
         // review 2: no promise about the name: a removed agent's removal record still holds it once the task is gone.
         hint: `Something on this computer still starts ${shown} when you log in.`,
       };
-      taskOnlyPlan.confirm = confirmFingerprint(taskOnlyPlan, false);   // kosmos#8477: the task-only delete retires no account
+      taskOnlyPlan.confirm = confirmFingerprint(taskOnlyPlan, { retiresCommunity: false, marksUnsent: false });   // kosmos#8477: the task-only delete retires no account and marks nothing
       return taskOnlyPlan;
     }
     /* review 3: the full delete for a removed name gets the checks main gave every Windows task with no folder
@@ -785,7 +785,7 @@ function plan(name, opts) {
     verb,
     hint,
   };
-  fullPlan.confirm = confirmFingerprint(fullPlan, community);   // kosmos#8477
+  fullPlan.confirm = confirmFingerprint(fullPlan, { retiresCommunity: community, marksUnsent: Boolean(waiting) });   // kosmos#8477: as the loses list words them
   return fullPlan;
 }
 
@@ -1030,13 +1030,16 @@ function recordsWords(records) {
 /* kosmos#8477: what the confirmation dialog promised, as one short string the page sends back with its DELETE, so del()
    can refuse when the fresh plan would do something else. Only what decides WHAT HAPPENS goes in: the startup job alone or
    the full delete, which folder, which startup job, the Recycle Bin (or Trash) or for good, which settings and picture and
-   where they go, whether the community account is retired, and whether the name had to be typed. Never the words: "last
-   changed 3 minutes ago" ages while the dialog is open, and a refusal for that would be a false "this changed". Built
-   from the plan object itself (plus the one fact the object does not carry), so the GET and the re-plan cannot derive it
-   two ways. */
-const CONFIRM_FINGERPRINT_VERSION = '1';
+   where they go, whether the community account is retired, and whether unsent community posts are marked never to send
+   (the loses list names them exactly when there are any, and requestRetire marks them whether or not an account goes).
+   Never the words: "last changed 3 minutes ago" ages while the dialog is open, and a refusal for that would be a false
+   "this changed". Not whether the name is typed either (review 1): a disk coming back can drop that on an identical act,
+   and the other way round, a name newly asked for, is refused by del()'s typed-name check before anything is touched.
+   Built from the plan object itself (plus the two facts the object does not carry), so the GET and the re-plan cannot
+   derive it two ways. */
+const CONFIRM_FINGERPRINT_VERSION = '2';   // 2: unsent posts in, the typed name out (review 1)
 const CONFIRM_FINGERPRINT_HEX_CHARS = 16;   // 64 bits: a short value for the page to carry, far past any chance collision between two plans of one name
-function confirmFingerprint(p, retiresCommunity) {
+function confirmFingerprint(p, { retiresCommunity, marksUnsent }) {
   const promised = {
     kind: p.taskOnly ? 'startup-job-only' : 'full',
     folder: (p.folder && p.folder.path) || null,
@@ -1045,7 +1048,7 @@ function confirmFingerprint(p, retiresCommunity) {
     records: ((p.records && p.records.files) || []).map((r) => r.file).sort(),
     recordsToTrash: Boolean(p.records && p.records.trash),
     retiresCommunity: Boolean(retiresCommunity),
-    typed: p.typeToConfirm || null,
+    marksUnsent: Boolean(marksUnsent),
   };
   const hash = require('node:crypto').createHash('sha256').update(JSON.stringify(promised)).digest('hex');
   return CONFIRM_FINGERPRINT_VERSION + '.' + hash.slice(0, CONFIRM_FINGERPRINT_HEX_CHARS);

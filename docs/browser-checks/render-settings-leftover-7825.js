@@ -149,10 +149,26 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
       goOff: document.getElementById('del-go').disabled,
       msg: document.getElementById('del-msg').textContent,
     };
-    // A second click now confirms the plan on screen: the new one.
+    // review 1: a click right after the repaint (the second of a double click) sends nothing; after the pause Delete is on.
+    deleteSent = null;
+    document.getElementById('del-go').click();
+    await new Promise((res) => setTimeout(res, 80));
+    out.changed.sentAtOnce = deleteSent;
+    await new Promise((res) => setTimeout(res, 1100));
+    out.changed.goOffAfterPause = document.getElementById('del-go').disabled;
+    // A click now confirms the plan on screen: the new one.
     document.getElementById('del-go').click();
     await new Promise((res) => setTimeout(res, 80));
     out.changed.sentAgain = deleteSent && deleteSent.confirmed;
+    closeDeleteModal();
+    // 3e. kosmos#8477 review 1: the dialog asks for the name; a fresher read replaces DEL_PLAN with a plan asking none.
+    // Typing the name the dialog shows still turns Delete on.
+    openDeleteModal({ ok: true, name: 'stray-7825', shown: 'Stray', question: 'Delete what is left of Stray?', reassurance: '', loses: [], verb: 'Delete its settings for good', typeToConfirm: 'Stray', confirm: '2.typed8477' });
+    DEL_PLAN = { ...DEL_PLAN, typeToConfirm: null };
+    const typedBox = document.getElementById('del-typed');
+    typedBox.value = 'Stray';
+    typedBox.dispatchEvent(new Event('input', { bubbles: true }));
+    out.typedOn = !document.getElementById('del-go').disabled;
     closeDeleteModal();
     // 3c. a name just deleted is not drawn again from the kept rows
     body = { agents: [], leftovers: [{ name: 'stray-7825', shownAs: 'Stray' }] };
@@ -233,7 +249,9 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   check(ch.sent === '1.before8477', 'kosmos#8477: the delete sends the shown plan\'s confirm', String(ch.sent));
   check(ch.open && ch.title === 'Delete what is left of Tasked?' && ch.verb === 'Move 3 files to the Recycle Bin' && /changed since you looked/.test(ch.msg),
     'kosmos#8477: a refusal because what is left changed repaints the dialog with the new plan and says so', JSON.stringify(ch));
-  check(ch.goOff === false && ch.sentAgain === '1.after8477', 'kosmos#8477: Delete is on again, and now confirms the new plan', JSON.stringify(ch));
+  check(ch.goOff === true && ch.sentAtOnce === null, 'kosmos#8477 review 1: right after the repaint Delete is off, so a double click\'s second click confirms nothing', JSON.stringify(ch));
+  check(ch.goOffAfterPause === false && ch.sentAgain === '1.after8477', 'kosmos#8477: after the pause Delete is on, and now confirms the new plan', JSON.stringify(ch));
+  check(r.typedOn === true, 'kosmos#8477 review 1: typing the name the dialog shows turns Delete on, whatever a fresher plan read meanwhile asks', String(r.typedOn));
   check(r.none.wrapHidden === true, 'NEGATIVE: nothing removed and nothing left over hides the section', JSON.stringify(r.none));
 
   await browser.close();

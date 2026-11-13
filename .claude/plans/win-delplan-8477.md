@@ -27,12 +27,20 @@ standing reset, community account retired, tokens revoked. Nobody confirmed that
   `confirmed`; it never computes one.
 - **Fields: what decides what happens, never the words.** Task-only or full; the folder path or none; the startup job's
   label or none; Recycle Bin (or Trash) or for good (`toTrash`); which settings and picture files, and whether they go to
-  the bin; whether the community account is retired; the name to type, or none. Rejected: hashing the dialog text
+  the bin; whether the community account is retired; whether unsent community posts are marked never to send (review 1;
+  true exactly when the loses list names them, which is whenever `unsentCount` is non-zero, with or without an account:
+  `requestRetire` marks them either way). Not the name to type (review 1): a disk coming back drops it on an identical
+  act, and the other way, a name newly asked for, is refused by the typed-name check before anything is touched (both
+  pinned by a test). Rejected: hashing the dialog text
   (question, reassurance, loses). "Last changed 3 minutes ago" ages while the dialog is open, so it would refuse a delete
   that had not changed and train people to click through the refusal. Rejected: the folder's size and file count. A
   leftover folder is not being written to, and a size change does not change what the act does to it. Short form:
-  `1.` + the first 16 hex of a sha256 of the fields (the `1.` lets a later change of fields refuse cleanly rather than
-  match by accident).
+  `2.` + the first 16 hex of a sha256 of the fields (the version lets a change of fields refuse cleanly rather than
+  match by accident; 2 since review 1).
+- **Review 1, the page:** the typed-name box enables Delete from `DEL_SHOWN.typeToConfirm`, not `DEL_PLAN`'s (a fresher
+  plan asking for no name left Delete off for good). After a `changed` repaint that asks for no name, Delete stays off
+  for `DEL_CHANGED_PAUSE_MS` (1 s), so the second click of a double click cannot confirm a plan nobody read; a dialog
+  opened again meanwhile is left alone (the `DEL_OPENED` token).
 - **The page sends what the dialog shows, not `DEL_PLAN`.** `DEL_PLAN` can be replaced by the detail page's fresher read
   (`loadLeftover`) while the dialog stays painted with the older plan, which is this card's bug in miniature. A new
   `DEL_SHOWN`, set only by `openDeleteModal` and cleared by `closeDeleteModal`, is what is confirmed.
@@ -68,7 +76,11 @@ Page: `web/index.html` del-go handler is the only DELETE sender.
 
 ## Tests
 
-- New `engine/delete-leftover.confirmed-plan-8477.test.js` (8): fingerprint present and stable; task-only confirmed then
+- New `engine/delete-leftover.win32-confirmed-plan-8477.test.js` (10; "win32" in the name so the Windows CI job selects it,
+  as windows-tests-1777 requires for its host-branching skip). Review 1 added: unsent posts appearing after the dialog
+  opened, refused with `requestRetire` never called, and the same delete runs once confirmed; the typed name dropped on
+  the same task-only act still runs, and newly asked for is refused by the typed check with the plan sent back. Both
+  fail on the round-0 engine. Round 0's 8: fingerprint present and stable; task-only confirmed then
   the folder back, refused, nothing touched, fresh plan returned; same plan runs (task-only and full to the Recycle
   Bin); Recycle Bin confirmed vs for good now refused, and the reverse; `confirmed: null` refuses the full delete and the
   raced case, still lets the task-only delete run; no `confirmed` key unchanged; `delAsync` refuses the same way; the
@@ -77,7 +89,8 @@ Page: `web/index.html` del-go handler is the only DELETE sender.
   kept), then deletes with the plan's own. Fails against origin's server.js.
 - `web.delete-leftover.test.js`: route regex and the #7835 item 6 focus regex updated.
 - Browser check `render-settings-leftover-7825.js`: sends the shown plan's confirm, not a fresher `DEL_PLAN`; a
-  `changed` refusal repaints with the new plan, Delete on, and the next click confirms the new plan. Its 4 new checks
-  fail against origin's page.
+  `changed` refusal repaints with the new plan, Delete off at once (a click then sends nothing), on after the pause, and
+  the next click confirms the new plan; typing the shown name enables Delete when a fresher `DEL_PLAN` asks for none.
+  Its 4 round-0 checks fail against origin's page; the 2 review-1 checks fail against the round-0 page.
 - Policy: fixture-discipline, no-name-refs-3071, engine.reachable, windows-tests-1777, win32-separator-guard,
   windows-coupling-audit-1732, web.api-routes-3957; both browser-check gates.
