@@ -6657,7 +6657,8 @@ cmd_task() {
       esac
       local shown; shown=$(printf '%s' "$num" | sed 's/^0*//'); shown="${shown:-0}"   # "007" is said back as task 7, as --parent is
       # kosmos#8501: --add-member put the agent on the project first; the board says so with addedMember.
-      case "$body" in *'"addedMember":"'*) say "${_w:-The agent} was not on ${project:-the project}, so Kosmos added it to the project first. See who is on it with: kosmos project show ${project:-<project-id>}" ;; esac
+      local _wn="$_w"; case "$_wn" in *\\*) _wn="" ;; esac   # a name with a backslash is not said, as the line below
+      case "$body" in *'"addedMember":"'*) say "${_wn:-The agent} was not on ${project:-the project}, so Kosmos added it to the project first. See who is on it with: kosmos project show ${project:-<project-id>}" ;; esac
       say "Task $shown${part:+, part $part,} on ${project:-the project} $_now. See it with: kosmos task list ${project:-<project-id>}"
       ;;
     hold|unhold)
