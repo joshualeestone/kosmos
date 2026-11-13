@@ -153,13 +153,52 @@ test('a done task is refused before anyone is added: assign --add-member leaves 
   assert.equal(members().includes('zed'), false, 'a member was added for a task that was never moved');
 });
 
-test('a task add that fails after the add says zed was added, and zed stays on the project', async () => {
+test('a task add refused after the add takes zed off again, so the project is as it was', async () => {
   zedOff();
   const r = await post('/tasks', { sentence: 'Under nothing', who: 'zed', addMember: true, parent: '999' });
   assert.equal(r.code, 400, r.text);
-  assert.match(r.json.error, /^zed was added to the project, but the task was not added: /);
-  assert.equal(r.json.addedMember, 'zed');
+  assert.doesNotMatch(r.json.error, /was put on the project/);
+  assert.equal('addedMember' in r.json, false);
+  assert.equal(members().includes('zed'), false, 'a member was left on the project for a task that was never added');
+});
+
+test('a task assign refused after the add (a built task, given by an agent) takes zed off again', async () => {
+  zedOff();
+  const n = fresh('Built already');
+  tasks.setBuilt(projectId, n, { by: 'mara' });
+  const r = await post(`/task/${n}/assign`, { who: 'zed', addMember: true });
+  assert.notEqual(r.code, 200, r.text);
+  assert.equal('addedMember' in r.json, false, r.text);
+  assert.equal(members().includes('zed'), false, 'a member was left on the project for a task that was never moved');
+  assert.deepEqual(ownerOf(n), ['mara']);
+  // CONTROL: the same assign on a task that is not built moves it and keeps zed on.
+  const m = fresh('Not built');
+  const ok = await post(`/task/${m}/assign`, { who: 'zed', addMember: true });
+  assert.equal(ok.code, 200, ok.text);
   assert.equal(members().includes('zed'), true);
+});
+
+test('an agent let in on its agent token alone cannot add a member (the member route needs the board token); with it, it can', async () => {
+  zedOff();
+  const BOARD = 'b'.repeat(64);
+  boardAuthState.on = true;
+  boardAuthState.token = BOARD;
+  try {
+    const before = taskCount();
+    const only = await post('/tasks', { sentence: 'Token only', who: 'zed', addMember: true });
+    assert.equal(only.code, 403, only.text);
+    assert.match(only.json.error, /^only your person can put an agent on a project from here/);
+    assert.equal(members().includes('zed'), false);
+    assert.equal(taskCount(), before);
+    const n = fresh('Token only, assign');
+    const onlyAssign = await post(`/task/${n}/assign`, { who: 'zed', addMember: true });
+    assert.equal(onlyAssign.code, 403, onlyAssign.text);
+    assert.equal(members().includes('zed'), false);
+    // CONTROL: the same request with the board token as well adds zed, as the member route would.
+    const both = await post('/tasks', { sentence: 'With the board token', who: 'zed', addMember: true }, { ...asAgent('mara'), 'x-kosmos-board-token': BOARD });
+    assert.equal(both.code, 200, both.text);
+    assert.equal(members().includes('zed'), true);
+  } finally { boardAuthState.on = false; boardAuthState.token = null; }
 });
 
 test('the membership valve counts an add made through a task: past it, 429 with retry-after and nothing changes', async () => {
