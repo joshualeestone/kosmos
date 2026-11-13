@@ -61,7 +61,8 @@ test('the routes: GET plans, DELETE acts with the typed name, and neither touche
   const r = SERVER.slice(a, b);
   // kosmos#7835: the async forms, which run the Windows PowerShell waits off the board.
   assert.match(r, /await leftover\.planAsync\(name\)/);
-  assert.match(r, /await leftover\.delAsync\(name, \{ typed: body\.typed \}\)/);
+  // kosmos#8477: with what the dialog promised, null (never absent) when the request carried none.
+  assert.match(r, /await leftover\.delAsync\(name, \{ typed: body\.typed, confirmed: typeof body\.confirmed === 'string' \? body\.confirmed : null \}\)/);
   assert.doesNotMatch(r, /removal\./);
 });
 
@@ -76,7 +77,8 @@ test('#7835 item 6: a dialog repainted to ask for the name puts the cursor in th
   const at = JS.indexOf("document.getElementById('del-go').addEventListener('click'");
   assert.ok(at > 0, 'the delete button handler moved; this test no longer reads it');
   const handler = JS.slice(at, JS.indexOf('closeDeleteModal();', at));
-  assert.match(handler, /repainted = true;\n\s*\/\/[^\n]*\n\s*document\.getElementById\('del-typed'\)\.focus\(\);/,
+  // kosmos#8477: a repaint because the plan changed can ask for no name; then the cursor stays on Keep.
+  assert.match(handler, /repainted = true;\n\s*\/\/[^\n]*\n\s*if \(body\.plan\.typeToConfirm\) document\.getElementById\('del-typed'\)\.focus\(\);/,
     'the repainted dialog leaves the cursor on Keep, so the person has to find the box to type the name');
   const open = JS.slice(JS.indexOf('function openDeleteModal('), JS.indexOf('function closeDeleteModal('));
   assert.match(open, /document\.getElementById\('del-keep'\)\.focus\(\);\n\}\s*$/, 'a fresh dialog no longer opens on the harmless answer');

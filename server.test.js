@@ -4965,7 +4965,8 @@ test('kosmos#7825 PR 2: the removed list carries names with only settings left, 
   const name = 'settings-only-7825';
   store.writeProfile(name, { displayName: 'Stray', provider: 'openai' });
   status.setPaneSource(() => '');
-  const del = () => req(`/api/agent/${name}/leftover`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ typed: 'Stray' }) });   // no Trash in this sandbox, so the name is asked for
+  // kosmos#8477: the page sends back what the plan it showed promised (`confirm`), as the dialog does.
+  const del = (confirmed) => req(`/api/agent/${name}/leftover`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ typed: 'Stray', ...(confirmed === undefined ? {} : { confirmed }) }) });   // no Trash in this sandbox, so the name is asked for
   try {
     await req('/api/agent/no-such-7825/leftover', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: '{}' });   // forgets the remembered list
     const body = JSON.parse((await req('/api/removed')).body);
@@ -4975,7 +4976,17 @@ test('kosmos#7825 PR 2: the removed list carries names with only settings left, 
     assert.deepEqual(Object.keys(row).sort(), ['name', 'shownAs'], 'the leftovers rows ship fields the screen does not draw');
     assert.equal(row.shownAs, 'Stray');
     await req('/api/status');   // the board poll takes a survey (with the name in it) that the list may reuse
-    const gone = await del();
+    const plan = JSON.parse((await req(`/api/agent/${name}/leftover`)).body);
+    assert.equal(plan.ok, true, JSON.stringify(plan));
+    assert.equal(typeof plan.confirm, 'string', 'the plan carries nothing for the page to confirm with');
+    // kosmos#8477: the route passes what the request confirmed on to the delete: none, or another plan's, deletes nothing.
+    for (const sent of [undefined, '1.0000000000000000']) {
+      const refused = await del(sent);
+      assert.equal(refused.status, 400, `confirmed ${sent}: ` + refused.body);
+      assert.equal(JSON.parse(refused.body).changed, true, refused.body);
+      assert.equal(fs.existsSync(store.profilePath(name)), true, `confirmed ${sent}: the settings went though nothing was confirmed`);
+    }
+    const gone = await del(plan.confirm);
     assert.equal(gone.status, 200, gone.body);
     const after = JSON.parse((await req('/api/removed')).body);
     assert.ok(Array.isArray(after.leftovers), 'the read after the delete failed, so the next arm would pass for the wrong reason');

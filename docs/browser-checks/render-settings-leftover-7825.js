@@ -13,7 +13,9 @@
  * both and the hint stays with the removed rows; a Windows task still registered with no folder says its startup job is
  * still set up and its folder is not found, never only its settings (kosmos#8475); the field absent (the board could not read it)
  * keeps the rows last drawn; nothing removed and nothing left over hides the section (NEGATIVE); the door fetches the
- * plan and paints a refusal under the list.
+ * plan and paints a refusal under the list. kosmos#8477: the delete sends what the dialog on screen promised (its plan's
+ * `confirm`, not a fresher plan read meanwhile), and a refusal because what is left changed repaints the dialog with
+ * the new plan and the board's sentence, Delete on again only for that new plan.
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-settings-leftover-7825.js
@@ -48,11 +50,15 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     let body = null;
     let planAsked = null;
     let pagePlan = null;
+    let deleteSent = null;     // kosmos#8477: the last DELETE's body
+    let deleteAnswer = null;   // kosmos#8477: a refusal to answer the next DELETE with
     const realFetch = window.fetch;
     window.fetch = (u, opts) => {
       const url = String(u);
       if (url.indexOf('/api/removed') !== -1) return Promise.resolve({ ok: true, json: async () => body });
       if (url.indexOf('/leftover') !== -1 && opts && opts.method === 'DELETE') {
+        try { deleteSent = JSON.parse(opts.body); } catch { deleteSent = 'unreadable'; }
+        if (deleteAnswer) { const a = deleteAnswer; deleteAnswer = null; return Promise.resolve({ ok: false, json: async () => a }); }
         return Promise.resolve({ ok: true, json: async () => ({ outcome: 'deleted', said: 'Stray\'s settings are in the Trash. The name is free.' }) });
       }
       if (url.indexOf('/leftover') !== -1 && pagePlan) return Promise.resolve({ ok: true, json: async () => pagePlan });   // kosmos#8475 arm 5
@@ -129,16 +135,38 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     LEFTOVERS_AT = Date.now() - 61000;
     await paintRemoved();
     out.expired = snap();
+    // 3d. kosmos#8477: the startup job alone was shown; the board found the folder back, so it refuses and sends the new plan
+    const changedPlan = { ok: true, name: 'task-8475', shown: 'Tasked', question: 'Delete what is left of Tasked?', reassurance: 'Its files go to the Recycle Bin.', loses: ['Its folder: 3 files'], verb: 'Move 3 files to the Recycle Bin', typeToConfirm: null, confirm: '1.after8477' };
+    openDeleteModal({ ok: true, name: 'task-8475', shown: 'Tasked', taskOnly: true, question: 'Remove Tasked\'s startup job?', reassurance: '', loses: [], verb: 'Remove its startup job', keep: 'Keep its startup job', typeToConfirm: null, confirm: '1.before8477' });
+    deleteAnswer = { outcome: 'refused', changed: true, because: 'What is left of this agent changed since you looked, so nothing was deleted. Look at what it says now before deleting.', plan: changedPlan };
+    document.getElementById('del-go').click();
+    await new Promise((res) => setTimeout(res, 80));
+    out.changed = {
+      sent: deleteSent && deleteSent.confirmed,
+      open: !document.getElementById('del-modal').hidden,
+      title: document.getElementById('del-title').textContent,
+      verb: document.getElementById('del-go').textContent,
+      goOff: document.getElementById('del-go').disabled,
+      msg: document.getElementById('del-msg').textContent,
+    };
+    // A second click now confirms the plan on screen: the new one.
+    document.getElementById('del-go').click();
+    await new Promise((res) => setTimeout(res, 80));
+    out.changed.sentAgain = deleteSent && deleteSent.confirmed;
+    closeDeleteModal();
     // 3c. a name just deleted is not drawn again from the kept rows
     body = { agents: [], leftovers: [{ name: 'stray-7825', shownAs: 'Stray' }] };
     await paintRemoved();
-    openDeleteModal({ ok: true, name: 'stray-7825', shown: 'Stray', question: 'Delete what is left of Stray?', reassurance: '', loses: [], verb: 'Move its settings to the Trash', typeToConfirm: null });
+    openDeleteModal({ ok: true, name: 'stray-7825', shown: 'Stray', question: 'Delete what is left of Stray?', reassurance: '', loses: [], verb: 'Move its settings to the Trash', typeToConfirm: null, confirm: '1.shown8477' });
+    // kosmos#8477: a detail page's fresher read replaces DEL_PLAN while the dialog still shows the plan above.
+    DEL_PLAN = { ...DEL_PLAN, confirm: '1.fresher8477' };
     // After the delete the board's next leftovers read fails (field absent): the repaint the handler does, and the next.
     body = { agents: [{ name: 'gone-7825', shownAs: 'Gone', removedAt: '2026-11-02T00:00:00Z', stopped: true, accountFolderGone: false }] };
     document.getElementById('del-go').click();
     await new Promise((res) => setTimeout(res, 80));
     await paintRemoved();
     out.afterDelete = snap();
+    out.sentShown = deleteSent && deleteSent.confirmed;
     // 4. NEGATIVE: nothing removed and nothing left over
     body = { agents: [], leftovers: [] };
     await paintRemoved();
@@ -200,6 +228,12 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   check(r.failed.stale === false, 'a fresh failed read keeps the rows without a stale line');
   check(r.expired.rows.some((x) => x.who === 'Stray') && r.expired.stale === true, 'a minute without the field keeps the rows and says they may be out of date (never reads as none)', JSON.stringify(r.expired));
   check(!r.afterDelete.rows.some((x) => x.who === 'Stray'), 'a name just deleted is not drawn again from the kept rows', JSON.stringify(r.afterDelete.rows));
+  check(r.sentShown === '1.shown8477', 'kosmos#8477: the delete sends what the dialog on screen promised, not a fresher plan read meanwhile', String(r.sentShown));
+  const ch = r.changed || {};
+  check(ch.sent === '1.before8477', 'kosmos#8477: the delete sends the shown plan\'s confirm', String(ch.sent));
+  check(ch.open && ch.title === 'Delete what is left of Tasked?' && ch.verb === 'Move 3 files to the Recycle Bin' && /changed since you looked/.test(ch.msg),
+    'kosmos#8477: a refusal because what is left changed repaints the dialog with the new plan and says so', JSON.stringify(ch));
+  check(ch.goOff === false && ch.sentAgain === '1.after8477', 'kosmos#8477: Delete is on again, and now confirms the new plan', JSON.stringify(ch));
   check(r.none.wrapHidden === true, 'NEGATIVE: nothing removed and nothing left over hides the section', JSON.stringify(r.none));
 
   await browser.close();

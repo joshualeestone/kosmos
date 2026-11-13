@@ -51786,6 +51786,9 @@ let DEL_PLAN = null;
 let DEL_RETURN = null;
 let DEL_TOKEN = 0;
 let DEL_OPENED = 0;   // bumped by openDeleteModal (an in-place repaint too) and closeDeleteModal: a late answer checks it
+/* kosmos#8477: the plan whose words the dialog shows now. A detail page's fresher read can replace DEL_PLAN while the
+   dialog stays painted with the older one, so what the person confirmed is read from here, never from DEL_PLAN. */
+let DEL_SHOWN = null;
 async function fetchLeftoverPlan(name) {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/leftover', { cache: 'no-store' });
@@ -51940,6 +51943,7 @@ function openDeleteModal(plan) {
   DEL_OPENED += 1;
   DEL_FOR = plan.name;
   DEL_PLAN = plan;
+  DEL_SHOWN = plan;
   DEL_RETURN = document.activeElement;
   document.getElementById('del-title').textContent = plan.question;
   document.getElementById('del-small').textContent = plan.reassurance;
@@ -51969,6 +51973,7 @@ function closeDeleteModal() {
   DEL_OPENED += 1;
   document.getElementById('del-modal').hidden = true;
   DEL_FOR = null;
+  DEL_SHOWN = null;
   if (DEL_RETURN && DEL_RETURN.focus) DEL_RETURN.focus();
   DEL_RETURN = null;
 }
@@ -51997,6 +52002,7 @@ document.getElementById('del-go').addEventListener('click', async () => {
   const name = DEL_FOR;
   const opened = DEL_OPENED;   // this dialog; closing or opening it again moves the token
   const onScreen = DEL_PLAN;   // the plan this dialog shows; a detail page loaded meanwhile can replace DEL_PLAN
+  const confirmed = DEL_SHOWN ? DEL_SHOWN.confirm : null;   // kosmos#8477: what the words on screen promised
   go.disabled = true;
   msg.textContent = '';
   let res = null;
@@ -52004,7 +52010,7 @@ document.getElementById('del-go').addEventListener('click', async () => {
   try {
     res = await fetch('/api/agent/' + encodeURIComponent(name) + '/leftover', {
       method: 'DELETE', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ typed: document.getElementById('del-typed').value }),
+      body: JSON.stringify({ typed: document.getElementById('del-typed').value, confirmed }),
     });
     body = await res.json().catch(() => null);
   } catch { res = null; }
@@ -52024,15 +52030,18 @@ document.getElementById('del-go').addEventListener('click', async () => {
        did not. It sends that plan back, so the dialog shows it (with the box to type in) rather than refusing again. */
     // Only when the new plan asks for a name the one on screen does not (or spells it differently): a plain typo keeps
     // what was typed. The button stays off only when the dialog was repainted with the box to type in.
+    /* kosmos#8477: or the board found that what is left changed since this dialog was painted (`changed`): the dialog
+       shows the new plan so the next click confirms what will really happen, with the cursor on Keep unless a name is
+       to be typed. */
     let repainted = false;
     if (body && body.plan && body.plan.ok && String(body.plan.name).toLowerCase() === String(DEL_FOR).toLowerCase()
-      && body.plan.typeToConfirm && !(DEL_PLAN && DEL_PLAN.typeToConfirm === body.plan.typeToConfirm)) {
+      && (body.changed || (body.plan.typeToConfirm && !(DEL_PLAN && DEL_PLAN.typeToConfirm === body.plan.typeToConfirm)))) {
       const back = DEL_RETURN;
       openDeleteModal(body.plan);
       DEL_RETURN = back;
       repainted = true;
       // kosmos#7835 item 6: the name is what the person has to give next, and typing in the box cannot delete anything.
-      document.getElementById('del-typed').focus();
+      if (body.plan.typeToConfirm) document.getElementById('del-typed').focus();
     }
     msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(body.because || body.error || DEL_REFUSED_LINE);
     if (!repainted) go.disabled = false;

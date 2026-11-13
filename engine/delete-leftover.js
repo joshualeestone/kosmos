@@ -626,7 +626,7 @@ function plan(name, opts) {
       const out = outOfSightWords(clean, shown);
       const unsure = out ? out.words : null;
       const words = taskOnlyWords(clean, shown, removedNow, platform, stored.records, out ? out.lead : null);
-      return {
+      const taskOnlyPlan = {
         ok: true,
         name: clean,
         shown,
@@ -645,6 +645,8 @@ function plan(name, opts) {
         // review 2: no promise about the name: a removed agent's removal record still holds it once the task is gone.
         hint: `Something on this computer still starts ${shown} when you log in.`,
       };
+      taskOnlyPlan.confirm = confirmFingerprint(taskOnlyPlan, false);   // kosmos#8477: the task-only delete retires no account
+      return taskOnlyPlan;
     }
     /* review 3: the full delete for a removed name gets the checks main gave every Windows task with no folder
        (kosmos#8471): a recorded folder behind a dead link or on a disk that is not connected, a name waiting to start, a
@@ -763,7 +765,7 @@ function plan(name, opts) {
     : jobIsService
       ? `Something on this computer still starts ${shown} when you log in, and the name stays taken until it is gone.`
       : `An auto-start file for ${shown} is still on this computer, and the name stays taken until it is gone.`;
-  return {
+  const fullPlan = {
     ok: true,
     name: clean,
     shown,
@@ -783,6 +785,8 @@ function plan(name, opts) {
     verb,
     hint,
   };
+  fullPlan.confirm = confirmFingerprint(fullPlan, community);   // kosmos#8477
+  return fullPlan;
 }
 
 /* kosmos#7825 (review 7): where a recorded folder really is, as the disk spells it: { path } or { because }. Resolved one
@@ -1023,6 +1027,32 @@ function recordsWords(records) {
   return { words, plural: words !== 'its picture', cap: words.charAt(0).toUpperCase() + words.slice(1) };
 }
 
+/* kosmos#8477: what the confirmation dialog promised, as one short string the page sends back with its DELETE, so del()
+   can refuse when the fresh plan would do something else. Only what decides WHAT HAPPENS goes in: the startup job alone or
+   the full delete, which folder, which startup job, the Recycle Bin (or Trash) or for good, which settings and picture and
+   where they go, whether the community account is retired, and whether the name had to be typed. Never the words: "last
+   changed 3 minutes ago" ages while the dialog is open, and a refusal for that would be a false "this changed". Built
+   from the plan object itself (plus the one fact the object does not carry), so the GET and the re-plan cannot derive it
+   two ways. */
+const CONFIRM_FINGERPRINT_VERSION = '1';
+const CONFIRM_FINGERPRINT_HEX_CHARS = 16;   // 64 bits: a short value for the page to carry, far past any chance collision between two plans of one name
+function confirmFingerprint(p, retiresCommunity) {
+  const promised = {
+    kind: p.taskOnly ? 'startup-job-only' : 'full',
+    folder: (p.folder && p.folder.path) || null,
+    job: (p.job && p.job.label) || null,
+    toTrash: Boolean(p.toTrash),
+    records: ((p.records && p.records.files) || []).map((r) => r.file).sort(),
+    recordsToTrash: Boolean(p.records && p.records.trash),
+    retiresCommunity: Boolean(retiresCommunity),
+    typed: p.typeToConfirm || null,
+  };
+  const hash = require('node:crypto').createHash('sha256').update(JSON.stringify(promised)).digest('hex');
+  return CONFIRM_FINGERPRINT_VERSION + '.' + hash.slice(0, CONFIRM_FINGERPRINT_HEX_CHARS);
+}
+const CHANGED_SINCE_SHOWN_BECAUSE = 'What is left of this agent changed since you looked, so nothing was deleted. Look at what it says now before deleting.';
+const UNCONFIRMED_FULL_DELETE_BECAUSE = 'This page did not say what you agreed to delete, so nothing was deleted. Reload the page and look again before deleting.';
+
 /* Moves the plan's records where the plan said: the Trash when p.records.trash, else deleted for good. One step per
    kind (settings, picture), failed if any file of it would not go. A dead writer's temps beside the picture
    (store.removeAvatar) are deleted after: they are copies a save never finished. */
@@ -1094,6 +1124,20 @@ function* delSteps(name, opts) {
   const p = plan(name, opts && (opts.platform || opts.pinned)
     ? { ...(opts.platform ? { platform: opts.platform } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}) } : undefined);
   if (!p.ok) return { outcome: OUTCOME.REFUSED, because: p.because };
+  /* kosmos#8477: the person confirmed the plan the dialog showed, and this one is made again now. Between the two a
+     folder can come back (a task-only removal would become the full delete, folder to the Recycle Bin with nothing to
+     type), a drive can stop taking the Recycle Bin, settings can appear. So the delete runs only when this plan promises
+     what that one did; otherwise nothing is touched and the fresh plan travels back for the page to show.
+     `confirmed` present (the board's route always passes it): checked. Null there (a request that carried none: a page
+     from before this change, or anything else) is never let through to the full delete, which retires the community
+     account and standing whatever the Trash keeps; the startup job alone can still go, since Start at login undoes it.
+     Absent (an in-process caller that planned itself; only tests today): not checked, as before. */
+  if (opts && opts.confirmed !== undefined) {
+    const sent = typeof opts.confirmed === 'string' ? opts.confirmed : null;
+    if (sent === null ? !p.taskOnly : sent !== p.confirm) {
+      return { outcome: OUTCOME.REFUSED, because: sent === null ? UNCONFIRMED_FULL_DELETE_BECAUSE : CHANGED_SINCE_SHOWN_BECAUSE, changed: true, plan: p };
+    }
+  }
   const platform = (opts && opts.platform) || process.platform;
   /* kosmos#8475: a Windows task with no folder: the Scheduled Task and nothing else. Before the community standing reset
      below, which cannot be undone, and with no token revoke, no history cleared, no settings moved, no removal forgotten
@@ -1519,4 +1563,4 @@ async function delAsync(name, opts) {
   }
 }
 
-module.exports = { OUTCOME, plan, del, startsAgainWords, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, DELETING_MOVE_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835)
+module.exports = { OUTCOME, plan, del, startsAgainWords, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, DELETING_MOVE_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict, CHANGED_SINCE_SHOWN_BECAUSE, UNCONFIRMED_FULL_DELETE_BECAUSE };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835); the two kosmos#8477 refusals too
