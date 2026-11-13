@@ -4524,7 +4524,19 @@ function win32TaskOnTask(name, fresh) {
   let read;
   try { const job = require('./win32job'); read = fresh ? job.taskSpec(name) : job.cachedTaskSpec(name); } catch { return null; }
   if (!read || !read.known || !read.registered || !read.spec) return null;
-  return win32TaskRecord({ runner: read.spec.runner, configDir: read.spec.configDir, model: read.spec.model });
+  const rec = win32TaskRecord({ runner: read.spec.runner, configDir: read.spec.configDir, model: read.spec.model });
+  /* round 2: a task can outlive its account folder (disconnect-and-stop renames the folder aside and leaves the task;
+     or the folder was deleted by hand). nextWorkDir reads a missing name as free and the next sign-in reuses it, and
+     afterAccountGone cannot clear a record made after the account went. So the task's folder is recorded only if it
+     is a folder right now (statSync: a link leading nowhere is not); otherwise the main account, marked as an account
+     that was not there (accountRemoved, why 'missing'), as an unrecorded agent comes back. The plan's words read this
+     same answer, so they say what the delete records. */
+  if (rec.configDir) {
+    let there = false;
+    try { there = fs.statSync(rec.configDir).isDirectory(); } catch { there = false; }
+    if (!there) return { ...rec, configDir: null, accountRemoved: true, why: 'missing' };
+  }
+  return rec;
 }
 /* kosmos#8478: every agent whose task was last written before the record existed has none, and those are the agents a
    task-only leftover delete (delete-leftover.del) reaches first. So just before that delete removes the task, an agent
@@ -4533,7 +4545,11 @@ function win32TaskOnTask(name, fresh) {
 function recordWin32TaskFromTask(name) {
   try { if (store.readProfile(name).win32Task) return false; } catch { return false; }
   const rec = win32TaskOnTask(name, true);
-  return rec ? recordWin32Task(name, rec) : false;
+  if (!rec) return false;
+  if (rec.accountRemoved !== true) return recordWin32Task(name, rec);
+  // round 2: written as read (win32TaskRecord would drop the mark), into a profile that is already there, as recordWin32Task.
+  try { fs.lstatSync(store.profilePath(name)); } catch { return false; }
+  try { store.writeProfile(name, { win32Task: rec }); return true; } catch { return false; }
 }
 /* kosmos#8478: what the profile records of the agent's last Windows task, for the runner its profile says it runs on
    now. null when nothing is recorded (an agent whose task was last written before this change), when the record is for
@@ -4561,8 +4577,10 @@ function win32RecordedTask(name, opts) {
   const dirShaped = rec.configDir == null || configDir !== null;
   const modelShaped = rec.model == null || model !== null;
   const accountRemoved = rec.accountRemoved === true;   // round 1: its account was removed (forgetWin32TaskAccount)
+  // round 2: why 'missing' when the delete found the task's account folder not there (win32TaskOnTask), else removed.
+  const accountGone = accountRemoved ? (rec.why === 'missing' ? 'missing' : 'removed') : null;
   return {
-    configDir, model, accountRemoved,
+    configDir, model, accountRemoved, accountGone,
     accountOk: !accountRemoved && dirShaped && win32AccountThere(runner, configDir),
     modelOk: modelShaped && win32ModelOffered(runner, model),
   };
@@ -4807,7 +4825,8 @@ function installJob(name, opts) {
   const modelRecordedWin = Boolean(opts && opts.modelRecorded === true);   // kosmos#8478: see the win32 arm's guessed
   const accountRecordedWin = Boolean(opts && opts.accountRecorded === true);   // kosmos#8478 round 1: the same, for the account
   /* kosmos#8478 round 1: register.repair's recorded account folder it could not reach, kept in the record in place of
-     the main account the task runs on, so the agent comes back on it once the folder can be reached again. */
+     the main account the task runs on, so the agent comes back on it at the next Start at login, if no change to the
+     agent rewrites its task first (round 2). */
   const keepAccountWin = (opts && typeof opts.keepRecordedAccount === 'string' && opts.keepRecordedAccount) ? opts.keepRecordedAccount : null;
   /* 🛑 #570: WINDOWS HAS NO LAUNCHD, SO EVERYTHING BELOW THIS POINT IS MAC-ONLY.
      The rest of this function installs the supervisor script, writes a `.plist`,

@@ -917,16 +917,20 @@ function startsAgainWords(name, preview = false) {
   try { rec = create.win32RecordedTask(name, { orTask: preview === true }); } catch { rec = null; }
   if (rec && rec.accountOk && rec.modelOk) return '; it starts on the account and model it was set to before.';
   if (rec && rec.accountRemoved) {
-    // round 1: the account it was on was removed from Kosmos, so its folder name may now be someone else's.
+    /* round 1: the account it was on was removed from Kosmos, so its folder name may now be someone else's. round 2:
+       or its folder was not there when the startup job was removed (create.win32TaskOnTask), the same risk. */
+    const because = rec.accountGone === 'missing'
+      ? 'because the account folder it used was not there when its startup job was removed'
+      : 'because the account it used was removed';
     return rec.modelOk
-      ? '; it starts on the model it was set to, but on your main account, because the account it used was removed, so choose its account again if it should use another.'
-      : '; it starts on your main account, because the account it used was removed, and on the model it last ran, so choose its account and model again if it used others.';
+      ? `; it starts on the model it was set to, but on your main account, ${because}, so choose its account again if it should use another.`
+      : `; it starts on your main account, ${because}, and on the model it last ran, so choose its account and model again if it used others.`;
   }
   if (rec && rec.modelOk) {
     /* round 1: statSync cannot tell a deleted account folder from one on a disk or shared folder that is not connected,
        so this says "cannot reach" as the rest of this file does, and the repair keeps the folder in the record so it
-       comes back once the disk does. */
-    return '; it starts on the model it was set to, but Kosmos cannot reach the account folder it used right now, so unless it can by then it starts on your main account. If that folder is on a disk or shared folder that is not connected, connect it first; otherwise choose its account again afterwards if it should use another.';
+       comes back on it at the next Start at login, if no change to the agent rewrites its task first. */
+    return '; it starts on the model it was set to, but Kosmos cannot reach the account folder it used right now, so it starts on your main account unless that folder can be reached by then. If that folder is on a disk or shared folder that is not connected, connect it first; otherwise choose its account again afterwards if it should use another.';
   }
   if (rec && rec.accountOk) {
     return rec.configDir

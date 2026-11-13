@@ -21,8 +21,14 @@ and the last model it ran.
   (model kept, marked accountRemoved), because the removal check finds agents through their tasks only and the next
   sign-in reuses the folder name. Never refuses the removal. A recorded folder Kosmos cannot reach is said as "cannot
   reach right now" (a disk or share may be unplugged), and repair keeps it in the record (the task runs on main
-  meanwhile) so the agent comes back on it once it can be reached.
-- Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (10).
+  meanwhile) so the agent comes back on it at the next Start at login, if no change to the agent rewrites its task
+  first (a rewrite records what it wrote, the main account). The agent never moves back on its own.
+- Round 2: Gemini and Grok removals clear records too (geminiaccounts.js / grokaccounts.js, wrapped the same way).
+  The task-only delete records the task's account folder only if it is a folder right now (statSync); otherwise the
+  main account, marked accountRemoved (why 'missing'), and the words say the folder was not there when the startup
+  job was removed. A task can outlive its account (disconnect-and-stop leaves it), and a record made after the account
+  went cannot be cleared by the removal.
+- Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (12).
 
 ## Decided, not missed
 - Windows only: on macOS and Linux the plist or unit is the source of truth and nothing in Kosmos removes it alone.
@@ -32,5 +38,6 @@ and the last model it ran.
   and the outcome, read after, says the main account and the model it last ran (true, but different from the plan).
   A task removed some other way (by hand in Task Scheduler) still loses an unrecorded agent's account and model.
   Round 1 residuals: the clearing reaches this Kosmos's profiles only (another world on this computer keeps its
-  records); Gemini and Grok account removals do not clear (same risk class, not in the decision); an account folder
-  deleted by hand outside Kosmos, kept in a record as "cannot reach", could be reused by a later sign-in.
+  records); an account folder deleted by hand outside Kosmos AFTER it was recorded (kept in a record as "cannot
+  reach") could be reused by a later sign-in. Round 2: a legacy agent whose account folder is on a disk not connected
+  at the moment of the task-only delete is recorded on the main account (safe, as main did; its folder is not kept).

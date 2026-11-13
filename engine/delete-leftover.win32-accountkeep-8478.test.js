@@ -190,9 +190,9 @@ test('kosmos#8478: an agent with nothing recorded whose task cannot be read at t
     'Start at login wrote a task and did not record it');
 });
 
-const CANNOT_REACH = /it starts on the model it was set to, but Kosmos cannot reach the account folder it used right now, so unless it can by then it starts on your main account\. If that folder is on a disk or shared folder that is not connected, connect it first; otherwise choose its account again afterwards if it should use another\./;
+const CANNOT_REACH = /it starts on the model it was set to, but Kosmos cannot reach the account folder it used right now, so it starts on your main account unless that folder can be reached by then\. If that folder is on a disk or shared folder that is not connected, connect it first; otherwise choose its account again afterwards if it should use another\./;
 
-test('kosmos#8478: a recorded account folder that cannot be reached falls back to the main account, says so, and comes back once it can', WINDOWS_ONLY, () => {
+test('kosmos#8478: a recorded account folder that cannot be reached falls back to the main account, says so, and comes back on it at the next Start at login, if no change to the agent rewrites its task first', WINDOWS_ONLY, () => {
   const name = agent('gone8478');
   assert.equal(create.setModel(name, 'opus55', { platform: 'win32' }).outcome, create.OUTCOME.CREATED);
   // round 1: out of reach, as a disk that is not connected is (a folder moved away reads the same to Kosmos).
@@ -239,6 +239,59 @@ test('kosmos#8478 round 1: an account removed after the task-only delete is forg
     startAtLogin(name);
     assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, 'the agent was put on the new account that reused the folder name');
   } finally { fs.rmSync(first.dir, { recursive: true, force: true }); }
+});
+
+test('kosmos#8478 round 2: an unrecorded agent whose account was disconnected before the task-only delete never gets the account that reuses its folder name', WINDOWS_ONLY, () => {
+  const accounts = require('./accounts');
+  const signIn = (dir, email) => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(accounts.configFile(dir), JSON.stringify({ oauthAccount: { emailAddress: email } }));
+  };
+  const first = accounts.nextWorkDir();
+  signIn(first.dir, 'first@example.test');
+  // Its task was written before records existed: the task carries the account and the chosen model, the profile nothing.
+  const name = agent('stale8478', { account: first.dir, model: SET_MODEL });
+  let aside = null;
+  try {
+    // Disconnect and stop: the account folder is renamed aside, the task stays (nothing recorded, so nothing to clear).
+    const out = accounts.forgetAccount(first.dir, []);
+    assert.equal(out.ok, true, JSON.stringify(out));
+    aside = out.movedTo || null;
+    assert.equal(fs.existsSync(first.dir), false, 'fixture: the account folder is still there');
+    assert.equal(store.readProfile(name).win32Task, undefined, 'fixture: something is recorded');
+    const p = taskOnlyDelete(name);
+    const rec = store.readProfile(name).win32Task;
+    assert.equal(rec && rec.configDir, null, 'the delete recorded an account folder that was not there: ' + JSON.stringify(rec));
+    assert.equal(rec.model, SET_MODEL, 'the model was not recorded');
+    const words = /it starts on the model it was set to, but on your main account, because the account folder it used was not there when its startup job was removed, so choose its account again if it should use another\./;
+    assert.match(p.reassurance, words, 'the plan did not say what the delete recorded');
+    assert.match(p.said, words);
+    // Someone else signs in, and Kosmos gives the new account the same folder name.
+    const next = accounts.nextWorkDir();
+    assert.equal(nodePath.resolve(next.dir), nodePath.resolve(first.dir), 'fixture: the folder name was not reused, so this guards nothing');
+    signIn(next.dir, 'someone-else@example.test');
+    startAtLogin(name);
+    assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, 'the agent was put on the new account that reused the folder name');
+  } finally {
+    fs.rmSync(first.dir, { recursive: true, force: true });
+    if (aside) fs.rmSync(aside, { recursive: true, force: true });
+  }
+});
+
+test('kosmos#8478 round 2: a Gemini account removed is forgotten in the records that name it', () => {
+  const gem = require('./geminiaccounts');
+  const home = nodePath.join(SANDBOX, gem.DIR_PREFIX + 'work8478');
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(gem.keyFile(home), 'AIzaSyKosmosTestKeyNotARealKey000000000');
+  assert.ok(gem.identityOf(home), 'fixture: the folder is not a Gemini account');
+  const name = 'gemini8478';
+  made.push(name);
+  store.writeProfile(name, { displayName: name, provider: 'google', win32Task: { runner: 'gemini', configDir: home, model: null } });
+  try {
+    const out = gem.removeAccount(home, []);
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.deepEqual(store.readProfile(name).win32Task, { runner: 'gemini', configDir: null, model: null, accountRemoved: true });
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
 test('kosmos#8478 round 1: an OpenAI account removed or disconnected is forgotten in the records that name it, and only those', () => {
@@ -327,5 +380,5 @@ test('kosmos#8478: a record for another runner, and a Qwen agent, are never read
   assert.equal(create.win32RecordedTask(qwen), null, 'a Qwen agent is restored from qwenAccount, never from this record');
   // CONTROL: the same record, for the runner the agent does run, is read.
   store.writeProfile(codex, { win32Task: { runner: 'codex', configDir: ACCOUNT, model: 'gpt-5.5' } });
-  assert.deepEqual(create.win32RecordedTask(codex), { configDir: ACCOUNT, model: 'gpt-5.5', accountRemoved: false, accountOk: true, modelOk: true });
+  assert.deepEqual(create.win32RecordedTask(codex), { configDir: ACCOUNT, model: 'gpt-5.5', accountRemoved: false, accountGone: null, accountOk: true, modelOk: true });
 });

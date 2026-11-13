@@ -897,7 +897,9 @@ function repair(opts) {
         if (rec.accountOk && rec.configDir) runnerOpt.configDir = rec.configDir;
         if (rec.accountOk) recordOpts.accountRecorded = true;   // round 1 nit: the main account, known rather than guessed
         /* round 1: a recorded folder it cannot reach (perhaps a disk not connected) stays in the record, so the agent
-           comes back on it once the disk does; the task itself runs on the main account meanwhile. */
+           comes back on it at the next Start at login, if no change to the agent rewrites its task first (round 2: a
+           rewrite records what it wrote, the main account); the task itself runs on the main account meanwhile, and the
+           agent never moves back on its own. */
         if (!rec.accountOk && rec.configDir) recordOpts.keepRecordedAccount = rec.configDir;
         if (rec.modelOk) { model = rec.model; modelRecorded = true; }
       }
