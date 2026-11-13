@@ -3216,7 +3216,7 @@ function heldSentence(shown, because) {
     .replace(/, then try again here\.$/, '.')   // "Then choose Set it up now" follows
     .replace(/Pick another name, or ([a-z])/, (m, c) => 'To free the name, ' + c)
     .replace(/, which frees the name\.$/, '.')   // "To free the name" already says it
-    .replace(/([^.!?])$/, '$1.');   // kosmos#8491: the systemd form ends on its command
+    .replace(/([^.!?])$/, '$1.');   // kosmos#8491: any form that ends without a full stop (the systemd form ends on its command)
   return `Kosmos did not set up the Kosmos Guide, because the name ${shown} is in use. ${how} Then choose Set it up now.`;
 }
 

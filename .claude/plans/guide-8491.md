@@ -25,4 +25,12 @@
 - engine/setup-assistant.adopt-8484.test.js: the three sentences, exact; the create.js wording pin. Control: the
   patterns removed turns the sentence test red.
 - docs/browser-checks/render-assistant-bubble-3034.js B1b2: unclear names both; a refusal with a sentence shows
-  it; CONTROL a refusal with none still says try again. Ran locally (146 pass); with main's wording, B1b2 fails.
+  it; CONTROL a refusal with none still says try again. Ran locally (146 pass); with main's wording the first
+  of those fails (the other two pass on main too: they pin #8484's pass-through, not this change).
+
+#### Iteration 1 (sonnet)
+- No BLOCKERs, WARNINGs or CONVENTIONs. Converged.
+- NITs fixed: the full-stop comment names its wider reach (no other form changes: each already ends on a full stop);
+  this plan says which B1b2 check is the control for this change.
+- NITs left: the full stop after the systemd command (quoted, so a copy is unlikely to take it); the sentence test
+  uses a path with no ")" in it (the pattern is greedy, so it copes).
