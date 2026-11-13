@@ -155,7 +155,9 @@ test('a done task is refused before anyone is added: assign --add-member leaves 
 
 test('a task add refused after the add takes zed off again, so the project is as it was', async () => {
   zedOff();
+  const changes = (project().memberChanges || []).length;
   const r = await post('/tasks', { sentence: 'Under nothing', who: 'zed', addMember: true, parent: '999' });
+  assert.equal((project().memberChanges || []).length, changes + 2, 'the add and its undo were not both made: this no longer tests the undo');
   assert.equal(r.code, 400, r.text);
   assert.doesNotMatch(r.json.error, /was put on the project/);
   assert.equal('addedMember' in r.json, false);
@@ -166,7 +168,9 @@ test('a task assign refused after the add (a built task, given by an agent) take
   zedOff();
   const n = fresh('Built already');
   tasks.setBuilt(projectId, n, { by: 'mara' });
+  const changes = (project().memberChanges || []).length;
   const r = await post(`/task/${n}/assign`, { who: 'zed', addMember: true });
+  assert.equal((project().memberChanges || []).length, changes + 2, 'the add and its undo were not both made: this no longer tests the undo');
   assert.notEqual(r.code, 200, r.text);
   assert.equal('addedMember' in r.json, false, r.text);
   assert.equal(members().includes('zed'), false, 'a member was left on the project for a task that was never moved');
@@ -328,4 +332,35 @@ test('the page is not offered a command to run: a non-member refusal from the sc
   // CONTROL: the same request from an agent is offered the step.
   const agent = await post('/tasks', { sentence: 'From an agent', who: 'zed' });
   assert.match(agent.json.error, /--add-member/);
+});
+
+test('task assign keeps the --add-member step from the page and from a caller on its agent token alone, as task add does', async () => {
+  zedOff();
+  const n = fresh('Assign hint');
+  const page = await post(`/task/${n}/assign`, { who: 'zed' }, { 'sec-fetch-site': 'same-origin' });
+  assert.equal(page.code, 400, page.text);
+  assert.doesNotMatch(page.json.error, /--add-member/);
+  const BOARD = 'd'.repeat(64);
+  boardAuthState.on = true;
+  boardAuthState.token = BOARD;
+  try {
+    const only = await post(`/task/${n}/assign`, { who: 'zed' });
+    assert.equal(only.code, 400, only.text);
+    assert.doesNotMatch(only.json.error, /--add-member/);
+    // CONTROL: an agent with the board token as well is offered the step.
+    const both = await post(`/task/${n}/assign`, { who: 'zed' }, { ...asAgent('mara'), 'x-kosmos-board-token': BOARD });
+    assert.match(both.json.error, /--add-member/);
+  } finally { boardAuthState.on = false; boardAuthState.token = null; }
+});
+
+test('a mistyped name from a caller on its agent token alone gets the true answer (no such agent), not a step naming it', async () => {
+  zedOff();
+  const BOARD = 'e'.repeat(64);
+  boardAuthState.on = true;
+  boardAuthState.token = BOARD;
+  try {
+    const r = await post('/tasks', { sentence: 'x', who: 'zedd', addMember: true });
+    assert.equal(r.code, 400, r.text);
+    assert.equal(r.json.error, 'there is no agent called zedd on this board, so nobody was added and nothing was changed');
+  } finally { boardAuthState.on = false; boardAuthState.token = null; }
 });

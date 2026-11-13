@@ -6927,13 +6927,13 @@ function addMemberForTask(id, typed, roster, viaScreen, tokenOnly) {
   catch { return { refusal: [500, 'we cannot read your projects right now, so nobody was added and nothing was changed'] }; }
   if (!project) return { refusal: [404, 'there is no project by that name'] };
   if ((project.agents || []).includes(typed)) return { added: false, name: typed };
-  if (tokenOnly) {
-    return { refusal: [403, 'only your person can put an agent on a project from here: this came with an agent token only, so nobody was added and nothing was changed. Your person can add ' + oneLinePlain(typed) + ' from the project page'] };
-  }
   if (!Array.isArray(roster)) return { refusal: [503, 'Kosmos could not check which agents run on this board, so nobody was added and nothing was changed; try again'] };
   const name = rosterNameFor(typed, roster);
   if (!name) return { refusal: [400, 'there is no agent called ' + oneLinePlain(typed) + ' on this board, so nobody was added and nothing was changed'] };
   if ((project.agents || []).includes(name)) return { added: false, name };
+  if (tokenOnly) {
+    return { refusal: [403, 'only your person can put an agent on a project from here: this came with an agent token only, so nobody was added and nothing was changed. Your person can add ' + oneLinePlain(name) + ' from the project page'] };
+  }
   if (!viaScreen) {
     const v = projects.memberValve();
     if (v.refused) return { refusal: [429, v.because], retryAfterSecs: v.retryAfterSecs };
@@ -6965,8 +6965,9 @@ function openPartsOf(project, name) {
 function undoJoinForTask(id, name, viaScreen, heldAtAdd) {
   try {
     const project = (projects.readAll() || []).find((x) => x && x.id === id);
+    if (!project) return 'off';   // the project went meanwhile, and its membership with it
     const before = heldAtAdd instanceof Set ? heldAtAdd : new Set();
-    if (project && [...openPartsOf(project, name)].some((k) => !before.has(k))) return 'kept';
+    if ([...openPartsOf(project, name)].some((k) => !before.has(k))) return 'kept';
     projects.removeAgent(id, name, { via: viaScreen ? 'screen' : 'process' });
     return 'off';
   } catch { return 'failed'; }
@@ -25880,8 +25881,11 @@ const server = http.createServer(async (req, res) => {
           }
           const answer = note ? { task: made, told, heard, note } : { task: made, told, heard };
           // kosmos#8501: both CLIs say so first. No joined line into the caller's own pane (as toSelf above).
-          if (joined) { answer.addedMember = joined; if (!toSelf) await sayJoinedForTask(id, joined, roster); }
+          if (joined) answer.addedMember = joined;
           sendJson(res, 200, answer);
+          // After the answer, not awaited: a second pane delivery must not hold the CLI past its wait (the task's own
+          // line is queued first for that pane, so this one still lands after it).
+          if (joined && !toSelf) sayJoinedForTask(id, joined, roster);
         } catch (err) {
           // Three answers for three facts, same split as the member route:
           // our unreadable store (500), a project that is not there (404),
@@ -27354,8 +27358,8 @@ const server = http.createServer(async (req, res) => {
         if (g.status === 429) { res.setHeader('retry-after', String(g.retryAfterSecs)); failed(429, g.because, { retry_after_secs: g.retryAfterSecs }); return; }
         if (!g.ok) { failed(g.status || 400, withAddMemberHint(g.because, asked.who, roster, hintOpts)); return; }
         /* `who` first: the Mac CLI reads the new owner from the start of this answer (the task inside has its own). */
-        if (joined && !toSelf) await sayJoinedForTask(id, joined, roster);
         sendJson(res, 200, { who: asked.who === undefined ? null : asked.who, part: Number(partId), task: g.task, told: g.told, heard: g.heard, ...(joined ? { addedMember: joined } : {}) });
+        if (joined && !toSelf) sayJoinedForTask(id, joined, roster);   // after the answer, not awaited (as task add)
       } catch (err) {
         const msg = String((err && err.message) || '');
         failed(/no project by that name|no task by that number/.test(msg) ? 404 : 400, withAddMemberHint(msg || 'we could not move that task', asked.who, roster, hintOpts));

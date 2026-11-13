@@ -15,6 +15,7 @@ Card: joshualeestone/kosmos#8501. The measurement and the decision are on the ca
 - `kosmos task add ... --who <agent> --add-member` and `kosmos task assign ... <agent> --add-member`, in both CLIs.
   The request carries `addMember: true`, and the board puts the agent on the project and gives it the task in one
   request.
+- The name is checked before the token-only refusal, so a mistyped name gets "no such agent", not a step naming it.
 - Who may: whoever may call the member route. That route is not an agent-token route, so a caller the board let in on
   an agent token alone (agentTokenOnlyCaller) is refused 403 with nothing changed, and the person can add the agent
   from the project page. A process is counted by the membership valve and recorded in memberChanges. One rule is
@@ -43,7 +44,9 @@ Card: joshualeestone/kosmos#8501. The measurement and the decision are on the ca
 - A kept agent's answer names only the agent and the error, never "the task was not added": the work that kept it
   may be this very task, created before a later error.
 - The joined pane line is typed only after the task is given, after the task's own tell has written the project into
-  the agent's instructions (the member route's order: sync, then speak).
+  the agent's instructions (the member route's order: sync, then speak). It is started after the answer is sent and
+  not awaited: a second pane delivery must not hold the CLI past its 15-second wait, where a retry would make a second
+  task. The pane's delivery queue still puts it after the task's own line.
 - Assign: the add happens after the route's own checks (task exists, part chosen, task not done).
 - Without the flag, the non-member refusal ends with ". To put <name> on the project and give it the task in one step,
   run the same command again with --add-member", but only when the name is an agent this board runs. The text has
@@ -67,9 +70,9 @@ valve, and no ruling makes membership the person's alone (searched).
 - server.js: rosterNameFor, addMemberForTask, openPartsOf, undoJoinForTask, joinFailure, sayJoinedForTask, withAddMemberHint; the task add and task assign routes.
 - install/kosmos and tools/windows/kosmos-cli.js: the flag on task add and task assign, the added line, and help.
 - tools/windows-tests.js: the new CLI test is listed as its sibling cli.task-assign-4914 is.
-- Tests: server.task-addmember-8501.test.js (18), cli.task-addmember-8501.test.js (3, both CLIs against a real board).
+- Tests: server.task-addmember-8501.test.js (20), cli.task-addmember-8501.test.js (3, both CLIs against a real board).
 
-## Proof so far (after review round 4)
-- server.task-addmember-8501: 18 pass; cli.task-addmember-8501: 3 pass. Mutations: 19 before review, then 5, 3 and 8
-  after rounds 1 to 3; every one red.
+## Proof so far (after review round 5)
+- server.task-addmember-8501: 20 pass; cli.task-addmember-8501: 3 pass. Mutations: 19 before review, then 5, 3, 8
+  and 3 after rounds 1, 2, 3 and 5; every one red.
 - 2140 test files before review (effectively the whole suite): 29012 tests, 0 fail.
