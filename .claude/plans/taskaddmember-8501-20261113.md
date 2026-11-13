@@ -18,9 +18,14 @@ Card: joshualeestone/kosmos#8501. The measurement and the decision are on the ca
 - Who may: whoever may call the member route. That route is not an agent-token route, so a caller the board let in on
   an agent token alone (agentTokenOnlyCaller) is refused 403 with nothing changed, and the person can add the agent
   from the project page. A process is counted by the membership valve and recorded in memberChanges. One rule is
-  stricter: the agent must be one this board runs, so a typo adds nobody.
+  stricter: the agent must be one this board runs, so a typo adds nobody. The typed name is resolved against the
+  roster (exact, else the one agent with that store key, as membership matches names), and that name is what joins
+  and holds the task.
 - `addMember` must be true or absent.
-- A refused task never leaves a new member. If the create or the give is refused after the add, the member is taken
+- A refused task never leaves a new member, with two exceptions the answer reports (`addedMember`). The undo
+  says off, kept or failed. It keeps the agent if an open part reached it after the add (this task, or another
+  request's), and it fails if the store will not take it off. Otherwise it takes the agent off.
+- Earlier wording, still true: If the create or the give is refused after the add, the member is taken
   off again (removeAgent). An error after the task was created or moved does not take anyone off. Only if the
   removal itself fails does the answer say the agent stayed (with `addedMember`). The undo keeps the agent if another
   request gave it open work on the project while this one waited (an open part it did not hold at the add), because
@@ -28,7 +33,11 @@ Card: joshualeestone/kosmos#8501. The measurement and the decision are on the ca
   path wrote the leftovers or the instruction sync that the member route's DELETE also clears. A refused add and its
   undo are two memberChanges records, so they count twice against the valve; accepted.
 - The `--add-member` step is not offered in the refusal to a caller on an agent token alone, who would only meet the
-  403.
+  403, or to the page, which has no command to run.
+- No joined line is typed into the caller's own pane when it gives the task to itself (toSelf, as the task's own page
+  line). Untested: that needs a process-made project with nobody on it.
+- A refused add leaves an add and a remove in memberChanges, so the project's room reads as live for the day
+  (roomLive counts any add); accepted, as with the double valve count.
 - The joined pane line is typed only after the task is given, after the task's own tell has written the project into
   the agent's instructions (the member route's order: sync, then speak).
 - Assign: the add happens after the route's own checks (task exists, part chosen, task not done).
@@ -51,12 +60,12 @@ That agents adding agents to a project is acceptable. The member route already a
 valve, and no ruling makes membership the person's alone (searched).
 
 ## Files
-- server.js: addMemberForTask, sayJoinedForTask, withAddMemberHint; the task add and task assign routes.
+- server.js: rosterNameFor, addMemberForTask, openPartsOf, undoJoinForTask, joinFailure, sayJoinedForTask, withAddMemberHint; the task add and task assign routes.
 - install/kosmos and tools/windows/kosmos-cli.js: the flag on task add and task assign, the added line, and help.
 - tools/windows-tests.js: the new CLI test is listed as its sibling cli.task-assign-4914 is.
-- Tests: server.task-addmember-8501.test.js (13), cli.task-addmember-8501.test.js (3, both CLIs against a real board).
+- Tests: server.task-addmember-8501.test.js (18), cli.task-addmember-8501.test.js (3, both CLIs against a real board).
 
-## Proof so far (after review round 2)
-- server.task-addmember-8501: 13 pass; cli.task-addmember-8501: 3 pass. Mutations: 19 before review, 5 after round 1,
-  3 after round 2; every one red.
+## Proof so far (after review round 3)
+- server.task-addmember-8501: 18 pass; cli.task-addmember-8501: 3 pass. Mutations: 19 before review, then 5, 3 and 8
+  after rounds 1 to 3; every one red.
 - 2140 test files before review (effectively the whole suite): 29012 tests, 0 fail.

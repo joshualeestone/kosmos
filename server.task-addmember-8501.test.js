@@ -205,7 +205,7 @@ test('the membership valve counts an add made through a task: past it, 429 with 
   zedOff();
   const now = new Date().toISOString();
   const keep = project().memberChanges || [];
-  projects.mutate(projectId, (p) => ({ ...p, memberChanges: [...keep, ...Array.from({ length: projects.MEMBERS_PER_HOUR }, () => ({ at: now, via: 'process', agent: 'filler', kind: 'add' }))] }));
+  projects.mutate(projectId, (p) => ({ ...p, memberChanges: [...keep, ...Array.from({ length: projects.MEMBERS_PER_HOUR }, () => ({ at: now, via: 'process', agent: 'filler', act: 'add' }))] }));
   try {
     const before = taskCount();
     const r = await post('/tasks', { sentence: 'x', who: 'zed', addMember: true });
@@ -230,6 +230,8 @@ test('a refused assign does not take zed off when zed was given other work on th
   try {
     const r = await post(`/task/${n}/assign`, { who: 'zed', addMember: true });
     assert.notEqual(r.code, 200, r.text);
+    assert.match(r.json.error, /^zed stays on the project, because it holds work there now, but the task was not moved: /);
+    assert.equal(r.json.addedMember, 'zed');
   } finally { tasks.assignPart = real; }
   assert.equal(members().includes('zed'), true, 'zed was taken off while holding work on the project');
   // CONTROL: the same refusal with no other work given takes zed off again.
@@ -256,4 +258,74 @@ test('a caller on its agent token alone is not offered the --add-member step it 
     const both = await post('/tasks', { sentence: 'x', who: 'zed' }, { ...asAgent('mara'), 'x-kosmos-board-token': BOARD });
     assert.match(both.json.error, /--add-member/);
   } finally { boardAuthState.on = false; boardAuthState.token = null; }
+});
+
+test('a name typed with other case or spaces finds the agent the board runs, and that name is what joins and holds the task', async () => {
+  for (const typed of ['Zed', ' zed ']) {
+    zedOff();
+    const r = await post('/tasks', { sentence: 'By key: ' + JSON.stringify(typed), who: typed, addMember: true });
+    assert.equal(r.code, 200, typed + ': ' + r.text);
+    assert.equal(r.json.addedMember, 'zed');
+    assert.deepEqual(ownerOf(r.json.task.number), ['zed']);
+    assert.equal(members().includes('zed'), true);
+    assert.equal(members().includes(typed), false, typed + ' was stored as typed');
+  }
+});
+
+test('when the store will not take zed off after a refusal, the answer says zed stayed and carries addedMember', async () => {
+  zedOff();
+  const real = projects.removeAgent;
+  projects.removeAgent = () => { throw new Error('store says no'); };
+  try {
+    const r = await post('/tasks', { sentence: 'Under nothing', who: 'zed', addMember: true, parent: '999' });
+    assert.equal(r.code, 400, r.text);
+    assert.match(r.json.error, /^zed was put on the project and could not be taken off again, and the task was not added: /);
+    assert.equal(r.json.addedMember, 'zed');
+  } finally { projects.removeAgent = real; }
+});
+
+test('the joined line is typed once the task is given, and never for a refused one', async () => {
+  const said = [];
+  const real = projects.speakOfMembershipAsync;
+  projects.speakOfMembershipAsync = async (name, project, kind) => { said.push([name, kind]); return null; };
+  try {
+    zedOff();
+    const no = await post('/tasks', { sentence: 'Under nothing', who: 'zed', addMember: true, parent: '999' });
+    assert.equal(no.code, 400, no.text);
+    assert.deepEqual(said, [], 'a joined line was typed for a task that was never added');
+    const yes = await post('/tasks', { sentence: 'Joined for real', who: 'zed', addMember: true });
+    assert.equal(yes.code, 200, yes.text);
+    assert.deepEqual(said, [['zed', 'joined']]);
+    zedOff();
+    const n = fresh('Assigned with a join');
+    const as = await post(`/task/${n}/assign`, { who: 'zed', addMember: true });
+    assert.equal(as.code, 200, as.text);
+    assert.deepEqual(said, [['zed', 'joined'], ['zed', 'joined']]);
+  } finally { projects.speakOfMembershipAsync = real; }
+});
+
+test('the membership valve counts an add made through task assign too: past it, 429 and nothing changes', async () => {
+  zedOff();
+  const n = fresh('Valved assign');
+  const now = new Date().toISOString();
+  const keep = project().memberChanges || [];
+  projects.mutate(projectId, (p) => ({ ...p, memberChanges: [...keep, ...Array.from({ length: projects.MEMBERS_PER_HOUR }, () => ({ at: now, via: 'process', agent: 'filler', act: 'add' }))] }));
+  try {
+    const r = await post(`/task/${n}/assign`, { who: 'zed', addMember: true });
+    assert.equal(r.code, 429, r.text);
+    assert.equal(members().includes('zed'), false);
+    assert.deepEqual(ownerOf(n), ['mara']);
+  } finally {
+    projects.mutate(projectId, (p) => ({ ...p, memberChanges: keep }));
+  }
+});
+
+test('the page is not offered a command to run: a non-member refusal from the screen has no --add-member step', async () => {
+  zedOff();
+  const page = await post('/tasks', { sentence: 'From the page', who: 'zed' }, { 'sec-fetch-site': 'same-origin' });
+  assert.equal(page.code, 400, page.text);
+  assert.doesNotMatch(page.json.error, /--add-member/);
+  // CONTROL: the same request from an agent is offered the step.
+  const agent = await post('/tasks', { sentence: 'From an agent', who: 'zed' });
+  assert.match(agent.json.error, /--add-member/);
 });
