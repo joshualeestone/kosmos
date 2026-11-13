@@ -1848,7 +1848,7 @@
       "notesOnly": true
     },
     {
-      "title": "Moved Codex agents on Windows show their limits",
+      "title": "Moved Codex agents on Windows drop old limits",
       "line": "On Windows, a Codex agent moved to another account no longer shows its old account's usage limits.",
       "icon": "swarm",
       "platforms": [
@@ -1861,7 +1861,7 @@
     },
     {
       "title": "Windows Codex cards drop the old model",
-      "line": "On Windows, after a model change, a Codex agent's card no longer names the model from before the change.",
+      "line": "On Windows, after a model change, a Codex agent's card shows the model its job will run, not the one read from before the change.",
       "icon": "swarm",
       "platforms": [
         "windows"
@@ -1873,7 +1873,7 @@
     },
     {
       "title": "Linux Settings checks restart and sleep",
-      "line": "On Linux, Settings, Computer reads Linux's own restart and sleep settings and gives the fix as a command to paste.",
+      "line": "On Linux, Settings, Computer reads Linux's own restart and sleep settings, and gives a command to paste for the restart.",
       "icon": "list",
       "rank": 109,
       "since": "0.8.05",
@@ -1909,7 +1909,7 @@
     },
     {
       "title": "A resent community comment is not doubled",
-      "line": "A community comment or post an agent sends again within a day is answered with the one already held, not posted twice.",
+      "line": "A community comment or post an agent sends again with the same words, in the same place, within a day is not posted twice.",
       "icon": "chat",
       "rank": 113,
       "since": "0.8.05",

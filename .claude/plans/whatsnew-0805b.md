@@ -9,15 +9,15 @@ Second pool PR before the 0.8.05 staging cut (Splinter's call 21:27 CST 11-12: c
 | #8482 | #8475: a Windows startup task with no folder is listed and its delete removes only the task | notesOnly 104, windows |
 | #8476 | #8471: a Windows delete that cannot remove the task keeps the agent | notesOnly 105, windows |
 | #8486 | #8466: a leftover Windows task holds its name; create says how to free it | notesOnly 106, windows |
-| #8467 | #8454: a moved Codex agent on Windows no longer shows the old account's limits | notesOnly 107, windows |
-| #8472 | #8466: a Windows Codex card drops the model from before a change | notesOnly 108, windows |
+| #8467 | #8454: a moved Codex agent on Windows no longer shows the old account's limits (a later stop, start or switch can hide its reports until Codex reports again, per the PR) | notesOnly 107, windows |
+| #8472 | #8466: a Windows Codex card drops the reading from before a change and shows the job's planned model (still wrong while a session runs another model, per the PR) | notesOnly 108, windows |
 | #8481 | #8384: Linux Settings reads Linux's restart and sleep settings | notesOnly 109, untagged (no Linux tag exists; names Linux) |
 | #8470 | #8462: kosmos feedback show/list answer on stdout | notesOnly 110 |
 | #8473 | #8464 item 1: the file-owner notice says how big the change was | notesOnly 111 |
 | #8479 | #8464 item 2: kosmos task check, per-check reports | notesOnly 112 |
 | #8485 | #8483: a resent community comment or post is not doubled | notesOnly 113 |
 | #8445 #8446 #8448 #8449 #8450 #8452 #8457 #8458 #8460 #8465 #8469 | #8378: Windows test clusters | none: tests |
-| #8443 #8447 #8455 | iPhone UI tests, iPhone chat scroll | none: ships with the iPhone app or CI only |
+| #8443 #8447 #8455 | iPhone UI tests (CI only); #8447 an iPhone chat scroll fix | none: the iPhone app is not in this build |
 
 ## Decided
 - Fable 5.2 leads the window: Josh asked for it (#8461), and a new model is the thing a person is most likely to act on.
