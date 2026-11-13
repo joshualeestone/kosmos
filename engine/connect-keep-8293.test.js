@@ -65,7 +65,9 @@ test('keeps the account that ran the session, and its model, with nothing to say
   ranOn(ACCT_B);
   const out = discover.connect(dir, {});
   assert.equal(out.ok, true, out.because);
-  assert.deepEqual(seen, { configDir: ACCT_B, model: 'claude-haiku-5-5' });
+  /* kosmos#8478 round 7: an adoption onto an account it just chose says so (accountVerified), so on Windows installJob
+     records whose account it is; still exactly these fields, so nothing else rides along. */
+  assert.deepEqual(seen, { configDir: ACCT_B, model: 'claude-haiku-5-5', accountVerified: true });
   assert.equal(out.unknownLastRun, undefined);
 });
 
@@ -113,7 +115,7 @@ test('the newest session decides, not an older one on another account', () => {
   fs.utimesSync(newer, later, later);
   ranOn(ACCT_C, 'new');
   discover.connect(dir, {});
-  assert.deepEqual(seen, { configDir: ACCT_C, model: 'claude-opus-5-5' });
+  assert.deepEqual(seen, { configDir: ACCT_C, model: 'claude-opus-5-5', accountVerified: true });   // kosmos#8478 round 7
 });
 
 test('the model is the main conversation\'s latest, past synthetic and sidechain rows', () => {

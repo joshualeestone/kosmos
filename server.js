@@ -21792,7 +21792,8 @@ const server = http.createServer(async (req, res) => {
         /* The model each one LAST RAN AS, which is the only surviving record of
            it: the model an agent was SET to run on lived in the job that does not
            exist. A reading we cannot make travels as nothing, and that agent
-           comes back on Claude's own default rather than not coming back. */
+           comes back on Claude's own default rather than not coming back.
+           kosmos#8478: on Windows a model the profile recorded with the task, still offered, wins over this reading. */
         const out = register.repair({
           only,
           /* #6716: a model from the agent's EARLIER session is accepted here on purpose. Repair restores what it LAST

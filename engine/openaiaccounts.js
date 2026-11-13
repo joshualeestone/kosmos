@@ -1876,9 +1876,14 @@ async function listLiveNow() {
    concurrent requests cost one sweep rather than two. */
 const listLive = inflight.collapse(listLiveNow);
 
+/* kosmos#8478 round 1: as accounts.js. A removed or disconnected Codex home frees its name for the next sign-in
+   (nextWorkDir), so the Windows records that name it forget it (create.afterAccountGone). Lazy: create requires this. */
+function forgetAccountFreeing(dir, usedBy) { const out = forgetAccount(dir, usedBy); try { require('./create').afterAccountGone(dir, out); } catch { /* the account is gone either way */ } return out; }
+function removeAccountFreeing(dir, usedBy) { const out = removeAccount(dir, usedBy); try { require('./create').afterAccountGone(dir, out); } catch { /* the account is gone either way */ } return out; }
+
 module.exports = {
   readApiKey,
-  list, identityOf, addWithKey, addWithKeyLive, finishChatgptLogin, startChatgptLogin, chatgptLoginStatus, cancelChatgptLogin, nextWorkDir, defaultDir, forgetAccount, removeAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+  list, identityOf, addWithKey, addWithKeyLive, finishChatgptLogin, startChatgptLogin, chatgptLoginStatus, cancelChatgptLogin, nextWorkDir, defaultDir, forgetAccount: forgetAccountFreeing, removeAccount: removeAccountFreeing, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, setChatgptTimers, MISSING_RUNNER_SENTENCE,
   chatgptSubscriptionWindow, decodeIdTokenPayload,   // #2790 Phase 2: pure offline sub-window read, exported for unit tests

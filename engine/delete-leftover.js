@@ -573,9 +573,10 @@ function plan(name, opts) {
      as their own settings-only row, whose delete can go to the Recycle Bin), and so do its community account, standing,
      sender tokens, history and any removal record. If the folder comes back, register.survey lists the agent in
      `missing` (folder, profile, no job) and Start at login (register.repair, create.installJob) registers the task again,
-     on the main account and the model it last ran (the account folder and set model lived only in the task; see
-     taskOnlyBackWords). So the recorded-folder checks settings alone need (strandedRefusal) do not refuse here: nothing
-     they protect is touched. Refused: a name waiting to start (the list leaves it out), and any task while the workers
+     on the account folder and model the profile recorded when the task was written (kosmos#8478), or, where nothing was
+     recorded or it cannot be put back, the main account and the model it last ran (see startsAgainWords). So the
+     recorded-folder checks settings alone need (strandedRefusal) do not refuse here: nothing they protect is touched.
+     Refused: a name waiting to start (the list leaves it out), and any task while the workers
      folder itself is missing, behind a dead link or cannot be checked (every agent would read like this). review 4: when
      strandedRefusal would have refused (its recorded folder out of sight, gone or behind a dead link: perhaps an
      unplugged disk or a dropped share), the task still goes alone, but the name is typed and the plan says why first. */
@@ -621,11 +622,11 @@ function plan(name, opts) {
     try { removedNow = remove.isRemoved(clean) === true; } catch { removedNow = false; }
     if (hasProfile && (stored.records.length || !removedNow)) {
       /* review 4 (friction, not refusal): where main refused through strandedRefusal, the agent may be healthy with its
-         folder only out of sight, and after its task goes it comes back only on the main account and the model it last
-         ran, and only if it has run here. So the name is typed and the reason comes first. */
+         folder only out of sight, and after its task goes it may come back on the main account and the model it last
+         ran (whatever its profile does not record: kosmos#8478), and only if it has run here. So the name is typed and the reason comes first. */
       const out = outOfSightWords(clean, shown);
       const unsure = out ? out.words : null;
-      const words = taskOnlyWords(clean, shown, removedNow, platform, stored.records, out ? out.lead : null);
+      const words = taskOnlyWords(clean, shown, removedNow, platform, stored.records, out ? out.lead : null, true);
       return {
         ok: true,
         name: clean,
@@ -850,10 +851,12 @@ function workersFolderThere() {
    then does the board offer Start at login. The folder named is the one the profile records, as written (workerDir
    answers the workers folder for a recorded folder it cannot see, which is the wrong place to send a person); else
    the one in the workers folder.
-   NOT the agent as it was (review): the account folder a Claude or Codex agent runs on (win32job.configDirFor) and the
-   model it was set to are kept only in the Scheduled Task, so register.repair starts it on the main account and the
-   model it last ran (server.js modelFor). A Qwen or other vendor agent's account is in its profile and comes back with
-   it. The sentence says so rather than promising the agent back unchanged. */
+   The agent as it was only where Kosmos knows it (review; kosmos#8478): the account folder a Claude or Codex agent runs
+   on (win32job.configDirFor) and the model it was set to used to be kept only in the Scheduled Task, so register.repair
+   started it on the main account and the model it last ran (server.js modelFor). The profile now records both each
+   time the task is written, and the repair puts back what it still can; an agent whose task was last written before
+   that has nothing recorded and keeps the old words. A Qwen or other vendor agent's account is in its profile and comes
+   back with it. startsAgainWords says which, rather than promising the agent back unchanged. */
 /* kosmos#8475 review 4: the sentence a task-only plan leads with, and the reason it asks for the name, when the settings
    checks (strandedRefusal) would have refused: its recorded folder is out of sight, gone or behind a dead link, or could
    not be checked. Null when they would not (no typing then); else { lead, words }, lead 'unreachable', 'occupied' (a
@@ -883,7 +886,7 @@ function outOfSightWords(name, shown) {
    so the disk is named here). Anything else, a plain moved folder. review 7: with no lead the disk clause is never
    true: an untyped task-only plan has nothing at the agent's path inside a workers folder that is there, and any
    recorded folder out of sight gets the 'unreachable' lead and typing instead. A disk is connected, never "put back". */
-function taskOnlyBackWords(name, removed, lead = null) {
+function taskOnlyBackWords(name, removed, lead = null, preview = false) {
   let where = null;
   try { where = create.recordedDirSpelling(name); } catch { where = null; }
   if (!where) where = create.workerDir(name);
@@ -893,18 +896,67 @@ function taskOnlyBackWords(name, removed, lead = null) {
       ? `If its folder was only moved, put it back at ${where}, or if it is on a disk or shared folder that is not connected, connect it`
       : `If its folder was only moved, put it back at ${where}`)
     + (removed ? ', use Restore on its row in the removed agents list, then use Start at login when Kosmos offers it' : ', then use Start at login when Kosmos offers it')
-    + startsAgainWords(name);
+    + startsAgainWords(name, preview);
 }
 /* What Start at login (register.repair) brings back after a startup job was removed: the clause ending a sentence that
    names Start at login. Exported for remove.restore's sentence for the same state (kosmos#8475). */
-function startsAgainWords(name) {
+function startsAgainWords(name, preview = false) {
   let provider = null;
   try { provider = require('./store').readProfile(name).provider || null; } catch { provider = null; }
   let ownAccount = provider === 'alibaba';
   try { if (require('./anthropiccompat').vendorOf(provider)) ownAccount = true; } catch { /* read as the main account */ }
-  return ownAccount
-    ? '; it starts on the model it last ran, so choose its model again if it used another.'
-    : '; it starts on your main account and the model it last ran, so choose its account and model again if it used others.';
+  if (ownAccount) return '; it starts on the model it last ran, so choose its model again if it used another.';
+  /* kosmos#8478: the profile now records the account folder and model each Windows task was written with, and
+     register.repair puts back whichever of them still can be, read through the same create.win32RecordedTask, so the
+     sentence and the repair cannot disagree. Nothing recorded (a task last written before this change): the old words,
+     still true. "Set to" because the record is what the agent was set to, not what it last ran. */
+  let rec = null;
+  /* `preview` (the task-only PLAN only, its task still registered): with nothing recorded yet, what the task itself
+     says, because del records exactly that before it removes the task (create.recordWin32TaskFromTask). The outcome
+     and Restore are read after the task is gone and say only what was actually recorded: a record that could not be
+     written leaves them on the old words. */
+  try { rec = create.win32RecordedTask(name, { orTask: preview === true }); } catch { rec = null; }
+  if (rec && rec.accountOk && rec.modelOk) return '; it starts on the account and model it was set to before.';
+  if (rec && rec.accountRemoved) {
+    /* round 1: the account it was on was removed from Kosmos, so its folder name may now be someone else's. round 2:
+       or its folder was not there when the startup job was removed (create.win32TaskOnTask), the same risk. */
+    const because = rec.accountGone === 'missing'
+      ? 'because the account folder it used was not there when its startup job was removed'
+      : 'because the account it used was disconnected or removed';   // round 5: forget (disconnect) clears it too
+    return rec.modelOk
+      ? `; it starts on the model it was set to, but on your main account, ${because}, so choose its account again if it should use another.`
+      : `; it starts on your main account, ${because}, and on the model it last ran, so choose its account and model again if it used others.`;
+  }
+  /* round 3: a folder NAME is not an account. Where the record cannot show the folder still holds the account it was
+     recorded with, the agent starts on the main account and the words say why (create.win32RecordedTask accountWhy). */
+  // round 4: the unverifiable case in its own two sentences (review wording).
+  if (rec && rec.accountWhy === 'unverifiable') {
+    return rec.modelOk
+      ? '; it starts on the model it was set to, but on your main account, because Kosmos did not record whose account was in the folder it used. Choose its account again if it should use another.'
+      : '; it starts on your main account and the model it last ran, because Kosmos did not record whose account was in the folder it used. Choose its account and model again if it used others.';
+  }
+  const notThere = {
+    changed: 'because the account in the folder it used has signed out or changed',
+    unusable: 'because the account folder it used cannot be used for it now',
+  }[rec && rec.accountWhy];
+  if (rec && notThere) {
+    return rec.modelOk
+      ? `; it starts on the model it was set to, but on your main account, ${notThere}, so choose its account again if it should use another.`
+      : `; it starts on your main account, ${notThere}, and on the model it last ran, so choose its account and model again if it used others.`;
+  }
+  if (rec && rec.modelOk) {
+    /* round 1: statSync cannot tell a deleted account folder from one on a disk or shared folder that is not connected,
+       so this says "cannot reach" as the rest of this file does, and the repair keeps the folder in the record so it
+       comes back on it at the next Start at login, if no change to the agent rewrites its task first. round 3: and only
+       while it still holds the account it was recorded with. */
+    return '; it starts on the model it was set to, but Kosmos cannot reach the account folder it used right now, so it starts on your main account unless that folder can be reached by then and still holds the same account. If that folder is on a disk or shared folder that is not connected, connect it first; otherwise choose its account again afterwards if it should use another.';
+  }
+  if (rec && rec.accountOk) {
+    return rec.configDir
+      ? '; it starts on the account it was set to, but on the model it last ran, because the model it was set to is no longer offered, so choose its model again if it used another.'
+      : '; it starts on your main account, as before, but on the model it last ran, because the model it was set to is no longer offered, so choose its model again if it used another.';
+  }
+  return '; it starts on your main account and the model it last ran, so choose its account and model again if it used others.';
 }
 
 /* kosmos#8475 review: whether a profile records a folder outside the workers folder (read from the profile, never
@@ -926,8 +978,8 @@ function recordedOutsideWorkers(name, platform) {
    stays stored, and (review) the way to delete it ONLY when that delete would be offered: the settings-only list's rule
    (recordedOutsideWorkers) and the settings-only plan's own refusals (strandedRefusal). `records` is namedRecords' list,
    or null when it could not be read (then nothing is said about it rather than a guess). */
-function taskOnlyWords(name, shown, removed, platform, records, lead = null) {
-  const back = taskOnlyBackWords(name, removed, lead);
+function taskOnlyWords(name, shown, removed, platform, records, lead = null, preview = false) {
+  const back = taskOnlyBackWords(name, removed, lead, preview);   // preview: the plan's words (kosmos#8478)
   if (!records || !records.length) return { back, stay: '' };
   const kw = recordsWords(records);
   let offered = false;
@@ -1098,13 +1150,18 @@ function* delSteps(name, opts) {
   /* kosmos#8475: a Windows task with no folder: the Scheduled Task and nothing else. Before the community standing reset
      below, which cannot be undone, and with no token revoke, no history cleared, no settings moved, no removal forgotten
      and no community account retired: if the folder was only moved, Start at login brings the agent back with its
-     settings, picture, tokens and history (on the main account and the model it last ran: see taskOnlyBackWords).
+     settings, picture, tokens and history (on the account and model its profile recorded, where it can: kosmos#8478,
+     see startsAgainWords). Its profile, and so that record, is one of the things that stays.
      Nothing is typed, except where its recorded folder is out of sight (review 4): then the name, checked here before
      anything is touched, with the plan travelling back as the general refusal below does. */
   if (p.taskOnly) {
     if (p.typeToConfirm && String((opts && opts.typed) || '').trim() !== p.typeToConfirm) {
       return { outcome: OUTCOME.REFUSED, because: `type ${p.typeToConfirm} to confirm; nothing was deleted`, plan: p };
     }
+    /* kosmos#8478: an agent whose task was last written before its profile recorded one gets the record now, read from
+       the task, so Start at login puts back its account folder and model. Never a gate: a read or write that fails
+       leaves the delete as it was, and the words below, read after, say only what was recorded. */
+    try { create.recordWin32TaskFromTask(p.name); } catch { /* the delete goes ahead */ }
     let out;
     try { out = require('./win32job').remove(p.name); }
     catch (err) { out = { ok: false, because: String((err && err.message) || err) }; }
