@@ -170,6 +170,16 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     typedBox.dispatchEvent(new Event('input', { bubbles: true }));
     out.typedOn = !document.getElementById('del-go').disabled;
     closeDeleteModal();
+    // 3f. kosmos#8477 review 2: the dialog asks for no name; the poll stores the same plan now asking for one (its folder
+    // went out of sight), and the board refuses for the name. The dialog shows the box to type it in.
+    const noName = { ok: true, name: 'task-8475', shown: 'Tasked', taskOnly: true, question: 'Remove Tasked\'s startup job?', reassurance: '', loses: [], verb: 'Remove its startup job', keep: 'Keep its startup job', typeToConfirm: null, confirm: '2.same8477' };
+    openDeleteModal(noName);
+    DEL_PLAN = { ...noName, typeToConfirm: 'Tasked' };
+    deleteAnswer = { outcome: 'refused', because: 'type Tasked to confirm; nothing was deleted', plan: { ...noName, typeToConfirm: 'Tasked' } };
+    document.getElementById('del-go').click();
+    await new Promise((res) => setTimeout(res, 80));
+    out.nameAsked = { rowHidden: document.getElementById('del-type-row').hidden, goOff: document.getElementById('del-go').disabled, msg: document.getElementById('del-msg').textContent };
+    closeDeleteModal();
     // 3c. a name just deleted is not drawn again from the kept rows
     body = { agents: [], leftovers: [{ name: 'stray-7825', shownAs: 'Stray' }] };
     await paintRemoved();
@@ -251,6 +261,8 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     'kosmos#8477: a refusal because what is left changed repaints the dialog with the new plan and says so', JSON.stringify(ch));
   check(ch.goOff === true && ch.sentAtOnce === null, 'kosmos#8477 review 1: right after the repaint Delete is off, so a double click\'s second click confirms nothing', JSON.stringify(ch));
   check(ch.goOffAfterPause === false && ch.sentAgain === '1.after8477', 'kosmos#8477: after the pause Delete is on, and now confirms the new plan', JSON.stringify(ch));
+  check(r.nameAsked && r.nameAsked.rowHidden === false && r.nameAsked.goOff === true && /type Tasked/.test(r.nameAsked.msg),
+    'kosmos#8477 review 2: a refusal asking for a name the dialog on screen did not ask for shows the box, whatever the poll stored meanwhile', JSON.stringify(r.nameAsked));
   check(r.typedOn === true, 'kosmos#8477 review 1: typing the name the dialog shows turns Delete on, whatever a fresher plan read meanwhile asks', String(r.typedOn));
   check(r.none.wrapHidden === true, 'NEGATIVE: nothing removed and nothing left over hides the section', JSON.stringify(r.none));
 

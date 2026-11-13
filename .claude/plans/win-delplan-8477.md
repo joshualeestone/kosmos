@@ -59,6 +59,15 @@ standing reset, community account retired, tokens revoked. Nobody confirmed that
 - **In-process callers that pass no `confirmed` key at all are not checked**, as before. Only tests do this today
   (about 115 calls across the delete-leftover suites), and each plans itself in the same tick.
 
+- **Review 2:** the click handler's `onScreen` is `DEL_SHOWN`, and the #7820 repaint compares the refusal's plan with
+  it (a poll storing the same plan now asking for a name left every click refused with the name box hidden). The other
+  `DEL_PLAN` reads are the detail page's own Delete button, which opens the page's plan, not the dialog's. The
+  fingerprint gains the folder's git repository and "more than N files" (capped), what the dialog says about the
+  contents that does not age; not the count or size. Left as is: a community file that cannot be read reads as
+  "changed since you looked". Telling the two apart needs communitysend to report "could not read" separately (its
+  answers of 1 and true are made inside it, at several reads), a change to that module outside this card; the refusal
+  itself is safe.
+
 ## Weakest part of this reasoning
 
 The `confirmed === undefined` exemption. A future production caller of `del`/`delAsync` that forgets to pass `confirmed`

@@ -52006,7 +52006,7 @@ document.getElementById('del-go').addEventListener('click', async () => {
   if (!DEL_FOR) return;
   const name = DEL_FOR;
   const opened = DEL_OPENED;   // this dialog; closing or opening it again moves the token
-  const onScreen = DEL_PLAN;   // the plan this dialog shows; a detail page loaded meanwhile can replace DEL_PLAN
+  const onScreen = DEL_SHOWN;   // the plan this dialog shows (kosmos#8477 review 2: not DEL_PLAN, which a detail page's read can replace)
   const confirmed = DEL_SHOWN ? DEL_SHOWN.confirm : null;   // kosmos#8477: what the words on screen promised
   go.disabled = true;
   msg.textContent = '';
@@ -52040,7 +52040,7 @@ document.getElementById('del-go').addEventListener('click', async () => {
        to be typed. */
     let repainted = false;
     if (body && body.plan && body.plan.ok && String(body.plan.name).toLowerCase() === String(DEL_FOR).toLowerCase()
-      && (body.changed || (body.plan.typeToConfirm && !(DEL_PLAN && DEL_PLAN.typeToConfirm === body.plan.typeToConfirm)))) {
+      && (body.changed || (body.plan.typeToConfirm && !(onScreen && onScreen.typeToConfirm === body.plan.typeToConfirm)))) {
       const back = DEL_RETURN;
       openDeleteModal(body.plan);
       DEL_RETURN = back;

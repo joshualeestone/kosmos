@@ -1037,12 +1037,16 @@ function recordsWords(records) {
    and the other way round, a name newly asked for, is refused by del()'s typed-name check before anything is touched.
    Built from the plan object itself (plus the two facts the object does not carry), so the GET and the re-plan cannot
    derive it two ways. */
-const CONFIRM_FINGERPRINT_VERSION = '2';   // 2: unsent posts in, the typed name out (review 1)
+const CONFIRM_FINGERPRINT_VERSION = '3';   // 2: unsent posts in, the typed name out (review 1); 3: the folder's git and capped (review 2)
 const CONFIRM_FINGERPRINT_HEX_CHARS = 16;   // 64 bits: a short value for the page to carry, far past any chance collision between two plans of one name
 function confirmFingerprint(p, { retiresCommunity, marksUnsent }) {
   const promised = {
     kind: p.taskOnly ? 'startup-job-only' : 'full',
     folder: (p.folder && p.folder.path) || null,
+    /* review 2: what the dialog says about the folder's contents that does not age: "including a git repository" and
+       "more than N files". Not the count or size themselves (they are what a write to the folder changes), nor "last changed". */
+    folderGit: Boolean(p.folder && p.folder.git),
+    folderCapped: Boolean(p.folder && p.folder.capped),
     job: (p.job && p.job.label) || null,
     toTrash: Boolean(p.toTrash),
     records: ((p.records && p.records.files) || []).map((r) => r.file).sort(),

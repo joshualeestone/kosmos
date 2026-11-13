@@ -380,7 +380,8 @@ test('#7820 the page repaints the dialog from a refusal that carries a plan', ()
   const handler = html.slice(from, i + 1);
   assert.match(handler, /openDeleteModal\(body\.plan\);\s*DEL_RETURN = back;\s*repainted = true;/,
     'a refusal with a plan does not repaint the dialog, so a person shown no name box stays stuck');
-  assert.match(handler, /DEL_PLAN\.typeToConfirm === body\.plan\.typeToConfirm/, 'a differently spelled name on screen is not repainted');
+  // kosmos#8477 review 2: compared with the plan the dialog shows (onScreen), not DEL_PLAN, which a poll can replace.
+  assert.match(handler, /onScreen\.typeToConfirm === body\.plan\.typeToConfirm/, 'a differently spelled name on screen is not repainted');
   assert.match(handler, /\.toLowerCase\(\) === String\(DEL_FOR\)\.toLowerCase\(\)/, 'a name that differs only in case is not repainted');
   assert.match(handler, /if \(!repainted\) go\.disabled = false;/, 'the button can stay off with no box to type in');
 });

@@ -144,12 +144,12 @@ test('kosmos#8477: every offered plan carries a short fingerprint, the same for 
   const a = agent('same8477', { folder: false });
   const first = win.plan(a);
   assert.equal(first.ok, true, first.because);
-  assert.match(String(first.confirm), /^2\.[0-9a-f]{16}$/, 'the task-only plan carries no fingerprint');
+  assert.match(String(first.confirm), /^3\.[0-9a-f]{16}$/, 'the task-only plan carries no fingerprint');
   assert.equal(win.plan(a).confirm, first.confirm, 'the same leftover planned twice reads as changed');
   const b = agent('full8477');
   const full = win.plan(b);
   assert.equal(full.ok, true, full.because);
-  assert.match(String(full.confirm), /^2\.[0-9a-f]{16}$/, 'the full plan carries no fingerprint');
+  assert.match(String(full.confirm), /^3\.[0-9a-f]{16}$/, 'the full plan carries no fingerprint');
   assert.notEqual(full.confirm, first.confirm);
 });
 
@@ -286,6 +286,21 @@ test('kosmos#8477 review 1: the name no longer asked for on the same act still r
   assert.equal(refused.outcome, leftover.OUTCOME.REFUSED, JSON.stringify(refused));
   assert.equal(refused.plan && refused.plan.typeToConfirm, other, 'the plan asking for the name does not travel back');
   untouched(other, { folder: false });
+});
+
+test('kosmos#8477 review 2: a git repository that appears in the folder after the dialog opened: refused; a file written there is not', () => {
+  const name = agent('git8477');
+  const shown = win.plan(name);
+  assert.ok(shown.ok && !shown.loses.some((l) => /git repository/.test(l)), 'CONTROL: the shown dialog already names a git repository');
+  fs.writeFileSync(nodePath.join(folderOf(name), 'notes', 'more.md'), 'more\n');   // a file count that changes alone: same act
+  assert.equal(win.plan(name).confirm, shown.confirm, 'a file written into the folder reads as a changed promise');
+  fs.mkdirSync(nodePath.join(folderOf(name), '.git'));
+  const now = win.plan(name);
+  assert.ok(now.loses.some((l) => /git repository/.test(l)), 'CONTROL: the fresh plan does not name the git repository');
+  const done = win.del(name, { confirmed: shown.confirm });
+  assert.equal(done.outcome, leftover.OUTCOME.REFUSED, JSON.stringify(done));
+  assert.equal(done.changed, true);
+  untouched(name, { folder: true });
 });
 
 test('kosmos#8477: delAsync (the route\'s path) refuses the same way', async () => {
