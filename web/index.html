@@ -94794,7 +94794,7 @@ function asbSayNotMade(made) {
     : deadModel ? 'Your AI model could not be reached just now. Check it in AI Models, then try again.'
     : taken ? 'Two of your agents already use the Kosmos Guide\'s names (Josh and Josh AI). Rename one, restart Kosmos, then try again.'
     : madeEarlier ? 'A Kosmos Guide was already set up on this computer. Look for it in Agents.'
-    : unclear ? 'Kosmos could not tell whether a Kosmos Guide is already on this computer, so it did not make another. If one of your agents is called Josh, look at it in Agents.'
+    : unclear ? 'Kosmos could not tell whether a Kosmos Guide is already on this computer, so it did not make another. If one of your agents is called Josh or Josh AI, look at it in Agents.'
     : made.because ? made.because
     : 'We could not set up the Kosmos Guide just now. Try again in a moment.';
   m.hidden = false;

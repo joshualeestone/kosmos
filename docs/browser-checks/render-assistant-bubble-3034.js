@@ -125,6 +125,22 @@ const waitFor = (page, fn, ms = 6000) => page.waitForFunction(fn, null, { timeou
     chk(await waitFor(page, () => /needs a connected AI model/.test(document.getElementById('asb-row-msg').textContent) && !document.getElementById('asb-row-msg').hidden, 6000),
       'B1b with no model: it says a connected model is needed', await page.evaluate(() => document.getElementById('asb-row-msg').textContent));
     chk(await page.evaluate(() => !!document.getElementById('asb-row-models')), 'B1b and it offers the way there (Open AI Models)');
+    /* kosmos#8484/#8491: the two answers the board can give besides a missing model. A guide in doubt can be under either
+       name, so 'unclear' names both; a refusal that will not clear by waiting carries its own sentence, shown as sent. */
+    const notMade = await page.evaluate(() => {
+      const m = document.getElementById('asb-row-msg');
+      asbSayNotMade({ state: 'unclear', seeded: false });
+      const unclear = m.textContent;
+      asbSayNotMade({ state: 'refused', seeded: false, because: 'Kosmos did not set up the Kosmos Guide, because the name Josh is in use. Then choose Set it up now.' });
+      const held = m.textContent;
+      asbSayNotMade({ state: 'refused', seeded: false });
+      return { unclear, held, plain: m.textContent };
+    });
+    chk(/If one of your agents is called Josh or Josh AI, look at it in Agents\.$/.test(notMade.unclear), 'B1b2 an unclear answer names both guide names', notMade.unclear);
+    chk(notMade.held === 'Kosmos did not set up the Kosmos Guide, because the name Josh is in use. Then choose Set it up now.', 'B1b2 a refusal with a sentence shows that sentence, not "Try again in a moment"', notMade.held);
+    chk(/Try again in a moment\.$/.test(notMade.plain), 'B1b2 CONTROL: a refusal with no sentence still says try again', notMade.plain);
+    await page.click('#asb-row-setup');   // back to what B1b left, the no-model line, for the checks after it
+    await waitFor(page, () => /needs a connected AI model/.test(document.getElementById('asb-row-msg').textContent), 6000);
     chk(await page.evaluate(() => document.getElementById('asb-row-setup').disabled === false && document.getElementById('asb-toggle').getAttribute('aria-checked') === 'true'),
       'B1b and the button is usable again, the switch still ON');
     // B1c: switching OFF is a real choice even with no guide (recorded, and the not-set-up line goes).
