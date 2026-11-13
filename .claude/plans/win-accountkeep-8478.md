@@ -34,7 +34,14 @@ and the last model it ran.
   Restore's words put the folder back only while it holds that same account now; a folder whose account signed out or
   changed, or a record with no identity (written before this, or a folder that held no readable account then), means
   the main account, with words that say which. Repair keeps only an unreachable folder in the record, with its identity.
-- Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (15).
+- Round 4: the task is the truth at the delete. recordWin32TaskFromTask always refreshes the record from a readable
+  task (a record can be stale: its write is best effort, and an older Kosmos can rewrite the task after a downgrade).
+  It keeps the old record only where repair deliberately kept a folder it could not reach (marked kept) while the task
+  runs on the main account; for the same folder it keeps the identity recorded when the task was written and the
+  folder even if out of reach (the identity check decides at Start at login). The plan's words read the same refresh.
+  A Codex ChatGPT sign-in's identity carries its workspace id where codex wrote one (tokens.account_id, else the id
+  token's chatgpt_account_id). Clearing records on an account removal runs on Windows only.
+- Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (16).
 
 ## Decided, not missed
 - Windows only: on macOS and Linux the plist or unit is the source of truth and nothing in Kosmos removes it alone.
@@ -49,5 +56,6 @@ and the last model it ran.
   hand while kept as "cannot reach", another world's records, a removal whose delete failed partway): each still has
   its record, but the folder's current account no longer matches it, so the agent comes back on the main account.
   What is left: an API key account is matched by its key's last four characters (as the accounts list shows it), so
-  a different key ending in the same four in the same folder would match; and the same person signing in again in
-  that folder counts as the same account (by design).
+  a different key ending in the same four in the same folder would match; a Grok subscription sign-in is matched by
+  its email alone (two accounts under one email would match), and so is a Codex ChatGPT sign-in where codex wrote no
+  workspace id; and the same person signing in again in that folder counts as the same account (by design).

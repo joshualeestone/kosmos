@@ -928,8 +928,13 @@ function startsAgainWords(name, preview = false) {
   }
   /* round 3: a folder NAME is not an account. Where the record cannot show the folder still holds the account it was
      recorded with, the agent starts on the main account and the words say why (create.win32RecordedTask accountWhy). */
+  // round 4: the unverifiable case in its own two sentences (review wording).
+  if (rec && rec.accountWhy === 'unverifiable') {
+    return rec.modelOk
+      ? '; it starts on the model it was set to, but on your main account, because Kosmos did not record whose account was in the folder it used. Choose its account again if it should use another.'
+      : '; it starts on your main account and the model it last ran, because Kosmos did not record whose account was in the folder it used. Choose its account and model again if it used others.';
+  }
   const notThere = {
-    unverifiable: 'because Kosmos did not record whose account the folder it used held, so it cannot tell that folder still holds the same account',
     changed: 'because the account in the folder it used has signed out or changed',
     unusable: 'because the account folder it used cannot be used for it now',
   }[rec && rec.accountWhy];

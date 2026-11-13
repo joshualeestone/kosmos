@@ -286,7 +286,27 @@ test('kosmos#8478 round 2: an unrecorded agent whose account was disconnected be
   }
 });
 
-test('kosmos#8478 round 2: a Gemini account removed is forgotten in the records that name it', () => {
+test('kosmos#8478 round 4: a stale record loses to the task: recorded on alice, the task rewritten to the main account with no record write, and Start at login keeps it on the main account', WINDOWS_ONLY, () => {
+  const accounts = require('./accounts');
+  const alice = accounts.nextWorkDir();
+  signIn(alice.dir, { emailAddress: 'alice@example.test', organizationUuid: 'org-alice' });
+  const name = agent('stalerec8478', { account: alice.dir });
+  try {
+    assert.equal(create.setModel(name, 'opus55', { platform: 'win32' }).outcome, create.OUTCOME.CREATED);
+    assert.equal(store.readProfile(name).win32Task.configDir, alice.dir, 'fixture: not recorded on alice');
+    // An older Kosmos (or a record write that failed) rewrites the task onto the main account and records nothing.
+    fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, process.execPath, null, SET_MODEL, null, 'claude'));
+    assert.equal(store.readProfile(name).win32Task.configDir, alice.dir, 'fixture: the record moved with the task');
+    const p = taskOnlyDelete(name);
+    startAtLogin(name);
+    // The outcome first, so a control against the old code shows the wrong account, not only other words.
+    assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, 'Start at login put it on alice although its task ran on the main account');
+    assert.match(p.reassurance, /it starts on the account and model it was set to before\./, 'the plan did not read what the delete records');
+    assert.equal(store.readProfile(name).win32Task.configDir, null);
+  } finally { fs.rmSync(alice.dir, { recursive: true, force: true }); }
+});
+
+test('kosmos#8478 round 2: a Gemini account removed is forgotten in the records that name it', WINDOWS_ONLY, () => {
   const gem = require('./geminiaccounts');
   const home = nodePath.join(SANDBOX, gem.DIR_PREFIX + 'work8478');
   fs.mkdirSync(home, { recursive: true });
@@ -331,16 +351,17 @@ test('kosmos#8478 round 3: a folder name is not an account: alice signs out, Kos
 });
 
 test('kosmos#8478 round 3: a record of a folder with no identity is never trusted: main account, and the words say so', WINDOWS_ONLY, () => {
-  const name = agent('noid8478');
+  const name = agent('noid8478', { model: SET_MODEL });
   // A record written before records kept whose account it was: the folder is there and holds an account, unverifiable.
   store.writeProfile(name, { win32Task: { runner: 'claude', configDir: ACCOUNT, model: SET_MODEL } });
   const p = taskOnlyDelete(name);
-  assert.match(p.reassurance, /it starts on the model it was set to, but on your main account, because Kosmos did not record whose account the folder it used held, so it cannot tell that folder still holds the same account, so choose its account again if it should use another\./);
+  assert.match(p.reassurance, /it starts on the model it was set to, but on your main account, because Kosmos did not record whose account was in the folder it used\. Choose its account again if it should use another\./);
+  assert.match(p.said, /because Kosmos did not record whose account was in the folder it used\. Choose its account again if it should use another\./);
   startAtLogin(name);
   assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
 });
 
-test('kosmos#8478 round 3: a Grok account removed is forgotten in the records that name it', () => {
+test('kosmos#8478 round 3: a Grok account removed is forgotten in the records that name it', WINDOWS_ONLY, () => {
   const grok = require('./grokaccounts');
   const home = nodePath.join(SANDBOX, grok.DIR_PREFIX + 'work8478');
   fs.mkdirSync(home, { recursive: true });
@@ -356,7 +377,7 @@ test('kosmos#8478 round 3: a Grok account removed is forgotten in the records th
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
-test('kosmos#8478 round 1: an OpenAI account removed or disconnected is forgotten in the records that name it, and only those', () => {
+test('kosmos#8478 round 1: an OpenAI account removed or disconnected is forgotten in the records that name it, and only those', WINDOWS_ONLY, () => {
   const oa = require('./openaiaccounts');
   const home = nodePath.join(SANDBOX, '.codex-work8478');
   const other = nodePath.join(SANDBOX, '.codex-other8478');
@@ -401,7 +422,7 @@ test('kosmos#8478: a recorded account folder that is a junction leading nowhere 
 });
 
 test('kosmos#8478: a recorded model no longer offered falls back to the model it last ran, and says so; the account stays', WINDOWS_ONLY, () => {
-  const name = agent('retired8478');
+  const name = agent('retired8478', { model: 'claude-opus-3' });   // round 4: the task carries it too (the task is the truth)
   // A model that has since left the list (setModel would refuse it now, so the record is written as an old task left it).
   store.writeProfile(name, { win32Task: { runner: 'claude', configDir: ACCOUNT, model: 'claude-opus-3', account: OWNER_IDENTITY } });
   const p = taskOnlyDelete(name);
