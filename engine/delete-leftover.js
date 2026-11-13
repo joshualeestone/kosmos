@@ -921,7 +921,7 @@ function startsAgainWords(name, preview = false) {
        or its folder was not there when the startup job was removed (create.win32TaskOnTask), the same risk. */
     const because = rec.accountGone === 'missing'
       ? 'because the account folder it used was not there when its startup job was removed'
-      : 'because the account it used was removed';
+      : 'because the account it used was disconnected or removed';   // round 5: forget (disconnect) clears it too
     return rec.modelOk
       ? `; it starts on the model it was set to, but on your main account, ${because}, so choose its account again if it should use another.`
       : `; it starts on your main account, ${because}, and on the model it last ran, so choose its account and model again if it used others.`;

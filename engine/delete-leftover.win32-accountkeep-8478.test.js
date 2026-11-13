@@ -165,19 +165,54 @@ test('kosmos#8478: an agent on another account and a chosen model comes back on 
   assert.equal(r.guessed && r.guessed.model, null, 'the report would say it had no record of its model');
 });
 
-test('kosmos#8478: an agent with NO record (its task written before this change) on another account and a chosen model comes back on both', WINDOWS_ONLY, () => {
+test('kosmos#8478: an agent with NO record (its task written before this change) keeps its chosen model, and comes back on the main account because nobody recorded whose account its folder held', WINDOWS_ONLY, () => {
   // The task carries the second account and the chosen model; the profile records nothing (as for every agent today).
   const name = agent('legacy8478', { model: SET_MODEL });
   assert.equal(store.readProfile(name).win32Task, undefined, 'fixture: something is recorded');
   const p = taskOnlyDelete(name);
-  // The delete read them from the task and recorded them before removing it.
-  assert.deepEqual(store.readProfile(name).win32Task, { runner: 'claude', configDir: ACCOUNT, model: SET_MODEL, account: OWNER_IDENTITY },
-    'the task-only delete did not record the account folder and model from the task first');
-  assert.match(p.reassurance, /then use Start at login when Kosmos offers it; it starts on the account and model it was set to before\./);
-  assert.match(p.said, /then use Start at login when Kosmos offers it; it starts on the account and model it was set to before\./);
+  /* The delete recorded the task's folder and model before removing it, and NO identity (round 5: an identity is read
+     only when a task is written; whoever is in that folder at the delete may be someone else). */
+  assert.deepEqual(store.readProfile(name).win32Task, { runner: 'claude', configDir: ACCOUNT, model: SET_MODEL, account: null },
+    'the task-only delete did not record the task, or read an identity at the delete');
+  const words = /then use Start at login when Kosmos offers it; it starts on the model it was set to, but on your main account, because Kosmos did not record whose account was in the folder it used\. Choose its account again if it should use another\./;
+  assert.match(p.reassurance, words);
+  assert.match(p.said, words);
   const r = startAtLogin(name);
-  assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: SET_MODEL }, 'Start at login did not put back its account folder and model');
+  assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, 'Start at login did not keep its model, or trusted a folder it cannot verify');
   assert.equal(r.guessed && r.guessed.model, null);
+});
+
+test('kosmos#8478 round 5: a disconnected account whose folder name bob reuses never gets the agent: recorded, and unrecorded', WINDOWS_ONLY, () => {
+  const accounts = require('./accounts');
+  const alice = accounts.nextWorkDir();
+  signIn(alice.dir, { emailAddress: 'alice@example.test', organizationUuid: 'org-alice' });
+  const rec = agent('discon8478', { account: alice.dir });   // recorded below
+  const legacy = agent('discold8478', { account: alice.dir, model: SET_MODEL });   // never recorded
+  let aside = null;
+  try {
+    assert.equal(create.setModel(rec, 'opus55', { platform: 'win32' }).outcome, create.OUTCOME.CREATED);
+    // Alice's account is disconnected; both tasks still name the folder.
+    const out = accounts.forgetAccount(alice.dir, []);
+    assert.equal(out.ok, true, JSON.stringify(out));
+    aside = out.movedTo || null;
+    assert.equal(store.readProfile(rec).win32Task.accountRemoved, true, 'fixture: the disconnect did not clear the record');
+    // Bob signs in, and Kosmos gives him the same folder name.
+    const next = accounts.nextWorkDir();
+    assert.equal(nodePath.resolve(next.dir), nodePath.resolve(alice.dir), 'fixture: the folder name was not reused, so this guards nothing');
+    signIn(next.dir, { emailAddress: 'bob@example.test', organizationUuid: 'org-bob' });
+    for (const [name, why] of [[rec, /because the account it used was disconnected or removed, so choose its account again if it should use another\./],
+      [legacy, /because Kosmos did not record whose account was in the folder it used\. Choose its account again if it should use another\./]]) {
+      const p = taskOnlyDelete(name);
+      startAtLogin(name);
+      // The outcome first, so a control against the old code shows the wrong account, not only other words.
+      assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, `${name} was put on bob's account`);
+      assert.match(p.reassurance, why, `${name}: the plan's words`);
+      assert.match(p.said, why, `${name}: the outcome's words`);
+    }
+  } finally {
+    fs.rmSync(alice.dir, { recursive: true, force: true });
+    if (aside) fs.rmSync(aside, { recursive: true, force: true });
+  }
 });
 
 test('kosmos#8478: an agent with nothing recorded whose task cannot be read at the delete comes back on the main account and the model it last ran, as before, and is recorded from then on', WINDOWS_ONLY, (t) => {
@@ -243,7 +278,7 @@ test('kosmos#8478 round 1: an account removed after the task-only delete is forg
     const next = accounts.nextWorkDir();
     assert.equal(nodePath.resolve(next.dir), nodePath.resolve(first.dir), 'fixture: the folder name was not reused, so this guards nothing');
     signIn(next.dir, 'someone-else@example.test');
-    assert.match(leftover.startsAgainWords(name), /it starts on the model it was set to, but on your main account, because the account it used was removed, so choose its account again if it should use another\./);
+    assert.match(leftover.startsAgainWords(name), /it starts on the model it was set to, but on your main account, because the account it used was disconnected or removed, so choose its account again if it should use another\./);
     startAtLogin(name);
     assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, 'the agent was put on the new account that reused the folder name');
   } finally { fs.rmSync(first.dir, { recursive: true, force: true }); }
@@ -318,7 +353,7 @@ test('kosmos#8478 round 2: a Gemini account removed is forgotten in the records 
   try {
     const out = gem.removeAccount(home, []);
     assert.equal(out.ok, true, JSON.stringify(out));
-    assert.deepEqual(store.readProfile(name).win32Task, { runner: 'gemini', configDir: null, model: null, accountRemoved: true });
+    assert.deepEqual(store.readProfile(name).win32Task, { runner: 'gemini', configDir: null, model: null, accountRemoved: true, removedDir: home });
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
@@ -361,6 +396,22 @@ test('kosmos#8478 round 3: a record of a folder with no identity is never truste
   assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
 });
 
+test('kosmos#8478 round 5: the record step can never fail an account removal: the removal runs first and answers', (t) => {
+  const gem = require('./geminiaccounts');
+  const home = nodePath.join(SANDBOX, gem.DIR_PREFIX + 'throw8478');
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(gem.keyFile(home), 'AIzaSyKosmosTestKeyNotARealKey000000000');
+  const step = t.mock.method(create, 'afterAccountGone', () => { throw new Error('the record step broke'); });
+  try {
+    let out;
+    assert.doesNotThrow(() => { out = gem.removeAccount(home, []); }, 'a broken record step failed the removal');
+    assert.equal(out && out.ok, true, JSON.stringify(out));
+    assert.equal(fs.existsSync(home), false, 'the account was not removed');
+    // CONTROL: on Windows the step was reached (elsewhere it may not be, and the removal is all that matters there).
+    if (process.platform === 'win32') assert.ok(step.mock.callCount() >= 1, 'the record step was never called, so this guards nothing');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
 test('kosmos#8478 round 3: a Grok account removed is forgotten in the records that name it', WINDOWS_ONLY, () => {
   const grok = require('./grokaccounts');
   const home = nodePath.join(SANDBOX, grok.DIR_PREFIX + 'work8478');
@@ -373,7 +424,7 @@ test('kosmos#8478 round 3: a Grok account removed is forgotten in the records th
   try {
     const out = grok.removeAccount(home, []);
     assert.equal(out.ok, true, JSON.stringify(out));
-    assert.deepEqual(store.readProfile(name).win32Task, { runner: 'grok', configDir: null, model: null, accountRemoved: true });
+    assert.deepEqual(store.readProfile(name).win32Task, { runner: 'grok', configDir: null, model: null, accountRemoved: true, removedDir: home });
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
 
@@ -393,7 +444,7 @@ test('kosmos#8478 round 1: an OpenAI account removed or disconnected is forgotte
   try {
     const out = oa.removeAccount(home, []);
     assert.equal(out.ok, true, JSON.stringify(out));
-    assert.deepEqual(store.readProfile(a).win32Task, { runner: 'codex', configDir: null, model: 'gpt-5.5', accountRemoved: true });
+    assert.deepEqual(store.readProfile(a).win32Task, { runner: 'codex', configDir: null, model: 'gpt-5.5', accountRemoved: true, removedDir: home });
     assert.equal(store.readProfile(b).win32Task.configDir, other, 'a record naming another account was changed');
     // Disconnecting (the folder renamed aside, its name free again) forgets it the same way.
     const out2 = oa.forgetAccount(other, []);

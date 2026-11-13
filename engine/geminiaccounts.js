@@ -392,8 +392,8 @@ const listLive = inflight.collapse(listLiveNow);
    for the next sign-in (nextWorkDir), so the Windows records that name it forget it (create.afterAccountGone).
    Wrapped at the export so every caller gets it (server.js's handleApikeyAccountDelete calls these directly). Lazy:
    create requires this. */
-function forgetAccountFreeing(dir, usedBy) { return require('./create').afterAccountGone(dir, forgetAccount(dir, usedBy)); }
-function removeAccountFreeing(dir, usedBy) { return require('./create').afterAccountGone(dir, removeAccount(dir, usedBy)); }
+function forgetAccountFreeing(dir, usedBy) { const out = forgetAccount(dir, usedBy); try { require('./create').afterAccountGone(dir, out); } catch { /* the account is gone either way */ } return out; }
+function removeAccountFreeing(dir, usedBy) { const out = removeAccount(dir, usedBy); try { require('./create').afterAccountGone(dir, out); } catch { /* the account is gone either way */ } return out; }
 
 module.exports = {
   readApiKey,

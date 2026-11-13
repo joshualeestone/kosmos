@@ -4580,7 +4580,10 @@ function win32TaskOnTask(name, fresh) {
   let read;
   try { const job = require('./win32job'); read = fresh ? job.taskSpec(name) : job.cachedTaskSpec(name); } catch { return null; }
   if (!read || !read.known || !read.registered || !read.spec) return null;
-  const rec = win32TaskRecord({ runner: read.spec.runner, configDir: read.spec.configDir, model: read.spec.model });
+  /* round 5: NEVER an identity read here. This runs at the task-only delete, long after the task was written, and
+     whoever is signed in to that folder now may be someone else (a disconnected account's folder name reused by the
+     next sign-in). An identity is read only when a task is written; refreshedRecord carries a recorded one over. */
+  const rec = win32TaskRecord({ runner: read.spec.runner, configDir: read.spec.configDir, model: read.spec.model, account: null });
   /* round 2: a task can outlive its account folder (disconnect-and-stop renames the folder aside and leaves the task;
      or the folder was deleted by hand). nextWorkDir reads a missing name as free and the next sign-in reuses it, and
      afterAccountGone cannot clear a record made after the account went. So the task's folder is recorded only if it
@@ -4608,13 +4611,20 @@ function refreshedRecord(existing, fromTask) {
   const old = existing && typeof existing === 'object' && !Array.isArray(existing) ? existing : null;
   if (!fromTask) return old;
   const { missingDir, ...task } = fromTask;   // missingDir is never written
-  if (old && old.kept === true && task.configDir === null && task.accountRemoved !== true) return old;
+  const sameRunner = Boolean(old) && (old.runner || 'claude') === task.runner;
+  if (sameRunner && old.kept === true && task.configDir === null && task.accountRemoved !== true) return old;
+  /* round 5 (a): a record on the main account, or one whose account was disconnected or removed
+     (forgetWin32TaskAccount; the task still names that folder, disabled), stays on the main account whatever the task
+     names: that folder name may be someone else's now. The task's model is taken. Rules (b) to (d) never read an
+     identity either: (b) the same folder keeps the identity recorded when the task was written; (c) another folder,
+     and (d) no record, take the task's folder with no identity (win32TaskOnTask), which Start at login never trusts. */
+  if (sameRunner && (old.accountRemoved === true || old.configDir == null)) return { ...old, model: task.model };
   /* The task's folder: the one it names, even when that folder is not there now (missingDir). A record of that same
      folder keeps its folder and identity (the identity check decides at Start at login whether it is still that
      account, and a folder out of reach is said as such), with the task's model; only an unrecorded folder that is
      not there becomes the main account (round 2). */
   const taskDir = task.configDir || missingDir || null;
-  if (old && taskDir && typeof old.configDir === 'string' && old.configDir && (old.runner || 'claude') === task.runner) {
+  if (sameRunner && taskDir && typeof old.configDir === 'string' && old.configDir) {
     const fold = (p) => { const r = path.resolve(p); return process.platform === 'linux' ? r : r.toLowerCase(); };
     if (fold(old.configDir) === fold(taskDir)) {
       return { runner: task.runner, configDir: old.configDir, model: task.model,
@@ -4709,7 +4719,7 @@ function forgetWin32TaskAccount(dir) {
     if (fold(rec.configDir) !== gone) continue;
     /* accountRemoved: so the words say the account was removed, rather than read the null as "it was on the main
        account" and say it comes back on the account it was set to. */
-    try { store.writeProfile(key, { win32Task: { ...rec, configDir: null, accountRemoved: true } }); cleared.push(key); } catch { /* best effort */ }
+    try { store.writeProfile(key, { win32Task: { ...rec, configDir: null, accountRemoved: true, removedDir: rec.configDir } }); cleared.push(key); } catch { /* best effort */ }
   }
   return cleared;
 }
@@ -4717,6 +4727,8 @@ function forgetWin32TaskAccount(dir) {
    openaiaccounts.js wrap their exports with it): on success, forget the folder in the records. Hands the answer back
    unchanged; a failure here is swallowed, because the account is gone either way. */
 function afterAccountGone(dir, out) {
+  // round 5: Windows only, and never able to fail the removal (the wrappers call this after it, inside a try).
+  if (process.platform !== 'win32') return out;
   if (out && out.ok === true) { try { forgetWin32TaskAccount(String(dir == null ? '' : dir)); } catch { /* best effort */ } }
   return out;
 }

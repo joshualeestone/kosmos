@@ -15,7 +15,8 @@ and the last model it ran.
 - delete-leftover.js startsAgainWords and remove.js's Restore say which comes back, with the same reader as repair.
 - Agents written before this change: the task-only delete (delete-leftover.del) reads the account folder and model from
   the task itself and records them (create.recordWin32TaskFromTask) just before removing it, when the profile has no
-  record. Never a gate: a read or write that fails leaves the delete as it was.
+  record. Never a gate: a read or write that fails leaves the delete as it was. (Since round 5 such a record carries
+  no identity, so only the model comes back; see below.)
 - Round 1: removing or disconnecting a Claude or OpenAI account (accounts.js / openaiaccounts.js forgetAccount and
   removeAccount, wrapped at the export through create.afterAccountGone) clears that folder from every record naming it
   (model kept, marked accountRemoved), because the removal check finds agents through their tasks only and the next
@@ -41,7 +42,15 @@ and the last model it ran.
   folder even if out of reach (the identity check decides at Start at login). The plan's words read the same refresh.
   A Codex ChatGPT sign-in's identity carries its workspace id where codex wrote one (tokens.account_id, else the id
   token's chatgpt_account_id). Clearing records on an account removal runs on Windows only.
-- Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (16).
+- Round 5: an identity is read ONLY when a task is written, never at the task-only delete (whoever is signed in to a
+  folder then may be someone else: a disconnected account's folder name reused by the next sign-in). At the delete:
+  (a) a record on the main account, or one whose account was disconnected or removed (forgetWin32TaskAccount now also
+  keeps removedDir), stays on the main account with the task's model; (b) the same folder keeps the identity recorded
+  at write time; (c) a different folder, and (d) no record, take the task's folder with no identity, which Start at
+  login never trusts (main account, words that say so). So an agent whose task was written before this change keeps
+  its chosen model but comes back on the main account. The account wrappers run the removal first and the record step
+  after it inside a try, Windows only, so the step can never fail a removal.
+- Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (18).
 
 ## Decided, not missed
 - Windows only: on macOS and Linux the plist or unit is the source of truth and nothing in Kosmos removes it alone.
