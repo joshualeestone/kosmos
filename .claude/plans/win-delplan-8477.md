@@ -83,25 +83,31 @@ the one the last refusal sent back with its plan). The answer:
   again, a second stops; it is remembered, and the files are then never deleted here;
 - `changed` (either kind): wait 3 s, as main waits after a refusal, and try again;
 - no answer: wait 1 s, as main does, and try again;
-- anything else (steps, PARTIAL, 404, 409, 5xx): stop. After the loop the fallback (the gate deletes the files itself)
-  runs exactly where main's does: no answer, 404 or 5xx with no safety refusal seen, a PARTIAL, or a refusal with steps.
-  It never runs after a `changed` refusal the attempts ran out on (main had no such answer to act on).
+- anything else (steps, PARTIAL, 404, 409, 5xx): stop. No pause after the last attempt.
+
+After the loop the fallback (the gate deletes the files itself) runs on main's triggers exactly (review 12): two lost
+answers in a row, a 404 or a 5xx, a PARTIAL, or a refusal with steps; and the first three never after any refusal in
+the run, safety or `changed`.
 
 Why 4: main's two DELETEs, plus one to learn the board's plan from a refusal when every plan read fails, plus one to act
 on it. It runs in cleanup, where signals are ignored, so the bound matters: at worst 4 x (20 s read + 60 s DELETE + 3 s).
 
-Every log line is the script's own: the `changed` refusals get "the board deletes only a plan it was sent back, and this
-script never had one to send", "the board could not read part of what is left of it, so it deleted nothing" or "the
-board's plan for it kept changing between this script's plan read and its delete, so it deleted nothing"; a safety
-refusal is quoted from the board's plan sentence, as main does.
+Every log line is the script's own (`changed_words`): "the board deletes only a plan it was sent back, and this script
+had none to send", "the board could not read part of what is left of it", "the board's plan for it kept changing
+between this script's plan read and its delete" (only when a plan read succeeded and the plan changed more than once),
+or "the board's plan for it was not the one this script sent". A safety refusal is quoted from the board's plan
+sentence, as main does. The final line names what came before the last answer ("before that ..."), safety and `changed`
+alike, so a lost answer at the end does not hide a refusal (review 12), and says "once it is not running" only after a
+safety refusal.
 
-**The combination table** (review 11). Each combination was run with the scripted fake board (`MOCK_SEQ`, added to the
-script's test file) on an origin/main export and on the branch. Answers past the second are "ok". On main's tree
-`changed` and `unconfirmed` cannot occur (main's board has no fingerprint), so they are answered as a delete there:
+**The combination table** (reviews 11 and 12). Each combination was run with the scripted fake board (`MOCK_SEQ`, added
+to the script's test file) on an origin/main export and on the branch. Answers past the listed ones are "ok". On main's
+tree `changed` and `unconfirmed` cannot occur (main's board has no fingerprint), so they are answered as a delete there:
 that is what main would have done at that point. On the branch the board enforces the confirm as the engine does
-(`MOCK_SEQ_ENFORCE=1`): a DELETE that should delete but carries no or a stale confirm is refused `unconfirmed` or
-`changed`, with the plan. "fallback" is the gate deleting the files itself; on this Windows box its delete reports
-"could not delete its files here" (the known Mac-path failures), which is counted as the fallback having run.
+(`MOCK_SEQ_ENFORCE=1`): a DELETE that should delete but carries no confirm is refused `unconfirmed`, and one with a stale
+confirm `changed`, with the plan; an `unconfirmed` answer to a DELETE that did carry a confirm is `changed` (review 12, as
+the engine). "fallback" is the gate deleting the files itself; on this Windows box its delete reports "could not delete
+its files here" (the known Mac-path failures), which is counted as the fallback having run.
 
 | Plan read | 1st DELETE | 2nd DELETE | main | branch |
 |---|---|---|---|---|
@@ -156,20 +162,44 @@ that is what main would have done at that point. On the branch the board enforce
 | fail | unconfirmed | changed | cleared | cleared |
 | fail | unconfirmed | unconfirmed | cleared | cleared |
 
-The reviewer's cases and the plan-changed-once cases, on the same two trees:
+Four answers (review 12; the plan read ok, or failing every time):
+
+| Plan read | Answers 1 to 4 | main | branch |
+|---|---|---|---|
+| ok | changed, changed, changed, lost | cleared | kept (differs) |
+| ok | lost, lost, lost, lost | fallback | fallback |
+| ok | safety, changed, lost, lost | cleared | kept (differs) |
+| ok | lost, changed, lost, safety | cleared | kept (differs) |
+| ok | changed, safety, changed, changed | cleared | kept (differs) |
+| ok | unconfirmed, unconfirmed, unconfirmed, unconfirmed | cleared | kept (differs) |
+| fail | changed, changed, changed, lost | cleared | kept (differs) |
+| fail | lost, lost, lost, lost | fallback | fallback |
+| fail | safety, changed, lost, lost | cleared | kept (differs) |
+| fail | lost, changed, lost, safety | cleared | kept (differs) |
+| fail | changed, safety, changed, changed | cleared | kept (differs) |
+| fail | unconfirmed, unconfirmed, unconfirmed, unconfirmed | cleared | kept (differs) |
+
+The reviewer's cases and the plan-changed-once cases:
 
 | Case | main | branch |
 |---|---|---|
 | Plan reads fail; the DELETE that carries the plan back lands, its answer lost (fail:ok,landed) | cleared | cleared |
+| Plan reads fail; the DELETE that carries the plan back is lost (fail:ok,lost) | cleared | cleared |
 | Plan read ok; the first DELETE lands, its answer lost (ok:landed) | cleared | cleared |
 | Only the first plan read answers; the first DELETE meets a changed plan (the newer confirm must be used) (okonce:changed) | cleared | cleared |
 | As above, then a lost answer (okonce:changed,lost) | cleared | cleared |
 
-50 combinations plus 4 extra cases. The branch clears every combination main clears, and falls back in none (main
-falls back in 2). It differs in 6, each a clear where main kept the files or fell back: lost/lost (main falls back
-after its two DELETEs; the branch's third attempt is answered and clears), lost/safety and safety/lost (main stops at two
-DELETEs with a refusal on record and keeps the files; the branch tries again and the board, re-checking safety itself,
-deletes). Those clears come from the attempts past main's two, against a board that answers them.
+66 rows (50 two-answer combinations, 12 four-answer rows, 4 more cases with one landed or a plan changed once). The
+branch clears every two-answer combination main clears, and falls back only on lost, lost, lost, lost (main falls back
+after two). It differs in 16 rows:
+
+- 6 better than main: lost/lost (main falls back), lost/safety and safety/lost (main keeps the files), each with the
+  plan read ok and failing. The branch's third attempt is answered and clears; the board re-checks safety itself.
+- 10 four-answer rows where main "clears" only because main's board has no `changed` or `unconfirmed` refusal and so
+  deletes at the first one: changed x3 then lost; safety, changed, lost, lost; lost, changed, lost, safety; changed,
+  safety, changed, changed; unconfirmed x4 (each with the plan read ok and failing). On the branch the board refuses
+  every confirmed DELETE in those rows, so the attempts run out and the files are kept (never deleted here after a
+  refusal, review 12). None hangs: changed, safety, changed, changed ends after its four attempts, files kept.
 
 ### The page
 
@@ -252,6 +282,7 @@ suites, `create.win32-namehold-8466`, `jobexists.win32-570` and `linuxwiring-491
   back lands with its answer lost, or is lost; a plan that changed once with every later read failing, which must send
   the newer confirm); a plan changing, or unreadable, on every attempt (files kept, said in the script's own words, never
   the page's); and two safety refusals (files kept, never deleted here). The round-9 and round-10 cases that tested
-  the removed special branches (a board that sends no plan back) are gone with them.
+  the removed special branches (a board that sends no plan back) are gone with them. Review 12 adds: changed three
+  times then lost (files kept, the earlier refusal named), and four lost answers (the gate's own delete, main's trigger).
 - Policy: fixture-discipline, no-name-refs-3071, engine.reachable, windows-tests-1777, win32-separator-guard,
   windows-coupling-audit-1732, web.api-routes-3957; both browser-check gates.

@@ -183,6 +183,14 @@ reenable_label() {
     launchctl enable "gui/$(id -u)/$1" >/dev/null 2>&1
   fi
 }
+# kosmos#8477 review 12: a `changed` refusal in this script's own words (the board's are written for a person at the
+# page). Reads $_BODYF and the loop's `changes` and `readok`.
+changed_words() {
+  if [ "$(body_field unconfirmed)" = true ]; then printf '%s' "the board deletes only a plan it was sent back, and this script had none to send"
+  elif [ "$(body_field planreadfailed)" = true ]; then printf '%s' "the board could not read part of what is left of it"
+  elif [ -n "$readok" ] && [ "$changes" -ge 2 ]; then printf '%s' "the board's plan for it kept changing between this script's plan read and its delete"
+  else printf '%s' "the board's plan for it was not the one this script sent"; fi
+}
 # kosmos#8477 review 11: how many plan-read-then-DELETE attempts the tidy makes. Main's two, plus one to learn the
 # board's plan from a refusal when every plan read fails (the board now deletes only a plan it was sent back), plus one
 # to act on it. It runs in cleanup, where signals are ignored, so the bound is part of the contract.
@@ -201,38 +209,45 @@ tidy_agent() {
   #     main waits after a refusal, and try again.
   #   no answer: wait 1 s, as main does, and try again (a DELETE that landed finds "nothing of" it next time).
   #   anything else (a refusal with steps, a PARTIAL, 404, 409, 5xx): stop.
-  local attempt=0 refusal="" safety=0 lost=""
+  local attempt=0 refusal="" safety=0 lost="" lostrun=0 changes=0 readok="" changedwhy=""
   while [ "$attempt" -lt "$TIDY_ATTEMPTS" ]; do
     attempt=$((attempt+1))
     : > "$_BODYF"
     gcode="$("$CURL" -sS --max-time 20 -H @"$HF" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
     if [ "$gcode" = 200 ]; then
       label="$(body_field label)"; typed="$(body_field typeToConfirm)"
-      c="$(body_field confirm)"; [ -n "$c" ] && confirm="$c"
+      c="$(body_field confirm)"; [ -n "$c" ] && { confirm="$c"; readok=1; }
     fi
     : > "$_BODYF"
     code="$("$CURL" -sS --max-time 60 -H @"$HF" -H 'Content-Type: application/json' -X DELETE --data "$(delete_body "${typed:-$nm}" "$confirm")" -o "$_BODYF" -w '%{http_code}' "$URL/api/agent/$nm/leftover" 2>/dev/null || true)"
     c="$(body_field planconfirm)"; [ -n "$c" ] && confirm="$c"
+    local pause=0
     case "$code" in
-      ""|000) lost=1; sleep 1 ;;
-      400) [ -n "$(body_field steps)" ] && break
+      ""|000) lost=1; lostrun=$((lostrun+1)); pause=1 ;;
+      400) lostrun=0
+           [ -n "$(body_field steps)" ] && break
            case "$(body_field because)" in "nothing of "*) break ;; esac
-           if [ "$(body_field changed)" != true ]; then
+           if [ "$(body_field changed)" = true ]; then
+             changes=$((changes+1)); changedwhy="$(changed_words)"
+           else
              refusal="$(body_field because)"; safety=$((safety+1))
              [ "$safety" -ge 2 ] && break
            fi
-           sleep 3 ;;
-      *) break ;;
+           pause=3 ;;
+      *) lostrun=0; break ;;
     esac
+    [ "$attempt" -lt "$TIDY_ATTEMPTS" ] && sleep "$pause"   # none after the last attempt (review 12)
   done
   outcome="$(body_field outcome)"; because="$(body_field because)"; toTrash="$(body_field toTrash)"; steps="$(body_field steps)"
-  # The board's words for its `changed` refusals are written for a person at the page; these are this script's own.
+  # The board's words for its `changed` refusals are written for a person at the page; the script says its own.
+  local lastchanged=""
   if [ "$code" = 400 ] && [ -z "$steps" ] && [ "$(body_field changed)" = true ]; then
-    if [ "$(body_field unconfirmed)" = true ]; then because="the board deletes only a plan it was sent back, and this script never had one to send"
-    elif [ "$(body_field planreadfailed)" = true ]; then because="the board could not read part of what is left of it, so it deleted nothing"
-    else because="the board's plan for it kept changing between this script's plan read and its delete, so it deleted nothing"; fi
+    lastchanged=1; because="$changedwhy, so it deleted nothing"
   fi
-  [ "$refusal" = "$because" ] && refusal=""   # the last answer is said once, below
+  # What came before the last answer, so a lost answer at the end does not hide a refusal (review 12).
+  local before=""
+  [ -n "$refusal" ] && [ "$refusal" != "$because" ] && before="the board refused: $refusal"
+  [ -n "$changedwhy" ] && [ -z "$lastchanged" ] && before="${before:+$before; }$changedwhy"
   # No plan (its GET failed, or an old board): the label this machine's engine gives the name, which reenable_label
   # still requires to be a gate agent's.
   if [ -z "$label" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ]; then pp="$(paths_of "$nm")" && label="$(basename "${pp%%$'\n'*}" .plist)"; fi
@@ -263,16 +278,18 @@ tidy_agent() {
         return
       fi ;;
   esac
-  local why="DELETE leftover -> HTTP ${code:-<none>}, ${outcome:-no outcome}${because:+: $because}${refusal:+; before that the board refused: $refusal}"
-  # Only these let the gate delete the files itself (below): no answer, a board without this route (404), an error part
-  # way (5xx), a PARTIAL, or a refusal carrying `steps`, which del() gives only once its plan passed and an act failed
+  local why="DELETE leftover -> HTTP ${code:-<none>}, ${outcome:-no outcome}${because:+: $because}${before:+; before that $before}"
+  # Only these let the gate delete the files itself (below), as on main: two lost answers in a row, a board without this
+  # route (404), an error part way (5xx), a PARTIAL, or a refusal carrying `steps`, which del() gives only once its plan passed and an act failed
   # (every move, or the community standing). A refusal WITHOUT steps is the plan's own judgement, and some are safety
   # ones the gate cannot see (the session still running, tmux unreadable, an account move holding it), so its files
-  # are left alone (reviews 2 and 3); so is any other answer (401, 409, a 200 it cannot read), and a `changed` refusal
-  # the attempts ran out on, as main had no such answer to act on.
+  # are left alone (reviews 2 and 3); so is any other answer (401, 409, a 200 it cannot read), and nothing after any
+  # refusal in the run, `changed` ones included (review 12): main had no such answer to act on.
   local act="$here"
   case "$code" in
-    ""|000|404|5[0-9][0-9]) [ "$safety" = 0 ] && act=1 ;;   # never after the board refused (review 7)
+    # Main's triggers exactly (review 12): two lost answers in a row, a 404 or a 5xx; never after any refusal in the run.
+    ""|000) [ "$lostrun" -ge 2 ] && [ "$safety" = 0 ] && [ "$changes" = 0 ] && act=1 ;;
+    404|5[0-9][0-9]) [ "$safety" = 0 ] && [ "$changes" = 0 ] && act=1 ;;
     200) [ "$outcome" = partial ] && act=1 ;;
     400) [ -n "$steps" ] && act=1 ;;
   esac
@@ -283,7 +300,7 @@ tidy_agent() {
       say "WARNING: the board answered 200 for '$nm' but the gate could not read what it did (${outcome:-no outcome}), so its files were left: check ${pp:-its com.kosmos.agent plist and worker folder}, and delete what is still there."
       return
     fi
-    say "WARNING: could not clear '$nm' ($why), so its files were left: once it is not running, on its page, Delete what is left, or delete ${pp:-its com.kosmos.agent plist and worker folder} by hand."
+    say "WARNING: could not clear '$nm' ($why), so its files were left: ${refusal:+once it is not running, }on its page, Delete what is left, or delete ${pp:-its com.kosmos.agent plist and worker folder} by hand."
     return
   fi
   # No answer, a board without this route (404), an error part way (5xx), or a PARTIAL: the board did not judge the

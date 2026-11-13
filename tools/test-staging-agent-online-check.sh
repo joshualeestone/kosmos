@@ -289,7 +289,10 @@ case "$route" in
           safety) emit "{\"outcome\":\"refused\",\"because\":\"$nm is running, so there is nothing left over to delete\"}" 400;;
           changed) v=$((v+1)); printf '%s' "$v" > "${STATE}.v.$nm"
                    emit "{\"outcome\":\"refused\",\"changed\":true,\"because\":\"What Kosmos would do here is different now, so nothing was deleted. Look at what it says now before deleting.\",\"plan\":{\"ok\":true,\"name\":\"$nm\",\"confirm\":\"4.v$v-$nm\"}}" 400;;
-          unconfirmed) emit "{\"outcome\":\"refused\",\"changed\":true,\"unconfirmed\":true,\"because\":\"Kosmos was not told what you agreed to delete, perhaps because this page is from before an update, so nothing was deleted. Reload the page and look again before deleting.\"$plan}" 400;;
+          # review 12: as the engine, `unconfirmed` only when nothing was sent; a confirm that was sent meets `changed`.
+          unconfirmed) case "$data" in *'"confirmed":'*)
+                         emit "{\"outcome\":\"refused\",\"changed\":true,\"because\":\"What Kosmos would do here is different now, so nothing was deleted. Look at what it says now before deleting.\"$plan}" 400; exit 0;; esac
+                       emit "{\"outcome\":\"refused\",\"changed\":true,\"unconfirmed\":true,\"because\":\"Kosmos was not told what you agreed to delete, perhaps because this page is from before an update, so nothing was deleted. Reload the page and look again before deleting.\"$plan}" 400;;
         esac; exit 0
       fi
       if [ "${MOCK_LEFTOVER:-ok}" = lost ] && [ "$(grep -cx "$nm" "${STATE}.leftover")" = 1 ]; then printf '000'; exit 0; fi
@@ -473,6 +476,11 @@ run_case "plans never read; the DELETE with the plan sent back is lost: retried,
 run_case "a plan changed once, then every read fails: the newer confirm is sent, cleared (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_SEQ_ENFORCE=1 MOCK_SEQ_GET=okonce MOCK_SEQ=changed
 run_case "a plan changed once and then a lost answer, every later read failing: cleared (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_SEQ_ENFORCE=1 MOCK_SEQ_GET=okonce MOCK_SEQ=changed,lost
 # A safety refusal twice: as main, the files stay and nothing is deleted here.
+# review 12: a plan changing three times and then a lost answer: never deleted here (main's fallback needs two lost answers
+# in a row and no refusal), and the log says what came before the lost answer.
+run_case "changed three times, then lost: the files stay, the earlier refusal said (0)" 0 --kept --expect "before that the board's plan for it kept changing" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_SEQ_ENFORCE=1 MOCK_SEQ=changed,changed,changed,lost
+# Four lost answers: main's trigger (two in a row, no refusal), so the gate deletes the files itself.
+run_case "four lost answers: the gate deletes the files itself, as main does after two (0)" 0 --expect "deleted here instead" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_SEQ_ENFORCE=1 MOCK_SEQ=lost,lost,lost,lost
 run_case "two safety refusals: the files stay, never deleted here (0)" 0 --kept --expect "is running" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_SEQ_ENFORCE=1 MOCK_SEQ=safety,safety
 run_case "a plan that answers ok:false, then a DELETE that clears, is cleared (0)" 0 --expect "cleared 'verify2129-openai-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_PLAN=refused
 run_case "the typed words are the board's (its shown name), not the session name (0)" 0 --expect "cleared 'verify2129-claude-" MOCK_ACCOUNTS=both MOCK_AGENT_STATE=idle MOCK_LEFTOVER_TYPED=1 MOCK_SHOWN=Gate-Display
