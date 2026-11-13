@@ -30,7 +30,10 @@ true way to free it from the screen: since #8482 the list at the bottom of the A
     rule would make a second guide beside it;
   - a leftover task with no folder (which now holds the name, where main overwrote it): move on, unless the name is on
     the removed list (main stops there, and still does);
-  - anything else, and a look that fails: main's rule. macOS and Linux: main's rule exactly. A tests-only `platform`
+  - anything else: main's rule. A folder look (lstat) that fails other than "not there" STOPS (the safe way to fail);
+    only a throw from the check itself keeps the sentence's answer. "Whatever the sentence" includes a display-name
+    clash: another agent shown as the guide's name plus anything at its folder path stops, where main moved on (rare,
+    and safe). macOS and Linux: main's rule exactly. A tests-only `platform`
     option lets a Windows host pin that.
 - Tests: new engine/create.win32-namehold-8466.test.js (14); create.test.js's leftover-job test writes the job through
   jobfixture (it passed on Windows only by reading a plist).
@@ -65,5 +68,10 @@ New file 14/14. Negative controls, one file at a time:
   (only its win32 CONTROL arm, since main has no platform option; the macOS and Linux pins pass on main).
 - the win32 folder-stop removed: fails 10 and 12. The removed-list check removed: fails 11.
 - 10350778be's create.js: fails 4 (the row's own shownAs).
-- origin/main's create.js: fails 2 to 9 (test 1 pins macOS and Linux, unchanged, by design; 10 to 12 do not depend on
-  the task being read).
+- origin/main's create.js: fails 2 to 9, 13 (its setup check) and 14 (main has no win32HeldTaskWords) (test 1 pins macOS
+  and Linux, unchanged, by design; 10 to 12 do not depend on the task being read).
+- Round 6 (no blocker, no warning; 3 nits). Every guide state compared with main on Windows: the same, or better (a
+  leftover task now gets "Josh AI" where main overwrote the task). Fixed in this plan: a failed folder look stops; the
+  display-name clash; the main-create control list. Not changed, so no code moves after the final round: the outer
+  comment at setup-assistant.js ~3209 says a failed look keeps the sentence's answer (the inner comment and the code
+  stop; only a throw keeps it).
