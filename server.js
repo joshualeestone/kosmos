@@ -17411,7 +17411,10 @@ const server = http.createServer(async (req, res) => {
             return setupAssistant.ensureGuide({ createAgent: create.createAgent, via: 'settings', explicit: true })
               .then(recordGuideOutcome)   // returns its input
               .catch(() => ({ seeded: false, state: 'refused' }))
-              .then((out) => sendJson(res, 200, { ...reply, guide: { state: (out && out.state) || 'refused', seeded: !!(out && out.seeded) } }));
+              /* kosmos#8484: a refusal that will not clear by waiting (a guide name held by a leftover, or a guide with no
+                 startup job) carries its sentence, so the page says how to free it rather than "Try again in a moment". */
+              .then((out) => sendJson(res, 200, { ...reply, guide: { state: (out && out.state) || 'refused', seeded: !!(out && out.seeded),
+                ...(out && !out.seeded && typeof out.because === 'string' && out.because ? { because: out.because } : {}) } }));
           }
           /* A guide that was made and then REMOVED is put back (the same restore as the Removed list), never made
              a second time: its name is on the removed list, and a new one would be a second guide. */

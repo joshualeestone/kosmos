@@ -3148,6 +3148,131 @@ function guideNameStrict() {
   return rec && typeof rec.name === 'string' && rec.name ? rec.name : null;
 }
 
+/* kosmos#8484: the guide Kosmos already made under `shown`, or null. The seeded flag is the only thing that says a
+   guide exists, and it can be missing while the guide is healthy (its write failed, or the board stopped between the
+   create and the write). The seed then found "Josh" taken and made a SECOND guide, "Josh AI". So before any create,
+   each guide name is checked for the guide itself, by one of two things:
+   - its marker (.kosmos-setup-guide) in its folder, which only the seed writes;
+   - or, when the marker was never written, its birth record: the NEWEST created line for that machine name, if it is
+     the guide's (create.isAutoGuideBirth) and its id is the id the agent's profile carries now. Only the newest
+     line counts, so a person's own later agent under that name stays theirs; and a line whose id does not match the
+     profile (a torn line, or an older guide's folder reused) adopts nothing. A read only: the caller writes the
+     marker (adoptExisting, when it adopts).
+   { name, job } where name is the machine name and job is 'yes', 'no' (a PROVEN absence) or 'unknown' (the look
+   failed), from create.jobPresence; byBirth when it was known by its birth line. `deps` is TESTS ONLY. */
+function existingGuide(shown, { jobPresence = (n) => create.jobPresence(n), birthLog = () => create.createdLog() } = {}) {
+  let slug;
+  try { slug = create.slugFor(shown); } catch { return null; }
+  if (!slug) return null;
+  const dir = guideFolder(slug);
+  if (!dir || !fs.existsSync(dir)) return null;
+  let found = isGuideFolder(slug);
+  let byBirth = false;
+  if (!found) {
+    let line = null;
+    try {
+      const lines = birthLog();
+      for (let i = lines.length - 1; i >= 0; i -= 1) {
+        const e = lines[i];
+        if (!e || (e.outcome !== create.OUTCOME.CREATED && e.outcome !== create.OUTCOME.PARTIAL)) continue;
+        let key = typeof e.slug === 'string' && e.slug ? e.slug : null;
+        if (!key) { try { key = create.slugFor(String(e.name || '')); } catch { key = null; } }
+        if (key === slug) { line = e; break; }
+      }
+    } catch { line = null; }
+    let id = null;
+    try { id = (store.readProfile(slug) || {}).id || null; } catch { id = null; }
+    found = Boolean(line && create.isAutoGuideBirth(line, module.exports) && line.id && id && line.id === id);
+    if (found) byBirth = true;
+  }
+  if (!found) return null;
+  let job = 'unknown';
+  try { const j = jobPresence(slug); job = j === 'yes' || j === 'no' ? j : 'unknown'; } catch { job = 'unknown'; }
+  return { name: slug, job, byBirth };
+}
+
+/* kosmos#8484: a guide name held by something left over (a folder with no job, a job with no folder, an agent on
+   the removed list) stops the seed, and it stays stopped until that is cleared: a board that stopped in the middle of
+   making the guide leaves exactly this, with no marker and no birth line, so it cannot be told from a person's
+   leftover and is not adopted. The Settings page used to say "Try again in a moment", which was false until the
+   person deleted it. This is the sentence to say instead, built from create's own refusal (which already says, per
+   platform, how to free the name), with the choice of another name taken out, since the guide's name is not theirs
+   to pick. null for every other refusal, which keeps its old wording. */
+const HELD_BY_LEFTOVER = /there is already a folder for an agent called|though there is no folder for it\. Pick another name, or|is on your removed list|though Kosmos cannot find a folder for it\. Pick another name|though its folder cannot be reached: .* Pick another name\. If that agent is gone for good/;
+function heldSentence(shown, because) {
+  const s = String(because || '');
+  if (!HELD_BY_LEFTOVER.test(s)) return null;
+  /* The removed-list refusal also offers putting the agent back, which keeps the name taken: only deleting what was
+     left of it frees the name for the guide. */
+  if (/is on your removed list/.test(s)) {
+    return `Kosmos did not set up the Kosmos Guide, because the name ${shown} is in use. ${shown} is on your removed list. To free the name, delete what was left of it from "Show removed agents" at the bottom of the Agents tab. Then choose Set it up now.`;
+  }
+  const how = s.replace(/^[a-z]/, (c) => c.toUpperCase())
+    .replace(/Pick another name, or free it with: /, 'To free the name, run: ')   // the Linux job-only form
+    // The Windows task forms (create.win32HeldTaskWords, kosmos#8466).
+    .replace(/Pick another name, or free this one: /, 'To free the name: ')
+    .replace(/Pick another name\. If that agent is gone for good, you can free this (?:one|name): /, 'If that agent is gone for good, you can free the name: ')
+    .replace(/, then try again here\.$/, '.')   // "Then choose Set it up now" follows
+    .replace(/Pick another name, or ([a-z])/, (m, c) => 'To free the name, ' + c)
+    .replace(/, which frees the name\.$/, '.');   // "To free the name" already says it
+  return `Kosmos did not set up the Kosmos Guide, because the name ${shown} is in use. ${how} Then choose Set it up now.`;
+}
+
+
+/* kosmos#8484: a guide already made under either name, as the seed's answer, or null when there is none. Both names
+   are checked, so a guide under "Josh AI" (made when the person's own Josh held the first name) is found too.
+   - with its startup job: adopted ({ seeded: true, adopted: true }), never made again;
+   - with its job PROVEN gone: no flag (it would say "seeded" about a guide that never answers), no second guide, and
+     a sentence saying how to clear it;
+   - with a job that could not be looked at: nothing made and nothing advised (telling a person to delete a guide
+     that may be working is the worse error); the next try looks again.
+   No model is needed, so ensureGuide asks this before any live check. */
+function adoptExisting(deps) {
+  /* Both names are looked at before answering, so a healthy guide under one name is adopted even when the other
+     name holds a broken one (the duplicate this card describes leaves exactly that pair). */
+  const found = [];
+  for (const candidate of [GUIDE_NAME, GUIDE_FALLBACK_NAME]) {
+    const g = existingGuide(candidate, deps);
+    if (!g) continue;
+    /* A guide the person removed (its job file stays on disk) is not adopted as here, and none is made beside it:
+       it is put back, which is the person's choice. A removed list that cannot be read is not known either way. */
+    let removed = 'unknown';
+    try {
+      // removedNames, not isRemoved: isRemoved reads an unreadable list as empty, which would say "not removed".
+      const rn = require('./remove').removedNames();
+      if (rn && rn.ok === true) removed = rn.names.includes(create.cleanName(g.name)) ? 'yes' : 'no';
+    } catch { removed = 'unknown'; }
+    found.push({ candidate, g, removed });
+  }
+  const ok = found.find((f) => f.removed === 'no' && f.g.job === 'yes');
+  if (ok) {
+    const marked = ok.g.byBirth ? markGuideFolder(ok.g.name) : true;
+    return { seeded: true, name: ok.g.name, adopted: true, avatarCopied: false, marked };
+  }
+  const f = found[0];
+  if (!f) return null;
+  const { candidate, g } = f;
+  if (f.removed === 'yes') {
+    return { seeded: false, reason: `the setup guide ${g.name} is on the removed list`, guideRemoved: g.name,
+      because: `Your Kosmos Guide, ${candidate}, is on your removed list, so Kosmos did not make another. Put it back from "Show removed agents" at the bottom of the Agents tab.` };
+  }
+  if (f.removed === 'no' && g.job === 'no') {
+    return { seeded: false, reason: `the setup guide ${g.name} is there but has no startup job, so it cannot run`, guideWithoutJob: g.name,
+      because: `Your Kosmos Guide, ${candidate}, is on this computer but is not set to start, so Kosmos did not make another. Open ${candidate} under Agents and delete what was left of it, then choose Set it up now.` };
+  }
+  return { seeded: false, state: 'unclear', reason: `could not check whether the setup guide ${g.name} is removed or has its startup job`, guideUnchecked: g.name };
+}
+
+/* kosmos#8484: what a guide made before this board ran may have missed (the board can stop after the create and
+   before the post-create steps): the guide's guards and secrets line (refreshGuideGuards, which the board also runs at
+   every start), and its picture when it has none. A picture already there is never replaced. Best-effort. */
+function finishAdoptedGuide(name, avatarDir) {
+  const out = { guarded: false, avatarCopied: false };
+  try { out.guarded = refreshGuideGuards({ name }).guarded === true; } catch { /* the start-time refresh tries again */ }
+  try { if (!store.avatarPath(name)) out.avatarCopied = copyGuideAvatar(name, avatarDir); } catch { /* initials */ }
+  return out;
+}
+
 /*
  * Seed the setup assistant if it has never been seeded. Returns:
  *   { seeded: true, name, avatarCopied, marked } -- created
@@ -3159,11 +3284,15 @@ function guideNameStrict() {
  * that must not turn either into an error. The caller writes the once-ever flag
  * on `seeded: true`.
  */
-/* `platform` (kosmos#8466) is TESTS ONLY: it lets a test pin the macOS and Linux rule from a Windows host. */
-function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount, avatarDir, model, platform } = {}) {
+/* `platform` (kosmos#8466) is TESTS ONLY: it lets a test pin the macOS and Linux rule from a Windows host. `deps`
+   (kosmos#8484) is TESTS ONLY too: the look for a guide already made (adoptExisting). */
+function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount, avatarDir, model, platform, deps } = {}) {
   if (typeof createAgent !== 'function') return { seeded: false, reason: 'no createAgent provided' };
   if (setupAssistantSeeded()) return { seeded: false, reason: 'already seeded' };
 
+  /* kosmos#8484: a guide already made is adopted, or stops the seed, before any create (adoptExisting). */
+  const pre = adoptExisting(deps);
+  if (pre) return pre.seeded ? { ...pre, ...finishAdoptedGuide(pre.name, avatarDir) } : pre;
 
   // A live agent needs a model. Gate on a connected account rather than create a
   // KeepAlive agent that would loop on auth failure (see the header note).
@@ -3173,6 +3302,7 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
 
   let out;
   let name;
+  const passed = [];   // kosmos#8484: the names moved past, with create's refusal for each
   for (const candidate of [GUIDE_NAME, GUIDE_FALLBACK_NAME]) {
     name = candidate;
     try {
@@ -3222,12 +3352,22 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
       } catch { /* the sentence's answer stands */ }
     }
     if (!taken) break;
+    passed.push({ name: candidate, because: String(out.because || '') });
   }
 
   if (!out || out.outcome !== create.OUTCOME.CREATED) {
     // Benign remaining case: createAgent refuses because the Claude runner is not
     // installed (its actual account/model refusal path). No flag is written.
-    return { seeded: false, reason: 'not created: ' + ((out && out.because) || (out && out.outcome) || 'unknown') };
+    const because = (out && out.because) || '';
+    /* kosmos#8484: and when the last name is a real agent's but a name moved past was a LEFTOVER's (a Windows task
+       with no folder, since #8466), it is that leftover the person can clear, so its sentence is given: "Two of your
+       agents already use the Kosmos Guide's names" would be false. */
+    const firstLeft = passed.find((x) => !/already an agent called/.test(x.because));
+    const held = heldSentence(name, because) || (firstLeft ? heldSentence(firstLeft.name, firstLeft.because) : null);
+    /* names-taken only when BOTH names were refused as real agents' (create's folder-and-job sentence for each): on
+       Windows since #8466 a real Josh stops the loop at the first name, and one refusal is not "two of your agents". */
+    const bothAgents = !held && passed.length === 2 && passed.every((x) => /already an agent called/.test(x.because));
+    return { seeded: false, reason: 'not created: ' + (because || (out && out.outcome) || 'unknown'), ...(held ? { because: held } : {}), ...(bothAgents ? { namesTaken: true } : {}) };
   }
 
   const avatarCopied = copyGuideAvatar(out.name || name, avatarDir);
@@ -3457,14 +3597,17 @@ function retryWaitMs() {
  * it has never been seeded, and a model is connected (`explicit`, below, only arms and skips the retry wait). Tries each connected model in
  * order until one creates (a refused create on the first does not strand a working
  * second). Idempotent and single-flight: a Giddy Up and a sweep tick arriving together
- * create at most one. Never throws. Resolves { seeded, state?, name?, reason? }: `state` is one
- * of guidestate.STATES, absent only for a retry wait (which says nothing new; #4350).
+ * create at most one. Never throws. Resolves { seeded, state?, name?, reason?, because? }: `state` is one
+ * of guidestate.STATES, absent only for a retry wait (which says nothing new; #4350), or 'unclear' (kosmos#8484: a
+ * guide is there and could not be checked), which the page words and guidestate does not record. `because` is a
+ * sentence for the person when a refusal will not clear by waiting.
  * `explicit` (#4405) is the PERSON switching the assistant on in Settings > Help on an install that has never
  * had a guide: it arms the install and skips the retry wait (a click deserves a real try; a dead sign-in costs
  * one live check per click). Every other gate stands, the never-seeded one included: a guide that was made and
  * then removed is RESTORED by the caller (/api/settings), never made a second time.
  * `deps` is TESTS ONLY: listFor / connectable / liveDefault (the account seams),
- * enabled / settings (the switches) and avatarDir. Production passes none.
+ * enabled / settings (the switches), avatarDir, and jobPresence / birthLog (kosmos#8484's look for an existing
+ * guide). Production passes none.
  */
 function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), deps = {}, explicit = false } = {}) {
   if (inFlight) return inFlight;
@@ -3487,13 +3630,25 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
   if (!wanted) return Promise.resolve({ seeded: false, state: 'off', reason: 'the person turned setup assistance off' });
   /* #4405: the person asking for it (and not switched off) arms the install, so a model connected later still makes one. */
   if (explicit) armSetupAssistant();
+  /* kosmos#8484: a guide already on this computer needs no model, so it is found before the paid live check below.
+     Adopted, the flag is written (naming it, no provider: it runs on whatever it was made with). Otherwise nothing is
+     made, and a guide whose job is proven gone says how to clear it. No back-off: the look is a few file reads. */
+  const seedDeps = { ...(deps.jobPresence ? { jobPresence: deps.jobPresence } : {}), ...(deps.birthLog ? { birthLog: deps.birthLog } : {}) };   // tests only
+  const pre = adoptExisting(seedDeps);
+  if (pre && pre.seeded) {
+    createdHere = true;
+    markSetupAssistantSeeded({ name: pre.name, via, adopted: true });
+    return Promise.resolve({ ...pre, ...finishAdoptedGuide(pre.name, deps.avatarDir), state: 'seeded' });
+  }
+  if (pre) return Promise.resolve({ seeded: false, state: pre.state || 'refused', reason: pre.reason, ...(pre.because ? { because: pre.because } : {}) });
   const listed = listedModels(deps);
   if (!listed.rows.length) return Promise.resolve({ seeded: false, state: 'no-model', reason: 'no model connected yet' });
   const changed = failedFingerprint !== null && listed.fingerprint !== failedFingerprint;
   if (changed) { lastFailedAt = 0; failures = 0; }
   if (!explicit && via !== 'first-run' && lastFailedAt && now - lastFailedAt < retryWaitMs()) return Promise.resolve({ seeded: false, reason: 'waiting before trying again' });
   inFlight = (async () => {
-    const fail = (reason, state = 'refused') => { lastFailedAt = now; failures += 1; failedFingerprint = listed.fingerprint; return { seeded: false, state, reason }; };
+    /* kosmos#8484: `because` is a sentence for the person (seed's heldSentence), passed on when there is one. */
+    const fail = (reason, state = 'refused', because = null) => { lastFailedAt = now; failures += 1; failedFingerprint = listed.fingerprint; return { seeded: false, state, reason, ...(because ? { because } : {}) }; };
     try {
       let last = null;
       for (const row of listed.rows) {
@@ -3502,10 +3657,10 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
         /* hasConnectedAccount is already answered, more strictly, by usable() (any
            provider, create's own gate); the seed's default check is Claude-only and would
            refuse an OpenAI-only person, so it is bypassed here on purpose. */
-        const seed = seedSetupAssistant({ createAgent, hasConnectedAccount: () => true, avatarDir: deps.avatarDir, model });
+        const seed = seedSetupAssistant({ createAgent, hasConnectedAccount: () => true, avatarDir: deps.avatarDir, model, deps: seedDeps });
         if (seed && seed.seeded) {
           createdHere = true;
-          markSetupAssistantSeeded({ name: seed.name, via, provider: model.provider });
+          markSetupAssistantSeeded(seed.adopted ? { name: seed.name, via, adopted: true } : { name: seed.name, via, provider: model.provider });   // kosmos#8484: adopted, no provider
           lastFailedAt = 0;
           failures = 0;
           failedFingerprint = null;
@@ -3514,13 +3669,18 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
         last = seed;
         /* Both names taken: that is about the NAME, not the model, so the next model would
            be refused the same way after paying for its live check. Stop here. */
-        if (/already an agent called/.test(String((seed && seed.reason) || ''))) { namesTaken = true; break; }
+        /* kosmos#8484: only two REAL agents are names-taken (the screen says "Two of your agents"); a leftover holding
+           either name carries its sentence (seed.because) instead, below. */
+        if (seed && seed.namesTaken) { namesTaken = true; break; }
+        /* kosmos#8484: and a name held by a leftover (seed.because) or a guide found between the look above and here:
+           also about the name, so stop. Not final like namesTaken: clearing the leftover frees it. */
+        if (seed && (seed.because || seed.guideWithoutJob || seed.guideUnchecked || seed.guideRemoved)) break;
         /* Refused on this model (its runner missing, say): try the next one. */
       }
       // A model listed but none usable (a dead sign-in, a failed live check) is its own gate,
       // not a refusal: nothing was asked to create.
       return fail(last ? ('not created: ' + (last.reason || 'refused')) : 'a model is listed but none could run yet',
-        namesTaken ? 'names-taken' : last ? 'refused' : 'no-usable-model');
+        namesTaken ? 'names-taken' : last ? 'refused' : 'no-usable-model', (!namesTaken && last && last.because) || null);
     } catch (err) {
       // An internal failure reads 'refused' on /admin like a model refusal; the reason (kept
       // locally) tells them apart.
@@ -3622,6 +3782,8 @@ module.exports = {
   RETRY_AFTER_MS,
   RETRY_MAX_MS,
   ensureGuide,
+  existingGuide,   // kosmos#8484
+  heldSentenceForTests: heldSentence,   // kosmos#8484
   resetEnsureGuideForTests,
   SETTING_DEFAULT,
   settingFrom,

@@ -7468,6 +7468,7 @@ module.exports = {
   probePlatform,
   selfStartsSentence,
   createdLog, createdLogFile, createdCount, disabledJobs, disabledJobsResult, runningJobs,
+  isAutoGuideBirth,   // kosmos#8484: setup-assistant adopts a guide whose marker was never written by its birth line
 
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` lower-cases and folds
      whitespace and periods to hyphens — it is a converter, not a gate — so
