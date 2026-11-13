@@ -1448,6 +1448,8 @@ function rewriteAgentJob(clean, spoken, fields, platform) {
       runner: f.runner, runnerBin: f.runnerBin || undefined, model: f.model, configDir: f.configDir,
       enabled: state.enabled !== false,
     });
+    // kosmos#8478: every setter rewrites through here, so an account move or a model change is recorded too.
+    if (registered && registered.ok) recordWin32Task(clean, f);
     return win32InstalledOutcome(spoken, registered);
   }
   try {
@@ -1514,6 +1516,7 @@ function* rewriteAgentJobWin32Steps(clean, spoken, f) {
     runner: f.runner, runnerBin: f.runnerBin || undefined, model: f.model, configDir: f.configDir,
     enabled: state.enabled !== false,
   }));
+  if (registered && registered.ok) recordWin32Task(clean, f);   // kosmos#8478: as the sync arm
   return win32InstalledOutcome(spoken, registered);
 }
 
@@ -4466,6 +4469,82 @@ function win32RegisterJob(name, o) {
   return require('./win32job').install(win32AgentSpec(name, o));
 }
 
+/* kosmos#8478: on Windows the account folder a Claude or Codex agent runs on, and the model it was set to, lived ONLY
+   in its Scheduled Task, so anything that removed the task (kosmos#8475's task-only leftover delete) lost them, and
+   Start at login (register.repair) brought it back on the main account and the model it last ran. Every time this
+   module writes an agent's task (creation, installJob, the rewrite every setter goes through) it now also records what
+   it wrote in the agent's profile, as `win32Task`, the way a Qwen or vendor account is recorded (qwenAccount,
+   vendorAccount), and register.repair reads it back when the task is gone.
+   WINDOWS ONLY, deliberately: on macOS and Linux the plist or unit is a file that nothing in Kosmos deletes on its own
+   and the readers already take the account and model from it (readJob), so a second copy there would be one more fact
+   that can disagree with the file it copies. The field is named for the platform so a profile carried to a Mac is
+   never read as anything there.
+   The record is the spec as win32AgentSpec normalises it (runner, account folder or null for the main account, model
+   or null for the runner's own default), so what is recorded is what the task carries. */
+function win32TaskRecord(o) {
+  const s = o || {};
+  const model = typeof s.model === 'string' && s.model.trim() ? s.model.trim() : null;
+  return { runner: s.runner || 'claude', configDir: (typeof s.configDir === 'string' && s.configDir) ? s.configDir : null, model };
+}
+/* Best effort and never a gate: a task that was written is the truth whether or not its note was. Written only into a
+   profile that is already there (lstat: a profile that is a link still counts as there), so a task written before the
+   profile exists (an adoption) never makes a profile appear; creation records it in its own profile write instead. */
+function recordWin32Task(name, o) {
+  try { fs.lstatSync(store.profilePath(name)); } catch { return false; }
+  try { store.writeProfile(name, { win32Task: win32TaskRecord(o) }); return true; } catch { return false; }
+}
+/* Whether a recorded model can still be put back in a task for this runner: none (the runner's own default); a Claude
+   model still on the list (a retired one is not); for Codex, Gemini, Grok and Antigravity, a well-formed id that is not
+   a Claude model (setModel's own rule, as those ids are free-form). Muse takes no model. */
+function win32ModelOffered(runner, model) {
+  if (model === null) return true;
+  if (typeof model !== 'string') return false;
+  const claudeModel = modelsFor('anthropic').find((x) => x.key === model || x.arg === model);
+  if (!runner || runner === 'claude') return Boolean(claudeModel);
+  if (runner === 'muse') return false;
+  return !claudeModel && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(model);
+}
+/* Whether a recorded account folder can still be put back in a task for this runner: none (the main account), or a
+   folder that is there now. statSync on purpose, unlike the lstat above: here a link that leads nowhere is an account
+   that cannot be used, and the safe answer is the main account rather than a task pointing at nothing. Never for a
+   runner installJob refuses an account for (Antigravity, Muse), and never a Qwen or vendor account (those agents are
+   restored from qwenAccount/vendorAccount, and installJob refuses a Qwen home on Windows). */
+function win32AccountThere(runner, dir) {
+  if (dir === null) return true;
+  if (typeof dir !== 'string' || !path.isAbsolute(dir)) return false;
+  if (runner === 'antigravity' || runner === 'muse') return false;
+  try { if (require('./qwenaccounts').isQwenHome(dir)) return false; } catch { return false; }
+  try { if (require('./anthropiccompat').vendorOfName(dir)) return false; } catch { return false; }
+  try { return fs.statSync(dir).isDirectory(); } catch { return false; }
+}
+/* kosmos#8478: what the profile records of the agent's last Windows task, for the runner its profile says it runs on
+   now. null when nothing is recorded (an agent whose task was last written before this change), when the record is for
+   another runner (its provider changed by some route that did not write the task), or for a Qwen or vendor agent
+   (their account is restored from its own field). Otherwise { configDir, model, accountOk, modelOk }, where the two
+   flags say whether each can still be put back (win32AccountThere, win32ModelOffered). One reading, shared by
+   register.repair (what it builds) and delete-leftover.startsAgainWords (what the person is told), so the two cannot
+   disagree. */
+function win32RecordedTask(name) {
+  let prof;
+  try { prof = store.readProfile(name) || {}; } catch { return null; }
+  const rec = prof.win32Task;
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return null;
+  if (prof.provider === 'alibaba') return null;
+  try { if (require('./anthropiccompat').vendorOf(prof.provider)) return null; } catch { return null; }
+  const runner = providerRunner(prof.provider);
+  if ((rec.runner || 'claude') !== runner) return null;
+  const configDir = typeof rec.configDir === 'string' && rec.configDir ? rec.configDir : null;
+  const model = typeof rec.model === 'string' && rec.model.trim() ? rec.model.trim() : null;
+  // A value of a shape no writer here makes (hand-edited, damaged) is read as cannot be put back, never as "the default".
+  const dirShaped = rec.configDir == null || configDir !== null;
+  const modelShaped = rec.model == null || model !== null;
+  return {
+    configDir, model,
+    accountOk: dirShaped && win32AccountThere(runner, configDir),
+    modelOk: modelShaped && win32ModelOffered(runner, model),
+  };
+}
+
 /**
  * Start it NOW, THROUGH ITS JOB -- and this is now the ONLY way an agent starts
  * on Windows (7c-2).
@@ -4669,6 +4748,7 @@ function installJob(name, opts) {
   }
   const modelArgWin = (opts && typeof opts.model === 'string' && opts.model.trim()) ? opts.model.trim() : null;
   const configDirWin = (opts && typeof opts.configDir === 'string' && opts.configDir) ? opts.configDir : null;
+  const modelRecordedWin = Boolean(opts && opts.modelRecorded === true);   // kosmos#8478: see the win32 arm's guessed
   /* 🛑 #570: WINDOWS HAS NO LAUNCHD, SO EVERYTHING BELOW THIS POINT IS MAC-ONLY.
      The rest of this function installs the supervisor script, writes a `.plist`,
      `launchctl enable`s the label and `bootstrap`s it. None of those exist on
@@ -4701,7 +4781,7 @@ function installJob(name, opts) {
   if (jobPlatform === 'win32') {
     if (DRY_RUN) {
       return { ok: true, started: true, model: modelArgWin,
-        guessed: { model: modelArgWin ? null : 'we do not know which model it was set to run on, so it will start on the default',
+        guessed: { model: (modelArgWin || modelRecordedWin) ? null : 'we do not know which model it was set to run on, so it will start on the default',
           account: (configDirWin || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account' },
         because: 'set up and started now' };
     }
@@ -4715,13 +4795,16 @@ function installJob(name, opts) {
       runner, runnerBin, configDir: configDirWin, model: modelArgWin,
     });
     if (!launched.ok) return { ok: false, because: launched.because };
+    recordWin32Task(clean, { runner, configDir: configDirWin, model: modelArgWin });   // kosmos#8478
     return {
       ok: true,
       started: true,
       model: modelArgWin,
       atLogin: true,
       guessed: {
-        model: modelArgWin ? null : 'we do not know which model it was set to run on, so it will start on the default',
+        /* kosmos#8478: a model the profile recorded as none (the agent was set to the default) is known, not guessed;
+           register.repair says so with modelRecorded, and the page's "no record of which model" line stays away. */
+        model: (modelArgWin || modelRecordedWin) ? null : 'we do not know which model it was set to run on, so it will start on the default',
         account: (configDirWin || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account',
       },
       because: 'set up and started now, and it will start again at every login',
@@ -7252,6 +7335,11 @@ function createAgentInner(opts) {
        Repair runs exactly when the job is gone). */
     if (provider === 'alibaba') profile.qwenAccount = configDir;
     if (compatVendor) profile.vendorAccount = configDir;   // #7206: Repair rebuilds a vendor agent on it
+    /* kosmos#8478: on Windows, the account folder and model its task was written with, in this same write (the profile
+       does not exist before it, and recordWin32Task never makes one). Exactly the values win32StartViaJob was given. */
+    if (jobPlatform === 'win32' && win32Launched && win32Launched.ok === true) {
+      profile.win32Task = win32TaskRecord({ runner, configDir, model: modelArg });
+    }
     /* #3564: a swarm's kind and settings, from birth (engine/swarm.js). */
     if (kind === 'swarm') Object.assign(profile, require('./swarm').birthProfile({ maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit, dailyAllowancePct: opts.dailyAllowancePct }));
     /* Which revision of the working rules this agent was born with (#539),
@@ -7486,6 +7574,8 @@ module.exports = {
   plistPath,
   setModel,
   installJob,
+  // kosmos#8478: register.repair and delete-leftover read the recorded Windows account and model through one reader.
+  win32RecordedTask,
   nameUsable,
   hasJob, jobMissing,
   // #570: the one three-state answer the plist-stat readers now share.

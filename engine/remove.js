@@ -2295,7 +2295,9 @@ function restoreInner(name, platform) {
       try { const pr = win32job.presence(clean, record.worldId); taskGone = pr.known === true && pr.registered === false; } catch { taskGone = false; }
     }
     if (taskGone) {
-      // The account and model clause is delete-leftover's, so the two sentences about this way back cannot disagree.
+      /* The account and model clause is delete-leftover's, so the two sentences about this way back cannot disagree.
+         kosmos#8478: it says the agent starts on the account and model it was set to when its profile recorded them
+         and they can still be put back, and the main account and the model it last ran where not. */
       let folderThere = false;
       try { folderThere = fs.statSync(create.workerDir(clean)).isDirectory(); } catch { folderThere = false; }
       let starts = '.';

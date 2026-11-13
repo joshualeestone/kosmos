@@ -802,6 +802,8 @@ function survey(opts) {
  * SET to run on lived only in the job that does not exist. Passing nothing is
  * honest and lands the agent on Claude's own default; what must not happen is
  * a sentence claiming we restored a choice we never had.
+ * kosmos#8478: on Windows the profile now records the account folder and model each task was written with, and a
+ * recorded model that is still offered wins over `modelFor` (see below); `modelFor` is what is left when none is.
  */
 function repair(opts) {
   /* The platform travels from the survey into the install, or the two disagree
@@ -880,13 +882,28 @@ function repair(opts) {
         runnerOpt.runner = 'claude';
         runnerOpt.configDir = rec;
       } }
+    /* kosmos#8478: on Windows the account folder and model were only in the task this repair exists because of, so
+       create now records them in the profile whenever it writes the task (create.win32RecordedTask). Put back as it was:
+       the recorded account folder if it is still there, the recorded model (none included: the agent was set to the
+       default) if it is still offered. Either one that cannot be put back falls to what a repair did before (the main
+       account; the model it last ran), never a task pointing at a folder that is gone. Nothing recorded (an agent whose
+       task was last written before this change) is exactly as before. Qwen and vendor agents were answered above. */
+    let modelRecorded = false;
+    if (platform === 'win32' && !runnerOpt.configDir) {
+      let rec = null;
+      try { rec = create.win32RecordedTask(name); } catch { rec = null; }
+      if (rec) {
+        if (rec.accountOk && rec.configDir) runnerOpt.configDir = rec.configDir;
+        if (rec.modelOk) { model = rec.model; modelRecorded = true; }
+      }
+    }
     /* #5534: an imported agent the company policy held never ran here, so Repair does not start it either while
        the policy still says no. An agent that ran before is restored as always (nothing is bricked). */
     if ((store.readProfile(name) || {}).policyHeld === true) {
       const allowed = create.policyAllows(provider || 'anthropic', model, runnerOpt.configDir);   // review 6: a Qwen account names its model
       if (!allowed.ok) return { name, shownAs: shownName(name), ok: false, because: allowed.because };
     }
-    const r = create.installJob(name, { model, platform, ...runnerOpt });
+    const r = create.installJob(name, { model, platform, ...runnerOpt, ...(modelRecorded ? { modelRecorded: true } : {}) });
     // #5534: once it has run, it is an agent that ran: Repair restores it later whatever the policy says.
     if (r && r.ok) { try { if ((store.readProfile(name) || {}).policyHeld) store.writeProfile(name, { policyHeld: false }); } catch { /* best effort */ } }
     return { name, shownAs: shownName(name), ...r };
