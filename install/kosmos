@@ -6074,9 +6074,11 @@ cmd_task() {
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
       say "      --parent <task-number>                                   make it a subtask of that task"
       say "      --who <agent>                                            give it to that agent (--who me: to you)"
+      say "      --add-member                                             with --who: put that agent on the project first, if it is not on it"
       say "      --done \"<check>\"                                         what finished means for it; up to 3, one --done each"
       say "  kosmos task assign <project-id> <task-number> <agent|me|nobody>  give it to that agent, to you, or to nobody"
       say "      --part <part-number>                                     which part, when the task has several"
+      say "      --add-member                                             put that agent on the project first, if it is not on it"
       say "  kosmos task close <project-id> <task-number> [...] [--with-built]   close one, or several at once; --with-built closes their built subtasks too (numbers are from list)"
       say "      --not-run                                                it was closed without ever being run"
       say "      --replaced-by <task-number>                              a later task replaced it: closed, but not done"
@@ -6140,7 +6142,7 @@ cmd_task() {
       # (Counted, not tested for emptiness, so an empty word after it is refused as the Windows CLI refuses it.)
       case "${2:-}" in --open|--blocked|--built) [ "$#" -le 2 ] || { say "${2} takes nothing after it: kosmos task list <project-id> ${2}"; exit 2; } ;; esac ;;
     add)
-      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"] [--parent <task-number>] [--who <agent>|me] [--done \"<check>\"]"; exit 2; }
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"] [--parent <task-number>] [--who <agent>|me [--add-member]] [--done \"<check>\"]"; exit 2; }
       # #3861: the sentence comes first, so `add <project> --parent 3 "x"` would file a task
       # called "--parent"; refuse it with the right order instead.
       [ "${2:-}" != "--parent" ] || { say "Put what the task is first: kosmos task add <project-id> \"<what the task is>\" --parent <task-number>"; exit 2; }
@@ -6153,8 +6155,8 @@ cmd_task() {
       # kosmos#4889 review 2: `add <p> -- "--title"` escapes a title that starts with dashes; then a title is required.
       # Review 3: it escapes the TITLE only; after it, --parent, --who and the option check work as usual, so
       # `add <p> -- --t --parent 3` files a subtask rather than "--parent 3" as silent detail.
-      [ "${2:-}" != "--" ] || [ -n "${3:-}" ] || { say "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"] [--parent <task-number>] [--who <agent>|me] [--done \"<check>\"]"; exit 2; }
-      local _a _want=0 _wantwho=0 _wantdone=0 _dones=0 _past=0 _from=2
+      [ "${2:-}" != "--" ] || [ -n "${3:-}" ] || { say "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"] [--parent <task-number>] [--who <agent>|me [--add-member]] [--done \"<check>\"]"; exit 2; }
+      local _a _want=0 _wantwho=0 _wantdone=0 _dones=0 _past=0 _from=2 _addm=0
       [ "${2:-}" != "--" ] || _from=4   # the escaped title ($3) is not checked
       for _a in "${@:_from}"; do
         if [ "$_want" = 1 ]; then
@@ -6175,18 +6177,20 @@ cmd_task() {
         elif [ "$_a" = "--" ]; then _past=1
         elif [ "$_a" = "--parent" ]; then _want=1
         elif [ "$_a" = "--who" ]; then _wantwho=1
+        elif [ "$_a" = "--add-member" ]; then _addm=1   # kosmos#8501: put the --who agent on the project first
         elif [ "$_a" = "--done" ]; then _wantdone=1
         else
           case "$_a" in
             --parent=*) say "Write it as --parent <task-number>, with a space."; exit 2 ;;
             --done=*) say "Write it as --done \"<check>\", with a space."; exit 2 ;;
             --who=*) say "Write it as --who <agent>, with a space."; exit 2 ;;
-            --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task add" "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"] [--parent <task-number>] [--who <agent>|me] [--done \"<check>\"]" "$_a" ;;   # kosmos#4889
+            --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task add" "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"] [--parent <task-number>] [--who <agent>|me [--add-member]] [--done \"<check>\"]" "$_a" ;;   # kosmos#4889
           esac
         fi
       done
       [ "$_want" != 1 ] || { say "--parent needs a task number, from: kosmos task list <project-id>."; exit 2; }
       [ "$_wantwho" != 1 ] || { say "--who needs the name of an agent on the project (or me)."; exit 2; }
+      [ "$_addm" = 0 ] || [ "$_wantwho" = 2 ] || { say "--add-member goes with --who <agent>: it puts that agent on the project, then gives it the task."; exit 2; }
       [ "$_wantdone" != 1 ] || { say "--done needs a check, in quotes: what will be true when the task is finished."; exit 2; } ;;
     done-when)
       # #5152: <project> <task-number> then 1 to 3 checks, or --clear alone. Checked before the board, as built is.
@@ -6299,7 +6303,7 @@ cmd_task() {
       [ "$_ccommit" != 1 ] || { say "--commit needs the commit the fix landed as, for example --commit HEAD."; exit 2; } ;;
     assign)
       # #4914: <project> <task-number> <agent|me|nobody> [--part <n>], checked before the board as --parent is.
-      local _usage="Usage: kosmos task assign <project-id> <task-number> <agent|me|nobody> [--part <part-number>]"
+      local _usage="Usage: kosmos task assign <project-id> <task-number> <agent|me|nobody> [--part <part-number>] [--add-member]"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_usage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       local _a _wantp=0 _whos=0
@@ -6310,6 +6314,7 @@ cmd_task() {
         fi
         case "$_a" in
           --part) _wantp=1 ;;
+          --add-member) ;;   # kosmos#8501: put the agent on the project first
           --part=*) say "Write it as --part <part-number>, with a space."; exit 2 ;;
           *)
             _whos=$((_whos + 1))
@@ -6552,7 +6557,7 @@ cmd_task() {
       # #3861: take `--parent <n>` out wherever it sits (validated above); everything else is
       # still the detail, folded as before.
       # #4887: and `--who <agent>` the same way.
-      local parent="" who="" _arg _next=0 _nextwho=0 _nextdone=0 dones=""
+      local parent="" who="" _arg _next=0 _nextwho=0 _nextdone=0 dones="" addm=""
       detail=""
       # #5152: each --done check, JSON-escaped as it is read (_task_check_json).
       for _arg in "$@"; do
@@ -6562,6 +6567,7 @@ cmd_task() {
         if [ "$_apast" = 0 ] && [ "$_arg" = "--" ]; then _apast=1; continue; fi   # kosmos#4889
         if [ "$_apast" = 0 ] && [ "$_arg" = "--parent" ]; then _next=1; continue; fi
         if [ "$_apast" = 0 ] && [ "$_arg" = "--who" ]; then _nextwho=1; continue; fi
+        if [ "$_apast" = 0 ] && [ "$_arg" = "--add-member" ]; then addm=1; continue; fi   # kosmos#8501
         if [ "$_apast" = 0 ] && [ "$_arg" = "--done" ]; then _nextdone=1; continue; fi
         detail="${detail:+$detail }$_arg"
       done
@@ -6579,7 +6585,7 @@ cmd_task() {
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _atok="$KOSMOS_AGENT_TOKEN" ;; esac
       body=$(kosmos_curl "$_bt" "$_atok" -sS -m 15 -X POST "$URL/api/project/$esc_project/tasks" \
         -H 'content-type: application/json' \
-        --data "{\"sentence\":\"$esc_sentence\",\"detail\":\"$esc_detail\",\"from_pane\":\"$esc_pane\"${parent:+,\"parent\":\"$parent\"}${who:+,\"who\":\"$esc_who\"}${dones:+,\"doneWhen\":[$dones]}}" 2>/dev/null) || rc=$?
+        --data "{\"sentence\":\"$esc_sentence\",\"detail\":\"$esc_detail\",\"from_pane\":\"$esc_pane\"${parent:+,\"parent\":\"$parent\"}${who:+,\"who\":\"$esc_who\"}${addm:+,\"addMember\":true}${dones:+,\"doneWhen\":[$dones]}}" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "add that task" "$rc" write; exit 1; }
       # Success is the board's own {"task":...} shape (server.js), not merely the absence of
       # {"error":...}: an unexpected 200 (a proxy page, a future response shape) must NOT read as done.
@@ -6599,6 +6605,8 @@ cmd_task() {
           case "$body" in '{"task":{"number":'[1-9]*) _num="${body#\{\"task\":\{\"number\":}"; _num="${_num%%[!0-9]*}"
             # only a whole number: the digits must end the value (1.5 or 12e3 would otherwise read as 1 or 12)
             case "${body#\{\"task\":\{\"number\":$_num}" in ,*|\}*) ;; *) _num="" ;; esac ;; esac
+          # kosmos#8501: --add-member put the agent on the project first; the board says so with addedMember.
+          case "$body" in *'"addedMember":"'*) say "${_for:-The agent} was not on ${project:-the project}, so Kosmos added it to the project first. See who is on it with: kosmos project show ${project:-<project-id>}" ;; esac
           say "Task${_num:+ $_num} added to ${project:-the project}${parent:+, under task $parent}${_for:+, for $_for}. See it with: kosmos task list ${project:-<project-id>}"
           # #5376: with no --who the task is given to nobody, and the board's Assigner may later hand it to an idle agent
           # on the project, which read as Kosmos guessing. Say so, only when the board's answer says nobody ("who":null
@@ -6617,11 +6625,12 @@ cmd_task() {
     assign)
       # #4914: give a task to an agent, to the caller (me), or to nobody. The board picks the part (the only one, or
       # --part) and resolves the name, so this sends what was typed. Validated before the health check above.
-      local project num who="" part="" _arg _nextp=0
+      local project num who="" part="" _arg _nextp=0 addm=""
       project="${1:-}"; num="${2:-}"
       for _arg in "${@:3}"; do
         if [ "$_nextp" = 1 ]; then part=$(printf '%s' "$_arg" | sed 's/^0*//'); part="${part:-0}"; _nextp=0; continue; fi
         if [ "$_arg" = "--part" ]; then _nextp=1; continue; fi
+        if [ "$_arg" = "--add-member" ]; then addm=1; continue; fi   # kosmos#8501
         who="$_arg"
       done
       local esc_who esc_pane
@@ -6632,7 +6641,7 @@ cmd_task() {
       local rc=0 body
       body=$(kosmos_curl "$_bt" "$_atok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/assign" \
         -H 'content-type: application/json' \
-        --data "{\"who\":\"$esc_who\",\"from_pane\":\"$esc_pane\"${part:+,\"part\":$part}}" 2>/dev/null) || rc=$?
+        --data "{\"who\":\"$esc_who\",\"from_pane\":\"$esc_pane\"${part:+,\"part\":$part}${addm:+,\"addMember\":true}}" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "move that task" "$rc" write; exit 1; }
       # The board puts the new owner first: {"who":"<name>"|null,"part":<n>,"task":...}.
       local _now="" _w
@@ -6647,6 +6656,8 @@ cmd_task() {
         *) say "Kosmos gave an answer we could not read when moving that task."; exit 1 ;;
       esac
       local shown; shown=$(printf '%s' "$num" | sed 's/^0*//'); shown="${shown:-0}"   # "007" is said back as task 7, as --parent is
+      # kosmos#8501: --add-member put the agent on the project first; the board says so with addedMember.
+      case "$body" in *'"addedMember":"'*) say "${_w:-The agent} was not on ${project:-the project}, so Kosmos added it to the project first. See who is on it with: kosmos project show ${project:-<project-id>}" ;; esac
       say "Task $shown${part:+, part $part,} on ${project:-the project} $_now. See it with: kosmos task list ${project:-<project-id>}"
       ;;
     hold|unhold)
