@@ -85,7 +85,7 @@ function scheduler(args) {
 
 const win = {
   plan: (name) => leftover.plan(name, { platform: 'win32' }),
-  del: (name) => leftover.del(name, { platform: 'win32', typed: name }),
+  del: (name) => leftover.del(name, { unchecked: true, platform: 'win32', typed: name }),
 };
 const REMOVED = nodePath.join(store.ROOT, 'removed.json');
 function markRemoved(name) {

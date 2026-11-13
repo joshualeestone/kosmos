@@ -627,7 +627,7 @@ function plan(name, opts) {
       const out = outOfSightWords(clean, shown);
       const unsure = out ? out.words : null;
       const words = taskOnlyWords(clean, shown, removedNow, platform, stored.records, out ? out.lead : null, true);
-      return {
+      const taskOnlyPlan = {
         ok: true,
         name: clean,
         shown,
@@ -646,6 +646,8 @@ function plan(name, opts) {
         // review 2: no promise about the name: a removed agent's removal record still holds it once the task is gone.
         hint: `Something on this computer still starts ${shown} when you log in.`,
       };
+      taskOnlyPlan.confirm = confirmFingerprint(taskOnlyPlan, { retiresCommunity: false, marksUnsent: false });   // kosmos#8477: the task-only delete retires no account and marks nothing
+      return taskOnlyPlan;
     }
     /* review 3: the full delete for a removed name gets the checks main gave every Windows task with no folder
        (kosmos#8471): a recorded folder behind a dead link or on a disk that is not connected, a name waiting to start, a
@@ -704,12 +706,13 @@ function plan(name, opts) {
   /* #4994: the delete retires the name's community account, which no Trash brings back, so the confirmation says so
      rather than promising everything can be got back. */
   let community = false;
-  try { community = require('./communitysend').hasAccount(clean); } catch { community = true; }   // cannot tell: say it
+  let communityUnread = false;   // kosmos#8477 review 4: a read that threw, so a refusal can say so rather than "changed"
+  try { community = require('./communitysend').hasAccount(clean); } catch { community = true; communityUnread = true; }   // cannot tell: say it
   if (community) loses.push('Its community account: anything it posted there stays up, and a new agent with this name joins as a new account, under a changed public name if the old one is still taken');
   /* What it wrote for the community and has not sent is marked never to send by the delete, and a folder brought back
      from the Trash does not undo that, so it is named even when there is no account. */
   let waiting = 0;
-  try { waiting = require('./communitysend').unsentCount(clean); } catch { waiting = 1; }
+  try { waiting = require('./communitysend').unsentCount(clean); } catch { waiting = 1; communityUnread = true; }
   if (waiting) loses.push('Anything it wrote for the community that has not gone out yet: it never goes, even if you bring its folder back');
   const question = `Delete what is left of ${shown}?`;
   /* A Scheduled Task holds nothing a person can lose, so a job-only leftover is
@@ -764,7 +767,7 @@ function plan(name, opts) {
     : jobIsService
       ? `Something on this computer still starts ${shown} when you log in, and the name stays taken until it is gone.`
       : `An auto-start file for ${shown} is still on this computer, and the name stays taken until it is gone.`;
-  return {
+  const fullPlan = {
     ok: true,
     name: clean,
     shown,
@@ -784,6 +787,9 @@ function plan(name, opts) {
     verb,
     hint,
   };
+  fullPlan.confirm = confirmFingerprint(fullPlan, { retiresCommunity: community, marksUnsent: Boolean(waiting) });   // kosmos#8477: as the loses list words them
+  if (communityUnread) fullPlan.readFailed = true;   // kosmos#8477 review 4: del() words a refusal for it
+  return fullPlan;
 }
 
 /* kosmos#7825 (review 7): where a recorded folder really is, as the disk spells it: { path } or { because }. Resolved one
@@ -1075,6 +1081,54 @@ function recordsWords(records) {
   return { words, plural: words !== 'its picture', cap: words.charAt(0).toUpperCase() + words.slice(1) };
 }
 
+/* kosmos#8477: what the confirmation dialog promised, as one short string the page sends back with its DELETE, so del()
+   can refuse when the fresh plan would do something else. Only what decides WHAT HAPPENS goes in: the startup job alone or
+   the full delete, which folder, which startup job, the Recycle Bin (or Trash) or for good, which settings and picture and
+   where they go, whether the community account is retired, and whether unsent community posts are marked never to send
+   (the loses list names them exactly when there are any, and requestRetire marks them whether or not an account goes).
+   Never the words: "last changed 3 minutes ago" ages while the dialog is open, and a refusal for that would be a false
+   "this changed". Not whether the name is typed either (review 1): a disk coming back can drop that on an identical act,
+   and the other way round, a name newly asked for, is refused by del()'s typed-name check before anything is touched.
+   Built from the plan object itself (plus the two facts the object does not carry), so the GET and the re-plan cannot
+   derive it two ways. */
+const CONFIRM_FINGERPRINT_VERSION = '4';   // 2: unsent posts in, the typed name out (review 1); 3: the folder's git and capped (review 2); 4: its size, going for good (review 4)
+/* review 4: a folder deleted FOR GOOD is confirmed at the size the dialog stated ("Its folder: 3 files, 12 KB"). The
+   fingerprint holds that size coarsely, one step per factor of ten in the file count and in the bytes, so a folder grown
+   materially since the dialog (3 files to thousands) is refused and an ordinary small write is not. A write that crosses
+   a power of ten (9 files to 10) is refused too: that is the price of a coarse bucket, and the refusal touches nothing.
+   The step is floor(log10(n)), with none (0) a step of its own below 1-9: 0 | 1-9 | 10-99 | 100-999 ...
+   So a folder going for good may grow up to tenfold (3 files to 9, 12 KB to 99 KB) without a refusal; the name is typed
+   there, and that is the margin accepted. Not for the Recycle Bin, where the files can be got back whatever their size. */
+function sizeStep(n) { const v = Math.max(0, Number(n) || 0); return v < 1 ? -1 : Math.floor(Math.log10(v)); }
+const CONFIRM_FINGERPRINT_HEX_CHARS = 16;   // 64 bits: a short value for the page to carry, far past any chance collision between two plans of one name
+function confirmFingerprint(p, { retiresCommunity, marksUnsent }) {
+  const promised = {
+    kind: p.taskOnly ? 'startup-job-only' : 'full',
+    folder: (p.folder && p.folder.path) || null,
+    /* review 2: what the dialog says about the folder's contents that does not age: "including a git repository" and
+       "more than N files". Not the exact count or size (they are what a write to the folder changes; only a coarse step of
+       them, and only going for good, below), nor "last changed". */
+    folderGit: Boolean(p.folder && p.folder.git),
+    folderCapped: Boolean(p.folder && p.folder.capped),
+    folderSizeForGood: p.folder && !p.toTrash ? { files: sizeStep(p.folder.files), bytes: sizeStep(p.folder.bytes) } : null,
+    job: (p.job && p.job.label) || null,
+    toTrash: Boolean(p.toTrash),
+    records: ((p.records && p.records.files) || []).map((r) => r.file).sort(),
+    recordsToTrash: Boolean(p.records && p.records.trash),
+    retiresCommunity: Boolean(retiresCommunity),
+    marksUnsent: Boolean(marksUnsent),
+  };
+  const hash = require('node:crypto').createHash('sha256').update(JSON.stringify(promised)).digest('hex');
+  return CONFIRM_FINGERPRINT_VERSION + '.' + hash.slice(0, CONFIRM_FINGERPRINT_HEX_CHARS);
+}
+/* review 4: the fresh plan's community read threw, so its answer was the safe guess, and the difference may be only that. */
+const COULD_NOT_READ_BECAUSE = 'Kosmos could not read part of what is left of this agent just now, so nothing was deleted. Look at what it says now before deleting.';
+/* review 5: true in every case. The plan can differ with nothing changed on disk (a drive probe that timed out for the
+   dialog said "for good", the delete's own probe answered), so the sentence speaks of what Kosmos would do, not of the files. */
+const CHANGED_SINCE_SHOWN_BECAUSE = 'What Kosmos would do here is different now, so nothing was deleted. Look at what it says now before deleting.';
+// review 7: "perhaps", because a request with no fingerprint can come from something other than an old page too.
+const UNCONFIRMED_FULL_DELETE_BECAUSE = 'Kosmos was not told what you agreed to delete, perhaps because this page is from before an update, so nothing was deleted. Reload the page and look again before deleting.';
+
 /* Moves the plan's records where the plan said: the Trash when p.records.trash, else deleted for good. One step per
    kind (settings, picture), failed if any file of it would not go. A dead writer's temps beside the picture
    (store.removeAvatar) are deleted after: they are copies a save never finished. */
@@ -1146,6 +1200,24 @@ function* delSteps(name, opts) {
   const p = plan(name, opts && (opts.platform || opts.pinned)
     ? { ...(opts.platform ? { platform: opts.platform } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}) } : undefined);
   if (!p.ok) return { outcome: OUTCOME.REFUSED, because: p.because };
+  /* kosmos#8477: the person confirmed the plan the dialog showed, and this one is made again now. Between the two a
+     folder can come back (a task-only removal would become the full delete, folder to the Recycle Bin with nothing to
+     type), a drive can stop taking the Recycle Bin, settings can appear. So the delete runs only when this plan promises
+     what that one did; otherwise nothing is touched and the fresh plan travels back for the page to show.
+     A string `confirmed` (the board's route passes what the request carried): checked. Anything else, null or left out
+     (a page from before this change, another caller, a caller that forgot it) is never let through to the full delete,
+     which retires the community account and standing whatever the Trash keeps; the startup job alone can still go, since
+     Start at login undoes it. Review 7: fails closed, so only a caller that says so by name (`unchecked: true`, which
+     only tests that planned in the same tick pass today) skips the check. */
+  if (!(opts && opts.unchecked === true)) {
+    const sent = opts && typeof opts.confirmed === 'string' ? opts.confirmed : null;
+    if (sent === null ? !p.taskOnly : sent !== p.confirm) {
+      /* `changed` (all three) tells the page to show the plan sent back. review 10: `unconfirmed` marks only the one
+         that says nothing about the agent (no fingerprint sent), so a script can tell it from a plan that really changed
+         or a read that failed, which are refusals. */
+      return { outcome: OUTCOME.REFUSED, because: sent === null ? UNCONFIRMED_FULL_DELETE_BECAUSE : p.readFailed ? COULD_NOT_READ_BECAUSE : CHANGED_SINCE_SHOWN_BECAUSE, changed: true, ...(sent === null ? { unconfirmed: true } : {}), plan: p };
+    }
+  }
   const platform = (opts && opts.platform) || process.platform;
   /* kosmos#8475: a Windows task with no folder: the Scheduled Task and nothing else. Before the community standing reset
      below, which cannot be undone, and with no token revoke, no history cleared, no settings moved, no removal forgotten
@@ -1576,4 +1648,4 @@ async function delAsync(name, opts) {
   }
 }
 
-module.exports = { OUTCOME, plan, del, startsAgainWords, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, DELETING_MOVE_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835)
+module.exports = { sizeStep, OUTCOME, plan, del, startsAgainWords, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, DELETING_MOVE_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict, CHANGED_SINCE_SHOWN_BECAUSE, UNCONFIRMED_FULL_DELETE_BECAUSE, COULD_NOT_READ_BECAUSE };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835); the three kosmos#8477 refusals too

@@ -58,7 +58,7 @@ function leftoverFolder(name) {
 }
 const win = {
   plan: (name) => leftover.plan(name, { platform: 'win32' }),
-  del: (name, o) => leftover.del(name, { platform: 'win32', ...(o || {}) }),
+  del: (name, o) => leftover.del(name, { unchecked: true, platform: 'win32', ...(o || {}) }),
 };
 const trashEntries = () => { try { return fs.readdirSync(process.env.AGENT_WORKFORCE_TRASH); } catch { return []; } };
 
@@ -89,7 +89,7 @@ async function ticksDuring(fn) {
 }
 const asyncWin = {
   plan: (name) => leftover.planAsync(name, { platform: 'win32' }),
-  del: (name, o) => leftover.delAsync(name, { platform: 'win32', ...(o || {}) }),
+  del: (name, o) => leftover.delAsync(name, { unchecked: true, platform: 'win32', ...(o || {}) }),
 };
 const probes = () => calls.filter((c) => c.args.includes(leftover.DRIVE_SCRIPT)).length;
 const moves = () => calls.filter((c) => c.args.includes(leftover.RECYCLE_SCRIPT)).length;
@@ -186,7 +186,7 @@ test('#7835 off Windows, delAsync and planAsync are del and plan', async () => {
   const p = await leftover.planAsync('ot7835f', { platform: 'darwin' });
   assert.equal(p.ok, true, p.because);
   assert.equal(probes(), 0, 'a Mac plan ran PowerShell');
-  const done = await leftover.delAsync('ot7835f', { platform: 'darwin', typed: p.typeToConfirm || undefined });
+  const done = await leftover.delAsync('ot7835f', { unchecked: true, platform: 'darwin', typed: p.typeToConfirm || undefined });
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
   assert.equal(moves(), 0);
   assert.equal(fs.existsSync(dir), false);

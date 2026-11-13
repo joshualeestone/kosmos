@@ -51786,6 +51786,18 @@ let DEL_PLAN = null;
 let DEL_RETURN = null;
 let DEL_TOKEN = 0;
 let DEL_OPENED = 0;   // bumped by openDeleteModal (an in-place repaint too) and closeDeleteModal: a late answer checks it
+/* kosmos#8477: the plan whose words the dialog shows now. A detail page's fresher read can replace DEL_PLAN while the
+   dialog stays painted with the older one, so what the person confirmed is read from here, never from DEL_PLAN. */
+let DEL_SHOWN = null;
+/* kosmos#8477 review 1: after the dialog is repainted because what is left changed, Delete stays off this long, so the
+   second click of a double click cannot confirm a plan nobody has read yet. About the gap between the two clicks of a
+   slow double click, and short enough not to feel stuck. */
+const DEL_CHANGED_PAUSE_MS = 1000;
+// kosmos#8477 review 4: when that pause ends (Date.now() time), so a second repaint inside it keeps Delete off too.
+let DEL_PAUSE_UNTIL = 0;
+// kosmos#8477 review 5: the dialog (its DEL_OPENED) whose Delete paintLeftoverRunning turned off because a delete of its
+// agent is running; a pause ending in that dialog leaves Delete off. Any repaint or new dialog moves DEL_OPENED past it.
+let DEL_HELD_RUNNING = -1;
 async function fetchLeftoverPlan(name) {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/leftover', { cache: 'no-store' });
@@ -51802,8 +51814,12 @@ async function fetchLeftoverPlan(name) {
    finished, or is still running), an offer means something is still here, and no plan at all means nobody knows. */
 const DEL_REFUSED_LINE = 'The board did not delete it, and gave no reason. Try again in a moment.';
 const DEL_UNKNOWN_LINE = 'We could not reach the board just now, so we cannot tell whether anything was deleted. Look again in a moment.';
-function deleteNoAnswerLine(plan) {
+function deleteNoAnswerLine(plan, onScreen) {
   if (!plan) return DEL_UNKNOWN_LINE;
+  // kosmos#8477 review 6: the plan asked again promises something other than the one confirmed (`onScreen`), so "try
+  // again" would invite a click on an act nobody read; the dialog shows the new plan and says it is different. Review 7:
+  // the likeliest cause is the delete getting partway, so the sentence does not imply nothing happened.
+  if (plan.ok && onScreen && plan.confirm !== onScreen.confirm) return 'We could not reach the board just now, so we cannot tell whether anything was deleted, and what Kosmos would do here is different now. Look at what it says now before deleting.';
   if (plan.ok) return 'We could not reach the board just now, and what is left of this agent is still here. Try again.';
   return plan.because || DEL_UNKNOWN_LINE;
 }
@@ -51815,11 +51831,9 @@ function deleteNoAnswerLine(plan) {
    are left to the next read: a refusal can be "try again in a moment" or "is running", not only "nothing is left".
    No plan: the line, and the button as `onScreen` gates it, so the person can try again (the board re-plans first). */
 function deleteNoAnswerShow(plan, name, onScreen) {
-  const say = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(deleteNoAnswerLine(plan));
+  const say = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(deleteNoAnswerLine(plan, onScreen));
   if (plan && plan.ok) {
-    const back = DEL_RETURN;
-    openDeleteModal(plan);
-    DEL_RETURN = back;
+    repaintDeleteModal(plan);
     document.getElementById('del-msg').textContent = say;
     return;
   }
@@ -51885,6 +51899,7 @@ function paintLeftoverRunning(plan, name) {
   if (DEL_FOR !== null && String(DEL_FOR).toLowerCase() === lower) {
     const go = document.getElementById('del-go');
     if (go) go.disabled = true;
+    DEL_HELD_RUNNING = DEL_OPENED;   // review 5: a pause timer must not turn it back on
     const msg = document.getElementById('del-msg');
     if (msg && !msg.textContent) msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(String(plan.because || ''));
   }
@@ -51920,7 +51935,7 @@ async function loadLeftover(sessionName) {
     const modal = document.getElementById('del-modal');
     if (modal && !modal.hidden) {
       // Still offered: the dialog shows what is left now (nothing went unanswered, so no sentence of the no-answer path).
-      if (plan.ok) { const back = DEL_RETURN; openDeleteModal(plan); DEL_RETURN = back; } else { deleteNoAnswerShow(plan, DEL_FOR, null); return; }
+      if (plan.ok) repaintDeleteModal(plan); else { deleteNoAnswerShow(plan, DEL_FOR, null); return; }
     }
   }
   const start = document.getElementById('d-delete-start');
@@ -51936,10 +51951,29 @@ async function loadLeftover(sessionName) {
   if (start) start.textContent = plan.taskOnly ? 'Remove its startup job…' : 'Delete its files…';
   box.hidden = false;
 }
+/* kosmos#8477 review 3: the dialog painted again with a plan the board just sent, keeping where focus goes back to. When
+   what the plan promises (`confirm`) changed and no name is asked for, Delete stays off for DEL_CHANGED_PAUSE_MS, so a
+   click already on its way cannot confirm a plan nobody has read; a dialog closed or opened again meanwhile is left alone. */
+function repaintDeleteModal(plan) {
+  const before = DEL_SHOWN ? DEL_SHOWN.confirm : undefined;
+  const back = DEL_RETURN;
+  openDeleteModal(plan);
+  DEL_RETURN = back;
+  if (plan.typeToConfirm) return;   // Delete is off until the name is typed anyway
+  if (plan.confirm !== before) DEL_PAUSE_UNTIL = Date.now() + DEL_CHANGED_PAUSE_MS;
+  // review 4: openDeleteModal turned Delete on; a pause still running (this repaint's, or an earlier one's) keeps it off.
+  const left = DEL_PAUSE_UNTIL - Date.now();
+  if (left <= 0) return;
+  const go = document.getElementById('del-go');
+  go.disabled = true;
+  const repaintedAs = DEL_OPENED;
+  setTimeout(() => { if (repaintedAs === DEL_OPENED && DEL_HELD_RUNNING !== DEL_OPENED) go.disabled = false; }, left);
+}
 function openDeleteModal(plan) {
   DEL_OPENED += 1;
   DEL_FOR = plan.name;
   DEL_PLAN = plan;
+  DEL_SHOWN = plan;
   DEL_RETURN = document.activeElement;
   document.getElementById('del-title').textContent = plan.question;
   document.getElementById('del-small').textContent = plan.reassurance;
@@ -51969,11 +52003,14 @@ function closeDeleteModal() {
   DEL_OPENED += 1;
   document.getElementById('del-modal').hidden = true;
   DEL_FOR = null;
+  DEL_SHOWN = null;
   if (DEL_RETURN && DEL_RETURN.focus) DEL_RETURN.focus();
   DEL_RETURN = null;
 }
 document.getElementById('del-typed').addEventListener('input', (e) => {
-  document.getElementById('del-go').disabled = !(DEL_PLAN && DEL_PLAN.typeToConfirm && e.target.value.trim() === DEL_PLAN.typeToConfirm);
+  // kosmos#8477 review 1: the name the dialog on screen asks for, not a fresher DEL_PLAN's (which may ask for none).
+  // Review 8: and never while a delete of this agent is running elsewhere (paintLeftoverRunning turned Delete off).
+  document.getElementById('del-go').disabled = !(DEL_HELD_RUNNING !== DEL_OPENED && DEL_SHOWN && DEL_SHOWN.typeToConfirm && e.target.value.trim() === DEL_SHOWN.typeToConfirm);
 });
 document.getElementById('d-delete-start').addEventListener('click', async () => {
   // kosmos#7852: the agent page's button opens only that agent's plan (a dialog opened from the removed list can hold
@@ -51996,7 +52033,8 @@ document.getElementById('del-go').addEventListener('click', async () => {
   if (!DEL_FOR) return;
   const name = DEL_FOR;
   const opened = DEL_OPENED;   // this dialog; closing or opening it again moves the token
-  const onScreen = DEL_PLAN;   // the plan this dialog shows; a detail page loaded meanwhile can replace DEL_PLAN
+  const onScreen = DEL_SHOWN;   // the plan this dialog shows (kosmos#8477 review 2: not DEL_PLAN, which a detail page's read can replace)
+  const confirmed = DEL_SHOWN ? DEL_SHOWN.confirm : null;   // kosmos#8477: what the words on screen promised
   go.disabled = true;
   msg.textContent = '';
   let res = null;
@@ -52004,7 +52042,7 @@ document.getElementById('del-go').addEventListener('click', async () => {
   try {
     res = await fetch('/api/agent/' + encodeURIComponent(name) + '/leftover', {
       method: 'DELETE', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ typed: document.getElementById('del-typed').value }),
+      body: JSON.stringify({ typed: document.getElementById('del-typed').value, confirmed }),
     });
     body = await res.json().catch(() => null);
   } catch { res = null; }
@@ -52024,15 +52062,16 @@ document.getElementById('del-go').addEventListener('click', async () => {
        did not. It sends that plan back, so the dialog shows it (with the box to type in) rather than refusing again. */
     // Only when the new plan asks for a name the one on screen does not (or spells it differently): a plain typo keeps
     // what was typed. The button stays off only when the dialog was repainted with the box to type in.
+    /* kosmos#8477: or the board found that what is left changed since this dialog was painted (`changed`): the dialog
+       shows the new plan so the next click confirms what will really happen, with the cursor on Keep unless a name is
+       to be typed. */
     let repainted = false;
     if (body && body.plan && body.plan.ok && String(body.plan.name).toLowerCase() === String(DEL_FOR).toLowerCase()
-      && body.plan.typeToConfirm && !(DEL_PLAN && DEL_PLAN.typeToConfirm === body.plan.typeToConfirm)) {
-      const back = DEL_RETURN;
-      openDeleteModal(body.plan);
-      DEL_RETURN = back;
+      && (body.changed || (body.plan.typeToConfirm && !(onScreen && onScreen.typeToConfirm === body.plan.typeToConfirm)))) {
+      repaintDeleteModal(body.plan);
       repainted = true;
       // kosmos#7835 item 6: the name is what the person has to give next, and typing in the box cannot delete anything.
-      document.getElementById('del-typed').focus();
+      if (body.plan.typeToConfirm) document.getElementById('del-typed').focus();
     }
     msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(body.because || body.error || DEL_REFUSED_LINE);
     if (!repainted) go.disabled = false;

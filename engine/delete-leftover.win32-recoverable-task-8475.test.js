@@ -87,7 +87,7 @@ function scheduler(args) {
 
 const win = {
   plan: (name) => leftover.plan(name, { platform: 'win32' }),
-  del: (name, typed) => leftover.del(name, { platform: 'win32', ...(typed ? { typed } : {}) }),
+  del: (name, typed) => leftover.del(name, { unchecked: true, platform: 'win32', ...(typed ? { typed } : {}) }),
   list: () => leftover.settingsLeftovers({ platform: 'win32' }),
 };
 const listed = (name) => (win.list().names || []).find((x) => x.name === name) || null;

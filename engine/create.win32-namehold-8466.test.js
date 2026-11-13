@@ -166,7 +166,7 @@ test('kosmos#8466: create refuses a listed leftover task with the row to use, an
   const p = leftover.plan(name, { platform: 'win32' });
   assert.equal(p.ok, true, p.because);
   assert.equal(p.taskOnly, true, 'PREMISE: the row does not remove the task alone');
-  const out = leftover.del(name, { platform: 'win32' });
+  const out = leftover.del(name, { unchecked: true, platform: 'win32' });
   assert.notEqual(out.outcome, leftover.OUTCOME.REFUSED, out.because);
   assert.equal(taskThere(name), false, 'the row removed nothing');
   assert.ok(fs.existsSync(store.profilePath(name)), 'the settings did not stay, though the sentence says they do');

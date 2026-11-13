@@ -551,7 +551,7 @@ test('#4918 review 31: with no Trash and a startup job systemd will not remove, 
   try {
     const p = del.plan(name, { platform: 'linux' });
     assert.equal(p.toTrash, false, 'CONTROL: with no Trash the folder would be deleted for good');
-    const r = del.del(name, { platform: 'linux', typed: p.typeToConfirm || name });
+    const r = del.del(name, { unchecked: true, platform: 'linux', typed: p.typeToConfirm || name });
     assert.equal(fs.existsSync(path.join(create.workerDir(name), 'work.txt')), true, 'the folder was deleted for good while the unit stayed');
     assert.notEqual(r.outcome, del.OUTCOME.DELETED, JSON.stringify(r));
   } finally {
@@ -572,7 +572,7 @@ test('#4918 review 32: a unit-only leftover never promises the Trash, and the re
     assert.equal(p.ok, true, JSON.stringify(p));
     assert.equal(p.toTrash, false, 'a unit-only leftover promised the Trash');
     assert.doesNotMatch(p.reassurance, /Trash/);
-    const r = del.del(name, { platform: 'linux', typed: p.typeToConfirm || name });
+    const r = del.del(name, { unchecked: true, platform: 'linux', typed: p.typeToConfirm || name });
     assert.match(r.said, /Nothing starts/, JSON.stringify(r));
   } finally { del.setRunner(null); fs.rmSync(linuxjob.unitPath(name), { force: true }); }
 });
@@ -594,7 +594,7 @@ test('#4918 review 32: with a Trash, a startup job systemd will not remove still
   try {
     const p = del.plan(name, { platform: 'linux' });
     assert.equal(p.toTrash, true, 'CONTROL: the Trash can take the folder');
-    const r = del.del(name, { platform: 'linux', typed: p.typeToConfirm || name });
+    const r = del.del(name, { unchecked: true, platform: 'linux', typed: p.typeToConfirm || name });
     assert.equal(fs.existsSync(path.join(create.workerDir(name), 'work.txt')), true, 'the folder moved while the unit still holds the name');
     assert.notEqual(r.outcome, del.OUTCOME.DELETED, JSON.stringify(r));
     assert.match(r.because, /folder was kept too/, 'the sentence says the folder could not move, not that it was kept (review 34)');
@@ -685,7 +685,7 @@ test('#4918 review 40: a unit-only leftover systemd will not remove keeps its re
   del.setRunner((file, args) => (file === 'systemctl' && args[1] === 'stop' ? { ok: false, stderr: 'Failed to connect to bus: No such file or directory' } : { ok: true, stdout: '' }));
   try {
     const p = del.plan(name, { platform: 'linux' });
-    const r = del.del(name, { platform: 'linux', typed: p.typeToConfirm || name });
+    const r = del.del(name, { unchecked: true, platform: 'linux', typed: p.typeToConfirm || name });
     assert.equal(r.outcome, del.OUTCOME.REFUSED, JSON.stringify(r));
     assert.equal(forgot, 0, 'the removal record was dropped while systemd still holds the unit');
     assert.doesNotMatch(r.because, /folder was kept/, 'a unit-only leftover has no folder to keep');

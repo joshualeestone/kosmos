@@ -11082,7 +11082,9 @@ const server = http.createServer(async (req, res) => {
         // when this delete starts is not caught.
         if (process.platform === 'win32' && boardRestartingSoon()) { sendJson(res, 409, { outcome: leftover.OUTCOME.REFUSED, because: 'The board is about to restart (an update or a restart is under way), so nothing was deleted. Try again when it is back.' }); return; }
         // kosmos#7835: delAsync, so a Windows Recycle Bin move (PowerShell, up to 120 s) does not hold the board.
-        try { done = await leftover.delAsync(name, { typed: body.typed }); }
+        // kosmos#8477: and what the dialog promised (`confirm` from its plan); null when the request carried none, which
+        // the engine reads as "not confirmed", never as "not asked".
+        try { done = await leftover.delAsync(name, { typed: body.typed, confirmed: typeof body.confirmed === 'string' ? body.confirmed : null }); }
         catch (err) { SETTINGS_LEFTOVERS = null; LAST_SURVEY = null; sendJson(res, 500, { error: 'the delete failed partway and we cannot tell you how far it got', detail: String(err && err.message || err) }); return; }
         // kosmos#7825 PR 2: the removed list redraws from a fresh read. The poll's survey too, taken before the delete
         // (review 2: reused, it listed the name the delete had just cleared).

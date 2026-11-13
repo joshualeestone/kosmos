@@ -58,7 +58,7 @@ function leftoverFolder(name) {
 }
 const win = {
   plan: (name) => leftover.plan(name, { platform: 'win32' }),
-  del: (name, o) => leftover.del(name, { platform: 'win32', ...(o || {}) }),
+  del: (name, o) => leftover.del(name, { unchecked: true, platform: 'win32', ...(o || {}) }),
 };
 const trashEntries = () => { try { return fs.readdirSync(process.env.AGENT_WORKFORCE_TRASH); } catch { return []; } };
 
@@ -378,11 +378,15 @@ test('#7820 the page repaints the dialog from a refusal that carries a plan', ()
   for (; i < html.length; i++) { if (html[i] === '{') depth++; else if (html[i] === '}' && --depth === 0) break; }
   assert.ok(i < html.length && i - from < 20000, 'the delete button handler did not close where expected');
   const handler = html.slice(from, i + 1);
-  assert.match(handler, /openDeleteModal\(body\.plan\);\s*DEL_RETURN = back;\s*repainted = true;/,
+  // kosmos#8477 review 3: through repaintDeleteModal, which opens it and keeps DEL_RETURN (pinned below).
+  assert.match(handler, /repaintDeleteModal\(body\.plan\);\s*repainted = true;/,
     'a refusal with a plan does not repaint the dialog, so a person shown no name box stays stuck');
-  assert.match(handler, /DEL_PLAN\.typeToConfirm === body\.plan\.typeToConfirm/, 'a differently spelled name on screen is not repainted');
+  // kosmos#8477 review 2: compared with the plan the dialog shows (onScreen), not DEL_PLAN, which a poll can replace.
+  assert.match(handler, /onScreen\.typeToConfirm === body\.plan\.typeToConfirm/, 'a differently spelled name on screen is not repainted');
   assert.match(handler, /\.toLowerCase\(\) === String\(DEL_FOR\)\.toLowerCase\(\)/, 'a name that differs only in case is not repainted');
   assert.match(handler, /if \(!repainted\) go\.disabled = false;/, 'the button can stay off with no box to type in');
+  const helper = html.slice(html.indexOf('function repaintDeleteModal('), html.indexOf('function openDeleteModal('));
+  assert.match(helper, /const back = DEL_RETURN;\s*openDeleteModal\(plan\);\s*DEL_RETURN = back;/, 'the repaint loses where focus goes back to');
 });
 
 test('#7820 its settings go to the Recycle Bin with the folder, never to a home-made Trash folder', () => {
@@ -516,6 +520,6 @@ test('#7820 CONTROL: the Mac still says the Trash and never asks PowerShell', ()
   assert.equal(p.verb, 'Move 3 files to the Trash');
   assert.doesNotMatch(p.reassurance, /Recycle Bin/);
   assert.equal(calls.filter((c) => /powershell/i.test(c.file)).length, 0, 'the Mac arm spawned PowerShell');
-  const done = leftover.del('rb7820g', { platform: 'darwin' });
+  const done = leftover.del('rb7820g', { unchecked: true, platform: 'darwin' });
   assert.equal(done.said, 'rb7820g\'s files are in the Trash. The name is free.');
 });
