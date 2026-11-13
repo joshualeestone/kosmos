@@ -26,7 +26,10 @@ Second pool PR before the 0.8.05 staging cut (Splinter's call 21:27 CST 11-12: c
 - The Windows leftover-task changes stay in the release notes: they matter only to someone with a leftover task.
 
 ## Weakest premise
-Rank is judgement. The Windows Codex lines rest on the PRs' descriptions, not a Windows run of mine.
+Two lines are true of the merged code but not yet seen working, so the served 0.8.05 build has to confirm them before promote, the first one first:
+- **Claude Fable 5.2 (leads the window).** #8468 says a board-created Fable 5.2 agent has not yet been seen running `claude-fable-5-2`; #8461 is parked needs-release for exactly that. The line claims only that you can pick it, which the menu already does.
+- **Linux Settings (release notes).** #8481's output shapes for busctl, gsettings and systemctl come from documentation, not a real Linux board.
+Rank is judgement, and the Windows Codex lines rest on the PRs' descriptions, not a Windows run of mine.
 
 ## Would change my mind
 Any line found false on a served build: drop it before promote.
