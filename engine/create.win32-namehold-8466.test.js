@@ -177,6 +177,16 @@ test('kosmos#8466: create refuses a listed leftover task with the row to use, an
   assert.ok(taskThere(name), 'the new agent has no task');
 });
 
+test('kosmos#8466: the sentence names the row as the row draws it, not as the name was typed', onlyWin, () => {
+  const name = leftoverTask('rowname8466');
+  store.writeProfile(name, { displayName: 'Row Name' });
+  const row = (leftover.settingsLeftovers({ platform: 'win32' }).names || []).find((x) => x.name === name);
+  assert.equal(row && row.shownAs, 'Row Name', 'PREMISE: the row does not draw the profile name');
+  const r = createNow('ROWNAME8466');
+  assert.equal(r.outcome, create.OUTCOME.REFUSED);
+  assert.match(r.because, /beside Row Name\. Its settings stay/, 'the sentence names a row the screen does not draw: ' + r.because);
+});
+
 test('kosmos#8466: where no row shows the task, the sentence names it in Task Scheduler, and that frees the name', onlyWin, () => {
   // No profile behind the task: never listed (a stray), so the screen has no row for it.
   const stray = leftoverTask('stray8466', { profile: false });
@@ -264,157 +274,88 @@ test('kosmos#8466: the team step counts a seat whose name a leftover task holds 
   assert.equal(ask().ok, true, 'CONTROL: the seat stays taken with the task removed, so the refusal above proves nothing');
 });
 
-/* kosmos#8466 review: the setup guide moved to its second name only on create's "already an agent called" sentence. A
-   leftover Windows task under the first name gets another sentence, so no guide was ever made, silently. */
-test('kosmos#8466: a leftover task under the setup guide\'s first name makes the guide take its second name', onlyWin, () => {
-  const setupAssistant = require('./setup-assistant');
-  const first = create.slugFor(setupAssistant.GUIDE_NAME);
-  const second = create.slugFor(setupAssistant.GUIDE_FALLBACK_NAME);
-  leftoverTask(first);
-  made.push(second);
-  const tried = [];
-  const seed = () => {
-    create.setRunner(() => ({ ok: true, stdout: '' }));
-    create.setDryRun(false);
-    jobfixture.useJobStore();
-    try {
-      return setupAssistant.seedSetupAssistant({
-        createAgent: (o) => { tried.push(o.name); return create.createAgent({ ...BINS, ...o }); },
-        hasConnectedAccount: () => true,
-        avatarDir: nodePath.join(SANDBOX, 'avatars'),
-      });
-    } finally { create.setDryRun(true); create.setRunner(null); }
-  };
-  const r = seed();
-  assert.deepEqual(tried, [setupAssistant.GUIDE_NAME, setupAssistant.GUIDE_FALLBACK_NAME], 'the guide did not move on to its second name');
-  assert.equal(r.seeded, true, r.reason || '');
-  assert.equal(r.name, second);
-  assert.ok(taskThere(first), 'the leftover task under the first name was overwritten');
-
-  // CONTROL: the first name on the removed list (the person took that guide off the board) still stops at the first try.
-  fs.rmSync(create.workerDir(second), { recursive: true, force: true });
-  fs.rmSync(jobfixture.jobPath(second), { force: true });
-  markRemoved(first);
-  tried.length = 0;
-  const again = seed();
-  assert.equal(again.seeded, false);
-  assert.deepEqual(tried, [setupAssistant.GUIDE_NAME], 'a removed guide was made again under its second name');
-});
-
-/* kosmos#8466 review 2: ensureGuide, the automatic path, with the real create behind it (no model fields: the test's
-   account rows are placeholders). Explicit, so the arm and the retry wait do not stand in the way. */
-async function ensureNow(tried) {
-  const setupAssistant = require('./setup-assistant');
-  setupAssistant.resetEnsureGuideForTests();
+/* kosmos#8466: the setup guide's choice between its two names (setup-assistant.js seedSetupAssistant). With nameHeld
+   reading the Scheduled Task, two of create's Windows sentences changed, so on win32 the seed decides by what holds
+   the name: a leftover task with no folder moves on to the second name; a folder there stops, as main did. */
+const setupAssistant = require('./setup-assistant');
+const GUIDE = create.slugFor(setupAssistant.GUIDE_NAME);
+const GUIDE2 = create.slugFor(setupAssistant.GUIDE_FALLBACK_NAME);
+function seedNow(tried) {
+  fs.rmSync(setupAssistant.flagPath(), { force: true });
   create.setRunner(() => ({ ok: true, stdout: '' }));
   create.setDryRun(false);
   jobfixture.useJobStore();
   try {
-    return await setupAssistant.ensureGuide({
+    return setupAssistant.seedSetupAssistant({
       createAgent: (o) => { tried.push(o.name); return create.createAgent({ ...BINS, name: o.name, role: o.role, createdBy: o.createdBy, purpose: o.purpose }); },
-      explicit: true,
-      via: 'settings',
-      deps: {
-        enabled: true,
-        listFor: (mod) => (mod === './accounts' ? [{ dir: nodePath.join(SANDBOX, 'claude-home'), isDefault: true }] : []),
-        connectable: async () => ({ ok: true }),
-        liveDefault: async () => true,
-        avatarDir: nodePath.join(SANDBOX, 'avatars'),
-      },
+      hasConnectedAccount: () => true,
+      avatarDir: nodePath.join(SANDBOX, 'avatars'),
     });
   } finally { create.setDryRun(true); create.setRunner(null); }
 }
 
-test('kosmos#8466 review 2: a guide already here with no seeded flag is adopted, never made a second time', onlyWin, async () => {
-  const setupAssistant = require('./setup-assistant');
-  const first = create.slugFor(setupAssistant.GUIDE_NAME);
-  const second = create.slugFor(setupAssistant.GUIDE_FALLBACK_NAME);
-  made.push(first, second);
-  try {
-    // The guide, made and marked; then its flag lost (a failed write, or the board died before it).
-    const tried = [];
-    const made1 = await ensureNow(tried);
-    assert.equal(made1.seeded, true, made1.reason || '');
-    assert.equal(made1.name, first, 'PREMISE: the guide was not made under its first name');
-    assert.ok(setupAssistant.isGuideFolder(first) && taskThere(first), 'PREMISE: the guide is not whole');
-    fs.rmSync(setupAssistant.flagPath(), { force: true });
-
-    // Healthy (folder, marker and task): adopted, nothing made, the flag written again.
-    tried.length = 0;
-    const r = await ensureNow(tried);
-    assert.deepEqual(tried, [setupAssistant.GUIDE_NAME], 'a second guide was made beside a healthy one');
-    assert.equal(r.seeded, true, r.reason || '');
-    assert.equal(r.name, first);
-    assert.equal(setupAssistant.guideName(), first, 'the seeded flag was not written for the guide already here');
-    assert.ok(!fs.existsSync(create.workerDir(second)), 'a second guide folder was made');
-
-    // Its folder with no startup job: still the guide, so adopted too (a second guide would not mend its job).
-    fs.rmSync(setupAssistant.flagPath(), { force: true });
-    fs.rmSync(jobfixture.jobPath(first), { force: true });
-    tried.length = 0;
-    const r2 = await ensureNow(tried);
-    assert.deepEqual(tried, [setupAssistant.GUIDE_NAME], 'a second guide was made beside a guide folder with no job');
-    assert.equal(r2.seeded, true, r2.reason || '');
-    assert.equal(setupAssistant.guideName(), first);
-  } finally { fs.rmSync(setupAssistant.flagPath(), { force: true }); setupAssistant.resetEnsureGuideForTests(); }
+test('kosmos#8466: a leftover task with no folder under the guide\'s first name makes the guide take its second name', onlyWin, () => {
+  leftoverTask(GUIDE);
+  made.push(GUIDE2);
+  const tried = [];
+  const r = seedNow(tried);
+  assert.deepEqual(tried, [setupAssistant.GUIDE_NAME, setupAssistant.GUIDE_FALLBACK_NAME], 'the guide did not move on to its second name');
+  assert.equal(r.seeded, true, r.reason || '');
+  assert.equal(r.name, GUIDE2);
+  assert.ok(taskThere(GUIDE), 'the leftover task under the first name was overwritten');
 });
 
-test('kosmos#8466 review 3: names-taken only when both guide names are real agents; two leftover tasks keep the retry', onlyWin, async () => {
-  const setupAssistant = require('./setup-assistant');
-  const first = leftoverTask(create.slugFor(setupAssistant.GUIDE_NAME));
-  const second = leftoverTask(create.slugFor(setupAssistant.GUIDE_FALLBACK_NAME));
-  try {
-    // Two leftover tasks: the screen's names-taken words ("Two of your agents ...") would be false, so main's retry.
-    const tried = [];
-    const r = await ensureNow(tried);
-    assert.deepEqual(tried, [setupAssistant.GUIDE_NAME, setupAssistant.GUIDE_FALLBACK_NAME]);
-    assert.equal(r.seeded, false);
-    assert.equal(r.state, 'refused', 'two leftover tasks were called two agents: ' + r.reason);
-    assert.ok(taskThere(first) && taskThere(second), 'a leftover task was overwritten');
-    /* Two real agents the person made (neither the guide; made here so the newest birth under each name is theirs,
-       not an earlier test's guide): names taken, final for the process. */
-    fs.rmSync(jobfixture.jobPath(first), { force: true });
-    fs.rmSync(jobfixture.jobPath(second), { force: true });
-    assert.equal(createNow(first).outcome, create.OUTCOME.CREATED, 'PREMISE: the person could not make their own Josh');
-    assert.equal(createNow(second).outcome, create.OUTCOME.CREATED, 'PREMISE: the person could not make their own Josh AI');
-    tried.length = 0;
-    const r2 = await ensureNow(tried);
-    assert.deepEqual(tried, [setupAssistant.GUIDE_NAME, setupAssistant.GUIDE_FALLBACK_NAME]);
-    assert.equal(r2.state, 'names-taken', 'both names held by agents, and the guide still retries: ' + r2.reason);
-  } finally { fs.rmSync(setupAssistant.flagPath(), { force: true }); setupAssistant.resetEnsureGuideForTests(); }
+test('kosmos#8466: a healthy guide under the first name with no seeded flag gets no second guide beside it', onlyWin, () => {
+  made.push(GUIDE, GUIDE2);
+  const tried = [];
+  const first = seedNow(tried);
+  assert.equal(first.name, GUIDE, 'PREMISE: the guide was not made under its first name');
+  assert.ok(fs.existsSync(create.workerDir(GUIDE)) && taskThere(GUIDE), 'PREMISE: the guide is not whole (folder and task)');
+  // Its seeded flag missing (a failed write, or the board died before it): the seed runs again.
+  tried.length = 0;
+  const again = seedNow(tried);
+  assert.deepEqual(tried, [setupAssistant.GUIDE_NAME], 'a second guide was tried beside a healthy one');
+  assert.equal(again.seeded, false);
+  assert.ok(!fs.existsSync(create.workerDir(GUIDE2)), 'a second guide folder was made');
 });
 
-test('kosmos#8466 review 3: a guide whose marker is gone is known by its birth and adopted, never made twice', onlyWin, async () => {
-  const setupAssistant = require('./setup-assistant');
-  const first = create.slugFor(setupAssistant.GUIDE_NAME);
-  const second = create.slugFor(setupAssistant.GUIDE_FALLBACK_NAME);
-  made.push(first, second);
-  const marker = () => nodePath.join(create.workerDir(first), '.kosmos-setup-guide');
-  try {
-    // The reviewer's reproduction: "Josh" made for real, then its marker and the seeded flag deleted.
-    const tried = [];
-    assert.equal((await ensureNow(tried)).name, first, 'PREMISE: the guide was not made');
-    assert.ok(fs.existsSync(marker()), 'PREMISE: the marker is not where this test deletes it');
-    fs.rmSync(marker(), { force: true });
-    fs.rmSync(setupAssistant.flagPath(), { force: true });
-    assert.equal(setupAssistant.isGuideFolder(first), false, 'PREMISE: the guide is still marked');
-    tried.length = 0;
-    const r = await ensureNow(tried);
-    assert.deepEqual(tried, [setupAssistant.GUIDE_NAME], 'a second guide was made beside one with no marker');
-    assert.equal(r.seeded, true, r.reason || '');
-    assert.equal(setupAssistant.guideName(), first, 'the seeded flag was not written');
-    assert.ok(!fs.existsSync(create.workerDir(second)), 'a second guide folder was made');
-    assert.equal(setupAssistant.isGuideFolder(first), true, 'the adopted guide was not marked again');
+test('kosmos#8466: a removed guide name with only its task left makes nothing, as on main', onlyWin, () => {
+  leftoverTask(GUIDE);
+  made.push(GUIDE2);
+  markRemoved(GUIDE);
+  const tried = [];
+  const r = seedNow(tried);
+  assert.deepEqual(tried, [setupAssistant.GUIDE_NAME], 'a removed guide was made again under its second name');
+  assert.equal(r.seeded, false);
+  assert.ok(taskThere(GUIDE), 'the removed guide lost its task');
+});
 
-    // CONTROL: the newest birth under that name is the person's own agent (the guide deleted, the name reused): not
-    // the guide, so the second name is used.
+test('kosmos#8466: macOS and Linux keep main\'s rule: the sentence decides, whatever is on disk', () => {
+  made.push(GUIDE);
+  // On disk, what the Windows rule would act on: a folder under the first name, and (below) a leftover task.
+  fs.mkdirSync(create.workerDir(GUIDE), { recursive: true });
+  const taskFile = win32job.taskFilePath(GUIDE);
+  fs.mkdirSync(nodePath.dirname(taskFile), { recursive: true });
+  fs.writeFileSync(taskFile, '<Task/>');
+  const seedOn = (platform, because) => {
     fs.rmSync(setupAssistant.flagPath(), { force: true });
-    fs.rmSync(create.workerDir(first), { recursive: true, force: true });
-    fs.rmSync(jobfixture.jobPath(first), { force: true });
-    assert.equal(createNow(first).outcome, create.OUTCOME.CREATED, 'PREMISE: the person could not make their own Josh');
-    tried.length = 0;
-    const r2 = await ensureNow(tried);
-    assert.deepEqual(tried, [setupAssistant.GUIDE_NAME, setupAssistant.GUIDE_FALLBACK_NAME], 'the person\'s own agent was taken for the guide');
-    assert.equal(r2.name, second);
-  } finally { fs.rmSync(setupAssistant.flagPath(), { force: true }); setupAssistant.resetEnsureGuideForTests(); }
+    const tried = [];
+    const r = setupAssistant.seedSetupAssistant({
+      platform,
+      hasConnectedAccount: () => true,
+      avatarDir: nodePath.join(SANDBOX, 'avatars'),
+      createAgent: (o) => { tried.push(o.name); return o.name === setupAssistant.GUIDE_NAME ? { outcome: create.OUTCOME.REFUSED, because, field: 'name' } : { outcome: create.OUTCOME.CREATED, name: create.slugFor(o.name) }; },
+    });
+    return { tried, r };
+  };
+  const taken = `there is already an agent called ${setupAssistant.GUIDE_NAME}. If it never came up, it is half made rather than missing.`;
+  const leftoverWords = `something called ${setupAssistant.GUIDE_NAME} is still set to start on this computer, though there is no folder for it.`;
+  for (const platform of ['darwin', 'linux']) {
+    assert.deepEqual(seedOn(platform, taken).tried, [setupAssistant.GUIDE_NAME, setupAssistant.GUIDE_FALLBACK_NAME], `${platform}: "already an agent called" no longer moves on`);
+    assert.deepEqual(seedOn(platform, leftoverWords).tried, [setupAssistant.GUIDE_NAME], `${platform}: another refusal moved on`);
+  }
+  // CONTROL: the same refusal, with the folder there, stops on Windows (the rule above is what differs).
+  assert.deepEqual(seedOn('win32', taken).tried, [setupAssistant.GUIDE_NAME], 'CONTROL: Windows did not apply its own rule, so the pin above proves nothing');
+  fs.rmSync(taskFile, { force: true });
+  fs.rmSync(setupAssistant.flagPath(), { force: true });
 });

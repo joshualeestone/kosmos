@@ -7382,12 +7382,14 @@ function nameHeld(name, platform) {
 function win32HeldTaskWords(name, shown) {
   const lead = `something called ${shown} is still set to start on this computer, though Kosmos cannot find a folder for it.`;
   const fold = (n) => String(n).toLowerCase();   // Windows names are case-blind, as settingsLeftovers folds them
-  let listed = false;
+  let listed = null;
   try {
     const r = require('./delete-leftover').settingsLeftovers({ platform: 'win32' });
-    listed = Boolean(r && r.ok && r.names.some((x) => x.startsAtLogin && fold(x.name) === fold(name)));
-  } catch { listed = false; }
+    listed = (r && r.ok && r.names.find((x) => x.startsAtLogin && fold(x.name) === fold(name))) || null;
+  } catch { listed = null; }
   if (listed) {
+    // The name the row itself draws (its profile's shownAs), not the spelling typed here, so the person finds the row.
+    const rowName = listed.shownAs || listed.name;
     /* The toggle's label as web/index.html draws it: "Show what is left of past agents" with no removed agents, "Show
        removed agents and what is left of others" with some (both followed by a count). The removed agents are the list
        /api/removed sends (remove.removedAgents); when it cannot be read, both labels are named. */
@@ -7396,7 +7398,7 @@ function win32HeldTaskWords(name, shown) {
       toggle = require('./remove').removedAgents().length > 0
         ? '"Show removed agents and what is left of others"' : '"Show what is left of past agents"';
     } catch { toggle = '"Show what is left of past agents" (or "Show removed agents and what is left of others")'; }
-    return `${lead} Pick another name, or free this one: at the bottom of the Agents tab, press ${toggle}, then press "Remove its startup job…" beside ${shown}. Its settings stay on this computer.`;
+    return `${lead} Pick another name, or free this one: at the bottom of the Agents tab, press ${toggle}, then press "Remove its startup job…" beside ${rowName}. Its settings stay on this computer.`;
   }
   let running = false;
   try { running = status.paneRoster().some((c) => fold(c.sessionName) === fold(name)); } catch { running = false; }
@@ -7463,9 +7465,7 @@ module.exports = {
   setProbePlatformForTests,
   probePlatform,
   selfStartsSentence,
-  createdLog, createdLogFile, createdCount,
-  disabledJobs, disabledJobsResult, runningJobs,
-  isAutoGuideBirth,   // kosmos#8466 review 3: the setup guide knows its own agent by its birth when its marker is missing
+  createdLog, createdLogFile, createdCount, disabledJobs, disabledJobsResult, runningJobs,
 
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` lower-cases and folds
      whitespace and periods to hyphens — it is a converter, not a gate — so

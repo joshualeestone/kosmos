@@ -3115,24 +3115,6 @@ function isGuideFolder(agentName) {
   try { return fs.lstatSync(path.join(dir, GUIDE_MARKER)).isFile(); } catch { return false; }
 }
 
-/* kosmos#8466 review 3: whether the agent under this board name is the guide by its BIRTH, for a guide whose folder has
-   no marker (the board died after the create and before markGuideFolder, or the marker was deleted). create.js writes
-   the birth line (created.jsonl) before createAgent returns, and create.isAutoGuideBirth knows the guide's line (#4350).
-   The NEWEST line that made an agent under this slug decides: a guide removed and deleted, its name then taken by the
-   person's own agent, is that agent's (a removed guide is stopped earlier, by the removed list). Only while the folder
-   is there: with no folder, what holds the name is a leftover task or job, not a guide to adopt.
-   'made' (adopt), 'partial' (half made: stop, make nothing), or null (not the guide, or the log cannot tell). */
-function guideBirthFor(slug) {
-  try {
-    if (create.nameHeld(slug).folder !== true) return null;
-    const made = create.createdLog().filter((e) => e.slug === slug
-      && (e.outcome === create.OUTCOME.CREATED || e.outcome === create.OUTCOME.PARTIAL));
-    const last = made[made.length - 1];
-    if (!last || !create.isAutoGuideBirth(last)) return null;
-    return last.outcome === create.OUTCOME.CREATED ? 'made' : 'partial';
-  } catch { return null; }
-}
-
 /* kosmos#7152 slice 3: isGuideFolder for a caller that must fail CLOSED (an automatic account move). Only "the marker is
    not there" is an answer of no (a folder that does not exist has no marker either); an agent whose instructions file
    cannot be named, or a marker that cannot be read, THROWS, where isGuideFolder reads both as "not the guide". */
@@ -3177,7 +3159,8 @@ function guideNameStrict() {
  * that must not turn either into an error. The caller writes the once-ever flag
  * on `seeded: true`.
  */
-function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount, avatarDir, model } = {}) {
+/* `platform` (kosmos#8466) is TESTS ONLY: it lets a test pin the macOS and Linux rule from a Windows host. */
+function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConnectedAccount, avatarDir, model, platform } = {}) {
   if (typeof createAgent !== 'function') return { seeded: false, reason: 'no createAgent provided' };
   if (setupAssistantSeeded()) return { seeded: false, reason: 'already seeded' };
 
@@ -3190,8 +3173,6 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
 
   let out;
   let name;
-  let bothNamesHeld = false;   // kosmos#8466 review 2: for ensureGuide's names-taken stop
-  let firstIsAgent = false;    // review 3: the first name is held by a real agent (see below)
   for (const candidate of [GUIDE_NAME, GUIDE_FALLBACK_NAME]) {
     name = candidate;
     try {
@@ -3216,50 +3197,32 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
       return { seeded: false, reason: 'create threw: ' + String((err && err.message) || err) };
     }
     /* Only a TAKEN name moves on to the fallback; any other refusal (no runner) would
-       refuse the fallback the same way.
-       kosmos#8466: read from create's own marker for a refusal about the name (field 'name', #2606), not from one
-       sentence. Matching "already an agent called" missed every other way a name is held: on Windows a leftover
-       Scheduled Task with no folder ("something called Josh is still set to start ..."), and on every platform a
-       leftover folder or job, or a name already running. The guide then stayed unmade, silently, on every later try.
-       The old sentence still counts, for a caller whose refusal carries no field.
-       NOT a name on the removed list: the person took that guide off the board, and making another one under the
-       second name would undo what they chose (as before this change, nothing is made then). */
-    const refusedName = out && out.outcome !== create.OUTCOME.CREATED
-      && (out.field === 'name' || /already an agent called/.test(String(out.because || '')));
-    let removedName = false;
-    if (refusedName) {
-      try { removedName = require('./remove').isRemoved(create.slugFor(candidate)) === true; } catch { removedName = true; }
+       refuse the fallback the same way. The sentence is create.js's own. */
+    const refused = Boolean(out && out.outcome !== create.OUTCOME.CREATED);
+    let taken = refused && /already an agent called/.test(String(out.because || ''));
+    /* kosmos#8466, Windows only: create.nameHeld now reads a Windows agent's Scheduled Task, which changes two of
+       create's sentences there, so the sentence alone no longer decides on win32.
+       - A folder under the name: STOP, whatever the sentence. Main read a Windows guide as "already a folder" and
+         stopped; with the task read, a healthy guide whose seeded flag is missing reads "already an agent called",
+         which would move on and make a second guide beside it.
+       - A leftover task with no folder (which now holds the name, where main overwrote it): move on, as for a taken
+         name. Not a name on the removed list: main stopped there, and still does.
+       Anything else, and macOS and Linux, exactly as before. A look that fails keeps the sentence's answer. */
+    if (refused && (platform || process.platform) === 'win32') {
+      try {
+        const slug = create.slugFor(candidate);
+        const held = create.nameHeld(slug, 'win32');
+        if (held.folder) taken = false;
+        else if (held.job && require('./remove').isRemoved(slug) !== true) taken = true;
+      } catch { /* the sentence's answer stands */ }
     }
-    if (!refusedName || removedName) break;
-    /* kosmos#8466 review 2: the name may be held by the GUIDE ITSELF, made before and marked (markGuideFolder), with
-       the once-ever flag missing: its write failed, or the board died between the create and the write. Moving on
-       would make a second guide beside it. So a name whose folder carries the guide's marker is adopted: it is
-       returned as seeded, the caller writes the flag, and nothing new is made. That holds whether or not its startup
-       job is still there (a guide folder with no job is still the guide; its page and the restart notice deal with
-       its job, and a second guide would not). Only a name held by something else (a leftover task, another agent)
-       moves on.
-       Review 3: a guide whose marker was never written (the board died after the create, before the mark; or the
-       marker was deleted) is known by its birth record instead (guideBirthFor). */
-    const slug = create.slugFor(candidate);
-    if (isGuideFolder(slug)) return { seeded: true, adopted: true, name: slug, avatarCopied: false, marked: true };
-    const birth = guideBirthFor(slug);
-    if (birth === 'made') return { seeded: true, adopted: true, name: slug, avatarCopied: false, marked: markGuideFolder(slug) };
-    if (birth === 'partial') break;   // a half-made guide: never a second one beside it, and nothing adopted that does not work
-    /* kosmos#8466 review 3: names-taken (final for the process, and the screen then says two of the person's AGENTS
-       use the names) only when each name is held by a real agent, as main's rule was: create's "already an agent
-       called", or a folder there. A leftover task or job alone keeps main's retry on backoff. */
-    let realAgent = /already an agent called/.test(String(out.because || ''));
-    if (!realAgent) { try { realAgent = create.nameHeld(slug).folder === true; } catch { realAgent = false; } }
-    if (candidate === GUIDE_NAME) firstIsAgent = realAgent;
-    else bothNamesHeld = firstIsAgent && realAgent;
+    if (!taken) break;
   }
 
   if (!out || out.outcome !== create.OUTCOME.CREATED) {
     // Benign remaining case: createAgent refuses because the Claude runner is not
     // installed (its actual account/model refusal path). No flag is written.
-    /* kosmos#8466 review 2: namesTaken says both names were refused as held by a real agent that is not the guide
-       (review 3: not a leftover task or job alone), so ensureGuide stops retrying for this process, as on main. */
-    return { seeded: false, reason: 'not created: ' + ((out && out.because) || (out && out.outcome) || 'unknown'), ...(bothNamesHeld ? { namesTaken: true } : {}) };
+    return { seeded: false, reason: 'not created: ' + ((out && out.because) || (out && out.outcome) || 'unknown') };
   }
 
   const avatarCopied = copyGuideAvatar(out.name || name, avatarDir);
@@ -3546,11 +3509,7 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
         last = seed;
         /* Both names taken: that is about the NAME, not the model, so the next model would
            be refused the same way after paying for its live check. Stop here. */
-        /* kosmos#8466 review 2: the seed's own answer (both names refused as held by something not the guide; a guide
-           under either name is adopted above, never counted here). Review 3: the seed's answer only, which already reads
-           create's "already an agent called" per name; matching the last reason here would count a leftover task under
-           the first name as an agent. */
-        if (seed && seed.namesTaken === true) { namesTaken = true; break; }
+        if (/already an agent called/.test(String((seed && seed.reason) || ''))) { namesTaken = true; break; }
         /* Refused on this model (its runner missing, say): try the next one. */
       }
       // A model listed but none usable (a dead sign-in, a failed live check) is its own gate,
