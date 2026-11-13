@@ -4517,13 +4517,6 @@ function win32AccountThere(runner, dir) {
   try { if (require('./anthropiccompat').vendorOfName(dir)) return false; } catch { return false; }
   try { return fs.statSync(dir).isDirectory(); } catch { return false; }
 }
-/* kosmos#8478: what the profile records of the agent's last Windows task, for the runner its profile says it runs on
-   now. null when nothing is recorded (an agent whose task was last written before this change), when the record is for
-   another runner (its provider changed by some route that did not write the task), or for a Qwen or vendor agent
-   (their account is restored from its own field). Otherwise { configDir, model, accountOk, modelOk }, where the two
-   flags say whether each can still be put back (win32AccountThere, win32ModelOffered). One reading, shared by
-   register.repair (what it builds) and delete-leftover.startsAgainWords (what the person is told), so the two cannot
-   disagree. */
 /* kosmos#8478: the record a task that is still registered would give, read from the task's own argument line (the
    definition win32job parses for configDirFor). null when there is no task or it cannot be read: never a guess. `fresh`
    reads Task Scheduler again (the delete, which records it); otherwise the remembered definition (the plan's words). */
@@ -4542,7 +4535,14 @@ function recordWin32TaskFromTask(name) {
   const rec = win32TaskOnTask(name, true);
   return rec ? recordWin32Task(name, rec) : false;
 }
-/* `orTask`: with nothing recorded, answer from the task if it is still registered. Only for the task-only delete's
+/* kosmos#8478: what the profile records of the agent's last Windows task, for the runner its profile says it runs on
+   now. null when nothing is recorded (an agent whose task was last written before this change), when the record is for
+   another runner (its provider changed by some route that did not write the task), or for a Qwen or vendor agent
+   (their account is restored from its own field). Otherwise { configDir, model, accountOk, modelOk }, where the two
+   flags say whether each can still be put back (win32AccountThere, win32ModelOffered). One reading, shared by
+   register.repair (what it builds) and delete-leftover.startsAgainWords (what the person is told), so the two cannot
+   disagree.
+   `orTask`: with nothing recorded, answer from the task if it is still registered. Only for the task-only delete's
    PLAN words, which describe the agent after that delete has recorded the task (recordWin32TaskFromTask); its outcome
    words and Restore's are read after the task is gone, so they say only what was actually recorded. */
 function win32RecordedTask(name, opts) {
@@ -4560,11 +4560,45 @@ function win32RecordedTask(name, opts) {
   // A value of a shape no writer here makes (hand-edited, damaged) is read as cannot be put back, never as "the default".
   const dirShaped = rec.configDir == null || configDir !== null;
   const modelShaped = rec.model == null || model !== null;
+  const accountRemoved = rec.accountRemoved === true;   // round 1: its account was removed (forgetWin32TaskAccount)
   return {
-    configDir, model,
-    accountOk: dirShaped && win32AccountThere(runner, configDir),
+    configDir, model, accountRemoved,
+    accountOk: !accountRemoved && dirShaped && win32AccountThere(runner, configDir),
     modelOk: modelShaped && win32ModelOffered(runner, model),
   };
+}
+/* kosmos#8478 round 1: an account removed (or disconnected, which renames its folder aside) frees its folder NAME, and
+   the next sign-in reuses the lowest free one (accounts.nextWorkDir, openaiaccounts.nextWorkDir). The removal's own
+   check finds an account's agents through their tasks only, so an agent whose task is gone is not in it, and its record
+   would put it on whoever signs in next under that name. So every successful removal forgets that folder in each
+   record that names it (the model stays): such an agent comes back on the main account, as it did before records.
+   Never refuses or fails the removal (no new dead end), and never makes a profile. This Kosmos's profiles only: another
+   Kosmos on this computer (a world this board is not serving) keeps its records. Answers the names cleared. */
+function forgetWin32TaskAccount(dir) {
+  if (typeof dir !== 'string' || !dir) return [];
+  const fold = (p) => { const r = path.resolve(p); return process.platform === 'linux' ? r : r.toLowerCase(); };
+  const gone = fold(dir);
+  let files = [];
+  try { files = fs.readdirSync(store.PROFILES).filter((f) => f.endsWith('.json')); } catch { return []; }
+  const cleared = [];
+  for (const f of files) {
+    const key = f.slice(0, -'.json'.length);
+    let rec;
+    try { rec = (store.readProfile(key) || {}).win32Task; } catch { continue; }
+    if (!rec || typeof rec !== 'object' || typeof rec.configDir !== 'string' || !rec.configDir) continue;
+    if (fold(rec.configDir) !== gone) continue;
+    /* accountRemoved: so the words say the account was removed, rather than read the null as "it was on the main
+       account" and say it comes back on the account it was set to. */
+    try { store.writeProfile(key, { win32Task: { ...rec, configDir: null, accountRemoved: true } }); cleared.push(key); } catch { /* best effort */ }
+  }
+  return cleared;
+}
+/* The one step the account modules' forgetAccount and removeAccount take after they answer (accounts.js and
+   openaiaccounts.js wrap their exports with it): on success, forget the folder in the records. Hands the answer back
+   unchanged; a failure here is swallowed, because the account is gone either way. */
+function afterAccountGone(dir, out) {
+  if (out && out.ok === true) { try { forgetWin32TaskAccount(String(dir == null ? '' : dir)); } catch { /* best effort */ } }
+  return out;
 }
 
 /**
@@ -4771,6 +4805,10 @@ function installJob(name, opts) {
   const modelArgWin = (opts && typeof opts.model === 'string' && opts.model.trim()) ? opts.model.trim() : null;
   const configDirWin = (opts && typeof opts.configDir === 'string' && opts.configDir) ? opts.configDir : null;
   const modelRecordedWin = Boolean(opts && opts.modelRecorded === true);   // kosmos#8478: see the win32 arm's guessed
+  const accountRecordedWin = Boolean(opts && opts.accountRecorded === true);   // kosmos#8478 round 1: the same, for the account
+  /* kosmos#8478 round 1: register.repair's recorded account folder it could not reach, kept in the record in place of
+     the main account the task runs on, so the agent comes back on it once the folder can be reached again. */
+  const keepAccountWin = (opts && typeof opts.keepRecordedAccount === 'string' && opts.keepRecordedAccount) ? opts.keepRecordedAccount : null;
   /* 🛑 #570: WINDOWS HAS NO LAUNCHD, SO EVERYTHING BELOW THIS POINT IS MAC-ONLY.
      The rest of this function installs the supervisor script, writes a `.plist`,
      `launchctl enable`s the label and `bootstrap`s it. None of those exist on
@@ -4804,7 +4842,7 @@ function installJob(name, opts) {
     if (DRY_RUN) {
       return { ok: true, started: true, model: modelArgWin,
         guessed: { model: (modelArgWin || modelRecordedWin) ? null : 'we do not know which model it was set to run on, so it will start on the default',
-          account: (configDirWin || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account' },
+          account: (configDirWin || accountRecordedWin || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account' },
         because: 'set up and started now' };
     }
     /* 🔑 ONE ACT NOW, AND THE PROMISE IS NO LONGER SEPARABLE FROM THE FACT (7c-2).
@@ -4817,7 +4855,7 @@ function installJob(name, opts) {
       runner, runnerBin, configDir: configDirWin, model: modelArgWin,
     });
     if (!launched.ok) return { ok: false, because: launched.because };
-    recordWin32Task(clean, { runner, configDir: configDirWin, model: modelArgWin });   // kosmos#8478
+    recordWin32Task(clean, { runner, configDir: configDirWin || keepAccountWin, model: modelArgWin });   // kosmos#8478
     return {
       ok: true,
       started: true,
@@ -4827,7 +4865,7 @@ function installJob(name, opts) {
         /* kosmos#8478: a model the profile recorded as none (the agent was set to the default) is known, not guessed;
            register.repair says so with modelRecorded, and the page's "no record of which model" line stays away. */
         model: (modelArgWin || modelRecordedWin) ? null : 'we do not know which model it was set to run on, so it will start on the default',
-        account: (configDirWin || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account',
+        account: (configDirWin || accountRecordedWin || isNonClaudeRunner(wantRunner)) ? null : 'it will run on your main Claude account',
       },
       because: 'set up and started now, and it will start again at every login',
     };
@@ -7597,7 +7635,7 @@ module.exports = {
   setModel,
   installJob,
   // kosmos#8478: register.repair and delete-leftover read the recorded Windows account and model through one reader.
-  win32RecordedTask, recordWin32TaskFromTask,
+  win32RecordedTask, recordWin32TaskFromTask, forgetWin32TaskAccount, afterAccountGone,
   nameUsable,
   hasJob, jobMissing,
   // #570: the one three-state answer the plist-stat readers now share.

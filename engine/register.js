@@ -889,11 +889,16 @@ function repair(opts) {
        account; the model it last ran), never a task pointing at a folder that is gone. Nothing recorded (an agent whose
        task was last written before this change) is exactly as before. Qwen and vendor agents were answered above. */
     let modelRecorded = false;
+    const recordOpts = {};
     if (platform === 'win32' && !runnerOpt.configDir) {
       let rec = null;
       try { rec = create.win32RecordedTask(name); } catch { rec = null; }
       if (rec) {
         if (rec.accountOk && rec.configDir) runnerOpt.configDir = rec.configDir;
+        if (rec.accountOk) recordOpts.accountRecorded = true;   // round 1 nit: the main account, known rather than guessed
+        /* round 1: a recorded folder it cannot reach (perhaps a disk not connected) stays in the record, so the agent
+           comes back on it once the disk does; the task itself runs on the main account meanwhile. */
+        if (!rec.accountOk && rec.configDir) recordOpts.keepRecordedAccount = rec.configDir;
         if (rec.modelOk) { model = rec.model; modelRecorded = true; }
       }
     }
@@ -903,7 +908,7 @@ function repair(opts) {
       const allowed = create.policyAllows(provider || 'anthropic', model, runnerOpt.configDir);   // review 6: a Qwen account names its model
       if (!allowed.ok) return { name, shownAs: shownName(name), ok: false, because: allowed.because };
     }
-    const r = create.installJob(name, { model, platform, ...runnerOpt, ...(modelRecorded ? { modelRecorded: true } : {}) });
+    const r = create.installJob(name, { model, platform, ...runnerOpt, ...(modelRecorded ? { modelRecorded: true } : {}), ...recordOpts });
     // #5534: once it has run, it is an agent that ran: Repair restores it later whatever the policy says.
     if (r && r.ok) { try { if ((store.readProfile(name) || {}).policyHeld) store.writeProfile(name, { policyHeld: false }); } catch { /* best effort */ } }
     return { name, shownAs: shownName(name), ...r };

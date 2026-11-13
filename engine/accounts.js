@@ -1013,5 +1013,12 @@ function removeAccount(dir, usedBy) {
   return { ok: true, removed: true, because: null };
 }
 
-module.exports = { homeDir, wireDefaultHooks, claudeVersionForFolder, defaultFolderClaudeVersion, list, listLive, checkRowLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+/* kosmos#8478 round 1: a removed or disconnected account frees its folder name for the next sign-in (nextWorkDir), so
+   the Windows records that name it forget it (create.afterAccountGone): an agent whose task is gone then comes back
+   on the main account, never on whoever signs in next under that name. Wrapped at the export so every caller (both
+   routes, and anything else) gets it, and the two functions above keep their own text. Lazy: create requires this. */
+function forgetAccountFreeing(dir, usedBy) { return require('./create').afterAccountGone(dir, forgetAccount(dir, usedBy)); }
+function removeAccountFreeing(dir, usedBy) { return require('./create').afterAccountGone(dir, removeAccount(dir, usedBy)); }
+
+module.exports = { homeDir, wireDefaultHooks, claudeVersionForFolder, defaultFolderClaudeVersion, list, listLive, checkRowLive, forgetAccount: forgetAccountFreeing, removeAccount: removeAccountFreeing, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };

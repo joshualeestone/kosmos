@@ -16,7 +16,13 @@ and the last model it ran.
 - Agents written before this change: the task-only delete (delete-leftover.del) reads the account folder and model from
   the task itself and records them (create.recordWin32TaskFromTask) just before removing it, when the profile has no
   record. Never a gate: a read or write that fails leaves the delete as it was.
-- Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (8).
+- Round 1: removing or disconnecting a Claude or OpenAI account (accounts.js / openaiaccounts.js forgetAccount and
+  removeAccount, wrapped at the export through create.afterAccountGone) clears that folder from every record naming it
+  (model kept, marked accountRemoved), because the removal check finds agents through their tasks only and the next
+  sign-in reuses the folder name. Never refuses the removal. A recorded folder Kosmos cannot reach is said as "cannot
+  reach right now" (a disk or share may be unplugged), and repair keeps it in the record (the task runs on main
+  meanwhile) so the agent comes back on it once it can be reached.
+- Tests: engine/delete-leftover.win32-accountkeep-8478.test.js (10).
 
 ## Decided, not missed
 - Windows only: on macOS and Linux the plist or unit is the source of truth and nothing in Kosmos removes it alone.
@@ -25,3 +31,6 @@ and the last model it ran.
   the delete is about to record), so if that record's read or write then fails, the plan promised the account and model
   and the outcome, read after, says the main account and the model it last ran (true, but different from the plan).
   A task removed some other way (by hand in Task Scheduler) still loses an unrecorded agent's account and model.
+  Round 1 residuals: the clearing reaches this Kosmos's profiles only (another world on this computer keeps its
+  records); Gemini and Grok account removals do not clear (same risk class, not in the decision); an account folder
+  deleted by hand outside Kosmos, kept in a record as "cannot reach", could be reused by a later sign-in.
