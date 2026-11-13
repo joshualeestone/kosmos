@@ -68,6 +68,17 @@ standing reset, community account retired, tokens revoked. Nobody confirmed that
   answers of 1 and true are made inside it, at several reads), a change to that module outside this card; the refusal
   itself is safe.
 
+- **Review 3, the page:** one helper, `repaintDeleteModal`, paints the dialog again from a plan the board sent (the
+  changed refusal, a delete with no answer, a running delete that ended) and holds Delete off for the pause whenever
+  `confirm` changed and no name is asked for.
+- **Review 3, "for good" becoming "Recycle Bin": still refused.** A drive probe that timed out (kept 5 s) can make the
+  dialog say "for good" and the delete's own probe then say "Recycle Bin", so a strictly gentler act is refused as
+  changed. Accepting it was rejected: the person read "this cannot be undone" and typed the name, and would get files
+  left in the Recycle Bin they did not see offered (some people delete for good on purpose, for space or privacy), with
+  an outcome sentence that does not match the dialog; and a field-by-field "gentler" rule would replace one equality
+  with a comparison that has to be kept right for every field added later. The refusal is true, touches nothing, and
+  repaints the gentler plan, so the cost is one more click.
+
 ## Weakest part of this reasoning
 
 The `confirmed === undefined` exemption. A future production caller of `del`/`delAsync` that forgets to pass `confirmed`
@@ -75,7 +86,11 @@ gets today's unchecked behaviour silently. It is pinned only by the test that th
 holds one delete call. What would change my mind: a second production caller appearing; then the exemption should go
 and the tests should pass `confirmed` explicitly. Second weakest: the community-account field reads
 `communitysend.hasAccount`, which answers "yes" when it cannot tell. A flapping answer would refuse a delete that did
-not really change; the refusal is safe (nothing touched, the dialog repaints) but could repeat.
+not really change; the refusal is safe (nothing touched, the dialog repaints) but could repeat. Third (review 3): on a
+flaky drive the Recycle Bin probe can time out on one read and answer on the next, so "for good" and "Recycle Bin" can
+alternate between the dialog and the delete and refuse more than once in a row. Each refusal is true and touches
+nothing; what would change my mind is seeing it repeat in practice, and then the probe's 5 s failure keep is the place
+to look, not the fingerprint.
 
 ## Callers checked
 

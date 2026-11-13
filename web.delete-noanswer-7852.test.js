@@ -76,17 +76,18 @@ function dialog(planOnScreen, detailFor = null) {
   const calls = [];
   const replies = [];   // each: (url, opts) => a promise of a Response-like, or a rejection
   const ctx = vm.createContext({
-    String, JSON, encodeURIComponent, Promise,
+    String, JSON, encodeURIComponent, Promise, setTimeout,   // setTimeout: repaintDeleteModal's pause (kosmos#8477)
     document: { getElementById: (id) => els[id] || null, activeElement: null, createElement: () => ({ textContent: '' }) },
     paints: 0,
     fetch: (url, opts) => { calls.push({ url, method: (opts && opts.method) || 'GET' }); return replies.shift()(url, opts); },
   });
-  vm.runInContext(['let DEL_FOR = null; let DEL_PLAN = null; let DEL_RETURN = null; let DEL_OPENED = 0; let DEL_TOKEN = 0; let DEL_RUNNING_FOR = null;',
+  vm.runInContext(['let DEL_FOR = null; let DEL_PLAN = null; let DEL_RETURN = null; let DEL_OPENED = 0; let DEL_TOKEN = 0; let DEL_RUNNING_FOR = null; let DEL_SHOWN = null;',
+    liftConst(SCRIPT, 'DEL_CHANGED_PAUSE_MS'),
     'let CURRENT = ' + JSON.stringify(detailFor ? CARD[detailFor.toLowerCase()] : null) + ';',
     'let LEFTOVERS_LAST = [{ name: "Miles" }, { name: "Ada" }];',
     'function paintRemoved() { paints += 1; }',
     liftConst(SCRIPT, 'DEL_UNKNOWN_LINE'), liftConst(SCRIPT, 'DEL_REFUSED_LINE'),
-    liftAll(SCRIPT, ['asSentence', 'fetchLeftoverPlan', 'deleteNoAnswerLine', 'deleteNoAnswerShow', 'deleteForgetPlan', 'deleteSettled', 'openDeleteModal', 'closeDeleteModal', 'paintLeftoverRunning', 'loadLeftover']),
+    liftAll(SCRIPT, ['asSentence', 'fetchLeftoverPlan', 'deleteNoAnswerLine', 'deleteNoAnswerShow', 'deleteForgetPlan', 'deleteSettled', 'repaintDeleteModal', 'openDeleteModal', 'closeDeleteModal', 'paintLeftoverRunning', 'loadLeftover']),
     'this.startClick = ' + liftStart() + ';', 'this.load = loadLeftover;',
     'this.click = ' + liftHandler() + ';',
     'this.show = (p, onScreen) => deleteNoAnswerShow(p, DEL_FOR, onScreen === undefined ? DEL_PLAN : onScreen);',

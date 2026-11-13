@@ -180,6 +180,28 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     await new Promise((res) => setTimeout(res, 80));
     out.nameAsked = { rowHidden: document.getElementById('del-type-row').hidden, goOff: document.getElementById('del-go').disabled, msg: document.getElementById('del-msg').textContent };
     closeDeleteModal();
+    // 3g. kosmos#8477 review 3: the other two repaints (a delete with no answer, and a delete that was running ending)
+    // also hold Delete off for the pause when what the plan promises changed, and only then.
+    const goOff = () => document.getElementById('del-go').disabled;
+    out.repaints = {};
+    openDeleteModal({ ...noName, confirm: '3.a8477' });
+    deleteNoAnswerShow({ ...noName, confirm: '3.a8477' }, 'task-8475', DEL_SHOWN);
+    out.repaints.noAnswerSame = goOff();
+    deleteNoAnswerShow({ ...noName, question: 'Delete what is left of Tasked?', confirm: '3.b8477' }, 'task-8475', DEL_SHOWN);
+    out.repaints.noAnswerChanged = goOff();
+    await new Promise((res) => setTimeout(res, 1100));
+    out.repaints.noAnswerAfter = goOff();
+    closeDeleteModal();
+    openDeleteModal({ ...noName, confirm: '3.a8477' });
+    DEL_RUNNING_FOR = 'task-8475';
+    CURRENT = { sessionName: 'task-8475' };
+    pagePlan = { ...noName, question: 'Delete what is left of Tasked?', confirm: '3.c8477' };
+    await loadLeftover('task-8475');
+    out.repaints.runningEnded = goOff();
+    out.repaints.runningEndedTitle = document.getElementById('del-title').textContent;
+    pagePlan = null;
+    CURRENT = null;
+    closeDeleteModal();
     // 3c. a name just deleted is not drawn again from the kept rows
     body = { agents: [], leftovers: [{ name: 'stray-7825', shownAs: 'Stray' }] };
     await paintRemoved();
@@ -263,6 +285,11 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   check(ch.goOffAfterPause === false && ch.sentAgain === '1.after8477', 'kosmos#8477: after the pause Delete is on, and now confirms the new plan', JSON.stringify(ch));
   check(r.nameAsked && r.nameAsked.rowHidden === false && r.nameAsked.goOff === true && /type Tasked/.test(r.nameAsked.msg),
     'kosmos#8477 review 2: a refusal asking for a name the dialog on screen did not ask for shows the box, whatever the poll stored meanwhile', JSON.stringify(r.nameAsked));
+  const rp = r.repaints || {};
+  check(rp.noAnswerSame === false && rp.noAnswerChanged === true && rp.noAnswerAfter === false,
+    'kosmos#8477 review 3: a no-answer repaint holds Delete off for the pause only when what the plan promises changed', JSON.stringify(rp));
+  check(rp.runningEnded === true && rp.runningEndedTitle === 'Delete what is left of Tasked?',
+    'kosmos#8477 review 3: a running delete that ended repaints the dialog with Delete held off', JSON.stringify(rp));
   check(r.typedOn === true, 'kosmos#8477 review 1: typing the name the dialog shows turns Delete on, whatever a fresher plan read meanwhile asks', String(r.typedOn));
   check(r.none.wrapHidden === true, 'NEGATIVE: nothing removed and nothing left over hides the section', JSON.stringify(r.none));
 
