@@ -144,10 +144,27 @@ out="$(run_step8 1 aaa111 0 x3 2>&1)"; rc=$?
 case "$out" in *"KOSMOS_DEPLOY_LANDED_TRIES must be a whole number from 1 to 9999, got 'x3'"*"nothing was deployed"*) ok "the refusal names the variable, the allowed range and that nothing was deployed" ;; *) bad "bad override message: $out" ;; esac
 [ "$rc" = 1 ] && [ ! -f "$T/vercel.called" ] && ok "a mistyped KOSMOS_DEPLOY_LANDED_TRIES is refused BEFORE vercel deploy runs" || bad "bad override: rc=$rc vercel called=$([ -f "$T/vercel.called" ] && echo yes || echo no)"
 
+# ---- kosmos#8494: an exit 0 is checked too ------------------------------------------------
+# The 0.8.05 cut: vercel returned 0 after a partial upload and no deployment was made.
 out="$(run_step8 0 none)"; rc=$?
-case "$out" in *"DEPLOYED=1") : ;; *) bad "CLI success: did not reach DEPLOYED=1 (out=$out)" ;; esac
-[ -f "$T/vercel.called" ] || bad "CLI success: the vercel stub was never called, so this arm proves nothing"
-[ "$rc" = 0 ] && [ "$(fetches)" = 0 ] && ok "CONTROL: the CLI succeeded, so step 8 asks the served host nothing (step 9 verifies)" || bad "CLI success: rc=$rc fetches=$(fetches)"
+[ -f "$T/vercel.called" ] || bad "#8494 exit 0, nothing served: the vercel stub was never called, so this arm proves nothing"
+[ "$rc" = 1 ] && ok "#8494: the CLI exited 0 but nothing was served: step 8 fails (1)" || bad "#8494 exit 0 never served: rc=$rc"
+case "$out" in *"DEPLOYED="*) bad "#8494 exit 0 never served: DEPLOYED was reached, so the trap would not restore the site" ;; *) ok "#8494: DEPLOYED is never set, so the trap still restores" ;; esac
+case "$out" in *"vercel deploy exited 0, but this cut's 9.9.9 build was not seen served after 3 checks: the upload did not become a deployment (kosmos#8494)"*"aaa111"*) ok "#8494: the message says the upload did not become a deployment and points at this cut's sha" ;; *) bad "#8494 message (out=$out)" ;; esac
+[ "$(fetches)" = 3 ] && ok "#8494: asked exactly KOSMOS_DEPLOY_LANDED_TRIES (3) times" || bad "#8494: asked $(fetches) times"
+
+out="$(run_step8 0 aaa111)"; rc=$?
+case "$out" in *"vercel deploy exited 0 and this cut's build is served (kosmos#8494)"*"DEPLOYED=1") : ;; *) bad "#8494 control: did not reach DEPLOYED=1 with the served line (out=$out)" ;; esac
+[ "$rc" = 0 ] && [ "$(fetches)" = 1 ] && ok "#8494 CONTROL: exit 0 with this cut's build served passes after one fetch" || bad "#8494 control: rc=$rc fetches=$(fetches)"
+
+out="$(run_step8 0 bbb222)"; rc=$?
+[ "$rc" = 1 ] && case "$out" in *"DEPLOYED="*) false ;; *) true ;; esac && ok "#8494: exit 0 with an EARLIER attempt's build served is not this deploy: fails" || bad "#8494 earlier attempt: rc=$rc"
+
+mv "$T/site/dist/kosmos-9.9.9-arm64.tar.gz.sha256" "$T/sha.aside"
+out="$(run_step8 0 aaa111)"; rc=$?
+mv "$T/sha.aside" "$T/site/dist/kosmos-9.9.9-arm64.tar.gz.sha256"
+[ "$rc" = 1 ] && [ "$(fetches)" = 0 ] && case "$out" in *"cannot be read, so whether it was deployed cannot be checked (kosmos#8494)"*) true ;; *) false ;; esac \
+  && ok "#8494: exit 0 with this cut's own .sha256 unreadable fails at once" || bad "#8494 unreadable local sha: rc=$rc fetches=$(fetches) out=$out"
 
 # ---- kosmos#6620: the freeze re-check just before vercel ---------------------------------
 out="$(run_step8 0 aaa111 2>&1)"; rc=$?
