@@ -219,6 +219,7 @@ function specs(req, cat, deps) {
   const names = {};
   const seen = new Map();
   const takenSeats = [];
+  const heldSeats = [];   // kosmos#8466: seats held only by a leftover Windows task, in create's words
   for (const m of membersOf(team)) {
     const raw = typeof given[m.slot] === 'string' ? given[m.slot].trim() : '';
     if (!raw) return { ok: false, because: 'give the ' + m.title + ' a name' };
@@ -234,17 +235,26 @@ function specs(req, cat, deps) {
     }
     if (req && req.checkTaken === true && taken(slug)) {
       const words = heldWords(slug, raw);
-      if (words) return { ok: false, because: 'the ' + m.title + '\'s name: ' + words };
-      takenSeats.push({ raw, title: m.title });
+      // kosmos#8466 review 3: kept, not returned at once, so every taken seat is still said in one answer.
+      if (words) heldSeats.push('the ' + m.title + '\'s name: ' + words);
+      else takenSeats.push({ raw, title: m.title });
     }
     names[m.slot] = raw;
   }
   // Every taken name in one answer: making the same team again takes all of its suggested names.
+  let agents = null;
   if (takenSeats.length === 1) {
-    return { ok: false, because: 'there is already an agent called ' + takenSeats[0].raw + ' on this computer; give the ' + takenSeats[0].title + ' another name' + MAYBE_OURS };
+    agents = 'there is already an agent called ' + takenSeats[0].raw + ' on this computer; give the ' + takenSeats[0].title + ' another name' + MAYBE_OURS;
   }
   if (takenSeats.length > 1) {
-    return { ok: false, because: 'these names are already taken on this computer: ' + takenSeats.map((t) => t.raw + ' (the ' + t.title + ')').join(', ') + '; give each one another name' + MAYBE_OURS };
+    agents = 'these names are already taken on this computer: ' + takenSeats.map((t) => t.raw + ' (the ' + t.title + ')').join(', ') + '; give each one another name' + MAYBE_OURS;
+  }
+  if (agents && !heldSeats.length) return { ok: false, because: agents };
+  /* kosmos#8466: seats held only by a leftover Windows task, each in create's words (each ends with its own full stop),
+     after the agents' sentence when there is one; every one after the first starts with a capital. */
+  if (heldSeats.length) {
+    const parts = (agents ? [agents + '.'] : []).concat(heldSeats);
+    return { ok: false, because: parts.map((p, i) => (i ? p.charAt(0).toUpperCase() + p.slice(1) : p)).join(' ') };
   }
 
   /* April (#4555): the catalogue's own reason, per member, for anything it would refuse (a role this

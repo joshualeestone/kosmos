@@ -7463,7 +7463,9 @@ module.exports = {
   setProbePlatformForTests,
   probePlatform,
   selfStartsSentence,
-  createdLog, createdLogFile, createdCount, disabledJobs, disabledJobsResult, runningJobs,
+  createdLog, createdLogFile, createdCount,
+  disabledJobs, disabledJobsResult, runningJobs,
+  isAutoGuideBirth,   // kosmos#8466 review 3: the setup guide knows its own agent by its birth when its marker is missing
 
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` lower-cases and folds
      whitespace and periods to hyphens — it is a converter, not a gate — so

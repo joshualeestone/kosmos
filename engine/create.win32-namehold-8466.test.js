@@ -248,6 +248,14 @@ test('kosmos#8466: the team step counts a seat whose name a leftover task holds 
   const r = ask();
   assert.equal(r.ok, false, 'the seat was free though a leftover task holds its name');
   assert.equal(r.because, "the Helper's name: " + rowWords(name, ONLY_LEFT), "the seat was not given create's words for a leftover task");
+  // Review 3: every taken seat in one answer, a real agent's and a leftover task's together.
+  const lead = 'lead8466';
+  made.push(lead);
+  fs.mkdirSync(create.workerDir(lead), { recursive: true });
+  const both = teamseed.specs({ team: 'duo', names: { lead, helper: name }, checkTaken: true }, cat, { removed: () => false });
+  assert.equal(both.because, `there is already an agent called ${lead} on this computer; give the Lead another name. If you were making this team a moment ago, those agents are already on your board. The Helper's name: ` + rowWords(name, ONLY_LEFT),
+    'the answer stopped at one taken seat');
+  fs.rmSync(create.workerDir(lead), { recursive: true, force: true });
   // CONTROL: a seat held by an agent with its folder too is still said the generic way (it is an agent on the board).
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   assert.match(ask().because, new RegExp(`^there is already an agent called ${name} on this computer; give the Helper another name`));
@@ -351,16 +359,62 @@ test('kosmos#8466 review 2: a guide already here with no seeded flag is adopted,
   } finally { fs.rmSync(setupAssistant.flagPath(), { force: true }); setupAssistant.resetEnsureGuideForTests(); }
 });
 
-test('kosmos#8466 review 2: both guide names held by something else stop the automatic path for good (names taken)', onlyWin, async () => {
+test('kosmos#8466 review 3: names-taken only when both guide names are real agents; two leftover tasks keep the retry', onlyWin, async () => {
   const setupAssistant = require('./setup-assistant');
   const first = leftoverTask(create.slugFor(setupAssistant.GUIDE_NAME));
   const second = leftoverTask(create.slugFor(setupAssistant.GUIDE_FALLBACK_NAME));
   try {
+    // Two leftover tasks: the screen's names-taken words ("Two of your agents ...") would be false, so main's retry.
     const tried = [];
     const r = await ensureNow(tried);
     assert.deepEqual(tried, [setupAssistant.GUIDE_NAME, setupAssistant.GUIDE_FALLBACK_NAME]);
     assert.equal(r.seeded, false);
-    assert.equal(r.state, 'names-taken', 'both names refused as held, and the guide still retries: ' + r.reason);
+    assert.equal(r.state, 'refused', 'two leftover tasks were called two agents: ' + r.reason);
     assert.ok(taskThere(first) && taskThere(second), 'a leftover task was overwritten');
+    /* Two real agents the person made (neither the guide; made here so the newest birth under each name is theirs,
+       not an earlier test's guide): names taken, final for the process. */
+    fs.rmSync(jobfixture.jobPath(first), { force: true });
+    fs.rmSync(jobfixture.jobPath(second), { force: true });
+    assert.equal(createNow(first).outcome, create.OUTCOME.CREATED, 'PREMISE: the person could not make their own Josh');
+    assert.equal(createNow(second).outcome, create.OUTCOME.CREATED, 'PREMISE: the person could not make their own Josh AI');
+    tried.length = 0;
+    const r2 = await ensureNow(tried);
+    assert.deepEqual(tried, [setupAssistant.GUIDE_NAME, setupAssistant.GUIDE_FALLBACK_NAME]);
+    assert.equal(r2.state, 'names-taken', 'both names held by agents, and the guide still retries: ' + r2.reason);
+  } finally { fs.rmSync(setupAssistant.flagPath(), { force: true }); setupAssistant.resetEnsureGuideForTests(); }
+});
+
+test('kosmos#8466 review 3: a guide whose marker is gone is known by its birth and adopted, never made twice', onlyWin, async () => {
+  const setupAssistant = require('./setup-assistant');
+  const first = create.slugFor(setupAssistant.GUIDE_NAME);
+  const second = create.slugFor(setupAssistant.GUIDE_FALLBACK_NAME);
+  made.push(first, second);
+  const marker = () => nodePath.join(create.workerDir(first), '.kosmos-setup-guide');
+  try {
+    // The reviewer's reproduction: "Josh" made for real, then its marker and the seeded flag deleted.
+    const tried = [];
+    assert.equal((await ensureNow(tried)).name, first, 'PREMISE: the guide was not made');
+    assert.ok(fs.existsSync(marker()), 'PREMISE: the marker is not where this test deletes it');
+    fs.rmSync(marker(), { force: true });
+    fs.rmSync(setupAssistant.flagPath(), { force: true });
+    assert.equal(setupAssistant.isGuideFolder(first), false, 'PREMISE: the guide is still marked');
+    tried.length = 0;
+    const r = await ensureNow(tried);
+    assert.deepEqual(tried, [setupAssistant.GUIDE_NAME], 'a second guide was made beside one with no marker');
+    assert.equal(r.seeded, true, r.reason || '');
+    assert.equal(setupAssistant.guideName(), first, 'the seeded flag was not written');
+    assert.ok(!fs.existsSync(create.workerDir(second)), 'a second guide folder was made');
+    assert.equal(setupAssistant.isGuideFolder(first), true, 'the adopted guide was not marked again');
+
+    // CONTROL: the newest birth under that name is the person's own agent (the guide deleted, the name reused): not
+    // the guide, so the second name is used.
+    fs.rmSync(setupAssistant.flagPath(), { force: true });
+    fs.rmSync(create.workerDir(first), { recursive: true, force: true });
+    fs.rmSync(jobfixture.jobPath(first), { force: true });
+    assert.equal(createNow(first).outcome, create.OUTCOME.CREATED, 'PREMISE: the person could not make their own Josh');
+    tried.length = 0;
+    const r2 = await ensureNow(tried);
+    assert.deepEqual(tried, [setupAssistant.GUIDE_NAME, setupAssistant.GUIDE_FALLBACK_NAME], 'the person\'s own agent was taken for the guide');
+    assert.equal(r2.name, second);
   } finally { fs.rmSync(setupAssistant.flagPath(), { force: true }); setupAssistant.resetEnsureGuideForTests(); }
 });

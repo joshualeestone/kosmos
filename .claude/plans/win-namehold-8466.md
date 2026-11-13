@@ -33,9 +33,26 @@ job", whose delete removes only the task.
     moved on for); on Windows main stopped. Now a name whose folder carries the guide's marker (isGuideFolder) is
     ADOPTED: returned as seeded, ensureGuide writes the flag, nothing is made. Also when its folder has no startup job:
     it is still the guide, and a second guide would not mend its job (its page and the restart notice deal with that).
-    Only a name held by something that is not the guide (a leftover task, another agent) moves on. Weakest part: a
-    guide whose marker was never written (the board died after the create, before the mark) still reads as another
-    agent's name, so the second name is tried. Would change my mind: a birth record readable here that names the guide.
+    Only a name held by something that is not the guide (a leftover task, another agent) moves on. (Round 2's weakest
+    part, a guide whose marker was never written, was reproduced in review 3 and is fixed there.)
+- Review 3 (no blocker; 2 warnings, 1 nit), all fixed:
+  - WARNING 1 (reproduced): a guide with no marker (deleted, or never written) got a second guide. The birth record
+    exists: create.createdLog (created.jsonl, written before createAgent returns) and create.isAutoGuideBirth (now
+    exported). guideBirthFor: while the name's folder is there, the NEWEST line that made an agent under that slug
+    decides; a guide's CREATED line is adopted (and its marker written again), a guide's PARTIAL line stops the seed
+    (nothing made, nothing adopted that does not work), anything else is not the guide. Newest, not any: a guide
+    deleted and its name then used by the person's own agent is that agent's (tested). No folder: not adopted, since
+    what holds the name then is a leftover task (adopting would write the flag for a guide that cannot run).
+  - WARNING 2: names-taken (final for the process; the screen then says two of the person's agents use the names, and
+    the beacon that the install has agents) only when BOTH names are held by a real agent: create's "already an agent
+    called", or a folder there, as main's rule was. A leftover task or job alone keeps main's retry on backoff.
+    ensureGuide reads only the seed's answer now (the last reason alone would count a leftover task under the first
+    name as an agent).
+  - Nit: the team step keeps every taken seat in one answer: the agents' sentence first, then each seat a leftover
+    task holds, in create's words.
+- Weakest part now: a guide made before the birth log carried createdBy, role and purpose (#1279), with its marker
+  also gone, is not recognised and the second name is tried. Also, the birth log is read whole on each name refusal
+  (once per seed attempt). Would change my mind: a guide id kept in its profile.
   - Nit: ensureGuide stops for the process (names-taken) on the seed's own answer that both names are held by
     something other than the guide (namesTaken), not only on the "already an agent called" sentence.
   - Nit: the team step gives a seat held only by a leftover Windows task create's own words (create.win32HeldTaskWords,
@@ -58,6 +75,8 @@ job", whose delete removes only the task.
 New file 7 tests: 6 fail on main's create.js (test 1 pins macOS and Linux, unchanged, by design). create.test.js 130/1
 on main's source, 131/0 here (111 skipped either way). teamseed 29, the delete-leftover files and the policy tests
 unchanged and passing.
+After review 3: 11/11; against 87bf2e07b9's source, one file at a time: setup-assistant.js fails 10 and 11, teamseed.js
+fails 7, create.js fails 11 (isAutoGuideBirth was not exported).
 After review 2: 10/10; against e56dd9f28c's setup-assistant.js, tests 9 and 10 fail.
 After review 1: 8/8. Against ca23722255's source, one file at a time: setup-assistant.js fails test 8; teamseed.js fails
 test 7; create.js fails 3, 4 and 7. Test 8's removed-list control fails with that exception taken out.

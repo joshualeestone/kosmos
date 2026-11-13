@@ -3115,6 +3115,24 @@ function isGuideFolder(agentName) {
   try { return fs.lstatSync(path.join(dir, GUIDE_MARKER)).isFile(); } catch { return false; }
 }
 
+/* kosmos#8466 review 3: whether the agent under this board name is the guide by its BIRTH, for a guide whose folder has
+   no marker (the board died after the create and before markGuideFolder, or the marker was deleted). create.js writes
+   the birth line (created.jsonl) before createAgent returns, and create.isAutoGuideBirth knows the guide's line (#4350).
+   The NEWEST line that made an agent under this slug decides: a guide removed and deleted, its name then taken by the
+   person's own agent, is that agent's (a removed guide is stopped earlier, by the removed list). Only while the folder
+   is there: with no folder, what holds the name is a leftover task or job, not a guide to adopt.
+   'made' (adopt), 'partial' (half made: stop, make nothing), or null (not the guide, or the log cannot tell). */
+function guideBirthFor(slug) {
+  try {
+    if (create.nameHeld(slug).folder !== true) return null;
+    const made = create.createdLog().filter((e) => e.slug === slug
+      && (e.outcome === create.OUTCOME.CREATED || e.outcome === create.OUTCOME.PARTIAL));
+    const last = made[made.length - 1];
+    if (!last || !create.isAutoGuideBirth(last)) return null;
+    return last.outcome === create.OUTCOME.CREATED ? 'made' : 'partial';
+  } catch { return null; }
+}
+
 /* kosmos#7152 slice 3: isGuideFolder for a caller that must fail CLOSED (an automatic account move). Only "the marker is
    not there" is an answer of no (a folder that does not exist has no marker either); an agent whose instructions file
    cannot be named, or a marker that cannot be read, THROWS, where isGuideFolder reads both as "not the guide". */
@@ -3173,6 +3191,7 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
   let out;
   let name;
   let bothNamesHeld = false;   // kosmos#8466 review 2: for ensureGuide's names-taken stop
+  let firstIsAgent = false;    // review 3: the first name is held by a real agent (see below)
   for (const candidate of [GUIDE_NAME, GUIDE_FALLBACK_NAME]) {
     name = candidate;
     try {
@@ -3218,18 +3237,28 @@ function seedSetupAssistant({ createAgent, hasConnectedAccount = defaultHasConne
        returned as seeded, the caller writes the flag, and nothing new is made. That holds whether or not its startup
        job is still there (a guide folder with no job is still the guide; its page and the restart notice deal with
        its job, and a second guide would not). Only a name held by something else (a leftover task, another agent)
-       moves on. Residual: a guide whose marker was never written (the board died after the create, before the mark)
-       reads as another agent's name. */
+       moves on.
+       Review 3: a guide whose marker was never written (the board died after the create, before the mark; or the
+       marker was deleted) is known by its birth record instead (guideBirthFor). */
     const slug = create.slugFor(candidate);
     if (isGuideFolder(slug)) return { seeded: true, adopted: true, name: slug, avatarCopied: false, marked: true };
-    if (candidate === GUIDE_FALLBACK_NAME) bothNamesHeld = true;
+    const birth = guideBirthFor(slug);
+    if (birth === 'made') return { seeded: true, adopted: true, name: slug, avatarCopied: false, marked: markGuideFolder(slug) };
+    if (birth === 'partial') break;   // a half-made guide: never a second one beside it, and nothing adopted that does not work
+    /* kosmos#8466 review 3: names-taken (final for the process, and the screen then says two of the person's AGENTS
+       use the names) only when each name is held by a real agent, as main's rule was: create's "already an agent
+       called", or a folder there. A leftover task or job alone keeps main's retry on backoff. */
+    let realAgent = /already an agent called/.test(String(out.because || ''));
+    if (!realAgent) { try { realAgent = create.nameHeld(slug).folder === true; } catch { realAgent = false; } }
+    if (candidate === GUIDE_NAME) firstIsAgent = realAgent;
+    else bothNamesHeld = firstIsAgent && realAgent;
   }
 
   if (!out || out.outcome !== create.OUTCOME.CREATED) {
     // Benign remaining case: createAgent refuses because the Claude runner is not
     // installed (its actual account/model refusal path). No flag is written.
-    /* kosmos#8466 review 2: namesTaken says both names were refused as held by something that is not the guide (the
-       same test as the loop above), so ensureGuide stops retrying for this process, as it did for the one sentence. */
+    /* kosmos#8466 review 2: namesTaken says both names were refused as held by a real agent that is not the guide
+       (review 3: not a leftover task or job alone), so ensureGuide stops retrying for this process, as on main. */
     return { seeded: false, reason: 'not created: ' + ((out && out.because) || (out && out.outcome) || 'unknown'), ...(bothNamesHeld ? { namesTaken: true } : {}) };
   }
 
@@ -3518,9 +3547,10 @@ function ensureGuide({ createAgent, via = 'model-connected', now = Date.now(), d
         /* Both names taken: that is about the NAME, not the model, so the next model would
            be refused the same way after paying for its live check. Stop here. */
         /* kosmos#8466 review 2: the seed's own answer (both names refused as held by something not the guide; a guide
-           under either name is adopted above, never counted here). The old sentence still counts, for a seed whose
-           refusals carry no field. */
-        if ((seed && seed.namesTaken === true) || /already an agent called/.test(String((seed && seed.reason) || ''))) { namesTaken = true; break; }
+           under either name is adopted above, never counted here). Review 3: the seed's answer only, which already reads
+           create's "already an agent called" per name; matching the last reason here would count a leftover task under
+           the first name as an agent. */
+        if (seed && seed.namesTaken === true) { namesTaken = true; break; }
         /* Refused on this model (its runner missing, say): try the next one. */
       }
       // A model listed but none usable (a dead sign-in, a failed live check) is its own gate,
