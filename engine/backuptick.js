@@ -326,15 +326,15 @@ function inputsHere(deps = {}) {
    backup included (review 7): enrolled here AND the company's words accepted here (a consentHash on the record). NOT
    isEnrolledHere: a record re-adopted after a move that could not be written, or rebuilt after a last-admin refusal,
    is enrolled with no consent, and nothing may be sent under it.
-   kosmos#8528: and those accepted words must NAME something backed up (a non-blank backsUp line), as a personal backup
-   already requires (personalbackup.mayBackUp) and the coordinator refuses a company grant without (backup_not_in_words).
+   kosmos#8528: and those accepted words must NAME something backed up (a line under backsUp that is not blank), the rule
+   the coordinator applies to a company grant (backup_not_in_words). A personal backup also needs a backsUp line
+   (personalbackup.mayBackUp), checked there by count.
    A company's words list nothing under backsUp today, so a company computer backs up nothing until new words that do are
    accepted here. */
 function mayBackUp() {
   try {
-    const oe = require('./orgenroll');
-    if (oe.mayReport() !== true) return false;
-    const c = oe.acceptedConsent();
+    // acceptedConsent is null unless orgenroll.mayReport() is true, so this one call keeps that gate too.
+    const c = require('./orgenroll').acceptedConsent();
     return !!(c && Array.isArray(c.backsUp) && c.backsUp.some((l) => typeof l === 'string' && l.trim()));
   } catch { return false; }
 }
