@@ -212,7 +212,9 @@ const USAGE = {
     '       (--body-file reads the text from a file, the same in every shell; in PowerShell, text piped into kosmos does not reach it)',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)\n'
-    + '       kosmos connections --how   (how connecting a provider, a plugin or a service works here)',
+    + '       kosmos connections --how   (how connecting a provider, a plugin or a service works here)\n'
+    + '       kosmos connections --found [service]   (which actions agents found work or do not, kosmos#8519)\n'
+    + '       kosmos connections found <service> <action> <works|not-offered|needs-scope|needs-permission|off-by-policy|failed> [note]   (record one)',
   'whats-new': 'Usage: kosmos whats-new [--since <version>] [--json]   (what changed in each version, and which fixes need your agents restarted)',
   // kosmos#8309: as install/kosmos (#8299). It reads two files beside this command and sends nothing.
   version: 'Usage: kosmos version   (also --version or -v: the version of this Kosmos and the build it was made from; sends nothing)',
@@ -3449,14 +3451,38 @@ async function communityUnendorse(ctx, args) {
 async function verbConnections(ctx, args) {
   // kosmos#7875 item 2, as install/kosmos: --how prints the guide the agent's instructions point at (a local read).
   if (args && args[0] === '--how') {
-    if (args.length > 1) { ctx.err('Usage: kosmos connections [--how]'); return 2; }
+    if (args.length > 1) { ctx.err('Usage: kosmos connections [--how | --found [service] | found <service> <action> <outcome> [note]]'); return 2; }
     let guide;
     // engine/connectionsguide.js requires nothing, so only that one file can fail here.
     try { guide = ctx.engine('connectionsguide').guideText(); } catch { ctx.err('Kosmos could not find its own runtime to print this.'); return 1; }
     ctx.out(guide);
     return 0;
   }
-  if (args && args.length) { ctx.err('Usage: kosmos connections [--how]'); return 2; }
+  // kosmos#8519, as install/kosmos: `found` records what this agent found about one action (its token decides who),
+  // and --found lists everything found, in engine/connfound.js renderLines' words so the two CLIs cannot drift.
+  if (args && args[0] === 'found') {
+    const rest = args.slice(1);
+    if (rest.length < 3 || rest.length > 4) { ctx.err('Usage: kosmos connections found <service> <action> <works|not-offered|needs-scope|needs-permission|off-by-policy|failed> [note]'); return 2; }
+    const rf = await ctx.call('POST', '/api/connections/found', { service: rest[0], action: rest[1], outcome: rest[2], note: rest[3] || '' });
+    if (!rf.reached) return ctx.unreachable('record that');
+    if (ctx.refusedBy(rf)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(rf) + '.'); return 1; }
+    if (rf.json && rf.json.recorded === true) { ctx.out('Recorded. kosmos connections --found lists what agents found.'); return 0; }
+    ctx.out('Not recorded: ' + (rf.json && typeof rf.json.because === 'string' ? rf.json.because : 'Kosmos gave an answer we could not read') + '.');
+    return 1;
+  }
+  if (args && args[0] === '--found') {
+    if (args.length > 2) { ctx.err('Usage: kosmos connections --found [service]'); return 2; }
+    let cf;
+    try { cf = ctx.engine('connfound'); } catch { ctx.err('Kosmos could not find its own runtime to read the board\'s answer.'); return 1; }
+    const rg = await ctx.call('GET', '/api/connections/found' + (args[1] ? '?service=' + encodeURIComponent(args[1]) : ''), undefined);
+    if (!rg.reached) return ctx.unreachable('read what agents found');
+    if (ctx.refusedBy(rg)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(rg) + '.'); return 1; }
+    const svcs = rg.json && Array.isArray(rg.json.services) ? rg.json.services : null;
+    if (rg.status >= 400 || !svcs) { ctx.err('Kosmos gave an answer we could not read about what agents found.'); return 1; }
+    for (const l of cf.renderLines(svcs, Date.now())) ctx.out(l);
+    return 0;
+  }
+  if (args && args.length) { ctx.err('Usage: kosmos connections [--how | --found [service] | found <service> <action> <outcome> [note]]'); return 2; }
   const r = await ctx.call('GET', '/api/connections/held', undefined, { agent: false });
   if (!r.reached) return ctx.unreachable('read what is connected');
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }
@@ -3468,6 +3494,14 @@ async function verbConnections(ctx, args) {
     else if (x.held === false) ctx.out(x.name + ': not connected' + (x.connect ? ' (store the token the person gives you with: kosmos connect ' + x.connect + ')' : ''));
     else ctx.out(x.name + ': not known without a live check; the person connects it in Settings > Connections');
   }
+  // kosmos#8519, as install/kosmos: one line when agents found actions that do not work (the disk only; silent when
+  // it cannot be read, since the listing above already answered what was asked).
+  try {
+    const rf = await ctx.call('GET', '/api/connections/found', undefined);
+    const svcs = rf.reached && rf.json && Array.isArray(rf.json.services) ? rf.json.services.filter((x) => x && x.notWorking > 0) : [];
+    const n = svcs.reduce((a, x) => a + x.notWorking, 0);
+    if (n) ctx.out('Agents found ' + n + (n === 1 ? ' action that does not work' : ' actions that do not work') + ' on ' + svcs.map((x) => x.name).join(', ') + ': kosmos connections --found');
+  } catch { /* silent: the listing stands */ }
   return 0;
 }
 

@@ -216,6 +216,20 @@ function guideText() {
     '**If the person asks what connections you need,** name the services your',
     'work needs, check which are connected with `kosmos connections`, and offer to',
     'connect the missing ones for them.',
+    '',
+    '## When an action is refused',
+    '',
+    'Before you try an action on a connection or a plugin, run',
+    '`kosmos connections --found <service>`: it lists what agents here already',
+    'found works or does not, so you need not try each one to learn it again.',
+    'When the service refuses an action, record it, so the next agent and the',
+    'person see it: `kosmos connections found <service> <action> <outcome>`, where',
+    'the outcome is not-offered (the service does not know the action),',
+    'needs-scope, needs-permission, off-by-policy or failed, with a short note if',
+    'it helps. Record works too, the first time an action you were unsure of',
+    'works. A plugin call that the service refuses may already be recorded for',
+    'you; recording it again does no harm. Never put a key, an address or a',
+    'folder path in the note: it is refused.',
   ].join('\n');
 }
 
