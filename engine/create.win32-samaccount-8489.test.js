@@ -54,6 +54,12 @@ function recorded(name, provider, runner, dir, account) {
   return name;
 }
 const why = (name) => create.win32RecordedTask(name).accountWhy;
+/* The identity a record holds, built by hand in the shape create writes (what create itself writes is pinned end to
+   end in delete-leftover.win32-accountkeep-8478.test.js): a sign-in by its lower-cased email and organization id, a key
+   by its last four and the first 16 hex of its sha256, never the key. */
+const signinId = (email, org = null, kind = 'signin') => ({ kind, email, keyTail: null, org });
+const keyId = (key) => ({ kind: 'apikey', email: null, keyTail: key.slice(-4),
+  keyHash: require('node:crypto').createHash('sha256').update(key, 'utf8').digest('hex').slice(0, 16), org: null });
 
 test.afterEach(() => {
   for (const n of made.splice(0)) fs.rmSync(store.profilePath(n), { force: true });
@@ -72,10 +78,9 @@ test('kosmos#8489 (a): the same email reads as the same account when the organiz
   // The organization renamed, no uuid written: the same person.
   writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationName: 'Acme Pictures' });
   assert.equal(why(n), null, 'a renamed organization read as a changed account');
-  // What a record keeps now is the uuid, never the name, so a later rename cannot change it.
+  // A record holding the uuid (what create records now): a rename under it is the same account.
   writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationName: 'Acme Studio', organizationUuid: UUID_ONE });
-  const byUuid = create.win32AccountIdentity('claude', dir);
-  assert.deepEqual(byUuid, { kind: 'signin', email: 'pat@example.test', keyTail: null, org: UUID_ONE });
+  const byUuid = signinId('pat@example.test', UUID_ONE);
   const u = recorded('orguuid8489', 'anthropic', 'claude', dir, byUuid);
   writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationName: 'Acme Pictures', organizationUuid: UUID_ONE });
   assert.equal(why(u), null, 'a rename under the same uuid read as a changed account');
@@ -92,7 +97,7 @@ test('kosmos#8489 (a): the same email reads as the same account when the organiz
 test('kosmos#8489 (b): a Claude config that cannot be read right now is "could not read", never "changed", and the words say so', () => {
   const dir = folder('lee');
   writeClaudeConfig(dir, { emailAddress: 'lee@example.test', organizationUuid: UUID_ONE });
-  const n = recorded('midwrite8489', 'anthropic', 'claude', dir, create.win32AccountIdentity('claude', dir));
+  const n = recorded('midwrite8489', 'anthropic', 'claude', dir, signinId('lee@example.test', UUID_ONE));
   assert.equal(why(n), null, 'fixture: the record does not match its own folder');
   // Caught while Claude Code was writing it: half a file.
   fs.writeFileSync(accounts.configFile(dir), '{"oauthAccount": {"emailAddress": "lee@exa');
@@ -113,11 +118,7 @@ test('kosmos#8489 (c): a Claude API key is recorded by a fingerprint of the whol
   const other = 'sk-ant-api03-' + 'b'.repeat(40) + 'WXYZ';   // the same last four characters
   const dir = folder('key');
   writeClaudeKey(dir, key);
-  const id = create.win32AccountIdentity('claude', dir);
-  assert.equal(id.kind, 'apikey');
-  assert.match(id.keyHash, /^[0-9a-f]{16}$/, 'no fingerprint of the key was recorded');
-  assert.equal(id.keyTail, 'WXYZ');
-  assert.doesNotMatch(JSON.stringify(id), /aaaa/, 'the key itself went into the record');
+  const id = keyId(key);
   const n = recorded('keyhash8489', 'anthropic', 'claude', dir, id);
   assert.equal(why(n), null, 'the same key read as a changed account');
   writeClaudeKey(dir, other);
@@ -135,7 +136,7 @@ test('kosmos#8489: the other account modules: a Gemini or Grok key and a codex k
   const gem = require('./geminiaccounts');
   const gdir = folder('gem');
   fs.writeFileSync(gem.keyFile(gdir), 'AIza' + 'c'.repeat(30) + 'LMNO');
-  const g = recorded('gemkey8489', 'google', 'gemini', gdir, create.win32AccountIdentity('gemini', gdir));
+  const g = recorded('gemkey8489', 'google', 'gemini', gdir, keyId('AIza' + 'c'.repeat(30) + 'LMNO'));
   assert.equal(why(g), null);
   fs.writeFileSync(gem.keyFile(gdir), 'AIza' + 'd'.repeat(30) + 'LMNO');
   assert.equal(why(g), 'changed', 'another Gemini key with the same last four characters was trusted');
@@ -143,12 +144,12 @@ test('kosmos#8489: the other account modules: a Gemini or Grok key and a codex k
   const grok = require('./grokaccounts');
   const xdir = folder('grok');
   fs.writeFileSync(grok.keyFile(xdir), 'xai-' + 'e'.repeat(30) + 'HIJK');
-  const x = recorded('grokkey8489', 'xai', 'grok', xdir, create.win32AccountIdentity('grok', xdir));
+  const x = recorded('grokkey8489', 'xai', 'grok', xdir, keyId('xai-' + 'e'.repeat(30) + 'HIJK'));
   fs.writeFileSync(grok.keyFile(xdir), 'xai-' + 'f'.repeat(30) + 'HIJK');
   assert.equal(why(x), 'changed', 'another Grok key with the same last four characters was trusted');
   const sdir = folder('grokSub');
   fs.writeFileSync(grok.authFile(sdir), JSON.stringify({ 'https://auth.x.ai::client': { email: 'kim@example.test', refresh_token: 'r' } }));
-  const s = recorded('groksub8489', 'xai', 'grok', sdir, create.win32AccountIdentity('grok', sdir));
+  const s = recorded('groksub8489', 'xai', 'grok', sdir, signinId('kim@example.test', null, 'subscription'));
   assert.equal(why(s), null, 'fixture: the Grok sign-in does not match its own folder');
   fs.writeFileSync(grok.authFile(sdir), '{"https://auth.x.ai::client": {"em');
   assert.equal(why(s), 'unreadable', 'a Grok sign-in file being written read as a changed account');
@@ -156,13 +157,13 @@ test('kosmos#8489: the other account modules: a Gemini or Grok key and a codex k
   const oa = require('./openaiaccounts');
   const kdir = folder('codexKey');
   fs.writeFileSync(oa.authFile(kdir), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-' + 'g'.repeat(30) + 'TUVW' }));
-  const k = recorded('codexkey8489', 'openai', 'codex', kdir, create.win32AccountIdentity('codex', kdir));
+  const k = recorded('codexkey8489', 'openai', 'codex', kdir, keyId('sk-proj-' + 'g'.repeat(30) + 'TUVW'));
   fs.writeFileSync(oa.authFile(kdir), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-' + 'h'.repeat(30) + 'TUVW' }));
   assert.equal(why(k), 'changed', 'another OpenAI key with the same last four characters was trusted');
   const cdir = folder('codexGpt');
   const idToken = (claims) => ['e30', Buffer.from(JSON.stringify(claims)).toString('base64url'), 'sig'].join('.');
   fs.writeFileSync(oa.authFile(cdir), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken({ email: 'Ana@example.test' }), account_id: UUID_ONE } }));
-  const c = recorded('codexgpt8489', 'openai', 'codex', cdir, create.win32AccountIdentity('codex', cdir));
+  const c = recorded('codexgpt8489', 'openai', 'codex', cdir, signinId('ana@example.test', UUID_ONE, 'chatgpt'));
   assert.equal(why(c), null, 'fixture: the codex sign-in does not match its own folder');
   fs.writeFileSync(oa.authFile(cdir), '{"auth_mode": "chatgpt", "tok');
   assert.equal(why(c), 'unreadable', 'a codex sign-in file being written read as a changed account');
@@ -173,7 +174,7 @@ test('kosmos#8489: the other account modules: a Gemini or Grok key and a codex k
 test('kosmos#8489 review 1: a recorded organization id with none in the folder now is "could not read", never the same account; no id recorded and one now is the email alone', () => {
   const dir = folder('orgGone');
   writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationUuid: UUID_ONE });
-  const n = recorded('orggone8489', 'anthropic', 'claude', dir, create.win32AccountIdentity('claude', dir));
+  const n = recorded('orggone8489', 'anthropic', 'claude', dir, signinId('pat@example.test', UUID_ONE));
   // The config now shows only an organization name: which organization it is cannot be told.
   writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationName: 'Acme Studio' });
   assert.equal(why(n), 'unreadable', 'a recorded organization uuid matched a folder that shows none');
@@ -186,7 +187,7 @@ test('kosmos#8489 review 1: a recorded organization id with none in the folder n
   const cdir = folder('codexWs');
   const idToken = (claims) => ['e30', Buffer.from(JSON.stringify(claims)).toString('base64url'), 'sig'].join('.');
   fs.writeFileSync(oa.authFile(cdir), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken({ email: 'ana@example.test' }), account_id: 'ws-1' } }));
-  const c = recorded('codexws8489', 'openai', 'codex', cdir, create.win32AccountIdentity('codex', cdir));
+  const c = recorded('codexws8489', 'openai', 'codex', cdir, signinId('ana@example.test', 'ws-1', 'chatgpt'));
   fs.writeFileSync(oa.authFile(cdir), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken({ email: 'ana@example.test' }) } }));
   assert.equal(why(c), 'unreadable', 'a recorded ChatGPT workspace matched an auth.json that names none');
   fs.writeFileSync(oa.authFile(cdir), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken({ email: 'ana@example.test' }), account_id: 'ws-2' } }));
@@ -196,7 +197,7 @@ test('kosmos#8489 review 1: a recorded organization id with none in the folder n
 test('kosmos#8489 review 1: "could not read" ends: the third Start at login in a row drops the folder for good, and the words say so', () => {
   const dir = folder('torn');
   writeClaudeConfig(dir, { emailAddress: 'lee@example.test', organizationUuid: UUID_ONE });
-  const id = create.win32AccountIdentity('claude', dir);
+  const id = signinId('lee@example.test', UUID_ONE);
   fs.writeFileSync(accounts.configFile(dir), Buffer.alloc(64));   // torn to NULs by a crash
   const keptAs = (name, unreadable) => {
     made.push(name);
@@ -216,7 +217,7 @@ test('kosmos#8489 review 1: a Grok sign-in file holding no x.ai sign-in is signe
   const grok = require('./grokaccounts');
   const dir = folder('grokOut');
   fs.writeFileSync(grok.authFile(dir), JSON.stringify({ 'https://auth.x.ai::u': { email: 'kim@example.test', refresh_token: 'r' } }));
-  const n = recorded('grokout8489', 'xai', 'grok', dir, create.win32AccountIdentity('grok', dir));
+  const n = recorded('grokout8489', 'xai', 'grok', dir, signinId('kim@example.test', null, 'subscription'));
   fs.writeFileSync(grok.authFile(dir), JSON.stringify({}));
   assert.equal(why(n), 'changed', 'a Grok file with nobody signed in was read as "could not read"');
   fs.writeFileSync(grok.authFile(dir), JSON.stringify({ 'https://auth.x.ai::u': { email: 'kim@example.test' }, 'https://auth.x.ai::v': { email: 'kim@example.test' } }));
@@ -227,7 +228,7 @@ test('kosmos#8489 review 1: a bug in the reader is not "could not read": it read
   const oa = require('./openaiaccounts');
   const dir = folder('codexBug');
   fs.writeFileSync(oa.authFile(dir), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-' + 'k'.repeat(30) }));
-  const n = recorded('codexbug8489', 'openai', 'codex', dir, create.win32AccountIdentity('codex', dir));
+  const n = recorded('codexbug8489', 'openai', 'codex', dir, keyId('sk-proj-' + 'k'.repeat(30)));
   const real = oa.identityFromData;
   const logged = [];
   t.mock.method(console, 'error', (...a) => logged.push(a.join(' ')));

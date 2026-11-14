@@ -4491,7 +4491,7 @@ function win32TaskRecord(o) {
      and the readers put the folder back only while it still holds that account. `s.account` (register.repair keeping a
      folder it could not reach) carries the identity it already had; otherwise it is read now. Null for the main account. */
   const account = configDir === null ? null
-    : (s.account !== undefined ? (s.account || null) : win32IdentityToRecord(runner, configDir, s.existing));
+    : (s.account !== undefined ? (s.account || null) : win32IdentityToRecord(runner, configDir));
   /* round 4: `kept` marks a folder register.repair kept although the task runs on the main account (refreshedRecord
      keeps such a record over the task, and only that one). kosmos#8489: with it, how many Start at logins in a row
      could not read the folder's account (`unreadable`), so that state ends (WIN32_UNREADABLE_LIMIT). */
@@ -4499,31 +4499,24 @@ function win32TaskRecord(o) {
   const unreadable = kept && Number.isInteger(s.unreadable) && s.unreadable > 0 ? { unreadable: s.unreadable } : {};
   return { runner, configDir, model, account, ...(kept ? { kept: true } : {}), ...unreadable };
 }
-/* kosmos#8489 review 1: the identity a newly written record keeps when it is read now. A folder whose account cannot be
-   read at this moment (Claude Code writing its config just as the agent starts) keeps the identity the record already
-   held for this same folder and runner, never null: null is "nobody recorded whose account it was", which Start at
-   login never trusts again, so one unlucky read would move the agent to the main account for good. With no such record
-   (a folder newly chosen) there is nothing to keep, and null it is. */
-function win32IdentityToRecord(runner, dir, existing) {
-  let read;
-  try { read = win32AccountIdentityRead(runner, dir); } catch (e) {
+/* kosmos#8478 round 3: the account a folder holds when a task is written onto a NEWLY CHOSEN folder (creation, an
+   account move, a provider switch, a put-back, an adoption), as the account modules themselves read it: Claude's
+   sign-in (email and organization uuid) or an API key (its fingerprint); OpenAI, Gemini and Grok likewise. null when
+   nothing can be checked, and a record holding null is never trusted with a folder.
+   kosmos#8489 review 2: a read that cannot be done right now records null too, never the identity a record held
+   before. A folder name is not an account (round 3): the old record's person may have gone and someone else signed in
+   under the same name, so on a new choice the old identity says nothing about who is there now. Paths that rewrite the
+   SAME folder without a new choice (setModel, refresh) read nothing and carry the recorded identity over
+   (refreshedRecord). Start at login does not read here either: it passes the identity it just checked. A thrown read
+   is a bug and is treated as "changed" there; here it is logged and records null, the same: nothing kept. */
+function win32IdentityToRecord(runner, dir) {
+  try {
+    const read = win32AccountIdentityRead(runner, dir);
+    return read.unreadable ? null : read.identity;
+  } catch (e) {
     console.error(`kosmos#8489: reading the account in ${dir} for its record failed: ${e && e.message}`);
-    read = { identity: null, unreadable: true };
+    return null;
   }
-  if (!read.unreadable) return read.identity;
-  const old = existing && typeof existing === 'object' && !Array.isArray(existing) ? existing : null;
-  if (!old || (old.runner || 'claude') !== runner || typeof old.configDir !== 'string' || !old.configDir) return null;
-  if (!old.account || typeof old.account !== 'object') return null;
-  const fold = (p) => { const r = path.resolve(p); return process.platform === 'linux' ? r : r.toLowerCase(); };
-  return fold(old.configDir) === fold(dir) ? old.account : null;
-}
-/* kosmos#8478 round 3: the account a folder holds, as the account modules themselves read it (the identity their lists
-   show): Claude's sign-in (email and organization) or a Claude API key; OpenAI, Gemini and Grok through their own
-   identityOf (sign-in email, or an API key). Lower-cased email, so a change of case is not a different person. null
-   when the folder holds no account Kosmos can read, or for a runner Kosmos keeps no accounts for: then nothing can be
-   checked, and a record holding null is never trusted with a folder. */
-function win32AccountIdentity(runner, dir) {
-  try { return win32AccountIdentityRead(runner, dir).identity; } catch { return null; }
 }
 /* kosmos#8489: how many hex characters of the key's sha256 a record keeps. A key's last four characters (what the
    account lists show) are shared by many keys, so two keys of one provider could read as the same account; 16 hex
@@ -4562,7 +4555,7 @@ function win32AccountIdentityRead(runner, dir) {
   const keyed = (kind, key) => ({ kind, email: null, keyTail: key.slice(-4), keyHash: win32KeyFingerprint(key), org: null });
   /* kosmos#8489 review 1: no catch-all. Every file read here answers 'absent' or 'unreadable' (win32ReadCredential);
      what is left to throw is a bug, and a bug must not read as "could not read" (which keeps a folder): the callers
-     log it and fall back (win32IdentityToRecord, win32RecordedTask). */
+     log it and treat it as changed, keeping nothing (win32IdentityToRecord, win32RecordedTask). */
   if (!runner || runner === 'claude') {
     const config = win32ReadCredential(require('./accounts').configFile(dir), true);
     const acct = config.kind === 'ok' && config.data && typeof config.data === 'object' ? config.data.oauthAccount : null;
@@ -4666,11 +4659,10 @@ function accountMatch(recorded, now, runner) {
 function recordWin32Task(name, o) {
   try { fs.lstatSync(store.profilePath(name)); } catch { return false; }
   let rec;
-  if (o && o.accountChosen === true) {
-    let existing = null;   // kosmos#8489 review 1: what an unreadable read keeps (win32IdentityToRecord)
-    try { existing = store.readProfile(name).win32Task || null; } catch { existing = null; }
-    rec = win32TaskRecord({ ...o, existing });
-  }
+  /* kosmos#8489 review 2 (nit): a new choice writes a fresh record, so a kept folder's count of unreadable Start at
+     logins (`unreadable`) goes with it on purpose: a newly chosen folder starts fresh. Only register.repair, keeping
+     the same folder, carries the count on (installJob's keepRecordedUnreadable). */
+  if (o && o.accountChosen === true) rec = win32TaskRecord(o);
   else {
     let existing = null;
     try { existing = store.readProfile(name).win32Task || null; } catch { existing = null; }
@@ -7936,7 +7928,6 @@ module.exports = {
   installJob,
   // kosmos#8478: register.repair and delete-leftover read the recorded Windows account and model through one reader.
   win32RecordedTask, recordWin32TaskFromTask, forgetWin32TaskAccount, afterAccountGone,
-  win32AccountIdentity,   // kosmos#8489: what a record keeps of a folder's account (never a key), read by its tests
   nameUsable,
   hasJob, jobMissing,
   // #570: the one three-state answer the plist-stat readers now share.

@@ -284,10 +284,6 @@ const EXCUSED = {
    read the module). Keyed by FILE, like TRIAGED_5548, because several names are generic (setClock, setBin, _lock):
    a by-name excuse would also hide a real orphan of the same name in another module (#5548 review 2). */
 const SEAMS_5548 = {
-  // kosmos#8489: what a Windows task record keeps of a folder's account (never a key), so
-  // engine/create.win32-samaccount-8489.test.js can build a record exactly as create writes one. Production records
-  // through win32TaskRecord (win32IdentityToRecord), which reads the same identity and also knows when it could not.
-  win32AccountIdentity: 'engine/create.js',
   // kosmos#8122 xlsxprev-8122: the reader's pure helpers (cell refs, dates, number formats, the XML clean) and its test clock,
   // so engine/xlsxpreview-review-8122.test.js can pin each review finding on its own. Production calls only readXlsx.
   _internal: 'engine/xlsxpreview.js',

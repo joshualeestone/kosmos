@@ -39,12 +39,17 @@ Card comment: an API key was matched by its last four characters only, so two ke
   which account is signed in to the folder it used now, nor at the two Start at logins before". A readable match
   rewrites the record without the count; an unreachable start keeps the folder without it.
 - Review 1, no catch-all in the reader: every file read already answers absent or unreadable, so the outer catch went.
-  A throw is a bug: win32RecordedTask logs it (console.error, the folder path and message, never a key) and answers
-  'changed' (the behaviour before this card, never kept); the record path logs it and treats it as unreadable.
+  Review 2: a throw is a bug and is "changed" everywhere: win32RecordedTask logs it (console.error, the folder path and
+  message, never a key) and answers 'changed' (never kept); the record path logs it and records no identity.
 - Review 1, the record write: register.repair passes the identity it just read and matched (identityNow) to installJob
-  as verifiedIdentity, recorded as is, never read again (the agent just started may be writing its config). Every
-  other record write that reads and cannot keeps the identity the record already held for the same folder and runner
-  (win32IdentityToRecord), never null; a newly chosen folder with nothing recorded gets null, as before.
+  as verifiedIdentity, recorded as is, never read again (the agent just started may be writing its config).
+  Review 2 (decided by the coordinator): every other write that reads an identity is a NEW choice (creation, account
+  move, provider switch, put-back, adoption), and there an unreadable read records null, never the identity an old
+  record held for that folder name: the name may now be someone else's (Alice's record, Bob signed in since). Writes
+  that rewrite the same folder without a new choice (setModel, refresh) read nothing and carry the recorded identity
+  over (refreshedRecord). A new choice also starts the unreadable count afresh, on purpose.
+- Review 2: win32AccountIdentity (dead in production, exported only for tests) is gone; the unit tests build the
+  expected identity by hand, and what create records is pinned end to end through setAccount.
 - Review 1 (nit): the "could not read" and "cannot reach" words now say the folder is tried again until the agent's
   startup job is written again (changing its account or model does that), which forgets it.
   The account modules' identityOf are NOT changed: their lists rightly treat both cases as "no account here". The
@@ -84,5 +89,8 @@ alone decides), a looser match for one person's two organizations; real organiza
   end to end: the repair records the identity it checked though the config is torn right after; an adoption install
   that cannot read keeps the recorded identity; three torn Start at logins drop the folder and one readable resets.
   Each fails against da38e03b52 (the round 1 base).
+- Review 2: a newly chosen folder (Alice's record, Bob signed in since) read mid-write records null and Start at login
+  keeps the agent on the main account; a thrown read on the record path records null and is logged (both fail against
+  6223e6edc3); what a record keeps through setAccount (uuid not name, key fingerprint not key) moved end to end.
 - Negative control: each new test fails against origin/main's create/register/delete-leftover/openaiaccounts (with
   only an export of win32AccountIdentity appended so the unit tests can reach it).

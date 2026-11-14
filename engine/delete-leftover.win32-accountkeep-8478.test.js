@@ -62,7 +62,7 @@ const SET_MODEL = 'claude-opus-5-5';      // setModel('opus55')
 const LAST_RAN = 'claude-haiku-4-5-20251001';
 const modelFor = () => LAST_RAN;
 /* round 3: ACCOUNT holds a real Claude sign-in (a record keeps whose account a folder held), and this is how the
-   record names it (create.win32AccountIdentity: email lower-cased, the organization). */
+   record names it (create's win32IdentityToRecord: email lower-cased, the organization uuid). */
 const OWNER = { emailAddress: 'Owner@example.test', organizationUuid: 'org-8478' };
 const OWNER_IDENTITY = { kind: 'signin', email: 'owner@example.test', keyTail: null, org: 'org-8478' };
 const signIn = (dir, oauthAccount) => {   // an account as Claude Code leaves it: its folder, its sign-in in its config
@@ -365,19 +365,68 @@ test('kosmos#8489 review 1: Start at login records the identity it just checked,
   assert.deepEqual(store.readProfile(name).win32Task.account, OWNER_IDENTITY, 'the record lost whose account it was, so the next Start at login would never trust it');
 });
 
-test('kosmos#8489 review 1: any other record write that cannot read the folder now keeps the identity recorded for that same folder, never none', WINDOWS_ONLY, () => {
-  const name = agent('keepid8489');
-  assert.equal(chooseThenModel(name, ACCOUNT, 'opus55').outcome, create.OUTCOME.CREATED);
-  const config = require('./accounts').configFile(ACCOUNT);
-  const whole = fs.readFileSync(config, 'utf8');
-  fs.writeFileSync(config, whole.slice(0, 10));
+test('kosmos#8489 review 2: a newly chosen folder whose account cannot be read records no identity, never the one an old record held for the same folder name', WINDOWS_ONLY, (t) => {
+  const accounts = require('./accounts');
+  const alice = accounts.nextWorkDir();
+  signIn(alice.dir, { emailAddress: 'alice@example.test', organizationUuid: 'org-alice' });
+  const name = agent('reuse8489', { account: alice.dir });
   try {
-    // An install told the folder is verified (an adoption) with no identity in hand: it reads, and cannot.
-    fs.rmSync(jobfix.jobPath(name), { force: true });   // the stand-in task gone, so installJob writes one
-    const r = create.installJob(name, { platform: 'win32', model: SET_MODEL, configDir: ACCOUNT, runner: 'claude', accountVerified: true });
-    assert.equal(r.ok, true, JSON.stringify(r));
-  } finally { fs.writeFileSync(config, whole); }
-  assert.deepEqual(store.readProfile(name).win32Task.account, OWNER_IDENTITY, 'an unreadable read replaced the recorded identity with none');
+    assert.equal(chooseThenModel(name, alice.dir, 'opus55').outcome, create.OUTCOME.CREATED);
+    assert.equal(store.readProfile(name).win32Task.account.email, 'alice@example.test', 'fixture: not recorded on alice');
+    // Alice signs out, Bob signs in to the same folder name, and the person picks it for the agent while Bob's config
+    // is being written: the list read it a moment before, the record reads it half written.
+    signIn(alice.dir, { emailAddress: 'bob@example.test', organizationUuid: 'org-bob' });
+    const config = accounts.configFile(alice.dir);
+    const whole = fs.readFileSync(config, 'utf8');
+    const realList = accounts.list;
+    t.mock.method(accounts, 'list', (...a) => { const r = realList(...a); fs.writeFileSync(config, whole.slice(0, 10)); return r; });
+    try {
+      assert.equal(create.setAccount(name, alice.dir, { platform: 'win32' }).outcome, create.OUTCOME.CREATED);
+    } finally { t.mock.restoreAll(); fs.writeFileSync(config, whole); }
+    assert.equal(store.readProfile(name).win32Task.account, null, 'a new choice kept the old person in the record');
+    taskOnlyDelete(name);
+    startAtLogin(name);
+    assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, 'the agent was put on a folder whose account nobody checked');
+  } finally { fs.rmSync(alice.dir, { recursive: true, force: true }); }
+});
+
+test('kosmos#8489 review 2: a thrown reader bug on the record path is "changed" as at Start at login: logged, and nothing kept', WINDOWS_ONLY, (t) => {
+  const name = agent('bugrec8489');
+  assert.equal(chooseThenModel(name, ACCOUNT, 'opus55').outcome, create.OUTCOME.CREATED);
+  const accounts = require('./accounts');
+  const realFile = accounts.configFile;
+  const logged = [];
+  t.mock.method(console, 'error', (...a) => logged.push(a.join(' ')));
+  // An adoption install told the folder is verified, with no identity in hand: it reads, and the read throws.
+  fs.rmSync(jobfix.jobPath(name), { force: true });   // the stand-in task gone, so installJob writes one
+  t.mock.method(accounts, 'configFile', (d) => { if (nodePath.resolve(d) === nodePath.resolve(ACCOUNT)) throw new Error('a bug'); return realFile(d); });
+  let r;
+  try { r = create.installJob(name, { platform: 'win32', model: SET_MODEL, configDir: ACCOUNT, runner: 'claude', accountVerified: true }); }
+  finally { t.mock.restoreAll(); }
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(store.readProfile(name).win32Task.account, null, 'a thrown read kept the old identity');
+  assert.ok(logged.some((l) => /kosmos#8489: reading the account in .* failed: a bug/.test(l)), 'the bug was not logged: ' + JSON.stringify(logged));
+});
+
+test('kosmos#8489: what a record keeps of a chosen account: the organization uuid, never its name; a key by its fingerprint, never the key', WINDOWS_ONLY, () => {
+  const accounts = require('./accounts');
+  const named = agent('orgrec8489');
+  signIn(ACCOUNT, { emailAddress: 'Owner@example.test', organizationName: 'Acme Studio', organizationUuid: 'org-8478' });
+  assert.equal(chooseThenModel(named, ACCOUNT, 'opus55').outcome, create.OUTCOME.CREATED);
+  assert.deepEqual(store.readProfile(named).win32Task.account, OWNER_IDENTITY, 'the record kept the organization name, or lost the uuid');
+  const key = 'sk-ant-api03-' + 'a'.repeat(40) + 'WXYZ';
+  const keyDir = nodePath.join(SANDBOX, '.claude-key8489');
+  fs.mkdirSync(keyDir, { recursive: true });
+  fs.writeFileSync(require('./claudeaccounts').keyFile(keyDir), key + '\n');
+  accounts.share(keyDir);
+  const keyed = agent('keyrec8489', { account: keyDir });
+  try {
+    assert.equal(chooseThenModel(keyed, keyDir, 'opus55').outcome, create.OUTCOME.CREATED);
+    const id = store.readProfile(keyed).win32Task.account;
+    const hash = require('node:crypto').createHash('sha256').update(key, 'utf8').digest('hex').slice(0, 16);
+    assert.deepEqual(id, { kind: 'apikey', email: null, keyTail: 'WXYZ', keyHash: hash, org: null });
+    assert.doesNotMatch(JSON.stringify(store.readProfile(keyed)), /aaaaaaaa/, 'the key itself went into the profile');
+  } finally { fs.rmSync(keyDir, { recursive: true, force: true }); }
 });
 
 test('kosmos#8489 review 1: a folder unread at three Start at logins in a row is dropped for good with true words; one readable start in between resets the count', WINDOWS_ONLY, () => {
