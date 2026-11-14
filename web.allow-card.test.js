@@ -231,7 +231,7 @@ test('#8525 a cloud machine reads "Your cloud machine ... wants to join", escape
   assert.equal(askHead({ name: 'iPhone' }), 'iPhone wants to connect to your Kosmos');
   assert.equal(askHead({ cloud: false, name: 'iPhone' }), 'iPhone wants to connect to your Kosmos');
   assert.match(JS, /: d\.cloud \? 'Allow if you just started a Kosmos cloud machine\. Kosmos\+ runs it for you, so there is no code to check\.'/);
-  assert.match(JS, /: d\.cloud \? 'cloud machine ' \+ askEsc\(kind\)/, 'the Allow button does not name a cloud machine as one');
+  assert.match(JS, /: d\.cloud \? 'cloud machine' \+ \(d\.name/, 'the Allow button does not name a cloud machine as one');
 });
 
 test('#8525 a cloud machine is a computer row (no age, no fading), and its allowed and turned-away lines are its own', () => {
@@ -239,7 +239,17 @@ test('#8525 a cloud machine is a computer row (no age, no fading), and its allow
   const askComputerRow = new Function(JS.slice(at, JS.indexOf('\n', at)) + '\nreturn askComputerRow;')();
   assert.equal(askComputerRow({ cloud: true }), true);
   assert.equal(askComputerRow({ cloud: false, name: 'iPhone' }), false, 'CONTROL: a phone is not a computer row');
-  assert.match(JS, /if \(d\.cloud\) return '<div class="askrow done"><p class="askok">' \+ who \+ ' is connected\.<\/p>' \+\n\s+'<p>It is added to your Kosmos\+ account\. You can cancel it on your Kosmos\+ account page\.<\/p><\/div>';/);
-  assert.match(JS, /if \(d\.cloud\) return '<div class="askrow done"><p>Turned away\. Your cloud machine ' \+ askEsc\(kind\) \+ ' was not added to your Kosmos\+ account\.<\/p>'/);
+  assert.match(JS, /if \(d\.cloud\) return '<div class="askrow done"><p class="askok">' \+ cloudWho \+ ' is connected\.<\/p>' \+\n\s+'<p>It is added to your Kosmos\+ account\. You can cancel it on your Kosmos\+ account page\.<\/p><\/div>';/);
+  assert.match(JS, /if \(d\.cloud\) return '<div class="askrow done"><p>Turned away\. ' \+ cloudWho \+ ' was not let in here\. To stop it, cancel it on your Kosmos\+ account page\.<\/p>'/);
+  // A cloud machine is named by its name or not at all, never "Unknown device"; and its re-ask has no password sentence.
+  const cw = JS.match(/const cloudWho = (d\.cloud \? .+ : '');/);
+  assert.ok(cw, 'cloudWho moved; re-anchor');
+  const at2 = JS.indexOf('function askEsc(');
+  const cloudWho = new Function('d', JS.slice(at2, JS.indexOf('\n', at2)) + '\nreturn ' + cw[1] + ';');
+  assert.equal(cloudWho({ cloud: true, name: 'cloud-d296a63b' }), 'Your cloud machine cloud-d296a63b');
+  assert.equal(cloudWho({ cloud: true, name: '' }), 'Your cloud machine');
+  assert.equal(cloudWho({ cloud: true, name: '<b>' }), 'Your cloud machine &lt;b&gt;');
+  assert.match(JS, /: d\.cloud \? ' You said no to this cloud machine ' \+ askAgoSpan\(d\.denied_at\) \+ ' and it has asked again\.'\n/);
+  assert.match(JS, /: d\.cloud \? 'cloud machine' \+ \(d\.name \? ' ' \+ askEsc\(d\.name\) : ''\)/, 'the Allow label names a nameless cloud machine "Unknown device"');
   assert.match(JS, /fresh\.every\(\(d\) => d\.joining_computer \|\| d\.cloud\) \? n \+ ' of your computers want to join\.'/);
 });

@@ -439,9 +439,10 @@ test('#8525: a cloud row never shows a code, and its Allow never sends one, what
   const dir = enrol();
   remote.setOn(true);
   fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
-    { device_id: CLOUD, name: 'cloud-d296a63b', first_seen: 1792168082, code: '482 915', cloud: true },
+    { device_id: CLOUD, name: 'cloud-d296a63b', first_seen: 1792168082, code: '482 915', cloud: true, joining_computer: 'mac', recheck: true, code_wait: 'daily_limit' },
   ] }));
-  assert.equal(remote.pendingDevices().devices[0].code, '', 'a cloud row showed a code');
+  const [r] = remote.pendingDevices().devices;
+  assert.deepEqual([r.code, r.joining_computer, r.recheck, r.code_wait], ['', null, false, null], 'a cloud row kept a pairing field: ' + JSON.stringify(r));
   const ok = await remote.deviceAllow(CLOUD, 'cloud-d296a63b', '482 915');
   assert.equal(ok.ok, true, ok.because);
   const call = recorded().find((a) => a[0] === 'devices' && a[1] === 'allow');

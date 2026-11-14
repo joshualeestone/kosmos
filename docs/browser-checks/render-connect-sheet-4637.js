@@ -817,7 +817,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.waitForFunction(() => /is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       const clDone = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
       chk(allowBodies[CLOUD_ID] && allowBodies[CLOUD_ID].code === undefined
-        && /cloud-d296a63b is connected\. It is added to your Kosmos\+ account\. You can cancel it on your Kosmos\+ account page\./.test(clDone)
+        && /Your cloud machine cloud-d296a63b is connected\. It is added to your Kosmos\+ account\. You can cancel it on your Kosmos\+ account page\./.test(clDone)
         && !/under Devices|opens Kosmos on its own/.test(clDone.split('Turned away')[0]),
         `${tag} #8525: its Allow sends no code and the sheet says it is on the Kosmos+ account, not under Devices`, JSON.stringify({ body: allowBodies[CLOUD_ID], clDone }));
       delete allowBodies[CLOUD_ID];
@@ -829,10 +829,18 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         return r ? { stale: r.classList.contains('stale'), ago: !!r.querySelector('.askwho span') } : null; }, CLOUD_ID);
       chk(clAge && !clAge.stale && !clAge.ago, `${tag} #8525: a cloud machine waiting three hours is not faded and shows no age`, JSON.stringify(clAge));
       await page.click('#plus-ask-rows [data-ask="deny"][data-id="' + CLOUD_ID + '"]');
-      await page.waitForFunction(() => /Your cloud machine cloud-d296a63b was not added/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      await page.waitForFunction(() => /Your cloud machine cloud-d296a63b was not let in/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       const clNo = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
-      chk(/Turned away\. Your cloud machine cloud-d296a63b was not added to your Kosmos\+ account\./.test(clNo) && !/password/.test(clNo.split('laptop2')[0]),
-        `${tag} #8525: Not me on a cloud machine says it was not added, with no password sentence`, clNo);
+      chk(/Turned away\. Your cloud machine cloud-d296a63b was not let in here\. To stop it, cancel it on your Kosmos\+ account page\./.test(clNo) && !/password/.test(clNo.split('laptop2')[0]),
+        `${tag} #8525: Not me on a cloud machine says it was not let in and where to cancel it, with no password sentence`, clNo);
+      /* Asking again after Not me: no password sentence either; and a nameless one is "Your cloud machine", never "Unknown device". */
+      await page.evaluate(() => { ASK.done = {}; });
+      await cloudSheet({ device_id: CLOUD_ID, name: null, code: '', first_seen: now() - 20, denied_at: now() - 60, joining_computer: null, code_wait: null, cloud: true });
+      const clAgain = await page.evaluate((id) => { const b = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]'); const r = b && b.closest('.askreq');
+        return r ? { text: r.innerText.replace(/\s+/g, ' '), label: b.getAttribute('aria-label') } : null; }, CLOUD_ID);
+      chk(clAgain && /You said no to this cloud machine/.test(clAgain.text) && !/password|Unknown device/.test(clAgain.text + clAgain.label)
+        && clAgain.label === 'Allow cloud machine' && /^Your cloud machine wants to join/.test(clAgain.text),
+        `${tag} #8525: a nameless cloud machine asking again: no password sentence, never "Unknown device"`, JSON.stringify(clAgain));
       await page.evaluate(() => { ASK.done = {}; });
       const clWas = await cloudSheet({ device_id: CLOUD_ID, name: 'cloud-d296a63b', code: '', first_seen: now() - 20, joining_computer: null, code_wait: 'was_a_computer', cloud: false });
       chk(clWas && clWas.allowOff && /cannot be allowed/.test(clWas.wait) && !/cloud machine/.test(clWas.head),
