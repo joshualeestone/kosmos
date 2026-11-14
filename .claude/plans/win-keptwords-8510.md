@@ -71,6 +71,32 @@ delete-leftover.startsAgainWords ends the task-only delete's sentences and Resto
 - End-to-end cases added: config readable again by Start at login, folder back holding another account, folder that
   could not be read going away before Start at login.
 
+## Review round 3 (rework)
+- False premise found: after a Start at login that cannot use the folder, the agent has a startup job again on the main
+  account, register.survey no longer offers Start at login, and nothing moves it back on its own. The kept record and
+  its count matter only if the job is removed again and Start at login used again. So the earlier words ("runs on your
+  main account until a Start at login finds that folder", "tries it again", "choose the model once it is back on that
+  folder") could wait forever.
+- Decided (coordinator): the words say what THIS Start at login does and what to do. Out of reach: connect it before you
+  use Start at login; it starts on that folder's account only if Kosmos can reach it then and it holds the same account;
+  otherwise the main account, and choose its account again once that folder is back. Could not read / confirm: the same
+  shape with their own reasons. The drop adds "Kosmos could not confirm that account at two earlier Start at logins
+  either." I dropped the kept-record and count sentences entirely: a true conditional ("if its startup job goes again
+  later and you use Start at login, Kosmos tries that folder again, unless you changed its account or model, and only
+  up to three times") is neither short nor useful to a person at this moment.
+- Retired model: "If it used another model, choose it again once it is on the right account, choosing its account first
+  if it is not." Choosing the account first never loses a folder the person wants, and waits on nothing.
+- Every outcome now starts its own sentences (". It starts on ..."), the outcomes that keep no folder included, and the
+  callers' sentences (taskOnlyBackWords, outOfSightWords) are split so each is 30 words or fewer whatever the path.
+- Tests: the matrix now also asserts Start at login is not offered again after the repair; end-to-end cases run the
+  real flow (task-only delete, Start at login, survey, reconnect, then account and model chosen); every sentence the
+  person sees is capped at 30 words with a workers path containing spaces, and every caller form (plain, removed,
+  occupied, disk, out-of-sight leads, Restore) is capped in the 8475 tests. Whole clause cap 120 words (longest 110).
+
+## Weakest part (round 3)
+The words no longer tell the person that a later removal of the startup job would try the folder again. That is true
+and occasionally useful, but saying it truthfully needed three conditions; it was dropped rather than half-said.
+
 ## Tests
 - New engine/delete-leftover.win32-keptwords-8510.test.js: every outcome (same folder, same main, changed, unusable,
   unverifiable, removed, missing, could not read, could not confirm, out of reach) x model offered or retired x

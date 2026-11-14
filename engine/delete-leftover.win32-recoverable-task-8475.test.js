@@ -92,6 +92,15 @@ const win = {
 };
 const listed = (name) => (win.list().names || []).find((x) => x.name === name) || null;
 const REMOVED = nodePath.join(store.ROOT, 'removed.json');
+/* kosmos#8510: every sentence a person reads in these words is 30 words or fewer, a path counting as its words. */
+const SENTENCE_MAX_WORDS = 30;
+function assertShortSentences(text, label) {
+  for (const sentence of text.split(/(?<=\.)\s+(?=[A-Z])/)) {
+    const n = sentence.split(/\s+/).filter(Boolean).length;
+    assert.ok(n <= SENTENCE_MAX_WORDS, `${label}: a sentence of ${n} words: ${sentence}`);
+  }
+}
+
 function markRemoved(name) {
   fs.mkdirSync(nodePath.dirname(REMOVED), { recursive: true });
   fs.writeFileSync(REMOVED, JSON.stringify([{ name, shownAs: name, removedAt: new Date().toISOString(), stopped: true }]));
@@ -206,8 +215,8 @@ test('kosmos#8475: its delete removes the Scheduled Task and nothing else, and a
      only in the task); then what stays, and how to delete it, since this one's settings would be offered. */
   assert.equal(p.typeToConfirm, null, 'a folder in the workers folder asked for typing (review 4 is for folders out of sight only)');
   // review 7: untyped, the disk clause can never be true, so it is not said.
-  const back = `If its folder was only moved, put it back at ${create.workerDir(name)}, then use Start at login when Kosmos offers it; `
-    + 'it starts on your main account and the model it last ran, so choose its account and model again if it used others.';
+  const back = `If its folder was only moved, put it back at ${create.workerDir(name)}. Then use Start at login when Kosmos offers it. `
+    + 'It starts on your main account and the model it last ran, so choose its account and model again if it used others.';
   const stay = 'Its settings and picture stay on this computer; to delete them too, use Delete what is left on its row in the removed agents list.';
   assert.equal(p.reassurance, `Only its startup job is removed, so nothing starts only8475 when you log in. ${back} ${stay}`);
 
@@ -293,7 +302,8 @@ test('kosmos#8475: a recorded folder on a disk that is not connected loses only 
     assert.equal(p.ok, true, `${name}: ${p.because}`);
     assert.equal(p.taskOnly, true);
     // review 5: the lead already says to connect the disk, so the way back does not repeat it.
-    assert.match(p.reassurance, new RegExp('put it back at ' + dir.replace(/\\/g, '\\\\') + (removed ? ', use Restore' : ', then use Start at login')));
+    assert.match(p.reassurance, new RegExp('put it back at ' + dir.replace(/\\/g, '\\\\') + (removed ? '\\. Then use Restore' : '\\. Then use Start at login')));
+    assertShortSentences(p.reassurance, name);
     assert.equal((p.reassurance.match(/connect it|connect that disk/g) || []).length, 1, `${name}: connecting the disk is said more than once: ${p.reassurance}`);
     assert.equal(p.typeToConfirm, name, `${name}: review 4: a folder out of sight asks for the name`);
     /* kosmos#8475 review: its settings are not offered on their own afterwards (below), so no sentence may send the
@@ -357,9 +367,9 @@ test('kosmos#8475 review: the way back says which account and model the agent st
      back on the main account and the model it last ran. A Qwen agent's account is in its profile and comes back. */
   const main = agent('acct8475', { folder: false, profile: { provider: 'openai' } });
   const qwen = agent('qwen8475', { folder: false, profile: { provider: 'alibaba' } });
-  assert.match(win.plan(main).reassurance, /Start at login when Kosmos offers it; it starts on your main account and the model it last ran, so choose its account and model again if it used others\./);
+  assert.match(win.plan(main).reassurance, /Start at login when Kosmos offers it\. It starts on your main account and the model it last ran, so choose its account and model again if it used others\./);
   const q = win.plan(qwen).reassurance;
-  assert.match(q, /Start at login when Kosmos offers it; it starts on the model it last ran, so choose its model again if it used another\./);
+  assert.match(q, /Start at login when Kosmos offers it\. It starts on the model it last ran, so choose its model again if it used another\./);
   assert.doesNotMatch(q, /main account/, 'a Qwen agent was told it starts on the main account');
 });
 
@@ -381,7 +391,8 @@ test('kosmos#8475 review: Restore after its startup job alone was removed says t
   fs.renameSync(away, create.workerDir(name));   // put back
   const back = remove.restore(name, { platform: 'win32' });
   assert.equal(back.outcome, remove.OUTCOME.PARTIAL, JSON.stringify(back));
-  assert.match(back.because, /^restore8475 is back on the board, but its startup job is no longer set up, so it will not start on its own\. Use Start at login when Kosmos offers it; it starts on your main account/);
+  assert.match(back.because, /^restore8475 is back on the board, but its startup job is no longer set up, so it will not start on its own\. Use Start at login when Kosmos offers it\. It starts on your main account/);
+  assertShortSentences(back.because, name);
   assert.doesNotMatch(back.because, /by hand/);
   assert.ok(!removedNow().includes(name), 'Restore left it on the removed list');
   assert.ok(register.survey({ platform: 'win32' }).missing.includes(name), 'Start at login is not offered for it');
@@ -401,7 +412,8 @@ test('kosmos#8475 review 2: Restore while the folder is still away says to put i
     assert.equal(win.del(name).outcome, leftover.OUTCOME.DELETED);
     const back = remove.restore(name, { platform: 'win32' });
     assert.equal(back.outcome, remove.OUTCOME.PARTIAL, JSON.stringify(back));
-    assert.match(back.because, /so it will not start on its own\. Once its folder is back, use Start at login when Kosmos offers it; it starts on your main account/);
+    assert.match(back.because, /so it will not start on its own\. Once its folder is back, use Start at login when Kosmos offers it\. It starts on your main account/);
+    assertShortSentences(back.because, name);
     assert.ok(!register.survey({ platform: 'win32' }).missing.includes(name), 'CONTROL: with its folder away Start at login is offered after all, so the words above guard nothing');
   } finally { fs.rmSync(away, { recursive: true, force: true }); }
 });
@@ -472,7 +484,7 @@ test('kosmos#8475 review 4: a recorded folder out of sight (no disk, gone, dead 
   fs.rmSync(target, { recursive: true, force: true });   // the share goes; the junction now leads nowhere
   const cases = [
     ['nodisk', `${free}:\\far8475`],
-    ['gone', nodePath.join(SANDBOX, 'not-here-8475')],
+    ['gone', nodePath.join(SANDBOX, 'not here at all 8475')],
     ['deadlink', nodePath.join(link, 'agent')],
   ];
   try {
@@ -486,9 +498,10 @@ test('kosmos#8475 review 4: a recorded folder out of sight (no disk, gone, dead 
         assert.equal(p.taskOnly, true, `${name}: not the task-only delete`);
         assert.equal(p.typeToConfirm, name, `${name}: no typing asked although its folder may only be out of sight`);
         // review 5: connect it BEFORE removing anything, said once.
-        assert.ok(p.reassurance.startsWith(`Its folder is recorded at ${dir}, which Kosmos cannot reach right now. If that is a disk or shared folder that is not connected, connect it before removing anything; remove its startup job only if you are sure its folder is gone. Only its startup job is removed`), `${name}: ${p.reassurance}`);
+        assert.ok(p.reassurance.startsWith(`Its folder is recorded at ${dir}, which Kosmos cannot reach right now. If that is a disk or shared folder that is not connected, connect it before removing anything. Remove its startup job only if you are sure its folder is gone. Only its startup job is removed`), `${name}: ${p.reassurance}`);
+        assertShortSentences(p.reassurance, name);
         // review 6: after that lead the way back speaks only of a moved folder; a disk is never "put back".
-        assert.ok(p.reassurance.includes(`If its folder was only moved, put it back at ${dir}, `), `${name}: ${p.reassurance}`);
+        assert.ok(p.reassurance.includes(`If its folder was only moved, put it back at ${dir}. Then `), `${name}: ${p.reassurance}`);
         assert.doesNotMatch(p.reassurance, /or is on a disk that is not connected, put it back/, `${name}: the way back tells the person to put back a disk`);
         assert.doesNotMatch(p.reassurance, /connect that disk again/, `${name}: the way back repeats the lead`);
         const untyped = win.del(name);
@@ -497,7 +510,8 @@ test('kosmos#8475 review 4: a recorded folder out of sight (no disk, gone, dead 
         const typed = win.del(name, name);
         assert.equal(typed.outcome, leftover.OUTCOME.DELETED, `${name}: ${JSON.stringify(typed)}`);
         // review 7: the outcome has no lead sentence, so here (and only here) the way back names the disk.
-        assert.ok(typed.said.includes(`If its folder was only moved, put it back at ${dir}, or if it is on a disk or shared folder that is not connected, connect it, `), `${name}: ${typed.said}`);
+        assert.ok(typed.said.includes(`If its folder was only moved, put it back at ${dir}. If instead it is on a disk or shared folder that is not connected, connect it. Then `), `${name}: ${typed.said}`);
+        assertShortSentences(typed.said, name);
         assert.ok(!tasks.has(win32job.taskName(name)), `${name}: the task is still registered`);
         assert.equal(fs.existsSync(store.profilePath(name)), true, `${name}: its settings went`);
         fs.rmSync(REMOVED, { force: true });
@@ -513,18 +527,26 @@ test('kosmos#8475 review 4: a recorded folder out of sight (no disk, gone, dead 
 });
 
 test('kosmos#8475 review 5: a FILE where the folder is recorded is said plainly, not as a disk to connect', () => {
-  const file = nodePath.join(SANDBOX, 'file8475.txt');
+  const file = nodePath.join(SANDBOX, 'a file where its folder was 8475.txt');
   fs.writeFileSync(file, 'not a folder\n');
-  const name = agent('file8475', { folder: false, profile: { dir: file } });
-  const p = win.plan(name);
-  assert.equal(p.ok, true, p.because);
-  assert.equal(p.typeToConfirm, name, 'main refused here, so the name is typed');
-  assert.ok(p.reassurance.startsWith(`Its folder is recorded at ${file}, but what is there now is not a folder Kosmos can use; remove its startup job only if you are sure its folder is gone. Only its startup job is removed`), p.reassurance);
-  assert.match(p.reassurance, new RegExp('If its folder was only moved, put it back at ' + file.replace(/\\/g, '\\\\').replace(/\./g, '\\.') + ' in place of what is there now'));
-  assert.doesNotMatch(p.reassurance, /cannot reach|not connected|connect/, 'a file at the path was described as a disk to connect');
-  const done = win.del(name, name);
-  assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
-  assert.match(done.said, /put it back at .* in place of what is there now/);
+  // kosmos#8510: removed too, the longest way back ("in place of" and Restore), each sentence still under the cap.
+  for (const removed of [false, true]) {
+    const name = agent(removed ? 'filer8475' : 'file8475', { folder: false, profile: { dir: file } });
+    if (removed) markRemoved(name);
+    const p = win.plan(name);
+    assert.equal(p.ok, true, p.because);
+    assert.equal(p.typeToConfirm, name, 'main refused here, so the name is typed');
+    assert.ok(p.reassurance.startsWith(`Its folder is recorded at ${file}, but what is there now is not a folder Kosmos can use. Remove its startup job only if you are sure its folder is gone. Only its startup job is removed`), p.reassurance);
+    assertShortSentences(p.reassurance, name);
+    assert.match(p.reassurance, new RegExp('If its folder was only moved, put it back at ' + file.replace(/\\/g, '\\\\').replace(/\./g, '\\.') + ', in place of what is there now'));
+    assert.doesNotMatch(p.reassurance, /cannot reach|not connected|connect/, 'a file at the path was described as a disk to connect');
+    const done = win.del(name, name);
+    assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
+    assert.match(done.said, /put it back at .*, in place of what is there now\./);
+    assertShortSentences(done.said, name);
+    if (removed) assert.match(done.said, /in place of what is there now\. Then use Restore on its row in the removed agents list, and use Start at login when Kosmos offers it\./);
+    fs.rmSync(REMOVED, { force: true });
+  }
   fs.rmSync(file, { force: true });
 });
 
