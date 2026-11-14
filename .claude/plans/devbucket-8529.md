@@ -59,8 +59,8 @@ end-to-end run for #8526. The coordinator half and the fake bucket are kosmos-re
 - The comment names the `.localhost` resolver premise beside the ssh-tunnel case; a coordinator address with a user
   part is tested refused (loopback and .localhost forms); removing the .localhost user-part check turns it red.
 - NOT EXPLAINED: of seven runs of all 17 engine/backup*.test.js after round 4, one (15:13) reported 523 pass / 1 fail
-  and its failing test was not captured; the other six were 524/524, including four runs logged to look for it. Not
-  reproduced, not named, not claimed fixed.
+  and its failing test was not captured; the other runs were 524/524: 18 clean of 19, including 16 logged to name any
+  failing test (15:13 to 15:24). Not reproduced, not named, not claimed fixed.
 
 ## Weakest premise
 
