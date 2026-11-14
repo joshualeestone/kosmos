@@ -179,6 +179,8 @@ test.beforeEach(() => {
     JSON.stringify({ latest_version: '0.150.1', dismissed_version: null }));
 });
 test.afterEach(() => { create.setRunner(null); status.setPaneSource(null); });
+// kosmos#8456: the sandbox this file made, removed when it is done.
+test.after(() => { require('../test-support/remove-tree').removeTree(SANDBOX); });
 
 const agentFolder = (name, file, text) => {
   const d = path.join(SANDBOX, 'workers', name);
@@ -564,7 +566,31 @@ test('#1159 CONTROL: adopting a Claude agent does NOT stamp a provider', () => {
  */
 const projectsMod = require('./projects');
 
-test('#1349: an imported agent gets the project block, BEFORE it is started', { skip: skipOnWin32('it watches the start through create.setRunner, the launchctl runner seam, which a Windows start never calls: Windows starts the agent through Task Scheduler; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, () => {
+/* The instructions file as it stood when the agent was started. On a Mac and on Linux the start goes through
+   create.setRunner (launchctl, systemctl), so the file is read at the first call that runner gets. kosmos#8456: on
+   Windows the start is the agent's Scheduled Task being run, so the file is read when the stand-in Task Scheduler
+   (test-support/jobfixture) is asked to /Run it; create's runner does not read there, so nothing else can be taken
+   for the start. `.text` stays null until the start happens; `.stop()` ends the watch. `.runs` counts the /Run calls
+   on Windows (kosmos#8456), where a second start is not otherwise seen: Task Scheduler ignores a /Run on a
+   task that is running. The arms assert exactly one, deliberately: a double start is the regression they guard. */
+function startWatch(file) {
+  const seen = { text: null, stop: null, runs: 0 };
+  const read = () => {
+    if (seen.text === null) {
+      try { seen.text = fs.readFileSync(file, 'utf8'); } catch { seen.text = ''; }
+    }
+  };
+  create.setRunner(() => {
+    if (process.platform !== 'win32') read();
+    return { ok: true, stdout: '' };
+  });
+  const unwatch = jobfix.watchScheduler((a) => { if (process.platform === 'win32' && a[0] === '/Run') { seen.runs += 1; read(); } });
+  // And the started task is not left marked running for the next test.
+  seen.stop = () => { unwatch(); jobfix.resetScheduler(); };
+  return seen;
+}
+
+test('#1349: an imported agent gets the project block, BEFORE it is started', () => {
   /* 🔑 THE ORDERING IS PROVEN, NOT ASSERTED. The injected runner is what
      `installJob` calls to start the agent, so reading the instructions file from
      INSIDE it captures their state at the moment of start. If the block is
@@ -575,17 +601,13 @@ test('#1349: an imported agent gets the project block, BEFORE it is started', { 
     description: 'seeded by the test', made: { via: 'kosmos' },
   });
   const dir = agentFolder('impcodex', 'AGENTS.md', '# You are Imp Codex\n');
-  let atStart = null;
-  create.setRunner(() => {
-    if (atStart === null) {
-      try { atStart = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'); } catch { atStart = ''; }
-    }
-    return { ok: true, stdout: '' };
-  });
-
-  const r = discover.connect(dir, { projects: [proj.id] });
+  const watched = startWatch(path.join(dir, 'AGENTS.md'));
+  let r;
+  try { r = discover.connect(dir, { projects: [proj.id] }); } finally { watched.stop(); }
+  const atStart = watched.text;
   assert.equal(r.ok, true, r.because);
   assert.ok(atStart !== null, 'the runner never ran, so this proves nothing about ordering');
+  if (process.platform === 'win32') assert.equal(watched.runs, 1, 'the agent was started more than once');
   assert.match(atStart, /kosmos:projects:start/,
     'the agent was STARTED before its project block was written: it will be born telling '
     + 'the person to restart it (#732)');
@@ -652,18 +674,15 @@ test('#1349: an instructions file already at the ceiling is left alone', () => {
  * MEASURED ASYMMETRY: `create.js` composes both before an agent is born;
  * `discover.js` mentioned `defaults` ZERO times.
  */
-test('#1363: an imported agent is born with the rules and the connector words', { skip: skipOnWin32('it watches the start through create.setRunner, the launchctl runner seam, which a Windows start never calls: Windows starts the agent through Task Scheduler; what it checks exists on Windows, and its Windows arm is kosmos#8456') }, () => {
+test('#1363: an imported agent is born with the rules and the connector words', () => {
   const dir = agentFolder('rulesimp', 'AGENTS.md', '# You are Rules Imp\n');
-  let atStart = null;
-  create.setRunner(() => {
-    if (atStart === null) {
-      try { atStart = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'); } catch { atStart = ''; }
-    }
-    return { ok: true, stdout: '' };
-  });
-  const r = discover.connect(dir, {});
+  const watched = startWatch(path.join(dir, 'AGENTS.md'));
+  let r;
+  try { r = discover.connect(dir, {}); } finally { watched.stop(); }
+  const atStart = watched.text;
   assert.equal(r.ok, true, r.because);
   assert.ok(atStart !== null, 'the runner never ran, so this proves nothing about ordering');
+  if (process.platform === 'win32') assert.equal(watched.runs, 1, 'the agent was started more than once');
 
   /* 🔑 READ AT THE MOMENT OF START, not after connect returned. Rules that arrive
      afterwards are rules the agent was not born with, which is the #732 shape. */
