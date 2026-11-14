@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-asks plus-ask-rows plus-asks-title askcard ask-rows plus-join plus-join-match askwait JOIN_WAIT_WORDS computersReadSoon
+// Browser-check-surface: askHead plus-asks plus-ask-rows plus-asks-title askcard ask-rows plus-join plus-join-match askwait JOIN_WAIT_WORDS computersReadSoon
 'use strict';
 /* #6315: the coordinator names a joining computer's request computer:<its 32-hex id> (kosmos#4681). This check
    mocks the board's routes, so it proves the PAGE carries that id (data-id, the selector, the Allow body); the
@@ -31,6 +31,8 @@ const PC2_ID = 'computer:40aa54e6686da825d85e6f0971e5ee74';
  *    codes match" (which posts that code), (#6314, #6404, #6522) "The codes match. If you have not yet, type this code on <name>, your
  *    other computer, and press Allow." with the code
  *    still large (it is typed there), ran out, too many tries;
+ *  - kosmos#8525: a Kosmos cloud machine (the board's `cloud`) reads "Your cloud machine ... wants to join" with no code
+ *    and Allow on, and its Allow sends no code; CONTROL: the same id as a former computer still cannot be allowed;
  *  - 1400 and 390 wide, no sideways scroll, no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -792,6 +794,35 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.waitForFunction(() => /Turned away\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       const away = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
       chk(/Turned away\. That computer, laptop2, was not let in/.test(away) && !/Laptop2/.test(away), `${tag} Not me on a computer names it as its sheet did`, away);
+      /* kosmos#8525 (#4903 D2): a Kosmos cloud machine the person started (the board's `cloud`, no code by design) reads as
+         one, says what Allow does, shows no code or code field, keeps Allow on, and its Allow sends no code. CONTROL: the
+         same id as a former computer (was_a_computer) still cannot be allowed. */
+      const CLOUD_ID = 'computer:cc8af9d1e2f3a4b5c6d7e8f9a0b1c2d3';
+      const cloudSheet = async (row) => {
+        pending = [row];
+        await page.evaluate(() => pollAsk());
+        await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="' + CLOUD_ID + '"]', { timeout: 5000 }).catch(() => {});
+        return page.evaluate((id) => {
+          const b = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]');
+          const r = b && b.closest('.askreq');
+          return r ? { head: (r.querySelector('.askwho b') || {}).textContent || '', say: (r.querySelector('.asksay') || {}).textContent || '',
+            wait: (r.querySelector('.askwait') || {}).textContent || '', code: !!r.querySelector('.askcodebig'), field: !!r.querySelector('.askcodein'),
+            allowOff: !!(b.disabled || b.getAttribute('aria-disabled') === 'true'), label: b.getAttribute('aria-label') } : null;
+        }, CLOUD_ID);
+      };
+      const cl = await cloudSheet({ device_id: CLOUD_ID, name: 'cloud-d296a63b', code: '', first_seen: now() - 20, joining_computer: null, code_wait: null, cloud: true });
+      chk(cl && cl.head === 'Your cloud machine "cloud-d296a63b" wants to join' && /no code to check/.test(cl.say) && !cl.wait && !cl.code && !cl.field
+        && !cl.allowOff && cl.label === 'Allow cloud machine cloud-d296a63b', `${tag} #8525: a cloud machine reads as one, with no code and Allow on`, JSON.stringify(cl));
+      await page.click('#plus-ask-rows [data-ask="allow"][data-id="' + CLOUD_ID + '"]');
+      await page.waitForFunction(() => /is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      const clDone = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
+      chk(allowBodies[CLOUD_ID] && allowBodies[CLOUD_ID].code === undefined && /cloud-d296a63b is connected\./.test(clDone),
+        `${tag} #8525: its Allow sends no code and the sheet says it is connected`, JSON.stringify({ body: allowBodies[CLOUD_ID], clDone }));
+      delete allowBodies[CLOUD_ID];
+      await page.evaluate(() => { ASK.done = {}; });
+      const clWas = await cloudSheet({ device_id: CLOUD_ID, name: 'cloud-d296a63b', code: '', first_seen: now() - 20, joining_computer: null, code_wait: 'was_a_computer', cloud: false });
+      chk(clWas && clWas.allowOff && /cannot be allowed/.test(clWas.wait) && !/cloud machine/.test(clWas.head),
+        `${tag} #8525 CONTROL: the same id as a former computer still cannot be allowed`, JSON.stringify(clWas));
       const wide = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
       chk(wide <= 0, `${tag} no sideways scroll`, String(wide));
       chk(errs.length === 0, `${tag} no page errors`, JSON.stringify(errs));

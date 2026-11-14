@@ -55660,6 +55660,8 @@ function askHead(d) {
   // kosmos#6404: an allowed computer finishing its code check, not joining again.
   if (d && d.recheck && d.joining_computer) return 'Your computer "' + askEsc(d.joining_computer) + '" wants to finish its code check';
   if (d && d.joining_computer) return 'Your computer "' + askEsc(d.joining_computer) + '" wants to join';
+  // kosmos#8525: a Kosmos cloud machine the person started (the tunnel's `cloud`); it has no code to check.
+  if (d && d.cloud) return 'Your cloud machine' + (d.name ? ' "' + askEsc(d.name) + '"' : '') + ' wants to join';
   return askEsc(askKind(d)) + ' wants to connect to your Kosmos';
 }
 function askArticle(kind, cap) {
@@ -56139,7 +56141,9 @@ function paintAsk() {
     const typed = typing ? askTypedFor(d) : '';
     /* #6522: a computer's sheet names it once, in its heading (what the person approves); the field and the button
        under it already say what to type and what to press. */
+    // kosmos#8525: a cloud machine shows no code anywhere, so the line says what Allow does instead.
     const say = d.joining_computer ? ''
+      : d.cloud ? 'Allow if you just started a Kosmos cloud machine. Kosmos+ runs it for you, so there is no code to check.'
       : d.code && deskBrowser ? 'Allow only if this code is showing in ' + askEsc(deskBrowser[2]) + ', in the tab where you signed in.'
         : d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
     /* The tunnel's pairing refusals, worded (never the raw tag). While the wait line shows it already says what is
@@ -56159,7 +56163,7 @@ function paintAsk() {
     /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. Who wants in and when (#6519: no brand line), one line, then the code
        large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
        and a quiet Not me. The device id never reaches readable text. */
-    const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code && !d.joining_computer ? ', code ' + askEsc(d.code) : '');
+    const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : d.cloud ? 'cloud machine ' + askEsc(kind) : askEsc(kind)) + (d.code && !d.joining_computer ? ', code ' + askEsc(d.code) : '');
     /* #6522 review 1: an empty line renders no paragraph, and the code field is described by the heading, which is
        where the computer's name is on screen, plus the line when there is one (an error or a re-ask). */
     const sayText = [say, again.trim(), errWords].filter(Boolean).join(' ');

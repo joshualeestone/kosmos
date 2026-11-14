@@ -211,3 +211,25 @@ test('kosmos#6666: while Kosmos+ is paused for maintenance the Plus section says
   assert.match(JS, /const anything = [^;]*\|\| ASK\.paused;/);
   assert.match(JS, /document\.getElementById\('plus-paused'\); if \(p\) p\.hidden = !ASK\.paused;/);
 });
+
+/* kosmos#8525 (#4903 D2): a Kosmos cloud machine waiting for this computer's Allow (the board's `cloud`) has its own
+   heading and line, and no code anywhere; it was drawn as a former computer that "cannot be allowed". */
+test('#8525 a cloud machine reads "Your cloud machine ... wants to join", escaped; a computer and a phone keep theirs (CONTROL)', () => {
+  const lift = (name) => {
+    const at = JS.indexOf('function ' + name + '(');
+    assert.ok(at > -1, name + ' moved; re-anchor');
+    const end = JS.indexOf('\n}\n', at);
+    return JS.slice(at, end + 2);
+  };
+  // eslint-disable-next-line no-new-func
+  const askHead = new Function(lift('askEsc') + lift('askKind') + lift('askHead') + 'return askHead;')();
+  assert.equal(askHead({ cloud: true, name: 'cloud-d296a63b' }), 'Your cloud machine "cloud-d296a63b" wants to join');
+  assert.equal(askHead({ cloud: true, name: '<b>x</b>' }), 'Your cloud machine "&lt;b&gt;x&lt;/b&gt;" wants to join');
+  assert.equal(askHead({ cloud: true, name: null }), 'Your cloud machine wants to join');
+  // CONTROLS: a joining computer and a phone read as before, and a cloud mark that is not true is not cloud.
+  assert.equal(askHead({ joining_computer: 'tmnt' }), 'Your computer "tmnt" wants to join');
+  assert.equal(askHead({ name: 'iPhone' }), 'iPhone wants to connect to your Kosmos');
+  assert.equal(askHead({ cloud: false, name: 'iPhone' }), 'iPhone wants to connect to your Kosmos');
+  assert.match(JS, /: d\.cloud \? 'Allow if you just started a Kosmos cloud machine\. Kosmos\+ runs it for you, so there is no code to check\.'/);
+  assert.match(JS, /: d\.cloud \? 'cloud machine ' \+ askEsc\(kind\)/, 'the Allow button does not name a cloud machine as one');
+});
