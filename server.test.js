@@ -5234,7 +5234,8 @@ test('the removed list gives the browser only what it draws', async () => {
   // the control below would be true of nothing.
   const plistDir = nodePath.dirname(jobfix.jobPath(name));
   fs.mkdirSync(plistDir, { recursive: true });
-  fs.writeFileSync(jobfix.jobPath(name), '<plist/>', 'utf8');
+  // kosmos#8456 review 5: on Windows the task definition Kosmos registers, as #2615 above writes it.
+  fs.writeFileSync(jobfix.jobPath(name), process.platform === 'win32' ? jobfix.jobFor(name, STUB_BIN, null, null, null, 'claude') : '<plist/>', 'utf8');
   status.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
   status.setPaneCapture(() => null);
   // kosmos#8456: on Windows the agent is a process in the stand-in process table, ended with taskkill (see #2615 above).
@@ -5769,7 +5770,11 @@ test('an agent whose card shows a different name than its session still leaves t
     procs = win ? jobfix.win32Processes() : null;
     if (procs) {
       procs.start(session);
-      status.setPaneSource(require('./engine/win32roster').make({ run: procs.agentsJson, codexLive: procs.codexRows }));
+      /* review 5: the roster as it reads with the agent running, kept and served after the removal, as the Mac's fixed
+         pane line is: killing the process must not be what takes the card off, only the removal record may. */
+      const rows = require('./engine/win32roster').make({ run: procs.agentsJson, codexLive: procs.codexRows })();
+      assert.ok(rows && rows.includes(session), 'the Windows roster does not list the running agent, so the board cannot show it');
+      status.setPaneSource(() => rows);
     }
     // ⚠️ THE CONTROL, twice over: it is on the board, and the two names really
     // do differ. Without the second check this test would pass against a
@@ -5834,7 +5839,8 @@ test('a half-removed agent is on the removed list AND still on the board', async
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), 'You are **Half**.\n', 'utf8');
   fs.mkdirSync(nodePath.dirname(jobfix.jobPath(name)), { recursive: true });
-  fs.writeFileSync(jobfix.jobPath(name), '<plist/>', 'utf8');
+  // kosmos#8456 review 5: on Windows the task definition Kosmos registers, not a placeholder.
+  fs.writeFileSync(jobfix.jobPath(name), process.platform === 'win32' ? jobfix.jobFor(name, STUB_BIN, null, null, null, 'claude') : '<plist/>', 'utf8');
   status.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
   status.setPaneCapture(() => null);
   // `bootout` refuses: disabled, but not stopped. The half-removal.
@@ -5956,6 +5962,7 @@ test('a job that is disabled but will not unload is recorded, not reported as un
     await req('/api/agent/wont-unload/restore', { method: 'POST' }).catch(() => {});
     removal.setRunner(null);
     unwatch();
+    if (process.platform === 'win32') jobfix.resetScheduler();   // review 5: its task is not left marked running
   }
 });
 
@@ -10926,9 +10933,10 @@ test('the model route writes the choice AND restarts, because either alone is a 
     /* kosmos#8456: on Windows closing the window is taskkill on the agent's process, and the relaunch is the task's /Run
        (a task re-reads its command line when it is run, as launchd does at a bootstrap). */
     const tn = procs ? require('./engine/win32job').taskName(name) : null;
-    assert.ok(calls.some((c) => (procs ? /taskkill\.exe$/i.test(c[0]) && c[1].join(' ') === `/PID ${pid} /T /F` : c[1][0] === 'kill-session')),
+    // review 5: the verb, the /PID or /TN value and the flags, in any order (jobfix.argsMatch).
+    assert.ok(calls.some((c) => (procs ? /taskkill\.exe$/i.test(c[0]) && jobfix.argsMatch(c[1], { values: { '/PID': pid }, flags: ['/T', '/F'] }) : c[1][0] === 'kill-session')),
       'nothing closed the window, so the supervisor would adopt an agent still on the old model');
-    assert.ok(calls.some((c) => (procs ? /schtasks\.exe$/i.test(c[0]) && c[1][0] === '/Run' && c[1][c[1].indexOf('/TN') + 1] === tn : startsJob(c[0], c[1]))),
+    assert.ok(calls.some((c) => (procs ? /schtasks\.exe$/i.test(c[0]) && jobfix.argsMatch(c[1], { first: '/Run', values: { '/TN': tn } }) : startsJob(c[0], c[1]))),
       'launchd was never re-bootstrapped, so it keeps the arguments it already had');
 
     /* A model nobody offers is refused before anything is written. */
@@ -11023,6 +11031,18 @@ test('#2019: the restart route threads an optional cause, and a bodyless POST st
           'a restart whose agent never came back was answered as restarted: ' + dead.body);
       } finally {
         stayDown();
+      }
+      /* review 5: and the case the restart's pre-restart identity (`before`) is there for. The agent is running again,
+         and its kill leaves the dying supervisor's state file behind, naming a pid that is alive: only telling that
+         file's session from a new one keeps the restart from reading it as the agent come back. */
+      procs.start(name);
+      const staleDown = procs.neverComesUp(name, { stale: true });
+      try {
+        const stale = await req('/api/agent/' + name + '/restart', { method: 'POST' });
+        assert.equal(JSON.parse(stale.body).outcome, 'partial',
+          "a restart read the dying supervisor's leftover state file as the agent come back: " + stale.body);
+      } finally {
+        staleDown();
         win32job.setRunningClock(null);
       }
     }

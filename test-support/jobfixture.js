@@ -255,6 +255,21 @@ function useWin32Scheduler() {
   return dir;
 }
 
+/** kosmos#8456 review 5: whether a command's arguments are the act a test looks for, in any order: `first` is the verb
+    in front (`/Change`, `/End`; leave it out for taskkill), `values` the switches that carry a value and that value
+    (`{ '/TN': tn }`, `{ '/PID': pid }`), and `flags` the bare switches that must be there (`['/DISABLE']`, `['/T', '/F']`).
+    Values are compared as strings. An exact command string would fail on a reordering that changes nothing. */
+function argsMatch(args, want) {
+  const a = Array.isArray(args) ? args.map(String) : [];
+  const w = want || {};
+  if (w.first !== undefined && a[0] !== w.first) return false;
+  for (const [key, value] of Object.entries(w.values || {})) {
+    const at = a.indexOf(key);
+    if (at < 0 || a[at + 1] !== String(value)) return false;
+  }
+  return (w.flags || []).every((f) => a.includes(f));
+}
+
 /** kosmos#8456 review 4: no task running at the stand-in Task Scheduler, for a test that ran a task through it and
     is done (create and adopt start theirs with /Run and nothing ends them), so the next test starts afresh. */
 function resetScheduler() {
@@ -320,9 +335,11 @@ const TABLE_PID_BASE = 2000000000;
       survive(name)        the next kills of that agent answer SUCCESS and leave it running, so a test can show the
                            look-again catches a kill that did not take. Returns the undo; clearSurvivors() undoes
                            them all.
-      neverComesUp(name)   that agent's task runs at its next /Run but its supervisor never starts: no ownership row,
-                           no live entry, no state file, so a restart's "did it come up" check must answer no.
-                           Returns the undo.
+      neverComesUp(name, { stale })  that agent's task runs at its next /Run but its supervisor never starts: no
+                           ownership row, no live entry, no new state file, so a restart's "did it come up" check must
+                           answer no. With stale: true its kill also leaves the OLD state file in place (a dying
+                           supervisor's leftover), which only the restart's pre-restart identity tells from a new
+                           one. Returns the undo.
       calls                each act and look, in order: 'taskkill.exe /PID <pid> /T /F' and 'alive <pid>' (and each is
                            handed to opts.onCall too, for a test that keeps one log of every platform's acts).
       agentsJson(), codexRows()  the live list's two halves, for a roster built with win32roster.make.
@@ -353,7 +370,7 @@ function win32Processes(opts) {
   const live = new Map();   // sessionId -> { sessionId, pid, name, runner }
   const perTurn = (runner) => require('../engine/win32codexlive').PER_TURN.has(runner);
   const survivors = new Set();
-  const down = new Set();
+  const down = new Map();   // name -> { stale }
   const written = new Set();
   const ownedIds = new Set();   // the ownership rows this table wrote, so reset() can take back any a stop left
   const calls = [];
@@ -417,9 +434,12 @@ function win32Processes(opts) {
       if (!hit) return { ok: false, code: 128, out: `ERROR: The process "${pid}" not found.` };
       if (!survivors.has(hit.name)) {
         live.delete(hit.sessionId);
-        // The supervisor clears the state file naming the child that exited (only its own: a newer one is left).
+        /* The supervisor clears the state file naming the child that exited (only its own: a newer one is left).
+           review 5: unless the agent is marked neverComesUp(name, { stale: true }): a dying supervisor that leaves
+           its old state file behind, which is what a restart's pre-restart identity (`before`) guards against. */
         const at = statePath(hit.name);
-        try { if (JSON.parse(fs.readFileSync(at, 'utf8')).sessionId === hit.sessionId) fs.rmSync(at, { force: true }); } catch { /* none */ }
+        const left = down.get(hit.name);
+        if (!(left && left.stale)) try { if (JSON.parse(fs.readFileSync(at, 'utf8')).sessionId === hit.sessionId) fs.rmSync(at, { force: true }); } catch { /* none */ }
       }
       return { ok: true, out: `SUCCESS: The process with PID ${pid} has been terminated.` };
     },
@@ -436,8 +456,8 @@ function win32Processes(opts) {
       return () => { survivors.delete(name); };
     },
     clearSurvivors() { survivors.clear(); },
-    neverComesUp(name) {
-      down.add(name);
+    neverComesUp(name, how) {
+      down.set(name, { stale: Boolean(how && how.stale) });
       return () => { down.delete(name); };
     },
     staysDown(name) { return down.has(name); },
@@ -550,4 +570,4 @@ function systemdStub() {
   return answer;
 }
 
-module.exports = { jobPath, jobPathIn, jobFor, systemdStub, useJobStore, watchScheduler, win32Step, win32Processes, win32Task, resetScheduler };
+module.exports = { jobPath, jobPathIn, jobFor, systemdStub, useJobStore, watchScheduler, win32Step, win32Processes, win32Task, resetScheduler, argsMatch };

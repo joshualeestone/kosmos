@@ -91,6 +91,7 @@ test.after(() => {
      end up in a state where a stray call reaches a real launchctl. */
   removal.setRunner(null);
   if (procs) procs.stop();   // kosmos#8456: win32stop's own seams back, and the state files it wrote gone
+  unwatchActs();   // review 5: and the scheduler watch this file set at load
   try { server.close(); } catch { /* already down */ }
   // kosmos#8456 review 4: and this file's sandbox, which it made and nothing else removes.
   require('./test-support/remove-tree').removeTree(SANDBOX);
@@ -111,7 +112,7 @@ let calls = [];
    the process is still there when it is looked at again. */
 const procs = process.platform === 'win32' ? jobfix.win32Processes({ onCall: (line) => calls.push(line) }) : null;
 const SCHEDULER_ACTS = new Set(['/Change', '/End', '/Run', '/Create', '/Delete']);
-if (procs) jobfix.watchScheduler((a) => { if (SCHEDULER_ACTS.has(a[0])) calls.push(['schtasks', ...a].join(' ')); });
+const unwatchActs = procs ? jobfix.watchScheduler((a) => { if (SCHEDULER_ACTS.has(a[0])) calls.push(['schtasks', ...a].join(' ')); }) : () => {};
 /* An agent whose kill does not take: tmux still has its session when it is asked again (the runner above), and on
    Windows its process is still in the table (kosmos#8456). Cleared for every arm by installRunner. */
 function markSurvivor(name) {
@@ -152,14 +153,20 @@ function readRemoved() {
    agent's session, and look again. On a Mac launchctl and tmux; on Linux systemctl and tmux; kosmos#8456: on Windows the
    Scheduled Task's /Change /DISABLE and /End, `taskkill /PID <pid> /T /F` on the agent's process, and the look at
    whether that pid is still there (`pid` is the one agentOn gave it). */
+/* One line of `calls` (`<program> <args...>`, as the stand-ins log it) as the program and its arguments. */
+function act(line, program, want) {
+  const [first, ...args] = String(line).split(' ');
+  return first === program && jobfix.argsMatch(args, want);
+}
 function stopActs(name, pid) {
   if (process.platform === 'win32') {
     const tn = require('./engine/win32job').taskName(name);
     return {
-      disable: (c) => c === `schtasks /Change /TN ${tn} /DISABLE`,
-      unload: (c) => c === `schtasks /End /TN ${tn}`,
+      /* review 5: matched as the verb, the /TN or /PID value and the flags, in any order (jobfix.argsMatch). */
+      disable: (c) => act(c, 'schtasks', { first: '/Change', values: { '/TN': tn }, flags: ['/DISABLE'] }),
+      unload: (c) => act(c, 'schtasks', { first: '/End', values: { '/TN': tn } }),
       unloadSaid: 'the scheduled task was never ended',
-      kill: (c) => c === `taskkill.exe /PID ${pid} /T /F`,
+      kill: (c) => act(c, 'taskkill.exe', { values: { '/PID': pid }, flags: ['/T', '/F'] }),
       lookAgain: (c) => c === `alive ${pid}`,
     };
   }

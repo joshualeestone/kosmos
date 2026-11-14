@@ -96,3 +96,13 @@ project block written after the start, and a task line naming another file: each
   machine does. The stale row matters through the record itself, so the record is what is checked.
 - `jobfix.resetScheduler()` clears the stand-in's running tasks; the create and adopt arms call it when done.
 - The 2570 and adopt files remove their sandboxes in `test.after`.
+
+## Review round 5
+- Card-name arm on Windows: the roster is read once with the agent running and that snapshot is served after the
+  removal, as the Mac's fixed pane line is, so only the board's removed-record filter can take the card off.
+- `neverComesUp(name, { stale: true })`: the kill leaves the dying supervisor's state file. The #2019 control now also
+  restarts in that mode and must answer `partial`; an `idAccepts` that ignores `before` fails it. The model-route arm
+  alone does not catch that mutation; the control does.
+- The allowlist and half-removed arms write the real task definition on Windows (`jobfix.jobFor`), not `<plist/>`.
+- Acts are matched by verb, value and flags in any order (`jobfix.argsMatch`), not exact strings.
+- The wont-unload arm resets the scheduler; the 2570 file undoes its module-level scheduler watch in `test.after`.
