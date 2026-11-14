@@ -3802,7 +3802,7 @@ cmd_connections() {
         let j; try { j = JSON.parse(s); } catch { return; }
         const svcs = j && Array.isArray(j.services) ? j.services.filter((x) => x && x.notWorking > 0) : [];
         const n = svcs.reduce((a, x) => a + x.notWorking, 0);
-        if (n) console.log("Agents found " + n + (n === 1 ? " action that does not work" : " actions that do not work") + " on " + svcs.map((x) => x.name).join(", ") + ": kosmos connections --found");
+        if (n) console.log("Agents found " + n + (n === 1 ? " action that does not work" : " actions that do not work") + " on " + svcs.map((x) => x.name + (x.kind === "kosmos" ? "" : " (outside Kosmos)")).join(", ") + ": kosmos connections --found");
       });' 2>/dev/null || true
   fi
 }

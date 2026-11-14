@@ -120,3 +120,18 @@ what agents FOUND, and shows it to the person and to the next agent.
   extra read, as the Mac does; the run-together comment in server.js.
 - NIT left: the browser check measures contrast on the not-working words and the who-and-when line, not on "Works"
   (it uses the same colour as the who-and-when line, which is measured).
+
+#### Iteration 5 (opus, a final read of the whole branch)
+- WARNING fixed (W1): the guide said a plugin's action is "the part after its last double underscore"; the code splits
+  at the first. The guide now says to name the service and action as --found lists them, otherwise the tool name
+  without its mcp__<server>__ start.
+- WARNING fixed (W2): a hand record is filed as Kosmos's own connection only when that connection is set up here
+  (held !== false); Discord, Notion or Linear never connected in Kosmos is a plugin's name. Pinned, with a control.
+- WARNING fixed (W3): the two places the build differs from the card's design call (one section at the end of the tab,
+  not a count per row; one summary line in the plain listing) are posted on the card with the reasons.
+- NITs fixed: a full tool name in the error must be THIS server's; the per-service action cap keeps hand records
+  before automatic ones; the summary line marks a plugin "(outside Kosmos)"; the guide asks agents to check before
+  relying on a service, not before every action.
+- NITs left: the automatic path may rarely fire in practice (Claude Code refuses unknown tools itself, which is
+  excluded), the safe direction; a McpError: lead is not read; "in the last 30 days" also covers 7-day automatic
+  findings; the Mac says "could not read" on stdout as its existing listing does.

@@ -31,10 +31,11 @@ test('parseMcpTool: the service and the action from a plugin tool name, provider
 
 test('classify: not-offered ONLY when the line starts by saying the called action is unknown (review 3)', () => {
   const A = 'merge_contacts';
+  const FULL = 'mcp__hubspot__merge_contacts';
   for (const yes of ['Unknown tool: merge_contacts', 'Unknown tool: mcp__hubspot__merge_contacts', 'MCP error -32601: Unknown tool: merge_contacts',
     'Tool not found: "merge_contacts"', 'unknown tool merge_contacts.', 'UNKNOWN TOOL: Merge_Contacts',
     'MCP error -32602: Tool merge_contacts not found', 'Error: MCP error -32601: Unknown tool: merge_contacts']) {   // review 4: the TS SDK and an Error: lead
-    assert.equal(cf.classify(yes, A), 'not-offered', yes);
+    assert.equal(cf.classify(yes, A, FULL), 'not-offered', yes);
   }
   // Review 3's false positives, and every class the earlier rounds found: nothing is recorded.
   for (const no of ['Unknown tool: other_tool', 'MCP error -32601: Method not found: tools/call', 'Method not found',
@@ -44,8 +45,8 @@ test('classify: not-offered ONLY when the line starts by saying the called actio
     'Request had insufficient authentication scopes.', 'missing_scope', 'Exports are disabled by your administrator',
     'This operation is not supported on shared drives', 'Invalid input: dealId is required', 'Request timed out after 30s',
     'Permission to use mcp__hubspot__merge_contacts has been denied', 'The user rejected this tool call',
-    'Tool other_tool not found', 'Tool merge_contacts not found in cache', '']) {
-    assert.equal(cf.classify(no, A), null, no);
+    'Tool other_tool not found', 'Tool merge_contacts not found in cache', 'Unknown tool: mcp__other__merge_contacts', '']) {
+    assert.equal(cf.classify(no, A, FULL), null, no);
   }
   assert.equal(cf.classify('Unknown tool: merge_contacts', ''), null, 'no action named, nothing to match');
 });
