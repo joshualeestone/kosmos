@@ -4491,10 +4491,31 @@ function win32TaskRecord(o) {
      and the readers put the folder back only while it still holds that account. `s.account` (register.repair keeping a
      folder it could not reach) carries the identity it already had; otherwise it is read now. Null for the main account. */
   const account = configDir === null ? null
-    : (s.account !== undefined ? (s.account || null) : win32AccountIdentity(runner, configDir));
+    : (s.account !== undefined ? (s.account || null) : win32IdentityToRecord(runner, configDir, s.existing));
   /* round 4: `kept` marks a folder register.repair kept although the task runs on the main account (refreshedRecord
-     keeps such a record over the task, and only that one). */
-  return { runner, configDir, model, account, ...(s.kept === true && configDir !== null ? { kept: true } : {}) };
+     keeps such a record over the task, and only that one). kosmos#8489: with it, how many Start at logins in a row
+     could not read the folder's account (`unreadable`), so that state ends (WIN32_UNREADABLE_LIMIT). */
+  const kept = s.kept === true && configDir !== null;
+  const unreadable = kept && Number.isInteger(s.unreadable) && s.unreadable > 0 ? { unreadable: s.unreadable } : {};
+  return { runner, configDir, model, account, ...(kept ? { kept: true } : {}), ...unreadable };
+}
+/* kosmos#8489 review 1: the identity a newly written record keeps when it is read now. A folder whose account cannot be
+   read at this moment (Claude Code writing its config just as the agent starts) keeps the identity the record already
+   held for this same folder and runner, never null: null is "nobody recorded whose account it was", which Start at
+   login never trusts again, so one unlucky read would move the agent to the main account for good. With no such record
+   (a folder newly chosen) there is nothing to keep, and null it is. */
+function win32IdentityToRecord(runner, dir, existing) {
+  let read;
+  try { read = win32AccountIdentityRead(runner, dir); } catch (e) {
+    console.error(`kosmos#8489: reading the account in ${dir} for its record failed: ${e && e.message}`);
+    read = { identity: null, unreadable: true };
+  }
+  if (!read.unreadable) return read.identity;
+  const old = existing && typeof existing === 'object' && !Array.isArray(existing) ? existing : null;
+  if (!old || (old.runner || 'claude') !== runner || typeof old.configDir !== 'string' || !old.configDir) return null;
+  if (!old.account || typeof old.account !== 'object') return null;
+  const fold = (p) => { const r = path.resolve(p); return process.platform === 'linux' ? r : r.toLowerCase(); };
+  return fold(old.configDir) === fold(dir) ? old.account : null;
 }
 /* kosmos#8478 round 3: the account a folder holds, as the account modules themselves read it (the identity their lists
    show): Claude's sign-in (email and organization) or a Claude API key; OpenAI, Gemini and Grok through their own
@@ -4502,7 +4523,7 @@ function win32TaskRecord(o) {
    when the folder holds no account Kosmos can read, or for a runner Kosmos keeps no accounts for: then nothing can be
    checked, and a record holding null is never trusted with a folder. */
 function win32AccountIdentity(runner, dir) {
-  return win32AccountIdentityRead(runner, dir).identity;
+  try { return win32AccountIdentityRead(runner, dir).identity; } catch { return null; }
 }
 /* kosmos#8489: how many hex characters of the key's sha256 a record keeps. A key's last four characters (what the
    account lists show) are shared by many keys, so two keys of one provider could read as the same account; 16 hex
@@ -4514,6 +4535,11 @@ function win32KeyFingerprint(key) {
 /* kosmos#8489: a Claude organization uuid as Claude Code writes it. A record written before this change may hold the
    organization's NAME in the same field (it fell back to the name when no uuid was written), and a name is not who
    the account is: it can be renamed, and Claude Code can start writing the uuid later. */
+/* kosmos#8489 review 1: how many Start at logins in a row may find a recorded folder's account unreadable before the
+   folder is dropped for good (the main account). A config being written is a moment, so the next Start at login should
+   read it; three in a row is a file that will not read again (torn by a crash, a sign-in file holding two sign-ins),
+   and trying it at every login after that only repeats the same words. */
+const WIN32_UNREADABLE_LIMIT = 3;
 const WIN32_ORG_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /* A credential file read three ways, because they mean different things: 'absent' (not there: nobody signed in, or
    signed out), 'unreadable' (there, but it could not be read or parsed right now, as when Claude Code or codex is
@@ -4534,77 +4560,88 @@ function win32AccountIdentityRead(runner, dir) {
   if (typeof dir !== 'string' || !dir) return none;
   const email = (v) => (typeof v === 'string' && v ? v.toLowerCase() : null);
   const keyed = (kind, key) => ({ kind, email: null, keyTail: key.slice(-4), keyHash: win32KeyFingerprint(key), org: null });
-  try {
-    if (!runner || runner === 'claude') {
-      const config = win32ReadCredential(require('./accounts').configFile(dir), true);
-      const acct = config.kind === 'ok' && config.data && typeof config.data === 'object' ? config.data.oauthAccount : null;
-      if (acct && typeof acct === 'object') {
-        const who = email(typeof acct.emailAddress === 'string' ? acct.emailAddress : acct.email);
-        // The uuid only: a name can change under the same account (see WIN32_ORG_UUID_RE).
-        const org = typeof acct.organizationUuid === 'string' && acct.organizationUuid ? acct.organizationUuid : null;
-        return who ? { identity: { kind: 'signin', email: who, keyTail: null, org }, unreadable: false } : none;
-      }
-      /* A key folder: Kosmos refuses a key over a sign-in and a sign-in over a key (accounts.list), so a key here is
-         the account whatever the config says, even while Claude Code is writing that config. */
-      const key = win32ReadCredential(require('./claudeaccounts').keyFile(dir), false);
-      if (key.kind === 'ok' && key.text) return { identity: keyed('apikey', key.text), unreadable: false };
-      if (key.kind === 'unreadable' || config.kind !== 'ok') return unreadable;
-      return none;   // a config read whole with no sign-in in it, and no key: signed out
+  /* kosmos#8489 review 1: no catch-all. Every file read here answers 'absent' or 'unreadable' (win32ReadCredential);
+     what is left to throw is a bug, and a bug must not read as "could not read" (which keeps a folder): the callers
+     log it and fall back (win32IdentityToRecord, win32RecordedTask). */
+  if (!runner || runner === 'claude') {
+    const config = win32ReadCredential(require('./accounts').configFile(dir), true);
+    const acct = config.kind === 'ok' && config.data && typeof config.data === 'object' ? config.data.oauthAccount : null;
+    if (acct && typeof acct === 'object') {
+      const who = email(typeof acct.emailAddress === 'string' ? acct.emailAddress : acct.email);
+      // The uuid only: a name can change under the same account (see WIN32_ORG_UUID_RE).
+      const org = typeof acct.organizationUuid === 'string' && acct.organizationUuid ? acct.organizationUuid : null;
+      return who ? { identity: { kind: 'signin', email: who, keyTail: null, org }, unreadable: false } : none;
     }
-    if (runner === 'codex') {
-      const oa = require('./openaiaccounts');
-      const auth = win32ReadCredential(oa.authFile(dir), true);
-      if (auth.kind === 'absent') return none;   // codex logout deletes auth.json
-      if (auth.kind !== 'ok') return unreadable;
-      const data = auth.data && typeof auth.data === 'object' ? auth.data : null;
-      if (!data) return unreadable;
-      const who = oa.identityFromData(data);   // the one read above: a second read could land mid-write
-      if (!who) return none;
-      if (who.authMode === 'apikey') {
-        const key = typeof data.OPENAI_API_KEY === 'string' ? data.OPENAI_API_KEY : '';
-        return key ? { identity: keyed('apikey', key), unreadable: false } : none;
-      }
-      /* round 4: a ChatGPT sign-in's email alone does not tell two workspaces of one person apart, so the workspace
-         (codex's tokens.account_id, else the id token's chatgpt_account_id) goes with it where codex wrote one. */
-      const tokens = data.tokens;
-      const payload = oa.decodeIdTokenPayload(tokens && tokens.id_token);
-      const claim = payload && payload['https://api.openai.com/auth'];
-      const id = (tokens && tokens.account_id) || (claim && typeof claim === 'object' ? claim.chatgpt_account_id : null);
-      const who2 = email(who.email);
-      return who2 ? { identity: { kind: who.authMode, email: who2, keyTail: null, org: typeof id === 'string' && id ? id : null }, unreadable: false } : none;
+    /* A key folder: Kosmos refuses a key over a sign-in and a sign-in over a key (accounts.list), so a key here is
+       the account whatever the config says, even while Claude Code is writing that config. */
+    const key = win32ReadCredential(require('./claudeaccounts').keyFile(dir), false);
+    if (key.kind === 'ok' && key.text) return { identity: keyed('apikey', key.text), unreadable: false };
+    if (key.kind === 'unreadable' || config.kind !== 'ok') return unreadable;
+    return none;   // a config read whole with no sign-in in it, and no key: signed out
+  }
+  if (runner === 'codex') {
+    const oa = require('./openaiaccounts');
+    const auth = win32ReadCredential(oa.authFile(dir), true);
+    if (auth.kind === 'absent') return none;   // codex logout deletes auth.json
+    if (auth.kind !== 'ok') return unreadable;
+    const data = auth.data && typeof auth.data === 'object' ? auth.data : null;
+    if (!data) return unreadable;
+    const who = oa.identityFromData(data);   // the one read above: a second read could land mid-write
+    if (!who) return none;
+    if (who.authMode === 'apikey') {
+      const key = typeof data.OPENAI_API_KEY === 'string' ? data.OPENAI_API_KEY : '';
+      return key ? { identity: keyed('apikey', key), unreadable: false } : none;
     }
-    if (runner === 'gemini' || runner === 'grok') {
-      const mod = require(runner === 'gemini' ? './geminiaccounts' : './grokaccounts');
-      const key = win32ReadCredential(mod.keyFile(dir), false);
-      if (key.kind === 'ok' && key.text) return { identity: keyed('apikey', key.text), unreadable: false };
-      if (key.kind === 'unreadable') return unreadable;
-      if (runner === 'gemini') return none;   // Gemini accounts are keys only
-      /* A Grok subscription: the grok CLI's auth.json, which it rewrites as its sign-in refreshes. readAuth's
-         'unreadable' also covers a file holding no x.ai sign-in or two of them; Kosmos cannot say whose account that
-         is either, so it is "could not read" too, and the folder is tried again next time. */
-      const auth = mod.readAuth(dir);
-      if (auth.kind === 'absent') return none;
-      if (auth.kind !== 'ok') return unreadable;
-      const who2 = email(auth.entry.email);
-      return who2 ? { identity: { kind: 'subscription', email: who2, keyTail: null, org: null }, unreadable: false } : none;
-    }
-    return none;
-  } catch { return unreadable; }
+    /* round 4: a ChatGPT sign-in's email alone does not tell two workspaces of one person apart, so the workspace
+       (codex's tokens.account_id, else the id token's chatgpt_account_id) goes with it where codex wrote one. */
+    const tokens = data.tokens;
+    const payload = oa.decodeIdTokenPayload(tokens && tokens.id_token);
+    const claim = payload && payload['https://api.openai.com/auth'];
+    const id = (tokens && tokens.account_id) || (claim && typeof claim === 'object' ? claim.chatgpt_account_id : null);
+    const who2 = email(who.email);
+    return who2 ? { identity: { kind: who.authMode, email: who2, keyTail: null, org: typeof id === 'string' && id ? id : null }, unreadable: false } : none;
+  }
+  if (runner === 'gemini' || runner === 'grok') {
+    const mod = require(runner === 'gemini' ? './geminiaccounts' : './grokaccounts');
+    const key = win32ReadCredential(mod.keyFile(dir), false);
+    if (key.kind === 'ok' && key.text) return { identity: keyed('apikey', key.text), unreadable: false };
+    if (key.kind === 'unreadable') return unreadable;
+    if (runner === 'gemini') return none;   // Gemini accounts are keys only
+    /* A Grok subscription: the grok CLI's auth.json, which it rewrites as its sign-in refreshes. Read here rather
+       than through readAuth, whose 'unreadable' also covers a file holding no x.ai sign-in: that file was read whole
+       and nobody is signed in to it (the grok CLI writes the whole file with its entry at sign-in), so it is signed
+       out, not "could not read". Two x.ai sign-ins is "could not read": Kosmos cannot say which one grok uses. */
+    const auth = win32ReadCredential(mod.authFile(dir), true);
+    if (auth.kind === 'absent') return none;
+    if (auth.kind !== 'ok' || !auth.data || typeof auth.data !== 'object' || Array.isArray(auth.data)) return unreadable;
+    const entries = Object.keys(auth.data).filter((k) => k.startsWith(mod.AUTH_ISSUER_PREFIX));
+    if (entries.length === 0) return none;
+    const entry = entries.length === 1 ? auth.data[entries[0]] : null;
+    if (!entry || typeof entry !== 'object') return unreadable;
+    const who2 = email(entry.email);
+    return who2 ? { identity: { kind: 'subscription', email: who2, keyTail: null, org: null }, unreadable: false } : none;
+  }
+  return none;
 }
-/* Whether the account a folder holds now is the one recorded. `runner` says how to read the organization field. */
-function sameAccount(a, b, runner) {
-  if (!a || !b) return false;
-  if ((a.kind || null) !== (b.kind || null) || (a.email || null) !== (b.email || null)) return false;
+/* Whether the account a folder holds now is the one recorded: 'same', 'changed', or (kosmos#8489 review 1) 'unreadable'
+   when the folder no longer shows the organization the record holds. `runner` says how to read the organization. */
+function accountMatch(recorded, now, runner) {
+  const a = recorded;
+  const b = now;
+  if (!a || !b) return 'changed';
+  if ((a.kind || null) !== (b.kind || null) || (a.email || null) !== (b.email || null)) return 'changed';
   /* kosmos#8489 (c): an API key is matched by its fingerprint. A record written before this change holds only the
      key's last four characters, and is matched by those, exactly as it was then (never a wider match than before);
      each Start at login that puts the folder back records the fingerprint from then on. */
-  if (typeof a.keyHash === 'string' && a.keyHash) { if (a.keyHash !== b.keyHash) return false; }
-  else if ((a.keyTail || null) !== (b.keyTail || null)) return false;
-  /* kosmos#8489 (a): organizations are compared by their ids only, and only when both sides have one. When either side
-     has none, the email alone decides: a record that holds an organization's NAME (written before this change), or a
-     sign-in Claude Code has not yet written a uuid for, is the same person under the same email, and calling it
-     "changed" told them their account had signed out when it had not. For Claude the id is the organization uuid (a
-     recorded name never counts as one); for codex it is the ChatGPT workspace id, which is never a name. */
+  if (typeof a.keyHash === 'string' && a.keyHash) { if (a.keyHash !== b.keyHash) return 'changed'; }
+  else if ((a.keyTail || null) !== (b.keyTail || null)) return 'changed';
+  /* kosmos#8489 (a): organizations are compared by their ids. For Claude the id is the organization uuid (a recorded
+     NAME, written before this change when Claude Code had written no uuid, never counts as one: a name can be renamed);
+     for codex it is the ChatGPT workspace id, never a name. Both ids: they decide. Neither: the email alone decides,
+     since the same email with no organization known on either side is the same person (calling it "changed" told
+     them their account had signed out when it had not). Review 1: a recorded id with none now is neither: the folder
+     does not show which organization it is in, so it is "could not read" (kept, main account this time), never "same",
+     which would trust one person's other organization. No id recorded and one now is the email alone. */
   const orgId = (x) => {
     const o = typeof x.org === 'string' && x.org ? x.org : null;
     if (!o) return null;
@@ -4612,7 +4649,9 @@ function sameAccount(a, b, runner) {
   };
   const ao = orgId(a);
   const bo = orgId(b);
-  return !(ao && bo && ao !== bo);
+  if (ao && bo) return ao === bo ? 'same' : 'changed';
+  if (ao) return 'unreadable';
+  return 'same';
 }
 /* Best effort and never a gate: a task that was written is the truth whether or not its note was. Written only into a
    profile that is already there (lstat: a profile that is a link still counts as there), so a task written before the
@@ -4627,7 +4666,11 @@ function sameAccount(a, b, runner) {
 function recordWin32Task(name, o) {
   try { fs.lstatSync(store.profilePath(name)); } catch { return false; }
   let rec;
-  if (o && o.accountChosen === true) rec = win32TaskRecord(o);
+  if (o && o.accountChosen === true) {
+    let existing = null;   // kosmos#8489 review 1: what an unreadable read keeps (win32IdentityToRecord)
+    try { existing = store.readProfile(name).win32Task || null; } catch { existing = null; }
+    rec = win32TaskRecord({ ...o, existing });
+  }
   else {
     let existing = null;
     try { existing = store.readProfile(name).win32Task || null; } catch { existing = null; }
@@ -4767,7 +4810,9 @@ function win32RecordedTask(name, opts) {
      cannot be read right now is 'unreadable', kept like an unreachable one). 'unusable':
      a folder this runner cannot be put on (win32AccountThere's other refusals), or a damaged value. */
   let accountWhy = null;
+  let identityNow = null;   // kosmos#8489 review 1: the identity just read and matched, which the repair records as is
   const identity = rec.account && typeof rec.account === 'object' ? rec.account : null;
+  const unreadableBefore = rec.kept === true && Number.isInteger(rec.unreadable) && rec.unreadable > 0 ? rec.unreadable : 0;
   if (accountRemoved) accountWhy = accountGone;
   else if (!dirShaped) accountWhy = 'unusable';
   else if (configDir !== null) {
@@ -4778,14 +4823,23 @@ function win32RecordedTask(name, opts) {
     else if (!win32AccountThere(runner, configDir)) accountWhy = 'unusable';
     else {
       /* kosmos#8489 (b): an account that cannot be read right now (its config being written at that moment) is not one
-         that changed: it starts on the main account this time and the folder is kept to try again, as one out of reach is. */
-      const now = win32AccountIdentityRead(runner, configDir);
-      if (now.unreadable) accountWhy = 'unreadable';
-      else if (!sameAccount(identity, now.identity, runner)) accountWhy = 'changed';
+         that changed: it starts on the main account this time and the folder is kept to try again, as one out of reach
+         is. Review 1: but not forever (a config torn by a crash never reads again): the record counts the Start at
+         logins in a row that could not read it, and the one that would make WIN32_UNREADABLE_LIMIT drops the folder. */
+      let now;
+      try { now = win32AccountIdentityRead(runner, configDir); } catch (e) {
+        // A bug, not a busy file: logged, and read as before this card (changed), never kept.
+        console.error(`kosmos#8489: reading the account in ${configDir} failed: ${e && e.message}`);
+        now = null;
+      }
+      const match = !now ? 'changed' : now.unreadable ? 'unreadable' : accountMatch(identity, now.identity, runner);
+      if (match === 'unreadable') accountWhy = unreadableBefore + 1 >= WIN32_UNREADABLE_LIMIT ? 'unreadableGaveUp' : 'unreadable';
+      else if (match === 'changed') accountWhy = 'changed';
+      else identityNow = now.identity;
     }
   }
   return {
-    configDir, model, identity, accountRemoved, accountGone, accountWhy,
+    configDir, model, identity, accountRemoved, accountGone, accountWhy, identityNow, unreadableBefore,
     accountOk: accountWhy === null,
     modelOk: modelShaped && win32ModelOffered(runner, model),
   };
@@ -5040,6 +5094,11 @@ function installJob(name, opts) {
   const keepAccountWin = (opts && typeof opts.keepRecordedAccount === 'string' && opts.keepRecordedAccount) ? opts.keepRecordedAccount : null;
   // round 3: with the identity it was recorded with (it cannot be read from a folder out of reach).
   const keepIdentityWin = keepAccountWin && opts.keepRecordedIdentity && typeof opts.keepRecordedIdentity === 'object' ? opts.keepRecordedIdentity : null;
+  // kosmos#8489 review 1: how many Start at logins in a row, this one included, could not read the kept folder's account.
+  const keepUnreadableWin = keepAccountWin && Number.isInteger(opts.keepRecordedUnreadable) && opts.keepRecordedUnreadable > 0 ? opts.keepRecordedUnreadable : 0;
+  /* kosmos#8489 review 1: the identity register.repair just read and matched. Recorded as it is, never read again here:
+     the agent this call just started may be writing its config at that very moment. */
+  const verifiedIdentityWin = opts && opts.verifiedIdentity && typeof opts.verifiedIdentity === 'object' ? opts.verifiedIdentity : null;
   /* 🛑 #570: WINDOWS HAS NO LAUNCHD, SO EVERYTHING BELOW THIS POINT IS MAC-ONLY.
      The rest of this function installs the supervisor script, writes a `.plist`,
      `launchctl enable`s the label and `bootstrap`s it. None of those exist on
@@ -5092,9 +5151,10 @@ function installJob(name, opts) {
        opens, by which time its account may have been disconnected and its name reused) is recorded with none, which
        Start at login never trusts. */
     const verifiedWin = Boolean(opts && opts.accountVerified === true);
+    const accountWin = !verifiedWin ? { account: null } : (verifiedIdentityWin && configDirWin ? { account: verifiedIdentityWin } : {});
     recordWin32Task(clean, configDirWin || !keepAccountWin
-      ? { runner, configDir: configDirWin, model: modelArgWin, accountChosen: true, ...(verifiedWin ? {} : { account: null }) }
-      : { runner, configDir: keepAccountWin, model: modelArgWin, account: keepIdentityWin, kept: true, accountChosen: true });
+      ? { runner, configDir: configDirWin, model: modelArgWin, accountChosen: true, ...accountWin }
+      : { runner, configDir: keepAccountWin, model: modelArgWin, account: keepIdentityWin, kept: true, unreadable: keepUnreadableWin, accountChosen: true });
     return {
       ok: true,
       started: true,

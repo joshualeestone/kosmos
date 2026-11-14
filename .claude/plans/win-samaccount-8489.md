@@ -15,10 +15,12 @@ Both failed safe (main account), but the words were false and the record was dro
 Card comment: an API key was matched by its last four characters only, so two keys sharing them read as one account.
 
 ## Decisions
-- (a) Organizations are compared by id only, and only when BOTH sides have one; otherwise the email alone decides.
+- (a) Organizations are compared by id. Both sides have one: they decide. Neither: the email alone decides. Review 1
+  (decided by the coordinator): a RECORDED id with none in the folder now is "could not read" (kept, main account this
+  time), never "same"; no id recorded and one now is the email alone. accountMatch answers same/changed/unreadable.
   For Claude the id is the organization uuid (a uuid-shaped value; a recorded name never counts as one), and new
   records keep only the uuid (null when Claude Code wrote none). For codex the id is the ChatGPT workspace id, which
-  is never a name, so its rule is the same "both or email alone". Old records holding a name keep working: the name is
+  is never a name, so its rule is the same. Old records holding a name keep working: the name is
   ignored and the email decides. Rejected: keeping a name and comparing it when both sides have names (a rename is
   exactly that case). Rejected: a separate `orgUuid` field (changes the record shape the 8478 tests pin, for no gain).
 - (b) create.win32AccountIdentityRead answers { identity, unreadable }. Unreadable = a credential file that is there
@@ -28,8 +30,23 @@ Card comment: an API key was matched by its last four characters only, so two ke
   is signed in to the folder it used just now, so it starts on your main account unless it can read that by then and
   it is still the same account. If it still cannot, Kosmos keeps that folder and tries it again at the next Start at
   login." A config read whole with no sign-in (signed out), and a codex auth.json that is gone (codex logout deletes
-  it), stay 'changed'. A Grok auth.json that parses but holds no single x.ai sign-in is "could not read" (readAuth's
-  own 'unreadable'; Kosmos genuinely cannot say whose it is).
+  it), stay 'changed'. Review 1: a Grok auth.json read whole with no x.ai sign-in is signed out ('changed'; nothing in
+  grokaccounts or its tests shows the CLI writing that state mid sign-in, it writes the whole file with its entry);
+  two x.ai sign-ins is "could not read".
+- Review 1, "could not read" ends: a kept record counts the Start at logins in a row that could not read it
+  (`unreadable`); the one that would make WIN32_UNREADABLE_LIMIT (3) answers 'unreadableGaveUp', which the repair does
+  not keep (main account for good), and the words say "on your main account from now on, because Kosmos could not read
+  which account is signed in to the folder it used now, nor at the two Start at logins before". A readable match
+  rewrites the record without the count; an unreachable start keeps the folder without it.
+- Review 1, no catch-all in the reader: every file read already answers absent or unreadable, so the outer catch went.
+  A throw is a bug: win32RecordedTask logs it (console.error, the folder path and message, never a key) and answers
+  'changed' (the behaviour before this card, never kept); the record path logs it and treats it as unreadable.
+- Review 1, the record write: register.repair passes the identity it just read and matched (identityNow) to installJob
+  as verifiedIdentity, recorded as is, never read again (the agent just started may be writing its config). Every
+  other record write that reads and cannot keeps the identity the record already held for the same folder and runner
+  (win32IdentityToRecord), never null; a newly chosen folder with nothing recorded gets null, as before.
+- Review 1 (nit): the "could not read" and "cannot reach" words now say the folder is tried again until the agent's
+  startup job is written again (changing its account or model does that), which forgets it.
   The account modules' identityOf are NOT changed: their lists rightly treat both cases as "no account here". The
   reader lives in create.js, reading the same files; openaiaccounts now exports identityFromData so codex is read from
   one read of auth.json (a second read could land mid-write).
@@ -46,10 +63,11 @@ Card comment: an API key was matched by its last four characters only, so two ke
 - Grok: key file unreadable and mid-write auth.json were "changed": fixed (b); key tail: fixed (c).
 
 ## Weakest part
-A Claude folder with NO config and no key reads as "could not read" forever (as the card asked), so an agent whose
-folder was emptied by hand keeps its record and is told each time that Kosmos could not read the account, rather than
-being moved to the main account for good. It stays on the main account meanwhile, so it fails safe, but the words
-repeat. What would change my mind: evidence Claude Code ever deletes its config (then "missing" should be signed out).
+The limit of 3 counts Start at logins, not time: two task-only deletes and repairs minutes apart while a config is
+torn use up the tries quickly, and a busy file read three times in a row (very unlikely) drops a good folder; the person
+is told and chooses the account again. A missing Claude config with no key now ends the same way after 3. What would
+change my mind: evidence that Claude Code leaves its config unparseable for long stretches (then count days, not
+starts). The "unreadableGaveUp" words at the task-only delete predict the coming Start at login from a read made now.
 Second: the uuid shape test means a Claude organization uuid that is not uuid-shaped would never be compared (email
 alone decides), a looser match for one person's two organizations; real organizationUuid values are uuids.
 
@@ -61,5 +79,10 @@ alone decides), a looser match for one person's two organizations; real organiza
 - engine/delete-leftover.win32-accountkeep-8478.test.js: end to end on the stand-in Task Scheduler, a half-written
   config at the task-only delete: true words, Start at login on the main account, the record kept with its identity,
   and back on its account once the config is whole.
+- Review 1: a recorded uuid or codex workspace with none now (unreadable); a kept record at 0, 1, 2 unreadable (third
+  gives up, words); a Grok file with no sign-in (changed) and two (unreadable); a thrown reader bug (changed, logged);
+  end to end: the repair records the identity it checked though the config is torn right after; an adoption install
+  that cannot read keeps the recorded identity; three torn Start at logins drop the folder and one readable resets.
+  Each fails against da38e03b52 (the round 1 base).
 - Negative control: each new test fails against origin/main's create/register/delete-leftover/openaiaccounts (with
   only an export of win32AccountIdentity appended so the unit tests can reach it).

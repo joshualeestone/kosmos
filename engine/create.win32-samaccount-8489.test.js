@@ -98,7 +98,7 @@ test('kosmos#8489 (b): a Claude config that cannot be read right now is "could n
   fs.writeFileSync(accounts.configFile(dir), '{"oauthAccount": {"emailAddress": "lee@exa');
   assert.equal(why(n), 'unreadable', 'a config being written read as a changed account');
   const words = leftover.startsAgainWords(n);
-  assert.match(words, /^; it starts on the model it was set to, but Kosmos could not read which account is signed in to the folder it used just now, so it starts on your main account unless it can read that by then and it is still the same account\. If it still cannot, Kosmos keeps that folder and tries it again at the next Start at login\.$/);
+  assert.match(words, /^; it starts on the model it was set to, but Kosmos could not read which account is signed in to the folder it used just now, so it starts on your main account unless it can read that by then and it is still the same account\. If it still cannot, Kosmos keeps that folder and tries it again at the next Start at login, unless its startup job is written again before then \(changing its account or model does that\), which forgets that folder\.$/);
   assert.doesNotMatch(words, /signed out or changed/, 'the person was told the account signed out or changed');
   // Not there at all, with no key beside it: could not read too.
   fs.rmSync(accounts.configFile(dir));
@@ -168,4 +168,72 @@ test('kosmos#8489: the other account modules: a Gemini or Grok key and a codex k
   assert.equal(why(c), 'unreadable', 'a codex sign-in file being written read as a changed account');
   fs.rmSync(oa.authFile(cdir));
   assert.equal(why(c), 'changed', 'a codex sign-out was not called changed');
+});
+
+test('kosmos#8489 review 1: a recorded organization id with none in the folder now is "could not read", never the same account; no id recorded and one now is the email alone', () => {
+  const dir = folder('orgGone');
+  writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationUuid: UUID_ONE });
+  const n = recorded('orggone8489', 'anthropic', 'claude', dir, create.win32AccountIdentity('claude', dir));
+  // The config now shows only an organization name: which organization it is cannot be told.
+  writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationName: 'Acme Studio' });
+  assert.equal(why(n), 'unreadable', 'a recorded organization uuid matched a folder that shows none');
+  // Recorded with none, the folder now shows one: the email decides.
+  const m = recorded('orgnew8489', 'anthropic', 'claude', dir, { kind: 'signin', email: 'pat@example.test', keyTail: null, org: null });
+  writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationUuid: UUID_TWO });
+  assert.equal(why(m), null);
+  // codex: a recorded workspace with none in auth.json now.
+  const oa = require('./openaiaccounts');
+  const cdir = folder('codexWs');
+  const idToken = (claims) => ['e30', Buffer.from(JSON.stringify(claims)).toString('base64url'), 'sig'].join('.');
+  fs.writeFileSync(oa.authFile(cdir), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken({ email: 'ana@example.test' }), account_id: 'ws-1' } }));
+  const c = recorded('codexws8489', 'openai', 'codex', cdir, create.win32AccountIdentity('codex', cdir));
+  fs.writeFileSync(oa.authFile(cdir), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken({ email: 'ana@example.test' }) } }));
+  assert.equal(why(c), 'unreadable', 'a recorded ChatGPT workspace matched an auth.json that names none');
+  fs.writeFileSync(oa.authFile(cdir), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken({ email: 'ana@example.test' }), account_id: 'ws-2' } }));
+  assert.equal(why(c), 'changed', 'another ChatGPT workspace was trusted');
+});
+
+test('kosmos#8489 review 1: "could not read" ends: the third Start at login in a row drops the folder for good, and the words say so', () => {
+  const dir = folder('torn');
+  writeClaudeConfig(dir, { emailAddress: 'lee@example.test', organizationUuid: UUID_ONE });
+  const id = create.win32AccountIdentity('claude', dir);
+  fs.writeFileSync(accounts.configFile(dir), Buffer.alloc(64));   // torn to NULs by a crash
+  const keptAs = (name, unreadable) => {
+    made.push(name);
+    store.writeProfile(name, { displayName: name, provider: 'anthropic',
+      win32Task: { runner: 'claude', configDir: dir, model: SET_MODEL, account: id, kept: true, ...(unreadable ? { unreadable } : {}) } });
+    return name;
+  };
+  assert.equal(why(keptAs('torn0-8489', 0)), 'unreadable');
+  assert.equal(why(keptAs('torn1-8489', 1)), 'unreadable');
+  const last = keptAs('torn2-8489', 2);
+  assert.equal(why(last), 'unreadableGaveUp', 'a folder unread three Start at logins in a row was kept again');
+  assert.equal(create.win32RecordedTask(last).accountOk, false);
+  assert.equal(leftover.startsAgainWords(last), '; it starts on the model it was set to, but on your main account from now on, because Kosmos could not read which account is signed in to the folder it used now, nor at the two Start at logins before, so choose its account again if it should use another.');
+});
+
+test('kosmos#8489 review 1: a Grok sign-in file holding no x.ai sign-in is signed out (changed); two is "could not read"', () => {
+  const grok = require('./grokaccounts');
+  const dir = folder('grokOut');
+  fs.writeFileSync(grok.authFile(dir), JSON.stringify({ 'https://auth.x.ai::u': { email: 'kim@example.test', refresh_token: 'r' } }));
+  const n = recorded('grokout8489', 'xai', 'grok', dir, create.win32AccountIdentity('grok', dir));
+  fs.writeFileSync(grok.authFile(dir), JSON.stringify({}));
+  assert.equal(why(n), 'changed', 'a Grok file with nobody signed in was read as "could not read"');
+  fs.writeFileSync(grok.authFile(dir), JSON.stringify({ 'https://auth.x.ai::u': { email: 'kim@example.test' }, 'https://auth.x.ai::v': { email: 'kim@example.test' } }));
+  assert.equal(why(n), 'unreadable');
+});
+
+test('kosmos#8489 review 1: a bug in the reader is not "could not read": it reads as changed (never kept) and is logged', (t) => {
+  const oa = require('./openaiaccounts');
+  const dir = folder('codexBug');
+  fs.writeFileSync(oa.authFile(dir), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-' + 'k'.repeat(30) }));
+  const n = recorded('codexbug8489', 'openai', 'codex', dir, create.win32AccountIdentity('codex', dir));
+  const real = oa.identityFromData;
+  const logged = [];
+  t.mock.method(console, 'error', (...a) => logged.push(a.join(' ')));
+  oa.identityFromData = () => { throw new Error('a bug'); };
+  try {
+    assert.equal(why(n), 'changed', 'a thrown bug was read as "could not read" (which keeps the folder)');
+  } finally { oa.identityFromData = real; }
+  assert.ok(logged.some((l) => /kosmos#8489: reading the account in .* failed: a bug/.test(l)), 'the bug was not logged: ' + JSON.stringify(logged));
 });
