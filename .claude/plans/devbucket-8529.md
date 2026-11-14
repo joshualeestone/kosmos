@@ -54,6 +54,14 @@ end-to-end run for #8526. The coordinator half and the fake bucket are kosmos-re
   two comments made stale by this change corrected; run-once keeps every snapshot id and requires inside its try.
   All 17 backup files 524/524; sync test 3/3.
 
+## Review round 4 (fixed) and one unexplained failure
+
+- The comment names the `.localhost` resolver premise beside the ssh-tunnel case; a coordinator address with a user
+  part is tested refused (loopback and .localhost forms); removing the .localhost user-part check turns it red.
+- NOT EXPLAINED: of seven runs of all 17 engine/backup*.test.js after round 4, one (15:13) reported 523 pass / 1 fail
+  and its failing test was not captured; the other six were 524/524, including four runs logged to look for it. Not
+  reproduced, not named, not claimed fixed.
+
 ## Weakest premise
 
 That `*.localhost` always resolves to this machine. RFC 6761 says it should; the e2e checks it before starting (it
