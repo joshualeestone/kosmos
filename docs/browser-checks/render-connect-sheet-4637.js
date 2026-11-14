@@ -829,10 +829,10 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         return r ? { stale: r.classList.contains('stale'), ago: !!r.querySelector('.askwho span') } : null; }, CLOUD_ID);
       chk(clAge && !clAge.stale && !clAge.ago, `${tag} #8525: a cloud machine waiting three hours is not faded and shows no age`, JSON.stringify(clAge));
       await page.click('#plus-ask-rows [data-ask="deny"][data-id="' + CLOUD_ID + '"]');
-      await page.waitForFunction(() => /told not to add your cloud machine cloud-d296a63b/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      await page.waitForFunction(() => /To stop your cloud machine cloud-d296a63b/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       const clNo = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
-      chk(/Turned away\. Kosmos\+ was told not to add your cloud machine cloud-d296a63b\. To stop it, cancel it on your Kosmos\+ account page\./.test(clNo) && !/password/.test(clNo.split('laptop2')[0]),
-        `${tag} #8525: Not me on a cloud machine says Kosmos+ was told not to add it and where to cancel it, with no password sentence`, clNo);
+      chk(/Turned away\. To stop your cloud machine cloud-d296a63b, cancel it on your Kosmos\+ account page\./.test(clNo) && !/password/.test(clNo.split('laptop2')[0]),
+        `${tag} #8525: Not me on a cloud machine says where to cancel it, with no password sentence`, clNo);
       /* Asking again after Not me: no password sentence either; and a nameless one is "Your cloud machine", never "Unknown device". */
       await page.evaluate(() => { ASK.done = {}; });
       await cloudSheet({ device_id: CLOUD_ID, name: null, code: '', first_seen: now() - 20, denied_at: now() - 60, joining_computer: null, code_wait: null, cloud: true });
