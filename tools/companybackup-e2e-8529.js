@@ -731,8 +731,9 @@ async function main() {
       const [org, member, epoch, period] = String(rows[0].object_key).split('/');
       const handoff = {
         bucketDir: BUCKET.dir, bucketName: BUCKET.name, manifestObjectKey: rows[0].object_key,
-        context: { org, member, epoch: Number(epoch), period, snapshot: run.result && run.result.snapshot },
-        memberKeyDir: path.join(K.data, 'backupkeys'), stateDir: path.join(K.data, 'backupstate'),
+        context: { org, member, epoch: Number(epoch), period, snapshot: run.snapshot || null },
+        memberKeyDir: run.storeRoot ? path.join(run.storeRoot, 'backupkeys') : null,
+        stateDir: run.storeRoot ? path.join(run.storeRoot, 'backupstate') : null,
         devicePublicKeySpkiB64: run.devicePublicKey || null, agentFolder: agentDir, claudeSession: sid,
       };
       const f = path.join(SANDBOX, 'reader-handoff.json');
