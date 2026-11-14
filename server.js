@@ -4719,7 +4719,7 @@ const outbox = require('./engine/outbox');
    sends the header on EVERY call, including person-side ones such as `kosmos
    open`'s board-nonce run from a terminal with no KOSMOS_WORLD, and those must
    never be refused for it. */
-const WORLD_CHECKED_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail']);   // toolfail: #6071, a digest meant for another Kosmos is refused like a report
+const WORLD_CHECKED_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail', 'POST /api/connections/found']);   // connections/found: kosmos#8519, as toolfail   // toolfail: #6071, a digest meant for another Kosmos is refused like a report
 
 /* #6071: when POST /api/toolfail last said each kind of line (a refusal reason, an agent's first failure of a run). */
 const TOOLFAIL_SAID = new Map();
@@ -6664,7 +6664,8 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    as any agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/agents/list', 'GET /api/tasks', 'GET /api/tasks/mine', 'GET /api/community/read',
-  'POST /api/undo/keep', 'POST /api/agent/reply-channel', 'POST /api/toolfail', 'GET /api/project-file/who']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler; toolfail: #6071, its handler resolves the caller token-first (resolveAgentSender)
+  'POST /api/undo/keep', 'POST /api/agent/reply-channel', 'POST /api/toolfail', 'GET /api/project-file/who',
+  'GET /api/connections/found', 'POST /api/connections/found']);   // kosmos#8519: the read is the disk only; the write names the caller (resolveAgentSender)   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler; toolfail: #6071, its handler resolves the caller token-first (resolveAgentSender)
 /* kosmos#7989 slice 2: `kosmos project who <file>` (GET /api/project-file/who) joins, a READ, so a token-only agent can
    check a file before calling a change unexplained, as it can read `project show`. WHO GAINS: for a path inside a
    project's folder (any project's, .git and .env included), whether it exists, its modification time, and the agents last
@@ -18094,6 +18095,45 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { services: connectionsHeld() });
     return;
   }
+  /* kosmos#8519: which actions of a connection work, as the agents found them (engine/connfound.js says why it is
+     "found" and never probed). The read is the disk only, like /held, so it costs nothing and is open to an agent's own
+     token. The write names the caller from its token exactly as POST /api/toolfail does (resolveAgentSender), so a
+     finding is always some agent's, never the person's and never a name the body claims. A service Kosmos itself
+     connects (GitHub, Vercel, Cloudflare, a token door) is filed as Kosmos's; any other name is a service the agent
+     uses outside Kosmos (a plugin), shown apart. */
+  if (pathname === '/api/connections/found' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    let want = '';
+    try { want = new URL(req.url, ROUTING_BASE).searchParams.get('service') || ''; } catch { want = ''; }
+    sendJson(res, 200, { services: require('./engine/connfound').list(want ? { service: want } : {}) });
+    return;
+  }
+  if (pathname === '/api/connections/found' && req.method === 'POST') {
+    readBody(req, 4 * 1024)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { recorded: false, because: 'that request is not the shape we expect' }); return; }
+        const roster = safeRoster();
+        if (roster === null) { sendJson(res, 200, { recorded: false, because: 'we could not check which agents are running, so we could not tell who this is from' }); return; }
+        const denyPaneFallback = boardAuthState.on
+          && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+        const sender = resolveAgentSender(req, body, roster, {
+          denyPaneFallback,
+          denyBecause: 'this board only records a finding from the account that started the agent, or one that presents an agent token',
+        });
+        if (!sender.ok) { sendJson(res, 200, { recorded: false, because: sender.because }); return; }
+        const cf = require('./engine/connfound');
+        const ours = connectionsHeld().some((c) => cf.serviceKey(c.name) === cf.serviceKey(body.service || '')
+          || (c.connect && cf.serviceKey(c.connect) === cf.serviceKey(body.service || '')));
+        const r = cf.record({ service: body.service, action: body.action, outcome: body.outcome, note: body.note,
+          by: sender.card.sessionName, how: 'agent', kind: ours ? 'kosmos' : 'other' });
+        sendJson(res, r.ok ? 200 : 400, r.ok ? { recorded: true } : { recorded: false, because: r.because });
+      })
+      .catch(() => sendJson(res, 400, { recorded: false, because: 'that request is not something we can read' }));
+    return;
+  }
   if (pathname === '/api/connections' && (req.method === 'GET' || req.method === 'HEAD')) {
     /* 🛑 #1636: REFUSED BEFORE THE SWEEP, BECAUSE THE SWEEP IS THE COST. A page the
        person merely visits can `fetch()` this in a loop. It learns nothing - CORS
@@ -19444,6 +19484,9 @@ const server = http.createServer(async (req, res) => {
         if (!r.ok) { toolfailSay('refused:' + r.because, `[toolloop] ${who}: a failed-call digest was refused: ${r.because}`); sendJson(res, 200, { recorded: false, because: r.because }); return; }
         /* What D1 is for: the log shows that digests arrive at all (the first of a run, at most once per agent per
            TOOLFAIL_SAY_MS) and when one reaches the threshold (every time). Never the error line itself. */
+        /* kosmos#8519: a plugin action the service refused is also a finding about that connection (engine/connfound.js:
+           only a refusal that says something about the action is kept). The error line is only sorted, never stored. */
+        try { require('./engine/connfound').noteToolFailure(who, body.tool, body.error); } catch { /* a finding never refuses the digest */ }
         if (r.count === 1) toolfailSay('first:' + who, `[toolloop] ${who}: a ${r.tool} failure was recorded (#6071, recorded only)`);
         if (r.reached) console.log(`[toolloop] ${who}: ${r.tool} failed the same way ${r.count} times in one turn (#6071, recorded only)`);
         sendJson(res, 200, { recorded: true, count: r.count, looping: r.looping });
