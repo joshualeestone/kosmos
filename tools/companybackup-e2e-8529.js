@@ -83,7 +83,7 @@ const nextTickOffset = (t) => (t < ROLLUP_FIRST_MS ? ROLLUP_FIRST_MS : t < ROLLU
 // family's words must not be these. A second copy, kept on purpose (round 17): deriving it in the run needs a second
 // admin and a company join. If relay ever changes the company words, its pinned test changes; change this with it, or
 // step 9's hash clause stops discriminating (the --kind company control in the plan is how to see it).
-const COMPANY_CONSENT_HASH = '34a95f58313ab7cc39946efb67c9e744ae3fa8a85962f70b554a73ff9b88f1ba';   // kosmos#6594: the reviewer line split in two, each under the board's 300 (relay #546)
+const COMPANY_CONSENT_HASH = 'd19c46c8fde9aaee0b78672b266e909d720c5b2d09dd7b27bac3d1632fc265ff';   // kosmos#6842 slice 3 added the per-project use line (relay api.rs pins this; 34a95f58... before it, kosmos#6594). kosmos#8529's run found the old value here
 // One table: each step's label prefix and how many checks it makes. EXPECTED_CHECKS and the "never ran" list both come
 // from it, so adding a check means changing one number here.
 const STEP_CHECKS = { 'step 0': 1, 'step 1': 1, 'step 2': 1, 'step 4': 4, 'step 4b': 4, 'step 5': 1, 'step 6': 1, 'step 7': 3,
@@ -541,7 +541,7 @@ async function main() {
     // CONTROL for step 6: before any Allow, the console refuses the parent's browser (not an allowed sign-in). Matched by
     // its words: the coordinator's answer carries no code field for this refusal, so the wording is the only handle.
     const c = await http(REL.coordinator, 'POST', '/v1/org/invites', {}, bearer(sess.token));
-    chk(c.status === 403 && /allow this sign-in on one of your computers first/.test(c.text), 'step 4b control: before the Allow, the console refuses the parent\'s browser',
+    chk(c.status === 403 && /allow this sign-in on one of your computers first/.test(c.text), 'step 4b control: before the Allow, the console refuses the admin\'s browser',
       c.status + ' ' + c.text.slice(0, 160) + (c.status === 403 ? ' (matched by its words: a 403 with other words means the coordinator reworded it)' : ''));
   }
   /* kosmos#6887: the browser asks P by opening it (the knock; without it P lists nothing since kosmos#6407). The gate
@@ -563,7 +563,7 @@ async function main() {
   }
   const kj = parseKnock(knock);
   chk(knock.status === 403 && !!kj && kj.pending === true && !!sess && kj.code === sess.match_code,
-    'step 4b: the parent\'s browser opens P through the relay and is told to wait, with the code its sign-up showed', knock.status + ' ' + String(knock.text).slice(0, 200));
+    'step 4b: the admin\'s browser opens P through the relay and is told to wait, with the code its sign-up showed', knock.status + ' ' + String(knock.text).slice(0, 200));
   /* The coordinator names a session's device itself (kosmos#5422: an id the browser offers is replaced), so the row on
      P is found by the four characters the sign-up answered, as the person matches them on screen. */
   const listed = await waitFor(async () => {
@@ -571,12 +571,12 @@ async function main() {
     const devs = p.json && Array.isArray(p.json.devices) ? p.json.devices : [];
     return devs.find((d) => d && sess && typeof sess.match_code === 'string' && sess.match_code !== '' && d.code === sess.match_code) || null;
   }, sess ? 60000 : 0, 1500);   // no session, nothing to find: no wait
-  chk(!!listed, 'step 4b: P lists the parent\'s browser as waiting, with the code its sign-up showed', listed ? String(listed.device_id || '').slice(0, 8) + '... ' + listed.code : 'match code ' + (sess && sess.match_code));
+  chk(!!listed, 'step 4b: P lists the admin\'s browser as waiting, with the code its sign-up showed', listed ? String(listed.device_id || '').slice(0, 8) + '... ' + listed.code : 'match code ' + (sess && sess.match_code));
   if (listed) {
     const r = await http(P.base, 'POST', '/api/remote/devices/allow', { device_id: listed.device_id, code: listed.code }, SCREEN);
     // Only that the route answered: before #6286's fix (kosmos#6291 with a tunnel carrying kosmos-relay#404) it said
     // allowed even for an id nobody holds, so the claim that the Allow took is step 6's, either way.
-    chk(r.status === 200, 'step 4b: P\'s Allow route answers for the parent\'s browser', r.status + ' ' + r.text.slice(0, 200));
+    chk(r.status === 200, 'step 4b: P\'s Allow route answers for the admin\'s browser', r.status + ' ' + r.text.slice(0, 200));
   }
 
   // 5. the operator makes the family (orgs are operator-made: org-create --kind family).
@@ -600,7 +600,7 @@ async function main() {
     }, 45000, 1500);
     if (!r) r = { status: 0, json: null, text: 'no answer: ' + lastErr };   // review 1: report the cause, not a TypeError
     code = r.json && (r.json.code || r.json.invite_code) || '';
-    chk(r.status === 200 && !!code, 'step 6: the parent makes a join code in the console', r.status + ' ' + (code ? r.text.split(code).join('[code]') : r.text).slice(0, 160));
+    chk(r.status === 200 && !!code, 'step 6: the admin makes a join code in the console', r.status + ' ' + (code ? r.text.split(code).join('[code]') : r.text).slice(0, 160));
   }
 
   // 7. K previews the code: a company, with its own words, and nothing joined yet.
