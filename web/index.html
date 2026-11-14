@@ -56180,7 +56180,7 @@ function paintAsk() {
        where the computer's name is on screen, plus the line when there is one (an error or a re-ask). */
     const sayText = [say, again.trim(), errWords].filter(Boolean).join(' ');
     const codeDescribedBy = 'askhead-' + askEsc(d.device_id) + (sayText ? ' asksay-' + askEsc(d.device_id) : '');
-    return '<div class="askreq' + (stale ? ' stale' : '') + '"><div class="askdev">' + askIcon(d.joining_computer ? 'computer' : kind) + '</div>' +
+    return '<div class="askreq' + (stale ? ' stale' : '') + '"><div class="askdev">' + askIcon(d.joining_computer || d.cloud ? 'computer' : kind) + '</div>' +
       '<div class="askwho"><b id="askhead-' + askEsc(d.device_id) + '">' + askHead(d) + '</b>' + (joiningRow ? '' : askAgoSpan(d.first_seen)) + '</div>' +
       (sayText ? '<p class="asksay" id="asksay-' + askEsc(d.device_id) + '">' + sayText + '</p>' : '') +
       (waitLine ? '<p class="askwait">' + waitLine + '</p>' : '') +

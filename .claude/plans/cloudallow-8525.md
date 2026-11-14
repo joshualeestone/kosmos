@@ -16,6 +16,7 @@ The board had two blocks:
 - isComputerRow counts `cloud === true`, so board-v2 keeps the row and its route.
 - deviceAllow skips the code rule only for an id the tunnel's own pending.json marks cloud
   (listedAsCloud). The page's word is never trusted for this; the tunnel re-decides from its live list.
+- deviceAllow says a cloud Allow is not done unless Kosmos+ acked it (a cloud Allow writes nothing here and owes no retry), and words a 404 for a cloud machine.
 - web/index.html: askHead "Your cloud machine "<name>" wants to join"; the say line; Allow label.
 
 ## Rejected
@@ -23,7 +24,7 @@ The board had two blocks:
 - Having the relay send `joining_computer` for cloud rows (would run a meaningless pairing).
 
 ## Tests
-- engine/remote.joincode-4794.test.js: three #8525 tests with controls.
+- engine/remote.joincode-4794.test.js: #8525 tests with controls (listing, Allow, board-v2, no code, the 404 and not-reached wording).
 - web.allow-card.test.js: askHead behaviour with controls.
 - docs/browser-checks/render-connect-sheet-4637.js: cloud arm and was_a_computer control, 1400 and 390.
 
