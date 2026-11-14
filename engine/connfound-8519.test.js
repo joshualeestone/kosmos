@@ -32,7 +32,8 @@ test('parseMcpTool: the service and the action from a plugin tool name, provider
 test('classify: only what says something about the ACTION; Claude Code refusals and plain failures are null', () => {
   assert.equal(cf.classify('Unknown tool: crm_merge_contacts'), 'not-offered');
   assert.equal(cf.classify('MCP error -32601: Method not found'), 'not-offered');
-  assert.equal(cf.classify('This operation is not supported by the server'), 'not-offered');
+  // Review 2: "operation not supported" is also how input errors read, so it is not a strong enough signal on its own.
+  assert.equal(cf.classify('This operation is not supported by the server'), null);
   assert.equal(cf.classify('403 insufficient_scope: requires crm.objects.deals.write'), 'needs-scope', 'scope wins over the 403');
   assert.equal(cf.classify('missing required scopes for this endpoint'), 'needs-scope');
   assert.equal(cf.classify('HTTP 403 Forbidden'), 'needs-permission');
@@ -56,6 +57,20 @@ test('classify: only what says something about the ACTION; Claude Code refusals 
   assert.equal(cf.classify('Forbidden'), 'needs-permission');
   assert.equal(cf.classify('You are not allowed to delete this deal'), 'needs-permission');
   assert.equal(cf.classify('The update_deal tool is not supported'), 'not-offered');
+  // Review 2: noise that also says 403 or "permission denied", and input errors in "not supported" words, record nothing.
+  for (const noise of ['403 Forbidden: rate limit exceeded', 'API rate limit exceeded (403)', 'Error 403: The request is missing a valid API key',
+    'EACCES: permission denied, open /tmp/x', 'permission denied (publickey)', 'This operation is not supported on shared drives',
+    'Error: function not supported for this file format', 'error: operation not supported for value of type string',
+    'Error: unknown action type in payload field "type"', '403']) {
+    assert.equal(cf.classify(noise), null, noise);
+  }
+  // Review 2: the scope errors real services send, and scope before permission.
+  for (const scope of ['Request had insufficient authentication scopes.', 'Insufficient Permission: Request had insufficient authentication scopes.',
+    'missing_scope', 'Resource not accessible by integration', 'Resource not accessible by personal access token',
+    'This app does not have proper permissions! (requires any of [crm.objects.deals.write])']) {
+    assert.equal(cf.classify(scope), 'needs-scope', scope);
+  }
+  assert.equal(cf.classify('403: SAML enforcement is enabled for this organization'), 'off-by-policy');
   assert.equal(cf.classify(''), null);
   assert.equal(cf.classify(undefined), null);
 });
@@ -76,9 +91,9 @@ test('noteToolFailure: a plugin action that the service refused is recorded; any
 test('record: the latest outcome per action wins, repeats count, and what does not work lists first', () => {
   reset();
   assert.deepEqual(cf.record({ service: 'GitHub', action: 'create release', outcome: 'needs-scope', by: 'ada', kind: 'kosmos', now: 1000 }), { ok: true });
-  assert.deepEqual(cf.record({ service: 'github', action: 'create release', outcome: 'needs-scope', by: 'ben', now: 2000 }), { ok: true });
-  assert.deepEqual(cf.record({ service: 'GitHub', action: 'open pull request', outcome: 'works', by: 'ada', now: 3000 }), { ok: true });
-  assert.deepEqual(cf.record({ service: 'GitHub', action: 'delete repo', outcome: 'needs-permission', by: 'ada', now: 2500, note: 'the token is read only' }), { ok: true });
+  assert.deepEqual(cf.record({ service: 'github', action: 'create release', outcome: 'needs-scope', by: 'ben', kind: 'kosmos', now: 2000 }), { ok: true });
+  assert.deepEqual(cf.record({ service: 'GitHub', action: 'open pull request', outcome: 'works', by: 'ada', kind: 'kosmos', now: 3000 }), { ok: true });
+  assert.deepEqual(cf.record({ service: 'GitHub', action: 'delete repo', outcome: 'needs-permission', by: 'ada', kind: 'kosmos', now: 2500, note: 'the token is read only' }), { ok: true });
   const [g] = cf.list({ now: 4000 });
   assert.equal(g.name, 'GitHub', 'the first spelling is kept');
   assert.equal(g.kind, 'kosmos');
@@ -89,7 +104,7 @@ test('record: the latest outcome per action wins, repeats count, and what does n
   assert.equal(cr.by, 'ben');
   assert.equal(cr.words, 'Needs a wider sign-in');
   // A later success replaces the failure.
-  cf.record({ service: 'GitHub', action: 'create release', outcome: 'works', by: 'ada', now: 5000 });
+  cf.record({ service: 'GitHub', action: 'create release', outcome: 'works', by: 'ada', kind: 'kosmos', now: 5000 });
   const g2 = cf.list({ now: 6000 })[0];
   assert.equal(g2.actions.find((a) => a.action === 'create release').outcome, 'works');
   assert.equal(g2.actions.find((a) => a.action === 'create release').n, 1, 'a change of outcome restarts the count');
@@ -101,6 +116,31 @@ test('a later refusal replaces an earlier works for the same action (the latest 
   cf.noteToolFailure('ada', 'mcp__hubspot__update_deal', 'HTTP 403 Forbidden', { now: 2000 });
   const a = cf.list({ now: 3000 })[0].actions[0];
   assert.deepEqual([a.action, a.outcome, a.by, a.how], ['update_deal', 'needs-permission', 'ada', 'auto']);
+});
+
+test('review 2: a plugin and a Kosmos connection of the same name are two rows, never one', () => {
+  reset();
+  cf.noteToolFailure('ada', 'mcp__plugin_github_github__create_pull_request', 'Resource not accessible by integration', { now: 1000 });
+  cf.record({ service: 'GitHub', action: 'create release', outcome: 'needs-scope', by: 'ben', kind: 'kosmos', now: 2000 });
+  const l = cf.list({ now: 3000 });
+  assert.deepEqual(l.map((s) => [s.name, s.kind, s.actions.map((a) => a.action)]).sort(),
+    [['GitHub', 'kosmos', ['create release']], ['github', 'other', ['create_pull_request']]]);
+  assert.equal(cf.list({ service: 'GITHUB', now: 3000 }).length, 2, '?service= finds both by name');
+});
+
+test('review 2: a service or action named like an Object property is an ordinary name', () => {
+  reset();
+  for (const n of ['constructor', 'toString', 'hasOwnProperty']) {
+    assert.deepEqual(cf.record({ service: n, action: n, outcome: 'works', by: 'ada', now: 1000 }), { ok: true }, n);
+  }
+  assert.deepEqual(cf.list({ now: 2000 }).map((s) => s.name).sort(), ['constructor', 'hasOwnProperty', 'toString']);
+});
+
+test('review 2: direction marks and C1 controls in a note are taken out', () => {
+  reset();
+  assert.deepEqual(cf.record({ service: 'Notion', action: 'search', outcome: 'works', by: 'ada', now: 1000, note: 'ok \u202eevil\u202c and \u0085 done' }), { ok: true });
+  const note = cf.list({ now: 2000 })[0].actions[0].note;
+  assert.equal(note, 'ok evil and done');
 });
 
 test('record refuses what it cannot keep honestly', () => {
@@ -145,7 +185,7 @@ test('renderLines: what both CLIs print, plain and with no em dash', () => {
   const lines = cf.renderLines(cf.list({ now: 120000 }), 120000);
   assert.deepEqual(lines, [
     'hubspot (outside Kosmos): 1 action does not work',
-    '  merge_contacts: The service does not offer this (seen on a failed call by ada, 1 minute ago, 2 times)',
+    '  merge_contacts: The service does not offer this (seen on a refused call by ada, 1 minute ago, 2 times)',
     '  search: Works (recorded by ben, 2 minutes ago) - contacts and deals',
   ]);
   assert.ok(lines.every((l) => !l.includes('—')));

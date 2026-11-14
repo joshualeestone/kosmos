@@ -51,10 +51,12 @@ async function open(browser, w, h, theme, answer) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: theme });
   await ctx.addInitScript((a) => {
     const real = window.fetch.bind(window);
+    window.__cfAnswer = a;   // a control changes this, then repaints
     window.fetch = (u, o) => {
       if (String(u).includes('/api/connections/found')) {
-        if (a === 'fail') return Promise.reject(new Error('down'));
-        return Promise.resolve(new Response(JSON.stringify(a), { status: 200, headers: { 'content-type': 'application/json' } }));
+        const now = window.__cfAnswer;
+        if (now === 'fail') return Promise.reject(new Error('down'));
+        return Promise.resolve(new Response(JSON.stringify(now), { status: 200, headers: { 'content-type': 'application/json' } }));
       }
       return real(u, o);
     };
@@ -133,11 +135,14 @@ async function open(browser, w, h, theme, answer) {
         await ctx.close();
       }
     }
-    // CONTROLS: nothing found, and a failed read, both leave the box hidden.
+    // CONTROLS (review 2: from a SHOWN box, so a paint that never ran cannot pass them): paint what was found, then
+    // repaint with nothing found, or with a failed read, as when findings expire; the box must hide again.
     for (const [label, answer] of [['nothing found', { services: [] }], ['the read failed', 'fail']]) {
-      const { ctx, page, errs } = await open(browser, 1280, 900, 'light', answer);
-      const hidden = await page.evaluate(() => { const b = document.getElementById('conn-found'); return !!b && b.hidden; });
-      chk(hidden, `CONTROL: ${label}, the box stays hidden`);
+      const { ctx, page, errs } = await open(browser, 1280, 900, 'light', FOUND);
+      const shownFirst = await page.evaluate(() => { const b = document.getElementById('conn-found'); return !!b && !b.hidden; });
+      await page.evaluate(async (a) => { window.__cfAnswer = a; await paintConnFound(); }, answer);
+      const hidden = await page.evaluate(() => { const b = document.getElementById('conn-found'); return !!b && b.hidden && document.getElementById('conn-found-list').innerHTML === ''; });
+      chk(shownFirst && hidden, `CONTROL: ${label}, a shown box hides again and empties`, JSON.stringify({ shownFirst, hidden }));
       chk(errs.length === 0, `CONTROL: ${label}, no page errors`, errs.join(' | '));
       await ctx.close();
     }
