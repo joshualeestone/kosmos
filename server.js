@@ -18127,9 +18127,10 @@ const server = http.createServer(async (req, res) => {
         const cf = require('./engine/connfound');
         /* Review 4: `outside: true` (kosmos connections found --outside) files it as a plugin of the person's own, even when
            its name is one Kosmos also connects: the refusal came from that plugin, so its remedy is not in Settings. */
-        /* Review 5: only a connection that is set up here (held is not false) counts as Kosmos's: Discord, Notion or Linear
-           never connected in Kosmos is a plugin, not a door, whatever its name. */
-        const ours = body.outside !== true && connectionsHeld().some((c) => c.held !== false && (cf.serviceKey(c.name) === cf.serviceKey(body.service || '')
+        /* Review 5 and 6: only a connection that is SET UP here (held === true) counts as Kosmos's. Discord, Notion or Linear
+           never connected in Kosmos is a plugin, not a door, whatever its name; so is GitHub or Vercel when this computer is
+           not signed in to it (held is null then: not ruled out, but not set up either). */
+        const ours = body.outside !== true && connectionsHeld().some((c) => c.held === true && (cf.serviceKey(c.name) === cf.serviceKey(body.service || '')
           || (c.connect && cf.serviceKey(c.connect) === cf.serviceKey(body.service || ''))));
         const r = cf.record({ service: body.service, action: body.action, outcome: body.outcome, note: body.note,
           by: sender.card.sessionName, how: 'agent', kind: ours ? 'kosmos' : 'other' });

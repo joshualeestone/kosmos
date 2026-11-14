@@ -169,6 +169,9 @@ test('record refuses what it cannot keep honestly', () => {
   assert.match(cf.record({ ...base, by: '' }).because, /which agent/);
   assert.match(cf.record({ ...base, note: 'x'.repeat(cf.MAX_NOTE + 1) }).because, /at most/);
   assert.match(cf.record({ ...base, note: 'token ghp_' + 'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8' }).because, /looks like it holds a key/);
+  // Review 6: names are held to the same rules: refused when too long or key-shaped, never cut or kept.
+  assert.match(cf.record({ ...base, service: 'S'.repeat(cf.MAX_NOTE) }).because, /service name is at most/);
+  assert.match(cf.record({ ...base, action: 'sk-ant-api03-' + 'A1b2C3d4E5f6G7h8I9j0'.repeat(3) }).because, /that name looks like it holds a key/);
   assert.deepEqual(cf.list({ now: 2000 }), [], 'nothing refused was written');
   assert.deepEqual(cf.record({ ...base, note: 'search works on shared pages only' }), { ok: true }, 'CONTROL: a plain note is kept');
 });
@@ -199,7 +202,7 @@ test('an unreadable store reads as nothing found, and the next record starts it 
 
 test('renderLines: what both CLIs print, plain and with no em dash', () => {
   reset();
-  assert.deepEqual(cf.renderLines([], 0), ['No agent has recorded what works on a connection yet, in the last 30 days.']);
+  assert.deepEqual(cf.renderLines([], 0), ['No agent has recorded what works on a connection yet.']);
   cf.noteToolFailure('ada', 'mcp__hubspot__merge_contacts', 'Unknown tool: merge_contacts', { now: 0 });
   cf.noteToolFailure('ada', 'mcp__hubspot__merge_contacts', 'Unknown tool: merge_contacts', { now: 60000 });
   cf.record({ service: 'hubspot', action: 'search', outcome: 'works', by: 'ben', now: 0, note: 'contacts and deals' });
@@ -210,5 +213,5 @@ test('renderLines: what both CLIs print, plain and with no em dash', () => {
     '  search: Works (recorded by ben, 2 minutes ago) - contacts and deals',
   ]);
   assert.ok(lines.every((l) => !l.includes('\u2014')));
-  assert.deepEqual(cf.renderLines([], 0, 'Acme CRM'), ['No agent has recorded anything about Acme CRM in the last 30 days.'], 'a service asked for is named');
+  assert.deepEqual(cf.renderLines([], 0, 'Acme CRM'), ['No agent has recorded anything about Acme CRM yet.'], 'a service asked for is named');
 });

@@ -104,13 +104,18 @@ test('Mac: --found prints renderLines, and --found <service> asks for that one',
   await withStub({
     'GET /api/connections/found': { json: { services: FOUND } },
     'GET /api/connections/found?service=Acme%20CRM': { json: { services: [] } },
+    'GET /api/connections/found?service=-x': { json: { services: [] } },
   }, async (port, seen) => {
+    // Review 6: a name starting with "-" is an argument, never a node option.
+    const dash = await sh(port, ['connections', '--found', '-x']);
+    assert.equal(dash.code, 0, dash.out);
+    assert.match(dash.out, /^No agent has recorded anything about -x yet\.$/m);
     const r = await sh(port, ['connections', '--found']);
     assert.equal(r.code, 0, r.out);
     assert.equal(r.out.trim(), cf.renderLines(FOUND, Date.now()).join('\n'));
     const one = await sh(port, ['connections', '--found', 'Acme CRM']);
     assert.equal(one.code, 0, one.out);
-    assert.match(one.out, /^No agent has recorded anything about Acme CRM in the last 30 days\.$/m);
+    assert.match(one.out, /^No agent has recorded anything about Acme CRM yet\.$/m);
     assert.ok(seen.some((s) => s.url === '/api/connections/found?service=Acme%20CRM'), 'the service was asked for, encoded');
     assert.equal(swept(seen), 0);
   });
