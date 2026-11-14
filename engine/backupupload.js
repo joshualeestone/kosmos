@@ -111,6 +111,33 @@ const LOCAL_CODES = new Set(['UND_ERR_REQ_CONTENT_LENGTH_MISMATCH', 'UND_ERR_INV
 let httpForTests = false;
 function allowHttpForTests(on) { httpForTests = !!on && !!process.env.NODE_TEST_CONTEXT; }   // and only under node --test
 
+/* kosmos#8529: the one other way to allow a local bucket, for a throwaway coordinator on THIS Mac. It adds no switch:
+   the board's own coordinator address decides (remote.js COORDINATOR, as its production checks do). Both must hold:
+   the coordinator is on this machine (a loopback address, or a *.localhost name, which RFC 6761 keeps on this
+   machine: tools/fed-own-e2e.js reaches its local coordinator as login.<name>.localhost, since a board refuses an
+   IP-addressed one for joins), so never production and never a coordinator elsewhere; and the one url being checked
+   is a loopback address. A Mac set up against login.kosmosplus.com refuses it always. */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+function loopbackUrl(v) {
+  try {
+    const u = new URL(v);
+    return (u.protocol === 'http:' || u.protocol === 'https:') && !u.username && !u.password && LOOPBACK_HOSTS.has(u.hostname);
+  } catch { return false; }
+}
+function localCoordinator() {
+  try {
+    const r = require('./remote');
+    const c = r.COORDINATOR();
+    if (c === r.DEFAULT_COORDINATOR) return false;
+    if (loopbackUrl(c)) return true;
+    const u = new URL(c);
+    return (u.protocol === 'http:' || u.protocol === 'https:') && !u.username && !u.password && u.hostname.endsWith('.localhost');
+  } catch { return false; }
+}
+/* For one upload ({ url }) or a bucket path (host/ or host/bucket/). */
+function localUploadOk(u) { return localCoordinator() && !!u && typeof u.url === 'string' && loopbackUrl(u.url); }
+function localBucketOk(bucket) { return localCoordinator() && typeof bucket === 'string' && loopbackUrl('http://' + bucket.split('/')[0] + '/'); }
+
 const md5b64 = (buf) => crypto.createHash('md5').update(buf).digest('base64');
 const sha256b64 = (buf) => crypto.createHash('sha256').update(buf).digest('base64');
 
@@ -242,7 +269,7 @@ function parseGrant(data, objects, seenKeys, runBucket, epoch) {
     const rawKey = u && typeof u === 'object' && typeof u.key === 'string' ? u.key : null;
     if (rawKey !== null && keys.has(rawKey)) return { ok: false, because: `upload ${i} repeats a key` };
     if (rawKey !== null && seenKeys && seenKeys.has(rawKey)) return { ok: false, because: `upload ${i} repeats a key an earlier grant in this run already gave` };
-    const c = checkOne(u, `upload ${i}`, o, chunkBind(o), expiresAtMs, allowHttp);
+    const c = checkOne(u, `upload ${i}`, o, chunkBind(o), expiresAtMs, allowHttp || localUploadOk(u));
     if (!c.ok) return c;
     const { key, url } = c.upload;
     keys.add(key);
@@ -523,7 +550,7 @@ function parseManifestGrant(data, bytes, runPrefix, epoch, snapshot) {
   const expiresAtMs = expiryMs(data.expires_at);
   if (!Number.isFinite(expiresAtMs)) return { ok: false, because: 'the manifest grant answer has no readable expires_at' };
   if (!data.upload || typeof data.upload !== 'object' || Array.isArray(data.upload)) return { ok: false, because: 'the manifest grant answer has no upload' };
-  const c = checkOne(data.upload, 'the manifest upload', bytes, manifestBind(bytes), expiresAtMs, httpForTests);
+  const c = checkOne(data.upload, 'the manifest upload', bytes, manifestBind(bytes), expiresAtMs, httpForTests || localUploadOk(data.upload));
   if (!c.ok) return c;
   // otherBucket: the caller's chunks are in a bucket the coordinator no longer grants to (a walker's index is stale).
   if (c.prefix !== runPrefix) return { ok: false, otherBucket: true, because: `the manifest grant names another bucket (${c.prefix}) than its chunks' (${runPrefix})` };
@@ -623,9 +650,9 @@ async function uploadManifestInner(deps, bytes, o, st) {
   const epoch = sealedEpoch(o);
   if (epoch === undefined) return { ok: false, grantSpent: false, because: `the key epoch given (${JSON.stringify(o.epoch)}) is not an epoch` };
   // The shape uploadChunks returns, host/ or host/bucket/ with the host in lower case (a URL's host always is) and no
-  // port (checkOne refuses one on S3; only the test seam's local bucket has one), checked before any grant: anything
+  // port (checkOne refuses one on S3; only a local bucket has one: the test seam's, or a throwaway coordinator's on this Mac, kosmos#8529), checked before any grant: anything
   // else would be refused only after a grant had been spent on it.
-  if (!(httpForTests ? /^[a-z0-9.:-]+\/([^/]+\/)?$/ : /^[a-z0-9.-]+\/([^/]+\/)?$/).test(o.bucket)) return { ok: false, grantSpent: false, because: `the manifest's bucket (${o.bucket}) is not a bucket path as uploadChunks returns it (host/ or host/bucket/)` };
+  if (!(httpForTests || localBucketOk(o.bucket) ? /^[a-z0-9.:-]+\/([^/]+\/)?$/ : /^[a-z0-9.-]+\/([^/]+\/)?$/).test(o.bucket)) return { ok: false, grantSpent: false, because: `the manifest's bucket (${o.bucket}) is not a bucket path as uploadChunks returns it (host/ or host/bucket/)` };
   // Every chunk it names, as { key, lockedUntilMs }: not a string, and not a Map (uploadChunks' keys Map iterates
   // [name, key] pairs). From them: the keys this call must not write, and the earliest lock end.
   const list = o.chunks;

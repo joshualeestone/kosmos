@@ -174,6 +174,43 @@ test('the coordinator leaves Content-Length out of headers (fetch sets it): that
   } finally { await b.close(); }
 });
 
+test('kosmos#8529: a loopback upload url is allowed only when the board coordinator is itself on loopback', () => {
+  const c = chunk(1);
+  const grant = (base) => ({ expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `${base}/b/a/k?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=c&X-Amz-Date=20300101T000000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`, headers: { 'Content-MD5': md5(c.object), 'If-None-Match': '*', 'X-Amz-Object-Lock-Mode': 'COMPLIANCE', 'X-Amz-Object-Lock-Retain-Until-Date': '2030-02-03T00:00:00Z' } }] });
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+  const as = (coordinator, base) => {
+    if (coordinator === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+    else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = coordinator;
+    return up.parseGrant(grant(base), [c]).ok;
+  };
+  up.allowHttpForTests(false);   // the test seam off: only the new rule can allow it
+  try {
+    // Production: the default coordinator, and the production name given explicitly. Refused, whatever the url.
+    assert.strictEqual(as(undefined, 'http://127.0.0.1:9000'), false, 'a Mac on the production coordinator takes no local bucket');
+    assert.strictEqual(as('https://login.kosmosplus.com', 'http://127.0.0.1:9000'), false, 'production named explicitly');
+    // Any coordinator on another machine, even one that is not production.
+    assert.strictEqual(as('https://staging.kosmosplus.example', 'http://127.0.0.1:9000'), false, 'a remote coordinator');
+    assert.strictEqual(as('http://10.0.0.5:8443', 'http://127.0.0.1:9000'), false, 'a LAN coordinator');
+    // A coordinator on this Mac: a loopback bucket is allowed, in each loopback spelling.
+    for (const base of ['http://127.0.0.1:9000', 'http://localhost:9000', 'http://[::1]:9000']) {
+      assert.strictEqual(as('http://127.0.0.1:8443', base), true, `${base} with a local coordinator`);
+    }
+    // ...and nothing else: not a LAN host, not a name that only starts like loopback, not one with a user part.
+    for (const base of ['http://10.0.0.5:9000', 'http://127.0.0.1.example:9000', 'http://user@127.0.0.1:9000', 'http://bucket.example']) {
+      assert.strictEqual(as('http://127.0.0.1:8443', base), false, `${base} is not a local bucket`);
+    }
+    // The bucket path's own check reads the same rule.
+    assert.strictEqual(as('http://localhost:8443', 'http://localhost:9000'), true, 'localhost coordinator, localhost bucket');
+    // A *.localhost coordinator name (RFC 6761, as tools/fed-own-e2e.js uses) is this machine too; a look-alike is not.
+    assert.strictEqual(as('https://login.walk.localhost:8443', 'http://127.0.0.1:9000'), true, 'a .localhost coordinator');
+    assert.strictEqual(as('https://login.localhost.example:8443', 'http://127.0.0.1:9000'), false, 'a name that only contains localhost');
+    assert.strictEqual(as('https://localhostx:8443', 'http://127.0.0.1:9000'), false, 'not a .localhost name');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was;
+    up.allowHttpForTests(true);
+  }
+});
+
 test('an http (not https) upload url is refused unless the test seam allows it', () => {
   const c = chunk(1);
   const data = { expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `http://bucket.example/b/a/k?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=c&X-Amz-Date=20300101T000000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`, headers: { 'Content-MD5': md5(c.object), 'If-None-Match': '*', 'X-Amz-Object-Lock-Mode': 'COMPLIANCE', 'X-Amz-Object-Lock-Retain-Until-Date': '2030-02-03T00:00:00Z' } }] };
