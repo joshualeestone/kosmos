@@ -816,9 +816,23 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="' + CLOUD_ID + '"]');
       await page.waitForFunction(() => /is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       const clDone = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
-      chk(allowBodies[CLOUD_ID] && allowBodies[CLOUD_ID].code === undefined && /cloud-d296a63b is connected\./.test(clDone),
-        `${tag} #8525: its Allow sends no code and the sheet says it is connected`, JSON.stringify({ body: allowBodies[CLOUD_ID], clDone }));
+      chk(allowBodies[CLOUD_ID] && allowBodies[CLOUD_ID].code === undefined
+        && /cloud-d296a63b is connected\. It is added to your Kosmos\+ account\. You can cancel it on your Kosmos\+ account page\./.test(clDone)
+        && !/under Devices|opens Kosmos on its own/.test(clDone.split('Turned away')[0]),
+        `${tag} #8525: its Allow sends no code and the sheet says it is on the Kosmos+ account, not under Devices`, JSON.stringify({ body: allowBodies[CLOUD_ID], clDone }));
       delete allowBodies[CLOUD_ID];
+      await page.evaluate(() => { ASK.done = {}; });
+      /* Not me on a cloud machine: no password sentence (it is no sign-in made with an emailed code); and one waiting for
+         hours is not faded and shows no age. */
+      await cloudSheet({ device_id: CLOUD_ID, name: 'cloud-d296a63b', code: '', first_seen: now() - 3 * 3600, joining_computer: null, code_wait: null, cloud: true });
+      const clAge = await page.evaluate((id) => { const b = document.querySelector('#plus-ask-rows [data-ask="deny"][data-id="' + id + '"]'); const r = b && b.closest('.askreq');
+        return r ? { stale: r.classList.contains('stale'), ago: !!r.querySelector('.askwho span') } : null; }, CLOUD_ID);
+      chk(clAge && !clAge.stale && !clAge.ago, `${tag} #8525: a cloud machine waiting three hours is not faded and shows no age`, JSON.stringify(clAge));
+      await page.click('#plus-ask-rows [data-ask="deny"][data-id="' + CLOUD_ID + '"]');
+      await page.waitForFunction(() => /Your cloud machine cloud-d296a63b was not added/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      const clNo = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
+      chk(/Turned away\. Your cloud machine cloud-d296a63b was not added to your Kosmos\+ account\./.test(clNo) && !/password/.test(clNo.split('laptop2')[0]),
+        `${tag} #8525: Not me on a cloud machine says it was not added, with no password sentence`, clNo);
       await page.evaluate(() => { ASK.done = {}; });
       const clWas = await cloudSheet({ device_id: CLOUD_ID, name: 'cloud-d296a63b', code: '', first_seen: now() - 20, joining_computer: null, code_wait: 'was_a_computer', cloud: false });
       chk(clWas && clWas.allowOff && /cannot be allowed/.test(clWas.wait) && !/cloud machine/.test(clWas.head),

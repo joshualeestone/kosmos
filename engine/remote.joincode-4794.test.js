@@ -40,6 +40,7 @@ if (args[0] === 'devices' && args[1] === 'allow') {
   if (flag('--code') === '222 222') { process.stderr.write('Error: sas_pending: the code to compare is not worked out yet; wait for it on both screens, then allow\\n'); process.exit(1); }
   if (flag('--code') === '444 444') { process.stderr.write('Error: sas_mismatch: more than one computer is showing a code; Deny the ones you do not recognise\\n'); process.exit(1); }
   if (flag('--code') === '333 333') { process.stderr.write('Error: the coordinator is unreachable\\n'); process.exit(1); }
+  if (mode === 'ack404') { console.log(JSON.stringify({ allowed: true, account_ack: 'unknown_device' })); process.exit(0); }   // kosmos#8525
   console.log(JSON.stringify({ allowed: true }));
   process.exit(0);
 }
@@ -432,4 +433,34 @@ test('#8525: under the board-v2 marker a cloud row stays listed and its Allow ro
   assert.equal(remote.listedAsComputer('k1.L8xHhgKw4ciSy7mTPfT3qNu8V7Z2oDAn'), false);
   assert.equal(remote.listedAsCloud('lineage-c'), true);
   assert.equal(remote.listedAsCloud('k1.L8xHhgKw4ciSy7mTPfT3qNu8V7Z2oDAn'), false);
+});
+
+test('#8525: a cloud row never shows a code, and its Allow never sends one, whatever it is given', async () => {
+  const dir = enrol();
+  remote.setOn(true);
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: CLOUD, name: 'cloud-d296a63b', first_seen: 1792168082, code: '482 915', cloud: true },
+  ] }));
+  assert.equal(remote.pendingDevices().devices[0].code, '', 'a cloud row showed a code');
+  const ok = await remote.deviceAllow(CLOUD, 'cloud-d296a63b', '482 915');
+  assert.equal(ok.ok, true, ok.because);
+  const call = recorded().find((a) => a[0] === 'devices' && a[1] === 'allow');
+  assert.ok(call && !call.includes('--code'), 'a code was sent for a cloud machine: ' + JSON.stringify(call));
+  // CONTROL: a joining computer's code still goes.
+  fs.rmSync(RECORD, { force: true });
+  await remote.deviceAllow(MINTED, 'tmnt', '050 584');
+  const pc = recorded().find((a) => a[0] === 'devices' && a[1] === 'allow');
+  assert.equal(pc[pc.indexOf('--code') + 1], '050 584');
+});
+
+test('#8525: Kosmos+ holding no such cloud machine is said in its own words; a phone keeps the #6286 sentence (CONTROL)', async () => {
+  const dir = enrol();
+  process.env.FAKE_JOIN = 'ack404';
+  cloudSnapshot(dir, true);
+  const c = await remote.deviceAllow(CLOUD, 'cloud-d296a63b', undefined);
+  assert.deepEqual([c.ok, c.because, c.listed], [false, 'Kosmos+ holds no cloud machine waiting with that id, so nothing was added.', undefined]);
+  const p = await remote.deviceAllow('k1.L8xHhgKw4ciSy7mTPfT3qNu8V7Z2oDAn', 'Android phone', undefined);
+  assert.equal(p.ok, false);
+  assert.equal(p.listed, true);
+  assert.match(p.because, /^Kosmos\+ holds no sign-in waiting with that id/);
 });
