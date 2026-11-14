@@ -3726,6 +3726,8 @@ cmd_connections() {
     { [ $# -ge 3 ] && [ $# -le 4 ]; } || { say "$_fu"; exit 2; }
     if ! healthy; then say_not_up "it cannot record that"; exit 1; fi
     local _fn; _fn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to send this."; exit 1; }
+    # A WRITE that names its caller: agent_board_token, as tool-failed (the agent token in the header decides who). The
+    # --found READ below uses board_token like the plain listing; the board also answers it for an agent token alone.
     local _fbt; _fbt="$(agent_board_token || true)"
     local _fbody _fans _frc=0
     _fbody=$("$_fn" -e 'process.stdout.write(JSON.stringify({ service: process.argv[1], action: process.argv[2], outcome: process.argv[3], note: process.argv[4] || "", from_pane: process.argv[5] || "" }))' \

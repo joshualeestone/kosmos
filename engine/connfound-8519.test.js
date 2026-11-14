@@ -46,6 +46,16 @@ test('classify: only what says something about the ACTION; Claude Code refusals 
   // Says nothing about the action:
   assert.equal(cf.classify('Invalid input: dealId is required'), null);
   assert.equal(cf.classify('Request timed out after 30s'), null);
+  // Review 1: errors about the input or the sign-in, not the action, record nothing.
+  for (const notAboutTheAction of ['401 Unauthorized: token expired', 'Unauthorized', 'Error: user is not allowed to be empty',
+    'Validation: field forbidden must be string', 'File type not supported', 'Not supported: this attachment is 40MB',
+    '404 Not Found: no such record', '429 Too Many Requests', '405 Method Not Allowed']) {
+    assert.equal(cf.classify(notAboutTheAction), null, notAboutTheAction);
+  }
+  // CONTROLS for the narrowed patterns: the same words about the caller or the action still count.
+  assert.equal(cf.classify('Forbidden'), 'needs-permission');
+  assert.equal(cf.classify('You are not allowed to delete this deal'), 'needs-permission');
+  assert.equal(cf.classify('The update_deal tool is not supported'), 'not-offered');
   assert.equal(cf.classify(''), null);
   assert.equal(cf.classify(undefined), null);
 });
@@ -83,6 +93,14 @@ test('record: the latest outcome per action wins, repeats count, and what does n
   const g2 = cf.list({ now: 6000 })[0];
   assert.equal(g2.actions.find((a) => a.action === 'create release').outcome, 'works');
   assert.equal(g2.actions.find((a) => a.action === 'create release').n, 1, 'a change of outcome restarts the count');
+});
+
+test('a later refusal replaces an earlier works for the same action (the latest finding wins, either way)', () => {
+  reset();
+  cf.record({ service: 'hubspot', action: 'update_deal', outcome: 'works', by: 'ben', now: 1000 });
+  cf.noteToolFailure('ada', 'mcp__hubspot__update_deal', 'HTTP 403 Forbidden', { now: 2000 });
+  const a = cf.list({ now: 3000 })[0].actions[0];
+  assert.deepEqual([a.action, a.outcome, a.by, a.how], ['update_deal', 'needs-permission', 'ada', 'auto']);
 });
 
 test('record refuses what it cannot keep honestly', () => {
