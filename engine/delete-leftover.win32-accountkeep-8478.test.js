@@ -335,7 +335,7 @@ test('kosmos#8489: a recorded account whose config cannot be read right now (Cla
   const whole = fs.readFileSync(config, 'utf8');
   fs.writeFileSync(config, whole.slice(0, Math.floor(whole.length / 2)));   // caught mid-write: half the file
   const p = taskOnlyDelete(name);
-  const words = /it starts on the model it was set to, but Kosmos could not read which account is signed in to the folder it used just now, so it starts on your main account unless it can read that by then and it is still the same account\. If it still cannot, Kosmos keeps that folder and tries it again at the next Start at login, unless its startup job is written again before then \(changing its account or model does that\), which forgets that folder\./;
+  const words = /it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, so it starts on your main account unless it can read that by then and it is still the same account\. If it still cannot, Kosmos keeps that folder and tries it again at the next Start at login, unless its startup job is written again before then \(changing its account or model does that\), which forgets that folder\./;
   assert.match(p.reassurance, words);
   assert.match(p.said, words);
   assert.doesNotMatch(p.reassurance, /signed out or changed/, 'the person was told their account signed out or changed');
@@ -408,7 +408,7 @@ test('kosmos#8489 review 2: a thrown reader bug on the record path is "changed" 
   assert.ok(logged.some((l) => /kosmos#8489: reading the account in .* failed: a bug/.test(l)), 'the bug was not logged: ' + JSON.stringify(logged));
 });
 
-test('kosmos#8489: what a record keeps of a chosen account: the organization uuid, never its name; a key by its fingerprint, never the key', WINDOWS_ONLY, () => {
+test('kosmos#8489: what a record keeps of a chosen account: the organization uuid where Claude Code wrote one (not its name); a key by its fingerprint, never the key', WINDOWS_ONLY, () => {
   const accounts = require('./accounts');
   const named = agent('orgrec8489');
   signIn(ACCOUNT, { emailAddress: 'Owner@example.test', organizationName: 'Acme Studio', organizationUuid: 'org-8478' });
@@ -441,7 +441,7 @@ test('kosmos#8489 review 1: a folder unread at three Start at logins in a row is
     taskOnlyDelete(name); startAtLogin(name);
     assert.equal(store.readProfile(name).win32Task.unreadable, 2);
     const p = taskOnlyDelete(name);
-    assert.match(p.reassurance, /it starts on the model it was set to, but on your main account from now on, because Kosmos could not read which account is signed in to the folder it used now, nor at the two Start at logins before, so choose its account again if it should use another\./);
+    assert.match(p.reassurance, /it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, now or at the two Start at logins before, so it starts on your main account from now on unless it can read that by then and it is still the same account\. Choose its account again if it should use another\./);
     startAtLogin(name);
     assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
     assert.equal(store.readProfile(name).win32Task.configDir, null, 'the folder was kept after three unreadable Start at logins');

@@ -4525,14 +4525,14 @@ const WIN32_KEY_FINGERPRINT_HEX = 16;
 function win32KeyFingerprint(key) {
   return require('node:crypto').createHash('sha256').update(key, 'utf8').digest('hex').slice(0, WIN32_KEY_FINGERPRINT_HEX);
 }
-/* kosmos#8489: a Claude organization uuid as Claude Code writes it. A record written before this change may hold the
-   organization's NAME in the same field (it fell back to the name when no uuid was written), and a name is not who
-   the account is: it can be renamed, and Claude Code can start writing the uuid later. */
 /* kosmos#8489 review 1: how many Start at logins in a row may find a recorded folder's account unreadable before the
    folder is dropped for good (the main account). A config being written is a moment, so the next Start at login should
    read it; three in a row is a file that will not read again (torn by a crash, a sign-in file holding two sign-ins),
    and trying it at every login after that only repeats the same words. */
 const WIN32_UNREADABLE_LIMIT = 3;
+/* kosmos#8489: a Claude organization uuid as Claude Code writes it (oauthAccount.organizationUuid). A Claude record
+   holds the uuid, or the organization's NAME (oauthAccount.organizationName) when Claude Code wrote no uuid; this tells
+   the two apart, so a recorded name is compared with the name the folder shows now (accountMatch). */
 const WIN32_ORG_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /* A credential file read three ways, because they mean different things: 'absent' (not there: nobody signed in, or
    signed out), 'unreadable' (there, but it could not be read or parsed right now, as when Claude Code or codex is
@@ -4561,9 +4561,11 @@ function win32AccountIdentityRead(runner, dir) {
     const acct = config.kind === 'ok' && config.data && typeof config.data === 'object' ? config.data.oauthAccount : null;
     if (acct && typeof acct === 'object') {
       const who = email(typeof acct.emailAddress === 'string' ? acct.emailAddress : acct.email);
-      // The uuid only: a name can change under the same account (see WIN32_ORG_UUID_RE).
-      const org = typeof acct.organizationUuid === 'string' && acct.organizationUuid ? acct.organizationUuid : null;
-      return who ? { identity: { kind: 'signin', email: who, keyTail: null, org }, unreadable: false } : none;
+      /* The uuid, else the name, as the record has always held it. The name is also answered on its own (`orgName`,
+         never recorded beside a uuid) so a record holding a name can be compared once Claude Code writes the uuid. */
+      const uuid = typeof acct.organizationUuid === 'string' && acct.organizationUuid ? acct.organizationUuid : null;
+      const orgName = typeof acct.organizationName === 'string' && acct.organizationName ? acct.organizationName : null;
+      return who ? { identity: { kind: 'signin', email: who, keyTail: null, org: uuid || orgName }, orgName, unreadable: false } : none;
     }
     /* A key folder: Kosmos refuses a key over a sign-in and a sign-in over a key (accounts.list), so a key here is
        the account whatever the config says, even while Claude Code is writing that config. */
@@ -4617,8 +4619,9 @@ function win32AccountIdentityRead(runner, dir) {
   return none;
 }
 /* Whether the account a folder holds now is the one recorded: 'same', 'changed', or (kosmos#8489 review 1) 'unreadable'
-   when the folder no longer shows the organization the record holds. `runner` says how to read the organization. */
-function accountMatch(recorded, now, runner) {
+   when the folder does not show what is needed to tell. `nowOrgName`: the Claude organization name the folder shows
+   now (win32AccountIdentityRead's orgName). `runner` says how to read the organization. */
+function accountMatch(recorded, now, runner, nowOrgName) {
   const a = recorded;
   const b = now;
   if (!a || !b) return 'changed';
@@ -4628,23 +4631,28 @@ function accountMatch(recorded, now, runner) {
      each Start at login that puts the folder back records the fingerprint from then on. */
   if (typeof a.keyHash === 'string' && a.keyHash) { if (a.keyHash !== b.keyHash) return 'changed'; }
   else if ((a.keyTail || null) !== (b.keyTail || null)) return 'changed';
-  /* kosmos#8489 (a): organizations are compared by their ids. For Claude the id is the organization uuid (a recorded
-     NAME, written before this change when Claude Code had written no uuid, never counts as one: a name can be renamed);
-     for codex it is the ChatGPT workspace id, never a name. Both ids: they decide. Neither: the email alone decides,
-     since the same email with no organization known on either side is the same person (calling it "changed" told
-     them their account had signed out when it had not). Review 1: a recorded id with none now is neither: the folder
-     does not show which organization it is in, so it is "could not read" (kept, main account this time), never "same",
-     which would trust one person's other organization. No id recorded and one now is the email alone. */
-  const orgId = (x) => {
-    const o = typeof x.org === 'string' && x.org ? x.org : null;
-    if (!o) return null;
-    return (!runner || runner === 'claude') ? (WIN32_ORG_UUID_RE.test(o) ? o.toLowerCase() : null) : o;
-  };
-  const ao = orgId(a);
-  const bo = orgId(b);
-  if (ao && bo) return ao === bo ? 'same' : 'changed';
-  if (ao) return 'unreadable';
-  return 'same';
+  /* kosmos#8489 (a), as decided in review 3: one email can belong to two organizations or workspaces (and their
+     billing), so the organization is part of the account, and "same" needs the folder to show the same one:
+     - a recorded Claude organization uuid against the uuid now: equal is the same, different is changed;
+     - a recorded Claude organization NAME (the record when Claude Code wrote no uuid) against the name the folder
+       shows now: equal is the same (the card's case: the name recorded, then the uuid written beside it), different
+       is changed;
+     - a recorded codex workspace id against the one now: equal is the same, different is changed;
+     - the folder showing nothing to compare with what was recorded, or showing an organization the record has none
+       for, is "could not read" (kept, main account this time; ended by WIN32_UNREADABLE_LIMIT), never "same";
+     - no organization on either side: the email alone decides. */
+  const org = (x) => (typeof x.org === 'string' && x.org ? x.org : null);
+  const ao = org(a);
+  const bo = org(b);
+  if (!ao) return bo ? 'unreadable' : 'same';
+  if (runner && runner !== 'claude') return !bo ? 'unreadable' : (ao === bo ? 'same' : 'changed');
+  if (ao === bo) return 'same';   // the very value recorded, uuid or name (a uuid's case is compared below)
+  if (WIN32_ORG_UUID_RE.test(ao)) {
+    const nowUuid = bo && WIN32_ORG_UUID_RE.test(bo) ? bo : null;
+    return !nowUuid ? 'unreadable' : (ao.toLowerCase() === nowUuid.toLowerCase() ? 'same' : 'changed');
+  }
+  const name = typeof nowOrgName === 'string' && nowOrgName ? nowOrgName : null;
+  return !name ? 'unreadable' : (name === ao ? 'same' : 'changed');
 }
 /* Best effort and never a gate: a task that was written is the truth whether or not its note was. Written only into a
    profile that is already there (lstat: a profile that is a link still counts as there), so a task written before the
@@ -4824,7 +4832,7 @@ function win32RecordedTask(name, opts) {
         console.error(`kosmos#8489: reading the account in ${configDir} failed: ${e && e.message}`);
         now = null;
       }
-      const match = !now ? 'changed' : now.unreadable ? 'unreadable' : accountMatch(identity, now.identity, runner);
+      const match = !now ? 'changed' : now.unreadable ? 'unreadable' : accountMatch(identity, now.identity, runner, now.orgName);
       if (match === 'unreadable') accountWhy = unreadableBefore + 1 >= WIN32_UNREADABLE_LIMIT ? 'unreadableGaveUp' : 'unreadable';
       else if (match === 'changed') accountWhy = 'changed';
       else identityNow = now.identity;

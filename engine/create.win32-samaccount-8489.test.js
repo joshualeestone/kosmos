@@ -65,7 +65,7 @@ test.afterEach(() => {
   for (const n of made.splice(0)) fs.rmSync(store.profilePath(n), { force: true });
 });
 
-test('kosmos#8489 (a): the same email reads as the same account when the organization was recorded by name and is now a uuid, or renamed; another email or another uuid is still changed', () => {
+test('kosmos#8489 (a): a recorded organization name is the same account once Claude Code writes the uuid beside that name; another name, another uuid or another email is changed; a folder with no name to compare is "could not read"', () => {
   const dir = folder('pat');
   // A record from before this change, made while Claude Code wrote only the organization's name.
   writeClaudeConfig(dir, { emailAddress: 'Pat@Example.test', organizationName: 'Acme Studio' });
@@ -75,9 +75,14 @@ test('kosmos#8489 (a): the same email reads as the same account when the organiz
   // Claude Code now writes the uuid as well: the same person.
   writeClaudeConfig(dir, { emailAddress: 'Pat@Example.test', organizationName: 'Acme Studio', organizationUuid: UUID_ONE });
   assert.equal(why(n), null, 'the same email read as a changed account once Claude Code wrote the organization uuid');
-  // The organization renamed, no uuid written: the same person.
+  // Review 3 (decided): a recorded name is compared with the name the folder shows now. Another name, with or without a
+  // uuid, is another organization (and its billing), so changed; a folder with only a uuid shows nothing to compare.
   writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationName: 'Acme Pictures' });
-  assert.equal(why(n), null, 'a renamed organization read as a changed account');
+  assert.equal(why(n), 'changed', 'a record holding one organization name matched a folder in another');
+  writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationName: 'Other Co', organizationUuid: UUID_TWO });
+  assert.equal(why(n), 'changed', 'a record holding an organization name matched a folder signed in to another organization');
+  writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationUuid: UUID_TWO });
+  assert.equal(why(n), 'unreadable', 'a folder with no organization name to compare was read as same or changed');
   // A record holding the uuid (what create records now): a rename under it is the same account.
   writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationName: 'Acme Studio', organizationUuid: UUID_ONE });
   const byUuid = signinId('pat@example.test', UUID_ONE);
@@ -103,7 +108,7 @@ test('kosmos#8489 (b): a Claude config that cannot be read right now is "could n
   fs.writeFileSync(accounts.configFile(dir), '{"oauthAccount": {"emailAddress": "lee@exa');
   assert.equal(why(n), 'unreadable', 'a config being written read as a changed account');
   const words = leftover.startsAgainWords(n);
-  assert.match(words, /^; it starts on the model it was set to, but Kosmos could not read which account is signed in to the folder it used just now, so it starts on your main account unless it can read that by then and it is still the same account\. If it still cannot, Kosmos keeps that folder and tries it again at the next Start at login, unless its startup job is written again before then \(changing its account or model does that\), which forgets that folder\.$/);
+  assert.match(words, /^; it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, so it starts on your main account unless it can read that by then and it is still the same account\. If it still cannot, Kosmos keeps that folder and tries it again at the next Start at login, unless its startup job is written again before then \(changing its account or model does that\), which forgets that folder\.$/);
   assert.doesNotMatch(words, /signed out or changed/, 'the person was told the account signed out or changed');
   // Not there at all, with no key beside it: could not read too.
   fs.rmSync(accounts.configFile(dir));
@@ -171,7 +176,7 @@ test('kosmos#8489: the other account modules: a Gemini or Grok key and a codex k
   assert.equal(why(c), 'changed', 'a codex sign-out was not called changed');
 });
 
-test('kosmos#8489 review 1: a recorded organization id with none in the folder now is "could not read", never the same account; no id recorded and one now is the email alone', () => {
+test('kosmos#8489 review 1: a recorded organization id with none in the folder now is "could not read", never the same account; review 3: so is none recorded and one now; none on either side is the email alone', () => {
   const dir = folder('orgGone');
   writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationUuid: UUID_ONE });
   const n = recorded('orggone8489', 'anthropic', 'claude', dir, signinId('pat@example.test', UUID_ONE));
@@ -181,7 +186,9 @@ test('kosmos#8489 review 1: a recorded organization id with none in the folder n
   // Recorded with none, the folder now shows one: the email decides.
   const m = recorded('orgnew8489', 'anthropic', 'claude', dir, { kind: 'signin', email: 'pat@example.test', keyTail: null, org: null });
   writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationUuid: UUID_TWO });
-  assert.equal(why(m), null);
+  assert.equal(why(m), 'unreadable', 'a record with no organization matched a folder in one');
+  writeClaudeConfig(dir, { emailAddress: 'pat@example.test' });
+  assert.equal(why(m), null, 'no organization on either side did not fall back to the email');
   // codex: a recorded workspace with none in auth.json now.
   const oa = require('./openaiaccounts');
   const cdir = folder('codexWs');
@@ -192,6 +199,12 @@ test('kosmos#8489 review 1: a recorded organization id with none in the folder n
   assert.equal(why(c), 'unreadable', 'a recorded ChatGPT workspace matched an auth.json that names none');
   fs.writeFileSync(oa.authFile(cdir), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken({ email: 'ana@example.test' }), account_id: 'ws-2' } }));
   assert.equal(why(c), 'changed', 'another ChatGPT workspace was trusted');
+  // Review 3: a codex record with no workspace against a folder now in one is "could not read"; none on either side is the email.
+  const none = recorded('codexnows8489', 'openai', 'codex', cdir, signinId('ana@example.test', null, 'chatgpt'));
+  fs.writeFileSync(oa.authFile(cdir), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken({ email: 'ana@example.test' }), account_id: 'ws-team' } }));
+  assert.equal(why(none), 'unreadable', 'a codex record with no workspace matched a folder now in a team workspace');
+  fs.writeFileSync(oa.authFile(cdir), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken({ email: 'ana@example.test' }) } }));
+  assert.equal(why(none), null, 'no workspace on either side did not fall back to the email');
 });
 
 test('kosmos#8489 review 1: "could not read" ends: the third Start at login in a row drops the folder for good, and the words say so', () => {
@@ -210,7 +223,7 @@ test('kosmos#8489 review 1: "could not read" ends: the third Start at login in a
   const last = keptAs('torn2-8489', 2);
   assert.equal(why(last), 'unreadableGaveUp', 'a folder unread three Start at logins in a row was kept again');
   assert.equal(create.win32RecordedTask(last).accountOk, false);
-  assert.equal(leftover.startsAgainWords(last), '; it starts on the model it was set to, but on your main account from now on, because Kosmos could not read which account is signed in to the folder it used now, nor at the two Start at logins before, so choose its account again if it should use another.');
+  assert.equal(leftover.startsAgainWords(last), '; it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, now or at the two Start at logins before, so it starts on your main account from now on unless it can read that by then and it is still the same account. Choose its account again if it should use another.');
 });
 
 test('kosmos#8489 review 1: a Grok sign-in file holding no x.ai sign-in is signed out (changed); two is "could not read"', () => {

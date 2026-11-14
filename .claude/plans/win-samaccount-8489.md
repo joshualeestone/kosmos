@@ -15,14 +15,19 @@ Both failed safe (main account), but the words were false and the record was dro
 Card comment: an API key was matched by its last four characters only, so two keys sharing them read as one account.
 
 ## Decisions
-- (a) Organizations are compared by id. Both sides have one: they decide. Neither: the email alone decides. Review 1
-  (decided by the coordinator): a RECORDED id with none in the folder now is "could not read" (kept, main account this
-  time), never "same"; no id recorded and one now is the email alone. accountMatch answers same/changed/unreadable.
-  For Claude the id is the organization uuid (a uuid-shaped value; a recorded name never counts as one), and new
-  records keep only the uuid (null when Claude Code wrote none). For codex the id is the ChatGPT workspace id, which
-  is never a name, so its rule is the same. Old records holding a name keep working: the name is
-  ignored and the email decides. Rejected: keeping a name and comparing it when both sides have names (a rename is
-  exactly that case). Rejected: a separate `orgUuid` field (changes the record shape the 8478 tests pin, for no gain).
+- (a) Review 3 (decided by the coordinator) replaces the earlier "email alone when either side has no id": one email
+  can be in two organizations or workspaces (and their billing), and #8478 set out to tell them apart. Claude records
+  hold oauthAccount.organizationUuid, else oauthAccount.organizationName (what .claude.json carries, as accounts.js
+  identityOf reads it), as before this card. accountMatch:
+  - the same value recorded and now: same;
+  - a recorded uuid (WIN32_ORG_UUID_RE) against the uuid now: equal same, different changed, none now "could not read";
+  - a recorded NAME against the organizationName the folder shows now (win32AccountIdentityRead answers it as orgName,
+    never recorded beside a uuid): equal same (the card's case: the name recorded, then the uuid written beside it),
+    different changed, no name now "could not read";
+  - codex workspace id: equal same, different changed, none now "could not read";
+  - nothing recorded and an organization now: "could not read" (Claude and codex);
+  - no organization on either side: the email alone.
+  A rename of a recorded name is therefore "changed" (the coordinator's call: the name is all the record has).
 - (b) create.win32AccountIdentityRead answers { identity, unreadable }. Unreadable = a credential file that is there
   but cannot be read or parsed right now, or (Claude) no config at all and no key beside it. win32RecordedTask then
   answers accountWhy 'unreadable' (new), register.repair keeps it like 'unreachable' (folder and recorded identity,
@@ -48,6 +53,9 @@ Card comment: an API key was matched by its last four characters only, so two ke
   record held for that folder name: the name may now be someone else's (Alice's record, Bob signed in since). Writes
   that rewrite the same folder without a new choice (setModel, refresh) read nothing and carry the recorded identity
   over (refreshedRecord). A new choice also starts the unreadable count afresh, on purpose.
+- Review 3: the task-only delete's words at the third unreadable try are hedged ("from now on unless it can read that
+  by then"), since a config that reads by Start at login puts the folder back; "the folder it used just now" became
+  "the account folder it last used".
 - Review 2: win32AccountIdentity (dead in production, exported only for tests) is gone; the unit tests build the
   expected identity by hand, and what create records is pinned end to end through setAccount.
 - Review 1 (nit): the "could not read" and "cannot reach" words now say the folder is tried again until the agent's
@@ -73,8 +81,9 @@ torn use up the tries quickly, and a busy file read three times in a row (very u
 is told and chooses the account again. A missing Claude config with no key now ends the same way after 3. What would
 change my mind: evidence that Claude Code leaves its config unparseable for long stretches (then count days, not
 starts). The "unreadableGaveUp" words at the task-only delete predict the coming Start at login from a read made now.
-Second: the uuid shape test means a Claude organization uuid that is not uuid-shaped would never be compared (email
-alone decides), a looser match for one person's two organizations; real organizationUuid values are uuids.
+Second: the uuid shape test decides whether a recorded Claude value is a uuid or a name. A recorded value that is not
+uuid-shaped is compared as it is first (equal is the same), then as a name; a folder showing neither the value nor a
+name reads "could not read", which fails safe. Real organizationUuid values are uuids.
 
 ## Tests
 - engine/create.win32-samaccount-8489.test.js: org name then uuid, rename, other uuid, other email, signed out; a
@@ -92,5 +101,8 @@ alone decides), a looser match for one person's two organizations; real organiza
 - Review 2: a newly chosen folder (Alice's record, Bob signed in since) read mid-write records null and Start at login
   keeps the agent on the main account; a thrown read on the record path records null and is logged (both fail against
   6223e6edc3); what a record keeps through setAccount (uuid not name, key fingerprint not key) moved end to end.
+- Review 3: a recorded name against another name, another uuid with another name, and a uuid with no name; nothing
+  recorded against a uuid, and nothing on either side; a codex record with no workspace against ws-team, and none on
+  either side; the hedged words. Each fails against 30088af7b9.
 - Negative control: each new test fails against origin/main's create/register/delete-leftover/openaiaccounts (with
   only an export of win32AccountIdentity appended so the unit tests can reach it).

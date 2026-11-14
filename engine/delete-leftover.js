@@ -947,18 +947,19 @@ function startsAgainWords(name, preview = false) {
   if (rec && rec.accountWhy === 'unreadable') {
     /* review 1 (nit): true only while nothing rewrites the agent's startup job, which records what it wrote (the main
        account) and so forgets the kept folder; the words say so. */
-    const unread = 'Kosmos could not read which account is signed in to the folder it used just now, so it starts on your main account unless it can read that by then and it is still the same account. If it still cannot, Kosmos keeps that folder and tries it again at the next Start at login, unless its startup job is written again before then (changing its account or model does that), which forgets that folder.';
+    const unread = 'Kosmos could not read which account is signed in to the account folder it last used, so it starts on your main account unless it can read that by then and it is still the same account. If it still cannot, Kosmos keeps that folder and tries it again at the next Start at login, unless its startup job is written again before then (changing its account or model does that), which forgets that folder.';
     return rec.modelOk
       ? '; it starts on the model it was set to, but ' + unread
       : '; it starts on the model it last ran, so choose its model again if it used another. ' + unread;
   }
-  /* kosmos#8489 review 1: the third Start at login in a row that could not read it (create.WIN32_UNREADABLE_LIMIT):
-     the folder is dropped for good. "Now" is this read, which is the one the coming Start at login repeats. */
+  /* kosmos#8489 review 1: the third Start at login in a row that could not read it (create.WIN32_UNREADABLE_LIMIT)
+     drops the folder for good. Review 3: hedged, because these words are read before that Start at login (the plan and
+     outcome of the task-only delete), and a config that reads cleanly by then puts the folder back. */
   if (rec && rec.accountWhy === 'unreadableGaveUp') {
-    const because = 'because Kosmos could not read which account is signed in to the folder it used now, nor at the two Start at logins before';
+    const unread = 'Kosmos could not read which account is signed in to the account folder it last used, now or at the two Start at logins before, so it starts on your main account from now on unless it can read that by then and it is still the same account. Choose its account again if it should use another.';
     return rec.modelOk
-      ? `; it starts on the model it was set to, but on your main account from now on, ${because}, so choose its account again if it should use another.`
-      : `; it starts on your main account from now on, ${because}, and on the model it last ran, so choose its account and model again if it used others.`;
+      ? '; it starts on the model it was set to, but ' + unread
+      : '; it starts on the model it last ran, so choose its model again if it used another. ' + unread;
   }
   const notThere = {
     changed: 'because the account in the folder it used has signed out or changed',
