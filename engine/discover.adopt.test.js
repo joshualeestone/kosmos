@@ -179,6 +179,8 @@ test.beforeEach(() => {
     JSON.stringify({ latest_version: '0.150.1', dismissed_version: null }));
 });
 test.afterEach(() => { create.setRunner(null); status.setPaneSource(null); });
+// kosmos#8456 review 4: the sandbox this file made, removed when it is done.
+test.after(() => { require('../test-support/remove-tree').removeTree(SANDBOX); });
 
 const agentFolder = (name, file, text) => {
   const d = path.join(SANDBOX, 'workers', name);
@@ -582,7 +584,9 @@ function startWatch(file) {
     if (process.platform !== 'win32') read();
     return { ok: true, stdout: '' };
   });
-  seen.stop = jobfix.watchScheduler((a) => { if (process.platform === 'win32' && a[0] === '/Run') { seen.runs += 1; read(); } });
+  const unwatch = jobfix.watchScheduler((a) => { if (process.platform === 'win32' && a[0] === '/Run') { seen.runs += 1; read(); } });
+  // review 4: and the started task is not left marked running for the next test.
+  seen.stop = () => { unwatch(); jobfix.resetScheduler(); };
   return seen;
 }
 

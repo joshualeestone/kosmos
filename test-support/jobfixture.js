@@ -255,6 +255,12 @@ function useWin32Scheduler() {
   return dir;
 }
 
+/** kosmos#8456 review 4: no task running at the stand-in Task Scheduler, for a test that ran a task through it and
+    is done (create and adopt start theirs with /Run and nothing ends them), so the next test starts afresh. */
+function resetScheduler() {
+  runningTasks.clear();
+}
+
 /** kosmos#8456 review 3: the agent's task as the stand-in Task Scheduler holds it, read without installing anything:
     { exists, enabled, running }. `enabled` is the task's own switch (<Settings><Enabled>); `running` is true from an
     answered /Run (or win32Processes' start) until its /End or /Delete. Windows only. */
@@ -319,7 +325,10 @@ const TABLE_PID_BASE = 2000000000;
                            Returns the undo.
       calls                each act and look, in order: 'taskkill.exe /PID <pid> /T /F' and 'alive <pid>' (and each is
                            handed to opts.onCall too, for a test that keeps one log of every platform's acts).
+      agentsJson(), codexRows()  the live list's two halves, for a roster built with win32roster.make.
+      rowsOf(name)         the ownership rows still filed under that name (a stop must forget the one it ended).
       reset()              no agent running and no task running: drops the live entries, their state files, the
+                           ownership rows this table wrote, the
                            survivors and the never-comes-up marks (kosmos#8456 review 3: a test file that sets up a
                            fresh fleet per arm calls it, so one arm never reads another's agents).
       stop()               puts win32stop's seams back and does what reset() does.
@@ -346,6 +355,7 @@ function win32Processes(opts) {
   const survivors = new Set();
   const down = new Set();
   const written = new Set();
+  const ownedIds = new Set();   // the ownership rows this table wrote, so reset() can take back any a stop left
   const calls = [];
   const onCall = opts && typeof opts.onCall === 'function' ? opts.onCall : null;
   const note = (line) => { calls.push(line); if (onCall) onCall(line); };
@@ -355,6 +365,7 @@ function win32Processes(opts) {
   const table = {
     calls,
     started(name, sessionId, runner) {
+      ownedIds.add(sessionId);
       const pid = TABLE_PID_BASE + 4 * ++pids;
       live.set(sessionId, { sessionId, pid, name, runner: runner || 'claude' });
       const at = statePath(name);
@@ -370,7 +381,28 @@ function win32Processes(opts) {
       if (task && fs.existsSync(task)) runningTasks.add(task);
       return table.started(name, id, runner);
     },
+    /* The live list as its two sources give it: `claude agents --json` (claude agents) and the codex live list (per-turn
+       agents), for a test that builds the Windows board's roster from the table (win32roster.make({ run, codexLive })).
+       Built from the processes, never from the ownership record: the real list names running processes, so a row
+       left in the record after its process ended does not appear in it, here or on a real machine. */
+    agentsJson() {
+      return [...live.values()].filter((p) => !perTurn(p.runner))
+        .map((p) => ({ sessionId: p.sessionId, pid: p.pid, name: p.name, status: 'running' }));
+    },
+    codexRows() {
+      return [...live.values()].filter((p) => perTurn(p.runner))
+        .map((p) => ({ sessionId: p.sessionId, pid: p.pid, name: p.name, kind: 'interactive', runner: p.runner }));
+    },
+    /* kosmos#8456 review 4: the ownership rows (win32sessions) still filed under this name. A stop that ended the
+       process must also forget its row (win32stop.finishKill); since the live list cannot show a stale row, a test
+       asks for it here. */
+    rowsOf(name) {
+      const owned = win32sessions.read() || {};
+      return Object.keys(owned).filter((id) => owned[id] && owned[id].name === name).sort();
+    },
     reset() {
+      for (const id of ownedIds) win32sessions.forget(id);
+      ownedIds.clear();
       live.clear();
       survivors.clear();
       down.clear();
@@ -421,10 +453,8 @@ function win32Processes(opts) {
   win32stop.setAlive((pid) => table.alive(pid));
   win32stop.setLive((opts) => win32live.byName({
     ...(opts || {}),
-    run: () => [...live.values()].filter((p) => !perTurn(p.runner))
-      .map((p) => ({ sessionId: p.sessionId, pid: p.pid, name: p.name, status: 'running' })),
-    codexLive: () => [...live.values()].filter((p) => perTurn(p.runner))
-      .map((p) => ({ sessionId: p.sessionId, pid: p.pid, name: p.name, kind: 'interactive', runner: p.runner })),
+    run: () => table.agentsJson(),
+    codexLive: () => table.codexRows(),
   }));
   processTable = table;
   return table;
@@ -520,4 +550,4 @@ function systemdStub() {
   return answer;
 }
 
-module.exports = { jobPath, jobPathIn, jobFor, systemdStub, useJobStore, watchScheduler, win32Step, win32Processes, win32Task };
+module.exports = { jobPath, jobPathIn, jobFor, systemdStub, useJobStore, watchScheduler, win32Step, win32Processes, win32Task, resetScheduler };

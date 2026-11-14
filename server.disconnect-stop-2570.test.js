@@ -92,6 +92,8 @@ test.after(() => {
   removal.setRunner(null);
   if (procs) procs.stop();   // kosmos#8456: win32stop's own seams back, and the state files it wrote gone
   try { server.close(); } catch { /* already down */ }
+  // kosmos#8456 review 4: and this file's sandbox, which it made and nothing else removes.
+  require('./test-support/remove-tree').removeTree(SANDBOX);
 });
 
 /* The injected runner. It answers the four commands a removal actually makes.
@@ -176,7 +178,10 @@ function stopActs(name, pid) {
 /* kosmos#8456 review 2: a stop reported for a running agent left no process behind. On Windows the stand-in table is
    asked; a Mac's stop is checked by its kill and look-again in `calls`, and the tmux stub keeps no process list. */
 function assertProcessGone(name) {
-  if (procs) assert.equal(procs.pidOf(name), null, `${name} is still running after the answer said it was stopped`);
+  if (!procs) return;
+  assert.equal(procs.pidOf(name), null, `${name} is still running after the answer said it was stopped`);
+  // review 4: and its ownership row forgotten with it (win32stop forgets the session it ended).
+  assert.deepEqual(procs.rowsOf(name), [], `${name}'s ownership row was never forgotten after its stop`);
 }
 
 function removedNames() {

@@ -84,6 +84,12 @@ const startsJob = (file, a) => Array.isArray(a) && (a[0] === 'bootstrap' || (/sy
 /* kosmos#8456 review 3: what a Windows removal leaves of the agent's startup task, read at the stand-in Task Scheduler
    (test-support/jobfixture): switched off, so it does not start at the next login, and ended, so its supervisor is not
    still going. The Mac arms check launchctl disable and bootout in their runner's calls instead. */
+/* kosmos#8456 review 4: a stopped Windows agent's process is gone from the stand-in table AND its ownership row is
+   forgotten (win32stop forgets the session it ended; a row left behind is the duplicate-name case win32live warns of). */
+function assertWin32AgentGone(procs, name) {
+  assert.equal(procs.pidOf(name), null, "the agent's process is still running after its removal was reported done");
+  assert.deepEqual(procs.rowsOf(name), [], "the stopped agent's ownership row was never forgotten");
+}
 function assertWin32TaskStopped(name) {
   const t = jobfix.win32Task(name);
   assert.ok(t.exists, 'the startup task is gone, so nothing below says how it was stopped');
@@ -3310,7 +3316,10 @@ test('the create route answers a real creation with the record the screen is bui
     unwatch();
     create.setRunner(null);
     status.setPaneSource(null);
-    if (process.platform === 'win32') jobfix.useJobStore();   // the stand-in's own anchoring back
+    if (process.platform === 'win32') {
+      jobfix.useJobStore();   // the stand-in's own anchoring back
+      jobfix.resetScheduler();   // review 4: and the task this test started is not left marked running
+    }
   }
 });
 
@@ -4894,7 +4903,7 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
       });
       assert.equal(gone.status, 200, 'a legitimate removal was refused: ' + gone.body);
       assert.equal(JSON.parse(gone.body).outcome, 'removed');
-      if (procs) assert.equal(procs.pidOf('route-removable'), null, "the agent's process is still running after its removal was reported done");   // kosmos#8456 review 2
+      if (procs) assertWin32AgentGone(procs, 'route-removable');
       if (procs) assertWin32TaskStopped('route-removable');
 
       // ⚠️ REMOVE IS NOT DELETE, asserted at the route rather than only in the
@@ -5179,7 +5188,7 @@ test('#2615 the removed list reports a gone account folder as gone', async () =>
     procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
     if (procs) procs.start(name);
     assert.equal(removal.remove(name).outcome, removal.OUTCOME.REMOVED);
-    if (procs) assert.equal(procs.pidOf(name), null, "the agent's process is still running after its removal was reported done");   // kosmos#8456 review 2
+    if (procs) assertWin32AgentGone(procs, name);
     if (procs) assertWin32TaskStopped(name);
 
     // Present: the route must say NOT gone, or the `true` below is meaningless.
@@ -5240,7 +5249,7 @@ test('the removed list gives the browser only what it draws', async () => {
     procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
     if (procs) procs.start(name);
     assert.equal(removal.remove(name).outcome, removal.OUTCOME.REMOVED);
-    if (procs) assert.equal(procs.pidOf(name), null, "the agent's process is still running after its removal was reported done");   // kosmos#8456 review 2
+    if (procs) assertWin32AgentGone(procs, name);
     if (procs) assertWin32TaskStopped(name);
 
     // ⚠️ CONTROL: the stored record really does carry the fields being excluded,
@@ -5724,7 +5733,11 @@ test('an agent whose card shows a different name than its session still leaves t
   fs.mkdirSync(create.workerDir(session), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(session), 'CLAUDE.md'),
     'You are **Bartholomew**.\n', 'utf8');
-  fs.writeFileSync(nodePath.join(nodePath.dirname(jobfix.jobPath(session)), `com.${session}.discord.plist`), '<plist/>', 'utf8');
+  /* kosmos#8456 review 4: a Windows agent has no legacy `-discord` job or session: there it is a Kosmos agent whose
+     Scheduled Task and running process carry the machine name, and whose instructions name it something else. */
+  const win = process.platform === 'win32';
+  if (win) fs.writeFileSync(jobfix.jobPath(session), jobfix.jobFor(session, STUB_BIN, null, null, null, 'claude'), 'utf8');
+  else fs.writeFileSync(nodePath.join(nodePath.dirname(jobfix.jobPath(session)), `com.${session}.discord.plist`), '<plist/>', 'utf8');
   // The `-discord` session is how a real legacy agent appears: the board files
   // it under the bare name and reads its display name from its instructions.
   /**
@@ -5744,16 +5757,20 @@ test('an agent whose card shows a different name than its session still leaves t
    * roster fall through to the REAL fleet on purpose, so a global stub would
    * quietly change what those are measuring.
    */
-  status.setPaneSource(() => fleet.line({ session: `${session}-discord`, title: '✳ Claude Code' }));
+  if (!win) status.setPaneSource(() => fleet.line({ session: `${session}-discord`, title: '✳ Claude Code' }));
   status.setPaneCapture(() => null);
-  /* kosmos#8456: on Windows the session the roster shows is a process, under the name the roster gives it, in the stand-in
-     process table; the removal ends it with taskkill, where a Mac's ends the tmux session. */
+  /* kosmos#8456: on Windows the agent is a process in the stand-in process table, and the board's roster is the one a
+     Windows board uses (win32roster.make, its rows joined to the ownership record) read from that table; the removal
+     ends the process with taskkill, where a Mac's ends the tmux session. */
   let procs = null;
   removal.setRunner((f, a) => (a && a[0] === 'has-session' ? { ok: false, code: 1 } : { ok: true, stdout: '' }));
   removal.setDryRun(false);
   try {
-    procs = process.platform === 'win32' ? jobfix.win32Processes() : null;
-    if (procs) procs.start(`${session}-discord`);
+    procs = win ? jobfix.win32Processes() : null;
+    if (procs) {
+      procs.start(session);
+      status.setPaneSource(require('./engine/win32roster').make({ run: procs.agentsJson, codexLive: procs.codexRows }));
+    }
     // ⚠️ THE CONTROL, twice over: it is on the board, and the two names really
     // do differ. Without the second check this test would pass against a
     // fixture whose names coincide, which is the hole it exists to close.
@@ -5765,7 +5782,10 @@ test('an agent whose card shows a different name than its session still leaves t
     const gone = await req(`/api/agent/${session}/removal`, { method: 'DELETE' });
     assert.equal(gone.status, 200, gone.body);
     assert.equal(JSON.parse(gone.body).outcome, 'removed');
-    if (procs) assert.equal(procs.pidOf(`${session}-discord`), null, "the agent's process is still running after its removal was reported done");   // kosmos#8456 review 2
+    if (procs) {
+      assertWin32AgentGone(procs, session);
+      assertWin32TaskStopped(session);
+    }
 
     const after = JSON.parse((await req('/api/status')).body).agents.map((a) => a.sessionName);
     assert.ok(!after.includes(session),
@@ -10925,6 +10945,8 @@ test('the model route writes the choice AND restarts, because either alone is a 
     const again = await req('/api/agent/' + name + '/restart', { method: 'POST' });
     assert.equal(again.status, 200, again.body);
     assert.equal(JSON.parse(again.body).outcome, 'restarted');
+    // kosmos#8456 review 4: after two restarts one ownership row is left, the new session's; each ended one was forgotten.
+    if (procs) assert.equal(procs.rowsOf(name).length, 1, 'a restarted agent left the ended session in the ownership record');
   } finally {
     removal.setRunner(null);
     removal.setDryRun(true);
@@ -10983,6 +11005,8 @@ test('#2019: the restart route threads an optional cause, and a bodyless POST st
     assert.equal(JSON.parse(bodyless.body).outcome, 'restarted');
     assert.equal(disruption.active(name).cause, 'restart',
       'a bodyless restart did not fall back to the generic cause');
+    // kosmos#8456 review 4: one ownership row left, the new session's; each ended one was forgotten.
+    if (procs) assert.equal(procs.rowsOf(name).length, 1, 'a restarted agent left the ended session in the ownership record');
 
     /* kosmos#8456 review 2, the CONTROL for the two "restarted" answers above on Windows: they mean something only if a
        restart whose agent never comes back is NOT answered "restarted". Here the task runs again but its supervisor

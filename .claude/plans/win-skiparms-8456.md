@@ -84,3 +84,15 @@ project block written after the start, and a task line naming another file: each
 - `reset()` on the process table (live entries, state files, survivors, never-comes-up marks, running tasks), called
   per arm in the 2570 file; `stop()` does it too. agentOn now refuses an agent already running from an earlier arm.
 - Create and adopt arms assert exactly one `/Run` for the task.
+
+## Review round 4
+- The card-name arm has a real Windows branch: a Kosmos task for `two-named`, the agent running in the process table,
+  the roster a Windows board uses (`win32roster.make` over the table's live list), and CLAUDE.md naming it
+  Bartholomew. It asserts the task switched off and ended, the process gone and its ownership row forgotten, and the
+  agent off the board. The Mac and Linux arm is unchanged.
+- Ownership rows: chose to ASSERT the row is gone after each stop and restart (`procs.rowsOf`), not to build the live
+  list from win32sessions. The real `claude agents --json` lists running processes, so a row left after its process
+  ended never appears in it; a stand-in that listed record rows would call a killed agent running, which no real
+  machine does. The stale row matters through the record itself, so the record is what is checked.
+- `jobfix.resetScheduler()` clears the stand-in's running tasks; the create and adopt arms call it when done.
+- The 2570 and adopt files remove their sandboxes in `test.after`.
