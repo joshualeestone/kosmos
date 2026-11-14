@@ -53,6 +53,12 @@ Card comment: an API key was matched by its last four characters only, so two ke
   record held for that folder name: the name may now be someone else's (Alice's record, Bob signed in since). Writes
   that rewrite the same folder without a new choice (setModel, refresh) read nothing and carry the recorded identity
   over (refreshedRecord). A new choice also starts the unreadable count afresh, on purpose.
+- Review 7: every sentence about a kept folder states how many Start at logins that reach it and still cannot read or
+  confirm its account are left before it is dropped: out of reach at count 0 ("three"), 1 ("two more"), 2 ("the next");
+  could not read or confirm at count 0 ("after that, two more"), 1 ("after that, the next"); the drop says "at two
+  earlier Start at logins" (a start out of reach may sit between them). Every sentence at counts 0, 1 and 2 was
+  generated in a sandbox and read. Left as before: a kept folder out of reach whose model is no longer offered gets the
+  older generic sentence (main account and last model, choose both again), which promises nothing about the folder.
 - Review 6: the out-of-reach words, when earlier starts could not read or confirm the folder's account, add how many
   more reachable such starts drop it for good ("or until the next Start at login that reaches that folder still cannot
   read or confirm the account in it, which moves it to your main account for good", or "two more"), so they no longer
@@ -130,5 +136,6 @@ name reads "could not read", which fails safe. Real organizationUuid values are 
 - Review 5: torn, out of reach, torn, out of reach, torn: the count goes 1, 1, 2, 2, then the folder is dropped with
   the new words. Fails against 77a1625b79.
 - Review 6: the out-of-reach words at counts 0, 1 and 2, and end to end at count 2. Fails against b9558231a3.
+- Review 7: the could-not-read and out-of-reach words at counts 0, 1 and 2. Fails against 8be1db3934.
 - Negative control: each new test fails against origin/main's create/register/delete-leftover/openaiaccounts (with
   only an export of win32AccountIdentity appended so the unit tests can reach it).

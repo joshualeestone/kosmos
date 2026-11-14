@@ -108,7 +108,7 @@ test('kosmos#8489 (b): a Claude config that cannot be read right now is "could n
   fs.writeFileSync(accounts.configFile(dir), '{"oauthAccount": {"emailAddress": "lee@exa');
   assert.equal(why(n), 'unreadable', 'a config being written read as a changed account');
   const words = leftover.startsAgainWords(n);
-  assert.match(words, /^; it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, so it starts on your main account unless it can read that by then and it is still the same account\. If it still cannot, Kosmos keeps that folder and tries it again at the next Start at login, unless its startup job is written again before then \(changing its account or model does that\), which forgets that folder\.$/);
+  assert.match(words, /^; it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, so it starts on your main account unless it can read that by then and it is still the same account\. If it still cannot, Kosmos keeps that folder and tries it again at later Start at logins, unless its startup job is written again before then \(changing its account or model does that\), which forgets that folder\. After that, if two more Start at logins that reach that folder still cannot read or confirm the account in it, it moves to your main account for good\.$/);
   assert.doesNotMatch(words, /signed out or changed/, 'the person was told the account signed out or changed');
   // Not there at all, with no key beside it: could not read too.
   fs.rmSync(accounts.configFile(dir));
@@ -223,7 +223,7 @@ test('kosmos#8489: "could not read" ends: the third Start at login in a row drop
   const last = keptAs('torn2-8489', 2);
   assert.equal(why(last), 'unreadableGaveUp', 'a folder unread three Start at logins in a row was kept again');
   assert.equal(create.win32RecordedTask(last).accountOk, false);
-  assert.equal(leftover.startsAgainWords(last), '; it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, and could not confirm that account at the two Start at logins before either, so at the next Start at login it moves to your main account for good, unless it can read that account by then and it is still the same one. Choose its account again if it should use another.');
+  assert.equal(leftover.startsAgainWords(last), '; it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, and could not confirm that account at two earlier Start at logins either, so at the next Start at login it moves to your main account for good, unless it can read that account by then and it is still the same one. Choose its account again if it should use another.');
 });
 
 test('kosmos#8489: a Grok sign-in file holding no x.ai sign-in is signed out (changed); two is "could not read"', () => {
@@ -280,7 +280,7 @@ test('kosmos#8489: each "cannot tell" gives its own true reason: a failed read s
   made.push('whydrop8489');
   store.writeProfile('whydrop8489', { displayName: 'whydrop8489', provider: 'anthropic',
     win32Task: { runner: 'claude', configDir: dir, model: SET_MODEL, account: signinId('pat@example.test'), kept: true, unreadable: 2 } });
-  assert.equal(leftover.startsAgainWords('whydrop8489'), '; it starts on the model it was set to, but Kosmos could not confirm that the account folder it last used still holds the account it used before, now or at the two Start at logins before, so at the next Start at login it moves to your main account for good, unless it can confirm that by then. Choose its account again if it should use another.');
+  assert.equal(leftover.startsAgainWords('whydrop8489'), '; it starts on the model it was set to, but Kosmos could not confirm that the account folder it last used still holds the account it used before, now or at two earlier Start at logins, so at the next Start at login it moves to your main account for good, unless it can confirm that by then. Choose its account again if it should use another.');
   // codex: a record with no workspace, the folder now in one.
   const oa = require('./openaiaccounts');
   const cdir = folder('whyCodex');
@@ -290,7 +290,7 @@ test('kosmos#8489: each "cannot tell" gives its own true reason: a failed read s
   assert.equal(create.win32RecordedTask(c).unreadableReason, 'confirm');
 });
 
-test('kosmos#8489: the out-of-reach words say when earlier unreadable starts will drop the folder, and say nothing of it when there were none', () => {
+test('kosmos#8489: the out-of-reach words say how many Start at logins that reach the folder and cannot read it are left before it is dropped, at every count', () => {
   const account = signinId('pat@example.test', UUID_ONE);
   const gone = nodePath.join(SANDBOX, 'not-connected-8489', '.claude-away');   // a folder Kosmos cannot reach
   const keptAs = (name, unreadable) => {
@@ -302,7 +302,21 @@ test('kosmos#8489: the out-of-reach words say when earlier unreadable starts wil
   const KEEPS = 'Kosmos keeps that folder and tries it again at each Start at login until its startup job is written again (changing its account or model does that), which forgets that folder';
   const none = leftover.startsAgainWords(keptAs('away0-8489', 0));
   assert.equal(create.win32RecordedTask('away0-8489').accountWhy, 'unreachable');
-  assert.ok(none.endsWith(KEEPS + '.'), none);
+  assert.ok(none.endsWith(KEEPS + ', or until three Start at logins that reach that folder still cannot read or confirm the account in it, which moves it to your main account for good.'), none);
   assert.ok(leftover.startsAgainWords(keptAs('away1-8489', 1)).endsWith(KEEPS + ', or until two more Start at logins that reach that folder still cannot read or confirm the account in it, which moves it to your main account for good.'));
   assert.ok(leftover.startsAgainWords(keptAs('away2-8489', 2)).endsWith(KEEPS + ', or until the next Start at login that reaches that folder still cannot read or confirm the account in it, which moves it to your main account for good.'));
+});
+
+test('kosmos#8489: the could-not-read words say how many unreadable starts are left at every count', () => {
+  const dir = folder('left');
+  fs.writeFileSync(accounts.configFile(dir), '{"oauthAccount": {"emailAd');
+  const at = (name, unreadable) => {
+    made.push(name);
+    store.writeProfile(name, { displayName: name, provider: 'anthropic',
+      win32Task: { runner: 'claude', configDir: dir, model: SET_MODEL, account: signinId('pat@example.test', UUID_ONE), kept: true, ...(unreadable ? { unreadable } : {}) } });
+    return leftover.startsAgainWords(name);
+  };
+  assert.match(at('left0-8489', 0), /After that, if two more Start at logins that reach that folder still cannot read or confirm the account in it, it moves to your main account for good\.$/);
+  assert.match(at('left1-8489', 1), /After that, if the next Start at login that reaches that folder still cannot read or confirm the account in it, it moves to your main account for good\.$/);
+  assert.match(at('left2-8489', 2), /at two earlier Start at logins either, so at the next Start at login it moves to your main account for good/);
 });

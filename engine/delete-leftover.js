@@ -941,6 +941,14 @@ function startsAgainWords(name, preview = false) {
       ? '; it starts on the model it was set to, but on your main account, because Kosmos did not record whose account was in the folder it used. Choose its account again if it should use another.'
       : '; it starts on your main account and the model it last ran, because Kosmos did not record whose account was in the folder it used. Choose its account and model again if it used others.';
   }
+  /* kosmos#8489: how many Start at logins that reach a kept folder and still cannot read or confirm its account are
+     left before it is dropped for good (create.WIN32_UNREADABLE_LIMIT), in the words: "the next Start at login that
+     reaches that folder", or "two (three) Start at logins that reach that folder". The same clause in every sentence
+     about a kept folder, so each says how many are left at every count. */
+  const NUMBER_WORDS = { 2: 'two', 3: 'three' };
+  const reachingStarts = (n, more) => (n <= 1
+    ? 'the next Start at login that reaches that folder'
+    : `${NUMBER_WORDS[n] || n} ${more ? 'more ' : ''}Start at logins that reach that folder`);
   /* kosmos#8489: the folder's account could not be read just now (Claude Code or codex writing its config at that
      moment), which is not a changed account: the repair keeps the folder in the record and tries it again, as it does
      a folder out of reach, so the words say that and never "signed out or changed". */
@@ -951,7 +959,9 @@ function startsAgainWords(name, preview = false) {
     const lead = rec.unreadableReason === 'confirm'
       ? 'Kosmos could not confirm that the account folder it last used still holds the account it used before, so it starts on your main account unless it can confirm that by then.'
       : 'Kosmos could not read which account is signed in to the account folder it last used, so it starts on your main account unless it can read that by then and it is still the same account.';
-    const unread = lead + ' If it still cannot, Kosmos keeps that folder and tries it again at the next Start at login, unless its startup job is written again before then (changing its account or model does that), which forgets that folder.';
+    // The coming Start at login is one of those left (unreadableLeft counts it), so the rest are the ones after it.
+    const after = Math.max(1, (rec.unreadableLeft || 1) - 1);
+    const unread = lead + ' If it still cannot, Kosmos keeps that folder and tries it again at later Start at logins, unless its startup job is written again before then (changing its account or model does that), which forgets that folder. After that, if ' + reachingStarts(after, true) + ' still cannot read or confirm the account in it, it moves to your main account for good.';
     return rec.modelOk
       ? '; it starts on the model it was set to, but ' + unread
       : '; it starts on the model it last ran, so choose its model again if it used another. ' + unread;
@@ -959,11 +969,12 @@ function startsAgainWords(name, preview = false) {
   /* kosmos#8489: the third Start at login in a row that could not read it (create.WIN32_UNREADABLE_LIMIT) drops the
      folder for good. Hedged, because these words are read before that Start at login (the plan and outcome of the
      task-only delete, Restore), and a config that reads cleanly by then puts the folder back. The reason now is the
-     engine's; the two before are said only as "could not confirm", true whichever reason they had. */
+     engine's; the two before are said only as "could not confirm", true whichever reason they had, and as "two earlier
+     Start at logins", not "the two before", since a start that could not reach the folder may sit between them. */
   if (rec && rec.accountWhy === 'unreadableGaveUp') {
     const unread = rec.unreadableReason === 'confirm'
-      ? 'Kosmos could not confirm that the account folder it last used still holds the account it used before, now or at the two Start at logins before, so at the next Start at login it moves to your main account for good, unless it can confirm that by then. Choose its account again if it should use another.'
-      : 'Kosmos could not read which account is signed in to the account folder it last used, and could not confirm that account at the two Start at logins before either, so at the next Start at login it moves to your main account for good, unless it can read that account by then and it is still the same one. Choose its account again if it should use another.';
+      ? 'Kosmos could not confirm that the account folder it last used still holds the account it used before, now or at two earlier Start at logins, so at the next Start at login it moves to your main account for good, unless it can confirm that by then. Choose its account again if it should use another.'
+      : 'Kosmos could not read which account is signed in to the account folder it last used, and could not confirm that account at two earlier Start at logins either, so at the next Start at login it moves to your main account for good, unless it can read that account by then and it is still the same one. Choose its account again if it should use another.';
     return rec.modelOk
       ? '; it starts on the model it was set to, but ' + unread
       : '; it starts on the model it last ran, so choose its model again if it used another. ' + unread;
@@ -984,12 +995,8 @@ function startsAgainWords(name, preview = false) {
        while it still holds the account it was recorded with. kosmos#8489: the last sentence says the rewrite part, so
        the promise is not wider than the code, and, when earlier Start at logins could not read or confirm the account
        in that folder (the count carries through a start that cannot reach it), how many more such starts drop it. */
-    const left = rec.unreadableBefore > 0 ? rec.unreadableLeft : 0;
-    const drop = left === 1
-      ? ', or until the next Start at login that reaches that folder still cannot read or confirm the account in it, which moves it to your main account for good'
-      : left > 1
-        ? `, or until ${left === 2 ? 'two' : left} more Start at logins that reach that folder still cannot read or confirm the account in it, which moves it to your main account for good`
-        : '';
+    const left = rec.unreadableLeft || 1;
+    const drop = `, or until ${reachingStarts(left, rec.unreadableBefore > 0)} still cannot read or confirm the account in it, which moves it to your main account for good`;
     return '; it starts on the model it was set to, but Kosmos cannot reach the account folder it used right now, so it starts on your main account unless that folder can be reached by then and still holds the same account. If that folder is on a disk or shared folder that is not connected, connect it first; otherwise choose its account again afterwards if it should use another. Kosmos keeps that folder and tries it again at each Start at login until its startup job is written again (changing its account or model does that), which forgets that folder' + drop + '.';
   }
   if (rec && rec.accountOk) {

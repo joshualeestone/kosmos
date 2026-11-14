@@ -306,7 +306,7 @@ test('kosmos#8478: an agent with nothing recorded whose task cannot be read at t
     'Start at login wrote a task and did not record it');
 });
 
-const CANNOT_REACH = /it starts on the model it was set to, but Kosmos cannot reach the account folder it used right now, so it starts on your main account unless that folder can be reached by then and still holds the same account\. If that folder is on a disk or shared folder that is not connected, connect it first; otherwise choose its account again afterwards if it should use another\. Kosmos keeps that folder and tries it again at each Start at login until its startup job is written again \(changing its account or model does that\), which forgets that folder\./;
+const CANNOT_REACH = /it starts on the model it was set to, but Kosmos cannot reach the account folder it used right now, so it starts on your main account unless that folder can be reached by then and still holds the same account\. If that folder is on a disk or shared folder that is not connected, connect it first; otherwise choose its account again afterwards if it should use another\. Kosmos keeps that folder and tries it again at each Start at login until its startup job is written again \(changing its account or model does that\), which forgets that folder, or until three Start at logins that reach that folder still cannot read or confirm the account in it, which moves it to your main account for good\./;
 
 test('kosmos#8478: a recorded account folder that cannot be reached falls back to the main account, says so, and comes back on it at the next Start at login, if no change to the agent rewrites its task first', WINDOWS_ONLY, () => {
   const name = agent('gone8478');
@@ -335,7 +335,7 @@ test('kosmos#8489: a recorded account whose config cannot be read right now (Cla
   const whole = fs.readFileSync(config, 'utf8');
   fs.writeFileSync(config, whole.slice(0, Math.floor(whole.length / 2)));   // caught mid-write: half the file
   const p = taskOnlyDelete(name);
-  const words = /it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, so it starts on your main account unless it can read that by then and it is still the same account\. If it still cannot, Kosmos keeps that folder and tries it again at the next Start at login, unless its startup job is written again before then \(changing its account or model does that\), which forgets that folder\./;
+  const words = /it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, so it starts on your main account unless it can read that by then and it is still the same account\. If it still cannot, Kosmos keeps that folder and tries it again at later Start at logins, unless its startup job is written again before then \(changing its account or model does that\), which forgets that folder\. After that, if two more Start at logins that reach that folder still cannot read or confirm the account in it, it moves to your main account for good\./;
   assert.match(p.reassurance, words);
   assert.match(p.said, words);
   assert.doesNotMatch(p.reassurance, /signed out or changed/, 'the person was told their account signed out or changed');
@@ -441,7 +441,7 @@ test('kosmos#8489: a folder unread at three Start at logins in a row is dropped 
     taskOnlyDelete(name); startAtLogin(name);
     assert.equal(store.readProfile(name).win32Task.unreadable, 2);
     const p = taskOnlyDelete(name);
-    assert.match(p.reassurance, /it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, and could not confirm that account at the two Start at logins before either, so at the next Start at login it moves to your main account for good, unless it can read that account by then and it is still the same one\. Choose its account again if it should use another\./);
+    assert.match(p.reassurance, /it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, and could not confirm that account at two earlier Start at logins either, so at the next Start at login it moves to your main account for good, unless it can read that account by then and it is still the same one\. Choose its account again if it should use another\./);
     startAtLogin(name);
     assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
     assert.equal(store.readProfile(name).win32Task.configDir, null, 'the folder was kept after three unreadable Start at logins');
