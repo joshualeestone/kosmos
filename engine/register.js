@@ -898,7 +898,7 @@ function repair(opts) {
         if (rec.accountOk) recordOpts.accountRecorded = true;   // round 1 nit: the main account, known rather than guessed
         // round 7: its identity was just checked (win32RecordedTask), so installJob may record it again.
         if (rec.accountOk && rec.configDir) recordOpts.accountVerified = true;
-        // kosmos#8489 review 1: the identity it just read, recorded as is (the agent it starts may be writing its config).
+        // kosmos#8489: the identity it just read, recorded as is (the agent it starts may be writing its config).
         if (rec.accountOk && rec.configDir && rec.identityNow) recordOpts.verifiedIdentity = rec.identityNow;
         /* round 1: a recorded folder it cannot reach (perhaps a disk not connected) stays in the record, so the agent
            comes back on it at the next Start at login, if no change to the agent rewrites its task first (round 2: a
@@ -911,9 +911,13 @@ function repair(opts) {
         if ((rec.accountWhy === 'unreachable' || rec.accountWhy === 'unreadable') && rec.configDir) {
           recordOpts.keepRecordedAccount = rec.configDir;
           recordOpts.keepRecordedIdentity = rec.identity;
-          /* review 1: counted, so a folder that never reads again is dropped (create's WIN32_UNREADABLE_LIMIT, then
-             accountWhy 'unreadableGaveUp', which is not kept). An unreachable one starts the count again. */
-          if (rec.accountWhy === 'unreadable') recordOpts.keepRecordedUnreadable = (rec.unreadableBefore || 0) + 1;
+          /* kosmos#8489: counted, so a folder that never reads again is dropped (create's WIN32_UNREADABLE_LIMIT, then
+             accountWhy 'unreadableGaveUp', which is not kept). A start that cannot reach the folder carries the count
+             as it is, neither adding nor clearing, so a folder alternating between out of reach and unreadable still
+             reaches the limit. */
+          const before = rec.unreadableBefore || 0;
+          const count = rec.accountWhy === 'unreadable' ? before + 1 : before;
+          if (count > 0) recordOpts.keepRecordedUnreadable = count;
         }
         if (rec.modelOk) { model = rec.model; modelRecorded = true; }
       }

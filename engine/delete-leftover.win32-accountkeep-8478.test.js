@@ -351,7 +351,7 @@ test('kosmos#8489: a recorded account whose config cannot be read right now (Cla
   assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: SET_MODEL }, 'with its config readable again the agent did not come back on its account');
 });
 
-test('kosmos#8489 review 1: Start at login records the identity it just checked, so the agent it starts writing its config at that moment cannot leave the record with none', WINDOWS_ONLY, (t) => {
+test('kosmos#8489: Start at login records the identity it just checked, so the agent it starts writing its config at that moment cannot leave the record with none', WINDOWS_ONLY, (t) => {
   const name = agent('racerec8489');
   assert.equal(chooseThenModel(name, ACCOUNT, 'opus55').outcome, create.OUTCOME.CREATED);
   taskOnlyDelete(name);
@@ -365,7 +365,7 @@ test('kosmos#8489 review 1: Start at login records the identity it just checked,
   assert.deepEqual(store.readProfile(name).win32Task.account, OWNER_IDENTITY, 'the record lost whose account it was, so the next Start at login would never trust it');
 });
 
-test('kosmos#8489 review 2: a newly chosen folder whose account cannot be read records no identity, never the one an old record held for the same folder name', WINDOWS_ONLY, (t) => {
+test('kosmos#8489: a newly chosen folder whose account cannot be read records no identity, never the one an old record held for the same folder name', WINDOWS_ONLY, (t) => {
   const accounts = require('./accounts');
   const alice = accounts.nextWorkDir();
   signIn(alice.dir, { emailAddress: 'alice@example.test', organizationUuid: 'org-alice' });
@@ -390,7 +390,7 @@ test('kosmos#8489 review 2: a newly chosen folder whose account cannot be read r
   } finally { fs.rmSync(alice.dir, { recursive: true, force: true }); }
 });
 
-test('kosmos#8489 review 2: a thrown reader bug on the record path is "changed" as at Start at login: logged, and nothing kept', WINDOWS_ONLY, (t) => {
+test('kosmos#8489: a thrown reader bug on the record path is "changed" as at Start at login: logged, and nothing kept', WINDOWS_ONLY, (t) => {
   const name = agent('bugrec8489');
   assert.equal(chooseThenModel(name, ACCOUNT, 'opus55').outcome, create.OUTCOME.CREATED);
   const accounts = require('./accounts');
@@ -429,7 +429,7 @@ test('kosmos#8489: what a record keeps of a chosen account: the organization uui
   } finally { fs.rmSync(keyDir, { recursive: true, force: true }); }
 });
 
-test('kosmos#8489 review 1: a folder unread at three Start at logins in a row is dropped for good with true words; one readable start in between resets the count', WINDOWS_ONLY, () => {
+test('kosmos#8489: a folder unread at three Start at logins in a row is dropped for good with true words; one readable start in between resets the count', WINDOWS_ONLY, () => {
   const name = agent('thrice8489');
   assert.equal(chooseThenModel(name, ACCOUNT, 'opus55').outcome, create.OUTCOME.CREATED);
   const config = require('./accounts').configFile(ACCOUNT);
@@ -441,7 +441,7 @@ test('kosmos#8489 review 1: a folder unread at three Start at logins in a row is
     taskOnlyDelete(name); startAtLogin(name);
     assert.equal(store.readProfile(name).win32Task.unreadable, 2);
     const p = taskOnlyDelete(name);
-    assert.match(p.reassurance, /it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, and could not confirm that account at the two Start at logins before either, so it starts on your main account from now on unless it can read that by then and it is still the same account\. Choose its account again if it should use another\./);
+    assert.match(p.reassurance, /it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, and could not confirm that account at the two Start at logins before either, so at the next Start at login it moves to your main account for good, unless it can read that account by then and it is still the same one\. Choose its account again if it should use another\./);
     startAtLogin(name);
     assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
     assert.equal(store.readProfile(name).win32Task.configDir, null, 'the folder was kept after three unreadable Start at logins');
@@ -461,6 +461,38 @@ test('kosmos#8489 review 1: a folder unread at three Start at logins in a row is
     assert.equal(rec.unreadable, undefined, 'a readable match did not reset the count');
     assert.deepEqual(rec.account, OWNER_IDENTITY);
   } finally { fs.writeFileSync(config, whole); }
+});
+
+test('kosmos#8489: a start that cannot reach the folder neither adds to nor clears the unreadable count, so a folder alternating between out of reach and unreadable is still dropped', WINDOWS_ONLY, () => {
+  const name = agent('alternate8489');
+  assert.equal(chooseThenModel(name, ACCOUNT, 'opus55').outcome, create.OUTCOME.CREATED);
+  const config = require('./accounts').configFile(ACCOUNT);
+  const whole = fs.readFileSync(config, 'utf8');
+  const unplugged = ACCOUNT + '-unplugged';
+  try {
+    fs.writeFileSync(config, Buffer.alloc(64));   // torn to NULs by a crash
+    taskOnlyDelete(name); startAtLogin(name);
+    assert.equal(store.readProfile(name).win32Task.unreadable, 1);
+    fs.renameSync(ACCOUNT, unplugged);   // out of reach this time
+    taskOnlyDelete(name); startAtLogin(name);
+    const kept = store.readProfile(name).win32Task;
+    assert.equal(kept.configDir, ACCOUNT, 'the folder out of reach was not kept');
+    assert.equal(kept.unreadable, 1, 'a start that could not reach the folder changed the unreadable count');
+    fs.renameSync(unplugged, ACCOUNT);
+    taskOnlyDelete(name); startAtLogin(name);
+    assert.equal(store.readProfile(name).win32Task.unreadable, 2);
+    fs.renameSync(ACCOUNT, unplugged);
+    taskOnlyDelete(name); startAtLogin(name);
+    assert.equal(store.readProfile(name).win32Task.unreadable, 2);
+    fs.renameSync(unplugged, ACCOUNT);
+    const p = taskOnlyDelete(name);
+    assert.match(p.reassurance, /so at the next Start at login it moves to your main account for good, unless it can read that account by then and it is still the same one\./);
+    startAtLogin(name);
+    assert.equal(store.readProfile(name).win32Task.configDir, null, 'a folder unreadable three times, with starts out of reach between, was kept');
+  } finally {
+    if (fs.existsSync(unplugged)) fs.renameSync(unplugged, ACCOUNT);
+    fs.writeFileSync(config, whole);
+  }
 });
 
 test('kosmos#8478 round 1: an account removed after the task-only delete is forgotten in the record, so a new sign-in reusing its folder name never gets the agent', WINDOWS_ONLY, () => {

@@ -53,6 +53,11 @@ Card comment: an API key was matched by its last four characters only, so two ke
   record held for that folder name: the name may now be someone else's (Alice's record, Bob signed in since). Writes
   that rewrite the same folder without a new choice (setModel, refresh) read nothing and carry the recorded identity
   over (refreshedRecord). A new choice also starts the unreadable count afresh, on purpose.
+- Review 5 (decided by the coordinator): a Start at login that cannot reach the kept folder carries the unreadable
+  count through unchanged (neither adds nor clears), so a folder alternating between out of reach and unreadable still
+  reaches the limit. The third-try words now say "so at the next Start at login it moves to your main account for good,
+  unless it can read that account by then and it is still the same one" (or "unless it can confirm that by then").
+  Round labels were taken out of the comments this branch added; the round history lives here.
 - Review 4 (decided by the coordinator): the "cannot tell" words carry the reason the engine knows
   (win32RecordedTask unreadableReason). 'read': a file that is there could not be read or parsed ("Kosmos could not
   read which account is signed in to the account folder it last used"). 'confirm': the read worked but cannot be
@@ -118,5 +123,7 @@ name reads "could not read", which fails safe. Real organizationUuid values are 
   either side; the hedged words. Each fails against 30088af7b9.
 - Review 4: each reason shows its own words (a torn config: could not read; no org recorded and one now, no config and
   no key, a codex record with no workspace: could not confirm; the drop for each). Fails against 88dd41c743.
+- Review 5: torn, out of reach, torn, out of reach, torn: the count goes 1, 1, 2, 2, then the folder is dropped with
+  the new words. Fails against 77a1625b79.
 - Negative control: each new test fails against origin/main's create/register/delete-leftover/openaiaccounts (with
   only an export of win32AccountIdentity appended so the unit tests can reach it).
