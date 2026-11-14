@@ -33,6 +33,8 @@ const path = require('node:path');
 
 const FED = path.join(__dirname, 'tools', 'fed-own-e2e.js');
 const FAMILY = path.join(__dirname, 'tools', 'family-e2e-6239.js');
+// kosmos#8529: a third copy, the company backup proof, made from FAMILY. Held to the same helpers.
+const COMPANY = path.join(__dirname, 'tools', 'companybackup-e2e-8529.js');
 
 /* The helpers whose code is the same in both harnesses (measured 2026-10-16 on main; ownedAlive, the orphan sweep,
    differs only by a comment). freePort, boardEnv, startBoard and main differ on purpose (each harness's own boards
@@ -105,25 +107,32 @@ test('kosmos#6287: the extractor sees a one-character change (control)', () => {
   assert.equal(statements(s1, 'const X =')[0], 'const X = 1;');
 });
 
-test('kosmos#6287: the shared harness helpers are identical in fed-own-e2e.js and family-e2e-6239.js', () => {
-  const fed = fs.readFileSync(FED, 'utf8');
-  const family = fs.readFileSync(FAMILY, 'utf8');
-  for (const name of SHARED) {
-    const a = definitions(fed, name);
-    const b = definitions(family, name);
-    assert.equal(a.length, 1, `${name}: expected one definition in tools/fed-own-e2e.js, found ${a.length}`);
-    assert.equal(b.length, 1, `${name}: expected one definition in tools/family-e2e-6239.js, found ${b.length}`);
-    for (const cut of [a[0], b[0]]) {
-      assert.ok(cut.split('\n').length <= MAX_LINES, `${name}: the cut ran past ${MAX_LINES} lines, so it did not stop at the helper's end`);
+/* Each copy against fed-own-e2e.js, the original: a fix to one copy must be made to every other. */
+for (const [title, file] of [
+  ['kosmos#6287: the shared harness helpers are identical in fed-own-e2e.js and family-e2e-6239.js', FAMILY],
+  ['kosmos#8529: the shared harness helpers are identical in fed-own-e2e.js and companybackup-e2e-8529.js', COMPANY],
+]) {
+  test(title, () => {
+    const fed = fs.readFileSync(FED, 'utf8');
+    const copy = fs.readFileSync(file, 'utf8');
+    const rel = path.relative(__dirname, file);
+    for (const name of SHARED) {
+      const a = definitions(fed, name);
+      const b = definitions(copy, name);
+      assert.equal(a.length, 1, `${name}: expected one definition in tools/fed-own-e2e.js, found ${a.length}`);
+      assert.equal(b.length, 1, `${name}: expected one definition in ${rel}, found ${b.length}`);
+      for (const cut of [a[0], b[0]]) {
+        assert.ok(cut.split('\n').length <= MAX_LINES, `${name}: the cut ran past ${MAX_LINES} lines, so it did not stop at the helper's end`);
+      }
+      assert.equal(code(b[0]), code(a[0]), `${name} differs between tools/fed-own-e2e.js and ${rel}: a fix to one copy must be made to the other (kosmos#6287)`);
     }
-    assert.equal(code(b[0]), code(a[0]), `${name} differs between tools/fed-own-e2e.js and tools/family-e2e-6239.js: a fix to one copy must be made to the other (kosmos#6287)`);
-  }
-  for (const prefix of SHARED_STATE) {
-    const a = statements(fed, prefix);
-    const b = statements(family, prefix);
-    assert.equal(a.length, 1, `${prefix}: expected one in tools/fed-own-e2e.js, found ${a.length}`);
-    assert.equal(b.length, 1, `${prefix}: expected one in tools/family-e2e-6239.js, found ${b.length}`);
-    for (const cut of [a[0], b[0]]) assert.ok(cut.split('\n').length <= MAX_LINES, `${prefix}: the cut ran past ${MAX_LINES} lines`);
-    assert.equal(code(b[0]), code(a[0]), `${prefix} differs between the two harnesses: the state the shared helpers use must stay the same (kosmos#6287)`);
-  }
-});
+    for (const prefix of SHARED_STATE) {
+      const a = statements(fed, prefix);
+      const b = statements(copy, prefix);
+      assert.equal(a.length, 1, `${prefix}: expected one in tools/fed-own-e2e.js, found ${a.length}`);
+      assert.equal(b.length, 1, `${prefix}: expected one in ${rel}, found ${b.length}`);
+      for (const cut of [a[0], b[0]]) assert.ok(cut.split('\n').length <= MAX_LINES, `${prefix}: the cut ran past ${MAX_LINES} lines`);
+      assert.equal(code(b[0]), code(a[0]), `${prefix} differs between the two harnesses: the state the shared helpers use must stay the same (kosmos#6287)`);
+    }
+  });
+}
