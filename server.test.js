@@ -81,10 +81,10 @@ const plannedModel = (name) => {
 };
 /* A command that STARTS the job (launchd's bootstrap, systemd's start), and one that re-enables it. */
 const startsJob = (file, a) => Array.isArray(a) && (a[0] === 'bootstrap' || (/systemctl$/.test(String(file)) && a[1] === 'start'));
-/* kosmos#8456 review 3: what a Windows removal leaves of the agent's startup task, read at the stand-in Task Scheduler
+/* kosmos#8456: what a Windows removal leaves of the agent's startup task, read at the stand-in Task Scheduler
    (test-support/jobfixture): switched off, so it does not start at the next login, and ended, so its supervisor is not
    still going. The Mac arms check launchctl disable and bootout in their runner's calls instead. */
-/* kosmos#8456 review 4: a stopped Windows agent's process is gone from the stand-in table AND its ownership row is
+/* kosmos#8456: a stopped Windows agent's process is gone from the stand-in table AND its ownership row is
    forgotten (win32stop forgets the session it ended; a row left behind is the duplicate-name case win32live warns of). */
 function assertWin32AgentGone(procs, name) {
   assert.equal(procs.pidOf(name), null, "the agent's process is still running after its removal was reported done");
@@ -3292,7 +3292,7 @@ test('the create route answers a real creation with the record the screen is bui
       ? act('/Create') >= 0 && act('/Run') > act('/Create')
       : calls.find((c) => (linuxHost() ? startsJob(c[0], c[1]) : /launchctl$/.test(c[0])));
     assert.ok(started, 'the job was never loaded, so nothing would start');
-    // kosmos#8456 review 3: and started once (a second /Run on Windows is ignored while it runs, so it would hide here).
+    // kosmos#8456: and started once (a second /Run on Windows is ignored while it runs, so it would hide here).
     if (process.platform === 'win32') {
       /* Exactly one, deliberately: a double start is the regression this guards, and Task Scheduler would hide it (a
          second /Run on a running task starts nothing), so a count of at least one could not see it. */
@@ -3320,7 +3320,7 @@ test('the create route answers a real creation with the record the screen is bui
     status.setPaneSource(null);
     if (process.platform === 'win32') {
       jobfix.useJobStore();   // the stand-in's own anchoring back
-      jobfix.resetScheduler();   // review 4: and the task this test started is not left marked running
+      jobfix.resetScheduler();   // And the task this test started is not left marked running
     }
   }
 });
@@ -4797,7 +4797,7 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
      */
     status.setPaneSource(() => fleet.line({ session: 'route-removable', claim: 'route-removable', title: '✳ Claude Code' }));
     status.setPaneCapture(() => null);
-    /* kosmos#8456 review 2: this removal runs with no runner, so on a Mac it is a dry run and changes nothing. A Windows
+    /* kosmos#8456: this removal runs with no runner, so on a Mac it is a dry run and changes nothing. A Windows
        removal acts through win32job and win32stop, which remove.js's dry run does not reach (its header says so), so
        here it is made a dry run at the stand-ins instead: the task's acts answer SUCCESS and change nothing, and the
        kill does not take. Without this the agent was already stopped and switched off before the DELETE below. */
@@ -4939,7 +4939,7 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
         ? scheduled.some((a) => a[0] === '/Change' && a.includes('/ENABLE') && a[a.indexOf('/TN') + 1] === tn)
         : seenRemoved.some(([f, a]) => enablesJob(f, a)),
       'nothing was re-enabled, so the agent is "restored" but will not start again');
-      /* kosmos#8456 review 3: and on Windows it is started again now, not only at the next login: the task is run after
+      /* kosmos#8456: and on Windows it is started again now, not only at the next login: the task is run after
          it was switched back on, and the agent is running. */
       if (procs) {
         const enabledAt = scheduled.findIndex((a) => a[0] === '/Change' && a.includes('/ENABLE') && a[a.indexOf('/TN') + 1] === tn);
@@ -5236,7 +5236,7 @@ test('the removed list gives the browser only what it draws', async () => {
   // the control below would be true of nothing.
   const plistDir = nodePath.dirname(jobfix.jobPath(name));
   fs.mkdirSync(plistDir, { recursive: true });
-  // kosmos#8456 review 5: on Windows the task definition Kosmos registers, as #2615 above writes it.
+  // kosmos#8456: on Windows the task definition Kosmos registers, as #2615 above writes it.
   fs.writeFileSync(jobfix.jobPath(name), process.platform === 'win32' ? jobfix.jobFor(name, STUB_BIN, null, null, null, 'claude') : '<plist/>', 'utf8');
   status.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
   status.setPaneCapture(() => null);
@@ -5736,7 +5736,7 @@ test('an agent whose card shows a different name than its session still leaves t
   fs.mkdirSync(create.workerDir(session), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(session), 'CLAUDE.md'),
     'You are **Bartholomew**.\n', 'utf8');
-  /* kosmos#8456 review 4: a Windows agent has no legacy `-discord` job or session: there it is a Kosmos agent whose
+  /* kosmos#8456: a Windows agent has no legacy `-discord` job or session: there it is a Kosmos agent whose
      Scheduled Task and running process carry the machine name, and whose instructions name it something else. */
   const win = process.platform === 'win32';
   if (win) fs.writeFileSync(jobfix.jobPath(session), jobfix.jobFor(session, STUB_BIN, null, null, null, 'claude'), 'utf8');
@@ -5772,7 +5772,7 @@ test('an agent whose card shows a different name than its session still leaves t
     procs = win ? jobfix.win32Processes() : null;
     if (procs) {
       procs.start(session);
-      /* review 5: the roster as it reads with the agent running, kept and served after the removal, as the Mac's fixed
+      /* The roster as it reads with the agent running, kept and served after the removal, as the Mac's fixed
          pane line is: killing the process must not be what takes the card off, only the removal record may. */
       const rows = require('./engine/win32roster').make({ run: procs.agentsJson, codexLive: procs.codexRows })();
       assert.ok(rows && rows.includes(session), 'the Windows roster does not list the running agent, so the board cannot show it');
@@ -5841,7 +5841,7 @@ test('a half-removed agent is on the removed list AND still on the board', async
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), 'You are **Half**.\n', 'utf8');
   fs.mkdirSync(nodePath.dirname(jobfix.jobPath(name)), { recursive: true });
-  // kosmos#8456 review 5: on Windows the task definition Kosmos registers, not a placeholder.
+  // kosmos#8456: on Windows the task definition Kosmos registers, not a placeholder.
   fs.writeFileSync(jobfix.jobPath(name), process.platform === 'win32' ? jobfix.jobFor(name, STUB_BIN, null, null, null, 'claude') : '<plist/>', 'utf8');
   status.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
   status.setPaneCapture(() => null);
@@ -5860,7 +5860,7 @@ test('a half-removed agent is on the removed list AND still on the board', async
     const tn = procs ? require('./engine/win32job').taskName(name) : null;
     unwatch = jobfix.watchScheduler((a) => (a[0] === '/End' && a[a.indexOf('/TN') + 1] === tn
       ? { ok: false, out: 'ERROR: Access is denied.' } : undefined));
-    if (procs) procs.start(name);
+    const pid = procs ? procs.start(name).pid : null;
     // ⚠️ CONTROL: it is on the board BEFORE the removal, or "it is still there
     // afterwards" is true of a board that never had it.
     const before = JSON.parse((await req('/api/status')).body).agents;
@@ -5868,6 +5868,13 @@ test('a half-removed agent is on the removed list AND still on the board', async
 
     const gone = removal.remove(name);
     assert.equal(gone.outcome, removal.OUTCOME.PARTIAL, gone.because);
+    /* kosmos#8456: the answer says it is still running, so on Windows it must be: nothing ended its process. The roster
+       here is a fixed pane line, which would read a dead agent as present, so the process table is asked. */
+    if (procs) {
+      assert.equal(procs.pidOf(name), pid, 'a removal that answered "still running" ended the agent anyway');
+      assert.ok(!procs.calls.some((c) => c.startsWith('taskkill') && jobfix.argsMatch(c.split(' ').slice(1), { values: { '/PID': pid } })),
+        'a removal that stopped on the refused /End still sent a taskkill for the agent');
+    }
 
     const listed = JSON.parse((await req('/api/removed')).body).agents.find((a) => a.name === name);
     assert.ok(listed, 'a half-removal is on no list, so it has no Restore button and no way back');
@@ -5932,7 +5939,7 @@ test('a job that is disabled but will not unload is recorded, not reported as un
   });
   removal.setDryRun(false);
   try {
-    unwatch = jobfix.watchScheduler((a) => {   // review 6: installed inside the try whose finally removes it
+    unwatch = jobfix.watchScheduler((a) => {   // Installed inside the try whose finally removes it
       scheduled.push(a);
       if (a[0] === '/End' && a[a.indexOf('/TN') + 1] === tn) return { ok: false, out: 'ERROR: Access is denied.' };
       return undefined;
@@ -5965,7 +5972,7 @@ test('a job that is disabled but will not unload is recorded, not reported as un
     await req('/api/agent/wont-unload/restore', { method: 'POST' }).catch(() => {});
     removal.setRunner(null);
     unwatch();
-    if (process.platform === 'win32') jobfix.resetScheduler();   // review 5: its task is not left marked running
+    if (process.platform === 'win32') jobfix.resetScheduler();   // Its task is not left marked running
   }
 });
 
@@ -10936,8 +10943,8 @@ test('the model route writes the choice AND restarts, because either alone is a 
     /* kosmos#8456: on Windows closing the window is taskkill on the agent's process, and the relaunch is the task's /Run
        (a task re-reads its command line when it is run, as launchd does at a bootstrap). */
     const tn = procs ? require('./engine/win32job').taskName(name) : null;
-    // review 5: the verb, the /PID or /TN value and the flags, in any order (jobfix.argsMatch).
-    // review 6: the program by name, with or without .exe, as jobfix.win32Step reads it.
+    // The verb, the /PID or /TN value and the flags, in any order (jobfix.argsMatch).
+    // The program by name, with or without .exe, as jobfix.win32Step reads it.
     const prog = (f) => nodePath.win32.basename(String(f)).toLowerCase().replace(/\.exe$/, '');
     assert.ok(calls.some((c) => (procs ? prog(c[0]) === 'taskkill' && jobfix.argsMatch(c[1], { values: { '/PID': pid }, flags: ['/T', '/F'] }) : c[1][0] === 'kill-session')),
       'nothing closed the window, so the supervisor would adopt an agent still on the old model');
@@ -10958,7 +10965,7 @@ test('the model route writes the choice AND restarts, because either alone is a 
     const again = await req('/api/agent/' + name + '/restart', { method: 'POST' });
     assert.equal(again.status, 200, again.body);
     assert.equal(JSON.parse(again.body).outcome, 'restarted');
-    // kosmos#8456 review 4: after two restarts one ownership row is left, the new session's; each ended one was forgotten.
+    // kosmos#8456: after two restarts one ownership row is left, the new session's; each ended one was forgotten.
     if (procs) assert.equal(procs.rowsOf(name).length, 1, 'a restarted agent left the ended session in the ownership record');
   } finally {
     removal.setRunner(null);
@@ -11018,10 +11025,10 @@ test('#2019: the restart route threads an optional cause, and a bodyless POST st
     assert.equal(JSON.parse(bodyless.body).outcome, 'restarted');
     assert.equal(disruption.active(name).cause, 'restart',
       'a bodyless restart did not fall back to the generic cause');
-    // kosmos#8456 review 4: one ownership row left, the new session's; each ended one was forgotten.
+    // kosmos#8456: one ownership row left, the new session's; each ended one was forgotten.
     if (procs) assert.equal(procs.rowsOf(name).length, 1, 'a restarted agent left the ended session in the ownership record');
 
-    /* kosmos#8456 review 2, the CONTROL for the two "restarted" answers above on Windows: they mean something only if a
+    /* kosmos#8456: the CONTROL for the two "restarted" answers above on Windows: they mean something only if a
        restart whose agent never comes back is NOT answered "restarted". Here the task runs again but its supervisor
        never starts (no ownership row, no state file), and the "did it come up" check (win32job.runningSteps) is given
        a clock that runs out its wait at once, so the test does not sit through the 12 seconds. */
@@ -11029,7 +11036,7 @@ test('#2019: the restart route threads an optional cause, and a bodyless POST st
       const win32job = require('./engine/win32job');
       let t = 0;
       win32job.setRunningClock(() => (t += 7000));
-      // review 6: one try for both controls, so the fast clock is put back whichever of them fails.
+      // One try for both controls, so the fast clock is put back whichever of them fails.
       try {
         const stayDown = procs.neverComesUp(name);
         try {
@@ -11039,7 +11046,7 @@ test('#2019: the restart route threads an optional cause, and a bodyless POST st
         } finally {
           stayDown();
         }
-        /* review 5: and the case the restart's pre-restart identity (`before`) is there for. The agent is running again,
+        /* And the case the restart's pre-restart identity (`before`) is there for. The agent is running again,
            and its kill leaves the dying supervisor's state file behind, naming a pid that is alive: only telling that
            file's session from a new one keeps the restart from reading it as the agent come back. */
         procs.start(name);

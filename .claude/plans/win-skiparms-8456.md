@@ -115,3 +115,10 @@ project block written after the start, and a task line naming another file: each
 - The wont-unload watch is installed inside its try; `clearSurvivors()` is gone (reset() covers it); the header lists
   `started()`. The model-route arm matches taskkill and schtasks with or without `.exe`. The exactly-one-start checks
   stay, with a comment: a double start is the regression they guard.
+
+## Review round 7
+- Half-removed arm: after the PARTIAL, on Windows the agent's process must still be running and no taskkill sent for
+  it (the fixed pane line cannot show a dead agent). A removal that ends the process inside `if (!unloaded)` fails it.
+- The stand-in's /End-not-running wording is marked approximated, like the disabled-task one.
+- `win32Step` throws when no stand-in Task Scheduler is installed instead of installing one nobody undoes.
+- Comments no longer carry "review N" labels; which round asked for what is recorded in this plan, round by round.

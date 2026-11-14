@@ -91,9 +91,9 @@ test.after(() => {
      end up in a state where a stray call reaches a real launchctl. */
   removal.setRunner(null);
   if (procs) procs.stop();   // kosmos#8456: win32stop's own seams back, and the state files it wrote gone
-  unwatchActs();   // review 5: and the scheduler watch this file set at load
+  unwatchActs();   // And the scheduler watch this file set at load
   try { server.close(); } catch { /* already down */ }
-  // kosmos#8456 review 4: and this file's sandbox, which it made and nothing else removes.
+  // kosmos#8456: and this file's sandbox, which it made and nothing else removes.
   require('./test-support/remove-tree').removeTree(SANDBOX);
 });
 
@@ -124,7 +124,7 @@ function installRunner() {
   calls = [];
   if (procs) {
     procs.calls.length = 0;
-    procs.reset();   // kosmos#8456 review 3: a fresh fleet per arm, as the pane list below is (no agent, task or survivor left over)
+    procs.reset();   // kosmos#8456: a fresh fleet per arm, as the pane list below is (no agent, task or survivor left over)
   }
   /* 🛑 THE PANE LIST IS TRUNCATED PER ARM, NOT APPENDED TO. Appending made every
      arm inherit every earlier arm's agents, and the enumeration is fail-closed:
@@ -162,7 +162,7 @@ function stopActs(name, pid) {
   if (process.platform === 'win32') {
     const tn = require('./engine/win32job').taskName(name);
     return {
-      /* review 5: matched as the verb, the /TN or /PID value and the flags, in any order (jobfix.argsMatch). */
+      /* Matched as the verb, the /TN or /PID value and the flags, in any order (jobfix.argsMatch). */
       disable: (c) => act(c, 'schtasks', { first: '/Change', values: { '/TN': tn }, flags: ['/DISABLE'] }),
       unload: (c) => act(c, 'schtasks', { first: '/End', values: { '/TN': tn } }),
       unloadSaid: 'the scheduled task was never ended',
@@ -182,12 +182,12 @@ function stopActs(name, pid) {
   };
 }
 
-/* kosmos#8456 review 2: a stop reported for a running agent left no process behind. On Windows the stand-in table is
+/* kosmos#8456: a stop reported for a running agent left no process behind. On Windows the stand-in table is
    asked; a Mac's stop is checked by its kill and look-again in `calls`, and the tmux stub keeps no process list. */
 function assertProcessGone(name) {
   if (!procs) return;
   assert.equal(procs.pidOf(name), null, `${name} is still running after the answer said it was stopped`);
-  // review 4: and its ownership row forgotten with it (win32stop forgets the session it ended).
+  // And its ownership row forgotten with it (win32stop forgets the session it ended).
   assert.deepEqual(procs.rowsOf(name), [], `${name}'s ownership row was never forgotten after its stop`);
 }
 

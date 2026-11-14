@@ -179,7 +179,7 @@ test.beforeEach(() => {
     JSON.stringify({ latest_version: '0.150.1', dismissed_version: null }));
 });
 test.afterEach(() => { create.setRunner(null); status.setPaneSource(null); });
-// kosmos#8456 review 4: the sandbox this file made, removed when it is done.
+// kosmos#8456: the sandbox this file made, removed when it is done.
 test.after(() => { require('../test-support/remove-tree').removeTree(SANDBOX); });
 
 const agentFolder = (name, file, text) => {
@@ -571,7 +571,7 @@ const projectsMod = require('./projects');
    Windows the start is the agent's Scheduled Task being run, so the file is read when the stand-in Task Scheduler
    (test-support/jobfixture) is asked to /Run it; create's runner does not read there, so nothing else can be taken
    for the start. `.text` stays null until the start happens; `.stop()` ends the watch. `.runs` counts the /Run calls
-   on Windows (kosmos#8456 review 3), where a second start is not otherwise seen: Task Scheduler ignores a /Run on a
+   on Windows (kosmos#8456), where a second start is not otherwise seen: Task Scheduler ignores a /Run on a
    task that is running. The arms assert exactly one, deliberately: a double start is the regression they guard. */
 function startWatch(file) {
   const seen = { text: null, stop: null, runs: 0 };
@@ -585,7 +585,7 @@ function startWatch(file) {
     return { ok: true, stdout: '' };
   });
   const unwatch = jobfix.watchScheduler((a) => { if (process.platform === 'win32' && a[0] === '/Run') { seen.runs += 1; read(); } });
-  // review 4: and the started task is not left marked running for the next test.
+  // And the started task is not left marked running for the next test.
   seen.stop = () => { unwatch(); jobfix.resetScheduler(); };
   return seen;
 }

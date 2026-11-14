@@ -79,7 +79,7 @@ function switchedOff(text) {
 let runs = 0;   // the /Run count, so each started task gets its own ownership-row id
 let currentScheduler = null;   // kosmos#8456: the stand-in last installed, for win32Step
 let processTable = null;   // kosmos#8456: the running agents, while win32Processes has a table installed
-/* kosmos#8456 review 2: the tasks running now, by task file, so /Run and /End answer as Task Scheduler does: a task
+/* kosmos#8456: the tasks running now, by task file, so /Run and /End answer as Task Scheduler does: a task
    runs from its /Run until its /End (or its /Delete), and a /Run while it runs starts nothing under the task's
    MultipleInstancesPolicy, which is IgnoreNew for every task Kosmos registers (win32job.taskXml) and Task Scheduler's
    own default. A file that is gone is not running, so a test that deletes and rewrites a task file starts afresh. */
@@ -214,12 +214,12 @@ function stubAnswer(dir) {
          waits for (win32create.prepareSession). The stand-in writes that row, under the name and runner on the task's
          line, into the sandboxed store, as engine/create.test.js's own Windows runner does. */
       const text = fs.readFileSync(file, 'utf8');
-      /* kosmos#8456 review 2: a task already running is not started again (IgnoreNew): schtasks still answers
+      /* kosmos#8456: a task already running is not started again (IgnoreNew): schtasks still answers
          SUCCESS, and nothing new comes up, which is what a restart that skipped its /End would meet. */
       if (runningTasks.has(file) && ignoresNew(text)) return { ok: true, out: `SUCCESS: Attempted to run the scheduled task "${tn}".` };
       runningTasks.add(file);
       const spec = taskLine(text);
-      // kosmos#8456 review 2: an agent marked neverComesUp has a task that runs and a supervisor that never starts.
+      // kosmos#8456: an agent marked neverComesUp has a task that runs and a supervisor that never starts.
       if (spec && spec.name && !(processTable && processTable.staysDown(spec.name))) {
         const id = `fixture-run-${process.pid}-${++runs}`;
         require('../engine/win32sessions').record(id, { name: spec.name, runner: spec.runner || 'claude' });
@@ -231,8 +231,9 @@ function stubAnswer(dir) {
     if (verb === '/End') {
       if (!exists()) return { ok: false, out: NOT_FOUND };
       /* It ends the task's instance (its supervisor). The agent's own process is ended by taskkill, the act a Mac's
-         kill-session pairs with, so the process table is left to that. Not running answers as schtasks does, which
-         win32job.end reads as the end state it wanted. */
+         kill-session pairs with, so the process table is left to that. A task that is not running answers with an
+         ERROR line holding "not running", which win32job.end reads as the end state it wanted; the wording is
+         approximated, not measured, since a test on this box may not run schtasks against a real task. */
       if (!runningTasks.delete(file)) return { ok: false, out: `ERROR: The scheduled task "${tn}" is not running.` };
       return { ok: true, out: `SUCCESS: The scheduled task "${tn}" was terminated successfully.` };
     }
@@ -258,7 +259,7 @@ function useWin32Scheduler() {
   return dir;
 }
 
-/** kosmos#8456 review 5: whether a command's arguments are the act a test looks for, in any order: `first` is the verb
+/** kosmos#8456: whether a command's arguments are the act a test looks for, in any order: `first` is the verb
     in front (`/Change`, `/End`; leave it out for taskkill), `values` the switches that carry a value and that value
     (`{ '/TN': tn }`, `{ '/PID': pid }`), and `flags` the bare switches that must be there (`['/DISABLE']`, `['/T', '/F']`).
     Values are compared as strings. An exact command string would fail on a reordering that changes nothing. */
@@ -273,13 +274,13 @@ function argsMatch(args, want) {
   return (w.flags || []).every((f) => a.includes(f));
 }
 
-/** kosmos#8456 review 4: no task running at the stand-in Task Scheduler, for a test that ran a task through it and
+/** kosmos#8456: no task running at the stand-in Task Scheduler, for a test that ran a task through it and
     is done (create and adopt start theirs with /Run and nothing ends them), so the next test starts afresh. */
 function resetScheduler() {
   runningTasks.clear();
 }
 
-/** kosmos#8456 review 3: the agent's task as the stand-in Task Scheduler holds it, read without installing anything:
+/** kosmos#8456: the agent's task as the stand-in Task Scheduler holds it, read without installing anything:
     { exists, enabled, running }. `enabled` is the task's own switch (<Settings><Enabled>); `running` is true from an
     answered /Run (or win32Processes' start) until its /End or /Delete. Windows only. */
 function win32Task(name, worldId) {
@@ -305,13 +306,18 @@ function watchScheduler(fn) {
     (win32job's step forms, win32stop.endSteps): `schtasks.exe` goes to the stand-in Task Scheduler (so a restart's /End
     and /Run, or a put-back's /Create, reach the same task files the sync forms do) and `taskkill.exe` to the process
     table when win32Processes installed one. Answers in remove.js's runner shape ({ ok, stdout } / { ok: false, code,
-    stderr }); null for any other program, or on a platform with no stand-in, so the test's own stub answers those. */
+    stderr }); null for any other program, or on a platform with no stand-in, so the test's own stub answers those.
+    It throws for schtasks when no stand-in is installed: it never installs one itself, since nothing would undo that,
+    so ask for one first (useJobStore or jobPath). */
 function win32Step(file, args) {
   if (!win32()) return null;
   const base = path.win32.basename(String(file || '')).toLowerCase().replace(/\.exe$/, '');
   const a = Array.isArray(args) ? args.map(String) : [];
   let r = null;
-  if (base === 'schtasks') r = (currentScheduler || (useWin32Scheduler(), currentScheduler))(a);
+  if (base === 'schtasks') {
+    if (!currentScheduler) throw new Error('jobfixture.win32Step: no stand-in Task Scheduler is installed; call jobfix.useJobStore() (or jobPath) first');
+    r = currentScheduler(a);
+  }
   else if (base === 'taskkill' && processTable) r = processTable.taskkill(a);
   if (!r) return null;
   return r.ok ? { ok: true, stdout: r.out } : { ok: false, code: r.code == null ? 1 : r.code, stdout: '', stderr: r.out };
@@ -350,7 +356,7 @@ const TABLE_PID_BASE = 2000000000;
       rowsOf(name)         the ownership rows still filed under that name (a stop must forget the one it ended).
       reset()              no agent running and no task running: drops the live entries, their state files, the
                            ownership rows this table wrote, the
-                           survivors and the never-comes-up marks (kosmos#8456 review 3: a test file that sets up a
+                           survivors and the never-comes-up marks (kosmos#8456: a test file that sets up a
                            fresh fleet per arm calls it, so one arm never reads another's agents).
       stop()               puts win32stop's seams back and does what reset() does.
 
@@ -414,7 +420,7 @@ function win32Processes(opts) {
       return [...live.values()].filter((p) => perTurn(p.runner))
         .map((p) => ({ sessionId: p.sessionId, pid: p.pid, name: p.name, kind: 'interactive', runner: p.runner }));
     },
-    /* kosmos#8456 review 4: the ownership rows (win32sessions) still filed under this name. A stop that ended the
+    /* kosmos#8456: the ownership rows (win32sessions) still filed under this name. A stop that ended the
        process must also forget its row (win32stop.finishKill); since the live list cannot show a stale row, a test
        asks for it here. */
     rowsOf(name) {
@@ -439,7 +445,7 @@ function win32Processes(opts) {
       if (!survivors.has(hit.name)) {
         live.delete(hit.sessionId);
         /* The supervisor clears the state file naming the child that exited (only its own: a newer one is left).
-           review 5: unless the agent is marked neverComesUp(name, { stale: true }): a dying supervisor that leaves
+           Unless the agent is marked neverComesUp(name, { stale: true }): a dying supervisor that leaves
            its old state file behind, which is what a restart's pre-restart identity (`before`) guards against. */
         const at = statePath(hit.name);
         const left = down.get(hit.name);
