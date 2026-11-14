@@ -18,7 +18,14 @@ const tick = require('../engine/backuptick');
     const plan = tick.rootsFor(tick.inputsHere());
     out.roots = plan.roots.map((r) => r.name);
     out.left = plan.left;
-    const r = await require('../engine/backuprun').runBackup({ roots: plan.roots });
+    // The snapshot id, as backuprun.js newSnapshotId makes it (UTC time and 4 random bytes), recorded so a reader of what
+    // this run stored can open its manifest (its sealed context names the snapshot); the run itself is unchanged.
+    const snapshotId = (ms) => {
+      out.snapshot = new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z') + '-' + require('crypto').randomBytes(4).toString('hex');
+      return out.snapshot;
+    };
+    out.storeRoot = require('../engine/store').ROOT;   // where this board keeps backupkeys/ and backupstate/
+    const r = await require('../engine/backuprun').runBackup({ roots: plan.roots }, { snapshotId });
     out.ok = !!(r && r.ok);
     out.because = r && r.because;
     // For a reader of what this run stored (kosmos#8529): the public half of the key the manifest is signed with.
