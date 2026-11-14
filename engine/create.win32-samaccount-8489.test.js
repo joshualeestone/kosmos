@@ -289,3 +289,20 @@ test('kosmos#8489: each "cannot tell" gives its own true reason: a failed read s
   const c = recorded('whycodex8489', 'openai', 'codex', cdir, signinId('ana@example.test', null, 'chatgpt'));
   assert.equal(create.win32RecordedTask(c).unreadableReason, 'confirm');
 });
+
+test('kosmos#8489: the out-of-reach words say when earlier unreadable starts will drop the folder, and say nothing of it when there were none', () => {
+  const account = signinId('pat@example.test', UUID_ONE);
+  const gone = nodePath.join(SANDBOX, 'not-connected-8489', '.claude-away');   // a folder Kosmos cannot reach
+  const keptAs = (name, unreadable) => {
+    made.push(name);
+    store.writeProfile(name, { displayName: name, provider: 'anthropic',
+      win32Task: { runner: 'claude', configDir: gone, model: SET_MODEL, account, kept: true, ...(unreadable ? { unreadable } : {}) } });
+    return name;
+  };
+  const KEEPS = 'Kosmos keeps that folder and tries it again at each Start at login until its startup job is written again (changing its account or model does that), which forgets that folder';
+  const none = leftover.startsAgainWords(keptAs('away0-8489', 0));
+  assert.equal(create.win32RecordedTask('away0-8489').accountWhy, 'unreachable');
+  assert.ok(none.endsWith(KEEPS + '.'), none);
+  assert.ok(leftover.startsAgainWords(keptAs('away1-8489', 1)).endsWith(KEEPS + ', or until two more Start at logins that reach that folder still cannot read or confirm the account in it, which moves it to your main account for good.'));
+  assert.ok(leftover.startsAgainWords(keptAs('away2-8489', 2)).endsWith(KEEPS + ', or until the next Start at login that reaches that folder still cannot read or confirm the account in it, which moves it to your main account for good.'));
+});

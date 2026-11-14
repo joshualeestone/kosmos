@@ -4571,8 +4571,9 @@ function win32AccountIdentityRead(runner, dir) {
       const orgName = typeof acct.organizationName === 'string' && acct.organizationName ? acct.organizationName : null;
       return who ? { identity: { kind: 'signin', email: who, keyTail: null, org: uuid || orgName }, orgName, unreadable: false } : none;
     }
-    /* A key folder: Kosmos refuses a key over a sign-in and a sign-in over a key (accounts.list), so a key here is
-       the account whatever the config says, even while Claude Code is writing that config. */
+    /* A key folder: Kosmos refuses a key over a sign-in and a sign-in over a key (accounts.list), so when the config
+       holds no sign-in, or cannot be read while Claude Code is writing it, a key here is the account. A config whose
+       sign-in has no email answered none above, before the key is read: nothing there can be compared. */
     const key = win32ReadCredential(require('./claudeaccounts').keyFile(dir), false);
     if (key.kind === 'ok' && key.text) return { identity: keyed('apikey', key.text), unreadable: false };
     if (key.kind === 'unreadable' || config.kind === 'unreadable') return unreadable;
@@ -4629,17 +4630,15 @@ function win32AccountIdentityRead(runner, dir) {
    when the folder does not show what is needed to tell. `nowOrgName`: the Claude organization name the folder shows
    now (win32AccountIdentityRead's orgName). `runner` says how to read the organization. */
 function accountMatch(recorded, now, runner, nowOrgName) {
-  const a = recorded;
-  const b = now;
-  if (!a || !b) return 'changed';
-  if ((a.kind || null) !== (b.kind || null) || (a.email || null) !== (b.email || null)) return 'changed';
+  if (!recorded || !now) return 'changed';
+  if ((recorded.kind || null) !== (now.kind || null) || (recorded.email || null) !== (now.email || null)) return 'changed';
   /* kosmos#8489 (c): an API key is matched by its fingerprint. A record written before this change holds only the
      key's last four characters, and is matched by those, exactly as it was then (never a wider match than before);
      each Start at login that puts the folder back records the fingerprint from then on. */
-  if (typeof a.keyHash === 'string' && a.keyHash) { if (a.keyHash !== b.keyHash) return 'changed'; }
+  if (typeof recorded.keyHash === 'string' && recorded.keyHash) { if (recorded.keyHash !== now.keyHash) return 'changed'; }
   /* So an old last-four record still matches ANY key ending in those four, as it did before this card
      (no wider), and the first repair that puts the folder back then records that key's fingerprint. */
-  else if ((a.keyTail || null) !== (b.keyTail || null)) return 'changed';
+  else if ((recorded.keyTail || null) !== (now.keyTail || null)) return 'changed';
   /* kosmos#8489 (a): one email can belong to two organizations or workspaces (and their
      billing), so the organization is part of the account, and "same" needs the folder to show the same one:
      - a recorded Claude organization uuid against the uuid now: equal is the same, different is changed;
@@ -4651,8 +4650,8 @@ function accountMatch(recorded, now, runner, nowOrgName) {
        for, is "could not read" (kept, main account this time; ended by WIN32_UNREADABLE_LIMIT), never "same";
      - no organization on either side: the email alone decides. */
   const org = (x) => (typeof x.org === 'string' && x.org ? x.org : null);
-  const ao = org(a);
-  const bo = org(b);
+  const ao = org(recorded);
+  const bo = org(now);
   if (!ao) return bo ? 'unreadable' : 'same';
   if (runner && runner !== 'claude') return !bo ? 'unreadable' : (ao === bo ? 'same' : 'changed');
   /* An organization recorded by NAME before uuids were written is matched by
@@ -4858,6 +4857,8 @@ function win32RecordedTask(name, opts) {
   }
   return {
     configDir, model, identity, accountRemoved, accountGone, accountWhy, identityNow, unreadableBefore, unreadableReason,
+    // kosmos#8489: how many more reachable, unreadable Start at logins drop the kept folder for good.
+    unreadableLeft: Math.max(1, WIN32_UNREADABLE_LIMIT - unreadableBefore),
     accountOk: accountWhy === null,
     modelOk: modelShaped && win32ModelOffered(runner, model),
   };

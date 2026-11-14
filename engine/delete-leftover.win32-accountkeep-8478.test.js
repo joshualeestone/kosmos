@@ -482,7 +482,9 @@ test('kosmos#8489: a start that cannot reach the folder neither adds to nor clea
     taskOnlyDelete(name); startAtLogin(name);
     assert.equal(store.readProfile(name).win32Task.unreadable, 2);
     fs.renameSync(ACCOUNT, unplugged);
-    taskOnlyDelete(name); startAtLogin(name);
+    // Out of reach with two unreadable starts behind it: the words say the next reachable unreadable start drops it.
+    assert.match(taskOnlyDelete(name).reassurance, /which forgets that folder, or until the next Start at login that reaches that folder still cannot read or confirm the account in it, which moves it to your main account for good\./);
+    startAtLogin(name);
     assert.equal(store.readProfile(name).win32Task.unreadable, 2);
     fs.renameSync(unplugged, ACCOUNT);
     const p = taskOnlyDelete(name);

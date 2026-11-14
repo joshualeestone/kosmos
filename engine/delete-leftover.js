@@ -982,8 +982,15 @@ function startsAgainWords(name, preview = false) {
        so this says "cannot reach" as the rest of this file does, and the repair keeps the folder in the record so it
        comes back on it at the next Start at login, if no change to the agent rewrites its task first. round 3: and only
        while it still holds the account it was recorded with. kosmos#8489: the last sentence says the rewrite part, so
-       the promise is not wider than the code. */
-    return '; it starts on the model it was set to, but Kosmos cannot reach the account folder it used right now, so it starts on your main account unless that folder can be reached by then and still holds the same account. If that folder is on a disk or shared folder that is not connected, connect it first; otherwise choose its account again afterwards if it should use another. Kosmos keeps that folder and tries it again at each Start at login until its startup job is written again (changing its account or model does that), which forgets that folder.';
+       the promise is not wider than the code, and, when earlier Start at logins could not read or confirm the account
+       in that folder (the count carries through a start that cannot reach it), how many more such starts drop it. */
+    const left = rec.unreadableBefore > 0 ? rec.unreadableLeft : 0;
+    const drop = left === 1
+      ? ', or until the next Start at login that reaches that folder still cannot read or confirm the account in it, which moves it to your main account for good'
+      : left > 1
+        ? `, or until ${left === 2 ? 'two' : left} more Start at logins that reach that folder still cannot read or confirm the account in it, which moves it to your main account for good`
+        : '';
+    return '; it starts on the model it was set to, but Kosmos cannot reach the account folder it used right now, so it starts on your main account unless that folder can be reached by then and still holds the same account. If that folder is on a disk or shared folder that is not connected, connect it first; otherwise choose its account again afterwards if it should use another. Kosmos keeps that folder and tries it again at each Start at login until its startup job is written again (changing its account or model does that), which forgets that folder' + drop + '.';
   }
   if (rec && rec.accountOk) {
     return rec.configDir
