@@ -96,6 +96,11 @@ test('POST /api/connections/found names the caller from its token, files a Kosmo
   assert.equal(all.find((s) => s.name === 'Acme CRM').kind, 'other');
   const one = (await call('GET', '/api/connections/found?service=github', undefined, h)).json.services;
   assert.deepEqual(one.map((s) => s.name), ['GitHub'], '?service= narrows by the service key');
+  // Review 4: --outside files a plugin of the same name apart from Kosmos's own connection.
+  const out = await call('POST', '/api/connections/found', { service: 'GitHub', action: 'create release', outcome: 'needs-scope', outside: true, from_pane: '' }, h);
+  assert.equal(out.json.recorded, true);
+  const both = (await call('GET', '/api/connections/found?service=github', undefined, h)).json.services;
+  assert.deepEqual(both.map((s) => s.kind).sort(), ['kosmos', 'other'], 'two rows: Kosmos\'s GitHub and the plugin');
 });
 
 test('GET /api/connections/found is refused to another site, like /held', async () => {

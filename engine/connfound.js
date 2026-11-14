@@ -70,7 +70,24 @@ function clean(value, max) {
 }
 
 /* The name a service is matched by: case and spacing do not make two services. */
-function serviceKey(name) { return clean(name, MAX_NAME).toLowerCase().replace(/[\s_]+/g, '-'); }
+/* Review 4: a plugin's server name as Claude Code writes it (claude_ai_Google_Drive, plugin_discord_discord) shown the
+   way a person reads it ("Google Drive", "discord"): the provider's prefix dropped, a plugin's doubled name collapsed
+   (only a plugin's: a server really called foo_foo keeps it), underscores read as spaces. The hook and a hand record
+   both go through it, so an agent that copies the server part of a tool name lands on the same row. */
+function serverName(raw) {
+  let server = String(raw == null ? '' : raw).trim();
+  const plugin = /^plugin_/i.test(server);
+  server = server.replace(/^claude_ai_/i, '').replace(/^plugin_/i, '');
+  if (plugin) {
+    const parts = server.split('_');
+    if (parts.length % 2 === 0) {
+      const half = parts.length / 2;
+      if (parts.slice(0, half).join('_') === parts.slice(half).join('_')) server = parts.slice(0, half).join('_');
+    }
+  }
+  return clean(server.replace(/_/g, ' '), MAX_NAME);
+}
+function serviceKey(name) { return serverName(name).toLowerCase().replace(/[\s_]+/g, '-'); }
 /* Review 2: the key it is FILED under carries its kind, so the person's own GitHub plugin and Kosmos's GitHub connection
    never share a row: they are two credentials, and the remedy for each lives in a different place. */
 function storeKey(name, kind) { return (kind === 'kosmos' ? 'kosmos:' : 'other:') + serviceKey(name); }
@@ -87,13 +104,7 @@ function actionKey(name) { return clean(name, MAX_NAME).toLowerCase().replace(/[
 function parseMcpTool(tool) {
   const m = /^mcp__([A-Za-z0-9][A-Za-z0-9_-]*?)__([A-Za-z0-9][A-Za-z0-9_.-]*)$/.exec(String(tool || ''));
   if (!m) return null;
-  let server = m[1].replace(/^claude_ai_/, '').replace(/^plugin_/, '');
-  const parts = server.split('_');
-  if (parts.length % 2 === 0) {
-    const half = parts.length / 2;
-    if (parts.slice(0, half).join('_') === parts.slice(half).join('_')) server = parts.slice(0, half).join('_');
-  }
-  const service = clean(server.replace(/_/g, ' '), MAX_NAME);
+  const service = serverName(m[1]);
   const action = clean(m[2], MAX_NAME);
   if (!service || !action || !NAME_RE.test(service) || !NAME_RE.test(action)) return null;
   return { service, action };
@@ -107,12 +118,17 @@ function parseMcpTool(tool) {
  * found" does not start that way, and Claude Code's own "No such tool available" is this computer. Pure.
  */
 const LOCAL_REFUSAL_RE = /permission to use .{0,120}(has been )?denied|user (rejected|denied|declined)|was blocked by a hook|requires approval|hook (blocked|denied)|no such tool available/i;
-const UNKNOWN_TOOL_RE = /^\W*(?:MCP error -?\d+:\s*)?(?:unknown tool|no such tool|tool not found|method not found)\s*[:\-]?\s*["'`]?([A-Za-z0-9_.-]+)["'`]?\s*\.?\s*$/i;
+/* Review 4: an optional "Error:" and "MCP error -NNNNN:" lead, then either "Unknown tool: X" (FastMCP and most Python
+   servers) or "Tool X not found" (the TypeScript MCP SDK). Both still anchored, end to end, and X must be the called
+   action. */
+const LEAD = String.raw`^\W*(?:error:\s*)?(?:MCP error -?\d+:\s*)?`;
+const UNKNOWN_TOOL_RE = new RegExp(LEAD + String.raw`(?:unknown tool|no such tool|tool not found|method not found)\s*[:\-]?\s*["'\x60]?([A-Za-z0-9_.-]+)["'\x60]?\s*\.?\s*$`, 'i');
+const TOOL_X_NOT_FOUND_RE = new RegExp(LEAD + String.raw`tool\s+["'\x60]?([A-Za-z0-9_.-]+)["'\x60]?\s+not found\s*\.?\s*$`, 'i');
 function classify(error, action) {
   const e = String(error || '').trim();
   const a = String(action || '');
   if (!e || !a || LOCAL_REFUSAL_RE.test(e)) return null;
-  const m = UNKNOWN_TOOL_RE.exec(e);
+  const m = UNKNOWN_TOOL_RE.exec(e) || TOOL_X_NOT_FOUND_RE.exec(e);
   if (!m) return null;
   const named = m[1].replace(/\.+$/, '').toLowerCase();
   const want = a.toLowerCase();
@@ -171,7 +187,7 @@ function writeAll(services) {
 function record(f) {
   const x = f || {};
   const now = Number.isFinite(x.now) ? x.now : Date.now();
-  const service = clean(x.service, MAX_NAME);
+  const service = serverName(x.service);   // review 4: as the hook names it
   const action = clean(x.action, MAX_NAME);
   if (!NAME_RE.test(service)) return { ok: false, because: 'name the service in letters and numbers, up to ' + MAX_NAME + ' characters' };
   if (!NAME_RE.test(action)) return { ok: false, because: 'name the action in letters and numbers, up to ' + MAX_NAME + ' characters' };
@@ -179,9 +195,11 @@ function record(f) {
   const by = clean(x.by, MAX_NAME);
   if (!by) return { ok: false, because: 'we could not tell which agent found this' };
   const raw = String(x.note == null ? '' : x.note).replace(/\s+/g, ' ').trim();
-  const refused = raw ? noteRefusal(raw) : null;
+  if (raw.length > MAX_NOTE) return { ok: false, because: 'a note is at most ' + MAX_NOTE + ' characters' };
+  /* Review 4: checked AFTER cleaning, so a key split by a character that cleaning removes is seen whole. */
+  const note = clean(raw, MAX_NOTE);
+  const refused = note ? noteRefusal(note) : null;
   if (refused) return { ok: false, because: refused };
-  const note = clean(raw, MAX_NOTE);   // review 3: stored clean, not only read back clean
   const how = x.how === 'auto' ? 'auto' : 'agent';
   const all = readAll(now);
   const kind = x.kind === 'kosmos' ? 'kosmos' : 'other';
@@ -207,8 +225,10 @@ function record(f) {
   for (const a of names.slice(MAX_ACTIONS)) delete svc.actions[a];
   all[key] = svc;
   /* At most MAX_SERVICES, the one with the oldest newest finding dropped. */
+  /* Review 4: a service holding any hand record outlives one with only automatic findings, then the newest wins. */
   const newest = (s) => Math.max(...Object.values(s.actions).map((v) => v.at));
-  const keys = Object.keys(all).sort((a, b) => newest(all[b]) - newest(all[a]));
+  const hand = (s) => Object.values(s.actions).some((v) => v.how === 'agent');
+  const keys = Object.keys(all).sort((a, b) => (hand(all[b]) - hand(all[a])) || newest(all[b]) - newest(all[a]));
   for (const k of keys.slice(MAX_SERVICES)) delete all[k];
   return writeAll(all) ? { ok: true } : { ok: false, because: 'the record could not be written' };
 }

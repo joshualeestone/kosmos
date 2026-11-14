@@ -214,7 +214,7 @@ const USAGE = {
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)\n'
     + '       kosmos connections --how   (how connecting a provider, a plugin or a service works here)\n'
     + '       kosmos connections --found [service]   (which actions agents found work or do not, kosmos#8519)\n'
-    + '       kosmos connections found <service> <action> <works|not-offered|needs-scope|needs-permission|off-by-policy|failed> [note]   (record one)',
+    + '       kosmos connections found [--outside] <service> <action> <works|not-offered|needs-scope|needs-permission|off-by-policy|failed> [note]   (record one; --outside: a plugin from the person\'s own app)',
   'whats-new': 'Usage: kosmos whats-new [--since <version>] [--json]   (what changed in each version, and which fixes need your agents restarted)',
   // kosmos#8309: as install/kosmos (#8299). It reads two files beside this command and sends nothing.
   version: 'Usage: kosmos version   (also --version or -v: the version of this Kosmos and the build it was made from; sends nothing)',
@@ -3461,9 +3461,11 @@ async function verbConnections(ctx, args) {
   // kosmos#8519, as install/kosmos: `found` records what this agent found about one action (its token decides who),
   // and --found lists everything found, in engine/connfound.js renderLines' words so the two CLIs cannot drift.
   if (args && args[0] === 'found') {
-    const rest = args.slice(1);
-    if (rest.length < 3 || rest.length > 4) { ctx.err('Usage: kosmos connections found <service> <action> <works|not-offered|needs-scope|needs-permission|off-by-policy|failed> [note]'); return 2; }
-    const rf = await ctx.call('POST', '/api/connections/found', { service: rest[0], action: rest[1], outcome: rest[2], note: rest[3] || '' });
+    let rest = args.slice(1);
+    const outside = rest[0] === '--outside';
+    if (outside) rest = rest.slice(1);
+    if (rest.length < 3 || rest.length > 4) { ctx.err('Usage: kosmos connections found [--outside] <service> <action> <works|not-offered|needs-scope|needs-permission|off-by-policy|failed> [note]'); return 2; }
+    const rf = await ctx.call('POST', '/api/connections/found', { service: rest[0], action: rest[1], outcome: rest[2], note: rest[3] || '', outside });
     if (!rf.reached) return ctx.unreachable('record that');
     if (ctx.refusedBy(rf)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(rf) + '.'); return 1; }
     if (rf.json && rf.json.recorded === true) { ctx.out('Recorded. kosmos connections --found lists what agents found.'); return 0; }
@@ -3497,7 +3499,7 @@ async function verbConnections(ctx, args) {
   // kosmos#8519, as install/kosmos: one line when agents found actions that do not work (the disk only; silent when
   // it cannot be read, since the listing above already answered what was asked).
   try {
-    const rf = await ctx.call('GET', '/api/connections/found', undefined);
+    const rf = await ctx.call('GET', '/api/connections/found', undefined, { timeoutMs: 5000 });   // as the Mac CLI's -m 5
     const svcs = rf.reached && rf.json && Array.isArray(rf.json.services) ? rf.json.services.filter((x) => x && x.notWorking > 0) : [];
     const n = svcs.reduce((a, x) => a + x.notWorking, 0);
     if (n) ctx.out('Agents found ' + n + (n === 1 ? ' action that does not work' : ' actions that do not work') + ' on ' + svcs.map((x) => x.name).join(', ') + ': kosmos connections --found');

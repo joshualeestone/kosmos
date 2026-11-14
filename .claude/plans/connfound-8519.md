@@ -105,3 +105,18 @@ what agents FOUND, and shows it to the person and to the next agent.
 - NIT left: a note that is literally -h or --help is read as a help request by the Mac CLI's global help guard.
 - Weakest premise now: that an MCP server's unknown-tool error starts with those words and names the tool. Servers that
   word it otherwise record nothing, which is the safe direction.
+
+#### Iteration 4 (opus)
+- WARNING fixed (W1): `kosmos connections found --outside ...` files a finding as a plugin of the person's own, even
+  when its name is one Kosmos also connects (GitHub); before, a plugin's refusal recorded by hand landed under Kosmos's
+  own connection and sent the person to the wrong place. Both CLIs, the server and the guide; tested on all three.
+- WARNING fixed (W2): a hand-typed service name goes through the same tidying as a plugin's tool name (serverName:
+  claude_ai_ and plugin_ dropped, a plugin's doubled name collapsed, underscores as spaces), so copying the server
+  part of a tool name lands on the automatic row and clears it; the guide says to name the service as --found lists it.
+- WARNING fixed (W3): the automatic rule also reads the TypeScript MCP SDK's "Tool X not found" and an "Error:" lead,
+  still anchored end to end and still requiring the called action.
+- NITs fixed: the note check runs on the cleaned text; at the service cap, services with only automatic findings go
+  first (tested); only a plugin's doubled name collapses (foo_foo stays); the Windows plain listing waits 5 s for the
+  extra read, as the Mac does; the run-together comment in server.js.
+- NIT left: the browser check measures contrast on the not-working words and the who-and-when line, not on "Works"
+  (it uses the same colour as the who-and-when line, which is measured).
