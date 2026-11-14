@@ -29,58 +29,31 @@ test('parseMcpTool: the service and the action from a plugin tool name, provider
   }
 });
 
-test('classify: only what says something about the ACTION; Claude Code refusals and plain failures are null', () => {
-  assert.equal(cf.classify('Unknown tool: crm_merge_contacts'), 'not-offered');
-  assert.equal(cf.classify('MCP error -32601: Method not found'), 'not-offered');
-  // Review 2: "operation not supported" is also how input errors read, so it is not a strong enough signal on its own.
-  assert.equal(cf.classify('This operation is not supported by the server'), null);
-  assert.equal(cf.classify('403 insufficient_scope: requires crm.objects.deals.write'), 'needs-scope', 'scope wins over the 403');
-  assert.equal(cf.classify('missing required scopes for this endpoint'), 'needs-scope');
-  assert.equal(cf.classify('HTTP 403 Forbidden'), 'needs-permission');
-  assert.equal(cf.classify('You are not authorized to delete records'), 'needs-permission');
-  assert.equal(cf.classify('Exports are disabled by your administrator'), 'off-by-policy');
-  // Never the service:
-  assert.equal(cf.classify('Permission to use mcp__hubspot__update_deal has been denied.'), null);
-  assert.equal(cf.classify('The user rejected this tool call'), null);
-  assert.equal(cf.classify('Permission to use mcp__hubspot__delete_deal has been denied: you are not allowed to run it here'), null,
-    'a local refusal that ALSO reads like a permission error (the guard, not the absence of a match, decides)');
-  // Says nothing about the action:
-  assert.equal(cf.classify('Invalid input: dealId is required'), null);
-  assert.equal(cf.classify('Request timed out after 30s'), null);
-  // Review 1: errors about the input or the sign-in, not the action, record nothing.
-  for (const notAboutTheAction of ['401 Unauthorized: token expired', 'Unauthorized', 'Error: user is not allowed to be empty',
-    'Validation: field forbidden must be string', 'File type not supported', 'Not supported: this attachment is 40MB',
-    '404 Not Found: no such record', '429 Too Many Requests', '405 Method Not Allowed']) {
-    assert.equal(cf.classify(notAboutTheAction), null, notAboutTheAction);
+test('classify: not-offered ONLY when the line starts by saying the called action is unknown (review 3)', () => {
+  const A = 'merge_contacts';
+  for (const yes of ['Unknown tool: merge_contacts', 'Unknown tool: mcp__hubspot__merge_contacts', 'MCP error -32601: Unknown tool: merge_contacts',
+    'Tool not found: "merge_contacts"', 'unknown tool merge_contacts.', 'UNKNOWN TOOL: Merge_Contacts']) {
+    assert.equal(cf.classify(yes, A), 'not-offered', yes);
   }
-  // CONTROLS for the narrowed patterns: the same words about the caller or the action still count.
-  assert.equal(cf.classify('Forbidden'), 'needs-permission');
-  assert.equal(cf.classify('You are not allowed to delete this deal'), 'needs-permission');
-  assert.equal(cf.classify('The update_deal tool is not supported'), 'not-offered');
-  // Review 2: noise that also says 403 or "permission denied", and input errors in "not supported" words, record nothing.
-  for (const noise of ['403 Forbidden: rate limit exceeded', 'API rate limit exceeded (403)', 'Error 403: The request is missing a valid API key',
-    'EACCES: permission denied, open /tmp/x', 'permission denied (publickey)', 'This operation is not supported on shared drives',
-    'Error: function not supported for this file format', 'error: operation not supported for value of type string',
-    'Error: unknown action type in payload field "type"', '403']) {
-    assert.equal(cf.classify(noise), null, noise);
+  // Review 3's false positives, and every class the earlier rounds found: nothing is recorded.
+  for (const no of ['Unknown tool: other_tool', 'MCP error -32601: Method not found: tools/call', 'Method not found',
+    'Error: Payment method not found', 'Error: tool not found in cache, retrying', 'Error: method not implemented for draft messages',
+    'No such tool available: mcp__hubspot__merge_contacts', 'Streamable HTTP error: Error POSTing to endpoint (HTTP 403): Forbidden',
+    'HTTP 403 Forbidden', 'Forbidden', '403 Forbidden: Repository was archived so is read-only', '401 Unauthorized: token expired',
+    'Request had insufficient authentication scopes.', 'missing_scope', 'Exports are disabled by your administrator',
+    'This operation is not supported on shared drives', 'Invalid input: dealId is required', 'Request timed out after 30s',
+    'Permission to use mcp__hubspot__merge_contacts has been denied', 'The user rejected this tool call', '']) {
+    assert.equal(cf.classify(no, A), null, no);
   }
-  // Review 2: the scope errors real services send, and scope before permission.
-  for (const scope of ['Request had insufficient authentication scopes.', 'Insufficient Permission: Request had insufficient authentication scopes.',
-    'missing_scope', 'Resource not accessible by integration', 'Resource not accessible by personal access token',
-    'This app does not have proper permissions! (requires any of [crm.objects.deals.write])']) {
-    assert.equal(cf.classify(scope), 'needs-scope', scope);
-  }
-  assert.equal(cf.classify('403: SAML enforcement is enabled for this organization'), 'off-by-policy');
-  assert.equal(cf.classify(''), null);
-  assert.equal(cf.classify(undefined), null);
+  assert.equal(cf.classify('Unknown tool: merge_contacts', ''), null, 'no action named, nothing to match');
 });
 
-test('noteToolFailure: a plugin action that the service refused is recorded; anything else is not', () => {
+test('noteToolFailure: an unknown-tool refusal naming the called action is recorded; anything else is not', () => {
   reset();
   assert.deepEqual(cf.noteToolFailure('ada', 'mcp__hubspot__merge_contacts', 'Unknown tool: merge_contacts', { now: 1000 }), { recorded: true, outcome: 'not-offered' });
-  assert.deepEqual(cf.noteToolFailure('ada', 'Bash', 'HTTP 403 Forbidden', { now: 1000 }), { recorded: false }, 'not a plugin tool');
-  assert.deepEqual(cf.noteToolFailure('ada', 'mcp__hubspot__get_deal', 'Invalid input', { now: 1000 }), { recorded: false }, 'a bad input');
-  assert.deepEqual(cf.noteToolFailure('ada', 'mcp__hubspot__get_deal', 'Permission to use mcp__hubspot__get_deal has been denied', { now: 1000 }), { recorded: false }, 'a local refusal');
+  assert.deepEqual(cf.noteToolFailure('ada', 'Bash', 'Unknown tool: Bash', { now: 1000 }), { recorded: false }, 'not a plugin tool');
+  assert.deepEqual(cf.noteToolFailure('ada', 'mcp__hubspot__get_deal', 'HTTP 403 Forbidden', { now: 1000 }), { recorded: false }, 'a 403');
+  assert.deepEqual(cf.noteToolFailure('ada', 'mcp__hubspot__get_deal', 'Unknown tool: merge_contacts', { now: 1000 }), { recorded: false }, 'names another action');
   const l = cf.list({ now: 2000 });
   assert.equal(l.length, 1);
   assert.equal(l[0].name, 'hubspot');
@@ -110,17 +83,35 @@ test('record: the latest outcome per action wins, repeats count, and what does n
   assert.equal(g2.actions.find((a) => a.action === 'create release').n, 1, 'a change of outcome restarts the count');
 });
 
-test('a later refusal replaces an earlier works for the same action (the latest finding wins, either way)', () => {
+test('review 3: an automatic finding never replaces a hand record; a hand works clears an automatic one in either row', () => {
   reset();
   cf.record({ service: 'hubspot', action: 'update_deal', outcome: 'works', by: 'ben', now: 1000 });
-  cf.noteToolFailure('ada', 'mcp__hubspot__update_deal', 'HTTP 403 Forbidden', { now: 2000 });
-  const a = cf.list({ now: 3000 })[0].actions[0];
-  assert.deepEqual([a.action, a.outcome, a.by, a.how], ['update_deal', 'needs-permission', 'ada', 'auto']);
+  assert.deepEqual(cf.noteToolFailure('ada', 'mcp__hubspot__update_deal', 'Unknown tool: update_deal', { now: 2000 }), { recorded: false });
+  let a = cf.list({ now: 3000 })[0].actions[0];
+  assert.deepEqual([a.action, a.outcome, a.by, a.how], ['update_deal', 'works', 'ben', 'agent'], 'the hand record stands');
+  cf.record({ service: 'hubspot', action: 'update_deal', outcome: 'needs-permission', by: 'ada', now: 4000 });
+  a = cf.list({ now: 5000 })[0].actions[0];
+  assert.equal(a.outcome, 'needs-permission', 'a hand record does replace a hand record');
+  reset();
+  cf.noteToolFailure('ada', 'mcp__plugin_github_github__create_pull_request', 'Unknown tool: create_pull_request', { now: 1000 });
+  assert.equal(cf.list({ now: 1500 }).length, 1, 'CONTROL: the automatic finding is there');
+  cf.record({ service: 'GitHub', action: 'Create Pull-Request', outcome: 'works', by: 'ben', kind: 'kosmos', now: 2000 });
+  const l = cf.list({ now: 3000 });
+  assert.deepEqual(l.map((x) => [x.name, x.kind, x.actions.map((y) => [y.action, y.outcome])]), [['GitHub', 'kosmos', [['Create Pull-Request', 'works']]]]);
+});
+
+test('review 3: action names match whatever their case, spaces, underscores or hyphens, shown as first recorded', () => {
+  reset();
+  cf.record({ service: 'Linear', action: 'Create Issue', outcome: 'needs-scope', by: 'ada', now: 1000 });
+  cf.record({ service: 'linear', action: 'create_issue', outcome: 'needs-scope', by: 'ben', now: 2000 });
+  const acts = cf.list({ now: 3000 })[0].actions;
+  assert.equal(acts.length, 1);
+  assert.deepEqual([acts[0].action, acts[0].n, acts[0].by], ['Create Issue', 2, 'ben']);
 });
 
 test('review 2: a plugin and a Kosmos connection of the same name are two rows, never one', () => {
   reset();
-  cf.noteToolFailure('ada', 'mcp__plugin_github_github__create_pull_request', 'Resource not accessible by integration', { now: 1000 });
+  cf.noteToolFailure('ada', 'mcp__plugin_github_github__create_pull_request', 'Unknown tool: create_pull_request', { now: 1000 });
   cf.record({ service: 'GitHub', action: 'create release', outcome: 'needs-scope', by: 'ben', kind: 'kosmos', now: 2000 });
   const l = cf.list({ now: 3000 });
   assert.deepEqual(l.map((s) => [s.name, s.kind, s.actions.map((a) => a.action)]).sort(),
@@ -141,6 +132,8 @@ test('review 2: direction marks and C1 controls in a note are taken out', () => 
   assert.deepEqual(cf.record({ service: 'Notion', action: 'search', outcome: 'works', by: 'ada', now: 1000, note: 'ok \u202eevil\u202c and \u0085 done' }), { ok: true });
   const note = cf.list({ now: 2000 })[0].actions[0].note;
   assert.equal(note, 'ok evil and done');
+  // Review 3: zero-width characters could split a key past the note check; the redactor refuses such a note outright.
+  assert.match(cf.record({ service: 'Notion', action: 'list', outcome: 'works', by: 'ada', now: 1000, note: 'ghp_\u200bA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8' }).because, /looks like it holds a key/);
 });
 
 test('record refuses what it cannot keep honestly', () => {
@@ -162,6 +155,10 @@ test('findings expire after 30 days, and each service keeps at most MAX_ACTIONS'
   assert.equal(cf.list({ now: 1000 + cf.KEEP_MS - 1 }).length, 1);
   assert.equal(cf.list({ now: 1000 + cf.KEEP_MS + 1 }).length, 0, 'expired');
   reset();
+  cf.noteToolFailure('ada', 'mcp__crm__x', 'Unknown tool: x', { now: 1000 });
+  assert.equal(cf.list({ now: 1000 + cf.KEEP_AUTO_MS - 1 }).length, 1);
+  assert.equal(cf.list({ now: 1000 + cf.KEEP_AUTO_MS + 1 }).length, 0, 'an automatic finding expires after a week');
+  reset();
   for (let i = 0; i < cf.MAX_ACTIONS + 5; i++) cf.record({ service: 'Linear', action: 'a' + i, outcome: 'works', by: 'ada', now: 1000 + i });
   const acts = cf.list({ now: 5000 })[0].actions.map((a) => a.action);
   assert.equal(acts.length, cf.MAX_ACTIONS);
@@ -179,8 +176,8 @@ test('an unreadable store reads as nothing found, and the next record starts it 
 test('renderLines: what both CLIs print, plain and with no em dash', () => {
   reset();
   assert.deepEqual(cf.renderLines([], 0), ['No agent has recorded what works on a connection yet, in the last 30 days.']);
-  cf.noteToolFailure('ada', 'mcp__hubspot__merge_contacts', 'Unknown tool', { now: 0 });
-  cf.noteToolFailure('ada', 'mcp__hubspot__merge_contacts', 'Unknown tool', { now: 60000 });
+  cf.noteToolFailure('ada', 'mcp__hubspot__merge_contacts', 'Unknown tool: merge_contacts', { now: 0 });
+  cf.noteToolFailure('ada', 'mcp__hubspot__merge_contacts', 'Unknown tool: merge_contacts', { now: 60000 });
   cf.record({ service: 'hubspot', action: 'search', outcome: 'works', by: 'ben', now: 0, note: 'contacts and deals' });
   const lines = cf.renderLines(cf.list({ now: 120000 }), 120000);
   assert.deepEqual(lines, [
@@ -188,5 +185,6 @@ test('renderLines: what both CLIs print, plain and with no em dash', () => {
     '  merge_contacts: The service does not offer this (seen on a refused call by ada, 1 minute ago, 2 times)',
     '  search: Works (recorded by ben, 2 minutes ago) - contacts and deals',
   ]);
-  assert.ok(lines.every((l) => !l.includes('—')));
+  assert.ok(lines.every((l) => !l.includes('\u2014')));
+  assert.deepEqual(cf.renderLines([], 0, 'Acme CRM'), ['No agent has recorded anything about Acme CRM in the last 30 days.'], 'a service asked for is named');
 });

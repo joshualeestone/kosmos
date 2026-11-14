@@ -3740,7 +3740,7 @@ cmd_connections() {
         let j; try { j = JSON.parse(s); } catch { j = null; }
         if (j && j.recorded === true) { console.log("Recorded. kosmos connections --found lists what agents found."); process.exit(0); }
         // Review 2: a gate refusal (403 { error }) in the Windows CLI words.
-        if (j && j.recorded === undefined && typeof j.error === "string") { console.log("Kosmos refused that request: " + j.error + "."); process.exit(1); }
+        if (j && j.recorded === undefined && typeof j.error === "string") { console.error("Kosmos refused that request: " + j.error + "."); process.exit(1); }
         console.log("Not recorded: " + ((j && typeof j.because === "string") ? j.because : "Kosmos gave an answer we could not read") + ".");
         process.exit(1);
       });'
@@ -3761,10 +3761,10 @@ cmd_connections() {
       let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
         let j; try { j = JSON.parse(s); } catch { process.exit(1); }
         // Review 2: a gate refusal (403 { error }) in the Windows CLI words; exit 3 so the shell says nothing more.
-        if (j && !Array.isArray(j.services) && typeof j.error === "string") { console.log("Kosmos refused that request: " + j.error + "."); process.exit(3); }
+        if (j && !Array.isArray(j.services) && typeof j.error === "string") { console.error("Kosmos refused that request: " + j.error + "."); process.exit(3); }
         if (!j || !Array.isArray(j.services)) process.exit(1);
-        for (const l of require(process.argv[1]).renderLines(j.services, Date.now())) console.log(l);
-      });' "$_gm" || _grc2=$?
+        for (const l of require(process.argv[1]).renderLines(j.services, Date.now(), process.argv[2] || "")) console.log(l);
+      });' "$_gm" "${2:-}" || _grc2=$?
     [ "$_grc2" -eq 3 ] && exit 1
     [ "$_grc2" -eq 0 ] || { say "Kosmos gave an answer we could not read about what agents found."; exit 1; }
     exit 0

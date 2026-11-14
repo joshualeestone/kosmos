@@ -25,8 +25,8 @@ const AGENT_TOKEN = 'a1'.repeat(32);
 
 const NOW = Date.now();
 const FOUND = [{ key: 'hubspot', name: 'hubspot', kind: 'other', notWorking: 1, actions: [
-  { action: 'merge_contacts', outcome: 'not-offered', at: NOW - 120000, by: 'leo', note: '', how: 'auto', n: 2, words: cf.OUTCOME_WORDS['not-offered'] },
-  { action: 'search', outcome: 'works', at: NOW - 60000, by: 'mara', note: 'contacts only', how: 'agent', n: 1, words: cf.OUTCOME_WORDS.works }] }];
+  { action: 'merge_contacts', outcome: 'not-offered', at: NOW - 3 * 86400e3, by: 'leo', note: '', how: 'auto', n: 2, words: cf.OUTCOME_WORDS['not-offered'] },
+  { action: 'search', outcome: 'works', at: NOW - 5 * 86400e3, by: 'mara', note: 'contacts only', how: 'agent', n: 1, words: cf.OUTCOME_WORDS.works }] }];
 const HELD = [{ name: 'GitHub', route: '/api/github', how: 'sign-in', held: true }];
 
 function withStub(answers, fn) {
@@ -106,7 +106,7 @@ test('Mac: --found prints renderLines, and --found <service> asks for that one',
     assert.equal(r.out.trim(), cf.renderLines(FOUND, Date.now()).join('\n'));
     const one = await sh(port, ['connections', '--found', 'Acme CRM']);
     assert.equal(one.code, 0, one.out);
-    assert.match(one.out, /No agent has recorded what works on a connection yet/);
+    assert.match(one.out, /^No agent has recorded anything about Acme CRM in the last 30 days\.$/m);
     assert.ok(seen.some((s) => s.url === '/api/connections/found?service=Acme%20CRM'), 'the service was asked for, encoded');
     assert.equal(swept(seen), 0);
   });
