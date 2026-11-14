@@ -3707,7 +3707,7 @@ cmd_connections() {
   # kosmos#7875 item 2: --how prints how connecting a provider, a plugin or a service works (engine/connections.js
   # guideText), the long text an agent's instructions now point at. A local read: no board needed.
   if [ "${1:-}" = --how ]; then
-    [ $# -eq 1 ] || { say "Usage: kosmos connections [--how]"; exit 2; }
+    [ $# -eq 1 ] || { say "Usage: kosmos connections [--how | --found [service] | found <service> <action> <outcome> [note]]"; exit 2; }
     local _gn _gm; _gn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print this."; exit 1; }
     _gm="$(kosmos_engine_module connectionsguide).js"   # requires nothing, so only this file can fail
     [ -f "$_gm" ] || { say "Kosmos could not find its own runtime to print this."; exit 1; }
@@ -3715,7 +3715,52 @@ cmd_connections() {
       || { say "Kosmos could not find its own runtime to print this."; exit 1; }
     exit 0
   fi
-  [ $# -eq 0 ] || { say "Usage: kosmos connections [--how]"; exit 2; }
+  # kosmos#8519: what agents found about a connection's actions (engine/connfound.js says why it is found, never probed).
+  #   kosmos connections found <service> <action> <outcome> [note]   records one, as this agent (its token decides who)
+  #   kosmos connections --found [service]                          lists them, in engine/connfound.js renderLines' words
+  local _cf_tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _cf_tok="$KOSMOS_AGENT_TOKEN" ;; esac
+  if [ "${1:-}" = found ]; then
+    shift
+    local _fu="Usage: kosmos connections found <service> <action> <works|not-offered|needs-scope|needs-permission|off-by-policy|failed> [note]"
+    { [ $# -ge 3 ] && [ $# -le 4 ]; } || { say "$_fu"; exit 2; }
+    if ! healthy; then say_not_up "it cannot record that"; exit 1; fi
+    local _fn; _fn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to send this."; exit 1; }
+    local _fbt; _fbt="$(agent_board_token || true)"
+    local _fbody _fans _frc=0
+    _fbody=$("$_fn" -e 'process.stdout.write(JSON.stringify({ service: process.argv[1], action: process.argv[2], outcome: process.argv[3], note: process.argv[4] || "", from_pane: process.argv[5] || "" }))' \
+      "$1" "$2" "$3" "${4:-}" "${TMUX_PANE:-}" 2>/dev/null) || { say "Kosmos could not put that into a request."; exit 1; }
+    _fans=$(printf '%s' "$_fbody" | kosmos_curl "$_fbt" "$_cf_tok" -sS -m 15 -X POST "$URL/api/connections/found" -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _frc=$?
+    if [ "$_frc" -ne 0 ]; then say_unreached "record that" "$_frc"; exit 1; fi
+    printf '%s' "$_fans" | "$_fn" -e '
+      let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+        let j; try { j = JSON.parse(s); } catch { j = null; }
+        if (j && j.recorded === true) { console.log("Recorded. kosmos connections --found lists what agents found."); process.exit(0); }
+        console.log("Not recorded: " + ((j && typeof j.because === "string") ? j.because : "Kosmos gave an answer we could not read") + ".");
+        process.exit(1);
+      });'
+    exit $?
+  fi
+  if [ "${1:-}" = --found ]; then
+    [ $# -le 2 ] || { say "Usage: kosmos connections --found [service]"; exit 2; }
+    if ! healthy; then say_not_up "it cannot say what agents found"; exit 1; fi
+    local _gn _gm; _gn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
+    _gm="$(kosmos_engine_module connfound).js"
+    [ -f "$_gm" ] || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
+    local _gbt; _gbt="$(board_token || true)"
+    local _gq="" _gbody _grc=0
+    [ -n "${2:-}" ] && _gq="?service=$("$_gn" -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$2")"
+    _gbody=$(kosmos_curl "$_gbt" "$_cf_tok" -sS -m 15 "$URL/api/connections/found$_gq" 2>/dev/null) || _grc=$?
+    if [ "$_grc" -ne 0 ]; then say_unreached "read what agents found" "$_grc"; exit 1; fi
+    printf '%s' "$_gbody" | "$_gn" -e '
+      let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+        let j; try { j = JSON.parse(s); } catch { process.exit(1); }
+        if (!j || !Array.isArray(j.services)) process.exit(1);
+        for (const l of require(process.argv[1]).renderLines(j.services, Date.now())) console.log(l);
+      });' "$_gm" || { say "Kosmos gave an answer we could not read about what agents found."; exit 1; }
+    exit 0
+  fi
+  [ $# -eq 0 ] || { say "Usage: kosmos connections [--how | --found [service] | found <service> <action> <outcome> [note]]"; exit 2; }
   if ! healthy; then
     say_not_up "it cannot say what is connected"
     exit 1
@@ -3737,6 +3782,18 @@ cmd_connections() {
         else console.log(x.name + ": not known without a live check; the person connects it in Settings > Connections");
       }
     });' || { say "Kosmos gave an answer we could not read about what is connected."; exit 1; }
+  # kosmos#8519: one line when agents found actions that do not work (the disk only, so it costs nothing; silent when
+  # it cannot be read, since the listing above already answered what was asked).
+  local _cfb; _cfb=$(kosmos_curl "$_bt" "$_cf_tok" -sS -m 5 "$URL/api/connections/found" 2>/dev/null) || _cfb=""
+  if [ -n "$_cfb" ]; then
+    printf '%s' "$_cfb" | "$_node" -e '
+      let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+        let j; try { j = JSON.parse(s); } catch { return; }
+        const svcs = j && Array.isArray(j.services) ? j.services.filter((x) => x && x.notWorking > 0) : [];
+        const n = svcs.reduce((a, x) => a + x.notWorking, 0);
+        if (n) console.log("Agents found " + n + (n === 1 ? " action that does not work" : " actions that do not work") + " on " + svcs.map((x) => x.name).join(", ") + ": kosmos connections --found");
+      });' 2>/dev/null || true
+  fi
 }
 
 # ---- kosmos whats-new     (#7411)
@@ -5814,6 +5871,8 @@ if [ "$_kosmos_help" = 1 ]; then
       # kosmos#7875 item 2: name --how before the read-only output. --how --help only says what --how does, as the
       # Windows CLI does (--help never acts beyond the read-only listing).
       printf 'Usage: kosmos connections [--how]   (--how: how connecting a provider, a plugin or a service works here)\n'
+      printf '       kosmos connections --found [service]   (which actions agents found work or do not, kosmos#8519)\n'
+      printf '       kosmos connections found <service> <action> <works|not-offered|needs-scope|needs-permission|off-by-policy|failed> [note]   (record one)\n'
       case " $* " in *" --how "*) exit 0 ;; esac
       set -- "$1" ;;
     adopt|whoami)
