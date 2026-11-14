@@ -54,6 +54,23 @@ delete-leftover.startsAgainWords ends the task-only delete's sentences and Resto
 - NIT: "Otherwise, choose its account again afterwards if it should use another." is now "If you do not plan to connect
   it, choose its account again."
 
+## Review round 2
+- WARNING: "or after it has moved to another account" read as "it runs on the main account now", when the folder is
+  still kept and a model change forgets it. Now: "choose it again only once it is back on that folder, is on your main
+  account for good, or has its account chosen again."
+- WARNING: the drop (count 2) now says "Kosmos keeps that folder until then." and the shared forget sentence, and its
+  condition is "Unless the next Start at login that reaches that folder reads (confirms) the same account there".
+- CONVENTION: the clauses were 122 to 169 words. Merged the repeats: "keeps that folder and tries it again" and "starts on
+  your main account unless" became one "It runs on your main account until a Start at login ..." sentence; the
+  different-account and count facts became one sentence; the forget sentence names the setters once. Longest now
+  (out of reach, retired model) about 136 words, offered about 108. Test cap KEPT_CLAUSE_MAX_WORDS = 145.
+- NIT: the kept-folder words now start a sentence of their own (". It starts on ..."), so the caller's sentence ends at
+  "offers it." and every sentence the person sees in the plan and outcome is 30 words or fewer (tested end to end).
+  The generic outcomes keep their "; it starts" clause (out of this card).
+- NIT: "forgets it" is gone; every forget says "that folder".
+- End-to-end cases added: config readable again by Start at login, folder back holding another account, folder that
+  could not be read going away before Start at login.
+
 ## Tests
 - New engine/delete-leftover.win32-keptwords-8510.test.js: every outcome (same folder, same main, changed, unusable,
   unverifiable, removed, missing, could not read, could not confirm, out of reach) x model offered or retired x

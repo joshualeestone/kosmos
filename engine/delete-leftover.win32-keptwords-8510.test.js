@@ -139,30 +139,36 @@ function expectedAccount(outcome, count) {
 }
 const wordCount = (s) => s.split(/\s+/).filter(Boolean).length;
 const NUMBER = { 3: 'three', 2: 'two' };
+/* The whole kept-folder clause, longest case (out of reach, model retired) about 136 words: a cap so it cannot grow
+   back toward the 169 it once was, with room for one more short sentence. */
+const KEPT_CLAUSE_MAX_WORDS = 145;
+const SENTENCE_MAX_WORDS = 30;
+const sentencesOf = (text) => text.replace(/^[.;] /, '').split(/(?<=\.)\s+/).filter(Boolean);
 
 /* The facts a sentence must state for one combination, asserted piece by piece so the wording can still be polished. */
 function assertWords(words, { outcome, count, modelKey }) {
   const label = `${outcome} / model ${modelKey} / count ${count}: ${words}`;
   const account = expectedAccount(outcome, count);
-  assert.ok(words.startsWith('; it starts on '), label);
+  const kept = account === 'kept' || account === 'drop';
+  // A kept folder's words start a sentence of their own, so the caller's sentence is not stretched past the cap.
+  assert.ok(words.startsWith(kept ? '. It starts on ' : '; it starts on '), label);
   assert.ok(words.endsWith('.'), label);
   // The model, decided on its own by the repair.
   if (modelKey === 'offered') {
     assert.match(words, /model it was set to/, label);
-    assert.doesNotMatch(words, /model it last ran/, label);
+    assert.doesNotMatch(words, /model it last ran|choose it again/, label);
   } else {
     assert.match(words, /model it last ran/, label);
     assert.doesNotMatch(words, /model it was set to(?! is no longer offered)/, label);
-    if (account === 'kept' || account === 'drop') {
+    if (kept) {
       /* A model change forgets a kept folder, so the words say to choose the model again only once that no longer
-         matters, and say it last, after everything about the folder. */
-      assert.match(words, / If it used another model, choose that model again only after it is back on that folder, or after it has moved to another account\.$/, label);
-      assert.doesNotMatch(words, /choose its model again/, label);
+         matters (never merely "on another account", which it already is while the folder is kept), and say it last. */
+      assert.match(words, / If it used another model, choose it again only once it is back on that folder, is on your main account for good, or has its account chosen again\.$/, label);
+      assert.doesNotMatch(words, /choose its model again|moved to another account/, label);
     } else {
       assert.match(words, /[Cc]hoose its (account and )?model again/, label);
     }
   }
-  if (modelKey === 'offered') assert.doesNotMatch(words, /choose that model again/, label);
   if (account === 'folder') {
     assert.match(words, modelKey === 'offered' ? /account and model it was set to before/ : /account it was set to/, label);
     assert.doesNotMatch(words, /main account/, label);
@@ -171,42 +177,36 @@ function assertWords(words, { outcome, count, modelKey }) {
   } else if (account === 'main') {
     assert.match(words, /main account/, label);
     assert.match(words, /[Cc]hoose its account( and model)? again/, label);
-    assert.doesNotMatch(words, /keeps that folder|tries it again/, label);
-  } else if (account === 'kept') {
-    // The folder is kept: main account now, the folder again if it can be used by then, and how the keeping ends.
-    assert.match(words, /starts on your main account, unless by then Kosmos can (reach that folder and it still holds the same account|read that account and it is still the same one)|starts on your main account, unless Kosmos can confirm that by then/, label);
-    assert.match(words, /keeps that folder and tries it again/, label);
-    assert.match(words, /Changing this agent's account or model makes Kosmos forget that folder, as does anything else that sets up its startup job again\.( If it used another model[^.]*\.)?$/, label);
-    assert.match(words, /tries it again at (each|later) Start at logins?\. If that folder then holds a different account, Kosmos forgets it\. /, label);
-    assert.match(words, /moves to your main account for good\. /, label);
-    assert.doesNotMatch(words, /main account and the model it last ran/, label);
-    // How many Start at logins that reach the folder are left, true at each count.
+    assert.doesNotMatch(words, /keeps that folder|forget that folder|until a Start at login/, label);
+  }
+  if (kept) {
+    assert.match(words, OUTCOMES[outcome].reason === 'confirm' ? /could not confirm/ : outcome === 'outOfReach' ? /Kosmos cannot reach the account folder it used right now\./ : /could not read which account/, label);
+    // Every rewrite forgets the folder (said once, with the setters named).
+    assert.match(words, /Changing this agent's account or model, or anything else that sets up its startup job again, makes Kosmos forget that folder\./, label);
+    assert.doesNotMatch(words, /forgets it\b|main account and the model it last ran/, label);
+  }
+  if (account === 'kept') {
+    // Main account now, the folder again at a later Start at login holding the same account, and how the keeping ends.
+    assert.match(words, /It runs on your main account until a Start at login (finds that folder again, holding the same account|reads the same account there|confirms that)\./, label);
+    const left = 3 - count;
+    assert.match(words, new RegExp(`Another account in that folder moves it to your main account for good, as ${left === 1 ? 'does the next Start at login that reaches that folder'
+      : `do ${NUMBER[left]} ${count > 0 ? 'more ' : ''}Start at logins that reach that folder`} without confirming the account in it\\.`), label);
     if (outcome === 'outOfReach') {
-      assert.match(words, /Kosmos cannot reach the account folder it used right now/, label);
-      assert.match(words, /connect it first\. If you do not plan to connect it, choose its account again\. /, label);
-      assert.doesNotMatch(words, /Otherwise|afterwards/, label);
-      const left = 3 - count;
-      assert.match(words, left === 1 ? /at the next Start at login that reaches it, it moves/
-        : new RegExp(`at ${NUMBER[left]} ${count > 0 ? 'more ' : ''}Start at logins that reach it, it moves`), label);
-      if (count === 0) assert.doesNotMatch(words, /more Start at logins|still cannot/, label);
-    } else {
-      assert.match(words, OUTCOMES[outcome].reason === 'confirm' ? /could not confirm/ : /could not read which account/, label);
-      const after = Math.max(1, 3 - count - 1);
-      assert.match(words, after === 1 ? /After that, if Kosmos cannot read or confirm the account in that folder at the next Start at login that reaches it/
-        : new RegExp(`After that, if Kosmos cannot read or confirm the account in that folder at ${NUMBER[after]} more Start at logins that reach it`), label);
+      assert.match(words, /If that folder is on a disk or shared folder that is not connected, connect it, or else choose its account again\./, label);
     }
   } else if (account === 'drop') {
     assert.match(words, /two earlier Start at logins/, label);
-    assert.match(words, /at the next Start at login that reaches that folder, it moves to your main account for good/, label);
-    assert.match(words, /Choose its account again if it should use another\.( If it used another model[^.]*\.)?$/, label);
-    assert.doesNotMatch(words, /keeps that folder/, label);
-    assert.match(words, OUTCOMES[outcome].reason === 'confirm' ? /could not confirm/ : /could not read which account/, label);
+    assert.match(words, /Unless the next Start at login that reaches that folder (reads|confirms) the same account there, it stays on your main account for good\./, label);
+    // A start that cannot reach the folder keeps it, so the drop is not "the next Start at login" whatever happens.
+    assert.match(words, /Kosmos keeps that folder until then\./, label);
+    assert.match(words, /Choose its account again if it should use another\./, label);
   }
-  if (account === 'kept' || account === 'drop') {
-    // Plain: short sentences, and no engine wording.
-    for (const sentence of words.replace(/^; /, '').split(/(?<=\.)\s+/)) {
-      assert.ok(wordCount(sentence) <= 30, `${label}\na sentence of ${wordCount(sentence)} words: ${sentence}`);
+  if (kept) {
+    // Plain: short sentences, a capped whole, and no engine wording.
+    for (const sentence of sentencesOf(words)) {
+      assert.ok(wordCount(sentence) <= SENTENCE_MAX_WORDS, `${label}\na sentence of ${wordCount(sentence)} words: ${sentence}`);
     }
+    assert.ok(wordCount(words.slice(2)) <= KEPT_CLAUSE_MAX_WORDS, `${label}\n${wordCount(words.slice(2))} words`);
     assert.doesNotMatch(words, /written again|\(/, label);
   }
 }
@@ -294,22 +294,24 @@ test('kosmos#8510: for every outcome, model and count, what Start at login write
   }
 });
 
-test('kosmos#8510: a kept folder out of reach with a retired model: the words say the model it last ran and the kept folder, and when the folder is back with the same account Start at login writes the task on it', WINDOWS_ONLY, () => {
-  const name = 'reach8510';
+/* An agent set up the way a person does it: its task on ACCOUNT running `model`, then ACCOUNT chosen for it (so the
+   record holds whose account that is). */
+function agentOnAccount(name, model) {
   made.push(name);
   store.writeProfile(name, { displayName: name, provider: 'anthropic' });
   fs.mkdirSync(nodePath.dirname(liveness.fileFor(name)), { recursive: true });
   fs.writeFileSync(liveness.fileFor(name), JSON.stringify({ at: new Date().toISOString(), state: 'idle' }));
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), 'work\n');
-  // Its task runs a model since retired; the person chose ACCOUNT for it, so the record holds whose account that is.
-  fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, process.execPath, null, RETIRED_MODEL, ACCOUNT, 'claude'));
+  fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, process.execPath, null, model, ACCOUNT, 'claude'));
   const moved = create.setAccount(name, ACCOUNT, { platform: 'win32' });
   assert.equal(moved.outcome, create.OUTCOME.CREATED, 'fixture: ' + JSON.stringify(moved));
-  assert.deepEqual(store.readProfile(name).win32Task, { runner: 'claude', configDir: ACCOUNT, model: RETIRED_MODEL, account: OWNER_IDENTITY }, 'fixture: the record');
-  // The disk with ACCOUNT is not connected, and the person removes the startup job alone (the folder is away).
-  const unplugged = ACCOUNT + '-unplugged';
-  fs.renameSync(ACCOUNT, unplugged);
+  assert.deepEqual(store.readProfile(name).win32Task, { runner: 'claude', configDir: ACCOUNT, model, account: OWNER_IDENTITY }, 'fixture: the record');
+  return name;
+}
+/* The real task-only delete (its folder away, so the name is a task-only leftover): the plan's words and the outcome's,
+   each checked sentence by sentence against the cap, the caller's own sentence included. */
+function taskOnlyDelete(name) {
   const away = nodePath.join(SANDBOX, name + '-away');
   fs.renameSync(create.workerDir(name), away);
   let plan; let done;
@@ -320,16 +322,73 @@ test('kosmos#8510: a kept folder out of reach with a retired model: the words sa
     assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
   } finally { fs.renameSync(away, create.workerDir(name)); }
   for (const words of [plan.reassurance, done.said]) {
-    assert.match(words, /Start at login when Kosmos offers it; it starts on the model it last ran\. Kosmos cannot reach the account folder it used right now\./);
-    assert.match(words, /starts on your main account, unless by then Kosmos can reach that folder and it still holds the same account\./);
-    assert.match(words, /keeps that folder and tries it again at each Start at login/);
-    assert.match(words, /at three Start at logins that reach it, it moves to your main account for good\./);
-    assert.doesNotMatch(words, /it starts on your main account and the model it last ran/, 'the words promised the main account outright');
+    assert.match(words, /Start at login when Kosmos offers it\. It starts on the model /, 'the kept words did not start a sentence of their own');
+    for (const sentence of sentencesOf(words)) {
+      assert.ok(wordCount(sentence) <= SENTENCE_MAX_WORDS, `a sentence the person sees has ${wordCount(sentence)} words: ${sentence}`);
+    }
+  }
+  return [plan.reassurance, done.said];
+}
+const unplugged = ACCOUNT + '-unplugged';
+
+test('kosmos#8510: a kept folder out of reach with a retired model: the words say the model it last ran and the kept folder, and when the folder is back with the same account Start at login writes the task on it', WINDOWS_ONLY, () => {
+  const name = agentOnAccount('reach8510', RETIRED_MODEL);
+  fs.renameSync(ACCOUNT, unplugged);   // the disk with ACCOUNT is not connected
+  for (const words of taskOnlyDelete(name)) {
+    assert.match(words, /It starts on the model it last ran\. Kosmos cannot reach the account folder it used right now\./);
+    assert.match(words, /It runs on your main account until a Start at login finds that folder again, holding the same account\./);
+    assert.match(words, /as do three Start at logins that reach that folder without confirming the account in it\./);
+    assert.match(words, /If it used another model, choose it again only once it is back on that folder/);
+    assert.doesNotMatch(words, /it starts on your main account and the model it last ran/i, 'the words promised the main account outright');
   }
   // The disk is connected again, still signed in to the same account, before the person uses Start at login.
   fs.renameSync(unplugged, ACCOUNT);
   startAtLogin(name);
   assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: LAST_RAN }, 'Start at login did not do what the words said');
+});
+
+test('kosmos#8510: a folder whose config could not be read, readable again by Start at login: back on that folder, as the words said', WINDOWS_ONLY, () => {
+  const name = agentOnAccount('readable8510', RETIRED_MODEL);
+  const config = accounts.configFile(ACCOUNT);
+  const whole = fs.readFileSync(config, 'utf8');
+  fs.writeFileSync(config, whole.slice(0, 10));   // Claude Code writing it at that moment
+  for (const words of taskOnlyDelete(name)) {
+    assert.match(words, /It runs on your main account until a Start at login reads the same account there\./);
+  }
+  fs.writeFileSync(config, whole);
+  startAtLogin(name);
+  assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: LAST_RAN });
+});
+
+test('kosmos#8510: a folder out of reach that comes back holding another account: your main account for good, as the words said', WINDOWS_ONLY, () => {
+  const name = agentOnAccount('another8510', SET_MODEL);
+  fs.renameSync(ACCOUNT, unplugged);
+  for (const words of taskOnlyDelete(name)) {
+    assert.match(words, /Another account in that folder moves it to your main account for good/);
+  }
+  fs.renameSync(unplugged, ACCOUNT);
+  signIn(ACCOUNT, { emailAddress: 'someone-else@example.test', organizationUuid: 'org-other' });
+  startAtLogin(name);
+  assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
+  const rec = store.readProfile(name).win32Task;
+  assert.equal(rec.configDir, null, 'the folder holding another account was kept: ' + JSON.stringify(rec));
+  assert.notEqual(rec.kept, true);
+});
+
+test('kosmos#8510: a folder that could not be read and then goes away before Start at login: kept, the count unchanged, and the next words are the out-of-reach ones', WINDOWS_ONLY, () => {
+  const name = agentOnAccount('goesaway8510', SET_MODEL);
+  const config = accounts.configFile(ACCOUNT);
+  fs.writeFileSync(config, '{"oauthAccount": {"emailAd');
+  taskOnlyDelete(name);
+  fs.renameSync(ACCOUNT, unplugged);   // the disk is unplugged before the person uses Start at login
+  startAtLogin(name);
+  assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
+  const rec = store.readProfile(name).win32Task;
+  assert.equal(rec.configDir, ACCOUNT, 'a folder out of reach was not kept');
+  assert.equal(rec.kept, true);
+  assert.equal(rec.unreadable, undefined, 'a start that could not reach the folder changed the count');
+  fs.rmSync(jobfix.jobPath(name), { force: true });   // its startup job removed again
+  assertWords(leftover.startsAgainWords(name), { outcome: 'outOfReach', count: 0, modelKey: 'offered' });
 });
 
 test('kosmos#8510: the same, with the folder still out of reach at Start at login: the main account now, the folder kept, and the words that follow are the same kept-folder words', WINDOWS_ONLY, () => {
