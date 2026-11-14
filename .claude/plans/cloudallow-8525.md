@@ -28,6 +28,14 @@ The board had two blocks:
 - web.allow-card.test.js: askHead behaviour with controls.
 - docs/browser-checks/render-connect-sheet-4637.js: cloud arm and was_a_computer control, 1400 and 390.
 
+## Known tradeoffs (deferred in review)
+- The board reads `cloud` from its pending.json; the tunnel re-decides from its live list. In the seconds
+  before a snapshot catches up, a card drawn as cloud whose mark has gone gets the code_pending wording
+  ("Working out the code"), and a non-computer: cloud id on a non-v2 board reads as a phone. Both fail
+  closed and the next poll redraws the row. The durable fix is the tunnel naming `cloud` in its allow
+  answer (relay side).
+- listedAsCloud and the route's listedAsComputer read pending.json separately (both fail closed).
+
 ## Weakest premise
 That a live tunnel's pending.json carries `cloud: true` for such a row (read from relay main's code,
 not from a real file). Proven only when a release with this reaches a computer and Allow is pressed.
