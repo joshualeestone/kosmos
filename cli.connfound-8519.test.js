@@ -127,6 +127,18 @@ test('Mac: plain connections adds one line when agents found actions that do not
   });
 });
 
+test('Mac: a board refusal (403 { error }) is said as the Windows CLI says it, for found and --found', { skip: SKIP_POSIX_SHELL }, async () => {
+  const refusal = { status: 403, json: { error: 'this request came from another site' } };
+  await withStub({ 'POST /api/connections/found': refusal, 'GET /api/connections/found': refusal }, async (port) => {
+    const f = await sh(port, ['connections', 'found', 'hubspot', 'x', 'works']);
+    assert.equal(f.code, 1, f.out);
+    assert.equal(f.out.trim(), 'Kosmos refused that request: this request came from another site.');
+    const l = await sh(port, ['connections', '--found']);
+    assert.equal(l.code, 1, l.out);
+    assert.equal(l.out.trim(), 'Kosmos refused that request: this request came from another site.');
+  });
+});
+
 /* The Windows CLI, in process, against the same stub. */
 async function win(port, args) {
   const cli = require('./tools/windows/kosmos-cli');
@@ -156,5 +168,17 @@ test('Windows: found, --found and the plain line, in the same words', async () =
     const u = await win(port, ['connections', 'found', 'x']);
     assert.equal(u.code, 2);
     assert.equal(swept(seen), 0);
+  });
+});
+
+test('Windows: a board refusal is said in the same words', async () => {
+  const refusal = { status: 403, json: { error: 'this request came from another site' } };
+  await withStub({ 'POST /api/connections/found': refusal, 'GET /api/connections/found': refusal }, async (port) => {
+    const f = await win(port, ['connections', 'found', 'hubspot', 'x', 'works']);
+    assert.equal(f.code, 1);
+    assert.equal(f.err, 'Kosmos refused that request: this request came from another site.');
+    const l = await win(port, ['connections', '--found']);
+    assert.equal(l.code, 1);
+    assert.equal(l.err, 'Kosmos refused that request: this request came from another site.');
   });
 });

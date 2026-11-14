@@ -62,3 +62,24 @@ what agents FOUND, and shows it to the person and to the next agent.
 - NITs left: action names are case-sensitive keys ("Create Release" and "create release" are two rows; agents copy
   the tool's own name, so rare); a retried POST can count one extra time in "N times" (n is a hint, not a ledger);
   cfAgo duplicates the engine's ago (the page cannot require the engine).
+
+#### Iteration 2 (opus)
+- WARNING fixed (W1): a bare 403 or "permission denied" no longer counts. A NOISE pass first records nothing for a rate
+  limit, a quota, a missing or expired key or token, or a local file or SSH error. "403 Forbidden" and a bare
+  "Forbidden" still count, after that pass. Weakest premise: a 403 Forbidden with no other words is a refused action
+  more often than not.
+- WARNING fixed (W2): not-offered only on the strong signals (unknown tool or method, method or tool not found,
+  JSON-RPC -32601). "Operation/function not supported" and "unknown action" are how input errors read too, so they record
+  nothing.
+- WARNING fixed (W3): the scope errors real services send (Google's insufficient authentication scopes, Slack's
+  missing_scope, GitHub's resource not accessible by, HubSpot's requires any of [...]), checked before permission.
+  SAML enforcement is policy.
+- WARNING fixed (W4): the store key carries the kind (kosmos:github, other:github), so a person's GitHub plugin and
+  Kosmos's GitHub connection are two rows; ?service= still finds both by name.
+- WARNING fixed (W5): the Mac CLI says a gate refusal (403 { error }) in the Windows words, "Kosmos refused that
+  request: ...", for found and --found; both CLIs have a test for it.
+- NITs fixed: a prototype-free store (a service named "constructor" works); C1 controls and direction marks stripped;
+  the CLI says "seen on a refused call" and "everything tried works", as the page does; the Mac token check spells its
+  letters; the browser-check controls start from a SHOWN box and repaint (the expiry path).
+- NIT left: a server name containing "__" splits early (mcp__remote-devices__Claude_Browser__navigate files under
+  remote-devices); it still names a real plugin.

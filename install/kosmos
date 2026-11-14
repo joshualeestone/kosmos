@@ -3719,7 +3719,8 @@ cmd_connections() {
   #   kosmos connections found <service> <action> <outcome> [note]   records one, as this agent (its token decides who)
   #   kosmos connections --found [service]                          lists them, in engine/connfound.js renderLines' words
   local _cf_tok=""
-  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _cf_tok="$KOSMOS_AGENT_TOKEN" ;; esac
+  # The letters spelled out, as agent_board_token does: a range can let other letters through under some locales.
+  case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0123456789abcdef]*) ;; *) _cf_tok="$KOSMOS_AGENT_TOKEN" ;; esac
   if [ "${1:-}" = found ]; then
     shift
     local _fu="Usage: kosmos connections found <service> <action> <works|not-offered|needs-scope|needs-permission|off-by-policy|failed> [note]"
@@ -3738,6 +3739,8 @@ cmd_connections() {
       let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
         let j; try { j = JSON.parse(s); } catch { j = null; }
         if (j && j.recorded === true) { console.log("Recorded. kosmos connections --found lists what agents found."); process.exit(0); }
+        // Review 2: a gate refusal (403 { error }) in the Windows CLI words.
+        if (j && j.recorded === undefined && typeof j.error === "string") { console.log("Kosmos refused that request: " + j.error + "."); process.exit(1); }
         console.log("Not recorded: " + ((j && typeof j.because === "string") ? j.because : "Kosmos gave an answer we could not read") + ".");
         process.exit(1);
       });'
@@ -3750,16 +3753,20 @@ cmd_connections() {
     _gm="$(kosmos_engine_module connfound).js"
     [ -f "$_gm" ] || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
     local _gbt; _gbt="$(board_token || true)"
-    local _gq="" _gbody _grc=0
+    local _gq="" _gbody _grc=0 _grc2=0
     [ -n "${2:-}" ] && _gq="?service=$("$_gn" -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$2")"
     _gbody=$(kosmos_curl "$_gbt" "$_cf_tok" -sS -m 15 "$URL/api/connections/found$_gq" 2>/dev/null) || _grc=$?
     if [ "$_grc" -ne 0 ]; then say_unreached "read what agents found" "$_grc"; exit 1; fi
     printf '%s' "$_gbody" | "$_gn" -e '
       let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
         let j; try { j = JSON.parse(s); } catch { process.exit(1); }
+        // Review 2: a gate refusal (403 { error }) in the Windows CLI words; exit 3 so the shell says nothing more.
+        if (j && !Array.isArray(j.services) && typeof j.error === "string") { console.log("Kosmos refused that request: " + j.error + "."); process.exit(3); }
         if (!j || !Array.isArray(j.services)) process.exit(1);
         for (const l of require(process.argv[1]).renderLines(j.services, Date.now())) console.log(l);
-      });' "$_gm" || { say "Kosmos gave an answer we could not read about what agents found."; exit 1; }
+      });' "$_gm" || _grc2=$?
+    [ "$_grc2" -eq 3 ] && exit 1
+    [ "$_grc2" -eq 0 ] || { say "Kosmos gave an answer we could not read about what agents found."; exit 1; }
     exit 0
   fi
   [ $# -eq 0 ] || { say "Usage: kosmos connections [--how | --found [service] | found <service> <action> <outcome> [note]]"; exit 2; }

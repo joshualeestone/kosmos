@@ -57,12 +57,17 @@ const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._:\/-]{0,79}$/;
 
 function file() { return path.join(store.ROOT, 'connfound.json'); }
 
+/* Review 2: C1 controls and the bidi and direction marks go too, so a note cannot reorder what a terminal or the page
+   shows around it. */
 function clean(value, max) {
-  return String(value == null ? '' : value).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  return String(value == null ? '' : value).replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
-/* The key a service is filed under: case and spacing do not make two services. */
+/* The name a service is matched by: case and spacing do not make two services. */
 function serviceKey(name) { return clean(name, MAX_NAME).toLowerCase().replace(/[\s_]+/g, '-'); }
+/* Review 2: the key it is FILED under carries its kind, so the person's own GitHub plugin and Kosmos's GitHub connection
+   never share a row: they are two credentials, and the remedy for each lives in a different place. */
+function storeKey(name, kind) { return (kind === 'kosmos' ? 'kosmos:' : 'other:') + serviceKey(name); }
 
 /*
  * mcp__<server>__<action> -> { service, action }, or null for any other tool. The server part runs to the next "__"
@@ -87,20 +92,31 @@ function parseMcpTool(tool) {
 
 /*
  * What a failed call's error line says about the ACTION, or null when it says nothing about it (then nothing is
- * recorded). Ordered: Claude Code's own refusal first (never the service), then the most specific. Pure.
+ * recorded). Pure. Review 2 made it CONSERVATIVE on purpose: the guide tells agents to check what was found before
+ * trying, so one wrong "refused" can keep an agent off a working action for 30 days, and only a hand-recorded "works"
+ * clears it (the hook never sees a success). So the order is:
+ *   1. Claude Code's own refusal: never the service.
+ *   2. NOISE: a rate limit, a quota, a key or token that is missing, invalid or expired, a local file or SSH error.
+ *      Those come as 403 or "permission denied" too, and say nothing about the action.
+ *   3. not-offered, only on the strong signals (an unknown tool or method, JSON-RPC -32601). "Operation not supported
+ *      on shared drives" is about the input, so the generic operation and function wordings are out.
+ *   4. scope before permission, so Google's "Insufficient Permission: ... insufficient authentication scopes" is a
+ *      scope.
+ *   5. policy, then permission.
  */
 const LOCAL_REFUSAL_RE = /permission to use .{0,120}(has been )?denied|user (rejected|denied|declined)|was blocked by a hook|requires approval|hook (blocked|denied)/i;
-/* Review 1: "not supported" counts only about the tool or action itself; "File type not supported" is about the input. */
-const NOT_OFFERED_RE = /unknown (tool|method|action|operation|function)|no such (tool|method|action)|method not found|tool not found|(tool|method|action|operation|endpoint|function) (is )?not (implemented|supported)|unsupported (tool|method|action|operation)|\b-32601\b/i;
-const SCOPE_RE = /insufficient[_ ]scope|missing (the )?(required )?scopes?|scopes? (required|missing|not granted)|requires? (the )?[\w:.\/-]+ scope|not granted the [\w:.\/-]+ scope/i;
-const POLICY_RE = /(disabled|blocked|turned off) by (your |the )?(admin|administrator|organi[sz]ation|workspace|company)|organi[sz]ation policy|admin policy/i;
-/* Review 1: deliberately narrow. A 401 or "unauthorized" is usually an expired or missing sign-in, not a refused action,
-   so it records nothing; "forbidden" and "not allowed to" count only where they are about the caller, never inside an
-   input-validation message ("field forbidden must be a string", "is not allowed to be empty"). */
-const PERMISSION_RE = /\b403\b|^\W*forbidden\b|permission denied|insufficient permissions?|not authori[sz]ed to|access (is )?denied|not allowed to (access|perform|use|do|call|run|read|write|create|update|delete|modify|view|list|send|export)\b|does not have (the )?(required )?permissions?/i;
+const NOISE_RE = /rate[ _-]?limit|too many requests|\bquota\b|limit exceeded|api[ _-]?key|credential|\btoken\b.{0,30}\b(expired|invalid|missing|revoked)\b|\b(expired|invalid|missing|revoked) (access |auth |api )?token\b|\bEACCES\b|\bENOENT\b|\bEPERM\b|publickey|no such file|\b(open|read|write|mkdir|stat) ['"]?\//i;
+const NOT_OFFERED_RE = /unknown (tool|method)\b|no such (tool|method)\b|method not found|tool not found|(tool|method) (is )?not (implemented|supported)|unsupported (tool|method)\b|\b-32601\b/i;
+const SCOPE_RE = /insufficient[_ ]scopes?|insufficient (authentication )?scopes|missing[_ ](the[_ ])?(required[_ ])?scopes?|scopes? (required|missing|not granted)|requires? (the )?[\w:.\/-]+ scope|not granted the [\w:.\/-]+ scope|resource not accessible by (integration|personal access token)|requires any of \[/i;
+const POLICY_RE = /(disabled|blocked|turned off) by (your |the )?(admin|administrator|organi[sz]ation|workspace|company)|organi[sz]ation policy|admin policy|saml enforcement/i;
+/* Review 1: a 401 or "unauthorized" is usually an expired or missing sign-in, so it records nothing; "forbidden" and
+   "not allowed to" count only about the caller, never inside an input-validation message. Review 2: a bare 403 or
+   "permission denied" no longer counts on its own; "403 Forbidden" and a bare "Forbidden" still do, once NOISE_RE
+   has had its say. Weakest premise: a 403 Forbidden with no other words is a refused action more often than not. */
+const PERMISSION_RE = /\b403\b[^\n]{0,20}\bforbidden\b|^\W*forbidden\W*$|insufficient permissions?|not authori[sz]ed to|access (is )?denied to|not allowed to (access|perform|use|do|call|run|read|write|create|update|delete|modify|view|list|send|export)\b|does not have (the )?(required |proper )?permissions?/i;
 function classify(error) {
   const e = String(error || '');
-  if (!e || LOCAL_REFUSAL_RE.test(e)) return null;
+  if (!e || LOCAL_REFUSAL_RE.test(e) || NOISE_RE.test(e)) return null;
   if (NOT_OFFERED_RE.test(e)) return 'not-offered';
   if (SCOPE_RE.test(e)) return 'needs-scope';
   if (POLICY_RE.test(e)) return 'off-by-policy';
@@ -122,17 +138,19 @@ function noteRefusal(note) {
 /* The stored findings, expired ones dropped. Never throws: anything unreadable reads as nothing found. */
 function readAll(now) {
   let j;
-  try { j = JSON.parse(fs.readFileSync(file(), 'utf8')); } catch { return {}; }
-  const out = {};
+  try { j = JSON.parse(fs.readFileSync(file(), 'utf8')); } catch { return Object.create(null); }
+  /* Review 2: no prototype, so a service or action named "constructor" or "__proto__" is an ordinary key. */
+  const out = Object.create(null);
   const svcs = j && typeof j === 'object' && j.services && typeof j.services === 'object' ? j.services : {};
   for (const [key, s] of Object.entries(svcs)) {
     if (!s || typeof s !== 'object' || typeof s.name !== 'string' || !s.actions || typeof s.actions !== 'object') continue;
-    const actions = {};
+    const actions = Object.create(null);
     for (const [a, f] of Object.entries(s.actions)) {
       if (!f || !OUTCOMES.includes(f.outcome) || !Number.isFinite(f.at) || now - f.at > KEEP_MS) continue;
       actions[a] = { outcome: f.outcome, at: f.at, by: clean(f.by, MAX_NAME), note: clean(f.note, MAX_NOTE), how: f.how === 'auto' ? 'auto' : 'agent', n: Number.isInteger(f.n) && f.n > 0 ? f.n : 1 };
     }
-    if (Object.keys(actions).length) out[key] = { name: clean(s.name, MAX_NAME), kind: s.kind === 'kosmos' ? 'kosmos' : 'other', actions };
+    const kind = s.kind === 'kosmos' ? 'kosmos' : 'other';
+    if (Object.keys(actions).length && key === storeKey(s.name, kind)) out[key] = { name: clean(s.name, MAX_NAME), kind, actions };
   }
   return out;
 }
@@ -165,9 +183,9 @@ function record(f) {
   const refused = note ? noteRefusal(note) : null;
   if (refused) return { ok: false, because: refused };
   const all = readAll(now);
-  const key = serviceKey(service);
-  const svc = all[key] || { name: service, kind: x.kind === 'kosmos' ? 'kosmos' : 'other', actions: {} };
-  if (x.kind === 'kosmos') svc.kind = 'kosmos';
+  const kind = x.kind === 'kosmos' ? 'kosmos' : 'other';
+  const key = storeKey(service, kind);
+  const svc = all[key] || { name: service, kind, actions: Object.create(null) };
   const prev = svc.actions[action];
   svc.actions[action] = { outcome: x.outcome, at: now, by, note, how: x.how === 'auto' ? 'auto' : 'agent',
     n: prev && prev.outcome === x.outcome ? prev.n + 1 : 1 };
@@ -209,7 +227,7 @@ function list(opts) {
   try { all = readAll(now); } catch { all = {}; }
   const want = o.service ? serviceKey(o.service) : null;
   return Object.entries(all)
-    .filter(([k]) => !want || k === want)
+    .filter(([, s]) => !want || serviceKey(s.name) === want)
     .map(([key, s]) => {
       const actions = Object.entries(s.actions)
         .map(([action, f]) => ({ action, ...f, words: OUTCOME_WORDS[f.outcome] }))
@@ -237,13 +255,13 @@ function renderLines(services, now) {
   if (!services.length) return ['No agent has recorded what works on a connection yet, in the last 30 days.'];
   const out = [];
   for (const s of services) {
-    out.push(s.name + (s.kind === 'kosmos' ? '' : ' (outside Kosmos)') + ': ' + (s.notWorking ? s.notWorking + (s.notWorking === 1 ? ' action does not work' : ' actions do not work') : 'everything recorded works'));
+    out.push(s.name + (s.kind === 'kosmos' ? '' : ' (outside Kosmos)') + ': ' + (s.notWorking ? s.notWorking + (s.notWorking === 1 ? ' action does not work' : ' actions do not work') : 'everything tried works'));
     for (const a of s.actions) {
-      out.push('  ' + a.action + ': ' + a.words + ' (' + (a.how === 'auto' ? 'seen on a failed call by ' : 'recorded by ') + a.by + ', ' + ago(a.at, t) + (a.n > 1 ? ', ' + a.n + ' times' : '') + ')' + (a.note ? ' - ' + a.note : ''));
+      out.push('  ' + a.action + ': ' + a.words + ' (' + (a.how === 'auto' ? 'seen on a refused call by ' : 'recorded by ') + a.by + ', ' + ago(a.at, t) + (a.n > 1 ? ', ' + a.n + ' times' : '') + ')' + (a.note ? ' - ' + a.note : ''));
     }
   }
   return out;
 }
 
-module.exports = { record, noteToolFailure, list, renderLines, parseMcpTool, classify, serviceKey, ago,
+module.exports = { record, noteToolFailure, list, renderLines, parseMcpTool, classify, serviceKey, storeKey, ago,
   OUTCOMES, OUTCOME_WORDS, KEEP_MS, MAX_ACTIONS, MAX_SERVICES, MAX_NOTE };
