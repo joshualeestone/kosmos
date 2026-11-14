@@ -3795,7 +3795,7 @@ cmd_connections() {
     });' || { say "Kosmos gave an answer we could not read about what is connected."; exit 1; }
   # kosmos#8519: one line when agents found actions that do not work (the disk only, so it costs nothing; silent when
   # it cannot be read, since the listing above already answered what was asked).
-  local _cfb; _cfb=$(kosmos_curl "$_bt" "$_cf_tok" -sS -m 5 "$URL/api/connections/found" 2>/dev/null) || _cfb=""
+  local _cfb; _cfb=$(kosmos_curl "$_bt" "" -sS -m 5 "$URL/api/connections/found" 2>/dev/null) || _cfb=""   # board token only, like the listing above
   if [ -n "$_cfb" ]; then
     printf '%s' "$_cfb" | "$_node" -e '
       let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {

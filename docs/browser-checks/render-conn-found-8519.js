@@ -119,7 +119,7 @@ async function open(browser, w, h, theme, answer) {
             under, words: words && getComputedStyle(words).color, meta: meta && getComputedStyle(meta).color };
         });
         chk(r.n === 4, `${t} one row per action`, String(r.n));
-        chk(JSON.stringify(r.first) === JSON.stringify(['create release', 'Needs a wider sign-in', r.first && r.first[2]]) && /^Recorded by leo, 3 hours ago\. The token cannot write contents$/.test(r.first[2]),
+        chk(JSON.stringify(r.first) === JSON.stringify(['create release', 'Needs a wider sign-in', r.first && r.first[2]]) && /^Recorded by leo, 3 hours ago\. The token cannot write contents\.$/.test(r.first[2]),
           `${t} a row says the action, the outcome in words, and who found it and when`, JSON.stringify(r.first));
         chk(!!r.auto && /^Seen on a refused call by leo, 10 minutes ago, 3 times$/.test(r.auto), `${t} an automatic finding says it was seen on a refused call`, JSON.stringify(r.auto));
         chk(r.overflow === 0 && !r.pageScroll, `${t} every row fits, nothing scrolls sideways`, JSON.stringify({ overflow: r.overflow, pageScroll: r.pageScroll }));

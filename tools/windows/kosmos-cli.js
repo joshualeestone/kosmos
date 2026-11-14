@@ -3499,7 +3499,7 @@ async function verbConnections(ctx, args) {
   // kosmos#8519, as install/kosmos: one line when agents found actions that do not work (the disk only; silent when
   // it cannot be read, since the listing above already answered what was asked).
   try {
-    const rf = await ctx.call('GET', '/api/connections/found', undefined, { timeoutMs: 5000 });   // as the Mac CLI's -m 5
+    const rf = await ctx.call('GET', '/api/connections/found', undefined, { agent: false, timeoutMs: 5000 });   // board token only, like the listing above; 5 s as the Mac's -m 5
     const svcs = rf.reached && rf.json && Array.isArray(rf.json.services) ? rf.json.services.filter((x) => x && x.notWorking > 0) : [];
     const n = svcs.reduce((a, x) => a + x.notWorking, 0);
     if (n) ctx.out('Agents found ' + n + (n === 1 ? ' action that does not work' : ' actions that do not work') + ' on ' + svcs.map((x) => x.name + (x.kind === 'kosmos' ? '' : ' (outside Kosmos)')).join(', ') + ': kosmos connections --found');

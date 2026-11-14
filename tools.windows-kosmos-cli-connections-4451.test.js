@@ -43,11 +43,16 @@ const HELD = { services: [
 test('#4451: kosmos connections reads the cheap route with the board token only, never the live sweep, and says each state', async () => {
   const h = harness({ answer: () => [200, HELD] });
   assert.equal(await cli.main(['connections'], h.io), 0, h.all());
-  assert.equal(h.sent.length, 1);
+  // kosmos#8519: a second cheap read (what agents found, the disk only), also with the board token only.
+  assert.equal(h.sent.length, 2);
   assert.equal(h.sent[0].method, 'GET');
   assert.match(h.sent[0].url, /\/api\/connections\/held$/);
-  assert.equal(h.sent[0].headers['x-kosmos-board-token'], 'board-tok');
-  assert.ok(!('x-kosmos-agent-token' in h.sent[0].headers), 'the agent token was sent to a board-token route');
+  assert.match(h.sent[1].url, /\/api\/connections\/found$/);
+  for (const s of h.sent) {
+    assert.equal(s.headers['x-kosmos-board-token'], 'board-tok');
+    assert.ok(!('x-kosmos-agent-token' in s.headers), 'the agent token was sent to a board-token route');
+    assert.ok(!/\/api\/connections$/.test(s.url), 'the live sweep was asked');
+  }
   const out = h.lines.out.join('\n');
   assert.match(out, /^GitHub: not known without a live check/m);
   assert.match(out, /^Cloudflare: connected \(a token is stored; .*replace it with: kosmos connect cloudflare\)$/m);

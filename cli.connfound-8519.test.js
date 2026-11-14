@@ -62,8 +62,9 @@ function sh(port, args) {
     const t = setTimeout(() => child.kill('SIGKILL'), killMs);
     child.on('close', (code, sig) => {
       clearTimeout(t);
-      if (typeof code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '): ' + out)); return; }
-      resolve({ code, out });
+      const r = { code, out };
+      if (typeof r.code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '): ' + out)); return; }
+      resolve(r);
     });
   });
 }

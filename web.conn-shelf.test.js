@@ -51,7 +51,8 @@ test('the static markup claims nothing: no row says connected or not before the 
   for (const c of catsFromMarkup()) {
     assert.notEqual(c.stateText, 'Nothing connected', c.cat + ' still asserts Nothing connected as static words');
   }
-  assert.match(SCRIPT, /if \(sec === 'connect'\) \{ paintConnLive\(\); paintConnShelf\(\); \}/, 'the shelf does not paint on arrival');
+  // kosmos#8519: the same arrival also paints What your agents found (paintConnFound).
+  assert.match(SCRIPT, /if \(sec === 'connect'\) \{ paintConnLive\(\); paintConnShelf\(\); paintConnFound\(\); \}/, 'the shelf does not paint on arrival');
 });
 
 test('rows say what the doors say: names when connected, Nothing when every door said no, and a row with nothing built says so', async () => {
