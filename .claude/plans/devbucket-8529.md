@@ -40,6 +40,19 @@ end-to-end run for #8526. The coordinator half and the fake bucket are kosmos-re
 - The DEFAULT_COORDINATOR comparison could never decide anything (the checks after it already refuse that address):
   removed. The e2e's B3 bucket-path check now needs at least one object. All 17 backup files: 523/523.
 
+## Review rounds 2 and 3 (fixed)
+
+- Round 2: the comments no longer say the rule "adds no switch" (it reads AGENT_WORKFORCE_TUNNEL_COORDINATOR) or that the
+  test seam is "the only way". The e2e can leave a reader handoff (FEDPROOF_KEEP=1): Angel's browser reader opened that
+  backup end to end (#8529).
+- Round 3 (measured by the reviewer): loosening the manifest url arm to accept any url left every test green. New test:
+  a plain-http manifest url to an S3 host is refused with the production coordinator and with a local one, and no
+  request is sent (a recording fetch that answers 403; a thrown fetch is retried as "may have landed" and only hangs).
+  The reviewer's exact loosened mutant now fails in 49 ms. Also: the comment names the ssh-tunnel case (a forwarded
+  localhost turns the rule on for that coordinator's grants: loopback ports only, sealed bytes, allowlisted headers);
+  two comments made stale by this change corrected; run-once keeps every snapshot id and requires inside its try.
+  All 17 backup files 524/524; sync test 3/3.
+
 ## Weakest premise
 
 That `*.localhost` always resolves to this machine. RFC 6761 says it should; the e2e checks it before starting (it

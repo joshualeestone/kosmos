@@ -117,7 +117,9 @@ function allowHttpForTests(on) { httpForTests = !!on && !!process.env.NODE_TEST_
    the coordinator is on this machine (a loopback address, or a *.localhost name, which RFC 6761 keeps on this
    machine: tools/fed-own-e2e.js reaches its local coordinator as login.<name>.localhost, since a board refuses an
    IP-addressed one for joins), so never production and never a coordinator elsewhere; and the one url being checked
-   is a loopback address. A Mac set up against login.kosmosplus.com refuses it always. */
+   is a loopback address. A Mac set up against login.kosmosplus.com refuses it always. The address is all this reads:
+   a developer who forwards localhost to a coordinator elsewhere (an ssh tunnel) turns it on for that coordinator's
+   grants, which can then name any loopback port for a PUT of sealed bytes with the allowlisted headers only. */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost']);   // not [::1]: the manifest's bucket path holds no brackets
 function loopbackUrl(v) {
   try {
@@ -184,7 +186,8 @@ function checkOne(u, label, bytes, bind, expiresAtMs, allowHttp) {
   try { url = new URL(String(u.url)); } catch { return { ok: false, because: `${label} has no usable url` }; }
   if (!(url.protocol === 'https:' || (allowHttp && url.protocol === 'http:'))) return { ok: false, because: `${label} is not https` };
   // The bucket is AWS S3: the Mac sends its bytes only to an S3 endpoint on the default port, whatever host a grant
-  // names (a coordinator bug cannot point it at a LAN address or another service). Path-style s3.<region> or
+  // names (a coordinator bug cannot point it at a LAN address or another service; a coordinator on this Mac can name a
+  // loopback port, kosmos#8529 localUploadOk). Path-style s3.<region> or
   // s3-<region>, or virtual-hosted <bucket>.s3.<region>. This pins the SERVICE, not the bucket: the Mac holds no
   // bucket name of its own, so a grant naming another bucket on S3 passes; the payload is sealed either way.
   if (!allowHttp && (url.port || !S3_HOST.test(url.hostname) || /s3-(website|control)/.test(url.hostname))) return { ok: false, because: `${label}'s host is not an AWS S3 endpoint (${url.host})` };
@@ -199,7 +202,7 @@ function checkOne(u, label, bytes, bind, expiresAtMs, allowHttp) {
   if (virtualHosted && pre !== '/') return { ok: false, because: `${label}'s url path is not its key (a virtual-hosted bucket)` };
   // A path-style S3 host takes the FIRST segment as the bucket, so there the key must follow exactly one segment.
   if (!virtualHosted && !allowHttp && !/^\/[^/]+\/$/.test(pre)) return { ok: false, because: `${label}'s url path is not one bucket segment and its key (a path-style host)` };
-  // (For an https S3 host the two checks above already decide; this one is reached only by the test setter's urls.)
+  // (For an https S3 host the two checks above already decide; this one is reached only by a local bucket's urls.)
   if (!(pre === '/' || /^\/[^/]+\/$/.test(pre))) return { ok: false, because: `${label}'s url path is not its key under one bucket segment` };
   const qnames = [...url.searchParams.keys()];
   for (const q of qnames) if (!QUERY_ALLOWED.includes(q)) return { ok: false, because: `${label}'s url carries a parameter it may not (${q})` };

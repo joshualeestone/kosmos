@@ -174,7 +174,7 @@ test('the coordinator leaves Content-Length out of headers (fetch sets it): that
   } finally { await b.close(); }
 });
 
-test('kosmos#8529: a loopback upload url is allowed only when the board coordinator is itself on loopback', () => {
+test('kosmos#8529: a loopback upload url is allowed only when the board coordinator is on this machine (loopback or .localhost)', () => {
   const c = chunk(1);
   const grant = (base) => ({ expires_at: '2030-01-01T00:15:00Z', uploads: [{ key: 'a/k', url: `${base}/b/a/k?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=c&X-Amz-Date=20300101T000000Z&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(SIGNED)}&X-Amz-Signature=00`, headers: { 'Content-MD5': md5(c.object), 'If-None-Match': '*', 'X-Amz-Object-Lock-Mode': 'COMPLIANCE', 'X-Amz-Object-Lock-Retain-Until-Date': '2030-02-03T00:00:00Z' } }] });
   const was = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
@@ -208,6 +208,33 @@ test('kosmos#8529: a loopback upload url is allowed only when the board coordina
   } finally {
     if (was === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was;
     up.allowHttpForTests(true);
+  }
+});
+
+test('kosmos#8529: a plain-http manifest url to an S3 host is refused, whichever coordinator the board has', { timeout: 20000 }, async () => {
+  // The local-bucket rule lets in only a LOOPBACK url; this is the arm that keeps an http url to a real S3 host out
+  // (its bucket path and prefix pass, so nothing else stops it). No request may leave: the fetch here records, never
+  // sends, and answers a plain 403 (a thrown fetch reads as "may have landed" and is retried, which would only hang).
+  const b = await bucket();
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+  const sent = [];
+  const noNet = async (u) => { sent.push(String(u)); return new Response('<Error><Code>AccessDenied</Code></Error>', { status: 403 }); };
+  up.allowHttpForTests(false);
+  try {
+    for (const coordinator of [undefined, 'http://127.0.0.1:8443']) {
+      if (coordinator === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+      else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = coordinator;
+      const tamper = (d) => { d.upload.url = d.upload.url.replace(b.base, 'http://s3.us-east-1.amazonaws.com'); };
+      const r = await up.uploadManifest(deps(manifestCoordinator(b, { tamper }), { fetch: noNet }), manifestBytes(),
+        mOpts(b, { bucket: 's3.us-east-1.amazonaws.com/bucket/' }));
+      assert.strictEqual(r.ok, false, `coordinator ${coordinator || 'production'}: an http S3 url was accepted`);
+      assert.match(String(r.because), /not https/, r.because);
+    }
+    assert.deepStrictEqual(sent, [], 'nothing was sent');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was;
+    up.allowHttpForTests(true);
+    await b.close();
   }
 });
 
