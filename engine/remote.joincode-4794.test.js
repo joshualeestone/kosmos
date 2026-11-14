@@ -40,8 +40,9 @@ if (args[0] === 'devices' && args[1] === 'allow') {
   if (flag('--code') === '222 222') { process.stderr.write('Error: sas_pending: the code to compare is not worked out yet; wait for it on both screens, then allow\\n'); process.exit(1); }
   if (flag('--code') === '444 444') { process.stderr.write('Error: sas_mismatch: more than one computer is showing a code; Deny the ones you do not recognise\\n'); process.exit(1); }
   if (flag('--code') === '333 333') { process.stderr.write('Error: the coordinator is unreachable\\n'); process.exit(1); }
-  if (mode === 'ack404') { console.log(JSON.stringify({ allowed: true, account_ack: 'unknown_device' })); process.exit(0); }   // kosmos#8525
-  console.log(JSON.stringify({ allowed: true }));
+  if (mode === 'ack404') { console.log(JSON.stringify({ allowed: true, acked: false, account_ack: 'unknown_device' })); process.exit(0); }   // kosmos#8525
+  if (mode === 'offline') { console.log(JSON.stringify({ allowed: true, acked: false })); process.exit(0); }   // kosmos#8525: Kosmos+ not reached
+  console.log(JSON.stringify({ allowed: true, acked: true }));
   process.exit(0);
 }
 if (args[0] === 'devices' && args[1] === 'list' && process.env.FAKE_LIST === 'FAIL') {   // #7285: an allow list it cannot read
@@ -464,4 +465,14 @@ test('#8525: Kosmos+ holding no such cloud machine is said in its own words; a p
   assert.equal(p.ok, false);
   assert.equal(p.listed, true);
   assert.match(p.because, /^Kosmos\+ holds no sign-in waiting with that id/);
+});
+
+test('#8525: a cloud Allow Kosmos+ did not take says so and is not done; a phone\'s stands, its ack retried (CONTROL)', async () => {
+  const dir = enrol();
+  process.env.FAKE_JOIN = 'offline';
+  cloudSnapshot(dir, true);
+  const c = await remote.deviceAllow(CLOUD, 'cloud-d296a63b', undefined);
+  assert.deepEqual([c.ok, c.because], [false, 'Kosmos+ could not be reached, so the cloud machine was not added. Press Allow again.']);
+  const p = await remote.deviceAllow('k1.L8xHhgKw4ciSy7mTPfT3qNu8V7Z2oDAn', 'Android phone', undefined);
+  assert.equal(p.ok, true, 'a phone whose ack will be retried was reported as refused');
 });
