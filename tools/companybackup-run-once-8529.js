@@ -8,11 +8,10 @@
  * (tools/companybackup-e2e-8529.js passes boardEnv), while the board's own tick has not fired (it fires an hour after
  * the board starts), so two runs never overlap on one data root. Prints one JSON line. Never throws.
  */
-const tick = require('../engine/backuptick');
-
 (async () => {
   const out = { ok: false };
   try {
+    const tick = require('../engine/backuptick');
     out.mayBackUp = tick.mayBackUp();
     if (!out.mayBackUp) { out.because = 'this computer is not enrolled with a company whose words were accepted here'; return; }
     const plan = tick.rootsFor(tick.inputsHere());
@@ -20,9 +19,12 @@ const tick = require('../engine/backuptick');
     out.left = plan.left;
     // The snapshot id, as backuprun.js newSnapshotId makes it (UTC time and 4 random bytes), recorded so a reader of what
     // this run stored can open its manifest (its sealed context names the snapshot); the run itself is unchanged.
+    // A run can take a second snapshot in a granted week (backuprun), so every id it made is kept, in order.
+    out.snapshots = [];
     const snapshotId = (ms) => {
-      out.snapshot = new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z') + '-' + require('crypto').randomBytes(4).toString('hex');
-      return out.snapshot;
+      const id = new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z') + '-' + require('crypto').randomBytes(4).toString('hex');
+      out.snapshots.push(id);
+      return id;
     };
     out.storeRoot = require('../engine/store').ROOT;   // where this board keeps backupkeys/ and backupstate/
     const r = await require('../engine/backuprun').runBackup({ roots: plan.roots }, { snapshotId });
