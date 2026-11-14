@@ -94,7 +94,7 @@ test('Remove confirms inline with the sentence the tunnel makes true; Allow / No
   // A phone's or browser's request older than an hour fades; a computer's never does (#6405: its first_seen is its first ask).
   assert.match(JS, /const stale = !joiningRow && d\.first_seen && \(Date\.now\(\) \/ 1000 - d\.first_seen\) > 60 \* 60;/);
   assert.match(JS, /const joiningRow = askComputerRow\(d\);/);
-  assert.match(JS, /function askComputerRow\(d\) \{ return !!\(d && \(d\.joining_computer \|\| d\.code_wait === 'was_a_computer'\)\); \}/);
+  assert.match(JS, /function askComputerRow\(d\) \{ return !!\(d && \(d\.joining_computer \|\| d\.code_wait === 'was_a_computer' \|\| d\.cloud\)\); \}/);   // kosmos#8525: and a cloud machine
   assert.doesNotMatch(JS, /confirm\(/, 'a browser confirm dialog crept in; the design has no modal');
 });
 
@@ -232,4 +232,14 @@ test('#8525 a cloud machine reads "Your cloud machine ... wants to join", escape
   assert.equal(askHead({ cloud: false, name: 'iPhone' }), 'iPhone wants to connect to your Kosmos');
   assert.match(JS, /: d\.cloud \? 'Allow if you just started a Kosmos cloud machine\. Kosmos\+ runs it for you, so there is no code to check\.'/);
   assert.match(JS, /: d\.cloud \? 'cloud machine ' \+ askEsc\(kind\)/, 'the Allow button does not name a cloud machine as one');
+});
+
+test('#8525 a cloud machine is a computer row (no age, no fading), and its allowed and turned-away lines are its own', () => {
+  const at = JS.indexOf('function askComputerRow(');
+  const askComputerRow = new Function(JS.slice(at, JS.indexOf('\n', at)) + '\nreturn askComputerRow;')();
+  assert.equal(askComputerRow({ cloud: true }), true);
+  assert.equal(askComputerRow({ cloud: false, name: 'iPhone' }), false, 'CONTROL: a phone is not a computer row');
+  assert.match(JS, /if \(d\.cloud\) return '<div class="askrow done"><p class="askok">' \+ who \+ ' is connected\.<\/p>' \+\n\s+'<p>It is added to your Kosmos\+ account\. You can cancel it on your Kosmos\+ account page\.<\/p><\/div>';/);
+  assert.match(JS, /if \(d\.cloud\) return '<div class="askrow done"><p>Turned away\. Your cloud machine ' \+ askEsc\(kind\) \+ ' was not added to your Kosmos\+ account\.<\/p>'/);
+  assert.match(JS, /fresh\.every\(\(d\) => d\.joining_computer \|\| d\.cloud\) \? n \+ ' of your computers want to join\.'/);
 });

@@ -55695,7 +55695,7 @@ function askEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;',
    minute, which is still far quieter than the old rewrite every 5 seconds. */
 /* kosmos#6405: a computer's request (joining, or a row that started as one): the tunnel keeps one row across every
    attempt, so its first_seen is the FIRST ask, never this one. Josh's laptop read "23 hours ago" for a fresh request. */
-function askComputerRow(d) { return !!(d && (d.joining_computer || d.code_wait === 'was_a_computer')); }
+function askComputerRow(d) { return !!(d && (d.joining_computer || d.code_wait === 'was_a_computer' || d.cloud)); }   // kosmos#8525: and a cloud machine
 function askAgoSpan(unix) { return '<span data-ask-ago="' + (Number(unix) || 0) + '" aria-live="off"></span>'; }
 /* #6404: what the person typed for a computer's code, kept across repaints and forgotten when the code changes. */
 // The tunnel's pairing code is six digits in two groups (pairsas), so digits alone are the code; revisit if it gains letters.
@@ -56071,7 +56071,7 @@ function paintAsk() {
       : freshWait.length ? n + ' devices want to connect to your Kosmos.'
       : n === 1 ? askHead(fresh[0]) + '.'
       : fresh.every((d) => d.joining_computer && d.recheck) ? n + ' of your computers want to finish a code check.'   // kosmos#6404
-      : fresh.every((d) => d.joining_computer) ? n + ' of your computers want to join.' : n + ' devices want to connect to your Kosmos.';
+      : fresh.every((d) => d.joining_computer || d.cloud) ? n + ' of your computers want to join.' : n + ' devices want to connect to your Kosmos.';
     askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span class="askbrand">Kosmos+</span><span>' + line +
       '</span><button class="btn uprime" type="button" data-ask="open">Review</button>' +
       '<button class="asknote-x" type="button" data-ask="note-dismiss" aria-label="Dismiss notice" title="Dismiss"><span aria-hidden="true">&times;</span></button></div>');
@@ -56089,6 +56089,10 @@ function paintAsk() {
       // kosmos#6404: a code check done here; the other computer finishes it.
       if (d.recheck) return '<div class="askrow done"><p class="askok">The code check with ' + who + ' is done here.</p>' +
         '<p>Now press The codes match on ' + who + '.</p></div>';
+      // kosmos#8525: a cloud machine is added to the Kosmos+ account and nothing is written on this computer, so it is
+      // not under Devices.
+      if (d.cloud) return '<div class="askrow done"><p class="askok">' + who + ' is connected.</p>' +
+        '<p>It is added to your Kosmos+ account. You can cancel it on your Kosmos+ account page.</p></div>';
       return '<div class="askrow done"><p class="askok">' + who + ' is connected.</p>' +
         '<p>' + (d.joining_computer ? '' : 'It opens Kosmos on its own in a moment. ') + 'You can remove it any time under Devices.</p></div>';
     }
@@ -56100,6 +56104,9 @@ function paintAsk() {
       /* #3829 review: denying an OLD request (older than an hour, likely the person's own stale sign-in)
          does not accuse anyone; the password sentence is for a fresh one they did not make. */
       // #6405: a computer's first_seen is its first ask, so its age says nothing: it always gets the fresh wording.
+      // kosmos#8525: a cloud machine is no sign-in made with an emailed code, so it gets no password sentence.
+      if (d.cloud) return '<div class="askrow done"><p>Turned away. Your cloud machine ' + askEsc(kind) + ' was not added to your Kosmos+ account.</p>' +
+        '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
       const oldAsk = !askComputerRow(d) && d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
       if (oldAsk) return '<div class="askrow done"><p>Turned away. That ' + askEsc(kind) + ' was not let in; it can ask again by signing in.</p>' +   // never a computer's row (#6405)
         '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
@@ -56295,8 +56302,8 @@ async function askAct(act, id, at) {
   if (res && res.ok) {
     if (ASK.typed) delete ASK.typed[id];
     ASK.done[id] = { state: act === 'allow' ? 'allowed' : 'denied', at: Date.now(), device: d };
-    // #6403. Only a joining computer: a row that was a computer (was_a_computer) cannot be allowed, its Allow is disabled.
-    if (act === 'allow' && d.joining_computer && typeof computersReadSoon === 'function') computersReadSoon(true);
+    // #6403. A joining computer, or (kosmos#8525) a cloud machine: both join the account's computers.
+    if (act === 'allow' && (d.joining_computer || d.cloud) && typeof computersReadSoon === 'function') computersReadSoon(true);
   } else {
     const said = res ? await res.json().catch(() => null) : null;
     const why = said && said.error;

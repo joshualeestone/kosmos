@@ -2636,6 +2636,8 @@ function pendingDevices() {
          holds root on it, so a code would prove nothing), and its Allow only tells Kosmos+ (devices.rs allow_outcome). */
       cloud: d.cloud === true,
     }))
+    // kosmos#8525: a cloud machine has no code to show (the page says so), whatever the row carries.
+    .map((d) => (d.cloud ? { ...d, code: '' } : d))
     /* #6315: a minted computer: id is a computer whatever else the row says. Without a usable joining_computer name
        (the coordinator stops naming it once its lineage is no longer waiting, or the name fails NAME_RULE) it would be
        drawn as a phone whose Allow can never work, so it is shown the way a former computer is: Allow off, Not me. */
@@ -2737,6 +2739,8 @@ function vouchedFor(vouched, d) {
 const UNKNOWN_DEVICE = 'unknown_device';
 /** kosmos#6666: what the person reads when an Allow is refused because Kosmos+ is paused for maintenance. */
 const PAUSED_ALLOW_WORDS = 'Kosmos+ is paused for maintenance, so no new device can be allowed right now. This request may need to ask again once Kosmos+ is back.';
+/** kosmos#8525: the same answer for a Kosmos cloud machine. */
+const UNKNOWN_CLOUD_WORDS = 'Kosmos+ holds no cloud machine waiting with that id, so nothing was added.';
 /** kosmos#6286: what the person reads when Kosmos+ holds no sign-in with the id they allowed. */
 const UNKNOWN_WORDS = 'Kosmos+ holds no sign-in waiting with that id (it was refused, or never asked). It is on this computer\'s list of devices you let in: remove it there if you did not mean to allow it.';
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
@@ -2753,14 +2757,15 @@ async function deviceAllow(id, name, code) {
      this computer's gate. */
   /* kosmos#8525: except a Kosmos cloud machine, which the tunnel's own snapshot marks `cloud` and allows without a code
      (it refuses one). The tunnel decides cloud again from its live list before it acts, so this only lets the ask through. */
-  if (id.startsWith('computer:') && !(typeof code === 'string' && JOIN_CODE.test(code)) && !listedAsCloud(id)) {
+  const cloud = listedAsCloud(id);
+  if (id.startsWith('computer:') && !(typeof code === 'string' && JOIN_CODE.test(code)) && !cloud) {
     return { ok: false, because: 'code_pending' };   // the page words it: the code is still being worked out
   }
   const args = deviceArgs('allow', id, true);
   if (typeof name === 'string' && DEVICE_NAME.test(name.trim())) args.push('--name', name.trim());
   /* kosmos#4794: Allow for another of the person's computers carries the code the person typed here (#6404); the tunnel
      refuses it unless it is the code this computer worked out with that one (and ignores it for a phone). */
-  if (typeof code === 'string' && JOIN_CODE.test(code)) args.push('--code', code);
+  if (!cloud && typeof code === 'string' && JOIN_CODE.test(code)) args.push('--code', code);   // kosmos#8525: the tunnel refuses a code for a cloud machine
   const r = await tracked(setupRun(args, null, retireTimeoutMs()));
   /* kosmos#4794: the tunnel's pairing refusals start with a fixed tag (pairing.rs allow_joining). The page words two
      of them; any other failure keeps the tunnel's own reason, as before. */
@@ -2779,6 +2784,8 @@ async function deviceAllow(id, name, code) {
      told both, as a refusal, never as allowed. Not "nobody was let in": a device the account refused that still holds
      a live sign-in could pass this computer's gate while it is on the list. A joining computer's 404 does not
      answer this (its pairing trust stands). */
+  // kosmos#8525: a cloud machine's Allow writes nothing on this computer, so it is on no list here.
+  if (cloud && got.ok && got.data && got.data.account_ack === UNKNOWN_DEVICE) return { ok: false, because: UNKNOWN_CLOUD_WORDS };
   if (got.ok && got.data && got.data.account_ack === UNKNOWN_DEVICE) {
     // `listed`: the entry stands on this computer's list, so a caller that must take it back (the vouch path) can.
     return { ok: false, because: UNKNOWN_WORDS, listed: true };
