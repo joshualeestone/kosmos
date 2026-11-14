@@ -2792,8 +2792,8 @@ async function deviceAllow(id, name, code) {
   if (cloud && got.ok && got.data && got.data.account_ack === UNKNOWN_DEVICE) return { ok: false, because: UNKNOWN_CLOUD_WORDS };
   /* kosmos#8525: and only Kosmos+'s ack adds it. A phone's Allow stands here and its ack is retried, but a cloud machine's
      writes nothing here and owes no retry (devices.rs allow_outcome), so an Allow Kosmos+ did not take did nothing. */
-  if (cloud && got.ok && got.data && got.data.acked !== true) {
-    return { ok: false, because: got.data.account_ack === 'own_lineage' ? CLOUD_OWN_LINEAGE_WORDS : CLOUD_NOT_TOLD_WORDS };
+  if (cloud && got.ok && !(got.data && got.data.acked === true)) {
+    return { ok: false, because: got.data && got.data.account_ack === 'own_lineage' ? CLOUD_OWN_LINEAGE_WORDS : CLOUD_NOT_TOLD_WORDS };
   }
   if (got.ok && got.data && got.data.account_ack === UNKNOWN_DEVICE) {
     // `listed`: the entry stands on this computer's list, so a caller that must take it back (the vouch path) can.

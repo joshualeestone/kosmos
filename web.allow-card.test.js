@@ -240,7 +240,7 @@ test('#8525 a cloud machine is a computer row (no age, no fading), and its allow
   assert.equal(askComputerRow({ cloud: true }), true);
   assert.equal(askComputerRow({ cloud: false, name: 'iPhone' }), false, 'CONTROL: a phone is not a computer row');
   assert.match(JS, /if \(d\.cloud\) return '<div class="askrow done"><p class="askok">' \+ cloudWho \+ ' is connected\.<\/p>' \+\n\s+'<p>It is added to your Kosmos\+ account\. You can cancel it on your Kosmos\+ account page\.<\/p><\/div>';/);
-  assert.match(JS, /if \(d\.cloud\) return '<div class="askrow done"><p>Turned away\. Kosmos\+ was told not to add ' \+ \(d\.name \? 'your cloud machine ' \+ askEsc\(d\.name\) : 'your cloud machine'\) \+ '\. To stop it, cancel it on your Kosmos\+ account page\.<\/p>'/);
+  assert.match(JS, /if \(d\.cloud\) return '<div class="askrow done"><p>Turned away\. To stop ' \+ \(d\.name \? 'your cloud machine ' \+ askEsc\(d\.name\) : 'your cloud machine'\) \+ ', cancel it on your Kosmos\+ account page\.<\/p>'/);
   // A cloud machine is named by its name or not at all, never "Unknown device"; and its re-ask has no password sentence.
   const cw = JS.match(/const cloudWho = (d\.cloud \? .+ : '');/);
   assert.ok(cw, 'cloudWho moved; re-anchor');
