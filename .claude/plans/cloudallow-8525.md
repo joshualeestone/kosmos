@@ -16,7 +16,7 @@ The board had two blocks:
 - isComputerRow counts `cloud === true`, so board-v2 keeps the row and its route.
 - deviceAllow skips the code rule only for an id the tunnel's own pending.json marks cloud
   (listedAsCloud). The page's word is never trusted for this; the tunnel re-decides from its live list.
-- deviceAllow says a cloud Allow is not done unless Kosmos+ acked it (a cloud Allow writes nothing here and owes no retry), and words a 404 for a cloud machine.
+- deviceAllow says a cloud Allow is not done unless Kosmos+ acked it (a cloud Allow writes nothing here and owes no retry), with its own words for a 404, for own_lineage (this computer still waiting), and a neutral "did not take" for anything else (not reached, or another refusal).
 - web/index.html: askHead "Your cloud machine "<name>" wants to join"; the say line; Allow label.
 
 ## Rejected

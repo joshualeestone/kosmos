@@ -2741,8 +2741,10 @@ const UNKNOWN_DEVICE = 'unknown_device';
 const PAUSED_ALLOW_WORDS = 'Kosmos+ is paused for maintenance, so no new device can be allowed right now. This request may need to ask again once Kosmos+ is back.';
 /** kosmos#8525: the same answer for a Kosmos cloud machine. */
 const UNKNOWN_CLOUD_WORDS = 'Kosmos+ holds no cloud machine waiting with that id, so nothing was added.';
-/** kosmos#8525: a cloud machine's Allow that did not reach Kosmos+. */
-const CLOUD_NOT_TOLD_WORDS = 'Kosmos+ could not be reached, so the cloud machine was not added. Press Allow again.';
+/** kosmos#8525: a cloud machine's Allow Kosmos+ did not take (not reached, or refused). */
+const CLOUD_NOT_TOLD_WORDS = 'Kosmos+ did not take that Allow, so the cloud machine was not added. Try Allow again in a minute.';
+/** kosmos#8525: the same, because this computer is itself still waiting to be allowed (the tunnel's own_lineage, #4665). */
+const CLOUD_OWN_LINEAGE_WORDS = 'This computer is still waiting to be allowed on your account, so it cannot add the cloud machine yet.';
 /** kosmos#6286: what the person reads when Kosmos+ holds no sign-in with the id they allowed. */
 const UNKNOWN_WORDS = 'Kosmos+ holds no sign-in waiting with that id (it was refused, or never asked). It is on this computer\'s list of devices you let in: remove it there if you did not mean to allow it.';
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
@@ -2790,7 +2792,9 @@ async function deviceAllow(id, name, code) {
   if (cloud && got.ok && got.data && got.data.account_ack === UNKNOWN_DEVICE) return { ok: false, because: UNKNOWN_CLOUD_WORDS };
   /* kosmos#8525: and only Kosmos+'s ack adds it. A phone's Allow stands here and its ack is retried, but a cloud machine's
      writes nothing here and owes no retry (devices.rs allow_outcome), so an Allow Kosmos+ did not take did nothing. */
-  if (cloud && got.ok && got.data && got.data.acked !== true) return { ok: false, because: CLOUD_NOT_TOLD_WORDS };
+  if (cloud && got.ok && got.data && got.data.acked !== true) {
+    return { ok: false, because: got.data.account_ack === 'own_lineage' ? CLOUD_OWN_LINEAGE_WORDS : CLOUD_NOT_TOLD_WORDS };
+  }
   if (got.ok && got.data && got.data.account_ack === UNKNOWN_DEVICE) {
     // `listed`: the entry stands on this computer's list, so a caller that must take it back (the vouch path) can.
     return { ok: false, because: UNKNOWN_WORDS, listed: true };
