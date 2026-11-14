@@ -941,6 +941,15 @@ function startsAgainWords(name, preview = false) {
       ? '; it starts on the model it was set to, but on your main account, because Kosmos did not record whose account was in the folder it used. Choose its account again if it should use another.'
       : '; it starts on your main account and the model it last ran, because Kosmos did not record whose account was in the folder it used. Choose its account and model again if it used others.';
   }
+  /* kosmos#8489: the folder's account could not be read just now (Claude Code or codex writing its config at that
+     moment), which is not a changed account: the repair keeps the folder in the record and tries it again, as it does
+     a folder out of reach, so the words say that and never "signed out or changed". */
+  if (rec && rec.accountWhy === 'unreadable') {
+    const unread = 'Kosmos could not read which account is signed in to the folder it used just now, so it starts on your main account unless it can read that by then and it is still the same account. If it still cannot, Kosmos keeps that folder and tries it again at the next Start at login.';
+    return rec.modelOk
+      ? '; it starts on the model it was set to, but ' + unread
+      : '; it starts on the model it last ran, so choose its model again if it used another. ' + unread;
+  }
   const notThere = {
     changed: 'because the account in the folder it used has signed out or changed',
     unusable: 'because the account folder it used cannot be used for it now',

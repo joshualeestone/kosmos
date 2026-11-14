@@ -1883,7 +1883,7 @@ function removeAccountFreeing(dir, usedBy) { const out = removeAccount(dir, used
 
 module.exports = {
   readApiKey,
-  list, identityOf, addWithKey, addWithKeyLive, finishChatgptLogin, startChatgptLogin, chatgptLoginStatus, cancelChatgptLogin, nextWorkDir, defaultDir, forgetAccount: forgetAccountFreeing, removeAccount: removeAccountFreeing, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+  list, identityOf, identityFromData, addWithKey, addWithKeyLive, finishChatgptLogin, startChatgptLogin, chatgptLoginStatus, cancelChatgptLogin, nextWorkDir, defaultDir, forgetAccount: forgetAccountFreeing, removeAccount: removeAccountFreeing, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, setChatgptTimers, MISSING_RUNNER_SENTENCE,
   chatgptSubscriptionWindow, decodeIdTokenPayload,   // #2790 Phase 2: pure offline sub-window read, exported for unit tests

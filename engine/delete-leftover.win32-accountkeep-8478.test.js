@@ -328,6 +328,29 @@ test('kosmos#8478: a recorded account folder that cannot be reached falls back t
   assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: SET_MODEL }, 'with its folder back the agent did not come back on it');
 });
 
+test('kosmos#8489: a recorded account whose config cannot be read right now (Claude Code writing it) starts on the main account this time, says so truly, and the record is kept so it comes back on its account next time', WINDOWS_ONLY, () => {
+  const name = agent('midwrite8489');
+  assert.equal(chooseThenModel(name, ACCOUNT, 'opus55').outcome, create.OUTCOME.CREATED);
+  const config = require('./accounts').configFile(ACCOUNT);
+  const whole = fs.readFileSync(config, 'utf8');
+  fs.writeFileSync(config, whole.slice(0, Math.floor(whole.length / 2)));   // caught mid-write: half the file
+  const p = taskOnlyDelete(name);
+  const words = /it starts on the model it was set to, but Kosmos could not read which account is signed in to the folder it used just now, so it starts on your main account unless it can read that by then and it is still the same account\. If it still cannot, Kosmos keeps that folder and tries it again at the next Start at login\./;
+  assert.match(p.reassurance, words);
+  assert.match(p.said, words);
+  assert.doesNotMatch(p.reassurance, /signed out or changed/, 'the person was told their account signed out or changed');
+  startAtLogin(name);
+  assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, 'a folder whose account could not be read was trusted, or the model was lost');
+  // The record keeps the folder and whose account it was, so the next Start at login tries it again.
+  const kept = store.readProfile(name).win32Task;
+  assert.equal(kept.configDir, ACCOUNT, 'the record of an account that only could not be read was dropped');
+  assert.deepEqual(kept.account, OWNER_IDENTITY, 'the kept record lost whose account it was');
+  fs.writeFileSync(config, whole);   // Claude Code finished writing
+  assert.match(taskOnlyDelete(name).reassurance, /it starts on the account and model it was set to before\./);
+  startAtLogin(name);
+  assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: SET_MODEL }, 'with its config readable again the agent did not come back on its account');
+});
+
 test('kosmos#8478 round 1: an account removed after the task-only delete is forgotten in the record, so a new sign-in reusing its folder name never gets the agent', WINDOWS_ONLY, () => {
   const accounts = require('./accounts');
   const signInAs = (dir, email) => signIn(dir, { emailAddress: email });   // the file-level fixture (shares history)

@@ -904,7 +904,9 @@ function repair(opts) {
            agent never moves back on its own. */
         /* round 3: only a folder it could not REACH, with the identity it was recorded with, so it is checked again
            when it is back. One whose account changed or was never recorded is not kept: the record moves to main. */
-        if (rec.accountWhy === 'unreachable' && rec.configDir) {
+        /* kosmos#8489: and one whose account could not be READ right now (its config mid-write): that is not a changed
+           account, so it is kept and checked again next time, as a folder out of reach is. */
+        if ((rec.accountWhy === 'unreachable' || rec.accountWhy === 'unreadable') && rec.configDir) {
           recordOpts.keepRecordedAccount = rec.configDir;
           recordOpts.keepRecordedIdentity = rec.identity;
         }
