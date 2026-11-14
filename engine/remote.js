@@ -2742,7 +2742,7 @@ const PAUSED_ALLOW_WORDS = 'Kosmos+ is paused for maintenance, so no new device 
 /** kosmos#8525: the same answer for a Kosmos cloud machine. */
 const UNKNOWN_CLOUD_WORDS = 'Kosmos+ holds no cloud machine waiting with that id, so nothing was added.';
 /** kosmos#8525: a cloud machine's Allow Kosmos+ did not take (not reached, or refused). */
-const CLOUD_NOT_TOLD_WORDS = 'Kosmos+ did not take that Allow, so the cloud machine was not added. Try Allow again in a minute.';
+const CLOUD_NOT_TOLD_WORDS = 'Kosmos+ did not take that Allow, so the cloud machine was not added.';
 /** kosmos#8525: the same, because this computer is itself still waiting to be allowed (the tunnel's own_lineage, #4665). */
 const CLOUD_OWN_LINEAGE_WORDS = 'This computer is still waiting to be allowed on your account, so it cannot add the cloud machine yet.';
 /** kosmos#6286: what the person reads when Kosmos+ holds no sign-in with the id they allowed. */
