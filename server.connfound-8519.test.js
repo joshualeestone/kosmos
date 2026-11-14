@@ -101,6 +101,11 @@ test('POST /api/connections/found names the caller from its token, files a Kosmo
   assert.equal(out.json.recorded, true);
   const both = (await call('GET', '/api/connections/found?service=github', undefined, h)).json.services;
   assert.deepEqual(both.map((s) => s.kind).sort(), ['kosmos', 'other'], 'two rows: Kosmos\'s GitHub and the plugin');
+  // Review 5: a door Kosmos offers but this computer never connected is a plugin's name here, not Kosmos's connection.
+  const notion = await call('POST', '/api/connections/found', { service: 'Notion', action: 'search', outcome: 'needs-permission', from_pane: '' }, h);
+  assert.equal(notion.json.recorded, true);
+  const n = (await call('GET', '/api/connections/found?service=notion', undefined, h)).json.services;
+  assert.deepEqual(n.map((s) => s.kind), ['other'], 'an unconnected door name files as outside Kosmos');
 });
 
 test('GET /api/connections/found is refused to another site, like /held', async () => {

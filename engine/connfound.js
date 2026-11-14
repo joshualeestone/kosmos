@@ -124,7 +124,7 @@ const LOCAL_REFUSAL_RE = /permission to use .{0,120}(has been )?denied|user (rej
 const LEAD = String.raw`^\W*(?:error:\s*)?(?:MCP error -?\d+:\s*)?`;
 const UNKNOWN_TOOL_RE = new RegExp(LEAD + String.raw`(?:unknown tool|no such tool|tool not found|method not found)\s*[:\-]?\s*["'\x60]?([A-Za-z0-9_.-]+)["'\x60]?\s*\.?\s*$`, 'i');
 const TOOL_X_NOT_FOUND_RE = new RegExp(LEAD + String.raw`tool\s+["'\x60]?([A-Za-z0-9_.-]+)["'\x60]?\s+not found\s*\.?\s*$`, 'i');
-function classify(error, action) {
+function classify(error, action, fullName) {
   const e = String(error || '').trim();
   const a = String(action || '');
   if (!e || !a || LOCAL_REFUSAL_RE.test(e)) return null;
@@ -132,7 +132,8 @@ function classify(error, action) {
   if (!m) return null;
   const named = m[1].replace(/\.+$/, '').toLowerCase();
   const want = a.toLowerCase();
-  return named === want || named.endsWith('__' + want) ? 'not-offered' : null;
+  /* Review 5: a full tool name must be THIS server's, not merely end in the action. */
+  return named === want || (fullName && named === fullName.toLowerCase()) ? 'not-offered' : null;
 }
 
 /* A note that the diagnostics redactor would change carries something that looks like a key, an email or a home
@@ -221,7 +222,8 @@ function record(f) {
     }
   }
   /* At most MAX_ACTIONS per service, the oldest dropped. */
-  const names = Object.keys(svc.actions).sort((a, b) => svc.actions[b].at - svc.actions[a].at);
+  /* Review 5: hand records outlive automatic ones here too, as services do below. */
+  const names = Object.keys(svc.actions).sort((a, b) => ((svc.actions[b].how === 'agent') - (svc.actions[a].how === 'agent')) || svc.actions[b].at - svc.actions[a].at);
   for (const a of names.slice(MAX_ACTIONS)) delete svc.actions[a];
   all[key] = svc;
   /* At most MAX_SERVICES, the one with the oldest newest finding dropped. */
@@ -242,7 +244,7 @@ function noteToolFailure(by, tool, error, opts) {
   try {
     const t = parseMcpTool(tool);
     if (!t) return { recorded: false };
-    const outcome = classify(error, t.action);
+    const outcome = classify(error, t.action, String(tool));
     if (!outcome) return { recorded: false };
     const r = record({ service: t.service, action: t.action, outcome, by, how: 'auto', now: opts && opts.now });
     return r.ok && r.kept !== false ? { recorded: true, outcome } : { recorded: false };

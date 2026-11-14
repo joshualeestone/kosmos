@@ -121,7 +121,7 @@ test('Mac: plain connections adds one line when agents found actions that do not
     const r = await sh(port, ['connections']);
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /^GitHub: connected/m);
-    assert.match(r.out, /^Agents found 1 action that does not work on hubspot: kosmos connections --found$/m);
+    assert.match(r.out, /^Agents found 1 action that does not work on hubspot \(outside Kosmos\): kosmos connections --found$/m);
     assert.equal(swept(seen), 0);
   });
   await withStub({ 'GET /api/connections/held': { json: { services: HELD } }, 'GET /api/connections/found': { json: { services: [] } } }, async (port) => {
@@ -171,7 +171,7 @@ test('Windows: found, --found and the plain line, in the same words', async () =
     assert.equal(l.out, cf.renderLines(FOUND, Date.now()).join('\n'));
     const p = await win(port, ['connections']);
     assert.equal(p.code, 0, p.err);
-    assert.match(p.out, /Agents found 1 action that does not work on hubspot: kosmos connections --found$/);
+    assert.match(p.out, /Agents found 1 action that does not work on hubspot \(outside Kosmos\): kosmos connections --found$/);
     const u = await win(port, ['connections', 'found', 'x']);
     assert.equal(u.code, 2);
     assert.equal(swept(seen), 0);

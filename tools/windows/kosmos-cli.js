@@ -3502,7 +3502,7 @@ async function verbConnections(ctx, args) {
     const rf = await ctx.call('GET', '/api/connections/found', undefined, { timeoutMs: 5000 });   // as the Mac CLI's -m 5
     const svcs = rf.reached && rf.json && Array.isArray(rf.json.services) ? rf.json.services.filter((x) => x && x.notWorking > 0) : [];
     const n = svcs.reduce((a, x) => a + x.notWorking, 0);
-    if (n) ctx.out('Agents found ' + n + (n === 1 ? ' action that does not work' : ' actions that do not work') + ' on ' + svcs.map((x) => x.name).join(', ') + ': kosmos connections --found');
+    if (n) ctx.out('Agents found ' + n + (n === 1 ? ' action that does not work' : ' actions that do not work') + ' on ' + svcs.map((x) => x.name + (x.kind === 'kosmos' ? '' : ' (outside Kosmos)')).join(', ') + ': kosmos connections --found');
   } catch { /* silent: the listing stands */ }
   return 0;
 }
