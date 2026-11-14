@@ -119,7 +119,8 @@ function allowHttpForTests(on) { httpForTests = !!on && !!process.env.NODE_TEST_
    IP-addressed one for joins), so never production and never a coordinator elsewhere; and the one url being checked
    is a loopback address. A Mac set up against login.kosmosplus.com refuses it always. The address is all this reads:
    a developer who forwards localhost to a coordinator elsewhere (an ssh tunnel) turns it on for that coordinator's
-   grants, which can then name any loopback port for a PUT of sealed bytes with the allowlisted headers only. */
+   grants, which can then name any loopback port for a PUT of sealed bytes with the allowlisted headers only. The same
+   holds for a *.localhost name on a resolver that sends such names elsewhere (RFC 6761 says it must not). */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost']);   // not [::1]: the manifest's bucket path holds no brackets
 function loopbackUrl(v) {
   try {

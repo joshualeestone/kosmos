@@ -9,7 +9,8 @@ end-to-end run for #8526. The coordinator half and the fake bucket are kosmos-re
   (and a bucket path with a port) is accepted only while this board's coordinator (`remote.COORDINATOR()`) is NOT the
   default production one AND is on this machine (a loopback address, or a `*.localhost` name, RFC 6761; the e2e reaches
   its coordinator as login.<x>.localhost because a board refuses an IP-addressed one for joins), AND the url itself is
-  loopback (127.0.0.1, localhost, [::1], no user part). No new switch or environment variable.
+  loopback (127.0.0.1 or localhost, no user part; not [::1], round 1). It reads the board's existing coordinator
+  setting (AGENT_WORKFORCE_TUNNEL_COORDINATOR); it adds no setting of its own.
 - `engine/backupupload.test.js`: the rule, both arms: production default and explicit, remote and LAN coordinators
   refused; a local coordinator accepts each loopback spelling and refuses LAN hosts and look-alikes; `.localhost` names
   and their look-alikes.
