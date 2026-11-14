@@ -90,10 +90,14 @@ function parseMcpTool(tool) {
  * recorded). Ordered: Claude Code's own refusal first (never the service), then the most specific. Pure.
  */
 const LOCAL_REFUSAL_RE = /permission to use .{0,120}(has been )?denied|user (rejected|denied|declined)|was blocked by a hook|requires approval|hook (blocked|denied)/i;
-const NOT_OFFERED_RE = /unknown (tool|method|action|operation|function)|no such (tool|method|action)|method not found|tool not found|not (implemented|supported)|unsupported (tool|method|action|operation)|\b-32601\b/i;
+/* Review 1: "not supported" counts only about the tool or action itself; "File type not supported" is about the input. */
+const NOT_OFFERED_RE = /unknown (tool|method|action|operation|function)|no such (tool|method|action)|method not found|tool not found|(tool|method|action|operation|endpoint|function) (is )?not (implemented|supported)|unsupported (tool|method|action|operation)|\b-32601\b/i;
 const SCOPE_RE = /insufficient[_ ]scope|missing (the )?(required )?scopes?|scopes? (required|missing|not granted)|requires? (the )?[\w:.\/-]+ scope|not granted the [\w:.\/-]+ scope/i;
 const POLICY_RE = /(disabled|blocked|turned off) by (your |the )?(admin|administrator|organi[sz]ation|workspace|company)|organi[sz]ation policy|admin policy/i;
-const PERMISSION_RE = /\b(401|403)\b|forbidden|permission denied|insufficient permissions?|not authori[sz]ed|unauthori[sz]ed|access (is )?denied|not allowed to|does not have (the )?(required )?permission/i;
+/* Review 1: deliberately narrow. A 401 or "unauthorized" is usually an expired or missing sign-in, not a refused action,
+   so it records nothing; "forbidden" and "not allowed to" count only where they are about the caller, never inside an
+   input-validation message ("field forbidden must be a string", "is not allowed to be empty"). */
+const PERMISSION_RE = /\b403\b|^\W*forbidden\b|permission denied|insufficient permissions?|not authori[sz]ed to|access (is )?denied|not allowed to (access|perform|use|do|call|run|read|write|create|update|delete|modify|view|list|send|export)\b|does not have (the )?(required )?permissions?/i;
 function classify(error) {
   const e = String(error || '');
   if (!e || LOCAL_REFUSAL_RE.test(e)) return null;

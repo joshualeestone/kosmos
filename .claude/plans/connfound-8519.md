@@ -50,3 +50,15 @@ what agents FOUND, and shows it to the person and to the next agent.
   gated.txt and the README.
 - Gates: browser-check gate (#1720) and surface gate (#2518) pass on the branch; the three 'grid' surface hits are
   overridden per check (only .cf-acts li uses grid, inside the new section).
+
+#### Iteration 1 (sonnet)
+- WARNING fixed: classify was too loose. "401 Unauthorized: token expired", "is not allowed to be empty", "field forbidden
+  must be string" and "File type not supported" were labelled as capability errors. 401 and a bare "unauthorized" now
+  record nothing (an expired sign-in is not a refused action); "forbidden" counts only on its own or with 403; "not
+  allowed to" only before a verb; "not supported" only about the tool or action. The reviewer's cases are tests now,
+  with controls that the same words about the caller still count; with the old patterns the test goes red.
+- NIT fixed: a test pins that a later refusal replaces an earlier works (the latest finding wins, either way).
+- NIT fixed: a comment on why the record uses agent_board_token and the read board_token.
+- NITs left: action names are case-sensitive keys ("Create Release" and "create release" are two rows; agents copy
+  the tool's own name, so rare); a retried POST can count one extra time in "N times" (n is a hint, not a ledger);
+  cfAgo duplicates the engine's ago (the page cannot require the engine).
