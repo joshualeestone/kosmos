@@ -28730,8 +28730,8 @@ function start(port = PORT) {
      background now and every minute, so an attach rarely waits on it. Windows only; a no-op elsewhere. There is no
      projects-change hook here: an attach meeting a letter the table does not list learns it again once. */
   try { require('./engine/windrives').startRefreshing(); } catch { /* unknown table: attach behaves as before */ }
-  /* #5535 E0.6 slice (d): the company backup tick, hourly and only while backuptick.mayBackUp allows it (enrolled here,
-     the company's words accepted here, and those words naming a backup, kosmos#8528). The first run is an hour after start, never at boot. Kosmos+ answers backup_off
+  /* #5535 E0.6 slice (d): the company backup tick, hourly and only while backuptick.mayBackUp (#8528) allows it.
+     The first run is an hour after start, never at boot. Kosmos+ answers backup_off
      while company backup is off, and the tick then asks again a day later (engine/backuptick.js). Best effort: never a
      reason not to start. */
   try { require('./engine/backuptick').startHere(); } catch { /* best effort */ }
