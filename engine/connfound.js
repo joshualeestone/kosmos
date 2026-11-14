@@ -46,7 +46,7 @@ const OUTCOMES = Object.freeze(['not-offered', 'needs-scope', 'needs-permission'
 const OUTCOME_WORDS = Object.freeze({
   'not-offered': 'The service does not offer this',
   'needs-scope': 'Needs a wider sign-in',
-  'needs-permission': 'The account is not allowed to',
+  'needs-permission': 'The account is not allowed to do this',
   'off-by-policy': 'Off by company policy',
   failed: 'Failed, reason unknown',
   works: 'Works',
