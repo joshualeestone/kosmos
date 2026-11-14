@@ -105,14 +105,15 @@ const PRECONNECT_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'UND
 const LOCAL_CODES = new Set(['UND_ERR_REQ_CONTENT_LENGTH_MISMATCH', 'UND_ERR_INVALID_ARG', 'UND_ERR_NOT_SUPPORTED',
   'ERR_INVALID_URL', 'ERR_INVALID_ARG_TYPE', 'ERR_INVALID_ARG_VALUE', 'ERR_INVALID_HTTP_TOKEN', 'ERR_INVALID_CHAR']);
 
-// The ONLY way to allow plain-http upload urls (and a host that is not AWS S3, the local test bucket): a test calls
+// The test seam for plain-http upload urls (and a host that is not AWS S3, the local test bucket): a test calls
 // allowHttpForTests(true). Not an argument or an environment variable, which a production caller or a child process
-// could pass on by mistake.
+// could pass on by mistake. The one other way is localUploadOk below (kosmos#8529).
 let httpForTests = false;
 function allowHttpForTests(on) { httpForTests = !!on && !!process.env.NODE_TEST_CONTEXT; }   // and only under node --test
 
-/* kosmos#8529: the one other way to allow a local bucket, for a throwaway coordinator on THIS Mac. It adds no switch:
-   the board's own coordinator address decides (remote.js COORDINATOR, as its production checks do). Both must hold:
+/* kosmos#8529: the one other way to allow a local bucket, for a throwaway coordinator on THIS Mac. The board's own
+   coordinator address decides (remote.js COORDINATOR: AGENT_WORKFORCE_TUNNEL_COORDINATOR, else the production
+   default, as its production checks read it). Both must hold:
    the coordinator is on this machine (a loopback address, or a *.localhost name, which RFC 6761 keeps on this
    machine: tools/fed-own-e2e.js reaches its local coordinator as login.<name>.localhost, since a board refuses an
    IP-addressed one for joins), so never production and never a coordinator elsewhere; and the one url being checked
@@ -652,7 +653,7 @@ async function uploadManifestInner(deps, bytes, o, st) {
   // port (checkOne refuses one on S3; only a local bucket has one: the test seam's, or a throwaway
   // coordinator's on this Mac, kosmos#8529), checked before any grant: anything
   // else would be refused only after a grant had been spent on it.
-  if (!(httpForTests || localBucketOk(o.bucket) ? /^[a-z0-9.:-]+\/([^/]+\/)?$/ : /^[a-z0-9.-]+\/([^/]+\/)?$/).test(o.bucket)) return { ok: false, grantSpent: false, because: `the manifest's bucket (${o.bucket}) is not a bucket path as uploadChunks returns it (host/ or host/bucket/)` };
+  if (!((httpForTests || localBucketOk(o.bucket)) ? /^[a-z0-9.:-]+\/([^/]+\/)?$/ : /^[a-z0-9.-]+\/([^/]+\/)?$/).test(o.bucket)) return { ok: false, grantSpent: false, because: `the manifest's bucket (${o.bucket}) is not a bucket path as uploadChunks returns it (host/ or host/bucket/)` };
   // Every chunk it names, as { key, lockedUntilMs }: not a string, and not a Map (uploadChunks' keys Map iterates
   // [name, key] pairs). From them: the keys this call must not write, and the earliest lock end.
   const list = o.chunks;
