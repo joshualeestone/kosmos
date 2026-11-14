@@ -11,20 +11,25 @@
  *
  * TWO WAYS IN.
  *   1. Automatically, from a Claude agent's failed tool call (#6071: PostToolUseFailure -> POST /api/toolfail). A
- *      plugin's tool is named mcp__<server>__<action>, so the name says which service and which action, and the
- *      error line is sorted into an outcome (classify). ONLY failures that say something about the ACTION are
- *      recorded: the service does not offer it, it needs a wider sign-in, the account is not allowed, it is off by
- *      policy. A bad input, a timeout or anything unrecognised says nothing about whether the action works, so it
- *      is not recorded (a confident wrong word on the page is worse than none). Claude Code's own permission
- *      refusals ("Permission to use ... has been denied") are this computer's settings, not the service, and are
- *      never recorded.
- *   2. By hand, `kosmos connections found <service> <action> <outcome> [note]`, for agents with no such hook (Codex,
- *      Gemini, Grok, Muse) and for Kosmos's own connections, whose actions fail inside a shell command where no tool
- *      name says which service it was. The only way "works" is ever recorded: the hook does not see successful calls.
+ *      plugin's tool is named mcp__<server>__<action>, so the name says which service and which action. ONE outcome
+ *      is ever recorded this way, "The service does not offer this", and only when the error line STARTS by saying
+ *      the tool is unknown AND names the very action that was called ("Unknown tool: merge_contacts" after a call to
+ *      merge_contacts). Three review rounds (kosmos#8519) showed that sorting free error text any further mislabels
+ *      ordinary errors: "Payment method not found" is a missing record, a firewall's 403 on a plugin's endpoint
+ *      would mark every action refused, a rate limit or an archived repository reads as "not allowed". The guide
+ *      tells agents to read these findings, so one wrong label can keep them off a working action, and only a hand
+ *      record clears it (the hook never sees a success). So permission, scope and policy are recorded only by an
+ *      agent, which can read the whole situation. Claude Code's own refusals ("Permission to use ... has been
+ *      denied", "No such tool available": this computer, not the service) are never recorded.
+ *   2. By hand, `kosmos connections found <service> <action> <outcome> [note]`: any outcome, by any agent (Codex,
+ *      Gemini, Grok and Muse have no such hook), and for Kosmos's own connections, whose actions fail inside a shell
+ *      command where no tool name says which service it was. The only way "works" is ever recorded.
  *
- * WHAT IS KEPT: the latest outcome per service and action, who found it and when, for 30 days, at most 50 actions per
- * service and 60 services. A newer finding replaces an older one for the same action, whichever way it went.
- * A note is at most 200 characters and is refused if it looks like it carries a key (the diagnostics redactor would
+ * WHAT IS KEPT: the latest outcome per service and action, who found it and when. A hand record is kept 30 days, an
+ * automatic one 7. An automatic finding never replaces a hand record, and a hand "works" clears an automatic finding
+ * for the same action wherever it is filed (a plugin and Kosmos's own connection of one name are two rows). Action
+ * names match whatever their case, spaces, underscores or hyphens. At most 50 actions per service and 60 services. A
+ * note is at most 200 characters and is refused if it looks like it carries a key (the diagnostics redactor would
  * change it). Never throws to a caller: a store that cannot be read reads as nothing found.
  *
  * ON DISK: store.ROOT/connfound.json, read and written synchronously, so two requests on the board's one event loop
@@ -35,6 +40,7 @@ const path = require('node:path');
 const store = require('./store');
 
 const KEEP_MS = 30 * 24 * 60 * 60 * 1000;
+const KEEP_AUTO_MS = 7 * 24 * 60 * 60 * 1000;   // an automatic finding: a hint, kept a week
 const MAX_ACTIONS = 50;
 const MAX_SERVICES = 60;
 const MAX_NOTE = 200;
@@ -58,9 +64,9 @@ const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._:\/-]{0,79}$/;
 function file() { return path.join(store.ROOT, 'connfound.json'); }
 
 /* Review 2: C1 controls and the bidi and direction marks go too, so a note cannot reorder what a terminal or the page
-   shows around it. */
+   shows around it. Review 3: and the zero-width characters, so a key cannot be split past the note check. */
 function clean(value, max) {
-  return String(value == null ? '' : value).replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  return String(value == null ? '' : value).replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
 /* The name a service is matched by: case and spacing do not make two services. */
@@ -68,6 +74,9 @@ function serviceKey(name) { return clean(name, MAX_NAME).toLowerCase().replace(/
 /* Review 2: the key it is FILED under carries its kind, so the person's own GitHub plugin and Kosmos's GitHub connection
    never share a row: they are two credentials, and the remedy for each lives in a different place. */
 function storeKey(name, kind) { return (kind === 'kosmos' ? 'kosmos:' : 'other:') + serviceKey(name); }
+/* Review 3: an action is matched whatever its case, spaces, underscores or hyphens: "Create Release", "create_release"
+   and "create-release" are one action, shown as first recorded. */
+function actionKey(name) { return clean(name, MAX_NAME).toLowerCase().replace(/[\s_-]+/g, '_'); }
 
 /*
  * mcp__<server>__<action> -> { service, action }, or null for any other tool. The server part runs to the next "__"
@@ -91,37 +100,23 @@ function parseMcpTool(tool) {
 }
 
 /*
- * What a failed call's error line says about the ACTION, or null when it says nothing about it (then nothing is
- * recorded). Pure. Review 2 made it CONSERVATIVE on purpose: the guide tells agents to check what was found before
- * trying, so one wrong "refused" can keep an agent off a working action for 30 days, and only a hand-recorded "works"
- * clears it (the hook never sees a success). So the order is:
- *   1. Claude Code's own refusal: never the service.
- *   2. NOISE: a rate limit, a quota, a key or token that is missing, invalid or expired, a local file or SSH error.
- *      Those come as 403 or "permission denied" too, and say nothing about the action.
- *   3. not-offered, only on the strong signals (an unknown tool or method, JSON-RPC -32601). "Operation not supported
- *      on shared drives" is about the input, so the generic operation and function wordings are out.
- *   4. scope before permission, so Google's "Insufficient Permission: ... insufficient authentication scopes" is a
- *      scope.
- *   5. policy, then permission.
+ * The one thing a failed call's error line may say automatically: that the service does not offer the action that was
+ * called. 'not-offered' only when the line STARTS by saying the tool is unknown (optionally after an "MCP error -32601:"
+ * prefix) AND names that action (alone, or as the full mcp__server__action name). Anything else is null: nothing is
+ * recorded. "Method not found: tools/call" names no action (the server has no tools at all), "Payment method not
+ * found" does not start that way, and Claude Code's own "No such tool available" is this computer. Pure.
  */
-const LOCAL_REFUSAL_RE = /permission to use .{0,120}(has been )?denied|user (rejected|denied|declined)|was blocked by a hook|requires approval|hook (blocked|denied)/i;
-const NOISE_RE = /rate[ _-]?limit|too many requests|\bquota\b|limit exceeded|api[ _-]?key|credential|\btoken\b.{0,30}\b(expired|invalid|missing|revoked)\b|\b(expired|invalid|missing|revoked) (access |auth |api )?token\b|\bEACCES\b|\bENOENT\b|\bEPERM\b|publickey|no such file|\b(open|read|write|mkdir|stat) ['"]?\//i;
-const NOT_OFFERED_RE = /unknown (tool|method)\b|no such (tool|method)\b|method not found|tool not found|(tool|method) (is )?not (implemented|supported)|unsupported (tool|method)\b|\b-32601\b/i;
-const SCOPE_RE = /insufficient[_ ]scopes?|insufficient (authentication )?scopes|missing[_ ](the[_ ])?(required[_ ])?scopes?|scopes? (required|missing|not granted)|requires? (the )?[\w:.\/-]+ scope|not granted the [\w:.\/-]+ scope|resource not accessible by (integration|personal access token)|requires any of \[/i;
-const POLICY_RE = /(disabled|blocked|turned off) by (your |the )?(admin|administrator|organi[sz]ation|workspace|company)|organi[sz]ation policy|admin policy|saml enforcement/i;
-/* Review 1: a 401 or "unauthorized" is usually an expired or missing sign-in, so it records nothing; "forbidden" and
-   "not allowed to" count only about the caller, never inside an input-validation message. Review 2: a bare 403 or
-   "permission denied" no longer counts on its own; "403 Forbidden" and a bare "Forbidden" still do, once NOISE_RE
-   has had its say. Weakest premise: a 403 Forbidden with no other words is a refused action more often than not. */
-const PERMISSION_RE = /\b403\b[^\n]{0,20}\bforbidden\b|^\W*forbidden\W*$|insufficient permissions?|not authori[sz]ed to|access (is )?denied to|not allowed to (access|perform|use|do|call|run|read|write|create|update|delete|modify|view|list|send|export)\b|does not have (the )?(required |proper )?permissions?/i;
-function classify(error) {
-  const e = String(error || '');
-  if (!e || LOCAL_REFUSAL_RE.test(e) || NOISE_RE.test(e)) return null;
-  if (NOT_OFFERED_RE.test(e)) return 'not-offered';
-  if (SCOPE_RE.test(e)) return 'needs-scope';
-  if (POLICY_RE.test(e)) return 'off-by-policy';
-  if (PERMISSION_RE.test(e)) return 'needs-permission';
-  return null;
+const LOCAL_REFUSAL_RE = /permission to use .{0,120}(has been )?denied|user (rejected|denied|declined)|was blocked by a hook|requires approval|hook (blocked|denied)|no such tool available/i;
+const UNKNOWN_TOOL_RE = /^\W*(?:MCP error -?\d+:\s*)?(?:unknown tool|no such tool|tool not found|method not found)\s*[:\-]?\s*["'`]?([A-Za-z0-9_.-]+)["'`]?\s*\.?\s*$/i;
+function classify(error, action) {
+  const e = String(error || '').trim();
+  const a = String(action || '');
+  if (!e || !a || LOCAL_REFUSAL_RE.test(e)) return null;
+  const m = UNKNOWN_TOOL_RE.exec(e);
+  if (!m) return null;
+  const named = m[1].replace(/\.+$/, '').toLowerCase();
+  const want = a.toLowerCase();
+  return named === want || named.endsWith('__' + want) ? 'not-offered' : null;
 }
 
 /* A note that the diagnostics redactor would change carries something that looks like a key, an email or a home
@@ -146,8 +141,12 @@ function readAll(now) {
     if (!s || typeof s !== 'object' || typeof s.name !== 'string' || !s.actions || typeof s.actions !== 'object') continue;
     const actions = Object.create(null);
     for (const [a, f] of Object.entries(s.actions)) {
-      if (!f || !OUTCOMES.includes(f.outcome) || !Number.isFinite(f.at) || now - f.at > KEEP_MS) continue;
-      actions[a] = { outcome: f.outcome, at: f.at, by: clean(f.by, MAX_NAME), note: clean(f.note, MAX_NOTE), how: f.how === 'auto' ? 'auto' : 'agent', n: Number.isInteger(f.n) && f.n > 0 ? f.n : 1 };
+      if (!f || !OUTCOMES.includes(f.outcome) || !Number.isFinite(f.at)) continue;
+      const how = f.how === 'auto' ? 'auto' : 'agent';
+      if (now - f.at > (how === 'auto' ? KEEP_AUTO_MS : KEEP_MS)) continue;
+      const shown = clean(typeof f.action === 'string' ? f.action : a, MAX_NAME);
+      if (!shown || actionKey(shown) !== a) continue;
+      actions[a] = { action: shown, outcome: f.outcome, at: f.at, by: clean(f.by, MAX_NAME), note: clean(f.note, MAX_NOTE), how, n: Number.isInteger(f.n) && f.n > 0 ? f.n : 1 };
     }
     const kind = s.kind === 'kosmos' ? 'kosmos' : 'other';
     if (Object.keys(actions).length && key === storeKey(s.name, kind)) out[key] = { name: clean(s.name, MAX_NAME), kind, actions };
@@ -179,16 +178,30 @@ function record(f) {
   if (!OUTCOMES.includes(x.outcome)) return { ok: false, because: 'the outcome is one of: ' + OUTCOMES.join(', ') };
   const by = clean(x.by, MAX_NAME);
   if (!by) return { ok: false, because: 'we could not tell which agent found this' };
-  const note = String(x.note == null ? '' : x.note).replace(/\s+/g, ' ').trim();
-  const refused = note ? noteRefusal(note) : null;
+  const raw = String(x.note == null ? '' : x.note).replace(/\s+/g, ' ').trim();
+  const refused = raw ? noteRefusal(raw) : null;
   if (refused) return { ok: false, because: refused };
+  const note = clean(raw, MAX_NOTE);   // review 3: stored clean, not only read back clean
+  const how = x.how === 'auto' ? 'auto' : 'agent';
   const all = readAll(now);
   const kind = x.kind === 'kosmos' ? 'kosmos' : 'other';
   const key = storeKey(service, kind);
+  const ak = actionKey(action);
   const svc = all[key] || { name: service, kind, actions: Object.create(null) };
-  const prev = svc.actions[action];
-  svc.actions[action] = { outcome: x.outcome, at: now, by, note, how: x.how === 'auto' ? 'auto' : 'agent',
+  const prev = svc.actions[ak];
+  /* Review 3: an automatic finding never replaces a hand record; it is a hint, the hand record a judgement. */
+  if (how === 'auto' && prev && prev.how === 'agent') return { ok: true, kept: false };
+  svc.actions[ak] = { action: prev ? prev.action : action, outcome: x.outcome, at: now, by, note, how,
     n: prev && prev.outcome === x.outcome ? prev.n + 1 : 1 };
+  /* Review 3: a hand "works" clears an automatic finding for the same action in the other row of the same name (the
+     hook files a plugin under "other"; an agent naming GitHub is filed under Kosmos's own). */
+  if (how === 'agent' && x.outcome === 'works') {
+    const twin = all[storeKey(service, kind === 'kosmos' ? 'other' : 'kosmos')];
+    if (twin && twin.actions[ak] && twin.actions[ak].how === 'auto') {
+      delete twin.actions[ak];
+      if (!Object.keys(twin.actions).length) delete all[storeKey(service, kind === 'kosmos' ? 'other' : 'kosmos')];
+    }
+  }
   /* At most MAX_ACTIONS per service, the oldest dropped. */
   const names = Object.keys(svc.actions).sort((a, b) => svc.actions[b].at - svc.actions[a].at);
   for (const a of names.slice(MAX_ACTIONS)) delete svc.actions[a];
@@ -201,18 +214,18 @@ function record(f) {
 }
 
 /*
- * A failed tool call from the toolfail hook: recorded only when it names a plugin action and says something about
- * the action. `error` must already be redacted (the caller holds the board's secrets). Never throws.
+ * A failed tool call from the toolfail hook: recorded only when it is a plugin action the service says it does not
+ * know (classify). The error line is only read, never stored. Never throws.
  * @returns {{ recorded: boolean, outcome?: string }}
  */
 function noteToolFailure(by, tool, error, opts) {
   try {
     const t = parseMcpTool(tool);
     if (!t) return { recorded: false };
-    const outcome = classify(error);
+    const outcome = classify(error, t.action);
     if (!outcome) return { recorded: false };
     const r = record({ service: t.service, action: t.action, outcome, by, how: 'auto', now: opts && opts.now });
-    return r.ok ? { recorded: true, outcome } : { recorded: false };
+    return r.ok && r.kept !== false ? { recorded: true, outcome } : { recorded: false };
   } catch { return { recorded: false }; }
 }
 
@@ -230,7 +243,7 @@ function list(opts) {
     .filter(([, s]) => !want || serviceKey(s.name) === want)
     .map(([key, s]) => {
       const actions = Object.entries(s.actions)
-        .map(([action, f]) => ({ action, ...f, words: OUTCOME_WORDS[f.outcome] }))
+        .map(([, f]) => ({ ...f, words: OUTCOME_WORDS[f.outcome] }))
         .sort((a, b) => (a.outcome === 'works') - (b.outcome === 'works') || b.at - a.at);
       return { key, name: s.name, kind: s.kind, actions, notWorking: actions.filter((a) => a.outcome !== 'works').length };
     })
@@ -250,9 +263,9 @@ function ago(at, now) {
 
 /* The lines both CLIs print for `kosmos connections --found [service]`, so the Mac and Windows commands cannot
    drift. Pure over its input. */
-function renderLines(services, now) {
+function renderLines(services, now, asked) {
   const t = Number.isFinite(now) ? now : Date.now();
-  if (!services.length) return ['No agent has recorded what works on a connection yet, in the last 30 days.'];
+  if (!services.length) return [asked ? 'No agent has recorded anything about ' + clean(asked, MAX_NAME) + ' in the last 30 days.' : 'No agent has recorded what works on a connection yet, in the last 30 days.'];
   const out = [];
   for (const s of services) {
     out.push(s.name + (s.kind === 'kosmos' ? '' : ' (outside Kosmos)') + ': ' + (s.notWorking ? s.notWorking + (s.notWorking === 1 ? ' action does not work' : ' actions do not work') : 'everything tried works'));
@@ -263,5 +276,5 @@ function renderLines(services, now) {
   return out;
 }
 
-module.exports = { record, noteToolFailure, list, renderLines, parseMcpTool, classify, serviceKey, storeKey, ago,
-  OUTCOMES, OUTCOME_WORDS, KEEP_MS, MAX_ACTIONS, MAX_SERVICES, MAX_NOTE };
+module.exports = { record, noteToolFailure, list, renderLines, parseMcpTool, classify, serviceKey, storeKey, actionKey, ago,
+  OUTCOMES, OUTCOME_WORDS, KEEP_MS, KEEP_AUTO_MS, MAX_ACTIONS, MAX_SERVICES, MAX_NOTE };

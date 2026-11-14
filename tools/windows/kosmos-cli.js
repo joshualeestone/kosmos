@@ -3479,7 +3479,7 @@ async function verbConnections(ctx, args) {
     if (ctx.refusedBy(rg)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(rg) + '.'); return 1; }
     const svcs = rg.json && Array.isArray(rg.json.services) ? rg.json.services : null;
     if (rg.status >= 400 || !svcs) { ctx.err('Kosmos gave an answer we could not read about what agents found.'); return 1; }
-    for (const l of cf.renderLines(svcs, Date.now())) ctx.out(l);
+    for (const l of cf.renderLines(svcs, Date.now(), args[1] || '')) ctx.out(l);
     return 0;
   }
   if (args && args.length) { ctx.err('Usage: kosmos connections [--how | --found [service] | found <service> <action> <outcome> [note]]'); return 2; }

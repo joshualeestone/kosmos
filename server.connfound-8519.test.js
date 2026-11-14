@@ -65,10 +65,13 @@ test('the error line is only sorted, never kept: nothing it says (a token, a pat
   t.after(() => board.restore());
   reset();
   const tok = sendertoken.mint('leo').token;
-  await call('POST', '/api/toolfail', { tool: 'mcp__crm__export', sig: 'b'.repeat(64), error: 'HTTP 403 Forbidden for token ' + tok + ' at /Users/someone/x', from_pane: '' }, { 'x-kosmos-agent-token': tok });
+  await call('POST', '/api/toolfail', { tool: 'mcp__crm__export', sig: 'b'.repeat(64), error: 'MCP error -32601: Unknown tool: export', from_pane: '' }, { 'x-kosmos-agent-token': tok });
   const raw = fs.readFileSync(path.join(store.ROOT, 'connfound.json'), 'utf8');
-  assert.ok(raw.includes('"export"') && raw.includes('needs-permission'), 'CONTROL: the finding was written');
-  for (const piece of [tok, 'Forbidden', '/Users/someone']) assert.ok(!raw.includes(piece), piece + ' is not in the store');
+  assert.ok(raw.includes('"export"') && raw.includes('not-offered'), 'CONTROL: the finding was written');
+  for (const piece of ['Unknown tool', '32601', tok]) assert.ok(!raw.includes(piece), piece + ' is not in the store');
+  // A refusal the hook does not record (a 403 carrying a token and a path) leaves the store exactly as it was.
+  await call('POST', '/api/toolfail', { tool: 'mcp__crm__delete', sig: 'c'.repeat(64), error: 'HTTP 403 Forbidden for token ' + tok + ' at /Users/someone/x', from_pane: '' }, { 'x-kosmos-agent-token': tok });
+  assert.equal(fs.readFileSync(path.join(store.ROOT, 'connfound.json'), 'utf8'), raw);
 });
 
 test('POST /api/connections/found names the caller from its token, files a Kosmos connection apart, and refuses nonsense', async (t) => {

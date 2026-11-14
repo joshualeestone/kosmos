@@ -83,3 +83,25 @@ what agents FOUND, and shows it to the person and to the next agent.
   letters; the browser-check controls start from a SHOWN box and repaint (the expiry path).
 - NIT left: a server name containing "__" splits early (mcp__remote-devices__Claude_Browser__navigate files under
   remote-devices); it still names a real plugin.
+
+#### Iteration 3 (opus): the premise was wrong, so the automatic path was redesigned
+- BLOCKERs (B1, B2): sorting free error text kept mislabelling ordinary errors after two narrowing rounds ("Payment
+  method not found", "tool not found in cache", "Method not found: tools/call", a transport 403 on a plugin's whole
+  endpoint, an archived repository, GitHub abuse detection, a resource-level "not authorized to view this channel").
+  Three rounds of false positives say the weakest premise ("the pattern sort is right often enough") is false, so the
+  sorting was REMOVED rather than narrowed again. The hook now records exactly one outcome, not-offered, and only when
+  the error line STARTS by saying the tool is unknown AND names the very action that was called. Permission, scope,
+  policy and failed are recorded only by an agent, by hand. "No such tool available" (Claude Code's own) joins the
+  local refusals.
+- WARNING fixed (W1): a hand "works" clears an automatic finding for the same action in the other row of the same name
+  (the hook files a GitHub plugin under other, an agent naming GitHub under Kosmos's own). Action names match
+  whatever their case, spaces, underscores or hyphens; the guide says to name the action as the tool names it.
+- WARNING fixed (W2): the guide calls a finding a hint: if the task needs an action listed as not working, try it once
+  and record works if it does. An automatic finding is kept 7 days, a hand record 30.
+- WARNING fixed (W3): an automatic finding never replaces a hand record.
+- NITs fixed: --found <service> with nothing found names the service; the Mac prints a refusal on stderr, as Windows
+  does; zero-width characters are stripped, and a note holding them around a key is refused by the redactor; the note
+  is stored clean; the CLI test's times are whole days (no minute-boundary flake).
+- NIT left: a note that is literally -h or --help is read as a help request by the Mac CLI's global help guard.
+- Weakest premise now: that an MCP server's unknown-tool error starts with those words and names the tool. Servers that
+  word it otherwise record nothing, which is the safe direction.
