@@ -2631,11 +2631,16 @@ function pendingDevices() {
       /* kosmos#6404: an allowed computer asking to finish its code check here (the tunnel's recheck row): Allow only
          confirms the typed code, Not me only drops the check. */
       recheck: d.recheck === true,
+      /* kosmos#8525 (#4903 D2): a Kosmos cloud machine of the person's waiting for this computer's Allow (the tunnel's
+         `cloud: true`, from the coordinator's own record). It has no joining_computer and no code by design (Kosmos+
+         holds root on it, so a code would prove nothing), and its Allow only tells Kosmos+ (devices.rs allow_outcome). */
+      cloud: d.cloud === true,
     }))
     /* #6315: a minted computer: id is a computer whatever else the row says. Without a usable joining_computer name
        (the coordinator stops naming it once its lineage is no longer waiting, or the name fails NAME_RULE) it would be
        drawn as a phone whose Allow can never work, so it is shown the way a former computer is: Allow off, Not me. */
-    .map((d) => (d.device_id.startsWith('computer:') && !d.joining_computer ? { ...d, code: '', code_wait: d.code_wait || 'was_a_computer' } : d))
+    // kosmos#8525: a cloud machine is not that case; it was drawn as "cannot be allowed" and the person was stuck.
+    .map((d) => (d.device_id.startsWith('computer:') && !d.joining_computer && !d.cloud ? { ...d, code: '', code_wait: d.code_wait || 'was_a_computer' } : d))
     /* kosmos#6590 (S-7d branch c): under the board-v2 marker a phone or a browser is let in only by the typed code its own
        page shows (devicesWaiting), so the coordinator's rows for them are not offered: an Allow by their id admits
        nobody there, and a Not me by id would tell Kosmos+ to end that sign-in everywhere. Computers keep their rows. */
@@ -2746,7 +2751,9 @@ async function deviceAllow(id, name, code) {
   /* #6315: a minted computer: id is always a computer, and a computer is allowed only with the code both screens
      show; without one the tunnel could take it as a phone (when it has no record of it as a computer) and put the id on
      this computer's gate. */
-  if (id.startsWith('computer:') && !(typeof code === 'string' && JOIN_CODE.test(code))) {
+  /* kosmos#8525: except a Kosmos cloud machine, which the tunnel's own snapshot marks `cloud` and allows without a code
+     (it refuses one). The tunnel decides cloud again from its live list before it acts, so this only lets the ask through. */
+  if (id.startsWith('computer:') && !(typeof code === 'string' && JOIN_CODE.test(code)) && !listedAsCloud(id)) {
     return { ok: false, because: 'code_pending' };   // the page words it: the code is still being worked out
   }
   const args = deviceArgs('allow', id, true);
@@ -2877,7 +2884,15 @@ const CT_FINDING = /^[0-9a-f]{64}$/;
 /* A row the coordinator lists as another of the person's computers (joining, waiting for its code, or a code check).
    These keep today's Allow with the typed pairing code whatever the marker says. */
 function isComputerRow(d) {
-  return !!d && (String(d.device_id || '').startsWith('computer:') || !!d.joining_computer || !!d.code_wait || d.recheck === true);
+  // kosmos#8525: a cloud machine is a computer row too, so the board-v2 rules keep it.
+  return !!d && (String(d.device_id || '').startsWith('computer:') || !!d.joining_computer || !!d.code_wait || d.recheck === true || d.cloud === true);
+}
+/* kosmos#8525: whether the tunnel's current snapshot lists `id` as a Kosmos cloud machine (`cloud: true`). */
+function listedAsCloud(id) {
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { return false; }
+  const list = raw && Array.isArray(raw.devices) ? raw.devices : [];
+  return REQUEST_ID.test(String(id)) && list.some((d) => d && String(d.device_id || '') === String(id) && d.cloud === true);
 }
 /* Under the marker, an Allow or Not me by device id is only for a row the CURRENT snapshot lists as a computer; any other
    id (a phone, a browser, or one not listed at all) is refused at the route, so no phone is let in by its sign-in alone.
@@ -4409,7 +4424,7 @@ module.exports = {
   recentlyVouchedForTests: (settings) => recentlyVouched(settings),
   vouchPatchForTests: (patch) => { if (vouchState && patch) Object.assign(vouchState, patch); },   // kosmos#6599
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
-  boardV2, listedAsComputer, devicesWaiting, deviceAllowCode, deviceDropWaiting, devicesClearWaiting, deviceCtAck,   // kosmos#6590 branch c
+  boardV2, listedAsComputer, listedAsCloud /* kosmos#8525 */, devicesWaiting, deviceAllowCode, deviceDropWaiting, devicesClearWaiting, deviceCtAck,   // kosmos#6590 branch c
   deviceAckSelfForTests: deviceAckSelf, allowSelfQuietlyForTests: allowSelfQuietly,   // kosmos#6590 c2
   startVouchForTests: () => { startVouch(); return vouchState ? vouchState.secret : null; },   // kosmos#6590 c3
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },

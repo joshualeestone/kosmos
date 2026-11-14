@@ -368,3 +368,68 @@ test('#7285 (PigeonPete, sessdevice-7285 d5e19f510): a list the tunnel cannot re
   assert.equal(empty.ok, true, empty.because);
   assert.deepEqual(empty.data.devices, []);
 });
+
+/* kosmos#8525 (#4903 D2): a Kosmos cloud machine the person started waits for this computer's Allow as a computer: row
+   the tunnel marks `cloud: true`, with no joining_computer and no code by design (kosmos-relay crates/tunnel devices.rs:
+   Kosmos+ holds root on it, so its Allow only tells Kosmos+). The board read it as a former computer ("cannot be
+   allowed") and refused its code-less Allow, so a member with a computer could never let their cloud machine in. */
+const CLOUD = 'computer:cc8af9d1e2f3a4b5c6d7e8f9a0b1c2d3';
+function cloudSnapshot(dir, cloud) {
+  const row = { device_id: CLOUD, name: 'cloud-d296a63b', first_seen: 1792168082, code: '' };
+  if (cloud !== undefined) row.cloud = cloud;
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [row] }));
+}
+
+test('#8525: a cloud row is listed as a cloud machine to allow, not as a former computer; without cloud it still is one (CONTROL)', () => {
+  const dir = enrol();
+  remote.setOn(true);
+  cloudSnapshot(dir, true);
+  const [row] = remote.pendingDevices().devices;
+  assert.deepEqual([row.device_id, row.cloud, row.code, row.code_wait, row.joining_computer, row.name],
+    [CLOUD, true, '', null, null, 'cloud-d296a63b']);
+  // CONTROL: the same row with no cloud mark is the #6315 former computer, as before.
+  cloudSnapshot(dir, undefined);
+  const [plain] = remote.pendingDevices().devices;
+  assert.deepEqual([plain.cloud, plain.code_wait], [false, 'was_a_computer']);
+  // Only a real true counts: anything else fails toward the former-computer card.
+  for (const v of ['true', 1, {}]) {
+    cloudSnapshot(dir, v);
+    assert.equal(remote.pendingDevices().devices[0].code_wait, 'was_a_computer', 'cloud: ' + JSON.stringify(v) + ' was taken as cloud');
+  }
+});
+
+test('#8525: Allow on a cloud row reaches the tunnel with no code; the same id without the cloud mark is still refused (CONTROL)', async () => {
+  const dir = enrol();
+  cloudSnapshot(dir, true);
+  const ok = await remote.deviceAllow(CLOUD, 'cloud-d296a63b', undefined);
+  assert.equal(ok.ok, true, ok.because);
+  const calls = recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow');
+  assert.equal(calls.length, 1, 'the cloud Allow never reached the tunnel');
+  assert.equal(calls[0][calls[0].indexOf('--device-id') + 1], CLOUD);
+  assert.ok(!calls[0].includes('--code'), 'a code was sent for a cloud machine (the tunnel refuses one)');
+  // CONTROL: the snapshot no longer marks it cloud, so the #6315 rule holds and nothing is spawned.
+  fs.rmSync(RECORD, { force: true });
+  cloudSnapshot(dir, undefined);
+  const no = await remote.deviceAllow(CLOUD, 'cloud-d296a63b', undefined);
+  assert.deepEqual([no.ok, no.because], [false, 'code_pending']);
+  assert.equal(recorded().length, 0, 'a code-less Allow of an unmarked computer reached the tunnel');
+  // And a snapshot it cannot read is not cloud.
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), '{not json');
+  const unread = await remote.deviceAllow(CLOUD, 'cloud-d296a63b', undefined);
+  assert.deepEqual([unread.ok, unread.because], [false, 'code_pending']);
+});
+
+test('#8525: under the board-v2 marker a cloud row stays listed and its Allow route is open; a phone row is not (CONTROL)', () => {
+  const dir = enrol();
+  remote.setOn(true);
+  fs.writeFileSync(nodePath.join(dir, 'board-v2'), '');
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: 'lineage-c', name: 'her-cloud', first_seen: 1792168082, code: '', cloud: true },
+    { device_id: 'k1.L8xHhgKw4ciSy7mTPfT3qNu8V7Z2oDAn', name: 'Android phone', first_seen: 1792009447, code: '' },
+  ] }));
+  assert.deepEqual(remote.pendingDevices().devices.map((d) => d.device_id), ['lineage-c']);
+  assert.equal(remote.listedAsComputer('lineage-c'), true);
+  assert.equal(remote.listedAsComputer('k1.L8xHhgKw4ciSy7mTPfT3qNu8V7Z2oDAn'), false);
+  assert.equal(remote.listedAsCloud('lineage-c'), true);
+  assert.equal(remote.listedAsCloud('k1.L8xHhgKw4ciSy7mTPfT3qNu8V7Z2oDAn'), false);
+});
