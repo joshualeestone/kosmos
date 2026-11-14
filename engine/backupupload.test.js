@@ -191,6 +191,9 @@ test('kosmos#8529: a loopback upload url is allowed only when the board coordina
     // Any coordinator on another machine, even one that is not production.
     assert.strictEqual(as('https://staging.kosmosplus.example', 'http://127.0.0.1:9000'), false, 'a remote coordinator');
     assert.strictEqual(as('http://10.0.0.5:8443', 'http://127.0.0.1:9000'), false, 'a LAN coordinator');
+    // A coordinator address with a user part is not "this machine", in either form.
+    assert.strictEqual(as('http://x@127.0.0.1:8443', 'http://127.0.0.1:9000'), false, 'a loopback coordinator with a user part');
+    assert.strictEqual(as('https://x@login.walk.localhost:8443', 'http://127.0.0.1:9000'), false, 'a .localhost coordinator with a user part');
     // A coordinator on this Mac: a loopback bucket is allowed, in each loopback spelling.
     for (const base of ['http://127.0.0.1:9000', 'http://localhost:9000']) {
       assert.strictEqual(as('http://127.0.0.1:8443', base), true, `${base} with a local coordinator`);
