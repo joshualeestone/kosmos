@@ -612,11 +612,13 @@ test('startHere still runs the company path, with no personal key step', async (
   const oe = require('./orgenroll');
   assert.ok(create.WORKERS_DIR.startsWith(SANDBOX), 'never the real workers folder');
   const seen = [];
-  const real = { may: oe.mayReport, run: backuprun.runBackup };
+  const real = { may: oe.mayReport, words: oe.acceptedConsent, run: backuprun.runBackup };
   oe.mayReport = () => true;
+  // kosmos#8528: the company path also needs accepted words that name a backup (backuptick-inputs.test.js tests that rule).
+  oe.acceptedConsent = () => ({ reports: ['r'], backsUp: ['your agents\' chats'] });
   backuprun.runBackup = async (...a) => { seen.push(a); return { ok: true }; };
   const stop = tick.startHere();
-  try { await stop.tick(); } finally { oe.mayReport = real.may; backuprun.runBackup = real.run; stop(); }
+  try { await stop.tick(); } finally { oe.mayReport = real.may; oe.acceptedConsent = real.words; backuprun.runBackup = real.run; stop(); }
   assert.equal(seen.length, 1);
   assert.ok(seen[0][0].roots.some((r) => r.name === 'workers'));
   assert.equal(seen[0][1], undefined, 'the default key step');

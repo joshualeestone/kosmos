@@ -27,7 +27,7 @@
  * `left` names what was not added and why (an id or slug a root name cannot carry), never a path.
  *
  * startTick(deps) -> stop(). Every `everyMs` (an hour): only while deps.enrolled() is true (the company's tick passes
- * mayBackUp: enrolled with a company AND its words accepted here; a personal backup's, personalbackup.mayBackUp), and never while a run is still going (a tick then is skipped, not queued). Pauses:
+ * mayBackUp: enrolled with a company AND its words accepted here AND naming backups (#8528); a personal backup's, personalbackup.mayBackUp), and never while a run is still going (a tick then is skipped, not queued). Pauses:
  *   backup_off (Kosmos+ answers 404 backup_off while company backup is off) -> no request for a day;
  *   overAllowance -> none until the next week starts (the allowance is per week).
  * A reason a person must act on (refusedState, missing, unreadableKeyFile, orgKeyRefused, overAllowance, personActs) is said once (deps.say) until
@@ -325,9 +325,18 @@ function inputsHere(deps = {}) {
 /* May this computer back up to its company now? orgenroll.mayReport, the gate orgenroll names for EVERY sender, E0.6
    backup included (review 7): enrolled here AND the company's words accepted here (a consentHash on the record). NOT
    isEnrolledHere: a record re-adopted after a move that could not be written, or rebuilt after a last-admin refusal,
-   is enrolled with no consent, and nothing may be sent under it. */
+   is enrolled with no consent, and nothing may be sent under it.
+   kosmos#8528: and those accepted words must NAME something backed up (a non-blank backsUp line), as a personal backup
+   already requires (personalbackup.mayBackUp) and the coordinator refuses a company grant without (backup_not_in_words).
+   A company's words list nothing under backsUp today, so a company computer backs up nothing until new words that do are
+   accepted here. */
 function mayBackUp() {
-  try { return require('./orgenroll').mayReport() === true; } catch { return false; }
+  try {
+    const oe = require('./orgenroll');
+    if (oe.mayReport() !== true) return false;
+    const c = oe.acceptedConsent();
+    return !!(c && Array.isArray(c.backsUp) && c.backsUp.some((l) => typeof l === 'string' && l.trim()));
+  } catch { return false; }
 }
 
 /* The board's own tick: mayBackUp, the roots of this world, the real run. say: one console line, which reaches the
