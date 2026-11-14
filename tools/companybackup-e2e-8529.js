@@ -696,7 +696,7 @@ async function main() {
     chk(objs.length > 0, 'step B3: the backup\'s objects are in the local bucket', objs.length + ' objects, ' + objs.reduce((a, o) => a + o.size, 0) + ' bytes');
     chk(objs.length > 0 && objs.every((o) => o.lockMode === 'COMPLIANCE' && typeof o.retainUntil === 'string' && o.retainUntil), 'step B3: each was sent with Object Lock COMPLIANCE and a retain-until date, as a real bucket would be told',
       [...new Set(objs.map((o) => o.lockMode + ' ' + o.retainUntil))].join('; ').slice(0, 200));
-    chk(objs.every((o) => o.key.startsWith(BUCKET.name + '/')), 'step B3: every object is under the one bucket the coordinator presigned for', objs.map((o) => o.key.split('/').slice(0, 2).join('/')).filter((v, i, a) => a.indexOf(v) === i).join(', '));
+    chk(objs.length > 0 && objs.every((o) => o.key.startsWith(BUCKET.name + '/')), 'step B3: every object is under the one bucket the coordinator presigned for', objs.map((o) => o.key.split('/').slice(0, 2).join('/')).filter((v, i, a) => a.indexOf(v) === i).join(', '));
   }
 
   // B4. the coordinator's own record of the run: one manifest for this company and member, and the bucket holds those

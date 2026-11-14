@@ -192,14 +192,14 @@ test('kosmos#8529: a loopback upload url is allowed only when the board coordina
     assert.strictEqual(as('https://staging.kosmosplus.example', 'http://127.0.0.1:9000'), false, 'a remote coordinator');
     assert.strictEqual(as('http://10.0.0.5:8443', 'http://127.0.0.1:9000'), false, 'a LAN coordinator');
     // A coordinator on this Mac: a loopback bucket is allowed, in each loopback spelling.
-    for (const base of ['http://127.0.0.1:9000', 'http://localhost:9000', 'http://[::1]:9000']) {
+    for (const base of ['http://127.0.0.1:9000', 'http://localhost:9000']) {
       assert.strictEqual(as('http://127.0.0.1:8443', base), true, `${base} with a local coordinator`);
     }
     // ...and nothing else: not a LAN host, not a name that only starts like loopback, not one with a user part.
-    for (const base of ['http://10.0.0.5:9000', 'http://127.0.0.1.example:9000', 'http://user@127.0.0.1:9000', 'http://bucket.example']) {
+    // [::1] too: the manifest's bucket path cannot carry its brackets, so chunks would land and the manifest never would.
+    for (const base of ['http://10.0.0.5:9000', 'http://127.0.0.1.example:9000', 'http://user@127.0.0.1:9000', 'http://bucket.example', 'http://[::1]:9000']) {
       assert.strictEqual(as('http://127.0.0.1:8443', base), false, `${base} is not a local bucket`);
     }
-    // The bucket path's own check reads the same rule.
     assert.strictEqual(as('http://localhost:8443', 'http://localhost:9000'), true, 'localhost coordinator, localhost bucket');
     // A *.localhost coordinator name (RFC 6761, as tools/fed-own-e2e.js uses) is this machine too; a look-alike is not.
     assert.strictEqual(as('https://login.walk.localhost:8443', 'http://127.0.0.1:9000'), true, 'a .localhost coordinator');
@@ -208,6 +208,29 @@ test('kosmos#8529: a loopback upload url is allowed only when the board coordina
   } finally {
     if (was === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was;
     up.allowHttpForTests(true);
+  }
+});
+
+test('kosmos#8529: a manifest goes to a local bucket only when the board coordinator is on this machine', async () => {
+  const b = await bucket();
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+  up.allowHttpForTests(false);   // the test seam off: only the new rule can allow the local bucket
+  try {
+    // A coordinator on this Mac: the manifest's url and its bucket path (host:port/bucket/) are both accepted.
+    process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'http://127.0.0.1:8443';
+    const ok = await up.uploadManifest(deps(manifestCoordinator(b)), manifestBytes(), mOpts(b));
+    assert.strictEqual(ok.ok, true, ok.because);
+    // The production coordinator: refused at the bucket path, before any grant is asked for.
+    delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+    const mc = manifestCoordinator(b);
+    const no = await up.uploadManifest(deps(mc), manifestBytes(), mOpts(b));
+    assert.strictEqual(no.ok, false, 'a Mac on the production coordinator sends no manifest to a local bucket');
+    assert.match(String(no.because), /bucket/, no.because);
+    assert.strictEqual(mc.bodies.length, 0, 'no grant was asked for');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = was;
+    up.allowHttpForTests(true);
+    await b.close();
   }
 });
 
