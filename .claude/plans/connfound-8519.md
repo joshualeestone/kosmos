@@ -148,3 +148,12 @@ what agents FOUND, and shows it to the person and to the next agent.
 - NITs left: a finding dropped at a cap still returns ok; a hand works on Kosmos's connection also clears the plugin's
   automatic hint for that action (the safe direction, chosen on the card); a server name containing "__" splits early.
 - Converged: round 6 raised no BLOCKER and its two WARNINGs are fixed and pinned.
+
+## Full validation, run 1 (red, 6 of 29089): all six were this branch's, fixed in one commit
+- web.open-sentence-1199: the note was capitalised inline; now asSentence (the page's helper, which also ends it).
+- web.conn-shelf: its pin on the connect arrival line now names paintConnFound too.
+- no-name-refs-3071: the engine test used two real first names as fixtures; now the repo's non-real fixture names.
+- cli.exit-code-mapping-3628: the CLI test's exit check is on r.code (the form the guard requires).
+- engine/windows-tests-1777: cli.connfound-8519.test.js is in HOST_BRANCH_EXCLUDED with its skipOnWin32 reason.
+- tools.windows-kosmos-cli-connections-4451: the plain listing's second read (what agents found) uses the board token
+  only, like the first, on both CLIs; the pin now expects two reads, both board-token only, neither the live sweep.

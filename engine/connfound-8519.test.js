@@ -53,23 +53,23 @@ test('classify: not-offered ONLY when the line starts by saying the called actio
 
 test('noteToolFailure: an unknown-tool refusal naming the called action is recorded; anything else is not', () => {
   reset();
-  assert.deepEqual(cf.noteToolFailure('ada', 'mcp__hubspot__merge_contacts', 'Unknown tool: merge_contacts', { now: 1000 }), { recorded: true, outcome: 'not-offered' });
-  assert.deepEqual(cf.noteToolFailure('ada', 'Bash', 'Unknown tool: Bash', { now: 1000 }), { recorded: false }, 'not a plugin tool');
-  assert.deepEqual(cf.noteToolFailure('ada', 'mcp__hubspot__get_deal', 'HTTP 403 Forbidden', { now: 1000 }), { recorded: false }, 'a 403');
-  assert.deepEqual(cf.noteToolFailure('ada', 'mcp__hubspot__get_deal', 'Unknown tool: merge_contacts', { now: 1000 }), { recorded: false }, 'names another action');
+  assert.deepEqual(cf.noteToolFailure('roo', 'mcp__hubspot__merge_contacts', 'Unknown tool: merge_contacts', { now: 1000 }), { recorded: true, outcome: 'not-offered' });
+  assert.deepEqual(cf.noteToolFailure('roo', 'Bash', 'Unknown tool: Bash', { now: 1000 }), { recorded: false }, 'not a plugin tool');
+  assert.deepEqual(cf.noteToolFailure('roo', 'mcp__hubspot__get_deal', 'HTTP 403 Forbidden', { now: 1000 }), { recorded: false }, 'a 403');
+  assert.deepEqual(cf.noteToolFailure('roo', 'mcp__hubspot__get_deal', 'Unknown tool: merge_contacts', { now: 1000 }), { recorded: false }, 'names another action');
   const l = cf.list({ now: 2000 });
   assert.equal(l.length, 1);
   assert.equal(l[0].name, 'hubspot');
   assert.equal(l[0].kind, 'other');
-  assert.deepEqual(l[0].actions.map((a) => [a.action, a.outcome, a.how, a.by]), [['merge_contacts', 'not-offered', 'auto', 'ada']]);
+  assert.deepEqual(l[0].actions.map((a) => [a.action, a.outcome, a.how, a.by]), [['merge_contacts', 'not-offered', 'auto', 'roo']]);
 });
 
 test('record: the latest outcome per action wins, repeats count, and what does not work lists first', () => {
   reset();
-  assert.deepEqual(cf.record({ service: 'GitHub', action: 'create release', outcome: 'needs-scope', by: 'ada', kind: 'kosmos', now: 1000 }), { ok: true });
-  assert.deepEqual(cf.record({ service: 'github', action: 'create release', outcome: 'needs-scope', by: 'ben', kind: 'kosmos', now: 2000 }), { ok: true });
-  assert.deepEqual(cf.record({ service: 'GitHub', action: 'open pull request', outcome: 'works', by: 'ada', kind: 'kosmos', now: 3000 }), { ok: true });
-  assert.deepEqual(cf.record({ service: 'GitHub', action: 'delete repo', outcome: 'needs-permission', by: 'ada', kind: 'kosmos', now: 2500, note: 'the token is read only' }), { ok: true });
+  assert.deepEqual(cf.record({ service: 'GitHub', action: 'create release', outcome: 'needs-scope', by: 'roo', kind: 'kosmos', now: 1000 }), { ok: true });
+  assert.deepEqual(cf.record({ service: 'github', action: 'create release', outcome: 'needs-scope', by: 'pixel', kind: 'kosmos', now: 2000 }), { ok: true });
+  assert.deepEqual(cf.record({ service: 'GitHub', action: 'open pull request', outcome: 'works', by: 'roo', kind: 'kosmos', now: 3000 }), { ok: true });
+  assert.deepEqual(cf.record({ service: 'GitHub', action: 'delete repo', outcome: 'needs-permission', by: 'roo', kind: 'kosmos', now: 2500, note: 'the token is read only' }), { ok: true });
   const [g] = cf.list({ now: 4000 });
   assert.equal(g.name, 'GitHub', 'the first spelling is kept');
   assert.equal(g.kind, 'kosmos');
@@ -77,10 +77,10 @@ test('record: the latest outcome per action wins, repeats count, and what does n
   assert.deepEqual(g.actions.map((a) => a.action), ['delete repo', 'create release', 'open pull request'], 'not working first, newest first');
   const cr = g.actions.find((a) => a.action === 'create release');
   assert.equal(cr.n, 2);
-  assert.equal(cr.by, 'ben');
+  assert.equal(cr.by, 'pixel');
   assert.equal(cr.words, 'Needs a wider sign-in');
   // A later success replaces the failure.
-  cf.record({ service: 'GitHub', action: 'create release', outcome: 'works', by: 'ada', kind: 'kosmos', now: 5000 });
+  cf.record({ service: 'GitHub', action: 'create release', outcome: 'works', by: 'roo', kind: 'kosmos', now: 5000 });
   const g2 = cf.list({ now: 6000 })[0];
   assert.equal(g2.actions.find((a) => a.action === 'create release').outcome, 'works');
   assert.equal(g2.actions.find((a) => a.action === 'create release').n, 1, 'a change of outcome restarts the count');
@@ -88,26 +88,26 @@ test('record: the latest outcome per action wins, repeats count, and what does n
 
 test('review 3: an automatic finding never replaces a hand record; a hand works clears an automatic one in either row', () => {
   reset();
-  cf.record({ service: 'hubspot', action: 'update_deal', outcome: 'works', by: 'ben', now: 1000 });
-  assert.deepEqual(cf.noteToolFailure('ada', 'mcp__hubspot__update_deal', 'Unknown tool: update_deal', { now: 2000 }), { recorded: false });
+  cf.record({ service: 'hubspot', action: 'update_deal', outcome: 'works', by: 'pixel', now: 1000 });
+  assert.deepEqual(cf.noteToolFailure('roo', 'mcp__hubspot__update_deal', 'Unknown tool: update_deal', { now: 2000 }), { recorded: false });
   let a = cf.list({ now: 3000 })[0].actions[0];
-  assert.deepEqual([a.action, a.outcome, a.by, a.how], ['update_deal', 'works', 'ben', 'agent'], 'the hand record stands');
-  cf.record({ service: 'hubspot', action: 'update_deal', outcome: 'needs-permission', by: 'ada', now: 4000 });
+  assert.deepEqual([a.action, a.outcome, a.by, a.how], ['update_deal', 'works', 'pixel', 'agent'], 'the hand record stands');
+  cf.record({ service: 'hubspot', action: 'update_deal', outcome: 'needs-permission', by: 'roo', now: 4000 });
   a = cf.list({ now: 5000 })[0].actions[0];
   assert.equal(a.outcome, 'needs-permission', 'a hand record does replace a hand record');
   reset();
-  cf.noteToolFailure('ada', 'mcp__plugin_github_github__create_pull_request', 'Unknown tool: create_pull_request', { now: 1000 });
+  cf.noteToolFailure('roo', 'mcp__plugin_github_github__create_pull_request', 'Unknown tool: create_pull_request', { now: 1000 });
   assert.equal(cf.list({ now: 1500 }).length, 1, 'CONTROL: the automatic finding is there');
-  cf.record({ service: 'GitHub', action: 'Create Pull-Request', outcome: 'works', by: 'ben', kind: 'kosmos', now: 2000 });
+  cf.record({ service: 'GitHub', action: 'Create Pull-Request', outcome: 'works', by: 'pixel', kind: 'kosmos', now: 2000 });
   const l = cf.list({ now: 3000 });
   assert.deepEqual(l.map((x) => [x.name, x.kind, x.actions.map((y) => [y.action, y.outcome])]), [['GitHub', 'kosmos', [['Create Pull-Request', 'works']]]]);
 });
 
 test('review 4: a hand record names a plugin as the hook does, so it lands on the same row and clears it', () => {
   reset();
-  cf.noteToolFailure('ada', 'mcp__claude_ai_Google_Drive__export_file', 'Unknown tool: export_file', { now: 1000 });
+  cf.noteToolFailure('roo', 'mcp__claude_ai_Google_Drive__export_file', 'Unknown tool: export_file', { now: 1000 });
   assert.equal(cf.list({ now: 1500 })[0].name, 'Google Drive', 'CONTROL: the automatic row');
-  cf.record({ service: 'claude_ai_Google_Drive', action: 'export_file', outcome: 'works', by: 'ben', now: 2000 });
+  cf.record({ service: 'claude_ai_Google_Drive', action: 'export_file', outcome: 'works', by: 'pixel', now: 2000 });
   const l = cf.list({ now: 3000 });
   assert.deepEqual(l.map((s) => [s.name, s.actions.map((a) => [a.action, a.outcome, a.how])]), [['Google Drive', [['export_file', 'works', 'agent']]]]);
   assert.equal(cf.list({ service: 'claude_ai_Google_Drive', now: 3000 }).length, 1, '--found with the server name finds it');
@@ -116,8 +116,8 @@ test('review 4: a hand record names a plugin as the hook does, so it lands on th
 
 test('review 4: at the service cap, services with only automatic findings go first', () => {
   reset();
-  cf.record({ service: 'Kept', action: 'x', outcome: 'needs-scope', by: 'ada', now: 1 });
-  for (let i = 0; i < cf.MAX_SERVICES + 3; i++) cf.noteToolFailure('ada', 'mcp__svc' + i + '__x', 'Unknown tool: x', { now: 100 + i });
+  cf.record({ service: 'Kept', action: 'x', outcome: 'needs-scope', by: 'roo', now: 1 });
+  for (let i = 0; i < cf.MAX_SERVICES + 3; i++) cf.noteToolFailure('roo', 'mcp__svc' + i + '__x', 'Unknown tool: x', { now: 100 + i });
   const names = cf.list({ now: 1000 }).map((s) => s.name);
   assert.equal(names.length, cf.MAX_SERVICES);
   assert.ok(names.includes('Kept'), 'the hand record outlives newer automatic rows');
@@ -126,17 +126,17 @@ test('review 4: at the service cap, services with only automatic findings go fir
 
 test('review 3: action names match whatever their case, spaces, underscores or hyphens, shown as first recorded', () => {
   reset();
-  cf.record({ service: 'Linear', action: 'Create Issue', outcome: 'needs-scope', by: 'ada', now: 1000 });
-  cf.record({ service: 'linear', action: 'create_issue', outcome: 'needs-scope', by: 'ben', now: 2000 });
+  cf.record({ service: 'Linear', action: 'Create Issue', outcome: 'needs-scope', by: 'roo', now: 1000 });
+  cf.record({ service: 'linear', action: 'create_issue', outcome: 'needs-scope', by: 'pixel', now: 2000 });
   const acts = cf.list({ now: 3000 })[0].actions;
   assert.equal(acts.length, 1);
-  assert.deepEqual([acts[0].action, acts[0].n, acts[0].by], ['Create Issue', 2, 'ben']);
+  assert.deepEqual([acts[0].action, acts[0].n, acts[0].by], ['Create Issue', 2, 'pixel']);
 });
 
 test('review 2: a plugin and a Kosmos connection of the same name are two rows, never one', () => {
   reset();
-  cf.noteToolFailure('ada', 'mcp__plugin_github_github__create_pull_request', 'Unknown tool: create_pull_request', { now: 1000 });
-  cf.record({ service: 'GitHub', action: 'create release', outcome: 'needs-scope', by: 'ben', kind: 'kosmos', now: 2000 });
+  cf.noteToolFailure('roo', 'mcp__plugin_github_github__create_pull_request', 'Unknown tool: create_pull_request', { now: 1000 });
+  cf.record({ service: 'GitHub', action: 'create release', outcome: 'needs-scope', by: 'pixel', kind: 'kosmos', now: 2000 });
   const l = cf.list({ now: 3000 });
   assert.deepEqual(l.map((s) => [s.name, s.kind, s.actions.map((a) => a.action)]).sort(),
     [['GitHub', 'kosmos', ['create release']], ['github', 'other', ['create_pull_request']]]);
@@ -146,23 +146,23 @@ test('review 2: a plugin and a Kosmos connection of the same name are two rows, 
 test('review 2: a service or action named like an Object property is an ordinary name', () => {
   reset();
   for (const n of ['constructor', 'toString', 'hasOwnProperty']) {
-    assert.deepEqual(cf.record({ service: n, action: n, outcome: 'works', by: 'ada', now: 1000 }), { ok: true }, n);
+    assert.deepEqual(cf.record({ service: n, action: n, outcome: 'works', by: 'roo', now: 1000 }), { ok: true }, n);
   }
   assert.deepEqual(cf.list({ now: 2000 }).map((s) => s.name).sort(), ['constructor', 'hasOwnProperty', 'toString']);
 });
 
 test('review 2: direction marks and C1 controls in a note are taken out', () => {
   reset();
-  assert.deepEqual(cf.record({ service: 'Notion', action: 'search', outcome: 'works', by: 'ada', now: 1000, note: 'ok \u202eevil\u202c and \u0085 done' }), { ok: true });
+  assert.deepEqual(cf.record({ service: 'Notion', action: 'search', outcome: 'works', by: 'roo', now: 1000, note: 'ok \u202eevil\u202c and \u0085 done' }), { ok: true });
   const note = cf.list({ now: 2000 })[0].actions[0].note;
   assert.equal(note, 'ok evil and done');
   // Review 3: zero-width characters could split a key past the note check; the redactor refuses such a note outright.
-  assert.match(cf.record({ service: 'Notion', action: 'list', outcome: 'works', by: 'ada', now: 1000, note: 'ghp_\u200bA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8' }).because, /looks like it holds a key/);
+  assert.match(cf.record({ service: 'Notion', action: 'list', outcome: 'works', by: 'roo', now: 1000, note: 'ghp_\u200bA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8' }).because, /looks like it holds a key/);
 });
 
 test('record refuses what it cannot keep honestly', () => {
   reset();
-  const base = { service: 'Notion', action: 'search', outcome: 'works', by: 'ada', now: 1000 };
+  const base = { service: 'Notion', action: 'search', outcome: 'works', by: 'roo', now: 1000 };
   assert.match(cf.record({ ...base, outcome: 'maybe' }).because, /outcome is one of/);
   assert.match(cf.record({ ...base, service: '' }).because, /service/);
   assert.match(cf.record({ ...base, action: '<script>' }).because, /action/);
@@ -178,15 +178,15 @@ test('record refuses what it cannot keep honestly', () => {
 
 test('findings expire after 30 days, and each service keeps at most MAX_ACTIONS', () => {
   reset();
-  cf.record({ service: 'Linear', action: 'old', outcome: 'failed', by: 'ada', now: 1000 });
+  cf.record({ service: 'Linear', action: 'old', outcome: 'failed', by: 'roo', now: 1000 });
   assert.equal(cf.list({ now: 1000 + cf.KEEP_MS - 1 }).length, 1);
   assert.equal(cf.list({ now: 1000 + cf.KEEP_MS + 1 }).length, 0, 'expired');
   reset();
-  cf.noteToolFailure('ada', 'mcp__crm__x', 'Unknown tool: x', { now: 1000 });
+  cf.noteToolFailure('roo', 'mcp__crm__x', 'Unknown tool: x', { now: 1000 });
   assert.equal(cf.list({ now: 1000 + cf.KEEP_AUTO_MS - 1 }).length, 1);
   assert.equal(cf.list({ now: 1000 + cf.KEEP_AUTO_MS + 1 }).length, 0, 'an automatic finding expires after a week');
   reset();
-  for (let i = 0; i < cf.MAX_ACTIONS + 5; i++) cf.record({ service: 'Linear', action: 'a' + i, outcome: 'works', by: 'ada', now: 1000 + i });
+  for (let i = 0; i < cf.MAX_ACTIONS + 5; i++) cf.record({ service: 'Linear', action: 'a' + i, outcome: 'works', by: 'roo', now: 1000 + i });
   const acts = cf.list({ now: 5000 })[0].actions.map((a) => a.action);
   assert.equal(acts.length, cf.MAX_ACTIONS);
   assert.ok(!acts.includes('a0') && acts.includes('a' + (cf.MAX_ACTIONS + 4)), 'the oldest were dropped');
@@ -196,21 +196,21 @@ test('an unreadable store reads as nothing found, and the next record starts it 
   fs.mkdirSync(store.ROOT, { recursive: true });
   fs.writeFileSync(path.join(store.ROOT, 'connfound.json'), '{not json');
   assert.deepEqual(cf.list(), []);
-  assert.deepEqual(cf.record({ service: 'Exa', action: 'search', outcome: 'works', by: 'ada' }), { ok: true });
+  assert.deepEqual(cf.record({ service: 'Exa', action: 'search', outcome: 'works', by: 'roo' }), { ok: true });
   assert.equal(cf.list().length, 1);
 });
 
 test('renderLines: what both CLIs print, plain and with no em dash', () => {
   reset();
   assert.deepEqual(cf.renderLines([], 0), ['No agent has recorded what works on a connection yet.']);
-  cf.noteToolFailure('ada', 'mcp__hubspot__merge_contacts', 'Unknown tool: merge_contacts', { now: 0 });
-  cf.noteToolFailure('ada', 'mcp__hubspot__merge_contacts', 'Unknown tool: merge_contacts', { now: 60000 });
-  cf.record({ service: 'hubspot', action: 'search', outcome: 'works', by: 'ben', now: 0, note: 'contacts and deals' });
+  cf.noteToolFailure('roo', 'mcp__hubspot__merge_contacts', 'Unknown tool: merge_contacts', { now: 0 });
+  cf.noteToolFailure('roo', 'mcp__hubspot__merge_contacts', 'Unknown tool: merge_contacts', { now: 60000 });
+  cf.record({ service: 'hubspot', action: 'search', outcome: 'works', by: 'pixel', now: 0, note: 'contacts and deals' });
   const lines = cf.renderLines(cf.list({ now: 120000 }), 120000);
   assert.deepEqual(lines, [
     'hubspot (outside Kosmos): 1 action does not work',
-    '  merge_contacts: The service does not offer this (seen on a refused call by ada, 1 minute ago, 2 times)',
-    '  search: Works (recorded by ben, 2 minutes ago) - contacts and deals',
+    '  merge_contacts: The service does not offer this (seen on a refused call by roo, 1 minute ago, 2 times)',
+    '  search: Works (recorded by pixel, 2 minutes ago) - contacts and deals',
   ]);
   assert.ok(lines.every((l) => !l.includes('\u2014')));
   assert.deepEqual(cf.renderLines([], 0, 'Acme CRM'), ['No agent has recorded anything about Acme CRM yet.'], 'a service asked for is named');

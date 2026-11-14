@@ -48937,7 +48937,7 @@ function cfServiceHtml(s) {
   const rows = (s.actions || []).map((a) => '<li><span class="cf-act">' + esc(a.action) + '</span>'
     + '<span class="cf-words' + (a.outcome === 'works' ? ' cf-ok' : '') + '">' + esc(a.words || '') + '</span>'
     + '<span class="cf-meta">' + (a.how === 'auto' ? 'Seen on a refused call by ' : 'Recorded by ') + esc(a.by || 'an agent') + ', ' + esc(cfAgo(a.at))
-    + (a.n > 1 ? ', ' + a.n + ' times' : '') + (a.note ? '. ' + esc(a.note.charAt(0).toUpperCase() + a.note.slice(1)) : '') + '</span></li>').join('');
+    + (a.n > 1 ? ', ' + a.n + ' times' : '') + (a.note ? '. ' + esc(asSentence(a.note)) : '') + '</span></li>').join('');
   return '<details class="con-cat cf-svc"><summary><b>' + esc(s.name) + '</b><span class="con-state">' + esc(state) + '</span>'
     + '<svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>'
     + '<div class="con-body"><ul class="cf-acts">' + rows + '</ul></div></details>';
