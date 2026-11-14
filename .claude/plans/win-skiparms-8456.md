@@ -106,3 +106,12 @@ project block written after the start, and a task line naming another file: each
 - The allowlist and half-removed arms write the real task definition on Windows (`jobfix.jobFor`), not `<plist/>`.
 - Acts are matched by verb, value and flags in any order (`jobfix.argsMatch`), not exact strings.
 - The wont-unload arm resets the scheduler; the 2570 file undoes its module-level scheduler watch in `test.after`.
+
+## Review round 6
+- The #2019 controls share one try whose finally puts the restart clock back, whichever control fails.
+- The stand-in already refused `/Run` on a switched-off task; it now answers with exit 1 and says where its text comes
+  from (SCHED_E_TASK_DISABLED, "The task is disabled."; approximated, not measured). A restore that runs before it
+  enables now fails the round-trip arm.
+- The wont-unload watch is installed inside its try; `clearSurvivors()` is gone (reset() covers it); the header lists
+  `started()`. The model-route arm matches taskkill and schtasks with or without `.exe`. The exactly-one-start checks
+  stay, with a comment: a double start is the regression they guard.

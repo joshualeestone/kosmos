@@ -572,7 +572,7 @@ const projectsMod = require('./projects');
    (test-support/jobfixture) is asked to /Run it; create's runner does not read there, so nothing else can be taken
    for the start. `.text` stays null until the start happens; `.stop()` ends the watch. `.runs` counts the /Run calls
    on Windows (kosmos#8456 review 3), where a second start is not otherwise seen: Task Scheduler ignores a /Run on a
-   task that is running. */
+   task that is running. The arms assert exactly one, deliberately: a double start is the regression they guard. */
 function startWatch(file) {
   const seen = { text: null, stop: null, runs: 0 };
   const read = () => {

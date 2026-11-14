@@ -205,8 +205,11 @@ function stubAnswer(dir) {
     }
     if (verb === '/Run') {
       if (!exists()) return { ok: false, out: NOT_FOUND };
-      // A switched-off task does not start: Task Scheduler refuses /Run on it, so a test never reads a start that was not.
-      if (switchedOff(fs.readFileSync(file, 'utf8'))) return { ok: false, out: 'ERROR: The task is disabled.' };
+      /* A switched-off task does not start: Task Scheduler refuses /Run on it (schtasks exits non-zero), so a test never
+         reads a start that was not. The text is the system message for SCHED_E_TASK_DISABLED (0x80041326), "The task
+         is disabled.", behind schtasks' "ERROR: " prefix; approximated, not measured here, since a test on this box
+         may not run schtasks against a real task. */
+      if (switchedOff(fs.readFileSync(file, 'utf8'))) return { ok: false, code: 1, out: 'ERROR: The task is disabled.' };
       /* A started task runs the agent's supervisor, whose first act is the ownership row win32create.awaitSession
          waits for (win32create.prepareSession). The stand-in writes that row, under the name and runner on the task's
          line, into the sandboxed store, as engine/create.test.js's own Windows runner does. */
@@ -328,13 +331,14 @@ const TABLE_PID_BASE = 2000000000;
                            with its own pid, and the state file its supervisor writes (win32streamstate), which is what
                            a restart reads to see the new supervisor came up. Its task, when it has one, is marked
                            running too, as it is when the agent came up from its /Run. Returns { sessionId, pid }.
-      a stand-in /Run      the same, for the task's agent, while the table is installed: starting the task starts it.
+      a stand-in /Run      the same, for the task's agent, while the table is installed: starting the task starts it
+                           (through started(name, sessionId, runner), which the stand-in Task Scheduler calls).
+      started(name, sessionId, runner)  the live entry and state file for an ownership row already recorded.
       taskkill             ends the entry with that pid (gone from the live list, its supervisor's state file cleared),
                            answering as taskkill does; a pid it does not hold answers "not found" (exit 128).
       pidOf(name)          the pid that agent is running under now, or null when it is not running.
       survive(name)        the next kills of that agent answer SUCCESS and leave it running, so a test can show the
-                           look-again catches a kill that did not take. Returns the undo; clearSurvivors() undoes
-                           them all.
+                           look-again catches a kill that did not take. Returns the undo; reset() undoes them all.
       neverComesUp(name, { stale })  that agent's task runs at its next /Run but its supervisor never starts: no
                            ownership row, no live entry, no new state file, so a restart's "did it come up" check must
                            answer no. With stale: true its kill also leaves the OLD state file in place (a dying
@@ -455,7 +459,6 @@ function win32Processes(opts) {
       survivors.add(name);
       return () => { survivors.delete(name); };
     },
-    clearSurvivors() { survivors.clear(); },
     neverComesUp(name, how) {
       down.set(name, { stale: Boolean(how && how.stale) });
       return () => { down.delete(name); };

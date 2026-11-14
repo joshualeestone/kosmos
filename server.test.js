@@ -3294,6 +3294,8 @@ test('the create route answers a real creation with the record the screen is bui
     assert.ok(started, 'the job was never loaded, so nothing would start');
     // kosmos#8456 review 3: and started once (a second /Run on Windows is ignored while it runs, so it would hide here).
     if (process.platform === 'win32') {
+      /* Exactly one, deliberately: a double start is the regression this guards, and Task Scheduler would hide it (a
+         second /Run on a running task starts nothing), so a count of at least one could not see it. */
       assert.equal(scheduled.filter((a) => a[0] === '/Run' && a[a.indexOf('/TN') + 1] === tn).length, 1, 'the agent was started more than once');
     }
 
@@ -5916,11 +5918,7 @@ test('a job that is disabled but will not unload is recorded, not reported as un
      not end, and every act is watched there, where the Windows removal makes them. */
   const scheduled = [];
   const tn = process.platform === 'win32' ? require('./engine/win32job').taskName('wont-unload') : null;
-  const unwatch = jobfix.watchScheduler((a) => {
-    scheduled.push(a);
-    if (a[0] === '/End' && a[a.indexOf('/TN') + 1] === tn) return { ok: false, out: 'ERROR: Access is denied.' };
-    return undefined;
-  });
+  let unwatch = () => {};
   const removalCalls = [];
   removal.setRunner((f, a) => {
     removalCalls.push([String(f), a]);
@@ -5934,6 +5932,11 @@ test('a job that is disabled but will not unload is recorded, not reported as un
   });
   removal.setDryRun(false);
   try {
+    unwatch = jobfix.watchScheduler((a) => {   // review 6: installed inside the try whose finally removes it
+      scheduled.push(a);
+      if (a[0] === '/End' && a[a.indexOf('/TN') + 1] === tn) return { ok: false, out: 'ERROR: Access is denied.' };
+      return undefined;
+    });
     const res = await req('/api/agent/wont-unload/removal', { method: 'DELETE' });
     const done = JSON.parse(res.body);
     assert.equal(done.outcome, 'partial',
@@ -10934,9 +10937,11 @@ test('the model route writes the choice AND restarts, because either alone is a 
        (a task re-reads its command line when it is run, as launchd does at a bootstrap). */
     const tn = procs ? require('./engine/win32job').taskName(name) : null;
     // review 5: the verb, the /PID or /TN value and the flags, in any order (jobfix.argsMatch).
-    assert.ok(calls.some((c) => (procs ? /taskkill\.exe$/i.test(c[0]) && jobfix.argsMatch(c[1], { values: { '/PID': pid }, flags: ['/T', '/F'] }) : c[1][0] === 'kill-session')),
+    // review 6: the program by name, with or without .exe, as jobfix.win32Step reads it.
+    const prog = (f) => nodePath.win32.basename(String(f)).toLowerCase().replace(/\.exe$/, '');
+    assert.ok(calls.some((c) => (procs ? prog(c[0]) === 'taskkill' && jobfix.argsMatch(c[1], { values: { '/PID': pid }, flags: ['/T', '/F'] }) : c[1][0] === 'kill-session')),
       'nothing closed the window, so the supervisor would adopt an agent still on the old model');
-    assert.ok(calls.some((c) => (procs ? /schtasks\.exe$/i.test(c[0]) && jobfix.argsMatch(c[1], { first: '/Run', values: { '/TN': tn } }) : startsJob(c[0], c[1]))),
+    assert.ok(calls.some((c) => (procs ? prog(c[0]) === 'schtasks' && jobfix.argsMatch(c[1], { first: '/Run', values: { '/TN': tn } }) : startsJob(c[0], c[1]))),
       'launchd was never re-bootstrapped, so it keeps the arguments it already had');
 
     /* A model nobody offers is refused before anything is written. */
@@ -11024,25 +11029,29 @@ test('#2019: the restart route threads an optional cause, and a bodyless POST st
       const win32job = require('./engine/win32job');
       let t = 0;
       win32job.setRunningClock(() => (t += 7000));
-      const stayDown = procs.neverComesUp(name);
+      // review 6: one try for both controls, so the fast clock is put back whichever of them fails.
       try {
-        const dead = await req('/api/agent/' + name + '/restart', { method: 'POST' });
-        assert.equal(JSON.parse(dead.body).outcome, 'partial',
-          'a restart whose agent never came back was answered as restarted: ' + dead.body);
+        const stayDown = procs.neverComesUp(name);
+        try {
+          const dead = await req('/api/agent/' + name + '/restart', { method: 'POST' });
+          assert.equal(JSON.parse(dead.body).outcome, 'partial',
+            'a restart whose agent never came back was answered as restarted: ' + dead.body);
+        } finally {
+          stayDown();
+        }
+        /* review 5: and the case the restart's pre-restart identity (`before`) is there for. The agent is running again,
+           and its kill leaves the dying supervisor's state file behind, naming a pid that is alive: only telling that
+           file's session from a new one keeps the restart from reading it as the agent come back. */
+        procs.start(name);
+        const staleDown = procs.neverComesUp(name, { stale: true });
+        try {
+          const stale = await req('/api/agent/' + name + '/restart', { method: 'POST' });
+          assert.equal(JSON.parse(stale.body).outcome, 'partial',
+            "a restart read the dying supervisor's leftover state file as the agent come back: " + stale.body);
+        } finally {
+          staleDown();
+        }
       } finally {
-        stayDown();
-      }
-      /* review 5: and the case the restart's pre-restart identity (`before`) is there for. The agent is running again,
-         and its kill leaves the dying supervisor's state file behind, naming a pid that is alive: only telling that
-         file's session from a new one keeps the restart from reading it as the agent come back. */
-      procs.start(name);
-      const staleDown = procs.neverComesUp(name, { stale: true });
-      try {
-        const stale = await req('/api/agent/' + name + '/restart', { method: 'POST' });
-        assert.equal(JSON.parse(stale.body).outcome, 'partial',
-          "a restart read the dying supervisor's leftover state file as the agent come back: " + stale.body);
-      } finally {
-        staleDown();
         win32job.setRunningClock(null);
       }
     }
