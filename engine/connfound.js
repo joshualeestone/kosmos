@@ -188,8 +188,14 @@ function writeAll(services) {
 function record(f) {
   const x = f || {};
   const now = Number.isFinite(x.now) ? x.now : Date.now();
+  /* Review 6: a name over the limit is refused, not quietly cut; and a name that looks like a key is refused like a note,
+     since names are shown on the page and in every agent's listing. */
+  if (String(x.service == null ? '' : x.service).trim().length > MAX_NAME) return { ok: false, because: 'a service name is at most ' + MAX_NAME + ' characters' };
+  if (String(x.action == null ? '' : x.action).trim().length > MAX_NAME) return { ok: false, because: 'an action name is at most ' + MAX_NAME + ' characters' };
   const service = serverName(x.service);   // review 4: as the hook names it
   const action = clean(x.action, MAX_NAME);
+  const nameRefused = noteRefusal(service + ' ' + action);
+  if (nameRefused) return { ok: false, because: nameRefused.replace('that note looks', 'that name looks') };
   if (!NAME_RE.test(service)) return { ok: false, because: 'name the service in letters and numbers, up to ' + MAX_NAME + ' characters' };
   if (!NAME_RE.test(action)) return { ok: false, because: 'name the action in letters and numbers, up to ' + MAX_NAME + ' characters' };
   if (!OUTCOMES.includes(x.outcome)) return { ok: false, because: 'the outcome is one of: ' + OUTCOMES.join(', ') };
@@ -287,7 +293,7 @@ function ago(at, now) {
    drift. Pure over its input. */
 function renderLines(services, now, asked) {
   const t = Number.isFinite(now) ? now : Date.now();
-  if (!services.length) return [asked ? 'No agent has recorded anything about ' + clean(asked, MAX_NAME) + ' in the last 30 days.' : 'No agent has recorded what works on a connection yet, in the last 30 days.'];
+  if (!services.length) return [asked ? 'No agent has recorded anything about ' + clean(asked, MAX_NAME) + ' yet.' : 'No agent has recorded what works on a connection yet.'];
   const out = [];
   for (const s of services) {
     out.push(s.name + (s.kind === 'kosmos' ? '' : ' (outside Kosmos)') + ': ' + (s.notWorking ? s.notWorking + (s.notWorking === 1 ? ' action does not work' : ' actions do not work') : 'everything tried works'));

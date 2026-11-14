@@ -3734,7 +3734,7 @@ cmd_connections() {
     local _fbt; _fbt="$(agent_board_token || true)"
     local _fbody _fans _frc=0
     _fbody=$("$_fn" -e 'process.stdout.write(JSON.stringify({ service: process.argv[1], action: process.argv[2], outcome: process.argv[3], note: process.argv[4] || "", from_pane: process.argv[5] || "", outside: process.argv[6] === "true" }))' \
-      "$1" "$2" "$3" "${4:-}" "${TMUX_PANE:-}" "$_fout" 2>/dev/null) || { say "Kosmos could not put that into a request."; exit 1; }
+      -- "$1" "$2" "$3" "${4:-}" "${TMUX_PANE:-}" "$_fout" 2>/dev/null)   # review 6: -- so a name starting with - is an argument || { say "Kosmos could not put that into a request."; exit 1; }
     _fans=$(printf '%s' "$_fbody" | kosmos_curl "$_fbt" "$_cf_tok" -sS -m 15 -X POST "$URL/api/connections/found" -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _frc=$?
     if [ "$_frc" -ne 0 ]; then say_unreached "record that" "$_frc"; exit 1; fi
     printf '%s' "$_fans" | "$_fn" -e '
@@ -3756,7 +3756,7 @@ cmd_connections() {
     [ -f "$_gm" ] || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
     local _gbt; _gbt="$(board_token || true)"
     local _gq="" _gbody _grc=0 _grc2=0
-    [ -n "${2:-}" ] && _gq="?service=$("$_gn" -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$2")"
+    if [ -n "${2:-}" ]; then _gq="?service=$("$_gn" -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' -- "$2")"; fi
     _gbody=$(kosmos_curl "$_gbt" "$_cf_tok" -sS -m 15 "$URL/api/connections/found$_gq" 2>/dev/null) || _grc=$?
     if [ "$_grc" -ne 0 ]; then say_unreached "read what agents found" "$_grc"; exit 1; fi
     printf '%s' "$_gbody" | "$_gn" -e '
@@ -3766,7 +3766,7 @@ cmd_connections() {
         if (j && !Array.isArray(j.services) && typeof j.error === "string") { console.error("Kosmos refused that request: " + j.error + "."); process.exit(3); }
         if (!j || !Array.isArray(j.services)) process.exit(1);
         for (const l of require(process.argv[1]).renderLines(j.services, Date.now(), process.argv[2] || "")) console.log(l);
-      });' "$_gm" "${2:-}" || _grc2=$?
+      });' -- "$_gm" "${2:-}" || _grc2=$?
     [ "$_grc2" -eq 3 ] && exit 1
     [ "$_grc2" -eq 0 ] || { say "Kosmos gave an answer we could not read about what agents found."; exit 1; }
     exit 0

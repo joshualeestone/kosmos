@@ -91,16 +91,23 @@ test('POST /api/connections/found names the caller from its token, files a Kosmo
   assert.equal(anon.json.recorded, false, 'no credential and no pane records nothing');
   const all = (await call('GET', '/api/connections/found', undefined, h)).json.services;
   const gh = all.find((s) => s.name === 'GitHub');
-  assert.equal(gh.kind, 'kosmos', 'a connection Kosmos makes is filed as Kosmos\'s');
+  // Review 6: this test's computer is not signed in to GitHub (held is null), so GitHub here is a plugin's name.
+  assert.equal(gh.kind, 'other', 'a Kosmos connection that is not set up here is not filed as Kosmos\'s');
   assert.equal(gh.actions[0].by, 'leo', 'the token decides who found it, not the body\'s "from"');
   assert.equal(all.find((s) => s.name === 'Acme CRM').kind, 'other');
   const one = (await call('GET', '/api/connections/found?service=github', undefined, h)).json.services;
   assert.deepEqual(one.map((s) => s.name), ['GitHub'], '?service= narrows by the service key');
-  // Review 4: --outside files a plugin of the same name apart from Kosmos's own connection.
-  const out = await call('POST', '/api/connections/found', { service: 'GitHub', action: 'create release', outcome: 'needs-scope', outside: true, from_pane: '' }, h);
+  // A connection that IS set up here (a Cloudflare token stored) is filed as Kosmos's; --outside files a plugin of the
+  // same name apart from it (review 4).
+  const cloudflare = require('./engine/cloudflare');
+  fs.mkdirSync(path.dirname(cloudflare.FILE), { recursive: true });
+  fs.writeFileSync(cloudflare.FILE, 'cf-test-token\n', { mode: 0o600 });
+  t.after(() => { try { fs.rmSync(cloudflare.FILE, { force: true }); } catch { /* none */ } });
+  assert.equal((await call('POST', '/api/connections/found', { service: 'Cloudflare', action: 'purge cache', outcome: 'needs-scope', from_pane: '' }, h)).json.recorded, true);
+  const out = await call('POST', '/api/connections/found', { service: 'Cloudflare', action: 'purge cache', outcome: 'needs-scope', outside: true, from_pane: '' }, h);
   assert.equal(out.json.recorded, true);
-  const both = (await call('GET', '/api/connections/found?service=github', undefined, h)).json.services;
-  assert.deepEqual(both.map((s) => s.kind).sort(), ['kosmos', 'other'], 'two rows: Kosmos\'s GitHub and the plugin');
+  const both = (await call('GET', '/api/connections/found?service=cloudflare', undefined, h)).json.services;
+  assert.deepEqual(both.map((s) => s.kind).sort(), ['kosmos', 'other'], 'two rows: Kosmos\'s Cloudflare and the plugin');
   // Review 5: a door Kosmos offers but this computer never connected is a plugin's name here, not Kosmos's connection.
   const notion = await call('POST', '/api/connections/found', { service: 'Notion', action: 'search', outcome: 'needs-permission', from_pane: '' }, h);
   assert.equal(notion.json.recorded, true);

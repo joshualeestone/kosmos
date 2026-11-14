@@ -135,3 +135,16 @@ what agents FOUND, and shows it to the person and to the next agent.
 - NITs left: the automatic path may rarely fire in practice (Claude Code refuses unknown tools itself, which is
   excluded), the safe direction; a McpError: lead is not read; "in the last 30 days" also covers 7-day automatic
   findings; the Mac says "could not read" on stdout as its existing listing does.
+
+#### Iteration 6 (opus, a final read of the whole branch; the reviewer would merge)
+- WARNING fixed (W1): "set up here" is held === true. GitHub and Vercel report null when this computer is not signed in,
+  and null passed the old check; the server test now proves both arms (a stored Cloudflare token files as Kosmos's;
+  an unsigned-in GitHub files as outside).
+- WARNING fixed (W2): service and action names go through the same key check as a note (they are shown on the page and
+  in every agent's listing), and a name over the limit is refused instead of cut.
+- NITs fixed: the copy no longer says "30 days" where automatic findings last 7 ("lately" on the page; "yet" in the
+  empty CLI line); the Mac CLI passes its arguments to node after "--", so a name starting with "-" is an argument
+  (tested, with a control on the previous script).
+- NITs left: a finding dropped at a cap still returns ok; a hand works on Kosmos's connection also clears the plugin's
+  automatic hint for that action (the safe direction, chosen on the card); a server name containing "__" splits early.
+- Converged: round 6 raised no BLOCKER and its two WARNINGs are fixed and pinned.
