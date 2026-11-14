@@ -941,43 +941,49 @@ function startsAgainWords(name, preview = false) {
       ? '; it starts on the model it was set to, but on your main account, because Kosmos did not record whose account was in the folder it used. Choose its account again if it should use another.'
       : '; it starts on your main account and the model it last ran, because Kosmos did not record whose account was in the folder it used. Choose its account and model again if it used others.';
   }
-  /* kosmos#8489: how many Start at logins that reach a kept folder and still cannot read or confirm its account are
-     left before it is dropped for good (create.WIN32_UNREADABLE_LIMIT), in the words: "the next Start at login that
-     reaches that folder", or "two (three) Start at logins that reach that folder". The same clause in every sentence
-     about a kept folder, so each says how many are left at every count. */
+  /* The three outcomes in which register.repair KEEPS the recorded folder (out of reach, could not read or confirm, and
+     the last such start before it is dropped) share their model sentence, and the first two how the folder is dropped.
+     The model is decided on its own (register.repair: rec.modelOk puts back the model it was set to, otherwise the
+     model it last ran) whatever happens to the folder, so the words lead with it in either case. Short sentences,
+     because a person reads these before deciding whether to remove a startup job. */
+  const keptModelWords = rec && rec.modelOk
+    ? '; it starts on the model it was set to.'
+    : '; it starts on the model it last ran, so choose its model again if it used another.';
+  /* A kept folder is dropped from the record by anything that writes the startup job again (create.recordWin32Task
+     drops a `kept` record): the account and model setters are the ones a person reaches for, and the rest is said so
+     the promise is not wider than the code. */
+  const keptForgetWords = 'Changing this agent\'s account or model makes Kosmos forget that folder, as does anything else that sets up its startup job again.';
+  /* How many Start at logins that reach a kept folder and cannot read or confirm its account are left before it is
+     dropped for good (create.WIN32_UNREADABLE_LIMIT). Only starts that reach the folder count (one out of reach neither
+     adds nor clears), so the words always say "that reach it". `more` when some have already failed, so a first count
+     reads "three", not "three more". */
   const NUMBER_WORDS = { 2: 'two', 3: 'three' };
   const reachingStarts = (n, more) => (n <= 1
-    ? 'the next Start at login that reaches that folder'
-    : `${NUMBER_WORDS[n] || n} ${more ? 'more ' : ''}Start at logins that reach that folder`);
-  /* kosmos#8489: the folder's account could not be read just now (Claude Code or codex writing its config at that
-     moment), which is not a changed account: the repair keeps the folder in the record and tries it again, as it does
-     a folder out of reach, so the words say that and never "signed out or changed". */
+    ? 'the next Start at login that reaches it'
+    : `${NUMBER_WORDS[n] || n} ${more ? 'more ' : ''}Start at logins that reach it`);
+  const dropWords = (n, more) => `if Kosmos cannot read or confirm the account in that folder at ${reachingStarts(n, more)}, it moves to your main account for good.`;
+  /* The folder's account could not be read just now (Claude Code or codex writing its config at that moment), which is
+     not a changed account: the repair keeps the folder in the record and tries it again, as it does a folder out of
+     reach, so the words say that and never "signed out or changed". The reason is the engine's
+     (create.win32RecordedTask unreadableReason): a failed read, or a read that cannot confirm the same account. */
   if (rec && rec.accountWhy === 'unreadable') {
-    /* True only while nothing rewrites the agent's startup job, which records what it wrote (the main account) and so
-       forgets the kept folder; the words say so. The reason is the one the engine knows
-       (create.win32RecordedTask unreadableReason): a failed read, or a read that cannot confirm the same account. */
     const lead = rec.unreadableReason === 'confirm'
-      ? 'Kosmos could not confirm that the account folder it last used still holds the account it used before, so it starts on your main account unless it can confirm that by then.'
-      : 'Kosmos could not read which account is signed in to the account folder it last used, so it starts on your main account unless it can read that by then and it is still the same account.';
+      ? 'Kosmos could not confirm that the account folder it last used still holds the account it used before. So it starts on your main account, unless Kosmos can confirm that by then.'
+      : 'Kosmos could not read which account is signed in to the account folder it last used. So it starts on your main account, unless by then Kosmos can read that account and it is still the same one.';
     // The coming Start at login is one of those left (unreadableLeft counts it), so the rest are the ones after it.
     const after = Math.max(1, (rec.unreadableLeft || 1) - 1);
-    const unread = lead + ' If it still cannot, Kosmos keeps that folder and tries it again at later Start at logins, unless its startup job is written again before then (changing its account or model does that), which forgets that folder. After that, if ' + reachingStarts(after, true) + ' still cannot read or confirm the account in it, it moves to your main account for good.';
-    return rec.modelOk
-      ? '; it starts on the model it was set to, but ' + unread
-      : '; it starts on the model it last ran, so choose its model again if it used another. ' + unread;
+    return `${keptModelWords} ${lead} If Kosmos still cannot, it keeps that folder and tries it again at later Start at logins. After that, ${dropWords(after, true)} ${keptForgetWords}`;
   }
-  /* kosmos#8489: the third Start at login in a row that could not read it (create.WIN32_UNREADABLE_LIMIT) drops the
-     folder for good. Hedged, because these words are read before that Start at login (the plan and outcome of the
-     task-only delete, Restore), and a config that reads cleanly by then puts the folder back. The reason now is the
-     engine's; the two before are said only as "could not confirm", true whichever reason they had, and as "two earlier
-     Start at logins", not "the two before", since a start that could not reach the folder may sit between them. */
+  /* The last Start at login (create.WIN32_UNREADABLE_LIMIT) that could not read it drops the folder for good. Hedged,
+     because these words are read before that Start at login (the plan and outcome of the task-only delete, Restore), and
+     a config that reads cleanly by then puts the folder back; a start that cannot reach the folder keeps it as it is,
+     hence "that reaches it". The two before are said only as "could not confirm", true whichever reason they had, and as
+     "two earlier Start at logins", not "the two before", since a start that could not reach the folder may sit between. */
   if (rec && rec.accountWhy === 'unreadableGaveUp') {
     const unread = rec.unreadableReason === 'confirm'
-      ? 'Kosmos could not confirm that the account folder it last used still holds the account it used before, now or at two earlier Start at logins, so at the next Start at login it moves to your main account for good, unless it can confirm that by then. Choose its account again if it should use another.'
-      : 'Kosmos could not read which account is signed in to the account folder it last used, and could not confirm that account at two earlier Start at logins either, so at the next Start at login it moves to your main account for good, unless it can read that account by then and it is still the same one. Choose its account again if it should use another.';
-    return rec.modelOk
-      ? '; it starts on the model it was set to, but ' + unread
-      : '; it starts on the model it last ran, so choose its model again if it used another. ' + unread;
+      ? 'Kosmos could not confirm that the account folder it last used still holds the account it used before, now or at two earlier Start at logins. So it starts on your main account, unless Kosmos can confirm that by then. If Kosmos still cannot at the next Start at login that reaches that folder, it moves to your main account for good.'
+      : 'Kosmos could not read which account is signed in to the account folder it last used. It could not confirm that account at two earlier Start at logins either. So it starts on your main account, unless by then Kosmos can read that account and it is still the same one. If Kosmos still cannot at the next Start at login that reaches that folder, it moves to your main account for good.';
+    return `${keptModelWords} ${unread} Choose its account again if it should use another.`;
   }
   const notThere = {
     changed: 'because the account in the folder it used has signed out or changed',
@@ -988,16 +994,15 @@ function startsAgainWords(name, preview = false) {
       ? `; it starts on the model it was set to, but on your main account, ${notThere}, so choose its account again if it should use another.`
       : `; it starts on your main account, ${notThere}, and on the model it last ran, so choose its account and model again if it used others.`;
   }
-  if (rec && rec.modelOk) {
-    /* round 1: statSync cannot tell a deleted account folder from one on a disk or shared folder that is not connected,
-       so this says "cannot reach" as the rest of this file does, and the repair keeps the folder in the record so it
-       comes back on it at the next Start at login, if no change to the agent rewrites its task first. round 3: and only
-       while it still holds the account it was recorded with. kosmos#8489: the last sentence says the rewrite part, so
-       the promise is not wider than the code, and, when earlier Start at logins could not read or confirm the account
-       in that folder (the count carries through a start that cannot reach it), how many more such starts drop it. */
+  /* statSync cannot tell a deleted account folder from one on a disk or shared folder that is not connected, so this
+     says "cannot reach" as the rest of this file does. The repair keeps the folder in the record whatever the model
+     (the model is decided on its own), so an agent whose model is no longer offered gets these words too, never the
+     plain "main account" ones: a folder that is back by then and holds the same account is what its task is written
+     on. Only while it still holds the account it was recorded with; the count of earlier starts that reached it and
+     could not read or confirm that account carries through a start that cannot reach it. */
+  if (rec && rec.accountWhy === 'unreachable') {
     const left = rec.unreadableLeft || 1;
-    const drop = `, or until ${reachingStarts(left, rec.unreadableBefore > 0)} still cannot read or confirm the account in it, which moves it to your main account for good`;
-    return '; it starts on the model it was set to, but Kosmos cannot reach the account folder it used right now, so it starts on your main account unless that folder can be reached by then and still holds the same account. If that folder is on a disk or shared folder that is not connected, connect it first; otherwise choose its account again afterwards if it should use another. Kosmos keeps that folder and tries it again at each Start at login until its startup job is written again (changing its account or model does that), which forgets that folder' + drop + '.';
+    return `${keptModelWords} Kosmos cannot reach the account folder it used right now. So it starts on your main account, unless by then Kosmos can reach that folder and it still holds the same account. If that folder is on a disk or shared folder that is not connected, connect it first. Otherwise, choose its account again afterwards if it should use another. Kosmos keeps that folder and tries it again at each Start at login. ${dropWords(left, rec.unreadableBefore > 0).replace(/^if/, 'If')} ${keptForgetWords}`;
   }
   if (rec && rec.accountOk) {
     return rec.configDir
