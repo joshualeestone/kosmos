@@ -56083,6 +56083,8 @@ function paintAsk() {
   const seen = new Set();
   const render = (d, e) => {
     const kind = askKind(d);
+    // kosmos#8525: a cloud machine is named by its name, or not at all ("Your cloud machine"), never "Unknown device".
+    const cloudWho = d.cloud ? 'Your cloud machine' + (d.name ? ' ' + askEsc(d.name) : '') : '';
     if (e && e.state === 'allowed') {
       /* #4637: the success state names it, and says where it can be removed later. */
       const who = d.joining_computer ? askEsc(d.joining_computer) : askEsc(kind);
@@ -56091,7 +56093,7 @@ function paintAsk() {
         '<p>Now press The codes match on ' + who + '.</p></div>';
       // kosmos#8525: a cloud machine is added to the Kosmos+ account and nothing is written on this computer, so it is
       // not under Devices.
-      if (d.cloud) return '<div class="askrow done"><p class="askok">' + who + ' is connected.</p>' +
+      if (d.cloud) return '<div class="askrow done"><p class="askok">' + cloudWho + ' is connected.</p>' +
         '<p>It is added to your Kosmos+ account. You can cancel it on your Kosmos+ account page.</p></div>';
       return '<div class="askrow done"><p class="askok">' + who + ' is connected.</p>' +
         '<p>' + (d.joining_computer ? '' : 'It opens Kosmos on its own in a moment. ') + 'You can remove it any time under Devices.</p></div>';
@@ -56105,7 +56107,7 @@ function paintAsk() {
          does not accuse anyone; the password sentence is for a fresh one they did not make. */
       // #6405: a computer's first_seen is its first ask, so its age says nothing: it always gets the fresh wording.
       // kosmos#8525: a cloud machine is no sign-in made with an emailed code, so it gets no password sentence.
-      if (d.cloud) return '<div class="askrow done"><p>Turned away. Your cloud machine ' + askEsc(kind) + ' was not added to your Kosmos+ account.</p>' +
+      if (d.cloud) return '<div class="askrow done"><p>Turned away. ' + cloudWho + ' was not let in here. To stop it, cancel it on your Kosmos+ account page.</p>' +
         '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
       const oldAsk = !askComputerRow(d) && d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
       if (oldAsk) return '<div class="askrow done"><p>Turned away. That ' + askEsc(kind) + ' was not let in; it can ask again by signing in.</p>' +   // never a computer's row (#6405)
@@ -56120,7 +56122,10 @@ function paintAsk() {
     // #6405: no age and no fading for a computer's request (askComputerRow); its code or wait line says where it is.
     const joiningRow = askComputerRow(d);
     const stale = !joiningRow && d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
-    const again = d.denied_at && !d.recheck ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
+    const again = !d.denied_at || d.recheck ? ''
+      // kosmos#8525: a cloud machine is no sign-in made with an emailed code, so no password sentence.
+      : d.cloud ? ' You said no to this cloud machine ' + askAgoSpan(d.denied_at) + ' and it has asked again.'
+      : ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.';
     /* #4794 (Mona Lisa's words), #6404: a computer joining shows its code on its own screen; the person types it here. Until the two computers have
        worked it out, the code's place says why (the tunnel's code_wait) and Allow waits, disabled but in place. */
     const name = d.joining_computer ? askEsc(d.joining_computer) : askEsc(d.name || 'this computer');
@@ -56170,7 +56175,7 @@ function paintAsk() {
     /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. Who wants in and when (#6519: no brand line), one line, then the code
        large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
        and a quiet Not me. The device id never reaches readable text. */
-    const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : d.cloud ? 'cloud machine ' + askEsc(kind) : askEsc(kind)) + (d.code && !d.joining_computer ? ', code ' + askEsc(d.code) : '');
+    const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : d.cloud ? 'cloud machine' + (d.name ? ' ' + askEsc(d.name) : '') : askEsc(kind)) + (d.code && !d.joining_computer ? ', code ' + askEsc(d.code) : '');
     /* #6522 review 1: an empty line renders no paragraph, and the code field is described by the heading, which is
        where the computer's name is on screen, plus the line when there is one (an error or a re-ask). */
     const sayText = [say, again.trim(), errWords].filter(Boolean).join(' ');

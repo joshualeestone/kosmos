@@ -2636,8 +2636,8 @@ function pendingDevices() {
          holds root on it, so a code would prove nothing), and its Allow only tells Kosmos+ (devices.rs allow_outcome). */
       cloud: d.cloud === true,
     }))
-    // kosmos#8525: a cloud machine has no code to show (the page says so), whatever the row carries.
-    .map((d) => (d.cloud ? { ...d, code: '' } : d))
+    // kosmos#8525: a cloud machine has no code to show and is never paired with, whatever the row carries.
+    .map((d) => (d.cloud ? { ...d, code: '', joining_computer: null, recheck: false, code_wait: null } : d))
     /* #6315: a minted computer: id is a computer whatever else the row says. Without a usable joining_computer name
        (the coordinator stops naming it once its lineage is no longer waiting, or the name fails NAME_RULE) it would be
        drawn as a phone whose Allow can never work, so it is shown the way a former computer is: Allow off, Not me. */
