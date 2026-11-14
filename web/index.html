@@ -4151,6 +4151,15 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
 .con-cat[open] .con-chev { transform: rotate(90deg); }
 .con-cat summary:focus-visible { outline: 2px solid var(--label); outline-offset: -2px; }
 .con-cat .con-body { padding: 0 2px 12px; }
+/* kosmos#8519: what agents found, one row per action inside a service's fold. */
+.cf-acts { list-style: none; margin: 0; padding: 0; }
+.cf-acts li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 7px 0; border-top: 0.5px solid var(--separator); }
+.cf-acts li:first-child { border-top: 0; }
+.cf-act { font-family: var(--font-mono, ui-monospace, monospace); font-size: .8125rem; overflow-wrap: anywhere; }
+.cf-words { font-size: .8125rem; color: var(--label); text-align: right; }
+.cf-words.cf-ok { color: var(--label-2); }
+.cf-meta { grid-column: 1 / -1; font-size: .75rem; color: var(--label-2); overflow-wrap: anywhere; }
+@media (max-width: 520px) { .cf-acts li { grid-template-columns: minmax(0, 1fr); } .cf-words { text-align: left; } }
 .boardrow { display: flex; gap: 8px; flex-wrap: wrap; }
 .boardname { font-size: .875rem; font-weight: 600; color: var(--k-ink-2);
   border: 1px solid var(--k-rule); border-radius: 8px; padding: 7px 12px; background: var(--k-surface); }
@@ -19318,6 +19327,18 @@ window.kosmosMeasureScrollbarWidth();
       Kosmos is open source. If you want a connection before we get to it,
       you can wire it up yourself.
     </p>
+    </section>
+    <!-- kosmos#8519: which actions of a connection work, as the agents found them (engine/connfound.js says why it is
+         found and never probed). Hidden until an agent has found something, so a new install shows no empty box.
+         An action no agent tried is simply not listed, and the hint says so: no row is invented for "not tried". -->
+    <section class="dbox" id="conn-found" hidden>
+      <h3 class="dlab">What your agents found</h3>
+      <p class="dhint" style="margin:0 0 10px;">
+        Which actions worked, or were refused, when an agent used a service in the
+        last 30 days. Kosmos does not try actions itself, so one no agent has tried
+        is not listed.
+      </p>
+      <div id="conn-found-list"></div>
     </section>
   </section>
   <!-- Global Skills (#478): the user-level skills folder every agent loads,
@@ -48441,7 +48462,7 @@ function settingsOpen(sec, opts) {
   settingsGo(sec, opts);
   if (sec === 'gskills') loadSkills('/api/skills', 'g-skills-list', 'g-skills-msg');
   if (sec === 'policy') paintPolicy();
-  if (sec === 'connect') { paintConnLive(); paintConnShelf(); }
+  if (sec === 'connect') { paintConnLive(); paintConnShelf(); paintConnFound(); }
   if (sec === 'usage') paintUsage();
 }
 /* #4979: the app header's height, for the sticky Settings nav's top, and whether the whole nav
@@ -48898,6 +48919,44 @@ async function paintConnShelf() {
     CON_SHELF.failed = false;
   } catch { CON_SHELF.doors = null; CON_SHELF.failed = true; }
   conShelfRender();
+}
+/* kosmos#8519: what the agents found about each connection's actions (GET /api/connections/found reads the disk only,
+   so opening the tab costs nothing). Kosmos's own connections first, then the services agents use outside Kosmos.
+   A read that fails, or finds nothing, leaves the box hidden: it is extra information, and an empty or broken box
+   would say less than none. */
+function cfAgo(at) {
+  const m = Math.max(0, Math.round((Date.now() - at) / 60000));
+  if (m < 1) return 'just now';
+  if (m < 60) return m + (m === 1 ? ' minute ago' : ' minutes ago');
+  const h = Math.round(m / 60);
+  if (h < 48) return h + (h === 1 ? ' hour ago' : ' hours ago');
+  return Math.round(h / 24) + ' days ago';
+}
+function cfServiceHtml(s) {
+  const state = s.notWorking ? s.notWorking + (s.notWorking === 1 ? ' action does not work' : ' actions do not work') : 'Everything tried works';
+  const rows = (s.actions || []).map((a) => '<li><span class="cf-act">' + esc(a.action) + '</span>'
+    + '<span class="cf-words' + (a.outcome === 'works' ? ' cf-ok' : '') + '">' + esc(a.words || '') + '</span>'
+    + '<span class="cf-meta">' + (a.how === 'auto' ? 'Seen on a refused call by ' : 'Recorded by ') + esc(a.by || 'an agent') + ', ' + esc(cfAgo(a.at))
+    + (a.n > 1 ? ', ' + a.n + ' times' : '') + (a.note ? '. ' + esc(a.note.charAt(0).toUpperCase() + a.note.slice(1)) : '') + '</span></li>').join('');
+  return '<details class="con-cat cf-svc"><summary><b>' + esc(s.name) + '</b><span class="con-state">' + esc(state) + '</span>'
+    + '<svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>'
+    + '<div class="con-body"><ul class="cf-acts">' + rows + '</ul></div></details>';
+}
+async function paintConnFound() {
+  const box = document.getElementById('conn-found');
+  const list = document.getElementById('conn-found-list');
+  if (!box || !list) return;
+  let services = null;
+  try {
+    const res = await fetch('/api/connections/found', { cache: 'no-store' });
+    if (res.ok) { const j = await res.json(); services = j && Array.isArray(j.services) ? j.services : null; }
+  } catch { services = null; }
+  if (!services || !services.length) { box.hidden = true; list.innerHTML = ''; return; }
+  const ours = services.filter((s) => s.kind === 'kosmos');
+  const other = services.filter((s) => s.kind !== 'kosmos');
+  list.innerHTML = (ours.length ? '<h4 class="con-group">Connections in Kosmos</h4>' + ours.map(cfServiceHtml).join('') : '')
+    + (other.length ? '<h4 class="con-group">Services your agents use outside Kosmos</h4>' + other.map(cfServiceHtml).join('') : '');
+  box.hidden = false;
 }
 function conShelfDoor(api, st) {
   if (!CON_SHELF.doors) CON_SHELF.doors = {};
