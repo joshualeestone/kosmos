@@ -81,7 +81,7 @@ test('review 6: the real home\'s hidden folders are protected too when AGENT_WOR
   assert.ok(realHidden.every((d) => input.protect.includes(d)), 'a hidden folder of the real home was not protected');
 });
 
-test('review 7: the gate is consent, not enrolment alone: a record with no consentHash gives no backup', () => {
+test('review 7 and #8528: the gate is consent naming a backup, not enrolment alone: no consentHash, or words with no backsUp line, give no backup', () => {
   const world = 'a'.repeat(32);
   fs.writeFileSync(path.join(store.ROOT, 'org-world-id'), world + '\n');
   const rec = { at: new Date().toISOString(), world, org: { id: 'org1', name: 'Co', slug: 'co' }, role: 'member' };
