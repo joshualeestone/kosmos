@@ -21,6 +21,11 @@ const tick = require('../engine/backuptick');
     const r = await require('../engine/backuprun').runBackup({ roots: plan.roots });
     out.ok = !!(r && r.ok);
     out.because = r && r.because;
+    // For a reader of what this run stored (kosmos#8529): the public half of the key the manifest is signed with.
+    try {
+      const dk = require('../engine/backupdevicekey').deviceKey();
+      if (dk && dk.ok) out.devicePublicKey = dk.publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
+    } catch { /* not said: the run's own answer stands */ }
     out.result = r && typeof r === 'object'
       ? Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Array.isArray(v) ? { length: v.length } : v && typeof v === 'object' ? Object.keys(v) : v]))
       : r;

@@ -452,7 +452,10 @@ async function main() {
   if (!process.env.FEDPROOF_BUCKET) throw new Error('set FEDPROOF_BUCKET to kosmos-relay tools/dev-backup-bucket.mjs (see USAGE)');
   BUCKET.port = await freePort();
   BUCKET.base = 'http://127.0.0.1:' + BUCKET.port;
-  const bk = start('bucket', process.execPath, [path.resolve(process.env.FEDPROOF_BUCKET), '--port', String(BUCKET.port)], { env: serviceEnv(path.join(SANDBOX, 'bucket-home'), {}) });
+  // With FEDPROOF_KEEP=1 the bucket also writes each object to disk, for a reader to open afterwards (B5).
+  BUCKET.dir = KEEP ? path.join(SANDBOX, 'bucket-objects') : null;
+  const bk = start('bucket', process.execPath, [path.resolve(process.env.FEDPROOF_BUCKET), '--port', String(BUCKET.port)].concat(BUCKET.dir ? ['--dir', BUCKET.dir] : []),
+    { env: serviceEnv(path.join(SANDBOX, 'bucket-home'), {}) });
   const bucketUp = await waitFor(async () => {
     if (bk.child.exitCode !== null) return { exited: true };
     const r = await http(BUCKET.base, 'GET', '/_index'); return r.status === 200;
@@ -722,6 +725,20 @@ async function main() {
       detail = 'recorded ' + String(rows[0].sha256).slice(0, 12) + '... size ' + rows[0].size + '; bucket ' + (bytes ? hex.slice(0, 12) + '... size ' + bytes.length : 'none');
     }
     chk(same, 'step B4: the bucket holds exactly the manifest the coordinator recorded (same SHA-256 and size)', detail);
+    // B5 (not a check): with FEDPROOF_KEEP=1, what a reader needs to open this backup, left in the kept sandbox. These are
+    // throwaway keys of a throwaway board; nothing here is anyone's real key.
+    if (KEEP && rows.length === 1 && run) {
+      const [org, member, epoch, period] = String(rows[0].object_key).split('/');
+      const handoff = {
+        bucketDir: BUCKET.dir, bucketName: BUCKET.name, manifestObjectKey: rows[0].object_key,
+        context: { org, member, epoch: Number(epoch), period, snapshot: run.result && run.result.snapshot },
+        memberKeyDir: path.join(K.data, 'backupkeys'), stateDir: path.join(K.data, 'backupstate'),
+        devicePublicKeySpkiB64: run.devicePublicKey || null, agentFolder: agentDir, claudeSession: sid,
+      };
+      const f = path.join(SANDBOX, 'reader-handoff.json');
+      fs.writeFileSync(f, JSON.stringify(handoff, null, 1) + '\n');
+      info('reader handoff: ' + f);
+    }
   }
 
   // Review 1: a guarded step that did not run would leave the verdict on fewer checks; every one must have run.
