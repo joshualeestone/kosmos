@@ -116,6 +116,8 @@ chmod +x "$BIN/curl"
 cat > "$BIN/vercel" <<'VERCEL'
 #!/bin/bash
 # kosmos#6771: VERCEL_REFUSE=auth answers as the CLI does when its sign-in or token is refused; =other fails otherwise.
+# kosmos#8512: VERCEL_REFUSE=nodeploy exits 0 having published nothing (the 0.8.05 cut's partial upload).
+[ "${VERCEL_REFUSE:-}" = nodeploy ] && { echo "Deploying chaoskosmos"; exit 0; }
 [ "${VERCEL_REFUSE:-}" = auth ] && { echo "Deploying chaoskosmos"; echo "Error: Not authorized" >&2; exit 7; }
 [ "${VERCEL_REFUSE:-}" = colour ] && { printf '\033[31mError:\033[39m Not authorized\n' >&2; exit 7; }
 [ "${VERCEL_REFUSE:-}" = badtoken ] && { echo "> Error: The token provided via VERCEL_TOKEN environment variable is not valid. Please provide a valid token." >&2; exit 1; }
@@ -309,6 +311,18 @@ if [ "$RC" = 1 ] && has "$out" "vercel deploy --prod failed (rc 5)" && ! has "$o
 else
   bad "B7: a non-authorization failure (rc=$RC); out=$out"
 fi
+
+# B9) kosmos#8512: vercel exits 0 but makes no deployment. The live site keeps its OLD home page, so step 6's artifact
+# and pointer checks (unchanged by a pages-only publish) would pass; the home-page check must not.
+read -r S9 L9 <<<"$(make_publish_scenario ok)"
+printf '<h1>the old page</h1>\n' > "$L9/index.html"
+VERCEL_REFUSE=nodeploy KOSMOS_PAGES_RETRY_S=0 run_deploy "$S9" "$L9" --publish
+if [ "$RC" = 1 ] && has "$out" "is not the one this deploy carried, after 3 reads (kosmos#8512)" && ! has "$out" "published and verified"; then
+  pass "B9: a vercel exit 0 with no deployment (old home page still served) fails, and is never reported as published"
+else
+  bad "B9: an exit-0 deploy that made no deployment (rc=$RC); out=$out"
+fi
+# B9-CONTROL: B1 above is the same scenario with a vercel that does publish: it passes, so B9 fails on the page alone.
 
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
 echo "test-deploy-site-exit0-2791: all arms passed"

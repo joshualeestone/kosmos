@@ -1047,6 +1047,11 @@ if [ "$vrc" != 0 ]; then
   rm -f "$VOUT"; echo "deploy-site: vercel deploy --prod failed (rc $vrc)"; rm -rf "$EXPORT"; exit 1
 fi
 rm -f "$VOUT"
+# kosmos#8512: the home page this deploy carried, hashed before the export goes, so step 6 can tell whether it is the
+# one served. A pages-only publish changes no artifact or pointer, so without this a vercel that exits 0 with no
+# deployment (the 0.8.05 cut showed one, kosmos#8494) passed step 6 with the old page still live.
+_page_sha=""
+[ -f "$EXPORT/index.html" ] && _page_sha=$(shasum -a 256 < "$EXPORT/index.html" | awk '{print $1}')
 rm -rf "$EXPORT"
 
 # --- 6) verify the SERVED bytes against WHAT WE DEPLOYED, by FETCHING them --------------------
@@ -1085,6 +1090,22 @@ served_matches() {  # <path-under-dist> <local-verified-file>
 # was deployed -- wrong bytes on the live site". A symptom, and the wrong diagnosis, exactly as the
 # pre-deploy case was. A guard placed after the checks it would explain is not a guard.
 served_verify_host_discriminates "$HOST" || { echo "deploy-site: refusing to certify the deploy -- the served-verify negative control failed (see above); the deploy already ran, investigate."; exit 1; }
+# kosmos#8512: the home page served is the one deployed. Fetched as index.html with redirects followed (the site's
+# cleanUrls sends /index.html to /), no-cache as the artifact checks are; a mismatch is read twice more, KOSMOS_PAGES_
+# RETRY_S apart (default 10 s), since an edge can serve the old page briefly.
+if [ -n "$_page_sha" ]; then
+  _pg_ok=""
+  for _pg_try in 1 2 3; do
+    _pgt=$(mktemp "${TMPDIR:-/tmp}/deploy-site-page.XXXXXX")
+    if curl -fsSL -H 'Cache-Control: no-cache' "$HOST/index.html" -o "$_pgt" \
+       && [ "$(shasum -a 256 < "$_pgt" | awk '{print $1}')" = "$_page_sha" ]; then
+      _pg_ok=1; rm -f "$_pgt"; break
+    fi
+    rm -f "$_pgt"
+    [ "$_pg_try" = 3 ] || sleep "${KOSMOS_PAGES_RETRY_S:-10}"
+  done
+  [ -n "$_pg_ok" ] || { echo "deploy-site: the home page served at $HOST/ is not the one this deploy carried, after 3 reads (kosmos#8512): vercel deploy may have exited 0 without making a deployment. The deploy step already ran; check vercel ls and the served page before anything else."; exit 1; }
+fi
 # each gitignored installer artifact AND its .sha256 sidecar: the installer fetches both and verifies
 # one against the other, so a sidecar-only serve drop would break new-install verification while the
 # tarball still serves. Check the pair.
