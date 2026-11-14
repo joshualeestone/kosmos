@@ -3723,7 +3723,9 @@ cmd_connections() {
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0123456789abcdef]*) ;; *) _cf_tok="$KOSMOS_AGENT_TOKEN" ;; esac
   if [ "${1:-}" = found ]; then
     shift
-    local _fu="Usage: kosmos connections found <service> <action> <works|not-offered|needs-scope|needs-permission|off-by-policy|failed> [note]"
+    local _fout=false
+    [ "${1:-}" = --outside ] && { _fout=true; shift; }
+    local _fu="Usage: kosmos connections found [--outside] <service> <action> <works|not-offered|needs-scope|needs-permission|off-by-policy|failed> [note]"
     { [ $# -ge 3 ] && [ $# -le 4 ]; } || { say "$_fu"; exit 2; }
     if ! healthy; then say_not_up "it cannot record that"; exit 1; fi
     local _fn; _fn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to send this."; exit 1; }
@@ -3731,8 +3733,8 @@ cmd_connections() {
     # --found READ below uses board_token like the plain listing; the board also answers it for an agent token alone.
     local _fbt; _fbt="$(agent_board_token || true)"
     local _fbody _fans _frc=0
-    _fbody=$("$_fn" -e 'process.stdout.write(JSON.stringify({ service: process.argv[1], action: process.argv[2], outcome: process.argv[3], note: process.argv[4] || "", from_pane: process.argv[5] || "" }))' \
-      "$1" "$2" "$3" "${4:-}" "${TMUX_PANE:-}" 2>/dev/null) || { say "Kosmos could not put that into a request."; exit 1; }
+    _fbody=$("$_fn" -e 'process.stdout.write(JSON.stringify({ service: process.argv[1], action: process.argv[2], outcome: process.argv[3], note: process.argv[4] || "", from_pane: process.argv[5] || "", outside: process.argv[6] === "true" }))' \
+      "$1" "$2" "$3" "${4:-}" "${TMUX_PANE:-}" "$_fout" 2>/dev/null) || { say "Kosmos could not put that into a request."; exit 1; }
     _fans=$(printf '%s' "$_fbody" | kosmos_curl "$_fbt" "$_cf_tok" -sS -m 15 -X POST "$URL/api/connections/found" -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _frc=$?
     if [ "$_frc" -ne 0 ]; then say_unreached "record that" "$_frc"; exit 1; fi
     printf '%s' "$_fans" | "$_fn" -e '
@@ -5881,7 +5883,7 @@ if [ "$_kosmos_help" = 1 ]; then
       # Windows CLI does (--help never acts beyond the read-only listing).
       printf 'Usage: kosmos connections [--how]   (--how: how connecting a provider, a plugin or a service works here)\n'
       printf '       kosmos connections --found [service]   (which actions agents found work or do not, kosmos#8519)\n'
-      printf '       kosmos connections found <service> <action> <works|not-offered|needs-scope|needs-permission|off-by-policy|failed> [note]   (record one)\n'
+      printf '       kosmos connections found [--outside] <service> <action> <works|not-offered|needs-scope|needs-permission|off-by-policy|failed> [note]   (record one; --outside: a plugin from the person'"'"'s own app)\n'
       case " $* " in *" --how "*) exit 0 ;; esac
       set -- "$1" ;;
     adopt|whoami)

@@ -32,7 +32,8 @@ test('parseMcpTool: the service and the action from a plugin tool name, provider
 test('classify: not-offered ONLY when the line starts by saying the called action is unknown (review 3)', () => {
   const A = 'merge_contacts';
   for (const yes of ['Unknown tool: merge_contacts', 'Unknown tool: mcp__hubspot__merge_contacts', 'MCP error -32601: Unknown tool: merge_contacts',
-    'Tool not found: "merge_contacts"', 'unknown tool merge_contacts.', 'UNKNOWN TOOL: Merge_Contacts']) {
+    'Tool not found: "merge_contacts"', 'unknown tool merge_contacts.', 'UNKNOWN TOOL: Merge_Contacts',
+    'MCP error -32602: Tool merge_contacts not found', 'Error: MCP error -32601: Unknown tool: merge_contacts']) {   // review 4: the TS SDK and an Error: lead
     assert.equal(cf.classify(yes, A), 'not-offered', yes);
   }
   // Review 3's false positives, and every class the earlier rounds found: nothing is recorded.
@@ -42,7 +43,8 @@ test('classify: not-offered ONLY when the line starts by saying the called actio
     'HTTP 403 Forbidden', 'Forbidden', '403 Forbidden: Repository was archived so is read-only', '401 Unauthorized: token expired',
     'Request had insufficient authentication scopes.', 'missing_scope', 'Exports are disabled by your administrator',
     'This operation is not supported on shared drives', 'Invalid input: dealId is required', 'Request timed out after 30s',
-    'Permission to use mcp__hubspot__merge_contacts has been denied', 'The user rejected this tool call', '']) {
+    'Permission to use mcp__hubspot__merge_contacts has been denied', 'The user rejected this tool call',
+    'Tool other_tool not found', 'Tool merge_contacts not found in cache', '']) {
     assert.equal(cf.classify(no, A), null, no);
   }
   assert.equal(cf.classify('Unknown tool: merge_contacts', ''), null, 'no action named, nothing to match');
@@ -98,6 +100,27 @@ test('review 3: an automatic finding never replaces a hand record; a hand works 
   cf.record({ service: 'GitHub', action: 'Create Pull-Request', outcome: 'works', by: 'ben', kind: 'kosmos', now: 2000 });
   const l = cf.list({ now: 3000 });
   assert.deepEqual(l.map((x) => [x.name, x.kind, x.actions.map((y) => [y.action, y.outcome])]), [['GitHub', 'kosmos', [['Create Pull-Request', 'works']]]]);
+});
+
+test('review 4: a hand record names a plugin as the hook does, so it lands on the same row and clears it', () => {
+  reset();
+  cf.noteToolFailure('ada', 'mcp__claude_ai_Google_Drive__export_file', 'Unknown tool: export_file', { now: 1000 });
+  assert.equal(cf.list({ now: 1500 })[0].name, 'Google Drive', 'CONTROL: the automatic row');
+  cf.record({ service: 'claude_ai_Google_Drive', action: 'export_file', outcome: 'works', by: 'ben', now: 2000 });
+  const l = cf.list({ now: 3000 });
+  assert.deepEqual(l.map((s) => [s.name, s.actions.map((a) => [a.action, a.outcome, a.how])]), [['Google Drive', [['export_file', 'works', 'agent']]]]);
+  assert.equal(cf.list({ service: 'claude_ai_Google_Drive', now: 3000 }).length, 1, '--found with the server name finds it');
+  assert.equal(cf.serviceKey('foo_foo'), 'foo-foo', 'only a plugin\'s doubled name collapses');
+});
+
+test('review 4: at the service cap, services with only automatic findings go first', () => {
+  reset();
+  cf.record({ service: 'Kept', action: 'x', outcome: 'needs-scope', by: 'ada', now: 1 });
+  for (let i = 0; i < cf.MAX_SERVICES + 3; i++) cf.noteToolFailure('ada', 'mcp__svc' + i + '__x', 'Unknown tool: x', { now: 100 + i });
+  const names = cf.list({ now: 1000 }).map((s) => s.name);
+  assert.equal(names.length, cf.MAX_SERVICES);
+  assert.ok(names.includes('Kept'), 'the hand record outlives newer automatic rows');
+  assert.ok(!names.includes('svc0') && names.includes('svc' + (cf.MAX_SERVICES + 2)), 'the oldest automatic rows went');
 });
 
 test('review 3: action names match whatever their case, spaces, underscores or hyphens, shown as first recorded', () => {

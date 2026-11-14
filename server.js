@@ -4719,7 +4719,7 @@ const outbox = require('./engine/outbox');
    sends the header on EVERY call, including person-side ones such as `kosmos
    open`'s board-nonce run from a terminal with no KOSMOS_WORLD, and those must
    never be refused for it. */
-const WORLD_CHECKED_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail', 'POST /api/connections/found']);   // connections/found: kosmos#8519, as toolfail   // toolfail: #6071, a digest meant for another Kosmos is refused like a report
+const WORLD_CHECKED_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail', 'POST /api/connections/found']);   // connections/found: kosmos#8519, as toolfail; toolfail: #6071, a digest meant for another Kosmos is refused like a report
 
 /* #6071: when POST /api/toolfail last said each kind of line (a refusal reason, an agent's first failure of a run). */
 const TOOLFAIL_SAID = new Map();
@@ -18125,7 +18125,9 @@ const server = http.createServer(async (req, res) => {
         });
         if (!sender.ok) { sendJson(res, 200, { recorded: false, because: sender.because }); return; }
         const cf = require('./engine/connfound');
-        const ours = connectionsHeld().some((c) => cf.serviceKey(c.name) === cf.serviceKey(body.service || '')
+        /* Review 4: `outside: true` (kosmos connections found --outside) files it as a plugin of the person's own, even when
+           its name is one Kosmos also connects: the refusal came from that plugin, so its remedy is not in Settings. */
+        const ours = body.outside !== true && connectionsHeld().some((c) => cf.serviceKey(c.name) === cf.serviceKey(body.service || '')
           || (c.connect && cf.serviceKey(c.connect) === cf.serviceKey(body.service || '')));
         const r = cf.record({ service: body.service, action: body.action, outcome: body.outcome, note: body.note,
           by: sender.card.sessionName, how: 'agent', kind: ours ? 'kosmos' : 'other' });

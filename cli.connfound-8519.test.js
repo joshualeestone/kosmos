@@ -79,7 +79,11 @@ test('Mac: found records as the agent, with its token, and says so', { skip: SKI
     assert.ok(post, 'the finding was sent');
     assert.equal(post.agentToken, AGENT_TOKEN, 'as the agent');
     const b = JSON.parse(post.body);
-    assert.deepEqual([b.service, b.action, b.outcome, b.note], ['hubspot', 'merge_contacts', 'not-offered', 'it said "unknown tool"'], 'a quote in the note stays readable JSON');
+    assert.deepEqual([b.service, b.action, b.outcome, b.note, b.outside], ['hubspot', 'merge_contacts', 'not-offered', 'it said "unknown tool"', false], 'a quote in the note stays readable JSON');
+    const o = await sh(port, ['connections', 'found', '--outside', 'GitHub', 'create_release', 'needs-scope']);
+    assert.equal(o.code, 0, o.out);
+    const ob = JSON.parse(seen.filter((s) => s.method === 'POST').pop().body);
+    assert.deepEqual([ob.service, ob.action, ob.outcome, ob.outside], ['GitHub', 'create_release', 'needs-scope', true], '--outside is sent');
     assert.equal(swept(seen), 0);
   });
 });
@@ -91,7 +95,7 @@ test('Mac: a refusal is said in the board\'s words and exits 1; a wrong word cou
     assert.match(r.out, /Not recorded: the outcome is one of: works\./);
     const u = await sh(port, ['connections', 'found', 'hubspot', 'x']);
     assert.equal(u.code, 2, u.out);
-    assert.match(u.out, /Usage: kosmos connections found <service> <action>/);
+    assert.match(u.out, /Usage: kosmos connections found \[--outside\] <service> <action>/);
     assert.equal(seen.filter((s) => s.method === 'POST').length, 1, 'the usage error sent nothing');
   });
 });
@@ -158,7 +162,10 @@ test('Windows: found, --found and the plain line, in the same words', async () =
     assert.equal(f.code, 0, f.err + f.out);
     assert.equal(f.out, 'Recorded. kosmos connections --found lists what agents found.');
     const post = seen.find((s) => s.method === 'POST' && s.url === '/api/connections/found');
-    assert.deepEqual(JSON.parse(post.body), { service: 'hubspot', action: 'merge_contacts', outcome: 'not-offered', note: '' });
+    assert.deepEqual(JSON.parse(post.body), { service: 'hubspot', action: 'merge_contacts', outcome: 'not-offered', note: '', outside: false });
+    const o = await win(port, ['connections', 'found', '--outside', 'GitHub', 'create_release', 'needs-scope']);
+    assert.equal(o.code, 0, o.err);
+    assert.equal(JSON.parse(seen.filter((s) => s.method === 'POST').pop().body).outside, true, '--outside is sent');
     const l = await win(port, ['connections', '--found']);
     assert.equal(l.code, 0, l.err);
     assert.equal(l.out, cf.renderLines(FOUND, Date.now()).join('\n'));
