@@ -89,8 +89,19 @@ test('review 7: the gate is consent, not enrolment alone: a record with no conse
   const oe = require('./orgenroll');
   assert.equal(oe.isEnrolledHere(), true, 'CONTROL: the record reads as enrolled here');
   assert.equal(tick.mayBackUp(), false, 'enrolled with no consent recorded here must not back up');
-  fs.writeFileSync(path.join(store.ROOT, 'org-enrollment.json'), JSON.stringify(Object.assign({}, rec, { consentHash: 'b'.repeat(64) })));
-  assert.equal(tick.mayBackUp(), true, 'with the words accepted here it may');
+  // kosmos#8528: accepted words alone are not enough; they must name something backed up.
+  const hash = 'b'.repeat(64);
+  fs.writeFileSync(path.join(store.ROOT, 'org-enrollment.json'), JSON.stringify(Object.assign({}, rec, { consentHash: hash })));
+  const words = (backsUp) => fs.writeFileSync(path.join(store.ROOT, oe.CONSENT_FILE),
+    JSON.stringify({ byHash: { [hash]: { reports: ['the names of the agents on this computer'], backsUp } }, order: [hash] }));
+  words([]);
+  assert.equal(tick.mayBackUp(), false, 'words accepted here that list nothing under backsUp (a company\'s today) must not back up');
+  words(['   ']);
+  assert.equal(tick.mayBackUp(), false, 'a blank backsUp line names nothing');
+  words(["your agents' chats and the files in their folders"]);
+  assert.equal(tick.mayBackUp(), true, 'with accepted words that name a backup it may');
+  fs.rmSync(path.join(store.ROOT, oe.CONSENT_FILE), { force: true });
+  assert.equal(tick.mayBackUp(), false, 'words not remembered here for the bound hash: no backup');
 });
 
 test('#5883: a Codex agent on a named account is backed up from THAT account\'s sessions, not the default home', () => {
