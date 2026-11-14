@@ -189,7 +189,10 @@ test('#4474: every field create reads is either one an agent may send or one it 
     'keepRecordedAccount', 'keepRecordedIdentity',
     // accountVerified: register.repair after its identity check, and discover's adoption that just chose the account. An
     // agent able to send it could make Start at login trust a folder whose account was reused by someone else.
-    'accountVerified'];
+    'accountVerified',
+    // kosmos#8489: register.repair only. verifiedIdentity is the identity it just checked (an agent able to
+    // send it could name any account as verified); keepRecordedUnreadable counts its unreadable starts.
+    'verifiedIdentity', 'keepRecordedUnreadable'];
   assert.ok(read.has('claudeBin') && read.has('reportsTo'), 'CONTROL: the scan of create.js found nothing');
   const unsorted = [...read].filter((k) => !team.AGENT_MEMBER_KEYS.includes(k) && !NOT_FROM_AN_AGENT.includes(k));
   assert.deepEqual(unsorted, [], 'create reads a field nobody decided whether an agent may send: ' + unsorted.join(', '));

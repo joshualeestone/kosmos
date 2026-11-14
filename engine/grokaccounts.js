@@ -1103,7 +1103,7 @@ module.exports = {
   setFetcher, askModels, validateLive, checkLive, listLive, subscriptionLive, subscriptionLiveOnce, resetSubscriptionLiveForTest, refusalIsNewer,
   keyProblem, cleanLabel, dirForLabel, nextWorkDir,
   storeKey, forgetKey, forgetAccount: forgetAccountFreeing, removeAccount: removeAccountFreeing,
-  authFile, readAuth, parseGrokLoginOutput, startGrokLogin, reauthTarget, grokLoginStatus, cancelGrokLogin, setGrokTimers,
+  authFile, readAuth, AUTH_ISSUER_PREFIX, parseGrokLoginOutput, startGrokLogin, reauthTarget, grokLoginStatus, cancelGrokLogin, setGrokTimers,
   isSignInPending, MISSING_RUNNER_SENTENCE, holdsCredentials,
   readName, writeName,
   get HOME_FOR_TEST() { return homeDir(); },

@@ -898,15 +898,26 @@ function repair(opts) {
         if (rec.accountOk) recordOpts.accountRecorded = true;   // round 1 nit: the main account, known rather than guessed
         // round 7: its identity was just checked (win32RecordedTask), so installJob may record it again.
         if (rec.accountOk && rec.configDir) recordOpts.accountVerified = true;
+        // kosmos#8489: the identity it just read, recorded as is (the agent it starts may be writing its config).
+        if (rec.accountOk && rec.configDir && rec.identityNow) recordOpts.verifiedIdentity = rec.identityNow;
         /* round 1: a recorded folder it cannot reach (perhaps a disk not connected) stays in the record, so the agent
            comes back on it at the next Start at login, if no change to the agent rewrites its task first (round 2: a
            rewrite records what it wrote, the main account); the task itself runs on the main account meanwhile, and the
            agent never moves back on its own. */
         /* round 3: only a folder it could not REACH, with the identity it was recorded with, so it is checked again
            when it is back. One whose account changed or was never recorded is not kept: the record moves to main. */
-        if (rec.accountWhy === 'unreachable' && rec.configDir) {
+        /* kosmos#8489: and one whose account could not be READ right now (its config mid-write): that is not a changed
+           account, so it is kept and checked again next time, as a folder out of reach is. */
+        if ((rec.accountWhy === 'unreachable' || rec.accountWhy === 'unreadable') && rec.configDir) {
           recordOpts.keepRecordedAccount = rec.configDir;
           recordOpts.keepRecordedIdentity = rec.identity;
+          /* kosmos#8489: counted, so a folder that never reads again is dropped (create's WIN32_UNREADABLE_LIMIT, then
+             accountWhy 'unreadableGaveUp', which is not kept). A start that cannot reach the folder carries the count
+             as it is, neither adding nor clearing, so a folder alternating between out of reach and unreadable still
+             reaches the limit. */
+          const before = rec.unreadableBefore || 0;
+          const count = rec.accountWhy === 'unreadable' ? before + 1 : before;
+          if (count > 0) recordOpts.keepRecordedUnreadable = count;
         }
         if (rec.modelOk) { model = rec.model; modelRecorded = true; }
       }
