@@ -104,6 +104,10 @@ while [ $# -gt 0 ]; do
 done
 rel="${url#"$HOST_URL"/}"
 served_file="$LIVE_DIR/$rel"
+# kosmos#8512: VERCEL_REFUSE=lag left the new id pending; the first read sees the old one, then the edge catches up.
+if [ "$rel" = dist/deploy-id.txt ] && [ -f "$LIVE_DIR/.pending-deploy-id" ]; then
+  [ -n "$dest" ] && cp "$served_file" "$dest"; mv "$LIVE_DIR/.pending-deploy-id" "$served_file"; exit 0
+fi
 if [ -n "$wfmt" ]; then
   if [ -f "$served_file" ]; then [ -n "$dest" ] && cp "$served_file" "$dest"; printf '200'; else printf '404'; fi
   exit 0
@@ -129,6 +133,7 @@ cat > "$BIN/vercel" <<'VERCEL'
 mkdir -p "$LIVE_DIR/dist"
 [ -d ./dist ] && cp -R ./dist/. "$LIVE_DIR/dist/" 2>/dev/null
 for f in setup index.html vercel.json; do [ -f "./$f" ] && cp "./$f" "$LIVE_DIR/$f"; done
+if [ "${VERCEL_REFUSE:-}" = lag ]; then mv "$LIVE_DIR/dist/deploy-id.txt" "$LIVE_DIR/.pending-deploy-id"; echo stale-id > "$LIVE_DIR/dist/deploy-id.txt"; fi
 exit 0
 VERCEL
 chmod +x "$BIN/vercel"
@@ -312,17 +317,44 @@ else
   bad "B7: a non-authorization failure (rc=$RC); out=$out"
 fi
 
-# B9) kosmos#8512: vercel exits 0 but makes no deployment. The live site keeps its OLD home page, so step 6's artifact
-# and pointer checks (unchanged by a pages-only publish) would pass; the home-page check must not.
+# B9) kosmos#8512: vercel exits 0 but makes no deployment. The live site keeps its OLD pages, so step 6's artifact and
+# pointer checks (unchanged by a pages-only publish) would pass; the deploy-id check must not.
 read -r S9 L9 <<<"$(make_publish_scenario ok)"
 printf '<h1>the old page</h1>\n' > "$L9/index.html"
 VERCEL_REFUSE=nodeploy KOSMOS_PAGES_RETRY_S=0 run_deploy "$S9" "$L9" --publish
-if [ "$RC" = 1 ] && has "$out" "is not the one this deploy carried, after 3 reads (kosmos#8512)" && ! has "$out" "published and verified"; then
-  pass "B9: a vercel exit 0 with no deployment (old home page still served) fails, and is never reported as published"
+if [ "$RC" = 1 ] && has "$out" "is not the id this deploy wrote, after 3 reads (kosmos#8512)" && ! has "$out" "published and verified"; then
+  pass "B9: a vercel exit 0 with no deployment (old pages still served) fails, and is never reported as published"
 else
   bad "B9: an exit-0 deploy that made no deployment (rc=$RC); out=$out"
 fi
-# B9-CONTROL: B1 above is the same scenario with a vercel that does publish: it passes, so B9 fails on the page alone.
+# B9b) the same, when the served home page already equals the export's (a change to another page only, as most of the
+# site's pages-only publishes are): the home page cannot tell, the deploy id does.
+read -r S9b L9b <<<"$(make_publish_scenario ok)"
+cp "$S9b/index.html" "$L9b/index.html"
+VERCEL_REFUSE=nodeploy KOSMOS_PAGES_RETRY_S=0 run_deploy "$S9b" "$L9b" --publish
+if [ "$RC" = 1 ] && has "$out" "is not the id this deploy wrote, after 3 reads (kosmos#8512)" && ! has "$out" "published and verified"; then
+  pass "B9b: no deployment fails even when the home page served is already the export's"
+else
+  bad "B9b: an exit-0 deploy with no deployment and an unchanged home page (rc=$RC); out=$out"
+fi
+# B9c) an edge that serves the old id on the first read and the new one on the second: the retry clears it.
+read -r S9c L9c <<<"$(make_publish_scenario ok)"
+VERCEL_REFUSE=lag KOSMOS_PAGES_RETRY_S=0 run_deploy "$S9c" "$L9c" --publish
+if [ "$RC" = 0 ] && ! has "$out" "kosmos#8512" && [ ! -f "$L9c/.pending-deploy-id" ]; then
+  pass "B9c: a stale id on read 1 that is the new one on read 2 passes"
+else
+  bad "B9c: a lagging edge (rc=$RC, pending left: $([ -f "$L9c/.pending-deploy-id" ] && echo yes || echo no)); out=$out"
+fi
+# B9d) a retry interval that is not a whole number is refused before anything is deployed.
+read -r S9d L9d <<<"$(make_publish_scenario ok)"
+KOSMOS_PAGES_RETRY_S=ten run_deploy "$S9d" "$L9d" --publish
+if [ "$RC" = 1 ] && has "$out" "KOSMOS_PAGES_RETRY_S must be a whole number" && [ ! -f "$L9d/dist/deploy-id.txt" ]; then
+  pass "B9d: a bad KOSMOS_PAGES_RETRY_S is refused and nothing is deployed"
+else
+  bad "B9d: a bad KOSMOS_PAGES_RETRY_S (rc=$RC); out=$out"
+fi
+# B9-CONTROL: B1 above is the same scenario with a vercel that does publish (deploy-id.txt included): it passes, so B9
+# and B9b fail on the deploy id alone.
 
 [ "$fails" -eq 0 ] || { echo "$fails failing arm(s)"; exit 1; }
 echo "test-deploy-site-exit0-2791: all arms passed"
