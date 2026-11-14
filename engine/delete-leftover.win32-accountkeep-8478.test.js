@@ -306,7 +306,7 @@ test('kosmos#8478: an agent with nothing recorded whose task cannot be read at t
     'Start at login wrote a task and did not record it');
 });
 
-const CANNOT_REACH = /it starts on the model it was set to\. Kosmos cannot reach the account folder it used right now\. So it starts on your main account, unless by then Kosmos can reach that folder and it still holds the same account\. If that folder is on a disk or shared folder that is not connected, connect it first\. Otherwise, choose its account again afterwards if it should use another\. Kosmos keeps that folder and tries it again at each Start at login\. If Kosmos cannot read or confirm the account in that folder at three Start at logins that reach it, it moves to your main account for good\. Changing this agent's account or model makes Kosmos forget that folder, as does anything else that sets up its startup job again\./;
+const CANNOT_REACH = /it starts on the model it was set to\. Kosmos cannot reach the account folder it used right now\. So it starts on your main account, unless by then Kosmos can reach that folder and it still holds the same account\. If that folder is on a disk or shared folder that is not connected, connect it first\. If you do not plan to connect it, choose its account again\. Kosmos keeps that folder and tries it again at each Start at login\. If that folder then holds a different account, Kosmos forgets it\. If Kosmos cannot read or confirm the account in that folder at three Start at logins that reach it, it moves to your main account for good\. Changing this agent's account or model makes Kosmos forget that folder, as does anything else that sets up its startup job again\./;
 
 test('kosmos#8478: a recorded account folder that cannot be reached falls back to the main account, says so, and comes back on it at the next Start at login, if no change to the agent rewrites its task first', WINDOWS_ONLY, () => {
   const name = agent('gone8478');
@@ -335,7 +335,7 @@ test('kosmos#8489: a recorded account whose config cannot be read right now (Cla
   const whole = fs.readFileSync(config, 'utf8');
   fs.writeFileSync(config, whole.slice(0, Math.floor(whole.length / 2)));   // caught mid-write: half the file
   const p = taskOnlyDelete(name);
-  const words = /it starts on the model it was set to\. Kosmos could not read which account is signed in to the account folder it last used\. So it starts on your main account, unless by then Kosmos can read that account and it is still the same one\. If Kosmos still cannot, it keeps that folder and tries it again at later Start at logins\. After that, if Kosmos cannot read or confirm the account in that folder at two more Start at logins that reach it, it moves to your main account for good\. Changing this agent's account or model makes Kosmos forget that folder, as does anything else that sets up its startup job again\./;
+  const words = /it starts on the model it was set to\. Kosmos could not read which account is signed in to the account folder it last used\. So it starts on your main account, unless by then Kosmos can read that account and it is still the same one\. If Kosmos still cannot, it keeps that folder and tries it again at later Start at logins\. If that folder then holds a different account, Kosmos forgets it\. After that, if Kosmos cannot read or confirm the account in that folder at two more Start at logins that reach it, it moves to your main account for good\. Changing this agent's account or model makes Kosmos forget that folder, as does anything else that sets up its startup job again\./;
   assert.match(p.reassurance, words);
   assert.match(p.said, words);
   assert.doesNotMatch(p.reassurance, /signed out or changed/, 'the person was told their account signed out or changed');
@@ -483,7 +483,7 @@ test('kosmos#8489: a start that cannot reach the folder neither adds to nor clea
     assert.equal(store.readProfile(name).win32Task.unreadable, 2);
     fs.renameSync(ACCOUNT, unplugged);
     // Out of reach with two unreadable starts behind it: the words say the next reachable unreadable start drops it.
-    assert.match(taskOnlyDelete(name).reassurance, /If Kosmos cannot read or confirm the account in that folder at the next Start at login that reaches it, it moves to your main account for good\./);
+    assert.match(taskOnlyDelete(name).reassurance, /If that folder then holds a different account, Kosmos forgets it\. If Kosmos cannot read or confirm the account in that folder at the next Start at login that reaches it, it moves to your main account for good\./);
     startAtLogin(name);
     assert.equal(store.readProfile(name).win32Task.unreadable, 2);
     fs.renameSync(unplugged, ACCOUNT);

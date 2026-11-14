@@ -948,7 +948,17 @@ function startsAgainWords(name, preview = false) {
      because a person reads these before deciding whether to remove a startup job. */
   const keptModelWords = rec && rec.modelOk
     ? '; it starts on the model it was set to.'
-    : '; it starts on the model it last ran, so choose its model again if it used another.';
+    : '; it starts on the model it last ran.';
+  /* With a retired model the person will want to choose its model again, but a model change rewrites the startup job,
+     which forgets the kept folder (keptForgetWords). So the words say when that is safe: once Start at login has put it
+     back on the folder (the record is then an ordinary one, which a model change keeps), or once it is on another
+     account anyway (moved to the main account for good, or its account chosen again). Said last, after the forget
+     sentence, so the order reads as the order to do things in. */
+  const keptModelLaterWords = rec && rec.modelOk
+    ? ''
+    : ' If it used another model, choose that model again only after it is back on that folder, or after it has moved to another account.';
+  // A start that reaches a kept folder and reads another account there drops it at once (accountWhy 'changed').
+  const keptChangedWords = 'If that folder then holds a different account, Kosmos forgets it.';
   /* A kept folder is dropped from the record by anything that writes the startup job again (create.recordWin32Task
      drops a `kept` record): the account and model setters are the ones a person reaches for, and the rest is said so
      the promise is not wider than the code. */
@@ -972,7 +982,7 @@ function startsAgainWords(name, preview = false) {
       : 'Kosmos could not read which account is signed in to the account folder it last used. So it starts on your main account, unless by then Kosmos can read that account and it is still the same one.';
     // The coming Start at login is one of those left (unreadableLeft counts it), so the rest are the ones after it.
     const after = Math.max(1, (rec.unreadableLeft || 1) - 1);
-    return `${keptModelWords} ${lead} If Kosmos still cannot, it keeps that folder and tries it again at later Start at logins. After that, ${dropWords(after, true)} ${keptForgetWords}`;
+    return `${keptModelWords} ${lead} If Kosmos still cannot, it keeps that folder and tries it again at later Start at logins. ${keptChangedWords} After that, ${dropWords(after, true)} ${keptForgetWords}${keptModelLaterWords}`;
   }
   /* The last Start at login (create.WIN32_UNREADABLE_LIMIT) that could not read it drops the folder for good. Hedged,
      because these words are read before that Start at login (the plan and outcome of the task-only delete, Restore), and
@@ -983,7 +993,7 @@ function startsAgainWords(name, preview = false) {
     const unread = rec.unreadableReason === 'confirm'
       ? 'Kosmos could not confirm that the account folder it last used still holds the account it used before, now or at two earlier Start at logins. So it starts on your main account, unless Kosmos can confirm that by then. If Kosmos still cannot at the next Start at login that reaches that folder, it moves to your main account for good.'
       : 'Kosmos could not read which account is signed in to the account folder it last used. It could not confirm that account at two earlier Start at logins either. So it starts on your main account, unless by then Kosmos can read that account and it is still the same one. If Kosmos still cannot at the next Start at login that reaches that folder, it moves to your main account for good.';
-    return `${keptModelWords} ${unread} Choose its account again if it should use another.`;
+    return `${keptModelWords} ${unread} Choose its account again if it should use another.${keptModelLaterWords}`;
   }
   const notThere = {
     changed: 'because the account in the folder it used has signed out or changed',
@@ -1002,7 +1012,7 @@ function startsAgainWords(name, preview = false) {
      could not read or confirm that account carries through a start that cannot reach it. */
   if (rec && rec.accountWhy === 'unreachable') {
     const left = rec.unreadableLeft || 1;
-    return `${keptModelWords} Kosmos cannot reach the account folder it used right now. So it starts on your main account, unless by then Kosmos can reach that folder and it still holds the same account. If that folder is on a disk or shared folder that is not connected, connect it first. Otherwise, choose its account again afterwards if it should use another. Kosmos keeps that folder and tries it again at each Start at login. ${dropWords(left, rec.unreadableBefore > 0).replace(/^if/, 'If')} ${keptForgetWords}`;
+    return `${keptModelWords} Kosmos cannot reach the account folder it used right now. So it starts on your main account, unless by then Kosmos can reach that folder and it still holds the same account. If that folder is on a disk or shared folder that is not connected, connect it first. If you do not plan to connect it, choose its account again. Kosmos keeps that folder and tries it again at each Start at login. ${keptChangedWords} ${dropWords(left, rec.unreadableBefore > 0).replace(/^if/, 'If')} ${keptForgetWords}${keptModelLaterWords}`;
   }
   if (rec && rec.accountOk) {
     return rec.configDir

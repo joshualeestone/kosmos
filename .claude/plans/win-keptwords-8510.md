@@ -42,6 +42,18 @@ delete-leftover.startsAgainWords ends the task-only delete's sentences and Resto
 - Checked the generic sentences for the same gate pattern across every outcome x model: only out-of-reach with a
   retired model was wrong. The rest already split on modelOk inside each outcome and match the repair.
 
+## Review round 1
+- WARNING: with a retired model the words said "choose its model again" up front, then that a model change forgets the
+  kept folder, without saying which to do first. The kept-folder words (out of reach, could not read or confirm, the
+  drop) now open with "it starts on the model it last ran." and end with "If it used another model, choose that model
+  again only after it is back on that folder, or after it has moved to another account." Once Start at login puts it
+  back on the folder the record is an ordinary one, which a model change keeps (refreshedRecord, same folder); once it
+  is on another account there is no folder left to lose.
+- NIT: the kept words now say "If that folder then holds a different account, Kosmos forgets it." (a reaching start
+  that reads another account is 'changed', which repair does not keep).
+- NIT: "Otherwise, choose its account again afterwards if it should use another." is now "If you do not plan to connect
+  it, choose its account again."
+
 ## Tests
 - New engine/delete-leftover.win32-keptwords-8510.test.js: every outcome (same folder, same main, changed, unusable,
   unverifiable, removed, missing, could not read, could not confirm, out of reach) x model offered or retired x

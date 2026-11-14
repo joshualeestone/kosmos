@@ -108,7 +108,7 @@ test('kosmos#8489 (b): a Claude config that cannot be read right now is "could n
   fs.writeFileSync(accounts.configFile(dir), '{"oauthAccount": {"emailAddress": "lee@exa');
   assert.equal(why(n), 'unreadable', 'a config being written read as a changed account');
   const words = leftover.startsAgainWords(n);
-  assert.match(words, /^; it starts on the model it was set to\. Kosmos could not read which account is signed in to the account folder it last used\. So it starts on your main account, unless by then Kosmos can read that account and it is still the same one\. If Kosmos still cannot, it keeps that folder and tries it again at later Start at logins\. After that, if Kosmos cannot read or confirm the account in that folder at two more Start at logins that reach it, it moves to your main account for good\. Changing this agent's account or model makes Kosmos forget that folder, as does anything else that sets up its startup job again\.$/);
+  assert.match(words, /^; it starts on the model it was set to\. Kosmos could not read which account is signed in to the account folder it last used\. So it starts on your main account, unless by then Kosmos can read that account and it is still the same one\. If Kosmos still cannot, it keeps that folder and tries it again at later Start at logins\. If that folder then holds a different account, Kosmos forgets it\. After that, if Kosmos cannot read or confirm the account in that folder at two more Start at logins that reach it, it moves to your main account for good\. Changing this agent's account or model makes Kosmos forget that folder, as does anything else that sets up its startup job again\.$/);
   assert.doesNotMatch(words, /signed out or changed/, 'the person was told the account signed out or changed');
   // Not there at all, with no key beside it: could not read too.
   fs.rmSync(accounts.configFile(dir));
@@ -299,7 +299,7 @@ test('kosmos#8489: the out-of-reach words say how many Start at logins that reac
       win32Task: { runner: 'claude', configDir: gone, model: SET_MODEL, account, kept: true, ...(unreadable ? { unreadable } : {}) } });
     return name;
   };
-  const KEEPS = 'Kosmos keeps that folder and tries it again at each Start at login. If Kosmos cannot read or confirm the account in that folder at ';
+  const KEEPS = 'Kosmos keeps that folder and tries it again at each Start at login. If that folder then holds a different account, Kosmos forgets it. If Kosmos cannot read or confirm the account in that folder at ';
   const FORGET = " Changing this agent's account or model makes Kosmos forget that folder, as does anything else that sets up its startup job again.";
   const none = leftover.startsAgainWords(keptAs('away0-8489', 0));
   assert.equal(create.win32RecordedTask('away0-8489').accountWhy, 'unreachable');
