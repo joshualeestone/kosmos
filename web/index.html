@@ -56107,7 +56107,7 @@ function paintAsk() {
          does not accuse anyone; the password sentence is for a fresh one they did not make. */
       // #6405: a computer's first_seen is its first ask, so its age says nothing: it always gets the fresh wording.
       // kosmos#8525: a cloud machine is no sign-in made with an emailed code, so it gets no password sentence.
-      if (d.cloud) return '<div class="askrow done"><p>Turned away. ' + cloudWho + ' was not let in here. To stop it, cancel it on your Kosmos+ account page.</p>' +
+      if (d.cloud) return '<div class="askrow done"><p>Turned away. Kosmos+ was told not to add ' + (d.name ? 'your cloud machine ' + askEsc(d.name) : 'your cloud machine') + '. To stop it, cancel it on your Kosmos+ account page.</p>' +
         '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
       const oldAsk = !askComputerRow(d) && d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
       if (oldAsk) return '<div class="askrow done"><p>Turned away. That ' + askEsc(kind) + ' was not let in; it can ask again by signing in.</p>' +   // never a computer's row (#6405)

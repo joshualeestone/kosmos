@@ -473,7 +473,7 @@ test('#8525: a cloud Allow Kosmos+ did not take says so and is not done; a phone
   process.env.FAKE_JOIN = 'offline';
   cloudSnapshot(dir, true);
   const c = await remote.deviceAllow(CLOUD, 'cloud-d296a63b', undefined);
-  assert.deepEqual([c.ok, c.because], [false, 'Kosmos+ did not take that Allow, so the cloud machine was not added. Try Allow again in a minute.']);
+  assert.deepEqual([c.ok, c.because], [false, 'Kosmos+ did not take that Allow, so the cloud machine was not added.']);
   process.env.FAKE_JOIN = 'ownlineage';
   const o = await remote.deviceAllow(CLOUD, 'cloud-d296a63b', undefined);
   assert.deepEqual([o.ok, o.because], [false, 'This computer is still waiting to be allowed on your account, so it cannot add the cloud machine yet.']);
