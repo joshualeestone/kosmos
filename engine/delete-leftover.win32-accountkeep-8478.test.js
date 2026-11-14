@@ -441,7 +441,7 @@ test('kosmos#8489 review 1: a folder unread at three Start at logins in a row is
     taskOnlyDelete(name); startAtLogin(name);
     assert.equal(store.readProfile(name).win32Task.unreadable, 2);
     const p = taskOnlyDelete(name);
-    assert.match(p.reassurance, /it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, now or at the two Start at logins before, so it starts on your main account from now on unless it can read that by then and it is still the same account\. Choose its account again if it should use another\./);
+    assert.match(p.reassurance, /it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, and could not confirm that account at the two Start at logins before either, so it starts on your main account from now on unless it can read that by then and it is still the same account\. Choose its account again if it should use another\./);
     startAtLogin(name);
     assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
     assert.equal(store.readProfile(name).win32Task.configDir, null, 'the folder was kept after three unreadable Start at logins');

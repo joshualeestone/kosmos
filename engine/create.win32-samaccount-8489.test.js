@@ -223,7 +223,7 @@ test('kosmos#8489 review 1: "could not read" ends: the third Start at login in a
   const last = keptAs('torn2-8489', 2);
   assert.equal(why(last), 'unreadableGaveUp', 'a folder unread three Start at logins in a row was kept again');
   assert.equal(create.win32RecordedTask(last).accountOk, false);
-  assert.equal(leftover.startsAgainWords(last), '; it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, now or at the two Start at logins before, so it starts on your main account from now on unless it can read that by then and it is still the same account. Choose its account again if it should use another.');
+  assert.equal(leftover.startsAgainWords(last), '; it starts on the model it was set to, but Kosmos could not read which account is signed in to the account folder it last used, and could not confirm that account at the two Start at logins before either, so it starts on your main account from now on unless it can read that by then and it is still the same account. Choose its account again if it should use another.');
 });
 
 test('kosmos#8489 review 1: a Grok sign-in file holding no x.ai sign-in is signed out (changed); two is "could not read"', () => {
@@ -250,4 +250,42 @@ test('kosmos#8489 review 1: a bug in the reader is not "could not read": it read
     assert.equal(why(n), 'changed', 'a thrown bug was read as "could not read" (which keeps the folder)');
   } finally { oa.identityFromData = real; }
   assert.ok(logged.some((l) => /kosmos#8489: reading the account in .* failed: a bug/.test(l)), 'the bug was not logged: ' + JSON.stringify(logged));
+});
+
+test('kosmos#8489 review 4: each "cannot tell" gives its own true reason: a failed read says could not read; a read that cannot confirm the same account says could not confirm', () => {
+  const READ = /Kosmos could not read which account is signed in to the account folder it last used, so it starts on your main account unless it can read that by then and it is still the same account\./;
+  const CONFIRM = /Kosmos could not confirm that the account folder it last used still holds the account it used before, so it starts on your main account unless it can confirm that by then\./;
+  const dir = folder('why');
+  // A failed read: half a config.
+  writeClaudeConfig(dir, { emailAddress: 'pat@example.test' });
+  const n = recorded('whyread8489', 'anthropic', 'claude', dir, signinId('pat@example.test'));
+  fs.writeFileSync(accounts.configFile(dir), '{"oauthAccount": {"emailAd');
+  let rec = create.win32RecordedTask(n);
+  assert.deepEqual([rec.accountWhy, rec.unreadableReason], ['unreadable', 'read']);
+  assert.match(leftover.startsAgainWords(n), READ);
+  assert.doesNotMatch(leftover.startsAgainWords(n), /could not confirm/);
+  // The read worked: the record has no organization and the folder now shows one.
+  writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationUuid: UUID_ONE });
+  rec = create.win32RecordedTask(n);
+  assert.deepEqual([rec.accountWhy, rec.unreadableReason], ['unreadable', 'confirm']);
+  assert.match(leftover.startsAgainWords(n), CONFIRM);
+  assert.doesNotMatch(leftover.startsAgainWords(n), /could not read/, 'a read that worked was blamed on a failed read');
+  // No config and no key: nothing failed to read; nothing shows whose account it is.
+  fs.rmSync(accounts.configFile(dir));
+  rec = create.win32RecordedTask(n);
+  assert.deepEqual([rec.accountWhy, rec.unreadableReason], ['unreadable', 'confirm']);
+  assert.match(leftover.startsAgainWords(n), CONFIRM);
+  // The drop at the third try, for a reason that is not a failed read.
+  writeClaudeConfig(dir, { emailAddress: 'pat@example.test', organizationUuid: UUID_ONE });
+  made.push('whydrop8489');
+  store.writeProfile('whydrop8489', { displayName: 'whydrop8489', provider: 'anthropic',
+    win32Task: { runner: 'claude', configDir: dir, model: SET_MODEL, account: signinId('pat@example.test'), kept: true, unreadable: 2 } });
+  assert.equal(leftover.startsAgainWords('whydrop8489'), '; it starts on the model it was set to, but Kosmos could not confirm that the account folder it last used still holds the account it used before, now or at the two Start at logins before, so it starts on your main account from now on unless it can confirm that by then. Choose its account again if it should use another.');
+  // codex: a record with no workspace, the folder now in one.
+  const oa = require('./openaiaccounts');
+  const cdir = folder('whyCodex');
+  const idToken = (claims) => ['e30', Buffer.from(JSON.stringify(claims)).toString('base64url'), 'sig'].join('.');
+  fs.writeFileSync(oa.authFile(cdir), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken({ email: 'ana@example.test' }), account_id: 'ws-team' } }));
+  const c = recorded('whycodex8489', 'openai', 'codex', cdir, signinId('ana@example.test', null, 'chatgpt'));
+  assert.equal(create.win32RecordedTask(c).unreadableReason, 'confirm');
 });

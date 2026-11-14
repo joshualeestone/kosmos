@@ -4549,7 +4549,11 @@ function win32ReadCredential(file, asJson) {
    account modules' own identityOf answer null for both, which is right for their lists and wrong here. */
 function win32AccountIdentityRead(runner, dir) {
   const none = { identity: null, unreadable: false };
-  const unreadable = { identity: null, unreadable: true };
+  /* kosmos#8489 review 4: why it cannot tell, so the person is told a true reason: 'read' when a file that is there
+     could not be read or parsed right now; 'confirm' when everything read but does not show whose account it is (no
+     config and no key, a sign-in file holding two sign-ins). */
+  const unreadable = { identity: null, unreadable: true, reason: 'read' };
+  const unconfirmed = { identity: null, unreadable: true, reason: 'confirm' };
   if (typeof dir !== 'string' || !dir) return none;
   const email = (v) => (typeof v === 'string' && v ? v.toLowerCase() : null);
   const keyed = (kind, key) => ({ kind, email: null, keyTail: key.slice(-4), keyHash: win32KeyFingerprint(key), org: null });
@@ -4571,7 +4575,9 @@ function win32AccountIdentityRead(runner, dir) {
        the account whatever the config says, even while Claude Code is writing that config. */
     const key = win32ReadCredential(require('./claudeaccounts').keyFile(dir), false);
     if (key.kind === 'ok' && key.text) return { identity: keyed('apikey', key.text), unreadable: false };
-    if (key.kind === 'unreadable' || config.kind !== 'ok') return unreadable;
+    if (key.kind === 'unreadable' || config.kind === 'unreadable') return unreadable;
+    // review 4 (nit): no config and no key read as such (both absent), not a failed read: nothing shows whose it is.
+    if (config.kind !== 'ok') return unconfirmed;
     return none;   // a config read whole with no sign-in in it, and no key: signed out
   }
   if (runner === 'codex') {
@@ -4611,7 +4617,8 @@ function win32AccountIdentityRead(runner, dir) {
     if (auth.kind !== 'ok' || !auth.data || typeof auth.data !== 'object' || Array.isArray(auth.data)) return unreadable;
     const entries = Object.keys(auth.data).filter((k) => k.startsWith(mod.AUTH_ISSUER_PREFIX));
     if (entries.length === 0) return none;
-    const entry = entries.length === 1 ? auth.data[entries[0]] : null;
+    if (entries.length > 1) return unconfirmed;   // read whole, but Kosmos cannot say which sign-in grok uses
+    const entry = auth.data[entries[0]];
     if (!entry || typeof entry !== 'object') return unreadable;
     const who2 = email(entry.email);
     return who2 ? { identity: { kind: 'subscription', email: who2, keyTail: null, org: null }, unreadable: false } : none;
@@ -4630,6 +4637,8 @@ function accountMatch(recorded, now, runner, nowOrgName) {
      key's last four characters, and is matched by those, exactly as it was then (never a wider match than before);
      each Start at login that puts the folder back records the fingerprint from then on. */
   if (typeof a.keyHash === 'string' && a.keyHash) { if (a.keyHash !== b.keyHash) return 'changed'; }
+  /* review 4 (nit): so an old last-four record still matches ANY key ending in those four, as it did before this card
+     (no wider), and the first repair that puts the folder back then records that key's fingerprint. */
   else if ((a.keyTail || null) !== (b.keyTail || null)) return 'changed';
   /* kosmos#8489 (a), as decided in review 3: one email can belong to two organizations or workspaces (and their
      billing), so the organization is part of the account, and "same" needs the folder to show the same one:
@@ -4646,6 +4655,10 @@ function accountMatch(recorded, now, runner, nowOrgName) {
   const bo = org(b);
   if (!ao) return bo ? 'unreadable' : 'same';
   if (runner && runner !== 'claude') return !bo ? 'unreadable' : (ao === bo ? 'same' : 'changed');
+  /* review 4 (decided by the coordinator): an organization recorded by NAME before uuids were written is matched by
+     name and email, so two organizations with one name under one email cannot be told apart the first time; the
+     repair that then puts the folder back records the uuid, which tells them apart from then on. The card's own case
+     (the name recorded, the uuid appearing later) needs this, and the email must match too. */
   if (ao === bo) return 'same';   // the very value recorded, uuid or name (a uuid's case is compared below)
   if (WIN32_ORG_UUID_RE.test(ao)) {
     const nowUuid = bo && WIN32_ORG_UUID_RE.test(bo) ? bo : null;
@@ -4810,7 +4823,8 @@ function win32RecordedTask(name, opts) {
      cannot be read right now is 'unreadable', kept like an unreachable one). 'unusable':
      a folder this runner cannot be put on (win32AccountThere's other refusals), or a damaged value. */
   let accountWhy = null;
-  let identityNow = null;   // kosmos#8489 review 1: the identity just read and matched, which the repair records as is
+  let identityNow = null;
+  let unreadableReason = null;   // kosmos#8489 review 4: 'read' or 'confirm', with accountWhy 'unreadable'/'unreadableGaveUp'   // kosmos#8489 review 1: the identity just read and matched, which the repair records as is
   const identity = rec.account && typeof rec.account === 'object' ? rec.account : null;
   const unreadableBefore = rec.kept === true && Number.isInteger(rec.unreadable) && rec.unreadable > 0 ? rec.unreadable : 0;
   if (accountRemoved) accountWhy = accountGone;
@@ -4834,12 +4848,15 @@ function win32RecordedTask(name, opts) {
       }
       const match = !now ? 'changed' : now.unreadable ? 'unreadable' : accountMatch(identity, now.identity, runner, now.orgName);
       if (match === 'unreadable') accountWhy = unreadableBefore + 1 >= WIN32_UNREADABLE_LIMIT ? 'unreadableGaveUp' : 'unreadable';
+      /* review 4: the reason the words give. A failed read is 'read'; a read that worked but cannot be compared with the
+         record (an organization or workspace on one side only, nothing showing whose account it is) is 'confirm'. */
+      if (match === 'unreadable') unreadableReason = now.unreadable ? (now.reason || 'read') : 'confirm';
       else if (match === 'changed') accountWhy = 'changed';
       else identityNow = now.identity;
     }
   }
   return {
-    configDir, model, identity, accountRemoved, accountGone, accountWhy, identityNow, unreadableBefore,
+    configDir, model, identity, accountRemoved, accountGone, accountWhy, identityNow, unreadableBefore, unreadableReason,
     accountOk: accountWhy === null,
     modelOk: modelShaped && win32ModelOffered(runner, model),
   };

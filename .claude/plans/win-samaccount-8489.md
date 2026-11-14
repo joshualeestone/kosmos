@@ -53,6 +53,13 @@ Card comment: an API key was matched by its last four characters only, so two ke
   record held for that folder name: the name may now be someone else's (Alice's record, Bob signed in since). Writes
   that rewrite the same folder without a new choice (setModel, refresh) read nothing and carry the recorded identity
   over (refreshedRecord). A new choice also starts the unreadable count afresh, on purpose.
+- Review 4 (decided by the coordinator): the "cannot tell" words carry the reason the engine knows
+  (win32RecordedTask unreadableReason). 'read': a file that is there could not be read or parsed ("Kosmos could not
+  read which account is signed in to the account folder it last used"). 'confirm': the read worked but cannot be
+  compared with the record, an organization or workspace on one side only, a Claude folder with no config and no key
+  (both read as absent, not a failed read), a Grok file with two sign-ins ("Kosmos could not confirm that the account
+  folder it last used still holds the account it used before"). The drop at the third try gives the reason now and
+  says the two before only as "could not confirm", true whichever reason they had. Outcomes are unchanged.
 - Review 3: the task-only delete's words at the third unreadable try are hedged ("from now on unless it can read that
   by then"), since a config that reads by Start at login puts the folder back; "the folder it used just now" became
   "the account folder it last used".
@@ -76,6 +83,11 @@ Card comment: an API key was matched by its last four characters only, so two ke
 - Grok: key file unreadable and mid-write auth.json were "changed": fixed (b); key tail: fixed (c).
 
 ## Weakest part
+An org recorded by name before uuids existed is matched by name and email; two orgs with one name under one email
+cannot be told apart the first time (review 4, decided: the card's own case needs it). The repair that then puts the
+folder back records the uuid, which tells them apart from then on.
+An old last-four key record still matches any key ending in those four, as before this card (no wider), and the first
+repair then records that key's fingerprint (review 4 nit).
 The limit of 3 counts Start at logins, not time: two task-only deletes and repairs minutes apart while a config is
 torn use up the tries quickly, and a busy file read three times in a row (very unlikely) drops a good folder; the person
 is told and chooses the account again. A missing Claude config with no key now ends the same way after 3. What would
@@ -104,5 +116,7 @@ name reads "could not read", which fails safe. Real organizationUuid values are 
 - Review 3: a recorded name against another name, another uuid with another name, and a uuid with no name; nothing
   recorded against a uuid, and nothing on either side; a codex record with no workspace against ws-team, and none on
   either side; the hedged words. Each fails against 30088af7b9.
+- Review 4: each reason shows its own words (a torn config: could not read; no org recorded and one now, no config and
+  no key, a codex record with no workspace: could not confirm; the drop for each). Fails against 88dd41c743.
 - Negative control: each new test fails against origin/main's create/register/delete-leftover/openaiaccounts (with
   only an export of win32AccountIdentity appended so the unit tests can reach it).
