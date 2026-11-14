@@ -117,7 +117,7 @@ function allowHttpForTests(on) { httpForTests = !!on && !!process.env.NODE_TEST_
    machine: tools/fed-own-e2e.js reaches its local coordinator as login.<name>.localhost, since a board refuses an
    IP-addressed one for joins), so never production and never a coordinator elsewhere; and the one url being checked
    is a loopback address. A Mac set up against login.kosmosplus.com refuses it always. */
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost']);   // not [::1]: the manifest's bucket path holds no brackets
 function loopbackUrl(v) {
   try {
     const u = new URL(v);
@@ -126,9 +126,8 @@ function loopbackUrl(v) {
 }
 function localCoordinator() {
   try {
-    const r = require('./remote');
+    const r = require('./remote');   // its default, login.kosmosplus.com, is neither of the two below
     const c = r.COORDINATOR();
-    if (c === r.DEFAULT_COORDINATOR) return false;
     if (loopbackUrl(c)) return true;
     const u = new URL(c);
     return (u.protocol === 'http:' || u.protocol === 'https:') && !u.username && !u.password && u.hostname.endsWith('.localhost');
@@ -650,7 +649,8 @@ async function uploadManifestInner(deps, bytes, o, st) {
   const epoch = sealedEpoch(o);
   if (epoch === undefined) return { ok: false, grantSpent: false, because: `the key epoch given (${JSON.stringify(o.epoch)}) is not an epoch` };
   // The shape uploadChunks returns, host/ or host/bucket/ with the host in lower case (a URL's host always is) and no
-  // port (checkOne refuses one on S3; only a local bucket has one: the test seam's, or a throwaway coordinator's on this Mac, kosmos#8529), checked before any grant: anything
+  // port (checkOne refuses one on S3; only a local bucket has one: the test seam's, or a throwaway
+  // coordinator's on this Mac, kosmos#8529), checked before any grant: anything
   // else would be refused only after a grant had been spent on it.
   if (!(httpForTests || localBucketOk(o.bucket) ? /^[a-z0-9.:-]+\/([^/]+\/)?$/ : /^[a-z0-9.-]+\/([^/]+\/)?$/).test(o.bucket)) return { ok: false, grantSpent: false, because: `the manifest's bucket (${o.bucket}) is not a bucket path as uploadChunks returns it (host/ or host/bucket/)` };
   // Every chunk it names, as { key, lockedUntilMs }: not a string, and not a Map (uploadChunks' keys Map iterates

@@ -30,6 +30,16 @@ end-to-end run for #8526. The coordinator half and the fake bucket are kosmos-re
 - End to end: 30/30 in 9 s; the same run with main's backupupload.js: backup refused ("upload 0 is not https"),
   B2-B4 red (control). Posted on #8526 (comment 6883992644).
 
+## Review round 1 (fixed)
+
+- An `[::1]` bucket was accepted for chunks and then refused for the manifest (its bucket path regex has no brackets),
+  so a run would upload chunks and never its manifest. `[::1]` is dropped on both sides (here and in kosmos-relay).
+- The manifest arms (`localUploadOk(data.upload)` and `localBucketOk`) had no unit test with the seam off. New test: a
+  manifest lands in a local bucket with a local coordinator, and is refused at the bucket path (no grant asked) with
+  the production one. Measured: deleting either arm turns that test red.
+- The DEFAULT_COORDINATOR comparison could never decide anything (the checks after it already refuse that address):
+  removed. The e2e's B3 bucket-path check now needs at least one object. All 17 backup files: 523/523.
+
 ## Weakest premise
 
 That `*.localhost` always resolves to this machine. RFC 6761 says it should; the e2e checks it before starting (it
