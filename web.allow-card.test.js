@@ -250,6 +250,6 @@ test('#8525 a cloud machine is a computer row (no age, no fading), and its allow
   assert.equal(cloudWho({ cloud: true, name: '' }), 'Your cloud machine');
   assert.equal(cloudWho({ cloud: true, name: '<b>' }), 'Your cloud machine &lt;b&gt;');
   assert.match(JS, /: d\.cloud \? ' You said no to this cloud machine ' \+ askAgoSpan\(d\.denied_at\) \+ ' and it has asked again\.'\n/);
-  assert.match(JS, /: d\.cloud \? 'cloud machine' \+ \(d\.name \? ' ' \+ askEsc\(d\.name\) : ''\)/, 'the Allow label names a nameless cloud machine "Unknown device"');
+  assert.match(JS, /: d\.cloud \? 'cloud machine' \+ \(d\.name \? ' ' \+ askEsc\(d\.name\) : ''\)/, 'the Allow label of a cloud machine is not "cloud machine" plus its name or nothing');
   assert.match(JS, /fresh\.every\(\(d\) => d\.joining_computer \|\| d\.cloud\) \? n \+ ' of your computers want to join\.'/);
 });
