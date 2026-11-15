@@ -941,6 +941,30 @@ function closedHowOf(t, { hasSubtasks = false } = {}) {
   if (CLOSED_HOW.includes(t.closedHow)) return t.closedHow;
   return onRemote ? 'change' : null;
 }
+/**
+ * kosmos#8555: the board's check found task n's commit on a remote, so keep that on the task. The check runs only when
+ * the Tasks view is read and only for 14 days after a close; kept here, every reader (the task page, `kosmos task show`,
+ * a close's word, #8552) has it from the store, and past that window too. It only ever upgrades (a remote branch pruned
+ * after a merge never makes a pushed fix local again), and only for the commit checked: a reopen or a new mark since the
+ * check has moved the task on, so nothing is written. Writes nothing when the task already says so, so a task is
+ * written once. Returns { ok, changed }; never throws (a refused write leaves the task as stored, and the next read
+ * tries again).
+ */
+function saveOnRemote(projectId, n, sha) {
+  if (typeof sha !== 'string' || !COMMIT_SHA_RE.test(sha)) return { ok: false, changed: false };
+  let changed = false;
+  try {
+    projects.mutate(projectId, (p) => {
+      const t = byNumber(p, n);
+      if (!t || t.landedCommit !== sha || t.landedOnRemote === true) throw NO_WRITE;
+      changed = true;
+      return { ...p, tasks: (p.tasks || []).map((x) => (x.number === t.number ? { ...t, landedOnRemote: true } : x)) };
+    });
+  } catch (err) {
+    return { ok: err === NO_WRITE, changed: false };
+  }
+  return { ok: true, changed };
+}
 const COMMIT_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const LANDED_REPO_MAX = 1024;
 function withoutLanded(t) {
@@ -1125,12 +1149,15 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       /* Review 7: only a replacement reaches the old file's checkers. A withdrawal is said to the marker alone (most are a
          re-mark that forgot --file), so the same file sent back needs no word to anyone either. */
       replacedNow = replacing ? { ...replaces, kind: 'replaced' } : dropping ? { ...replaces, kind: 'withdrawn' } : null;
+      /* kosmos#8555: a remote's copy, once the board has seen it, is kept: a re-mark of the same commit by an agent whose
+         checkout had not fetched it says "not on the remote", which is older news than the board's own check. */
+      const landedOnRemoteNow = landed && (landed.onRemote || (t.landedOnRemote === true && t.landedCommit === landed.sha && t.landedRepo === landed.repo));
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
         && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who) && (t.builtFilePath || '') === keptPath
         && sameList(t.builtCheckedBy, checkedBy) && (t.builtCheckedByPerson === true) === checkedByPerson
         // review 4: the replaced file too, so a change to it alone is never skipped as the same mark
         && JSON.stringify(t.builtReplaces || null) === JSON.stringify(replaces || null)
-        && (!landed || (t.landedCommit === landed.sha && t.landedRepo === landed.repo && t.landedOnRemote === landed.onRemote))) {
+        && (!landed || (t.landedCommit === landed.sha && t.landedRepo === landed.repo && t.landedOnRemote === landedOnRemoteNow))) {
         same = true; changed = t; throw NO_WRITE;
       }
       const earlier = t.builtAt ? (Array.isArray(t.builtWho) ? t.builtWho : []) : [];
@@ -1144,7 +1171,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
           ...(printAt ? { builtFingerprintAt: printAt } : {}), builtCheckedBy: checkedBy, ...(checkedByPerson ? { builtCheckedByPerson: true } : {}) } : {}),
         ...(replaces ? { builtReplaces: replaces } : {}),   // kosmos#8307: kept without a current file too (a withdrawn one)
         // #7508: a mark without --commit keeps a commit already recorded (a checker's mark is not new work).
-        ...(landed ? { landedCommit: landed.sha, landedRepo: landed.repo, landedOnRemote: landed.onRemote, landedBy: who, landedAt: new Date().toISOString() } : {}),
+        ...(landed ? { landedCommit: landed.sha, landedRepo: landed.repo, landedOnRemote: landedOnRemoteNow, landedBy: who, landedAt: new Date().toISOString() } : {}),
       };
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });
@@ -3027,4 +3054,4 @@ module.exports = { HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, close, reopen
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, withoutFilePaths, CLOSED_HOW, closedHowAt, closedHowOf, FINGERPRINT_RE, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, withoutFilePaths, CLOSED_HOW, closedHowAt, closedHowOf, saveOnRemote, FINGERPRINT_RE, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
