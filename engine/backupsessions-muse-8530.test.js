@@ -28,6 +28,7 @@ function world() {
   w(path.join(sessions, '2026', '11', '15', MINE, 'session.jsonl'), '{"m":"mikey day two"}\n');
   w(path.join(sessions, '2026', '11', '14', THEIRS, 'session.jsonl'), '{"m":"leo"}\n');
   w(path.join(sessions, '.msp-view-g12', MINE, 'journal-00000000.bin'), 'view');
+  w(path.join(sessions, '2026', '11', '14', MINE, 'prompt_context.json'), '{"other":"file"}');   // review 3: not the conversation
   w(path.join(data, 'muse', 'session-index.db'), 'every session');
   return { base, agent, other, data, sessions };
 }

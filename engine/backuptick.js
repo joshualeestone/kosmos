@@ -258,7 +258,9 @@ function inputsHere(deps = {}) {
   for (const m of ['openaiaccounts', 'geminiaccounts', 'grokaccounts']) {
     try { accountRows[m] = (deps.accountsOf || ((x) => require(`./${x}`).list()))(m) || []; } catch { accountRows[m] = []; }
   }
-  /* kosmos#8530: Muse Code's data home, as the runner gives Muse the board's own environment (engine/muserun.js). */
+  /* kosmos#8530: Muse Code's data home: $XDG_DATA_HOME, else $HOME/.local/share (measured on #8530 with XDG unset: the
+     sessions land there; ~/Library/Application Support/Muse holds only a name register). Read from the BOARD's
+     environment, on the premise that the agent's pane runs Muse with the same HOME and XDG_DATA_HOME. */
   const museData = process.env.XDG_DATA_HOME && path.isAbsolute(process.env.XDG_DATA_HOME) ? process.env.XDG_DATA_HOME
     : path.join(process.env.HOME || require('os').homedir(), '.local', 'share');
   const sessions = (dir, id, name) => {
