@@ -2547,45 +2547,36 @@ function outsidersNote(cleaned, recipients, roster, from, raw) {
   } catch { return ''; }
 }
 
-/* kosmos#8566: the sentence that tells an agent a name in its own header ("Leo -> Josh:") named no member of this
-   project, so it woke no one by that name, and lists the members' exact handles. It says only what is true whoever the
-   name meant: the person reads every post here (so it never says "did not reach them"), and a name some member or the
-   poster answers to (even one too ambiguous to address) says nothing, nor does a name outsidersNote already names.
-   The caller leaves it out of a room shared with another computer, whose members this board cannot all see, and of a
-   person's post. Never throws; '' when there is nothing to say. */
+/* kosmos#8566: the sentence for a post that woke no member, whose own arrow header ("Leo -> Josh:") named someone no
+   member is, saying which name and the members' exact handles. It says only what is true whoever the name meant: the
+   person reads every post here (so it never says "did not reach them"). Silent for a name that may mean a member: one a
+   member or the poster answers to, a word of one, or a run of three or more letters inside one ("Kitty" in
+   icecreamkitty, "Mona" in MonaLisa, "Renet" in renet-tilley); for a name outsidersNote names; and for a part that is not name-shaped (letters,
+   . ' - and single spaces, one to three words). The caller asks only when the post woke no member, and not in a room
+   shared with another computer or for a person's post. Never throws; '' when there is nothing to say. */
 const UNMATCHED_SHOWN_MAX = 8;
-const UNMATCHED_NOT_NAMES = new Set(['team', 'teams', 'both', 'room', 'group', 'folks', 'crew', 'squad', 'members', 'anyone', 'someone',
-  'dear', 'hi', 'hey', 'hello', 'thanks', 'thank', 'done', 'update', 'updates', 'status', 'review', 'note', 'notes', 'question',
-  'reminder', 'heads', 're', 'cc', 'fyi', 'urgent', 'todo', 'summary', 'recap']);
 function unmatchedNote(cleaned, recipients, roster, from, raw) {
   try {
     const nameKey = require('./agentnames').nameKey;
     const members = (Array.isArray(recipients) ? recipients : []).filter((m) => typeof m === 'string' && m);
-    const insideKeys = new Set();
-    // Split on hyphens too, so "Renet" is a word of renet-tilley and "Zero" of Sub-Zero: a name that may mean a member.
-    const addKeys = (v) => { if (typeof v === 'string' && v) { insideKeys.add(nameKey(v)); v.split(/[\s-]+/).forEach((w) => insideKeys.add(nameKey(w))); } };
     const cards = Array.isArray(roster) ? roster : [];
+    const insideKeys = new Set();
+    const addKeys = (v) => { if (typeof v === 'string' && v) { insideKeys.add(nameKey(v)); v.split(/\s+/).forEach((w) => insideKeys.add(nameKey(w))); } };
     for (const c of cards) if (c && (members.includes(c.sessionName) || c.sessionName === from)) { addKeys(c.sessionName); addKeys(c.name); }
     members.forEach(addKeys); addKeys(from);
+    const mayMean = (w) => { const k = nameKey(w.replace(/'s$/i, '')); return k.length > 0 && [...insideKeys].some((ik) => ik === k || (k.length >= 3 && ik.includes(k))); };
     const ourCard = require('./projects').ourCard;
     const outside = cards.filter((c) => c && typeof c.sessionName === 'string' && c.sessionName !== from && !members.includes(c.sessionName)
       && ourCard(c.sessionName, roster) === c).map((c) => c.sessionName);
     const poster = from === undefined || from === null ? [] : [String(from)];
-    const head = postHeader(typeof raw === 'string' ? raw : String(cleaned || '')).find((h) => nameResolves(h.sender, poster, roster).length);
+    const head = postHeader(typeof raw === 'string' ? raw : String(cleaned || '')).find((h) => !h.word && nameResolves(h.sender, poster, roster).length);
     const unmatched = [];
     for (const part of head ? head.targets : []) {
       const bare = part.replace(/^@/, '').trim();
-      if (!bare || /^(all|everyone)$/i.test(bare) || targetResolves(bare, members, roster).length) continue;   // it woke a member
-      if (bare.split(/\s+/).some((w) => insideKeys.has(nameKey(w)) || insideKeys.has(nameKey(w.replace(/'s$/i, ''))))) continue;   // a member's name, a word of one, or its possessive
-      // Only a part written like a person's name, every word title case ("Josh", "Mary Ann"): the fleet's
-      // header carries topics after a comma ("Kitty, heads up:", "FYI", "re the cut") and the word form reads sentences
-      // that start with the poster's name ("Leo for the record:"), and none of those is a name.
-      if (!/^[A-Z][a-z][A-Za-z.'-]*(?: [A-Z][a-z][A-Za-z.'-]*){0,2}$/.test(bare)) continue;
-      // Nor a group, a greeting or a topic written in title case ("Team", "Both", "Dear Josh", "Thanks", "Update").
-      if (bare.split(' ').some((w) => UNMATCHED_NOT_NAMES.has(w.toLowerCase()))) continue;
-      if (mentionedMembers('@' + nameKey(bare), outside, roster).mentioned.size === 1) continue;   // outsidersNote names it
-      const shown = bare.slice(0, 60);   // name-shaped (checked above): letters, . ' - and single spaces only
-      if (shown && !unmatched.includes(shown)) unmatched.push(shown);
+      if (!/^[A-Za-z][A-Za-z.'-]*(?: [A-Za-z][A-Za-z.'-]*){0,2}$/.test(bare) || bare.split(' ').some(mayMean)) continue;
+      if (mentionedMembers('@' + nameKey(bare), outside, roster).mentioned.size === 1) continue;   // outsidersNote's
+      const shown = bare.slice(0, 60);
+      if (!unmatched.includes(shown)) unmatched.push(shown);
     }
     if (!unmatched.length) return '';
     const handle = (m) => (/^[A-Za-z0-9._-]+$/.test(m) ? m : '');
@@ -2947,8 +2938,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   const note4653 = [ambiguous.size ? ambiguousNote(ambiguous, atNamed.mentioned, shown) : '',
     operator === true ? '' : outsidersNote(cleaned, recipients, roster, from, text),
     // kosmos#8566: a header name that named no one here; not for a name outsidersNote just named, nor in a shared room.
-    // Not when @all woke every member the names did not (beside "-> the team: @all"), where "woke no one by it" reads wrong.
-    operator === true || federated === true || (recipients.every((m) => m === from || mentioned.has(m)) && !recipients.every((m) => m === from || namedHere.has(m))) ? '' : unmatchedNote(cleaned, recipients, roster, from, text)].filter(Boolean).join(' ');
+    // Only for a post that woke no member at all (its @-names and @all included), which is when nothing else tells the poster why.
+    operator === true || federated === true || mentioned.size > 0 ? '' : unmatchedNote(cleaned, recipients, roster, from, text)].filter(Boolean).join(' ');
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
