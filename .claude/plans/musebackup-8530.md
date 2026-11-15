@@ -25,13 +25,15 @@ mentions Muse, so a Muse agent's conversation is never backed up.
 
 ## Weakest premise
 - That the session log alone restores the conversation; restore (#7404's path) was not exercised for Muse.
-- That Muse on a Mac honours XDG_DATA_HOME: the measurement set BOTH HOME and XDG_DATA_HOME to the throwaway folder,
-  so it does not say which one Muse follows. A board normally sets neither, so ~/.local/share is the common case.
+- MEASURED (review 3's question): with HOME set to a throwaway folder and every XDG_* UNSET, the session landed in
+  $HOME/.local/share/muse/sessions/...; ~/Library/Application Support/Muse got only the session-name register, no
+  conversation. So the fallback is the common Mac case. Premise: the agent's pane runs Muse with the board's HOME and
+  XDG_DATA_HOME (the board reads its own environment).
 - Only the agent's CURRENT session id is read: musefront writes a new id over an unreadable file, and the older
   conversation is then not backed up. Other readers take every session of the agent; here there is no record that
   ties an older session to the folder.
-- Every file in the session folder is taken, unfiltered: the folder is one session's own, and the measurement found
-  only session.jsonl there. A file Muse adds later there is taken too (it belongs to that session).
+- Only session.jsonl is taken from the session folder (review 3: named, as the sibling readers name their files), so a
+  file Muse adds there later is not uploaded unless it is added here.
 - Windows is not covered: the data home is $XDG_DATA_HOME or ~/.local/share; where Muse keeps data on Windows is
   unmeasured, so a Windows board gets no Muse root (as before this change).
 - Ownership rests on the agent's own .kosmos/muse-session (no provider record ties a session to a folder, unlike the

@@ -210,7 +210,6 @@ test('kosmos#8530: the sessions of a Muse agent are looked for in XDG_DATA_HOME,
     // Review 1: only an agent whose job runs Muse is looked up in Muse's sessions.
     process.env.XDG_DATA_HOME = '/data/home-8530';
     assert.equal(look('claude'), undefined, 'a Claude agent was looked up in Muse sessions');
-    process.env.XDG_DATA_HOME = '/data/home-8530';
     assert.equal(look(), '/data/home-8530');
     delete process.env.XDG_DATA_HOME;
     assert.equal(look(), path.join(process.env.HOME, '.local', 'share'));

@@ -212,8 +212,8 @@ function grokRoot(agentDir, grokHome, id, tag = '') {
    folder with an `only` list of that one session folder's files. Never session-index.db (every session's index) and
    never the sign-in (the Keychain on a Mac): neither is under a session folder. The sessions/.msp-view-g12/<id>/ view
    cache is not taken. Limits, stated: only the CURRENT id is read (an id replaced after an unreadable file leaves the
-   older conversation out); every file in the session folder is taken (measured there: session.jsonl only); and the
-   data home is the XDG one, so a board whose Muse keeps data elsewhere (Windows) gets no Muse root. */
+   older conversation out); only session.jsonl, the conversation, is taken from the session folder; and the data home is
+   the XDG one, so a board whose Muse keeps data elsewhere (Windows) gets no Muse root. */
 const MUSE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_PART = [/^\d{4}$/, /^\d{2}$/, /^\d{2}$/];
 function museRoot(agentDir, museData, id) {
@@ -237,7 +237,8 @@ function museRoot(agentDir, museData, id) {
         let st;
         try { st = fs.lstatSync(path.join(c.real, rel)); } catch { continue; }
         if (!st.isDirectory()) continue;   // a link is not followed, and a file is not a session folder
-        for (const f of filesUnder(path.join(c.real, rel), () => true, 3)) only.push(`${rel}/${f}`);
+        // Review 3: the conversation file by name, as the sibling readers name theirs; never whatever else Muse adds there.
+        for (const f of filesUnder(path.join(c.real, rel), (n) => n === 'session.jsonl', 0)) only.push(`${rel}/${f}`);
       }
     }
   }
