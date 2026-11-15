@@ -46,10 +46,13 @@ test('#8261: a second agent confirming a row adds a name; the first is kept, and
   assert.match(line(p), / by ana and bo \| next-card\.sh 40$/);
 });
 
-test('#8261: a write that names no status confirms the current one', () => {
+test('#8261: a write that leaves the status out (a source fix) confirms nothing; naming the same status does', () => {
   const p = project();
   records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
-  records.set(p.id, 'Acme', { source: 'crm export' }, { by: 'bo', now: NOW });
+  records.set(p.id, 'Acme', { source: 'crm export, fixed link' }, { by: 'bo', now: NOW });
+  assert.deepEqual(names(only(p)), ['ana'], 'bo only fixed the source');
+  assert.equal(only(p).by, 'bo', 'by still records the latest writer');
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'bo', now: NOW });
   assert.deepEqual(names(only(p)), ['ana', 'bo']);
 });
 
@@ -64,7 +67,7 @@ test('#8261: the same agent writing again is one name, not two (a re-write is no
 test('#8261: a new status starts the list again with its writer', () => {
   const p = project();
   records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
-  records.set(p.id, 'Acme', {}, { by: 'bo', now: NOW });
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'bo', now: NOW });
   records.set(p.id, 'Acme', { status: 'churned' }, { by: 'cy', now: NOW });
   assert.deepEqual(names(only(p)), ['cy']);
   records.set(p.id, 'Acme', { status: '' }, { by: 'di', now: NOW });
@@ -74,8 +77,8 @@ test('#8261: a new status starts the list again with its writer', () => {
 test('#8261: the person counts as a confirmer, and three names read "a, b and c"', () => {
   const p = project();
   records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
-  records.set(p.id, 'Acme', {}, { person: true, now: NOW });
-  records.set(p.id, 'Acme', {}, { by: 'bo', now: NOW });
+  records.set(p.id, 'Acme', { status: 'active' }, { person: true, now: NOW });
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'bo', now: NOW });
   assert.deepEqual(names(only(p)), ['ana', 'person', 'bo']);
   assert.match(line(p), / by ana, the person and bo \| -$/);
 });
@@ -95,14 +98,14 @@ test('#8261: a row written before confirmers existed keeps its writer as the fir
   projects.mutate(p.id, (q) => ({ ...q, records: q.records.map((r) => { const { confirmers, ...rest } = r; return rest; }) }));
   assert.equal('confirmers' in projects.readAll().find((x) => x.id === p.id).records[0], false, 'the old shape is really stored');
   assert.deepEqual(names(only(p)), ['old'], 'read: the old writer shows as the confirmer');
-  records.set(p.id, 'Acme', {}, { by: 'bo', now: NOW });
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'bo', now: NOW });
   assert.deepEqual(names(only(p)), ['old', 'bo']);
 });
 
 test('#8261: a write from nobody named adds nobody', () => {
   const p = project();
   records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
-  records.set(p.id, 'Acme', {}, { now: NOW });
+  records.set(p.id, 'Acme', { status: 'active' }, { now: NOW });
   assert.deepEqual(names(only(p)), ['ana']);
 });
 

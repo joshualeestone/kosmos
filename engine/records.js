@@ -18,7 +18,8 @@
  *     the writer says when the evidence is from.
  *   - status and source are optional; a write leaves a field alone unless it names it ('' clears it).
  *   - by / byPerson: the latest writer, filled in by the board from the writer's own card, never typed.
- *   - confirmers (#8261): every distinct writer of the row's current status, in the order each first confirmed it
+ *   - confirmers (#8261): every distinct writer that created the row or named its current status (a write that
+ *     leaves the status out, such as a source fix, adds nobody), in the order each first confirmed it
  *     (a repeat write does not move a name), at most CONFIRMERS_MAX, the earliest dropped first,
  *     so a second agent confirming a row adds a name instead of replacing the first. A write that changes the status
  *     starts the list again with that writer. A row written before this field seeds it from its by / byPerson.
@@ -184,9 +185,13 @@ function set(projectId, name, fields = {}, { by = null, person = false, now } = 
     const before = i < 0 ? { createdAt: at } : rows[i];
     const nextStatus = status === undefined ? (before.status || '') : status;
     const me = confirmerOf(by, person);
-    // A new status starts the list again: a confirmation of the old status is not one of the new.
-    let confirmers = i < 0 || nextStatus !== (before.status || '') ? [] : confirmersOf(before);
-    if (me && !confirmers.some((c) => sameConfirmer(c, me))) confirmers = [...confirmers, me].slice(-CONFIRMERS_MAX);
+    // A writer confirms the status only by naming it (or by creating the row): a write that fixes the source alone
+    // checked nothing. A new status starts the list again: a confirmation of the old status is not one of the new.
+    const namesStatus = status !== undefined;
+    let confirmers = i < 0 || (namesStatus && nextStatus !== (before.status || '')) ? [] : confirmersOf(before);
+    if (me && (i < 0 || namesStatus) && !confirmers.some((c) => sameConfirmer(c, me))) {
+      confirmers = [...confirmers, me].slice(-CONFIRMERS_MAX);
+    }
     const row = {
       // The name as first written stays the row's name: an update spelled "acme" does not rename the person's "Acme Inc".
       ...before, name: i < 0 ? clean : before.name, key, confirmed,
