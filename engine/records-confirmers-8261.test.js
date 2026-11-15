@@ -212,7 +212,7 @@ test('#8261: a backdated write never moves the row\'s date behind a confirmer it
   assert.equal(r.stale, false);
 });
 
-test('#8553: a backdated source-only write leaves the row on its fresh confirmer\'s date (the call on #8553)', () => {
+test('#8553: a backdated source-only write leaves the row on its fresh confirmer\'s date', () => {
   const p = project();
   records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
   records.set(p.id, 'Acme', { source: 'crm link', confirmed: '2026-09-01' }, { by: 'bo', now: NOW });
@@ -221,33 +221,20 @@ test('#8553: a backdated source-only write leaves the row on its fresh confirmer
   assert.equal(r.stale, false);
   assert.equal(r.source, 'crm link', 'the source still changes');
   assert.deepEqual(names(r), ['ana']);
-  // With no confirmer kept (created by nobody named), a source fix still gives the row no date, backdated or not.
+  // CONTROL: with no confirmer kept (created by nobody named), the backdated date is the row's date (#6994's rule).
   records.set(p.id, 'Globex', { status: 'lead' }, { now: NOW });
   records.set(p.id, 'Globex', { source: 'x', confirmed: '2026-09-01' }, { by: 'bo', now: NOW });
+  assert.equal(records.list(p.id, { now: NOW }).rows.find((x) => x.name === 'Globex').confirmed, '2026-09-01');
+});
+
+test('#8553: any write is evidence for the row\'s date (#6994), so a source fix dated today shows today beside an older confirmer', () => {
+  const p = project();
+  records.set(p.id, 'Acme', { status: 'active', confirmed: '2026-10-06' }, { by: 'ana', now: NOW });
+  records.set(p.id, 'Acme', { source: 'fixed link' }, { by: 'bo', now: NOW });
+  assert.equal(only(p).confirmed, '2026-11-15', 'kept on purpose: a bare write is how a row is refreshed');
+  assert.deepEqual(names(only(p)), ['ana'], 'bo is not a confirmer: he named no status');
+  // The person (a writer the board cannot name) naming the status moves the row to today too.
+  records.set(p.id, 'Globex', { status: 'lead', confirmed: '2026-10-06' }, { by: 'ana', now: NOW });
+  records.set(p.id, 'Globex', { status: 'lead' }, { now: NOW });
   assert.equal(records.list(p.id, { now: NOW }).rows.find((x) => x.name === 'Globex').confirmed, '2026-11-15');
-  // CONTROL: a status-naming write does set the date, as #6994 has it.
-  records.set(p.id, 'Globex', { status: 'lead', confirmed: '2026-11-01' }, { now: NOW });
-  assert.equal(records.list(p.id, { now: NOW }).rows.find((x) => x.name === 'Globex').confirmed, '2026-11-01');
-});
-
-test('#8553: a source fix dated today does not make an old check read as fresh', () => {
-  const p = project();
-  records.set(p.id, 'Acme', { status: 'active', confirmed: '2026-10-06' }, { by: 'ana', now: NOW });   // 40 days old
-  records.set(p.id, 'Acme', { source: 'fixed link' }, { by: 'bo', now: NOW });
-  const r = only(p);
-  assert.equal(r.confirmed, '2026-10-06', 'the row keeps ana\'s date: bo checked nothing');
-  assert.equal(r.stale, true);
-  assert.match(line(p), /confirmed 2026-10-06 \(40 days ago, stale\) by ana \| fixed link$/);
-  // CONTROL: bo naming the status is a check, and the row moves to today with bo on it.
-  records.set(p.id, 'Acme', { status: 'active' }, { by: 'bo', now: NOW });
-  assert.equal(only(p).confirmed, '2026-11-15');
-  assert.deepEqual(names(only(p)), ['bo']);
-});
-
-test('#8553: a source fix dated today does not freshen a row that keeps no confirmer either', () => {
-  const p = project();
-  records.set(p.id, 'Acme', { status: 'active', confirmed: '2026-10-06' }, { now: NOW });   // created by nobody named
-  assert.deepEqual(only(p).confirmedBy, []);
-  records.set(p.id, 'Acme', { source: 'fixed link' }, { by: 'bo', now: NOW });
-  assert.deepEqual([only(p).confirmed, only(p).stale], ['2026-10-06', true]);
 });
