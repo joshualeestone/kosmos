@@ -27,8 +27,10 @@ Shown once by construction: the next startup's window begins after this session'
 state is kept. Run by hand (`kosmos away`), the window is rebuilt from the report before the session's newest
 `started`, ending at that `started`, so it shows what the hook gave.
 
-A room post counts only when its outcome for the agent is `could_not` (it reached no running pane). `placed` and
-roomhold's `quiet` reached a running agent and are not "while it was not running".
+A room post counts only when its outcome for the agent is `could_not` (the room tried to reach it and could not).
+`placed` was typed into its pane; `quiet` the room never tried to type to it (it did not address the agent, or the loop
+cap held it), so it is not counted either way: `kosmos room` shows every post. So a post that named the agent while the
+room's loop cap was spent is not shown. The person's DMs count only when their own delivery state is could_not or held.
 
 Contents (bounded, ids not text, so no colleague's words are handed over as instructions):
 - per project: how many room posts could not reach it, and the ids of those that name it (engine/messages.js namedIn:
@@ -53,7 +55,10 @@ Kosmos's voice, saying it is a summary of what arrived while the agent was not r
 5. install/kosmos-report-hook.sh SessionStart branch: call `kosmos away --hook` after the source guard and before
    `report started`; print it only when it starts with `{"hookSpecificOutput":`. If the started report then FAILS, print
    only the systemMessage (reporting being off matters more; one JSON object on stdout).
-6. engine/kosmos-report-hook.js: the same for Windows (SessionStart case).
+6. engine/kosmos-report-hook.js: Windows asks AFTER a recorded `started`, without `at=startup` (the window this startup
+   had). Before `started` the route cannot tell who is asking on Windows: the roster row appears only once Claude Code
+   registers the session, and the heartbeat is stale after an absence; `started` beats liveness (kosmos#8372). Only with
+   an agent token (the hook never sends a pane).
 
 ## Tests (new file engine/awaydigest-8548.test.js, plus the hook tests that already cover SessionStart)
 - window: rows before the last report and after now are left out; no last report -> nothing; >7 days -> clamped and said.

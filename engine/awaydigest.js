@@ -16,9 +16,12 @@
    a startup message, where they could read as instructions. Who a post named is read by engine/messages.js namedIn
    (the row's own `mentioned` and `addressed`, persisted by the room's one tokenizer), not a second matcher.
 
-   A post counts only when its outcome for this agent was could_not: one placed in a running pane, or left quiet for an
-   idle one (roomhold), reached a running agent and is not "while it was not running". A post placed just before a
-   crash and lost in it is therefore not shown. */
+   A room post counts only when its outcome for this agent was could_not (the room tried to reach it and could not).
+   A placed one was typed into its pane; a quiet one the room never tried to type to it (one that did not address it,
+   or held by the loop cap), so it is not counted whether the agent was running or not: `kosmos room` shows every post.
+   A post placed just before a crash and lost in it is not shown either. A post in a room whose id is not a plain
+   token is left out entirely. The person's direct messages count only when their own delivery says they did not
+   reach the agent. */
 
 const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const SHOWN = 5;          // post ids listed per room before "and N earlier"
@@ -101,6 +104,11 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
     // As `kosmos inbox` lists them: Kosmos's own words kept in the thread (`kosmos: true`) are not the person's.
     if (!m || typeof m !== 'object' || (m.from !== undefined && m.from !== null) || m.kosmos === true || !inWindow(m)) continue;
     if (typeof m.text !== 'string' && !m.attachment && !m.attachments) continue;
+    // A menu answer owes nothing (as `kosmos inbox --unanswered` reads it); only a message whose own delivery says it did
+    // not reach the agent counts (could_not, or held for after a reset). One with no delivery record is taken as reached.
+    if (typeof m.wire === 'string' && m.wire) continue;
+    const state = m.delivery && typeof m.delivery === 'object' ? m.delivery.state : null;
+    if (state !== 'could_not' && state !== 'held') continue;
     dms += 1;
   }
   const posts = [...rooms.values()].reduce((n, x) => n + x.count, 0);
@@ -110,7 +118,7 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
   const lines = [];
   const list = [...rooms.entries()].sort((a, b) => b[1].count - a[1].count || (a[0] < b[0] ? -1 : 1));
   for (const [project, room] of list.slice(0, MAX_ROOMS)) {
-    let line = '- ' + project + ': ' + room.count + (room.count === 1 ? ' post' : ' posts') + ' from others';
+    let line = '- ' + project + ': ' + room.count + (room.count === 1 ? ' post' : ' posts') + ' to you';
     if (room.asked.length) {
       const newest = room.asked.slice(-SHOWN).reverse();
       const earlier = room.asked.length - newest.length;
