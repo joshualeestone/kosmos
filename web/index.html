@@ -76979,9 +76979,9 @@ function pjRecordsReset() {
   document.getElementById('pj-records-rows').textContent = '';
 }
 // kosmos#8261: every agent (or you) that confirmed the row's status, "by ana, you and bo"; an answer from an older
-// board has no confirmedBy and names only its latest writer.
+// board has no confirmedBy and names only its latest writer, and an empty list (every confirmer stale) names nobody.
 function pjRecordsWho(r) {
-  const list = Array.isArray(r.confirmedBy) && r.confirmedBy.length ? r.confirmedBy
+  const list = Array.isArray(r.confirmedBy) ? r.confirmedBy
     : (r.byPerson ? [{ person: true }] : r.by ? [{ by: r.by }] : []);
   const names = list.map((c) => (c && c.person ? 'you' : c && c.by)).filter(Boolean);
   if (!names.length) return '';

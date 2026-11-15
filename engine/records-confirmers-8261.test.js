@@ -128,9 +128,7 @@ test('#8261: a confirmer whose own evidence is stale no longer counts, on a writ
   const stored = projects.readAll().find((x) => x.id === p.id).records[0].confirmers.map((c) => c.by);
   assert.deepEqual(stored, ['bo'], 'the write drops it from the stored list too, so it holds no slot under the cap');
   assert.match(line(p), / by bo \| -$/);
-  // Read 40 days later: bo's own check has gone stale too, so no confirmer is listed and the line names the latest writer.
-  const later = records.list(p.id, { now: NOW + 40 * 86400000 }).rows[0];
-  assert.deepEqual(later.confirmedBy, []);
+  // Read 40 days later: bo's own check is stale too. With none fresh, the row reads stale and still names bo.
   assert.match(records.renderList(records.list(p.id, { now: NOW + 40 * 86400000 }), { projectId: p.id }).split('\n')[1], / stale\) by bo \| -$/);
 });
 
@@ -142,4 +140,27 @@ test('#8261: a repeat write by the same agent refreshes its date, so its check d
   const r = only(p);
   assert.deepEqual(names(r), ['ana']);
   assert.equal(r.confirmedBy[0].confirmed, '2026-11-15');
+});
+
+test('#8261: a backdated writer whose own evidence is already stale is not added, so it cannot push out a fresh one', () => {
+  const p = project();
+  for (const w of ['a1', 'a2', 'a3', 'a4', 'a5']) records.set(p.id, 'Acme', { status: 'active' }, { by: w, now: NOW });
+  records.set(p.id, 'Acme', { status: 'active', confirmed: '2026-10-01' }, { by: 'a6', now: NOW });
+  assert.deepEqual(names(only(p)), ['a1', 'a2', 'a3', 'a4', 'a5']);
+});
+
+test('#8261: a backdated repeat write does not move the writer\'s own date back', () => {
+  const p = project();
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
+  records.set(p.id, 'Acme', { status: 'active', confirmed: '2026-11-01' }, { by: 'ana', now: NOW });
+  assert.equal(only(p).confirmedBy[0].confirmed, '2026-11-15');
+});
+
+test('#8261: a confirmer that goes stale after the last write drops out on read while a fresher one remains', () => {
+  const p = project();
+  records.set(p.id, 'Acme', { status: 'active', confirmed: '2026-10-20' }, { by: 'ana', now: NOW });   // 26 days: fresh
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'bo', now: NOW });
+  assert.deepEqual(names(only(p)), ['ana', 'bo'], 'both fresh when written');
+  const tenDaysOn = records.list(p.id, { now: NOW + 10 * 86400000 }).rows[0];   // ana 36 days, bo 10
+  assert.deepEqual(names(tenDaysOn), ['bo']);
 });

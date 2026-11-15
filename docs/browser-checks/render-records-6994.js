@@ -78,6 +78,10 @@ const ROWS = [
       // kosmos#8261: a row confirmed by several names every one, in order; the two rows above (no confirmedBy, as an
       // older board answers) still name their one writer.
       ok(`${t} a row confirmed by several names them all`, /, by ana, you and bo$/.test(r.cells[2][2]), JSON.stringify(r.cells[2]));
+      // An empty list (every confirmer stale) names nobody, even with a latest writer: that writer may never have
+      // confirmed the status. CONTROL: with no confirmedBy at all (an older board) the same writer is named.
+      const who = await page.evaluate(() => [pjRecordsWho({ confirmedBy: [], by: 'zed' }), pjRecordsWho({ by: 'zed' })]);
+      ok(`${t} an empty confirmer list names nobody; an older board's row names its writer`, who[0] === '' && who[1] === 'by zed', JSON.stringify(who));
       ok(`${t} an http source is a link; a file path is text`, r.links[0] === 'https://crm.example/acme' && r.links[1] === null, JSON.stringify(r.links));
       ok(`${t} a javascript: source is never a link`, r.links[2] === null, JSON.stringify(r.links));
       ok(`${t} a name that looks like markup arrives as text`, r.imgs === 0 && !r.xss && r.cells[2][0].startsWith('<img'), JSON.stringify(r.cells[2]));

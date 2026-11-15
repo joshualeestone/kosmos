@@ -21,8 +21,8 @@
  *   - confirmers (#8261): every distinct writer that created the row or named its current status (a write that
  *     leaves the status out, such as a source fix, adds nobody), in the order each first confirmed it
  *     (a repeat write does not move a name, only refreshes its date), at most CONFIRMERS_MAX, the earliest dropped
- *     first. Each keeps the date of its own evidence, and one older than STALE_DAYS no longer counts (on a write or a
- *     read), so a stale check beside a fresh one never reads as a second check. A second agent confirming a row
+ *     first. Each keeps the date of its own evidence; when any is fresh, one older than STALE_DAYS no longer counts
+ *     (on a write or a read), so a stale check beside a fresh one never reads as a second check. A second agent confirming a row
  *     adds a name instead of replacing the first. A write that changes the status
  *     starts the list again with that writer. A row written before this field seeds it from its by / byPerson.
  * A project may say what its rows are (recordsLabel: "accounts"); the default is "records".
@@ -151,8 +151,12 @@ function confirmersOf(row) {
   const one = confirmerOf(row.by, row.byPerson);
   return one ? [{ ...one, confirmed: row.confirmed }] : [];
 }
-/** Only confirmers whose own evidence is not stale count: an old check beside a fresh one is not a second check. */
-const freshConfirmers = (list, now) => list.filter((c) => { const a = ageDays(c.confirmed, now); return a !== null && a <= STALE_DAYS; });
+/** When any confirmer's own evidence is fresh, only the fresh ones count: an old check beside a fresh one is not a
+    second check. When none is fresh, all are kept: the row reads stale, and still says who confirmed it. */
+function freshConfirmers(list, now) {
+  const fresh = list.filter((c) => { const a = ageDays(c.confirmed, now); return a !== null && a <= STALE_DAYS; });
+  return fresh.length ? fresh : list;
+}
 
 /** One row as a reader gets it: the stored fields, plus how old its evidence is and whether that is stale. */
 function view(row, now) {
@@ -195,13 +199,15 @@ function set(projectId, name, fields = {}, { by = null, person = false, now } = 
     // A writer confirms the status only by naming it (or by creating the row): a write that fixes the source alone
     // checked nothing. A new status starts the list again: a confirmation of the old status is not one of the new.
     const namesStatus = status !== undefined;
-    // A confirmer whose own evidence has gone stale drops out; a repeat write refreshes the writer's own date.
-    let confirmers = i < 0 || (namesStatus && nextStatus !== (before.status || '')) ? [] : freshConfirmers(confirmersOf(before), now);
+    let confirmers = i < 0 || (namesStatus && nextStatus !== (before.status || '')) ? [] : confirmersOf(before);
     if (me && (i < 0 || namesStatus)) {
+      // A repeat write refreshes the writer's own date (never moves it back); a new writer joins at the end.
       const at = confirmers.findIndex((c) => sameConfirmer(c, me));
-      if (at < 0) confirmers = [...confirmers, { ...me, confirmed }].slice(-CONFIRMERS_MAX);
+      if (at < 0) confirmers = [...confirmers, { ...me, confirmed }];
       else if (confirmed > confirmers[at].confirmed) confirmers = confirmers.map((c, j) => (j === at ? { ...c, confirmed } : c));
     }
+    // Stale ones go before the cap, so a stale (or backdated) confirmer never pushes out a fresh one.
+    confirmers = freshConfirmers(confirmers, now).slice(-CONFIRMERS_MAX);
     const row = {
       // The name as first written stays the row's name: an update spelled "acme" does not rename the person's "Acme Inc".
       ...before, name: i < 0 ? clean : before.name, key, confirmed,
@@ -256,9 +262,10 @@ function ageWords(days) {
 
 /** " by ana", " by ana and bo", " by ana, bo and the person": every confirmer of the row's status (#8261). */
 function whoWords(r) {
-  // An answer from an older board has no confirmedBy: then it names its latest writer only.
+  // An answer from an older board has no confirmedBy: then it names its latest writer only. An empty list (every
+  // confirmer stale) names nobody: the latest writer may not have confirmed the status at all.
   const latest = confirmerOf(r.by, r.byPerson);
-  const list = Array.isArray(r.confirmedBy) && r.confirmedBy.length ? r.confirmedBy : latest ? [latest] : [];
+  const list = Array.isArray(r.confirmedBy) ? r.confirmedBy : latest ? [latest] : [];
   const names = list.map((c) => (c.person ? 'the person' : c.by));
   if (!names.length) return '';
   return ' by ' + (names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]);
