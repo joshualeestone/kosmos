@@ -143,6 +143,10 @@ test('topics and sentences that are not names say nothing, with a member woken b
     'Leo to self: remember', 'Leo -> Josh\tDana: tab']) {
     assert.equal(note(text), undefined, text);
   }
+  for (const text of ['Leo -> Team: x', 'Leo -> Both: x', 'Leo -> Room: x', 'Leo -> Done: x', 'Leo -> Thanks: x', 'Leo -> Update: x',
+    'Leo -> Review: x', 'Leo -> Dear Josh: x', 'Leo -> Hi Josh: x']) {
+    assert.equal(note(text), undefined, text);
+  }
   assert.match(note('Leo -> Kano, Josh: names'), /^Josh is not the name/, 'CONTROL: a name beside them is still said');
 });
 
@@ -159,6 +163,12 @@ test('a possessive of a member name, and a name with a member word in it, say no
 
 test('a typo beside every member named in the header is still said (only @all silences it)', () => {
   assert.match(note('Leo -> Kano, Sub-Zero, Mara, Jsoh: x'), /^Jsoh is not the name/);
+});
+
+test('a long member display name is cut to 40 characters in the list', () => {
+  const agents = [fleet.agent('leo', { state: 'idle' }), fleet.agent('longone', { state: 'idle', displayName: 'Q'.repeat(70) })];
+  const n = note('Leo -> Josh: hi', agents, ['leo', 'longone']);
+  assert.match(n, new RegExp('Members you can address: ' + 'Q'.repeat(40) + ' \\(@longone\\)\\.$'), n);
 });
 
 test('the member list is capped and says how many more', () => {
