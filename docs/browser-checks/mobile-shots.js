@@ -383,22 +383,24 @@ async function openTab(page, tab) {
    screen without depending on phone navigation; the frame shots use the ☰. */
 /* 'load', not 'networkidle': some screens hold a connection open (live
    updates), so the network never goes idle there. */
-/* kosmos#7750: the two media doors' answers, as engine/tokendoors.js will give them (Angel builds the rows). `on`:
+/* kosmos#7750: the two media doors' answers, with the words engine/tokendoors.js gives them. `on`:
    Replicate connected as a sample account. The shelf's /api/connections answer gains the same two doors. */
 const mediaDoors = async (page, on) => {
   const off = (where, whereText, hint) => ({ connected: false, where, whereText, hint });
   const doors = {
     replicate: on ? { connected: true, who: 'pixel-studio' } : off('https://replicate.com/account/api-tokens', 'Replicate’s API tokens page', 'naming it Kosmos so you can find it later'),
-    elevenlabs: off('https://elevenlabs.io/app/settings/api-keys', 'ElevenLabs’ API keys page', 'turning on only the features your agents need, and a credit limit if you want one'),
+    elevenlabs: off('https://elevenlabs.io/app/settings/api-keys', 'ElevenLabs’ API keys page', 'turning on the features your agents need and reading your account, so Kosmos can check the key, and a credit limit if you want one'),
   };
   for (const [slug, body] of Object.entries(doors)) {
     await page.route('**/api/svc/' + slug, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }));
   }
   await page.route('**/api/connections', async (r) => {
-    let base = {};
-    try { base = await (await r.fetch()).json(); } catch { base = {}; }
-    const d = Object.assign({}, base.doors || {}, { '/api/svc/replicate': { connected: !!on }, '/api/svc/elevenlabs': { connected: false } });
-    await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(Object.assign({}, base, { doors: d })) });
+    try {
+      let base = {};
+      try { base = await (await r.fetch()).json(); } catch { base = {}; }
+      const d = Object.assign({}, base.doors || {}, { '/api/svc/replicate': { connected: !!on }, '/api/svc/elevenlabs': { connected: false } });
+      await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(Object.assign({}, base, { doors: d })) });
+    } catch { /* the page closed under the route (#6022) */ }
   });
 };
 const at = async (page, qs) => {

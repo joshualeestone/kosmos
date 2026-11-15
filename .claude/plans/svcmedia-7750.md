@@ -15,7 +15,8 @@ backed by a spec in engine/tokendoors.js, the door checks the pasted token with 
 3. [x] Tests: engine/tokendoors.test.js new #7750 test (request shape, who, a 200 without a username is
    refused, the permission reason passed through, a bare 401 unchanged); negative control run (breaking
    the passthrough fails it). web.svc-doors.test.js pins both pill sentences.
-4. [ ] Wider tests that read these files; design shots are hers (~/work/design-shots/kosmos-7750/).
+4. [x] Wider tests: every test that reads the doors (20 files, 244 tests) plus web.conn-shelf; full suite found two reds, both fixed in iteration 1 (the #6022 route guard in mobile-shots.js, and the #2518 surface gate, answered with per-check trailers: none of the four Connections checks asserts the new group or the "coming" text). The Connections checks are run for real before merge.
+5. [x] ElevenLabs hint changed to Mona Lisa's wording (fleetbuilders m4355): it names reading the account, so a key made by following it passes the check.
 
 ## Decisions
 - ElevenLabs keys can be scoped to endpoint groups, and its docs do not say whether GET /v1/user needs a

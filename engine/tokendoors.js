@@ -158,16 +158,17 @@ const SPECS = [
   {
     name: 'ElevenLabs', slug: 'elevenlabs', envVar: 'ELEVENLABS_API_KEY',
     where: 'https://elevenlabs.io/app/settings/api-keys', whereText: 'ElevenLabs’ API keys page',
-    hint: 'turning on only the features your agents need, and a credit limit if you want one',
+    hint: 'turning on the features your agents need and reading your account, so Kosmos can check the key, and a credit limit if you want one',
     verify: { url: 'https://api.elevenlabs.io/v1/user', headers: (t) => ({ 'xi-api-key': t, Accept: 'application/json' }) },
     verifyUrlEnv: 'AGENT_WORKFORCE_ELEVENLABS_VERIFY_URL',
-    /* A restricted key can leave out the permission this read needs, and then the service refuses
-       a key that would work for speech. Its own reason (detail.message) is passed through, so the
-       door says what to turn on rather than only that the key was refused. */
+    // The service's own reason (detail.message, or detail as a string) is shown on a refusal.
     accept: (s, b) => {
       if (s === 200 && b && b.user_id) return { ok: true, who: b.first_name || null };
-      const why = b && b.detail && typeof b.detail.message === 'string' ? b.detail.message.trim().slice(0, 300) : '';
-      return why ? { ok: false, because: why } : { ok: false };
+      const d = b && b.detail;
+      const raw = typeof d === 'string' ? d : (d && typeof d.message === 'string' ? d.message : '');
+      const why = raw.trim().slice(0, 300);
+      if (!why) return { ok: false };
+      return { ok: false, because: s === 401 || s === 403 ? why : 'ElevenLabs answered ' + s + ': ' + why };
     },
   },
 ];
