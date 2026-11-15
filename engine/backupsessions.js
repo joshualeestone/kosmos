@@ -211,7 +211,9 @@ function grokRoot(agentDir, grokHome, id, tag = '') {
    session id is the one Kosmos keeps in its folder (engine/musefront.js sessionFile), so the root is the sessions
    folder with an `only` list of that one session folder's files. Never session-index.db (every session's index) and
    never the sign-in (the Keychain on a Mac): neither is under a session folder. The sessions/.msp-view-g12/<id>/ view
-   cache is not taken. */
+   cache is not taken. Limits, stated: only the CURRENT id is read (an id replaced after an unreadable file leaves the
+   older conversation out); every file in the session folder is taken (measured there: session.jsonl only); and the
+   data home is the XDG one, so a board whose Muse keeps data elsewhere (Windows) gets no Muse root. */
 const MUSE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_PART = [/^\d{4}$/, /^\d{2}$/, /^\d{2}$/];
 function museRoot(agentDir, museData, id) {
