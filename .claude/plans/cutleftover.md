@@ -10,32 +10,36 @@ release_site_restore removes them only when this cut wrote them AND had not reac
 stayed, and today's cut refused at 4b, about two hours in.
 
 ## Call
-New step 1g (tools/lib/release-leftovers.sh, release_leftovers_clear), before anything is built and before the trap
-reads _pair_had: for each family with untracked dist/kosmos-<V>-<family>.* files, ask the served host.
-- The version's own .sha256 answers a checksum: served. Refuse, "bump the version" (the existing rule).
-- It answers like a made-up version (negative control) while the prod pointer's own version answers a checksum
-  (positive control): never served. Move the files into ONE dated folder beside the site checkout
-  (`<site>.aborted-<V>-<UTC stamp>`), outside git, nothing deleted.
-- Anything else (host down, a control that fails): refuse as unknown, with the exact way forward.
-Committed files of that version (a served release's manifest) are never touched.
+New step 1g (tools/lib/release-leftovers.sh), before anything is built and before the trap reads _pair_had, for the
+families this cut builds (arm64; linux-x64 when CUT_LINUX=yes):
+- Step 8 records `kosmos-cut-served-<V>` in the site's .git once it has SEEN this cut's build served (kosmos#8494
+  made that the only way step 8 finishes). If the marker is there, 1g refuses: bump the version. This is "ever
+  served", so a version later reverted and pruned to 404 is still refused (review 1).
+- No marker (the 11-13 leftovers predate it, or a cut killed before its trap ran): never served only if the
+  version's own .sha256 answers exactly 404, a made-up version answers 404 too, and the prod pointer's version
+  answers 200 with a checksum. A checksum: served, refuse. Anything else (5xx, timeout, a control that does not hold):
+  unknown, refuse with the way on (review 1: a transient failure must never read as "never served").
+- Never served but the site carries a COMMITTED Linux manifest for <V> (the dead attempt's 7b commit): refuse now,
+  naming the commit to revert; release_linux_publish would refuse it at 4b otherwise (review 1).
+- Every family is decided before anything moves; then the leftovers go into ONE dated folder beside the site
+  checkout, outside git, nothing deleted. Tracked files are never touched; a git error is a refusal.
 
-Rejected: deleting the leftovers (no undo; Baron moved them by hand for the same reason); moving them inside dist/
-(git status would show them and later clean-tree checks refuse); treating a 200 as served (the site answers 200 with
-its HTML page for any name, measured today by Baron and by me).
+Rejected: deleting the leftovers (no undo); moving them inside dist/ (git status and clean-tree checks); judging by
+the tarball's status alone (a 404 is only "never served" when a made-up name gets the same and a real one does not).
 
-Weakest premise: "never served" is read at the host the cut deploys to (HOST, default installkosmos.com). A
-deployment never aliased there is unreachable by these URLs too, which is the same reasoning Baron used, and its
-bytes cannot be in the edge cache this rule protects.
+Weakest premise: a cut killed before step 8 recorded its marker but after its build went live (between the landing
+check and the marker line, two lines apart) leaves no marker; the host probe then sees the served checksum and
+refuses anyway, unless the version has since been pruned from the host.
 
 ## Also
-- docs/releasing.md's failed-cut checklist said a 200 on the tarball URL means served: false on this host (any name
-  answers 200). Rewritten to read the .sha256 body against a control, and to name step 1g.
+- docs/releasing.md's failed-cut checklist: names step 1g and the marker, checks the .sha256 (status and body) against a
+  made-up version, and says a 5xx or timeout proves nothing. (My first version of this said the host answers 200 for any
+  name; review 1 measured 404, and so did I: corrected.)
 - tools/test-setup-staging-5032.sh extracted step 1f up to step 2; it now ends at the next step marker (1g sits
   between). Still passes on main's release.sh.
 
 ## Tests
-- tools/test-release-leftovers-8562.sh (13 arms, registered in package.json test:shell): none, never served (both
-  families, one folder, bytes kept, committed file kept, site clean, the three URLs read), served, host down,
-  positive control failing, negative control failing, a served family refused per family, and release.sh's call
-  order and stop. Mutations of each control, the served check and the tracked-file skip each red their arm.
+- tools/test-release-leftovers-8562.sh (20 arms, registered in package.json test:shell), with a curl stub that answers
+  as installkosmos.com does (404 for unknown names). Mutations of the marker check, the strict 404, each control,
+  decide-before-move, the Linux-manifest refusal and the tracked-file skip each red their arm.
 - Every test that reads release.sh or test:shell: node 246 pass; 46 shell tests pass after the 5032 fix.

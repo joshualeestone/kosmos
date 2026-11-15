@@ -11,6 +11,7 @@ cd "$(dirname "$0")/.." || exit 1
 REPO_ROOT="$PWD"
 . tools/lib/site-deploy.sh
 . tools/lib/pointer-freeze.sh   # the block's kosmos#6620 re-check calls it; unloaded, every arm took its fetch-failed path
+. tools/lib/release-leftovers.sh   # kosmos#8562: the block records a served cut (release_leftovers_mark_served)
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 T="$(mktemp -d "${TMPDIR:-/tmp}/deploy-landed-5471.XXXXXX")"; trap 'rm -rf "$T"' EXIT
 

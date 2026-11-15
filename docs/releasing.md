@@ -450,12 +450,16 @@ Ctrl-C ends that wait safely.
    reads the served `kosmos-<V>-<family>.tar.gz.sha256` for each family, with a
    made-up version and the prod pointer's own version as controls, and moves
    never-served leftovers into a dated folder beside the site checkout (nothing
-   deleted). Served, or unknown, it refuses and says why. To check by hand, read
-   the BODY, never the status: the site answers 200 with its HTML page for any
-   name, a made-up one included, so a 200 proves nothing. A checksum in the body
-   of `curl -s https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256` means
-   it was served (bump the version); the same HTML a made-up version gets means
-   it never was (move the local files aside and re-cut).
+   deleted). It refuses at once if step 8 of an earlier cut of `<V>` recorded the
+   build as served (a marker in the site's `.git`), and on anything it cannot
+   read cleanly. To check by hand, read the `.sha256`, not the tarball:
+   `curl -s -w ' %{http_code}' https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256`.
+   A checksum with a 200 means it was served (bump the version). A 404, the same
+   as `kosmos-0.0.0-x-arm64.tar.gz.sha256` gets, means it never was (move the
+   local files aside and re-cut). Anything else (a 5xx, a timeout) proves
+   neither: read it again later. A committed Linux manifest for `<V>` from the
+   dead attempt's step 7b commit also has to go (revert that site commit), or
+   step 4b refuses it; step 1g says so.
 3. **The site checkout's uncommitted state.** A dead attempt can leave
    `dist/latest.json`, `setup.sha256` **and, under shape (a), the versions entry
    itself** modified.

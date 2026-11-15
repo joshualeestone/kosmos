@@ -1023,10 +1023,13 @@ step "== 1g. no files left in the site checkout by an earlier, aborted cut of $V
 # The versioned files are gitignored, and the trap below removes them only when THIS cut wrote them and had not reached
 # its deploy, so a cut that died at or after its deploy (0.8.05 on 11-13) leaves them, and step 4b would refuse two hours
 # in. Here, before anything is built: the served host says whether those bytes were ever served (with a control either
-# way). Never served: moved aside beside the site checkout, nothing deleted. Served or unknown: refused, with the way on.
+# way, and a marker step 8 writes once a cut of $V is seen served). Never served: moved aside beside the site checkout,
+# nothing deleted. Served or unknown: refused, with the way on. Only the families this cut builds are checked.
 # Before the trap's _pair_had / _linux_pair_had are read, so a cut that then aborts still cleans up what IT wrote.
 . "$REPO/tools/lib/release-leftovers.sh"
-release_leftovers_clear "$SITE" "$V" "${HOST:-https://installkosmos.com}" || { echo "nothing was built"; exit 1; }
+_lo_fams="arm64"; [ "$CUT_LINUX" = yes ] && _lo_fams="arm64 linux-x64"
+# shellcheck disable=SC2086   # the family list is split on purpose
+release_leftovers_clear "$SITE" "$V" "${HOST:-https://installkosmos.com}" $_lo_fams || { echo "nothing was built"; exit 1; }
 
 step "== 2. the version, in one place =="
 node -e "
@@ -2109,6 +2112,9 @@ else
     exit 1
   fi
 fi
+# kosmos#8562: step 8 has SEEN this cut's build served (kosmos#8494), so from here a re-cut of $V must bump: recorded in
+# the site's .git, where step 1g of a later cut reads it.
+release_leftovers_mark_served "$SITE" "$V"
 DEPLOYED=1   # step 8 finished: the site checkout now claims what is served, so the trap leaves it
 # #1548: the pre-cut pointer backup lives under BUILD_ROOT, which the EXIT trap removes
 # on every path, so there is nothing to clean up in the site checkout here. (On a
