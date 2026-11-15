@@ -8,6 +8,7 @@
  *
  *   node --test engine/tasks.closedhow-8552.test.js
  */
+require('../test-support/tmpscope');
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
