@@ -920,7 +920,6 @@ const LANDED_FIELDS = ['landedCommit', 'landedRepo', 'landedOnRemote', 'landedBy
    A landed commit proves a change was committed and pushed, not that it fixed the thing: it says "a change exists". */
 const CLOSED_HOW = Object.freeze(['change', 'note', 'unbuilt']);
 function closedHowAt(t, { hasSubtasks = false } = {}) {
-  if (!t) return hasSubtasks ? null : 'unbuilt';
   if (t.landedOnRemote === true && typeof t.landedCommit === 'string' && t.landedCommit !== '') return 'change';
   const built = typeof t.builtAt === 'string' && t.builtAt !== '';
   if (!built) return hasSubtasks ? null : 'unbuilt';
@@ -928,7 +927,7 @@ function closedHowAt(t, { hasSubtasks = false } = {}) {
 }
 /* kosmos#8552: store the word on `changed` from `t` as it was before this write, on project record `p`. */
 function setClosedHow(changed, t, p) {
-  const how = closedHowAt(t, { hasSubtasks: (p.tasks || []).some((x) => x && x.parent === t.number) });
+  const how = closedHowAt(t, { hasSubtasks: childrenOf(p, t.number).length > 0 });
   if (how) changed.closedHow = how;
 }
 /** kosmos#8552: the word for a closed task, or null: open; closed as replaced or not run (those say so already); or closed

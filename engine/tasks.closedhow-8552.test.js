@@ -128,7 +128,6 @@ test('a task closed before this was recorded: a commit on a remote still reads, 
 
 test('closedHowAt reads every arm, each from its own field', () => {
   assert.equal(tasks.closedHowAt({}), 'unbuilt');
-  assert.equal(tasks.closedHowAt(null), 'unbuilt');
   assert.equal(tasks.closedHowAt({ builtAt: 'x' }), 'note');
   assert.equal(tasks.closedHowAt({ builtAt: 'x', builtFingerprint: PRINT }), 'change');
   assert.equal(tasks.closedHowAt({ builtAt: 'x', builtFilePath: '/a/b' }), 'change');
