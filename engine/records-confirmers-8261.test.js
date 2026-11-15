@@ -118,3 +118,28 @@ test('#8261: renderList reads an answer from an older board (no confirmedBy) by 
   assert.equal(out[1], '  Acme | active | confirmed 2026-11-15 (today) by ana | -');
   assert.equal(out[2], '  Globex | - | confirmed 2026-11-15 (today) by the person | -');
 });
+
+test('#8261: a confirmer whose own evidence is stale no longer counts, on a write or a read', () => {
+  const p = project();
+  // ana's evidence is from 2026-09-01, 75 days before NOW; bo confirms today.
+  records.set(p.id, 'Acme', { status: 'active', confirmed: '2026-09-01' }, { by: 'ana', now: NOW });
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'bo', now: NOW });
+  assert.deepEqual(names(only(p)), ['bo'], 'a 75-day-old check is not a second check beside a fresh one');
+  const stored = projects.readAll().find((x) => x.id === p.id).records[0].confirmers.map((c) => c.by);
+  assert.deepEqual(stored, ['bo'], 'the write drops it from the stored list too, so it holds no slot under the cap');
+  assert.match(line(p), / by bo \| -$/);
+  // Read 40 days later: bo's own check has gone stale too, so no confirmer is listed and the line names the latest writer.
+  const later = records.list(p.id, { now: NOW + 40 * 86400000 }).rows[0];
+  assert.deepEqual(later.confirmedBy, []);
+  assert.match(records.renderList(records.list(p.id, { now: NOW + 40 * 86400000 }), { projectId: p.id }).split('\n')[1], / stale\) by bo \| -$/);
+});
+
+test('#8261: a repeat write by the same agent refreshes its date, so its check does not go stale under it', () => {
+  const p = project();
+  // 2026-10-25 is 21 days before NOW: still fresh, so the entry is kept and must be refreshed, not re-added.
+  records.set(p.id, 'Acme', { status: 'active', confirmed: '2026-10-25' }, { by: 'ana', now: NOW });
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
+  const r = only(p);
+  assert.deepEqual(names(r), ['ana']);
+  assert.equal(r.confirmedBy[0].confirmed, '2026-11-15');
+});
