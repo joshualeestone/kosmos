@@ -459,5 +459,4 @@ test('kosmos#8552: the task page says how a done task closed; an older row with 
   assert.equal(page({ closedHow: 'note' }), 'Done, on a note');
   assert.equal(page({ closedHow: 'unbuilt' }), 'Done, without being marked built');
   assert.equal(page({}), 'Done', 'CONTROL: no word from the board, nothing added');
-  assert.equal(page({ closedHow: 'change', landedCheck: 'missing' }), 'Done', 'a change the board cannot find is not said to exist');
 });

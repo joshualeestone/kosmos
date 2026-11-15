@@ -13,6 +13,9 @@ Card: joshualeestone/kosmos#8552 (split from #8261 item 2; recommendation decide
   tasks closed before this, except a commit on a remote, which survives a close and so can still be read.
 - Shown: Tasks view row (a quiet .why line), task page state words, `kosmos task show` state. Left out where the board's
   landedCheck says the change cannot be found (that line already says so; "with a change" would contradict it).
+- The commit check (landedcheck) runs only on /api/tasks, so only the Tasks row and the CLI drop the word for a missing
+  change and upgrade a note pushed after the close (while the check runs, within its window). The task page reads the
+  project payload and shows the stored word; it shows no commit line, so it does not contradict itself.
 
 ## Rejected
 - A flag or verb on close (self-reported: the weakness the card names).

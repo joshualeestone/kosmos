@@ -310,7 +310,7 @@ test('review 1: the page is never sent the repository path; an open row says a r
   assert.equal((await rowOf()).landedOnRemote, true, 'a fix pushed after its mark still said it is only on this computer');
 });
 
-test('kosmos#8552: a task closed on a commit only here reads on a note, and with a change once a remote has it', async () => {
+test('kosmos#8552: on /api/tasks, a task closed on a commit only here reads on a note, and with a change once the check sees a remote has it', async () => {
   const landedcheck = require('./engine/landedcheck');
   landedcheck.resetForTests();
   const r = makeRepo('route-closedhow');
