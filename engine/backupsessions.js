@@ -21,7 +21,8 @@
  * the provider's folder itself may be. The folder's real path is returned, so the snapshot walks what was checked.
  * A transcript Claude Code wrote under a shortened name (a very long folder) is not found, as status.js does not find it.
  *
- * sessionsFor(agentDir, { id, claudeRoots, geminiHome, codexHome, grokHome?, moreHomes? }) -> [{ name, path, optional: true, only? }]
+ * sessionsFor(agentDir, { id, claudeRoots, geminiHome, codexHome, grokHome?, museData?, moreHomes? }) -> [{ name, path, optional: true, only? }]
+ *   museData  Muse Code's data home (kosmos#8530): $XDG_DATA_HOME, or ~/.local/share; its sessions/<date>/<id>/ for this agent's id
  *   moreHomes [{ provider: 'codex'|'gemini'|'grok', home, tag }]: further homes of this agent's sessions (kosmos#5883), each
  *          named sessions/<id>/<provider><tag>, tag a hyphen and 1 to 16 lowercase letters or digits, one per FOLDER.
  *   (or { name, refused, optional: true } where a session folder is a link: the snapshot records it as skipped)
@@ -203,6 +204,38 @@ function grokRoot(agentDir, grokHome, id, tag = '') {
   return only.length ? { name: `sessions/${id}/grok${tag}`, path: c.real, optional: true, only: only.sort() } : null;
 }
 
+/* kosmos#8530: Muse Code keeps each conversation in <data home>/muse/sessions/<yyyy>/<mm>/<dd>/<session id>/
+   (session.jsonl; measured on #8530, comment 6886998701), ONE date tree for every session of the user. The agent's own
+   session id is the one Kosmos keeps in its folder (engine/musefront.js sessionFile), so the root is the sessions
+   folder with an `only` list of that one session folder's files. Never session-index.db (every session's index) and
+   never the sign-in (the Keychain on a Mac): neither is under a session folder. The sessions/.msp-view-g12/<id>/ view
+   cache is not taken. */
+const MUSE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DATE_PART = [/^\d{4}$/, /^\d{2}$/, /^\d{2}$/];
+function museRoot(agentDir, museData, id) {
+  if (typeof museData !== 'string' || !path.isAbsolute(museData)) return null;
+  let sid;
+  try { sid = fs.readFileSync(path.join(agentDir, '.kosmos', 'muse-session'), 'utf8').trim(); } catch { return null; }
+  if (!MUSE_ID.test(sid)) return null;
+  const c = folderCheck(museData, 'muse', 'sessions');
+  if (c.link) return { name: `sessions/${id}/muse`, refused: 'a session folder that is a link (not followed)', optional: true };
+  if (!c.real) return null;
+  const only = [];
+  const dirs = (rel) => { try { return fs.readdirSync(path.join(c.real, rel), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name); } catch { return []; } };
+  for (const y of dirs('').filter((n) => DATE_PART[0].test(n))) {
+    for (const m of dirs(y).filter((n) => DATE_PART[1].test(n))) {
+      for (const d of dirs(`${y}/${m}`).filter((n) => DATE_PART[2].test(n))) {
+        const rel = `${y}/${m}/${d}/${sid}`;
+        let st;
+        try { st = fs.lstatSync(path.join(c.real, rel)); } catch { continue; }
+        if (!st.isDirectory()) continue;   // a link is not followed, and a file is not a session folder
+        for (const f of filesUnder(path.join(c.real, rel), () => true, 3)) only.push(`${rel}/${f}`);
+      }
+    }
+  }
+  return only.length ? { name: `sessions/${id}/muse`, path: c.real, optional: true, only: only.sort() } : null;
+}
+
 function sessionsFor(agentDir, opts) {
   const o = opts || {};
   // One plain segment: an id holding '/' would nest its names under another agent's (`x/claude` under `x`).
@@ -215,6 +248,8 @@ function sessionsFor(agentDir, opts) {
   if (c) roots.push(c);
   const k = grokRoot(agentDir, o.grokHome, o.id);
   if (k) roots.push(k);
+  const mu = museRoot(agentDir, o.museData, o.id);   // kosmos#8530
+  if (mu) roots.push(mu);
   // kosmos#5883: more homes the same agent's sessions can be in (a Codex runtime home, a named account's), each under a
   // tag the CALLER derives from the folder itself, so one folder keeps one name across snapshots whatever the agent's
   // account is now. A home that resolves to one already read is skipped (one folder, one root per agent).
