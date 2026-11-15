@@ -445,11 +445,17 @@ Ctrl-C ends that wait safely.
    copied `dist/kosmos-<V>-arm64.tar.gz` into the site checkout. The next build
    produces different bytes (builds are not byte-reproducible: codesign
    timestamps, tar mtimes), and step 5 then refuses "different bytes for a
-   cache-immutable name". That guard is right when the file was SERVED. Check
-   the wire first: `curl -sI https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz`.
-   A 404 means it never left this Mac; remove the local pair
-   (`.tar.gz` and `.sha256`, both gitignored) and re-cut. A 200 means it was
-   served: bump the version instead, exactly as the guard says.
+   cache-immutable name". That guard is right when the file was SERVED.
+   **Step 1g now decides this itself, before anything is built (kosmos#8562):** it
+   reads the served `kosmos-<V>-<family>.tar.gz.sha256` for each family, with a
+   made-up version and the prod pointer's own version as controls, and moves
+   never-served leftovers into a dated folder beside the site checkout (nothing
+   deleted). Served, or unknown, it refuses and says why. To check by hand, read
+   the BODY, never the status: the site answers 200 with its HTML page for any
+   name, a made-up one included, so a 200 proves nothing. A checksum in the body
+   of `curl -s https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256` means
+   it was served (bump the version); the same HTML a made-up version gets means
+   it never was (move the local files aside and re-cut).
 3. **The site checkout's uncommitted state.** A dead attempt can leave
    `dist/latest.json`, `setup.sha256` **and, under shape (a), the versions entry
    itself** modified.
