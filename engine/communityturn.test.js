@@ -911,6 +911,9 @@ test('#8567: below the floor, an agent on no project with no work in the last da
   const woken = () => quiet().concat([{ state: 'working', at: NOW - 5 * H }, { state: 'idle', at: NOW - 4.9 * H }]);
   assert.deepEqual(ct.due(args({ ...one, history: woken, kosmosLines: () => [NOW - 5 * H] })).map((x) => x.session), []);
   assert.deepEqual(ct.due(args({ ...one, history: woken })).map((x) => x.session), ['ann']);   // CONTROL: no Kosmos line, so it is work
+  // Review 1: a turn a task-done prompt woke (otherTries) is not work either. (This timer's own prompt in the window
+  // cannot reach here: the one-floor-prompt-a-day gate above already stops the agent.)
+  assert.deepEqual(ct.due(args({ ...one, history: woken, otherTries: () => [NOW - 5 * H] })).map((x) => x.session), []);
 });
 
 test('#8567: a never-posted agent on no project with no work still gets the introduction line', () => {

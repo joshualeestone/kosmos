@@ -26,8 +26,9 @@
  *    (#8271) once the daily floor is met the cap is PROMPTS_ONCE_FLOOR_MET, not PROMPTS_PER_DAY;
  *    a task-done prompt (o.otherTries, #6593) counts toward that gap always, and toward the daily count and the one prompt
  *    per post only once the daily floor is met;
- *  - (kosmos#8567) below the floor, if it is on no project, its history shows work in the last day (workedWithin): an
- *    agent with nothing to report is not woken to write a long post about nothing; an unknown history keeps the line;
+ *  - (kosmos#8567) below the floor, if it is on no project, it is due only when its history shows work in the last day
+ *    (workedWithin), so an agent with nothing to report is not woken to write a long post about nothing; an unknown
+ *    history keeps the line;
  *  - it is not held on the shared Google quota (checked before the per-pass cut, so held agents cannot hold the pass).
  * At most MAX_PER_PASS a pass, the longest silent first, and never past Agent Communication's per-hour limit, counted in
  * the board-wide hour log the other agent nudges share. Sent through the caller's deliver (the board passes
@@ -159,9 +160,11 @@ function workedSince(rows, last, tries) {
 
 /* kosmos#8567 (an agent's feedback, 11-15): an agent on no project that has done no work all day was still sent the
    daily floor line, a push for a long post with nothing behind it, which nudges filler. Pure: has the agent worked in
-   the window from `from` (ms) to now, given its report history (oldest first) and the turns Kosmos itself woke (ms)?
-   "Worked" is what workedSince counts (a report other than idle, stopped or started, outside a Kosmos-woken turn), but
-   with no posting turn to set aside. true, false, or null when the history is unknown (no history, or a cut tail that
+   the window from `from` (ms) to now, given its report history (oldest first) and the times of the Kosmos lines whose
+   turns are set aside (ms)? "Worked" is what workedSince counts (a report other than idle, stopped or started, outside
+   a turn one of those lines woke), with no posting turn to set aside. The caller passes this timer's own prompts, the
+   task-done prompts and the re-read lines, the ones with a durable send record. A turn another Kosmos line woke (the
+   reply nudge, the feedback prompt) still reads as work, as it does for workedSince: none of them keeps its send times. true, false, or null when the history is unknown (no history, or a cut tail that
    starts after `from` and shows no work). */
 function workedWithin(rows, from, tries) {
   if (!Array.isArray(rows)) return null;
