@@ -19229,7 +19229,10 @@ const server = http.createServer(async (req, res) => {
       const name = sender.card.sessionName;
       const away = require('./engine/awaydigest');
       const now = Date.now();
-      const win = away.windowFrom(selfreport.history(name, selfreport.HISTORY_MAX_BYTES), { startup, nowMs: now });
+      /* At a startup the window starts at the latest report, which the default tail always holds. By hand it needs the
+         report before the newest `started`, which a busy session can push past that tail, so the longer read is used. */
+      const hist = startup ? selfreport.history(name) : selfreport.history(name, selfreport.HISTORY_MAX_BYTES);
+      const win = away.windowFrom(hist, { startup, nowMs: now });
       let digest = away.build({ name, sinceMs: NaN, untilMs: NaN });
       if (win) {
         let direct = [];
@@ -19239,7 +19242,8 @@ const server = http.createServer(async (req, res) => {
       if (as === 'hook') { sendText(res, 200, away.hookJson(digest)); return; }
       if (as === 'text') {
         sendText(res, 200, (away.contextText(digest) || (win ? 'Nothing arrived for you while you were not running.'
-          : 'Kosmos has no earlier report from you, so it cannot tell when you were last running.')) + '\n');
+          : hist && hist.truncated ? 'Kosmos cannot tell when you were last running: your report record is longer than it reads back.'
+            : 'Kosmos has no earlier report from you, so it cannot tell when you were last running.')) + '\n');
         return;
       }
       sendJson(res, 200, { ok: true, window: win, counts: digest.counts, lines: digest.lines, clamped: digest.clamped });

@@ -26,6 +26,11 @@ const MAX_ROOMS = 10;     // rooms listed before "and N more rooms"
 const MAX_SENDERS = 5;    // senders named for `kosmos msg` messages
 const INBOX_LIMIT = 50;   // the most `kosmos inbox --limit` takes
 
+/* Every name and id this prints comes from a log row, and a sender can be a name from outside this computer
+   (engine/messages.js externalName). Only a plain token is printed, so no row can put its own lines into the context. */
+const TOKEN_RE = /^[A-Za-z0-9._-]{1,64}$/;
+function plain(x) { return typeof x === 'string' && TOKEN_RE.test(x); }
+
 function ms(at) {
   if (typeof at === 'number' && Number.isFinite(at)) return at;
   if (typeof at !== 'string' || !at) return NaN;
@@ -74,29 +79,30 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
   for (const r of Array.isArray(rows) ? rows : []) {
     if (!r || typeof r !== 'object' || !inWindow(r) || r.from === name) continue;
     if (r.kind === 'post') {
-      if (!Array.isArray(r.to) || !r.to.includes(name) || typeof r.project !== 'string') continue;
+      if (!Array.isArray(r.to) || !r.to.includes(name) || !plain(r.project)) continue;
       if (!r.outcomes || typeof r.outcomes !== 'object' || r.outcomes[name] !== 'could_not') continue;
       if (!rooms.has(r.project)) rooms.set(r.project, { count: 0, asked: [] });
       const room = rooms.get(r.project);
       room.count += 1;
       let asks = false;
       try { asks = named(r).includes(name); } catch { asks = false; }
-      if ((asks || r.operator === true) && typeof r.id === 'string') room.asked.push(r.id);
+      if ((asks || r.operator === true) && plain(r.id)) room.asked.push(r.id);
     } else if (r.kind === 'message') {
       if (r.to !== name) continue;
       messages += 1;
-      if (typeof r.from === 'string' && r.from) senders.set(r.from, (senders.get(r.from) || 0) + 1);
+      if (plain(r.from)) senders.set(r.from, (senders.get(r.from) || 0) + 1);
     } else if (r.kind === 'refused') {
       /* A refusal to a room carries `project`; only one to this agent by name counts here. The log keeps one such row
          per sender, recipient and reason in a window (engine/messages.js logRefusedSend), so this is a lower bound. */
       if (r.to !== name || r.project !== undefined) continue;
       refused += 1;
-      if (typeof r.from === 'string' && r.from) senders.set(r.from, (senders.get(r.from) || 0) + 1);
+      if (plain(r.from)) senders.set(r.from, (senders.get(r.from) || 0) + 1);
     }
   }
   let dms = 0;
   for (const m of Array.isArray(direct) ? direct : []) {
-    if (!m || typeof m !== 'object' || (m.from !== undefined && m.from !== null) || !inWindow(m)) continue;
+    // As `kosmos inbox` lists them: Kosmos's own words kept in the thread (`kosmos: true`) are not the person's.
+    if (!m || typeof m !== 'object' || (m.from !== undefined && m.from !== null) || m.kosmos === true || !inWindow(m)) continue;
     dms += 1;
   }
   const posts = [...rooms.values()].reduce((n, x) => n + x.count, 0);
