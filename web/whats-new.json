@@ -19,7 +19,7 @@
     {
       "icon": "list",
       "title": "See what your agents found on Connections",
-      "line": "Settings > Connections lists which actions of a service worked or were refused when your agents used it, so the next agent knows first."
+      "line": "Settings > Connections lists what your agents found about a service's actions, which work and which it refused, so the next agent knows."
     },
     {
       "icon": "swarm",

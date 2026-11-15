@@ -27,13 +27,13 @@ Pool PR before the 0.8.06 staging cut (#8564). Data only: `release/whats-new-poo
 | #8502 | #8501: task add/assign --add-member | notesOnly 116 |
 | #8507 | #8506: an agent's working rules hold only its platform's lines | notesOnly 117, restart agents |
 | #8554 | #8261: records keep every agent that confirmed them | notesOnly 118 |
-| #8504 | #8477/#8496: a Windows leftover delete runs only what was confirmed | notesOnly 119, windows |
+| #8504 | #8477/#8496: a leftover delete runs only what was confirmed | notesOnly 119, untagged |
 
 No line: #8541 (#8530, Muse chats in company backup) and #8536 (#8528, backup words) because company backup is off, so nobody sees them; #8545, #8509, #8518, #8494, #8558, #8529's local-bucket change, and the plan/proof commits (tests, release tooling or internal). The relay's Work screens (#8529, kosmos-relay #831) ship in the coordinator, not in this desktop build.
 
 ## Decided
 - Both Connections items are untagged: the Connections tab and the token doors are the board's (engine/tokendoors.js, web/), which every platform runs.
-- The Windows delete item (#8504) is tagged windows to be safe: the PR is a Windows fix. If the fingerprint also guards the Mac delete, tagging it windows only under-claims.
+- The leftover delete item (#8504) is untagged: the plan fingerprint and its refusal are in engine/delete-leftover.js with no platform check, and the shared web/index.html sends it back (review iteration 2), so Mac and Linux get it too.
 - Lines kept to 140 characters (the build refuses longer); three were shortened after the first build refused one.
 
 ## Weakest premise

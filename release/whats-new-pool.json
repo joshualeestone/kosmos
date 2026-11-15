@@ -1926,7 +1926,7 @@
     },
     {
       "title": "See what your agents found on Connections",
-      "line": "Settings > Connections lists which actions of a service worked or were refused when your agents used it, so the next agent knows first.",
+      "line": "Settings > Connections lists what your agents found about a service's actions, which work and which it refused, so the next agent knows.",
       "icon": "list",
       "rank": 9.7,
       "since": "0.8.06",
@@ -2025,7 +2025,7 @@
     },
     {
       "title": "Records keep every agent that confirmed them",
-      "line": "A project record row keeps up to five agents, or the person, who confirmed its current status, each with the date of their own evidence.",
+      "line": "A project record row keeps up to five confirmers of its current status, agents or the person, each with the date of their own evidence.",
       "icon": "list",
       "rank": 118,
       "since": "0.8.06",
@@ -2033,12 +2033,9 @@
       "notesOnly": true
     },
     {
-      "title": "A Windows delete runs only what you confirmed",
-      "line": "On Windows, deleting a removed agent's leftovers runs the plan you confirmed and refuses if what it would delete has changed since.",
+      "title": "A leftover delete runs only what you confirmed",
+      "line": "Deleting a removed agent's leftovers runs the plan you confirmed and refuses if what it would delete has changed since.",
       "icon": "shield",
-      "platforms": [
-        "windows"
-      ],
       "rank": 119,
       "since": "0.8.06",
       "status": "pending",
