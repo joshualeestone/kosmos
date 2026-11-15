@@ -945,18 +945,18 @@ function closedHowOf(t, { hasSubtasks = false } = {}) {
  * kosmos#8555: the board's check found task n's commit on a remote, so keep that on the task. The check runs only when
  * the Tasks view is read and only for 14 days after a close; kept here, every reader (the task page, `kosmos task show`,
  * a close's word, #8552) has it from the store, and past that window too. It only ever upgrades (a remote branch pruned
- * after a merge never makes a pushed fix local again), and only for the commit checked: a reopen or a new mark since the
+ * after a merge never makes a pushed fix local again), and only for the commit and repository checked: a reopen or a new mark since the
  * check has moved the task on, so nothing is written. Writes nothing when the task already says so, so a task is
  * written once. Returns { ok, changed }; never throws (a refused write leaves the task as stored, and the next read
  * tries again).
  */
-function saveOnRemote(projectId, n, sha) {
-  if (typeof sha !== 'string' || !COMMIT_SHA_RE.test(sha)) return { ok: false, changed: false };
+function saveOnRemote(projectId, n, sha, repo) {
+  if (typeof sha !== 'string' || !COMMIT_SHA_RE.test(sha) || typeof repo !== 'string' || !repo) return { ok: false, changed: false };
   let changed = false;
   try {
     projects.mutate(projectId, (p) => {
       const t = byNumber(p, n);
-      if (!t || t.landedCommit !== sha || t.landedOnRemote === true) throw NO_WRITE;
+      if (!t || t.landedCommit !== sha || t.landedRepo !== repo || t.landedOnRemote === true) throw NO_WRITE;
       changed = true;
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === t.number ? { ...t, landedOnRemote: true } : x)) };
     });

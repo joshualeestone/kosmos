@@ -61,7 +61,7 @@ test('saveOnRemote keeps a remote copy on a task closed on a note, so it reads w
   mark(id, n, false);
   tasks.close(id, n);
   assert.equal(tasks.closedHowOf(stored(id, n)), 'note', 'CONTROL: a commit only here closed it on a note');
-  assert.deepEqual(tasks.saveOnRemote(id, n, SHA), { ok: true, changed: true });
+  assert.deepEqual(tasks.saveOnRemote(id, n, SHA, REPO), { ok: true, changed: true });
   assert.equal(stored(id, n).landedOnRemote, true);
   assert.equal(stored(id, n).closedHow, 'note', 'the word kept at the close was rewritten (closedHowOf derives the upgrade)');
   assert.equal(tasks.closedHowOf(stored(id, n)), 'change', 'the saved upgrade did not reach the word');
@@ -72,7 +72,7 @@ test('past the check window the saved upgrade still reads with a change (the che
   const { id, n } = freshTask();
   const { id: id2, n: n2 } = freshTask();
   for (const [a, b] of [[id, n], [id2, n2]]) { mark(a, b, false); tasks.close(a, b); }
-  tasks.saveOnRemote(id, n, SHA);
+  tasks.saveOnRemote(id, n, SHA, REPO);
   const old = new Date(Date.now() - landedcheck.CHECK_WINDOW_MS - 60 * 1000).toISOString();
   for (const a of [id, id2]) projects.mutate(a, (p) => ({ ...p, tasks: p.tasks.map((t) => ({ ...t, closedAt: old })) }));
   assert.equal(tasks.closedHowOf(stored(id, n)), 'change', 'the upgrade was lost past the window');
@@ -82,15 +82,18 @@ test('past the check window the saved upgrade still reads with a change (the che
 test('saveOnRemote writes once, only for the commit checked, and never downward', () => {
   const { id, n } = freshTask();
   mark(id, n, false);
-  assert.deepEqual(tasks.saveOnRemote(id, n, OTHER), { ok: true, changed: false }, 'another commit (a new mark since the check) was upgraded');
+  assert.deepEqual(tasks.saveOnRemote(id, n, OTHER, REPO), { ok: true, changed: false }, 'another commit (a new mark since the check) was upgraded');
   assert.equal(stored(id, n).landedOnRemote, false, 'CONTROL: still as marked');
-  assert.equal(tasks.saveOnRemote(id, n, SHA).changed, true, 'an open task is upgraded too (its commit line reads the same field)');
+  assert.deepEqual(tasks.saveOnRemote(id, n, SHA, path.join(os.tmpdir(), 'another-repo', '.git')), { ok: true, changed: false },
+    'the same sha in another repository (a re-mark since the check) was upgraded from a check of the old one');
+  assert.equal(tasks.saveOnRemote(id, n, SHA).ok, false, 'a save with no repository was accepted');
+  assert.equal(tasks.saveOnRemote(id, n, SHA, REPO).changed, true, 'an open task is upgraded too (its commit line reads the same field)');
   const at = project(id).updatedAt;
-  assert.deepEqual(tasks.saveOnRemote(id, n, SHA), { ok: true, changed: false }, 'a task that already says so was written again');
+  assert.deepEqual(tasks.saveOnRemote(id, n, SHA, REPO), { ok: true, changed: false }, 'a task that already says so was written again');
   assert.equal(project(id).updatedAt, at, 'the store was rewritten for nothing');
-  assert.equal(tasks.saveOnRemote(id, 999, SHA).changed, false, 'no such task');
-  assert.equal(tasks.saveOnRemote(id, n, 'not-a-sha').ok, false, 'a bad sha was accepted');
-  assert.equal(tasks.saveOnRemote('no-such-project', n, SHA).ok, false, 'a missing project read as a clean no-op');
+  assert.equal(tasks.saveOnRemote(id, 999, SHA, REPO).changed, false, 'no such task');
+  assert.equal(tasks.saveOnRemote(id, n, 'not-a-sha', REPO).ok, false, 'a bad sha was accepted');
+  assert.equal(tasks.saveOnRemote('no-such-project', n, SHA, REPO).ok, false, 'a missing project read as a clean no-op');
 });
 
 test('a reopen drops the commit, so a check that finished after it saves nothing', () => {
@@ -99,14 +102,14 @@ test('a reopen drops the commit, so a check that finished after it saves nothing
   tasks.close(id, n);
   tasks.reopen(id, n);
   assert.equal(stored(id, n).landedCommit, undefined, 'PRE-CONTROL: a reopen drops the commit (#7508)');
-  assert.equal(tasks.saveOnRemote(id, n, SHA).changed, false, 'a reopened task was given the old commit\'s remote copy');
+  assert.equal(tasks.saveOnRemote(id, n, SHA, REPO).changed, false, 'a reopened task was given the old commit\'s remote copy');
   assert.equal(stored(id, n).landedOnRemote, undefined);
 });
 
 test('a re-mark of the same commit that says not on the remote keeps the saved copy; a new commit does not', () => {
   const { id, n } = freshTask();
   mark(id, n, false);
-  tasks.saveOnRemote(id, n, SHA);
+  tasks.saveOnRemote(id, n, SHA, REPO);
   mark(id, n, false);
   assert.equal(stored(id, n).landedOnRemote, true, 'a re-mark from a checkout that had not fetched undid the board\'s check');
   mark(id, n, false, OTHER);
