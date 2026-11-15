@@ -111,6 +111,7 @@ test('#5686 review 7: a hostile copy-shaped name cannot backtrack exponentially 
   // kosmos#8544: CPU time (user + system), not wall time. The work is CPU-bound with nothing to wait on, so a stretch
   // where the machine stalled (measured: 2.5 s of wall time for this sub-second work in a run where every test slowed)
   // no longer reads as backtracking. A regression is still CPU: it took 1.6 to 17 s, far over these limits. As #7235.
+  // It is the whole process's CPU (GC and other threads count too), so it can only read high, never hide a regression.
   const cpuMs = (t) => { const { user, system } = process.cpuUsage(t); return (user + system) / 1000; };
   const t0 = process.cpuUsage();
   for (const end of ['.tmp', '.bak', '.new']) bs.pathDecision('w/a' + end + '1'.repeat(28) + '!');

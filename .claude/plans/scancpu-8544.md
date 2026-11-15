@@ -21,3 +21,11 @@ That test's four timers use process.cpuUsage (user + system) instead of hrtime w
 ## Verified
 backup suite 529/529. Arms, each as predicted: a 1.2 s wall pause with no CPU (Atomics.wait) in pathDecision: the new
 test PASSES and the old wall-time test FAILS; a 1.5 s busy loop: the new test FAILS; clean: passes (about 71 ms).
+
+## Review 1 (sonnet, blind): no blocker
+- W taken: a second wall-clock limit the card missed, backupagy.test.js "review 1: on an IDLE event loop": its child was
+  killed at 10 s, which a stall also reaches. The failure guarded is a hang, so 60 s keeps it red (measured: a stageAgy
+  that never finishes fails at 60031 ms; clean passes in 122 ms) and lets a stall pass.
+- W taken: the comment says cpuUsage counts the whole process (GC, other threads), so it can only read high.
+- NIT named on the card, no change: backupsnapshot.test.js 2005's 30 s bound needs a 30 s stall.
+- The 100-run loop finished: 99 clean, run 36 the only red (and the only slow run, 173 s).
