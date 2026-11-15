@@ -201,6 +201,7 @@ function confirmedWords(x) {
 }
 /* kosmos#8552: how a done task closed, from the board's closedHow (derived there, never here). Nothing for an older board. */
 function closedHowWords(x) {
+  if (x.landedCheck === 'missing') return '';   // as the page: the board cannot find the change it was closed with
   return x.closedHow === 'change' ? ', with a change' : x.closedHow === 'note' ? ', on a note' : x.closedHow === 'unbuilt' ? ', without being marked built' : '';
 }
 function stateWords(x) {

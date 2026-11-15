@@ -157,3 +157,43 @@ test('the task page read (joinTaskClaims) carries the same engine word as the ta
   const again = projects.joinTaskClaims(projects.readAll().find((x) => x.id === id).tasks, projects.readAll(), [], [], { name: rec.name, id: rec.id });
   assert.equal(again.find((t) => t.number === open.number).closedHow, null, 'CONTROL: an open task has none');
 });
+
+test('a parent whose subtasks did the work is not called unbuilt (kosmos#8301: its work is on its children)', () => {
+  const { id, n } = freshTask();
+  const kid = tasks.create(id, { sentence: 'the piece', who: 'rex', parent: n });
+  assert.equal(tasks.byNumber(projects.readAll().find((x) => x.id === id), kid.number).parent, n, 'PRE-CONTROL: the child is stored under the parent');
+  tasks.setBuilt(id, kid.number, { by: 'rex', fingerprint: PRINT });
+  tasks.close(id, n);
+  assert.equal('closedHow' in stored(id, n), false);
+  assert.equal(tasks.closedHowOf(stored(id, n)), null);
+  const other = freshTask();
+  tasks.create(other.id, { sentence: 'its piece', who: 'rex', parent: other.n });
+  mark(other.id, other.n, { fingerprint: PRINT });
+  tasks.close(other.id, other.n);
+  assert.equal(stored(other.id, other.n).closedHow, 'change', 'a parent with its own delivered file still reads with a change');
+  const leaf = freshTask();
+  tasks.close(leaf.id, leaf.n);
+  assert.equal(stored(leaf.id, leaf.n).closedHow, 'unbuilt', 'CONTROL: the same close with no subtasks is unbuilt');
+});
+
+test('a parent closed by its last part, with subtasks, is not called unbuilt either', () => {
+  const { id, n } = freshTask();
+  tasks.create(id, { sentence: 'the piece', who: 'rex', parent: n });
+  const parts = tasks.partsOf(stored(id, n));
+  assert.equal(parts.length, 1);
+  tasks.setPartClosed(id, n, parts[0].id, new Date().toISOString());
+  assert.equal(tasks.progressOf(stored(id, n)).closed, true, 'PRE-CONTROL: closed by its part');
+  assert.equal('closedHow' in stored(id, n), false);
+});
+
+test('a note whose commit reached a remote after the close reads with a change', () => {
+  assert.equal(tasks.closedHowOf({ closedAt: 'x', closedHow: 'note', landedCommit: SHA, landedOnRemote: true }), 'change');
+  assert.equal(tasks.closedHowOf({ closedAt: 'x', closedHow: 'note', landedCommit: SHA, landedOnRemote: false }), 'note', 'CONTROL: still local');
+  assert.equal(tasks.closedHowOf({ closedAt: 'x', closedHow: 'unbuilt', landedCommit: SHA, landedOnRemote: true }), 'unbuilt', 'only a note is upgraded');
+});
+
+test('the CLI leaves the word out where the board cannot find the change, as the page does', () => {
+  const words = (x) => tasklist.showLines({ tasks: [{ number: 1, sentence: 'T', isClosed: true, ...x }] }, 1, 'P').lines.find((l) => l.startsWith('State: '));
+  assert.equal(words({ closedHow: 'change', landedCheck: 'missing' }), 'State: done');
+  assert.equal(words({ closedHow: 'change', landedCheck: 'kept' }), 'State: done, with a change', 'CONTROL');
+});

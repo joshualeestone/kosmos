@@ -310,6 +310,29 @@ test('review 1: the page is never sent the repository path; an open row says a r
   assert.equal((await rowOf()).landedOnRemote, true, 'a fix pushed after its mark still said it is only on this computer');
 });
 
+test('kosmos#8552: a task closed on a commit only here reads on a note, and with a change once a remote has it', async () => {
+  const landedcheck = require('./engine/landedcheck');
+  landedcheck.resetForTests();
+  const r = makeRepo('route-closedhow');
+  const n = newTask('Fix the footer');
+  assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', commit: { sha: r.sha, repo: r.repo, onRemote: false } }).ok, true);
+  tasks.close(projectId, n);
+  const rowOf = async () => ((await (await fetch(base + '/api/tasks?view=tasks', { headers: { origin: base } })).json()).tasks || [])
+    .find((x) => x.projectId === projectId && x.number === n);
+  const before = await rowOf();
+  assert.equal(before.landedOnRemote, false, 'PRE-CONTROL: no remote has it yet');
+  assert.equal(before.closedHow, 'note', 'CONTROL: a commit only here is not a change');
+  const bare = path.join(SANDBOX, 'route-closedhow.git');
+  git(SANDBOX, 'init', '-q', '--bare', bare);
+  git(r.dir, 'remote', 'add', 'origin', bare);
+  git(r.dir, 'push', '-q', 'origin', 'main');
+  git(r.dir, 'fetch', '-q', 'origin');
+  landedcheck.resetForTests();
+  const after = await rowOf();
+  assert.equal(after.landedOnRemote, true, 'PRE-CONTROL: the board saw the push');
+  assert.equal(after.closedHow, 'change', 'a fix pushed after the close still read on a note');
+});
+
 test('review 1: a task its parts closed, then reopened by a new part, drops the old commit', () => {
   const n = newTask('Fix in two steps');
   tasks.addPart(projectId, n, { sentence: 'step one', who: 'mona' });
