@@ -21,14 +21,16 @@ families this cut builds (arm64; linux-x64 when CUT_LINUX=yes):
   unknown, refuse with the way on (review 1: a transient failure must never read as "never served").
 - Never served but the site carries a COMMITTED Linux manifest for <V> (the dead attempt's 7b commit): refuse now,
   naming the commit to revert; release_linux_publish would refuse it at 4b otherwise (review 1).
-- A 404 counts only for leftovers at least an hour old (KOSMOS_LEFTOVERS_MIN_AGE_MIN): step 8 says an unconfirmed
-  deploy "may still land", within minutes (review 2).
-- The marker is written in the checkout's git dir by `git rev-parse --absolute-git-dir` (a linked worktree works),
-  and a failure to write it is said, not swallowed (review 2).
+- The marker is written in the clone's common git dir (`git rev-parse --git-common-dir`, resolved), so every worktree
+  of one clone shares it, and a failure to write it is said, not swallowed (reviews 2 and 5).
+- No age wait. Review 2 asked for one (a deploy may still land); review 5 showed a file's mtime is set at 4b, hours
+  before any deploy, so the wait never covered the case it was for. Step 8's guard is the protection, and the runbook
+  says so instead.
 - Step 8 asks the host again just before vercel (release_leftovers_guard_deploy, each family this cut builds): if
   ANOTHER build of V is served now (a deploy still in flight when 1g read the host, or one that landed after its cut
   cleaned up and left no file), the cut does not deploy. 404 or this cut's own sha: go on; anything else after 3
-  reads: refuse (review 3). This is the guard that does not depend on how old a file is or on any file existing.
+  reads: refuse (review 3). It runs again before each vercel retry, beside the freeze check (review 5). This is the
+  guard that protects the name; 1g only spares a cut the build.
 - With no leftovers and no committed manifest, 1g does not read the host: a cut start must not depend on the
   production host, and the suite's nested cuts would read it too (a test cutting 0.7.50, a really served version, was
   refused when I tried it). The cost, taken on purpose: a version that landed after its cut cleaned up is refused by
@@ -56,8 +58,9 @@ refuses anyway, unless the version has since been pruned from the host.
   between). Still passes on main's release.sh.
 
 ## Tests
-- tools/test-release-leftovers-8562.sh (36 arms, registered in package.json test:shell), with a curl stub that answers
+- tools/test-release-leftovers-8562.sh (37 arms, registered in package.json test:shell), with a curl stub that answers
   as installkosmos.com does (404 for unknown names). Mutations of the marker check, the strict 404, each control,
-  decide-before-move, the Linux-manifest refusal, the tracked-file skip, the age wait, the git-dir marker and the deploy
-  guard (another sha, and its wiring) each red their arm. test-deploy-landed-5471 stubs the guard (it is about landing).
+  decide-before-move, the Linux-manifest refusal, the tracked-file skip, the git-dir marker and the deploy
+  guard (another sha, and its wiring) and the git-error refusal each red their arm. test-vercel-refusal-7711 pins the
+  retry hook's new name. test-deploy-landed-5471 stubs the guard (it is about landing).
 - Every test that reads release.sh or test:shell: node 246 pass; 46 shell tests pass after the 5032 fix.

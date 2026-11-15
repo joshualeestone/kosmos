@@ -27,10 +27,11 @@
 #     checksum: refuse. Anything else, after 3 reads: refuse.)
 # Uses `curl` by name, so a test can define a curl function.
 
-# The marker lives in the site checkout's git dir (git rev-parse, so a linked worktree works too): no git status sees
-# it, and it lasts as long as that checkout. Empty when the site is not a git checkout.
+# The marker lives in the site clone's common git dir (git rev-parse, so every worktree of one clone shares it): no
+# git status sees it, and it lasts as long as that clone. Empty when the site is not a git checkout.
 release_leftovers_marker() {
-  local gd; gd="$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null)" || return 0
+  local gd; gd="$(git -C "$1" rev-parse --git-common-dir 2>/dev/null)" || return 0
+  case "$gd" in ''|/*) ;; *) gd="$(cd "$1" 2>/dev/null && cd "$gd" 2>/dev/null && pwd -P)" || return 0 ;; esac   # relative to the checkout
   [ -z "$gd" ] || printf '%s/kosmos-cut-served-%s' "$gd" "$2"
   return 0
 }
@@ -43,9 +44,6 @@ release_leftovers_mark_served() {
   return 0
 }
 
-# How old a leftover must be before a 404 counts as never served: step 8 says an unconfirmed deploy "may still land",
-# and it lands within minutes, so an hour leaves no deploy in flight. Whole minutes.
-RELEASE_LEFTOVERS_MIN_AGE_MIN="${KOSMOS_LEFTOVERS_MIN_AGE_MIN:-60}"
 
 # The version a served pointer (dist/latest.json, dist/latest-linux.json) names, or nothing.
 release_leftovers_pointer_version() {
@@ -68,9 +66,9 @@ release_leftovers_clear() {
   local site="${1%/}" v="$2" host="${3%/}"; shift 3
   local fam f rel rc ptr pv mine ctl pos refused=0
   local -a move=()
-  [ -n "$site" ] && [ -n "$v" ] && [ -n "$host" ] && [ -d "$site/dist" ] && [ "$#" -gt 0 ] || {
+  [ -n "$site" ] && [ -n "$v" ] && [ -n "$host" ] && [ "$#" -gt 0 ] || {
     echo "release-leftovers: site, version, host and at least one family are required (site $site, version $v, host $host)" >&2; return 1; }
-  case "$RELEASE_LEFTOVERS_MIN_AGE_MIN" in ''|*[!0-9]*) echo "release-leftovers: KOSMOS_LEFTOVERS_MIN_AGE_MIN must be whole minutes, not '$RELEASE_LEFTOVERS_MIN_AGE_MIN'" >&2; return 1 ;; esac
+  [ -d "$site/dist" ] || { echo "release-leftovers: $site has no dist/ folder, so it is not a site checkout; nothing was looked at" >&2; return 1; }
   local mk; mk="$(release_leftovers_marker "$site" "$v")"
   if [ -n "$mk" ] && [ -f "$mk" ]; then
     echo "release-leftovers: a cut of $v was seen served from this site checkout on $(cat "$mk") (step 8 recorded it), so the versioned name is cache-immutable. Bump the version."
@@ -94,7 +92,7 @@ release_leftovers_clear() {
     # suite's nested cuts). A deploy that landed after its cut cleaned up is still refused before it deploys, by
     # release_leftovers_guard_deploy at step 8, though only after the build.
     [ "${#found[@]}" -gt 0 ] || [ -n "$manifest" ] || continue
-    [ "${#found[@]}" -gt 0 ] && echo "   found files for $v ($fam) left in the site checkout by an earlier cut: ${found[*]}"
+    if [ "${#found[@]}" -gt 0 ]; then echo "   found files for $v ($fam) left in the site checkout by an earlier cut: ${found[*]}"; fi
     ptr="latest.json"; [ "$fam" = linux-x64 ] && ptr="latest-linux.json"
     pv="$(release_leftovers_pointer_version "$host" "$ptr")"
     local posfam="$fam"
@@ -117,14 +115,6 @@ release_leftovers_clear() {
       echo "release-leftovers: $v was never served for $fam, but the site still carries its COMMITTED $manifest (an aborted cut commits it at step 7b: $(git -C "$site" log -1 --format='%h %s' -- "$manifest" 2>/dev/null | cut -c1-80)). Step 4b would refuse to republish it with different bytes. Revert that site commit (or remove the manifest and its .sig in a site commit), then cut again."
       refused=1; continue
     fi
-    # An unconfirmed deploy "may still land" (step 8): a 404 counts only once no deploy of these files can be in flight.
-    # Timed from the file's mtime, which can be older than the deploy that carried it; step 8's guard is the backstop.
-    for rel in "${found[@]}"; do
-      if [ -n "$(find "$site/$rel" -mmin -"$RELEASE_LEFTOVERS_MIN_AGE_MIN" 2>/dev/null)" ]; then
-        echo "release-leftovers: $rel is less than $RELEASE_LEFTOVERS_MIN_AGE_MIN minutes old, and a deploy that wrote it may still land, so a 404 proves nothing yet. Cut again in an hour (KOSMOS_LEFTOVERS_MIN_AGE_MIN sets the wait)."
-        refused=1; continue 2
-      fi
-    done
     move+=("${found[@]}")
   done
   [ "$refused" = 0 ] || return 1

@@ -2058,16 +2058,21 @@ _vdep_freeze_check() {
   fi
 }
 _vdep_freeze_check
-# kosmos#8562: step 1g read the host hours ago. Ask again now: if ANOTHER build of $V is served (a deploy that was still
-# in flight then, or one that landed after its cut cleaned up), this cut must not publish different bytes under it.
-release_leftovers_guard_deploy "${HOST:-https://installkosmos.com}" "$V" arm64 "$_my_sha" || exit 1
-if [ "${CUT_LINUX:-}" = yes ]; then
-  release_leftovers_guard_deploy "${HOST:-https://installkosmos.com}" "$V" linux-x64 \
-    "$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-linux-x64.tar.gz.sha256" 2>/dev/null || true)" || exit 1
-fi
+# kosmos#8562: step 1g read the host hours ago. Ask again now, and before each vercel retry: if ANOTHER build of $V is
+# served (a deploy that was still in flight then, or one that landed after its cut cleaned up), this cut must not
+# publish different bytes under it. This is the guard that protects the name; 1g only spares a cut the build.
+_vdep_served_check() {
+  release_leftovers_guard_deploy "${HOST:-https://installkosmos.com}" "$V" arm64 "$_my_sha" || exit 1
+  if [ "${CUT_LINUX:-}" = yes ]; then
+    release_leftovers_guard_deploy "${HOST:-https://installkosmos.com}" "$V" linux-x64 \
+      "$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-linux-x64.tar.gz.sha256" 2>/dev/null || true)" || exit 1
+  fi
+}
+_vdep_served_check
+_vdep_before_retry() { _vdep_freeze_check; _vdep_served_check; }
 _vdep_rc=0
 _vdep_once() { ( cd "$_site_export" && vercel deploy --prod --yes ); }
-KOSMOS_VERCEL_BEFORE_RETRY=_vdep_freeze_check KOSMOS_VERCEL_TMP="${BUILD_ROOT:-}" site_vercel_deploy "$_site_export" _vdep_once || _vdep_rc=$?
+KOSMOS_VERCEL_BEFORE_RETRY=_vdep_before_retry KOSMOS_VERCEL_TMP="${BUILD_ROOT:-}" site_vercel_deploy "$_site_export" _vdep_once || _vdep_rc=$?
 if [ "$_vdep_rc" != 0 ]; then
   # #5471: the CLI's own failure is not the answer; what is served is. LANDED means the served
   # kosmos-$V-arm64.tar.gz.sha256 is the one this cut wrote. Only a deploy carrying this cut's files can serve it: an

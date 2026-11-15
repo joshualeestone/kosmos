@@ -113,12 +113,16 @@ site "kosmos-0.8.05-arm64.tar.gz copy"
 out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
 [ "$rc" = 0 ] && [ -f "$(aside)/kosmos-0.8.05-arm64.tar.gz copy" ] && ok "a name with a space moves whole" || bad "space: rc=$rc out=$out"
 
-# 13. A leftover younger than the wait (a deploy that may still land): refused, nothing moved.
-site kosmos-0.8.05-arm64.tar.gz; touch "$T/site/dist/kosmos-0.8.05-arm64.tar.gz"
+# 13. A git error (the site is not a repository: ls-files exits 128) is a refusal, never "untracked".
+site kosmos-0.8.05-arm64.tar.gz; mv "$T/site/.git" "$T/site.gitdir"
 out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
-[ "$rc" = 1 ] && [ -z "$(aside)" ] && [[ "$out" == *"less than 60 minutes old"* ]] && ok "a leftover younger than an hour: refused (its deploy may still land), nothing moved" || bad "young: rc=$rc out=$out"
-out="$(KOSMOS_LEFTOVERS_MIN_AGE_MIN=0 bash -c '. tools/lib/release-leftovers.sh; echo "$RELEASE_LEFTOVERS_MIN_AGE_MIN"')"
-[ "$out" = 0 ] && ok "CONTROL: the wait is read from KOSMOS_LEFTOVERS_MIN_AGE_MIN" || bad "min age env: $out"
+mv "$T/site.gitdir" "$T/site/.git"
+[ "$rc" = 1 ] && [ -z "$(aside)" ] && [[ "$out" == *"git could not say whether"* ]] && ok "a git error refuses; nothing moved" || bad "git error: rc=$rc out=$out"
+# 13b. A move that fails stops, and says where what did move went.
+site kosmos-0.8.05-arm64.tar.gz; chmod a-w "$T/site/dist"
+out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64 2>&1)"; rc=$?
+chmod u+w "$T/site/dist"
+[ "$rc" = 1 ] && [[ "$out" == *"could not move dist/kosmos-0.8.05-arm64.tar.gz"* ]] && ok "a failed move stops the cut and says so" || bad "mv fail: rc=$rc out=$out"
 
 # 14. A 200 that is not a checksum (an HTML page) on the version's own read: unknown, refused.
 site kosmos-0.8.05-arm64.tar.gz; status dist/kosmos-0.8.05-arm64.tar.gz.sha256 200
@@ -137,13 +141,13 @@ site kosmos-0.8.05-arm64.tar.gz
 out="$(release_leftovers_clear "$T/site" 0.8.05 https://h/ arm64)"; rc=$?
 [ "$rc" = 0 ] && grep -qx "https://h/dist/kosmos-0.8.05-arm64.tar.gz.sha256" "$T/urls" && ok "a trailing slash on the host changes nothing" || bad "slash: rc=$rc urls=$(sort -u "$T/urls" | tr '\n' ' ')"
 
-# 17. The marker in a linked worktree (its .git is a file) is still written and still refuses.
+# 17. The marker is written in the clone's COMMON git dir: marked from a linked worktree (its .git is a file), a cut
+# from the main checkout of the same clone refuses too.
 site kosmos-0.8.05-arm64.tar.gz
 git -C "$T/site" worktree add -q "$T/wt" -b wt 2>/dev/null
-mkdir -p "$T/wt/dist"; printf 'old\n' > "$T/wt/dist/kosmos-0.8.05-arm64.tar.gz"; touch -t 202611130000 "$T/wt/dist/kosmos-0.8.05-arm64.tar.gz"
 [ -f "$T/wt/.git" ] && release_leftovers_mark_served "$T/wt" 0.8.05 2>/dev/null
-out="$(release_leftovers_clear "$T/wt" 0.8.05 https://h arm64)"; rc=$?
-[ -f "$T/wt/.git" ] && [ "$rc" = 1 ] && [[ "$out" == *"step 8 recorded it"* ]] && ok "a linked worktree (.git is a file): the marker is written in its git dir and refuses" || bad "worktree: rc=$rc out=$out"
+out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
+[ -f "$T/wt/.git" ] && [ "$rc" = 1 ] && [[ "$out" == *"step 8 recorded it"* ]] && [ -f "$T/site/.git/kosmos-cut-served-0.8.05" ] && ok "marked from a worktree, refused from the main checkout (one marker per clone)" || bad "worktree: rc=$rc out=$out"
 git -C "$T/site" worktree remove --force "$T/wt" 2>/dev/null
 
 # 18. Marking a site that is not a git checkout says so, and does not fail the cut.
@@ -177,6 +181,9 @@ out="$(release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb)"; rc=$?
 site; status dist/kosmos-0.8.05-arm64.tar.gz.sha256 503
 out="$(release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb)"; rc=$?
 [ "$rc" = 1 ] && [ "$(grep -c 'kosmos-0.8.05-arm64.tar.gz.sha256' "$T/urls")" = 3 ] && [[ "$out" == *"unknown"* ]] && ok "deploy guard: three 503s: refused as unknown after 3 reads" || bad "guard 503: rc=$rc reads=$(grep -c 0.8.05 "$T/urls") out=$out"
+site; status dist/kosmos-0.8.05-arm64.tar.gz.sha256 200
+out="$(release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb)"; rc=$?
+[ "$rc" = 1 ] && [[ "$out" == *"unknown"* ]] && ok "deploy guard: a 200 page that is not a checksum: refused as unknown" || bad "guard html: rc=$rc out=$out"
 site; status dist/kosmos-0.8.05-arm64.tar.gz.sha256 503; : > "$T/code/dist/kosmos-0.8.05-arm64.tar.gz.sha256.once"
 release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb >/dev/null; rc=$?
 [ "$rc" = 0 ] && ok "deploy guard: a 503 then a 404: retried and went on" || bad "guard retry: rc=$rc"
@@ -190,8 +197,11 @@ ph=$(grep -n '^_pair_had=0' "$R" | cut -d: -f1)
 grep -q 'release_leftovers_clear "\$SITE" "\$V" .*\$_lo_fams || { echo "nothing was built"; exit 1; }' "$R" && grep -q '_lo_fams="arm64 linux-x64"' "$R" && ok "it passes this cut's families, and a refusal stops the cut" || bad "call shape"
 m=$(grep -n 'release_leftovers_mark_served "\$SITE" "\$V"' "$R" | cut -d: -f1); dep=$(grep -n '^DEPLOYED=1' "$R" | cut -d: -f1)
 [ -n "$m" ] && [ -n "$dep" ] && [ "$m" -lt "$dep" ] && [ "$((dep - m))" -le 2 ] && ok "step 8 records served just before DEPLOYED=1" || bad "mark: $m dep: $dep"
-gd=$(grep -n 'release_leftovers_guard_deploy "\${HOST:-https://installkosmos.com}" "\$V" arm64 "\$_my_sha" || exit 1' "$R" | cut -d: -f1)
+gd=$(grep -n '^_vdep_served_check$' "$R" | cut -d: -f1)
 fz=$(grep -n '^_vdep_freeze_check$' "$R" | cut -d: -f1); vd=$(grep -n '^_vdep_rc=0' "$R" | cut -d: -f1)
-[ -n "$gd" ] && [ -n "$fz" ] && [ -n "$vd" ] && [ "$fz" -lt "$gd" ] && [ "$gd" -lt "$vd" ] && grep -q 'release_leftovers_guard_deploy "\${HOST:-https://installkosmos.com}" "\$V" linux-x64' "$R" && ok "step 8 asks the host again just before vercel (both families), and stops on a refusal" || bad "guard wiring: fz=$fz gd=$gd vd=$vd"
+[ -n "$gd" ] && [ -n "$fz" ] && [ -n "$vd" ] && [ "$fz" -lt "$gd" ] && [ "$gd" -lt "$vd" ] \
+  && grep -q 'release_leftovers_guard_deploy "\${HOST:-https://installkosmos.com}" "\$V" arm64 "\$_my_sha" || exit 1' "$R" \
+  && grep -q 'release_leftovers_guard_deploy "\${HOST:-https://installkosmos.com}" "\$V" linux-x64' "$R" && ok "step 8 asks the host again just before vercel (both families), and stops on a refusal" || bad "guard wiring: fz=$fz gd=$gd vd=$vd"
+grep -q '^_vdep_before_retry() { _vdep_freeze_check; _vdep_served_check; }$' "$R" && grep -q 'KOSMOS_VERCEL_BEFORE_RETRY=_vdep_before_retry ' "$R" && ok "and again before each vercel retry, beside the freeze check" || bad "retry hook"
 
 [ "$FAILS" = 0 ] && echo "release-leftovers-8562: all passed" || { echo "release-leftovers-8562: $FAILS FAILED"; exit 1; }
