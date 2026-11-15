@@ -72678,6 +72678,10 @@ function tskRow(t, at) {
   /* #6923: a task closed as replaced says so under its row, so it does not read as delivered among the done ones. */
   const replacedLine = t.state === 'closed' && Number.isInteger(t.replacedBy) ? '<div class="why tsk-replaced">Replaced by task ' + t.replacedBy + '</div>'
     : t.state === 'closed' && t.closedUnrun === true ? '<div class="why tsk-replaced">Closed, not run</div>' : '';   // kosmos#8301: nor one that never ran
+  /* kosmos#8552: how a done task closed, in the board's word (closedHow, derived by the engine, which sends none for an open
+     task): with a change, on a note, or never marked built. Left out where the board cannot find the change it was closed with: that line says so instead. */
+  const closedHowWords = t.landedCheck !== 'missing' && typeof tkClosedHowWords === 'function' ? tkClosedHowWords(t) : '';   // typeof: tests lift this function alone
+  const closedHowLine = closedHowWords ? '<div class="why tsk-closedhow">Closed ' + esc(closedHowWords) + '</div>' : '';
   /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,
      so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
      run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
@@ -72706,7 +72710,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + waitLine + whoLine + forYouLine + repeatLine + whoLeftLine + checksLine + landedLine + builtLine + replacedLine + '</div>'   /* kosmos#8158: the commit line first, so Undo cannot read as undoing it */
+    + '</div>' + cannot + waitLine + whoLine + forYouLine + repeatLine + whoLeftLine + checksLine + landedLine + builtLine + replacedLine + closedHowLine + '</div>'   /* kosmos#8158: the commit line first, so Undo cannot read as undoing it */
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */
@@ -73289,6 +73293,11 @@ function tkWhoLeftWords(t, nameOf) {
   if (w.left.length) said.push('Still to finish: ' + w.left.map(nameOf).join(', ') + '.');
   return said.join(' ');
 }
+/* kosmos#8552: the words for how a done task closed, from the engine's closedHow (never worked out here), or ''. */
+function tkClosedHowWords(t) {
+  const how = t && t.closedHow;
+  return how === 'change' ? 'with a change' : how === 'note' ? 'on a note' : how === 'unbuilt' ? 'without being marked built' : '';
+}
 function tkStateWord(t) {
   /* 🔑 THE COUNT, NOT A WORD, ONCE THERE IS MORE THAN ONE PART. Mona Lisa's
      spec: the parent's state is DERIVED from its parts, which is why it cannot
@@ -73364,7 +73373,9 @@ function paintTaskPage() {
   const tkTaskLink = (num) => '<button type="button" class="linkish" data-sub="' + Number(num) + '">task ' + Number(num) + '</button>';   // #6923
   const stateWord = tkStateWord(t);
   const replacedLink = Number.isInteger(t.replacedBy) && Boolean(t.progress ? t.progress.closed : t.closedAt);   // as tkStateWord decides it
-  const builtWords = t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (t.builtNote ? ': ' + t.builtNote : '') : '';
+  const closedHow = t.landedCheck !== 'missing' && typeof tkClosedHowWords === 'function' ? tkClosedHowWords(t) : '';   // kosmos#8552, as the row says it; typeof: tests lift this function alone
+  const builtWords = (t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (t.builtNote ? ': ' + t.builtNote : '') : '')
+    + (closedHow ? ', closed ' + closedHow : '');
   { const words = typeof tkWhoLeftWords === 'function' ? tkWhoLeftWords(t, (n) => tkMemberName(p, n)) : '';   // typeof: tests lift this function alone
     const row = document.getElementById('tk-wholeft-row');
     const el = document.getElementById('tk-wholeft');

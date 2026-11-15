@@ -199,8 +199,12 @@ function confirmedWords(x) {
   const days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(then.getFullYear(), then.getMonth(), then.getDate())) / 86400000);
   return ', last confirmed ' + (days === 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago');
 }
+/* kosmos#8552: how a done task closed, from the board's closedHow (derived there, never here). Nothing for an older board. */
+function closedHowWords(x) {
+  return x.closedHow === 'change' ? ', with a change' : x.closedHow === 'note' ? ', on a note' : x.closedHow === 'unbuilt' ? ', without being marked built' : '';
+}
 function stateWords(x) {
-  if (x.isClosed) return Number.isInteger(x.replacedBy) ? 'closed, replaced by task ' + x.replacedBy : x.closedUnrun === true ? 'closed, not run' : 'done';   // kosmos#8301
+  if (x.isClosed) return Number.isInteger(x.replacedBy) ? 'closed, replaced by task ' + x.replacedBy : x.closedUnrun === true ? 'closed, not run' : 'done' + closedHowWords(x);   // kosmos#8301
   if (x.onHold === true) {
     const u = x.onHoldUntil;
     const until = u && Number.isInteger(u.task) ? ' until task ' + u.task + ' is closed' : u && typeof u.at === 'string' ? ' until ' + (whenWords(u.at) || one(u.at)) : '';

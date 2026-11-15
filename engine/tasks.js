@@ -533,6 +533,8 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
        reopen must not bring back a stale "built"). */
     const closedNow = progressOf(changed).closed;
     const forWork = typeof dropBuilt === 'function' ? !!dropBuilt() : !!dropBuilt;
+    if (closedNow && !progressOf(t).closed) changed.closedHow = closedHowAt(t);   // kosmos#8552: as setClosed, before the mark goes
+    if (!closedNow) delete changed.closedHow;
     if ((forWork || closedNow) && t.builtAt) {
       changed = withoutBuilt(changed);
       droppedForWork = forWork && !closedNow;
@@ -909,6 +911,29 @@ function filePathValue(v) {
    resolved the ref in the agent's checkout; the board checks the shape. The repository is its shared git directory,
    which outlives a removed worktree. */
 const LANDED_FIELDS = ['landedCommit', 'landedRepo', 'landedOnRemote', 'landedBy', 'landedAt'];
+/* kosmos#8552: how a task closed, so a close on a written justification does not look like a close by a real change.
+   DERIVED from the marks the task carries as it closes, never asked for (a self-reported flag has the very weakness this
+   names). Closing drops the built mark (#3951), so the word is kept on the task as it closes (`closedHow`):
+     'change'   a commit that is on a remote (landedOnRemote), or a delivered file (builtFingerprint / builtFilePath);
+     'note'     marked built, with neither;
+     'unbuilt'  never marked built.
+   A landed commit proves a change was committed and pushed, not that it fixed the thing: it says "a change exists". */
+const CLOSED_HOW = Object.freeze(['change', 'note', 'unbuilt']);
+function closedHowAt(t) {
+  if (!t) return 'unbuilt';
+  if (t.landedOnRemote === true && typeof t.landedCommit === 'string' && t.landedCommit !== '') return 'change';
+  const built = typeof t.builtAt === 'string' && t.builtAt !== '';
+  if (!built) return 'unbuilt';
+  return (typeof t.builtFingerprint === 'string' && t.builtFingerprint !== '') || (typeof t.builtFilePath === 'string' && t.builtFilePath !== '') ? 'change' : 'note';
+}
+/** kosmos#8552: the word for a closed task, or null: open; closed as replaced or not run (those say so already); or closed
+ * before this was recorded with nothing left to read it from (a commit on a remote survives a close, so that one still
+ * reads 'change'; a built mark does not, so nothing else can be said, and nothing is guessed). */
+function closedHowOf(t) {
+  if (!t || !progressOf(t).closed || Number.isInteger(t.replacedBy) || t.closedUnrun === true) return null;
+  if (CLOSED_HOW.includes(t.closedHow)) return t.closedHow;
+  return t.landedOnRemote === true && typeof t.landedCommit === 'string' && t.landedCommit !== '' ? 'change' : null;
+}
 const COMMIT_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const LANDED_REPO_MAX = 1024;
 function withoutLanded(t) {
@@ -1296,6 +1321,8 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
        what is missing: a parent whose children did the work, or a person's own plain close, has no sign of work either. */
     if (after && (notRun || replacedNew)) changed.closedUnrun = true;
     if (!after || closedAt === null) delete changed.closedUnrun;   // a reopen clears it, also when the parts still read closed
+    if (!before && after) changed.closedHow = closedHowAt(t);   // kosmos#8552: read before the built mark goes (below)
+    if (!after) delete changed.closedHow;
     /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
     if (after) changed = withoutBuilt(changed);
     if (before && !after) changed = withoutResults(withoutLanded(changed));   // #7508: a reopen is new work, so the old commit goes (#8464: and the check reports)
@@ -2287,6 +2314,7 @@ function allTasks(everyProject) {
            field is the two-sources-for-one-fact shape that put "3 agents" over
            six rows in #1346. */
         isClosed: !!progressOf(t).closed,
+        closedHow: closedHowOf(t),   // kosmos#8552: derived here, so the screen never works it out
         /* #3861: the parent AS READ (null when the stored number is not a task here), its
            sentence for the child's breadcrumb, and the "2 of 5" for a parent. On the row so the
            screen never re-derives them, for the reason isClosed is. */
@@ -2992,4 +3020,4 @@ module.exports = { HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, close, reopen
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, withoutFilePaths, FINGERPRINT_RE, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, withoutFilePaths, CLOSED_HOW, closedHowAt, closedHowOf, FINGERPRINT_RE, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };

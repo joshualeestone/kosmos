@@ -348,3 +348,27 @@ test('kosmos#8301: every subtask closed, one without running: not "all subtasks 
   assert.match(html, /all subtasks closed<\/span><button type="button" data-close-parent=/);
   assert.doesNotMatch(html, /all subtasks done/);
 });
+
+/* kosmos#8552: a done row says how it closed, from the REAL engine's closedHow on the allTasks row. */
+test('kosmos#8552: a closed Tasks view row says how it closed, in the engine word', () => {
+  const q = projects.create({ name: 'Closed how rows' });
+  const a = tasks.create(q.id, { sentence: 'with a file' });
+  tasks.setBuilt(q.id, a.number, { person: true, fingerprint: 'sha256:' + 'c'.repeat(64) });
+  tasks.close(q.id, a.number);
+  const b = tasks.create(q.id, { sentence: 'on words' });
+  tasks.setBuilt(q.id, b.number, { person: true, note: 'it is fine' });
+  tasks.close(q.id, b.number);
+  const c = tasks.create(q.id, { sentence: 'never built' });
+  tasks.close(q.id, c.number);
+  const d = tasks.create(q.id, { sentence: 'still open' });
+  const lift = (t) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', 'claimNotReported', 'tskAgentName',
+    GROUPS + '\n' + page.liftAll(SCRIPT, ['pjChainText', 'pjChainSpoken', 'tskChainOf', 'tkClosedHowWords', 'tskRow']) + '\nreturn tskRow;')(
+    { sel: new Set(), by: 'status', fold: new Set() }, [], ESC, () => 'just now', tskKey, () => '', (s) => s)(t, { depth: 0, crumb: false, kids: 0 });
+  const rowOf = (n) => { const r = tasks.allTasks().find((t) => t.projectId === q.id && t.number === n); return { ...r, state: tasks.taskState(r) }; };
+  assert.match(lift(rowOf(a.number)), /<div class="why tsk-closedhow">Closed with a change<\/div>/);
+  assert.match(lift(rowOf(b.number)), /<div class="why tsk-closedhow">Closed on a note<\/div>/);
+  assert.match(lift(rowOf(c.number)), /<div class="why tsk-closedhow">Closed without being marked built<\/div>/);
+  assert.equal(rowOf(d.number).state === 'closed', false, 'PRE-CONTROL: d is open');
+  assert.doesNotMatch(lift(rowOf(d.number)), /tsk-closedhow/, 'CONTROL: an open row says nothing');
+  assert.doesNotMatch(lift({ ...rowOf(a.number), landedCheck: 'missing' }), /tsk-closedhow/, 'a change the board cannot find is not said to exist');
+});
