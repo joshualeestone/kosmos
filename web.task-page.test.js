@@ -87,7 +87,7 @@ const TK_IDS = ['tk-back', 'tk-num', 'tk-title', 'tk-detail', 'tk-project', 'tk-
 function runPaint({ task, project, now }) {
   const doc = stubDoc(TK_IDS);
   const views = [];
-  const src = [fnSource('tkStateWord'), fnSource('tkAdded'), fnSource('tkFace'), fnSource('tkSayPart'), fnSource('claimNotReported'), fnSource('taskClaimHtml'),
+  const src = [fnSource('tkStateWord'), fnSource('tkClosedHowWords'), fnSource('tkAdded'), fnSource('tkFace'), fnSource('tkSayPart'), fnSource('claimNotReported'), fnSource('taskClaimHtml'),
     fnSource('paintTaskPage'), fnSource('tkPaintSubtasks')].join('\n');
   const NOW = now || Date.now();
   class FixedDate extends Date {
@@ -447,4 +447,17 @@ test('#6923: a task closed as replaced says so, with the other task as a link; t
   assert.match(b.doc.els['tk-state'].innerHTML, /^Open\. Replaces <button type="button" class="linkish" data-sub="2">task 2<\/button>$/);
   const c = runPaint({ project: { ...PROJECT, tasks: [] }, task: { ...old, replacedBy: undefined } });
   assert.equal(c.doc.els['tk-state'].textContent, 'Done', 'CONTROL: a plain close is still Done');
+});
+
+/* kosmos#8552: a done task's page says how it closed, in the engine's word, after the state. */
+test('kosmos#8552: the task page says how a done task closed; an older row with no word still reads Done', () => {
+  const page = (extra) => runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 2, sentence: 's', who: 'april', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: new Date().toISOString(), ...extra },
+  }).doc.els['tk-state'].textContent;
+  assert.equal(page({ closedHow: 'change' }), 'Done, closed with a change');
+  assert.equal(page({ closedHow: 'note' }), 'Done, closed on a note');
+  assert.equal(page({ closedHow: 'unbuilt' }), 'Done, closed without being marked built');
+  assert.equal(page({}), 'Done', 'CONTROL: no word from the board, nothing added');
+  assert.equal(page({ closedHow: 'change', landedCheck: 'missing' }), 'Done', 'a change the board cannot find is not said to exist');
 });
