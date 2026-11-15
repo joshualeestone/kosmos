@@ -150,3 +150,25 @@ test('a POST is not this route', async () => {
   await res.text().catch(() => '');
   assert.notEqual(res.status, 200);
 });
+
+test('by hand, a person thread that cannot be read says this may not be everything, never "Nothing arrived"', async () => {
+  boardAuthState.on = false;
+  await withBoard(async () => {
+    const now = Date.now();
+    reports('leo', [{ state: 'working', at: now - 5 * H }, { state: 'started', at: now - 2 * H }]);
+    logRows([]);
+    const chat = require('./engine/chat');
+    const real = chat.readThread;
+    chat.readThread = () => { const e = new Error('unreadable'); e.code = 'UNREADABLE'; throw e; };
+    const tok = sendertoken.mint('leo').token;
+    try {
+      const r = await get('/api/away?as=text', { 'x-kosmos-agent-token': tok });
+      assert.equal(r.code, 200, r.text);
+      assert.doesNotMatch(r.text, /Nothing arrived/);
+      assert.match(r.text, /could not read every record just now/);
+      chat.readThread = real;
+      const control = await get('/api/away?as=text', { 'x-kosmos-agent-token': tok });
+      assert.equal(control.text, 'Nothing arrived for you while you were not running.\n', 'control: a readable thread says nothing arrived');
+    } finally { chat.readThread = real; sendertoken.revoke('leo'); }
+  });
+});
