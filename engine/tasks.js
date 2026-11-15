@@ -933,10 +933,11 @@ function setClosedHow(changed, t, p) {
 /** kosmos#8552: the word for a closed task, or null: open; closed as replaced or not run (those say so already); or closed
  * before this was recorded with nothing left to read it from (a commit on a remote survives a close, so that one still
  * reads 'change'; a built mark does not, so nothing else can be said, and nothing is guessed). */
-function closedHowOf(t) {
+function closedHowOf(t, { hasSubtasks = false } = {}) {
   if (!t || !progressOf(t).closed || Number.isInteger(t.replacedBy) || t.closedUnrun === true) return null;
   const onRemote = t.landedOnRemote === true && typeof t.landedCommit === 'string' && t.landedCommit !== '';
   if (t.closedHow === 'note' && onRemote) return 'change';   // pushed after it closed
+  if (t.closedHow === 'unbuilt' && hasSubtasks) return null;   // a subtask put under it after it closed
   if (CLOSED_HOW.includes(t.closedHow)) return t.closedHow;
   return onRemote ? 'change' : null;
 }
@@ -2320,7 +2321,7 @@ function allTasks(everyProject) {
            field is the two-sources-for-one-fact shape that put "3 agents" over
            six rows in #1346. */
         isClosed: !!progressOf(t).closed,
-        closedHow: closedHowOf(t),   // kosmos#8552: derived here, so the screen never works it out
+        closedHow: closedHowOf(t, { hasSubtasks: tree.progress(t && t.number).total > 0 }),   // kosmos#8552: derived here, so the screen never works it out
         /* #3861: the parent AS READ (null when the stored number is not a task here), its
            sentence for the child's breadcrumb, and the "2 of 5" for a parent. On the row so the
            screen never re-derives them, for the reason isClosed is. */

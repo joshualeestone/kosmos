@@ -798,7 +798,7 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
     ...withoutPaths(t),
     parts: tasksModEarly.partsOf(t),
     progress: (({ done, total, closed, assigned }) => ({ done, total, closed, assigned }))(tasksModEarly.progressOf(t)),
-    closedHow: tasksModEarly.closedHowOf(t),   // kosmos#8552: the engine's word, so the task page never derives it
+    closedHow: tasksModEarly.closedHowOf(t, { hasSubtasks: tree.progress(t.number).total > 0 }),   // kosmos#8552: the engine's word, so the task page never derives it
     parent: tree.up(t),
     parentSentence: tree.up(t) === null ? null : (tree.byNum.get(tree.up(t)).sentence || null),
     subtasks: tree.progress(t.number),
