@@ -19248,6 +19248,17 @@ window.kosmosMeasureScrollbarWidth();
           <div class="svc-door" hidden></div>
         </div>
       </details>
+      <!-- kosmos#7750 (design: Mona Lisa): media is an ordinary ask now, so it sits with what agents touch every day.
+           Two doors only: Replicate reaches many image, video and speech models with one key, ElevenLabs is voice.
+           No pill for a service with no door, so nothing here reads as "coming soon". -->
+      <details class="con-cat" data-cat="media">
+        <summary><b>Images, video and voice</b><span class="con-state"></span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+        <div class="con-body">
+          <p class="dhint" style="margin:0 0 8px;">How agents make pictures, video and speech when you ask for them.</p>
+          <div class="boardrow"><button type="button" class="boardname off" aria-expanded="false">Replicate</button><button type="button" class="boardname off" aria-expanded="false">ElevenLabs</button></div>
+          <div class="svc-door" hidden></div>
+        </div>
+      </details>
     <h4 class="con-group">Set up once, rarely touched after</h4>
       <details class="con-cat" data-cat="deploy">
         <summary><b>Deploy and hosting</b><span class="con-state"></span><svg class="con-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
@@ -48675,6 +48686,9 @@ const SVC_DOORS = {
   'Postmark': 'Sends email for your apps. Connect it and your agents can send the messages you set up.',
   'SendGrid': 'Sends email from your apps. Connect it and your agents can send what you have set up.',
   'Better Stack': 'Watches your services and keeps their logs. Connect it and your agents can check how things are running.',
+  /* kosmos#7750 (Mona Lisa): each says what the agents can make and that the person's own account pays for it. */
+  'Replicate': 'Many image, video and speech models in one place. Connect it and your agents can make pictures, short videos and audio for you, billed to your Replicate account.',
+  'ElevenLabs': 'Voices and speech. Connect it and your agents can turn your words into speech and voice-overs, paid for with your ElevenLabs credits.',
 };
 /* The services with a REAL flow behind their door (#529). A name here means
    svcDoorLive paints the door from the engine's state and may offer a
@@ -48687,7 +48701,8 @@ const SVC_BUILT = { 'GitHub': '/api/github', 'Vercel': '/api/vercel', 'Cloudflar
   'Discord': '/api/svc/discord', 'Brave Search': '/api/svc/brave-search', 'Exa': '/api/svc/exa', 'Tavily': '/api/svc/tavily', 'Serper': '/api/svc/serper',
   'GitLab': '/api/svc/gitlab', 'Fly.io': '/api/svc/fly', 'DigitalOcean': '/api/svc/digitalocean', 'Hetzner': '/api/svc/hetzner', 'Netlify': '/api/svc/netlify',
   'Render': '/api/svc/render', 'Notion': '/api/svc/notion', 'Linear': '/api/svc/linear', 'Airtable': '/api/svc/airtable', 'Neon': '/api/svc/neon',
-  'Postmark': '/api/svc/postmark', 'SendGrid': '/api/svc/sendgrid', 'Better Stack': '/api/svc/better-stack' };
+  'Postmark': '/api/svc/postmark', 'SendGrid': '/api/svc/sendgrid', 'Better Stack': '/api/svc/better-stack',
+  'Replicate': '/api/svc/replicate', 'ElevenLabs': '/api/svc/elevenlabs' };
 /* The words that differ per built service (#529). GitHub's are Mona Lisa's
    sentences as she wrote them; a new service adds a row, never a branch. */
 const SVC_TOOL = {
@@ -48857,6 +48872,9 @@ async function svcDoorToken(name, door, api) {
     await paint();
   };
 }
+/* kosmos#7750: every pill is written "off" in the markup, and .boardname.off adds " · coming", so a built door such
+   as Postmark read "coming" while it worked. A pill is "off" only when no door is built behind it. */
+document.querySelectorAll('#s-sec-connect button.boardname').forEach((b) => { b.classList.toggle('off', !SVC_BUILT[b.textContent.trim()]); });
 document.querySelectorAll('#s-sec-connect .boardrow').forEach((row) => {
   const door = row.nextElementSibling;
   if (!door || !door.classList.contains('svc-door')) return;

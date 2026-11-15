@@ -153,3 +153,44 @@ test('#1787: a writer throw comes back as a refusal, not an unreadable-request e
      arm of the same name. */
   assert.equal(st.connected, false, 'a failed write reported as connected');
 });
+
+/* #7750: the two media doors. Replicate's who is the account username; ElevenLabs answers no
+   username or email, so its who is the first name, and a key it refuses for a missing permission
+   comes back with the service's own reason (a restricted key can leave out the read this check
+   uses, and "did not accept that token" alone would send the person looking for a wrong key). */
+test('#7750: Replicate reads who from username with a Bearer token; ElevenLabs reads first_name with xi-api-key and passes its refusal reason through', async () => {
+  const r = byName('Replicate');
+  let got = null;
+  r.setFetcher(async (req) => { got = req; return { ok: true, status: 200, body: { type: 'user', username: 'maker', name: 'A Maker' } }; });
+  const st = await r.connect('r8_0123456789abcdef0123456789abcdef');
+  assert.equal(got.url, 'https://api.replicate.com/v1/account');
+  assert.equal(got.headers.Authorization, 'Bearer r8_0123456789abcdef0123456789abcdef');
+  assert.equal(st.who, 'maker');
+  await r.forget();
+  r.setFetcher(async () => ({ ok: true, status: 200, body: { type: 'user' } }));
+  assert.equal((await r.connect('r8_0123456789abcdef0123456789abcdef')).refused, 'Replicate did not say whose token that is', 'a 200 with no username is not proof of an account');
+  r.setFetcher(async () => ({ ok: false, status: 401, body: { detail: 'Invalid token.' } }));
+  assert.equal((await r.connect('r8_0123456789abcdef0123456789abcdef')).refused, 'Replicate did not accept that token');
+  r.setFetcher(null);
+
+  const e = byName('ElevenLabs');
+  e.setFetcher(async (req) => { got = req; return { ok: true, status: 200, body: { user_id: 'u1', first_name: 'Sam', workspace_id: 'w1' } }; });
+  const st2 = await e.connect('sk_0123456789abcdef0123456789abcdef');
+  assert.equal(got.url, 'https://api.elevenlabs.io/v1/user');
+  assert.equal(got.headers['xi-api-key'], 'sk_0123456789abcdef0123456789abcdef');
+  assert.equal(st2.who, 'Sam');
+  await e.forget();
+  e.setFetcher(async () => ({ ok: false, status: 401, body: { detail: { status: 'missing_permissions', message: 'The API key you used is missing the permission user_read to execute this operation.' } } }));
+  const no = await e.connect('sk_0123456789abcdef0123456789abcdef');
+  assert.equal(no.refused, 'ElevenLabs did not accept that token: The API key you used is missing the permission user_read to execute this operation.');
+  assert.ok(!fs.existsSync(path.join(DIR, 'ELEVENLABS_API_KEY')));
+  e.setFetcher(async () => ({ ok: true, status: 200, body: { workspace_id: 'w1' } }));
+  assert.equal((await e.connect('sk_0123456789abcdef0123456789abcdef')).refused, 'ElevenLabs did not say whose key that is', 'a 200 with no user_id is not proof of an account');
+  e.setFetcher(async () => ({ ok: false, status: 401, body: { detail: 'Invalid API key' } }));
+  assert.equal((await e.connect('sk_0123456789abcdef0123456789abcdef')).refused, 'ElevenLabs did not accept that token: Invalid API key');
+  e.setFetcher(async () => ({ ok: false, status: 429, body: { detail: { message: 'Too many concurrent requests.' } } }));
+  assert.equal((await e.connect('sk_0123456789abcdef0123456789abcdef')).refused, 'ElevenLabs answered 429: Too many concurrent requests.');
+  e.setFetcher(async () => ({ ok: false, status: 401, body: null }));
+  assert.equal((await e.connect('sk_0123456789abcdef0123456789abcdef')).refused, 'ElevenLabs did not accept that token');
+  e.setFetcher(null);
+});

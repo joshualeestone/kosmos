@@ -379,6 +379,27 @@ async function openTab(page, tab) {
   await page.waitForSelector(`#panel-${tab}`, { state: 'visible', timeout: 5000 });
 }
 
+/* kosmos#7750: the two media doors' answers, with the words engine/tokendoors.js gives them. `on`:
+   Replicate connected as a sample account. The shelf's /api/connections answer gains the same two doors. */
+const mediaDoors = async (page, on) => {
+  const { bySlug } = require(path.join(REPO, 'engine', 'tokendoors'));
+  const off = (slug) => { const s = bySlug(slug).spec; return { connected: false, where: s.where, whereText: s.whereText, hint: s.hint }; };
+  const doors = {
+    replicate: on ? { connected: true, who: 'pixel-studio' } : off('replicate'),
+    elevenlabs: off('elevenlabs'),
+  };
+  for (const [slug, body] of Object.entries(doors)) {
+    await page.route('**/api/svc/' + slug, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }).catch(() => {}));
+  }
+  await page.route('**/api/connections', async (r) => {
+    try {
+      let base = {};
+      try { base = await (await r.fetch()).json(); } catch { base = {}; }
+      const d = Object.assign({}, base.doors || {}, { '/api/svc/replicate': { connected: !!on }, '/api/svc/elevenlabs': { connected: false } });
+      await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(Object.assign({}, base, { doors: d })) });
+    } catch { /* the page closed under the route (#6022) */ }
+  });
+};
 /* Deep links (web/index.html's ?tab / ?agent / ?project routing) reach a
    screen without depending on phone navigation; the frame shots use the ☰. */
 /* 'load', not 'networkidle': some screens hold a connection open (live
@@ -2133,6 +2154,28 @@ const SCREENS = [
     await at(page, '?tab=agents');
     await page.evaluate(() => { REVIEWER_NOTE.at = 0; reviewerNoteMaybe(); });
     await page.waitForSelector('#recovery-slot .utoast.recovery-note', { state: 'visible', timeout: 10000 });
+  } },
+  /* kosmos#7750: the Images, video and voice group on Connections. Each door's status and the shelf's list are
+     answered HERE: on connect-media nothing is connected and the ElevenLabs door is open; on connect-media-on
+     Replicate is connected (as a sample account) and its door is open, so the group's line names it. */
+  { name: 'connect-media', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await mediaDoors(page, false);
+    await at(page, '?tab=settings&sec=connect');
+    await page.waitForSelector('#s-sec-connect [data-cat="media"]', { state: 'visible', timeout: 10000 });
+    await page.evaluate(() => { const c = document.querySelector('#s-sec-connect [data-cat="media"]'); c.open = true; c.scrollIntoView({ block: 'start' }); });
+    await page.click('#s-sec-connect [data-cat="media"] button.boardname:text-is("ElevenLabs")');
+    await page.waitForSelector('#s-sec-connect [data-cat="media"] [data-svc-token-field]', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.querySelector('#s-sec-connect [data-cat="media"]').scrollIntoView({ block: 'start' }));
+    await page.mouse.move(1, 1);
+  } },
+  { name: 'connect-media-on', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await mediaDoors(page, true);
+    await at(page, '?tab=settings&sec=connect');
+    await page.waitForSelector('#s-sec-connect [data-cat="media"]', { state: 'visible', timeout: 10000 });
+    await page.waitForFunction(() => /1 connected: Replicate/.test(document.querySelector('#s-sec-connect [data-cat="media"] .con-state').textContent), null, { timeout: 8000 });
+    await page.evaluate(() => { const c = document.querySelector('#s-sec-connect [data-cat="media"]'); c.open = true; });
+    await page.click('#s-sec-connect [data-cat="media"] button.boardname:text-is("Replicate")');
+    await page.waitForSelector('#s-sec-connect [data-cat="media"] [data-svc-forget]', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.querySelector('#s-sec-connect [data-cat="media"]').scrollIntoView({ block: 'start' }));
+    await page.mouse.move(1, 1);
   } },
   /* #5787 (Mona Lisa): the connected Kosmos+ pane, where every sign-in now lands: the connect block (line art, the
      address with Copy, the Scan to connect code, the store buttons greyed with Coming soon) at the top. */

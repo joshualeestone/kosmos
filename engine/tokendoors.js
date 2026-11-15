@@ -142,6 +142,39 @@ const SPECS = [
     verify: { url: 'https://uptime.betterstack.com/api/v2/monitors?per_page=1', headers: bearer },
     verifyUrlEnv: 'AGENT_WORKFORCE_BETTERSTACK_VERIFY_URL', accept: okIf2xx,
   },
+  /* #7750: Images, video and voice. Words from Mona Lisa's design (card comment 6892089027); the
+     calls from the services' API references (checked 2026-11-15): Replicate GET /v1/account with a
+     Bearer token answers type/username/name; ElevenLabs GET /v1/user with xi-api-key answers user_id
+     and first_name (no username or email). Replicate tokens carry no scopes, so its hint names the
+     token and implies no limit. */
+  {
+    name: 'Replicate', slug: 'replicate', envVar: 'REPLICATE_API_TOKEN',
+    where: 'https://replicate.com/account/api-tokens', whereText: 'Replicate’s API tokens page',
+    hint: 'naming it Kosmos so you can find it later',
+    verify: { url: 'https://api.replicate.com/v1/account', headers: bearer },
+    verifyUrlEnv: 'AGENT_WORKFORCE_REPLICATE_VERIFY_URL',
+    accept: (s, b) => {
+      if (s === 200 && b && b.username) return { ok: true, who: b.username };
+      return s === 200 ? { ok: false, because: 'Replicate did not say whose token that is' } : { ok: false };
+    },
+  },
+  {
+    name: 'ElevenLabs', slug: 'elevenlabs', envVar: 'ELEVENLABS_API_KEY',
+    where: 'https://elevenlabs.io/app/settings/api-keys', whereText: 'ElevenLabs’ API keys page',
+    hint: 'allowing the features your agents need, plus account reading so Kosmos can check it',
+    verify: { url: 'https://api.elevenlabs.io/v1/user', headers: (t) => ({ 'xi-api-key': t, Accept: 'application/json' }) },
+    verifyUrlEnv: 'AGENT_WORKFORCE_ELEVENLABS_VERIFY_URL',
+    // The service's own reason (detail.message, or detail as a string) is shown on a refusal.
+    accept: (s, b) => {
+      if (s === 200 && b && b.user_id) return { ok: true, who: b.first_name || null };
+      if (s === 200) return { ok: false, because: 'ElevenLabs did not say whose key that is' };
+      const d = b && b.detail;
+      const raw = typeof d === 'string' ? d : (d && typeof d.message === 'string' ? d.message : '');
+      const why = raw.trim().slice(0, 300);
+      if (!why) return { ok: false };
+      return { ok: false, because: s === 401 || s === 403 ? why : 'ElevenLabs answered ' + s + ': ' + why };
+    },
+  },
 ];
 
 const DOORS = new Map(SPECS.map((s) => [s.slug, makeTokenDoor(s)]));

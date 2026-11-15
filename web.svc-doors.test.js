@@ -40,7 +40,7 @@ test('no pill is inert and no door holds a control for an unbuilt flow', () => {
   const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   for (const name of ['Discord', 'Brave Search', 'Exa', 'Tavily', 'Serper', 'GitLab', 'Fly.io',
     'DigitalOcean', 'Hetzner', 'Netlify', 'Render', 'Notion', 'Linear', 'Airtable', 'Neon',
-    'Postmark', 'SendGrid', 'Better Stack']) {
+    'Postmark', 'SendGrid', 'Better Stack', 'Replicate', 'ElevenLabs']) {
     // requires the key AND a sentence whose first non-space char is real (not
     // the closing quote), so '', ' ', and a missing key all fail.
     assert.match(doorSentences, new RegExp("'" + reEsc(name) + "': '\\s*[^'\\s]"),
@@ -108,4 +108,11 @@ test('#529 Gmail door: says it cannot connect yet, names the working road, promi
   // CONTROL: every other coming-soon door keeps the generic line.
   assert.match(door('Google Drive'), /you sign in on Google Drive’s own page/);
   assert.match(door('A service with no sentence'), /^<b>A service with no sentence\.<\/b> Coming soon\. When it opens up here/, 'a door with no sentence of its own lost the generic line');
+});
+
+test('kosmos#7750: a built door pill never reads coming; only a pill with no door behind it does', () => {
+  // .boardname.off adds " · coming", and every pill is written "off", so the page must clear it for each built door.
+  assert.match(PAGE, /document\.querySelectorAll\('#s-sec-connect button\.boardname'\)\.forEach\(\(b\) => \{ b\.classList\.toggle\('off', !SVC_BUILT\[b\.textContent\.trim\(\)\]\); \}\);/,
+    'nothing clears "off" on a built pill, so it reads "coming" while it works');
+  assert.match(PAGE, /\.boardname\.off::after \{ content: " · coming";/, 'CONTROL: the "coming" label is still made by .off');
 });
