@@ -63,7 +63,7 @@ test('saveOnRemote keeps a remote copy on a task closed on a note, so it reads w
   assert.equal(tasks.closedHowOf(stored(id, n)), 'note', 'CONTROL: a commit only here closed it on a note');
   assert.deepEqual(tasks.saveOnRemote(id, n, SHA, REPO), { ok: true, changed: true });
   assert.equal(stored(id, n).landedOnRemote, true);
-  assert.equal(stored(id, n).closedHow, 'note', 'the word kept at the close was rewritten (closedHowOf derives the upgrade)');
+  assert.equal(stored(id, n).closedHow, 'note', 'the stored word changed: it stays as kept at the close, and closedHowOf derives the upgrade');
   assert.equal(tasks.closedHowOf(stored(id, n)), 'change', 'the saved upgrade did not reach the word');
   assert.equal(pageRow(id, n).closedHow, 'change', 'the task page still read on a note');
 });
