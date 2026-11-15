@@ -21,13 +21,20 @@ families this cut builds (arm64; linux-x64 when CUT_LINUX=yes):
   unknown, refuse with the way on (review 1: a transient failure must never read as "never served").
 - Never served but the site carries a COMMITTED Linux manifest for <V> (the dead attempt's 7b commit): refuse now,
   naming the commit to revert; release_linux_publish would refuse it at 4b otherwise (review 1).
+- A 404 counts only for leftovers at least an hour old (KOSMOS_LEFTOVERS_MIN_AGE_MIN): step 8 says an unconfirmed
+  deploy "may still land", within minutes (review 2).
+- The marker is written in the checkout's git dir by `git rev-parse --absolute-git-dir` (a linked worktree works),
+  and a failure to write it is said, not swallowed (review 2).
 - Every family is decided before anything moves; then the leftovers go into ONE dated folder beside the site
   checkout, outside git, nothing deleted. Tracked files are never touched; a git error is a refusal.
 
 Rejected: deleting the leftovers (no undo); moving them inside dist/ (git status and clean-tree checks); judging by
 the tarball's status alone (a 404 is only "never served" when a made-up name gets the same and a real one does not).
 
-Weakest premise: a cut killed before step 8 recorded its marker but after its build went live (between the landing
+Weakest premise: the marker is per checkout. A later cut of the same version from ANOTHER clone that holds leftovers,
+after the version was pruned from the host, has no marker and sees a 404. Step 1's version-order guard refuses a
+version at or below the live pointer, which bounds this to a version served and then reverted below. Also: a cut
+killed before step 8 recorded its marker but after its build went live (between the landing
 check and the marker line, two lines apart) leaves no marker; the host probe then sees the served checksum and
 refuses anyway, unless the version has since been pruned from the host.
 
@@ -39,7 +46,7 @@ refuses anyway, unless the version has since been pruned from the host.
   between). Still passes on main's release.sh.
 
 ## Tests
-- tools/test-release-leftovers-8562.sh (20 arms, registered in package.json test:shell), with a curl stub that answers
+- tools/test-release-leftovers-8562.sh (27 arms, registered in package.json test:shell), with a curl stub that answers
   as installkosmos.com does (404 for unknown names). Mutations of the marker check, the strict 404, each control,
   decide-before-move, the Linux-manifest refusal and the tracked-file skip each red their arm.
 - Every test that reads release.sh or test:shell: node 246 pass; 46 shell tests pass after the 5032 fix.

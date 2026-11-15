@@ -456,8 +456,9 @@ Ctrl-C ends that wait safely.
    `curl -s -w ' %{http_code}' https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256`.
    A checksum with a 200 means it was served (bump the version). A 404, the same
    as `kosmos-0.0.0-x-arm64.tar.gz.sha256` gets, means it never was (move the
-   local files aside and re-cut). Anything else (a 5xx, a timeout) proves
-   neither: read it again later. A committed Linux manifest for `<V>` from the
+   local files aside and re-cut), once the dead attempt is an hour behind you (a
+   deploy that exited badly can still land within minutes). Anything else (a
+   5xx, a timeout) proves neither: read it again later. A committed Linux manifest for `<V>` from the
    dead attempt's step 7b commit also has to go (revert that site commit), or
    step 4b refuses it; step 1g says so.
 3. **The site checkout's uncommitted state.** A dead attempt can leave

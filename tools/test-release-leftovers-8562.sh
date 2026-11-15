@@ -32,7 +32,7 @@ site() {   # a fresh site checkout with one committed file and the given untrack
   git -C "$T/site" init -q && git -C "$T/site" config user.email t@t && git -C "$T/site" config user.name t
   printf 'x\n' > "$T/site/dist/kosmos-0.8.05-arm64.manifest.json"
   git -C "$T/site" add -A && git -C "$T/site" commit -qm init
-  local f; for f in "$@"; do printf 'old bytes\n' > "$T/site/dist/$f"; done
+  local f; for f in "$@"; do printf 'old bytes\n' > "$T/site/dist/$f"; touch -t 202611130000 "$T/site/dist/$f"; done   # an earlier day's cut
   serve dist/latest.json '{"version":"0.8.02"}'; serve dist/latest-linux.json '{"version":"0.8.02"}'
   serve dist/kosmos-0.8.02-arm64.tar.gz.sha256 "$SUM  kosmos-0.8.02-arm64.tar.gz"
   serve dist/kosmos-0.8.02-linux-x64.tar.gz.sha256 "$SUM  kosmos-0.8.02-linux-x64.tar.gz"
@@ -113,7 +113,44 @@ site "kosmos-0.8.05-arm64.tar.gz copy"
 out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
 [ "$rc" = 0 ] && [ -f "$(aside)/kosmos-0.8.05-arm64.tar.gz copy" ] && ok "a name with a space moves whole" || bad "space: rc=$rc out=$out"
 
-# 13. release.sh: step 1g runs it with this cut's families before step 2 and _pair_had; step 8 records served before DEPLOYED=1.
+# 13. A leftover younger than the wait (a deploy that may still land): refused, nothing moved.
+site kosmos-0.8.05-arm64.tar.gz; touch "$T/site/dist/kosmos-0.8.05-arm64.tar.gz"
+out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
+[ "$rc" = 1 ] && [ -z "$(aside)" ] && [[ "$out" == *"less than 60 minutes old"* ]] && ok "a leftover younger than an hour: refused (its deploy may still land), nothing moved" || bad "young: rc=$rc out=$out"
+out="$(KOSMOS_LEFTOVERS_MIN_AGE_MIN=0 bash -c '. tools/lib/release-leftovers.sh; echo "$RELEASE_LEFTOVERS_MIN_AGE_MIN"')"
+[ "$out" = 0 ] && ok "CONTROL: the wait is read from KOSMOS_LEFTOVERS_MIN_AGE_MIN" || bad "min age env: $out"
+
+# 14. A 200 that is not a checksum (an HTML page) on the version's own read: unknown, refused.
+site kosmos-0.8.05-arm64.tar.gz; status dist/kosmos-0.8.05-arm64.tar.gz.sha256 200
+out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
+[ "$rc" = 1 ] && [ -z "$(aside)" ] && [[ "$out" == *"answered 200"* ]] && ok "a 200 page that is not a checksum: refused as unknown" || bad "html 200: rc=$rc out=$out"
+
+# 15. A committed Linux manifest and NO leftover files: still refused up front.
+site
+printf 'm\n' > "$T/site/dist/kosmos-0.8.05-linux-x64.manifest.json"
+git -C "$T/site" add dist/kosmos-0.8.05-linux-x64.manifest.json && git -C "$T/site" commit -qm "release 0.8.05 linux"
+out="$(release_leftovers_clear "$T/site" 0.8.05 https://h $BOTH)"; rc=$?
+[ "$rc" = 1 ] && [[ "$out" == *"COMMITTED dist/kosmos-0.8.05-linux-x64.manifest.json"* ]] && ok "a committed Linux manifest with no leftover files: refused up front" || bad "manifest only: rc=$rc out=$out"
+
+# 16. A host given with a trailing slash reads the same URLs.
+site kosmos-0.8.05-arm64.tar.gz
+out="$(release_leftovers_clear "$T/site" 0.8.05 https://h/ arm64)"; rc=$?
+[ "$rc" = 0 ] && grep -qx "https://h/dist/kosmos-0.8.05-arm64.tar.gz.sha256" "$T/urls" && ok "a trailing slash on the host changes nothing" || bad "slash: rc=$rc urls=$(sort -u "$T/urls" | tr '\n' ' ')"
+
+# 17. The marker in a linked worktree (its .git is a file) is still written and still refuses.
+site kosmos-0.8.05-arm64.tar.gz
+git -C "$T/site" worktree add -q "$T/wt" -b wt 2>/dev/null
+mkdir -p "$T/wt/dist"; printf 'old\n' > "$T/wt/dist/kosmos-0.8.05-arm64.tar.gz"; touch -t 202611130000 "$T/wt/dist/kosmos-0.8.05-arm64.tar.gz"
+[ -f "$T/wt/.git" ] && release_leftovers_mark_served "$T/wt" 0.8.05 2>/dev/null
+out="$(release_leftovers_clear "$T/wt" 0.8.05 https://h arm64)"; rc=$?
+[ -f "$T/wt/.git" ] && [ "$rc" = 1 ] && [[ "$out" == *"step 8 recorded it"* ]] && ok "a linked worktree (.git is a file): the marker is written in its git dir and refuses" || bad "worktree: rc=$rc out=$out"
+git -C "$T/site" worktree remove --force "$T/wt" 2>/dev/null
+
+# 18. Marking a site that is not a git checkout says so, and does not fail the cut.
+mkdir -p "$T/nogit"; out="$(release_leftovers_mark_served "$T/nogit" 0.8.05 2>&1)"; rc=$?
+[ "$rc" = 0 ] && [[ "$out" == *"could not record"* ]] && ok "no git checkout: the marker is not written, says so, returns 0" || bad "nogit: rc=$rc out=$out"
+
+# 19. release.sh: step 1g runs it with this cut's families before step 2 and _pair_had; step 8 records served before DEPLOYED=1.
 R="tools/release.sh"
 g=$(grep -n 'release_leftovers_clear "\$SITE" "\$V"' "$R" | head -1 | cut -d: -f1)
 s2=$(grep -n 'step "== 2\. the version, in one place ==' "$R" | cut -d: -f1)
