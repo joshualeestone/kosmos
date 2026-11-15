@@ -165,7 +165,8 @@ function workedSince(rows, last, tries) {
    a turn one of those lines woke), with no posting turn to set aside. The caller passes this timer's own prompts, the
    task-done prompts and the re-read lines, the ones with a durable send record. A turn another Kosmos line woke (the
    reply nudge, the feedback prompt) still reads as work, as it does for workedSince: none of them keeps its send times.
-   Review 2: the rows are state changes, so a turn that was busy at `from` and went idle inside the window is work too.
+   Review 2: the rows are state changes, so a turn that was busy at `from` and went idle inside the window is work too
+   (review 3: not when the next report is a session start, which is a crashed turn, not a long one).
    Returns true, false (an empty history is false: no work on record), or null when the history is unknown (not an
    array, or a cut tail that starts after `from` and shows no work). */
 function workedWithin(rows, from, tries) {
@@ -183,7 +184,10 @@ function workedWithin(rows, from, tries) {
   // Review 2: the state at `from` is the last row before it; busy there (and not a Kosmos-woken turn) means busy into the window.
   const before = valid.filter((r) => r.at < from);
   const atFrom = before.length ? before[before.length - 1] : null;
-  if (atFrom && busy(atFrom) && !setAside(atFrom)) return true;
+  /* Review 3: unless the next report is a session start: a session killed mid-turn writes no stopped report, so its last
+     busy row is ended by the restart, not by work running into the window. */
+  const next = valid.find((r) => r.at >= from);
+  if (atFrom && busy(atFrom) && !setAside(atFrom) && !(next && next.state === 'started')) return true;
   for (const r of valid) {
     if (r.at < from || !busy(r)) continue;
     if (setAside(r)) continue;
@@ -194,8 +198,9 @@ function workedWithin(rows, from, tries) {
   return false;
 }
 
-/* kosmos#8567: on no project at all (archived ones aside). Paused projects still count as projects here: stoodDown
-   (replynudge) already keeps an agent whose every project is paused from being prompted. */
+/* kosmos#8567: on no project at all (archived ones aside). Paused projects, and ones with this agent's swarm switch off,
+   still count as projects here: stoodDown (replynudge) already keeps an agent whose every project is paused or switched
+   off for it from being prompted. */
 function onNoProject(session, projects) {
   return !(Array.isArray(projects) ? projects : []).some((p) => p && p.archived !== true
     && Array.isArray(p.agents) && p.agents.includes(session));

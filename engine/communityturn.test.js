@@ -915,6 +915,11 @@ test('#8567: below the floor, an agent on no project with no work in the last da
   // before the day and shows no work is no work.
   const spans = () => [{ state: 'idle', at: NOW - 40 * H }, { state: 'working', at: NOW - 30 * H }, { state: 'idle', at: NOW - 20 * H }];
   assert.deepEqual(ct.due(args({ ...one, history: spans })).map((x) => x.session), ['ann']);
+  // Review 3: a busy row from a session killed 50 h ago, ended by a restart inside the day, is not work.
+  const crashed = () => [{ state: 'working', at: NOW - 50 * H }, { state: 'started', at: NOW - 3 * H }, { state: 'idle', at: NOW - 2.9 * H }];
+  assert.deepEqual(ct.due(args({ ...one, history: crashed })).map((x) => x.session), []);
+  // Review 3: the busy-at-start row inside a turn a task-done prompt woke is set aside (CONTROL: spans, above, is work).
+  assert.deepEqual(ct.due(args({ ...one, history: spans, otherTries: () => [NOW - 30 * H] })).map((x) => x.session), []);
   const oldCut = () => Object.assign(quiet(), { truncated: true });
   assert.deepEqual(ct.due(args({ ...one, history: oldCut })).map((x) => x.session), []);
   // Review 1: a turn a task-done prompt woke (otherTries) is not work either. (This timer's own prompt in the window
