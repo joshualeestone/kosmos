@@ -2573,7 +2573,7 @@ function unmatchedNote(cleaned, recipients, roster, from, raw) {
     const unmatched = [];
     for (const part of head ? head.targets : []) {
       const bare = part.replace(/^@/, '').trim();
-      if (!/^[A-Za-z][A-Za-z.'-]*(?: [A-Za-z][A-Za-z.'-]*){0,2}$/.test(bare) || bare.split(' ').some(mayMean)) continue;
+      if (!/^[A-Za-z][A-Za-z.'-]*(?: [A-Za-z][A-Za-z.'-]*){0,2}$/.test(bare) || /^(all|everyone)$/i.test(bare) || bare.split(' ').some(mayMean)) continue;   // all: a room of the poster alone
       if (mentionedMembers('@' + nameKey(bare), outside, roster).mentioned.size === 1) continue;   // outsidersNote's
       const shown = bare.slice(0, 60);
       if (!unmatched.includes(shown)) unmatched.push(shown);
@@ -2938,8 +2938,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   const note4653 = [ambiguous.size ? ambiguousNote(ambiguous, atNamed.mentioned, shown) : '',
     operator === true ? '' : outsidersNote(cleaned, recipients, roster, from, text),
     // kosmos#8566: a header name that named no one here; not for a name outsidersNote just named, nor in a shared room.
-    // Only for a post that woke no member at all (its @-names and @all included), which is when nothing else tells the poster why.
-    operator === true || federated === true || mentioned.size > 0 ? '' : unmatchedNote(cleaned, recipients, roster, from, text)].filter(Boolean).join(' ');
+    // Only for a post that woke no member at all, which is when nothing else tells the poster why: no @-name, header
+    // name or @all reached anyone, and it answers no post (a reply wakes the author it answers, mentioned or not).
+    operator === true || federated === true || mentioned.size > 0 || answered ? '' : unmatchedNote(cleaned, recipients, roster, from, text)].filter(Boolean).join(' ');
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the

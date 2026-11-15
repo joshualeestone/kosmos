@@ -122,6 +122,26 @@ test('an agent off the project gets the outsider sentence only, not this one too
   assert.equal(n, 'homer is not on this project, so this post did not reach them. To reach them: kosmos msg homer.');
 });
 
+test('a reply says nothing (it wakes the author it answers, whatever its header names)', () => {
+  const board = fleet.install(FLEET());
+  try {
+    messages.setRunner(() => ({ ok: true, session: 'kano-discord' }));
+    arm();
+    const asked = messages.sendPost({ fromPane: '%8', project: PROJECT, text: 'Kano -> Leo: can you check?' }, board.agents, MEMBERS);
+    assert.equal(asked.state, chat.DELIVERY.PLACED, asked.because || '');
+    const askedId = messages.readLog().filter((m) => m && m.kind === 'post').pop().id;
+    messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    const reply = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'Leo -> Josh: done', replyTo: askedId }, board.agents, MEMBERS);
+    assert.equal(reply.outcomes.kano, 'placed', 'PRE-CONTROL: the reply woke the author it answered');
+    assert.equal(reply.ambiguousNote, undefined);
+  } finally { board.restore(); }
+});
+
+test('in a room of the poster alone, -> all and -> everyone are not names', () => {
+  for (const text of ['Leo -> all: x', 'Leo -> Everyone: y']) assert.equal(note(text, FLEET(), ['leo']), undefined, text);
+  assert.match(note('Leo -> Josh: z', FLEET(), ['leo']), /^Josh is not the name/, 'CONTROL: a name is still said there');
+});
+
 test('a person\'s post and a room shared with another computer get no such note', () => {
   const board = fleet.install(FLEET());
   try {
