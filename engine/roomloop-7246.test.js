@@ -478,7 +478,7 @@ test('kosmos#8535: a post the pause kept quiet is told why, who set it, and what
     assert.match(said, /woke no one: Kosmos has paused agents waking each other in this project until about /, 'CONTROL: the old opening is kept');
     assert.match(said, new RegExp('woke one another ' + roomloop.LOOP_CAP + ' times within an hour'), 'the reason is missing: ' + said);
     assert.match(said, /an automatic limit, not a person; a person's post in the room ends it/, 'who set it, and what ends it, is missing: ' + said);
-    assert.match(said, new RegExp('address exactly one member: that still gets through, up to ' + roomloop.PAIR_CAP + ' times per member during this pause$'), 'the one action that gets through, and its limit, is missing: ' + said);
+    assert.match(said, new RegExp('address exactly one member: that may still get through, up to ' + roomloop.PAIR_CAP + ' times per member and ' + roomloop.THROUGH_CAP + ' in all during this pause$'), 'the one action that gets through, and its limits, is missing: ' + said);
     assert.ok(!said.endsWith('.'), 'the note ends in a full stop, and the CLIs add their own: ' + said);
     assert.ok(!said.includes('\n'), 'not one line: ' + said);
     // One member, but this pair's allowance is spent: say so, and that another member still works.
@@ -486,6 +486,8 @@ test('kosmos#8535: a post the pause kept quiet is told why, who set it, and what
     const spent = String(post(board, 'pigeonpete', '@monalisa one more').sent.because);
     assert.match(spent, new RegExp('You have woken monalisa ' + roomloop.PAIR_CAP + ' times during this pause'), 'the spent pair is not named: ' + spent);
     assert.doesNotMatch(spent, /address exactly one member/, 'a sender who did address one member was told to address one member: ' + spent);
+    assert.match(spent, /a post to a different single member may still get through$/, 'the spent-pair line lost its way through: ' + spent);
+    assert.ok(!spent.includes('\n') && !spent.endsWith('.'), 'the spent-pair line is not one line without a final full stop: ' + spent);
   });
 });
 

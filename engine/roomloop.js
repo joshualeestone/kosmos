@@ -116,9 +116,7 @@ function pauseNote(projectId, now = Date.now()) {
 }
 
 /* What the sending agent is told when its post woke no one because of the pause (round 1). kosmos#8535: and why, who set
-   it, and the one thing that still gets through, in one line, so an agent can tell whether to wait, address one member,
-   or escalate. `ctx` (all optional): `from`, the sender; `asked`, how many members the post asked; `to`, the one it asked
-   when that was one. The only pause this module makes is its own automatic cap, so the source is always that. */
+   it, and what still gets through, in one line. `ctx` is what `quietWhy` returned for this post. */
 function senderNote(projectId, now = Date.now(), ctx = {}) {
   try {
     const p = String(projectId);
@@ -135,7 +133,7 @@ function senderNote(projectId, now = Date.now(), ctx = {}) {
     if (c.pairSpent === true && typeof c.to === 'string' && c.to) {
       return head + '. You have woken ' + c.to + ' ' + PAIR_CAP + ' times during this pause, the most it allows; a post to a different single member may still get through';
     }
-    return head + '. To wake someone now, address exactly one member: that still gets through, up to ' + PAIR_CAP + ' times per member during this pause';
+    return head + '. To wake someone now, address exactly one member: that may still get through, up to ' + PAIR_CAP + ' times per member and ' + THROUGH_CAP + ' in all during this pause';
   } catch { return 'your post is in the room, but it woke no one: agents waking each other is paused in this project'; }
 }
 
