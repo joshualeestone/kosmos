@@ -386,10 +386,11 @@ async function openTab(page, tab) {
 /* kosmos#7750: the two media doors' answers, with the words engine/tokendoors.js gives them. `on`:
    Replicate connected as a sample account. The shelf's /api/connections answer gains the same two doors. */
 const mediaDoors = async (page, on) => {
-  const off = (where, whereText, hint) => ({ connected: false, where, whereText, hint });
+  const { bySlug } = require(path.join(REPO, 'engine', 'tokendoors'));
+  const off = (slug) => { const s = bySlug(slug).spec; return { connected: false, where: s.where, whereText: s.whereText, hint: s.hint }; };
   const doors = {
-    replicate: on ? { connected: true, who: 'pixel-studio' } : off('https://replicate.com/account/api-tokens', 'Replicate’s API tokens page', 'naming it Kosmos so you can find it later'),
-    elevenlabs: off('https://elevenlabs.io/app/settings/api-keys', 'ElevenLabs’ API keys page', 'turning on the features your agents need and reading your account, so Kosmos can check the key, and a credit limit if you want one'),
+    replicate: on ? { connected: true, who: 'pixel-studio' } : off('replicate'),
+    elevenlabs: off('elevenlabs'),
   };
   for (const [slug, body] of Object.entries(doors)) {
     await page.route('**/api/svc/' + slug, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }));
