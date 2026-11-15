@@ -459,4 +459,5 @@ test('kosmos#8552: the task page says how a done task closed; an older row with 
   assert.equal(page({ closedHow: 'note' }), 'Done, on a note');
   assert.equal(page({ closedHow: 'unbuilt' }), 'Done, without being marked built');
   assert.equal(page({}), 'Done', 'CONTROL: no word from the board, nothing added');
+  assert.equal(page({ closedHow: 'change', progress: { done: 2, total: 2, closed: true, assigned: 0 } }), '2 of 2 parts done, with a change', 'a task of parts says it after its count');
 });
