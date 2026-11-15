@@ -17,8 +17,12 @@ Card: a post addressed "Me -> Them:" where Them is no member's name wakes nobody
 - Silent for: a name any member or the poster answers to, even ambiguously (a word of a display name included); @all
   and everyone; a name outsidersNote already names; a person's post; a room shared with another computer (federated:
   this board cannot see every member there).
-- Only a name-shaped part speaks (one to three words of letters, . ' and -): the fleet's header carries topics after
-  a comma ("Kitty, heads-up on #12"), which are not names. A possessive of a member name ("Kano's team") is the member.
+- Only a part written like a person's name speaks: one to three words, each title case ("Josh", "O'Brien"). The fleet's
+  header carries topics after a comma ("Kitty, heads up:", "FYI", "re the cut") and the word form reads sentences that
+  start with the poster's name ("Leo for the record:"); none of those is a name. A possessive or a hyphen-part of a member
+  name ("Kano's team", "Renet" for renet-tilley) may mean the member, so it says nothing.
+- Known gap, the safe direction: a header word that is part of a member's name but woke no one ("Kano, cc Mara" where
+  "cc Mara" is one part; "Renet" for a member stored only as renet-tilley) says nothing.
 - Silent when @all woke every member the names did not; a typo beside a full list of names is still said.
 - No double quote in it: kosmos post reads the note with sed up to the first one (name-shaped parts cannot hold one).
 - Both CLIs and the page already print ambiguousNote, so no reader changes.

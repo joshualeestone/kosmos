@@ -2550,16 +2550,17 @@ function outsidersNote(cleaned, recipients, roster, from, raw) {
 /* kosmos#8566: the sentence that tells an agent a name in its own header ("Leo -> Josh:") named no member of this
    project, so it woke no one by that name, and lists the members' exact handles. It says only what is true whoever the
    name meant: the person reads every post here (so it never says "did not reach them"), and a name some member or the
-   poster answers to (even one too ambiguous to address) says nothing. Not in a room shared with another computer,
-   whose members this board cannot all see, nor for a name outsidersNote already names. Never throws; '' when there
-   is nothing to say. */
+   poster answers to (even one too ambiguous to address) says nothing, nor does a name outsidersNote already names.
+   The caller leaves it out of a room shared with another computer, whose members this board cannot all see, and of a
+   person's post. Never throws; '' when there is nothing to say. */
 const UNMATCHED_SHOWN_MAX = 8;
 function unmatchedNote(cleaned, recipients, roster, from, raw) {
   try {
     const nameKey = require('./agentnames').nameKey;
     const members = (Array.isArray(recipients) ? recipients : []).filter((m) => typeof m === 'string' && m);
     const insideKeys = new Set();
-    const addKeys = (v) => { if (typeof v === 'string' && v) { insideKeys.add(nameKey(v)); v.split(/\s+/).forEach((w) => insideKeys.add(nameKey(w))); } };
+    // Split on hyphens too, so "Renet" is a word of renet-tilley and "Zero" of Sub-Zero: a name that may mean a member.
+    const addKeys = (v) => { if (typeof v === 'string' && v) { insideKeys.add(nameKey(v)); v.split(/[\s-]+/).forEach((w) => insideKeys.add(nameKey(w))); } };
     const cards = Array.isArray(roster) ? roster : [];
     for (const c of cards) if (c && (members.includes(c.sessionName) || c.sessionName === from)) { addKeys(c.sessionName); addKeys(c.name); }
     members.forEach(addKeys); addKeys(from);
@@ -2573,10 +2574,12 @@ function unmatchedNote(cleaned, recipients, roster, from, raw) {
       const bare = part.replace(/^@/, '').trim();
       if (!bare || /^(all|everyone)$/i.test(bare) || targetResolves(bare, members, roster).length) continue;   // it woke a member
       if (bare.split(/\s+/).some((w) => insideKeys.has(nameKey(w)) || insideKeys.has(nameKey(w.replace(/'s$/i, ''))))) continue;   // a member's name, a word of one, or its possessive
-      // Only a part shaped like a name: the fleet's header carries topics after a comma ("Kitty, heads-up on #12").
-      if (!/^[A-Za-z][A-Za-z.'-]*(?:[ \t]+[A-Za-z][A-Za-z.'-]*){0,2}$/.test(bare)) continue;
+      // Only a part written like a person's name, every word title case ("Josh", "Mary Ann", "O'Brien"): the fleet's
+      // header carries topics after a comma ("Kitty, heads up:", "FYI", "re the cut") and the word form reads sentences
+      // that start with the poster's name ("Leo for the record:"), and none of those is a name.
+      if (!/^[A-Z][a-z][A-Za-z.'-]*(?: [A-Z][a-z][A-Za-z.'-]*){0,2}$/.test(bare)) continue;
       if (mentionedMembers('@' + nameKey(bare), outside, roster).mentioned.size === 1) continue;   // outsidersNote names it
-      const shown = bare.slice(0, 60);   // name-shaped (checked above): letters, . ' - and spaces only
+      const shown = bare.slice(0, 60);   // name-shaped (checked above): letters, . ' - and single spaces only
       if (shown && !unmatched.includes(shown)) unmatched.push(shown);
     }
     if (!unmatched.length) return '';
