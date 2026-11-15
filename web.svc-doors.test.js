@@ -109,3 +109,10 @@ test('#529 Gmail door: says it cannot connect yet, names the working road, promi
   assert.match(door('Google Drive'), /you sign in on Google Drive’s own page/);
   assert.match(door('A service with no sentence'), /^<b>A service with no sentence\.<\/b> Coming soon\. When it opens up here/, 'a door with no sentence of its own lost the generic line');
 });
+
+test('kosmos#7750: a built door pill never reads coming; only a pill with no door behind it does', () => {
+  // .boardname.off adds " · coming", and every pill is written "off", so the page must clear it for each built door.
+  assert.match(PAGE, /document\.querySelectorAll\('#s-sec-connect button\.boardname'\)\.forEach\(\(b\) => \{ b\.classList\.toggle\('off', !SVC_BUILT\[b\.textContent\.trim\(\)\]\); \}\);/,
+    'nothing clears "off" on a built pill, so it reads "coming" while it works');
+  assert.match(PAGE, /\.boardname\.off::after \{ content: " · coming";/, 'CONTROL: the "coming" label is still made by .off');
+});

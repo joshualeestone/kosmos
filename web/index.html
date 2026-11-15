@@ -48872,6 +48872,9 @@ async function svcDoorToken(name, door, api) {
     await paint();
   };
 }
+/* kosmos#7750: every pill is written "off" in the markup, and .boardname.off adds " · coming", so a built door such
+   as Postmark read "coming" while it worked. A pill is "off" only when no door is built behind it. */
+document.querySelectorAll('#s-sec-connect button.boardname').forEach((b) => { b.classList.toggle('off', !SVC_BUILT[b.textContent.trim()]); });
 document.querySelectorAll('#s-sec-connect .boardrow').forEach((row) => {
   const door = row.nextElementSibling;
   if (!door || !door.classList.contains('svc-door')) return;
