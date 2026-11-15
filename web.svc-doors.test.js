@@ -40,7 +40,7 @@ test('no pill is inert and no door holds a control for an unbuilt flow', () => {
   const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   for (const name of ['Discord', 'Brave Search', 'Exa', 'Tavily', 'Serper', 'GitLab', 'Fly.io',
     'DigitalOcean', 'Hetzner', 'Netlify', 'Render', 'Notion', 'Linear', 'Airtable', 'Neon',
-    'Postmark', 'SendGrid', 'Better Stack']) {
+    'Postmark', 'SendGrid', 'Better Stack', 'Replicate', 'ElevenLabs']) {
     // requires the key AND a sentence whose first non-space char is real (not
     // the closing quote), so '', ' ', and a missing key all fail.
     assert.match(doorSentences, new RegExp("'" + reEsc(name) + "': '\\s*[^'\\s]"),
