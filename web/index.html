@@ -73393,7 +73393,7 @@ function paintTaskPage() {
   const replacedLink = Number.isInteger(t.replacedBy) && Boolean(t.progress ? t.progress.closed : t.closedAt);   // as tkStateWord decides it
   const closedHow = t.landedCheck !== 'missing' && typeof tkClosedHowWords === 'function' ? tkClosedHowWords(t) : '';   // kosmos#8552, as the row says it; typeof: tests lift this function alone
   const builtWords = (t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (t.builtNote ? ': ' + t.builtNote : '') : '')
-    + (closedHow ? ', closed ' + closedHow : '');
+    + (closedHow ? ', ' + closedHow : '');
   { const words = typeof tkWhoLeftWords === 'function' ? tkWhoLeftWords(t, (n) => tkMemberName(p, n)) : '';   // typeof: tests lift this function alone
     const row = document.getElementById('tk-wholeft-row');
     const el = document.getElementById('tk-wholeft');
