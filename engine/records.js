@@ -18,7 +18,8 @@
  *     the writer says when the evidence is from.
  *   - status and source are optional; a write leaves a field alone unless it names it ('' clears it).
  *   - by / byPerson: the latest writer, filled in by the board from the writer's own card, never typed.
- *   - confirmers (#8261): every distinct writer of the row's current status, oldest first, at most CONFIRMERS_MAX,
+ *   - confirmers (#8261): every distinct writer of the row's current status, in the order each first confirmed it
+ *     (a repeat write does not move a name), at most CONFIRMERS_MAX, the earliest dropped first,
  *     so a second agent confirming a row adds a name instead of replacing the first. A write that changes the status
  *     starts the list again with that writer. A row written before this field seeds it from its by / byPerson.
  * A project may say what its rows are (recordsLabel: "accounts"); the default is "records".
