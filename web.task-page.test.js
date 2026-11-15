@@ -455,9 +455,9 @@ test('kosmos#8552: the task page says how a done task closed; an older row with 
     project: { ...PROJECT, tasks: [] },
     task: { number: 2, sentence: 's', who: 'april', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: new Date().toISOString(), ...extra },
   }).doc.els['tk-state'].textContent;
-  assert.equal(page({ closedHow: 'change' }), 'Done, closed with a change');
-  assert.equal(page({ closedHow: 'note' }), 'Done, closed on a note');
-  assert.equal(page({ closedHow: 'unbuilt' }), 'Done, closed without being marked built');
+  assert.equal(page({ closedHow: 'change' }), 'Done, with a change');
+  assert.equal(page({ closedHow: 'note' }), 'Done, on a note');
+  assert.equal(page({ closedHow: 'unbuilt' }), 'Done, without being marked built');
   assert.equal(page({}), 'Done', 'CONTROL: no word from the board, nothing added');
   assert.equal(page({ closedHow: 'change', landedCheck: 'missing' }), 'Done', 'a change the board cannot find is not said to exist');
 });
