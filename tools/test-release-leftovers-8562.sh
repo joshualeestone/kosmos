@@ -40,6 +40,7 @@ site() {   # a fresh site checkout with one committed file and the given untrack
 left() { ls "$T/site/dist" | grep -c '^kosmos-0\.8\.05-' ; }
 aside() { local d; for d in "$T"/site.aborted-0.8.05-*; do [ -d "$d" ] && { printf '%s\n' "$d"; return 0; }; done; return 0; }
 BOTH="arm64 linux-x64"
+has() { case "$1" in *"$2"*) return 0 ;; esac; return 1; }   # kosmos#8195: a substring test with no pipe (grep -q can stop early under pipefail)
 nov() {   # kosmos#8563: no cut of 0.8.05 has committed its Mac manifest here (a first cut of that version)
   git -C "$T/site" rm -q dist/kosmos-0.8.05-arm64.manifest.json && git -C "$T/site" commit -qm 'no 0.8.05 yet'
   mkdir -p "$T/site/dist"   # git removes a folder it emptied; a real site checkout always has dist/
@@ -224,16 +225,16 @@ grep -q '^_vdep_before_retry() { _vdep_freeze_check; _vdep_served_check 8; }$' "
 # no leftover file. Served: refused now, not at 7b two hours in. Never served: goes on, says so, moves nothing.
 site; serve dist/kosmos-0.8.05-arm64.tar.gz.sha256 "$SUM  kosmos-0.8.05-arm64.tar.gz"
 out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
-[ "$rc" = 1 ] && printf '%s' "$out" | grep -q 'Bump the version' && [ -f "$T/site/dist/kosmos-0.8.05-arm64.manifest.json" ] && [ -z "$(aside)" ] \
+[ "$rc" = 1 ] && has "$out" 'Bump the version' && [ -f "$T/site/dist/kosmos-0.8.05-arm64.manifest.json" ] && [ -z "$(aside)" ] \
   && ok "a committed Mac manifest of a SERVED version refuses at 1g, before any build" || bad "mac manifest served: rc=$rc out=$out"
 site
 out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
-[ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'never served' && grep -qx "https://h/dist/kosmos-0.8.05-arm64.tar.gz.sha256" "$T/urls" \
+[ "$rc" = 0 ] && has "$out" 'never served' && grep -qx "https://h/dist/kosmos-0.8.05-arm64.tar.gz.sha256" "$T/urls" \
   && [ -f "$T/site/dist/kosmos-0.8.05-arm64.manifest.json" ] && [ -z "$(aside)" ] && [ -z "$(git -C "$T/site" status --porcelain)" ] \
   && ok "a committed Mac manifest of a never-served version: the host is read, the cut goes on, nothing moves" || bad "mac manifest unserved: rc=$rc out=$out"
 site; touch "$T/down"
 out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
-[ "$rc" = 1 ] && printf '%s' "$out" | grep -q 'cannot tell' && printf '%s' "$out" | grep -q 'cut again once the host answers' && ! printf '%s' "$out" | grep -q 'files listed above' \
+[ "$rc" = 1 ] && has "$out" 'cannot tell' && has "$out" 'cut again once the host answers' && ! has "$out" 'files listed above' \
   && ok "a committed Mac manifest with the host down: refused, and the way on names no files (there are none)" || bad "mac manifest down: rc=$rc out=$out"
 
 # 23. kosmos#8563: the guard's refusal says a site commit stays pushed only at step 8; at 7b nothing is pushed yet.
@@ -241,9 +242,9 @@ site; serve dist/kosmos-0.8.05-arm64.tar.gz.sha256 "$SUM  kosmos-0.8.05-arm64.ta
 o7="$(release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb 7b)"; r7=$?
 o8="$(release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb 8)"; r8=$?
 od="$(release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb)"; rd=$?
-[ "$r7" = 1 ] && printf '%s' "$o7" | grep -q 'nothing was pushed' && ! printf '%s' "$o7" | grep -q 'stays pushed' \
+[ "$r7" = 1 ] && has "$o7" 'nothing was pushed' && ! has "$o7" 'stays pushed' \
   && ok "at 7b the refusal says nothing was pushed" || bad "7b wording: rc=$r7 out=$o7"
-[ "$r8" = 1 ] && [ "$rd" = 1 ] && printf '%s' "$o8" | grep -q 'stays pushed' && printf '%s' "$od" | grep -q 'stays pushed' \
+[ "$r8" = 1 ] && [ "$rd" = 1 ] && has "$o8" 'stays pushed' && has "$od" 'stays pushed' \
   && ok "at step 8 (and by default) it says the 7b site commit stays pushed" || bad "8 wording: rc=$r8/$rd out=$o8 / $od"
 
 [ "$FAILS" = 0 ] && echo "release-leftovers-8562: all passed" || { echo "release-leftovers-8562: $FAILS FAILED"; exit 1; }
