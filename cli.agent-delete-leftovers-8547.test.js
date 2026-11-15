@@ -144,3 +144,65 @@ test('#8547: one refused delete is reported and the run goes on to the next', ()
   assert.match(r.err, /Not deleted: tasky: What Kosmos would do here is different now/);
   assert.match(r.out, /1 of 2 deleted\. Not done: 1 \(above\)\./);
 }));
+
+/* ── install/kosmos (Mac and Linux), against the same stub ─────────────────────── */
+const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
+const { execFile } = require('node:child_process');
+const run = require('node:util').promisify(execFile);
+const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-dl-8547-')));
+fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
+fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
+test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
+const CLI = path.join(__dirname, 'install', 'kosmos');
+async function cli(port, args) {
+  // execFile's stdin is a pipe, never a terminal: the no-TTY case is what a run without --yes meets here.
+  const env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME, KOSMOS_HOME: HOME, KOSMOS_PORT: String(port), TMPDIR: os.tmpdir(),
+    AGENT_WORKFORCE_TMUX_BIN: path.join(__dirname, 'test-support', 'fake-tmux.sh'), KOSMOS_AGENT_TOKEN: 'abc123' };
+  try { const { stdout, stderr } = await run(CLI, args, { env, timeout: 30000 }); return { code: 0, out: stdout + stderr }; }
+  catch (e) { return { code: e.code, out: String(e.stdout || '') + String(e.stderr || '') }; }
+}
+
+test('#8547 Mac: --yes removes only the startup-job-only leftovers, each with its plan\'s confirm, and names what it left', () => withStub(MIXED, async (port, seen) => {
+  const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+  assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/agent/tasky/leftover', '/api/agent/settly/leftover'], r.out);
+  assert.deepEqual(deletes(seen).map((d) => d.body), [{ confirmed: '1.task-tasky' }, { confirmed: '1.task-settly' }]);
+  assert.equal(seen.filter((s) => s.method === 'GET' && s.url === '/api/agent/tasky/leftover').length, 1, 'a name on both lists was planned twice');
+  assert.match(r.out, /Left because --yes removes only startup jobs.*: fully\./);
+  assert.match(r.out, /Left for the board, where each one asks for its name to be typed first: typey\./);
+  assert.match(r.out, /Not offered for zed: nothing of zed is left on this computer, so there is nothing to delete\./);
+  assert.match(r.out, /Deleted: tasky\.[\s\S]*Deleted: settly\.[\s\S]*2 of 2 deleted\./);
+  assert.equal(r.code, 1, 'some were left, so the run is not a clean success: ' + r.out);
+}));
+
+test('#8547 Mac: no --yes and no terminal is refused before anything is sent (control: --yes reaches the board)', () => withStub(MIXED, async (port, seen) => {
+  const r = await cli(port, ['agent', 'delete-leftovers']);
+  assert.equal(r.code, 2, r.out);
+  assert.match(r.out, /no terminal here to confirm on/);
+  assert.equal(seen.length, 0, 'the board was asked');
+  for (const argv of [['agent', 'delete-leftovers', 'tasky', '--yes'], ['agent', 'delete-leftovers', '--force', '--yes']]) assert.equal((await cli(port, argv)).code, 2, argv.join(' '));
+  assert.equal(seen.length, 0, 'a refused usage reached the board');
+  await cli(port, ['agent', 'delete-leftovers', '--yes']);
+  assert.ok(deletes(seen).length > 0, 'control: this stub did not record a DELETE');
+}));
+
+test('#8547 Mac: an empty list exits 0; a resolved name is deleted under it; a busy board (409) stops the run', async () => {
+  await withStub({ removed: { agents: [] } }, async (port, seen) => {
+    const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Nothing is left of any removed agent on this board/);
+    assert.equal(deletes(seen).length, 0);
+  });
+  await withStub({ removed: { agents: [{ name: 'Old Name' }] }, plans: { 'Old Name': TASK_ONLY('old-name') } }, async (port, seen) => {
+    const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/agent/old-name/leftover']);
+  });
+  await withStub({ ...MIXED, del: () => [409, { outcome: 'refused', because: 'The board is about to restart, so nothing was deleted.' }] }, async (port, seen) => {
+    const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(r.code, 1, r.out);
+    assert.equal(deletes(seen).length, 1, 'it kept going after the board said it was busy');
+    assert.match(r.out, /Stopped at tasky: The board is about to restart, so nothing was deleted\. 0 deleted so far\. The rest were not tried: settly\./);
+  });
+});
