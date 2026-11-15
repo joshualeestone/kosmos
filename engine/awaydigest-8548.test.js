@@ -48,7 +48,7 @@ test('only rows inside the window, to this agent, from others; @-named and perso
   ];
   const d = away.build({ name: 'leo', sinceMs: T0 - 3 * H, untilMs: T0, rows, direct: [], namedIn });
   assert.deepEqual(d.counts, { posts: 5, refused: 0, direct: 0 });
-  assert.deepEqual(d.lines, ['- fleet: 5 posts from others; naming you or from the person: m9, m6, m3. Read it with: kosmos room fleet']);
+  assert.deepEqual(d.lines, ['- fleet: 5 posts to you; naming you or from the person: m9, m6, m3. Read it with: kosmos room fleet']);
   // control: without namedIn the default reads only `mentioned`, so m9 is counted and not listed
   assert.match(away.build({ name: 'leo', sinceMs: T0 - 3 * H, untilMs: T0, rows }).lines[0], /naming you or from the person: m6, m3\./);
   const text = away.contextText(d);
@@ -73,8 +73,12 @@ test('kosmos msg refusals to the agent and the person\'s DMs are counted; messag
     { kind: 'refused', from: 'mona', to: 'leo', because: 'not running', at: iso(T0 - H + 4) },
     { kind: 'refused', from: 'nova', to: 'fleet', project: 'fleet', because: 'held', at: iso(T0 - H + 4) },
   ];
-  const direct = [{ text: 'from the person', at: iso(T0 - H) }, { from: 'leo', text: 'my reply', at: iso(T0 - H + 5) },
-    { text: 'too early', at: iso(T0 - 9 * H) }];
+  const direct = [{ text: 'from the person', at: iso(T0 - H), delivery: { state: 'could_not' } },
+    { from: 'leo', text: 'my reply', at: iso(T0 - H + 5) },
+    { text: 'too early', at: iso(T0 - 9 * H), delivery: { state: 'could_not' } },
+    { text: 'typed into a running leo', at: iso(T0 - H + 6), delivery: { state: 'placed' } },
+    { text: 'no delivery record', at: iso(T0 - H + 7) },
+    { text: 'a menu answer', wire: '2', at: iso(T0 - H + 8), delivery: { state: 'could_not' } }];
   const d = away.build({ name: 'leo', sinceMs: T0 - 2 * H, untilMs: T0, rows, direct });
   assert.deepEqual(d.counts, { posts: 0, refused: 2, direct: 1 });
   assert.deepEqual(d.lines, [
@@ -147,26 +151,27 @@ test('takeAway: only a 200 that is the hook JSON is returned; anything else, and
   assert.equal(await hook.takeAway(io(async () => { throw new Error('down'); })), '');
 });
 
-test('takeAway asks for the startup window as the hook, with the agent token', async () => {
+test('takeAway asks as the hook, with the agent token', async () => {
   let seen = null;
   await hook.takeAway({ url: 'http://127.0.0.1:1', agentToken: 'tok', fetchImpl: async (u, init) => { seen = { u, init }; return { status: 200, text: async () => '' }; } });
-  assert.equal(seen.u, 'http://127.0.0.1:1/api/away?as=hook&at=startup&from_pane=');
+  assert.equal(seen.u, 'http://127.0.0.1:1/api/away?as=hook&from_pane=', 'the window this startup had, not at=startup');
   assert.equal(seen.init.method, 'GET');
   assert.equal(seen.init.headers['x-kosmos-agent-token'], 'tok');
 });
 
-test('main at a startup: asks /api/away BEFORE the started report, and prints its JSON after a recorded report', async () => {
+test('main at a startup: asks /api/away AFTER a recorded started report (on Windows the route needs it), and prints its JSON', async () => {
   const r = await runMain();
   const ai = r.calls.indexOf('/api/away');
   const ri = r.calls.indexOf('/api/report');
   assert.ok(ri >= 0, 'the report was sent: ' + r.calls.join(', '));
-  assert.ok(ai >= 0 && ai < ri, 'away before report: ' + r.calls.join(', '));
+  assert.ok(ai > ri, 'away after report: ' + r.calls.join(', '));
   assert.equal(r.out, AWAY + '\n');
 });
 
 test('main: a failed started report prints only the reporting-off message; a continuation asks nothing', async () => {
   const bad = await runMain({ reportOk: false });
-  assert.ok(bad.calls.includes('/api/away') && bad.calls.includes('/api/report'), 'both were asked: ' + bad.calls.join(', '));
+  assert.ok(bad.calls.includes('/api/report'), 'the report was sent: ' + bad.calls.join(', '));
+  assert.equal(bad.calls.includes('/api/away'), false, 'a failed report asks nothing more');
   assert.doesNotMatch(bad.out, /hookSpecificOutput/);
   assert.match(bad.out, /systemMessage/);
   const cont = await runMain({ source: 'compact' });
@@ -186,18 +191,20 @@ test('only plain tokens are printed: a sender, room or id carrying other charact
   const text = away.contextText(d);
   assert.doesNotMatch(text, /run rm|bad room|m2 bad/);
   assert.match(text, /- at least 2 messages from other agents to you refused, for any reason \(mona\)\./, 'the refusal is still counted, its sender not named');
-  assert.match(text, /- fleet: 1 post from others\. Read it with/, 'the post with a bad id is counted, not listed; the bad room is left out');
+  assert.match(text, /- fleet: 1 post to you\. Read it with/, 'the post with a bad id is counted, not listed; the bad room is left out');
 });
 
 test('Kosmos\'s own words kept in the person\'s thread are not counted as the person\'s', () => {
-  const direct = [{ text: 'daily limit', kosmos: true, at: iso(T0 - H) }, { text: 'hi', at: iso(T0 - H) }];
+  const direct = [{ text: 'daily limit', kosmos: true, at: iso(T0 - H), delivery: { state: 'could_not' } },
+    { text: 'hi', at: iso(T0 - H), delivery: { state: 'held' } }];
   assert.equal(away.build({ name: 'leo', sinceMs: T0 - 2 * H, untilMs: T0, direct }).counts.direct, 1);
 });
 
-test('main: a session with no agent token and no pane (the person\'s own) does not ask /api/away, and still reports', async () => {
-  const r = await runMain({ env: {} });
-  assert.equal(r.calls.includes('/api/away'), false, r.calls.join(', '));
-  assert.ok(r.calls.includes('/api/report'), 'control: the started report still goes');
-  const paned = await runMain({ env: { TMUX_PANE: '%3' } });
-  assert.ok(paned.calls.includes('/api/away'), 'control: a pane alone is enough to ask');
+test('main: without an agent token (this hook never sends a pane) /api/away is not asked, and the report still goes', async () => {
+  for (const env of [{}, { TMUX_PANE: '%3' }]) {
+    const r = await runMain({ env });
+    assert.equal(r.calls.includes('/api/away'), false, JSON.stringify(env) + ': ' + r.calls.join(', '));
+    assert.ok(r.calls.includes('/api/report'), 'control: the started report still goes');
+  }
+  assert.ok((await runMain()).calls.includes('/api/away'), 'control: with a token it is asked');
 });

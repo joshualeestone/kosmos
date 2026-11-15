@@ -587,8 +587,8 @@ async function takeFileNotices(ackFile, io) {
   }
 }
 
-/** kosmos#8548: GET /api/away?as=hook&at=startup, as `kosmos away --hook` does: what reached this agent while it was not
- *  running. Returns the SessionStart hook JSON to print, or ''. Never throws; every failure is silent. */
+/** kosmos#8548: GET /api/away?as=hook, after a recorded `started` (see main): what could not reach this agent since the
+ *  board last heard from it. Returns the SessionStart hook JSON to print, or ''. Never throws; every failure is silent. */
 const AWAY_TIMEOUT_MS = 1000;   // the CLI's cap for --hook
 async function takeAway(io) {
   const o = io || {};
@@ -602,7 +602,7 @@ async function takeAway(io) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), o.timeoutMs || AWAY_TIMEOUT_MS);
   try {
-    const res = await doFetch(o.url + '/api/away?as=hook&at=startup&from_pane=', { method: 'GET', headers, signal: ctl.signal, redirect: 'manual' });
+    const res = await doFetch(o.url + '/api/away?as=hook&from_pane=', { method: 'GET', headers, signal: ctl.signal, redirect: 'manual' });
     if (!res) return '';
     let t = '';
     try { t = String(await res.text()); } catch { return ''; }   // read on every answer, so the response is finished
@@ -745,22 +745,6 @@ async function main(io) {
   const agentStop = report.turnEnd === true && Boolean(agentToken(env));
   const turnEnd = agentStop && o.noRetry !== true;
   const budget = o.timeoutMs || (turnEnd ? DEFAULT_TIMEOUT_MS : timeoutFor(report));
-  /* kosmos#8548: at a real startup, ask what reached this agent while it was not running BEFORE `started` is sent: the
-     window starts at its latest report, which `started` replaces. Printed below, after the report, unless the report
-     failed (reporting being off is said instead; the hook prints one JSON object). A supervisor's relaunch with
-     `claude --resume` is a `resume`, not a startup, so reportFor returns null above and this is not reached. */
-  let awayJson = '';
-  /* No agent token and no pane (the person's own Claude session): the board cannot tell who is asking and refuses every
-     time, so it is not asked, as the Mac hook does. proven(c, AWAY_TIMEOUT_MS) bounds the proof and the fetch together. */
-  if (event === 'SessionStart' && (agentToken(env) || env.TMUX_PANE)) {
-    try {
-      const ap = await proven(c, o.awayTimeoutMs || AWAY_TIMEOUT_MS);
-      if (ap.ok && ap.leftMs > 0) {
-        awayJson = await takeAway({ url: c.url, boardToken: c.boardToken, agentToken: c.agentToken, world: c.world,
-          fetchImpl: o.fetchImpl, timeoutMs: ap.leftMs });
-      }
-    } catch { awayJson = ''; }
-  }
   const t0 = Date.now();
   let verdict = await sendOnce(budget);
 
@@ -825,7 +809,25 @@ async function main(io) {
     }) + '\n');
   }
 
-  if (awayJson && verdict.ok) stdout(awayJson.replace(/\n$/, '') + '\n');
+  /* kosmos#8548: at a real startup, once `started` was recorded, ask what could not reach this agent since the board last
+     heard from it. Unlike the Mac hook, AFTER the report: on Windows the roster row appears only once Claude Code
+     registers the session and the heartbeat is stale after an absence, so before `started` (which beats liveness,
+     kosmos#8372) the route cannot tell who is asking. Asked without `at=startup`, the window is the one this startup
+     had: from the report before the newest `started` to it. Only with an agent token (this hook never sends a pane).
+     Not printed when the report failed (reporting being off is said instead; the hook prints one JSON object). A
+     supervisor's relaunch with `claude --resume` is a `resume`, not a startup, so reportFor returned null above.
+     proven(c, AWAY_TIMEOUT_MS) bounds the proof and the fetch together. */
+  if (event === 'SessionStart' && verdict.ok && agentToken(env)) {
+    let awayJson = '';
+    try {
+      const ap = await proven(c, o.awayTimeoutMs || AWAY_TIMEOUT_MS);
+      if (ap.ok && ap.leftMs > 0) {
+        awayJson = await takeAway({ url: c.url, boardToken: c.boardToken, agentToken: c.agentToken, world: c.world,
+          fetchImpl: o.fetchImpl, timeoutMs: ap.leftMs });
+      }
+    } catch { awayJson = ''; }
+    if (awayJson) stdout(awayJson.replace(/\n$/, '') + '\n');
+  }
 
   /* kosmos#8014: after the working report, as on the Mac, hand this agent its file-owner notices as this turn's
      context. Claude Code adds a UserPromptSubmit hook's additionalContext to the model and types nothing into the
@@ -899,8 +901,8 @@ if (require.main === module) {
   };
   const run = (input) => main({ input }).then(done).catch(() => done(0));
   const h = attachStdin(process.stdin, run);
-  // 5s backstop (not 10s): with the 8s SessionStart deliver (and an agent's Stop, kosmos#8230), 5+8=13s, and 5+1+8=14s with
-  // a startup's AWAY_TIMEOUT_MS (kosmos#8548) before that deliver, stays under
+  // 5s backstop (not 10s): with the 8s SessionStart deliver (and an agent's Stop, kosmos#8230), 5+8=13s, and 5+8+1=14s with
+  // a startup's AWAY_TIMEOUT_MS (kosmos#8548) after that deliver, stays under
   // the hook entry's own 15s ceiling even in the pathological never-closing-stdin
   // case (done lets go of stdin, so the run then ends on its own, not 2 s later); Claude Code writes the event and closes stdin in milliseconds, so `run`
   // normally fires at once and only the deliver timeout applies.
