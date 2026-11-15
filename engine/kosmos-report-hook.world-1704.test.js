@@ -50,7 +50,7 @@ test('every report names this agent\'s Kosmos: KOSMOS_WORLD, or default when it 
   const named = [];
   // kosmos#8548: with an agent token, so the startup also asks /api/away (a session with no token and no pane does not).
   await hook.main(sessionStart({ env: { KOSMOS_WORLD: 'test', KOSMOS_AGENT_TOKEN: 'a1a1a1' }, fetchImpl: answering(200, { recorded: true }, named), stdout: () => {} }));
-  /* kosmos#8548: a startup also asks /api/away before its report; every request names the world, and there is one report. */
+  /* kosmos#8548: a startup also asks /api/away, after its recorded report; every request names the world, and there is one report. */
   assert.equal(named.filter((c) => /\/api\/report$/.test(c.url)).length, 1, named.map((c) => c.url).join(', '));
   assert.ok(named.some((c) => /\/api\/away\?/.test(c.url)), 'the startup asked what arrived while it was away');
   for (const c of named) assert.equal(c.init.headers[WORLD_HEADER], 'test', c.url);

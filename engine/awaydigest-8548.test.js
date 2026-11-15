@@ -213,3 +213,12 @@ test('the window includes its start and its end, as kosmos inbox --since does; o
   const rows = [post('at-start', T0 - H), post('at-end', T0), post('before', T0 - H - 1), post('after', T0 + 1)];
   assert.equal(away.build({ name: 'leo', sinceMs: T0 - H, untilMs: T0, rows }).counts.posts, 2);
 });
+
+test('a refusal logged under the name as the sender typed it (another case) counts; a duplicate DM copy does not', () => {
+  const rows = [{ kind: 'refused', from: 'nova', to: 'Leo', because: 'not running', at: iso(T0 - H) },
+    { kind: 'refused', from: 'nova', to: 'leonard', because: 'not running', at: iso(T0 - H) }];
+  const direct = [{ text: 'x', at: iso(T0 - H), delivery: { state: 'could_not', duplicateOf: 'd1' } },
+    { text: 'y', at: iso(T0 - H), delivery: { state: 'could_not' } }];
+  const d = away.build({ name: 'leo', sinceMs: T0 - 2 * H, untilMs: T0, rows, direct });
+  assert.deepEqual(d.counts, { posts: 0, refused: 1, direct: 1 });
+});
