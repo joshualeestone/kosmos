@@ -17,7 +17,7 @@ curl() {
   url="${url%%\?*}"; printf '%s\n' "$url" >> "$T/urls"
   [ -e "$T/down" ] && { [ -n "$w" ] && printf '000'; return 7; }
   local p="${url#https://h/}" code body
-  if [ -f "$T/code/$p" ]; then code="$(cat "$T/code/$p")"; body='<!doctype html>'
+  if [ -f "$T/code/$p" ]; then code="$(cat "$T/code/$p")"; body='<!doctype html>'; [ -f "$T/code/$p.once" ] && rm -f "$T/code/$p" "$T/code/$p.once"
   elif [ -f "$T/served/$p" ]; then code=200; body="$(cat "$T/served/$p")"
   else code=404; body='<!doctype html>'; fi
   [ -n "$f" ] && [ "$code" != 200 ] && return 22
@@ -150,7 +150,29 @@ git -C "$T/site" worktree remove --force "$T/wt" 2>/dev/null
 mkdir -p "$T/nogit"; out="$(release_leftovers_mark_served "$T/nogit" 0.8.05 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [[ "$out" == *"could not record"* ]] && ok "no git checkout: the marker is not written, says so, returns 0" || bad "nogit: rc=$rc out=$out"
 
-# 19. release.sh: step 1g runs it with this cut's families before step 2 and _pair_had; step 8 records served before DEPLOYED=1.
+# 19. The positive control answers 200 but with a page, not a checksum: refused.
+site kosmos-0.8.05-arm64.tar.gz; status dist/kosmos-0.8.02-arm64.tar.gz.sha256 200
+out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
+[ "$rc" = 1 ] && [ -z "$(aside)" ] && ok "positive control is a 200 page, not a checksum: refused" || bad "pos ctl body: rc=$rc out=$out"
+
+# 20. Just before the deploy (step 8): another build of the version served now refuses; nothing, or this cut's own, goes.
+export KOSMOS_LEFTOVERS_RETRY_S=0
+site
+release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb >/dev/null; rc=$?
+[ "$rc" = 0 ] && ok "deploy guard: nothing served (404): go on" || bad "guard 404: rc=$rc"
+serve dist/kosmos-0.8.05-arm64.tar.gz.sha256 "$SUM  kosmos-0.8.05-arm64.tar.gz"
+release_leftovers_guard_deploy https://h 0.8.05 arm64 "$SUM" >/dev/null; rc=$?
+[ "$rc" = 0 ] && ok "deploy guard: this cut's own build served (a retry): go on" || bad "guard own: rc=$rc"
+out="$(release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb)"; rc=$?
+[ "$rc" = 1 ] && [[ "$out" == *"another build of 0.8.05 is served"* ]] && ok "deploy guard: ANOTHER build served now: refused, nothing deployed" || bad "guard other: rc=$rc out=$out"
+site; status dist/kosmos-0.8.05-arm64.tar.gz.sha256 503
+out="$(release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb)"; rc=$?
+[ "$rc" = 1 ] && [ "$(grep -c 'kosmos-0.8.05-arm64.tar.gz.sha256' "$T/urls")" = 3 ] && [[ "$out" == *"unknown"* ]] && ok "deploy guard: three 503s: refused as unknown after 3 reads" || bad "guard 503: rc=$rc reads=$(grep -c 0.8.05 "$T/urls") out=$out"
+site; status dist/kosmos-0.8.05-arm64.tar.gz.sha256 503; : > "$T/code/dist/kosmos-0.8.05-arm64.tar.gz.sha256.once"
+release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb >/dev/null; rc=$?
+[ "$rc" = 0 ] && ok "deploy guard: a 503 then a 404: retried and went on" || bad "guard retry: rc=$rc"
+
+# 21. release.sh: step 1g runs it with this cut's families before step 2 and _pair_had; step 8 records served before DEPLOYED=1.
 R="tools/release.sh"
 g=$(grep -n 'release_leftovers_clear "\$SITE" "\$V"' "$R" | head -1 | cut -d: -f1)
 s2=$(grep -n 'step "== 2\. the version, in one place ==' "$R" | cut -d: -f1)
@@ -159,5 +181,8 @@ ph=$(grep -n '^_pair_had=0' "$R" | cut -d: -f1)
 grep -q 'release_leftovers_clear "\$SITE" "\$V" .*\$_lo_fams || { echo "nothing was built"; exit 1; }' "$R" && grep -q '_lo_fams="arm64 linux-x64"' "$R" && ok "it passes this cut's families, and a refusal stops the cut" || bad "call shape"
 m=$(grep -n 'release_leftovers_mark_served "\$SITE" "\$V"' "$R" | cut -d: -f1); dep=$(grep -n '^DEPLOYED=1' "$R" | cut -d: -f1)
 [ -n "$m" ] && [ -n "$dep" ] && [ "$m" -lt "$dep" ] && [ "$((dep - m))" -le 2 ] && ok "step 8 records served just before DEPLOYED=1" || bad "mark: $m dep: $dep"
+gd=$(grep -n 'release_leftovers_guard_deploy "\${HOST:-https://installkosmos.com}" "\$V" arm64 "\$_my_sha" || exit 1' "$R" | cut -d: -f1)
+fz=$(grep -n '^_vdep_freeze_check$' "$R" | cut -d: -f1); vd=$(grep -n '^_vdep_rc=0' "$R" | cut -d: -f1)
+[ -n "$gd" ] && [ -n "$fz" ] && [ -n "$vd" ] && [ "$fz" -lt "$gd" ] && [ "$gd" -lt "$vd" ] && grep -q 'release_leftovers_guard_deploy "\${HOST:-https://installkosmos.com}" "\$V" linux-x64' "$R" && ok "step 8 asks the host again just before vercel (both families), and stops on a refusal" || bad "guard wiring: fz=$fz gd=$gd vd=$vd"
 
 [ "$FAILS" = 0 ] && echo "release-leftovers-8562: all passed" || { echo "release-leftovers-8562: $FAILS FAILED"; exit 1; }

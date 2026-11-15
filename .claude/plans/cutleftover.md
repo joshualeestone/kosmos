@@ -25,6 +25,10 @@ families this cut builds (arm64; linux-x64 when CUT_LINUX=yes):
   deploy "may still land", within minutes (review 2).
 - The marker is written in the checkout's git dir by `git rev-parse --absolute-git-dir` (a linked worktree works),
   and a failure to write it is said, not swallowed (review 2).
+- Step 8 asks the host again just before vercel (release_leftovers_guard_deploy, each family this cut builds): if
+  ANOTHER build of V is served now (a deploy still in flight when 1g read the host, or one that landed after its cut
+  cleaned up and left no file), the cut does not deploy. 404 or this cut's own sha: go on; anything else after 3
+  reads: refuse (review 3). This is the guard that does not depend on how old a file is or on any file existing.
 - Every family is decided before anything moves; then the leftovers go into ONE dated folder beside the site
   checkout, outside git, nothing deleted. Tracked files are never touched; a git error is a refusal.
 
@@ -32,9 +36,10 @@ Rejected: deleting the leftovers (no undo); moving them inside dist/ (git status
 the tarball's status alone (a 404 is only "never served" when a made-up name gets the same and a real one does not).
 
 Weakest premise: the marker is per checkout. A later cut of the same version from ANOTHER clone that holds leftovers,
-after the version was pruned from the host, has no marker and sees a 404. Step 1's version-order guard refuses a
-version at or below the live pointer, which bounds this to a version served and then reverted below. Also: a cut
-killed before step 8 recorded its marker but after its build went live (between the landing
+after the version was removed from the host, has no marker and sees a 404. What bounds it: dist-retention keeps the
+newest 12 versions plus anything served or staged, so a recent version is not pruned; what is left is a Vercel
+rollback or a hand removal (review 3 corrected my first reason, which named a step-1 guard that compares with the
+checkout's package.json, not a served pointer). Also: a cut killed before step 8 recorded its marker but after its build went live (between the landing
 check and the marker line, two lines apart) leaves no marker; the host probe then sees the served checksum and
 refuses anyway, unless the version has since been pruned from the host.
 
@@ -46,7 +51,8 @@ refuses anyway, unless the version has since been pruned from the host.
   between). Still passes on main's release.sh.
 
 ## Tests
-- tools/test-release-leftovers-8562.sh (27 arms, registered in package.json test:shell), with a curl stub that answers
+- tools/test-release-leftovers-8562.sh (34 arms, registered in package.json test:shell), with a curl stub that answers
   as installkosmos.com does (404 for unknown names). Mutations of the marker check, the strict 404, each control,
-  decide-before-move, the Linux-manifest refusal and the tracked-file skip each red their arm.
+  decide-before-move, the Linux-manifest refusal, the tracked-file skip, the age wait, the git-dir marker and the deploy
+  guard (another sha, and its wiring) each red their arm. test-deploy-landed-5471 stubs the guard (it is about landing).
 - Every test that reads release.sh or test:shell: node 246 pass; 46 shell tests pass after the 5032 fix.

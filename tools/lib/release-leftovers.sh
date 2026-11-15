@@ -21,13 +21,18 @@
 #   release_leftovers_clear <site> <version> <host> <family>...     (families: arm64, linux-x64)
 # Prints what it found and did. 0: nothing in the way. 1: refused (the caller stops).
 #   release_leftovers_mark_served <site> <version>                  (step 8, once this cut's build is seen served)
+#   release_leftovers_guard_deploy <host> <version> <family> <sha>  (step 8, just before vercel: refuses if ANOTHER build
+#     of <version> is served now. Step 1g reads the host hours earlier; a deploy still in flight then, or one that
+#     landed after its cut cleaned up and left no file, can be live by now. 404 or this cut's own sha: go on. Another
+#     checksum: refuse. Anything else, after 3 reads: refuse.)
 # Uses `curl` by name, so a test can define a curl function.
 
 # The marker lives in the site checkout's git dir (git rev-parse, so a linked worktree works too): no git status sees
 # it, and it lasts as long as that checkout. Empty when the site is not a git checkout.
 release_leftovers_marker() {
   local gd; gd="$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null)" || return 0
-  [ -n "$gd" ] && printf '%s/kosmos-cut-served-%s' "$gd" "$2"
+  [ -z "$gd" ] || printf '%s/kosmos-cut-served-%s' "$gd" "$2"
+  return 0
 }
 
 release_leftovers_mark_served() {
@@ -117,4 +122,22 @@ release_leftovers_clear() {
   done
   echo "   never served (each answered 404 like a version that cannot exist, while the served prod version answered its checksum): moved ${#move[@]} file(s) to $dest (nothing deleted; each family is about 100 MB, remove the folder by hand when done)."
   return 0
+}
+
+release_leftovers_guard_deploy() {
+  local host="${1%/}" v="$2" fam="$3" mine="$4" got try
+  for try in 1 2 3; do
+    got="$(release_leftovers_get "$host/dist/kosmos-$v-$fam.tar.gz.sha256")"
+    case "${got%% *}" in
+      404) return 0 ;;
+      200) if release_leftovers_is_sum "${got#* }"; then
+             set -- "${got#* }"; [ "${1%% *}" = "$mine" ] && return 0
+             echo "another build of $v is served for $fam now (its .sha256 is ${1%% *}, this cut's is ${mine:-unreadable}): the versioned name is cache-immutable, so this cut does not deploy; nothing was deployed. Bump the version (kosmos#8562)."
+             return 1
+           fi ;;
+    esac
+    [ "$try" = 3 ] || sleep "${KOSMOS_LEFTOVERS_RETRY_S:-5}"
+  done
+  echo "could not read $host/dist/kosmos-$v-$fam.tar.gz.sha256 cleanly before deploying (last answer ${got%% *}), so whether another build of $v is served is unknown; nothing was deployed (kosmos#8562). Try again once the host answers."
+  return 1
 }

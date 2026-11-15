@@ -1020,9 +1020,9 @@ if [ "$CUT_CHANNEL" = staging ]; then
 fi
 
 step "== 1g. no files left in the site checkout by an earlier, aborted cut of $V (kosmos#8562) =="
-# The versioned files are gitignored, and the trap below removes them only when THIS cut wrote them and had not reached
-# its deploy, so a cut that died at or after its deploy (0.8.05 on 11-13) leaves them, and step 4b would refuse two hours
-# in. Here, before anything is built: the served host says whether those bytes were ever served (with a control either
+# The versioned files are gitignored, and the trap below removes them only when THIS cut wrote them and had not finished
+# step 8, so they outlive a cut killed before its trap ran, and they outlived the 0.8.05 attempt of 11-13 (before
+# kosmos#8494 made step 8 finish only on a served build); step 4b would then refuse two hours in. Here, before anything is built: the served host says whether those bytes were ever served (with a control either
 # way, and a marker step 8 writes once a cut of $V is seen served). Never served: moved aside beside the site checkout,
 # nothing deleted. Served or unknown: refused, with the way on. Only the families this cut builds are checked.
 # Before the trap's _pair_had / _linux_pair_had are read, so a cut that then aborts still cleans up what IT wrote.
@@ -2058,6 +2058,13 @@ _vdep_freeze_check() {
   fi
 }
 _vdep_freeze_check
+# kosmos#8562: step 1g read the host hours ago. Ask again now: if ANOTHER build of $V is served (a deploy that was still
+# in flight then, or one that landed after its cut cleaned up), this cut must not publish different bytes under it.
+release_leftovers_guard_deploy "${HOST:-https://installkosmos.com}" "$V" arm64 "$_my_sha" || exit 1
+if [ "${CUT_LINUX:-}" = yes ]; then
+  release_leftovers_guard_deploy "${HOST:-https://installkosmos.com}" "$V" linux-x64 \
+    "$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-linux-x64.tar.gz.sha256" 2>/dev/null || true)" || exit 1
+fi
 _vdep_rc=0
 _vdep_once() { ( cd "$_site_export" && vercel deploy --prod --yes ); }
 KOSMOS_VERCEL_BEFORE_RETRY=_vdep_freeze_check KOSMOS_VERCEL_TMP="${BUILD_ROOT:-}" site_vercel_deploy "$_site_export" _vdep_once || _vdep_rc=$?
