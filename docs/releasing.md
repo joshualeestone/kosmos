@@ -444,12 +444,28 @@ Ctrl-C ends that wait safely.
 2. **A versioned tarball from the dead attempt.** If the attempt got past 4b it
    copied `dist/kosmos-<V>-arm64.tar.gz` into the site checkout. The next build
    produces different bytes (builds are not byte-reproducible: codesign
-   timestamps, tar mtimes), and step 5 then refuses "different bytes for a
-   cache-immutable name". That guard is right when the file was SERVED. Check
-   the wire first: `curl -sI https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz`.
-   A 404 means it never left this Mac; remove the local pair
-   (`.tar.gz` and `.sha256`, both gitignored) and re-cut. A 200 means it was
-   served: bump the version instead, exactly as the guard says.
+   timestamps, tar mtimes), and step 4b then refuses "different bytes for a
+   cache-immutable name". That guard is right when the file was SERVED.
+   **Step 1g now decides this itself, before anything is built (kosmos#8562):**
+   it refuses at once if an earlier cut of `<V>` from this clone was seen served
+   at step 8 (a marker in the clone's git dir); otherwise it reads the served
+   `kosmos-<V>-<family>.tar.gz.sha256` for each family, with a made-up version
+   and the prod pointer's own version as controls, and moves never-served
+   leftovers into a dated folder beside the site checkout (nothing deleted). It
+   refuses on anything it cannot read cleanly. **The name itself is guarded later,
+   at 7b (before the site commit) and step 8 (before vercel and each retry):**
+   each reads the served `.sha256` again and refuses if another build of `<V>` is
+   served, retrying a short host blip for about two minutes. That narrows the
+   window to the deploy itself; it does not close it.
+   To check by hand, read the `.sha256`, not the tarball:
+   `curl -s -w ' %{http_code}' https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256`.
+   A checksum with a 200 means it was served (bump the version). A 404, the same
+   as `kosmos-0.0.0-x-arm64.tar.gz.sha256` gets, means it is not served now
+   (move the local files aside and re-cut; step 8 still checks before it
+   deploys). Anything else (a 5xx, a timeout) proves neither: read it again
+   later. A committed Linux manifest for `<V>` from the dead attempt's step 7b
+   commit also has to go (revert that site commit), or step 4b refuses it; step
+   1g says so.
 3. **The site checkout's uncommitted state.** A dead attempt can leave
    `dist/latest.json`, `setup.sha256` **and, under shape (a), the versions entry
    itself** modified.

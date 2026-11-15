@@ -55,7 +55,8 @@ run ok; case "$out" in *SECRET*) r=leaked ;; *"token left"*s*) r=clean ;; *) r="
 l=$(site_vercel_token_left); case "$l" in 9?s|100s) r=ok ;; *) r="$l" ;; esac; ok "it prints the seconds left" "$r" ok
 rm -f "$T/auth.json"; ok "no file reads unknown" "$(site_vercel_token_left)" unknown
 # The wiring: release.sh's one deploy goes through the helper.
-ok "release.sh deploys through the helper, with the freeze check" "$(grep -c 'KOSMOS_VERCEL_BEFORE_RETRY=_vdep_freeze_check .*site_vercel_deploy "$_site_export" _vdep_once || _vdep_rc=$?$' "$HERE/release.sh")" 1
+ok "release.sh's retry hook runs the freeze check (kosmos#8562 wraps it with the served check)" "$(grep -c '^_vdep_before_retry() { _vdep_freeze_check; _vdep_served_check; }$' "$HERE/release.sh")" 1
+ok "release.sh deploys through the helper, with that hook" "$(grep -c 'KOSMOS_VERCEL_BEFORE_RETRY=_vdep_before_retry .*site_vercel_deploy "$_site_export" _vdep_once || _vdep_rc=$?$' "$HERE/release.sh")" 1
 ok "the freeze check also runs before the first try" "$(grep -c '^_vdep_freeze_check$' "$HERE/release.sh")" 1
 ok "and its one deploy line is the helper's command" "$(grep -cE '^[^#]*vercel deploy --prod --yes' "$HERE/release.sh")" 1
 ok "inside _vdep_once" "$(grep -c '^_vdep_once() { ( cd "$_site_export" && vercel deploy --prod --yes ); }$' "$HERE/release.sh")" 1

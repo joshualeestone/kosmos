@@ -54,9 +54,10 @@ printf '%064d  setup\n' 0 > "$F/dist/setup.sha256"
 # The block is extracted and RUN against fixture sites (a bare origin, a checkout of it).
 a="$(grep -n 'step "== 1f. the site serves /setup-staging uncached' "$REPO/tools/release.sh" | cut -d: -f1)"; b="$(grep -n 'step "== 2. the version, in one place ==' "$REPO/tools/release.sh" | cut -d: -f1)"
 [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ] && pass "release: step 1f sits before the version bump" || bad "release: step 1f is not before the bump ($a vs $b)"
-F1F="$(sed -n "$((a+1)),$((b-1))p" "$REPO/tools/release.sh")"
-# The extracted region must be exactly step 1f's block: no other step crept in between (it would run here too).
-case "$F1F" in *'step "'*) bad "release 1f: the region before step 2 holds another step; extract it by its own markers" ;; esac
+# Up to the NEXT step's marker, not step 2's: kosmos#8562 put step 1g between them.
+c="$(awk -v a="$a" 'NR > a && /^step "== / { print NR; exit }' "$REPO/tools/release.sh")"
+[ -n "$c" ] && [ "$c" -le "$b" ] && pass "release 1f: the region ends at the next step's marker, at or before step 2" || bad "release 1f: no step marker after 1f before step 2 (c=$c, b=$b)"
+F1F="$(sed -n "$((a+1)),$((c > a ? c - 1 : a))p" "$REPO/tools/release.sh")"
 case "$F1F" in *'if [ "$CUT_CHANNEL" = staging ]; then'*'/setup-staging'*) pass "release 1f: the extracted region is the 1f block" ;; *) bad "release 1f: the extracted region is not the 1f block" ;; esac
 site_with(){ # <vercel.json text> -> a checkout whose origin/main holds it
   local o d; o="$(mktemp -d "$T/vo.XXXXXX")"; d="$(mktemp -d "$T/vs.XXXXXX")"

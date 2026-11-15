@@ -1019,6 +1019,19 @@ if [ "$CUT_CHANNEL" = staging ]; then
   [[ "$_vj" =~ \"source\"[[:space:]]*:[[:space:]]*\"/setup-staging\.sha256\" ]] || { echo "the site's origin/main vercel.json has no /setup-staging.sha256 headers: merge the site half of #5032 first"; exit 1; }
 fi
 
+step "== 1g. no files left in the site checkout by an earlier, aborted cut of $V (kosmos#8562) =="
+# The versioned files are gitignored, and the trap below removes them only when THIS cut wrote them and had not finished
+# step 8, so they outlive a cut killed before its trap ran, and they outlived the 0.8.05 attempt of 11-13 (before
+# kosmos#8494 made step 8 finish only on a served build); step 4b would then refuse two hours in. Here, before
+# anything is built: a marker step 8 writes once a cut of $V is seen served, else the served host with a control
+# either way, says whether those bytes were ever served. Never served: moved aside beside the site checkout, nothing
+# deleted. Served or unknown: refused, with the way on. Only the families this cut builds are checked.
+# Before the trap's _pair_had / _linux_pair_had are read, so a cut that then aborts still cleans up what IT wrote.
+. "$REPO/tools/lib/release-leftovers.sh"
+_lo_fams="arm64"; [ "$CUT_LINUX" = yes ] && _lo_fams="arm64 linux-x64"
+# shellcheck disable=SC2086   # the family list is split on purpose
+release_leftovers_clear "$SITE" "$V" "${HOST:-https://installkosmos.com}" $_lo_fams || { echo "nothing was built"; exit 1; }
+
 step "== 2. the version, in one place =="
 node -e "
 const fs=require('fs'),p='$REPO/package.json';
@@ -1889,6 +1902,19 @@ _site_commit_msg="$V: the $CUT_CHANNEL pointer ($POINTER_FILE), installer and ve
 # in a tested context (the `|| ...`) suspends errexit for its whole body, so its
 # internal non-ff retry loop runs all attempts instead of aborting the cut on the
 # first rejected push. Do NOT change this to a bare `SITE_SHA="$(...)"`.
+# kosmos#8562: step 1g read the host hours ago and reads nothing when no leftover is here. Before this commit replaces
+# $V's committed manifest and pointer, ask: if ANOTHER build of $V is served (a deploy that landed after its cut cleaned
+# up, or one still in flight when 1g looked), stop here, with origin/main untouched. Step 8 asks again before vercel.
+# It narrows the window to the deploy itself; it does not close it.
+_vdep_served_check() {
+  release_leftovers_guard_deploy "${HOST:-https://installkosmos.com}" "$V" arm64 \
+    "$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" 2>/dev/null || true)" || exit 1
+  if [ "${CUT_LINUX:-}" = yes ]; then
+    release_leftovers_guard_deploy "${HOST:-https://installkosmos.com}" "$V" linux-x64 \
+      "$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-linux-x64.tar.gz.sha256" 2>/dev/null || true)" || exit 1
+  fi
+}
+_vdep_served_check
 SITE_SHA="$(site_commit_on_fresh_main "$SITE" "$_site_commit_msg" "$BUILD_ROOT" 5 "$_site_paths" "$V" "$REPO")" || exit 1
 # Verify the pushed commit actually carries every release file, and that our
 # versions entry landed on the FRESH page (the re-insert worked): a content check
@@ -2046,9 +2072,13 @@ _vdep_freeze_check() {
   fi
 }
 _vdep_freeze_check
+# kosmos#8562: and again here, just before vercel (and before each retry, below): a build of $V that went live since 7b
+# asked is not published over. Defined at 7b.
+_vdep_served_check
+_vdep_before_retry() { _vdep_freeze_check; _vdep_served_check; }
 _vdep_rc=0
 _vdep_once() { ( cd "$_site_export" && vercel deploy --prod --yes ); }
-KOSMOS_VERCEL_BEFORE_RETRY=_vdep_freeze_check KOSMOS_VERCEL_TMP="${BUILD_ROOT:-}" site_vercel_deploy "$_site_export" _vdep_once || _vdep_rc=$?
+KOSMOS_VERCEL_BEFORE_RETRY=_vdep_before_retry KOSMOS_VERCEL_TMP="${BUILD_ROOT:-}" site_vercel_deploy "$_site_export" _vdep_once || _vdep_rc=$?
 if [ "$_vdep_rc" != 0 ]; then
   # #5471: the CLI's own failure is not the answer; what is served is. LANDED means the served
   # kosmos-$V-arm64.tar.gz.sha256 is the one this cut wrote. Only a deploy carrying this cut's files can serve it: an
@@ -2100,6 +2130,9 @@ else
     exit 1
   fi
 fi
+# kosmos#8562: step 8 has SEEN this cut's build served (kosmos#8494), so from here a re-cut of $V must bump: recorded in
+# the site's .git, where step 1g of a later cut reads it.
+release_leftovers_mark_served "$SITE" "$V"
 DEPLOYED=1   # step 8 finished: the site checkout now claims what is served, so the trap leaves it
 # #1548: the pre-cut pointer backup lives under BUILD_ROOT, which the EXIT trap removes
 # on every path, so there is nothing to clean up in the site checkout here. (On a
