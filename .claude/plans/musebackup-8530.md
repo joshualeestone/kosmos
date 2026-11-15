@@ -1,0 +1,27 @@
+# musebackup-8530: a Muse Code agent's conversation is backed up (kosmos#8530)
+
+## Why
+PigeonPete found (#8530) that a company backup reads every provider's sessions except Muse Code's: no backup file
+mentions Muse, so a Muse agent's conversation is never backed up.
+
+## Measured (on the card)
+- Meta's docs: sessions are kept on the Mac ("keep sessions forever" unless session_retention_days), unless
+  `--no-session-log`, which Kosmos's runner does not pass.
+- The Mortals Mac, Muse Code 1.4.20 in a throwaway HOME, two offline turns with marker words: the conversation is
+  `<data home>/muse/sessions/<yyyy>/<mm>/<dd>/<session id>/session.jsonl`; beside it a per-session view cache under
+  `sessions/.msp-view-g12/<id>/` and ONE `session-index.db` for every session.
+
+## What
+- `engine/backupsessions.js` `museRoot`: the agent's session id from `<agent>/.kosmos/muse-session` (engine/musefront.js);
+  the root is `<data home>/muse/sessions` with an `only` list of every file under `<yyyy>/<mm>/<dd>/<that id>/`, so
+  every day the session was resumed is taken. A linked sessions folder is refused (said), a linked session folder is
+  not followed. Never the index, the view cache or the sign-in (Keychain).
+- `engine/backuptick.js`: `museData` = `$XDG_DATA_HOME` when absolute, else `$HOME/.local/share`, as the runner gives
+  Muse the board's own environment.
+
+## Decided
+- Not the view cache: it is a view of the same session, and the session log is what the docs call retained.
+- Root named `sessions/<id>/muse`.
+
+## Weakest premise
+That the session log alone restores the conversation; restore (#7404's path) was not exercised for Muse.

@@ -202,6 +202,23 @@ test('#5883 review 3: `codex` names the agents\' default home for every agent, n
   }
 });
 
+test('kosmos#8530: Muse sessions are looked for in XDG_DATA_HOME, else ~/.local/share, as the runner gives Muse', () => {
+  const saved = { x: process.env.XDG_DATA_HOME, h: process.env.HOME };
+  try {
+    mk('workers', 'musey');
+    const look = () => { const seen = {}; tick.rootsFor(tick.inputsHere({ readJob: () => null, sessionsFor: (d, o) => { seen[o.id] = o; return []; } })); return seen.musey.museData; };
+    process.env.XDG_DATA_HOME = '/data/home-8530';
+    assert.equal(look(), '/data/home-8530');
+    delete process.env.XDG_DATA_HOME;
+    assert.equal(look(), path.join(process.env.HOME, '.local', 'share'));
+    process.env.XDG_DATA_HOME = 'relative/not-taken';
+    assert.equal(look(), path.join(process.env.HOME, '.local', 'share'), 'a relative XDG_DATA_HOME was used');
+  } finally {
+    if (saved.x === undefined) delete process.env.XDG_DATA_HOME; else process.env.XDG_DATA_HOME = saved.x;
+    process.env.HOME = saved.h;
+  }
+});
+
 test('#5883 review 4: an account folder named through a link gets the same root name as its real path', () => {
   const real = mk('home', '.codex-linked-acct');
   const link = path.join(BASE, 'acct-link');

@@ -258,6 +258,9 @@ function inputsHere(deps = {}) {
   for (const m of ['openaiaccounts', 'geminiaccounts', 'grokaccounts']) {
     try { accountRows[m] = (deps.accountsOf || ((x) => require(`./${x}`).list()))(m) || []; } catch { accountRows[m] = []; }
   }
+  /* kosmos#8530: Muse Code's data home, as the runner gives Muse the board's own environment (engine/muserun.js). */
+  const museData = process.env.XDG_DATA_HOME && path.isAbsolute(process.env.XDG_DATA_HOME) ? process.env.XDG_DATA_HOME
+    : path.join(process.env.HOME || require('os').homedir(), '.local', 'share');
   const sessions = (dir, id, name) => {
     let job = null;
     try { job = (deps.readJob || create.readJob)(name); } catch { job = null; }
@@ -295,7 +298,7 @@ function inputsHere(deps = {}) {
         }
       } catch { /* the current account is still read */ }
     }
-    return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx, grokHome: agentGrokHome, moreHomes });
+    return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx, grokHome: agentGrokHome, museData, moreHomes });
   };
   // Never inside a root, never holding one (reviews 1 and 5): Kosmos's own data, every provider's config home and every
   // ACCOUNT folder (~/.codex-<label>, ~/.gemini-<label>, ~/.grok and its accounts), and every hidden entry directly in
