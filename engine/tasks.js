@@ -912,12 +912,12 @@ function filePathValue(v) {
    which outlives a removed worktree. */
 const LANDED_FIELDS = ['landedCommit', 'landedRepo', 'landedOnRemote', 'landedBy', 'landedAt'];
 /* kosmos#8552: how a task closed, so a close on a written justification does not look like a close by a real change.
-   DERIVED from the marks the task carries as it closes, never asked for (a self-reported flag has the very weakness this
-   names). Closing drops the built mark (#3951), so the word is kept on the task as it closes (`closedHow`):
+   Read from the built mark's fields as the task closes; close itself takes no flag for it. Closing drops the built mark
+   (#3951), so the word is kept on the task as it closes (`closedHow`):
      'change'   a commit that is on a remote (landedOnRemote), or a delivered file (builtFingerprint / builtFilePath);
      'note'     marked built, with neither;
      'unbuilt'  never marked built, and no subtasks (a parent's work is on its children, kosmos#8301: no word then).
-   A landed commit proves a change was committed and pushed, not that it fixed the thing: it says "a change exists". */
+   Those fields are what the agent reported when it marked the task built; none is checked again here. */
 const CLOSED_HOW = Object.freeze(['change', 'note', 'unbuilt']);
 function closedHowAt(t, { hasSubtasks = false } = {}) {
   if (t.landedOnRemote === true && typeof t.landedCommit === 'string' && t.landedCommit !== '') return 'change';
