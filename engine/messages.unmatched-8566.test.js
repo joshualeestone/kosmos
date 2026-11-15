@@ -63,7 +63,7 @@ test('a header name that is no member is told, with the members to address', () 
 
 test('beside a member it still names the one that matched no one, and the member is reached', () => {
   const sent = send({ text: 'Leo -> Kano, Josh: the numbers' });
-  assert.equal(sent.outcomes.kano === undefined, false);
+  assert.equal(sent.outcomes.kano, 'placed', 'the member beside the name was not woken');
   assert.match(sent.ambiguousNote, /^Josh is not the name of any member of this project/);
   assert.doesNotMatch(sent.ambiguousNote, /Kano is not/);
 });
@@ -75,6 +75,16 @@ test('two such names are said together', () => {
 test('CONTROL: a header that names members, @all, or the poster says nothing', () => {
   for (const text of ['Leo -> Kano: x', 'Leo -> Sub-Zero: x', 'Leo -> all: x', 'Leo -> everyone: x', 'Leo -> Kano, Leo: x', 'Leo to Mara: x']) {
     assert.equal(note(text), undefined, text);
+  }
+});
+
+test('a member named in other words than it is stored (Sub Zero, Renet Tilley, Mona Lisa) is woken and nothing is said', () => {
+  const agents = [...FLEET(), fleet.agent('renet-tilley', { state: 'idle' }), fleet.agent('monalisa', { state: 'idle', displayName: 'MonaLisa' })];
+  const room = [...MEMBERS, 'renet-tilley', 'monalisa'];
+  for (const [text, who] of [['Leo -> Sub Zero: x', 'subzero'], ['Leo -> Renet Tilley: x', 'renet-tilley'], ['Leo -> Mona Lisa: x', 'monalisa']]) {
+    const sent = send({ text }, agents, room);
+    assert.equal(sent.outcomes[who], 'placed', text + ': PRE-CONTROL, the member was not woken');
+    assert.equal(sent.ambiguousNote, undefined, text);
   }
 });
 
@@ -106,6 +116,17 @@ test('a person\'s post and a room shared with another computer get no such note'
   } finally { board.restore(); }
   assert.equal(send({ text: 'Leo -> Josh: shared room', federated: true }).ambiguousNote, undefined);
   assert.match(send({ text: 'Leo -> Josh: this room only', federated: false }).ambiguousNote, /^Josh is not the name/, 'CONTROL: the same post unshared is told');
+});
+
+test('a post that woke every member another way (@all) says nothing about the name beside it', () => {
+  assert.equal(note('Leo -> the team: @all heads up'), undefined);
+  assert.match(note('Leo -> the team: heads up'), /^the team is not the name/, 'CONTROL: without @all it is said');
+});
+
+test('a long name is cut without splitting a character, so no lone surrogate reaches the JSON', () => {
+  const n = note('Leo -> x' + '\u{1F600}'.repeat(30) + ': hi');
+  assert.ok(n && !/[\ud800-\udbff](?![\udc00-\udfff])/.test(n), n);
+  assert.doesNotMatch(JSON.stringify(n), /\\ud8/i);
 });
 
 test('the member list is capped and says how many more', () => {
