@@ -2573,7 +2573,7 @@ function unmatchedNote(cleaned, recipients, roster, from, raw) {
     const unmatched = [];
     for (const part of head ? head.targets : []) {
       const bare = part.replace(/^@/, '').trim();
-      if (!/^[A-Za-z][A-Za-z.'-]*(?: [A-Za-z][A-Za-z.'-]*){0,2}$/.test(bare) || /^(all|everyone)$/i.test(bare) || bare.split(' ').some(mayMean)) continue;   // all: a room of the poster alone
+      if (!/^[A-Za-z][A-Za-z.'-]*(?: [A-Za-z][A-Za-z.'-]*){0,2}$/.test(bare) || bare.split(' ').some(mayMean)) continue;
       if (mentionedMembers('@' + nameKey(bare), outside, roster).mentioned.size === 1) continue;   // outsidersNote's
       const shown = bare.slice(0, 60);
       if (!unmatched.includes(shown)) unmatched.push(shown);
@@ -2582,13 +2582,15 @@ function unmatchedNote(cleaned, recipients, roster, from, raw) {
     const handle = (m) => (/^[A-Za-z0-9._-]+$/.test(m) ? m : '');
     const label = (m) => {
       const card = cards.find((c) => c && c.sessionName === m);
-      const n = printableName(card && card.name).slice(0, 40); const h = handle(m);
+      // Cut first: printableName then drops a surrogate the cut split.
+      const n = printableName(String((card && card.name) || '').slice(0, 40)); const h = handle(m);
       return h ? (n && n !== h ? n + ' (@' + h + ')' : '@' + h) : (n || '');
     };
     const shownMembers = members.map(label).filter(Boolean);
     const list = shownMembers.slice(0, UNMATCHED_SHOWN_MAX).join(', ') + (shownMembers.length > UNMATCHED_SHOWN_MAX ? ' and ' + (shownMembers.length - UNMATCHED_SHOWN_MAX) + ' more' : '');
     // No double quote anywhere: kosmos post reads this note out of the JSON with sed up to the first one.
-    const names = unmatched.length === 1 ? unmatched[0] : unmatched.slice(0, -1).join(', ') + ' and ' + unmatched[unmatched.length - 1];
+    const joined = unmatched.length === 1 ? unmatched[0] : unmatched.slice(0, -1).join(', ') + ' and ' + unmatched[unmatched.length - 1];
+    const names = joined.charAt(0).toUpperCase() + joined.slice(1);   // it starts the sentence
     return (unmatched.length === 1 ? names + ' is not the name of any member of this project, so this post woke no one by it'
       : names + ' are not names of any member of this project, so this post woke no one by them')
       + ' (the person still sees every post here).' + (list ? ' Members you can address: ' + list + '.' : '');
@@ -2939,8 +2941,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     operator === true ? '' : outsidersNote(cleaned, recipients, roster, from, text),
     // kosmos#8566: a header name that named no one here; not for a name outsidersNote just named, nor in a shared room.
     // Only for a post that woke no member at all, which is when nothing else tells the poster why: no @-name, header
-    // name or @all reached anyone, and it answers no post (a reply wakes the author it answers, mentioned or not).
-    operator === true || federated === true || mentioned.size > 0 || answered ? '' : unmatchedNote(cleaned, recipients, roster, from, text)].filter(Boolean).join(' ');
+    // name or @all reached anyone, and it is not a reply (a reply can wake the author it answers; skipping every reply
+    // is broader than that rule, the quiet side). Not in a room with no member but the poster, where there is no one.
+    operator === true || federated === true || mentioned.size > 0 || answered || !recipients.some((m) => m !== from) ? '' : unmatchedNote(cleaned, recipients, roster, from, text)].filter(Boolean).join(' ');
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
