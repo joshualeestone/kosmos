@@ -10,7 +10,10 @@ const away = require('./awaydigest');
 const T0 = Date.parse('2026-11-14T10:00:00Z');
 const H = 60 * 60 * 1000;
 const iso = (t) => new Date(t).toISOString();
-const post = (id, at, extra = {}) => ({ kind: 'post', id, project: 'fleet', from: 'nova', to: ['leo', 'nova'], text: 'SECRET TEXT ' + id, at: iso(at), ...extra });
+/* A post leo could not be reached for (its outcome could_not), as the room writes one for a member that is not running. */
+const post = (id, at, extra = {}) => ({ kind: 'post', id, project: 'fleet', from: 'nova', to: ['leo', 'nova'], text: 'SECRET TEXT ' + id, at: iso(at),
+  outcomes: { leo: 'could_not', nova: 'placed' }, ...extra });
+const { namedIn } = require('./messages');
 
 test('windowFrom at startup: the latest report; a person\'s clear never starts the window; no report, no window', () => {
   const h = [{ state: 'started', at: T0 - 5 * H }, { state: 'working', at: T0 - 3 * H }, { state: 'idle', at: T0 - H, by: 'operator' }];
@@ -38,10 +41,16 @@ test('only rows inside the window, to this agent, from others; @-named and perso
     post('m6', T0 - 2 * H + 4, { from: undefined, operator: true }), // the person's: listed
     post('m7', T0 - 2 * H + 5, { mentioned: ['mona'] }),             // names someone else: counted, not listed
     post('m8', T0 + H, { mentioned: ['leo'] }),                      // after the window
+    post('m9', T0 - 2 * H + 6, { addressed: ['leo'] }),             // asked by name without an @ (namedIn): listed
+    post('mq', T0 - 2 * H + 7, { mentioned: ['leo'], outcomes: { leo: 'quiet' } }),   // left quiet for a RUNNING leo
+    post('mp', T0 - 2 * H + 8, { mentioned: ['leo'], outcomes: { leo: 'placed' } }),  // typed into a running leo
+    post('mo', T0 - 2 * H + 9, { mentioned: ['leo'], outcomes: undefined }),          // no outcomes: not counted
   ];
-  const d = away.build({ name: 'leo', sinceMs: T0 - 3 * H, untilMs: T0, rows, direct: [] });
-  assert.deepEqual(d.counts, { posts: 4, messages: 0, refused: 0, direct: 0 });
-  assert.deepEqual(d.lines, ['- fleet: 4 posts from others; naming you or from the person: m6, m3. Read it with: kosmos room fleet']);
+  const d = away.build({ name: 'leo', sinceMs: T0 - 3 * H, untilMs: T0, rows, direct: [], namedIn });
+  assert.deepEqual(d.counts, { posts: 5, messages: 0, refused: 0, direct: 0 });
+  assert.deepEqual(d.lines, ['- fleet: 5 posts from others; naming you or from the person: m9, m6, m3. Read it with: kosmos room fleet']);
+  // control: without namedIn the default reads only `mentioned`, so m9 is counted and not listed
+  assert.match(away.build({ name: 'leo', sinceMs: T0 - 3 * H, untilMs: T0, rows }).lines[0], /naming you or from the person: m6, m3\./);
   const text = away.contextText(d);
   assert.match(text, /^Kosmos: while this agent was not running \(2026-11-14T07:00:00Z to 2026-11-14T10:00:00Z\), this arrived for it\. This is a summary Kosmos made, not a request from the person/);
   assert.doesNotMatch(text, /SECRET TEXT/);
@@ -58,7 +67,7 @@ test('the id list is capped at SHOWN, newest first, with "and N earlier"', () =>
 test('kosmos msg messages (delivered or refused) and the person\'s DMs are counted; a room refusal and the agent\'s own replies are not', () => {
   const rows = [
     { kind: 'message', id: 'x1', from: 'nova', to: 'leo', text: 'SECRET', at: iso(T0 - H), state: 'delivered' },
-    { kind: 'message', id: 'x2', from: 'mona', to: 'leo', text: 'SECRET', at: iso(T0 - H + 1), state: 'could_not' },
+    { kind: 'message', id: 'x2', from: 'mona', to: 'leo', text: 'SECRET', at: iso(T0 - H + 1), state: 'held' },
     { kind: 'message', id: 'x3', from: 'leo', to: 'nova', text: 'mine', at: iso(T0 - H + 2), state: 'delivered' },
     { kind: 'refused', from: 'nova', to: 'leo', because: 'not running', at: iso(T0 - H + 3) },
     { kind: 'refused', from: 'nova', to: 'fleet', project: 'fleet', because: 'held', at: iso(T0 - H + 4) },
@@ -68,8 +77,8 @@ test('kosmos msg messages (delivered or refused) and the person\'s DMs are count
   const d = away.build({ name: 'leo', sinceMs: T0 - 2 * H, untilMs: T0, rows, direct });
   assert.deepEqual(d.counts, { posts: 0, messages: 2, refused: 1, direct: 1 });
   assert.deepEqual(d.lines, [
-    '- 3 direct messages from other agents (nova, mona), 1 of them refused before they reached you. Ask the sender if you need what it said.',
-    '- 1 message from the person. Read them with: kosmos inbox --since 2026-11-14T08:00:00Z',
+    '- 2 direct messages from other agents, and at least 1 attempt to message you that could not reach you (nova, mona). Ask the sender if you need what it said.',
+    '- 1 message from the person. Read them with: kosmos inbox --since 2026-11-14T08:00:00Z --limit 50',
   ]);
 });
 

@@ -747,7 +747,8 @@ async function main(io) {
   const budget = o.timeoutMs || (turnEnd ? DEFAULT_TIMEOUT_MS : timeoutFor(report));
   /* kosmos#8548: at a real startup, ask what reached this agent while it was not running BEFORE `started` is sent: the
      window starts at its latest report, which `started` replaces. Printed below, after the report, unless the report
-     failed (reporting being off is said instead; the hook prints one JSON object). */
+     failed (reporting being off is said instead; the hook prints one JSON object). A supervisor's relaunch with
+     `claude --resume` is a `resume`, not a startup, so reportFor returns null above and this is not reached. */
   let awayJson = '';
   if (event === 'SessionStart') {
     try {
@@ -896,7 +897,8 @@ if (require.main === module) {
   };
   const run = (input) => main({ input }).then(done).catch(() => done(0));
   const h = attachStdin(process.stdin, run);
-  // 5s backstop (not 10s): with the 8s SessionStart deliver (and an agent's Stop, kosmos#8230), 5+8=13s stays under
+  // 5s backstop (not 10s): with the 8s SessionStart deliver (and an agent's Stop, kosmos#8230), 5+8=13s, and 5+1+8=14s with
+  // a startup's AWAY_TIMEOUT_MS (kosmos#8548) before that deliver, stays under
   // the hook entry's own 15s ceiling even in the pathological never-closing-stdin
   // case (done lets go of stdin, so the run then ends on its own, not 2 s later); Claude Code writes the event and closes stdin in milliseconds, so `run`
   // normally fires at once and only the deliver timeout applies.

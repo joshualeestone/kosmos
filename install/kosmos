@@ -5824,7 +5824,7 @@ kosmos_command_list() {
   printf '  kosmos reply         message the person in your conversation with them (an answer, or one you start)\n'
   printf '  kosmos reply-channel say where you answer the person, when it is not kosmos reply\n'
   printf '  kosmos inbox         read your recent messages with the person (a notice can arrive without them)\n'
-  printf '  kosmos away  what reached you while you were not running\n'
+  printf '  kosmos away          what reached you while you were not running\n'
   printf '  kosmos file-notices  take the notices Kosmos kept for you when another agent was about to change a file of yours\n'
   printf '  kosmos react         react to a post in a project room\n'
   printf '  kosmos claim         claim a request in a project room before you take it on\n'
