@@ -4443,6 +4443,57 @@ cmd_file_notices() {
   esac
 }
 
+# kosmos#8548: what reached you while you were not running (room posts to you, `kosmos msg` messages, the person's direct
+# messages), as counts, post ids and names. Nothing is cleared. --hook is what Kosmos's Claude Code hook runs at a real
+# startup, BEFORE it reports `started`, so the window starts at your last report: it prints the SessionStart hook JSON only
+# when something arrived, nothing otherwise, always exits 0, with a 1 s cap. Run by hand, it shows the same window your
+# newest startup had.
+cmd_away() {
+  local _hook=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --hook) _hook=1 ;;
+      *) say "kosmos away takes only --hook."; exit 2 ;;
+    esac
+    shift || true
+  done
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt=""
+  [ "$_hook" = 1 ] && [ -n "$_tok" ] || _bt="$(board_token || true)"
+  local _pane_q; _pane_q=$(printf '%s' "${TMUX_PANE:-}" | sed 's/%/%25/g')
+  local _body _rc=0 _code
+  if [ "$_hook" = 1 ]; then
+    _body=$(_KOSMOS_CURL_ONCE=1 kosmos_curl "$_bt" "$_tok" -sS -m 1 -w $'\n%{http_code}' "$URL/api/away?as=hook&at=startup&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
+    [ "$_rc" -eq 0 ] || exit 0
+    _code="${_body##*$'\n'}"
+    _body="${_body%$'\n'*}"
+    [ "$_code" = 200 ] || exit 0
+    case "$_body" in
+      '{"hookSpecificOutput":'*) printf '%s\n' "$_body" ;;
+    esac
+    exit 0
+  fi
+  if ! healthy; then
+    say_not_up "what arrived while you were away cannot be read"
+    exit 1
+  fi
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/away?as=text&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    say_unreached "read what arrived while you were away" "$_rc"
+    exit 1
+  fi
+  _code="${_body##*$'\n'}"
+  _body="${_body%$'\n'*}"
+  printf '%s' "$_body"
+  case "$_code" in
+    4??|5??) token_refused_hint "$_tok" "$_body"; exit 1 ;;
+  esac
+}
+
 # #4784: read back your own recent direct messages with the person (`kosmos inbox [--limit N]`). A notice
 # can say the person messaged you while its text never reached this session (a nudge carries none; a paste
 # can be lost); the board keeps every message, so this prints them rather than asking the person to resend.
@@ -5773,6 +5824,7 @@ kosmos_command_list() {
   printf '  kosmos reply         message the person in your conversation with them (an answer, or one you start)\n'
   printf '  kosmos reply-channel say where you answer the person, when it is not kosmos reply\n'
   printf '  kosmos inbox         read your recent messages with the person (a notice can arrive without them)\n'
+  printf '  kosmos away  what reached you while you were not running\n'
   printf '  kosmos file-notices  take the notices Kosmos kept for you when another agent was about to change a file of yours\n'
   printf '  kosmos react         react to a post in a project room\n'
   printf '  kosmos claim         claim a request in a project room before you take it on\n'
@@ -5861,6 +5913,9 @@ if [ "$_kosmos_help" = 1 ]; then
     agents)
       # #4891 N9: it fell to the general list below. It takes no arguments and only reads.
       printf 'Usage: kosmos agents   (list the terminal sessions on this computer, as Kosmos'"'"'s own tmux sees them; every agent: kosmos agent list)\n'
+      exit 0 ;;
+    away)
+      printf 'Usage: kosmos away [--hook]   (what reached you while you were not running: room posts to you, messages from other agents and from the person, as counts and post ids, for the window your newest startup had; nothing is cleared. --hook: what Kosmos'"'"'s own hook runs at startup)\n'
       exit 0 ;;
     file-notices)
       # kosmos#7989: not with the read-only group either. Run bare, it takes (clears) your notices.
@@ -8282,6 +8337,7 @@ case "${1:-}" in
   fingerprint) shift; cmd_fingerprint "$@" ;;   # kosmos#6849
   inbox)   shift; cmd_inbox "$@" ;;
   file-notices) shift; cmd_file_notices "$@" ;;
+  away) shift; cmd_away "$@" ;;
   connections) shift; cmd_connections "$@" ;;
   accounts) cmd_accounts ;;
   whats-new) shift; cmd_whats_new "$@" ;;   # kosmos#7411

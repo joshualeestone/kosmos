@@ -49,12 +49,15 @@ function sessionStart(extra) {
 test('every report names this agent\'s Kosmos: KOSMOS_WORLD, or default when it is absent', async () => {
   const named = [];
   await hook.main(sessionStart({ env: { KOSMOS_WORLD: 'test' }, fetchImpl: answering(200, { recorded: true }, named), stdout: () => {} }));
-  assert.equal(named.length, 1);
-  assert.equal(named[0].init.headers[WORLD_HEADER], 'test');
+  /* kosmos#8548: a startup also asks /api/away before its report; every request names the world, and there is one report. */
+  assert.equal(named.filter((c) => /\/api\/report$/.test(c.url)).length, 1, named.map((c) => c.url).join(', '));
+  assert.ok(named.some((c) => /\/api\/away\?/.test(c.url)), 'the startup asked what arrived while it was away');
+  for (const c of named) assert.equal(c.init.headers[WORLD_HEADER], 'test', c.url);
 
   const plain = [];
   await hook.main(sessionStart({ env: {}, fetchImpl: answering(200, { recorded: true }, plain), stdout: () => {} }));
-  assert.equal(plain[0].init.headers[WORLD_HEADER], 'default', 'an agent with no KOSMOS_WORLD is in the default world and must say so');
+  assert.ok(plain.length >= 1);
+  for (const c of plain) assert.equal(c.init.headers[WORLD_HEADER], 'default', 'an agent with no KOSMOS_WORLD is in the default world and must say so: ' + c.url);
 });
 
 test('a 421 on the loud SessionStart is silent and keeps nothing; a 500 on the same event still speaks', async () => {

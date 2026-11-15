@@ -587,6 +587,34 @@ async function takeFileNotices(ackFile, io) {
   }
 }
 
+/** kosmos#8548: GET /api/away?as=hook&at=startup, as `kosmos away --hook` does: what reached this agent while it was not
+ *  running. Returns the SessionStart hook JSON to print, or ''. Never throws; every failure is silent. */
+const AWAY_TIMEOUT_MS = 1000;   // the CLI's cap for --hook
+async function takeAway(io) {
+  const o = io || {};
+  const headers = {};
+  if (o.boardToken) headers['x-kosmos-board-token'] = o.boardToken;
+  if (o.agentToken) headers['x-kosmos-agent-token'] = o.agentToken;
+  const { WORLD_HEADER, worldIdForHeader } = require('./launchidentity');
+  headers[WORLD_HEADER] = worldIdForHeader(o.world);
+  const doFetch = o.fetchImpl || ((typeof fetch === 'function') ? fetch : null);
+  if (!doFetch) return '';
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), o.timeoutMs || AWAY_TIMEOUT_MS);
+  try {
+    const res = await doFetch(o.url + '/api/away?as=hook&at=startup&from_pane=', { method: 'GET', headers, signal: ctl.signal, redirect: 'manual' });
+    if (!res) return '';
+    let t = '';
+    try { t = String(await res.text()); } catch { return ''; }   // read on every answer, so the response is finished
+    if (res.status !== 200 || !t.startsWith('{"hookSpecificOutput":')) return '';
+    return t;
+  } catch {
+    return '';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function resetMark(io) {
   try { fs.rmSync(path.join(io.throttleDir, throttleKey(io.env, io.ppid)), { force: true }); } catch { /* best effort */ }
 }
@@ -717,6 +745,19 @@ async function main(io) {
   const agentStop = report.turnEnd === true && Boolean(agentToken(env));
   const turnEnd = agentStop && o.noRetry !== true;
   const budget = o.timeoutMs || (turnEnd ? DEFAULT_TIMEOUT_MS : timeoutFor(report));
+  /* kosmos#8548: at a real startup, ask what reached this agent while it was not running BEFORE `started` is sent: the
+     window starts at its latest report, which `started` replaces. Printed below, after the report, unless the report
+     failed (reporting being off is said instead; the hook prints one JSON object). */
+  let awayJson = '';
+  if (event === 'SessionStart') {
+    try {
+      const ap = await proven(c, o.awayTimeoutMs || AWAY_TIMEOUT_MS);
+      if (ap.ok && ap.leftMs > 0) {
+        awayJson = await takeAway({ url: c.url, boardToken: c.boardToken, agentToken: c.agentToken, world: c.world,
+          fetchImpl: o.fetchImpl, timeoutMs: ap.leftMs });
+      }
+    } catch { awayJson = ''; }
+  }
   const t0 = Date.now();
   let verdict = await sendOnce(budget);
 
@@ -781,6 +822,8 @@ async function main(io) {
     }) + '\n');
   }
 
+  if (awayJson && verdict.ok) stdout(awayJson.replace(/\n$/, '') + '\n');
+
   /* kosmos#8014: after the working report, as on the Mac, hand this agent its file-owner notices as this turn's
      context. Claude Code adds a UserPromptSubmit hook's additionalContext to the model and types nothing into the
      session. Only the board's hook JSON is printed, and only when there is a notice. */
@@ -827,7 +870,7 @@ function attachStdin(stream, onDone) {
 module.exports = {
   parseInput, field, reportFor, buildBody, resolvePort, resolveUrl,
   readBoardToken, agentToken, deliver, timeoutFor, throttleKey, heartbeatDue,
-  attachStdin, main, kosmosAllows, proverFor, proofRefusalReason, keepRequestFor, keepCopy, KEEP_TIMEOUT_MS, failureRequestFor, toolFailed,
+  attachStdin, main, takeAway, AWAY_TIMEOUT_MS, kosmosAllows, proverFor, proofRefusalReason, keepRequestFor, keepCopy, KEEP_TIMEOUT_MS, failureRequestFor, toolFailed,
   HEARTBEAT_SECONDS, DEFAULT_PORT, DEFAULT_TIMEOUT_MS, SHORT_TIMEOUT_MS,
   turnEndOutcome, turnEndReason, noteTurnEnd, TURN_END_LOG, TURN_END_KEEP, TURN_END_RETRY_MIN_MS, TURN_END_RETRY_PAUSE_MS,   // kosmos#8230
 };
