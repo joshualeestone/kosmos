@@ -2554,6 +2554,9 @@ function outsidersNote(cleaned, recipients, roster, from, raw) {
    The caller leaves it out of a room shared with another computer, whose members this board cannot all see, and of a
    person's post. Never throws; '' when there is nothing to say. */
 const UNMATCHED_SHOWN_MAX = 8;
+const UNMATCHED_NOT_NAMES = new Set(['team', 'teams', 'both', 'room', 'group', 'folks', 'crew', 'squad', 'members', 'anyone', 'someone',
+  'dear', 'hi', 'hey', 'hello', 'thanks', 'thank', 'done', 'update', 'updates', 'status', 'review', 'note', 'notes', 'question',
+  'reminder', 'heads', 're', 'cc', 'fyi', 'urgent', 'todo', 'summary', 'recap']);
 function unmatchedNote(cleaned, recipients, roster, from, raw) {
   try {
     const nameKey = require('./agentnames').nameKey;
@@ -2574,10 +2577,12 @@ function unmatchedNote(cleaned, recipients, roster, from, raw) {
       const bare = part.replace(/^@/, '').trim();
       if (!bare || /^(all|everyone)$/i.test(bare) || targetResolves(bare, members, roster).length) continue;   // it woke a member
       if (bare.split(/\s+/).some((w) => insideKeys.has(nameKey(w)) || insideKeys.has(nameKey(w.replace(/'s$/i, ''))))) continue;   // a member's name, a word of one, or its possessive
-      // Only a part written like a person's name, every word title case ("Josh", "Mary Ann", "O'Brien"): the fleet's
+      // Only a part written like a person's name, every word title case ("Josh", "Mary Ann"): the fleet's
       // header carries topics after a comma ("Kitty, heads up:", "FYI", "re the cut") and the word form reads sentences
       // that start with the poster's name ("Leo for the record:"), and none of those is a name.
       if (!/^[A-Z][a-z][A-Za-z.'-]*(?: [A-Z][a-z][A-Za-z.'-]*){0,2}$/.test(bare)) continue;
+      // Nor a group, a greeting or a topic written in title case ("Team", "Both", "Dear Josh", "Thanks", "Update").
+      if (bare.split(' ').some((w) => UNMATCHED_NOT_NAMES.has(w.toLowerCase()))) continue;
       if (mentionedMembers('@' + nameKey(bare), outside, roster).mentioned.size === 1) continue;   // outsidersNote names it
       const shown = bare.slice(0, 60);   // name-shaped (checked above): letters, . ' - and single spaces only
       if (shown && !unmatched.includes(shown)) unmatched.push(shown);
@@ -2586,7 +2591,7 @@ function unmatchedNote(cleaned, recipients, roster, from, raw) {
     const handle = (m) => (/^[A-Za-z0-9._-]+$/.test(m) ? m : '');
     const label = (m) => {
       const card = cards.find((c) => c && c.sessionName === m);
-      const n = printableName(card && card.name); const h = handle(m);
+      const n = printableName(card && card.name).slice(0, 40); const h = handle(m);
       return h ? (n && n !== h ? n + ' (@' + h + ')' : '@' + h) : (n || '');
     };
     const shownMembers = members.map(label).filter(Boolean);

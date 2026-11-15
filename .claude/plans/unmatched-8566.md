@@ -21,6 +21,7 @@ Card: a post addressed "Me -> Them:" where Them is no member's name wakes nobody
   header carries topics after a comma ("Kitty, heads up:", "FYI", "re the cut") and the word form reads sentences that
   start with the poster's name ("Leo for the record:"); none of those is a name. A possessive or a hyphen-part of a member
   name ("Kano's team", "Renet" for renet-tilley) may mean the member, so it says nothing.
+- Nor a group, a greeting or a topic in title case (a short stop list: Team, Both, Dear, Thanks, Update...).
 - Known gap, the safe direction: a header word that is part of a member's name but woke no one ("Kano, cc Mara" where
   "cc Mara" is one part; "Renet" for a member stored only as renet-tilley) says nothing.
 - Silent when @all woke every member the names did not; a typo beside a full list of names is still said.
