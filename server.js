@@ -6593,7 +6593,7 @@ const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
    The /api/team handler re-enforces auth itself (a valid agent token OR the board
    token; no-credential refused on an enforcing board), exactly as report/reply do
    one layer down -- see that handler. */
-const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET /api/inbox', 'POST /api/file-notices/take']);
+const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET /api/inbox', 'POST /api/file-notices/take', 'GET /api/away']);
 /* #4491 (proof of concept): agent routes a loopback caller may reach with ONLY its own agent
    token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
    hold the person's credential for its everyday verbs, and a request carrying only an agent
@@ -19191,6 +19191,59 @@ const server = http.createServer(async (req, res) => {
       if (as === 'text') sendText(res, 200, (fn.contextText(taken) || 'No file notices are waiting for you.') + '\n');
       else sendJson(res, 200, { ok: true, notices: taken.notices, dropped: taken.dropped });
     } catch { fail(500, 'we could not read your file notices just now'); }
+    return;
+  }
+  if (pathname === '/api/away' && req.method === 'GET') {
+    /* kosmos#8548: `kosmos away`, what reached the caller while it was not running (engine/awaydigest.js): room posts
+       to it, `kosmos msg` messages to it, and the person's direct messages, as counts, post ids and names. Resolved as
+       /api/file-notices/take resolves its caller (token first, then pane; a bare pane is refused on an enforcing
+       board), with no agent parameter, so an agent holding only its own token reads only its own. `at=startup` is
+       Kosmos's Claude Code hook, called before it reports `started`, so the window starts at the agent's latest report;
+       otherwise it is the window that startup had. `as=hook` answers the SessionStart hook JSON or an empty body, on
+       every failure too; `as=text` the lines a person reads; otherwise JSON. Nothing is cleared. */
+    req.resume();
+    let as = null;
+    let fromPane = null;
+    let startup = false;
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      as = q.get('as');
+      fromPane = q.get('from_pane');
+      startup = q.get('at') === 'startup';
+    } catch { as = null; fromPane = null; startup = false; }
+    const fail = (status, msg) => {
+      if (as === 'hook') sendText(res, status, '');
+      else if (as === 'text') sendText(res, status, msg + '\n');
+      else sendJson(res, status, { ok: false, because: msg });
+    };
+    try {
+      const roster = safeRoster();
+      if (roster === null) { fail(503, 'we could not check which agents are running, so we could not tell who is asking'); return; }
+      const denyPaneFallback = boardAuthState.on
+        && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+      const sender = resolveAgentSender(req, { from_pane: fromPane }, roster, {
+        denyPaneFallback,
+        denyBecause: 'this board only tells an agent what arrived while it was away with its own agent token; run `kosmos away` as that agent',
+      });
+      if (!sender.ok) { fail(403, sender.because); return; }
+      const name = sender.card.sessionName;
+      const away = require('./engine/awaydigest');
+      const now = Date.now();
+      const win = away.windowFrom(selfreport.history(name, selfreport.HISTORY_MAX_BYTES), { startup, nowMs: now });
+      let digest = away.build({ name, sinceMs: NaN, untilMs: NaN });
+      if (win) {
+        let direct = [];
+        try { direct = chat.readThread(chat.DIRECT, name).messages; } catch { direct = []; }
+        digest = away.build({ name, sinceMs: win.sinceMs, untilMs: win.untilMs, rows: messages.readLog(), direct });
+      }
+      if (as === 'hook') { sendText(res, 200, away.hookJson(digest)); return; }
+      if (as === 'text') {
+        sendText(res, 200, (away.contextText(digest) || (win ? 'Nothing arrived for you while you were not running.'
+          : 'Kosmos has no earlier report from you, so it cannot tell when you were last running.')) + '\n');
+        return;
+      }
+      sendJson(res, 200, { ok: true, window: win, counts: digest.counts, lines: digest.lines, clamped: digest.clamped });
+    } catch { fail(500, 'we could not put together what arrived while you were away just now'); }
     return;
   }
   if (pathname === '/api/inbox' && req.method === 'GET') {

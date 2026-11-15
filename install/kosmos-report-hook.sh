@@ -544,10 +544,19 @@ case "$EVENT" in
       if [ -n "$SRC" ] && [ "$SRC" != "startup" ]; then
         exit 0
       fi
+    # kosmos#8548: what reached this agent while it was not running, asked BEFORE `started` is recorded, because the
+    # window starts at the agent's latest report and `started` would replace it. Printed as SessionStart
+    # additionalContext (it reaches the model, nothing is typed), and only when the CLI gave the hook's JSON (1 s cap).
+    AWAY_OUT=$("$KOSMOS" away --hook </dev/null 2>/dev/null) || AWAY_OUT=""
     STARTED_OUT=$("$KOSMOS" report started --auto 2>&1); STARTED_RC=$?
     if [ "$STARTED_RC" -ne 0 ]; then
+      # Reporting being off matters more, and the hook prints one JSON object: the digest is dropped.
       REASON=$(printf '%s' "$STARTED_OUT" | tr '\n\t\r' '   ' | tr -s ' ' | sed 's/^ *//; s/\\/\\\\/g; s/"/\\"/g' | head -c 300)
       say_loudly "Kosmos reporting is OFF for this session: the report could not be recorded. ${REASON:-The CLI did not say why.} The board is falling back to reading the screen."
+    else
+      case "$AWAY_OUT" in
+        '{"hookSpecificOutput":'*) printf '%s\n' "$AWAY_OUT" ;;
+      esac
     fi ;;
   UserPromptSubmit)
     date +%s > "$MARK" 2>/dev/null || true
