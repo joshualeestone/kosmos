@@ -548,7 +548,8 @@ case "$EVENT" in
     # kosmos#8548: what reached this agent while it was not running, asked BEFORE `started` is recorded, because the
     # window starts at the agent's latest report and `started` would replace it. Printed as SessionStart
     # additionalContext (it reaches the model, nothing is typed), and only when the CLI gave the hook's JSON. The CLI's
-    # curl is capped at 1 s, so this adds at most about a second before `report started` and its own 12 s total, inside
+    # curl is capped at 1 s (the CLI's own start measured at 0.03 to 0.07 s on 11-14), so this adds about a second at
+    # most before `report started` and its own 12 s total, inside
     # the hook's 15 s ceiling. No agent token and no pane (the person's own Claude session): the board cannot tell who
     # is asking and refuses every time, so it is not asked, as file_notices_due does.
     AWAY_OUT=""

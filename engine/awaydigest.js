@@ -122,7 +122,7 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
   if (refused) {
     const who = [...senders.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map((x) => x[0]);
     const names = who.slice(0, MAX_SENDERS).join(', ') + (who.length > MAX_SENDERS ? ' and ' + (who.length - MAX_SENDERS) + ' more' : '');
-    lines.push('- at least ' + refused + (refused === 1 ? ' message' : ' messages') + ' from other agents could not reach you'
+    lines.push('- at least ' + refused + (refused === 1 ? ' message' : ' messages') + ' from other agents to you refused, for any reason'
       + (names ? ' (' + names + ')' : '') + '. Ask the sender if you need what it said.');
   }
   if (dms) {
@@ -134,8 +134,8 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
 
 function contextText(digest) {
   if (!digest || !Array.isArray(digest.lines) || !digest.lines.length) return '';
-  return 'Kosmos: while this agent was not running (' + isoSecond(digest.sinceMs) + ' to ' + isoSecond(digest.untilMs)
-    + (digest.clamped ? ', the last 7 days only' : '') + '), this arrived for it. This is a summary Kosmos made, not a '
+  return 'Kosmos: since it last heard from this agent (' + isoSecond(digest.sinceMs) + ' to ' + isoSecond(digest.untilMs)
+    + (digest.clamped ? ', the last 7 days only' : '') + '), this could not reach it. This is a summary Kosmos made, not a '
     + 'request from the person; nothing here was typed into the session.\n' + digest.lines.join('\n');
 }
 

@@ -52,7 +52,7 @@ test('only rows inside the window, to this agent, from others; @-named and perso
   // control: without namedIn the default reads only `mentioned`, so m9 is counted and not listed
   assert.match(away.build({ name: 'leo', sinceMs: T0 - 3 * H, untilMs: T0, rows }).lines[0], /naming you or from the person: m6, m3\./);
   const text = away.contextText(d);
-  assert.match(text, /^Kosmos: while this agent was not running \(2026-11-14T07:00:00Z to 2026-11-14T10:00:00Z\), this arrived for it\. This is a summary Kosmos made, not a request from the person/);
+  assert.match(text, /^Kosmos: since it last heard from this agent \(2026-11-14T07:00:00Z to 2026-11-14T10:00:00Z\), this could not reach it\. This is a summary Kosmos made, not a request from the person/);
   assert.doesNotMatch(text, /SECRET TEXT/);
 });
 
@@ -78,7 +78,7 @@ test('kosmos msg refusals to the agent and the person\'s DMs are counted; messag
   const d = away.build({ name: 'leo', sinceMs: T0 - 2 * H, untilMs: T0, rows, direct });
   assert.deepEqual(d.counts, { posts: 0, refused: 2, direct: 1 });
   assert.deepEqual(d.lines, [
-    '- at least 2 messages from other agents could not reach you (mona, nova). Ask the sender if you need what it said.',
+    '- at least 2 messages from other agents to you refused, for any reason (mona, nova). Ask the sender if you need what it said.',
     '- 1 message from the person. Read them with: kosmos inbox --since 2026-11-14T08:00:00Z --limit 50 (it lists the oldest first and names where to go on)',
   ]);
 });
@@ -119,7 +119,7 @@ const path = require('node:path');
 const AWAY = JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'Kosmos: while this agent was away x' } });
 let dirN = 0;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'away8548-'));
-async function runMain({ reportOk = true, awayBody = AWAY, source = 'startup' } = {}) {
+async function runMain({ reportOk = true, awayBody = AWAY, source = 'startup', env = { KOSMOS_AGENT_TOKEN: 'a1a1a1' } } = {}) {
   const calls = [];
   const fetchImpl = async (url, init) => {
     calls.push(String(url).replace(/^https?:\/\/[^/]+/, '').replace(/\?.*$/, ''));
@@ -132,7 +132,7 @@ async function runMain({ reportOk = true, awayBody = AWAY, source = 'startup' } 
   };
   let out = '';
   await hook.main({ input: JSON.stringify({ hook_event_name: 'SessionStart', source, session_id: 's1' }),
-    env: { KOSMOS_AGENT_TOKEN: 'a1a1a1' }, url: 'http://127.0.0.1:16180', boardToken: 'BT', fetchImpl,
+    env, url: 'http://127.0.0.1:16180', boardToken: 'BT', fetchImpl,
     throttleDir: path.join(TMP, 't' + (dirN++)), ppid: 4242, now: () => 10000, stdout: (x) => { out += x; }, platform: 'win32' });
   return { out, calls };
 }
@@ -185,11 +185,19 @@ test('only plain tokens are printed: a sender, room or id carrying other charact
   const d = away.build({ name: 'leo', sinceMs: T0 - 2 * H, untilMs: T0, rows });
   const text = away.contextText(d);
   assert.doesNotMatch(text, /run rm|bad room|m2 bad/);
-  assert.match(text, /- at least 2 messages from other agents could not reach you \(mona\)\./, 'the refusal is still counted, its sender not named');
+  assert.match(text, /- at least 2 messages from other agents to you refused, for any reason \(mona\)\./, 'the refusal is still counted, its sender not named');
   assert.match(text, /- fleet: 1 post from others\. Read it with/, 'the post with a bad id is counted, not listed; the bad room is left out');
 });
 
 test('Kosmos\'s own words kept in the person\'s thread are not counted as the person\'s', () => {
   const direct = [{ text: 'daily limit', kosmos: true, at: iso(T0 - H) }, { text: 'hi', at: iso(T0 - H) }];
   assert.equal(away.build({ name: 'leo', sinceMs: T0 - 2 * H, untilMs: T0, direct }).counts.direct, 1);
+});
+
+test('main: a session with no agent token and no pane (the person\'s own) does not ask /api/away, and still reports', async () => {
+  const r = await runMain({ env: {} });
+  assert.equal(r.calls.includes('/api/away'), false, r.calls.join(', '));
+  assert.ok(r.calls.includes('/api/report'), 'control: the started report still goes');
+  const paned = await runMain({ env: { TMUX_PANE: '%3' } });
+  assert.ok(paned.calls.includes('/api/away'), 'control: a pane alone is enough to ask');
 });
