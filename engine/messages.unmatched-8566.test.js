@@ -123,10 +123,27 @@ test('a post that woke every member another way (@all) says nothing about the na
   assert.match(note('Leo -> the team: heads up'), /^the team is not the name/, 'CONTROL: without @all it is said');
 });
 
-test('a long name is cut without splitting a character, so no lone surrogate reaches the JSON', () => {
-  const n = note('Leo -> x' + '\u{1F600}'.repeat(30) + ': hi');
-  assert.ok(n && !/[\ud800-\udbff](?![\udc00-\udfff])/.test(n), n);
-  assert.doesNotMatch(JSON.stringify(n), /\\ud8/i);
+test('a long name is cut to 60 characters', () => {
+  const long = 'Abcdefghijklmnopqrstuvwxyz Abcdefghijklmnopqrstuvwxyz Abcdefghijklmnopqrstuvwxyz';
+  const n = note('Leo -> ' + long + ': hi');
+  assert.ok(n.startsWith(long.slice(0, 60) + ' is not the name'), n);
+});
+
+
+test('a topic after a comma in the header is not a name and says nothing; a name beside it still does', () => {
+  for (const text of ['Leo -> Kano, heads-up on #12: x', 'Leo -> Kano, #7365 room archive: x', 'Leo -> Kano, re 3 items: x']) {
+    assert.equal(note(text), undefined, text);
+  }
+  assert.match(note('Leo -> Kano, Josh: x'), /^Josh is not the name/, 'CONTROL: a name-shaped part beside a member is still said');
+});
+
+test('a possessive of a member name, and a name with a member word in it, say nothing (they may mean the member)', () => {
+  assert.equal(note("Leo -> Kano's team: x"), undefined);
+  assert.equal(note('Leo -> Josh Kano: x'), undefined);
+});
+
+test('a typo beside every member named in the header is still said (only @all silences it)', () => {
+  assert.match(note('Leo -> Kano, Sub-Zero, Mara, Jsoh: x'), /^Jsoh is not the name/);
 });
 
 test('the member list is capped and says how many more', () => {
@@ -136,7 +153,9 @@ test('the member list is capped and says how many more', () => {
 });
 
 test('the note carries no double quote (kosmos post reads it with sed up to the first one) and stays the last key', () => {
-  const sent = send({ text: 'Leo -> "Josh": hi' });
+  const sent = send({ text: 'Leo -> Josh: quoted check' });
+  assert.match(sent.ambiguousNote, /^Josh is not the name/);
   assert.doesNotMatch(sent.ambiguousNote, /"/);
   assert.equal(Object.keys(sent).pop(), 'ambiguousNote');
+  assert.equal(note('Leo -> "Josh": hi'), undefined, 'a quoted part is not name-shaped');
 });

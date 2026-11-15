@@ -17,7 +17,10 @@ Card: a post addressed "Me -> Them:" where Them is no member's name wakes nobody
 - Silent for: a name any member or the poster answers to, even ambiguously (a word of a display name included); @all
   and everyone; a name outsidersNote already names; a person's post; a room shared with another computer (federated:
   this board cannot see every member there).
-- No double quote in it: kosmos post reads the note with sed up to the first one.
+- Only a name-shaped part speaks (one to three words of letters, . ' and -): the fleet's header carries topics after
+  a comma ("Kitty, heads-up on #12"), which are not names. A possessive of a member name ("Kano's team") is the member.
+- Silent when @all woke every member the names did not; a typo beside a full list of names is still said.
+- No double quote in it: kosmos post reads the note with sed up to the first one (name-shaped parts cannot hold one).
 - Both CLIs and the page already print ambiguousNote, so no reader changes.
 
 ## Rejected

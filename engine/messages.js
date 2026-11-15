@@ -2572,9 +2572,11 @@ function unmatchedNote(cleaned, recipients, roster, from, raw) {
     for (const part of head ? head.targets : []) {
       const bare = part.replace(/^@/, '').trim();
       if (!bare || /^(all|everyone)$/i.test(bare) || targetResolves(bare, members, roster).length) continue;   // it woke a member
-      if (bare.split(/\s+/).some((w) => insideKeys.has(nameKey(w)))) continue;   // a member's name, or a word of one
+      if (bare.split(/\s+/).some((w) => insideKeys.has(nameKey(w)) || insideKeys.has(nameKey(w.replace(/'s$/i, ''))))) continue;   // a member's name, a word of one, or its possessive
+      // Only a part shaped like a name: the fleet's header carries topics after a comma ("Kitty, heads-up on #12").
+      if (!/^[A-Za-z][A-Za-z.'-]*(?:[ \t]+[A-Za-z][A-Za-z.'-]*){0,2}$/.test(bare)) continue;
       if (mentionedMembers('@' + nameKey(bare), outside, roster).mentioned.size === 1) continue;   // outsidersNote names it
-      const shown = printableName(bare.slice(0, 60));   // cut first: printableName drops a surrogate the cut splits
+      const shown = bare.slice(0, 60);   // name-shaped (checked above): letters, . ' - and spaces only
       if (shown && !unmatched.includes(shown)) unmatched.push(shown);
     }
     if (!unmatched.length) return '';
@@ -2937,8 +2939,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   const note4653 = [ambiguous.size ? ambiguousNote(ambiguous, atNamed.mentioned, shown) : '',
     operator === true ? '' : outsidersNote(cleaned, recipients, roster, from, text),
     // kosmos#8566: a header name that named no one here; not for a name outsidersNote just named, nor in a shared room.
-    // Not when the post woke every member another way (@all beside the name), where "woke no one by it" reads wrong.
-    operator === true || federated === true || recipients.every((m) => m === from || mentioned.has(m)) ? '' : unmatchedNote(cleaned, recipients, roster, from, text)].filter(Boolean).join(' ');
+    // Not when @all woke every member the names did not (beside "-> the team: @all"), where "woke no one by it" reads wrong.
+    operator === true || federated === true || (recipients.every((m) => m === from || mentioned.has(m)) && !recipients.every((m) => m === from || namedHere.has(m))) ? '' : unmatchedNote(cleaned, recipients, roster, from, text)].filter(Boolean).join(' ');
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
