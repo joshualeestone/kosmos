@@ -105,3 +105,13 @@ test('#8261: a write from nobody named adds nobody', () => {
   records.set(p.id, 'Acme', {}, { now: NOW });
   assert.deepEqual(names(only(p)), ['ana']);
 });
+
+test('#8261: renderList reads an answer from an older board (no confirmedBy) by its latest writer', () => {
+  const rows = [
+    { name: 'Acme', status: 'active', confirmed: '2026-11-15', source: '', by: 'ana', byPerson: false, ageDays: 0, stale: false },
+    { name: 'Globex', status: '', confirmed: '2026-11-15', source: '', by: null, byPerson: true, ageDays: 0, stale: false },
+  ];
+  const out = records.renderList({ label: 'records', staleDays: 30, rows, stale: 0 }, { projectId: 'p1' }).split('\n');
+  assert.equal(out[1], '  Acme | active | confirmed 2026-11-15 (today) by ana | -');
+  assert.equal(out[2], '  Globex | - | confirmed 2026-11-15 (today) by the person | -');
+});

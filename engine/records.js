@@ -31,8 +31,9 @@ const NAME_MAX = 200;
 const STATUS_MAX = 80;
 const SOURCE_MAX = 500;
 const LABEL_MAX = 40;
-/* The rows live inside projects.json, which every board read parses whole and every write rewrites: 500 rows of at
-   most about 800 characters is about 400 KB per project at the cap, rather than the 2.5 MB 2000 rows would allow. */
+/* The rows live inside projects.json, which every board read parses whole and every write rewrites. A row at every
+   field's limit, with CONFIRMERS_MAX confirmers of 40-character names, is about 1,530 characters of JSON (about 1,190
+   without them), so 500 rows is about 750 KB per project at the cap (kosmos#8261 measured it). */
 const ROWS_MAX = 500;
 const STALE_DAYS = 30;
 const CONFIRMERS_MAX = 5;
@@ -239,8 +240,10 @@ function ageWords(days) {
 
 /** " by ana", " by ana and bo", " by ana, bo and the person": every confirmer of the row's status (#8261). */
 function whoWords(r) {
-  const names = (Array.isArray(r.confirmedBy) && r.confirmedBy.length ? r.confirmedBy : (confirmerOf(r.by, r.byPerson) ? [confirmerOf(r.by, r.byPerson)] : []))
-    .map((c) => (c.person ? 'the person' : c.by));
+  // An answer from an older board has no confirmedBy: then it names its latest writer only.
+  const latest = confirmerOf(r.by, r.byPerson);
+  const list = Array.isArray(r.confirmedBy) && r.confirmedBy.length ? r.confirmedBy : latest ? [latest] : [];
+  const names = list.map((c) => (c.person ? 'the person' : c.by));
   if (!names.length) return '';
   return ' by ' + (names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]);
 }
