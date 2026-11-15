@@ -164,8 +164,10 @@ function workedSince(rows, last, tries) {
    turns are set aside (ms)? "Worked" is what workedSince counts (a report other than idle, stopped or started, outside
    a turn one of those lines woke), with no posting turn to set aside. The caller passes this timer's own prompts, the
    task-done prompts and the re-read lines, the ones with a durable send record. A turn another Kosmos line woke (the
-   reply nudge, the feedback prompt) still reads as work, as it does for workedSince: none of them keeps its send times. true, false, or null when the history is unknown (no history, or a cut tail that
-   starts after `from` and shows no work). */
+   reply nudge, the feedback prompt) still reads as work, as it does for workedSince: none of them keeps its send times.
+   Review 2: the rows are state changes, so a turn that was busy at `from` and went idle inside the window is work too.
+   Returns true, false (an empty history is false: no work on record), or null when the history is unknown (not an
+   array, or a cut tail that starts after `from` and shows no work). */
 function workedWithin(rows, from, tries) {
   if (!Array.isArray(rows)) return null;
   const valid = rows.filter((r) => r && Number.isFinite(r.at));
@@ -177,9 +179,14 @@ function workedWithin(rows, from, tries) {
     return [t - SLACK_MS, idle ? idle.at : Infinity];
   };
   const own = (Array.isArray(tries) ? tries : []).filter(Number.isFinite).map(turnOf);
+  const setAside = (r) => own.some(([a, b]) => r.at >= a && r.at <= b);
+  // Review 2: the state at `from` is the last row before it; busy there (and not a Kosmos-woken turn) means busy into the window.
+  const before = valid.filter((r) => r.at < from);
+  const atFrom = before.length ? before[before.length - 1] : null;
+  if (atFrom && busy(atFrom) && !setAside(atFrom)) return true;
   for (const r of valid) {
     if (r.at < from || !busy(r)) continue;
-    if (own.some(([a, b]) => r.at >= a && r.at <= b)) continue;
+    if (setAside(r)) continue;
     return true;
   }
   // A cut tail that starts inside the window may have lost the work: unknown, which keeps the line.
@@ -259,7 +266,9 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
        no work in the last day is not sent the floor line: with nothing to report, the push for a long post can only get
        filler. Only a history that positively shows no work skips it (unknown keeps the line, as before), and the
        introduction line (never posted) is not affected. The block in its instructions still asks for the daily post;
-       this only stops Kosmos waking it to write one about nothing. */
+       this only stops Kosmos waking it to write one about nothing. Review 2: this also skips the waiting-activity line
+       lineFor would have sent in the floor line's place (owed comments, the following feed); new comments still reach
+       the agent through the reply nudge (engine/replynudge.js), which is not gated on this. */
     if (at.length && !(now - last < DAY_MS) && onNoProject(s, projects)) {
       let rows = null;
       if (typeof history === 'function') { try { rows = history(s); } catch { rows = null; } }

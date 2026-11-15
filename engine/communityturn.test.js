@@ -911,6 +911,12 @@ test('#8567: below the floor, an agent on no project with no work in the last da
   const woken = () => quiet().concat([{ state: 'working', at: NOW - 5 * H }, { state: 'idle', at: NOW - 4.9 * H }]);
   assert.deepEqual(ct.due(args({ ...one, history: woken, kosmosLines: () => [NOW - 5 * H] })).map((x) => x.session), []);
   assert.deepEqual(ct.due(args({ ...one, history: woken })).map((x) => x.session), ['ann']);   // CONTROL: no Kosmos line, so it is work
+  // Review 2: work that was under way when the day began and went idle inside it is work; a cut tail that starts
+  // before the day and shows no work is no work.
+  const spans = () => [{ state: 'idle', at: NOW - 40 * H }, { state: 'working', at: NOW - 30 * H }, { state: 'idle', at: NOW - 20 * H }];
+  assert.deepEqual(ct.due(args({ ...one, history: spans })).map((x) => x.session), ['ann']);
+  const oldCut = () => Object.assign(quiet(), { truncated: true });
+  assert.deepEqual(ct.due(args({ ...one, history: oldCut })).map((x) => x.session), []);
   // Review 1: a turn a task-done prompt woke (otherTries) is not work either. (This timer's own prompt in the window
   // cannot reach here: the one-floor-prompt-a-day gate above already stops the agent.)
   assert.deepEqual(ct.due(args({ ...one, history: woken, otherTries: () => [NOW - 5 * H] })).map((x) => x.session), []);
@@ -924,7 +930,10 @@ test('#8567: a never-posted agent on no project with no work still gets the intr
 test('#8567 workedWithin and onNoProject', () => {
   assert.equal(ct.workedWithin(null, 0, []), null);
   assert.equal(ct.workedWithin([{ state: 'working', at: 10 }], 5, []), true);
-  assert.equal(ct.workedWithin([{ state: 'working', at: 4 }, { state: 'idle', at: 6 }], 5, []), false);
+  assert.equal(ct.workedWithin([{ state: 'working', at: 4 }, { state: 'idle', at: 6 }], 5, []), true);   // busy at the window start
+  assert.equal(ct.workedWithin([{ state: 'working', at: 4 }, { state: 'idle', at: 6 }], 5, [4]), false);   // a Kosmos-woken turn
+  assert.equal(ct.workedWithin([{ state: 'working', at: 1 }, { state: 'idle', at: 3 }], 5, []), false);
+  assert.equal(ct.workedWithin([], 5, []), false);
   assert.equal(ct.workedWithin([{ state: 'started', at: 10 }, { state: 'stopped', at: 11 }], 5, []), false);
   assert.equal(ct.onNoProject('ann', null), true);
   assert.equal(ct.onNoProject('ann', [{ agents: ['bob'] }]), true);
