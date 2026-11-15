@@ -148,7 +148,7 @@ test('kosmos#8301: task show says closed, not run, and the parent counts dropped
     const child = await run(['task', 'show', projectId, String(never)]);
     assert.equal(child.code, 0, name + ': ' + child.err);
     assert.match(child.out, /^State: closed, not run$/m, name + ': ' + child.out);
-    assert.match((await run(['task', 'show', projectId, String(plain)])).out, /^State: done$/m, name + ' CONTROL: a plain close stays done');
+    assert.match((await run(['task', 'show', projectId, String(plain)])).out, /^State: done, without being marked built$/m, name + ' CONTROL: a plain close stays done (kosmos#8552: and says it was never marked built)');
     assert.match((await run(['task', 'show', projectId, String(top)])).out, /^Subtasks: 1 of 2 done, 1 dropped$/m, name);
   }
 });

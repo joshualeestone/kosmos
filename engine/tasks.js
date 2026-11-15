@@ -533,7 +533,7 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
        reopen must not bring back a stale "built"). */
     const closedNow = progressOf(changed).closed;
     const forWork = typeof dropBuilt === 'function' ? !!dropBuilt() : !!dropBuilt;
-    if (closedNow && !progressOf(t).closed) changed.closedHow = closedHowAt(t);   // kosmos#8552: as setClosed, before the mark goes
+    if (closedNow && !progressOf(t).closed) setClosedHow(changed, t, p);   // kosmos#8552: as setClosed, before the mark goes
     if (!closedNow) delete changed.closedHow;
     if ((forWork || closedNow) && t.builtAt) {
       changed = withoutBuilt(changed);
@@ -916,23 +916,30 @@ const LANDED_FIELDS = ['landedCommit', 'landedRepo', 'landedOnRemote', 'landedBy
    names). Closing drops the built mark (#3951), so the word is kept on the task as it closes (`closedHow`):
      'change'   a commit that is on a remote (landedOnRemote), or a delivered file (builtFingerprint / builtFilePath);
      'note'     marked built, with neither;
-     'unbuilt'  never marked built.
+     'unbuilt'  never marked built, and no subtasks (a parent's work is on its children, kosmos#8301: no word then).
    A landed commit proves a change was committed and pushed, not that it fixed the thing: it says "a change exists". */
 const CLOSED_HOW = Object.freeze(['change', 'note', 'unbuilt']);
-function closedHowAt(t) {
-  if (!t) return 'unbuilt';
+function closedHowAt(t, { hasSubtasks = false } = {}) {
+  if (!t) return hasSubtasks ? null : 'unbuilt';
   if (t.landedOnRemote === true && typeof t.landedCommit === 'string' && t.landedCommit !== '') return 'change';
   const built = typeof t.builtAt === 'string' && t.builtAt !== '';
-  if (!built) return 'unbuilt';
+  if (!built) return hasSubtasks ? null : 'unbuilt';
   return (typeof t.builtFingerprint === 'string' && t.builtFingerprint !== '') || (typeof t.builtFilePath === 'string' && t.builtFilePath !== '') ? 'change' : 'note';
+}
+/* kosmos#8552: store the word on `changed` from `t` as it was before this write, on project record `p`. */
+function setClosedHow(changed, t, p) {
+  const how = closedHowAt(t, { hasSubtasks: (p.tasks || []).some((x) => x && x.parent === t.number) });
+  if (how) changed.closedHow = how;
 }
 /** kosmos#8552: the word for a closed task, or null: open; closed as replaced or not run (those say so already); or closed
  * before this was recorded with nothing left to read it from (a commit on a remote survives a close, so that one still
  * reads 'change'; a built mark does not, so nothing else can be said, and nothing is guessed). */
 function closedHowOf(t) {
   if (!t || !progressOf(t).closed || Number.isInteger(t.replacedBy) || t.closedUnrun === true) return null;
+  const onRemote = t.landedOnRemote === true && typeof t.landedCommit === 'string' && t.landedCommit !== '';
+  if (t.closedHow === 'note' && onRemote) return 'change';   // pushed after it closed
   if (CLOSED_HOW.includes(t.closedHow)) return t.closedHow;
-  return t.landedOnRemote === true && typeof t.landedCommit === 'string' && t.landedCommit !== '' ? 'change' : null;
+  return onRemote ? 'change' : null;
 }
 const COMMIT_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const LANDED_REPO_MAX = 1024;
@@ -1321,7 +1328,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
        what is missing: a parent whose children did the work, or a person's own plain close, has no sign of work either. */
     if (after && (notRun || replacedNew)) changed.closedUnrun = true;
     if (!after || closedAt === null) delete changed.closedUnrun;   // a reopen clears it, also when the parts still read closed
-    if (!before && after) changed.closedHow = closedHowAt(t);   // kosmos#8552: read before the built mark goes (below)
+    if (!before && after) setClosedHow(changed, t, p);   // kosmos#8552: read before the built mark goes (below)
     if (!after) delete changed.closedHow;
     /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
     if (after) changed = withoutBuilt(changed);

@@ -23455,7 +23455,7 @@ const server = http.createServer(async (req, res) => {
       if (closed && !(Number.isFinite(closedAt) && Date.now() - closedAt < landedcheck.CHECK_WINDOW_MS)) return;
       const c = await landedcheck.checkTask(row, { budget: landedBudget });
       if (!c || sent) return;
-      if (c.state === 'kept' && c.onRemote === true) row.landedOnRemote = true;
+      if (c.state === 'kept' && c.onRemote === true) { row.landedOnRemote = true; row.closedHow = tasks.closedHowOf(row); }   // kosmos#8552
       if (closed) row.landedCheck = c.state;
     })).then(() => { clearTimeout(timer); sendOnce(); }, () => { clearTimeout(timer); sendOnce(); });
     return;
