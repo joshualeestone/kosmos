@@ -1,21 +1,27 @@
 # confirmfix-8553: the #8261 review-cap leftovers
 
-Card: joshualeestone/kosmos#8553 (leftovers of #8261, merged as kosmos#8554).
+Card: joshualeestone/kosmos#8553 (leftovers of #8261, merged as kosmos#8554). Comments and tests only: no code in
+engine/records.js changes.
 
 ## Calls
-1. Keep, and widened by call 2: a backdated source-only write does not move the row's date. The row's date is its
-   latest evidence; a confirmer who checked today is newer evidence than an old date given for a link. Pinned by a test
-   with a control (no confirmer kept: the backdated date stands). Weakest premise: someone backdating a row only to
-   mark it old cannot, while a fresh confirmer holds it; changing the status still does.
-2. A write that leaves the status out (a source fix) checked nothing, so it never moves the row's date, with or
-   without a confirmer kept (reviews 1 and 2: a source fix dated today made a 40-day-old check read "confirmed today").
-   A status write still sets it, as #6994 has it (its reconfirm test names the status). A status write from a writer
-   the board could not name (reachable through processCaller) keeps a kept confirmer's date and blanks by; a new
-   status from such a writer empties the confirmers. Header says so; tests pin both directions.
-3. Nits: the byte-budget comment says by is not capped and the count is characters, not bytes; the "stale before the
-   cap" comment says the cap alone decides when none is fresh. Left: "you" on the page and "the person" in the CLI
-   (unchanged wording from before #8261).
+1. Keep main's date rule: a row's `confirmed` is the newer of the written date and its newest kept confirmer.
+   Pinned: a backdated source-only write leaves a row on its fresh confirmer's date; CONTROL with no confirmer kept,
+   the backdated date stands.
+2. Keep, and say so: any write is evidence for the row's date (#6994), a source fix too, while confirmers lists only
+   who named the status. So a source fix dated today shows today beside an older confirmer. Pinned by a test.
+   Rejected (built in two review rounds, then reverted after round 3): making a status-less write or a nameless
+   writer leave the date alone. It silently broke the documented refresh (the agent instructions say a write with
+   no date is today; `--confirmed` alone did nothing) and threw away the person's own status check from a terminal
+   outside tmux (the board cannot name that writer). Weakest premise of keeping it: the line "confirmed today by
+   ana" can pair today's date with ana's older check; what would change my mind is a way to show each confirmer's
+   own age without crowding the line.
+3. Document: a write the board could not name (no token and no pane it could match, and not the screen; the
+   person's terminal outside tmux is one) blanks by and adds nobody; a new status from it empties the confirmers. A
+   named writer over CONFIRMER_NAME_MAX is in by and is not a confirmer. Pinned (by/byPerson asserts on the existing
+   nameless-write test).
+4. Nits: the byte-budget comment is called a typical case with its real caveats (by uncapped, NFKC key expansion,
+   JSON escaping, bytes vs characters), re-measured at 1,248 without confirmers; the "stale before the cap" comment
+   says the cap alone decides when none is fresh. Left: "you" on the page and "the person" in the CLI.
 
 ## Tests
-- Three new tests in engine/records-confirmers-8261.test.js plus a by/byPerson assert on the existing nameless-write test.
-- Records, server and CLI tests: 65 pass.
+- engine/records-confirmers-8261.test.js: two #8553 tests and a by/byPerson assert; records, server and CLI tests 65 pass.
