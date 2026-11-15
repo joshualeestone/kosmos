@@ -158,7 +158,7 @@ const SPECS = [
   {
     name: 'ElevenLabs', slug: 'elevenlabs', envVar: 'ELEVENLABS_API_KEY',
     where: 'https://elevenlabs.io/app/settings/api-keys', whereText: 'ElevenLabs’ API keys page',
-    hint: 'turning on the features your agents need and reading your account, so Kosmos can check the key, and a credit limit if you want one',
+    hint: 'allowing the features your agents need, plus account reading so Kosmos can check it',
     verify: { url: 'https://api.elevenlabs.io/v1/user', headers: (t) => ({ 'xi-api-key': t, Accept: 'application/json' }) },
     verifyUrlEnv: 'AGENT_WORKFORCE_ELEVENLABS_VERIFY_URL',
     // The service's own reason (detail.message, or detail as a string) is shown on a refusal.

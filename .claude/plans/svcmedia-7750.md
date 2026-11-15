@@ -16,7 +16,7 @@ backed by a spec in engine/tokendoors.js, the door checks the pasted token with 
    refused, the permission reason passed through, a bare 401 unchanged); negative control run (breaking
    the passthrough fails it). web.svc-doors.test.js pins both pill sentences.
 4. [x] Wider tests: every test that reads the doors (20 files, 244 tests) plus web.conn-shelf; full suite found two reds, both fixed in iteration 1 (the #6022 route guard in mobile-shots.js, and the #2518 surface gate, answered with per-check trailers: none of the four Connections checks asserts the new group or the "coming" text). The Connections checks are run for real before merge.
-5. [x] ElevenLabs hint changed to Mona Lisa's wording (fleetbuilders m4355): it names reading the account, so a key made by following it passes the check.
+5. [x] ElevenLabs hint changed to Mona Lisa's wording (fleetbuilders m4355, shortened in m4361 with the optional credit limit dropped): it names account reading, so a key made by following it passes the check.
 
 ## Decisions
 - ElevenLabs keys can be scoped to endpoint groups, and its docs do not say whether GET /v1/user needs a
