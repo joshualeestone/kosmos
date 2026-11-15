@@ -196,3 +196,28 @@ test('the CLI leaves the word out where the board cannot find the change, as the
   assert.equal(words({ closedHow: 'change', landedCheck: 'missing' }), 'State: done');
   assert.equal(words({ closedHow: 'change', landedCheck: 'kept' }), 'State: done, with a change', 'CONTROL');
 });
+
+test('a subtask put under a task after it closed unbuilt takes the word away, on both reads', () => {
+  const { id, n } = freshTask();
+  tasks.close(id, n);
+  assert.equal(row(id, n).closedHow, 'unbuilt', 'PRE-CONTROL');
+  tasks.create(id, { sentence: 'added later', who: 'rex', parent: n });
+  assert.equal(stored(id, n).closedHow, 'unbuilt', 'the stored word is unchanged');
+  assert.equal(row(id, n).closedHow, null, 'the task list');
+  const rec = projects.readAll().find((x) => x.id === id);
+  const joined = projects.joinTaskClaims(rec.tasks, projects.readAll(), [], [], { name: rec.name, id: rec.id });
+  assert.equal(joined.find((t) => t.number === n).closedHow, null, 'the task page');
+  assert.equal(tasks.closedHowOf({ closedAt: 'x', closedHow: 'note' }, { hasSubtasks: true }), 'note', 'only unbuilt gives way');
+});
+
+test('built subtasks closed with their parent are each derived from their own mark', () => {
+  const { id, n } = freshTask();
+  const a = tasks.create(id, { sentence: 'a file', who: 'rex', parent: n });
+  const b = tasks.create(id, { sentence: 'words', who: 'rex', parent: n });
+  mark(id, a.number, { fingerprint: PRINT });
+  mark(id, b.number, { note: 'done' });
+  const out = tasks.close(id, n, { withBuilt: true });
+  assert.deepEqual(out.closedWith.slice().sort((x, y) => x - y), [a.number, b.number].sort((x, y) => x - y), 'PRE-CONTROL: both closed with it');
+  assert.equal(stored(id, a.number).closedHow, 'change');
+  assert.equal(stored(id, b.number).closedHow, 'note');
+});
