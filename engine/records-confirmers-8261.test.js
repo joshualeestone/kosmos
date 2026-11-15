@@ -174,6 +174,11 @@ test('#8261: a name longer than CONFIRMER_NAME_MAX is left off the list; its wri
   assert.deepEqual(names(r), ['ana']);
   assert.equal(r.by, long);
   assert.equal(r.source, 'checked');
+  const stored = () => projects.readAll().find((x) => x.id === p.id).records[0].confirmers;
+  assert.deepEqual(stored().map((c) => c.by), ['ana'], 'the write does not store it either');
+  // A long name already in the stored list (written by hand) is not shown.
+  projects.mutate(p.id, (q) => ({ ...q, records: q.records.map((x) => ({ ...x, confirmers: [...x.confirmers, { by: long, person: false, confirmed: '2026-11-15' }] })) }));
+  assert.deepEqual(names(only(p)), ['ana'], 'a stored long name is not shown on read');
   records.set(p.id, 'Acme', { status: 'active' }, { by: 'x'.repeat(records.CONFIRMER_NAME_MAX), now: NOW });
   assert.equal(only(p).confirmedBy.length, 2, 'CONTROL: a name at the limit is listed');
 });
