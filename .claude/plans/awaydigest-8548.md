@@ -82,6 +82,9 @@ what could not reach the agent, not a full replay; the room log stays the record
 
 ## Not covered (stated)
 - An interactive (non -p) startup was not measured for additionalContext; Windows only by its own CI.
+- The Mac hook asks before `started`, and that the board can tell who is asking then is reasoned, not measured: the
+  `started` report a moment later resolves its caller by the same path (token, then pane) with the same roster. If it
+  cannot, the digest is silently not shown (an empty body), never wrong.
 - By hand, a report record longer than the history read (4 MB) can hold the newest `started` but not the report before
   it, so the window starts later than it should (fewer shown), or says it cannot tell.
 - A `kosmos msg` refusal is counted for any reason (a sender's own malformed message too); matching the not-running
