@@ -163,7 +163,7 @@ const USAGE = {
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
-    'Usage: kosmos agent <list|create|roles|role-draft|instructions-add|move|restart|remove>',
+    'Usage: kosmos agent <list|create|roles|role-draft|instructions-add|move|restart|remove|delete-leftovers>',
     '  kosmos agent list                               every agent on this board, its role, whether it is running, and any unsent text or long tool call (Claude agents only), stalled delivery or restart loop Kosmos has seen, and, for one whose state Kosmos cannot tell, why',
     '  kosmos agent create "<name>" <role> ["<why>"]   make an agent for the person, after they confirm',
     '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
@@ -183,6 +183,9 @@ const USAGE = {
     '                                                  any agent can be restarted this way, as from its page; never yourself;',
     '                                                  it needs the board token, which a Windows agent may not hold)',
     '  kosmos agent remove "<name>" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)',
+    '  kosmos agent delete-leftovers [--yes]           delete what is left of every removed agent (their startup jobs, and folders to the',
+    '                                                  Recycle Bin), each as the board\'s Delete does it, after one confirm; --yes removes',
+    '                                                  only the startup jobs; it needs the board token, which a Windows agent may not hold',
   ].join('\n'),
   feedback: [
     'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)',
@@ -2705,6 +2708,94 @@ async function agentRemove(ctx, args) {
   ctx.err('Kosmos gave an answer we could not read when removing ' + label + '. Look at the board to see whether it is still there.');
   return 1;
 }
+/* kosmos#8547: delete what is left of every removed agent, in one go. Removing an agent only switches its startup job off
+   (remove's first rule: it never deletes), so a Windows box that has removed many agents keeps one disabled Scheduled
+   Task per agent until each is deleted from the board, one at a time. This walks the board's own removed list (GET
+   /api/removed, the agents and the names with only settings left) and, for each, the board's own delete: GET
+   .../leftover is the plan in the engine's words, DELETE .../leftover does it with that plan's `confirm`, exactly as the
+   board's Delete button sends it. Nothing here decides what is deleted; the engine does, per agent.
+   What is NOT done in bulk, by design:
+   - a plan that asks for the name to be typed (something may be lost for good, or the folder may only be out of sight):
+     listed, and left for the board, where its reason is shown first;
+   - with --yes, anything but a startup-job-only delete: a full delete retires the agent's community account and its
+     tokens, which nothing brings back, so it needs a person at the terminal. --yes clears the tasks, which can always be
+     set up again. */
+const AGENT_DELETE_LEFTOVERS_USAGE = 'Usage: kosmos agent delete-leftovers [--yes]   (--yes: no question, and only startup jobs are removed)';
+const LEFTOVER_DELETE_TIMEOUT_MS = 180000;   // a Windows Recycle Bin move can take 120 s (delete-leftover's own limit)
+async function agentDeleteLeftovers(ctx, args) {
+  const yes = args.includes('--yes');
+  const words = args.filter((a) => a !== '--yes');
+  if (tooManyWords(ctx, 'agent delete-leftovers', 0, AGENT_DELETE_LEFTOVERS_USAGE, words)) return 2;
+  if (!yes && !ctx.canAsk()) { ctx.err('Nothing was deleted: there is no terminal here to confirm on. To remove only the startup jobs left by removed agents without being asked, add --yes.'); return 2; }
+  const listed = await ctx.call('GET', '/api/removed', undefined, { person: true });
+  if (!listed.reached) return ctx.unreachable('read the removed agents');
+  const lj = listed.json || {};
+  if (listed.status >= 400 || !Array.isArray(lj.agents)) {
+    const why = clause(lj.because || lj.error || '');
+    ctx.err('Kosmos could not list the removed agents' + (why ? ': ' + why : '') + '.');
+    return 1;
+  }
+  const names = [];
+  const seen = new Set();
+  for (const a of [...lj.agents, ...(Array.isArray(lj.leftovers) ? lj.leftovers : [])]) {
+    const n = a && typeof a.name === 'string' ? a.name : '';
+    if (!n || n === '.' || n === '..' || seen.has(n)) continue;
+    seen.add(n);
+    names.push({ name: n, shown: (a && a.shownAs) || n });
+  }
+  if (!names.length) { ctx.out('Nothing is left of any removed agent on this board, so there is nothing to delete.'); return 0; }
+  ctx.out('Looking at what is left of ' + names.length + ' removed agent' + (names.length === 1 ? '' : 's') + '...');
+  const go = [];        // { name, shown, plan }
+  const typed = [];     // shown names whose plan asks for the name to be typed
+  const fullHeld = [];  // shown names a --yes run leaves (a full delete)
+  const notOffered = [];  // { shown, because }
+  for (const n of names) {
+    const p = await ctx.call('GET', '/api/agent/' + encodeURIComponent(n.name) + '/leftover', undefined, { person: true });
+    if (!p.reached) return ctx.unreachable('read what is left of ' + n.shown);
+    const plan = p.json || {};
+    if (plan.ok !== true) { notOffered.push({ shown: n.shown, because: clause(plan.because || plan.error || '') || 'it did not say why' }); continue; }
+    const shown = plan.shown || n.shown;
+    if (plan.typeToConfirm) { typed.push(shown); continue; }
+    if (yes && !plan.taskOnly) { fullHeld.push(shown); continue; }
+    go.push({ name: typeof plan.name === 'string' && plan.name ? plan.name : n.name, shown, plan });
+  }
+  for (const x of notOffered) ctx.out('Not offered for ' + x.shown + ': ' + x.because + (/[?!.)]$/.test(x.because) ? '' : '.'));
+  if (typed.length) ctx.out('Left for the board, where each one asks for its name to be typed first: ' + typed.join(', ') + '.');
+  if (fullHeld.length) ctx.out('Left because --yes removes only startup jobs (these would also delete files and settings that do not all come back; run without --yes at a terminal, or delete them from the board): ' + fullHeld.join(', ') + '.');
+  if (!go.length) { ctx.out('Nothing was deleted.'); return typed.length || fullHeld.length ? 1 : 0; }
+  ctx.out('');
+  ctx.out('About to delete what is left of ' + go.length + ' removed agent' + (go.length === 1 ? '' : 's') + ':');
+  for (const g of go) ctx.out('  ' + g.shown + ': ' + (Array.isArray(g.plan.loses) && g.plan.loses.length ? g.plan.loses.join('; ') : (g.plan.question || 'what is left of it')));
+  if (go.some((g) => !g.plan.taskOnly)) ctx.out('A folder goes to the Recycle Bin where Kosmos can put it there; what each one loses is listed beside it.');
+  if (!yes) {
+    const answer = await ctx.ask('Delete all ' + go.length + '? [y/N] ');
+    if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was deleted.'); return 1; }
+  }
+  let done = 0;
+  const failed = [];
+  for (let i = 0; i < go.length; i++) {
+    const g = go[i];
+    // The plan's own fingerprint, so the engine refuses if what it would do has changed since it was listed above.
+    const body = { confirmed: typeof g.plan.confirm === 'string' ? g.plan.confirm : null };
+    const r = await ctx.call('DELETE', '/api/agent/' + encodeURIComponent(g.name) + '/leftover', body, { timeoutMs: LEFTOVER_DELETE_TIMEOUT_MS, person: true });
+    const rest = go.slice(i + 1).map((x) => x.shown);
+    const untouched = rest.length ? ' The rest were not tried: ' + rest.join(', ') + '.' : '';
+    if (!r.reached) {
+      if (r.notConnected) { ctx.err('Kosmos stopped answering before ' + g.shown + '. ' + done + ' deleted so far.' + untouched); return 1; }
+      return maybe(ctx.err, 'Kosmos stopped answering while deleting what is left of ' + g.shown + ', so it may be partly deleted; look at the board before trying again. ' + done + ' deleted before it.' + untouched);
+    }
+    const j = r.json || {};
+    const because = clause(j.because || j.error || '');
+    if (r.status >= 500 && !j.outcome) return maybe(ctx.err, g.shown + ' may be partly deleted: ' + (because || 'Kosmos did not say how far it got') + '. ' + done + ' deleted before it.' + untouched);
+    // A 409 is the board saying it is busy (restarting, or another delete or move under way): every later one would be refused too.
+    if (r.status === 409) { ctx.err('Stopped at ' + g.shown + ': ' + (because || 'the board is busy') + '. ' + done + ' deleted so far.' + untouched); return 1; }
+    if (j.outcome === 'deleted') { done++; ctx.out('Deleted: ' + g.shown + '.'); continue; }
+    failed.push(g.shown + ': ' + (because || (j.outcome === 'partial' ? 'only partly deleted' : 'Kosmos gave an answer we could not read')));
+    ctx.err((j.outcome === 'partial' ? 'Only partly deleted ' : 'Not deleted: ') + g.shown + (because ? ': ' + because : '') + '.');
+  }
+  ctx.out(done + ' of ' + go.length + ' deleted.' + (failed.length ? ' Not done: ' + failed.length + ' (above).' : ''));
+  return failed.length || typed.length || fullHeld.length ? 1 : 0;
+}
 /* kosmos#8071: install/kosmos's `agent restart`, through the agent page's own Restart (POST /api/agent/<name>/restart),
    so the engine decides and words everything; a confirm, or --yes; the outcome read back. */
 const AGENT_RESTART_USAGE = 'Usage: kosmos agent restart "<name>" [--yes]   (--yes: do not ask first, for scripts)';
@@ -3791,7 +3882,7 @@ const SUBCOMMAND_HANDLERS = {
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, show: taskShow, files: taskFiles, built: taskBuilt, 'done-when': taskDoneWhen, check: taskCheck, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, test: projectTest, role: projectRole, 'remove-member': projectRemoveMember },
-  agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, move: agentMove, restart: agentRestart, remove: agentRemove },
+  agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, move: agentMove, restart: agentRestart, remove: agentRemove, 'delete-leftovers': agentDeleteLeftovers },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
