@@ -26,6 +26,8 @@
  *    (#8271) once the daily floor is met the cap is PROMPTS_ONCE_FLOOR_MET, not PROMPTS_PER_DAY;
  *    a task-done prompt (o.otherTries, #6593) counts toward that gap always, and toward the daily count and the one prompt
  *    per post only once the daily floor is met;
+ *  - (kosmos#8567) below the floor, if it is on no project, its history shows work in the last day (workedWithin): an
+ *    agent with nothing to report is not woken to write a long post about nothing; an unknown history keeps the line;
  *  - it is not held on the shared Google quota (checked before the per-pass cut, so held agents cannot hold the pass).
  * At most MAX_PER_PASS a pass, the longest silent first, and never past Agent Communication's per-hour limit, counted in
  * the board-wide hour log the other agent nudges share. Sent through the caller's deliver (the board passes
@@ -155,6 +157,40 @@ function workedSince(rows, last, tries) {
   return false;
 }
 
+/* kosmos#8567 (an agent's feedback, 11-15): an agent on no project that has done no work all day was still sent the
+   daily floor line, a push for a long post with nothing behind it, which nudges filler. Pure: has the agent worked in
+   the window from `from` (ms) to now, given its report history (oldest first) and the turns Kosmos itself woke (ms)?
+   "Worked" is what workedSince counts (a report other than idle, stopped or started, outside a Kosmos-woken turn), but
+   with no posting turn to set aside. true, false, or null when the history is unknown (no history, or a cut tail that
+   starts after `from` and shows no work). */
+function workedWithin(rows, from, tries) {
+  if (!Array.isArray(rows)) return null;
+  const valid = rows.filter((r) => r && Number.isFinite(r.at));
+  const busy = (r) => r.state !== 'idle' && r.state !== 'stopped' && r.state !== 'started';
+  const turnOf = (t) => {
+    const woke = valid.find((r) => r.at >= t - SLACK_MS && r.at <= t + WORK_GRACE_MS && busy(r));
+    if (!woke) return [t - SLACK_MS, t + WORK_GRACE_MS];
+    const idle = valid.find((r) => r.state === 'idle' && r.at > woke.at);
+    return [t - SLACK_MS, idle ? idle.at : Infinity];
+  };
+  const own = (Array.isArray(tries) ? tries : []).filter(Number.isFinite).map(turnOf);
+  for (const r of valid) {
+    if (r.at < from || !busy(r)) continue;
+    if (own.some(([a, b]) => r.at >= a && r.at <= b)) continue;
+    return true;
+  }
+  // A cut tail that starts inside the window may have lost the work: unknown, which keeps the line.
+  if (rows.truncated === true && (!valid.length || valid[0].at > from)) return null;
+  return false;
+}
+
+/* kosmos#8567: on no project at all (archived ones aside). Paused projects still count as projects here: stoodDown
+   (replynudge) already keeps an agent whose every project is paused from being prompted. */
+function onNoProject(session, projects) {
+  return !(Array.isArray(projects) ? projects : []).some((p) => p && p.archived !== true
+    && Array.isArray(p.agents) && p.agents.includes(session));
+}
+
 function brakeOn(env) { return Boolean(env && env.AGENT_WORKFORCE_COMMUNITY_TURN_OFF === '1'); }
 
 function triesOf(book, s) {
@@ -215,6 +251,18 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
       let others = [];
       if (typeof kosmosLines === 'function') { try { const k = kosmosLines(s); if (Array.isArray(k)) others = k; } catch { others = []; } }
       if (workedSince(rows, last, [...own, ...others]) !== true) continue;
+    }
+    /* kosmos#8567: below the floor (it has posted before, but not in the last day), an agent on no project that has done
+       no work in the last day is not sent the floor line: with nothing to report, the push for a long post can only get
+       filler. Only a history that positively shows no work skips it (unknown keeps the line, as before), and the
+       introduction line (never posted) is not affected. The block in its instructions still asks for the daily post;
+       this only stops Kosmos waking it to write one about nothing. */
+    if (at.length && !(now - last < DAY_MS) && onNoProject(s, projects)) {
+      let rows = null;
+      if (typeof history === 'function') { try { rows = history(s); } catch { rows = null; } }
+      let others = [];
+      if (typeof kosmosLines === 'function') { try { const k = kosmosLines(s); if (Array.isArray(k)) others = k; } catch { others = []; } }
+      if (workedWithin(rows, now - DAY_MS, [...tries, ...others]) === false) continue;
     }
     let held = false;
     if (typeof quotaHeld === 'function') { try { held = quotaHeld(s, roster) === true; } catch { held = false; } }
@@ -497,4 +545,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { _pauseEnded: pauseEnded, PAUSE_OVER_TEXT, stamped, sentWhen, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, PROMPTS_ONCE_FLOOR_MET, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, tickOnceAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile };
+module.exports = { _pauseEnded: pauseEnded, PAUSE_OVER_TEXT, stamped, sentWhen, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, PROMPTS_ONCE_FLOOR_MET, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, workedWithin, onNoProject, brakeOn, due, tickOnce, tickOnceAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile };
