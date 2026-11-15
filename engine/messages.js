@@ -2912,6 +2912,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   const askedAll = operator === true ? 0 : recipients.filter((n) => asksMember(n)).length;
   const oneThrough = loopPaused && askedAll === 1 && askedHere.length === 1 && require('./roomloop').pairCan(projectId, from, askedHere[0]);
   const loopQuiet = loopPaused && !oneThrough;
+  /* kosmos#8535 review 2: why a quiet post was quiet, taken now, for the note it is given back (roomloop.senderNote). */
+  const quietCtx = loopQuiet ? require('./roomloop').quietWhy(projectId, from, askedAll, askedHere.length === 1 ? askedHere[0] : null) : null;
   /* #3564: the post is charged for the members it is sent to. kosmos#7246 slice 2 (round 3): an agent's post is charged
      only for the members it will wake (addressed, not switched off here, the project not paused, or kosmos#7461 a one-member
      post the pause lets through), as reachedCount
@@ -3594,7 +3596,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   const state = aggregateState(outcomes);
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
-    return { state, because: loopPausedHere ? require('./roomloop').senderNote(projectId, Date.now(), { from, asked: askedAll, to: askedHere.length === 1 ? askedHere[0] : null }) : null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
+    return { state, because: loopPausedHere ? require('./roomloop').senderNote(projectId, Date.now(), quietCtx || {}) : null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
       ...(closing ? { closing: true } : {}),   // #6920: landed as this member's one post through a held room
       /* #6254: whether this post answers one the PERSON wrote (operator), the one signal the phone-notify
          `posted` seam needs from here (the route has no other way to know; the person is never an @mention).

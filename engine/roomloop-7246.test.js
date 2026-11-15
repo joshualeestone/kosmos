@@ -478,7 +478,7 @@ test('kosmos#8535: a post the pause kept quiet is told why, who set it, and what
     assert.match(said, /woke no one: Kosmos has paused agents waking each other in this project until about /, 'CONTROL: the old opening is kept');
     assert.match(said, new RegExp('woke one another ' + roomloop.LOOP_CAP + ' times within an hour'), 'the reason is missing: ' + said);
     assert.match(said, /an automatic limit, not a person; a person's post in the room ends it/, 'who set it, and what ends it, is missing: ' + said);
-    assert.match(said, /address exactly one member: that still gets through$/, 'the one action that gets through is missing: ' + said);
+    assert.match(said, new RegExp('address exactly one member: that still gets through, up to ' + roomloop.PAIR_CAP + ' times per member during this pause$'), 'the one action that gets through, and its limit, is missing: ' + said);
     assert.ok(!said.endsWith('.'), 'the note ends in a full stop, and the CLIs add their own: ' + said);
     assert.ok(!said.includes('\n'), 'not one line: ' + said);
     // One member, but this pair's allowance is spent: say so, and that another member still works.
