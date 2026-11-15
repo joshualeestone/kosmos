@@ -299,3 +299,19 @@ test('#8547: two listed spellings of one agent are deleted once, on both CLIs', 
     assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/agent/leo/leftover']);
   });
 });
+
+test('#8547: an agent the board does not offer makes the run exit 1, on both CLIs (control: without it, 0)', async () => {
+  const ONE_REFUSED = { removed: { agents: [{ name: 'tasky' }, { name: 'zed' }] }, plans: { tasky: TASK_ONLY('tasky') } };
+  const CLEAN = { removed: { agents: [{ name: 'tasky' }] }, plans: { tasky: TASK_ONLY('tasky') } };
+  await withStub(ONE_REFUSED, async (port, seen) => {
+    const w = await winRun(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(w.code, 1, w.out);
+    const m = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(m.code, 1, m.out);
+    assert.equal(deletes(seen).length, 2, 'tasky was not deleted on each run');
+  });
+  await withStub(CLEAN, async (port) => {
+    assert.equal((await winRun(port, ['agent', 'delete-leftovers', '--yes'])).code, 0);
+    assert.equal((await cli(port, ['agent', 'delete-leftovers', '--yes'])).code, 0);
+  });
+});

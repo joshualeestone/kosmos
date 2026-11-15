@@ -2767,7 +2767,9 @@ async function agentDeleteLeftovers(ctx, args) {
   for (const x of notOffered) ctx.out('Not offered for ' + x.shown + ': ' + x.because + (/[?!.)]$/.test(x.because) ? '' : '.'));
   if (typed.length) ctx.out('Left for the board, where each one asks for its name to be typed first: ' + typed.join(', ') + '.');
   if (fullHeld.length) ctx.out('Left because --yes removes only startup jobs (these would also delete files and settings that do not all come back; run without --yes at a terminal, or delete them from the board): ' + fullHeld.join(', ') + '.');
-  if (!go.length) { ctx.out('Nothing was deleted.'); return typed.length || fullHeld.length ? 1 : 0; }
+  // Anything not done (not offered, left for the board, or held by --yes) makes the run exit 1: a script reads 0 as all gone.
+  const leftAny = notOffered.length || typed.length || fullHeld.length;
+  if (!go.length) { ctx.out('Nothing was deleted.'); return leftAny ? 1 : 0; }
   ctx.out('');
   ctx.out('About to delete what is left of ' + go.length + ' removed agent' + (go.length === 1 ? '' : 's') + ':');
   for (const g of go) ctx.out('  ' + g.shown + ': ' + (Array.isArray(g.plan.loses) && g.plan.loses.length ? g.plan.loses.join('; ') : (g.plan.question || 'what is left of it')));
@@ -2801,7 +2803,7 @@ async function agentDeleteLeftovers(ctx, args) {
     ctx.err((j.outcome === 'partial' ? 'Only partly deleted ' : 'Not deleted: ') + g.shown + (because ? ': ' + because : '') + '.');
   }
   ctx.out(done + ' of ' + go.length + ' deleted.' + (failed.length ? ' Not done: ' + failed.length + ' (above).' : ''));
-  return failed.length || typed.length || fullHeld.length ? 1 : 0;
+  return failed.length || leftAny ? 1 : 0;
 }
 /* kosmos#8071: install/kosmos's `agent restart`, through the agent page's own Restart (POST /api/agent/<name>/restart),
    so the engine decides and words everything; a confirm, or --yes; the outcome read back. */

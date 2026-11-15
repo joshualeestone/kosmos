@@ -7798,7 +7798,7 @@ cmd_agent() {
       say "                                                  Trash), each as the board's Delete does it, after one confirm; an agent whose"
       say "                                                  folder is still there is then gone for good and cannot be put back; --yes deletes"
       say "                                                  only leftovers that are nothing but a Windows startup job, so on a Mac"
-      say "                                                  or Linux it deletes nothing: run it at a terminal there"
+      say "                                                  or Linux it deletes nothing today: run it at a terminal there"
       exit 2 ;;
     delete-leftovers)
       # kosmos#8547: --yes only; any other word is refused before any request.
@@ -8270,7 +8270,7 @@ cmd_agent() {
       # typed is left for the board; with --yes only startup-job-only plans are acted on. Every call goes with the
       # board token: these routes are the person's.
       local dl_bt dl_list dl_n dl_s dl_path dl_line dl_ok dl_shown dl_target dl_typed dl_task dl_conf dl_why dl_loses
-      local dl_seenl=$'\n' dl_hasfolder dl_folders="" dl_end dl_nfull=0 dl_ask
+      local dl_notoff="" dl_seenl=$'\n' dl_hasfolder dl_folders="" dl_end dl_nfull=0 dl_ask
       local dl_go=() dl_goshown=() dl_goconf=() dl_goloses=() dl_gotask=() dl_typedl="" dl_heldl="" dl_i dl_full="" dl_code dl_out dl_done=0 dl_failed=0 dl_rest dl_j
       local _dlparse='let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");'
       dl_bt="$(board_token || true)"
@@ -8299,7 +8299,7 @@ cmd_agent() {
         if [ "$dl_ok" != ok ]; then
           while [[ "$dl_why" == *[.[:space:]] ]]; do dl_why="${dl_why%?}"; done
           case "${dl_why:-x}" in *[?!\)]) dl_end="" ;; *) dl_end="." ;; esac
-          say "Not offered for $dl_shown: ${dl_why:-it did not say why}${dl_end}"; continue
+          say "Not offered for $dl_shown: ${dl_why:-it did not say why}${dl_end}"; dl_notoff=1; continue
         fi
         if [ -n "$dl_typed" ]; then dl_typedl="${dl_typedl:+$dl_typedl, }$dl_shown"; continue; fi
         if [ -n "$KOSMOS_DL_YES" ] && [ -z "$dl_task" ]; then dl_heldl="${dl_heldl:+$dl_heldl, }$dl_shown"; continue; fi
@@ -8314,7 +8314,7 @@ cmd_agent() {
       [ -z "$dl_heldl" ] || say "Left because --yes removes only startup jobs (these would also delete files and settings that do not all come back; run without --yes at a terminal, or delete them from the board): $dl_heldl."
       if [ "${#dl_go[@]}" -eq 0 ]; then
         say "Nothing was deleted."
-        if [ -n "$dl_typedl$dl_heldl" ]; then exit 1; fi
+        if [ -n "$dl_typedl$dl_heldl$dl_notoff" ]; then exit 1; fi
         exit 0
       fi
       if [ "${#dl_go[@]}" = 1 ]; then dl_s=""; else dl_s="s"; fi
@@ -8363,7 +8363,7 @@ cmd_agent() {
         esac
       done
       if [ "$dl_failed" -gt 0 ]; then say "$dl_done of ${#dl_go[@]} deleted. Not done: $dl_failed (above)."; else say "$dl_done of ${#dl_go[@]} deleted."; fi
-      if [ "$dl_failed" -gt 0 ] || [ -n "$dl_typedl$dl_heldl" ]; then exit 1; fi
+      if [ "$dl_failed" -gt 0 ] || [ -n "$dl_typedl$dl_heldl$dl_notoff" ]; then exit 1; fi
       ;;
   esac
 }
