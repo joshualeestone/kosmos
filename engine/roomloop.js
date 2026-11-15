@@ -126,17 +126,31 @@ function senderNote(projectId, now = Date.now(), ctx = {}) {
     const head = 'your post is in the room, but it woke no one: Kosmos has paused agents waking each other in this project until about ' + hhmm
       + ', because agents\' posts here woke one another ' + cap + ' times within an hour (an automatic limit, not a person; a person\'s post in the room ends it)';
     const c = ctx && typeof ctx === 'object' ? ctx : {};
-    // Review 1: the project's one-member allowance is checked for EVERY post, so no post is told to address one member
-    // when that would be refused too. No final full stop: the CLIs add their own after the note.
-    if ((throughWakes.get(p) || 0) >= THROUGH_CAP) {
+    // Review 1: the project's one-member allowance is said for EVERY post, so no post is told to address one member when
+    // that would be refused too. Review 2: from `quietWhy`, taken when the post was ruled quiet, not read again now. No
+    // final full stop: the CLIs add their own after the note.
+    if (c.throughSpent === true) {
       return head + '. A post to exactly one member gets through ' + THROUGH_CAP + ' times per pause in this project, and those are used up';
     }
-    if (c.asked === 1 && typeof c.to === 'string' && c.to && typeof c.from === 'string' && c.from
-      && (pairWakes.get(p + '\u0000' + c.from + '\u0000' + c.to) || 0) >= PAIR_CAP) {
+    if (c.pairSpent === true && typeof c.to === 'string' && c.to) {
       return head + '. You have woken ' + c.to + ' ' + PAIR_CAP + ' times during this pause, the most it allows; a post to a different single member may still get through';
     }
-    return head + '. To wake someone now, address exactly one member: that still gets through';
+    return head + '. To wake someone now, address exactly one member: that still gets through, up to ' + PAIR_CAP + ' times per member during this pause';
   } catch { return 'your post is in the room, but it woke no one: agents waking each other is paused in this project'; }
+}
+
+/* kosmos#8535 review 2: why a paused post was quiet, read when it is ruled quiet (beside pairCan), so the note given back
+   describes that moment, not the counters after its delivery. `to` is the one member the post asked, when it asked one. */
+function quietWhy(projectId, from, asked, to) {
+  try {
+    const p = String(projectId);
+    const one = asked === 1 && typeof to === 'string' && to && typeof from === 'string' && from;
+    return {
+      throughSpent: (throughWakes.get(p) || 0) >= THROUGH_CAP,
+      pairSpent: Boolean(one) && (pairWakes.get(p + '\u0000' + from + '\u0000' + to) || 0) >= PAIR_CAP,
+      to: one ? to : null,
+    };
+  } catch { return {}; }
 }
 
 /* Round 3: a person posted in `projectId`, so its count starts over and the next pause is said at once. */
@@ -151,4 +165,4 @@ function liveCap() { return cap; }
 function setCapForTests(n) { cap = n; }
 function resetForTests() { wakes.clear(); said.clear(); pausedAt.clear(); pairWakes.clear(); throughWakes.clear(); cap = LOOP_CAP; }
 
-module.exports = { LOOP_CAP, LOOP_WINDOW_MS, paused, noteWake, clear, liveCap, freesAt, pauseNote, senderNote, setCapForTests, resetForTests, pairCan, pairTake, pairRefund, PAIR_CAP, THROUGH_CAP };
+module.exports = { LOOP_CAP, LOOP_WINDOW_MS, paused, noteWake, clear, liveCap, freesAt, pauseNote, senderNote, quietWhy, setCapForTests, resetForTests, pairCan, pairTake, pairRefund, PAIR_CAP, THROUGH_CAP };
