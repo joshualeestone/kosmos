@@ -107,6 +107,7 @@ test('#8261: a write from nobody named adds nobody', () => {
   records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
   records.set(p.id, 'Acme', { status: 'active' }, { now: NOW });
   assert.deepEqual(names(only(p)), ['ana']);
+  assert.deepEqual([only(p).by, only(p).byPerson], [null, false], '#8553: by records that the board could not name the writer');
 });
 
 test('#8261: renderList reads an answer from an older board (no confirmedBy) by its latest writer', () => {
@@ -226,12 +227,16 @@ test('#8553: a backdated source-only write leaves the row on its fresh confirmer
   assert.equal(records.list(p.id, { now: NOW }).rows.find((x) => x.name === 'Globex').confirmed, '2026-09-01');
 });
 
-test('#8553: a write the board could not name leaves the confirmers and blanks by', () => {
+test('#8553: a source fix dated today does not make an old check read as fresh', () => {
   const p = project();
-  records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
-  records.set(p.id, 'Acme', { status: 'active' }, { now: NOW });
+  records.set(p.id, 'Acme', { status: 'active', confirmed: '2026-10-06' }, { by: 'ana', now: NOW });   // 40 days old
+  records.set(p.id, 'Acme', { source: 'fixed link' }, { by: 'bo', now: NOW });
   const r = only(p);
-  assert.deepEqual(names(r), ['ana']);
-  assert.equal(r.by, null);
-  assert.equal(r.byPerson, false);
+  assert.equal(r.confirmed, '2026-10-06', 'the row keeps ana\'s date: bo checked nothing');
+  assert.equal(r.stale, true);
+  assert.match(line(p), /confirmed 2026-10-06 \(40 days ago, stale\) by ana \| fixed link$/);
+  // CONTROL: bo naming the status is a check, and the row moves to today with bo on it.
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'bo', now: NOW });
+  assert.equal(only(p).confirmed, '2026-11-15');
+  assert.deepEqual(names(only(p)), ['bo']);
 });

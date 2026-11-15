@@ -16,12 +16,13 @@
  *     entity is one row.
  *   - confirmed: YYYY-MM-DD, the date of the row's latest evidence. A write IS evidence, so it is today unless
  *     the writer says when the evidence is from; a backdated write never moves it behind a confirmer the row keeps
- *     (#8261), so the date always belongs to someone on the list. That includes a write that only fixes the source:
- *     a fresh confirmer is newer evidence than an old date given for a link (#8553, pinned by a test).
+ *     (#8261), and a write that adds no confirmer (a source fix, or a writer the board could not name) does not move
+ *     it at all while the row keeps a confirmer, so the date always belongs to someone on the list (#8553, pinned by
+ *     tests both ways). With no confirmer kept, the written date stands.
  *   - status and source are optional; a write leaves a field alone unless it names it ('' clears it).
  *   - by / byPerson: the latest writer, filled in by the board from the writer's own card, never typed; null and false
- *     when the board could not name the writer (no token, no pane, not the screen), which leaves confirmers as they are
- *     (#8553).
+ *     when the board could not name the writer (no token and no pane it could match, and not the screen). Such a
+ *     write adds nobody to the confirmers; if it names a new status it empties them, like any new status (#8553).
  *   - confirmers (#8261): every distinct writer that created the row or named its current status (a write that
  *     leaves the status out, such as a source fix, adds nobody), in the order each first confirmed it
  *     (a repeat write does not move a name, only refreshes its date), at most CONFIRMERS_MAX, the earliest dropped
@@ -41,8 +42,9 @@ const SOURCE_MAX = 500;
 const LABEL_MAX = 40;
 /* The rows live inside projects.json, which every board read parses whole and every write rewrites. A row at every
    field's limit, with CONFIRMERS_MAX dated confirmers of CONFIRMER_NAME_MAX-character names and an 80-character by,
-   is about 1,900 characters of JSON (about 1,190 without confirmers), so 500 rows is about 950 KB per project at the
-   cap (kosmos#8261 measured it). Characters, not bytes: non-ASCII text takes more. by itself is not capped here. */
+   is about 1,900 characters of JSON (about 1,250 without confirmers), so 500 rows is about 950 KB per project
+   (kosmos#8261 measured it). That is a typical case, not a bound: by is not capped here, the key can expand under
+   NFKC, quotes and backslashes double in JSON, and non-ASCII text takes more bytes than characters. */
 const ROWS_MAX = 500;
 const STALE_DAYS = 30;
 const CONFIRMERS_MAX = 5;
@@ -218,7 +220,11 @@ function set(projectId, name, fields = {}, { by = null, person = false, now } = 
     // fresh all are kept, and then the cap alone decides which five stay.)
     confirmers = freshConfirmers(confirmers, now).slice(-CONFIRMERS_MAX);
     // The row's date is its latest evidence: a backdated write never moves it behind a confirmer it keeps.
-    const rowConfirmed = confirmers.reduce((d, c) => (c.confirmed > d ? c.confirmed : d), confirmed);
+    // A write that adds no confirmer (a source fix, or a writer the board could not name) gives the row no new date
+    // while it keeps a confirmer: the row's date stays that confirmer's (#8553).
+    const counted = !!me && (i < 0 || namesStatus);
+    const newest = confirmers.reduce((d, c) => (c.confirmed > d ? c.confirmed : d), '');
+    const rowConfirmed = confirmers.length && !counted ? newest : (newest > confirmed ? newest : confirmed);
     const row = {
       // The name as first written stays the row's name: an update spelled "acme" does not rename the person's "Acme Inc".
       ...before, name: i < 0 ? clean : before.name, key, confirmed: rowConfirmed,
