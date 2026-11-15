@@ -3594,7 +3594,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   const state = aggregateState(outcomes);
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
-    return { state, because: loopPausedHere ? require('./roomloop').senderNote(projectId) : null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
+    return { state, because: loopPausedHere ? require('./roomloop').senderNote(projectId, Date.now(), { from, asked: askedAll, to: askedHere.length === 1 ? askedHere[0] : null }) : null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
       ...(closing ? { closing: true } : {}),   // #6920: landed as this member's one post through a held room
       /* #6254: whether this post answers one the PERSON wrote (operator), the one signal the phone-notify
          `posted` seam needs from here (the route has no other way to know; the person is never an @mention).

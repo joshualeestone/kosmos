@@ -469,6 +469,38 @@ test('kosmos#7461: two agents answering each other under the pause stop after PA
   });
 });
 
+test('kosmos#8535: a post the pause kept quiet is told why, who set it, and what still gets through', () => {
+  withFleet(room(), (board) => {
+    pause(board);
+    // Two members addressed: the way through is to address exactly one.
+    const two = post(board, 'pigeonpete', '@monalisa @angel status?');
+    const said = String(two.sent.because);
+    assert.match(said, /woke no one: Kosmos has paused agents waking each other in this project until about /, 'CONTROL: the old opening is kept');
+    assert.match(said, new RegExp('woke one another ' + roomloop.LOOP_CAP + ' times in the last hour'), 'the reason is missing: ' + said);
+    assert.match(said, /an automatic limit, not a person; a person's post in the room ends it/, 'who set it, and what ends it, is missing: ' + said);
+    assert.match(said, /address exactly one member: that still gets through\.$/, 'the one action that gets through is missing: ' + said);
+    assert.ok(!said.includes('\n'), 'not one line: ' + said);
+    // One member, but this pair's allowance is spent: say so, and that another member still works.
+    for (let i = 0; i < roomloop.PAIR_CAP; i += 1) assert.deepEqual(post(board, 'pigeonpete', '@monalisa handoff ' + i).woke, ['monalisa'], 'fixture: a handoff was quiet');
+    const spent = String(post(board, 'pigeonpete', '@monalisa one more').sent.because);
+    assert.match(spent, new RegExp('You have woken monalisa ' + roomloop.PAIR_CAP + ' times during this pause'), 'the spent pair is not named: ' + spent);
+    assert.doesNotMatch(spent, /address exactly one member/, 'a sender who did address one member was told to address one member: ' + spent);
+  });
+});
+
+test('kosmos#8535: when the one-member allowance of the project is used up, the quiet post says that, not "address one member"', () => {
+  withFleet(room(), (board) => {
+    pause(board);
+    const ring = [['pigeonpete', 'monalisa'], ['monalisa', 'angel'], ['angel', 'pigeonpete'], ['pigeonpete', 'angel'], ['angel', 'monalisa'], ['monalisa', 'pigeonpete']];
+    let woke = 0;
+    for (let i = 0; i < 2 && woke < roomloop.THROUGH_CAP; i += 1) for (const [from, to] of ring) if (woke < roomloop.THROUGH_CAP) woke += post(board, from, '@' + to + ' hand on ' + i).woke.length;
+    assert.equal(woke, roomloop.THROUGH_CAP, 'fixture: the project allowance was not spent: ' + woke);
+    // A pair that has NOT used its own allowance: only the project's is spent.
+    const said = String(post(board, 'angel', '@monalisa again').sent.because);
+    assert.match(said, new RegExp('gets through ' + roomloop.THROUGH_CAP + ' times per pause in this project, and those are used up'), 'the spent project allowance is not said: ' + said);
+  });
+});
+
 test('kosmos#7461: the pair budget is per pause: a new pause starts each pair again', () => {
   withFleet(room(), (board) => {
     pause(board);

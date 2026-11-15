@@ -115,11 +115,26 @@ function pauseNote(projectId, now = Date.now()) {
   } catch { return ''; }
 }
 
-/* What the sending agent is told when its post woke no one because of the pause (round 1). */
-function senderNote(projectId, now = Date.now()) {
+/* What the sending agent is told when its post woke no one because of the pause (round 1). kosmos#8535: and why, who set
+   it, and the one thing that still gets through, in one line, so an agent can tell whether to wait, address one member,
+   or escalate. `ctx` (all optional): `from`, the sender; `asked`, how many members the post asked; `to`, the one it asked
+   when that was one. The only pause this module makes is its own automatic cap, so the source is always that. */
+function senderNote(projectId, now = Date.now(), ctx = {}) {
   try {
-    const hhmm = new Date(freesAt(String(projectId), now)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
-    return 'your post is in the room, but it woke no one: Kosmos has paused agents waking each other in this project until about ' + hhmm;
+    const p = String(projectId);
+    const hhmm = new Date(freesAt(p, now)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+    const head = 'your post is in the room, but it woke no one: Kosmos has paused agents waking each other in this project until about ' + hhmm
+      + ', because agents\' posts here woke one another ' + cap + ' times in the last hour (an automatic limit, not a person; a person\'s post in the room ends it).';
+    const c = ctx && typeof ctx === 'object' ? ctx : {};
+    if (c.asked === 1 && typeof c.to === 'string' && c.to) {
+      if ((throughWakes.get(p) || 0) >= THROUGH_CAP) {
+        return head + ' A post to exactly one member gets through ' + THROUGH_CAP + ' times per pause in this project, and those are used up.';
+      }
+      if (typeof c.from === 'string' && c.from && (pairWakes.get(p + '\u0000' + c.from + '\u0000' + c.to) || 0) >= PAIR_CAP) {
+        return head + ' You have woken ' + c.to + ' ' + PAIR_CAP + ' times during this pause, the most it allows; a post to one other member still gets through.';
+      }
+    }
+    return head + ' To wake someone now, address exactly one member: that still gets through.';
   } catch { return 'your post is in the room, but it woke no one: agents waking each other is paused in this project'; }
 }
 
