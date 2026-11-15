@@ -315,3 +315,34 @@ test('#8547: an agent the board does not offer makes the run exit 1, on both CLI
     assert.equal((await cli(port, ['agent', 'delete-leftovers', '--yes'])).code, 0);
   });
 });
+
+test('#8547 Mac: a dropped connection mid-delete stops as "may be partly deleted" (exit 3) and names the ones not tried', () => withStub({ ...MIXED, del: () => ['drop'] }, async (port, seen) => {
+  const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+  assert.equal(r.code, 3, r.out);
+  assert.equal(deletes(seen).length, 1, 'it kept going after a delete that may be partway');
+  assert.match(r.out, /may be partly deleted; look at the board before trying again \(http:\/\/127\.0\.0\.1:\d+\/\)\. 0 deleted before it\. The rest were not tried: settly\./);
+}));
+
+test('#8547: a 2xx answer neither CLI can read stops as "may have been deleted" (exit 3), never "Not deleted"', async () => {
+  const UNREAD = { ...MIXED, del: () => [200, { something: 'else' }] };
+  await withStub(UNREAD, async (port, seen) => {
+    const w = await winRun(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(w.code, 3, w.err);
+    assert.match(w.err, /tasky may have been deleted: Kosmos accepted the request but we could not read how it went\./);
+    assert.doesNotMatch(w.err, /Not deleted/);
+    const m = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(m.code, 3, m.out);
+    assert.match(m.out, /tasky may have been deleted: Kosmos accepted the request but we could not read how it went\./);
+    assert.equal(deletes(seen).length, 2, 'each run should stop after its first delete');
+  });
+});
+
+test('#8547: with more than 25 removed agents, both CLIs say how far the looking has got', async () => {
+  const agents = Array.from({ length: 30 }, (_, i) => ({ name: 'a' + i }));
+  await withStub({ removed: { agents } }, async (port) => {
+    const w = await winRun(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.match(w.out, /Looked at 25 of 30\.\.\./);
+    const m = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.match(m.out, /Looked at 25 of 30\.\.\./);
+  });
+});

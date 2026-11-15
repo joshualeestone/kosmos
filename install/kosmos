@@ -8284,7 +8284,10 @@ cmd_agent() {
       dl_n=$(printf '%s\n' "$dl_list" | wc -l | tr -d ' ')
       if [ "$dl_n" = 1 ]; then dl_s=""; else dl_s="s"; fi
       say "Looking at what is left of $dl_n removed agent$dl_s..."
+      local dl_looked=0
       while IFS= read -r dl_line; do
+        if [ "$dl_n" -gt 25 ] && [ "$dl_looked" -gt 0 ] && [ $((dl_looked % 25)) -eq 0 ]; then say "Looked at $dl_looked of $dl_n..."; fi
+        dl_looked=$((dl_looked + 1))
         local dl_name="${dl_line%%$'\t'*}" dl_listshown="${dl_line#*$'\t'}"
         dl_path=$(KOSMOS_RM_NAME="$dl_name" "$_node" -e 'process.stdout.write(encodeURIComponent(process.env.KOSMOS_RM_NAME))') || { say "We could not use the name $dl_listshown."; exit 1; }
         rc=0
@@ -8301,11 +8304,11 @@ cmd_agent() {
           case "${dl_why:-x}" in *[?!\)]) dl_end="" ;; *) dl_end="." ;; esac
           say "Not offered for $dl_shown: ${dl_why:-it did not say why}${dl_end}"; dl_notoff=1; continue
         fi
-        if [ -n "$dl_typed" ]; then dl_typedl="${dl_typedl:+$dl_typedl, }$dl_shown"; continue; fi
-        if [ -n "$KOSMOS_DL_YES" ] && [ -z "$dl_task" ]; then dl_heldl="${dl_heldl:+$dl_heldl, }$dl_shown"; continue; fi
-        # Two listed spellings can resolve to one agent (a case-blind disk): it is deleted once.
+        # Two listed spellings can resolve to one agent (a case-blind disk): it is listed and deleted once.
         case "$dl_seenl" in *$'\n'"${dl_target:-$dl_name}"$'\n'*) continue ;; esac
         dl_seenl="$dl_seenl${dl_target:-$dl_name}"$'\n'
+        if [ -n "$dl_typed" ]; then dl_typedl="${dl_typedl:+$dl_typedl, }$dl_shown"; continue; fi
+        if [ -n "$KOSMOS_DL_YES" ] && [ -z "$dl_task" ]; then dl_heldl="${dl_heldl:+$dl_heldl, }$dl_shown"; continue; fi
         [ -z "$dl_hasfolder" ] || dl_folders=1
         dl_go+=("${dl_target:-$dl_name}"); dl_goshown+=("$dl_shown"); dl_goconf+=("$dl_conf"); dl_goloses+=("$dl_loses"); dl_gotask+=("$dl_task")
         [ -n "$dl_task" ] || dl_full=1
@@ -8353,10 +8356,11 @@ cmd_agent() {
         dl_why=$(cut -f2 <<<"$dl_out"); dl_out=$(cut -f1 <<<"$dl_out")
         while [[ "$dl_why" == *[.[:space:]] ]]; do dl_why="${dl_why%?}"; done
         # A 5xx with no outcome is a delete that threw partway (server.js), whatever else its body says.
-        case "$dl_code" in 5[0-9][0-9]) [ -n "$dl_out" ] || dl_out=failed-partway ;; esac
+        case "$dl_code" in 5[0-9][0-9]) [ -n "$dl_out" ] || dl_out=failed-partway ;; 2[0-9][0-9]) [ -n "$dl_out" ] || dl_out=accepted-unread ;; esac
         if [ "$dl_code" = 409 ]; then say "Stopped at ${dl_goshown[$dl_i]}: ${dl_why:-the board is busy}. $dl_done deleted so far.$dl_rest"; exit 1; fi
         case "$dl_out" in
           deleted) dl_done=$((dl_done + 1)); say "Deleted: ${dl_goshown[$dl_i]}." ;;
+          accepted-unread) say "${dl_goshown[$dl_i]} may have been deleted: Kosmos accepted the request but we could not read how it went. Look at the board before trying again ($URL/). $dl_done deleted before it.$dl_rest"; exit 3 ;;
           failed-partway) say "${dl_goshown[$dl_i]} may be partly deleted: ${dl_why:-Kosmos did not say how far it got}. $dl_done deleted before it.$dl_rest"; exit 3 ;;
           partial) dl_failed=$((dl_failed + 1)); say "Only partly deleted ${dl_goshown[$dl_i]}${dl_why:+: $dl_why}." ;;
           *) dl_failed=$((dl_failed + 1)); say "Not deleted: ${dl_goshown[$dl_i]}${dl_why:+: $dl_why}." ;;

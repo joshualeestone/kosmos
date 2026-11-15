@@ -2751,17 +2751,22 @@ async function agentDeleteLeftovers(ctx, args) {
   const typed = [];     // shown names whose plan asks for the name to be typed
   const fullHeld = [];  // shown names a --yes run leaves (a full delete)
   const notOffered = [];  // { shown, because }
+  const seenTargets = new Set();
+  let looked = 0;
   for (const n of names) {
+    if (names.length > 25 && looked > 0 && looked % 25 === 0) ctx.out('Looked at ' + looked + ' of ' + names.length + '...');
+    looked++;
     // A Windows plan can wait up to 20 s on a cold drive (delete-leftover's DRIVE_WARM_TIMEOUT_MS), past the default limit.
     const p = await ctx.call('GET', '/api/agent/' + encodeURIComponent(n.name) + '/leftover', undefined, { timeoutMs: 30000, person: true });
     if (!p.reached) return ctx.unreachable('read what is left of ' + n.shown);
     const plan = p.json || {};
     if (plan.ok !== true) { notOffered.push({ shown: n.shown, because: clause(plan.because || plan.error || '') || 'it did not say why' }); continue; }
     const shown = plan.shown || n.shown;
+    const target = typeof plan.name === 'string' && plan.name ? plan.name : n.name;
+    if (seenTargets.has(target)) continue;   // two listed spellings can resolve to one agent (a case-blind disk): listed and deleted once
+    seenTargets.add(target);
     if (plan.typeToConfirm) { typed.push(shown); continue; }
     if (yes && !plan.taskOnly) { fullHeld.push(shown); continue; }
-    const target = typeof plan.name === 'string' && plan.name ? plan.name : n.name;
-    if (go.some((g) => g.name === target)) continue;   // two listed spellings can resolve to one agent (a case-blind disk): deleted once
     go.push({ name: target, shown, plan });
   }
   for (const x of notOffered) ctx.out('Not offered for ' + x.shown + ': ' + x.because + (/[?!.)]$/.test(x.because) ? '' : '.'));
@@ -2796,8 +2801,9 @@ async function agentDeleteLeftovers(ctx, args) {
     const j = r.json || {};
     const because = clause(j.because || j.error || '');
     if (r.status >= 500 && !j.outcome) return maybe(ctx.err, g.shown + ' may be partly deleted: ' + (because || 'Kosmos did not say how far it got') + '. ' + done + ' deleted before it.' + untouched);
-    // A 409 is the board saying it is busy (restarting, or another delete or move under way): every later one would be refused too.
+    // A 409 is the board about to restart (server.js): every later one would be refused too.
     if (r.status === 409) { ctx.err('Stopped at ' + g.shown + ': ' + (because || 'the board is busy') + '. ' + done + ' deleted so far.' + untouched); return 1; }
+    if (r.status < 300 && !j.outcome) return maybe(ctx.err, g.shown + ' may have been deleted: Kosmos accepted the request but we could not read how it went. Look at the board before trying again. ' + done + ' deleted before it.' + untouched);
     if (j.outcome === 'deleted') { done++; ctx.out('Deleted: ' + g.shown + '.'); continue; }
     failed.push(g.shown + ': ' + (because || (j.outcome === 'partial' ? 'only partly deleted' : 'Kosmos gave an answer we could not read')));
     ctx.err((j.outcome === 'partial' ? 'Only partly deleted ' : 'Not deleted: ') + g.shown + (because ? ': ' + because : '') + '.');
