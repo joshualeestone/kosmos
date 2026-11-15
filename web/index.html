@@ -76978,6 +76978,15 @@ function pjRecordsReset() {
   document.getElementById('pj-records').hidden = true;
   document.getElementById('pj-records-rows').textContent = '';
 }
+// kosmos#8261: every agent (or you) that confirmed the row's status, "by ana, you and bo"; an answer from an older
+// board has no confirmedBy and names only its latest writer, and an empty list (a new status from nobody named) names nobody.
+function pjRecordsWho(r) {
+  const list = Array.isArray(r.confirmedBy) ? r.confirmedBy
+    : (r.byPerson ? [{ person: true }] : r.by ? [{ by: r.by }] : []);
+  const names = list.map((c) => (c && c.person ? 'you' : c && c.by)).filter(Boolean);
+  if (!names.length) return '';
+  return 'by ' + (names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]);
+}
 /* "Confirmed today" / "Confirmed yesterday" / "Confirmed Sep 13, 40 days ago": the date once, in the person's own
    short form (Mona Lisa's review: the ISO date and "today" said it twice). The exact date stays in the row's title. */
 function pjRecordsWhen(r) {
@@ -77035,7 +77044,7 @@ async function pjLoadRecords(id) {
     }
     const age = document.createElement('div');
     age.className = 'pj-rec-age';
-    age.textContent = [pjRecordsWhen(r), r.byPerson ? 'by you' : r.by ? 'by ' + r.by : ''].filter(Boolean).join(', ');
+    age.textContent = [pjRecordsWhen(r), pjRecordsWho(r)].filter(Boolean).join(', ');
     age.title = 'Confirmed ' + r.confirmed;
     if (r.stale) {
       const mark = document.createElement('span');

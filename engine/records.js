@@ -11,12 +11,21 @@
  * remember. Here the rows live inside the project record, like its tasks, and every write goes through
  * projects.mutate in the one board process, so two agents' updates apply one after the other and both survive.
  *
- * A row: { name, key, status, confirmed, source, by, byPerson, createdAt, updatedAt }.
+ * A row: { name, key, status, confirmed, source, by, byPerson, confirmers, createdAt, updatedAt }.
  *   - name: as first written (the canonical name); key: the name folded (Unicode form, case, runs of spaces), so one
  *     entity is one row.
  *   - confirmed: YYYY-MM-DD, the date of the row's latest evidence. A write IS evidence, so it is today unless
- *     the writer says when the evidence is from.
+ *     the writer says when the evidence is from; a backdated write never moves it behind a confirmer the row keeps
+ *     (#8261), so the date always belongs to someone on the list.
  *   - status and source are optional; a write leaves a field alone unless it names it ('' clears it).
+ *   - by / byPerson: the latest writer, filled in by the board from the writer's own card, never typed.
+ *   - confirmers (#8261): every distinct writer that created the row or named its current status (a write that
+ *     leaves the status out, such as a source fix, adds nobody), in the order each first confirmed it
+ *     (a repeat write does not move a name, only refreshes its date), at most CONFIRMERS_MAX, the earliest dropped
+ *     first. Each keeps the date of its own evidence; when any is fresh, one older than STALE_DAYS no longer counts
+ *     (on a write or a read), so a stale check beside a fresh one never reads as a second check. A second agent confirming a row
+ *     adds a name instead of replacing the first. A write that changes the status
+ *     starts the list again with that writer. A row written before this field seeds it from its by / byPerson.
  * A project may say what its rows are (recordsLabel: "accounts"); the default is "records".
  * Stale: confirmed more than STALE_DAYS ago. It is a fact to read on the page and in the list, never a refusal.
  */
@@ -27,10 +36,15 @@ const NAME_MAX = 200;
 const STATUS_MAX = 80;
 const SOURCE_MAX = 500;
 const LABEL_MAX = 40;
-/* The rows live inside projects.json, which every board read parses whole and every write rewrites: 500 rows of at
-   most about 800 characters is about 400 KB per project at the cap, rather than the 2.5 MB 2000 rows would allow. */
+/* The rows live inside projects.json, which every board read parses whole and every write rewrites. A row at every
+   field's limit, with CONFIRMERS_MAX dated confirmers of CONFIRMER_NAME_MAX-character names, is about 1,900 characters
+   of JSON (about 1,190 without them), so 500 rows is about 950 KB per project at the cap (kosmos#8261 measured it). */
 const ROWS_MAX = 500;
 const STALE_DAYS = 30;
+const CONFIRMERS_MAX = 5;
+/* A confirmer's name is the board's session name, which nothing else caps; a longer one is left off the list (its
+   write still lands, and by still records it), so the list's size has a real bound. */
+const CONFIRMER_NAME_MAX = 80;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 /* A line break: control characters (a newline would split a CLI line; a tab, a column), the C1 controls, and the
    line and paragraph separators. Built from code points: a separator written literally in a regex literal breaks
@@ -123,12 +137,37 @@ function projectOrThrow(projectId) {
   return p;
 }
 
+/** A writer as a confirmer: { by, person }, or null when the write names nobody. */
+function confirmerOf(by, person) {
+  if (person === true) return { by: null, person: true };
+  return typeof by === 'string' && by && by.length <= CONFIRMER_NAME_MAX ? { by, person: false } : null;
+}
+const sameConfirmer = (a, b) => a.person === b.person && (a.person || a.by === b.by);
+/** A stored row's confirmers, each with the date of its own evidence: its list, or, for a row written before
+    #8261, its latest writer with the row's date. */
+function confirmersOf(row) {
+  if (Array.isArray(row.confirmers)) {
+    return row.confirmers.filter((c) => c && (c.person === true || (typeof c.by === 'string' && c.by && c.by.length <= CONFIRMER_NAME_MAX)))
+      .map((c) => ({ by: c.person === true ? null : c.by, person: c.person === true,
+        confirmed: typeof c.confirmed === 'string' ? c.confirmed : row.confirmed }));
+  }
+  const one = confirmerOf(row.by, row.byPerson);
+  return one ? [{ ...one, confirmed: row.confirmed }] : [];
+}
+/** When any confirmer's own evidence is fresh, only the fresh ones count: an old check beside a fresh one is not a
+    second check. When none is fresh, all are kept: the row reads stale, and still says who confirmed it. */
+function freshConfirmers(list, now) {
+  const fresh = list.filter((c) => { const a = ageDays(c.confirmed, now); return a !== null && a <= STALE_DAYS; });
+  return fresh.length ? fresh : list;
+}
+
 /** One row as a reader gets it: the stored fields, plus how old its evidence is and whether that is stale. */
 function view(row, now) {
   const age = ageDays(row.confirmed, now);
   return {
     name: row.name, status: row.status || '', confirmed: row.confirmed, source: row.source || '',
-    by: row.by || null, byPerson: row.byPerson === true, updatedAt: row.updatedAt || null,
+    by: row.by || null, byPerson: row.byPerson === true, confirmedBy: freshConfirmers(confirmersOf(row), now),
+    updatedAt: row.updatedAt || null,
     ageDays: age, stale: age !== null && age > STALE_DAYS,
   };
 }
@@ -159,12 +198,28 @@ function set(projectId, name, fields = {}, { by = null, person = false, now } = 
     const i = rows.findIndex((r) => r && r.key === key);
     if (i < 0 && rows.length >= ROWS_MAX) throw fail('a project can keep at most ' + ROWS_MAX + ' records', 409);
     const before = i < 0 ? { createdAt: at } : rows[i];
+    const nextStatus = status === undefined ? (before.status || '') : status;
+    const me = confirmerOf(by, person);
+    // A writer confirms the status only by naming it (or by creating the row): a write that fixes the source alone
+    // checked nothing. A new status starts the list again: a confirmation of the old status is not one of the new.
+    const namesStatus = status !== undefined;
+    let confirmers = i < 0 || (namesStatus && nextStatus !== (before.status || '')) ? [] : confirmersOf(before);
+    if (me && (i < 0 || namesStatus)) {
+      // A repeat write refreshes the writer's own date (never moves it back); a new writer joins at the end.
+      const idx = confirmers.findIndex((c) => sameConfirmer(c, me));
+      if (idx < 0) confirmers = [...confirmers, { ...me, confirmed }];
+      else if (confirmed > confirmers[idx].confirmed) confirmers = confirmers.map((c, j) => (j === idx ? { ...c, confirmed } : c));
+    }
+    // Stale ones go before the cap, so a stale (or backdated) confirmer never pushes out a fresh one.
+    confirmers = freshConfirmers(confirmers, now).slice(-CONFIRMERS_MAX);
+    // The row's date is its latest evidence: a backdated write never moves it behind a confirmer it keeps.
+    const rowConfirmed = confirmers.reduce((d, c) => (c.confirmed > d ? c.confirmed : d), confirmed);
     const row = {
       // The name as first written stays the row's name: an update spelled "acme" does not rename the person's "Acme Inc".
-      ...before, name: i < 0 ? clean : before.name, key, confirmed,
-      status: status === undefined ? (before.status || '') : status,
+      ...before, name: i < 0 ? clean : before.name, key, confirmed: rowConfirmed,
+      status: nextStatus,
       source: source === undefined ? (before.source || '') : source,
-      by: by || null, byPerson: person === true, updatedAt: at,
+      by: by || null, byPerson: person === true, confirmers, updatedAt: at,
     };
     if (i < 0) rows.push(row); else rows[i] = row;
     out = { row: view(row, now), created: i < 0 };
@@ -211,6 +266,18 @@ function ageWords(days) {
   return days + ' days ago';
 }
 
+/** " by ana", " by ana and bo", " by ana, bo and the person": every confirmer of the row's status (#8261). */
+function whoWords(r) {
+  // An answer with no confirmedBy (a caller handing renderList an older board's answer; the board's own always has
+  // one) names its latest writer only. An empty list (a new status from nobody named) names nobody: the latest writer
+  // may not have confirmed the status at all.
+  const latest = confirmerOf(r.by, r.byPerson);
+  const list = Array.isArray(r.confirmedBy) ? r.confirmedBy : latest ? [latest] : [];
+  const names = list.map((c) => (c && c.person ? 'the person' : c && c.by)).filter(Boolean);
+  if (!names.length) return '';
+  return ' by ' + (names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]);
+}
+
 /**
  * The list as both CLIs print it (one module, so the Mac and Windows words cannot drift): a heading with the
  * count and the stale count, then one line per row, "name | status | confirmed DATE (AGE[, stale]) by WHO | source".
@@ -226,11 +293,11 @@ function renderList(out, { projectId, projectName } = {}) {
   const head = label.charAt(0).toUpperCase() + label.slice(1) + where + ': ' + out.rows.length
     + (out.stale ? ', ' + out.stale + ' stale (evidence more than ' + out.staleDays + ' days old)' : '');
   const lines = out.rows.map((r) => {
-    const who = r.byPerson ? ' by the person' : r.by ? ' by ' + r.by : '';
+    const who = whoWords(r);
     return '  ' + r.name + ' | ' + (r.status || '-') + ' | confirmed ' + r.confirmed + ' (' + ageWords(r.ageDays)
       + (r.stale ? ', stale' : '') + ')' + who + ' | ' + (r.source || '-');
   });
   return [head, ...lines].join('\n');
 }
 
-module.exports = { list, set, remove, setLabel, renderList, ageWords, keyOf, today, ageDays, STALE_DAYS, NAME_MAX, STATUS_MAX, SOURCE_MAX, LABEL_MAX, ROWS_MAX };
+module.exports = { list, set, remove, setLabel, renderList, ageWords, keyOf, today, ageDays, STALE_DAYS, NAME_MAX, STATUS_MAX, SOURCE_MAX, LABEL_MAX, ROWS_MAX, CONFIRMERS_MAX, CONFIRMER_NAME_MAX };
