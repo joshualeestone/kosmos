@@ -164,3 +164,34 @@ test('#8261: a confirmer that goes stale after the last write drops out on read 
   const tenDaysOn = records.list(p.id, { now: NOW + 10 * 86400000 }).rows[0];   // ana 36 days, bo 10
   assert.deepEqual(names(tenDaysOn), ['bo']);
 });
+
+test('#8261: a name longer than CONFIRMER_NAME_MAX is left off the list; its write still lands and by records it', () => {
+  const p = project();
+  const long = 'x'.repeat(records.CONFIRMER_NAME_MAX + 1);
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
+  records.set(p.id, 'Acme', { status: 'active', source: 'checked' }, { by: long, now: NOW });
+  const r = only(p);
+  assert.deepEqual(names(r), ['ana']);
+  assert.equal(r.by, long);
+  assert.equal(r.source, 'checked');
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'x'.repeat(records.CONFIRMER_NAME_MAX), now: NOW });
+  assert.equal(only(p).confirmedBy.length, 2, 'CONTROL: a name at the limit is listed');
+});
+
+test('#8261: a new status from nobody named empties the list (nobody confirmed the new status)', () => {
+  const p = project();
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
+  records.set(p.id, 'Acme', { status: 'churned' }, { now: NOW });
+  assert.deepEqual(only(p).confirmedBy, []);
+  assert.match(line(p), /\(today\) \| -$/, 'and the line names nobody');
+});
+
+test('#8261: a source-only write on a row stored before confirmers keeps its seeded writer', () => {
+  const p = project();
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'old', now: NOW });
+  projects.mutate(p.id, (q) => ({ ...q, records: q.records.map((r) => { const { confirmers, ...rest } = r; return rest; }) }));
+  records.set(p.id, 'Acme', { source: 'fixed link' }, { by: 'bo', now: NOW });
+  assert.deepEqual(names(only(p)), ['old']);
+  const stored = projects.readAll().find((x) => x.id === p.id).records[0].confirmers.map((c) => c.by);
+  assert.deepEqual(stored, ['old'], 'the seeded list is stored on that write');
+});

@@ -16,6 +16,8 @@ a fact a second agent checked independently read as checked once (the 11-10 and 
   longer count, on a write (before the cap, so a backdated writer cannot push out a fresh one) or a read; when none is
   fresh, all are kept and the row reads stale. A repeat write refreshes the writer's date, never moves it back
   (reviews 4 and 5).
+- A confirmer name longer than 80 characters (CONFIRMER_NAME_MAX) is left off the list, so its size is bounded:
+  about 950 KB per project at every limit (review 6).
 - The CLI and page fall back to the latest writer only for an older board's answer (no confirmedBy at all).
 - Deferred (review 5): the row's single `confirmed` date is still the latest evidence of ANY write (the #6994 rule,
   pinned by its own test), so after a source-only write "confirmed today by ana" pairs a fresh date with ana's older
@@ -30,7 +32,7 @@ a fact a second agent checked independently read as checked once (the 11-10 and 
 - CLI help text (install/kosmos and the Windows CLI): left as is; the list output shows the names.
 
 ## Tests
-- engine/records-confirmers-8261.test.js (14). Each rule has a mutation that reds exactly its test.
+- engine/records-confirmers-8261.test.js (17). Each rule has a mutation that reds exactly its test.
 - Existing records, server, CLI and project-show tests: 105 pass.
 - render-records-6994 browser check: 18 pass; the several-confirmers arm fails on the old page.
 - Review 1 (correct): the byte-budget comment re-measured.

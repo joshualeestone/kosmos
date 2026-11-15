@@ -36,12 +36,14 @@ const STATUS_MAX = 80;
 const SOURCE_MAX = 500;
 const LABEL_MAX = 40;
 /* The rows live inside projects.json, which every board read parses whole and every write rewrites. A row at every
-   field's limit, with CONFIRMERS_MAX dated confirmers of 40-character names (a length assumed here, not capped by this
-   module), is about 1,660 characters of JSON (about 1,190 without them), so 500 rows is about 830 KB per project at
-   the cap (kosmos#8261 measured it). */
+   field's limit, with CONFIRMERS_MAX dated confirmers of CONFIRMER_NAME_MAX-character names, is about 1,900 characters
+   of JSON (about 1,190 without them), so 500 rows is about 950 KB per project at the cap (kosmos#8261 measured it). */
 const ROWS_MAX = 500;
 const STALE_DAYS = 30;
 const CONFIRMERS_MAX = 5;
+/* A confirmer's name is the board's session name, which nothing else caps; a longer one is left off the list (its
+   write still lands, and by still records it), so the list's size has a real bound. */
+const CONFIRMER_NAME_MAX = 80;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 /* A line break: control characters (a newline would split a CLI line; a tab, a column), the C1 controls, and the
    line and paragraph separators. Built from code points: a separator written literally in a regex literal breaks
@@ -137,14 +139,14 @@ function projectOrThrow(projectId) {
 /** A writer as a confirmer: { by, person }, or null when the write names nobody. */
 function confirmerOf(by, person) {
   if (person === true) return { by: null, person: true };
-  return typeof by === 'string' && by ? { by, person: false } : null;
+  return typeof by === 'string' && by && by.length <= CONFIRMER_NAME_MAX ? { by, person: false } : null;
 }
 const sameConfirmer = (a, b) => a.person === b.person && (a.person || a.by === b.by);
 /** A stored row's confirmers, each with the date of its own evidence: its list, or, for a row written before
     #8261, its latest writer with the row's date. */
 function confirmersOf(row) {
   if (Array.isArray(row.confirmers)) {
-    return row.confirmers.filter((c) => c && (c.person === true || (typeof c.by === 'string' && c.by)))
+    return row.confirmers.filter((c) => c && (c.person === true || (typeof c.by === 'string' && c.by && c.by.length <= CONFIRMER_NAME_MAX)))
       .map((c) => ({ by: c.person === true ? null : c.by, person: c.person === true,
         confirmed: typeof c.confirmed === 'string' ? c.confirmed : row.confirmed }));
   }
@@ -163,7 +165,8 @@ function view(row, now) {
   const age = ageDays(row.confirmed, now);
   return {
     name: row.name, status: row.status || '', confirmed: row.confirmed, source: row.source || '',
-    by: row.by || null, byPerson: row.byPerson === true, confirmedBy: freshConfirmers(confirmersOf(row), now), updatedAt: row.updatedAt || null,
+    by: row.by || null, byPerson: row.byPerson === true, confirmedBy: freshConfirmers(confirmersOf(row), now),
+    updatedAt: row.updatedAt || null,
     ageDays: age, stale: age !== null && age > STALE_DAYS,
   };
 }
@@ -202,9 +205,9 @@ function set(projectId, name, fields = {}, { by = null, person = false, now } = 
     let confirmers = i < 0 || (namesStatus && nextStatus !== (before.status || '')) ? [] : confirmersOf(before);
     if (me && (i < 0 || namesStatus)) {
       // A repeat write refreshes the writer's own date (never moves it back); a new writer joins at the end.
-      const at = confirmers.findIndex((c) => sameConfirmer(c, me));
-      if (at < 0) confirmers = [...confirmers, { ...me, confirmed }];
-      else if (confirmed > confirmers[at].confirmed) confirmers = confirmers.map((c, j) => (j === at ? { ...c, confirmed } : c));
+      const idx = confirmers.findIndex((c) => sameConfirmer(c, me));
+      if (idx < 0) confirmers = [...confirmers, { ...me, confirmed }];
+      else if (confirmed > confirmers[idx].confirmed) confirmers = confirmers.map((c, j) => (j === idx ? { ...c, confirmed } : c));
     }
     // Stale ones go before the cap, so a stale (or backdated) confirmer never pushes out a fresh one.
     confirmers = freshConfirmers(confirmers, now).slice(-CONFIRMERS_MAX);
@@ -293,4 +296,4 @@ function renderList(out, { projectId, projectName } = {}) {
   return [head, ...lines].join('\n');
 }
 
-module.exports = { list, set, remove, setLabel, renderList, ageWords, keyOf, today, ageDays, STALE_DAYS, NAME_MAX, STATUS_MAX, SOURCE_MAX, LABEL_MAX, ROWS_MAX, CONFIRMERS_MAX };
+module.exports = { list, set, remove, setLabel, renderList, ageWords, keyOf, today, ageDays, STALE_DAYS, NAME_MAX, STATUS_MAX, SOURCE_MAX, LABEL_MAX, ROWS_MAX, CONFIRMERS_MAX, CONFIRMER_NAME_MAX };
