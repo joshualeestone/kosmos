@@ -262,7 +262,7 @@ function inputsHere(deps = {}) {
      sessions land there; ~/Library/Application Support/Muse holds only a name register). Read from the BOARD's
      environment, on the premise that the agent's pane runs Muse with the same HOME and XDG_DATA_HOME. */
   const museData = process.env.XDG_DATA_HOME && path.isAbsolute(process.env.XDG_DATA_HOME) ? process.env.XDG_DATA_HOME
-    : path.join(process.env.HOME || require('os').homedir(), '.local', 'share');
+    : path.join(require('os').homedir(), '.local', 'share');   // os.homedir() is $HOME when it is set (POSIX), as Muse reads it
   const sessions = (dir, id, name) => {
     let job = null;
     try { job = (deps.readJob || create.readJob)(name); } catch { job = null; }
