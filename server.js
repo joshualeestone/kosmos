@@ -19234,7 +19234,7 @@ const server = http.createServer(async (req, res) => {
       if (win) {
         let direct = [];
         try { direct = chat.readThread(chat.DIRECT, name).messages; } catch { direct = []; }
-        digest = away.build({ name, sinceMs: win.sinceMs, untilMs: win.untilMs, rows: messages.readLog(), direct });
+        digest = away.build({ name, sinceMs: win.sinceMs, untilMs: win.untilMs, rows: messages.readLog(), direct, namedIn: messages.namedIn });
       }
       if (as === 'hook') { sendText(res, 200, away.hookJson(digest)); return; }
       if (as === 'text') {

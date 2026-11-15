@@ -76,10 +76,10 @@ test('at=startup: posts, messages since the last report; the text and JSON forms
     const now = Date.now();
     reports('leo', [{ state: 'started', at: now - 10 * H }, { state: 'working', at: now - 3 * H }]);
     logRows([
-      { kind: 'post', outcomes: {}, id: 'm1', project: 'fleet', from: 'nova', to: ['leo', 'nova'], text: 'BEFORE', at: now - 4 * H },
-      { kind: 'post', outcomes: {}, id: 'm2', project: 'fleet', from: 'nova', to: ['leo', 'nova'], text: 'SECRET WORDS', mentioned: ['leo'], at: now - 2 * H },
-      { kind: 'post', outcomes: {}, id: 'm3', project: 'fleet', from: 'leo', to: ['leo', 'nova'], text: 'mine', at: now - 2 * H },
-      { kind: 'message', id: 'x1', from: 'nova', to: 'leo', text: 'SECRET WORDS', state: 'could_not', at: now - H },
+      { kind: 'post', outcomes: { leo: 'could_not' }, id: 'm1', project: 'fleet', from: 'nova', to: ['leo', 'nova'], text: 'BEFORE', at: now - 4 * H },
+      { kind: 'post', outcomes: { leo: 'could_not' }, id: 'm2', project: 'fleet', from: 'nova', to: ['leo', 'nova'], text: 'SECRET WORDS', mentioned: ['leo'], at: now - 2 * H },
+      { kind: 'post', outcomes: { leo: 'could_not' }, id: 'm3', project: 'fleet', from: 'leo', to: ['leo', 'nova'], text: 'mine', at: now - 2 * H },
+      { kind: 'refused', from: 'nova', to: 'leo', because: 'leo is not running', at: now - H },
       { kind: 'message', id: 'x2', from: 'leo', to: 'nova', text: 'for nova', state: 'delivered', at: now - H },
     ]);
     const tok = sendertoken.mint('leo').token;
@@ -90,10 +90,10 @@ test('at=startup: posts, messages since the last report; the text and JSON forms
       const ctx = hook.json.hookSpecificOutput;
       assert.equal(ctx.hookEventName, 'SessionStart');
       assert.match(ctx.additionalContext, /- fleet: 1 post from others; naming you or from the person: m2\. Read it with: kosmos room fleet/);
-      assert.match(ctx.additionalContext, /- 1 direct message from other agents \(nova\)\./);
+      assert.match(ctx.additionalContext, /- at least 1 attempt to message you that could not reach you \(nova\)\./);
       assert.doesNotMatch(ctx.additionalContext, /SECRET WORDS|BEFORE/);
       const json = await get('/api/away?at=startup', { 'x-kosmos-agent-token': tok });
-      assert.deepEqual(json.json.counts, { posts: 1, messages: 1, refused: 0, direct: 0 });
+      assert.deepEqual(json.json.counts, { posts: 1, messages: 0, refused: 1, direct: 0 });
       const other = await get('/api/away?as=hook&at=startup', { 'x-kosmos-agent-token': ntok });
       assert.equal(other.code, 200);
       assert.equal(other.text, '', 'nova has no report history here, so no window: nothing');
@@ -107,8 +107,8 @@ test('by hand: the window the newest startup had, not what arrived since', async
     const now = Date.now();
     reports('leo', [{ state: 'working', at: now - 5 * H }, { state: 'started', at: now - 2 * H }, { state: 'working', at: now - H }]);
     logRows([
-      { kind: 'post', outcomes: {}, id: 'm1', project: 'fleet', from: 'nova', to: ['leo'], text: 'x', at: now - 3 * H },
-      { kind: 'post', outcomes: {}, id: 'm9', project: 'fleet', from: 'nova', to: ['leo'], text: 'x', mentioned: ['leo'], at: now - 30 * 60 * 1000 },
+      { kind: 'post', outcomes: { leo: 'could_not' }, id: 'm1', project: 'fleet', from: 'nova', to: ['leo'], text: 'x', at: now - 3 * H },
+      { kind: 'post', outcomes: { leo: 'could_not' }, id: 'm9', project: 'fleet', from: 'nova', to: ['leo'], text: 'x', mentioned: ['leo'], at: now - 30 * 60 * 1000 },
     ]);
     const tok = sendertoken.mint('leo').token;
     try {
@@ -129,7 +129,7 @@ test('on an enforcing board a caller with no credential is refused, and the hook
     boardAuthState.on = true;
     const now = Date.now();
     reports('leo', [{ state: 'working', at: now - 3 * H }]);
-    logRows([{ kind: 'post', outcomes: {}, id: 'm2', project: 'fleet', from: 'nova', to: ['leo'], text: 'x', at: now - H }]);
+    logRows([{ kind: 'post', outcomes: { leo: 'could_not' }, id: 'm2', project: 'fleet', from: 'nova', to: ['leo'], text: 'x', at: now - H }]);
     const tok = sendertoken.mint('leo').token;
     try {
       const refused = await get('/api/away?as=hook&at=startup');

@@ -21,26 +21,32 @@ at restart, a digest of room posts and direct messages addressed to it since its
 At a real startup (SessionStart, source `startup` or absent), BEFORE the `started` report, the hook asks the board for
 a digest and prints it as SessionStart additionalContext. Nothing is typed; no turn is spent.
 
-Window: from the agent's LAST report before this startup (when the board last heard from it) to now, clamped to 7 days.
-No earlier report, or nothing in the window: no output. Shown once by construction: the next startup's window begins
-after this session's own reports, so no acknowledgement state is kept.
+Window: from the agent's LAST report before this startup (when the board last heard from it; a person's clear,
+`by: 'operator'`, does not count) to now, clamped to 7 days. No earlier report, or nothing in the window: no output.
+Shown once by construction: the next startup's window begins after this session's own reports, so no acknowledgement
+state is kept. Run by hand (`kosmos away`), the window is rebuilt from the report before the session's newest
+`started`, ending at that `started`, so it shows what the hook gave.
+
+A room post counts only when its outcome for the agent is `could_not` (it reached no running pane). `placed` and
+roomhold's `quiet` reached a running agent and are not "while it was not running".
 
 Contents (bounded, ids not text, so no colleague's words are handed over as instructions):
-- per project the agent is on: how many room posts arrived from others, and the ids of those that @-name it or come
-  from the person (at most SHOWN ids, then "and N earlier"); ends with `kosmos room <id>`;
-- `kosmos msg` messages to it in the window (delivered or refused): count and senders; ends with how to read them;
-- the person's DMs to it in the window: count; ends with `kosmos inbox --since <window start>`.
+- per project: how many room posts could not reach it, and the ids of those that name it (engine/messages.js namedIn:
+  `mentioned` and `addressed`) or come from the person (at most SHOWN ids, then "and N earlier"); ends with
+  `kosmos room <id>`;
+- `kosmos msg`: message rows to it (logged ones, e.g. held), and refusals to it as "at least N" (logRefusedSend keeps
+  one row per sender, recipient and reason in a window); senders named; it says to ask the sender;
+- the person's DMs to it in the window: count; ends with `kosmos inbox --since <window start> --limit 50`.
 Kosmos's voice, saying it is a summary of what arrived while the agent was not running, not a request from the person.
 
 ## Pieces
-1. engine/awaydigest.js (new): pure `build({ name, sinceMs, nowMs, projects, rows, direct })` -> { lines, counts } and
-   `contextText(digest)`, `hookJson(digest)` (SessionStart). Mention rule: reuse whatever messages.js / roomhold uses for
-   "names you" (find it; do not write a second one).
-2. Last-seen time: find where the board keeps an agent's latest report (engine/status.js or the /api/report handler in
-   server.js); the digest route reads it BEFORE `started` overwrites it. Ordering is the hook's job (call first).
-3. server.js: `POST /api/away/take?as=hook` (loopback agent route like /api/file-notices/take: add to
+1. engine/awaydigest.js (new): pure `windowFrom(history, { startup, nowMs })` and
+   `build({ name, sinceMs, untilMs, rows, direct, namedIn })` -> { lines, counts, clamped }, `contextText`, `hookJson`
+   (SessionStart). Mention rule: messages.namedIn, passed in by the route.
+2. Last-seen time: engine/selfreport.history (the agent's report rows); the hook calls BEFORE `started` is recorded.
+3. server.js: `GET /api/away?as=hook|text&at=startup` (loopback agent route like /api/file-notices/take: added to
    LOOPBACK_AGENT_ROUTES), sender resolved the same way (token first, then pane; bare pane refused on an enforcing
-   board). Answers the hook JSON or an empty body; never throws; any failure is an empty body.
+   board). `as=hook` answers the hook JSON or an empty body, on every failure too. Nothing is cleared.
 4. install/kosmos: `kosmos away --hook` (1 s cap, prints only the hook JSON) and `kosmos away` (the text, for a person
    or an agent by hand).
 5. install/kosmos-report-hook.sh SessionStart branch: call `kosmos away --hook` after the source guard and before
@@ -62,9 +68,15 @@ Kosmos's voice, saying it is a summary of what arrived while the agent was not r
 - Queuing undelivered posts to type later: re-wakes agents on posts the room has answered (#4624/#4926).
 
 ## Weakest premise
-"Last report = last seen." An agent whose reporting broke before the crash gets a window that starts too early: more
-shown, never less.
+"Last report = last seen." It errs both ways: an agent whose reporting broke before the crash gets a window that starts
+too early (more shown); a working agent's last report is a heartbeat, so a post typed into its busy pane after that
+heartbeat and lost in the crash was `placed`, not `could_not`, and is not shown (less). The digest is a summary of
+what could not reach the agent, not a full replay; the room log stays the record.
 
 ## Not covered (stated)
 - An interactive (non -p) startup was not measured for additionalContext; Windows only by its own CI.
+- Windows: an agent that dies under a living supervisor is relaunched with `claude --resume <id>`
+  (engine/win32supervisor.js), so SessionStart says `resume` and no digest is asked (the `started` report is skipped
+  on a resume for #1058, and so is this). Only a fresh `startup` gets one. A follow-up could treat a supervisor resume
+  as a return.
 - Agents on runners without Kosmos's Claude Code hook (codex, gemini, grok) get nothing from this slice.
