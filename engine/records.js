@@ -17,8 +17,8 @@
  *   - confirmed: YYYY-MM-DD, the date of the row's latest evidence. A write IS evidence, so it is today unless
  *     the writer says when the evidence is from, and a backdated write never moves it behind a confirmer the row
  *     keeps (#8261). Any write counts here, a source fix too, while confirmers lists only who named the status: so a
- *     source fix dated today can show today's date beside an older confirmer (#8553, kept on purpose: refreshing a
- *     row with a bare write is how agents are told to do it).
+ *     source fix dated today can show today's date beside an older confirmer (#8553, kept on purpose: the agent
+ *     instructions say a write with no date is dated today, so a bare write is a refresh).
  *   - status and source are optional; a write leaves a field alone unless it names it ('' clears it).
  *   - by / byPerson: the latest writer, filled in by the board from the writer's own card, never typed; null and false
  *     when the board could not name the writer (no token and no pane it could match, and not the screen). Such a

@@ -233,8 +233,11 @@ test('#8553: any write is evidence for the row\'s date (#6994), so a source fix 
   records.set(p.id, 'Acme', { source: 'fixed link' }, { by: 'bo', now: NOW });
   assert.equal(only(p).confirmed, '2026-11-15', 'kept on purpose: a bare write is how a row is refreshed');
   assert.deepEqual(names(only(p)), ['ana'], 'bo is not a confirmer: he named no status');
-  // The person (a writer the board cannot name) naming the status moves the row to today too.
+  // A writer the board cannot name (the person's terminal outside tmux) naming the status moves the row to today
+  // too, while ana's own date stays hers.
   records.set(p.id, 'Globex', { status: 'lead', confirmed: '2026-10-06' }, { by: 'ana', now: NOW });
   records.set(p.id, 'Globex', { status: 'lead' }, { now: NOW });
-  assert.equal(records.list(p.id, { now: NOW }).rows.find((x) => x.name === 'Globex').confirmed, '2026-11-15');
+  const g = records.list(p.id, { now: NOW }).rows.find((x) => x.name === 'Globex');
+  assert.equal(g.confirmed, '2026-11-15');
+  assert.deepEqual(g.confirmedBy.map((c) => [c.by, c.confirmed]), [['ana', '2026-10-06']]);
 });
