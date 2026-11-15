@@ -383,6 +383,24 @@ async function openTab(page, tab) {
    screen without depending on phone navigation; the frame shots use the ☰. */
 /* 'load', not 'networkidle': some screens hold a connection open (live
    updates), so the network never goes idle there. */
+/* kosmos#7750: the two media doors' answers, as engine/tokendoors.js will give them (Angel builds the rows). `on`:
+   Replicate connected as a sample account. The shelf's /api/connections answer gains the same two doors. */
+const mediaDoors = async (page, on) => {
+  const off = (where, whereText, hint) => ({ connected: false, where, whereText, hint });
+  const doors = {
+    replicate: on ? { connected: true, who: 'pixel-studio' } : off('https://replicate.com/account/api-tokens', 'Replicate’s API tokens page', 'naming it Kosmos so you can find it later'),
+    elevenlabs: off('https://elevenlabs.io/app/settings/api-keys', 'ElevenLabs’ API keys page', 'turning on only the features your agents need, and a credit limit if you want one'),
+  };
+  for (const [slug, body] of Object.entries(doors)) {
+    await page.route('**/api/svc/' + slug, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }));
+  }
+  await page.route('**/api/connections', async (r) => {
+    let base = {};
+    try { base = await (await r.fetch()).json(); } catch { base = {}; }
+    const d = Object.assign({}, base.doors || {}, { '/api/svc/replicate': { connected: !!on }, '/api/svc/elevenlabs': { connected: false } });
+    await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(Object.assign({}, base, { doors: d })) });
+  });
+};
 const at = async (page, qs) => {
   await page.goto(page.url().split('?')[0] + qs, { waitUntil: 'load' });
   await page.waitForTimeout(900);
@@ -2136,6 +2154,29 @@ const SCREENS = [
   } },
   /* #5787 (Mona Lisa): the connected Kosmos+ pane, where every sign-in now lands: the connect block (line art, the
      address with Copy, the Scan to connect code, the store buttons greyed with Coming soon) at the top. */
+  /* kosmos#7750: the Images, video and voice group on Connections. A throwaway board has no media door behind it yet
+     (the engine rows are Angel's), so each door's status and the shelf's list are answered HERE: on
+     connect-media nothing is connected and the ElevenLabs door is open; on connect-media-on Replicate is connected
+     (as a sample account) and its door is open, so the group's line names it. */
+  { name: 'connect-media', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await mediaDoors(page, false);
+    await at(page, '?tab=settings&sec=connect');
+    await page.waitForSelector('#s-sec-connect [data-cat="media"]', { state: 'visible', timeout: 10000 });
+    await page.evaluate(() => { const c = document.querySelector('#s-sec-connect [data-cat="media"]'); c.open = true; c.scrollIntoView({ block: 'start' }); });
+    await page.click('#s-sec-connect [data-cat="media"] button.boardname:text-is("ElevenLabs")');
+    await page.waitForSelector('#s-sec-connect [data-cat="media"] [data-svc-token-field]', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.querySelector('#s-sec-connect [data-cat="media"]').scrollIntoView({ block: 'start' }));
+    await page.mouse.move(1, 1);
+  } },
+  { name: 'connect-media-on', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await mediaDoors(page, true);
+    await at(page, '?tab=settings&sec=connect');
+    await page.waitForSelector('#s-sec-connect [data-cat="media"]', { state: 'visible', timeout: 10000 });
+    await page.waitForFunction(() => /1 connected: Replicate/.test(document.querySelector('#s-sec-connect [data-cat="media"] .con-state').textContent), null, { timeout: 8000 });
+    await page.evaluate(() => { const c = document.querySelector('#s-sec-connect [data-cat="media"]'); c.open = true; });
+    await page.click('#s-sec-connect [data-cat="media"] button.boardname:text-is("Replicate")');
+    await page.waitForSelector('#s-sec-connect [data-cat="media"] [data-svc-forget]', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.querySelector('#s-sec-connect [data-cat="media"]').scrollIntoView({ block: 'start' }));
+    await page.mouse.move(1, 1);
+  } },
   { name: 'plus-connected', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await orgConnected(page, false); await at(page, '?tab=settings&sec=plus');
     await page.waitForSelector('#plus-chip .plus-store', { state: 'visible', timeout: 10000 });
     await page.evaluate(() => scrollTo(0, 0));
