@@ -102,3 +102,13 @@ test('kosmos#7414: a post the room could not record says it is not in the room a
   const spoof = await post({ state: 'unconfirmed', because: 'x', id: 'm1', outcomes: {}, text: '","unrecorded":true' });
   assert.equal(spoof.err.at(-1), "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.");
 });
+
+/* kosmos#8566 parity with install/kosmos: the sentence for a header name no member has follows the woke-no-one verdict. */
+const UNMATCHED = 'Josh is not the name of any member of this project, so this post woke no one by it (the person still sees every post here). Members you can address: @kano, Sub-Zero (@subzero), @mara.';
+test('kosmos#8566: a post addressed to a name no member has prints the verdict, then that sentence', async () => {
+  const r = await post({ state: 'placed', id: 'm1', outcomes: { kano: 'quiet', subzero: 'quiet', mara: 'quiet' }, ambiguousNote: UNMATCHED });
+  assert.equal(r.code, 0);
+  assert.equal(r.out.length, 2, r.out.join('\n'));
+  assert.match(r.out[0], /^Posted to proj\. It woke no one: it addresses no member/);
+  assert.equal(r.out[1], UNMATCHED);
+});
