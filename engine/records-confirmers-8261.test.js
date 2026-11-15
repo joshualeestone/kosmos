@@ -200,3 +200,13 @@ test('#8261: a source-only write on a row stored before confirmers keeps its see
   const stored = projects.readAll().find((x) => x.id === p.id).records[0].confirmers.map((c) => c.by);
   assert.deepEqual(stored, ['old'], 'the seeded list is stored on that write');
 });
+
+test('#8261: a backdated write never moves the row\'s date behind a confirmer it keeps', () => {
+  const p = project();
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
+  records.set(p.id, 'Acme', { status: 'active', confirmed: '2026-09-01' }, { by: 'bo', now: NOW });
+  const r = only(p);
+  assert.deepEqual(names(r), ['ana'], 'bo\'s 75-day-old check is not kept beside ana\'s fresh one');
+  assert.equal(r.confirmed, '2026-11-15', 'so the row keeps ana\'s date, not bo\'s');
+  assert.equal(r.stale, false);
+});

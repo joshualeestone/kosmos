@@ -15,7 +15,8 @@
  *   - name: as first written (the canonical name); key: the name folded (Unicode form, case, runs of spaces), so one
  *     entity is one row.
  *   - confirmed: YYYY-MM-DD, the date of the row's latest evidence. A write IS evidence, so it is today unless
- *     the writer says when the evidence is from.
+ *     the writer says when the evidence is from; a backdated write never moves it behind a confirmer the row keeps
+ *     (#8261), so the date always belongs to someone on the list.
  *   - status and source are optional; a write leaves a field alone unless it names it ('' clears it).
  *   - by / byPerson: the latest writer, filled in by the board from the writer's own card, never typed.
  *   - confirmers (#8261): every distinct writer that created the row or named its current status (a write that
@@ -211,9 +212,11 @@ function set(projectId, name, fields = {}, { by = null, person = false, now } = 
     }
     // Stale ones go before the cap, so a stale (or backdated) confirmer never pushes out a fresh one.
     confirmers = freshConfirmers(confirmers, now).slice(-CONFIRMERS_MAX);
+    // The row's date is its latest evidence: a backdated write never moves it behind a confirmer it keeps.
+    const rowConfirmed = confirmers.reduce((d, c) => (c.confirmed > d ? c.confirmed : d), confirmed);
     const row = {
       // The name as first written stays the row's name: an update spelled "acme" does not rename the person's "Acme Inc".
-      ...before, name: i < 0 ? clean : before.name, key, confirmed,
+      ...before, name: i < 0 ? clean : before.name, key, confirmed: rowConfirmed,
       status: nextStatus,
       source: source === undefined ? (before.source || '') : source,
       by: by || null, byPerson: person === true, confirmers, updatedAt: at,
@@ -265,11 +268,12 @@ function ageWords(days) {
 
 /** " by ana", " by ana and bo", " by ana, bo and the person": every confirmer of the row's status (#8261). */
 function whoWords(r) {
-  // An answer from an older board has no confirmedBy: then it names its latest writer only. An empty list (every
-  // confirmer stale) names nobody: the latest writer may not have confirmed the status at all.
+  // An answer with no confirmedBy (a caller handing renderList an older board's answer; the board's own always has
+  // one) names its latest writer only. An empty list (a new status from nobody named) names nobody: the latest writer
+  // may not have confirmed the status at all.
   const latest = confirmerOf(r.by, r.byPerson);
   const list = Array.isArray(r.confirmedBy) ? r.confirmedBy : latest ? [latest] : [];
-  const names = list.map((c) => (c.person ? 'the person' : c.by));
+  const names = list.map((c) => (c && c.person ? 'the person' : c && c.by)).filter(Boolean);
   if (!names.length) return '';
   return ' by ' + (names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]);
 }
