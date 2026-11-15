@@ -24,4 +24,10 @@ mentions Muse, so a Muse agent's conversation is never backed up.
 - Root named `sessions/<id>/muse`.
 
 ## Weakest premise
-That the session log alone restores the conversation; restore (#7404's path) was not exercised for Muse.
+- That the session log alone restores the conversation; restore (#7404's path) was not exercised for Muse.
+- That Muse on a Mac honours XDG_DATA_HOME: the measurement set BOTH HOME and XDG_DATA_HOME to the throwaway folder,
+  so it does not say which one Muse follows. A board normally sets neither, so ~/.local/share is the common case.
+- Ownership rests on the agent's own .kosmos/muse-session (no provider record ties a session to a folder, unlike the
+  other readers' recorded cwd). Mitigated: only agents whose job runs Muse are asked, and the id is read through real
+  folders only. Residual: two Muse agents holding one id (a copied folder) both name the same files, and the snapshot
+  then leaves both out.

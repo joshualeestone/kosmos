@@ -202,11 +202,14 @@ test('#5883 review 3: `codex` names the agents\' default home for every agent, n
   }
 });
 
-test('kosmos#8530: Muse sessions are looked for in XDG_DATA_HOME, else ~/.local/share, as the runner gives Muse', () => {
-  const saved = { x: process.env.XDG_DATA_HOME, h: process.env.HOME };
+test('kosmos#8530: the sessions of a Muse agent are looked for in XDG_DATA_HOME, else ~/.local/share; other agents are not', () => {
+  const saved = { x: process.env.XDG_DATA_HOME };
   try {
     mk('workers', 'musey');
-    const look = () => { const seen = {}; tick.rootsFor(tick.inputsHere({ readJob: () => null, sessionsFor: (d, o) => { seen[o.id] = o; return []; } })); return seen.musey.museData; };
+    const look = (runner = 'muse') => { const seen = {}; tick.rootsFor(tick.inputsHere({ readJob: () => ({ runner, configDir: null }), sessionsFor: (d, o) => { seen[o.id] = o; return []; } })); return seen.musey.museData; };
+    // Review 1: only an agent whose job runs Muse is looked up in Muse's sessions.
+    process.env.XDG_DATA_HOME = '/data/home-8530';
+    assert.equal(look('claude'), undefined, 'a Claude agent was looked up in Muse sessions');
     process.env.XDG_DATA_HOME = '/data/home-8530';
     assert.equal(look(), '/data/home-8530');
     delete process.env.XDG_DATA_HOME;
@@ -215,7 +218,6 @@ test('kosmos#8530: Muse sessions are looked for in XDG_DATA_HOME, else ~/.local/
     assert.equal(look(), path.join(process.env.HOME, '.local', 'share'), 'a relative XDG_DATA_HOME was used');
   } finally {
     if (saved.x === undefined) delete process.env.XDG_DATA_HOME; else process.env.XDG_DATA_HOME = saved.x;
-    process.env.HOME = saved.h;
   }
 });
 

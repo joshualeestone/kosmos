@@ -11,6 +11,8 @@
  *                alone (see claudeOwned). Both spellings of the folder are tried, as status.js does.
  *   Gemini       <gemini home>/tmp/<slug>/chats, the slug looked up for the agent folder in <gemini home>/projects.json
  *                (engine/geminisession.js forWorkdir's rule), with `only` its session-*.jsonl files, as forWorkdir reads.
+ *   Muse Code    <data home>/muse/sessions/<yyyy>/<mm>/<dd>/<session id>/ (kosmos#8530), the id from the agent's own
+ *                .kosmos/muse-session; asked only for an agent whose job runs Muse (the caller passes museData then).
  *   Codex        <codex home>/sessions/<yyyy>/<mm>/<dd>/rollout-*.jsonl, ONE date tree for every agent: the sessions
  *                folder is a root with an `only` list, the rollouts whose first line names this agent's folder
  *                (engine/codexsession.js metaOf).
@@ -30,7 +32,7 @@
  *          nothing: the caller derives it); every name built from it must pass the snapshot's rootNameProblem, or nothing is
  *          returned (an id such as `aux` or `secrets` would otherwise fail the whole world's snapshot)
  *   names  `sessions/<id>/claude` (the first config root, the folder as on disk), `-raw` (as given), `-<n>` (the n-th
- *          config root); `sessions/<id>/gemini`; `sessions/<id>/codex`
+ *          config root); `sessions/<id>/gemini`; `sessions/<id>/codex`; `sessions/<id>/grok`; `sessions/<id>/muse`
  *          The `-<n>` comes from the position in claudeRoots, so the caller must pass them in a FIXED order (status.js
  *          configRoots' readdir order is not one): sort them by folder name, or names change between snapshots.
  * Reads folder listings, projects.json and the head of each session file. Never throws: a provider it cannot read
@@ -214,8 +216,12 @@ const MUSE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const DATE_PART = [/^\d{4}$/, /^\d{2}$/, /^\d{2}$/];
 function museRoot(agentDir, museData, id) {
   if (typeof museData !== 'string' || !path.isAbsolute(museData)) return null;
+  // Review 1: the id is read only through real folders, never a link (a link to another agent's file would lend its id).
   let sid;
-  try { sid = fs.readFileSync(path.join(agentDir, '.kosmos', 'muse-session'), 'utf8').trim(); } catch { return null; }
+  try {
+    for (const p of [path.join(agentDir, '.kosmos'), path.join(agentDir, '.kosmos', 'muse-session')]) if (fs.lstatSync(p).isSymbolicLink()) return null;
+    sid = fs.readFileSync(path.join(agentDir, '.kosmos', 'muse-session'), 'utf8').trim();
+  } catch { return null; }
   if (!MUSE_ID.test(sid)) return null;
   const c = folderCheck(museData, 'muse', 'sessions');
   if (c.link) return { name: `sessions/${id}/muse`, refused: 'a session folder that is a link (not followed)', optional: true };
