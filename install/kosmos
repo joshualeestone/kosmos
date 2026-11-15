@@ -7830,7 +7830,7 @@ cmd_agent() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos agent <list|create|roles|role-draft|instructions-add|move|restart|remove>"
+      say "Usage: kosmos agent <list|create|roles|role-draft|instructions-add|move|restart|remove|delete-leftovers>"
       say "  kosmos agent list                               every agent on this board, its role, whether it is running, and any unsent text or long tool call (Claude agents only), stalled delivery or restart loop Kosmos has seen, and, for one whose state Kosmos cannot tell, why"
       say "  kosmos agent create \"<name>\" <role> [\"<why>\"]   make an agent for the person, after they confirm"
       say "  kosmos agent create \"<name>\" --new-role \"<label>\" --from <file> [\"<why>\"]"
@@ -7849,7 +7849,24 @@ cmd_agent() {
       say "  kosmos agent restart \"<name>\" [--yes]           restart one agent, after a confirm (it picks up new settings, skills and hooks;"
       say "                                                  any agent can be restarted this way, as from its page; never yourself)"
       say "  kosmos agent remove \"<name>\" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)"
+      say "  kosmos agent delete-leftovers [--yes]           delete what is left of every removed agent (their startup jobs, and folders to the"
+      say "                                                  Trash), each as the board's Delete does it, after one confirm; an agent whose"
+      say "                                                  folder is still there is then gone for good and cannot be put back; --yes deletes"
+      say "                                                  only leftovers that are nothing but a Windows startup job, so on a Mac"
+      say "                                                  or Linux it deletes nothing today: run it at a terminal there"
       exit 2 ;;
+    delete-leftovers)
+      # kosmos#8547: --yes only; any other word is refused before any request.
+      local KOSMOS_DL_USAGE='Usage: kosmos agent delete-leftovers [--yes]   (--yes: no question, and only leftovers that are nothing but a startup job)'
+      local _dlw=() _dla
+      KOSMOS_DL_YES=""
+      for _dla in "$@"; do if [ "$_dla" = "--yes" ]; then KOSMOS_DL_YES=1; else _dlw+=("$_dla"); fi; done
+      _no_more_words "agent delete-leftovers" 0 "$KOSMOS_DL_USAGE" ${_dlw[@]+"${_dlw[@]}"}
+      if [ -z "$KOSMOS_DL_YES" ] && [ ! -t 0 ]; then
+        say "Nothing was deleted: there is no terminal here to confirm on. To remove only the startup jobs left by removed agents without being asked, add --yes."
+        exit 2
+      fi
+      set -- ;;
     remove)
       # kosmos#7362: the name, and --yes anywhere; an option-shaped name and extra words are refused before any request.
       local _rmw=() _rma
@@ -7929,13 +7946,14 @@ cmd_agent() {
       # A role is reused by its file, so an existing one is never replaced (a second role with the same short name).
       if [ "${1:-}" = "--to" ] && [ -e "$2" ]; then say "$2 already exists, and it may hold another role. Pick another name, or move it first."; exit 2; fi ;;
     *)
-      say "Unknown: kosmos agent $sub. Try: list, create, roles, role-draft, instructions-add, move, restart, remove"
+      say "Unknown: kosmos agent $sub. Try: list, create, roles, role-draft, instructions-add, move, restart, remove, delete-leftovers"
       _kosmos_agent_list_hint "$sub"
       exit 2 ;;
   esac
   if ! healthy; then
     case "$sub" in
       remove) say_not_up "nothing can be removed" ;;
+      delete-leftovers) say_not_up "nothing can be deleted" ;;
       move) say_not_up "nothing can be moved" ;;
       restart) say_not_up "nothing can be restarted" ;;
       list) say_not_up "it cannot list the agents" ;;
@@ -8299,6 +8317,112 @@ cmd_agent() {
            else say "Kosmos gave an answer we could not read when removing $rm_label. Look at the board to see whether it is still there: $URL/"; fi
            exit 1 ;;
       esac
+      ;;
+    delete-leftovers)
+      # kosmos#8547: delete what is left of every removed agent, as tools/windows/kosmos-cli.js agentDeleteLeftovers does
+      # (the reasons are there): GET /api/removed for the names, GET .../leftover for each plan in the engine's words,
+      # DELETE .../leftover with that plan's `confirm`, as the board's Delete sends it. A plan asking for the name to be
+      # typed is left for the board; with --yes only startup-job-only plans are acted on. Every call goes with the
+      # board token: these routes are the person's.
+      local dl_bt dl_list dl_n dl_s dl_path dl_line dl_ok dl_shown dl_target dl_typed dl_task dl_conf dl_why dl_loses
+      local dl_notoff="" dl_seenl=$'\n' dl_hasfolder dl_folders="" dl_end dl_nfull=0 dl_ask
+      local dl_go=() dl_goshown=() dl_goconf=() dl_goloses=() dl_gotask=() dl_typedl="" dl_heldl="" dl_i dl_full="" dl_code dl_out dl_done=0 dl_failed=0 dl_rest dl_j
+      local _dlparse='let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");'
+      dl_bt="$(board_token || true)"
+      body=$(kosmos_curl "$dl_bt" "$_rtok" -sS -m 25 "$URL/api/removed" 2>/dev/null) || rc=$?
+      if [ "$rc" -ne 0 ]; then say_unreached "read the removed agents" "$rc"; exit 1; fi
+      dl_list=$(printf '%s' "$body" | "$_node" -e "$_dlparse"'if(!Array.isArray(j.agents))process.exit(1);const seen=new Set();for(const a of [...j.agents,...(Array.isArray(j.leftovers)?j.leftovers:[])]){const n=a&&typeof a.name==="string"?a.name:"";if(!n||n==="."||n===".."||seen.has(n)||/[\t\r\n]/.test(n))continue;seen.add(n);console.log(n+"\t"+one(a.shownAs||n))}})') \
+        || { dl_why=$(printf '%s' "$body" | "$_node" -e "$_dlparse"'process.stdout.write(one(j.because||j.error))})' 2>/dev/null || true)
+             while [[ "$dl_why" == *[.[:space:]] ]]; do dl_why="${dl_why%?}"; done
+             say "Kosmos could not list the removed agents${dl_why:+: $dl_why}."; exit 1; }
+      if [ -z "$dl_list" ]; then say "Nothing is left of any removed agent on this board, so there is nothing to delete."; exit 0; fi
+      dl_n=$(printf '%s\n' "$dl_list" | wc -l | tr -d ' ')
+      if [ "$dl_n" = 1 ]; then dl_s=""; else dl_s="s"; fi
+      say "Looking at what is left of $dl_n removed agent$dl_s..."
+      local dl_looked=0
+      while IFS= read -r dl_line; do
+        if [ "$dl_n" -gt 25 ] && [ "$dl_looked" -gt 0 ] && [ $((dl_looked % 25)) -eq 0 ]; then say "Looked at $dl_looked of $dl_n..."; fi
+        dl_looked=$((dl_looked + 1))
+        local dl_name="${dl_line%%$'\t'*}" dl_listshown="${dl_line#*$'\t'}"
+        dl_path=$(KOSMOS_RM_NAME="$dl_name" "$_node" -e 'process.stdout.write(encodeURIComponent(process.env.KOSMOS_RM_NAME))') || { say "We could not use the name $dl_listshown."; exit 1; }
+        rc=0
+        body=$(kosmos_curl "$dl_bt" "$_rtok" -sS -m 30 "$URL/api/agent/$dl_path/leftover" 2>/dev/null) || rc=$?
+        if [ "$rc" -ne 0 ]; then say_unreached "read what is left of $dl_listshown" "$rc"; exit 1; fi
+        dl_line=$(printf '%s' "$body" | "$_node" -e "$_dlparse"'console.log([j.ok===true?"ok":"no",one(j.shown),one(j.ok===true?j.name:""),j.typeToConfirm?"1":"",j.taskOnly?"1":"",one(j.confirm),one(j.because||j.error),Array.isArray(j.loses)&&j.loses.length?j.loses.map(one).join("; "):one(j.question||"what is left of it"),j.folder?"1":""].join("\t"))})') \
+          || { say "Kosmos gave an answer we could not read about $dl_listshown."; exit 1; }
+        dl_ok=$(cut -f1 <<<"$dl_line"); dl_shown=$(cut -f2 <<<"$dl_line"); dl_target=$(cut -f3 <<<"$dl_line")
+        dl_typed=$(cut -f4 <<<"$dl_line"); dl_task=$(cut -f5 <<<"$dl_line"); dl_conf=$(cut -f6 <<<"$dl_line")
+        dl_why=$(cut -f7 <<<"$dl_line"); dl_loses=$(cut -f8 <<<"$dl_line"); dl_hasfolder=$(cut -f9 <<<"$dl_line")
+        dl_shown="${dl_shown:-$dl_listshown}"
+        if [ "$dl_ok" != ok ]; then
+          while [[ "$dl_why" == *[.[:space:]] ]]; do dl_why="${dl_why%?}"; done
+          case "${dl_why:-x}" in *[?!\)]) dl_end="" ;; *) dl_end="." ;; esac
+          say "Not offered for $dl_shown: ${dl_why:-it did not say why}${dl_end}"; dl_notoff=1; continue
+        fi
+        # Two listed spellings can resolve to one agent (a case-blind disk): it is listed and deleted once.
+        case "$dl_seenl" in *$'\n'"${dl_target:-$dl_name}"$'\n'*) continue ;; esac
+        dl_seenl="$dl_seenl${dl_target:-$dl_name}"$'\n'
+        if [ -n "$dl_typed" ]; then dl_typedl="${dl_typedl:+$dl_typedl, }$dl_shown"; continue; fi
+        if [ -n "$KOSMOS_DL_YES" ] && [ -z "$dl_task" ]; then dl_heldl="${dl_heldl:+$dl_heldl, }$dl_shown"; continue; fi
+        [ -z "$dl_hasfolder" ] || dl_folders=1
+        dl_go+=("${dl_target:-$dl_name}"); dl_goshown+=("$dl_shown"); dl_goconf+=("$dl_conf"); dl_goloses+=("$dl_loses"); dl_gotask+=("$dl_task")
+        [ -n "$dl_task" ] || dl_full=1
+      done <<<"$dl_list"
+      [ -z "$dl_typedl" ] || say "Left for the board, where each one asks for its name to be typed first: $dl_typedl."
+      [ -z "$dl_heldl" ] || say "Left because --yes removes only startup jobs (these would also delete files and settings that do not all come back; run without --yes at a terminal, or delete them from the board): $dl_heldl."
+      if [ "${#dl_go[@]}" -eq 0 ]; then
+        say "Nothing was deleted."
+        if [ -n "$dl_typedl$dl_heldl$dl_notoff" ]; then exit 1; fi
+        exit 0
+      fi
+      if [ "${#dl_go[@]}" = 1 ]; then dl_s=""; else dl_s="s"; fi
+      say ""
+      say "About to delete what is left of ${#dl_go[@]} removed agent$dl_s:"
+      for dl_i in "${!dl_go[@]}"; do say "  ${dl_goshown[$dl_i]}: ${dl_goloses[$dl_i]}"; done
+      [ -z "$dl_folders" ] || say "Folders go to the Trash."
+      if [ -n "$dl_full" ]; then
+        for dl_i in "${!dl_gotask[@]}"; do [ -n "${dl_gotask[$dl_i]}" ] || dl_nfull=$((dl_nfull + 1)); done
+        say "$dl_nfull of these delete more than a startup job: once deleted they cannot be put back from the board, and what each one loses is listed beside it."
+      fi
+      if [ -z "$KOSMOS_DL_YES" ]; then
+        local dl_answer=""
+        dl_ask="Delete all ${#dl_go[@]}?"
+        [ "$dl_nfull" -eq 0 ] || dl_ask="Delete all ${#dl_go[@]} ($dl_nfull cannot be put back afterwards)?"
+        printf '%s%s [y/N] ' "${KOSMOS_SAY_INDENT:-  }" "$dl_ask" >&2
+        read -r dl_answer || dl_answer=""
+        case "$(printf '%s' "$dl_answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" in y|yes) ;; *) say "Cancelled. Nothing was deleted."; exit 1 ;; esac
+      fi
+      for dl_i in "${!dl_go[@]}"; do
+        dl_rest=""
+        for dl_j in "${!dl_go[@]}"; do [ "$dl_j" -le "$dl_i" ] || dl_rest="${dl_rest:+$dl_rest, }${dl_goshown[$dl_j]}"; done
+        [ -z "$dl_rest" ] || dl_rest=" The rest were not tried: $dl_rest."
+        dl_path=$(KOSMOS_RM_NAME="${dl_go[$dl_i]}" "$_node" -e 'process.stdout.write(encodeURIComponent(process.env.KOSMOS_RM_NAME))') || { say "We could not use the name ${dl_goshown[$dl_i]}."; exit 1; }
+        rc=0
+        # The plan's own fingerprint, so the engine refuses if what it would do changed since it was listed above.
+        body=$(KOSMOS_DL_CONF="${dl_goconf[$dl_i]}" "$_node" -e 'process.stdout.write(JSON.stringify({confirmed:process.env.KOSMOS_DL_CONF||null}))' \
+          | kosmos_curl "$dl_bt" "$_rtok" -sS -m 180 -w $'\n%{http_code}' -X DELETE "$URL/api/agent/$dl_path/leftover" -H 'content-type: application/json' --data-binary @- 2>/dev/null) || rc=$?
+        case "$rc" in
+          0) ;;
+          18|28|52|56) say "Kosmos stopped answering while deleting what is left of ${dl_goshown[$dl_i]}, so it may be partly deleted; look at the board before trying again ($URL/). $dl_done deleted before it.$dl_rest"; exit 3 ;;
+          *) say "Kosmos stopped answering before ${dl_goshown[$dl_i]}. $dl_done deleted so far.$dl_rest"; exit 1 ;;
+        esac
+        dl_code="${body##*$'\n'}"; body="${body%$'\n'*}"
+        dl_out=$(printf '%s' "$body" | "$_node" -e "$_dlparse"'console.log([one(j.outcome),one(j.because||j.error)].join("\t"))})') || dl_out=""
+        dl_why=$(cut -f2 <<<"$dl_out"); dl_out=$(cut -f1 <<<"$dl_out")
+        while [[ "$dl_why" == *[.[:space:]] ]]; do dl_why="${dl_why%?}"; done
+        # A 5xx with no outcome is a delete that threw partway (server.js), whatever else its body says.
+        case "$dl_code" in 5[0-9][0-9]) [ -n "$dl_out" ] || dl_out=failed-partway ;; 2[0-9][0-9]) [ -n "$dl_out" ] || dl_out=accepted-unread ;; esac
+        if [ "$dl_code" = 409 ]; then say "Stopped at ${dl_goshown[$dl_i]}: ${dl_why:-the board is busy}. $dl_done deleted so far.$dl_rest"; exit 1; fi
+        case "$dl_out" in
+          deleted) dl_done=$((dl_done + 1)); say "Deleted: ${dl_goshown[$dl_i]}." ;;
+          accepted-unread) say "${dl_goshown[$dl_i]} may have been deleted: Kosmos accepted the request but we could not read how it went. Look at the board before trying again ($URL/). $dl_done deleted before it.$dl_rest"; exit 3 ;;
+          failed-partway) say "${dl_goshown[$dl_i]} may be partly deleted: ${dl_why:-Kosmos did not say how far it got}. $dl_done deleted before it.$dl_rest"; exit 3 ;;
+          partial) dl_failed=$((dl_failed + 1)); say "Only partly deleted ${dl_goshown[$dl_i]}${dl_why:+: $dl_why}." ;;
+          *) dl_failed=$((dl_failed + 1)); say "Not deleted: ${dl_goshown[$dl_i]}${dl_why:+: $dl_why}." ;;
+        esac
+      done
+      if [ "$dl_failed" -gt 0 ]; then say "$dl_done of ${#dl_go[@]} deleted. Not done: $dl_failed (above)."; else say "$dl_done of ${#dl_go[@]} deleted."; fi
+      if [ "$dl_failed" -gt 0 ] || [ -n "$dl_typedl$dl_heldl$dl_notoff" ]; then exit 1; fi
       ;;
   esac
 }
