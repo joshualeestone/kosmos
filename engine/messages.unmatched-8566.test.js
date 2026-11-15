@@ -119,12 +119,12 @@ test('a person\'s post and a room shared with another computer get no such note'
 });
 
 test('a post that woke every member another way (@all) says nothing about the name beside it', () => {
-  assert.equal(note('Leo -> the team: @all heads up'), undefined);
-  assert.match(note('Leo -> the team: heads up'), /^the team is not the name/, 'CONTROL: without @all it is said');
+  assert.equal(note('Leo -> Josh: @all heads up'), undefined);
+  assert.match(note('Leo -> Josh: heads up'), /^Josh is not the name/, 'CONTROL: without @all it is said');
 });
 
 test('a long name is cut to 60 characters', () => {
-  const long = 'Abcdefghijklmnopqrstuvwxyz Abcdefghijklmnopqrstuvwxyz Abcdefghijklmnopqrstuvwxyz';
+  const long = 'Abcdefghijklmnopqrstuvwxyz Bcdefghijklmnopqrstuvwxyz Cdefghijklmnopqrstuvwxyz';
   const n = note('Leo -> ' + long + ': hi');
   assert.ok(n.startsWith(long.slice(0, 60) + ' is not the name'), n);
 });
@@ -135,6 +135,21 @@ test('a topic after a comma in the header is not a name and says nothing; a name
     assert.equal(note(text), undefined, text);
   }
   assert.match(note('Leo -> Kano, Josh: x'), /^Josh is not the name/, 'CONTROL: a name-shaped part beside a member is still said');
+});
+
+test('topics and sentences that are not names say nothing, with a member woken beside them', () => {
+  for (const text of ['Leo -> Kano, heads up: x', 'Leo -> Kano, quick one: x', 'Leo -> Kano, FYI: x', 'Leo -> Kano, thanks: x',
+    'Leo -> Kano, re the cut: x', 'Leo -> Kano and the room: x', 'Leo for the record: x', 'Leo for now: nothing', 'Leo to do: list',
+    'Leo to self: remember', 'Leo -> Josh\tDana: tab']) {
+    assert.equal(note(text), undefined, text);
+  }
+  assert.match(note('Leo -> Kano, Josh: names'), /^Josh is not the name/, 'CONTROL: a name beside them is still said');
+});
+
+test('a word of a hyphenated member name says nothing (Renet for renet-tilley, Zero for Sub-Zero)', () => {
+  const agents = [...FLEET(), fleet.agent('renet-tilley', { state: 'idle' })];
+  assert.equal(note('Leo -> Renet: x', agents, [...MEMBERS, 'renet-tilley']), undefined);
+  assert.equal(note('Leo -> Zero: x'), undefined);
 });
 
 test('a possessive of a member name, and a name with a member word in it, say nothing (they may mean the member)', () => {
