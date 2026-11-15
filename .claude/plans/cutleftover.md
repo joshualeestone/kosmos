@@ -29,6 +29,11 @@ families this cut builds (arm64; linux-x64 when CUT_LINUX=yes):
   ANOTHER build of V is served now (a deploy still in flight when 1g read the host, or one that landed after its cut
   cleaned up and left no file), the cut does not deploy. 404 or this cut's own sha: go on; anything else after 3
   reads: refuse (review 3). This is the guard that does not depend on how old a file is or on any file existing.
+- With no leftovers and no committed manifest, 1g does not read the host: a cut start must not depend on the
+  production host, and the suite's nested cuts would read it too (a test cutting 0.7.50, a really served version, was
+  refused when I tried it). The cost, taken on purpose: a version that landed after its cut cleaned up is refused by
+  step 8's guard after the build, not at 1g (review 4 W1).
+- A channel's first Linux cut has no Linux pointer; the Mac family's served version is the positive control (review 4).
 - Every family is decided before anything moves; then the leftovers go into ONE dated folder beside the site
   checkout, outside git, nothing deleted. Tracked files are never touched; a git error is a refusal.
 
@@ -51,7 +56,7 @@ refuses anyway, unless the version has since been pruned from the host.
   between). Still passes on main's release.sh.
 
 ## Tests
-- tools/test-release-leftovers-8562.sh (34 arms, registered in package.json test:shell), with a curl stub that answers
+- tools/test-release-leftovers-8562.sh (36 arms, registered in package.json test:shell), with a curl stub that answers
   as installkosmos.com does (404 for unknown names). Mutations of the marker check, the strict 404, each control,
   decide-before-move, the Linux-manifest refusal, the tracked-file skip, the age wait, the git-dir marker and the deploy
   guard (another sha, and its wiring) each red their arm. test-deploy-landed-5471 stubs the guard (it is about landing).

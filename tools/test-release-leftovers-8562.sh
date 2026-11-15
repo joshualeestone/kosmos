@@ -41,7 +41,7 @@ left() { ls "$T/site/dist" | grep -c '^kosmos-0\.8\.05-' ; }
 aside() { ls -d "$T"/site.aborted-0.8.05-* 2>/dev/null | head -1; }
 BOTH="arm64 linux-x64"
 
-# 1. Nothing left: nothing asked, nothing moved.
+# 1. Nothing left: nothing asked, nothing said, nothing moved (a cut start does not depend on the host).
 site
 out="$(release_leftovers_clear "$T/site" 0.8.05 https://h $BOTH)"; rc=$?
 [ "$rc" = 0 ] && [ -z "$out" ] && [ ! -e "$T/urls" ] && ok "no leftovers: returns 0, says nothing, asks the host nothing" || bad "none: rc=$rc out=$out"
@@ -149,6 +149,15 @@ git -C "$T/site" worktree remove --force "$T/wt" 2>/dev/null
 # 18. Marking a site that is not a git checkout says so, and does not fail the cut.
 mkdir -p "$T/nogit"; out="$(release_leftovers_mark_served "$T/nogit" 0.8.05 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [[ "$out" == *"could not record"* ]] && ok "no git checkout: the marker is not written, says so, returns 0" || bad "nogit: rc=$rc out=$out"
+
+# 18b. A channel's first Linux cut (no Linux pointer served yet): the Mac family's served version is the positive control.
+site kosmos-0.8.05-linux-x64.tar.gz; rm -f "$T/served/dist/latest-linux.json" "$T/served/dist/kosmos-0.8.02-linux-x64.tar.gz.sha256"
+out="$(release_leftovers_clear "$T/site" 0.8.05 https://h linux-x64)"; rc=$?
+[ "$rc" = 0 ] && [ -f "$(aside)/kosmos-0.8.05-linux-x64.tar.gz" ] && grep -qx "https://h/dist/kosmos-0.8.02-arm64.tar.gz.sha256" "$T/urls" && ok "first Linux cut: the Mac family's served version is the positive control, and the leftover moves" || bad "first linux: rc=$rc out=$out"
+# 18c. The "cannot tell" line names what each read answered, with no stray version string.
+site kosmos-0.8.05-arm64.tar.gz; status dist/kosmos-0.8.05-arm64.tar.gz.sha256 503
+out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"
+[[ "$out" == *"(its .sha256 answered 503; a version that cannot exist answered 404; the served 0.8.02 answered 200), so nothing was moved."* ]] && ok "the unknown line reads cleanly" || bad "message: $out"
 
 # 19. The positive control answers 200 but with a page, not a checksum: refused.
 site kosmos-0.8.05-arm64.tar.gz; status dist/kosmos-0.8.02-arm64.tar.gz.sha256 200

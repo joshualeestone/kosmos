@@ -47,6 +47,13 @@ release_leftovers_mark_served() {
 # and it lands within minutes, so an hour leaves no deploy in flight. Whole minutes.
 RELEASE_LEFTOVERS_MIN_AGE_MIN="${KOSMOS_LEFTOVERS_MIN_AGE_MIN:-60}"
 
+# The version a served pointer (dist/latest.json, dist/latest-linux.json) names, or nothing.
+release_leftovers_pointer_version() {
+  curl -fsSL -m 30 -H 'Cache-Control: no-cache' "${1%/}/dist/$2?leftover=$(date +%s)" 2>/dev/null \
+    | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const v=JSON.parse(s).version;if(typeof v==="string"&&/^\d+\.\d+\.\d+$/.test(v))process.stdout.write(v)}catch{}})' 2>/dev/null
+  return 0
+}
+
 release_leftovers_is_sum() { printf '%s' "$1" | head -1 | grep -Eq '^[0-9a-f]{64}([[:space:]]|$)'; }
 
 # <url> -> "<http status> <first line of the body>"; status 000 when the request itself failed.
@@ -83,20 +90,26 @@ release_leftovers_clear() {
     if [ "$fam" = linux-x64 ] && git -C "$site" ls-files --error-unmatch -- "dist/kosmos-$v-linux-x64.manifest.json" >/dev/null 2>&1; then
       manifest="dist/kosmos-$v-linux-x64.manifest.json"
     fi
+    # Nothing left here: nothing to move, and no read of the host (a cut start must not depend on it, nor must the
+    # suite's nested cuts). A deploy that landed after its cut cleaned up is still refused before it deploys, by
+    # release_leftovers_guard_deploy at step 8, though only after the build.
     [ "${#found[@]}" -gt 0 ] || [ -n "$manifest" ] || continue
     [ "${#found[@]}" -gt 0 ] && echo "   found files for $v ($fam) left in the site checkout by an earlier cut: ${found[*]}"
     ptr="latest.json"; [ "$fam" = linux-x64 ] && ptr="latest-linux.json"
-    pv="$(curl -fsSL -m 30 -H 'Cache-Control: no-cache' "$host/dist/$ptr?leftover=$(date +%s)" 2>/dev/null \
-      | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const v=JSON.parse(s).version;if(typeof v==="string"&&/^\d+\.\d+\.\d+$/.test(v))process.stdout.write(v)}catch{}})' 2>/dev/null)"
+    pv="$(release_leftovers_pointer_version "$host" "$ptr")"
+    local posfam="$fam"
+    # A channel's first Linux cut has no Linux pointer yet. The positive control only has to show this host can answer
+    # "served", so the Mac family's served version stands in.
+    if [ -z "$pv" ] && [ "$fam" = linux-x64 ]; then pv="$(release_leftovers_pointer_version "$host" latest.json)"; posfam=arm64; fi
     mine="$(release_leftovers_get "$host/dist/kosmos-$v-$fam.tar.gz.sha256")"
     if release_leftovers_is_sum "${mine#* }"; then
       echo "release-leftovers: $host serves kosmos-$v-$fam.tar.gz.sha256 (a checksum), so $v was served for $fam and its versioned name is cache-immutable. Bump the version; do not move these files."
       refused=1; continue
     fi
     ctl="$(release_leftovers_get "$host/dist/kosmos-0.0.0-leftover-control-$fam.tar.gz.sha256")"
-    pos=""; [ -n "$pv" ] && pos="$(release_leftovers_get "$host/dist/kosmos-$pv-$fam.tar.gz.sha256")"
+    pos=""; [ -n "$pv" ] && pos="$(release_leftovers_get "$host/dist/kosmos-$pv-$posfam.tar.gz.sha256")"
     if [ "${mine%% *}" != 404 ] || [ "${ctl%% *}" != 404 ] || [ "${pos%% *}" != 200 ] || ! release_leftovers_is_sum "${pos#* }"; then
-      echo "release-leftovers: cannot tell whether $v was ever served for $fam (its .sha256 answered ${mine%% *}; a version that cannot exist answered ${ctl%% *}; ${pv:+the prod version $pv answered ${pos%% *}}${pv:-the prod pointer $ptr could not be read}), so nothing was moved."
+      echo "release-leftovers: cannot tell whether $v was ever served for $fam (its .sha256 answered ${mine%% *}; a version that cannot exist answered ${ctl%% *}; $(if [ -n "$pv" ]; then echo "the served $pv answered ${pos%% *}"; else echo "no prod pointer could be read"; fi)), so nothing was moved."
       echo "   Read $host/dist/kosmos-$v-$fam.tar.gz.sha256 by hand: a checksum means it was served (bump the version); a 404 like a made-up version's means it never was (move the files listed above out of $site/dist, and cut again)."
       refused=1; continue
     fi
@@ -105,6 +118,7 @@ release_leftovers_clear() {
       refused=1; continue
     fi
     # An unconfirmed deploy "may still land" (step 8): a 404 counts only once no deploy of these files can be in flight.
+    # Timed from the file's mtime, which can be older than the deploy that carried it; step 8's guard is the backstop.
     for rel in "${found[@]}"; do
       if [ -n "$(find "$site/$rel" -mmin -"$RELEASE_LEFTOVERS_MIN_AGE_MIN" 2>/dev/null)" ]; then
         echo "release-leftovers: $rel is less than $RELEASE_LEFTOVERS_MIN_AGE_MIN minutes old, and a deploy that wrote it may still land, so a 404 proves nothing yet. Cut again in an hour (KOSMOS_LEFTOVERS_MIN_AGE_MIN sets the wait)."
@@ -131,8 +145,9 @@ release_leftovers_guard_deploy() {
     case "${got%% *}" in
       404) return 0 ;;
       200) if release_leftovers_is_sum "${got#* }"; then
-             set -- "${got#* }"; [ "${1%% *}" = "$mine" ] && return 0
-             echo "another build of $v is served for $fam now (its .sha256 is ${1%% *}, this cut's is ${mine:-unreadable}): the versioned name is cache-immutable, so this cut does not deploy; nothing was deployed. Bump the version (kosmos#8562)."
+             local served="${got#* }"; served="${served%% *}"
+             [ "$served" = "$mine" ] && return 0
+             echo "another build of $v is served for $fam now (its .sha256 is $served, this cut's is ${mine:-unreadable}): the versioned name is cache-immutable, so this cut does not deploy; nothing was deployed. Bump the version (kosmos#8562)."
              return 1
            fi ;;
     esac
