@@ -750,7 +750,9 @@ async function main(io) {
      failed (reporting being off is said instead; the hook prints one JSON object). A supervisor's relaunch with
      `claude --resume` is a `resume`, not a startup, so reportFor returns null above and this is not reached. */
   let awayJson = '';
-  if (event === 'SessionStart') {
+  /* No agent token and no pane (the person's own Claude session): the board cannot tell who is asking and refuses every
+     time, so it is not asked, as the Mac hook does. proven(c, AWAY_TIMEOUT_MS) bounds the proof and the fetch together. */
+  if (event === 'SessionStart' && (agentToken(env) || env.TMUX_PANE)) {
     try {
       const ap = await proven(c, o.awayTimeoutMs || AWAY_TIMEOUT_MS);
       if (ap.ok && ap.leftMs > 0) {

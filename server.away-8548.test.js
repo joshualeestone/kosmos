@@ -90,7 +90,7 @@ test('at=startup: posts, messages since the last report; the text and JSON forms
       const ctx = hook.json.hookSpecificOutput;
       assert.equal(ctx.hookEventName, 'SessionStart');
       assert.match(ctx.additionalContext, /- fleet: 1 post from others; naming you or from the person: m2\. Read it with: kosmos room fleet/);
-      assert.match(ctx.additionalContext, /- at least 1 message from other agents could not reach you \(nova\)\./);
+      assert.match(ctx.additionalContext, /- at least 1 message from other agents to you refused, for any reason \(nova\)\./);
       assert.doesNotMatch(ctx.additionalContext, /SECRET WORDS|BEFORE/);
       const json = await get('/api/away?at=startup', { 'x-kosmos-agent-token': tok });
       assert.deepEqual(json.json.counts, { posts: 1, refused: 1, direct: 0 });

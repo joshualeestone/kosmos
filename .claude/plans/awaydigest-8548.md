@@ -34,7 +34,7 @@ Contents (bounded, ids not text, so no colleague's words are handed over as inst
 - per project: how many room posts could not reach it, and the ids of those that name it (engine/messages.js namedIn:
   `mentioned` and `addressed`) or come from the person (at most SHOWN ids, then "and N earlier"); ends with
   `kosmos room <id>`;
-- `kosmos msg`: refusals to it, as "at least N" (logRefusedSend keeps one row per sender, recipient and reason in a
+- `kosmos msg`: refusals to it, for any reason, as "at least N" (logRefusedSend keeps one row per sender, recipient and reason in a
   window); senders named; it says to ask the sender. A message row is written only for one typed into a running pane
   or held for one, so it is not counted;
 - the person's DMs to it in the window: count; ends with `kosmos inbox --since <window start> --limit 50`.
