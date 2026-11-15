@@ -17,11 +17,12 @@
  *   - confirmed: YYYY-MM-DD, the date of the row's latest evidence. A write IS evidence, so it is today unless
  *     the writer says when the evidence is from, and a backdated write never moves it behind a confirmer the row
  *     keeps (#8261). Any write counts here, a source fix too, while confirmers lists only who named the status: so a
- *     source fix dated today can show today's date beside an older confirmer (#8553, kept on purpose: the agent
+ *     source fix dated today moves the row to today, which also clears a stale row's stale mark, beside a confirmer
+ *     whose own check may be stale (#8553, kept on purpose: the agent
  *     instructions say a write with no date is dated today, so a bare write is a refresh).
  *   - status and source are optional; a write leaves a field alone unless it names it ('' clears it).
  *   - by / byPerson: the latest writer, filled in by the board from the writer's own card, never typed; null and false
- *     when the board could not name the writer (no token and no pane it could match, and not the screen). Such a
+ *     when the board could not name the writer (no token and no pane it could match, or a roster it could not read, and not the screen). Such a
  *     write adds nobody to the confirmers; if it names a new status it empties them, like any new status (#8553). The
  *     person's own terminal outside tmux is one such writer. A writer the board names but whose name is over
  *     CONFIRMER_NAME_MAX is in by and is not a confirmer either.
@@ -44,9 +45,10 @@ const SOURCE_MAX = 500;
 const LABEL_MAX = 40;
 /* The rows live inside projects.json, which every board read parses whole and every write rewrites. A row at every
    field's limit, with CONFIRMERS_MAX dated confirmers of CONFIRMER_NAME_MAX-character names and an 80-character by,
-   is about 1,900 characters of JSON (about 1,250 without confirmers), so 500 rows is about 950 KB per project
-   (kosmos#8261 measured it). That is a typical case, not a bound: by is not capped here, the key can expand under
-   NFKC, quotes and backslashes double in JSON, and non-ASCII text takes more bytes than characters. */
+   is about 2,340 characters as projects.json stores it (indented by projects.js; about 1,360 without confirmers), so
+   500 rows is about 1.2 MB per project (kosmos#8553 measured it). That is a typical case, not a bound: by is not
+   capped here, the key can expand under NFKC, quotes and backslashes double in JSON, and non-ASCII text takes more
+   bytes than characters. */
 const ROWS_MAX = 500;
 const STALE_DAYS = 30;
 const CONFIRMERS_MAX = 5;

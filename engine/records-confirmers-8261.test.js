@@ -232,6 +232,7 @@ test('#8553: any write is evidence for the row\'s date (#6994), so a source fix 
   records.set(p.id, 'Acme', { status: 'active', confirmed: '2026-10-06' }, { by: 'ana', now: NOW });
   records.set(p.id, 'Acme', { source: 'fixed link' }, { by: 'bo', now: NOW });
   assert.equal(only(p).confirmed, '2026-11-15', 'kept on purpose: a bare write is how a row is refreshed');
+  assert.equal(only(p).stale, false, 'and it clears the stale mark ana\'s 40-day-old check had');
   assert.deepEqual(names(only(p)), ['ana'], 'bo is not a confirmer: he named no status');
   // A writer the board cannot name (the person's terminal outside tmux) naming the status moves the row to today
   // too, while ana's own date stays hers.
