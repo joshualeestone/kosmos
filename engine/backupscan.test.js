@@ -108,25 +108,29 @@ test('#5686 review 3: a writer\'s temp copy of a denied file is denied with it, 
 });
 
 test('#5686 review 7: a hostile copy-shaped name cannot backtrack exponentially (the old tail took 1.6 s at 32 characters)', () => {
-  const t0 = process.hrtime.bigint();
+  // kosmos#8544: CPU time (user + system), not wall time. The work is CPU-bound with nothing to wait on, so a stretch
+  // where the machine stalled (measured: 2.5 s of wall time for this sub-second work in a run where every test slowed)
+  // no longer reads as backtracking. A regression is still CPU: it took 1.6 to 17 s, far over these limits. As #7235.
+  const cpuMs = (t) => { const { user, system } = process.cpuUsage(t); return (user + system) / 1000; };
+  const t0 = process.cpuUsage();
   for (const end of ['.tmp', '.bak', '.new']) bs.pathDecision('w/a' + end + '1'.repeat(28) + '!');
-  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-  assert.ok(ms < 500, `took ${ms} ms (exponential backtracking takes seconds here; the fixed pattern takes well under 1 ms)`);
-  const t1 = process.hrtime.bigint();
+  const ms = cpuMs(t0);
+  assert.ok(ms < 500, `took ${ms} ms of CPU (exponential backtracking takes seconds here; the fixed pattern takes well under 1 ms)`);
+  const t1 = process.cpuUsage();
   bs.pathDecision('communitysend/'.repeat(15000) + 'x');   // 210 KB: a quadratic community pattern took 7 s here
-  const ms1 = Number(process.hrtime.bigint() - t1) / 1e6;
-  assert.ok(ms1 < 1000, `a path repeating communitysend/ took ${ms1} ms`);
-  const t2 = process.hrtime.bigint();
+  const ms1 = cpuMs(t1);
+  assert.ok(ms1 < 1000, `a path repeating communitysend/ took ${ms1} ms of CPU`);
+  const t2 = process.cpuUsage();
   for (const seg of ['mac_key-', 'board.token-', '-kosmos-a-apikey', 'sendertokens-']) {
     assert.equal(bs.pathDecision('w/' + seg.repeat(32000) + '/x').include, false, 'a segment longer than any name is refused');
   }
-  const ms2 = Number(process.hrtime.bigint() - t2) / 1e6;
-  assert.ok(ms2 < 1000, `long single segments took ${ms2} ms (uncapped token patterns took 2 to 17 s each)`);
-  const t3 = process.hrtime.bigint();
+  const ms2 = cpuMs(t2);
+  assert.ok(ms2 < 1000, `long single segments took ${ms2} ms of CPU (uncapped token patterns took 2 to 17 s each)`);
+  const t3 = process.cpuUsage();
   const pair = 'remote-'.repeat(145) + '/' + 'pairing-'.repeat(127) + '/';
   bs.pathDecision('w/' + pair.repeat(500) + 'x');   // about 1 MB: a joined two-token pattern took 3.5 s on it
-  const ms3 = Number(process.hrtime.bigint() - t3) / 1e6;
-  assert.ok(ms3 < 1000, `remote/pairing segment pairs took ${ms3} ms`);
+  const ms3 = cpuMs(t3);
+  assert.ok(ms3 < 1000, `remote/pairing segment pairs took ${ms3} ms of CPU`);
   assert.equal(bs.pathDecision('w/' + 'a'.repeat(1017) + '.md').include, true, 'CONTROL: a 1020-character name, at the loose cap, is judged, not refused');
   assert.equal(bs.pathDecision('w/' + 'a'.repeat(1018) + '.md').include, false, 'one character over is refused');
 });
