@@ -1915,6 +1915,134 @@
       "since": "0.8.05",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "Images, video and voice on Connections",
+      "line": "Connections has a new Images, video and voice group: connect Replicate or ElevenLabs with a key, and Kosmos checks the key with the service.",
+      "icon": "spark",
+      "rank": 9.3,
+      "since": "0.8.06",
+      "status": "pending"
+    },
+    {
+      "title": "See what your agents found on Connections",
+      "line": "Settings > Connections lists which actions of a service worked or were refused when your agents used it, so the next agent knows first.",
+      "icon": "list",
+      "rank": 9.7,
+      "since": "0.8.06",
+      "status": "pending"
+    },
+    {
+      "title": "A closed task says how it closed",
+      "line": "A closed task says whether it closed with a change, on a note, or without being marked built, on the Tasks list and on its page.",
+      "icon": "tasks",
+      "rank": 11,
+      "since": "0.8.06",
+      "status": "pending"
+    },
+    {
+      "title": "A paused room says why it stayed quiet",
+      "line": "When a room's wake pause keeps a post from waking anyone, the reply says why the room is paused, who paused it, and what still gets through.",
+      "icon": "chat",
+      "rank": 11.2,
+      "since": "0.8.06",
+      "status": "pending"
+    },
+    {
+      "title": "A new Cloud machine can be allowed",
+      "line": "If you already have a computer on Kosmos and add a Kosmos Cloud machine, you can now allow it instead of being told it cannot be allowed.",
+      "icon": "shield",
+      "rank": 11.3,
+      "since": "0.8.06",
+      "status": "pending"
+    },
+    {
+      "title": "Windows agents keep their account at login",
+      "line": "On Windows, an agent whose startup job is put back by Start at login keeps the account and model it had, not the main account.",
+      "icon": "swarm",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 11.5,
+      "since": "0.8.06",
+      "status": "pending"
+    },
+    {
+      "title": "Start at login stops misreading the account",
+      "line": "On Windows, Start at login no longer says an agent's account signed out or changed when it is still the same account.",
+      "icon": "swarm",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 11.6,
+      "since": "0.8.06",
+      "status": "pending"
+    },
+    {
+      "title": "The Guide says how to free its name",
+      "line": "When a leftover holds the Kosmos Guide's name, Settings says how to free it in three more cases instead of saying to try again.",
+      "icon": "list",
+      "rank": 12.7,
+      "since": "0.8.06",
+      "status": "pending"
+    },
+    {
+      "title": "Agents get a while-you-were-away digest",
+      "line": "An agent back from hours offline starts with a digest of what could not reach it, such as room posts that did not wake it.",
+      "icon": "chat",
+      "rank": 114,
+      "since": "0.8.06",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "kosmos agent delete-leftovers",
+      "line": "kosmos agent delete-leftovers deletes what is left of every removed agent in one go, after showing what each one loses and asking once.",
+      "icon": "swarm",
+      "rank": 115,
+      "since": "0.8.06",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Give a task to a non-member in one step",
+      "line": "kosmos task add --who and kosmos task assign take --add-member, which puts the agent on the project and gives it the task in one request.",
+      "icon": "tasks",
+      "rank": 116,
+      "since": "0.8.06",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Agent rules hold only their own platform",
+      "line": "An agent's working rules now hold only the lines for the platform it runs on.",
+      "icon": "list",
+      "rank": 117,
+      "since": "0.8.06",
+      "status": "pending",
+      "restart": "agents",
+      "notesOnly": true
+    },
+    {
+      "title": "Records keep every agent that confirmed them",
+      "line": "A project record row keeps up to five agents, or the person, who confirmed its current status, each with the date of their own evidence.",
+      "icon": "list",
+      "rank": 118,
+      "since": "0.8.06",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "A Windows delete runs only what you confirmed",
+      "line": "On Windows, deleting a removed agent's leftovers runs the plan you confirmed and refuses if what it would delete has changed since.",
+      "icon": "shield",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 119,
+      "since": "0.8.06",
+      "status": "pending",
+      "notesOnly": true
     }
   ]
 }
