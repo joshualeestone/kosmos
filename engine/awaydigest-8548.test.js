@@ -83,7 +83,7 @@ test('kosmos msg refusals to the agent and the person\'s DMs are counted; messag
   assert.deepEqual(d.counts, { posts: 0, refused: 2, direct: 1 });
   assert.deepEqual(d.lines, [
     '- at least 2 messages from other agents to you refused, for any reason (mona, nova). Ask the sender if you need what it said.',
-    '- 1 message from the person. Read them with: kosmos inbox --since 2026-11-14T08:00:00Z --limit 50 (it lists the oldest first and names where to go on)',
+    '- 1 message from the person. Read them with: kosmos inbox --since 2026-11-14T08:00:00.000Z --limit 50 (it lists the oldest first and names where to go on)',
   ]);
 });
 
@@ -113,8 +113,7 @@ test('hookJson is SessionStart additionalContext', () => {
   assert.equal(j.hookSpecificOutput.additionalContext, away.contextText(d));
 });
 
-/* The Windows hook: main() asks /api/away before it sends `started`, and prints the answer only when `started` was
-   recorded. A fake fetch answers the proof, the away route and the report in turn and records the order. */
+/* The Windows hook: main() asks /api/away after `started` was recorded, and prints the answer only then. A fake fetch answers the proof, the away route and the report in turn and records the order. */
 const hook = require('./kosmos-report-hook');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -196,7 +195,8 @@ test('only plain tokens are printed: a sender, room or id carrying other charact
 
 test('Kosmos\'s own words kept in the person\'s thread are not counted as the person\'s', () => {
   const direct = [{ text: 'daily limit', kosmos: true, at: iso(T0 - H), delivery: { state: 'could_not' } },
-    { text: 'hi', at: iso(T0 - H), delivery: { state: 'held' } }];
+    { text: 'hi', at: iso(T0 - H), delivery: { state: 'could_not' } },
+    { text: 'held for after a reset', at: iso(T0 - H), delivery: { state: 'held' } }];
   assert.equal(away.build({ name: 'leo', sinceMs: T0 - 2 * H, untilMs: T0, direct }).counts.direct, 1);
 });
 
@@ -207,4 +207,9 @@ test('main: without an agent token (this hook never sends a pane) /api/away is n
     assert.ok(r.calls.includes('/api/report'), 'control: the started report still goes');
   }
   assert.ok((await runMain()).calls.includes('/api/away'), 'control: with a token it is asked');
+});
+
+test('the window includes its start and its end, as kosmos inbox --since does; one millisecond outside is left out', () => {
+  const rows = [post('at-start', T0 - H), post('at-end', T0), post('before', T0 - H - 1), post('after', T0 + 1)];
+  assert.equal(away.build({ name: 'leo', sinceMs: T0 - H, untilMs: T0, rows }).counts.posts, 2);
 });

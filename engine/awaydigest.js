@@ -73,7 +73,8 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
   let since = sinceMs;
   let clamped = false;
   if (untilMs - since > MAX_WINDOW_MS) { since = untilMs - MAX_WINDOW_MS; clamped = true; }
-  const inWindow = (r) => { const t = ms(r && r.at); return Number.isFinite(t) && t > since && t <= untilMs; };
+  // At or after the start, as `kosmos inbox --since` reads it, so the count and the listing it names agree.
+  const inWindow = (r) => { const t = ms(r && r.at); return Number.isFinite(t) && t >= since && t <= untilMs; };
 
   const rooms = new Map();   // project -> { count, asked: [ids] }
   const senders = new Map();
@@ -105,10 +106,11 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
     if (!m || typeof m !== 'object' || (m.from !== undefined && m.from !== null) || m.kosmos === true || !inWindow(m)) continue;
     if (typeof m.text !== 'string' && !m.attachment && !m.attachments) continue;
     // A menu answer owes nothing (as `kosmos inbox --unanswered` reads it); only a message whose own delivery says it did
-    // not reach the agent counts (could_not, or held for after a reset). One with no delivery record is taken as reached.
+    // not reach the agent counts (could_not). One held for after a reset is still typed later, and one with no delivery
+    // record is taken as reached.
     if (typeof m.wire === 'string' && m.wire) continue;
     const state = m.delivery && typeof m.delivery === 'object' ? m.delivery.state : null;
-    if (state !== 'could_not' && state !== 'held') continue;
+    if (state !== 'could_not') continue;
     dms += 1;
   }
   const posts = [...rooms.values()].reduce((n, x) => n + x.count, 0);
@@ -135,7 +137,7 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
   }
   if (dms) {
     lines.push('- ' + dms + (dms === 1 ? ' message' : ' messages') + ' from the person. Read them with: kosmos inbox --since '
-      + isoSecond(since) + ' --limit ' + INBOX_LIMIT + ' (it lists the oldest first and names where to go on)');
+      + new Date(since).toISOString() + ' --limit ' + INBOX_LIMIT + ' (it lists the oldest first and names where to go on)');
   }
   return { name, lines, counts, clamped, sinceMs: since, untilMs };
 }
