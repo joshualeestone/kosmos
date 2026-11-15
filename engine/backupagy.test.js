@@ -131,7 +131,9 @@ test('review 1: on an IDLE event loop (nothing else scheduled, as on a quiet boa
       agy.stageAgy({ home: ${JSON.stringify(t.h)}, stageDir: ${JSON.stringify(path.join(t.base, 'idle-stage'))}, agents: [{ dir: ${JSON.stringify(ann)}, seg: 'ann' }] })
         .then((r) => { process.stdout.write(JSON.stringify(r.map((x) => x.only))); });`;
     const started = Date.now();
-    const out = require('node:child_process').spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 10000 });
+    // kosmos#8544: the failure guarded is a HANG (staging that never finishes), which any limit catches; 10 s also caught a
+    // machine-wide stall (one measured at 173 s for an 11 s run). 60 s keeps the hang red and lets a stall pass.
+    const out = require('node:child_process').spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 60000 });
     assert.equal(out.signal, null, `staging never finished on an idle loop (killed after ${Date.now() - started} ms)`);
     assert.deepEqual(JSON.parse(out.stdout), [['c-idle-1.db', 'c-idle-2.db']]);
   } finally { t.done(); }
