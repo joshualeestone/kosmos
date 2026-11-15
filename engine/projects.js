@@ -803,11 +803,10 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
     /* kosmos#8555: a closed task carries the Tasks view's last check of its commit when one is cached
        (landedcheck.cachedFor: never a new git call), within the same window; with no cached answer it carries none. */
     ...(() => {
-      if (!tasksModEarly.progressOf(t).closed) return {};
+      const c = landedcheckMod.cachedFor(t);   // first: a Map lookup, and most tasks have none, so they stop here
+      if (!c || !tasksModEarly.progressOf(t).closed) return {};
       const closedAt = Date.parse(tasksModEarly.closedAtOf(t) || '');
-      if (!(Number.isFinite(closedAt) && Date.now() - closedAt < landedcheckMod.CHECK_WINDOW_MS)) return {};
-      const c = landedcheckMod.cachedFor(t);
-      return c ? { landedCheck: c.state } : {};
+      return Number.isFinite(closedAt) && Date.now() - closedAt < landedcheckMod.CHECK_WINDOW_MS ? { landedCheck: c.state } : {};
     })(),
     parent: tree.up(t),
     parentSentence: tree.up(t) === null ? null : (tree.byNum.get(tree.up(t)).sentence || null),
