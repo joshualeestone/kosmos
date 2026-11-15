@@ -947,7 +947,7 @@ function closedHowOf(t, { hasSubtasks = false } = {}) {
  * a close's word, #8552) has it from the store, and past that window too. It only ever upgrades (a remote branch pruned
  * after a merge never makes a pushed fix local again), and only for the commit and repository checked: a reopen or a new mark since the
  * check has moved the task on, so nothing is written. Writes nothing when the task already says so, so a task is
- * written once. Returns { ok, changed }; never throws (a refused write leaves the task as stored, and the next read
+ * written once per commit. Returns { ok, changed }; never throws (a refused write leaves the task as stored, and the next read
  * tries again).
  */
 function saveOnRemote(projectId, n, sha, repo) {

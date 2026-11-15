@@ -1642,6 +1642,7 @@ let automoveRun = null;           // kosmos#7548: the mover, made at start only 
 const keepAwakeSetting = require('./engine/keepawake-setting'); // kosmos#7416 slice 3
 const keepAwake = require('./engine/keepawake'); // kosmos#7416 slice 3: caffeinate -i while the switch is on and a card reads working
 const landedcheck = require('./engine/landedcheck'); // kosmos#7508 slice 2: is a code fix's commit still kept, and on a remote
+const landedSaveFailed = new Set();   // kosmos#8555: tasks whose saved remote copy the store refused, each said once
 const KEEP_AWAKE = keepAwake.createHolder(process.env.AGENT_WORKFORCE_DRY_RUN === '1' ? { spawn: keepAwake.dryRunSpawn } : undefined);
 /* kosmos#7416 slice 3: one pass of the sweep (engine/keepawake.js pass). */
 function keepAwakeTick() {
@@ -23458,7 +23459,14 @@ const server = http.createServer(async (req, res) => {
       /* kosmos#8555: the upgrade is saved on the task (tasks.saveOnRemote: only upward, only for this commit, once), so the
          task page, `kosmos task show` and a close's word read it from the store, past the check's window too. Saved
          before the row's own field is set, and also when the page is already answered (`sent`): the check's work is kept. */
-      if (c.state === 'kept' && c.onRemote === true && row.landedOnRemote !== true) tasks.saveOnRemote(row.projectId, row.number, row.landedCommit, row.landedRepo);
+      if (c.state === 'kept' && c.onRemote === true && row.landedOnRemote !== true) {
+        const saved = tasks.saveOnRemote(row.projectId, row.number, row.landedCommit, row.landedRepo);
+        const key = row.projectId + '\u0000' + row.number;
+        if (!saved.ok && !landedSaveFailed.has(key)) {   // said once per task, so a store that refuses is heard, not hidden
+          landedSaveFailed.add(key);
+          console.error('[tasks view] could not save that task ' + row.number + ' of project ' + row.projectId + ' is on a remote');
+        }
+      }
       if (sent) return;
       if (c.state === 'kept' && c.onRemote === true) { row.landedOnRemote = true; row.closedHow = tasks.closedHowOf(row); }   // kosmos#8552
       if (closed) row.landedCheck = c.state;
