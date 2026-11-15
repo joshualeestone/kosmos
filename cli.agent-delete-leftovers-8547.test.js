@@ -94,6 +94,7 @@ test('#8547: at a terminal, y deletes the full and task-only leftovers after one
     assert.deepEqual(r.asked, ['Delete all 3? [y/N] ']);
     assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/agent/tasky/leftover', '/api/agent/fully/leftover', '/api/agent/settly/leftover'], 'control: a confirmed run did not delete');
     assert.match(r.out, /fully: Its folder, to the Recycle Bin; Its community account, for good/, 'what a full delete loses was not shown before the question');
+    assert.match(r.out, /1 of these delete more than a startup job/, 'the count of full deletes was not said before the question');
     assert.ok(!deletes(seen).some((d) => /typey/.test(d.url)), 'a plan asking for its name to be typed was deleted in bulk');
     assert.equal(r.code, 1, 'typey was left, so the run is not a clean success');
   });
@@ -230,6 +231,7 @@ test('#8547 Mac: at a terminal, n sends nothing and y deletes the full and task-
   assert.equal(yes.timedOut, false, 'the terminal run timed out: ' + yes.out);
   assert.match(yes.out, /fully: Its folder, to the Recycle Bin; Its community account, for good/, 'what a full delete loses was not shown');
   assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/agent/tasky/leftover', '/api/agent/fully/leftover', '/api/agent/settly/leftover'], 'control: y did not delete: ' + yes.out);
+  assert.match(yes.out, /1 of these delete more than a startup job/, 'the count of full deletes was not said');
   assert.match(yes.out, /3 of 3 deleted\./);
 }));
 

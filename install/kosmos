@@ -7796,7 +7796,8 @@ cmd_agent() {
       say "  kosmos agent remove \"<name>\" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)"
       say "  kosmos agent delete-leftovers [--yes]           delete what is left of every removed agent (their startup jobs, and folders to the"
       say "                                                  Trash), each as the board's Delete does it, after one confirm; --yes deletes"
-      say "                                                  only leftovers that are nothing but a startup job"
+      say "                                                  only leftovers that are nothing but a Windows startup job, so on a Mac"
+      say "                                                  or Linux it deletes nothing: run it at a terminal there"
       exit 2 ;;
     delete-leftovers)
       # kosmos#8547: --yes only; any other word is refused before any request.
@@ -8313,7 +8314,11 @@ cmd_agent() {
       say ""
       say "About to delete what is left of ${#dl_go[@]} removed agent$dl_s:"
       for dl_i in "${!dl_go[@]}"; do say "  ${dl_goshown[$dl_i]}: ${dl_goloses[$dl_i]}"; done
-      [ -z "$dl_full" ] || say "Folders go to the Trash; what each one loses is listed beside it."
+      if [ -n "$dl_full" ]; then
+        local dl_nfull=0
+        for dl_i in "${!dl_gotask[@]}"; do [ -n "${dl_gotask[$dl_i]}" ] || dl_nfull=$((dl_nfull + 1)); done
+        say "Folders go to the Trash; what each one loses is listed beside it. $dl_nfull of these delete more than a startup job, and what they lose does not all come back."
+      fi
       if [ -z "$KOSMOS_DL_YES" ]; then
         local dl_answer=""
         printf '%sDelete all %s? [y/N] ' "${KOSMOS_SAY_INDENT:-  }" "${#dl_go[@]}" >&2

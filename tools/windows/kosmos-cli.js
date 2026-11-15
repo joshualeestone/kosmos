@@ -2768,7 +2768,8 @@ async function agentDeleteLeftovers(ctx, args) {
   ctx.out('');
   ctx.out('About to delete what is left of ' + go.length + ' removed agent' + (go.length === 1 ? '' : 's') + ':');
   for (const g of go) ctx.out('  ' + g.shown + ': ' + (Array.isArray(g.plan.loses) && g.plan.loses.length ? g.plan.loses.join('; ') : (g.plan.question || 'what is left of it')));
-  if (go.some((g) => !g.plan.taskOnly)) ctx.out('Folders go to the Recycle Bin; what each one loses is listed beside it.');
+  const full = go.filter((g) => !g.plan.taskOnly).length;
+  if (full) ctx.out('Folders go to the Recycle Bin; what each one loses is listed beside it. ' + full + ' of these delete more than a startup job, and what they lose does not all come back.');
   if (!yes) {
     const answer = await ctx.ask('Delete all ' + go.length + '? [y/N] ');
     if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was deleted.'); return 1; }
