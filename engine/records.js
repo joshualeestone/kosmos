@@ -11,12 +11,16 @@
  * remember. Here the rows live inside the project record, like its tasks, and every write goes through
  * projects.mutate in the one board process, so two agents' updates apply one after the other and both survive.
  *
- * A row: { name, key, status, confirmed, source, by, byPerson, createdAt, updatedAt }.
+ * A row: { name, key, status, confirmed, source, by, byPerson, confirmers, createdAt, updatedAt }.
  *   - name: as first written (the canonical name); key: the name folded (Unicode form, case, runs of spaces), so one
  *     entity is one row.
  *   - confirmed: YYYY-MM-DD, the date of the row's latest evidence. A write IS evidence, so it is today unless
  *     the writer says when the evidence is from.
  *   - status and source are optional; a write leaves a field alone unless it names it ('' clears it).
+ *   - by / byPerson: the latest writer, filled in by the board from the writer's own card, never typed.
+ *   - confirmers (#8261): every distinct writer of the row's current status, oldest first, at most CONFIRMERS_MAX,
+ *     so a second agent confirming a row adds a name instead of replacing the first. A write that changes the status
+ *     starts the list again with that writer. A row written before this field seeds it from its by / byPerson.
  * A project may say what its rows are (recordsLabel: "accounts"); the default is "records".
  * Stale: confirmed more than STALE_DAYS ago. It is a fact to read on the page and in the list, never a refusal.
  */
@@ -31,6 +35,7 @@ const LABEL_MAX = 40;
    most about 800 characters is about 400 KB per project at the cap, rather than the 2.5 MB 2000 rows would allow. */
 const ROWS_MAX = 500;
 const STALE_DAYS = 30;
+const CONFIRMERS_MAX = 5;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 /* A line break: control characters (a newline would split a CLI line; a tab, a column), the C1 controls, and the
    line and paragraph separators. Built from code points: a separator written literally in a regex literal breaks
@@ -123,12 +128,28 @@ function projectOrThrow(projectId) {
   return p;
 }
 
+/** A writer as a confirmer: { by, person }, or null when the write names nobody. */
+function confirmerOf(by, person) {
+  if (person === true) return { by: null, person: true };
+  return typeof by === 'string' && by ? { by, person: false } : null;
+}
+const sameConfirmer = (a, b) => a.person === b.person && (a.person || a.by === b.by);
+/** A stored row's confirmers: its list, or, for a row written before #8261, its latest writer. */
+function confirmersOf(row) {
+  if (Array.isArray(row.confirmers)) {
+    return row.confirmers.filter((c) => c && (c.person === true || (typeof c.by === 'string' && c.by)))
+      .map((c) => ({ by: c.person === true ? null : c.by, person: c.person === true }));
+  }
+  const one = confirmerOf(row.by, row.byPerson);
+  return one ? [one] : [];
+}
+
 /** One row as a reader gets it: the stored fields, plus how old its evidence is and whether that is stale. */
 function view(row, now) {
   const age = ageDays(row.confirmed, now);
   return {
     name: row.name, status: row.status || '', confirmed: row.confirmed, source: row.source || '',
-    by: row.by || null, byPerson: row.byPerson === true, updatedAt: row.updatedAt || null,
+    by: row.by || null, byPerson: row.byPerson === true, confirmedBy: confirmersOf(row), updatedAt: row.updatedAt || null,
     ageDays: age, stale: age !== null && age > STALE_DAYS,
   };
 }
@@ -159,12 +180,17 @@ function set(projectId, name, fields = {}, { by = null, person = false, now } = 
     const i = rows.findIndex((r) => r && r.key === key);
     if (i < 0 && rows.length >= ROWS_MAX) throw fail('a project can keep at most ' + ROWS_MAX + ' records', 409);
     const before = i < 0 ? { createdAt: at } : rows[i];
+    const nextStatus = status === undefined ? (before.status || '') : status;
+    const me = confirmerOf(by, person);
+    // A new status starts the list again: a confirmation of the old status is not one of the new.
+    let confirmers = i < 0 || nextStatus !== (before.status || '') ? [] : confirmersOf(before);
+    if (me && !confirmers.some((c) => sameConfirmer(c, me))) confirmers = [...confirmers, me].slice(-CONFIRMERS_MAX);
     const row = {
       // The name as first written stays the row's name: an update spelled "acme" does not rename the person's "Acme Inc".
       ...before, name: i < 0 ? clean : before.name, key, confirmed,
-      status: status === undefined ? (before.status || '') : status,
+      status: nextStatus,
       source: source === undefined ? (before.source || '') : source,
-      by: by || null, byPerson: person === true, updatedAt: at,
+      by: by || null, byPerson: person === true, confirmers, updatedAt: at,
     };
     if (i < 0) rows.push(row); else rows[i] = row;
     out = { row: view(row, now), created: i < 0 };
@@ -211,6 +237,14 @@ function ageWords(days) {
   return days + ' days ago';
 }
 
+/** " by ana", " by ana and bo", " by ana, bo and the person": every confirmer of the row's status (#8261). */
+function whoWords(r) {
+  const names = (Array.isArray(r.confirmedBy) && r.confirmedBy.length ? r.confirmedBy : (confirmerOf(r.by, r.byPerson) ? [confirmerOf(r.by, r.byPerson)] : []))
+    .map((c) => (c.person ? 'the person' : c.by));
+  if (!names.length) return '';
+  return ' by ' + (names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]);
+}
+
 /**
  * The list as both CLIs print it (one module, so the Mac and Windows words cannot drift): a heading with the
  * count and the stale count, then one line per row, "name | status | confirmed DATE (AGE[, stale]) by WHO | source".
@@ -226,11 +260,11 @@ function renderList(out, { projectId, projectName } = {}) {
   const head = label.charAt(0).toUpperCase() + label.slice(1) + where + ': ' + out.rows.length
     + (out.stale ? ', ' + out.stale + ' stale (evidence more than ' + out.staleDays + ' days old)' : '');
   const lines = out.rows.map((r) => {
-    const who = r.byPerson ? ' by the person' : r.by ? ' by ' + r.by : '';
+    const who = whoWords(r);
     return '  ' + r.name + ' | ' + (r.status || '-') + ' | confirmed ' + r.confirmed + ' (' + ageWords(r.ageDays)
       + (r.stale ? ', stale' : '') + ')' + who + ' | ' + (r.source || '-');
   });
   return [head, ...lines].join('\n');
 }
 
-module.exports = { list, set, remove, setLabel, renderList, ageWords, keyOf, today, ageDays, STALE_DAYS, NAME_MAX, STATUS_MAX, SOURCE_MAX, LABEL_MAX, ROWS_MAX };
+module.exports = { list, set, remove, setLabel, renderList, ageWords, keyOf, today, ageDays, STALE_DAYS, NAME_MAX, STATUS_MAX, SOURCE_MAX, LABEL_MAX, ROWS_MAX, CONFIRMERS_MAX };
