@@ -60,7 +60,7 @@ test('a post that woke no one, headed to a name no member has, is told which nam
   assert.equal(note('Leo -> Josh: done'),
     'Josh is not the name of any member of this project, so this post woke no one by it (the person still sees every post here). ' + MEMBER_LIST);
   assert.match(note('Leo → Josh: arrow'), /^Josh is not the name/);
-  assert.match(note('Leo -> the team: hi'), /^the team is not the name/, 'a group word that woke no one is worth saying');
+  assert.match(note('Leo -> the team: hi'), /^The team is not the name/, 'a group word that woke no one is worth saying (capitalised to start the sentence)');
 });
 
 test('two such names are said together', () => {
@@ -137,9 +137,15 @@ test('a reply says nothing (it wakes the author it answers, whatever its header 
   } finally { board.restore(); }
 });
 
-test('in a room of the poster alone, -> all and -> everyone are not names', () => {
-  for (const text of ['Leo -> all: x', 'Leo -> Everyone: y']) assert.equal(note(text, FLEET(), ['leo']), undefined, text);
-  assert.match(note('Leo -> Josh: z', FLEET(), ['leo']), /^Josh is not the name/, 'CONTROL: a name is still said there');
+test('a room of the poster alone says nothing (there is no one to address; the CLI says everyone has it)', () => {
+  for (const text of ['Leo -> all: x', 'Leo -> Everyone: y', 'Leo -> Josh: z']) assert.equal(note(text, FLEET(), ['leo']), undefined, text);
+  assert.match(note('Leo -> Josh: z2', FLEET(), ['leo', 'kano']), /^Josh is not the name/, 'CONTROL: one other member and it is said');
+});
+
+test('a long display name with a wide character at the cut leaves no lone surrogate', () => {
+  const agents = [fleet.agent('leo', { state: 'idle' }), fleet.agent('wide', { state: 'idle', displayName: 'Q'.repeat(39) + '\u{1F600}x' })];
+  const n = note('Leo -> Josh: hi', agents, ['leo', 'wide']);
+  assert.doesNotMatch(JSON.stringify(n), /\\ud8/i, n);
 });
 
 test('a person\'s post and a room shared with another computer get no such note', () => {
