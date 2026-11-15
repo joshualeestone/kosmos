@@ -35,6 +35,8 @@ families this cut builds (arm64; linux-x64 when CUT_LINUX=yes):
   production host, and the suite's nested cuts would read it too (a test cutting 0.7.50, a really served version, was
   refused when I tried it). The cost, taken on purpose: a version that landed after its cut cleaned up is refused by
   step 8's guard after the build, not at 1g (review 4 W1).
+- Only the Linux manifest needs that refusal: step 4b overwrites a committed Mac manifest with a plain copy, while
+  release_linux_publish compares the Linux one and refuses on different bytes.
 - A channel's first Linux cut has no Linux pointer; the Mac family's served version is the positive control (review 4).
 - Every family is decided before anything moves; then the leftovers go into ONE dated folder beside the site
   checkout, outside git, nothing deleted. Tracked files are never touched; a git error is a refusal.

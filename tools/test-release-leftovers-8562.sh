@@ -188,6 +188,12 @@ site; status dist/kosmos-0.8.05-arm64.tar.gz.sha256 503; : > "$T/code/dist/kosmo
 release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb >/dev/null; rc=$?
 [ "$rc" = 0 ] && ok "deploy guard: a 503 then a 404: retried and went on" || bad "guard retry: rc=$rc"
 
+# 20b. Called bare under set -e (as a caller without `||` would): the expected exit 1 from git ls-files for an
+# untracked leftover must not end the caller; the files still move.
+site kosmos-0.8.05-arm64.tar.gz
+out="$(bash -c 'set -euo pipefail; . tools/lib/release-leftovers.sh; '"$(declare -f curl serve status)"'; T='"'$T'"'; release_leftovers_clear "$T/site" 0.8.05 https://h arm64; echo "REACHED rc=$?"' 2>&1)"
+[[ "$out" == *"REACHED rc=0"* ]] && [ -n "$(aside)" ] && ok "under set -e, an untracked leftover does not end the caller, and it moves" || bad "set -e: $out"
+
 # 21. release.sh: step 1g runs it with this cut's families before step 2 and _pair_had; step 8 records served before DEPLOYED=1.
 R="tools/release.sh"
 g=$(grep -n 'release_leftovers_clear "\$SITE" "\$V"' "$R" | head -1 | cut -d: -f1)

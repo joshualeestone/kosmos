@@ -79,7 +79,7 @@ release_leftovers_clear() {
     for f in "$site"/dist/kosmos-"$v"-"$fam".*; do
       [ -f "$f" ] || continue
       rel="dist/$(basename "$f")"
-      git -C "$site" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; rc=$?
+      rc=0; git -C "$site" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1 || rc=$?   # safe under a caller's set -e
       [ "$rc" = 0 ] && continue                      # committed: a served release's, never ours to move
       [ "$rc" = 1 ] || { echo "release-leftovers: git could not say whether $rel is committed (exit $rc); nothing was moved."; return 1; }
       found+=("$rel")
@@ -137,12 +137,12 @@ release_leftovers_guard_deploy() {
       200) if release_leftovers_is_sum "${got#* }"; then
              local served="${got#* }"; served="${served%% *}"
              [ "$served" = "$mine" ] && return 0
-             echo "another build of $v is served for $fam now (its .sha256 is $served, this cut's is ${mine:-unreadable}): the versioned name is cache-immutable, so this cut does not deploy; nothing was deployed. Bump the version (kosmos#8562)."
+             echo "another build of $v is served for $fam now (its .sha256 is $served, this cut's is ${mine:-unreadable}): the versioned name is cache-immutable, so this cut does not deploy; nothing was deployed (its site commit from step 7b stays pushed). Bump the version (kosmos#8562)."
              return 1
            fi ;;
     esac
     [ "$try" = 3 ] || sleep "${KOSMOS_LEFTOVERS_RETRY_S:-5}"
   done
-  echo "could not read $host/dist/kosmos-$v-$fam.tar.gz.sha256 cleanly before deploying (last answer ${got%% *}), so whether another build of $v is served is unknown; nothing was deployed (kosmos#8562). Try again once the host answers."
+  echo "could not read $host/dist/kosmos-$v-$fam.tar.gz.sha256 cleanly before deploying (last answer ${got%% *}), so whether another build of $v is served is unknown; nothing was deployed (its site commit from step 7b stays pushed; kosmos#8562). Try again once the host answers."
   return 1
 }

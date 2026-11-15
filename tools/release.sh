@@ -1022,9 +1022,10 @@ fi
 step "== 1g. no files left in the site checkout by an earlier, aborted cut of $V (kosmos#8562) =="
 # The versioned files are gitignored, and the trap below removes them only when THIS cut wrote them and had not finished
 # step 8, so they outlive a cut killed before its trap ran, and they outlived the 0.8.05 attempt of 11-13 (before
-# kosmos#8494 made step 8 finish only on a served build); step 4b would then refuse two hours in. Here, before anything is built: the served host says whether those bytes were ever served (with a control either
-# way, and a marker step 8 writes once a cut of $V is seen served). Never served: moved aside beside the site checkout,
-# nothing deleted. Served or unknown: refused, with the way on. Only the families this cut builds are checked.
+# kosmos#8494 made step 8 finish only on a served build); step 4b would then refuse two hours in. Here, before
+# anything is built: a marker step 8 writes once a cut of $V is seen served, else the served host with a control
+# either way, says whether those bytes were ever served. Never served: moved aside beside the site checkout, nothing
+# deleted. Served or unknown: refused, with the way on. Only the families this cut builds are checked.
 # Before the trap's _pair_had / _linux_pair_had are read, so a cut that then aborts still cleans up what IT wrote.
 . "$REPO/tools/lib/release-leftovers.sh"
 _lo_fams="arm64"; [ "$CUT_LINUX" = yes ] && _lo_fams="arm64 linux-x64"
