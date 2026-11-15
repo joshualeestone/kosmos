@@ -184,8 +184,9 @@ const USAGE = {
     '                                                  it needs the board token, which a Windows agent may not hold)',
     '  kosmos agent remove "<name>" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)',
     '  kosmos agent delete-leftovers [--yes]           delete what is left of every removed agent (their startup jobs, and folders to the',
-    '                                                  Recycle Bin), each as the board\'s Delete does it, after one confirm; --yes removes',
-    '                                                  only the startup jobs; it needs the board token, which a Windows agent may not hold',
+    '                                                  Recycle Bin), each as the board\'s Delete does it, after one confirm; --yes deletes',
+    '                                                  only leftovers that are nothing but a startup job; it needs the board token,',
+    '                                                  which a Windows agent may not hold',
   ].join('\n'),
   feedback: [
     'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)',
@@ -2720,14 +2721,14 @@ async function agentRemove(ctx, args) {
    - with --yes, anything but a startup-job-only delete: a full delete retires the agent's community account and its
      tokens, which nothing brings back, so it needs a person at the terminal. --yes clears the tasks, which can always be
      set up again. */
-const AGENT_DELETE_LEFTOVERS_USAGE = 'Usage: kosmos agent delete-leftovers [--yes]   (--yes: no question, and only startup jobs are removed)';
+const AGENT_DELETE_LEFTOVERS_USAGE = 'Usage: kosmos agent delete-leftovers [--yes]   (--yes: no question, and only leftovers that are nothing but a startup job)';
 const LEFTOVER_DELETE_TIMEOUT_MS = 180000;   // a Windows Recycle Bin move can take 120 s (delete-leftover's own limit)
 async function agentDeleteLeftovers(ctx, args) {
   const yes = args.includes('--yes');
   const words = args.filter((a) => a !== '--yes');
   if (tooManyWords(ctx, 'agent delete-leftovers', 0, AGENT_DELETE_LEFTOVERS_USAGE, words)) return 2;
   if (!yes && !ctx.canAsk()) { ctx.err('Nothing was deleted: there is no terminal here to confirm on. To remove only the startup jobs left by removed agents without being asked, add --yes.'); return 2; }
-  const listed = await ctx.call('GET', '/api/removed', undefined, { person: true });
+  const listed = await ctx.call('GET', '/api/removed', undefined, { timeoutMs: 25000, person: true });
   if (!listed.reached) return ctx.unreachable('read the removed agents');
   const lj = listed.json || {};
   if (listed.status >= 400 || !Array.isArray(lj.agents)) {
@@ -2750,7 +2751,8 @@ async function agentDeleteLeftovers(ctx, args) {
   const fullHeld = [];  // shown names a --yes run leaves (a full delete)
   const notOffered = [];  // { shown, because }
   for (const n of names) {
-    const p = await ctx.call('GET', '/api/agent/' + encodeURIComponent(n.name) + '/leftover', undefined, { person: true });
+    // A Windows plan can wait up to 20 s on a cold drive (delete-leftover's DRIVE_WARM_TIMEOUT_MS), past the default limit.
+    const p = await ctx.call('GET', '/api/agent/' + encodeURIComponent(n.name) + '/leftover', undefined, { timeoutMs: 30000, person: true });
     if (!p.reached) return ctx.unreachable('read what is left of ' + n.shown);
     const plan = p.json || {};
     if (plan.ok !== true) { notOffered.push({ shown: n.shown, because: clause(plan.because || plan.error || '') || 'it did not say why' }); continue; }
@@ -2766,7 +2768,7 @@ async function agentDeleteLeftovers(ctx, args) {
   ctx.out('');
   ctx.out('About to delete what is left of ' + go.length + ' removed agent' + (go.length === 1 ? '' : 's') + ':');
   for (const g of go) ctx.out('  ' + g.shown + ': ' + (Array.isArray(g.plan.loses) && g.plan.loses.length ? g.plan.loses.join('; ') : (g.plan.question || 'what is left of it')));
-  if (go.some((g) => !g.plan.taskOnly)) ctx.out('A folder goes to the Recycle Bin where Kosmos can put it there; what each one loses is listed beside it.');
+  if (go.some((g) => !g.plan.taskOnly)) ctx.out('Folders go to the Recycle Bin; what each one loses is listed beside it.');
   if (!yes) {
     const answer = await ctx.ask('Delete all ' + go.length + '? [y/N] ');
     if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was deleted.'); return 1; }

@@ -206,3 +206,57 @@ test('#8547 Mac: an empty list exits 0; a resolved name is deleted under it; a b
     assert.match(r.out, /Stopped at tasky: The board is about to restart, so nothing was deleted\. 0 deleted so far\. The rest were not tried: settly\./);
   });
 });
+
+/* The Mac prompt at a real terminal, as cli.project-remove-member-7405.test.js drives one: script(1) cannot read a
+   terminal's settings from node's stdio, so /bin/sh feeds it through a real pipe and types the answer once the prompt
+   is in the output file. */
+function cliAtTerminal(port, args, answer) {
+  const out = path.join(HOME, 'tty-' + process.pid + '-' + Date.now() + '.out');
+  const q = (v) => "'" + String(v).replace(/'/g, "'\\''") + "'";
+  const sh = '{ i=0; while ! grep -q "\\[y/N\\]" ' + q(out) + ' 2>/dev/null && [ $i -lt 150 ]; do sleep 0.1; i=$((i+1)); done; printf ' + q(answer + '\n')
+    + '; sleep 1; } | /usr/bin/script -q /dev/null ' + [CLI, ...args].map(q).join(' ') + ' > ' + q(out) + ' 2>&1';
+  const env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME, KOSMOS_HOME: HOME, KOSMOS_PORT: String(port), TMPDIR: os.tmpdir(),
+    AGENT_WORKFORCE_TMUX_BIN: path.join(__dirname, 'test-support', 'fake-tmux.sh'), KOSMOS_AGENT_TOKEN: 'abc123' };
+  return run('/bin/sh', ['-c', sh], { env, timeout: 40000 }).then(() => false, (e) => Boolean(e && e.killed))
+    .then((timedOut) => { let t = ''; try { t = fs.readFileSync(out, 'utf8'); } catch { /* none */ } return { out: t.replace(/\r/g, ''), timedOut }; });
+}
+test('#8547 Mac: at a terminal, n sends nothing and y deletes the full and task-only leftovers (control: y sends)', { skip: process.platform !== 'darwin' }, () => withStub(MIXED, async (port, seen) => {
+  const no = await cliAtTerminal(port, ['agent', 'delete-leftovers'], 'n');
+  assert.equal(no.timedOut, false, 'the terminal run timed out: ' + no.out);
+  assert.match(no.out, /Delete all 3\? \[y\/N\]/, 'the prompt was not shown: ' + no.out);
+  assert.match(no.out, /Cancelled\. Nothing was deleted\./);
+  assert.equal(deletes(seen).length, 0, 'a cancelled run still deleted');
+  const yes = await cliAtTerminal(port, ['agent', 'delete-leftovers'], 'y');
+  assert.equal(yes.timedOut, false, 'the terminal run timed out: ' + yes.out);
+  assert.match(yes.out, /fully: Its folder, to the Recycle Bin; Its community account, for good/, 'what a full delete loses was not shown');
+  assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/agent/tasky/leftover', '/api/agent/fully/leftover', '/api/agent/settly/leftover'], 'control: y did not delete: ' + yes.out);
+  assert.match(yes.out, /3 of 3 deleted\./);
+}));
+
+test('#8547 Mac: a refused delete is reported and the run goes on; a 5xx with no outcome stops as "may be partly deleted" (exit 3)', async () => {
+  await withStub({ ...MIXED, del: (name) => (name === 'tasky' ? [400, { outcome: 'refused', because: 'What Kosmos would do here is different now, so nothing was deleted.' }] : [200, { outcome: 'deleted' }]) }, async (port, seen) => {
+    const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(r.code, 1, r.out);
+    assert.equal(deletes(seen).length, 2, 'the run did not go on after one refusal: ' + r.out);
+    assert.match(r.out, /Not deleted: tasky: What Kosmos would do here is different now, so nothing was deleted\./);
+    assert.match(r.out, /1 of 2 deleted\. Not done: 1 \(above\)\./);
+  });
+  await withStub({ ...MIXED, del: () => [502, { error: 'bad gateway' }] }, async (port, seen) => {
+    const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(r.code, 3, r.out);
+    assert.equal(deletes(seen).length, 1, 'it kept going after a delete that may be partway');
+    assert.match(r.out, /tasky may be partly deleted: bad gateway\. 0 deleted before it\. The rest were not tried: settly\./);
+  });
+  await withStub({ ...MIXED, del: () => [200, { outcome: 'partial', because: 'its folder went, its startup job did not' }] }, async (port) => {
+    const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /Only partly deleted tasky: its folder went, its startup job did not\./);
+  });
+});
+
+test('#8547 Mac: a refused list says the board\'s reason and deletes nothing', () => withStub({ removed: { error: 'that needs the board token' } }, async (port, seen) => {
+  const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /Kosmos could not list the removed agents: that needs the board token\./);
+  assert.equal(deletes(seen).length, 0);
+}));

@@ -7795,12 +7795,12 @@ cmd_agent() {
       say "                                                  any agent can be restarted this way, as from its page; never yourself)"
       say "  kosmos agent remove \"<name>\" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)"
       say "  kosmos agent delete-leftovers [--yes]           delete what is left of every removed agent (their startup jobs, and folders to the"
-      say "                                                  Trash), each as the board's Delete does it, after one confirm; --yes removes"
-      say "                                                  only the startup jobs"
+      say "                                                  Trash), each as the board's Delete does it, after one confirm; --yes deletes"
+      say "                                                  only leftovers that are nothing but a startup job"
       exit 2 ;;
     delete-leftovers)
       # kosmos#8547: --yes only; any other word is refused before any request.
-      local KOSMOS_DL_USAGE='Usage: kosmos agent delete-leftovers [--yes]   (--yes: no question, and only startup jobs are removed)'
+      local KOSMOS_DL_USAGE='Usage: kosmos agent delete-leftovers [--yes]   (--yes: no question, and only leftovers that are nothing but a startup job)'
       local _dlw=() _dla
       KOSMOS_DL_YES=""
       for _dla in "$@"; do if [ "$_dla" = "--yes" ]; then KOSMOS_DL_YES=1; else _dlw+=("$_dla"); fi; done
@@ -8274,7 +8274,9 @@ cmd_agent() {
       body=$(kosmos_curl "$dl_bt" "$_rtok" -sS -m 25 "$URL/api/removed" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then say_unreached "read the removed agents" "$rc"; exit 1; fi
       dl_list=$(printf '%s' "$body" | "$_node" -e "$_dlparse"'if(!Array.isArray(j.agents))process.exit(1);const seen=new Set();for(const a of [...j.agents,...(Array.isArray(j.leftovers)?j.leftovers:[])]){const n=a&&typeof a.name==="string"?a.name:"";if(!n||n==="."||n===".."||seen.has(n)||/[\t\r\n]/.test(n))continue;seen.add(n);console.log(n+"\t"+one(a.shownAs||n))}})') \
-        || { say "Kosmos could not list the removed agents."; exit 1; }
+        || { dl_why=$(printf '%s' "$body" | "$_node" -e "$_dlparse"'process.stdout.write(one(j.because||j.error))})' 2>/dev/null || true)
+             while [[ "$dl_why" == *[.[:space:]] ]]; do dl_why="${dl_why%?}"; done
+             say "Kosmos could not list the removed agents${dl_why:+: $dl_why}."; exit 1; }
       if [ -z "$dl_list" ]; then say "Nothing is left of any removed agent on this board, so there is nothing to delete."; exit 0; fi
       dl_n=$(printf '%s\n' "$dl_list" | wc -l | tr -d ' ')
       if [ "$dl_n" = 1 ]; then dl_s=""; else dl_s="s"; fi
@@ -8311,7 +8313,7 @@ cmd_agent() {
       say ""
       say "About to delete what is left of ${#dl_go[@]} removed agent$dl_s:"
       for dl_i in "${!dl_go[@]}"; do say "  ${dl_goshown[$dl_i]}: ${dl_goloses[$dl_i]}"; done
-      [ -z "$dl_full" ] || say "A folder goes to the Trash where Kosmos can put it there; what each one loses is listed beside it."
+      [ -z "$dl_full" ] || say "Folders go to the Trash; what each one loses is listed beside it."
       if [ -z "$KOSMOS_DL_YES" ]; then
         local dl_answer=""
         printf '%sDelete all %s? [y/N] ' "${KOSMOS_SAY_INDENT:-  }" "${#dl_go[@]}" >&2
@@ -8333,9 +8335,11 @@ cmd_agent() {
           *) say "Kosmos stopped answering before ${dl_goshown[$dl_i]}. $dl_done deleted so far.$dl_rest"; exit 1 ;;
         esac
         dl_code="${body##*$'\n'}"; body="${body%$'\n'*}"
-        dl_out=$(printf '%s' "$body" | "$_node" -e "$_dlparse"'console.log([one(j.outcome||(j.detail!==undefined?"failed-partway":"")),one(j.because||j.error)].join("\t"))})') || dl_out=""
+        dl_out=$(printf '%s' "$body" | "$_node" -e "$_dlparse"'console.log([one(j.outcome),one(j.because||j.error)].join("\t"))})') || dl_out=""
         dl_why=$(cut -f2 <<<"$dl_out"); dl_out=$(cut -f1 <<<"$dl_out")
         while [[ "$dl_why" == *[.[:space:]] ]]; do dl_why="${dl_why%?}"; done
+        # A 5xx with no outcome is a delete that threw partway (server.js), whatever else its body says.
+        case "$dl_code" in 5[0-9][0-9]) [ -n "$dl_out" ] || dl_out=failed-partway ;; esac
         if [ "$dl_code" = 409 ]; then say "Stopped at ${dl_goshown[$dl_i]}: ${dl_why:-the board is busy}. $dl_done deleted so far.$dl_rest"; exit 1; fi
         case "$dl_out" in
           deleted) dl_done=$((dl_done + 1)); say "Deleted: ${dl_goshown[$dl_i]}." ;;
