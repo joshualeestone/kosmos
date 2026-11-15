@@ -95,7 +95,10 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
          not counted; a message to an agent that is not running is refused, and that refusal is what counts here. */
       /* A refusal to a room carries `project`; only one to this agent by name counts here. The log keeps one such row
          per sender, recipient and reason in a window (engine/messages.js logRefusedSend), so this is a lower bound. */
-      if (r.to !== name || r.project !== undefined) continue;
+      /* The row keeps the recipient as the sender typed it (`kosmos msg April` for april), and delivery reads a name
+         exactly first and then case-folded (chat.resolveCard), so both count here. */
+      if (typeof r.to !== 'string' || r.project !== undefined) continue;
+      if (r.to !== name && r.to.toLowerCase() !== name.toLowerCase()) continue;
       refused += 1;
       if (plain(r.from)) senders.set(r.from, (senders.get(r.from) || 0) + 1);
     }
@@ -109,6 +112,8 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
     // not reach the agent counts (could_not). One held for after a reset is still typed later, and one with no delivery
     // record is taken as reached.
     if (typeof m.wire === 'string' && m.wire) continue;
+    // A copy recorded as the duplicate of another message (delivery.duplicateOf) was sent once, as that one.
+    if (m.delivery && typeof m.delivery === 'object' && m.delivery.duplicateOf) continue;
     const state = m.delivery && typeof m.delivery === 'object' ? m.delivery.state : null;
     if (state !== 'could_not') continue;
     dms += 1;

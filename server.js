@@ -19231,7 +19231,8 @@ const server = http.createServer(async (req, res) => {
       const now = Date.now();
       /* At a startup the window starts at the latest report, which the default tail always holds. By hand it needs the
          report before the newest `started`, which a busy session can push past that tail, so the longer read is used. */
-      const hist = startup ? selfreport.history(name) : selfreport.history(name, selfreport.HISTORY_MAX_BYTES);
+      // The Windows hook (as=hook without at=startup) asks right after its own `started`, which the default tail holds.
+      const hist = startup || as === 'hook' ? selfreport.history(name) : selfreport.history(name, selfreport.HISTORY_MAX_BYTES);
       const win = away.windowFrom(hist, { startup, nowMs: now });
       let digest = away.build({ name, sinceMs: NaN, untilMs: NaN });
       if (win) {

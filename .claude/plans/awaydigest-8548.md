@@ -30,7 +30,8 @@ state is kept. Run by hand (`kosmos away`), the window is rebuilt from the repor
 A room post counts only when its outcome for the agent is `could_not` (the room tried to reach it and could not).
 `placed` was typed into its pane; `quiet` the room never tried to type to it (it did not address the agent, or the loop
 cap held it), so it is not counted either way: `kosmos room` shows every post. So a post that named the agent while the
-room's loop cap was spent is not shown. The person's DMs count only when their own delivery state is could_not or held.
+room's loop cap was spent is not shown. The person's DMs count only when their own delivery state is could_not (one held for a limit or sign-in is typed
+later, and a duplicate copy was sent once as the other).
 
 Contents (bounded, ids not text, so no colleague's words are handed over as instructions):
 - per project: how many room posts could not reach it, and the ids of those that name it (engine/messages.js namedIn:
