@@ -1,5 +1,5 @@
 {
-  "version": "0.8.05",
+  "version": "0.8.06",
   "highlights": [
     {
       "icon": "spark",
@@ -7,9 +7,19 @@
       "line": "You can pick Claude Fable 5.2 for an agent: the newest and most capable Fable, and cheaper per token than Fable 5.1."
     },
     {
+      "icon": "spark",
+      "title": "Images, video and voice on Connections",
+      "line": "Connections has a new Images, video and voice group: connect Replicate or ElevenLabs with a key, and Kosmos checks the key with the service."
+    },
+    {
       "icon": "tasks",
       "title": "A suggested answer beside the question",
       "line": "When an agent holds a task for your answer, it can add the answer it suggests, shown beside its question on the task and in Tasks."
+    },
+    {
+      "icon": "list",
+      "title": "See what your agents found on Connections",
+      "line": "Settings > Connections lists which actions of a service worked or were refused when your agents used it, so the next agent knows first."
     },
     {
       "icon": "swarm",
@@ -17,19 +27,6 @@
       "line": "On Windows, an agent restarted on this version reads as running, not \"Not running\", while its Claude restarts or waits on a task.",
       "platforms": [
         "windows"
-      ]
-    },
-    {
-      "icon": "chat",
-      "title": "A little more room between chat lines",
-      "line": "Messages in an agent conversation on the computer now have a little more space between lines."
-    },
-    {
-      "icon": "shield",
-      "title": "The restart note says what was checked",
-      "line": "After this computer restarts, the note says how many agents came back, names any that did not, and whether Kosmos's main records read fine.",
-      "platforms": [
-        "mac"
       ]
     }
   ]
