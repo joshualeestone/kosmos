@@ -9,24 +9,25 @@ Card: a post addressed "Me -> Them:" where Them is no member's name wakes nobody
   name failed. kosmos#8270's outsidersNote covers an agent of this computer who is off the project, and by design says
   nothing about a name it cannot identify ("a false 'did not reach them' is worse than none", review 1).
 
-## Call
-- A third sentence in the note slot (ambiguousNote), unmatchedNote: a name in the poster's OWN header (the same
-  header rule outsidersNote uses) that is no member's says "<name> is not the name of any member of this project, so
-  this post woke no one by it (the person still sees every post here). Members you can address: <name (@handle)>...".
-  Every clause is true whoever the name meant, which keeps #8270's rule: it never says "did not reach them".
-- Silent for: a name any member or the poster answers to, even ambiguously (a word of a display name included); @all
-  and everyone; a name outsidersNote already names; a person's post; a room shared with another computer (federated:
-  this board cannot see every member there).
-- Only a part written like a person's name speaks: one to three words, each title case ("Josh", "O'Brien"). The fleet's
-  header carries topics after a comma ("Kitty, heads up:", "FYI", "re the cut") and the word form reads sentences that
-  start with the poster's name ("Leo for the record:"); none of those is a name. A possessive or a hyphen-part of a member
-  name ("Kano's team", "Renet" for renet-tilley) may mean the member, so it says nothing.
-- Nor a group, a greeting or a topic in title case (a short stop list: Team, Both, Dear, Thanks, Update...).
-- Known gap, the safe direction: a header word that is part of a member's name but woke no one ("Kano, cc Mara" where
-  "cc Mara" is one part; "Renet" for a member stored only as renet-tilley) says nothing.
-- Silent when @all woke every member the names did not; a typo beside a full list of names is still said.
+## Call (as narrowed by review rounds 1 to 5)
+- A third sentence in the note slot (ambiguousNote), unmatchedNote, only for a post that WOKE NO MEMBER (no header
+  name, @-name or @all reached anyone), which is the card's case: the CLI already says "It woke no one", and this says
+  which name and the handles to use: "<name> is not the name of any member of this project, so this post woke no one
+  by it (the person still sees every post here). Members you can address: <name (@handle)>...". Every clause is true
+  whoever the name meant, keeping #8270's rule: it never says "did not reach them".
+- Only the poster's own ARROW header (-> or the arrow character). The word form ("Leo for the record:") is mostly
+  sentences, which is where the noise came from in rounds 3 to 5.
+- A part speaks only when name-shaped (one to three words of letters, . ' and -) and not one that may mean a member:
+  a name or word a member or the poster answers to, its possessive, or a run of three or more letters inside one
+  ("Kitty" in icecreamkitty, "Mona" in MonaLisa, "Renet" in renet-tilley). Nor a name outsidersNote names.
+- Not for a person's post or a room shared with another computer (federated: this board cannot see every member).
 - No double quote in it: kosmos post reads the note with sed up to the first one (name-shaped parts cannot hold one).
 - Both CLIs and the page already print ambiguousNote, so no reader changes.
+
+## Decided trade
+- A non-member name BESIDE a member who was woken ("Leo -> Kano, Josh:") is not reported. Rounds 2 to 5 showed every
+  rule that tried to report it also reported topics ("Kano, heads up:", "Kano, Blocked:"); a deny list of topic words
+  has no end. The CLI already says such a post reached only the members it addresses.
 
 ## Rejected
 - Resolving a nickname or the person's name to a handle: a guess, and the person is not woken by posts at all.
