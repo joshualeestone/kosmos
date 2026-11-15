@@ -151,3 +151,12 @@ test('kosmos#7414: a post the room could not record says it is not in the room a
   const spoof = await postAgainst({ state: 'unconfirmed', because: 'x', id: 'm1', outcomes: {}, text: '","unrecorded":true' });
   assert.equal(spoof.stdout.trim().split('\n').map((l) => l.trim()).at(-1), "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.");
 });
+
+/* kosmos#8566: the board's sentence for a header name that is no member (engine/messages.unmatched-8566.test.js pins the
+   engine side) is printed after the woke-no-one verdict, whole: it carries parentheses and @handles, and no double quote. */
+const UNMATCHED = 'Josh is not the name of any member of this project, so this post woke no one by it (the person still sees every post here). Members you can address: @kano, Sub-Zero (@subzero), @mara.';
+test('kosmos#8566: a post addressed to a name no member has prints the verdict, then which name and the members to address', { skip: SKIP_POSIX_SHELL }, async () => {
+  const out = await postAgainst({ state: 'placed', because: null, outcomes: { kano: 'quiet', subzero: 'quiet', mara: 'quiet' }, ambiguousNote: UNMATCHED });
+  assert.match(out.stdout, /It woke no one: it addresses no member, so it is only in the room\. To reach someone[^\n]*\n/);
+  assert.ok(out.stdout.split('\n').map((l) => l.trim()).includes(UNMATCHED), out.stdout);
+});

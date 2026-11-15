@@ -207,11 +207,18 @@ test('#8270: a header or @-word for an agent off the project says so and how to 
   assert.equal(beside.note, HOMER);
 });
 test('#8270: nothing is said about anyone it cannot identify (review 1: a false statement is worse than none)', () => {
-  for (const text of ['Leo -> Kano: the numbers', 'Leo -> all: the numbers', 'Leo -> the team: the numbers', 'Leo -> The team: the numbers',
-    'Leo -> Josh: done', 'Leo -> Dana: over on the other computer', 'Before -> After: values flow', 'Mara -> Homer: quoted from elsewhere',
-    '-> Homer: no sender', 'Leo -> Everyone on the project: hi', 'Leo -> Kano, Leo: both', 'a note for later: nothing here',
+  for (const text of ['Leo -> Kano: the numbers', 'Leo -> all: the numbers', 'Before -> After: values flow', 'Mara -> Homer: quoted from elsewhere',
+    '-> Homer: no sender', 'Leo -> Kano, Leo: both', 'a note for later: nothing here',
     'no address at all', '@notanagent please', 'see `@homer` in the log', '@kano please']) {
     assert.equal(post(text, WITH_OUTSIDER()).note, undefined, text);
+  }
+  /* kosmos#8566: a header name of the poster's own that names no member gets that sentence, which is true whoever it
+     meant; never the outsider sentence, which would not be. */
+  for (const text of ['Leo -> the team: the numbers', 'Leo -> The team: the numbers', 'Leo -> Josh: done', 'Leo -> Dana: over on the other computer',
+    'Leo -> Everyone on the project: hi']) {
+    const note = post(text, WITH_OUTSIDER()).note;
+    assert.match(note, /is not the name of any member of this project/, text);
+    assert.doesNotMatch(note, /is not on this project/, text);
   }
 });
 test('#8270 review 1: a terminal session that is not one of our agents, a word of a display name after @, and a name members share say nothing', () => {
@@ -222,9 +229,10 @@ test('#8270 review 1: a terminal session that is not one of our agents, a word o
   assert.equal(messages.outsidersNote('@build please', MEMBERS.filter((m) => m !== 'leo'), cards, 'leo', '@build please'), '', 'a stray session was offered to kosmos msg');
   assert.equal(post('@cream please', WITH_OUTSIDER()).note, undefined, 'one word of a display name after @ named an agent');
   assert.equal(post('@all please', [...FLEET(), fleet.agent('all', { state: 'idle' })]).note, undefined, 'a broadcast was reported as an agent named all');
-  assert.equal(post('Leo -> Cream: please', WITH_OUTSIDER()).note, undefined, 'one word of a display name in a header named an agent');
-  assert.equal(post('Leo -> Homer on m702: please', WITH_OUTSIDER()).note, undefined, 'a run of leading words named an agent (review 5)');
-  assert.equal(post('Leo -> Homer team: please', WITH_OUTSIDER()).note, undefined, 'a phrase starting with an agent name named it');
+  // kosmos#8566: these name no member, so they get that sentence, but never the outsider one.
+  assert.doesNotMatch(post('Leo -> Cream: please', WITH_OUTSIDER()).note, /is not on this project/, 'one word of a display name in a header named an agent');
+  assert.doesNotMatch(post('Leo -> Homer on m702: please', WITH_OUTSIDER()).note, /is not on this project/, 'a run of leading words named an agent (review 5)');
+  assert.doesNotMatch(post('Leo -> Homer team: please', WITH_OUTSIDER()).note, /is not on this project/, 'a phrase starting with an agent name named it');
   // The guard's real case: two members share the name and an agent off the project has it too.
   const twins = [fleet.agent('leo', { state: 'idle' }), fleet.agent('a1', { state: 'idle', displayName: 'Twin' }), fleet.agent('a2', { state: 'idle', displayName: 'Twin' }),
     fleet.agent('a3', { state: 'idle', displayName: 'Twin' }), fleet.agent('homer', { state: 'idle' })];

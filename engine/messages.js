@@ -2547,6 +2547,53 @@ function outsidersNote(cleaned, recipients, roster, from, raw) {
   } catch { return ''; }
 }
 
+/* kosmos#8566: the sentence that tells an agent a name in its own header ("Leo -> Josh:") named no member of this
+   project, so it woke no one by that name, and lists the members' exact handles. It says only what is true whoever the
+   name meant: the person reads every post here (so it never says "did not reach them"), and a name some member or the
+   poster answers to (even one too ambiguous to address) says nothing. Not in a room shared with another computer,
+   whose members this board cannot all see, nor for a name outsidersNote already names. Never throws; '' when there
+   is nothing to say. */
+const UNMATCHED_SHOWN_MAX = 8;
+function unmatchedNote(cleaned, recipients, roster, from, raw) {
+  try {
+    const nameKey = require('./agentnames').nameKey;
+    const members = (Array.isArray(recipients) ? recipients : []).filter((m) => typeof m === 'string' && m);
+    const insideKeys = new Set();
+    const addKeys = (v) => { if (typeof v === 'string' && v) { insideKeys.add(nameKey(v)); v.split(/\s+/).forEach((w) => insideKeys.add(nameKey(w))); } };
+    const cards = Array.isArray(roster) ? roster : [];
+    for (const c of cards) if (c && (members.includes(c.sessionName) || c.sessionName === from)) { addKeys(c.sessionName); addKeys(c.name); }
+    members.forEach(addKeys); addKeys(from);
+    const ourCard = require('./projects').ourCard;
+    const outside = cards.filter((c) => c && typeof c.sessionName === 'string' && c.sessionName !== from && !members.includes(c.sessionName)
+      && ourCard(c.sessionName, roster) === c).map((c) => c.sessionName);
+    const poster = from === undefined || from === null ? [] : [String(from)];
+    const head = postHeader(typeof raw === 'string' ? raw : String(cleaned || '')).find((h) => nameResolves(h.sender, poster, roster).length);
+    const unmatched = [];
+    for (const part of head ? head.targets : []) {
+      const bare = part.replace(/^@/, '').trim();
+      if (!bare || /^(all|everyone)$/i.test(bare)) continue;
+      if (bare.split(/\s+/).some((w) => insideKeys.has(nameKey(w)))) continue;   // a member's name, or a word of one
+      if (mentionedMembers('@' + nameKey(bare), outside, roster).mentioned.size === 1) continue;   // outsidersNote names it
+      const shown = printableName(bare).slice(0, 60);
+      if (shown && !unmatched.includes(shown)) unmatched.push(shown);
+    }
+    if (!unmatched.length) return '';
+    const handle = (m) => (/^[A-Za-z0-9._-]+$/.test(m) ? m : '');
+    const label = (m) => {
+      const card = cards.find((c) => c && c.sessionName === m);
+      const n = printableName(card && card.name); const h = handle(m);
+      return h ? (n && n !== h ? n + ' (@' + h + ')' : '@' + h) : (n || '');
+    };
+    const shownMembers = members.map(label).filter(Boolean);
+    const list = shownMembers.slice(0, UNMATCHED_SHOWN_MAX).join(', ') + (shownMembers.length > UNMATCHED_SHOWN_MAX ? ' and ' + (shownMembers.length - UNMATCHED_SHOWN_MAX) + ' more' : '');
+    // No double quote anywhere: kosmos post reads this note out of the JSON with sed up to the first one.
+    const names = unmatched.length === 1 ? unmatched[0] : unmatched.slice(0, -1).join(', ') + ' and ' + unmatched[unmatched.length - 1];
+    return (unmatched.length === 1 ? names + ' is not the name of any member of this project, so this post woke no one by it'
+      : names + ' are not names of any member of this project, so this post woke no one by them')
+      + ' (the person still sees every post here).' + (list ? ' Members you can address: ' + list + '.' : '');
+  } catch { return ''; }
+}
+
 function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery, deliverAutomaticToPane) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
@@ -2888,7 +2935,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       projectId, recipients).length === 0;
   /* kosmos#8270: an agent's post that addressed someone off the project is told so, in the same sentence slot. */
   const note4653 = [ambiguous.size ? ambiguousNote(ambiguous, atNamed.mentioned, shown) : '',
-    operator === true ? '' : outsidersNote(cleaned, recipients, roster, from, text)].filter(Boolean).join(' ');
+    operator === true ? '' : outsidersNote(cleaned, recipients, roster, from, text),
+    // kosmos#8566: a header name that named no one here; not for a name outsidersNote just named, nor in a shared room.
+    operator === true || federated === true ? '' : unmatchedNote(cleaned, recipients, roster, from, text)].filter(Boolean).join(' ');
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
@@ -5051,5 +5100,5 @@ module.exports = {
   suspectedMisrouteCount, confirmedNewPostCount,
   resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, roomHeld, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
-  setRunner, resetForTests, mentionedMembers, addressedMembers, reachedCount, ambiguousNote, outsidersNote,
+  setRunner, resetForTests, mentionedMembers, addressedMembers, reachedCount, ambiguousNote, outsidersNote, unmatchedNote,
 };
