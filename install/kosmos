@@ -7795,7 +7795,8 @@ cmd_agent() {
       say "                                                  any agent can be restarted this way, as from its page; never yourself)"
       say "  kosmos agent remove \"<name>\" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)"
       say "  kosmos agent delete-leftovers [--yes]           delete what is left of every removed agent (their startup jobs, and folders to the"
-      say "                                                  Trash), each as the board's Delete does it, after one confirm; --yes deletes"
+      say "                                                  Trash), each as the board's Delete does it, after one confirm; an agent whose"
+      say "                                                  folder is still there is then gone for good and cannot be put back; --yes deletes"
       say "                                                  only leftovers that are nothing but a Windows startup job, so on a Mac"
       say "                                                  or Linux it deletes nothing: run it at a terminal there"
       exit 2 ;;
@@ -8269,6 +8270,7 @@ cmd_agent() {
       # typed is left for the board; with --yes only startup-job-only plans are acted on. Every call goes with the
       # board token: these routes are the person's.
       local dl_bt dl_list dl_n dl_s dl_path dl_line dl_ok dl_shown dl_target dl_typed dl_task dl_conf dl_why dl_loses
+      local dl_seenl=$'\n' dl_hasfolder dl_folders="" dl_end dl_nfull=0 dl_ask
       local dl_go=() dl_goshown=() dl_goconf=() dl_goloses=() dl_gotask=() dl_typedl="" dl_heldl="" dl_i dl_full="" dl_code dl_out dl_done=0 dl_failed=0 dl_rest dl_j
       local _dlparse='let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");'
       dl_bt="$(board_token || true)"
@@ -8288,18 +8290,23 @@ cmd_agent() {
         rc=0
         body=$(kosmos_curl "$dl_bt" "$_rtok" -sS -m 30 "$URL/api/agent/$dl_path/leftover" 2>/dev/null) || rc=$?
         if [ "$rc" -ne 0 ]; then say_unreached "read what is left of $dl_listshown" "$rc"; exit 1; fi
-        dl_line=$(printf '%s' "$body" | "$_node" -e "$_dlparse"'console.log([j.ok===true?"ok":"no",one(j.shown),one(j.ok===true?j.name:""),j.typeToConfirm?"1":"",j.taskOnly?"1":"",one(j.confirm),one(j.because||j.error),Array.isArray(j.loses)&&j.loses.length?j.loses.map(one).join("; "):one(j.question||"what is left of it")].join("\t"))})') \
+        dl_line=$(printf '%s' "$body" | "$_node" -e "$_dlparse"'console.log([j.ok===true?"ok":"no",one(j.shown),one(j.ok===true?j.name:""),j.typeToConfirm?"1":"",j.taskOnly?"1":"",one(j.confirm),one(j.because||j.error),Array.isArray(j.loses)&&j.loses.length?j.loses.map(one).join("; "):one(j.question||"what is left of it"),j.folder?"1":""].join("\t"))})') \
           || { say "Kosmos gave an answer we could not read about $dl_listshown."; exit 1; }
         dl_ok=$(cut -f1 <<<"$dl_line"); dl_shown=$(cut -f2 <<<"$dl_line"); dl_target=$(cut -f3 <<<"$dl_line")
         dl_typed=$(cut -f4 <<<"$dl_line"); dl_task=$(cut -f5 <<<"$dl_line"); dl_conf=$(cut -f6 <<<"$dl_line")
-        dl_why=$(cut -f7 <<<"$dl_line"); dl_loses=$(cut -f8 <<<"$dl_line")
+        dl_why=$(cut -f7 <<<"$dl_line"); dl_loses=$(cut -f8 <<<"$dl_line"); dl_hasfolder=$(cut -f9 <<<"$dl_line")
         dl_shown="${dl_shown:-$dl_listshown}"
         if [ "$dl_ok" != ok ]; then
           while [[ "$dl_why" == *[.[:space:]] ]]; do dl_why="${dl_why%?}"; done
-          say "Not offered for $dl_shown: ${dl_why:-it did not say why}."; continue
+          case "${dl_why:-x}" in *[?!\)]) dl_end="" ;; *) dl_end="." ;; esac
+          say "Not offered for $dl_shown: ${dl_why:-it did not say why}${dl_end}"; continue
         fi
         if [ -n "$dl_typed" ]; then dl_typedl="${dl_typedl:+$dl_typedl, }$dl_shown"; continue; fi
         if [ -n "$KOSMOS_DL_YES" ] && [ -z "$dl_task" ]; then dl_heldl="${dl_heldl:+$dl_heldl, }$dl_shown"; continue; fi
+        # Two listed spellings can resolve to one agent (a case-blind disk): it is deleted once.
+        case "$dl_seenl" in *$'\n'"${dl_target:-$dl_name}"$'\n'*) continue ;; esac
+        dl_seenl="$dl_seenl${dl_target:-$dl_name}"$'\n'
+        [ -z "$dl_hasfolder" ] || dl_folders=1
         dl_go+=("${dl_target:-$dl_name}"); dl_goshown+=("$dl_shown"); dl_goconf+=("$dl_conf"); dl_goloses+=("$dl_loses"); dl_gotask+=("$dl_task")
         [ -n "$dl_task" ] || dl_full=1
       done <<<"$dl_list"
@@ -8314,14 +8321,16 @@ cmd_agent() {
       say ""
       say "About to delete what is left of ${#dl_go[@]} removed agent$dl_s:"
       for dl_i in "${!dl_go[@]}"; do say "  ${dl_goshown[$dl_i]}: ${dl_goloses[$dl_i]}"; done
+      [ -z "$dl_folders" ] || say "Folders go to the Trash."
       if [ -n "$dl_full" ]; then
-        local dl_nfull=0
         for dl_i in "${!dl_gotask[@]}"; do [ -n "${dl_gotask[$dl_i]}" ] || dl_nfull=$((dl_nfull + 1)); done
-        say "Folders go to the Trash; what each one loses is listed beside it. $dl_nfull of these delete more than a startup job, and what they lose does not all come back."
+        say "$dl_nfull of these delete more than a startup job: once deleted they cannot be put back from the board, and what each one loses is listed beside it."
       fi
       if [ -z "$KOSMOS_DL_YES" ]; then
         local dl_answer=""
-        printf '%sDelete all %s? [y/N] ' "${KOSMOS_SAY_INDENT:-  }" "${#dl_go[@]}" >&2
+        dl_ask="Delete all ${#dl_go[@]}?"
+        [ "$dl_nfull" -eq 0 ] || dl_ask="Delete all ${#dl_go[@]} ($dl_nfull cannot be put back afterwards)?"
+        printf '%s%s [y/N] ' "${KOSMOS_SAY_INDENT:-  }" "$dl_ask" >&2
         read -r dl_answer || dl_answer=""
         case "$(printf '%s' "$dl_answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" in y|yes) ;; *) say "Cancelled. Nothing was deleted."; exit 1 ;; esac
       fi
@@ -8336,7 +8345,7 @@ cmd_agent() {
           | kosmos_curl "$dl_bt" "$_rtok" -sS -m 180 -w $'\n%{http_code}' -X DELETE "$URL/api/agent/$dl_path/leftover" -H 'content-type: application/json' --data-binary @- 2>/dev/null) || rc=$?
         case "$rc" in
           0) ;;
-          18|28|52|56) say "Kosmos stopped answering while deleting what is left of ${dl_goshown[$dl_i]}, so it may be partly deleted; look at the board before trying again: $URL/ $dl_done deleted before it.$dl_rest"; exit 3 ;;
+          18|28|52|56) say "Kosmos stopped answering while deleting what is left of ${dl_goshown[$dl_i]}, so it may be partly deleted; look at the board before trying again ($URL/). $dl_done deleted before it.$dl_rest"; exit 3 ;;
           *) say "Kosmos stopped answering before ${dl_goshown[$dl_i]}. $dl_done deleted so far.$dl_rest"; exit 1 ;;
         esac
         dl_code="${body##*$'\n'}"; body="${body%$'\n'*}"

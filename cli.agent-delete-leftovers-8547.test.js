@@ -16,7 +16,7 @@ const hookStub = { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () =>
 
 // Plans in the engine's shape (engine/delete-leftover.js plan()).
 const TASK_ONLY = (name) => ({ ok: true, name, shown: name, taskOnly: true, typeToConfirm: null, loses: ['Its startup job, so nothing tries to start it again'], question: 'Remove ' + name + '\'s startup job?', confirm: '1.task-' + name });
-const FULL = (name) => ({ ok: true, name, shown: name, taskOnly: false, toTrash: true, typeToConfirm: null, loses: ['Its folder, to the Recycle Bin', 'Its community account, for good'], question: 'Delete what is left of ' + name + '?', confirm: '1.full-' + name });
+const FULL = (name) => ({ ok: true, name, shown: name, taskOnly: false, toTrash: true, typeToConfirm: null, folder: { path: '/x/' + name }, loses: ['Its folder, to the Recycle Bin', 'Its community account, for good'], question: 'Delete what is left of ' + name + '?', confirm: '1.full-' + name });
 const TYPED = (name) => ({ ok: true, name, shown: name, taskOnly: true, typeToConfirm: name, loses: ['Its startup job'], confirm: '1.typed-' + name });
 const REFUSED = { ok: false, because: 'nothing of zed is left on this computer, so there is nothing to delete.' };
 
@@ -35,6 +35,7 @@ function withStub({ removed, plans = {}, del }, fn) {
         seen.push({ method: req.method, url: req.url, headers: req.headers, body: buf ? JSON.parse(buf) : null });
         if (req.method === 'GET') return send(200, plans[name] || REFUSED);
         const [status, json] = del ? del(name) : [200, { outcome: 'deleted', because: 'Deleted what was left of ' + name + '.' }];
+        if (status === 'drop') { req.socket.destroy(); return undefined; }   // the board went away mid-delete
         return send(status, json);
       }
       res.writeHead(200, { 'content-type': 'text/html' });
@@ -91,7 +92,8 @@ test('#8547: at a terminal, y deletes the full and task-only leftovers after one
   }
   await withStub(MIXED, async (port, seen) => {
     const r = await winRun(port, ['agent', 'delete-leftovers'], { tty: true, answer: 'y' });
-    assert.deepEqual(r.asked, ['Delete all 3? [y/N] ']);
+    assert.deepEqual(r.asked, ['Delete all 3 (1 cannot be put back afterwards)? [y/N] '], 'the question did not say how many cannot be put back');
+    assert.match(r.out, /Folders go to the Recycle Bin\./);
     assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/agent/tasky/leftover', '/api/agent/fully/leftover', '/api/agent/settly/leftover'], 'control: a confirmed run did not delete');
     assert.match(r.out, /fully: Its folder, to the Recycle Bin; Its community account, for good/, 'what a full delete loses was not shown before the question');
     assert.match(r.out, /1 of these delete more than a startup job/, 'the count of full deletes was not said before the question');
@@ -224,7 +226,7 @@ function cliAtTerminal(port, args, answer) {
 test('#8547 Mac: at a terminal, n sends nothing and y deletes the full and task-only leftovers (control: y sends)', { skip: process.platform !== 'darwin' }, () => withStub(MIXED, async (port, seen) => {
   const no = await cliAtTerminal(port, ['agent', 'delete-leftovers'], 'n');
   assert.equal(no.timedOut, false, 'the terminal run timed out: ' + no.out);
-  assert.match(no.out, /Delete all 3\? \[y\/N\]/, 'the prompt was not shown: ' + no.out);
+  assert.match(no.out, /Delete all 3 \(1 cannot be put back afterwards\)\? \[y\/N\]/, 'the prompt was not shown: ' + no.out);
   assert.match(no.out, /Cancelled\. Nothing was deleted\./);
   assert.equal(deletes(seen).length, 0, 'a cancelled run still deleted');
   const yes = await cliAtTerminal(port, ['agent', 'delete-leftovers'], 'y');
@@ -262,3 +264,38 @@ test('#8547 Mac: a refused list says the board\'s reason and deletes nothing', (
   assert.match(r.out, /Kosmos could not list the removed agents: that needs the board token\./);
   assert.equal(deletes(seen).length, 0);
 }));
+
+test('#8547 Windows: a dropped connection or a 5xx with no outcome stops as "may be partly deleted" (exit 3); a partial is reported and the run goes on', async () => {
+  await withStub({ ...MIXED, del: () => ['drop'] }, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(r.code, 3, r.err);
+    assert.equal(deletes(seen).length, 1, 'it kept going after a delete that may be partway');
+    assert.match(r.err, /may be partly deleted; look at the board before trying again\. 0 deleted before it\. The rest were not tried: settly\./);
+  });
+  await withStub({ ...MIXED, del: () => [502, { error: 'bad gateway' }] }, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(r.code, 3, r.err);
+    assert.equal(deletes(seen).length, 1);
+    assert.match(r.err, /tasky may be partly deleted: bad gateway\. 0 deleted before it\. The rest were not tried: settly\./);
+  });
+  await withStub({ ...MIXED, del: (name) => (name === 'tasky' ? [200, { outcome: 'partial', because: 'its startup job did not go' }] : [200, { outcome: 'deleted' }]) }, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(r.code, 1, r.err);
+    assert.equal(deletes(seen).length, 2, 'the run did not go on after a partial');
+    assert.match(r.err, /Only partly deleted tasky: its startup job did not go\./);
+  });
+});
+
+const TWO_SPELLINGS = { removed: { agents: [{ name: 'Leo' }], leftovers: [{ name: 'leo' }] }, plans: { Leo: TASK_ONLY('leo'), leo: TASK_ONLY('leo') } };
+test('#8547: two listed spellings of one agent are deleted once, on both CLIs', async () => {
+  await withStub(TWO_SPELLINGS, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/agent/leo/leftover']);
+  });
+  await withStub(TWO_SPELLINGS, async (port, seen) => {
+    const r = await cli(port, ['agent', 'delete-leftovers', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/agent/leo/leftover']);
+  });
+});

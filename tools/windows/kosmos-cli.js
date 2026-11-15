@@ -184,7 +184,8 @@ const USAGE = {
     '                                                  it needs the board token, which a Windows agent may not hold)',
     '  kosmos agent remove "<name>" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)',
     '  kosmos agent delete-leftovers [--yes]           delete what is left of every removed agent (their startup jobs, and folders to the',
-    '                                                  Recycle Bin), each as the board\'s Delete does it, after one confirm; --yes deletes',
+    '                                                  Recycle Bin), each as the board\'s Delete does it, after one confirm; an agent whose',
+    '                                                  folder is still there is then gone for good and cannot be put back; --yes deletes',
     '                                                  only leftovers that are nothing but a startup job; it needs the board token,',
     '                                                  which a Windows agent may not hold',
   ].join('\n'),
@@ -2759,7 +2760,9 @@ async function agentDeleteLeftovers(ctx, args) {
     const shown = plan.shown || n.shown;
     if (plan.typeToConfirm) { typed.push(shown); continue; }
     if (yes && !plan.taskOnly) { fullHeld.push(shown); continue; }
-    go.push({ name: typeof plan.name === 'string' && plan.name ? plan.name : n.name, shown, plan });
+    const target = typeof plan.name === 'string' && plan.name ? plan.name : n.name;
+    if (go.some((g) => g.name === target)) continue;   // two listed spellings can resolve to one agent (a case-blind disk): deleted once
+    go.push({ name: target, shown, plan });
   }
   for (const x of notOffered) ctx.out('Not offered for ' + x.shown + ': ' + x.because + (/[?!.)]$/.test(x.because) ? '' : '.'));
   if (typed.length) ctx.out('Left for the board, where each one asks for its name to be typed first: ' + typed.join(', ') + '.');
@@ -2769,9 +2772,10 @@ async function agentDeleteLeftovers(ctx, args) {
   ctx.out('About to delete what is left of ' + go.length + ' removed agent' + (go.length === 1 ? '' : 's') + ':');
   for (const g of go) ctx.out('  ' + g.shown + ': ' + (Array.isArray(g.plan.loses) && g.plan.loses.length ? g.plan.loses.join('; ') : (g.plan.question || 'what is left of it')));
   const full = go.filter((g) => !g.plan.taskOnly).length;
-  if (full) ctx.out('Folders go to the Recycle Bin; what each one loses is listed beside it. ' + full + ' of these delete more than a startup job, and what they lose does not all come back.');
+  if (go.some((g) => g.plan.folder)) ctx.out('Folders go to the Recycle Bin.');
+  if (full) ctx.out(full + ' of these delete more than a startup job: once deleted they cannot be put back from the board, and what each one loses is listed beside it.');
   if (!yes) {
-    const answer = await ctx.ask('Delete all ' + go.length + '? [y/N] ');
+    const answer = await ctx.ask('Delete all ' + go.length + (full ? ' (' + full + ' cannot be put back afterwards)' : '') + '? [y/N] ');
     if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was deleted.'); return 1; }
   }
   let done = 0;
