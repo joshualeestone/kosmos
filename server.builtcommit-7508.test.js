@@ -401,3 +401,42 @@ test('review 6: a busy checkout can still record an older commit already made; o
     assert.equal(head.code, 2, 'CONTROL: its own HEAD with changes is still refused: ' + head.out);
   }
 });
+
+/* kosmos#8555: the Tasks view's check is saved on the task, so the task page and `kosmos task show` read the same upgrade
+   from the store, and it lasts past the check's two-week window. Real repositories, as the tests above. */
+test('kosmos#8555: a push seen by the Tasks view is saved on the task, written once, and read by every screen', async () => {
+  const landedcheck = require('./engine/landedcheck');
+  landedcheck.resetForTests();
+  const r = makeRepo('route-landedsave');
+  /* Its own project, and the read scoped to it: the tests above leave a dozen commit rows in Alpha, and one read starts at
+     most 10 new checks, so an unscoped read can spend them all before this row. */
+  const pid = projects.create({ name: 'Landed save' }).id;
+  const own = () => tasks.byNumber(projects.readAll().find((x) => x.id === pid), n);
+  const n = tasks.create(pid, { sentence: 'Fix the header' }).number;
+  assert.equal(tasks.setBuilt(pid, n, { by: 'mona', commit: { sha: r.sha, repo: r.repo, onRemote: false } }).ok, true);
+  tasks.close(pid, n);
+  const rowOf = async () => ((await (await fetch(base + '/api/tasks?view=tasks&project=' + encodeURIComponent(pid), { headers: { origin: base } })).json()).tasks || [])
+    .find((x) => x.projectId === pid && x.number === n);
+  await rowOf();
+  assert.equal(own().landedOnRemote, false, 'CONTROL: a read with no remote saved an upgrade');
+  const bare = path.join(SANDBOX, 'route-landedsave.git');
+  git(SANDBOX, 'init', '-q', '--bare', bare);
+  git(r.dir, 'remote', 'add', 'origin', bare);
+  git(r.dir, 'push', '-q', 'origin', 'main');
+  git(r.dir, 'fetch', '-q', 'origin');
+  landedcheck.resetForTests();
+  assert.equal((await rowOf()).closedHow, 'change', 'PRE-CONTROL: the Tasks row sees the push (#8552)');
+  assert.equal(own().landedOnRemote, true, 'the check\'s upgrade was not saved on the task');
+  const page = projects.joinTaskClaims(projects.readAll().find((x) => x.id === pid).tasks, projects.readAll(), [], null,
+    { name: 'Landed save', id: pid }).find((t) => t.number === n);
+  assert.equal(page.closedHow, 'change', 'the task page still read on a note');
+  const at = projects.readAll().find((x) => x.id === pid).updatedAt;
+  landedcheck.resetForTests();
+  await rowOf();
+  assert.equal(projects.readAll().find((x) => x.id === pid).updatedAt, at, 'a second read wrote the store again');
+  /* Past the window the route no longer checks, and the stored upgrade is what is left. */
+  const longAgo = new Date(Date.now() - landedcheck.CHECK_WINDOW_MS - 60 * 1000).toISOString();
+  projects.mutate(pid, (p) => ({ ...p, tasks: p.tasks.map((t) => (t.number === n ? { ...t, closedAt: longAgo } : t)) }));
+  landedcheck.resetForTests();
+  assert.equal((await rowOf()).closedHow, 'change', 'past the window the Tasks row read on a note again');
+});

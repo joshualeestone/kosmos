@@ -461,3 +461,16 @@ test('kosmos#8552: the task page says how a done task closed; an older row with 
   assert.equal(page({}), 'Done', 'CONTROL: no word from the board, nothing added');
   assert.equal(page({ closedHow: 'change', progress: { done: 2, total: 2, closed: true, assigned: 0 } }), '2 of 2 parts done, with a change', 'a task of parts says it after its count');
 });
+
+/* kosmos#8555: the task page leaves the word out where the board's last check cannot find the change (landedCheck, the
+   cached answer the payload carries), as the Tasks row does, so "with a change" never stands beside a change that may be gone. */
+test('kosmos#8555: the task page drops "with a change" when the board cannot find the change; other answers keep it', () => {
+  const page = (extra) => runPaint({
+    project: { ...PROJECT, tasks: [] },
+    task: { number: 2, sentence: 's', who: 'april', createdAt: new Date().toISOString(), addedBy: 'operator', closedAt: new Date().toISOString(), closedHow: 'change', ...extra },
+  }).doc.els['tk-state'].textContent;
+  assert.equal(page({}), 'Done, with a change', 'CONTROL: no answer from a check keeps the word');
+  assert.equal(page({ landedCheck: 'missing' }), 'Done', 'the task page said with a change for a change the board cannot find');
+  assert.equal(page({ landedCheck: 'kept' }), 'Done, with a change');
+  assert.equal(page({ landedCheck: 'unknown' }), 'Done, with a change', 'an unanswered check is never shown as missing');
+});

@@ -23454,6 +23454,11 @@ const server = http.createServer(async (req, res) => {
       const closedAt = closed ? Date.parse(tasks.closedAtOf(row) || '') : NaN;
       if (closed && !(Number.isFinite(closedAt) && Date.now() - closedAt < landedcheck.CHECK_WINDOW_MS)) return;
       const c = await landedcheck.checkTask(row, { budget: landedBudget });
+      if (!c) return;
+      /* kosmos#8555: the upgrade is saved on the task (tasks.saveOnRemote: only upward, only for this commit, once), so the
+         task page, `kosmos task show` and a close's word read it from the store, past the check's window too. Saved
+         before the row's own field is set, and also when the page is already answered (`sent`): the check's work is kept. */
+      if (c.state === 'kept' && c.onRemote === true && row.landedOnRemote !== true) tasks.saveOnRemote(row.projectId, row.number, row.landedCommit);
       if (!c || sent) return;
       if (c.state === 'kept' && c.onRemote === true) { row.landedOnRemote = true; row.closedHow = tasks.closedHowOf(row); }   // kosmos#8552
       if (closed) row.landedCheck = c.state;

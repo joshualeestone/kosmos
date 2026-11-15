@@ -788,6 +788,7 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
      project column and the task page never count children themselves. Built once per call. */
   const tree = tasksModEarly.treeOf({ tasks });
   const taskrepeatMod = require('./taskrepeat');   // review 1: once per call, not per task
+  const landedcheckMod = require('./landedcheck');   // kosmos#8555
   const holdTasks = { tasks: tasks.filter(Boolean) };   // kosmos#7184 round 2: once per call too
   const memberSet = Array.isArray(memberOf) ? new Set(memberOf) : undefined;   // kosmos#8137
   /* kosmos#8227 item 2: a list row leaves out a delivered file's path (#8214) and a commit's repository (#7508), as the
@@ -799,6 +800,15 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
     parts: tasksModEarly.partsOf(t),
     progress: (({ done, total, closed, assigned }) => ({ done, total, closed, assigned }))(tasksModEarly.progressOf(t)),
     closedHow: tasksModEarly.closedHowOf(t, { hasSubtasks: tree.progress(t.number).total > 0 }),   // kosmos#8552: the engine's word, so the task page never derives it
+    /* kosmos#8555: a closed task carries the Tasks view's last check of its commit (landedcheck.cachedFor: the cached
+       answer only, never a new git call), within the same window, so the task page says what that row says. */
+    ...(() => {
+      if (!tasksModEarly.progressOf(t).closed) return {};
+      const closedAt = Date.parse(tasksModEarly.closedAtOf(t) || '');
+      if (!(Number.isFinite(closedAt) && Date.now() - closedAt < landedcheckMod.CHECK_WINDOW_MS)) return {};
+      const c = landedcheckMod.cachedFor(t);
+      return c ? { landedCheck: c.state } : {};
+    })(),
     parent: tree.up(t),
     parentSentence: tree.up(t) === null ? null : (tree.byNum.get(tree.up(t)).sentence || null),
     subtasks: tree.progress(t.number),

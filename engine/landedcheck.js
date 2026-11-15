@@ -89,6 +89,17 @@ async function checkTask(t, { budget = { left: 10 }, git = runGit, exists = fs.e
   try { return await run; } finally { pending.delete(key); running -= 1; }
 }
 
+/**
+ * kosmos#8555: the answer a check already has for this task's commit, or null. Never runs git and never starts a check,
+ * so a synchronous reader (the task page's payload) can carry what the Tasks view last found without its cost.
+ */
+function cachedFor(t, { now = Date.now } = {}) {
+  if (!t || typeof t.landedCommit !== 'string' || typeof t.landedRepo !== 'string') return null;
+  const hit = cache.get(t.landedRepo + '\u0000' + t.landedCommit);
+  if (!hit || now() - hit.at >= (hit.result.state === 'unknown' ? UNKNOWN_TTL_MS : TTL_MS)) return null;
+  return hit.result;
+}
+
 function resetForTests() { cache.clear(); pending.clear(); running = 0; }
 
-module.exports = { checkTask, resetForTests, TTL_MS, UNKNOWN_TTL_MS, CHECK_WINDOW_MS, MAX_RUNNING };
+module.exports = { checkTask, cachedFor, resetForTests, TTL_MS, UNKNOWN_TTL_MS, CHECK_WINDOW_MS, MAX_RUNNING };
