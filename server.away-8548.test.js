@@ -80,7 +80,7 @@ test('at=startup: posts, messages since the last report; the text and JSON forms
       { kind: 'post', outcomes: { leo: 'could_not' }, id: 'm2', project: 'fleet', from: 'nova', to: ['leo', 'nova'], text: 'SECRET WORDS', mentioned: ['leo'], at: now - 2 * H },
       { kind: 'post', outcomes: { leo: 'could_not' }, id: 'm3', project: 'fleet', from: 'leo', to: ['leo', 'nova'], text: 'mine', at: now - 2 * H },
       { kind: 'refused', from: 'nova', to: 'leo', because: 'leo is not running', at: now - H },
-      { kind: 'message', id: 'x2', from: 'leo', to: 'nova', text: 'for nova', state: 'delivered', at: now - H },
+      { kind: 'message', id: 'x2', from: 'nova', to: 'leo', text: 'typed into a running leo', state: 'placed', at: now - H },
     ]);
     const tok = sendertoken.mint('leo').token;
     const ntok = sendertoken.mint('nova').token;
@@ -90,10 +90,10 @@ test('at=startup: posts, messages since the last report; the text and JSON forms
       const ctx = hook.json.hookSpecificOutput;
       assert.equal(ctx.hookEventName, 'SessionStart');
       assert.match(ctx.additionalContext, /- fleet: 1 post from others; naming you or from the person: m2\. Read it with: kosmos room fleet/);
-      assert.match(ctx.additionalContext, /- at least 1 attempt to message you that could not reach you \(nova\)\./);
+      assert.match(ctx.additionalContext, /- at least 1 message from other agents could not reach you \(nova\)\./);
       assert.doesNotMatch(ctx.additionalContext, /SECRET WORDS|BEFORE/);
       const json = await get('/api/away?at=startup', { 'x-kosmos-agent-token': tok });
-      assert.deepEqual(json.json.counts, { posts: 1, messages: 0, refused: 1, direct: 0 });
+      assert.deepEqual(json.json.counts, { posts: 1, refused: 1, direct: 0 });
       const other = await get('/api/away?as=hook&at=startup', { 'x-kosmos-agent-token': ntok });
       assert.equal(other.code, 200);
       assert.equal(other.text, '', 'nova has no report history here, so no window: nothing');

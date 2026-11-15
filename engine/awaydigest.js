@@ -65,7 +65,7 @@ function windowFrom(history, { startup, nowMs }) {
  *  (engine/chat.readThread('@you', name).messages; the person's rows have no `from`). */
 function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
   const named = typeof namedIn === 'function' ? namedIn : (r) => (Array.isArray(r && r.mentioned) ? r.mentioned : []);
-  const empty = { name, lines: [], counts: { posts: 0, messages: 0, refused: 0, direct: 0 }, clamped: false };
+  const empty = { name, lines: [], counts: { posts: 0, refused: 0, direct: 0 }, clamped: false };
   if (typeof name !== 'string' || !name || !Number.isFinite(sinceMs) || !Number.isFinite(untilMs) || untilMs <= sinceMs) return empty;
   let since = sinceMs;
   let clamped = false;
@@ -74,7 +74,6 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
 
   const rooms = new Map();   // project -> { count, asked: [ids] }
   const senders = new Map();
-  let messages = 0;
   let refused = 0;
   for (const r of Array.isArray(rows) ? rows : []) {
     if (!r || typeof r !== 'object' || !inWindow(r) || r.from === name) continue;
@@ -87,11 +86,9 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
       let asks = false;
       try { asks = named(r).includes(name); } catch { asks = false; }
       if ((asks || r.operator === true) && plain(r.id)) room.asked.push(r.id);
-    } else if (r.kind === 'message') {
-      if (r.to !== name) continue;
-      messages += 1;
-      if (plain(r.from)) senders.set(r.from, (senders.get(r.from) || 0) + 1);
     } else if (r.kind === 'refused') {
+      /* `kosmos msg`: a message row is written only for one typed into a running pane or kept for one (held), so it is
+         not counted; a message to an agent that is not running is refused, and that refusal is what counts here. */
       /* A refusal to a room carries `project`; only one to this agent by name counts here. The log keeps one such row
          per sender, recipient and reason in a window (engine/messages.js logRefusedSend), so this is a lower bound. */
       if (r.to !== name || r.project !== undefined) continue;
@@ -103,11 +100,12 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
   for (const m of Array.isArray(direct) ? direct : []) {
     // As `kosmos inbox` lists them: Kosmos's own words kept in the thread (`kosmos: true`) are not the person's.
     if (!m || typeof m !== 'object' || (m.from !== undefined && m.from !== null) || m.kosmos === true || !inWindow(m)) continue;
+    if (typeof m.text !== 'string' && !m.attachment && !m.attachments) continue;
     dms += 1;
   }
   const posts = [...rooms.values()].reduce((n, x) => n + x.count, 0);
-  const counts = { posts, messages, refused, direct: dms };
-  if (!posts && !messages && !refused && !dms) return { ...empty, clamped };
+  const counts = { posts, refused, direct: dms };
+  if (!posts && !refused && !dms) return { ...empty, clamped };
 
   const lines = [];
   const list = [...rooms.entries()].sort((a, b) => b[1].count - a[1].count || (a[0] < b[0] ? -1 : 1));
@@ -121,18 +119,15 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
     lines.push(line + '. Read it with: kosmos room ' + project);
   }
   if (list.length > MAX_ROOMS) lines.push('- and ' + (list.length - MAX_ROOMS) + ' more rooms.');
-  if (messages || refused) {
+  if (refused) {
     const who = [...senders.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map((x) => x[0]);
     const names = who.slice(0, MAX_SENDERS).join(', ') + (who.length > MAX_SENDERS ? ' and ' + (who.length - MAX_SENDERS) + ' more' : '');
-    const from = names ? ' (' + names + ')' : '';
-    const parts = [];
-    if (messages) parts.push(messages + (messages === 1 ? ' direct message' : ' direct messages') + ' from other agents');
-    if (refused) parts.push('at least ' + refused + (refused === 1 ? ' attempt' : ' attempts') + ' to message you that could not reach you');
-    lines.push('- ' + parts.join(', and ') + from + '. Ask the sender if you need what it said.');
+    lines.push('- at least ' + refused + (refused === 1 ? ' message' : ' messages') + ' from other agents could not reach you'
+      + (names ? ' (' + names + ')' : '') + '. Ask the sender if you need what it said.');
   }
   if (dms) {
     lines.push('- ' + dms + (dms === 1 ? ' message' : ' messages') + ' from the person. Read them with: kosmos inbox --since '
-      + isoSecond(since) + ' --limit ' + INBOX_LIMIT + (dms >= INBOX_LIMIT ? ' (it shows the newest ' + INBOX_LIMIT + ' messages of the thread)' : ''));
+      + isoSecond(since) + ' --limit ' + INBOX_LIMIT + ' (it lists the oldest first and names where to go on)');
   }
   return { name, lines, counts, clamped, sinceMs: since, untilMs };
 }
