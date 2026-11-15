@@ -210,3 +210,28 @@ test('#8261: a backdated write never moves the row\'s date behind a confirmer it
   assert.equal(r.confirmed, '2026-11-15', 'so the row keeps ana\'s date, not bo\'s');
   assert.equal(r.stale, false);
 });
+
+test('#8553: a backdated source-only write leaves the row on its fresh confirmer\'s date (the call on #8553)', () => {
+  const p = project();
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
+  records.set(p.id, 'Acme', { source: 'crm link', confirmed: '2026-09-01' }, { by: 'bo', now: NOW });
+  const r = only(p);
+  assert.equal(r.confirmed, '2026-11-15', 'ana checked today; an old date for a link does not age the row');
+  assert.equal(r.stale, false);
+  assert.equal(r.source, 'crm link', 'the source still changes');
+  assert.deepEqual(names(r), ['ana']);
+  // CONTROL: with no confirmer kept (a new status from nobody named first), the backdated date is the row's date.
+  records.set(p.id, 'Globex', { status: 'lead' }, { now: NOW });
+  records.set(p.id, 'Globex', { source: 'x', confirmed: '2026-09-01' }, { by: 'bo', now: NOW });
+  assert.equal(records.list(p.id, { now: NOW }).rows.find((x) => x.name === 'Globex').confirmed, '2026-09-01');
+});
+
+test('#8553: a write the board could not name leaves the confirmers and blanks by', () => {
+  const p = project();
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
+  records.set(p.id, 'Acme', { status: 'active' }, { now: NOW });
+  const r = only(p);
+  assert.deepEqual(names(r), ['ana']);
+  assert.equal(r.by, null);
+  assert.equal(r.byPerson, false);
+});

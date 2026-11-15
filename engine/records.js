@@ -16,16 +16,19 @@
  *     entity is one row.
  *   - confirmed: YYYY-MM-DD, the date of the row's latest evidence. A write IS evidence, so it is today unless
  *     the writer says when the evidence is from; a backdated write never moves it behind a confirmer the row keeps
- *     (#8261), so the date always belongs to someone on the list.
+ *     (#8261), so the date always belongs to someone on the list. That includes a write that only fixes the source:
+ *     a fresh confirmer is newer evidence than an old date given for a link (#8553, pinned by a test).
  *   - status and source are optional; a write leaves a field alone unless it names it ('' clears it).
- *   - by / byPerson: the latest writer, filled in by the board from the writer's own card, never typed.
+ *   - by / byPerson: the latest writer, filled in by the board from the writer's own card, never typed; null and false
+ *     when the board could not name the writer (no token, no pane, not the screen), which leaves confirmers as they are
+ *     (#8553).
  *   - confirmers (#8261): every distinct writer that created the row or named its current status (a write that
  *     leaves the status out, such as a source fix, adds nobody), in the order each first confirmed it
  *     (a repeat write does not move a name, only refreshes its date), at most CONFIRMERS_MAX, the earliest dropped
  *     first. Each keeps the date of its own evidence; when any is fresh, one older than STALE_DAYS no longer counts
- *     (on a write or a read), so a stale check beside a fresh one never reads as a second check. A second agent confirming a row
- *     adds a name instead of replacing the first. A write that changes the status
- *     starts the list again with that writer. A row written before this field seeds it from its by / byPerson.
+ *     (on a write or a read), so a stale check beside a fresh one never reads as a second check. A second agent
+ *     confirming a row adds a name instead of replacing the first. A write that changes the status starts the list
+ *     again with that writer. A row written before this field seeds it from its by / byPerson.
  * A project may say what its rows are (recordsLabel: "accounts"); the default is "records".
  * Stale: confirmed more than STALE_DAYS ago. It is a fact to read on the page and in the list, never a refusal.
  */
@@ -37,8 +40,9 @@ const STATUS_MAX = 80;
 const SOURCE_MAX = 500;
 const LABEL_MAX = 40;
 /* The rows live inside projects.json, which every board read parses whole and every write rewrites. A row at every
-   field's limit, with CONFIRMERS_MAX dated confirmers of CONFIRMER_NAME_MAX-character names, is about 1,900 characters
-   of JSON (about 1,190 without them), so 500 rows is about 950 KB per project at the cap (kosmos#8261 measured it). */
+   field's limit, with CONFIRMERS_MAX dated confirmers of CONFIRMER_NAME_MAX-character names and an 80-character by,
+   is about 1,900 characters of JSON (about 1,190 without confirmers), so 500 rows is about 950 KB per project at the
+   cap (kosmos#8261 measured it). Characters, not bytes: non-ASCII text takes more. by itself is not capped here. */
 const ROWS_MAX = 500;
 const STALE_DAYS = 30;
 const CONFIRMERS_MAX = 5;
@@ -210,7 +214,8 @@ function set(projectId, name, fields = {}, { by = null, person = false, now } = 
       if (idx < 0) confirmers = [...confirmers, { ...me, confirmed }];
       else if (confirmed > confirmers[idx].confirmed) confirmers = confirmers.map((c, j) => (j === idx ? { ...c, confirmed } : c));
     }
-    // Stale ones go before the cap, so a stale (or backdated) confirmer never pushes out a fresh one.
+    // Stale ones go before the cap, so a stale (or backdated) confirmer never pushes out a fresh one. (When none is
+    // fresh all are kept, and then the cap alone decides which five stay.)
     confirmers = freshConfirmers(confirmers, now).slice(-CONFIRMERS_MAX);
     // The row's date is its latest evidence: a backdated write never moves it behind a confirmer it keeps.
     const rowConfirmed = confirmers.reduce((d, c) => (c.confirmed > d ? c.confirmed : d), confirmed);
