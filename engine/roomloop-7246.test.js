@@ -476,9 +476,10 @@ test('kosmos#8535: a post the pause kept quiet is told why, who set it, and what
     const two = post(board, 'pigeonpete', '@monalisa @angel status?');
     const said = String(two.sent.because);
     assert.match(said, /woke no one: Kosmos has paused agents waking each other in this project until about /, 'CONTROL: the old opening is kept');
-    assert.match(said, new RegExp('woke one another ' + roomloop.LOOP_CAP + ' times in the last hour'), 'the reason is missing: ' + said);
+    assert.match(said, new RegExp('woke one another ' + roomloop.LOOP_CAP + ' times within an hour'), 'the reason is missing: ' + said);
     assert.match(said, /an automatic limit, not a person; a person's post in the room ends it/, 'who set it, and what ends it, is missing: ' + said);
-    assert.match(said, /address exactly one member: that still gets through\.$/, 'the one action that gets through is missing: ' + said);
+    assert.match(said, /address exactly one member: that still gets through$/, 'the one action that gets through is missing: ' + said);
+    assert.ok(!said.endsWith('.'), 'the note ends in a full stop, and the CLIs add their own: ' + said);
     assert.ok(!said.includes('\n'), 'not one line: ' + said);
     // One member, but this pair's allowance is spent: say so, and that another member still works.
     for (let i = 0; i < roomloop.PAIR_CAP; i += 1) assert.deepEqual(post(board, 'pigeonpete', '@monalisa handoff ' + i).woke, ['monalisa'], 'fixture: a handoff was quiet');
@@ -498,6 +499,10 @@ test('kosmos#8535: when the one-member allowance of the project is used up, the 
     // A pair that has NOT used its own allowance: only the project's is spent.
     const said = String(post(board, 'angel', '@monalisa again').sent.because);
     assert.match(said, new RegExp('gets through ' + roomloop.THROUGH_CAP + ' times per pause in this project, and those are used up'), 'the spent project allowance is not said: ' + said);
+    // Review 1: a post to TWO members is not told to address one member either, since that is refused too now.
+    const two = String(post(board, 'pigeonpete', '@monalisa @angel anyone?').sent.because);
+    assert.match(two, /and those are used up$/, 'a two-member post was not told the one-member way is used up: ' + two);
+    assert.doesNotMatch(two, /address exactly one member/, 'a two-member post was told to do something that is refused too: ' + two);
   });
 });
 

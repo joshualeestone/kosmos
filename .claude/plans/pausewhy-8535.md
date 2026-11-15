@@ -7,11 +7,14 @@ one member directly (kosmos#7461 lets that through), or escalate.
 
 ## What
 - `engine/roomloop.js` `senderNote(projectId, now, ctx)`: the same opening as before (a test pins it), then, in one line:
-  the reason (agents' posts woke one another LOOP_CAP times in the last hour), the source (an automatic limit, not a
+  the reason (agents' posts woke one another LOOP_CAP times within an hour), the source (an automatic limit, not a
   person; a person's post ends it), and the one action that still gets through. That last part depends on the post:
-  - it asked several members, or none: "address exactly one member: that still gets through";
-  - it asked one member whose pair allowance is spent (PAIR_CAP): it names the member and says another member still works;
-  - the project's one-member allowance is spent (THROUGH_CAP): it says so.
+  - the project's one-member allowance is spent (THROUGH_CAP): it says so, for EVERY post (review 1: a two-member post
+    was otherwise told to address one member, which is refused too);
+  - it asked one member whose pair allowance is spent (PAIR_CAP): it names the member and says a different single member
+    MAY still get through (in a room of two there is none);
+  - otherwise: "address exactly one member: that still gets through".
+  No final full stop: both CLIs add their own after the note (`install/kosmos`, `tools/windows/kosmos-cli.js`).
 - `engine/messages.js`: the one caller passes the sender, how many members were asked, and the one asked.
 
 ## Decided
