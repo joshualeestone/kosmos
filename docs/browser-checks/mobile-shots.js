@@ -381,8 +381,6 @@ async function openTab(page, tab) {
 
 /* Deep links (web/index.html's ?tab / ?agent / ?project routing) reach a
    screen without depending on phone navigation; the frame shots use the ☰. */
-/* 'load', not 'networkidle': some screens hold a connection open (live
-   updates), so the network never goes idle there. */
 /* kosmos#7750: the two media doors' answers, with the words engine/tokendoors.js gives them. `on`:
    Replicate connected as a sample account. The shelf's /api/connections answer gains the same two doors. */
 const mediaDoors = async (page, on) => {
@@ -404,6 +402,8 @@ const mediaDoors = async (page, on) => {
     } catch { /* the page closed under the route (#6022) */ }
   });
 };
+/* 'load', not 'networkidle': some screens hold a connection open (live
+   updates), so the network never goes idle there. */
 const at = async (page, qs) => {
   await page.goto(page.url().split('?')[0] + qs, { waitUntil: 'load' });
   await page.waitForTimeout(900);
@@ -2155,12 +2155,9 @@ const SCREENS = [
     await page.evaluate(() => { REVIEWER_NOTE.at = 0; reviewerNoteMaybe(); });
     await page.waitForSelector('#recovery-slot .utoast.recovery-note', { state: 'visible', timeout: 10000 });
   } },
-  /* #5787 (Mona Lisa): the connected Kosmos+ pane, where every sign-in now lands: the connect block (line art, the
-     address with Copy, the Scan to connect code, the store buttons greyed with Coming soon) at the top. */
-  /* kosmos#7750: the Images, video and voice group on Connections. A throwaway board has no media door behind it yet
-     (the engine rows are Angel's), so each door's status and the shelf's list are answered HERE: on
-     connect-media nothing is connected and the ElevenLabs door is open; on connect-media-on Replicate is connected
-     (as a sample account) and its door is open, so the group's line names it. */
+  /* kosmos#7750: the Images, video and voice group on Connections. Each door's status and the shelf's list are
+     answered HERE: on connect-media nothing is connected and the ElevenLabs door is open; on connect-media-on
+     Replicate is connected (as a sample account) and its door is open, so the group's line names it. */
   { name: 'connect-media', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await mediaDoors(page, false);
     await at(page, '?tab=settings&sec=connect');
     await page.waitForSelector('#s-sec-connect [data-cat="media"]', { state: 'visible', timeout: 10000 });
@@ -2180,6 +2177,8 @@ const SCREENS = [
     await page.evaluate(() => document.querySelector('#s-sec-connect [data-cat="media"]').scrollIntoView({ block: 'start' }));
     await page.mouse.move(1, 1);
   } },
+  /* #5787 (Mona Lisa): the connected Kosmos+ pane, where every sign-in now lands: the connect block (line art, the
+     address with Copy, the Scan to connect code, the store buttons greyed with Coming soon) at the top. */
   { name: 'plus-connected', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await orgConnected(page, false); await at(page, '?tab=settings&sec=plus');
     await page.waitForSelector('#plus-chip .plus-store', { state: 'visible', timeout: 10000 });
     await page.evaluate(() => scrollTo(0, 0));
