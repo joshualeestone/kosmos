@@ -800,8 +800,8 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
     parts: tasksModEarly.partsOf(t),
     progress: (({ done, total, closed, assigned }) => ({ done, total, closed, assigned }))(tasksModEarly.progressOf(t)),
     closedHow: tasksModEarly.closedHowOf(t, { hasSubtasks: tree.progress(t.number).total > 0 }),   // kosmos#8552: the engine's word, so the task page never derives it
-    /* kosmos#8555: a closed task carries the Tasks view's last check of its commit (landedcheck.cachedFor: the cached
-       answer only, never a new git call), within the same window, so the task page says what that row says. */
+    /* kosmos#8555: a closed task carries the Tasks view's last check of its commit when one is cached
+       (landedcheck.cachedFor: never a new git call), within the same window; with no cached answer it carries none. */
     ...(() => {
       if (!tasksModEarly.progressOf(t).closed) return {};
       const closedAt = Date.parse(tasksModEarly.closedAtOf(t) || '');

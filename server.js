@@ -23458,8 +23458,8 @@ const server = http.createServer(async (req, res) => {
       /* kosmos#8555: the upgrade is saved on the task (tasks.saveOnRemote: only upward, only for this commit, once), so the
          task page, `kosmos task show` and a close's word read it from the store, past the check's window too. Saved
          before the row's own field is set, and also when the page is already answered (`sent`): the check's work is kept. */
-      if (c.state === 'kept' && c.onRemote === true && row.landedOnRemote !== true) tasks.saveOnRemote(row.projectId, row.number, row.landedCommit);
-      if (!c || sent) return;
+      if (c.state === 'kept' && c.onRemote === true && row.landedOnRemote !== true) tasks.saveOnRemote(row.projectId, row.number, row.landedCommit, row.landedRepo);
+      if (sent) return;
       if (c.state === 'kept' && c.onRemote === true) { row.landedOnRemote = true; row.closedHow = tasks.closedHowOf(row); }   // kosmos#8552
       if (closed) row.landedCheck = c.state;
     })).then(() => { clearTimeout(timer); sendOnce(); }, () => { clearTimeout(timer); sendOnce(); });
