@@ -2571,10 +2571,10 @@ function unmatchedNote(cleaned, recipients, roster, from, raw) {
     const unmatched = [];
     for (const part of head ? head.targets : []) {
       const bare = part.replace(/^@/, '').trim();
-      if (!bare || /^(all|everyone)$/i.test(bare)) continue;
+      if (!bare || /^(all|everyone)$/i.test(bare) || targetResolves(bare, members, roster).length) continue;   // it woke a member
       if (bare.split(/\s+/).some((w) => insideKeys.has(nameKey(w)))) continue;   // a member's name, or a word of one
       if (mentionedMembers('@' + nameKey(bare), outside, roster).mentioned.size === 1) continue;   // outsidersNote names it
-      const shown = printableName(bare).slice(0, 60);
+      const shown = printableName(bare.slice(0, 60));   // cut first: printableName drops a surrogate the cut splits
       if (shown && !unmatched.includes(shown)) unmatched.push(shown);
     }
     if (!unmatched.length) return '';
@@ -2937,7 +2937,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   const note4653 = [ambiguous.size ? ambiguousNote(ambiguous, atNamed.mentioned, shown) : '',
     operator === true ? '' : outsidersNote(cleaned, recipients, roster, from, text),
     // kosmos#8566: a header name that named no one here; not for a name outsidersNote just named, nor in a shared room.
-    operator === true || federated === true ? '' : unmatchedNote(cleaned, recipients, roster, from, text)].filter(Boolean).join(' ');
+    // Not when the post woke every member another way (@all beside the name), where "woke no one by it" reads wrong.
+    operator === true || federated === true || recipients.every((m) => m === from || mentioned.has(m)) ? '' : unmatchedNote(cleaned, recipients, roster, from, text)].filter(Boolean).join(' ');
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
@@ -3652,7 +3653,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
          A boolean, never the posts' words. Only present on a reply, so an ordinary post's answer is unchanged. */
       ...(answered ? { repliesToPerson: answered.operator === true } : {}),
       /* #4653: an ambiguous @-word reached nobody as a request; the sender is told, in these words (kosmos#8270: and an
-         agent named who is not on the project). It stays the LAST key: kosmos post reads it anchored on the end of the answer. */
+         agent named who is not on the project; kosmos#8566: and a header name no member has). It stays the LAST key: kosmos post reads it anchored on the end of the answer. */
       ...(note4653 ? { ambiguousNote: note4653 } : {}) };
   };
 
