@@ -26,10 +26,13 @@ families this cut builds (arm64; linux-x64 when CUT_LINUX=yes):
 - No age wait. Review 2 asked for one (a deploy may still land); review 5 showed a file's mtime is set at 4b, hours
   before any deploy, so the wait never covered the case it was for. Step 8's guard is the protection, and the runbook
   says so instead.
-- Step 8 asks the host again just before vercel (release_leftovers_guard_deploy, each family this cut builds): if
+- Step 7b (before the site commit) and step 8 (before vercel and each retry) ask the host again
+  (release_leftovers_guard_deploy, each family this cut builds; 7b added in review 7 so a refusal leaves origin/main
+  untouched): if
   ANOTHER build of V is served now (a deploy still in flight when 1g read the host, or one that landed after its cut
-  cleaned up and left no file), the cut does not deploy. 404 or this cut's own sha: go on; anything else after 3
-  reads: refuse (review 3). It runs again before each vercel retry, beside the freeze check (review 5). This is the
+  cleaned up and left no file), the cut stops. 404 or this cut's own sha: go on; anything else: read again for about
+  two minutes (KOSMOS_LEFTOVERS_TRIES, _RETRY_S; review 7: three reads threw away a two-hour build on a blip), then
+  refuse (review 3). It narrows the window to the deploy itself; a deploy landing after the last read is not seen. It runs again before each vercel retry, beside the freeze check (review 5). This is the
   guard that protects the name; 1g only spares a cut the build.
 - With no leftovers and no committed manifest, 1g does not read the host: a cut start must not depend on the
   production host, and the suite's nested cuts would read it too (a test cutting 0.7.50, a really served version, was
@@ -44,11 +47,12 @@ families this cut builds (arm64; linux-x64 when CUT_LINUX=yes):
 Rejected: deleting the leftovers (no undo); moving them inside dist/ (git status and clean-tree checks); judging by
 the tarball's status alone (a 404 is only "never served" when a made-up name gets the same and a real one does not).
 
-Weakest premise: the marker is per checkout. A later cut of the same version from ANOTHER clone that holds leftovers,
-after the version was removed from the host, has no marker and sees a 404. What bounds it: dist-retention keeps the
-newest 12 versions plus anything served or staged, so a recent version is not pruned; what is left is a Vercel
-rollback or a hand removal (review 3 corrected my first reason, which named a step-1 guard that compares with the
-checkout's package.json, not a served pointer). Also: a cut killed before step 8 recorded its marker but after its build went live (between the landing
+Weakest premise: the marker is per clone. A later cut of the same version from ANOTHER clone that holds leftovers,
+after the version stopped being served, has no marker and sees a 404. What bounds it (reviews 3 and 7 each corrected
+my reason): site-autodeploy mirrors versioned files from the cut checkout and drops a version that is no longer there, and
+step 1 only lets a cut move forward or repeat the current version, so this needs a re-cut of the current version from
+another clone; 7b's and step 8's guards still read the host before anything is committed or deployed.
+Also: a cut killed before step 8 recorded its marker but after its build went live (between the landing
 check and the marker line, two lines apart) leaves no marker; the host probe then sees the served checksum and
 refuses anyway, unless the version has since been pruned from the host.
 
@@ -60,7 +64,7 @@ refuses anyway, unless the version has since been pruned from the host.
   between). Still passes on main's release.sh.
 
 ## Tests
-- tools/test-release-leftovers-8562.sh (37 arms, registered in package.json test:shell), with a curl stub that answers
+- tools/test-release-leftovers-8562.sh (39 arms, registered in package.json test:shell), with a curl stub that answers
   as installkosmos.com does (404 for unknown names). Mutations of the marker check, the strict 404, each control,
   decide-before-move, the Linux-manifest refusal, the tracked-file skip, the git-dir marker and the deploy
   guard (another sha, and its wiring) and the git-error refusal each red their arm. test-vercel-refusal-7711 pins the

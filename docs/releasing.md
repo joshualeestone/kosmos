@@ -452,10 +452,11 @@ Ctrl-C ends that wait safely.
    `kosmos-<V>-<family>.tar.gz.sha256` for each family, with a made-up version
    and the prod pointer's own version as controls, and moves never-served
    leftovers into a dated folder beside the site checkout (nothing deleted). It
-   refuses on anything it cannot read cleanly. **What protects the name is step
-   8:** just before vercel, and before each retry, it reads the served `.sha256`
-   again and refuses if another build of `<V>` is served, so a deploy that was
-   still in flight when 1g looked cannot be published over.
+   refuses on anything it cannot read cleanly. **The name itself is guarded later,
+   at 7b (before the site commit) and step 8 (before vercel and each retry):**
+   each reads the served `.sha256` again and refuses if another build of `<V>` is
+   served, retrying a short host blip for about two minutes. That narrows the
+   window to the deploy itself; it does not close it.
    To check by hand, read the `.sha256`, not the tarball:
    `curl -s -w ' %{http_code}' https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256`.
    A checksum with a 200 means it was served (bump the version). A 404, the same

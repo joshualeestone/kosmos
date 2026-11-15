@@ -24,7 +24,10 @@
 #   release_leftovers_guard_deploy <host> <version> <family> <sha>  (step 8, just before vercel: refuses if ANOTHER build
 #     of <version> is served now. Step 1g reads the host hours earlier; a deploy still in flight then, or one that
 #     landed after its cut cleaned up and left no file, can be live by now. 404 or this cut's own sha: go on. Another
-#     checksum: refuse. Anything else, after 3 reads: refuse.)
+#     checksum: refuse. Anything else: read again, KOSMOS_LEFTOVERS_TRIES times (12) KOSMOS_LEFTOVERS_RETRY_S apart
+#     (10 s), so a short host blip does not end a cut two hours in; then refuse. Release.sh runs it at 7b, before the
+#     site commit, and at step 8, before vercel and each retry. It narrows the window; a deploy landing after the
+#     last read is not seen.)
 # Uses `curl` by name, so a test can define a curl function.
 
 # The marker lives in the site clone's common git dir (git rev-parse, so every worktree of one clone shares it): no
@@ -38,7 +41,7 @@ release_leftovers_marker() {
 
 release_leftovers_mark_served() {
   local m; m="$(release_leftovers_marker "$1" "$2")"
-  if [ -z "$m" ] || ! date -u +%Y-%m-%dT%H:%M:%SZ > "$m" 2>/dev/null; then
+  if [ -z "$m" ] || ! { date -u +%Y-%m-%dT%H:%M:%SZ > "$m"; } 2>/dev/null; then
     echo "   NOTE (kosmos#8562): could not record in the site's git dir that $2 was served; a later cut of $2 from this checkout falls back to asking the host" >&2
   fi
   return 0
@@ -129,8 +132,9 @@ release_leftovers_clear() {
 }
 
 release_leftovers_guard_deploy() {
-  local host="${1%/}" v="$2" fam="$3" mine="$4" got try
-  for try in 1 2 3; do
+  local host="${1%/}" v="$2" fam="$3" mine="$4" got try tries="${KOSMOS_LEFTOVERS_TRIES:-12}"
+  case "$tries" in ''|0|*[!0-9]*) tries=12 ;; esac
+  for try in $(seq 1 "$tries"); do
     got="$(release_leftovers_get "$host/dist/kosmos-$v-$fam.tar.gz.sha256")"
     case "${got%% *}" in
       404) return 0 ;;
@@ -141,7 +145,7 @@ release_leftovers_guard_deploy() {
              return 1
            fi ;;
     esac
-    [ "$try" = 3 ] || sleep "${KOSMOS_LEFTOVERS_RETRY_S:-5}"
+    [ "$try" = "$tries" ] || sleep "${KOSMOS_LEFTOVERS_RETRY_S:-10}"
   done
   echo "could not read $host/dist/kosmos-$v-$fam.tar.gz.sha256 cleanly before deploying (last answer ${got%% *}), so whether another build of $v is served is unknown; nothing was deployed (its site commit from step 7b stays pushed; kosmos#8562). Try again once the host answers."
   return 1

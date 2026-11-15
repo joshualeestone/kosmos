@@ -1902,6 +1902,19 @@ _site_commit_msg="$V: the $CUT_CHANNEL pointer ($POINTER_FILE), installer and ve
 # in a tested context (the `|| ...`) suspends errexit for its whole body, so its
 # internal non-ff retry loop runs all attempts instead of aborting the cut on the
 # first rejected push. Do NOT change this to a bare `SITE_SHA="$(...)"`.
+# kosmos#8562: step 1g read the host hours ago and reads nothing when no leftover is here. Before this commit replaces
+# $V's committed manifest and pointer, ask: if ANOTHER build of $V is served (a deploy that landed after its cut cleaned
+# up, or one still in flight when 1g looked), stop here, with origin/main untouched. Step 8 asks again before vercel.
+# It narrows the window to the deploy itself; it does not close it.
+_vdep_served_check() {
+  release_leftovers_guard_deploy "${HOST:-https://installkosmos.com}" "$V" arm64 \
+    "$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-arm64.tar.gz.sha256" 2>/dev/null || true)" || exit 1
+  if [ "${CUT_LINUX:-}" = yes ]; then
+    release_leftovers_guard_deploy "${HOST:-https://installkosmos.com}" "$V" linux-x64 \
+      "$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-linux-x64.tar.gz.sha256" 2>/dev/null || true)" || exit 1
+  fi
+}
+_vdep_served_check
 SITE_SHA="$(site_commit_on_fresh_main "$SITE" "$_site_commit_msg" "$BUILD_ROOT" 5 "$_site_paths" "$V" "$REPO")" || exit 1
 # Verify the pushed commit actually carries every release file, and that our
 # versions entry landed on the FRESH page (the re-insert worked): a content check
@@ -2059,16 +2072,8 @@ _vdep_freeze_check() {
   fi
 }
 _vdep_freeze_check
-# kosmos#8562: step 1g read the host hours ago. Ask again now, and before each vercel retry: if ANOTHER build of $V is
-# served (a deploy that was still in flight then, or one that landed after its cut cleaned up), this cut must not
-# publish different bytes under it. This is the guard that protects the name; 1g only spares a cut the build.
-_vdep_served_check() {
-  release_leftovers_guard_deploy "${HOST:-https://installkosmos.com}" "$V" arm64 "$_my_sha" || exit 1
-  if [ "${CUT_LINUX:-}" = yes ]; then
-    release_leftovers_guard_deploy "${HOST:-https://installkosmos.com}" "$V" linux-x64 \
-      "$(awk 'NR==1 {print $1}' "$SITE/dist/kosmos-$V-linux-x64.tar.gz.sha256" 2>/dev/null || true)" || exit 1
-  fi
-}
+# kosmos#8562: and again here, just before vercel (and before each retry, below): a build of $V that went live since 7b
+# asked is not published over. Defined at 7b.
 _vdep_served_check
 _vdep_before_retry() { _vdep_freeze_check; _vdep_served_check; }
 _vdep_rc=0

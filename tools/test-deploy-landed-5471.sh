@@ -15,6 +15,7 @@ REPO_ROOT="$PWD"
 # kosmos#8562's pre-deploy guard asks the host before vercel; this file is about landing, so it always goes on here
 # (tools/test-release-leftovers-8562.sh covers the guard).
 release_leftovers_guard_deploy() { return 0; }
+_vdep_served_check() { :; }   # defined at release.sh's step 7b, outside the step-8 block this file cuts out
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 T="$(mktemp -d "${TMPDIR:-/tmp}/deploy-landed-5471.XXXXXX")"; trap 'rm -rf "$T"' EXIT
 
