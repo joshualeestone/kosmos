@@ -107,6 +107,7 @@ test('#8261: a write from nobody named adds nobody', () => {
   records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
   records.set(p.id, 'Acme', { status: 'active' }, { now: NOW });
   assert.deepEqual(names(only(p)), ['ana']);
+  assert.deepEqual([only(p).by, only(p).byPerson], [null, false], '#8553: by records that the board could not name the writer');
 });
 
 test('#8261: renderList reads an answer from an older board (no confirmedBy) by its latest writer', () => {
@@ -209,4 +210,35 @@ test('#8261: a backdated write never moves the row\'s date behind a confirmer it
   assert.deepEqual(names(r), ['ana'], 'bo\'s 75-day-old check is not kept beside ana\'s fresh one');
   assert.equal(r.confirmed, '2026-11-15', 'so the row keeps ana\'s date, not bo\'s');
   assert.equal(r.stale, false);
+});
+
+test('#8553: a backdated source-only write leaves the row on its fresh confirmer\'s date', () => {
+  const p = project();
+  records.set(p.id, 'Acme', { status: 'active' }, { by: 'ana', now: NOW });
+  records.set(p.id, 'Acme', { source: 'crm link', confirmed: '2026-09-01' }, { by: 'bo', now: NOW });
+  const r = only(p);
+  assert.equal(r.confirmed, '2026-11-15', 'ana checked today; an old date for a link does not age the row');
+  assert.equal(r.stale, false);
+  assert.equal(r.source, 'crm link', 'the source still changes');
+  assert.deepEqual(names(r), ['ana']);
+  // CONTROL: with no confirmer kept (created by nobody named), the backdated date is the row's date (#6994's rule).
+  records.set(p.id, 'Globex', { status: 'lead' }, { now: NOW });
+  records.set(p.id, 'Globex', { source: 'x', confirmed: '2026-09-01' }, { by: 'bo', now: NOW });
+  assert.equal(records.list(p.id, { now: NOW }).rows.find((x) => x.name === 'Globex').confirmed, '2026-09-01');
+});
+
+test('#8553: any write is evidence for the row\'s date (#6994), so a source fix dated today shows today beside an older confirmer', () => {
+  const p = project();
+  records.set(p.id, 'Acme', { status: 'active', confirmed: '2026-10-06' }, { by: 'ana', now: NOW });
+  records.set(p.id, 'Acme', { source: 'fixed link' }, { by: 'bo', now: NOW });
+  assert.equal(only(p).confirmed, '2026-11-15', 'kept on purpose: a bare write is how a row is refreshed');
+  assert.equal(only(p).stale, false, 'and it clears the stale mark ana\'s 40-day-old check had');
+  assert.deepEqual(names(only(p)), ['ana'], 'bo is not a confirmer: he named no status');
+  // A writer the board cannot name (the person's terminal outside tmux) naming the status moves the row to today
+  // too, while ana's own date stays hers.
+  records.set(p.id, 'Globex', { status: 'lead', confirmed: '2026-10-06' }, { by: 'ana', now: NOW });
+  records.set(p.id, 'Globex', { status: 'lead' }, { now: NOW });
+  const g = records.list(p.id, { now: NOW }).rows.find((x) => x.name === 'Globex');
+  assert.equal(g.confirmed, '2026-11-15');
+  assert.deepEqual(g.confirmedBy.map((c) => [c.by, c.confirmed]), [['ana', '2026-10-06']]);
 });
