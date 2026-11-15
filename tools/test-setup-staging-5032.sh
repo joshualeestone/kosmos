@@ -56,7 +56,9 @@ a="$(grep -n 'step "== 1f. the site serves /setup-staging uncached' "$REPO/tools
 [ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ] && pass "release: step 1f sits before the version bump" || bad "release: step 1f is not before the bump ($a vs $b)"
 # Up to the NEXT step's marker, not step 2's: kosmos#8562 put step 1g between them.
 c="$(awk -v a="$a" 'NR > a && /^step "== / { print NR; exit }' "$REPO/tools/release.sh")"
-[ -n "$c" ] && [ "$c" -le "$b" ] && pass "release 1f: the region ends at the next step's marker, at or before step 2" || bad "release 1f: no step marker after 1f before step 2 (c=$c, b=$b)"
+# kosmos#8563: no PASS line here. Step 2's own marker always qualifies, so "at or before step 2" could not fail; the
+# content check below is what proves the region is the 1f block. This only stops a broken extraction from running on.
+[ -n "$c" ] && [ "$c" -le "$b" ] || bad "release 1f: no step marker after 1f before step 2 (c=$c, b=$b)"
 F1F="$(sed -n "$((a+1)),$((c > a ? c - 1 : a))p" "$REPO/tools/release.sh")"
 case "$F1F" in *'if [ "$CUT_CHANNEL" = staging ]; then'*'/setup-staging'*) pass "release 1f: the extracted region is the 1f block" ;; *) bad "release 1f: the extracted region is not the 1f block" ;; esac
 site_with(){ # <vercel.json text> -> a checkout whose origin/main holds it

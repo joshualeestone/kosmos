@@ -455,7 +455,8 @@ Ctrl-C ends that wait safely.
    refuses on anything it cannot read cleanly. **The name itself is guarded later,
    at 7b (before the site commit) and step 8 (before vercel and each retry):**
    each reads the served `.sha256` again and refuses if another build of `<V>` is
-   served, retrying a short host blip for about two minutes. That narrows the
+   served, retrying a short host blip for at least two minutes (up to about
+   eight when every read times out). That narrows the
    window to the deploy itself; it does not close it.
    To check by hand, read the `.sha256`, not the tarball:
    `curl -s -w ' %{http_code}' https://installkosmos.com/dist/kosmos-<V>-arm64.tar.gz.sha256`.
