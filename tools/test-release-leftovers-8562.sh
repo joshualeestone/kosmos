@@ -40,9 +40,14 @@ site() {   # a fresh site checkout with one committed file and the given untrack
 left() { ls "$T/site/dist" | grep -c '^kosmos-0\.8\.05-' ; }
 aside() { local d; for d in "$T"/site.aborted-0.8.05-*; do [ -d "$d" ] && { printf '%s\n' "$d"; return 0; }; done; return 0; }
 BOTH="arm64 linux-x64"
+nov() {   # kosmos#8563: no cut of 0.8.05 has committed its Mac manifest here (a first cut of that version)
+  git -C "$T/site" rm -q dist/kosmos-0.8.05-arm64.manifest.json && git -C "$T/site" commit -qm 'no 0.8.05 yet'
+  mkdir -p "$T/site/dist"   # git removes a folder it emptied; a real site checkout always has dist/
+}
 
 # 1. Nothing left: nothing asked, nothing said, nothing moved (a cut start does not depend on the host).
 site
+nov
 out="$(release_leftovers_clear "$T/site" 0.8.05 https://h $BOTH)"; rc=$?
 [ "$rc" = 0 ] && [ -z "$out" ] && [ ! -e "$T/urls" ] && ok "no leftovers: returns 0, says nothing, asks the host nothing" || bad "none: rc=$rc out=$out"
 
@@ -104,9 +109,9 @@ out="$(release_leftovers_clear "$T/site" 0.8.05 https://h $BOTH)"; rc=$?
 [ "$rc" = 1 ] && [ -z "$(aside)" ] && [[ "$out" == *"COMMITTED dist/kosmos-0.8.05-linux-x64.manifest.json"* ]] && [[ "$out" == *"release 0.8.05 linux"* ]] && ok "a committed Linux manifest of a never-served version: refused up front, naming the commit" || bad "manifest: rc=$rc out=$out"
 
 # 11. A Mac-only cut does not look at Linux leftovers.
-site kosmos-0.8.05-linux-x64.tar.gz; status dist/kosmos-0.8.05-linux-x64.tar.gz.sha256 503
+site kosmos-0.8.05-linux-x64.tar.gz; status dist/kosmos-0.8.05-linux-x64.tar.gz.sha256 503; nov
 out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
-[ "$rc" = 0 ] && [ -z "$out" ] && [ "$(left)" = 2 ] && ok "a Mac-only cut ignores Linux leftovers" || bad "mac only: rc=$rc out=$out"
+[ "$rc" = 0 ] && [ -z "$out" ] && [ "$(left)" = 1 ] && ok "a Mac-only cut ignores Linux leftovers" || bad "mac only: rc=$rc out=$out"
 
 # 12. A leftover whose name has a space moves whole.
 site "kosmos-0.8.05-arm64.tar.gz copy"
@@ -207,11 +212,38 @@ grep -q 'release_leftovers_clear "\$SITE" "\$V" .*\$_lo_fams || { echo "nothing 
 m=$(grep -n 'release_leftovers_mark_served "\$SITE" "\$V"' "$R" | cut -d: -f1); dep=$(grep -n '^DEPLOYED=1' "$R" | cut -d: -f1)
 [ -n "$m" ] && [ -n "$dep" ] && [ "$m" -lt "$dep" ] && [ "$((dep - m))" -le 2 ] && ok "step 8 records served just before DEPLOYED=1" || bad "mark: $m dep: $dep"
 sc=$(grep -n '^SITE_SHA="\$(site_commit_on_fresh_main' "$R" | cut -d: -f1)
-calls=$(grep -n '^_vdep_served_check$' "$R" | cut -d: -f1 | tr '\n' ' '); c1=${calls%% *}; c2=$(echo $calls | awk '{print $2}')
+# kosmos#8563: each call names its stage, so a refusal at 7b does not claim a site commit was pushed.
+c1=$(grep -n '^_vdep_served_check 7b$' "$R" | cut -d: -f1); c2=$(grep -n '^_vdep_served_check 8$' "$R" | cut -d: -f1); calls="$c1 $c2"
 fz=$(grep -n '^_vdep_freeze_check$' "$R" | cut -d: -f1); vd=$(grep -n '^_vdep_rc=0' "$R" | cut -d: -f1)
 [ -n "$sc" ] && [ -n "$c1" ] && [ -n "$c2" ] && [ "$c1" -lt "$sc" ] && [ "$fz" -lt "$c2" ] && [ "$c2" -lt "$vd" ] \
   && grep -q 'release_leftovers_guard_deploy "\${HOST:-https://installkosmos.com}" "\$V" arm64' "$R" \
   && grep -q 'release_leftovers_guard_deploy "\${HOST:-https://installkosmos.com}" "\$V" linux-x64' "$R" && ok "the served check runs before 7b's site commit and again just before vercel (both families)" || bad "guard wiring: 7b-commit=$sc calls=$calls freeze=$fz vdep=$vd"
-grep -q '^_vdep_before_retry() { _vdep_freeze_check; _vdep_served_check; }$' "$R" && grep -q 'KOSMOS_VERCEL_BEFORE_RETRY=_vdep_before_retry ' "$R" && ok "and again before each vercel retry, beside the freeze check" || bad "retry hook"
+grep -q '^_vdep_before_retry() { _vdep_freeze_check; _vdep_served_check 8; }$' "$R" && grep -q 'KOSMOS_VERCEL_BEFORE_RETRY=_vdep_before_retry ' "$R" && ok "and again before each vercel retry, beside the freeze check" || bad "retry hook"
+
+# 22. kosmos#8563: a COMMITTED Mac manifest of the version (a cut reached 7b here) makes step 1g read the host even with
+# no leftover file. Served: refused now, not at 7b two hours in. Never served: goes on, says so, moves nothing.
+site; serve dist/kosmos-0.8.05-arm64.tar.gz.sha256 "$SUM  kosmos-0.8.05-arm64.tar.gz"
+out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
+[ "$rc" = 1 ] && printf '%s' "$out" | grep -q 'Bump the version' && [ -f "$T/site/dist/kosmos-0.8.05-arm64.manifest.json" ] && [ -z "$(aside)" ] \
+  && ok "a committed Mac manifest of a SERVED version refuses at 1g, before any build" || bad "mac manifest served: rc=$rc out=$out"
+site
+out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
+[ "$rc" = 0 ] && printf '%s' "$out" | grep -q 'never served' && grep -qx "https://h/dist/kosmos-0.8.05-arm64.tar.gz.sha256" "$T/urls" \
+  && [ -f "$T/site/dist/kosmos-0.8.05-arm64.manifest.json" ] && [ -z "$(aside)" ] && [ -z "$(git -C "$T/site" status --porcelain)" ] \
+  && ok "a committed Mac manifest of a never-served version: the host is read, the cut goes on, nothing moves" || bad "mac manifest unserved: rc=$rc out=$out"
+site; touch "$T/down"
+out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
+[ "$rc" = 1 ] && printf '%s' "$out" | grep -q 'cannot tell' && printf '%s' "$out" | grep -q 'cut again once the host answers' && ! printf '%s' "$out" | grep -q 'files listed above' \
+  && ok "a committed Mac manifest with the host down: refused, and the way on names no files (there are none)" || bad "mac manifest down: rc=$rc out=$out"
+
+# 23. kosmos#8563: the guard's refusal says a site commit stays pushed only at step 8; at 7b nothing is pushed yet.
+site; serve dist/kosmos-0.8.05-arm64.tar.gz.sha256 "$SUM  kosmos-0.8.05-arm64.tar.gz"
+o7="$(release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb 7b)"; r7=$?
+o8="$(release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb 8)"; r8=$?
+od="$(release_leftovers_guard_deploy https://h 0.8.05 arm64 bbbb)"; rd=$?
+[ "$r7" = 1 ] && printf '%s' "$o7" | grep -q 'nothing was pushed' && ! printf '%s' "$o7" | grep -q 'stays pushed' \
+  && ok "at 7b the refusal says nothing was pushed" || bad "7b wording: rc=$r7 out=$o7"
+[ "$r8" = 1 ] && [ "$rd" = 1 ] && printf '%s' "$o8" | grep -q 'stays pushed' && printf '%s' "$od" | grep -q 'stays pushed' \
+  && ok "at step 8 (and by default) it says the 7b site commit stays pushed" || bad "8 wording: rc=$r8/$rd out=$o8 / $od"
 
 [ "$FAILS" = 0 ] && echo "release-leftovers-8562: all passed" || { echo "release-leftovers-8562: $FAILS FAILED"; exit 1; }

@@ -21,7 +21,9 @@
 #   release_leftovers_clear <site> <version> <host> <family>...     (families: arm64, linux-x64)
 # Prints what it found and did. 0: nothing in the way. 1: refused (the caller stops).
 #   release_leftovers_mark_served <site> <version>                  (step 8, once this cut's build is seen served)
-#   release_leftovers_guard_deploy <host> <version> <family> <sha>  (step 8, just before vercel: refuses if ANOTHER build
+#   release_leftovers_guard_deploy <host> <version> <family> <sha> [7b|8]  (the stage, default 8, only changes whether
+#     the refusal says the step-7b site commit stays pushed; at 7b nothing is pushed yet, kosmos#8563)
+#     (step 8, just before vercel: refuses if ANOTHER build
 #     of <version> is served now. Step 1g reads the host hours earlier; a deploy still in flight then, or one that
 #     landed after its cut cleaned up and left no file, can be live by now. 404 or this cut's own sha: go on. Another
 #     checksum: refuse. Anything else: read again, KOSMOS_LEFTOVERS_TRIES times (12) KOSMOS_LEFTOVERS_RETRY_S apart
@@ -93,14 +95,20 @@ release_leftovers_clear() {
       [ "$rc" = 1 ] || { echo "release-leftovers: git could not say whether $rel is committed (exit $rc); nothing was moved."; return 1; }
       found+=("$rel")
     done
-    local manifest=""
+    local manifest="" macmanifest=""
     if [ "$fam" = linux-x64 ] && git -C "$site" ls-files --error-unmatch -- "dist/kosmos-$v-linux-x64.manifest.json" >/dev/null 2>&1; then
       manifest="dist/kosmos-$v-linux-x64.manifest.json"
     fi
-    # Nothing left here: nothing to move, and no read of the host (a cut start must not depend on it, nor must the
+    # kosmos#8563: a COMMITTED Mac manifest for <v> means a cut of <v> reached step 7b here. If <v> is served, refuse
+    # now (bump), not at 7b two hours in, after step 4b has overwritten that manifest in the working tree. If <v> was
+    # never served, nothing is refused: step 4b replaces the Mac manifest and 7b commits it again.
+    if [ "$fam" = arm64 ] && git -C "$site" ls-files --error-unmatch -- "dist/kosmos-$v-arm64.manifest.json" >/dev/null 2>&1; then
+      macmanifest="dist/kosmos-$v-arm64.manifest.json"
+    fi
+    # Nothing of <v> here: nothing to move, and no read of the host (a cut start must not depend on it, nor must the
     # suite's nested cuts). A deploy that landed after its cut cleaned up is still refused before it deploys, by
     # release_leftovers_guard_deploy at step 8, though only after the build.
-    [ "${#found[@]}" -gt 0 ] || [ -n "$manifest" ] || continue
+    [ "${#found[@]}" -gt 0 ] || [ -n "$manifest" ] || [ -n "$macmanifest" ] || continue
     if [ "${#found[@]}" -gt 0 ]; then echo "   found files for $v ($fam) left in the site checkout by an earlier cut: ${found[*]}"; fi
     ptr="latest.json"; [ "$fam" = linux-x64 ] && ptr="latest-linux.json"
     pv="$(release_leftovers_pointer_version "$host" "$ptr")"
@@ -117,14 +125,21 @@ release_leftovers_clear() {
     pos=""; [ -n "$pv" ] && pos="$(release_leftovers_get "$host/dist/kosmos-$pv-$posfam.tar.gz.sha256")"
     if [ "${mine%% *}" != 404 ] || [ "${ctl%% *}" != 404 ] || [ "${pos%% *}" != 200 ] || ! release_leftovers_is_sum "${pos#* }"; then
       echo "release-leftovers: cannot tell whether $v was ever served for $fam (its .sha256 answered ${mine%% *}; a version that cannot exist answered ${ctl%% *}; $(if [ -n "$pv" ]; then echo "the served $pv answered ${pos%% *}"; else echo "no prod pointer could be read"; fi)), so nothing was moved."
-      echo "   Read $host/dist/kosmos-$v-$fam.tar.gz.sha256 by hand: a checksum means it was served (bump the version); a 404 like a made-up version's means it never was (move the files listed above out of $site/dist, and cut again)."
+      if [ "${#found[@]}" -gt 0 ]; then
+        echo "   Read $host/dist/kosmos-$v-$fam.tar.gz.sha256 by hand: a checksum means it was served (bump the version); a 404 like a made-up version's means it never was (move the files listed above out of $site/dist, and cut again)."
+      else
+        echo "   Read $host/dist/kosmos-$v-$fam.tar.gz.sha256 by hand: a checksum means it was served (bump the version); a 404 like a made-up version's means it never was (cut again once the host answers)."
+      fi
       refused=1; continue
     fi
     if [ -n "$manifest" ]; then
       echo "release-leftovers: $v was never served for $fam, but the site still carries its COMMITTED $manifest (an aborted cut commits it at step 7b: $(git -C "$site" log -1 --format='%h %s' -- "$manifest" 2>/dev/null | cut -c1-80)). Step 4b would refuse to republish it with different bytes. Revert that site commit (or remove the manifest and its .sig in a site commit), then cut again."
       refused=1; continue
     fi
-    move+=("${found[@]}")
+    if [ -n "$macmanifest" ]; then
+      echo "   the site carries a committed $macmanifest from an earlier cut of $v that was never served (404 like a version that cannot exist); step 4b replaces it."
+    fi
+    [ "${#found[@]}" -gt 0 ] && move+=("${found[@]}")
   done
   [ "$refused" = 0 ] || return 1
   [ "${#move[@]}" -gt 0 ] || return 0
@@ -138,8 +153,11 @@ release_leftovers_clear() {
 }
 
 release_leftovers_guard_deploy() {
-  local host="${1%/}" v="$2" fam="$3" mine="$4" got try tries="${KOSMOS_LEFTOVERS_TRIES:-12}"
+  local host="${1%/}" v="$2" fam="$3" mine="$4" stage="${5:-8}" got try tries="${KOSMOS_LEFTOVERS_TRIES:-12}" pushed
   case "$tries" in ''|0|*[!0-9]*) tries=12 ;; esac
+  # kosmos#8563: at 7b this runs BEFORE the site commit, so nothing is pushed yet; only at step 8 is it.
+  if [ "$stage" = 7b ]; then pushed="nothing was deployed and nothing was pushed"
+  else pushed="nothing was deployed (its site commit from step 7b stays pushed)"; fi
   for try in $(seq 1 "$tries"); do
     got="$(release_leftovers_get "$host/dist/kosmos-$v-$fam.tar.gz.sha256")"
     case "${got%% *}" in
@@ -147,12 +165,12 @@ release_leftovers_guard_deploy() {
       200) if release_leftovers_is_sum "${got#* }"; then
              local served="${got#* }"; served="${served%% *}"
              [ "$served" = "$mine" ] && return 0
-             echo "another build of $v is served for $fam now (its .sha256 is $served, this cut's is ${mine:-unreadable}): the versioned name is cache-immutable, so this cut does not deploy; nothing was deployed (its site commit from step 7b stays pushed). Bump the version (kosmos#8562)."
+             echo "another build of $v is served for $fam now (its .sha256 is $served, this cut's is ${mine:-unreadable}): the versioned name is cache-immutable, so this cut does not deploy; $pushed. Bump the version (kosmos#8562)."
              return 1
            fi ;;
     esac
     [ "$try" = "$tries" ] || sleep "${KOSMOS_LEFTOVERS_RETRY_S:-10}"
   done
-  echo "could not read $host/dist/kosmos-$v-$fam.tar.gz.sha256 cleanly before deploying (last answer ${got%% *}), so whether another build of $v is served is unknown; nothing was deployed (its site commit from step 7b stays pushed; kosmos#8562). Try again once the host answers."
+  echo "could not read $host/dist/kosmos-$v-$fam.tar.gz.sha256 cleanly before deploying (last answer ${got%% *}), so whether another build of $v is served is unknown; $pushed (kosmos#8562). Try again once the host answers."
   return 1
 }
