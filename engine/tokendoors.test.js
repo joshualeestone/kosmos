@@ -184,6 +184,8 @@ test('#7750: Replicate reads who from username with a Bearer token; ElevenLabs r
   const no = await e.connect('sk_0123456789abcdef0123456789abcdef');
   assert.equal(no.refused, 'ElevenLabs did not accept that token: The API key you used is missing the permission user_read to execute this operation.');
   assert.ok(!fs.existsSync(path.join(DIR, 'ELEVENLABS_API_KEY')));
+  e.setFetcher(async () => ({ ok: true, status: 200, body: { workspace_id: 'w1' } }));
+  assert.equal((await e.connect('sk_0123456789abcdef0123456789abcdef')).refused, 'ElevenLabs did not say whose key that is', 'a 200 with no user_id is not proof of an account');
   e.setFetcher(async () => ({ ok: false, status: 401, body: { detail: 'Invalid API key' } }));
   assert.equal((await e.connect('sk_0123456789abcdef0123456789abcdef')).refused, 'ElevenLabs did not accept that token: Invalid API key');
   e.setFetcher(async () => ({ ok: false, status: 429, body: { detail: { message: 'Too many concurrent requests.' } } }));

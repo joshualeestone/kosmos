@@ -167,6 +167,7 @@ const SPECS = [
     // The service's own reason (detail.message, or detail as a string) is shown on a refusal.
     accept: (s, b) => {
       if (s === 200 && b && b.user_id) return { ok: true, who: b.first_name || null };
+      if (s === 200) return { ok: false, because: 'ElevenLabs did not say whose key that is' };
       const d = b && b.detail;
       const raw = typeof d === 'string' ? d : (d && typeof d.message === 'string' ? d.message : '');
       const why = raw.trim().slice(0, 300);

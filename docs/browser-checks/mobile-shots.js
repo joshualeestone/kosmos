@@ -389,7 +389,7 @@ const mediaDoors = async (page, on) => {
     elevenlabs: off('elevenlabs'),
   };
   for (const [slug, body] of Object.entries(doors)) {
-    await page.route('**/api/svc/' + slug, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }));
+    await page.route('**/api/svc/' + slug, (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }).catch(() => {}));
   }
   await page.route('**/api/connections', async (r) => {
     try {
