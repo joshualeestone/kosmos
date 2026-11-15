@@ -379,8 +379,6 @@ async function openTab(page, tab) {
   await page.waitForSelector(`#panel-${tab}`, { state: 'visible', timeout: 5000 });
 }
 
-/* Deep links (web/index.html's ?tab / ?agent / ?project routing) reach a
-   screen without depending on phone navigation; the frame shots use the ☰. */
 /* kosmos#7750: the two media doors' answers, with the words engine/tokendoors.js gives them. `on`:
    Replicate connected as a sample account. The shelf's /api/connections answer gains the same two doors. */
 const mediaDoors = async (page, on) => {
@@ -402,6 +400,8 @@ const mediaDoors = async (page, on) => {
     } catch { /* the page closed under the route (#6022) */ }
   });
 };
+/* Deep links (web/index.html's ?tab / ?agent / ?project routing) reach a
+   screen without depending on phone navigation; the frame shots use the ☰. */
 /* 'load', not 'networkidle': some screens hold a connection open (live
    updates), so the network never goes idle there. */
 const at = async (page, qs) => {

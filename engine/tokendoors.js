@@ -153,7 +153,10 @@ const SPECS = [
     hint: 'naming it Kosmos so you can find it later',
     verify: { url: 'https://api.replicate.com/v1/account', headers: bearer },
     verifyUrlEnv: 'AGENT_WORKFORCE_REPLICATE_VERIFY_URL',
-    accept: (s, b) => (s === 200 && b && b.username ? { ok: true, who: b.username } : { ok: false }),
+    accept: (s, b) => {
+      if (s === 200 && b && b.username) return { ok: true, who: b.username };
+      return s === 200 ? { ok: false, because: 'Replicate did not say whose token that is' } : { ok: false };
+    },
   },
   {
     name: 'ElevenLabs', slug: 'elevenlabs', envVar: 'ELEVENLABS_API_KEY',

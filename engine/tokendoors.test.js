@@ -168,7 +168,9 @@ test('#7750: Replicate reads who from username with a Bearer token; ElevenLabs r
   assert.equal(st.who, 'maker');
   await r.forget();
   r.setFetcher(async () => ({ ok: true, status: 200, body: { type: 'user' } }));
-  assert.ok((await r.connect('r8_0123456789abcdef0123456789abcdef')).refused, 'a 200 with no username is not proof of an account');
+  assert.equal((await r.connect('r8_0123456789abcdef0123456789abcdef')).refused, 'Replicate did not say whose token that is', 'a 200 with no username is not proof of an account');
+  r.setFetcher(async () => ({ ok: false, status: 401, body: { detail: 'Invalid token.' } }));
+  assert.equal((await r.connect('r8_0123456789abcdef0123456789abcdef')).refused, 'Replicate did not accept that token');
   r.setFetcher(null);
 
   const e = byName('ElevenLabs');
