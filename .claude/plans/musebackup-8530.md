@@ -13,8 +13,8 @@ mentions Muse, so a Muse agent's conversation is never backed up.
 
 ## What
 - `engine/backupsessions.js` `museRoot`: the agent's session id from `<agent>/.kosmos/muse-session` (engine/musefront.js);
-  the root is `<data home>/muse/sessions` with an `only` list of every file under `<yyyy>/<mm>/<dd>/<that id>/`, so
-  every day the session was resumed is taken. A linked sessions folder is refused (said), a linked session folder is
+  the root is `<data home>/muse/sessions` with an `only` list of the `session.jsonl` under each
+  `<yyyy>/<mm>/<dd>/<that id>/`, so every day the session was resumed is taken. A linked sessions folder is refused (said), a linked session folder is
   not followed. Never the index, the view cache or the sign-in (Keychain).
 - `engine/backuptick.js`: `museData` = `$XDG_DATA_HOME` when absolute, else `$HOME/.local/share`, as the runner gives
   Muse the board's own environment.
