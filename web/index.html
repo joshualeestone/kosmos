@@ -73391,8 +73391,8 @@ function paintTaskPage() {
   const tkTaskLink = (num) => '<button type="button" class="linkish" data-sub="' + Number(num) + '">task ' + Number(num) + '</button>';   // #6923
   const stateWord = tkStateWord(t);
   const replacedLink = Number.isInteger(t.replacedBy) && Boolean(t.progress ? t.progress.closed : t.closedAt);   // as tkStateWord decides it
-  /* kosmos#8555: left out, as the Tasks row leaves it out, when the board's last check cannot find the change (landedCheck,
-     the cached answer the payload carries): "closed with a change" must not stand beside a change that may be gone. */
+  /* kosmos#8555: left out, as the Tasks row leaves it out, when the payload's landedCheck is 'missing'. That is the Tasks
+     view's cached check, so the page has it only while the cache holds one (none after it expires or a restart). */
   const closedHow = t.landedCheck !== 'missing' && typeof tkClosedHowWords === 'function' ? tkClosedHowWords(t) : '';   // kosmos#8552; typeof: tests lift this function alone
   const builtWords = (t.builtAt && !t.closedAt ? ', marked built' + (builtWho ? ' by ' + builtWho : '') + (t.builtNote ? ': ' + t.builtNote : '') : '')
     + (closedHow ? ', ' + closedHow : '');
