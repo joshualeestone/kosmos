@@ -14,15 +14,16 @@
  * A row: { name, key, status, confirmed, source, by, byPerson, confirmers, createdAt, updatedAt }.
  *   - name: as first written (the canonical name); key: the name folded (Unicode form, case, runs of spaces), so one
  *     entity is one row.
- *   - confirmed: YYYY-MM-DD, the date of the row's latest evidence. A write IS evidence, so it is today unless
- *     the writer says when the evidence is from; a backdated write never moves it behind a confirmer the row keeps
- *     (#8261), and a write that adds no confirmer (a source fix, or a writer the board could not name) does not move
- *     it at all while the row keeps a confirmer, so the date always belongs to someone on the list (#8553, pinned by
- *     tests both ways). With no confirmer kept, the written date stands.
+ *   - confirmed: YYYY-MM-DD, the date of the row's latest evidence. A write that creates the row or names its status
+ *     IS evidence, so it is today unless the writer says when the evidence is from; it never moves the date behind a
+ *     confirmer the row keeps (#8261). A write that leaves the status out (a source fix) checked nothing and never
+ *     moves the date (#8553), and a status write from a writer the board could not name keeps a kept confirmer's
+ *     date. Pinned by tests both ways.
  *   - status and source are optional; a write leaves a field alone unless it names it ('' clears it).
  *   - by / byPerson: the latest writer, filled in by the board from the writer's own card, never typed; null and false
  *     when the board could not name the writer (no token and no pane it could match, and not the screen). Such a
- *     write adds nobody to the confirmers; if it names a new status it empties them, like any new status (#8553).
+ *     write adds nobody to the confirmers; if it names a new status it empties them, like any new status (#8553). A
+ *     writer the board names but whose name is over CONFIRMER_NAME_MAX is in by and is not a confirmer either.
  *   - confirmers (#8261): every distinct writer that created the row or named its current status (a write that
  *     leaves the status out, such as a source fix, adds nobody), in the order each first confirmed it
  *     (a repeat write does not move a name, only refreshes its date), at most CONFIRMERS_MAX, the earliest dropped
@@ -220,11 +221,14 @@ function set(projectId, name, fields = {}, { by = null, person = false, now } = 
     // fresh all are kept, and then the cap alone decides which five stay.)
     confirmers = freshConfirmers(confirmers, now).slice(-CONFIRMERS_MAX);
     // The row's date is its latest evidence: a backdated write never moves it behind a confirmer it keeps.
-    // A write that adds no confirmer (a source fix, or a writer the board could not name) gives the row no new date
-    // while it keeps a confirmer: the row's date stays that confirmer's (#8553).
+    // The row's date (#8553): a write that leaves the status out (a source fix) checked nothing, so it never gives
+    // the row a new date; a status write from a writer the board could not name keeps a kept confirmer's date;
+    // otherwise the written date, never behind a kept confirmer.
     const counted = !!me && (i < 0 || namesStatus);
     const newest = confirmers.reduce((d, c) => (c.confirmed > d ? c.confirmed : d), '');
-    const rowConfirmed = confirmers.length && !counted ? newest : (newest > confirmed ? newest : confirmed);
+    const later = (a, b) => (a > b ? a : b);
+    const rowConfirmed = i >= 0 && !namesStatus ? later(before.confirmed || confirmed, newest)
+      : confirmers.length && !counted ? newest : later(confirmed, newest);
     const row = {
       // The name as first written stays the row's name: an update spelled "acme" does not rename the person's "Acme Inc".
       ...before, name: i < 0 ? clean : before.name, key, confirmed: rowConfirmed,
