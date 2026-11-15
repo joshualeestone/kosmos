@@ -298,7 +298,7 @@ function inputsHere(deps = {}) {
         }
       } catch { /* the current account is still read */ }
     }
-    return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx, grokHome: agentGrokHome, museData, moreHomes });
+    return (deps.sessionsFor || require('./backupsessions').sessionsFor)(dir, { id, claudeRoots, geminiHome: gm, codexHome: cx, grokHome: agentGrokHome, museData: job && job.runner === 'muse' ? museData : undefined, moreHomes });
   };
   // Never inside a root, never holding one (reviews 1 and 5): Kosmos's own data, every provider's config home and every
   // ACCOUNT folder (~/.codex-<label>, ~/.gemini-<label>, ~/.grok and its accounts), and every hidden entry directly in

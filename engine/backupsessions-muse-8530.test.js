@@ -75,3 +75,14 @@ test('kosmos#8530: a session folder that is a link is not followed, and a linked
   assert.equal(refused.refused, 'a session folder that is a link (not followed)');
   assert.equal(refused.path, undefined);
 });
+
+test('kosmos#8530 review 1: a muse-session that is a link, or a .kosmos folder that is one, lends no id', () => {
+  const s = world();
+  const mine = path.join(s.agent, '.kosmos', 'muse-session');
+  fs.rmSync(mine);
+  fs.symlinkSync(path.join(s.other, '.kosmos', 'muse-session'), mine);
+  assert.equal(museOf(bs.sessionsFor(s.agent, opts(s))), undefined, 'a linked muse-session lent the other agent its id');
+  fs.rmSync(path.join(s.agent, '.kosmos'), { recursive: true });
+  fs.symlinkSync(path.join(s.other, '.kosmos'), path.join(s.agent, '.kosmos'));
+  assert.equal(museOf(bs.sessionsFor(s.agent, opts(s))), undefined, 'a linked .kosmos folder lent the other agent its id');
+});
