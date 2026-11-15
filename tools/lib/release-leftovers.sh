@@ -55,14 +55,20 @@ release_leftovers_pointer_version() {
   return 0
 }
 
-release_leftovers_is_sum() { printf '%s' "$1" | head -1 | grep -Eq '^[0-9a-f]{64}([[:space:]]|$)'; }
+# The first line is a checksum. No pipe: release.sh runs under pipefail, where a reader that stops early can fail the
+# line it was asked about (kosmos#8195).
+release_leftovers_is_sum() {
+  local first="${1%%$'\n'*}" re='^[0-9a-f]{64}([[:space:]]|$)'
+  [[ "$first" =~ $re ]]
+}
 
 # <url> -> "<http status> <first line of the body>"; status 000 when the request itself failed.
 release_leftovers_get() {
   local out code
   out="$(curl -sS -L -m 30 -H 'Cache-Control: no-cache' -w '\n%{http_code}' "$1?leftover=$(date +%s)" 2>/dev/null)" || out="${out:-}"$'\n'"000"
   code="${out##*$'\n'}"; case "$code" in [0-9][0-9][0-9]) ;; *) code=000 ;; esac
-  printf '%s %s' "$code" "$(printf '%s\n' "${out%$'\n'*}" | head -1)"
+  local body="${out%$'\n'*}"
+  printf '%s %s' "$code" "${body%%$'\n'*}"
 }
 
 release_leftovers_clear() {

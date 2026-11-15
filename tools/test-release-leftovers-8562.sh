@@ -38,7 +38,7 @@ site() {   # a fresh site checkout with one committed file and the given untrack
   serve dist/kosmos-0.8.02-linux-x64.tar.gz.sha256 "$SUM  kosmos-0.8.02-linux-x64.tar.gz"
 }
 left() { ls "$T/site/dist" | grep -c '^kosmos-0\.8\.05-' ; }
-aside() { ls -d "$T"/site.aborted-0.8.05-* 2>/dev/null | head -1; }
+aside() { local d; for d in "$T"/site.aborted-0.8.05-*; do [ -d "$d" ] && { printf '%s\n' "$d"; return 0; }; done; return 0; }
 BOTH="arm64 linux-x64"
 
 # 1. Nothing left: nothing asked, nothing said, nothing moved (a cut start does not depend on the host).
@@ -68,7 +68,7 @@ site kosmos-0.8.05-arm64.tar.gz
 release_leftovers_mark_served "$T/site" 0.8.05
 out="$(release_leftovers_clear "$T/site" 0.8.05 https://h $BOTH)"; rc=$?
 [ "$rc" = 1 ] && [ "$(left)" = 2 ] && [[ "$out" == *"step 8 recorded it"* ]] && [ ! -e "$T/urls" ] && ok "recorded served: refused without asking the host, nothing moved" || bad "marker: rc=$rc out=$out"
-[ -f "$T/site/.git/kosmos-cut-served-0.8.05" ] && ! git -C "$T/site" status --porcelain --ignored | grep -q 'kosmos-cut-served' && ok "the marker lives in .git, where no git status sees it" || bad "marker: $(ls "$T/site/.git" | grep served) / $(git -C "$T/site" status --porcelain --ignored)"
+[ -f "$T/site/.git/kosmos-cut-served-0.8.05" ] && ! { st="$(git -C "$T/site" status --porcelain --ignored)"; [[ "$st" == *kosmos-cut-served* ]]; } && ok "the marker lives in .git, where no git status sees it" || bad "marker: $(ls "$T/site/.git" | grep served) / $(git -C "$T/site" status --porcelain --ignored)"
 
 # 5. The version's own read fails (a 503) while both controls hold: unknown, never "never served".
 site kosmos-0.8.05-arm64.tar.gz; status dist/kosmos-0.8.05-arm64.tar.gz.sha256 503
@@ -199,7 +199,7 @@ out="$(bash -c 'set -euo pipefail; . tools/lib/release-leftovers.sh; '"$(declare
 
 # 21. release.sh: step 1g runs it with this cut's families before step 2 and _pair_had; step 8 records served before DEPLOYED=1.
 R="tools/release.sh"
-g=$(grep -n 'release_leftovers_clear "\$SITE" "\$V"' "$R" | head -1 | cut -d: -f1)
+g=$(grep -n -m1 'release_leftovers_clear "\$SITE" "\$V"' "$R" | cut -d: -f1)
 s2=$(grep -n 'step "== 2\. the version, in one place ==' "$R" | cut -d: -f1)
 ph=$(grep -n '^_pair_had=0' "$R" | cut -d: -f1)
 [ -n "$g" ] && [ -n "$s2" ] && [ -n "$ph" ] && [ "$g" -lt "$s2" ] && [ "$g" -lt "$ph" ] && ok "release.sh calls it at step 1g, before step 2 and before _pair_had is read" || bad "order: call=$g step2=$s2 pair_had=$ph"
