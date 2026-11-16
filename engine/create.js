@@ -4857,8 +4857,6 @@ function win32RecordedTask(name, opts) {
   }
   return {
     configDir, model, identity, accountRemoved, accountGone, accountWhy, identityNow, unreadableBefore, unreadableReason,
-    // kosmos#8489: how many more reachable, unreadable Start at logins drop the kept folder for good.
-    unreadableLeft: Math.max(1, WIN32_UNREADABLE_LIMIT - unreadableBefore),
     accountOk: accountWhy === null,
     modelOk: modelShaped && win32ModelOffered(runner, model),
   };

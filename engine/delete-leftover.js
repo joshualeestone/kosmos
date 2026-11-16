@@ -873,46 +873,52 @@ function outOfSightWords(name, shown) {
   if (!st || !st.because) return null;
   let where = null;
   try { where = create.recordedDirSpelling(name); } catch { where = null; }
-  const sure = 'remove its startup job only if you are sure its folder is gone.';   // review 6: the folder, not the agent
-  if (!where) return { lead: 'unchecked', words: `Kosmos could not check where its folder is right now, so ${sure}` };
+  const sure = 'Remove its startup job only if you are sure its folder is gone.';   // review 6: the folder, not the agent
+  if (!where) return { lead: 'unchecked', words: `Kosmos could not check where its folder is right now. ${sure}` };
   /* review 5: strandedRefusal's own distinction. Something at the path (a file, or a link, which Kosmos never follows
      for an agent's folder) is not a disk to connect; nothing there may be one. A real folder never reaches here
      (plan()'s folder rule sees it first). */
   let there = false;
   try { fs.lstatSync(where); there = true; } catch { there = false; }
   /* review 5: connect BEFORE removing anything; said once, here, so the way back after it does not repeat it beside
-     "Remove" and read as if the agent restarts after the removal. */
+     "Remove" and read as if the agent restarts after the removal. Each its own sentence of 30 words or fewer (#8510). */
   return there
-    ? { lead: 'occupied', words: `Its folder is recorded at ${where}, but what is there now is not a folder Kosmos can use; ${sure}` }
-    : { lead: 'unreachable', words: `Its folder is recorded at ${where}, which Kosmos cannot reach right now. If that is a disk or shared folder that is not connected, connect it before removing anything; ${sure}` };
+    ? { lead: 'occupied', words: `Its folder is recorded at ${where}, but what is there now is not a folder Kosmos can use. ${sure}` }
+    : { lead: 'unreachable', words: `Its folder is recorded at ${where}, which Kosmos cannot reach right now. If that is a disk or shared folder that is not connected, connect it before removing anything. ${sure}` };
 }
 
 /* `lead`: which way back is true. 'occupied' (a file or link at the recorded path): the folder goes back in place of
    what is there. 'disk': the outcome of a delete whose plan led with "cannot reach" (the outcome has no lead sentence,
    so the disk is named here). Anything else, a plain moved folder. review 7: with no lead the disk clause is never
    true: an untyped task-only plan has nothing at the agent's path inside a workers folder that is there, and any
-   recorded folder out of sight gets the 'unreachable' lead and typing instead. A disk is connected, never "put back". */
+   recorded folder out of sight gets the 'unreachable' lead and typing instead. A disk is connected, never "put back".
+   #8510: short sentences, each 30 words or fewer whatever the path, so the steps are said one at a time. */
 function taskOnlyBackWords(name, removed, lead = null, preview = false) {
   let where = null;
   try { where = create.recordedDirSpelling(name); } catch { where = null; }
   if (!where) where = create.workerDir(name);
   return (lead === 'occupied'
-    ? `If its folder was only moved, put it back at ${where} in place of what is there now`
+    ? `If its folder was only moved, put it back at ${where}, in place of what is there now.`
     : lead === 'disk'
-      ? `If its folder was only moved, put it back at ${where}, or if it is on a disk or shared folder that is not connected, connect it`
-      : `If its folder was only moved, put it back at ${where}`)
-    + (removed ? ', use Restore on its row in the removed agents list, then use Start at login when Kosmos offers it' : ', then use Start at login when Kosmos offers it')
+      ? `If its folder was only moved, put it back at ${where}. If instead it is on a disk or shared folder that is not connected, connect it.`
+      : `If its folder was only moved, put it back at ${where}.`)
+    + (removed ? ' Then use Restore on its row in the removed agents list, and use Start at login when Kosmos offers it' : ' Then use Start at login when Kosmos offers it')
     + startsAgainWords(name, preview);
 }
-/* What Start at login (register.repair) brings back after a startup job was removed: the clause ending a sentence that
-   names Start at login. Exported for remove.restore's sentence for the same state (kosmos#8475). */
+/* What Start at login (register.repair) brings back after a startup job was removed: sentences that follow one ending
+   "Start at login when Kosmos offers it", so they begin ". It starts". Exported for remove.restore's sentence for the
+   same state (kosmos#8475).
+   #8510: they say what THIS Start at login does and what the person should do. After it, the agent has a startup job
+   again, so Start at login is not offered again (register.survey) and the agent never moves to another account on its
+   own (register.repair keeps a folder it could not use in the record, but that matters only if the job is removed and
+   Start at login used again). So nothing here promises a later Start at login. */
 function startsAgainWords(name, preview = false) {
   let provider = null;
   try { provider = require('./store').readProfile(name).provider || null; } catch { provider = null; }
   let ownAccount = provider === 'alibaba';
   try { if (require('./anthropiccompat').vendorOf(provider)) ownAccount = true; } catch { /* read as the main account */ }
-  if (ownAccount) return '; it starts on the model it last ran, so choose its model again if it used another.';
-  /* kosmos#8478: the profile now records the account folder and model each Windows task was written with, and
+  if (ownAccount) return '. It starts on the model it last ran, so choose its model again if it used another.';
+  /* kosmos#8478: the profile records the account folder and model each Windows task was written with, and
      register.repair puts back whichever of them still can be, read through the same create.win32RecordedTask, so the
      sentence and the repair cannot disagree. Nothing recorded (a task last written before this change): the old words,
      still true. "Set to" because the record is what the agent was set to, not what it last ran. */
@@ -922,89 +928,84 @@ function startsAgainWords(name, preview = false) {
      and Restore are read after the task is gone and say only what was actually recorded: a record that could not be
      written leaves them on the old words. */
   try { rec = create.win32RecordedTask(name, { orTask: preview === true }); } catch { rec = null; }
-  if (rec && rec.accountOk && rec.modelOk) return '; it starts on the account and model it was set to before.';
-  if (rec && rec.accountRemoved) {
-    /* round 1: the account it was on was removed from Kosmos, so its folder name may now be someone else's. round 2:
-       or its folder was not there when the startup job was removed (create.win32TaskOnTask), the same risk. */
-    const because = rec.accountGone === 'missing'
-      ? 'because the account folder it used was not there when its startup job was removed'
-      : 'because the account it used was disconnected or removed';   // round 5: forget (disconnect) clears it too
-    return rec.modelOk
-      ? `; it starts on the model it was set to, but on your main account, ${because}, so choose its account again if it should use another.`
-      : `; it starts on your main account, ${because}, and on the model it last ran, so choose its account and model again if it used others.`;
+  if (!rec) return '. It starts on your main account and the model it last ran, so choose its account and model again if it used others.';
+  /* The model is decided on its own (register.repair: rec.modelOk puts back the model it was set to, otherwise the
+     model it last ran), whatever happens to the account. */
+  /* "Not offered now", never "no longer offered": modelOk is also false for a model of the wrong shape and for a
+     runner that offers no model choice on Windows (create.win32ModelOffered), which were never offered at all. */
+  const retired = 'the model it last ran, as the model it was set to is not offered now';
+  if (rec.accountOk) {
+    if (rec.modelOk) return '. It starts on the account and model it was set to before.';
+    return `. It starts on ${rec.configDir ? 'the account it was set to' : 'your main account, as before'}, but on ${retired}. Choose its model again if it used another.`;
   }
-  /* round 3: a folder NAME is not an account. Where the record cannot show the folder still holds the account it was
-     recorded with, the agent starts on the main account and the words say why (create.win32RecordedTask accountWhy). */
-  // round 4: the unverifiable case in its own two sentences (review wording).
-  if (rec && rec.accountWhy === 'unverifiable') {
-    return rec.modelOk
-      ? '; it starts on the model it was set to, but on your main account, because Kosmos did not record whose account was in the folder it used. Choose its account again if it should use another.'
-      : '; it starts on your main account and the model it last ran, because Kosmos did not record whose account was in the folder it used. Choose its account and model again if it used others.';
-  }
-  /* kosmos#8489: how many Start at logins that reach a kept folder and still cannot read or confirm its account are
-     left before it is dropped for good (create.WIN32_UNREADABLE_LIMIT), in the words: "the next Start at login that
-     reaches that folder", or "two (three) Start at logins that reach that folder". The same clause in every sentence
-     about a kept folder, so each says how many are left at every count. */
-  const NUMBER_WORDS = { 2: 'two', 3: 'three' };
-  const reachingStarts = (n, more) => (n <= 1
-    ? 'the next Start at login that reaches that folder'
-    : `${NUMBER_WORDS[n] || n} ${more ? 'more ' : ''}Start at logins that reach that folder`);
-  /* kosmos#8489: the folder's account could not be read just now (Claude Code or codex writing its config at that
-     moment), which is not a changed account: the repair keeps the folder in the record and tries it again, as it does
-     a folder out of reach, so the words say that and never "signed out or changed". */
-  if (rec && rec.accountWhy === 'unreadable') {
-    /* True only while nothing rewrites the agent's startup job, which records what it wrote (the main account) and so
-       forgets the kept folder; the words say so. The reason is the one the engine knows
-       (create.win32RecordedTask unreadableReason): a failed read, or a read that cannot confirm the same account. */
-    const lead = rec.unreadableReason === 'confirm'
-      ? 'Kosmos could not confirm that the account folder it last used still holds the account it used before, so it starts on your main account unless it can confirm that by then.'
-      : 'Kosmos could not read which account is signed in to the account folder it last used, so it starts on your main account unless it can read that by then and it is still the same account.';
-    // The coming Start at login is one of those left (unreadableLeft counts it), so the rest are the ones after it.
-    const after = Math.max(1, (rec.unreadableLeft || 1) - 1);
-    const unread = lead + ' If it still cannot, Kosmos keeps that folder and tries it again at later Start at logins, unless its startup job is written again before then (changing its account or model does that), which forgets that folder. After that, if ' + reachingStarts(after, true) + ' still cannot read or confirm the account in it, it moves to your main account for good.';
-    return rec.modelOk
-      ? '; it starts on the model it was set to, but ' + unread
-      : '; it starts on the model it last ran, so choose its model again if it used another. ' + unread;
-  }
-  /* kosmos#8489: the third Start at login in a row that could not read it (create.WIN32_UNREADABLE_LIMIT) drops the
-     folder for good. Hedged, because these words are read before that Start at login (the plan and outcome of the
-     task-only delete, Restore), and a config that reads cleanly by then puts the folder back. The reason now is the
-     engine's; the two before are said only as "could not confirm", true whichever reason they had, and as "two earlier
-     Start at logins", not "the two before", since a start that could not reach the folder may sit between them. */
-  if (rec && rec.accountWhy === 'unreadableGaveUp') {
-    const unread = rec.unreadableReason === 'confirm'
-      ? 'Kosmos could not confirm that the account folder it last used still holds the account it used before, now or at two earlier Start at logins, so at the next Start at login it moves to your main account for good, unless it can confirm that by then. Choose its account again if it should use another.'
-      : 'Kosmos could not read which account is signed in to the account folder it last used, and could not confirm that account at two earlier Start at logins either, so at the next Start at login it moves to your main account for good, unless it can read that account by then and it is still the same one. Choose its account again if it should use another.';
-    return rec.modelOk
-      ? '; it starts on the model it was set to, but ' + unread
-      : '; it starts on the model it last ran, so choose its model again if it used another. ' + unread;
-  }
-  const notThere = {
-    changed: 'because the account in the folder it used has signed out or changed',
+  /* The outcomes that keep no folder: the account cannot be put back, and the words say why. round 1: removed from
+     Kosmos, so its folder name may now be someone else's; round 2: or not there when the startup job was removed
+     (create.win32TaskOnTask); round 3: a folder NAME is not an account, so a record that never held whose account it
+     was is not trusted; and a folder this runner cannot use (win32AccountThere: a path, runner or folder name that no
+     longer fits, all fixed in the record; its one live check, that the folder is there, is the reach check that
+     already passed). An account signed out or changed has its own words below. */
+  const because = {
+    missing: 'because the account folder it used was not there when its startup job was removed',
+    removed: 'because the account it used was disconnected or removed',   // round 5: forget (disconnect) clears it too
+    unverifiable: 'because Kosmos did not record whose account was in the folder it used',
     unusable: 'because the account folder it used cannot be used for it now',
-  }[rec && rec.accountWhy];
-  if (rec && notThere) {
+  }[rec.accountWhy];   // win32RecordedTask sets accountWhy to accountGone for a removed account, so one field decides
+  /* Round 6: an account signed out or changed in that folder is read again, live, when Start at login runs
+     (register.repair calls win32RecordedTask again). The same account signed in again by then puts the task on that
+     folder, so the main account is never said as a flat fact. Round 7: "only if", like the kept outcomes, because even
+     then a config being written at that moment reads as unreadable and the main account is used. */
+  if (rec.accountWhy === 'changed') {
+    const modelNow = rec.modelOk ? 'It starts on the model it was set to.' : `It starts on ${retired}.`;
+    return `. ${modelNow} The account in the folder it used has signed out or changed.`
+      + " It starts on that folder's account only if that same account is signed in there again before you use Start at login."
+      + (rec.modelOk ? ' Otherwise it starts on your main account; choose its account again if it should use another.'
+        : ' Otherwise it starts on your main account. Choose its account and model again if it used others.');
+  }
+  if (because) {
     return rec.modelOk
-      ? `; it starts on the model it was set to, but on your main account, ${notThere}, so choose its account again if it should use another.`
-      : `; it starts on your main account, ${notThere}, and on the model it last ran, so choose its account and model again if it used others.`;
+      ? `. It starts on the model it was set to, but on your main account, ${because}. Choose its account again if it should use another.`
+      : `. It starts on your main account, ${because}. It also starts on ${retired}. Choose its account and model again if it used others.`;
   }
-  if (rec && rec.modelOk) {
-    /* round 1: statSync cannot tell a deleted account folder from one on a disk or shared folder that is not connected,
-       so this says "cannot reach" as the rest of this file does, and the repair keeps the folder in the record so it
-       comes back on it at the next Start at login, if no change to the agent rewrites its task first. round 3: and only
-       while it still holds the account it was recorded with. kosmos#8489: the last sentence says the rewrite part, so
-       the promise is not wider than the code, and, when earlier Start at logins could not read or confirm the account
-       in that folder (the count carries through a start that cannot reach it), how many more such starts drop it. */
-    const left = rec.unreadableLeft || 1;
-    const drop = `, or until ${reachingStarts(left, rec.unreadableBefore > 0)} still cannot read or confirm the account in it, which moves it to your main account for good`;
-    return '; it starts on the model it was set to, but Kosmos cannot reach the account folder it used right now, so it starts on your main account unless that folder can be reached by then and still holds the same account. If that folder is on a disk or shared folder that is not connected, connect it first; otherwise choose its account again afterwards if it should use another. Kosmos keeps that folder and tries it again at each Start at login until its startup job is written again (changing its account or model does that), which forgets that folder' + drop + '.';
+  /* The outcomes in which register.repair cannot use the folder now but keeps it in the record: out of reach
+     ('unreachable'), its account could not be read or confirmed ('unreadable'), and the last of those before it is
+     dropped ('unreadableGaveUp'). This Start at login puts the agent on that folder only if, by then, it is reachable and
+     reads as the same account; otherwise on the main account, where it stays until its account is chosen again. */
+  const kept = rec.accountWhy === 'unreachable' || rec.accountWhy === 'unreadable' || rec.accountWhy === 'unreadableGaveUp';
+  /* Round 5: an outcome these words do not know (a value added to win32RecordedTask later) gets the neutral sentence,
+     never the kept-folder words, which would promise a folder register.repair may not keep. */
+  if (!kept) {
+    return rec.modelOk
+      ? '. It starts on your main account and the model it was set to. Choose its account again if it should use another.'
+      : `. It starts on your main account and ${retired}. Choose its account and model again if it used others.`;
   }
-  if (rec && rec.accountOk) {
-    return rec.configDir
-      ? '; it starts on the account it was set to, but on the model it last ran, because the model it was set to is no longer offered, so choose its model again if it used another.'
-      : '; it starts on your main account, as before, but on the model it last ran, because the model it was set to is no longer offered, so choose its model again if it used another.';
+  const model = rec.modelOk ? 'It starts on the model it was set to.' : `It starts on ${retired}.`;
+  /* With a retired model the person will want to choose its model again. No order is asked of them: choosing the model
+     first and the account second ends in the same task (setAccount rewrites it keeping the model). A model change on
+     the main account does forget the kept folder, but that record matters only if the startup job is removed and Start
+     at login used again, which these words no longer promise anything about (round 3). */
+  const modelLater = rec.modelOk ? '' : ' Choose its model again if it used another.';
+  let why;
+  if (rec.accountWhy === 'unreachable') {
+    // statSync cannot tell a deleted folder from one on a disk or shared folder that is not connected: "cannot reach".
+    why = 'Kosmos cannot reach the account folder it last used right now.'
+      + ' If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login.'
+      + " It starts on that folder's account only if Kosmos can reach the folder then and it holds the same account."
+      // "or another account if it is gone": a folder that was deleted never comes back.
+      + ' Otherwise it starts on your main account; choose its account again once that folder is back, or another account if it is gone.';
+  } else {
+    /* Not a changed account (Claude Code or codex may be writing its config at that moment), so never "signed out or
+       changed". The reason is the engine's (create.win32RecordedTask unreadableReason). For the last such start, the
+       earlier ones are said only as "could not confirm", true whichever reason they had. */
+    const before = rec.accountWhy === 'unreadableGaveUp';
+    why = (rec.unreadableReason === 'confirm'
+      ? `Kosmos could not confirm that the account folder it last used still holds the same account${before ? ', now or at two earlier Start at logins' : ''}.`
+        + " It starts on that folder's account only if Kosmos can confirm that at Start at login."
+      : 'Kosmos could not read which account is in the account folder it last used.'
+        + (before ? ' Kosmos also could not confirm that account at two earlier Start at logins.' : '')
+        + " It starts on that folder's account only if Kosmos can read that account at Start at login and it is the same one.")
+      + ' Otherwise it starts on your main account; choose its account again if it should use another.';
   }
-  return '; it starts on your main account and the model it last ran, so choose its account and model again if it used others.';
+  return `. ${model} ${why}${modelLater}`;
 }
 
 /* kosmos#8475 review: whether a profile records a folder outside the workers folder (read from the profile, never
