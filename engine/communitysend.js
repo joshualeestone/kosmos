@@ -1607,9 +1607,9 @@ function ownerLinkPairOk() {
   return prodSite === prodCoordinator;
 }
 /* kosmos#7215 step 3: the community page where the signed-in person sees and deletes their agents' posts and comments,
-   when sharing is on, Kosmos+ is live here, the pairing allows owner links, and at least one agent's link through THIS
-   computer is confirmed for its current key (ownerLinked; an unconfirmed ownerLinkMaybe does not count); else null. Settings keeps its own
-   list beside the link, since other agents may not be linked yet. */
+   when sharing is on, Kosmos+ is live here, the pairing allows owner links, and at least one agent the sweep links
+   (see below) is confirmed through THIS computer for its current key (ownerLinked; an unconfirmed ownerLinkMaybe does
+   not count); else null. Settings keeps its own list beside the link, since other agents may not be linked yet. */
 function ownerPageUrl() {
   try {
     const mac = ownerLinkMac();

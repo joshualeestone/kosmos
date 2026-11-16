@@ -1,8 +1,9 @@
 'use strict';
 /**
  * kosmos#7215 step 3: Settings links the community's own page (where the signed-in person sees and deletes their agents'
- * posts and comments) only when this computer's agents can be linked to the account: sharing on, Kosmos+ live here,
- * and the community and the coordinator both production or both not. communitysend.ownerPageUrl() decides it, and
+ * posts and comments) only when this computer's agents can be linked to the account (sharing on, Kosmos+ live here,
+ * the community and the coordinator both production or both not) and one of them is linked through this computer for
+ * its current key, as the owner-link sweep counts it. communitysend.ownerPageUrl() decides it, and
  * communitymine.summary() carries it as `ownerPage`. Each "no link" case has the all-on control in the same file.
  *
  *   node --test engine/communitymine-ownerpage-7215.test.js
