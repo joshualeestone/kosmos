@@ -42,9 +42,10 @@ test('what a held task waits on, from its hold', () => {
   assert.match(held({ onHoldByPerson: true }), /\(last activity 3 days ago; held by the person\)$/);
   assert.match(held({ onHoldForPerson: true, onHoldUntil: { task: 7 } }), /; waits on the person and task 7 to close\)$/, 'a hold for the person until a task says both');
   assert.match(held({ onHoldForPerson: true, onHoldUntil: { at: new Date(NOW + 4 * DAY).toISOString() } }), /; waits on the person, until .+\)$/);
-  assert.match(held({ onHoldUntil: { task: 7 }, holdUntilMet: true }), /; its hold is due to lift\)$/, 'a hold whose task closed was said as still waiting');
-  assert.match(held({ onHoldUntil: { at: new Date(NOW - DAY).toISOString() } }), /; its hold is due to lift\)$/, 'a hold whose time passed was said as still waiting');
+  assert.match(held({ onHoldUntil: { task: 7 }, holdUntilMet: true }), /; its hold's condition is met, but it is still on hold\)$/, 'a hold whose task closed was said as still waiting');
+  assert.match(held({ onHoldUntil: { at: new Date(NOW - DAY).toISOString() } }), /; its hold's condition is met, but it is still on hold\)$/, 'a hold whose time passed was said as still waiting');
   assert.match(held({ onHoldUntil: { task: 7 }, holdUntilMet: false }), /; waits on task 7 to close\)$/, 'CONTROL: a condition not met still waits');
+  assert.match(held({ onHoldByPerson: true, onHoldUntil: { at: new Date(NOW - DAY).toISOString() } }), /still on hold \(only the person can lift it\)\)$/, 'a person\'s hold does not lift itself');
   assert.match(held({}), /\(last activity 3 days ago\)$/, 'a plain hold says only when it last moved');
 });
 

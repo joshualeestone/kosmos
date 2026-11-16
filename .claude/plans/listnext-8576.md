@@ -29,7 +29,7 @@ The cost is accepted, not avoided: every all=1 answer (`--all`, `--blocked`, `--
 this is no new kind of cost, but it is now paid on the everyday forms. An opt-in parameter was considered and not taken
 (two CLIs to change for a read the stale list already makes); it is the first thing to do if --all is slow on a big board.
 A held row also carries holdUntilMet (tasks.holdUntilState), so a hold whose task closed or whose time passed says it is
-due to lift rather than that it waits.
+its condition is met and it is still on hold (holds do not lift themselves), not that it waits.
 That one transcript read per open row is cheap enough for every --all call. It is what --stale already does for all
 open tasks; if --all turns out slow on a big board, the read can move behind a flag.
 
