@@ -1867,6 +1867,7 @@ function setRepeat(projectId, n, rule, opts = {}) {
    otherwise a reopened task given a new rule would bring back an old reviewer still marked as the person's choice. */
 function dropReviewer(t) {
   delete t.repeatReviewer; delete t.repeatReviewerPerson; delete t.repeatReviewerByPerson; delete t.repeatReviewerSetAt; delete t.missToldAt;
+  delete t.repeatDueToldAt;   // kosmos#8581: the due-run tell belongs to the rule too
 }
 function reviewerChoice(who) {
   const raw = who === undefined || who === null ? 'none' : String(who).trim();
@@ -2769,8 +2770,9 @@ function lastActivityOf(projectId, task) {
       /* kosmos#4787 slice 3 (review 5): Kosmos's own note that a run was MISSED is not activity: a dead job must not sort
          as freshly active under "Quietest first". #5842: nor is its note that a kept message was dropped (nothing
          happened for a day); one sent is, since work went out to an agent (confirmed or not). #6209: nor is its note that
-         an owner was asked about a held task's hold (the task did not move). */
-      for (const e of events) if (!(e && (e.kind === 'missed' || e.kind === 'kept-dropped' || e.kind === 'hold-stale'))) consider(e && e.at);
+         an owner was asked about a held task's hold (the task did not move). #8581: nor is its note that a holder was told
+         a run is due (a stopped repeat must keep reading as stopped). */
+      for (const e of events) if (!(e && (e.kind === 'missed' || e.kind === 'kept-dropped' || e.kind === 'hold-stale' || e.kind === 'due-told'))) consider(e && e.at);
     }
   }
   return newest;

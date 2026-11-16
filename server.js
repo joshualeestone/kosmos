@@ -1541,6 +1541,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
 const heartbeat = require('./engine/heartbeat');
 const roomarchive = require('./engine/roomarchive'); // kosmos#7365 slice 3: which part of a room is archived
 const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
+const repeatdue = require('./engine/repeatdue'); // kosmos#8581: a due repeat is told to its holder with the Prompter off
 const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a repeating task's reviewer is told of a missed run
 /* kosmos#6894: when each task last put a run in its project room, so a task that changes every run says so at most hourly. */
 const ROOM_RUN_SAID = new Map();
@@ -29902,6 +29903,30 @@ function start(port = PORT) {
         } catch { /* best-effort, like the nudge sweep */ }
       }, 60000);
       if (missedTellTick && typeof missedTellTick.unref === 'function') missedTellTick.unref();
+      /* kosmos#8581: a repeating task that is due is told to its holder once per slot when the Prompter is OFF
+         (engine/repeatdue.js holds the rules and is tested there; with the Prompter on, prompterTick nudges due runs).
+         The roster is read only when some holder is owed a line and Kosmos may type into agents. */
+      const REPEAT_DUE_BOOK = new Map();
+      const REPEAT_DUE_IDLE = new Map();
+      const repeatDueTick = setInterval(() => {
+        try {
+          if (heartbeatSetting.read().on === true) return;
+          const projs = projects.readAll();
+          if (!repeatdue.owed(projs).length) return;
+          const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
+          repeatdue.sweep({
+            projects: projs, roster: allowed ? safeRoster() : null, now: Date.now(), prompterOn: false,
+            allowed,
+            limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
+            sent: AGENT_NUDGE_SENT, book: REPEAT_DUE_BOOK, idleSeen: REPEAT_DUE_IDLE,
+            idleSince: (session) => { const sr = selfreport.read(session); const t = sr && sr.found && sr.state === 'idle' ? Date.parse(sr.at) : NaN; return Number.isFinite(t) ? t : null; },
+            deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),
+            DELIVERY: chat.DELIVERY,
+            log: (x) => process.stdout.write(`repeat-due tell: task #${x.task} (${x.project}) to ${x.holder} reached=${x.reached} delivery=${x.delivery} try ${x.tries}\n`),
+          });
+        } catch { /* best-effort, like the missed-run tell */ }
+      }, 60000);
+      if (repeatDueTick && typeof repeatDueTick.unref === 'function') repeatDueTick.unref();
       /* kosmos#7416 slice 3: keep this computer awake while agents are working (keepAwakeTick, above). */
       const keepAwakeSweep = setInterval(keepAwakeTick, keepAwake.TICK_MS);
       setImmediate(() => { try { keepAwakeTick(); } catch { /* the sweep takes it */ } });   // a board started with the switch on holds now
