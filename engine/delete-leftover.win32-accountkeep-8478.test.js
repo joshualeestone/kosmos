@@ -306,7 +306,7 @@ test('kosmos#8478: an agent with nothing recorded whose task cannot be read at t
     'Start at login wrote a task and did not record it');
 });
 
-const CANNOT_REACH = /It starts on the model it was set to\. Kosmos cannot reach the account folder it used right now\. If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login\. It starts on that folder's account only if Kosmos can reach the folder then and it holds the same account\. Otherwise it starts on your main account; choose its account again once that folder is back, or another account if it is gone\./;
+const CANNOT_REACH = /It starts on the model it was set to\. Kosmos cannot reach the account folder it last used right now\. If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login\. It starts on that folder's account only if Kosmos can reach the folder then and it holds the same account\. Otherwise it starts on your main account; choose its account again once that folder is back, or another account if it is gone\./;
 
 test('kosmos#8478: a recorded account folder that cannot be reached falls back to the main account, says so, and comes back on it at the next Start at login, if no change to the agent rewrites its task first', WINDOWS_ONLY, () => {
   const name = agent('gone8478');

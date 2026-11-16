@@ -948,7 +948,7 @@ function startsAgainWords(name, preview = false) {
     unverifiable: 'because Kosmos did not record whose account was in the folder it used',
     changed: 'because the account in the folder it used has signed out or changed',
     unusable: 'because the account folder it used cannot be used for it now',
-  }[rec.accountRemoved ? rec.accountGone : rec.accountWhy];
+  }[rec.accountWhy];   // win32RecordedTask sets accountWhy to accountGone for a removed account, so one field decides
   if (because) {
     return rec.modelOk
       ? `. It starts on the model it was set to, but on your main account, ${because}. Choose its account again if it should use another.`
@@ -958,6 +958,14 @@ function startsAgainWords(name, preview = false) {
      ('unreachable'), its account could not be read or confirmed ('unreadable'), and the last of those before it is
      dropped ('unreadableGaveUp'). This Start at login puts the agent on that folder only if, by then, it is reachable and
      reads as the same account; otherwise on the main account, where it stays until its account is chosen again. */
+  const kept = rec.accountWhy === 'unreachable' || rec.accountWhy === 'unreadable' || rec.accountWhy === 'unreadableGaveUp';
+  /* Round 5: an outcome these words do not know (a value added to win32RecordedTask later) gets the neutral sentence,
+     never the kept-folder words, which would promise a folder register.repair may not keep. */
+  if (!kept) {
+    return rec.modelOk
+      ? '. It starts on your main account and the model it was set to. Choose its account again if it should use another.'
+      : `. It starts on your main account and ${retired}. Choose its account and model again if it used others.`;
+  }
   const model = rec.modelOk ? 'It starts on the model it was set to.' : `It starts on ${retired}.`;
   /* With a retired model the person will want to choose its model again. No order is asked of them: choosing the model
      first and the account second ends in the same task (setAccount rewrites it keeping the model). A model change on
@@ -967,7 +975,7 @@ function startsAgainWords(name, preview = false) {
   let why;
   if (rec.accountWhy === 'unreachable') {
     // statSync cannot tell a deleted folder from one on a disk or shared folder that is not connected: "cannot reach".
-    why = 'Kosmos cannot reach the account folder it used right now.'
+    why = 'Kosmos cannot reach the account folder it last used right now.'
       + ' If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login.'
       + " It starts on that folder's account only if Kosmos can reach the folder then and it holds the same account."
       // "or another account if it is gone": a folder that was deleted never comes back.

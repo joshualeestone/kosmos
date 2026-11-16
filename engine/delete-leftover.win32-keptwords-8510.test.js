@@ -190,7 +190,7 @@ function assertWords(words, { outcome, count, modelKey }) {
     assert.match(words, /It starts on that folder's account only if Kosmos can (reach the folder then and it holds the same account|confirm that at Start at login|read that account at Start at login and it is the same one)\./, label);
     assert.match(words, /Otherwise it starts on your main account; choose its account again/, label);
     if (outcome === 'outOfReach') {
-      assert.match(words, /Kosmos cannot reach the account folder it used right now\. If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login\./, label);
+      assert.match(words, /Kosmos cannot reach the account folder it last used right now\. If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login\./, label);
       assert.match(words, /choose its account again once that folder is back, or another account if it is gone\./, label);
     } else {
       assert.match(words, OUTCOMES[outcome].reason === 'confirm' ? /could not confirm that the account folder it last used still holds the same account/ : /could not read which account is in the account folder it last used/, label);
@@ -235,7 +235,7 @@ test('kosmos#8510: fixture: each record gives the outcome it is named for, and t
       for (const [modelKey, model] of Object.entries(MODELS)) {
         const name = recordedAgent(`fx-${outcome}-${count}-${modelKey}`.toLowerCase(), recordFor(outcome, count, model));
         const rec = create.win32RecordedTask(name);
-        const wantWhy = o.why === 'unreadable' && count >= 2 ? 'unreadableGaveUp' : o.why === 'missing' || o.why === 'removed' ? o.why : o.why;
+        const wantWhy = o.why === 'unreadable' && count >= 2 ? 'unreadableGaveUp' : o.why;
         assert.equal(rec.accountGone || rec.accountWhy, wantWhy, `${name}: ${JSON.stringify(rec)}`);
         if (o.reason) assert.equal(rec.unreadableReason, o.reason, name);
         assert.equal(rec.modelOk, modelKey === 'offered', `${name}: modelOk`);
@@ -317,7 +317,7 @@ test('kosmos#8510: out of reach with a retired model, connected before Start at 
   const name = agentOnAccount('reach8510', RETIRED_MODEL);
   fs.renameSync(ACCOUNT, unplugged);   // the disk with ACCOUNT is not connected
   for (const words of taskOnlyDelete(name)) {
-    assert.match(words, /Kosmos cannot reach the account folder it used right now\. If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login\./);
+    assert.match(words, /Kosmos cannot reach the account folder it last used right now\. If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login\./);
     assert.doesNotMatch(words, /it starts on your main account and the model it last ran/i, 'the words promised the main account outright');
   }
   fs.renameSync(unplugged, ACCOUNT);   // connected, still signed in to the same account, before Start at login
@@ -380,4 +380,24 @@ test('kosmos#8510: a folder that could not be read and then goes away before Sta
   startAtLogin(name);
   assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
   assert.equal(offered(name), false);
+});
+
+test('kosmos#8510 round 5: an outcome the words do not know gets the neutral sentence, never the kept-folder words', () => {
+  const create = require('./create');
+  const real = create.win32RecordedTask;
+  try {
+    for (const modelOk of [true, false]) {
+      create.win32RecordedTask = () => ({ accountOk: false, accountRemoved: false, accountWhy: 'notYetKnown8510', modelOk });
+      const words = leftover.startsAgainWords('unknown-why-8510');
+      assert.match(words, /^\. It starts on your main account and /, words);
+      assert.doesNotMatch(words, /only if|cannot reach|could not (read|confirm)|that folder/, words);
+      assert.match(words, modelOk ? /the model it was set to\. Choose its account again if it should use another\.$/
+        : /the model it last ran, as the model it was set to is not offered now\. Choose its account and model again if it used others\.$/, words);
+    }
+    // CONTROL: the same stub with a kept outcome does give the kept-folder words, so the check above can fail.
+    create.win32RecordedTask = () => ({ accountOk: false, accountRemoved: false, accountWhy: 'unreachable', modelOk: true });
+    assert.match(leftover.startsAgainWords('unknown-why-8510'), /cannot reach the account folder it last used/);
+  } finally {
+    create.win32RecordedTask = real;
+  }
 });
