@@ -114,6 +114,32 @@ function seenWords(x) {
   if (Number.isFinite(seen) && (!Number.isFinite(built) || seen >= built)) return '  (seen by the person since built)';
   return '  (not seen by the person since built)';
 }
+/* kosmos#8576 (feedback: a coordinator could tell waiting from drift only with the --stale threshold, or by opening each
+   project): on each --all row, when the task last moved and, where the board's own fields say, what it waits on next.
+   Only when the board sent lastActivityAt (a board from before this sends none, and its rows print as they did). */
+function activityWords(at, now) {
+  const ms = typeof at === 'string' ? Date.parse(at) : NaN;
+  if (!Number.isFinite(ms)) return 'no activity on record';
+  const d = Math.max(0, Math.floor((now - ms) / DAY_MS));
+  return d === 0 ? 'last activity today' : d === 1 ? 'last activity yesterday' : 'last activity ' + d + ' days ago';
+}
+function waitsWords(x) {
+  if (x.onHold === true) {
+    const u = x.onHoldUntil;
+    if (x.onHoldForPerson === true) return 'waits on the person';
+    if (u && Number.isInteger(u.task)) return 'waits on task ' + u.task + ' to close';
+    if (u && typeof u.at === 'string') return 'waits until ' + (whenWords(u.at) || one(u.at));
+    return x.onHoldByPerson === true ? 'held by the person' : '';
+  }
+  if (x.projectPaused === true) return 'waits on its project being resumed';
+  if (x.builtAt) return 'waits on a review and close';
+  if (x.repeatNextWords) return 'next run ' + one(x.repeatNextWords);
+  return '';
+}
+function nextWords(x, now) {
+  if (!x || !Object.prototype.hasOwnProperty.call(x, 'lastActivityAt')) return '';
+  return '  (' + [activityWords(x.lastActivityAt, now), waitsWords(x)].filter(Boolean).join('; ') + ')';
+}
 /* kosmos#7151: ", left under closed task #N" for a task the board offers for retiring. */
 const leftWords = (x) => (Number.isSafeInteger(x.leftUnder) ? ', left under closed task #' + x.leftUnder : '');
 function acrossLines(body, flag, opts = {}) {
@@ -137,7 +163,7 @@ function acrossLines(body, flag, opts = {}) {
   const label = stale ? 'open' : flag;
   const lines = tasks.map((x) => (every ? one(x.projectId || '?') + '  ' : '') + '#' + (x.number != null ? x.number : '?') + '  ' + label
     + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x) + whoLeftWords(x) + (stale ? '  (' + quietWords(x.lastActivityAt, now) + leftWords(x) + ')' : '')
-    + (group === 'built' ? seenWords(x) : ''));
+    + (stale || !every ? '' : nextWords(x, now)) + (group === 'built' ? seenWords(x) : ''));
   const n = tasks.length;
   const what = n + ' ' + label + ' task' + (n === 1 ? '' : 's') + (mine ? ' of yours' : '') + (stale ? ' quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more' : '');
   if (every) {
