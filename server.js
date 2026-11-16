@@ -29905,17 +29905,19 @@ function start(port = PORT) {
       if (missedTellTick && typeof missedTellTick.unref === 'function') missedTellTick.unref();
       /* kosmos#8581: a repeating task that is due is told to its holder once per slot when the Prompter is OFF
          (engine/repeatdue.js holds the rules and is tested there; with the Prompter on, prompterTick nudges due runs).
-         The roster is read only when some holder is owed a line and Kosmos may type into agents. */
+         The roster is read only when Kosmos may type into agents and an owed holder is still on its project. */
       const REPEAT_DUE_BOOK = new Map();
       const REPEAT_DUE_IDLE = new Map();
       const repeatDueTick = setInterval(() => {
         try {
           if (heartbeatSetting.read().on === true) return;
           const projs = projects.readAll();
-          if (!repeatdue.owed(projs).length) return;
+          const owedDue = repeatdue.owed(projs);
+          if (!owedDue.length) return;
           const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
+          const r = allowed && owedDue.some((x) => x.holders.some((h) => x.members.includes(h))) ? safeRoster() : null;
           repeatdue.sweep({
-            projects: projs, roster: allowed ? safeRoster() : null, now: Date.now(), prompterOn: false,
+            projects: projs, roster: r, now: Date.now(), prompterOn: false,
             allowed,
             limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
             sent: AGENT_NUDGE_SENT, book: REPEAT_DUE_BOOK, idleSeen: REPEAT_DUE_IDLE,
