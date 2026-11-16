@@ -3516,6 +3516,17 @@ cmd_post() {
       _outs=$(printf '%s' "$body" | sed -n 's/^{"delivery":{.*"outcomes":{\([^}]*\)}.*/\1/p') || true
       _woke=$(printf '%s' "$_outs" | sed 's/"[^"]*":"quiet"//g; s/,//g') || true
       _hint="To reach someone, start with 'YourName -> Their Name:', @-name them, or use @all."
+      # kosmos#8569: an empty outcomes object means the board delivered to nobody (every other member is switched off in
+      # this project, or there is none), so it is never "everyone". No outcomes key at all (an older board) keeps the old
+      # verdict. Matched on the raw body: words in the post arrive JSON-escaped, so they cannot spell "outcomes":{}.
+      case "$body" in
+        '{"delivery":{'*'"outcomes":{}'*) _nobody=1 ;;
+        *) _nobody= ;;
+      esac
+      if [ -n "$_nobody" ]; then
+        if [ -n "$_placedWhy" ]; then say "Posted to $project."
+        else say "Posted to $project. It woke no one: no other member is switched on in this project, so it is only in the room."; fi
+      else
       case "$_outs" in
         # Round 4: when the board said why (a pause), the post addressed them, and the Note says the rest.
         *'":"quiet"'*)
@@ -3527,6 +3538,7 @@ cmd_post() {
              *) say "Posted to $project. Everyone on it has it waiting." ;;
            esac ;;
       esac
+      fi
       if [ -n "$_placedWhy" ]; then say "Note: $_placedWhy."; fi
       # #6925: it went through a held room as this member's one summary; say so, so the agent does not try another.
       case "$body" in   # a case on the captured body, not printf | grep -q (the SIGPIPE/pipefail rule above)
