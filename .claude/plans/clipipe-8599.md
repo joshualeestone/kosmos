@@ -29,13 +29,13 @@ in full when nothing closes early.
   stdout is exactly what it was. Review rounds 1 to 4 each raised the board (silent exit, restart status, no log
   line); exempting it ends that question rather than defending a change nobody asked for. Tested both ways
   (engine/clipipe.test.js: an entry named server.js keeps the EPIPE trace; another entry exits 141).
-- Eight node steps in install/kosmos that print to the person's stdout and have a fallback (connections list, what
-  agents found, accounts, task list, task log, project list/show, agent list, roles list) pass 141 straight through.
-  Found by reading every "could not read"/"did not run" sayer that follows a node step printing to stdout; the rest
-  answer an HTTP body or read a `$(...)` capture, which cannot see the person's reader. It matters when the wrapper
-  runs with SIGPIPE ignored, which is how agents run it (Claude Code's Bash tool is a node child, and node ignores
-  SIGPIPE): there a `say` into the closed pipe printed "write error" and exited 1. Under a plain shell `say` is
-  killed by SIGPIPE first, so those sites were already quiet.
+- No change to the node steps' `||` fallbacks. Reviews 1 and 3 had me add a 141 arm to nine of them, on my premise
+  that agents run the wrapper with SIGPIPE ignored. That premise was FALSE, measured in an agent's own Bash tool:
+  `yes | head -1` exits 141 and so does a bash child (SIGPIPE at its default; libuv resets it for children). With the
+  default, a fallback's `say` (stdout) into the closed pipe kills the wrapper silently with 141, so those sites were
+  already quiet. Review 5 then found the arms untested and one sibling missed; all nine were reverted, leaving
+  install/kosmos as main plus the preload block. Weakest premise: a caller that does ignore SIGPIPE would see a false
+  "could not read" line there, as on main (not this card's trace; none found).
 - Exit 141 rather than 0: what a shell reports for a program a closed pipe stopped (git, cat). `| head` without
   pipefail is unchanged; with pipefail it was already non-zero (the crash exited 1).
 - A KOSMOS_HOME that is relative or holds `"` or `\` gets no guard (runs as before), since NODE_OPTIONS would read it
@@ -90,3 +90,11 @@ in full when nothing closes early.
 - NITs fixed: clipipe.js says a node started by the wrapper's non-node children restores the env too; the long
   install/kosmos comment line is rewrapped.
 - NITs left: the test arm 1 exit code (arm 3 covers it); the Windows entry check reads source (measured on Windows).
+### Review 5 (opus): 2 WARNINGs resolved by reverting, 4 NITs (2 fixed, 2 left)
+- WARNINGs (the nine fallback arms are untested; the role-text sibling was missed): measured that the premise behind
+  the arms was false (SIGPIPE is not ignored in agent shells) and reverted all nine; see Decisions.
+- NIT fixed: install/kosmos says the preload covers the installed layout (app/engine) only.
+- NIT fixed: clipipe.js says only EPIPE was measured (Mac, Linux CI, Windows Git Bash).
+- NITs left: the system-node fallback's NODE_OPTIONS quote parsing (Node has parsed quoted NODE_OPTIONS since v12;
+  the bundled runtime is 22); isBoard matches any server.js entry among the preload's inheritors (only the
+  wrapper's own children, whose only server.js is the board).
