@@ -148,7 +148,7 @@ function bundledCatalog(home, codexBin, ms = BUNDLED_MS) {
       finish(null);
     }, ms);
     child.on('error', () => finish(null));
-    child.stdout.on('data', (b) => { out += b; if (out.length > 8 * 1024 * 1024) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } finish(null); } });
+    child.stdout.on('data', (b) => { out += b; if (out.length > 8 * 1024 * 1024) { try { if (process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL'); else child.kill('SIGKILL'); } catch { /* gone */ } finish(null); } });
     child.on('close', (code) => { try { finish(code === 0 ? JSON.parse(out) : null); } catch { finish(null); } });
   });
 }
@@ -221,4 +221,18 @@ async function pinModelMigration(home, model, codexBin, opts = {}) {
   } catch { return false; }
 }
 
-module.exports = { dismissUpdateNotice, defaultHome, homeIsNamed, pinModelMigration, migrationTarget, withMigration, configModel, bundledCatalog };
+/* Both launch steps, each in its own try so one failing never skips the other. argv: <home> <model> <codex bin>
+   <shared: 1 when the home is the person's own account home, which the pin never writes into>. Never rejects. */
+async function launchPrep(argv) {
+  const a = Array.isArray(argv) ? argv : [];
+  try { dismissUpdateNotice(a[0] || undefined); } catch { /* never break a launch */ }
+  try { if (a[3] !== '1') await pinModelMigration(a[0] || undefined, a[1] || '', a[2] || ''); } catch { /* never break a launch */ }
+}
+
+module.exports = { dismissUpdateNotice, defaultHome, homeIsNamed, pinModelMigration, migrationTarget, withMigration, configModel, bundledCatalog, launchPrep };
+
+/* kosmos#8597: run as a script by the supervisor through its engine path ($_eng), because an installed supervisor's
+   own folder holds no copy of bin/codex-dismiss-update.js and no engine/ (measured on this Mac 11-16). Exits 0. */
+if (require.main === module) {
+  launchPrep(process.argv.slice(2)).then(() => process.exit(0), () => process.exit(0));
+}

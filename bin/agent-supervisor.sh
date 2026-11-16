@@ -1279,6 +1279,11 @@ if [ -z "$adopt" ]; then
           else case "$_a" in -m|--model) _mig_next=1 ;; --model=*) _mig_model="${_a#--model=}" ;; -m=*) _mig_model="${_a#-m=}" ;; esac; fi
         done
       fi
+      # kosmos#8597: through the engine path first. An installed supervisor's folder holds no copy of the shim (and no
+      # engine/), so "$DISMISS" alone was skipped on every installed launch, the update dismissal with it (measured
+      # 11-16: Application Support/Kosmos/bin has the supervisor and the report bridges only). The shim stays for a
+      # checkout run, where the engine path may be empty.
+      if [ -n "${_eng:-}" ] && [ -f "$_eng/codexupdate.js" ]; then DISMISS="$_eng/codexupdate.js"; fi
       if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${EFFECTIVE_CODEX_HOME:-}" "$_mig_model" "$CLAUDE" "$_mig_shared" >/dev/null 2>&1 || true; fi
       unset _mig_model _mig_next _mig_shared _a
     if [ "${#ENDPOINT_ARGS[@]}" -gt 0 ]; then
