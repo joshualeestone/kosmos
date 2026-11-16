@@ -114,9 +114,7 @@ function tellText(item) {
 
 /* kosmos#8586: an unreachable holder (off the project) is recorded once per stall, not once per slot. The task keeps
    which holders could not be reached and when; while that holds (no run since, the rule unchanged, the same holders),
-   a later slot is not recorded again. The mark is cleared only when markTold records another outcome: a delivery
-   that reached the holder, or one given up after MAX_TRIES. A holder who comes back and is told, then leaves again,
-   starts a new stall; one who comes back and is never told before leaving again is still in the first.
+   a later slot is not recorded again. markTold recording any other outcome clears it.
    The key is every holder of an open part, before the reviewer-holder filter, which depends on the slot. */
 function quietKey(item) { return (item.everyHolder || item.holders).slice().sort().join('\n'); }
 function stillQuiet(item) {

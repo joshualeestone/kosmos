@@ -289,10 +289,13 @@ test('#4787 slice 3: stopping the repeat takes the reviewer and the told mark wi
   const n = tasks.create(p.id, { sentence: 'Hourly check' }).number;
   tasks.setRepeat(p.id, n, { every: 'hour' });
   tasks.setReviewer(p.id, n, 'ada');
-  projects.mutate(p.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, missToldAt: new Date().toISOString() } : t)) }));
+  // kosmos#8586: the two tells' stall marks are seeded too, so the check can fail if they are not dropped.
+  const quiet = { who: 'ada', at: new Date().toISOString() };
+  projects.mutate(p.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, missToldAt: new Date().toISOString(), missQuiet: quiet, repeatDueQuiet: quiet } : t)) }));
+  assert.ok(stored(p.id, n).missQuiet && stored(p.id, n).repeatDueQuiet, 'precondition: both stall marks are on the task');
   tasks.setRepeat(p.id, n, null);
   const t = stored(p.id, n);
-  for (const f of ['repeatReviewer', 'repeatReviewerPerson', 'repeatReviewerByPerson', 'repeatReviewerSetAt', 'missToldAt']) assert.equal(t[f], undefined, f);
+  for (const f of ['repeatReviewer', 'repeatReviewerPerson', 'repeatReviewerByPerson', 'repeatReviewerSetAt', 'missToldAt', 'missQuiet', 'repeatDueQuiet']) assert.equal(t[f], undefined, f);
 });
 
 test('#4787 slice 3 review 1: the person\'s Nobody is theirs too, and choosing what an agent named makes it theirs', () => {
@@ -334,6 +337,12 @@ test('#4787 slice 3 review 3: closing a repeating task drops its reviewer with i
   const n = tasks.create(p.id, { sentence: 'Report' }).number;
   tasks.setRepeat(p.id, n, { every: 'day', at: '09:00' });
   tasks.setReviewer(p.id, n, 'ada', { person: true });
+  // kosmos#8586: a changed reviewer drops the old reviewer's stall mark (CONTROL: it is there before the change).
+  const quiet = { who: 'ada', at: new Date().toISOString() };
+  projects.mutate(p.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, missQuiet: quiet } : t)) }));
+  assert.ok(stored(p.id, n).missQuiet, 'precondition: the stall mark is on the task');
+  tasks.setReviewer(p.id, n, 'bob', { person: true });
+  assert.equal(stored(p.id, n).missQuiet, undefined, 'a new reviewer: the old stall mark is gone');
   tasks.close(p.id, n);
   const t = stored(p.id, n);
   for (const f of ['repeat', 'repeatReviewer', 'repeatReviewerByPerson', 'repeatReviewerSetAt', 'missToldAt']) assert.equal(t[f], undefined, f);

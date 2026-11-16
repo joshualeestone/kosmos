@@ -14,12 +14,19 @@ Fleet Builders m4415). Built on main after #8581 merged (63b68ce876).
 ## Item 1: once per stall (engine/repeatdue.js, engine/missedtell.js)
 
 - The first unreachable slot is recorded as today (history row, told mark). The task also keeps a small stall mark:
-  `repeatDueQuiet` / `missQuiet` = `{ who, at }`, where `who` is the sorted holders (repeatdue) or the reviewer plus
-  the reason, off or switched off (missedtell).
+  `repeatDueQuiet` / `missQuiet` = `{ who, at }`, where `who` is every holder of an open part not switched off,
+  sorted, taken before the reviewer-holder filter of item 2 (repeatdue), or the reviewer plus the reason, off or
+  switched off (missedtell). So switching a holder on or off, or another holder joining, is another stall.
 - A later slot is not recorded while the mark holds: same `who`, no run since `at`, the rule not changed since `at`
   (and, for missedtell, the reviewer not renamed since `at`). The sweep still reports it (`recorded: false`).
-- Any other outcome (a delivery, reached or not) clears the mark, so a holder who came back, was told, and left
-  again starts a new stall.
+- markTold recording any other outcome clears the mark (a delivery that reached, one given up after MAX_TRIES,
+  or for missedtell the person-as-reviewer row), so a holder who came back, was told, and left again starts a new
+  stall. One who came back and was never told before leaving again is still in the first stall.
+- Known residual: on a minutes-repeat whose holders are an off-project agent AND an on-project reviewer-holder,
+  the hours when the missed-run tell's hourly gate holds the slot are told to the reviewer-holder by the due-run
+  tell, which clears the mark, so the off-project holder's row can come back about hourly. Narrow (minutes repeat,
+  mixed holders); not fixed here because clearing the mark only on a reach of an off-project holder would keep a
+  stall open across a real delivery.
 - Rejected: storing the mark in the sweep's in-memory book (lost on restart, which is when duplicates appeared);
   skipping in owed() (owed() has no project members for the reviewer case, and the sweep is where "unreachable" is
   decided).
@@ -58,4 +65,5 @@ Recorded on the card so the next sweep's author sees it.
 
 engine/repeatdue-8581.test.js and engine/missedtell.test.js gain #8586 tests, each with a control in the same
 test that IS recorded or told. Mutation (measured once): with stillQuiet() returning false and the item-2 filter
-reverted, the then three new tests failed and every older test passed.
+reverted, the #8586 tests that existed then failed and every older test passed. tasks.repeat-4787.test.js now
+seeds both stall marks before checking that stopping a repeat and changing the reviewer drop them.

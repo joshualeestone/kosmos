@@ -90,8 +90,8 @@ function personReviewMissed(t, now = Date.now()) {
 
 /* kosmos#8586: a reviewer who cannot be reached (off the project, or switched off in it) is recorded once per stall,
    not once per missed slot. The task keeps which reviewer and why, and when; while that holds (no run since, neither
-   the rule nor the reviewer changed), a later miss is not recorded again. markTold recording any other outcome (a
-   delivery that reached the reviewer, or one given up after MAX_TRIES) clears it. */
+   the rule nor the reviewer changed), a later miss is not recorded again. markTold recording any other outcome clears
+   it. */
 function quietKey(item, why) { return String(item.reviewer) + '\n' + why; }
 function stillQuiet(item, why) {
   const q = item.quiet;
