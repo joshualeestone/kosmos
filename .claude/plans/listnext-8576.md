@@ -5,9 +5,9 @@ and owner but not when a task last moved or what it is waiting for, so a coordin
 the --stale threshold or by opening each project.
 
 ## Decision
-- The board (server.js, the cheap list arm, all=1 only) adds `lastActivityAt` to each row, from tasks.lastActivityOf, the
-  same measure --stale already uses (null when there is no date). One transcript read per open row, which --stale
-  already pays across every open task; a closed row reads none.
+- The board (server.js, the cheap list arm, all=1 with order=state only) adds `lastActivityAt` to each row, from
+  tasks.lastActivityOf, the measure --stale uses (null when there is no date). One transcript read per row that is not
+  closed (see Weakest premise); a closed row reads none.
 - engine/tasklist.js acrossLines (both CLIs print through it) appends "(last activity today | yesterday | N days ago |
   no activity on record; waits on ...)" to each --all row. The "waits on" part comes only from fields the row already
   carries: a hold until a task or a time, a hold for or by the person, a paused project, a built mark (waits on a review
@@ -38,3 +38,7 @@ fills in when the board sent none.
 - cli.task-list-across-7057 and cli.task-list-mine-7992 (real board, both CLIs) now expect "(last activity today)"
   and, on a built row, the waits words before the seen words.
 - Mutants: the board not sending the field, and the older-board gate removed, each turn a test red.
+
+## Left at the review cap
+The review loop stopped at its 8-round cap with no blocker open. Carried to kosmos#8577: a repeated project id can give a
+held row a wrong holdUntilMet, a held task in a paused project does not say the project is paused, and three nits.
