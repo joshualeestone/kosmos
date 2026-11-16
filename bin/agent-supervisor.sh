@@ -1249,6 +1249,7 @@ if [ -z "$adopt" ]; then
       fi
       unset _hooks_why _codex_ver
     fi
+    _mig_shared="${_codex_home_shared:-0}"   # kosmos#8597: the migration pin skips the person's own home too
     unset _codex_home_shared
       # Answer codex's update notice before the pane starts (#1315). Creation
       # dismisses the version current when the agent was MADE; this dismisses
@@ -1277,7 +1278,8 @@ if [ -z "$adopt" ]; then
           if [ "$_mig_next" = 1 ]; then _mig_model="$_a"; _mig_next=0; elif [ "$_a" = -m ] || [ "$_a" = --model ]; then _mig_next=1; fi
         done
       fi
-      if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${EFFECTIVE_CODEX_HOME:-}" "$_mig_model" "$CLAUDE" >/dev/null 2>&1 || true; fi
+      if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${EFFECTIVE_CODEX_HOME:-}" "$_mig_model" "$CLAUDE" "$_mig_shared" >/dev/null 2>&1 || true; fi
+      unset _mig_model _mig_next _mig_shared _a
     if [ "${#ENDPOINT_ARGS[@]}" -gt 0 ]; then
       # #5977: the endpoint's arguments carry their own -m (the account's model), so the agent's $MODEL is not used.
       launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" "${ENDPOINT_ARGS[@]}" || exit 1

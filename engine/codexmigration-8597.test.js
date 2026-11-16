@@ -39,85 +39,85 @@ function fakeCodex(catalog, { exit = 0 } = {}) {
 }
 const cfg = (d) => fs.readFileSync(path.join(d, 'config.toml'), 'utf8');
 
-test('#8597: with no cache, the bundled catalog names the target and the entry is written; control: a model with no upgrade writes nothing', () => {
+test('#8597: with no cache, the bundled catalog names the target and the entry is written; control: a model with no upgrade writes nothing', async () => {
   const codex = fakeCodex(CATALOG);
   const d = home('model = "gpt-5.4"\n');
-  assert.equal(pinModelMigration(d, '', codex.bin), true);
+  assert.equal(await pinModelMigration(d, '', codex.bin), true);
   assert.match(cfg(d), /\n\[notice\.model_migrations\]\n"gpt-5\.4" = "gpt-5\.6-terra"\n$/);
   assert.deepEqual(codex.calls(), ['debug models --bundled']);
   const d2 = home('model = "gpt-5.5"\n');
-  assert.equal(pinModelMigration(d2, '', codex.bin), false);
+  assert.equal(await pinModelMigration(d2, '', codex.bin), false);
   assert.equal(cfg(d2), 'model = "gpt-5.5"\n', 'untouched');
 });
 
-test('#8597: the fetched catalog answers first when it lists the model, and the binary is not asked', () => {
+test('#8597: the fetched catalog answers first when it lists the model, and the binary is not asked', async () => {
   const codex = fakeCodex({ models: [{ slug: 'gpt-5.4', upgrade: { model: 'gpt-9-bundled' } }] });
   const d = home('', { models: [{ slug: 'gpt-5.4', upgrade: { model: 'gpt-6-sol' } }] });
-  assert.equal(pinModelMigration(d, 'gpt-5.4', codex.bin), true);
+  assert.equal(await pinModelMigration(d, 'gpt-5.4', codex.bin), true);
   assert.match(cfg(d), /"gpt-5\.4" = "gpt-6-sol"/);
   assert.deepEqual(codex.calls(), [], 'not spawned');
   // A cached model with no upgrade means no menu: nothing written, and still no spawn.
   const d2 = home('', { models: [{ slug: 'gpt-5.4', upgrade: null }] });
-  assert.equal(pinModelMigration(d2, 'gpt-5.4', codex.bin), false);
+  assert.equal(await pinModelMigration(d2, 'gpt-5.4', codex.bin), false);
   assert.deepEqual(codex.calls(), []);
   // Control: a cache that does not list the model falls through to the bundled catalog.
   const d3 = home('', { models: [{ slug: 'other', upgrade: null }] });
-  assert.equal(pinModelMigration(d3, 'gpt-5.4', codex.bin), true);
+  assert.equal(await pinModelMigration(d3, 'gpt-5.4', codex.bin), true);
   assert.match(cfg(d3), /"gpt-5\.4" = "gpt-9-bundled"/);
   assert.equal(codex.calls().length, 1);
 });
 
-test('#8597: it is idempotent, and a stale target is replaced in place', () => {
+test('#8597: it is idempotent, and a stale target is replaced in place', async () => {
   const codex = fakeCodex(CATALOG);
   const d = home('model = "gpt-5.4"\n');
-  assert.equal(pinModelMigration(d, '', codex.bin), true);
+  assert.equal(await pinModelMigration(d, '', codex.bin), true);
   const once = cfg(d);
-  assert.equal(pinModelMigration(d, '', codex.bin), false, 'already there');
+  assert.equal(await pinModelMigration(d, '', codex.bin), false, 'already there');
   assert.equal(cfg(d), once);
   const stale = home('model = "gpt-5.4"\n\n[notice.model_migrations]\n"gpt-5.4" = "gpt-5.5"\n"gpt-5.2" = "gpt-5.4"\n');
-  assert.equal(pinModelMigration(stale, '', codex.bin), true);
+  assert.equal(await pinModelMigration(stale, '', codex.bin), true);
   assert.equal(cfg(stale), 'model = "gpt-5.4"\n\n[notice.model_migrations]\n"gpt-5.4" = "gpt-5.6-terra"\n"gpt-5.2" = "gpt-5.4"\n', 'replaced, the other entry kept');
 });
 
-test('#8597: an existing table gets the entry under its own heading, and the rest of the file is kept byte for byte', () => {
+test('#8597: an existing table gets the entry under its own heading, and the rest of the file is kept byte for byte', async () => {
   const text = 'model = "gpt-5.4"\n\n[notice.model_migrations]\n"gpt-5.2" = "gpt-5.4"\n\n[projects."/x"]\ntrust_level = "trusted"\n';
   const out = withMigration(text, 'gpt-5.4', 'gpt-5.6-terra');
   assert.equal(out, 'model = "gpt-5.4"\n\n[notice.model_migrations]\n"gpt-5.4" = "gpt-5.6-terra"\n"gpt-5.2" = "gpt-5.4"\n\n[projects."/x"]\ntrust_level = "trusted"\n');
   assert.equal(withMigration('model = "a"', 'a', 'b'), 'model = "a"\n\n[notice.model_migrations]\n"a" = "b"\n', 'a file with no final newline');
 });
 
-test('#8597: a file that mentions model_migrations in another shape is left alone (a second definition would break it)', () => {
+test('#8597: a file that mentions model_migrations in another shape is left alone (a second definition would break it)', async () => {
   const codex = fakeCodex(CATALOG);
   const inline = 'model = "gpt-5.4"\n[notice]\nmodel_migrations = { "gpt-5.2" = "gpt-5.4" }\n';
   const d = home(inline);
-  assert.equal(pinModelMigration(d, '', codex.bin), false);
+  assert.equal(await pinModelMigration(d, '', codex.bin), false);
   assert.equal(cfg(d), inline);
   assert.equal(withMigration(inline, 'gpt-5.4', 'gpt-5.6-terra'), null);
 });
 
-test('#8597: it declines, never throws, on a failing binary, an unusable model id or target, and an unreadable config', () => {
-  assert.equal(pinModelMigration(home('model = "gpt-5.4"\n'), '', fakeCodex(null, { exit: 3 }).bin), false);
-  assert.equal(pinModelMigration(home('model = "gpt-5.4"\n'), '', '/nonexistent/codex'), false);
-  assert.equal(pinModelMigration(home(''), 'bad"model', fakeCodex(CATALOG).bin), false);
+test('#8597: it declines, never throws, on a failing binary, an unusable model id or target, and an unreadable config', async () => {
+  assert.equal(await pinModelMigration(home('model = "gpt-5.4"\n'), '', fakeCodex(null, { exit: 3 }).bin), false);
+  assert.equal(await pinModelMigration(home('model = "gpt-5.4"\n'), '', '/nonexistent/codex'), false);
+  assert.equal(await pinModelMigration(home(''), 'bad"model', fakeCodex(CATALOG).bin), false);
   const evil = fakeCodex({ models: [{ slug: 'gpt-5.4', upgrade: { model: 'x"\n[evil]' } }] });
   const d = home('model = "gpt-5.4"\n');
-  assert.equal(pinModelMigration(d, '', evil.bin), false);
+  assert.equal(await pinModelMigration(d, '', evil.bin), false);
   assert.equal(cfg(d), 'model = "gpt-5.4"\n');
   const dir = home(); fs.mkdirSync(path.join(dir, 'config.toml'));   // a directory where the file should be
-  assert.equal(pinModelMigration(dir, 'gpt-5.4', fakeCodex(CATALOG).bin), false);
-  assert.equal(migrationTarget(home(), 'gpt-5.4', ''), null, 'no cache and no binary: no target');
+  assert.equal(await pinModelMigration(dir, 'gpt-5.4', fakeCodex(CATALOG).bin), false);
+  assert.equal(await migrationTarget(home(), 'gpt-5.4', ''), null, 'no cache and no binary: no target');
 });
 
-test('#8597: the model comes from the launch first, then config.toml\'s top-level key only', () => {
+test('#8597: the model comes from the launch first, then config.toml\'s top-level key only', async () => {
   assert.equal(configModel('model = "gpt-5.4"\n[x]\nmodel = "other"\n'), 'gpt-5.4');
   assert.equal(configModel('[profiles.a]\nmodel = "other"\n'), null, 'a table\'s model is not the agent\'s');
   const codex = fakeCodex(CATALOG);
   const d = home('model = "gpt-5.5"\n');
-  assert.equal(pinModelMigration(d, 'gpt-5.4', codex.bin), true, 'the launch -m wins');
+  assert.equal(await pinModelMigration(d, 'gpt-5.4', codex.bin), true, 'the launch -m wins');
   assert.match(cfg(d), /"gpt-5\.4" = "gpt-5\.6-terra"/);
 });
 
-test('#8597: the launch shim runs both steps and always exits 0', () => {
+test('#8597: the launch shim runs both steps and always exits 0', async () => {
   const shim = path.join(__dirname, '..', 'bin', 'codex-dismiss-update.js');
   const d = home('model = "gpt-5.4"\n');
   fs.writeFileSync(path.join(d, 'version.json'), JSON.stringify({ latest_version: '0.150.1' }));
@@ -128,15 +128,73 @@ test('#8597: the launch shim runs both steps and always exits 0', () => {
   assert.equal(spawnSync(process.execPath, [shim, '/nonexistent/home', 'gpt-5.4', '/nonexistent/codex']).status, 0);
 });
 
-test('#8597: the supervisor passes the launch model (an endpoint\'s own -m first) and the binary to the shim', () => {
+test('#8597: the supervisor passes the launch model (an endpoint\'s own -m first) and the binary to the shim', async () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
-  assert.match(src, /"\$NODE_BIN" "\$DISMISS" "\$\{EFFECTIVE_CODEX_HOME:-\}" "\$_mig_model" "\$CLAUDE"/);
+  assert.match(src, /"\$NODE_BIN" "\$DISMISS" "\$\{EFFECTIVE_CODEX_HOME:-\}" "\$_mig_model" "\$CLAUDE" "\$_mig_shared"/);
+  assert.match(src, /_mig_shared="\$\{_codex_home_shared:-0\}"[^\n]*\n\s*unset _codex_home_shared/, 'captured before the shared flag is unset');
   // The -m extraction, run as bash runs it.
   const block = src.slice(src.indexOf('_mig_model="$MODEL"'), src.indexOf('if [ -f "$DISMISS" ]', src.indexOf('_mig_model="$MODEL"')));
   assert.ok(block.length > 0, 'the block is there');
-  const run = (endpoint, model) => spawnSync('bash', ['-c', 'set -u; MODEL="$1"; shift; ENDPOINT_ARGS=("$@")\n' + block + '\nprintf %s "$_mig_model"', 'x', model, ...endpoint], { encoding: 'utf8' }).stdout;
+  const run = (endpoint, model) => spawnSync(fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash', ['-c', 'set -u; MODEL="$1"; shift; ENDPOINT_ARGS=("$@")\n' + block + '\nprintf %s "$_mig_model"', 'x', model, ...endpoint], { encoding: 'utf8' }).stdout;
   assert.equal(run(['-c', 'a=b', '-m', 'gpt-5.4', '--x'], 'ignored'), 'gpt-5.4');
   assert.equal(run(['--model', 'gpt-6-sol'], 'ignored'), 'gpt-6-sol');
   assert.equal(run(['-c', 'a=b'], 'ignored'), '', 'an endpoint with no -m: config.toml decides');
   assert.equal(run([], 'gpt-5.5'), 'gpt-5.5', 'no endpoint: the agent\'s model');
+});
+
+test('#8597: it declines a file it would not edit cleanly: CRLF, a literal-string or bare key, an inline notice table', async () => {
+  const codex = fakeCodex(CATALOG);
+  for (const text of [
+    'model = "gpt-5.4"\r\n',
+    'model = "gpt-5.4"\n[notice.model_migrations]\n\'gpt-5.4\' = "gpt-5.5"\n',
+    'model = "gpt-5.4"\n[notice.model_migrations]\ngpt-5.4 = "gpt-5.5"\n',
+    'model = "gpt-5.4"\nnotice = { hide_x = true }\n',
+  ]) {
+    const d = home(text);
+    assert.equal(await pinModelMigration(d, '', codex.bin), false, JSON.stringify(text));
+    assert.equal(cfg(d), text, 'untouched');
+  }
+  // Control: the same table with the double-quoted key Codex writes is edited.
+  const d = home('model = "gpt-5.4"\n[notice.model_migrations]\n"gpt-5.4" = "gpt-5.5"\n');
+  assert.equal(await pinModelMigration(d, '', codex.bin), true);
+});
+
+test('#8597: the shim never writes into the person\'s own codex home (argv 5 is 1); control: 0 writes', () => {
+  const shim = path.join(__dirname, '..', 'bin', 'codex-dismiss-update.js');
+  const bin = fakeCodex(CATALOG).bin;
+  const own = home('model = "gpt-5.4"\n');
+  assert.equal(spawnSync(process.execPath, [shim, own, '', bin, '1']).status, 0);
+  assert.equal(cfg(own), 'model = "gpt-5.4"\n');
+  const priv = home('model = "gpt-5.4"\n');
+  assert.equal(spawnSync(process.execPath, [shim, priv, '', bin, '0']).status, 0);
+  assert.match(cfg(priv), /"gpt-5\.4" = "gpt-5\.6-terra"/);
+});
+
+test('#8597: a stalled binary whose child holds the pipe is cut off at the bound, the whole group with it', async () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ick-mig-stall-'));
+  const pidf = path.join(d, 'grandchild.pid');
+  const bin = path.join(d, 'codex');
+  fs.writeFileSync(bin, '#!/bin/sh\n( sleep 30 ) &\necho $! > ' + JSON.stringify(pidf) + '\nsleep 30\n');
+  fs.chmodSync(bin, 0o755);
+  const t0 = Date.now();
+  assert.equal(await pinModelMigration(home('model = "gpt-5.4"\n'), '', bin, { bundledMs: 400 }), false);
+  const took = Date.now() - t0;
+  assert.ok(took < 3000, 'returned at the bound, not after the stall: ' + took + ' ms');
+  const gpid = Number(fs.readFileSync(pidf, 'utf8'));
+  let alive = true;
+  for (let i = 0; i < 20 && alive; i += 1) { try { process.kill(gpid, 0); } catch { alive = false; } if (alive) spawnSync('sleep', ['0.1']); }
+  assert.equal(alive, false, 'the grandchild went with the group');
+});
+
+test('#8597: a new config.toml is 0600 and an existing one keeps its mode', async () => {
+  if (process.platform === 'win32') return;
+  const codex = fakeCodex(CATALOG);
+  const fresh = home();
+  assert.equal(await pinModelMigration(fresh, 'gpt-5.4', codex.bin), true);
+  assert.equal(fs.statSync(path.join(fresh, 'config.toml')).mode & 0o777, 0o600);
+  const kept = home('model = "gpt-5.4"\n');
+  fs.chmodSync(path.join(kept, 'config.toml'), 0o640);
+  assert.equal(await pinModelMigration(kept, '', codex.bin), true);
+  assert.equal(fs.statSync(path.join(kept, 'config.toml')).mode & 0o777, 0o640);
+  assert.deepEqual(fs.readdirSync(kept).filter((f) => f.endsWith('.tmp')), [], 'no temp copy left');
 });

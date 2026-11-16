@@ -26,8 +26,13 @@ try {
 } catch { /* never break a launch */ }
 /* kosmos#8597: and its model-migration menu: argv 3 is the model the agent is launched with (empty: config.toml's),
    argv 4 the codex binary, for the catalog it ships. Each in its own try, so one failing never skips the other. */
-try {
-  const { pinModelMigration } = require('../engine/codexupdate');
-  pinModelMigration(process.argv[2] || undefined, process.argv[3] || '', process.argv[4] || '');
-} catch { /* never break a launch */ }
-process.exit(0);
+/* argv 5 is 1 when the agent's codex home is the person's own account home: never written into (as the hook install). */
+(async () => {
+  try {
+    if (process.argv[5] !== '1') {
+      const { pinModelMigration } = require('../engine/codexupdate');
+      await pinModelMigration(process.argv[2] || undefined, process.argv[3] || '', process.argv[4] || '');
+    }
+  } catch { /* never break a launch */ }
+  process.exit(0);
+})();
