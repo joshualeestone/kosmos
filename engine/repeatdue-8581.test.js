@@ -93,21 +93,28 @@ test('#8581: with the Prompter ON nothing is sent (prompterTick nudges due runs)
 });
 
 test('#8581: a paused project and a held task are not told; a live one beside them is', () => {
-  const paused = fixture({}, { paused: true });
-  const held = fixture({ onHold: true });
+  /* Each filtered fixture is held by ADA and the live one by REX, so the one-line-per-agent rule cannot be what
+     keeps the filtered ones quiet: a broken filter would send ADA a line. */
+  const byAda = (ago) => ({ parts: [{ n: 1, sentence: 'Community feed check', who: ADA, createdAt: ago }] });
+  const ago = new Date(NOW - 27 * 86400000).toISOString();
+  const paused = fixture(byAda(ago), { paused: true });
+  const held = fixture({ onHold: true, ...byAda(ago) });
   const live = fixture();
   const { sent } = run([paused.id, held.id, live.id]);
   assert.equal(sent.length, 1, 'only the live one');
+  assert.equal(sent[0].s, REX);
   assert.match(sent[0].text, new RegExp('in ' + projects.readAll().find((x) => x.id === live.id).name));
   assert.equal(stored(paused.id, paused.n).repeatDueToldAt, undefined);
   assert.equal(stored(held.id, held.n).repeatDueToldAt, undefined);
 });
 
 test('#8581: a repeat already run for today\'s slot is not told; control: one not run is', () => {
-  const ran = fixture({ lastRunAt: new Date(at(2026, 11, 16, 9, 35)).toISOString() });
+  const ago = new Date(NOW - 27 * 86400000).toISOString();
+  const ran = fixture({ lastRunAt: new Date(at(2026, 11, 16, 9, 35)).toISOString(), parts: [{ n: 1, sentence: 'Community feed check', who: ADA, createdAt: ago }] });
   const not = fixture();
   const { sent } = run([ran.id, not.id]);
   assert.equal(sent.length, 1);
+  assert.equal(sent[0].s, REX, 'the not-run one (REX), never the run one (ADA)');
   assert.equal(stored(ran.id, ran.n).repeatDueToldAt, undefined);
   assert.ok(stored(not.id, not.n).repeatDueToldAt);
 });
@@ -162,4 +169,90 @@ test('#8581: the due-run note is not activity (a stopped repeat keeps reading as
   // Control: an ordinary row does move it, so the comparison can fail.
   taskchat.record(id, n, { kind: 'said', text: 'hello' });
   assert.notEqual(tasks.lastActivityOf(id, tasks.byNumber(p(), n)), before);
+});
+
+test('#8581: a quota hold or a busy pane spends no try; told once the holder can take it', () => {
+  const { id, n } = fixture();
+  const book = new Map();
+  let calls = 0;
+  const go = (verdict) => run([id], { book, deliver: () => { calls += 1; return verdict; } });
+  for (let i = 0; i < rd.MAX_TRIES + 2; i += 1) go({ state: 'could_not', held: true });
+  for (let i = 0; i < rd.MAX_TRIES + 2; i += 1) go({ state: 'could_not', busy: true });
+  assert.equal(calls, 2 * (rd.MAX_TRIES + 2), 'asked every minute');
+  assert.equal(stored(id, n).repeatDueToldAt, undefined, 'never given up on while it could not take a line');
+  go({ state: 'placed' });
+  assert.ok(stored(id, n).repeatDueToldAt, 'told once it could');
+});
+
+test('#8581: a delivery that throws counts as told (the text may be in the pane) and is not typed again', () => {
+  const { id, n } = fixture();
+  const book = new Map();
+  let calls = 0;
+  const deliver = () => { calls += 1; throw new Error('pane went away'); };
+  run([id], { book, deliver });
+  run([id], { book, deliver });
+  assert.equal(calls, 1);
+  const ev = taskchat.read(id, n).filter((e) => e.kind === 'due-told');
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].reached, true, 'unconfirmed is recorded as reached, as missedtell does');
+});
+
+test('#8581: a holder no longer on the project is recorded once as not reached and never typed into', () => {
+  const { id, n } = fixture();
+  projects.mutate(id, (x) => ({ ...x, agents: [ADA] }));
+  const first = run([id]);
+  assert.equal(first.sent.length, 0);
+  assert.equal(first.r.results[0].act, 'unreachable');
+  run([id]);
+  const ev = taskchat.read(id, n).filter((e) => e.kind === 'due-told');
+  assert.equal(ev.length, 1, 'one history row, not one a minute');
+  assert.equal(ev[0].reached, false);
+  // Control: back on the project, the NEXT slot is told.
+  projects.mutate(id, (x) => ({ ...x, agents: [ADA, REX] }));
+  const tomorrow = NOW + 86400000;
+  assert.equal(run([id], { now: tomorrow, idleSeen: new Map([[REX, { since: tomorrow - 120000, at: tomorrow - 60000 }]]) }).sent.length, 1);
+});
+
+test('#8581: with two holders, a busy first holder falls through to an idle second', () => {
+  const ago = new Date(NOW - 27 * 86400000).toISOString();
+  const { id } = fixture({ parts: [{ n: 1, sentence: 'a', who: REX, createdAt: ago }, { n: 2, sentence: 'b', who: ADA, createdAt: ago }] });
+  const busyRex = cardsOf([{ name: 'ada' }, { name: 'rex', state: 'working' }]);
+  const { sent } = run([id], { roster: busyRex });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].s, ADA, 'the idle holder answers the slot');
+  cardsOf([{ name: 'ada' }, { name: 'rex' }]);
+  // Control: both idle, the first holder is the one told.
+  const other = fixture({ parts: [{ n: 1, sentence: 'a', who: REX, createdAt: ago }, { n: 2, sentence: 'b', who: ADA, createdAt: ago }] });
+  assert.equal(run([other.id]).sent[0].s, REX);
+});
+
+test('#8581: a task every few minutes is told again in one stall only an hour past the last slot told', () => {
+  const ago = new Date(NOW - 2 * 86400000).toISOString();
+  const { id } = fixture({ repeat: { every: 'minutes', n: 15 }, lastRunAt: ago });
+  const book = new Map();
+  const idle = (t) => new Map([[REX, { since: t - 120000, at: t - 60000 }]]);
+  assert.equal(run([id], { book }).sent.length, 1, 'told at the first due slot');
+  const in30 = NOW + 30 * 60000;
+  assert.equal(run([id], { book, now: in30, idleSeen: idle(in30) }).sent.length, 0, 'not every slot while the stall lasts');
+  const in75 = NOW + 75 * 60000;
+  assert.equal(run([id], { book, now: in75, idleSeen: idle(in75) }).sent.length, 1, 'again about an hour on');
+  // Control: a run since the last tell ends the stall, so the next due slot is told at once.
+  projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => ({ ...t, lastRunAt: new Date(in75 + 60000).toISOString() })) }));
+  const in95 = NOW + 95 * 60000;
+  assert.equal(run([id], { book, now: in95, idleSeen: idle(in95) }).sent.length, 1, 'a new stall is told at its first due slot');
+});
+
+test('#8581: server.js runs the sweep on its own minute timer, only with the Prompter off, with the board\'s typing path', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const i = src.indexOf('const repeatDueTick = setInterval(');
+  assert.ok(i > 0, 'the timer is there');
+  const body = src.slice(i, src.indexOf('}, 60000);', i));
+  assert.match(body, /^const repeatDueTick = setInterval\(\(\) => \{\s*try \{\s*if \(heartbeatSetting\.read\(\)\.on === true\) return;/, 'stands down while the Prompter is on, first thing');
+  assert.match(body, /prompterOn: false/);
+  assert.match(body, /deliver: \(session, text, ro\) => chat\.deliverAutomatic\(/);
+  assert.match(body, /const allowed = agentnudge\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\);/);
+  assert.match(body, /repeatdue\.sweep\(\{[\s\S]*\ballowed,/);
+  assert.match(body, /book: REPEAT_DUE_BOOK, idleSeen: REPEAT_DUE_IDLE/, 'kept across passes (a fresh Map each minute would never settle)');
+  assert.match(src, /const REPEAT_DUE_BOOK = new Map\(\);\s*const REPEAT_DUE_IDLE = new Map\(\);\s*const repeatDueTick/, 'made once, outside the timer');
+  assert.equal((src.match(/repeatdue\.sweep\(/g) || []).length, 1, 'and nowhere else');
 });

@@ -55,7 +55,7 @@ function owed(projects, now = Date.now()) {
       const holders = [...new Set(tasks.partsOf(t).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))]
         .filter((who) => !P.isSwarmOff(p, who));
       if (!holders.length) continue;
-      const by = taskrepeat.recordBy(t.repeat, at);
+      const by = taskrepeat.recordBy(t.repeat, at, now);
       out.push({
         projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: t.sentence || '',
         slot: at, earlier: at > slot, words: taskrepeat.whenWords(at, now), byWords: by !== null ? taskrepeat.whenWords(by, now) : '',
@@ -100,7 +100,7 @@ function sweep(o) {
     const book = o.book instanceof Map ? o.book : new Map();
     const sent = Array.isArray(o.sent) ? o.sent : [];
     while (sent.length && now - sent[0] >= HOUR_MS) sent.shift();
-    for (const k of [...book.keys()]) { const slot = Number(String(k).split('@').pop().split(':')[0]); if (Number.isFinite(slot) && now - slot > 7 * 24 * HOUR_MS) book.delete(k); }
+    for (const k of [...book.keys()]) { const slot = Number(String(k).split('@').pop()); if (Number.isFinite(slot) && now - slot > 7 * 24 * HOUR_MS) book.delete(k); }
     const cap = o.limit && o.limit.on === true && Number.isInteger(o.limit.perHour) ? o.limit.perHour : Infinity;
     const cards = new Map((Array.isArray(o.roster) ? o.roster : []).filter((a) => a && a.sessionName).map((a) => [a.sessionName, a]));
     const seen = o.idleSeen instanceof Map ? o.idleSeen : new Map();
