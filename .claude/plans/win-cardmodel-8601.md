@@ -29,10 +29,11 @@ the same way.
 - The job-file lookup is one helper (`writtenBeforeJob`) shared with the Codex rule (`withoutModelFromBeforeJob`).
 
 ## Decisions
-- Review 1: NOT the file time alone. On Windows every start, stop and restart moves the task file's time
-  (/Change /DISABLE and /ENABLE, the supervisor resuming the same conversation), and an account move or provider switch
-  rewrites the job on every platform, all with the model unchanged. Time alone blanked the model, the context ring
-  (limitFor(null)) and whoami's answer after every Windows restart. So the job must also NAME a different model.
+- Review 1: NOT the file time alone. An account move or provider switch rewrites the job on every platform, and on
+  Windows /Change /DISABLE and /ENABLE (a stop and start, a world switch, a removal) move the task file's time, all with
+  the model unchanged. Time alone blanked the model, the context ring (limitFor(null)) and whoami's answer then. So the
+  job must also NAME a different model. (Review 3, measured: a plain Kosmos restart, POST /restart, does NOT move the
+  task file's time; the review 1 note that it did was wrong. The Codex rule stays on time alone, on purpose.)
 - Only a full `claude-...` id in the job is compared (what the picker writes). A job with no model or a short name
   ("opus") cannot be compared with a transcript's full id, so the reading stands, as before. Same model: equal once a
   "[1m]"-style suffix is set aside, or the same display name (a dated id and its undated form).
@@ -53,6 +54,11 @@ Review 2: a transcript that names the SAME model in another spelling (a bare "op
 us.anthropic.claude-..., a "@date" suffix) reads as "another model" against the job's full id. After a rewrite and before
 the next reply the card then shows the job's model (the same model, so what the person sees is right), but `model` is
 null for the context ring and whoami until that reply. Bounded by the next reply; accepted.
+Review 3: a narrow window where the card still names the old model: the agent is mid-reply when the change rewrites the
+job, and the old process appends a row before the restart stops it. The transcript is then newer than the job and the
+old model reads as current until the next reply. The original symptom in a small window, not a regression.
+Review 3: an unknown dated id (one MODEL_NAMES does not know) in the job against its undated form in the transcript
+reads as "another model"; pinned by a test as the accepted behaviour.
 Review 2: like the Codex rule it shares writtenBeforeJob with, this reads the job in this process's own world only
 (no worldId), so an agent of a named world (#1704) keeps today's behaviour. Not new; noted.
 Deviation from the card's control ("a Mac agent's card still behaves as now"): the rule is platform-neutral, so a Mac or

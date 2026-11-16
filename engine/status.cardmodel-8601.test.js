@@ -106,6 +106,15 @@ test('kosmos#8601 review 1 CONTROL: the same model spelled with a [1m] suffix or
   assert.deepEqual(status.readModel('dated'), current('claude-haiku-4-5-20251001'));
 });
 
+/* Review 3: pinned so a later change sees the window is deliberate. An id the name table does not know is shown raw,
+   so its dated and undated forms do not match: after a rewrite naming one, a reply naming the other reads as earlier
+   until the next reply (the card then shows the job's id, the same model). */
+test('kosmos#8601 review 3: an unknown dated id against its undated form reads as another model (accepted)', () => {
+  session('unknowndate', 'old.jsonl', replied('claude-zeta-9'), 600);
+  job('unknowndate', 5, 'claude-zeta-9-20991231');
+  assert.equal(status.readModel('unknowndate').earlierSession, true);
+});
+
 test('kosmos#8601 CONTROL: a job older than the transcript leaves the reading, whatever model it names', () => {
   session('steady', 'old.jsonl', replied('claude-opus-5-5'), 5);
   job('steady', 600, 'claude-haiku-5-5');   // a /model switch inside the session after the job was written

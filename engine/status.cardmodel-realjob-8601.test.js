@@ -24,6 +24,14 @@ process.env.AGENT_WORKFORCE_SYSTEMD_DIR = path.join(SB, 'systemd');
 const create = require('./create');
 const status = require('./status');
 const jobfix = require('../test-support/jobfixture');
+/* Review 3: a launchd plist and a systemd unit both need a tmux path (plistFor and unitFor take path.dirname of it, and
+   readPlistJob / readUnitJob read a job without one as no job), so stand-ins for both binaries, as
+   engine/create.compat-7206.test.js does. Windows ignores the tmux path. */
+const BIN = path.join(SB, 'bin');
+fs.mkdirSync(BIN, { recursive: true });
+const CLAUDE_BIN = path.join(BIN, 'claude');
+const TMUX_BIN = path.join(BIN, 'tmux');
+for (const b of [CLAUDE_BIN, TMUX_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 test.after(() => fs.rmSync(SB, { recursive: true, force: true }));
 
 function session(name, rows, ageSec) {
@@ -41,7 +49,7 @@ function session(name, rows, ageSec) {
    forgets win32job's remembered task, so the read below is of this file). */
 function job(name, model, ageSec) {
   fs.mkdirSync(path.dirname(jobfix.jobPath(name)), { recursive: true });
-  fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, process.execPath, null, model, null, 'claude'), 'utf8');
+  fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, CLAUDE_BIN, TMUX_BIN, model, null, 'claude'), 'utf8');
   const t = Date.now() / 1000 - ageSec;
   fs.utimesSync(jobfix.jobPath(name), t, t);
 }

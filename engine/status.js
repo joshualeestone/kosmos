@@ -6924,11 +6924,15 @@ function withoutModelFromBeforeJob(sess, agentName) {
   return sess;
 }
 
-/* Whether `file` (a session record) was last written before the agent's job file was. A job written after the record
-   (a model change rewrites it and restarts the agent) means the record's model is from before that change, so it is
-   not the model the agent runs now. Shared by the Codex reading (withoutModelFromBeforeJob) and the Claude one
-   (readModel, kosmos#8601), so the two cannot drift. Any stat that fails (no job: a fleet agent, an untied pane) is
-   "no", which changes nothing. */
+/* Whether `file` (a session record) was last written before the agent's job file was: only that the job was rewritten
+   after the record, NOT that its model changed. A model change rewrites the job, but so do an account move and a
+   provider switch, and on Windows /Change /DISABLE and /ENABLE (a stop and start, a world switch, a removal that cannot
+   stop it) move the task file's time; a plain Kosmos restart does not (measured 11-16 on the Windows box: the task file
+   kept its time through POST /restart). Each caller decides what a rewrite means: the Codex rule
+   (withoutModelFromBeforeJob) stays on the time alone, on purpose, since its cost is the job's model until the next
+   turn; the Claude rule (readModel, kosmos#8601) also needs the job to name another model, because there `model` feeds
+   the context ring and whoami as well. One job-file lookup for both, so the platforms cannot drift. Any stat that
+   fails (no job: a fleet agent, an untied pane) is "no", which changes nothing. */
 function writtenBeforeJob(file, agentName) {
   try {
     // #4918 review 11: on Linux the job file is the agent's systemd unit, not a plist (which never exists there).
@@ -7412,11 +7416,10 @@ function readModel(agentName, exactSession) {
      before a reply). So the reading is from before the change when BOTH hold: the job was written after the transcript,
      AND the job names a different model. Then it travels as an earlier reading (the #6716 shape), `model` stays null,
      and the card shows the job's model (server.js plannedFor reads the job whenever modelName is null).
-     Review 1: the file time alone is not a model change. On Windows every start, stop and restart moves the task file's
-     time (/Change /DISABLE and /ENABLE), and on every platform an account move or a provider switch rewrites the job,
-     all while the conversation and its model go on; blanking the model then also blanked the context ring and the
-     agent's own "which model am I". The time check stays first because it is two stats; the job is read only after a
-     rewrite.
+     Review 1: the file time alone is not a model change (see writtenBeforeJob: an account move or a provider switch
+     rewrites the job on every platform, and on Windows a stop and start moves the task file's time), all while the
+     conversation and its model go on; blanking the model then also blanked the context ring and the agent's own "which
+     model am I". The time check stays first because it is two stats; the job is read only after a rewrite.
      Review 2: while the reading is earlier (a real model change, until the next reply), `model` is null on purpose for
      every consumer: the context ring's ceiling is unknown (the new model's may differ) and whoami answers from the
      process's own --model. That is not a regression to "fix" by passing the old model through. */
