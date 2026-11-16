@@ -23302,8 +23302,9 @@ const server = http.createServer(async (req, res) => {
     }
     /* The fields below cost a board snapshot plus a transcript read per task, so only the
        Tasks view (?view=tasks, which the project View-all door also opens since #3703) pays for
-       them: the agents' `kosmos tasks` reads the list as cheaply as before (kosmos#7151: the stale list adds one board
-       snapshot, only when some row would be offered for retiring). */
+       them: the agents' `kosmos tasks` reads the list without the snapshot (kosmos#7151: the stale list adds one board
+       snapshot, only when some row would be offered for retiring). The stale list and, since kosmos#8576, every all=1
+       answer do read one transcript per open row, for each row's last activity. */
     if (!forTasksView) {
       if (listOnly !== null && !tasks.LIST_GROUPS.includes(listOnly)) {
         sendJson(res, 400, { error: 'the state to list must be one of: ' + tasks.LIST_GROUPS.join(', ') });
@@ -23355,7 +23356,7 @@ const server = http.createServer(async (req, res) => {
          answer pays it, `kosmos task files --all` too (built rows, which it does not print). */
       /* And on a held row, whether its reopening condition is already met (tasks.holdUntilState: the task it waits on is
          closed or gone, or its time has passed), so a hold that should have lifted is not said as still waiting. */
-      const projectOf = new Map((everyProject || []).filter((x) => x && x.id).map((x) => [x.id, x]));
+      const projectOf = allProjects ? new Map((everyProject || []).filter((x) => x && x.id).map((x) => [x.id, x])) : null;
       const activityOf = allProjects ? (t) => {
         if (!t) return t;
         const extra = { lastActivityAt: tasks.lastActivityOf(t.projectId, t) || null };
