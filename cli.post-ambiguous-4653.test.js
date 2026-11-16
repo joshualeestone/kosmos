@@ -160,3 +160,17 @@ test('kosmos#8566: a post addressed to a name no member has prints the verdict, 
   assert.match(out.stdout, /It woke no one: it addresses no member, so it is only in the room\. To reach someone[^\n]*\n/);
   assert.ok(out.stdout.split('\n').map((l) => l.trim()).includes(UNMATCHED), out.stdout);
 });
+
+test('kosmos#8569: a post that reached nobody (every other member switched off here) never says everyone has it', { skip: SKIP_POSIX_SHELL }, async () => {
+  const none = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: {} });
+  assert.equal(none.code, 0, none.stdout + none.stderr);
+  assert.equal(none.stdout.trim(), 'Posted to proj. It woke no one: no other member is switched on in this project, so it is only in the room.');
+  const dup = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: {}, duplicate: true });
+  assert.doesNotMatch(dup.stdout, /Everyone on it has it waiting/, 'a folded retry of a post that reached nobody claimed everyone has it');
+  const paused = await postAgainst({ state: 'placed', because: 'the room is paused', id: 'm1', outcomes: {} });
+  assert.deepEqual(paused.stdout.trim().split('\n').map((l) => l.trim()), ['Posted to proj.', 'Note: the room is paused.'], 'the board said why; its Note says the rest');
+  const old = await postAgainst({ state: 'placed', because: null, id: 'm1' });
+  assert.match(old.stdout, /Posted to proj\. Everyone on it has it waiting\./, 'CONTROL: an older board that sends no outcomes keeps the old verdict');
+  const text = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: { a: 'placed' }, text: 'see "outcomes":{} here' });
+  assert.match(text.stdout, /Everyone on it has it waiting/, 'CONTROL: the words "outcomes":{} inside a post are not read as an empty outcomes object');
+});

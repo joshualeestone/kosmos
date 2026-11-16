@@ -880,9 +880,14 @@ async function verbPost(ctx, args) {
        one is said as quiet, never as "everyone on it has it". */
     const outs = d.outcomes && typeof d.outcomes === 'object' ? Object.values(d.outcomes) : [];
     const quiet = outs.includes('quiet');
+    /* kosmos#8569: an outcomes object with no member in it means the board delivered to nobody (every other member is
+       switched off in this project, or there is no other member), so it is never "everyone on it has it". No outcomes
+       at all (an older board) keeps the old verdict. */
+    const nobody = !!d.outcomes && typeof d.outcomes === 'object' && !Array.isArray(d.outcomes) && outs.length === 0;
     const why = typeof d.because === 'string' && d.because ? d.because : '';   // round 4: a pause; the post did address them
     const hint = ' To reach someone, start with \'YourName -> Their Name:\', @-name them, or use @all.';
-    ctx.out(quiet && why ? 'Posted to ' + project + '.'
+    ctx.out(nobody ? 'Posted to ' + project + '.' + (why ? '' : ' It woke no one: no other member is switched on in this project, so it is only in the room.')
+      : quiet && why ? 'Posted to ' + project + '.'
       : quiet && outs.every((o) => o === 'quiet') ? 'Posted to ' + project + '. It woke no one: it addresses no member, so it is only in the room.' + hint
         : quiet ? 'Posted to ' + project + '. It reached only the members it addresses; the others can read it in the room.' + hint
           : 'Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.'));

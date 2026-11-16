@@ -24,7 +24,7 @@ async function post(delivery) {
 }
 
 test('#4653: a placed post prints the verdict, then the note, and exits 0', async () => {
-  const r = await post({ state: 'placed', id: 'm1', outcomes: {}, ambiguousNote: NOTE });
+  const r = await post({ state: 'placed', id: 'm1', outcomes: { a: 'placed' }, ambiguousNote: NOTE });   // kosmos#8569: {} is a post that reached nobody
   assert.equal(r.code, 0);
   assert.deepEqual(r.out, ['Posted to proj. Everyone on it has it waiting.', NOTE]);
 });
@@ -37,7 +37,7 @@ test('#4653: an unconfirmed post says it too and keeps exit 3', async () => {
 
 test('#4653 control: no note, or an empty or non-string one, prints only the verdict', async () => {
   for (const extra of [{}, { ambiguousNote: '' }, { ambiguousNote: { x: 1 } }]) {
-    const r = await post({ state: 'placed', id: 'm1', outcomes: {}, ...extra });
+    const r = await post({ state: 'placed', id: 'm1', outcomes: { a: 'placed' }, ...extra });
     assert.equal(r.code, 0);
     assert.deepEqual(r.out, ['Posted to proj. Everyone on it has it waiting.'], JSON.stringify(extra));
   }
@@ -111,4 +111,15 @@ test('kosmos#8566: a post addressed to a name no member has prints the verdict, 
   assert.equal(r.out.length, 2, r.out.join('\n'));
   assert.match(r.out[0], /^Posted to proj\. It woke no one: it addresses no member/);
   assert.equal(r.out[1], UNMATCHED);
+});
+
+test('kosmos#8569: a post that reached nobody (every other member switched off here) never says everyone has it', async () => {
+  const none = await post({ state: 'placed', id: 'm1', outcomes: {} });
+  assert.deepEqual(none.out, ['Posted to proj. It woke no one: no other member is switched on in this project, so it is only in the room.']);
+  const dup = await post({ state: 'placed', id: 'm1', outcomes: {}, duplicate: true });
+  assert.doesNotMatch(dup.out.join('\n'), /Everyone on it has it waiting/, 'a folded retry of a post that reached nobody claimed everyone has it');
+  const paused = await post({ state: 'placed', id: 'm1', outcomes: {}, because: 'the room is paused' });
+  assert.deepEqual(paused.out, ['Posted to proj.', 'Note: the room is paused.'], 'the board said why; its Note says the rest');
+  const old = await post({ state: 'placed', id: 'm1' });
+  assert.deepEqual(old.out, ['Posted to proj. Everyone on it has it waiting.'], 'CONTROL: an older board that sends no outcomes keeps the old verdict');
 });
