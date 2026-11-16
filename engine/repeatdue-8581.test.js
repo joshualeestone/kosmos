@@ -256,3 +256,16 @@ test('#8581: server.js runs the sweep on its own minute timer, only with the Pro
   assert.match(src, /const REPEAT_DUE_BOOK = new Map\(\);\s*const REPEAT_DUE_IDLE = new Map\(\);\s*const repeatDueTick/, 'made once, outside the timer');
   assert.equal((src.match(/repeatdue\.sweep\(/g) || []).length, 1, 'and nowhere else');
 });
+
+test('#8581: a stalled hourly repeat is told again every four hours, not every hour; a daily one each day', () => {
+  assert.equal(rd.stallGap({ every: 'minutes', n: 15 }, NOW), 60 * 60000);
+  assert.equal(rd.stallGap({ every: 'day', at: '09:30' }, NOW), 24 * 60 * 60000);
+  const ago = new Date(NOW - 2 * 86400000).toISOString();
+  const { id } = fixture({ repeat: { every: 'hour', minute: 0 }, lastRunAt: ago });
+  const book = new Map();
+  const idle = (t) => new Map([[REX, { since: t - 120000, at: t - 60000 }]]);
+  assert.equal(run([id], { book }).sent.length, 1, 'told at the first due slot');
+  let told = 1;
+  for (let h = 1; h <= 4; h += 1) { const t = NOW + h * 60 * 60000; told += run([id], { book, now: t, idleSeen: idle(t) }).sent.length; }
+  assert.equal(told, 2, 'once more, four hours on');
+});
