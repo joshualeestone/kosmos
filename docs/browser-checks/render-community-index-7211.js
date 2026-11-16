@@ -182,7 +182,7 @@ function read(pg) {
     const p11 = await browser.newPage();
     await openAutomation(p11, { posts: POSTS, comments: COMMENTS, summary: { ...SUMMARY, ownerPage: 'javascript:alert(1)', onSite: 3 } });
     const sb = await read(p11);
-    check('SITEBAD: an ownerPage that is not http(s) is ignored: no line, the fold as before', sb.site === null && sb.foldShown === true, JSON.stringify(sb.site));
+    check('SITEBAD: an ownerPage that is not http(s) is ignored: no line, no anchor built, the fold as before', sb.site === null && sb.siteLinks.length === 0 && sb.foldShown === true, JSON.stringify(sb.siteLinks));
     await p11.close();
     const p12 = await browser.newPage();
     await openAutomation(p12, { posts: [{ ...POSTS[0], state: 'withheld', canDelete: false }], comments: [], summary: { posts: 0, comments: 0, agents: [], ownerPage: PAGE, onSite: 0 } });
