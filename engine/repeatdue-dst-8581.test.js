@@ -7,6 +7,13 @@
  *   node --test engine/repeatdue-dst-8581.test.js
  */
 process.env.TZ = 'America/Chicago';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#4273)
+// Repo convention: every root sandboxed before any require (owed() loads tasks and projects lazily).
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
+process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-rdd-data-'));
+process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-rdd-proj-'));
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const rd = require('../engine/repeatdue');
@@ -40,7 +47,27 @@ test('#8581: a rule changed after the last line starts afresh; control: unchange
   const ago = iso(at(2026, 11, 1, 9, 0));
   const told = iso(at(2026, 11, 16, 9, 30));
   const base = { repeat: { every: 'minutes', n: 15 }, lastRunAt: ago, repeatDueToldAt: told };
-  const now = at(2026, 11, 16, 10, 0);
+  const now = at(2026, 11, 16, 10, 5);   // the 10:00 slot, past its grace
   assert.equal(rd.owed(proj({ ...base, repeatSetAt: ago }), now).length, 0, 'same rule, same stall, under an hour on');
   assert.equal(rd.owed(proj({ ...base, repeatSetAt: iso(at(2026, 11, 16, 9, 40)) }), now).length, 1, 'new rule: told at its first due slot');
+});
+
+test('#8581: uneven times in a day are each counted: 09:00 and 17:00 is told once a day from either slot', () => {
+  const ago = iso(at(2026, 11, 1, 9, 0));
+  const rule = { every: 'day', at: ['09:00', '17:00'] };
+  assert.equal(rd.stallSlots(rule, at(2026, 11, 15, 9, 0)), 2);
+  assert.equal(rd.stallSlots(rule, at(2026, 11, 15, 17, 0)), 2);
+  const t = (told) => ({ repeat: rule, repeatSetAt: ago, lastRunAt: ago, repeatDueToldAt: iso(told) });
+  assert.equal(rd.owed(proj(t(at(2026, 11, 15, 9, 0))), at(2026, 11, 15, 17, 30)).length, 0, 'the same day: held');
+  assert.equal(rd.owed(proj(t(at(2026, 11, 15, 9, 0))), at(2026, 11, 16, 9, 30)).length, 1, 'a day on: told');
+  const close = { every: 'day', at: ['09:00', '09:30'] };
+  const c = (told) => ({ repeat: close, repeatSetAt: ago, lastRunAt: ago, repeatDueToldAt: iso(told) });
+  assert.equal(rd.owed(proj(c(at(2026, 11, 10, 9, 0))), at(2026, 11, 11, 9, 10)).length, 1, 'two close times: the next day is not skipped');
+});
+
+test('#8581: not told before the slot is overdue by its grace; control: after it', () => {
+  const ago = iso(at(2026, 11, 1, 9, 30));
+  const task = { repeat: { every: 'day', at: '09:30' }, repeatSetAt: ago, lastRunAt: ago };
+  assert.equal(rd.owed(proj(task), at(2026, 11, 16, 9, 40)).length, 0, 'ten minutes late: within the 15-minute grace');
+  assert.equal(rd.owed(proj(task), at(2026, 11, 16, 9, 46)).length, 1);
 });

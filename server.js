@@ -29880,7 +29880,7 @@ function start(port = PORT) {
          which holds the rules and is tested there). Its own minute timer, not the Prompter tick: it runs whether or not
          the Prompter is on (the reviewer asked to be told), and the Prompter tick types only through prompterTick. The
          roster is read only when an AGENT reviewer is owed a line, so a quiet board costs one projects read a minute. */
-      const TELL_TYPED = new Map();   // kosmos#8581: session -> when the missed-run tell typed into it, read by the due-run tell
+      const TELL_TYPED = new Map();   // kosmos#8581: session -> when the missed-run or due-run tell last typed into it
       const missedTellTick = setInterval(() => {
         try {
           const projs = projects.readAll();

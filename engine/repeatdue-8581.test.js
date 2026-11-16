@@ -231,14 +231,16 @@ test('#8581: a task every few minutes is told again in one stall only an hour pa
   const { id } = fixture({ repeat: { every: 'minutes', n: 15 }, lastRunAt: ago });
   const book = new Map();
   const idle = (t) => new Map([[REX, { since: t - 120000, at: t - 60000 }]]);
-  assert.equal(run([id], { book }).sent.length, 1, 'told at the first due slot');
-  const in30 = NOW + 30 * 60000;
+  const t0 = NOW + 5 * 60000;   // the 11:00 slot, past its grace (a quarter of 15 minutes)
+  assert.equal(run([id], { book, now: NOW }).sent.length, 0, 'not at the slot itself: a holder that runs on time is never typed into');
+  assert.equal(run([id], { book, now: t0, idleSeen: idle(t0) }).sent.length, 1, 'told once the slot is overdue');
+  const in30 = NOW + 35 * 60000;
   assert.equal(run([id], { book, now: in30, idleSeen: idle(in30) }).sent.length, 0, 'not every slot while the stall lasts');
-  const in75 = NOW + 75 * 60000;
+  const in75 = NOW + 80 * 60000;
   assert.equal(run([id], { book, now: in75, idleSeen: idle(in75) }).sent.length, 1, 'again about an hour on');
   // Control: a run since the last tell ends the stall, so the next due slot is told at once.
   projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => ({ ...t, lastRunAt: new Date(in75 + 60000).toISOString() })) }));
-  const in95 = NOW + 95 * 60000;
+  const in95 = NOW + 100 * 60000;
   assert.equal(run([id], { book, now: in95, idleSeen: idle(in95) }).sent.length, 1, 'a new stall is told at its first due slot');
 });
 
@@ -270,9 +272,10 @@ test('#8581: a stalled hourly repeat is told again every four hours, not every h
   const { id } = fixture({ repeat: { every: 'hour', minute: 0 }, lastRunAt: ago });
   const book = new Map();
   const idle = (t) => new Map([[REX, { since: t - 120000, at: t - 60000 }]]);
-  assert.equal(run([id], { book }).sent.length, 1, 'told at the first due slot');
+  const t0 = NOW + 20 * 60000;   // past the hourly grace (15 minutes)
+  assert.equal(run([id], { book, now: t0, idleSeen: idle(t0) }).sent.length, 1, 'told at the first due slot');
   let told = 1;
-  for (let h = 1; h <= 4; h += 1) { const t = NOW + h * 60 * 60000; told += run([id], { book, now: t, idleSeen: idle(t) }).sent.length; }
+  for (let h = 1; h <= 4; h += 1) { const t = t0 + h * 60 * 60000; told += run([id], { book, now: t, idleSeen: idle(t) }).sent.length; }
   assert.equal(told, 2, 'once more, four hours on');
 });
 
@@ -287,4 +290,13 @@ test('#8581: the line carries the record-by guidance the Prompter nudge gives', 
   const { id } = fixture();
   const { sent } = run([id]);
   assert.match(sent[0].text, /record it before .*, ahead of the next one; if it is still going then, stop it, record it as it stands with what stopped it, and start the next\)/);
+});
+
+test('#8581: a holder that is the task\'s named reviewer is left to the missed-run tell; control: another holder is told', () => {
+  const ago = new Date(NOW - 27 * 86400000).toISOString();
+  const self = fixture({ repeatReviewer: REX, repeatReviewerSetAt: ago });
+  const other = fixture({ repeatReviewer: ADA, repeatReviewerSetAt: ago });
+  const { sent } = run([self.id, other.id]);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, new RegExp('in ' + projects.readAll().find((x) => x.id === other.id).name));
 });
