@@ -19,6 +19,11 @@
  *             unreadable it counts the posts only, never claiming none of the comments are out there.
  *   EMPTY     no rows: the fold, the summary and the links are hidden, and the "none have gone" line shows.
  *   OLD       an answer with no summary (an older board): no summary line, and the fold still holds the rows.
+ *   SITE      kosmos#7215 step 3: with summary.ownerPage (this computer's agents can be linked to the account), a line
+ *             links that community page in a new tab and the fold is gone. CONTROL: CLOSED (no ownerPage) has no
+ *             such line and shows the fold.
+ *   SITE+MIXED with ownerPage and rows that are not in the community, the link shows AND the fold stays for them.
+ *   SITEBAD   an ownerPage that is not an http(s) address is ignored: no line, the fold as before.
  * CLOSED is the control for the others: it proves each element is found and painted.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
@@ -83,6 +88,8 @@ function read(pg) {
       links: shown($('community-mine-links')) ? $('community-mine-links').textContent : null,
       anchors: [...document.querySelectorAll('#community-mine-links a')].map((a) => ({ text: a.textContent, href: a.href, target: a.target, rel: a.rel, label: a.getAttribute('aria-label') })),
       emptyShown: shown($('community-mine-empty')),
+      site: shown($('community-mine-site')) ? $('community-mine-site').textContent : null,
+      siteLinks: [...document.querySelectorAll('#community-mine-site a')].map((a) => ({ href: a.href, target: a.target, rel: a.rel, label: a.getAttribute('aria-label') })),
     };
   });
 }
@@ -104,6 +111,7 @@ function read(pg) {
       && c.anchors[0].target === '_blank' && /noopener/.test(c.anchors[0].rel), JSON.stringify(c.anchors));
     check('CLOSED: the link says where it goes', c.anchors[0] && c.anchors[0].label === 'Ava’s page on the Kosmos+ community (opens in a new tab)', JSON.stringify(c.anchors));
     check('CLOSED: an agent with no community name gets no link', !/\bBo\b/.test(c.links || ''), c.links);
+    check('CLOSED (control for SITE): with no ownerPage there is no site line', c.site === null && c.siteLinks.length === 0, JSON.stringify(c.site));
 
     await p1.click('#community-mine-all-sum');
     await p1.waitForTimeout(200);
@@ -155,6 +163,25 @@ function read(pg) {
     check('EMPTY: no rows: fold, summary and links hidden, the "none" line shows', e.foldShown === false && e.summary === null && e.links === null && e.emptyShown === true, JSON.stringify(e));
     await p4.close();
 
+    const PAGE = 'https://community.kosmosplus.com/my-agents';
+    const p9 = await browser.newPage();
+    await openAutomation(p9, { posts: POSTS, comments: COMMENTS, summary: { ...SUMMARY, ownerPage: PAGE } });
+    const st = await read(p9);
+    check('SITE: one line links the community page, in a new tab', st.site !== null && /^Delete any of them on the community site: /.test(st.site)
+      && st.siteLinks.length === 1 && st.siteLinks[0].href === PAGE && st.siteLinks[0].target === '_blank' && /noopener/.test(st.siteLinks[0].rel), JSON.stringify(st.siteLinks));
+    check('SITE: the link says where it goes', st.siteLinks[0] && /opens in a new tab/.test(st.siteLinks[0].label || ''), JSON.stringify(st.siteLinks));
+    check('SITE: the fold is gone (every row is on the site)', st.foldShown === false, JSON.stringify(st));
+    await p9.close();
+    const p10 = await browser.newPage();
+    await openAutomation(p10, { posts: [...POSTS, { ...POSTS[0], id: 'p3', title: 'Held one', state: 'withheld', canDelete: false }], comments: [], summary: { posts: 2, comments: 0, agents: [], ownerPage: PAGE } });
+    const sm = await read(p10);
+    check('SITE+MIXED: a row not in the community keeps the fold, beside the link', sm.site !== null && sm.foldShown === true && sm.rowCount === 3, JSON.stringify(sm));
+    await p10.close();
+    const p11 = await browser.newPage();
+    await openAutomation(p11, { posts: POSTS, comments: COMMENTS, summary: { ...SUMMARY, ownerPage: 'javascript:alert(1)' } });
+    const sb = await read(p11);
+    check('SITEBAD: an ownerPage that is not http(s) is ignored: no line, the fold as before', sb.site === null && sb.foldShown === true, JSON.stringify(sb.site));
+    await p11.close();
     const p5 = await browser.newPage();
     await openAutomation(p5, { posts: POSTS, comments: COMMENTS });
     const old = await read(p5);

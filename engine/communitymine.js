@@ -187,6 +187,7 @@ function summary(posts = postEntries(), comments = commentEntries()) {
     posts: posts.filter((e) => e.live).length,
     comments: comments ? comments.filter((e) => e.live).length : null,
     agents,
+    ownerPage: communitysend.ownerPageUrl(),   // kosmos#7215: the community page with Delete, or null
   };
 }
 
