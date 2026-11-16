@@ -7746,16 +7746,22 @@ test('the projects tiles DRAW, not just compute: present at non-zero, hidden at 
   const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
   const drive = (projects, unreadable) => {
     const els = { 'st-pj': { textContent: '' }, 'st-pjattn': { textContent: '' }, 'st-pjattn-tile': { hidden: 'untouched' } };
-    const from = script.indexOf('const attnProjects = PJ_AGENTS_UNREADABLE');
+    /* kosmos#8592: the count now comes from pjNeedsPerson (the page's own, passed in), which also marks the rows the
+       Issue tile filters, and the slice records the ids for the tile's click. */
+    const from = script.indexOf('const attnRows = active.filter((p) => pjNeedsPerson(p, PJ_AGENTS_UNREADABLE));');
     const write = script.indexOf("document.getElementById('st-pjattn-tile').hidden = !attnProjects;");
     const end = script.indexOf('\n', write) + 1;
     assert.ok(from > -1 && write > from && write < end, 'the tile writes fell outside the extracted slice');
+    const ids = { PJ_ATTN_IDS: null };
     // eslint-disable-next-line no-new-func
-    new Function('document', 'active', 'PJ_AGENTS_UNREADABLE', script.slice(from, end))(
-      { getElementById: (id) => els[id] }, projects, unreadable);
+    new Function('document', 'active', 'PJ_AGENTS_UNREADABLE', 'pjNeedsPerson', 'ids',
+      'let PJ_ATTN_IDS;\n' + script.slice(from, end) + '\nids.PJ_ATTN_IDS = PJ_ATTN_IDS;')(
+      { getElementById: (id) => els[id] }, projects, unreadable, pageFunction('pjNeedsPerson'), ids);
+    els.ids = ids.PJ_ATTN_IDS;
     return els;
   };
-  const hot = drive([{ summary: { needsYou: 2 } }, { summary: {} }], false);
+  const hot = drive([{ id: 'a', summary: { needsYou: 2 } }, { id: 'b', summary: {} }], false);
+  assert.deepEqual(hot.ids, ['a'], 'kosmos#8592: the tile keeps the ids it counted, for its click');
   assert.equal(hot['st-pjattn-tile'].hidden, false, 'a project needs you and the tile never drew');
   assert.equal(hot['st-pjattn'].textContent, '1', 'the tile counts members, not projects (or nothing)');
   assert.equal(hot['st-pj'].textContent, '2');

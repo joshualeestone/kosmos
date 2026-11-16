@@ -107,7 +107,8 @@ const NONE = [{ id: 'idle', name: 'Idle One', archived: false, agents: [], summa
         kidIndent: kid ? parseFloat(getComputedStyle(kid).marginLeft) + parseFloat(getComputedStyle(kid).paddingLeft) : null,
         kidChip: shown(chip),
         current: PJ_CURRENT,
-        detailShown: !document.getElementById('pj-detail') || !document.getElementById('pj-detail').hidden,
+        detailShown: !!document.getElementById('pj-one-view') && !document.getElementById('pj-one-view').hidden,
+        pressedAttr: document.getElementById('st-pjattn-tile').hasAttribute('aria-pressed'),
       };
     });
 
@@ -118,6 +119,7 @@ const NONE = [{ id: 'idle', name: 'Idle One', archived: false, agents: [], summa
     check(s.count === '3' && !s.tileHidden, '1. the tile counts the same three', JSON.stringify(s));
     check(s.title === 'Show only projects that need you', '1. the tile says what a click does with several', s.title);
     check(!s.filter && s.displayed.length === s.all.length && s.all.length === 5, '2. control: before a click every row is displayed', JSON.stringify(s));
+    check(s.pressedAttr && s.pressed === 'false', '2. with several the tile is a toggle, not pressed', JSON.stringify(s));
     const kidIndentBefore = s.kidIndent;
 
     // 2. several: filter on, then off.
@@ -153,7 +155,8 @@ const NONE = [{ id: 'idle', name: 'Idle One', archived: false, agents: [], summa
     await p.click('#st-pjattn-tile');                       // off
     await p.evaluate(() => { PJ_TREE_FOLDED.clear(); pjSaveFold(); applyConsFold(); });
 
-    // 2c. the consolidated layout is never filtered (it has no tile to undo it; review round 1).
+    // 2c. the consolidated layout is never filtered (it has no tile to undo it; review round 1). The class is added by
+    // hand: this proves the CSS and fold scoping, and the tile itself is not on screen there (its stats row is hidden).
     await p.click('#st-pjattn-tile');                       // on
     const cons = await p.evaluate(() => {
       document.body.classList.add('consolidated');
@@ -192,6 +195,7 @@ const NONE = [{ id: 'idle', name: 'Idle One', archived: false, agents: [], summa
     await seed(ONE);
     s = await state();
     check(s.count === '1' && s.title === 'Open the project that needs you', '4. one project: the tile says it opens it', JSON.stringify(s));
+    check(!s.pressedAttr && !s.detailShown, '4. one project: the tile is not a toggle then (no aria-pressed), and no project is open yet', JSON.stringify(s));
     await p.click('#st-pjattn-tile');
     await p.waitForFunction(() => PJ_CURRENT === 'solo', { timeout: 3000 }).catch(() => {});
     s = await state();
@@ -230,7 +234,7 @@ const NONE = [{ id: 'idle', name: 'Idle One', archived: false, agents: [], summa
     srv.kill();
   }
 
-  if (ran < 27) { console.log('pj-issue-tile: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 29) { console.log('pj-issue-tile: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   console.log(failures ? failures + ' FAILED' : 'ALL PASS (' + ran + ')');
   process.exit(failures ? 1 : 0);
 })();

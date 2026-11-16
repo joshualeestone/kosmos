@@ -28,7 +28,7 @@ That opening the project is "opening the issue". The project page shows its memb
 to the specific question or held task. If the tester meant "straight to the question", that is a follow-up.
 
 ## Checks
-- New docs/browser-checks/render-pj-issue-tile-8592.js (29 assertions, Roadmap and Grid, one/several/none, keyboard,
+- New docs/browser-checks/render-pj-issue-tile-8592.js (31 assertions, Roadmap and Grid, one/several/none, keyboard,
   the exit link, the flat sub-project, and the Agents tile control). Control: it fails on origin/main's page.
 - render-chip-filters-3423.js (Agents tile) still 22 PASS. 72 web unit tests touching the changed functions pass.
 - Wiring: README row, gated.txt entry; browser-checks-indexed and tools.browser-checks-wired tests pass.
@@ -39,3 +39,11 @@ to the specific question or held task. If the tester meant "straight to the ques
 - The filter class reached the consolidated rail, which has no tile to undo it: the filter CSS and the fold stand-down
   are scoped to the tab views.
 - The tile's title says "Show all projects" while pressed.
+
+## Final validation and review round 3 (taken)
+- The full suite's guards: the new check needed a SITE_COUNTS line and a try around its route handler (#6022).
+- server.test.js "the projects tiles DRAW" sliced the tile code from the line this change replaced; it now slices from
+  the pjNeedsPerson line, uses the page's own pjNeedsPerson, and also checks the ids the tile keeps for its click.
+- The check's "a click opens it" now reads #pj-one-view (the earlier element did not exist, so that half was always true).
+- With one project and no filter the tile is not a toggle, so it carries no aria-pressed then (pjAttnTileSync).
+- Kept, decided: a failed projects read turns the filter off (pjTilesUnknown), since the tile hides and could not undo it.
