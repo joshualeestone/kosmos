@@ -141,8 +141,9 @@ function waitsWords(x, now = Date.now()) {
     const time = until.startsWith('until') ? (on ? on + ', ' : 'waits ') + until : on;
     return time || (x.onHoldByPerson === true ? 'held by the person' : '');
   }
-  if (x.projectPaused === true) return 'waits on its project being resumed';
+  // Built before paused, as tasks.listGroup orders them (#5864): a built task's review can happen in a paused project.
   if (x.builtAt) return 'waits on a review and close';
+  if (x.projectPaused === true) return 'waits on its project being resumed';
   if (x.repeatNextWords) return 'next run ' + one(x.repeatNextWords);
   return '';
 }

@@ -52,6 +52,8 @@ test('a built task waits on a review, a paused project on being resumed, a repea
   const built = rows('built', [{ projectId: 'web', number: 4, sentence: 'Fix it', whoNames: ['ada'], lastActivityAt: ago(2), builtAt: ago(2) }])[0];
   assert.equal(built, 'web  #4  built  ada  Fix it  (last activity 2 days ago; waits on a review and close)');
   assert.match(row({ lastActivityAt: ago(2), projectPaused: true }), /; waits on its project being resumed\)$/);
+  const builtPaused = rows('built', [{ projectId: 'web', number: 4, sentence: 'Fix it', whoNames: ['ada'], lastActivityAt: ago(2), builtAt: ago(2), projectPaused: true }])[0];
+  assert.match(builtPaused, /; waits on a review and close\)$/, 'a built task in a paused project is in the built list because its review can still happen');
   assert.match(row({ lastActivityAt: ago(2), repeat: { every: 'day' }, repeatNextWords: 'tomorrow at 9:00' }), /; next run tomorrow at 9:00\)$/);
 });
 
