@@ -26079,6 +26079,9 @@ const server = http.createServer(async (req, res) => {
     return typeof req.headers['sec-fetch-site'] === 'string'
       || (() => { try { const h = new URL(String(req.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
   }
+  /* kosmos#8318: a whole task in an answer the PAGE gets leaves out this computer's file paths (#8214, #8307), as
+     the page's list views do; an agent's token answer and the person's terminal keep them (the CLI reads them). */
+  function taskForCaller(req, body, t) { return isViaScreen(req, body || {}) ? tasks.withoutFilePaths(t) : t; }
   // heardBudgetAllows/heardBudgetRecord: module scope, above, beside
   // ENGINE_STARTED_AT -- they must survive across requests, and every name
   // in this handler is redefined fresh per request.
@@ -26351,7 +26354,7 @@ const server = http.createServer(async (req, res) => {
             for (const one of named) { try { projects.syncAgent(one, roster); } catch { /* non-gating */ } }
           } catch { /* non-gating */ }
         }
-        sendJson(res, 200, { task: t, told });
+        sendJson(res, 200, { task: taskForCaller(req, {}, t), told });
         // #5313: an agent CLOSING its own task gets one community prompt too (not a reopen, not the
         // person from the screen, and not a no-op re-close of an already-closed task -- closedBeforeThisCall).
         // After the response; the per-task dedup book means a task already prompted on its built mark
@@ -26436,7 +26439,7 @@ const server = http.createServer(async (req, res) => {
         let heldRoster;
         const rosterOnce = () => (heldRoster === undefined ? (heldRoster = safeRoster()) : heldRoster);
         try { if (tasks.whoOf(t).length) tellEveryoneOn(t, rosterOnce()); } catch { /* the hold happened; a failed re-tell is reported by the row's told verdict */ }
-        sendJson(res, 200, { task: t, ...(body.onHold === false ? { next: unholdNext(id, t, rosterOnce) } : {}),
+        sendJson(res, 200, { task: taskForCaller(req, body, t), ...(body.onHold === false ? { next: unholdNext(id, t, rosterOnce) } : {}),
           ...(body.onHold === true && body.forPerson === false ? { forPersonCleared: holdOut.forPersonCleared === true } : {}) });
       } catch (err) {
         const msg = String((err && err.message) || '');
@@ -26460,7 +26463,7 @@ const server = http.createServer(async (req, res) => {
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
       try {
         const t = tasks.setDue(id, taskDue[2], body.dueDate);
-        sendJson(res, 200, { task: t });
+        sendJson(res, 200, { task: taskForCaller(req, body, t) });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
@@ -26497,7 +26500,7 @@ const server = http.createServer(async (req, res) => {
         const whoSet = { by: who.card ? who.card.sessionName : null, person: viaScreen };
         const t = 'check' in body ? tasks.setDoneWhenCheck(id, taskDoneWhen[2], body.check, body.text, whoSet)
           : tasks.setDoneWhen(id, taskDoneWhen[2], body.doneWhen, whoSet);
-        sendJson(res, 200, { task: t });
+        sendJson(res, 200, { task: taskForCaller(req, body, t) });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,
@@ -26527,7 +26530,7 @@ const server = http.createServer(async (req, res) => {
         const by = who.card ? who.card.sessionName : null;
         // #4733, as the built note: the setup guide's words are masked before they are stored.
         const out = tasks.setCheckResult(id, taskCheck[2], body.check, body.met, typeof body.how === 'string' ? guideMasked(by, body.how) : body.how, { by });
-        sendJson(res, 200, { task: out.task, changed: out.changed });
+        sendJson(res, 200, { task: taskForCaller(req, body, out.task), changed: out.changed });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,
@@ -26734,7 +26737,7 @@ const server = http.createServer(async (req, res) => {
       }
       try {
         const t = tasks.setParent(id, taskParent[2], body.parent);
-        sendJson(res, 200, { task: t });
+        sendJson(res, 200, { task: taskForCaller(req, body, t) });
       } catch (err) {
         const msg = String((err && err.message) || '');
         const code = (err && err.code === 'UNREADABLE') ? 500
@@ -26972,7 +26975,7 @@ const server = http.createServer(async (req, res) => {
       // Review 1: the reading SENT (masked as stored), never only the stored one, so a run absorbed as a duplicate still
       // answers for what it found.
       const vsTold = taskRepeat[3] === 'ran' && typeof body.value === 'string' && task ? tasks.versusTold(task, guideMasked(viaScreen ? null : by, body.value)) : null;
-      sendJson(res, 200, { task, ...(vsTold ? { vs_told: vsTold } : {}), ...(task.duplicate ? { duplicate: true } : {}), ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
+      sendJson(res, 200, { task: taskForCaller(req, body, task), ...(vsTold ? { vs_told: vsTold } : {}), ...(task.duplicate ? { duplicate: true } : {}), ...(task.repeat ? { words: taskrepeat.describe(task.repeat), next_at: taskrepeat.nextAfter(task.repeat, Date.now()) } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
     });
@@ -27419,7 +27422,7 @@ const server = http.createServer(async (req, res) => {
         } else {
           heard = heardBudgetSkipped(body && body.who);
         }
-        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task, roster), heard });
+        sendJson(res, 200, { task: taskForCaller(req, body, out.task), told: tellEveryoneOn(out.task, roster), heard });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
@@ -27505,7 +27508,7 @@ const server = http.createServer(async (req, res) => {
         if (g.status === 429) { res.setHeader('retry-after', String(g.retryAfterSecs)); failed(429, g.because, { retry_after_secs: g.retryAfterSecs }); return; }
         if (!g.ok) { failed(g.status || 400, withAddMemberHint(g.because, asked.who, roster, hintOpts)); return; }
         /* `who` first: the Mac CLI reads the new owner from the start of this answer (the task inside has its own). */
-        sendJson(res, 200, { who: asked.who === undefined ? null : asked.who, part: Number(partId), task: g.task, told: g.told, heard: g.heard, ...(joined ? { addedMember: joined } : {}) });
+        sendJson(res, 200, { who: asked.who === undefined ? null : asked.who, part: Number(partId), task: taskForCaller(req, body, g.task), told: g.told, heard: g.heard, ...(joined ? { addedMember: joined } : {}) });
         if (joined && !toSelf) sayJoinedForTask(id, joined, roster);   // after the answer, not awaited (as task add)
       } catch (err) {
         const msg = String((err && err.message) || '');
@@ -27542,7 +27545,7 @@ const server = http.createServer(async (req, res) => {
           const g = await givePart(id, partAct[2], partAct[3], body && body.who, { screen, asyncDelivery: true, by, ...(roster ? { roster } : {}) });
           if (g.status === 429) { res.setHeader('retry-after', String(g.retryAfterSecs)); sendJson(res, 429, { error: g.because, retry_after_secs: g.retryAfterSecs }); return; }
           if (!g.ok) { sendJson(res, 400, { error: g.because }); return; }
-          sendJson(res, 200, { task: g.task, told: g.told, heard: g.heard });
+          sendJson(res, 200, { task: taskForCaller(req, body, g.task), told: g.told, heard: g.heard });
           return;
         }
         // Close and reopen are not valved: they change a state, not who is commanded.
@@ -27559,7 +27562,7 @@ const server = http.createServer(async (req, res) => {
         const out = tasks.setPartClosed(id, partAct[2], partAct[3], verb === 'close' ? new Date().toISOString() : null);
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
         const roster = safeRoster();
-        sendJson(res, 200, { task: out.task, told: tellEveryoneOn(out.task, roster), heard: undefined });
+        sendJson(res, 200, { task: taskForCaller(req, body, out.task), told: tellEveryoneOn(out.task, roster), heard: undefined });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
