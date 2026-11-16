@@ -8,7 +8,10 @@
  *
  * install() gives stdout and stderr one listener: EPIPE exits with 141 (128 + SIGPIPE, what a shell reports for a
  * program a closed pipe stopped); any other stream error is thrown again, so it still fails as loudly as before.
- * The exit is immediate (no async cleanup); for a CLI that is the point. Only EPIPE was measured as the closed-pipe
+ * Every node install/kosmos runs is guarded this way except the board (below), not only one-shot verbs; no engine
+ * file has its own stdout/stderr 'error' handler for this listener to pre-empt. The exit is immediate (no async
+ * cleanup, no flush): when stderr's reader is the one that closed, a note the verb was about to write is lost with
+ * it. For a closed reader that is the point. Only EPIPE was measured as the closed-pipe
  * error (macOS, Linux CI, Windows Git Bash `head -1`); another code still throws, as before.
  *
  * How it reaches the CLI:

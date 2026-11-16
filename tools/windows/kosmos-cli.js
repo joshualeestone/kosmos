@@ -4325,7 +4325,7 @@ module.exports = { main, argvFrom, versionLine, DESCRIBE, USAGE_REPLY_FILE, repl
 if (require.main === module) {
   // kosmos#8599: a reader that stops early (`kosmos ... | head -1` in Git Bash, measured on Windows) ends the command
   // quietly instead of with an unhandled EPIPE stack trace. The same guard install/kosmos preloads.
-  try { require(path.join(engineDir(), 'clipipe.js')).install(process); } catch (_) { /* an older engine: as before */ }
+  try { require(path.join(engineDir(), 'clipipe.js')).install(process); } catch (e) { if (!e || e.code !== 'MODULE_NOT_FOUND') throw e; /* an older engine: as before */ }
   main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => {
     process.stderr.write('kosmos: ' + String((e && e.message) || e) + '\n');
     process.exitCode = 1;
