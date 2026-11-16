@@ -65,9 +65,10 @@ test.after(() => {
 
 /* Across projects the board lists in project order (allTasks walks the projects as stored), then each project's own order. */
 const WANT = {
-  open: () => [A + '  #' + N['a-open'] + '  open  mara  Task a-open', B + '  #' + N['b-open'] + '  open  nobody  Task b-open', '2 open tasks across 2 projects.'],
-  blocked: () => [B + '  #' + N['b-held'] + '  blocked  otto  Task b-held', '1 blocked task across 1 project.'],
-  built: () => [A + '  #' + N['a-built'] + '  built  mara  Task a-built  (not seen by the person since built)', '1 built task across 1 project.'],
+  // kosmos#8576: a board this new sends lastActivityAt on every all=1 row, so each row says when it last moved.
+  open: () => [A + '  #' + N['a-open'] + '  open  mara  Task a-open  (last activity today)', B + '  #' + N['b-open'] + '  open  nobody  Task b-open  (last activity today)', '2 open tasks across 2 projects.'],
+  blocked: () => [B + '  #' + N['b-held'] + '  blocked  otto  Task b-held  (last activity today)', '1 blocked task across 1 project.'],
+  built: () => [A + '  #' + N['a-built'] + '  built  mara  Task a-built  (last activity today; waits on a review and close)  (not seen by the person since built)', '1 built task across 1 project.'],
 };
 
 // ── the renderer, on its own ────────────────────────────────────────────────
