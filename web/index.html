@@ -70918,7 +70918,7 @@ function paintProjects() {
   document.getElementById('st-pjattn-tile').hidden = !attnProjects;
   /* kosmos#8592: what a click does, said on the tile; and a filter left on with nothing to show turns itself off. */
   if (!attnProjects) setPjAttnFilter(false);
-  document.getElementById('st-pjattn-tile').title = pjAttnTileTitle();
+  pjAttnTileSync();
   /* #3276: the Roadmap top strip's summary, from the SAME `active`/`attnProjects` the
      tiles use so the strip can never disagree with the count tile. "N need you" is
      appended only when non-zero (and never under a blind roster, matching the tile's
@@ -71365,13 +71365,18 @@ function setPjAttnFilter(on) {
   const was = document.body.classList.contains('filter-pjattn');
   document.body.classList.toggle('filter-pjattn', !!on);
   const tile = document.getElementById('st-pjattn-tile');
-  if (tile) { tile.setAttribute('aria-pressed', String(!!on)); tile.title = pjAttnTileTitle(); }
+  pjAttnTileSync();
   if (was !== !!on && typeof applyConsFold === 'function') applyConsFold();   // fold and shading follow the filter
 }
-/* What a click on the tile does, in its words: show all again while pressed, else open one or show several. */
-function pjAttnTileTitle() {
-  if (document.body.classList.contains('filter-pjattn')) return 'Show all projects';
-  return PJ_ATTN_IDS.length === 1 ? 'Open the project that needs you' : 'Show only projects that need you';
+/* The tile says what a click does. While it filters it is a toggle (aria-pressed); with one project and no filter a
+   click opens that project, which is not a toggle, so it carries no pressed state then. */
+function pjAttnTileSync() {
+  const tile = document.getElementById('st-pjattn-tile');
+  if (!tile) return;
+  const on = document.body.classList.contains('filter-pjattn');
+  const opens = !on && PJ_ATTN_IDS.length === 1;
+  tile.title = on ? 'Show all projects' : (opens ? 'Open the project that needs you' : 'Show only projects that need you');
+  if (opens) tile.removeAttribute('aria-pressed'); else tile.setAttribute('aria-pressed', String(on));
 }
 /* kosmos#8592 (a tester through Josh, 11-16): "1 Issue" opens the issue. One project: open it, as clicking its card
    does. Several: show only those (the Agents tab's Issue tile filters the same way, #3423); a second click shows all. */
