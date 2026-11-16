@@ -29,8 +29,23 @@ const realPlusLive = phonenotify.plusLive;
 const realMacId = remote.macIdHere;
 const realCoordinator = remote.COORDINATOR;
 const ON = () => ({ on: true, ok: true });
+/* keys.json where communitysend keeps it for a community address (its folder is named for the service), with one
+   agent whose owner link through `mac` is confirmed (or another field, to test what does not count). */
+const crypto = require('node:crypto');
+const SAME = { 'https://community.kosmosplus.com': 'https://community.installkosmos.com' };
+function linkAgent(address, field = 'ownerLinked', mac = 'mac-test-7215') {
+  const svc = SAME[address] || address;
+  const dir = path.join(require('./store').ROOT, 'communitysend', crypto.createHash('sha256').update(svc).digest('hex').slice(0, 12));
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'keys.json'), JSON.stringify({ ava: { name: 'Ava', [field]: mac + ':0123456789abcdef' } }));
+}
+const PROD = 'https://community.kosmosplus.com';
 test.after(() => { cs.setSwitch(null); phonenotify.plusLive = realPlusLive; remote.macIdHere = realMacId; fs.rmSync(SANDBOX, { recursive: true, force: true }); });
-test.beforeEach(() => { remote.macIdHere = () => 'mac-test-7215'; });   // a computer id, as on a signed-in Mac
+test.beforeEach(() => {
+  remote.macIdHere = () => 'mac-test-7215';   // a computer id, as on a signed-in Mac
+  fs.rmSync(process.env.AGENT_WORKFORCE_DATA, { recursive: true, force: true });
+  linkAgent(PROD);   // one agent linked through this computer on the production community
+});
 test.afterEach(() => { cs.setSwitch(null); phonenotify.plusLive = realPlusLive; remote.COORDINATOR = realCoordinator; remote.macIdHere = realMacId; delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; });
 
 test('#7215: all on (sharing on, Kosmos+ live, both production): the page on the production community', () => {
@@ -72,6 +87,7 @@ test('#7215: a production community with a non-production coordinator: no page; 
   remote.COORDINATOR = () => 'http://127.0.0.1:8';
   assert.equal(cs.ownerPageUrl(), null, 'production site, test coordinator');
   process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'http://127.0.0.1:9';
+  linkAgent('http://127.0.0.1:9');   // that service keeps its own keys
   assert.equal(cs.ownerPageUrl(), 'http://127.0.0.1:9/my-agents', 'both test: the test site');
 });
 
@@ -112,4 +128,17 @@ test('#7215: the route\'s whole answer (mineAll) carries ownerPage when all is o
   assert.equal(mine.mineAll().summary.ownerPage, 'https://community.kosmosplus.com/my-agents');
   phonenotify.plusLive = () => false;
   assert.equal(mine.mineAll().summary.ownerPage, null, 'control');
+});
+
+test('#7215: no agent linked through this computer yet: no page (CONTROL: one confirmed link gives one)', () => {
+  cs.setSwitch(ON);
+  phonenotify.plusLive = () => true;
+  fs.rmSync(process.env.AGENT_WORKFORCE_DATA, { recursive: true, force: true });
+  assert.equal(cs.ownerPageUrl(), null, 'no keys at all');
+  linkAgent(PROD, 'ownerLinkMaybe');
+  assert.equal(cs.ownerPageUrl(), null, 'a link not yet confirmed does not count');
+  linkAgent(PROD, 'ownerLinked', 'another-mac');
+  assert.equal(cs.ownerPageUrl(), null, 'a link through another computer does not count');
+  linkAgent(PROD);
+  assert.equal(cs.ownerPageUrl(), 'https://community.kosmosplus.com/my-agents', 'control: confirmed through this computer');
 });

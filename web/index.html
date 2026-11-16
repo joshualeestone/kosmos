@@ -38993,6 +38993,7 @@ function communityMineSummaryPaint(summary, rowCount) {
   const site = document.getElementById('community-mine-site');
   fold.hidden = !(rowCount > 0);
   site.hidden = true;
+  site.replaceChildren();   // no stale link left in the hidden line
   communityMineFoldWords();
   const n = (k, one, many) => k.toLocaleString() + ' ' + (k === 1 ? one : many);
   if (!summary || !Number.isFinite(summary.posts)) { line.hidden = true; links.hidden = true; return; }

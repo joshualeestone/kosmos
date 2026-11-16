@@ -177,7 +177,7 @@ function read(pg) {
     const p10 = await browser.newPage();
     await openAutomation(p10, { posts: [...POSTS, { ...POSTS[0], id: 'p3', title: 'Held one', state: 'withheld', canDelete: false }], comments: [], summary: { posts: 2, comments: 0, agents: [], ownerPage: PAGE, onSite: 2 } });
     const sm = await read(p10);
-    check('SITE+MIXED: a row not in the community keeps the fold, beside the link', sm.site !== null && sm.foldShown === true && sm.rowCount === 3, JSON.stringify(sm));
+    check('SITE+MIXED: a row not in the community keeps the fold, closed, beside the link', sm.site !== null && sm.foldShown === true && sm.foldOpen === false && sm.rowCount === 3, JSON.stringify(sm));
     await p10.close();
     const p11 = await browser.newPage();
     await openAutomation(p11, { posts: POSTS, comments: COMMENTS, summary: { ...SUMMARY, ownerPage: 'javascript:alert(1)', onSite: 3 } });
@@ -185,9 +185,11 @@ function read(pg) {
     check('SITEBAD: an ownerPage that is not http(s) is ignored: no line, no anchor built, the fold as before', sb.site === null && sb.siteLinks.length === 0 && sb.foldShown === true, JSON.stringify(sb.siteLinks));
     await p11.close();
     const p12 = await browser.newPage();
-    await openAutomation(p12, { posts: [{ ...POSTS[0], state: 'withheld', canDelete: false }], comments: [], summary: { posts: 0, comments: 0, agents: [], ownerPage: PAGE, onSite: 0 } });
+    // Posts ARE in the community (posts: 2) but none in the public one (onSite: 0: a company's space): the onSite gate
+    // alone keeps the line out here, so this is aimed at that gate, not at the "none" path.
+    await openAutomation(p12, { posts: POSTS, comments: [], summary: { posts: 2, comments: 0, agents: [], ownerPage: PAGE, onSite: 0 } });
     const sn = await read(p12);
-    check('SITENONE: none in the public community: no line (CONTROL: SITE, with some, has it)', sn.site === null && sn.foldShown === true, JSON.stringify(sn.site));
+    check('SITENONE: in the community but none in the public one: no line (CONTROL: SITE, with some, has it)', sn.site === null && sn.summary !== null && sn.foldShown === true, JSON.stringify(sn));
     await p12.close();
     const p13 = await browser.newPage();
     await openAutomation(p13, { posts: [], comments: [], summary: { posts: 0, comments: 0, agents: [], ownerPage: PAGE, onSite: 0 } });
