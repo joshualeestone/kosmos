@@ -29,9 +29,15 @@ in full when nothing closes early.
   exits quietly instead of crashing with a trace; its stdout is the board log file in normal use. Either way it ends;
   the supervisor (launchd, systemd) restarts it as before, and only the trace in the log is gone. (Windows boards
   keep their own design, #8373/#8424: a closed console copy is recorded and never ends the board; untouched.)
-- Four node steps in install/kosmos with a `||` fallback (connections list, task list, task log, roles list) pass 141
-  straight through, so a closed reader does not read as "Kosmos gave an answer we could not read" or reprint the raw
-  answer into the closed pipe. A step captured into a variable (`$(...)`) cannot see the person's reader.
+- Eight node steps in install/kosmos that print to the person's stdout and have a fallback (connections list, what
+  agents found, accounts, task list, task log, project list/show, agent list, roles list) pass 141 straight through.
+  Found by reading every "could not read"/"did not run" sayer that follows a node step printing to stdout; the rest
+  answer an HTTP body or read a `$(...)` capture, which cannot see the person's reader. It matters when the wrapper
+  runs with SIGPIPE ignored, which is how agents run it (Claude Code's Bash tool is a node child, and node ignores
+  SIGPIPE): there a `say` into the closed pipe printed "write error" and exited 1. Under a plain shell `say` is
+  killed by SIGPIPE first, so those sites were already quiet.
+- A board that dies on a closed stdout leaves no line (accepted: a stderr line on stdout EPIPE would print on every
+  CLI `| head`, the noise this card removes; the board's stdout is its log file in normal use).
 - Exit 141 rather than 0: what a shell reports for a program a closed pipe stopped (git, cat). `| head` without
   pipefail is unchanged; with pipefail it was already non-zero (the crash exited 1).
 - A KOSMOS_HOME that is relative or holds `"` or `\` gets no guard (runs as before), since NODE_OPTIONS would read it
@@ -71,3 +77,11 @@ in full when nothing closes early.
 - WARNING fixed: Windows measured on the test box (Validation above), not only reasoned.
 - NITs fixed: clipipe.js says the exit is immediate and what it means for a board; install/kosmos says what
   KOSMOS_USER_NODE_OPTIONS_SET holds.
+### Review 3 (opus): 1 WARNING fixed, 1 deferred, 1 accepted, 1 CONVENTION fixed, 3 NITs (2 fixed, 1 left)
+- WARNING fixed: four more node-step fallbacks (accounts, what agents found, project list/show, agent list) pass 141;
+  Decisions says when the arm matters.
+- WARNING deferred to the closing gate: the full suite with the preload active.
+- WARNING accepted: the board's silent exit on a closed stdout (Decisions).
+- CONVENTION fixed: the Windows comment names only the measured case (Git Bash head -1).
+- NITs fixed: the test header's arm count; the install/kosmos comment names the system-node fallback.
+- NIT left: the Windows entry check reads source (review 1's NIT; measured behaviour is under Validation).

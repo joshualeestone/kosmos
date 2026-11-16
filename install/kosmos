@@ -48,7 +48,7 @@ NODE="$KOSMOS_HOME/runtime/bin/node"
 APP="$KOSMOS_HOME/app/server.js"
 # kosmos#8599: a node child of this command whose reader stops early (`kosmos ... | head -1`) exits quietly (141)
 # instead of printing an unhandled EPIPE stack trace. engine/clipipe.js is preloaded into every node this command
-# runs, from one place: it puts NODE_OPTIONS back as the person had it the moment it loads, so nothing those
+# runs (the bundled one and kosmos_engine_node's system-node fallback alike), from one place: it puts NODE_OPTIONS back as the person had it the moment it loads, so nothing those
 # children start inherits it. Only when the file is there (a missing preload would stop every node from starting),
 # only for an absolute path with no " or \ in it (NODE_OPTIONS reads both inside its quotes, and node would resolve a
 # relative one per child: either would stop every node; such a path runs unguarded, as before), and only once (a
@@ -3799,6 +3799,7 @@ cmd_connections() {
         for (const l of require(process.argv[1]).renderLines(j.services, Date.now(), process.argv[2] || "")) console.log(l);
       });' -- "$_gm" "${2:-}" || _grc2=$?
     [ "$_grc2" -eq 3 ] && exit 1
+    [ "$_grc2" -eq 141 ] && exit 141   # the reader closed (kosmos#8599)
     [ "$_grc2" -eq 0 ] || { say "Kosmos gave an answer we could not read about what agents found."; exit 1; }
     exit 0
   fi
@@ -3892,6 +3893,7 @@ cmd_accounts() {
       for (const l of r.lines) console.log(l);
     });' "$(kosmos_engine_module accountline).js" || prc=$?
   if [ "$prc" -eq 3 ]; then exit 1; fi
+  if [ "$prc" -eq 141 ]; then exit 141; fi   # the reader closed (kosmos#8599)
   if [ "$prc" -eq 4 ]; then say "Kosmos could not find its own reader for the board's accounts; this install looks incomplete."; exit 1; fi
   if [ "$prc" -ne 0 ]; then say "Kosmos gave an answer we could not read about its accounts."; exit 1; fi
 }
@@ -7592,12 +7594,15 @@ cmd_project() {
         case "$body" in '{'*) printf '%s\n' "$body"; exit 0 ;; *) say "Kosmos gave an answer we could not read, so nothing is shown."; exit 1 ;; esac
       fi
       # An answer that is not JSON (a proxy's error page, a cut-off body) is not a success (review round 1): exit 1.
-      if ! printf '%s' "$body" | "$_node" -e '
+      _prc=0
+      printf '%s' "$body" | "$_node" -e '
         const v = require(process.argv[1]);
         let d;
         try { d = JSON.parse(require("fs").readFileSync(0, "utf8")); } catch { process.exit(3); }
         process.stdout.write((process.argv[2] === "list" ? v.renderList(d) : v.renderShow(d)).join("\n") + "\n");
-      ' "$_mod" "$sub" 2>/dev/null; then
+      ' "$_mod" "$sub" 2>/dev/null || _prc=$?
+      [ "$_prc" -eq 141 ] && exit 141   # the reader closed (kosmos#8599)
+      if [ "$_prc" -ne 0 ]; then
         say "Kosmos gave an answer we could not read, so nothing is shown."
         exit 1
       fi
@@ -8013,7 +8018,7 @@ cmd_agent() {
         exit 1 ;;
       esac
       printf '%s' "$body" | CL_MOD="$(kosmos_engine_module clilists)" "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}if(!j||!Array.isArray(j.agents))process.exit(1);const r=require(process.env.CL_MOD).agentLines(j.agents,j.partial===true);console.log(r.lines.join("\n"));process.exitCode=r.code})' \
-        || { say "Kosmos gave an answer we could not read when listing the agents."; exit 1; }
+        || { _r=$?; [ "$_r" -eq 141 ] && exit 141; say "Kosmos gave an answer we could not read when listing the agents."; exit 1; }   # 141: the reader closed (kosmos#8599)
       ;;
     roles)
       # ?catalogue=1: listing the roles asks for the downloaded ready-made ones too, as the picker does (#4632).
