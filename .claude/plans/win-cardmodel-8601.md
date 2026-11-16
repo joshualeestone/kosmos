@@ -49,6 +49,12 @@ That a job naming a different model than the last reply means the agent runs the
 does not: a model change whose restart failed with the old process still alive (setModel's partial outcome), and a
 /model switch inside Claude Code followed by a job rewrite for another reason (an account move). In both the card names
 the job's model until the next reply. Before, the first was right and the second was right only by chance.
+Review 2: a transcript that names the SAME model in another spelling (a bare "opus" row, a provider-shaped id such as
+us.anthropic.claude-..., a "@date" suffix) reads as "another model" against the job's full id. After a rewrite and before
+the next reply the card then shows the job's model (the same model, so what the person sees is right), but `model` is
+null for the context ring and whoami until that reply. Bounded by the next reply; accepted.
+Review 2: like the Codex rule it shares writtenBeforeJob with, this reads the job in this process's own world only
+(no worldId), so an agent of a named world (#1704) keeps today's behaviour. Not new; noted.
 Deviation from the card's control ("a Mac agent's card still behaves as now"): the rule is platform-neutral, so a Mac or
 Linux agent's card also shows the new model right after a change instead of the old one. Said on the card.
 
@@ -62,3 +68,8 @@ Linux agent's card also shows the new model right after a change instead of the 
 - Live BEFORE merge (review 1), the branch's engine reading the real agent on the Windows box: before a change, current
   Opus 4.8; 15 s after a change to Haiku 5.5, an earlier reading (card model null, so the job's Haiku 5.5 shows); after
   changing back (a restart, same model), current again. Script work/t8471live/branchread.js.
+- Review 2: engine/status.cardmodel-realjob-8601.test.js writes the job the way this platform keeps it (plist, systemd
+  unit, or the stand-in Task Scheduler on Windows) with setModel's full id and reads it through the real
+  create.plannedModelOf; the main case fails against origin/main's status.js. The server hop (modelName null on a running
+  card fills plannedModelName from the job) is pinned by server.test.js "a tied card reports the model its job will start
+  it on, and only when no live model was read".

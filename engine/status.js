@@ -7416,7 +7416,10 @@ function readModel(agentName, exactSession) {
      time (/Change /DISABLE and /ENABLE), and on every platform an account move or a provider switch rewrites the job,
      all while the conversation and its model go on; blanking the model then also blanked the context ring and the
      agent's own "which model am I". The time check stays first because it is two stats; the job is read only after a
-     rewrite. */
+     rewrite.
+     Review 2: while the reading is earlier (a real model change, until the next reply), `model` is null on purpose for
+     every consumer: the context ring's ceiling is unknown (the new model's may differ) and whoami answers from the
+     process's own --model. That is not a regression to "fix" by passing the old model through. */
   if (now && writtenBeforeJob(file, agentName) && jobNamesAnotherModel(agentName, now)) {
     return { model: now, confidence: CONFIDENCE.STRUCTURED, earlierSession: true };
   }
