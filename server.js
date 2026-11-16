@@ -26059,9 +26059,16 @@ const server = http.createServer(async (req, res) => {
     return typeof req.headers['sec-fetch-site'] === 'string'
       || (() => { try { const h = new URL(String(req.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
   }
-  /* kosmos#8318: a whole task in an answer the PAGE gets leaves out this computer's file paths (#8214, #8307), as
-     the page's list views do; an agent's token answer and the person's terminal keep them (the CLI reads them). */
-  function taskForCaller(req, body, t) { return isViaScreen(req, body || {}) ? tasks.withoutFilePaths(t) : t; }
+  /* kosmos#8318: a whole task in an answer the PAGE gets leaves out this computer's paths, as the Tasks list view does:
+     the delivered file's (#8214, #8307) and a landed commit's repository (landedRepo). An agent's token answer and the
+     person's terminal keep them (the CLI reads them). `body` is what the route reads a token from; the close route
+     passes {} because it reads the header alone. */
+  function pageTask(t) {
+    const r = tasks.withoutFilePaths(t);
+    if (r && typeof r === 'object' && r !== t) delete r.landedRepo;   // a copy: the stored task keeps it
+    return r;
+  }
+  function taskForCaller(req, body, t) { return isViaScreen(req, body || {}) ? pageTask(t) : t; }
   // heardBudgetAllows/heardBudgetRecord: module scope, above, beside
   // ENGINE_STARTED_AT -- they must survive across requests, and every name
   // in this handler is redefined fresh per request.
@@ -27098,7 +27105,7 @@ const server = http.createServer(async (req, res) => {
       }
       // kosmos#8307 review 3: the page's own mark gets the task without this computer's file paths, as its list views do.
       // (A copy, made here so the answer below stays written as server.communitytaskdone-5313.test.js finds it.)
-      if (viaScreen) out.task = tasks.withoutFilePaths(out.task);
+      if (viaScreen) out.task = pageTask(out.task);   // kosmos#8318: the repository path too
       // Review 6: the summary goes whenever there is one (the withdrawal sentence must not hang on `delivered` being set); still the last key.
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(stillToFinish ? { stillToFinish } : {}), ...(delivered ? { delivered } : {}), ...(summary ? { summary } : {}) });
       // #5313: the same agent, between tasks, gets one community prompt (reaches busy agents the idle

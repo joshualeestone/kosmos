@@ -112,20 +112,56 @@ test('#8318: an agent\'s token answer keeps the path (the CLI reads it), on the 
   }
 });
 
+/* A landed commit stores this computer's repository path (landedRepo); the page's answer leaves it out too, as the
+   Tasks list view does. */
+test('#8318: a page answer leaves out a landed commit\'s repository path; an agent\'s keeps it', async () => {
+  const REPO = path.join(SANDBOX, 'repo');
+  const SHA = 'a'.repeat(40);
+  const n = tasks.create(projectId, { sentence: 'Fix the footer', who: 'mona' }).number;
+  const ok = tasks.setBuilt(projectId, n, { by: 'mona', note: 'fixed', commit: { sha: SHA, repo: REPO, onRemote: false } });
+  assert.ok(ok, 'CONTROL: the commit mark was stored');
+  assert.equal(stored(n).landedRepo, REPO, 'CONTROL: the stored task carries the repository path');
+  const page = await post(`/api/project/${projectId}/task/${n}/due`, { dueDate: '2026-12-31' }, PAGE);
+  assert.equal(page.status, 200, JSON.stringify(page.json));
+  assert.equal(page.json.task.number, n, 'CONTROL: the answer is that task');
+  assert.equal(stored(n).landedRepo, REPO, 'CONTROL: the stored task still has it after the call');
+  assert.equal('landedRepo' in page.json.task, false, 'the page was sent the repository path');
+  const agent = await post(`/api/project/${projectId}/task/${n}/due`, { dueDate: '2026-12-30' }, asAgent('mona'));
+  assert.equal(agent.status, 200, JSON.stringify(agent.json));
+  assert.equal(agent.json.task.landedRepo, REPO, 'the agent\'s answer lost the repository path');
+});
+
 /* The guard: every answer in server.js that sends a whole task under `task:` goes through taskForCaller, except the
    built route, which strips through its own viaScreen line (#8307, kept as server.communitytaskdone-5313.test.js reads
-   it), and task add's 201, whose `task` is a number. A new route that sends `task: t` straight fails here. */
+   it), and task add's 201, whose `task` is a number. A new answer that sends `task: t` straight fails here, on one
+   line or spread over up to six. */
 test('#8318: every task: answer in server.js goes through taskForCaller (source guard)', () => {
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const lines = src.split('\n');
+  /* Each sendJson answer read whole: from `sendJson(` to its matching `)` (brackets counted, at most six lines), so a
+     `task:` key on the next line is seen and the next statement is not. */
   const answers = [];
-  lines.forEach((l, i) => { if (/sendJson\(res, *\d+, *\{/.test(l) && /[{,] *task *[:,}]/.test(l)) answers.push([i + 1, l.trim()]); });
+  lines.forEach((l, i) => {
+    let at = l.search(/sendJson\(res, *\d+, *\{/);
+    while (at !== -1) {
+      const text = lines.slice(i, i + 6).join('\n').slice(at);
+      let depth = 0; let end = text.length;
+      for (let k = text.indexOf('('); k < text.length; k++) {
+        if (text[k] === '(') depth++;
+        else if (text[k] === ')' && --depth === 0) { end = k + 1; break; }
+      }
+      const call = text.slice(0, end).replace(/\s+/g, ' ');
+      if (/[{,] *task *[:,}]/.test(call)) answers.push([i + 1, call]);
+      const next = l.slice(at + 1).search(/sendJson\(res, *\d+, *\{/);
+      at = next === -1 ? -1 : at + 1 + next;
+    }
+  });
   assert.ok(answers.length >= 12, `CONTROL: the scan found the task answers (found ${answers.length})`);
   const bare = answers.filter(([, l]) => !/task: *taskForCaller\(/.test(l)
     && !/task: out\.task, changed: out\.changed === true/.test(l)    // the built route: its viaScreen line strips it
     && !/task: made && made\.number/.test(l));                       // task add: the number, not a task
   assert.deepEqual(bare, [], 'a task answer that skips taskForCaller:\n' + bare.map(([n, l]) => `  server.js:${n}: ${l.slice(0, 120)}`).join('\n'));
   const built = src.indexOf('task: out.task, changed: out.changed === true');
-  assert.ok(built > 0 && /if \(viaScreen\) out\.task = tasks\.withoutFilePaths\(out\.task\);/.test(src.slice(built - 400, built)),
+  assert.ok(built > 0 && /if \(viaScreen\) out\.task = pageTask\(out\.task\);/.test(src.slice(built - 400, built)),
     'the built route no longer strips its page answer just above its sendJson');
 });
