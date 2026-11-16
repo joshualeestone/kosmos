@@ -6,11 +6,10 @@ a link to a page that 404s is worse than the fold.
 
 ## Done looks like
 
-On a computer live on Kosmos+ (signed in and switched on) that sends to the production community, Settings >
-Community shows one link, "Delete any of them on the community site", to <community>/my-agents, in place of the
-closed fold with every row. The fold stays when the board lists rows that are not in the community (held back, not
-sent yet, being deleted), since only the board can act on those, and everywhere the owner link cannot exist (no
-Kosmos+, switched off, a non-production pairing). A browser check and an engine test pin both.
+On a computer live on Kosmos+ (signed in and switched on) whose community and coordinator pair allows owner links,
+Settings > Community shows a line "Delete any of them on the community site: Your agents' posts and comments" linking
+<community>/my-agents, ABOVE the closed fold that still holds every row with its Delete. A browser check and an engine
+test pin it.
 
 ## Changes
 
@@ -19,12 +18,16 @@ Kosmos+, switched off, a non-production pairing). A browser check and an engine 
   gate); otherwise null. The same conditions under which this computer's agents can be linked to the account.
 - engine/communitymine.js `summary()` adds `ownerPage` (that URL or null).
 - web/index.html `communityMineSummaryPaint`: with `summary.ownerPage` (an http(s) URL) and rows, a line with the
-  link (new tab, rel noopener); the fold hidden unless some rows are not in the community. Without it, as today.
+  link (new tab, rel noopener). The fold is unchanged.
 
 ## Decided (reversible)
 
-- Keep the fold for rows not in the community. Rejected: removing the board list entirely, as the card first said,
-  because a held or unsent post has no site row to delete, so the board would lose its only Delete for it.
+- Keep the fold, closed, beside the link. Rejected (the card's first idea, and this branch's first version, which
+  review round 1 found a BLOCKER in): hiding the fold when the link shows. The link's condition says agents CAN be
+  linked, not that they ARE (a coordinator 403, a site that is not set up, a refused agent, 5 links a pass), and a
+  held or unsent post has no site row, so hiding it would take away the only Delete for public content.
+  Hiding the fold only once every live agent carries the current owner-link marker would be the next step; it is not
+  built here.
 - The link names the page, not a count: the count line above already says how many.
 - Weakest premise: that a computer live on Kosmos+ has its agents linked by the time the person opens the page. The
   owner-link sweep links up to 5 agents a pass, so a big board may show the link before every agent is listed there;
