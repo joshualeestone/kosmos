@@ -66,8 +66,18 @@ test('#8581: uneven times in a day are each counted: 09:00 and 17:00 is told onc
 });
 
 test('#8581: not told before the slot is overdue by its grace; control: after it', () => {
-  const ago = iso(at(2026, 11, 1, 9, 30));
-  const task = { repeat: { every: 'day', at: '09:30' }, repeatSetAt: ago, lastRunAt: ago };
+  // Ran on time yesterday, so only today's 9:30 slot can be owed.
+  const task = { repeat: { every: 'day', at: '09:30' }, repeatSetAt: iso(at(2026, 11, 1, 9, 30)), lastRunAt: iso(at(2026, 11, 15, 9, 31)) };
   assert.equal(rd.owed(proj(task), at(2026, 11, 16, 9, 40)).length, 0, 'ten minutes late: within the 15-minute grace');
   assert.equal(rd.owed(proj(task), at(2026, 11, 16, 9, 46)).length, 1);
+});
+
+test('#8581: a run reported a little early answers its slot (as the missed count reads it); control: no run is owed', () => {
+  const set = iso(at(2026, 11, 1, 9, 0));
+  const hourly = { every: 'hour', minute: 0 };
+  assert.equal(rd.owed(proj({ repeat: hourly, repeatSetAt: set, lastRunAt: iso(at(2026, 11, 16, 8, 50)) }), at(2026, 11, 16, 9, 16)).length, 0, 'hourly, run at 8:50 for 9:00');
+  assert.equal(rd.owed(proj({ repeat: hourly, repeatSetAt: set, lastRunAt: iso(at(2026, 11, 16, 8, 0)) }), at(2026, 11, 16, 9, 16)).length, 1, 'control: the 9:00 run not reported');
+  const q = { every: 'minutes', n: 15 };
+  assert.equal(rd.owed(proj({ repeat: q, repeatSetAt: set, lastRunAt: iso(at(2026, 11, 16, 8, 58)) }), at(2026, 11, 16, 9, 4)).length, 0, 'every 15 minutes, run at 8:58 for 9:00');
+  assert.equal(rd.owed(proj({ repeat: q, repeatSetAt: set, lastRunAt: iso(at(2026, 11, 16, 8, 30)) }), at(2026, 11, 16, 9, 4)).length, 1, 'control');
 });

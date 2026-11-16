@@ -144,7 +144,9 @@ function sweep(o) {
            into a pane stopped on a permission prompt, "...and Enter" can answer it; a rate-limited or signed-out session
            cannot take it either. Held with no try spent; it goes on a later minute, once the reviewer is idle. */
         if (!nudgeable(card)) { results.push({ ...item, act: 'held', because: 'the reviewer is not idle, or cannot be typed into' }); continue; }
-        if (typedTo.has(item.reviewer)) { results.push({ ...item, act: 'held', because: 'one line to a reviewer per minute' }); continue; }
+        /* kosmos#8581: also an agent another sweep typed into this last minute (o.recentTyped, session -> ms). */
+        const typedRecently = o.recentTyped instanceof Map && now - (Number(o.recentTyped.get(item.reviewer)) || -Infinity) < 60 * 1000;
+        if (typedTo.has(item.reviewer) || typedRecently) { results.push({ ...item, act: 'held', because: 'one line to a reviewer per minute' }); continue; }
         /* Review 11, as the reply nudge (review 15 there): judged by WHEN it went idle, from its own idle report
            (o.idleSince), which also sees a turn taken and finished between two passes. Without a report, the two-pass
            record above. */

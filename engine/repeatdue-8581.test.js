@@ -232,8 +232,7 @@ test('#8581: a task every few minutes is told again in one stall only an hour pa
   const book = new Map();
   const idle = (t) => new Map([[REX, { since: t - 120000, at: t - 60000 }]]);
   const t0 = NOW + 5 * 60000;   // the 11:00 slot, past its grace (a quarter of 15 minutes)
-  assert.equal(run([id], { book, now: NOW }).sent.length, 0, 'not at the slot itself: a holder that runs on time is never typed into');
-  assert.equal(run([id], { book, now: t0, idleSeen: idle(t0) }).sent.length, 1, 'told once the slot is overdue');
+  assert.equal(run([id], { book, now: t0, idleSeen: idle(t0) }).sent.length, 1, 'told once a slot is overdue');
   const in30 = NOW + 35 * 60000;
   assert.equal(run([id], { book, now: in30, idleSeen: idle(in30) }).sent.length, 0, 'not every slot while the stall lasts');
   const in75 = NOW + 80 * 60000;
@@ -260,6 +259,7 @@ test('#8581: server.js runs the sweep on its own minute timer, only with the Pro
   assert.match(body, /recentTyped: TELL_TYPED/, 'reads when the missed-run tell typed');
   const m = src.slice(src.indexOf('const missedTellTick = setInterval('), i);
   assert.match(m, /log: \(x\) => \{ TELL_TYPED\.set\(x\.reviewer, Date\.now\(\)\);/, 'which the missed-run tell records');
+  assert.match(m, /recentTyped: TELL_TYPED/, 'and reads, so the hold-off works both ways');
 });
 
 test('#8581: a stalled hourly repeat is told again every four hours, not every hour; a daily one each day', () => {
@@ -290,6 +290,12 @@ test('#8581: the line carries the record-by guidance the Prompter nudge gives', 
   const { id } = fixture();
   const { sent } = run([id]);
   assert.match(sent[0].text, /record it before .*, ahead of the next one; if it is still going then, stop it, record it as it stands with what stopped it, and start the next\)/);
+});
+
+test('#8581: with the person as reviewer, the agent holder is still told', () => {
+  const ago = new Date(NOW - 27 * 86400000).toISOString();
+  const { id } = fixture({ repeatReviewerPerson: true, repeatReviewerSetAt: ago });
+  assert.equal(run([id]).sent.length, 1);
 });
 
 test('#8581: a holder that is the task\'s named reviewer is left to the missed-run tell; control: another holder is told', () => {

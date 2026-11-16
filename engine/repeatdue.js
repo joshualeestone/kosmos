@@ -14,7 +14,8 @@
  * lines for one run would be noise. The caller passes `prompterOn`.
  *
  * Once: the task stores the latest due slot it told about (repeatDueToldAt). A slot is told only when it is newer than
- * that. While one stall lasts (no run since the last line), it is told again only stallSlots() slots on. Nothing in a paused project, on a held task, closed, or for a
+ * that. While one stall lasts (no run since the last line), it is told again only stallSlots() slots on.
+ * Nothing in a paused project, on a held task, closed, or for a
  * holder switched off in the project is told (#4771). One holder per slot: the first idle holder told answers it,
  * because one `kosmos task ran` answers the slot for the whole task. A delivery that reached nothing is tried again on
  * later sweeps, up to MAX_TRIES for one slot, then recorded as not reached so it never repeats for ever.
@@ -32,8 +33,7 @@ const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
 /* How many of the rule's own slots past the last one told a stalled repeat waits before it is told again. Counted from
-   the slots in the 24 hours after `from` (nextAfter, local time), so uneven times in a day and a day the clocks change
-   are counted as the slots they are. */
+   the slots in the 24 hours after `from` (nextAfter, local time). */
 const PERDAY_WALK_CAP = 24 * 60;
 function stallSlots(rule, from) {
   let perDay = 0;
@@ -61,12 +61,11 @@ function owed(projects, now = Date.now()) {
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (!t || !t.repeat) continue;
       if (tasks.isOnHold(t) || tasks.progressOf(t).closed) continue;
-      const slot = taskrepeat.dueSlot(t, now);
-      if (slot === null || slot > now) continue;   // between runs, or no time to measure from (never claim a due run we cannot see)
-      const latest = taskrepeat.latestAtOrBefore(t.repeat, slot, now);
-      const at = latest !== null ? latest : slot;
-      /* Told only once the latest slot is overdue by the miss grace, so a holder that runs on time is never typed into. */
-      if (at + taskrepeat.missGraceFor(t.repeat) > now) continue;
+      /* The run is owed when taskrepeat.missedRuns says so (its miss grace and early-answer rule), the same rule the
+         missed-run tell and the task's missed count use, so the three never disagree about one run. */
+      const missed = taskrepeat.missedRuns(t, now);
+      if (!missed || missed.lastAt === null) continue;
+      const at = missed.lastAt;
       /* A rule set or changed after the last line starts afresh: the old rule's line says nothing about the new one. */
       const toldRaw = Date.parse(t.repeatDueToldAt || '');
       const told = Number.isFinite(toldRaw) && !(Date.parse(t.repeatSetAt || '') > toldRaw) ? toldRaw : NaN;
@@ -82,7 +81,7 @@ function owed(projects, now = Date.now()) {
       const by = taskrepeat.recordBy(t.repeat, at, now);
       out.push({
         projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: t.sentence || '',
-        slot: at, earlier: at > slot, words: taskrepeat.whenWords(at, now), byWords: by !== null ? taskrepeat.whenWords(by, now) : '',
+        slot: at, earlier: missed.count > 1 || missed.more === true, words: taskrepeat.whenWords(at, now), byWords: by !== null ? taskrepeat.whenWords(by, now) : '',
         holders, members: Array.isArray(p.agents) ? p.agents.slice() : [],
       });
     }
