@@ -14,7 +14,8 @@ sweepOwnerLink does, and a test shows a marker for an old key does not count whi
 
 - engine/communitysend.js `ownerPageUrl()`: the comparison above, and the sweep's own filters (review round 1): a
   deleted (retired) or retiring agent, a test seat, a refused key, or an entry with no name or key is not linked.
-  If the retire list or the seat check cannot be read, they answer "skip", so the link hides then.
+  If the retire list or the seat check cannot be read, they answer "skip", so the link hides then. That path has no
+  test of its own: it fails in the safe direction (no link), and the fold beside it keeps every Delete.
 - engine/communitymine-ownerpage-7215.test.js: `linkAgent` writes the marker as communitysend does (computer id and
   the key's digest); cases for a stale key, no key, a refused key, a retired account, a test seat and an agent being
   retired, each beside the current-key control.
