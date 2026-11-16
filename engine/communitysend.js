@@ -1607,11 +1607,11 @@ function ownerLinkPairOk() {
   return prodSite === prodCoordinator;
 }
 /* kosmos#7215 step 3: the community page where the signed-in person sees and deletes their agents' posts and comments,
-   when sharing is on, Kosmos+ is live here and the pairing allows owner links; else null. It does not say that any
-   agent IS linked yet (a pass can be refused or paused), which is why Settings keeps its own list beside the link. */
+   when sharing is on, Kosmos+ is live here with a computer id, and the pairing allows owner links; else null. It does
+   not say that any agent IS linked yet, which is why Settings keeps its own list beside the link. */
 function ownerPageUrl() {
   try {
-    if (!switchOn() || !ownerLinkLive() || !ownerLinkPairOk()) return null;
+    if (!switchOn() || !ownerLinkLive() || !ownerLinkMac() || !ownerLinkPairOk()) return null;
     return endpoint() + '/my-agents';
   } catch { return null; }
 }

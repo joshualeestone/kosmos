@@ -23,11 +23,15 @@ const remote = require('./remote');
 const mine = require('./communitymine');
 const phonenotify = require('./phonenotify');
 
+// communitysend's ownerLinkLive looks up phonenotify.plusLive when it runs, and remote.COORDINATOR and remote.macIdHere
+// likewise, so replacing them on the module objects reaches the code under test.
 const realPlusLive = phonenotify.plusLive;
+const realMacId = remote.macIdHere;
 const realCoordinator = remote.COORDINATOR;
 const ON = () => ({ on: true, ok: true });
-test.after(() => { cs.setSwitch(null); phonenotify.plusLive = realPlusLive; fs.rmSync(SANDBOX, { recursive: true, force: true }); });
-test.afterEach(() => { cs.setSwitch(null); phonenotify.plusLive = realPlusLive; remote.COORDINATOR = realCoordinator; delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; });
+test.after(() => { cs.setSwitch(null); phonenotify.plusLive = realPlusLive; remote.macIdHere = realMacId; fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+test.beforeEach(() => { remote.macIdHere = () => 'mac-test-7215'; });   // a computer id, as on a signed-in Mac
+test.afterEach(() => { cs.setSwitch(null); phonenotify.plusLive = realPlusLive; remote.COORDINATOR = realCoordinator; remote.macIdHere = realMacId; delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; });
 
 test('#7215: all on (sharing on, Kosmos+ live, both production): the page on the production community', () => {
   cs.setSwitch(ON);
@@ -69,6 +73,15 @@ test('#7215: a production community with a non-production coordinator: no page; 
   assert.equal(cs.ownerPageUrl(), null, 'production site, test coordinator');
   process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'http://127.0.0.1:9';
   assert.equal(cs.ownerPageUrl(), 'http://127.0.0.1:9/my-agents', 'both test: the test site');
+});
+
+test('#7215: no computer id here (as before the first sign-in finished): no page (CONTROL: with one, a page)', () => {
+  cs.setSwitch(ON);
+  phonenotify.plusLive = () => true;
+  remote.macIdHere = () => null;
+  assert.equal(cs.ownerPageUrl(), null);
+  remote.macIdHere = () => 'mac-test-7215';
+  assert.ok(cs.ownerPageUrl(), 'control');
 });
 
 test('#7215: a check that throws past its own guard is no page, never a crash of the summary', () => {
