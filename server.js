@@ -23303,8 +23303,8 @@ const server = http.createServer(async (req, res) => {
     /* The fields below cost a board snapshot plus a transcript read per task, so only the
        Tasks view (?view=tasks, which the project View-all door also opens since #3703) pays for
        them: the agents' `kosmos tasks` reads the list without the snapshot (kosmos#7151: the stale list adds one board
-       snapshot, only when some row would be offered for retiring). The stale list and, since kosmos#8576, every all=1
-       answer do read one transcript per open row, for each row's last activity. */
+       snapshot, only when some row would be offered for retiring). The stale list reads one transcript per open row,
+       and since kosmos#8576 the all=1&order=state list reads one per row that is not closed (see there). */
     if (!forTasksView) {
       if (listOnly !== null && !tasks.LIST_GROUPS.includes(listOnly)) {
         sendJson(res, 400, { error: 'the state to list must be one of: ' + tasks.LIST_GROUPS.join(', ') });
@@ -23362,8 +23362,8 @@ const server = http.createServer(async (req, res) => {
         if (!t) return t;
         const extra = { lastActivityAt: tasks.lastActivityOf(t.projectId, t) || null };
         if (t.onHold === true && t.onHoldUntil) {
-          // No project found (a duplicated id keeps one record): no answer at all, never an empty project, which would read
-          // a hold on a task as met because the task is not there.
+          // No project found: no answer at all, never an empty project, which would read a hold on a task as met because
+          // the task is not there. A repeated project id is not handled here: kosmos#8577.
           const p = projectOf.get(t.projectId);
           try { const st = p ? tasks.holdUntilState(p, t) : null; if (st) extra.holdUntilMet = st.met === true; } catch { /* said as before */ }
         }
