@@ -55,9 +55,9 @@ const NUDGE_HOUR = 17;
 const FIRST_ROLES = ['pm', 'director'];
 
 /* The record: { date: the day last asked, session: who, workedOn: the last day an agent was seen working, workers: the
-   session names seen working on that day (kosmos#8572; an agent renamed later that day is not matched by its new name) }.
-   Under the
-   data root, so a sandboxed test never reads the live one. Unreadable or absent reads as never asked and never seen, so
+   session names seen working on that day (kosmos#8572; matched by name, so an agent renamed later that day is not
+   matched by its new name, and a new agent reusing a removed one's name that day is) }. Under the data root, so a
+   sandboxed test never reads the live one. Unreadable or absent reads as never asked and never seen, so
    an ask is then possible again, never refused. `workedOn` is kept because the board's own record of who worked lives in
    memory (status.lastWorkedOf), so an afternoon restart (every update) would otherwise forget a full day's work (review 2). */
 function askedFile() { return path.join(require('./store').ROOT, 'feedbacknudge.json'); }
@@ -171,7 +171,7 @@ function plan(o) {
   if (o.workedOn !== o.today && !workedToday(o.roster, o.today, o.dateKey)) return { act: 'none', because: 'no agent worked today' };
   if (!candidates(o.roster, o.labels, o.isGuide).length) return { act: 'none', because: 'no idle agent to ask' };
   // kosmos#8572: only an agent with a day to report on. workers null: today's work is on record but not who did it (a record
-  // from before this change, read after the update's restart), so that one day any idle agent may be asked, as before.
+  // from before this change, or a list that could not be read), so for the rest of that day any idle agent may be asked.
   const workers = Array.isArray(o.workers) ? o.workers : [];
   const anyIdle = o.workers === null && o.workedOn === o.today;
   const cards = candidates(o.roster, o.labels, o.isGuide, (c) => anyIdle || workers.includes(c.sessionName) || seenWorking(c, o.today, o.dateKey) || cannotSee(c));
@@ -200,25 +200,30 @@ function sweepOnce(o) {
     let askedDate = null;
     try { askedDate = asked.get(); } catch { askedDate = null; }
     const entry = book.get('day');
-    /* Seen working today: kept on disk on every tick that sees it, from the morning on, so a restart later in the day
-       does not forget it (review 2). Only written when it changes. */
+    /* Seen working today: kept on disk on every tick that sees it while sending is on, from the morning on, so a restart
+       later in the day does not forget it (review 2). Only written when it changes. */
     let workedOn = null;
     try { workedOn = typeof asked.workedOn === 'function' ? asked.workedOn() : null; } catch { workedOn = null; }
     // kosmos#8572: and WHO worked today, kept beside the day, so the ask goes to one of them after a restart too.
-    // null: the record saw work today but keeps no list (it was written before kosmos#8572), so plan cannot tell who.
+    // Unlisted: the record saw work today but keeps no list (written before kosmos#8572, read after the update's restart)
+    // or the list could not be read. Then nobody can tell who worked before now, so for the rest of that day any idle agent
+    // may be asked, as before, and the record is not rewritten with only the agents seen from now on.
     let workers = [];
-    if (workedOn === today) { try { workers = typeof asked.workers === 'function' ? asked.workers() : []; } catch { workers = []; } }
-    const unlisted = workedOn === today && workers === null;
-    if (!Array.isArray(workers)) workers = [];
+    let unlisted = false;
+    if (workedOn === today) {
+      try { workers = typeof asked.workers === 'function' ? asked.workers() : []; } catch { workers = null; }
+      unlisted = !Array.isArray(workers);
+      if (unlisted) workers = [];
+    }
     const seenNow = o.roster.filter((c) => seenWorking(c, today, dateKey)).map((c) => c.sessionName).filter((x) => typeof x === 'string');
-    const grown = seenNow.filter((x) => !workers.includes(x));
+    const grown = unlisted ? [] : seenNow.filter((x) => !workers.includes(x));
     if (send && send.ok === true && send.on === true && (grown.length || (workedOn !== today && workedToday(o.roster, today, dateKey)))) {
       workedOn = today;
       workers = workers.concat(grown);
       try { if (typeof asked.markWorked === 'function') asked.markWorked(today, workers); } catch { /* the roster still says so this tick */ }
     }
     const p = plan({
-      roster: o.roster, send, today, hour: now.getHours(), hasReport, askedDate, entry, dateKey, workedOn, workers: unlisted && !grown.length ? null : workers,
+      roster: o.roster, send, today, hour: now.getHours(), hasReport, askedDate, entry, dateKey, workedOn, workers: unlisted ? null : workers,
       labels: Array.isArray(o.labels) ? o.labels : firstLabels(), isGuide: typeof o.isGuide === 'function' ? o.isGuide : undefined,
     });
     if (p.act !== 'nudge') return { result: { act: 'none', because: p.because } };
