@@ -28,7 +28,7 @@ That opening the project is "opening the issue". The project page shows its memb
 to the specific question or held task. If the tester meant "straight to the question", that is a follow-up.
 
 ## Checks
-- New docs/browser-checks/render-pj-issue-tile-8592.js (31 assertions, Roadmap and Grid, one/several/none, keyboard,
+- New docs/browser-checks/render-pj-issue-tile-8592.js (32 assertions, Roadmap and Grid, one/several/none, keyboard,
   the exit link, the flat sub-project, and the Agents tile control). Control: it fails on origin/main's page.
 - render-chip-filters-3423.js (Agents tile) still 22 PASS. 72 web unit tests touching the changed functions pass.
 - Wiring: README row, gated.txt entry; browser-checks-indexed and tools.browser-checks-wired tests pass.
@@ -47,3 +47,7 @@ to the specific question or held task. If the tester meant "straight to the ques
 - The check's "a click opens it" now reads #pj-one-view (the earlier element did not exist, so that half was always true).
 - With one project and no filter the tile is not a toggle, so it carries no aria-pressed then (pjAttnTileSync).
 - Kept, decided: a failed projects read turns the filter off (pjTilesUnknown), since the tile hides and could not undo it.
+
+## Review round 5 (taken)
+- Under the filter, Collapse all / Expand all and the keyboard fold could change the saved fold unseen. pjFoldFrozen()
+  now stops every fold change while the filter is on (tab views), and the strip's two buttons hide with the carets.

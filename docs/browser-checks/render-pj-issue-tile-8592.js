@@ -147,9 +147,16 @@ const NONE = [{ id: 'idle', name: 'Idle One', archived: false, agents: [], summa
     check(JSON.stringify(s.displayed) === JSON.stringify(['held', 'kid', 'red']), '2a. with the parent folded, the filter still shows the marked sub-project', JSON.stringify(s.displayed));
     const folds = await p.evaluate(() => [...document.querySelectorAll('#pj-list .pjtreefold')].filter((c) => getComputedStyle(c).display !== 'none').length);
     check(folds === 0, '2a. no fold caret shows while the filter is on', String(folds));
-    await p.evaluate(() => { const b = document.querySelector('[data-pj-collapse-all], #pj-rm-collapse'); if (b) b.click(); else { PJ_TREE_FOLDED.add('red'); PJ_TREE_FOLDED.add('held'); applyConsFold(); } });
+    const frozen = await p.evaluate(() => {
+      const before = [...PJ_TREE_FOLDED].sort().join(',');
+      const shown = (id) => { const e = document.getElementById(id); return !!e && getComputedStyle(e).display !== 'none'; };
+      const buttons = shown('pj-rm-collapse') || shown('pj-rm-expand');
+      pjFoldAll(true); pjTreeToggleFold('red');
+      return { before, after: [...PJ_TREE_FOLDED].sort().join(','), buttons };
+    });
+    check(!frozen.buttons && frozen.before === frozen.after, '2a. while filtered, Collapse all and Expand all are hidden and no fold change is saved', JSON.stringify(frozen));
     s = await state();
-    check(JSON.stringify(s.displayed) === JSON.stringify(['held', 'kid', 'red']), '2a. collapsing while filtered hides none of the marked projects', JSON.stringify(s.displayed));
+    check(JSON.stringify(s.displayed) === JSON.stringify(['held', 'kid', 'red']), '2a. a fold attempt while filtered hides none of the marked projects', JSON.stringify(s.displayed));
     const stripes = await p.evaluate(() => [...document.querySelectorAll('#pj-list .pj-row[data-project]')].filter((r) => getComputedStyle(r).display !== 'none').map((r) => r.classList.contains('pj-stripe')));
     check(JSON.stringify(stripes) === JSON.stringify([false, true, false]), '2a. the shading alternates over the rows shown', JSON.stringify(stripes));
     await p.click('#st-pjattn-tile');                       // off
