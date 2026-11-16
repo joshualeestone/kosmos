@@ -2809,13 +2809,13 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
 #st-dm-tile[aria-pressed="true"] { border-color: var(--gold-deep); background: rgba(198,154,50,.14); }
 #st-dm-tile[aria-pressed="true"] .slab { color: var(--k-ink); font-weight: 600; }
 /* The exit affordance ("View all agents"), shown only while the filter is on. */
-.board-msgfilter-exit { display: none; border: 0; background: none; padding: 0 4px; cursor: pointer;
+.board-msgfilter-exit, .pj-attn-exit { display: none; border: 0; background: none; padding: 0 4px; cursor: pointer;
   font: inherit; font-size: .8125rem; color: var(--k-ink); text-decoration: underline;
   text-decoration-color: var(--gold-deep, #b88920); text-underline-offset: 2px; align-self: center; }
 /* --k-ink text (clears AA); the gold is reserved for the UNDERLINE accent, never the text --
    --gold-deep is a border/non-text color in this file (see .dbox .btn), ~3:1 as text. */
-.board-msgfilter-exit:hover { text-decoration-color: var(--k-ink); }
-.board-msgfilter-exit:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.board-msgfilter-exit:hover, .pj-attn-exit:hover { text-decoration-color: var(--k-ink); }
+.board-msgfilter-exit:focus-visible, .pj-attn-exit:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 body.filter-msgs .board-msgfilter-exit,
 body.filter-attn .board-msgfilter-exit { display: inline-flex; }
 /* The filter: hide no-message agents in grid + list; DIM them in the org chart so the hierarchy
@@ -2846,6 +2846,22 @@ body.filter-msgs #orgview .onode:not([data-has-msgs]) { opacity: .26; }
 body.filter-attn #grid .acard:not([data-attn]),
 body.filter-attn #alist .lrow:not([data-attn]) { display: none; }
 body.filter-attn #orgview .onode:not([data-attn]) { opacity: .26; }
+/* kosmos#8592: the Projects tab's Issue tile, the same control look as #st-attn-tile above. With several projects
+   needing the person it filters #pj-list to the rows marked data-attn (the tile's own count, written beside it in
+   paintProjects). A sub-project shown without its parent is laid flat with its "under <parent>" chip, so it never
+   hangs indented under a row that is not there. */
+#st-pjattn-tile { cursor: pointer; }
+#st-pjattn-tile:hover { border-color: var(--gold-deep); background: rgba(198,154,50,.07); }
+#st-pjattn-tile:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+#st-pjattn-tile[aria-pressed="true"] { border-color: var(--gold-deep); background: rgba(198,154,50,.14); }
+#st-pjattn-tile[aria-pressed="true"] .slab { color: var(--k-ink); font-weight: 600; }
+body.filter-pjattn .pj-attn-exit { display: inline-flex; }
+body.filter-pjattn #pj-list .pj-row:not([data-attn]) { display: none !important; }
+body.filter-pjattn #pj-list .pj-row { --pj-depth: 0 !important; }
+/* !important: the tree rules these undo (#1994, #3276) sit later in this file and carry more specificity. */
+body.filter-pjattn #pj-list .pj-row.child { border-left: 0 !important; }
+body.filter-pjattn #pj-list .pj-row.child::before, body.filter-pjattn #pj-list .pj-row.child::after { display: none !important; }
+body.filter-pjattn #pj-list .pj-row.child .pj-parent { display: inline-block !important; }
 .stat.alert { border-color: rgba(179,38,30,.45); }
 /* The pack's status glyph family, shared by the tiles, the pills, and the
    list rows. The hazard is a TRIANGLE because shape is the carrier and
@@ -17469,7 +17485,11 @@ window.kosmosMeasureScrollbarWidth();
       </button>
       <div class="stats">
         <div class="stat"><b id="st-pj">0</b><span class="slab">Projects</span></div>
-        <div class="stat alert" id="st-pjattn-tile" hidden>
+        <!-- kosmos#8592 (a tester through Josh, 11-16): the Issue tile is a control, as the Agents tab's twin is
+             (#3423). One project needing you: it opens that project, the same as clicking its card. More than one:
+             it toggles a filter to just those projects ("View all projects", or the tile again, exits). The title
+             is rewritten with the count in paintProjects. -->
+        <div class="stat alert" id="st-pjattn-tile" hidden role="button" tabindex="0" aria-pressed="false" title="Show only projects that need you">
           <span class="haz" aria-hidden="true">!</span>
           <b id="st-pjattn">0</b><span class="slab">Issue</span>
         </div>
@@ -17487,6 +17507,9 @@ window.kosmosMeasureScrollbarWidth();
           <span class="dmtile-g" aria-hidden="true"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H6.5L3.5 14v-3H2.5a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z"/></svg></span>
           <b id="st-pjdm">0</b><span class="slab">Messages</span>
         </div>
+        <!-- kosmos#8592: the way out of the Issue filter, the Agents tab's "View all agents" in the same look. CSS shows it
+             only while body.filter-pjattn is on. -->
+        <button class="pj-attn-exit" id="pj-attn-exit" type="button">View all projects</button>
       </div>
       <!-- 🔑 SORT BESIDE THE VIEW TOGGLE, NOT INSIDE A VIEW (#168, Josh
            2026-08-21: "next to the 3-tab rather than the list view"). It sits
@@ -69807,6 +69830,8 @@ async function watchForAgentNow(name, result, attempt) {
  * ------------------------------------------------------------------------ */
 
 let PROJECTS = [];
+/* kosmos#8592: the ids pjNeedsPerson picked on the last paint, in the order the cards show. The Issue tile's click reads it. */
+let PJ_ATTN_IDS = [];
 let PJ_LOADED_ONCE = false;  // true once the first projects read has landed (the browser checks seed it); paintPjNone no longer reads it since #3597
 
 /* #2407: a subtle "bubble pop" when a new message lands on a project, so a person
@@ -70861,11 +70886,15 @@ function paintProjects() {
      zero and under a blind roster (a claim we cannot make). */
   /* kosmos#7797: a project holding a task for the person needs them too. Final review: under a blind roster the tile
      still hides, since a count of the holds alone would read as the whole answer; each such card keeps its Question pill. */
-  const attnProjects = PJ_AGENTS_UNREADABLE ? 0
-    : active.filter((p) => (((p.summary || {}).needsYou) || 0) > 0 || (((p.summary || {}).heldForYou) || 0) > 0).length;
+  const attnRows = active.filter((p) => pjNeedsPerson(p, PJ_AGENTS_UNREADABLE));
+  const attnProjects = attnRows.length;
+  PJ_ATTN_IDS = attnRows.map((p) => p.id);
   document.getElementById('st-pj').textContent = String(active.length);
   document.getElementById('st-pjattn').textContent = String(attnProjects);
   document.getElementById('st-pjattn-tile').hidden = !attnProjects;
+  /* kosmos#8592: what a click does, said on the tile; and a filter left on with nothing to show turns itself off. */
+  document.getElementById('st-pjattn-tile').title = attnProjects === 1 ? 'Open the project that needs you' : 'Show only projects that need you';
+  if (!attnProjects) setPjAttnFilter(false);
   /* #3276: the Roadmap top strip's summary, from the SAME `active`/`attnProjects` the
      tiles use so the strip can never disagree with the count tile. "N need you" is
      appended only when non-zero (and never under a blind roster, matching the tile's
@@ -71285,6 +71314,7 @@ function pjTilesUnknown() {
   document.getElementById('st-pj').textContent = '?';
   document.getElementById('st-pjattn').textContent = '?';
   document.getElementById('st-pjattn-tile').hidden = true;
+  PJ_ATTN_IDS = []; setPjAttnFilter(false);   // kosmos#8592: no claim, so no filter on one
   /* #2863: a failed read cannot count unread messages either. Hidden rather than
      a standing count, the same choice the tiles above make: a stale "5 Messages"
      from the last good read would claim something this failed read cannot stand
@@ -71296,6 +71326,36 @@ function pjTilesUnknown() {
 /* The pack's state pill (view C): Issue > Working > Restarting, and since #4730 nothing else. A pill
    means something is running; with nothing running, an unseen member or a blind roster the card shows
    none (Josh 2026-09-30), and it never shows Working or Issue it could not read. */
+/* kosmos#8592: the one test for "this project needs the person", used by the Issue tile's count, its filter marker
+   (data-attn on the row) and its click. An agent on it needs the person (only while the roster can be read, as the tile
+   always said), or a task waits on the person's answer (kosmos#7797). */
+function pjNeedsPerson(p, unreadable) {
+  const s = (p && p.summary) || {};
+  if (unreadable) return false;
+  return (Number(s.needsYou) || 0) > 0 || (Number(s.heldForYou) || 0) > 0;
+}
+function setPjAttnFilter(on) {
+  document.body.classList.toggle('filter-pjattn', !!on);
+  const tile = document.getElementById('st-pjattn-tile');
+  if (tile) tile.setAttribute('aria-pressed', String(!!on));
+}
+/* kosmos#8592 (a tester through Josh, 11-16): "1 Issue" opens the issue. One project: open it, as clicking its card
+   does. Several: show only those (the Agents tab's Issue tile filters the same way, #3423); a second click shows all. */
+function pjAttnTileClick() {
+  if (PJ_ATTN_IDS.length === 1 && !document.body.classList.contains('filter-pjattn')) { openProject(PJ_ATTN_IDS[0]); return; }
+  setPjAttnFilter(!document.body.classList.contains('filter-pjattn'));
+}
+(() => {
+  const tile = document.getElementById('st-pjattn-tile');
+  if (tile) {
+    tile.addEventListener('click', pjAttnTileClick);
+    tile.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); pjAttnTileClick(); }
+    });
+  }
+  const exit = document.getElementById('pj-attn-exit');
+  if (exit) exit.addEventListener('click', () => setPjAttnFilter(false));
+})();
 function pjPillOf(p, unreadable) {
   const s = p.summary || {};
   /* #6483: only agents' own questions (the engine's needsYouQuestions) read as the agent card reads them, a calm
@@ -71542,7 +71602,9 @@ function projectCard(p, unreadable, depth, childCount, lastKid) {
     : '';
   return '<button class="pj-row' + (pill.cls === 'attn' ? ' attn' : '') + (p.id === PJ_CURRENT ? ' open' : '')
     + (dep ? ' child' : '') + (dep && lastKid ? ' pj-lastkid' : '') + '"' + (dep ? ' style="--pj-depth:' + dep + '"' : '')
-    + (p.id === PJ_CURRENT ? ' aria-current="true"' : '') + ' type="button" data-project="' + esc(p.id) + '">'
+    + (p.id === PJ_CURRENT ? ' aria-current="true"' : '') + ' type="button" data-project="' + esc(p.id) + '"'
+    /* kosmos#8592: the Issue tile's filter marker, the tile's own test (pjNeedsPerson), so the two cannot disagree. */
+    + (pjNeedsPerson(p, unreadable) ? ' data-attn="1"' : '') + '>'
     + treeCaret
     + '<span class="pjcard-h"><span class="pjname"><b>' + esc(p.name) + '</b>'
     /* The room the person is looking at has no unread: the engine's cursor
