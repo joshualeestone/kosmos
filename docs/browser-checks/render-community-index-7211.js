@@ -169,7 +169,7 @@ function read(pg) {
     const p9 = await browser.newPage();
     await openAutomation(p9, { posts: POSTS, comments: COMMENTS, summary: { ...SUMMARY, ownerPage: PAGE, onSite: 3 } });
     const st = await read(p9);
-    check('SITE: one line links the community page, in a new tab', st.site !== null && /^You can also delete the ones in the public community on the community site: /.test(st.site)
+    check('SITE: one line links the community page, in a new tab', st.site !== null && st.site === 'To delete them from the public community, sign in to the community site with your Kosmos+ account.'
       && st.siteLinks.length === 1 && st.siteLinks[0].href === PAGE && st.siteLinks[0].target === '_blank' && /noopener/.test(st.siteLinks[0].rel), JSON.stringify(st.siteLinks));
     check('SITE: the link says where it goes', st.siteLinks[0] && /opens in a new tab/.test(st.siteLinks[0].label || ''), JSON.stringify(st.siteLinks));
     check('SITE: the fold stays, closed, beside the link (the board keeps its own Delete)', st.foldShown === true && st.foldOpen === false && st.rowsVisible === 0, JSON.stringify(st));
