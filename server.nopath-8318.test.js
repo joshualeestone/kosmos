@@ -74,6 +74,11 @@ async function delivered(sentence) {
   assert.equal(r.json.task.builtFilePath, FILE, 'CONTROL: the stored task carries the delivered file\'s path');
   return n;
 }
+/* Wider than the named fields: the page's copy of a task holds no string under this test's sandbox at all, so a field
+   that later starts carrying one of these local paths (under any name) fails here too. */
+function noLocalPath(label, t) {
+  assert.equal(JSON.stringify(t).includes(SANDBOX), false, `${label}: the page's task carries a path on this computer: ${JSON.stringify(t).slice(0, 300)}`);
+}
 const stored = (n) => tasks.byNumber(projects.readAll().find((x) => x.id === projectId), n);
 /* One route, called by the page on a task freshly delivered for it: 200, that whole task, no path, and the stored task
    STILL carries the path, so its absence in the answer is the strip and not a mark the call cleared. */
@@ -86,6 +91,7 @@ async function pageGetsNoPath(label, suffix, body, prep) {
   assert.equal(r.json.task.number, n, `${label}: CONTROL: it is that task`);
   assert.equal(stored(n).builtFilePath, FILE, `${label}: CONTROL: the stored task still has the path, so the test can see a strip`);
   assert.equal('builtFilePath' in r.json.task, false, `${label}: the page was sent the delivered file's path`);
+  noLocalPath(label, r.json.task);
 }
 
 /* Adding a part, closing a task and setting a repeat all clear the built mark, so the part, close, reopen and repeat
@@ -126,6 +132,7 @@ test('#8318: a page answer leaves out a landed commit\'s repository path; an age
   assert.equal(page.json.task.number, n, 'CONTROL: the answer is that task');
   assert.equal(stored(n).landedRepo, REPO, 'CONTROL: the stored task still has it after the call');
   assert.equal('landedRepo' in page.json.task, false, 'the page was sent the repository path');
+  noLocalPath('landed', page.json.task);
   const agent = await post(`/api/project/${projectId}/task/${n}/due`, { dueDate: '2026-12-30' }, asAgent('mona'));
   assert.equal(agent.status, 200, JSON.stringify(agent.json));
   assert.equal(agent.json.task.landedRepo, REPO, 'the agent\'s answer lost the repository path');
