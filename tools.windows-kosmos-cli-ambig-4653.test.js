@@ -115,7 +115,7 @@ test('kosmos#8566: a post addressed to a name no member has prints the verdict, 
 
 test('kosmos#8569: a post that reached nobody (every other member switched off here) never says everyone has it', async () => {
   const none = await post({ state: 'placed', id: 'm1', outcomes: {} });
-  assert.deepEqual(none.out, ['Posted to proj. It woke no one: no other member is switched on in this project, so it is only in the room.']);
+  assert.deepEqual(none.out, ['Posted to proj. It woke no one: no other member is switched on in this project, so it is only in the room. To reach one anyway, name them: start with \'YourName -> Their Name:\' or @-name them (@all does not reach them).']);
   const dup = await post({ state: 'placed', id: 'm1', outcomes: {}, duplicate: true });
   assert.doesNotMatch(dup.out.join('\n'), /Everyone on it has it waiting/, 'a folded retry of a post that reached nobody claimed everyone has it');
   const paused = await post({ state: 'placed', id: 'm1', outcomes: {}, because: 'the room is paused' });
