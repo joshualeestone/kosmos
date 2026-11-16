@@ -401,3 +401,19 @@ test('#8586: a minutes repeat\'s reviewer-holder is never told here while the mi
   assert.equal(sent.length, 1, 'only the other task\'s holder is told');
   assert.match(sent[0].text, new RegExp('in ' + projects.readAll().find((x) => x.id === other.id).name));
 });
+
+test('#8586: a minutes repeat\'s holder who comes back mid-stall is told when the throttle from the stall\'s first slot allows', () => {
+  const ago = new Date(NOW - 2 * 86400000).toISOString();
+  const { id } = fixture({ repeat: { every: 'minutes', n: 15 }, lastRunAt: ago });
+  projects.mutate(id, (x) => ({ ...x, agents: [ADA] }));
+  const t0 = NOW + 5 * 60000;
+  assert.equal(run([id], { now: t0 }).r.results[0].recorded, true, 'the stall is recorded');
+  const t1 = t0 + 20 * 60000;   // inside the hour the told-slot throttle would otherwise hold
+  const idle = new Map([[REX, { since: t1 - 120000, at: t1 - 60000 }]]);
+  assert.equal(run([id], { now: t1, idleSeen: idle }).sent.length, 0, 'control: still off the project, nothing typed');
+  projects.mutate(id, (x) => ({ ...x, agents: [ADA, REX] }));
+  assert.equal(run([id], { now: t1, idleSeen: idle }).sent.length, 0, 'back at 11:25: the throttle from the 11:00 slot still holds');
+  const t2 = NOW + 65 * 60000;   // 12:05: the fourth 15-minute slot after 11:00 is due
+  const idle2 = new Map([[REX, { since: t2 - 120000, at: t2 - 60000 }]]);
+  assert.equal(run([id], { now: t2, idleSeen: idle2 }).sent.length, 1, 'told once the throttle from the stall\'s first slot allows');
+});

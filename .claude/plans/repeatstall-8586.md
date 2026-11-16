@@ -41,9 +41,11 @@ speaks.
 
 For the slots that are not recorded, `repeatDueToldAt` / `missToldAt` stay on the stall's first slot. So owed()
 offers the task on every sweep while the stall lasts (a result entry, no write and no roster read), and when the
-holder or reviewer comes back the existing stall throttles count from that first slot, so they may be told one slot
-sooner than if every slot had been recorded. That is the intended direction: the person is not waiting longer for a
-line because nobody could be reached earlier. The daily case is pinned by "a holder who came back and was told".
+holder or reviewer comes back the existing stall throttles count from that first slot, so they are told as soon as
+the throttle allows counted from the stall's FIRST slot (for a 15-minute repeat: the fourth slot after it), never
+later than if every slot had been recorded. Measured, not reasoned: "a minutes repeat's holder who comes back
+mid-stall is told when the throttle from the stall's first slot allows" (not at 11:25, told at 12:05). A holder who comes back
+but is never told (not idle, not running) keeps the mark, so leaving again writes no new row: still the first stall.
 
 ## Item 3 (optional stale-repeat mark in the task list): NOT built here
 
