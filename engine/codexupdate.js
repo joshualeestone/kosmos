@@ -27,6 +27,10 @@
  * EXISTING agent meets the prompt again on its next restart. Answering it at
  * every launch closes that.
  *
+ * kosmos#8597: it also answers Codex's model-migration menu (pinModelMigration, below). That one reads the catalog
+ * the binary ships when the fetched cache does not answer, so a launch can spawn `codex debug models --bundled`,
+ * bounded at BUNDLED_MS, and it takes engine/filelock.js for its config.toml write.
+ *
  * ⚠️ AND IT NEVER INVENTS A VERSION. Absent, unparseable, or no `latest_version`
  * all decline: dismissing a version codex has not told us about would be writing
  * a guess into somebody's config.
@@ -124,37 +128,58 @@ function configModel(text) {
   return null;
 }
 
-function migrationTarget(home, model, codexBin) {
+const BUNDLED_MS = 3000;
+/* The shipped catalog, or null. Its own process group, killed whole at BUNDLED_MS: an npm codex is a node shim that
+   spawns the native binary, and a grandchild holding the pipe must not hold the launch. */
+function bundledCatalog(home, codexBin, ms = BUNDLED_MS) {
+  return new Promise((resolve) => {
+    let out = '';
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; clearTimeout(timer); resolve(v); } };
+    let child;
+    try {
+      const env = { ...process.env, CODEX_HOME: home, PATH: [path.dirname(process.execPath), process.env.PATH || ''].join(path.delimiter) };
+      child = require('node:child_process').spawn(codexBin, ['debug', 'models', '--bundled'], { env, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'ignore'] });
+    } catch { resolve(null); return; }
+    const timer = setTimeout(() => {
+      try { if (process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL'); else child.kill('SIGKILL'); } catch { /* gone */ }
+      finish(null);
+    }, ms);
+    child.on('error', () => finish(null));
+    child.stdout.on('data', (b) => { out += b; if (out.length > 8 * 1024 * 1024) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } finish(null); } });
+    child.on('close', (code) => { try { finish(code === 0 ? JSON.parse(out) : null); } catch { finish(null); } });
+  });
+}
+
+async function migrationTarget(home, model, codexBin, ms) {
   let cached;
   try { cached = upgradeIn(JSON.parse(fs.readFileSync(path.join(home, 'models_cache.json'), 'utf8')), model); } catch { cached = undefined; }
   if (cached !== undefined) return cached;
   if (!codexBin) return null;
-  try {
-    const { spawnSync } = require('node:child_process');
-    const env = { ...process.env, CODEX_HOME: home, PATH: [path.dirname(process.execPath), process.env.PATH || ''].join(path.delimiter) };
-    const r = spawnSync(codexBin, ['debug', 'models', '--bundled'], { env, encoding: 'utf8', timeout: 5000, maxBuffer: 8 * 1024 * 1024 });
-    if (r.status !== 0 || !r.stdout) return null;
-    return upgradeIn(JSON.parse(r.stdout), model) || null;
-  } catch { return null; }
+  return upgradeIn(await bundledCatalog(home, codexBin, ms), model) || null;
 }
 
 /* The config text with `"<model>" = "<to>"` in [notice.model_migrations], or null when it is already there or the file
    is a shape this does not edit (any other mention of model_migrations, e.g. an inline table, where a second
    definition would make the whole file unreadable to Codex). */
 function withMigration(text, model, to) {
+  if (String(text).includes('\r')) return null;   // CRLF: not a file this edits line by line
   const lines = String(text).split('\n');
   const header = lines.findIndex((l) => /^\s*\[notice\.model_migrations\]\s*(#.*)?$/.test(l));
   const mentions = lines.filter((l) => l.includes('model_migrations')).length;
   if (mentions > (header >= 0 ? 1 : 0)) return null;
+  if (lines.some((l) => /^\s*notice\s*=/.test(l))) return null;   // an inline notice table: a [notice.*] heading would redefine it
   const entry = '"' + model + '" = "' + to + '"';
-  const keyRe = new RegExp('^\\s*"?' + model.replace(/[.]/g, '\\.') + '"?\\s*=');
+  const keyRe = new RegExp('^\\s*"' + model.replace(/[.]/g, '\\.') + '"\\s*=');
   if (header < 0) {
     const body = String(text);
     return body + (body === '' || body.endsWith('\n') ? '' : '\n') + '\n[notice.model_migrations]\n' + entry + '\n';
   }
   let end = lines.length;
   for (let i = header + 1; i < lines.length; i += 1) if (/^\s*\[/.test(lines[i])) { end = i; break; }
+  const otherForm = new RegExp("^\\s*('" + model.replace(/[.]/g, '\\.') + "'|" + model.replace(/[.]/g, '\\.') + ')\\s*=');
   for (let i = header + 1; i < end; i += 1) {
+    if (otherForm.test(lines[i])) return null;   // a literal-string or bare (dotted) key: not ours to rewrite
     if (keyRe.test(lines[i])) {
       if (lines[i].trim() === entry) return null;
       lines[i] = entry;
@@ -167,9 +192,9 @@ function withMigration(text, model, to) {
 
 /**
  * Keep a codex agent on its model by answering the migration menu ahead of time. `model` is the -m it is launched
- * with (empty: config.toml's model). Returns whether config.toml changed. Never throws; any doubt declines.
+ * with (empty: config.toml's model). Resolves whether config.toml changed. Never rejects; any doubt declines.
  */
-function pinModelMigration(home, model, codexBin) {
+async function pinModelMigration(home, model, codexBin, opts = {}) {
   try {
     const h = home || defaultHome();
     const file = path.join(h, 'config.toml');
@@ -177,13 +202,24 @@ function pinModelMigration(home, model, codexBin) {
     try { text = fs.readFileSync(file, 'utf8'); } catch (e) { if (!e || e.code !== 'ENOENT') return false; }
     const m = model || configModel(text);
     if (!m || !SLUG.test(m)) return false;
-    const to = migrationTarget(h, m, codexBin);
+    const to = await migrationTarget(h, m, codexBin, opts.bundledMs);
     if (!to) return false;
-    const next = withMigration(text, m, to);
-    if (next === null) return false;
-    fs.writeFileSync(file, next);
-    return true;
+    /* Under the lock the folder-trust and hook writers take on this file, re-read inside it, and replaced by a rename
+       of a complete temp copy, so a crash never leaves Codex a truncated config and a concurrent Kosmos writer is not lost. */
+    const locked = require('./filelock').withFileLock(file, () => {
+      let now = '';
+      let mode = 0o600;
+      try { now = fs.readFileSync(file, 'utf8'); mode = fs.statSync(file).mode & 0o777; } catch (e) { if (!e || e.code !== 'ENOENT') return false; }
+      const next = withMigration(now, m, to);
+      if (next === null) return false;
+      const tmp = file + '.kosmos-' + process.pid + '.tmp';
+      fs.writeFileSync(tmp, next, { mode });
+      fs.chmodSync(tmp, mode);
+      fs.renameSync(tmp, file);
+      return true;
+    });
+    return Boolean(locked && locked.ok && locked.value);
   } catch { return false; }
 }
 
-module.exports = { dismissUpdateNotice, defaultHome, homeIsNamed, pinModelMigration, migrationTarget, withMigration, configModel };
+module.exports = { dismissUpdateNotice, defaultHome, homeIsNamed, pinModelMigration, migrationTarget, withMigration, configModel, bundledCatalog };
