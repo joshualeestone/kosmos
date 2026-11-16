@@ -43,7 +43,12 @@ const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it
 let A;
 let B;
 const N = {};
+/* kosmos#8577 nit: the tasks are made at setup, so a run that crosses local midnight sees them as yesterday's. The
+   expected word follows the calendar day the setup ran on, never a fixed "today". */
+let SET_AT = Date.now();
+const ACT = () => (new Date(SET_AT).toDateString() === new Date().toDateString() ? 'last activity today' : 'last activity yesterday');
 test.before(async () => {
+  SET_AT = Date.now();
   await start(0);
   A = projects.create({ name: 'Alpha' }).id;
   B = projects.create({ name: 'Beta' }).id;
@@ -66,9 +71,9 @@ test.after(() => {
 /* Across projects the board lists in project order (allTasks walks the projects as stored), then each project's own order. */
 const WANT = {
   // kosmos#8576: a board this new sends lastActivityAt on every all=1 row, so each row says when it last moved.
-  open: () => [A + '  #' + N['a-open'] + '  open  mara  Task a-open  (last activity today)', B + '  #' + N['b-open'] + '  open  nobody  Task b-open  (last activity today)', '2 open tasks across 2 projects.'],
-  blocked: () => [B + '  #' + N['b-held'] + '  blocked  otto  Task b-held  (last activity today)', '1 blocked task across 1 project.'],
-  built: () => [A + '  #' + N['a-built'] + '  built  mara  Task a-built  (last activity today; waits on a review and close)  (not seen by the person since built)', '1 built task across 1 project.'],
+  open: () => [A + '  #' + N['a-open'] + '  open  mara  Task a-open  (' + ACT() + ')', B + '  #' + N['b-open'] + '  open  nobody  Task b-open  (' + ACT() + ')', '2 open tasks across 2 projects.'],
+  blocked: () => [B + '  #' + N['b-held'] + '  blocked  otto  Task b-held  (' + ACT() + ')', '1 blocked task across 1 project.'],
+  built: () => [A + '  #' + N['a-built'] + '  built  mara  Task a-built  (' + ACT() + '; waits on a review and close)  (not seen by the person since built)', '1 built task across 1 project.'],
 };
 
 // ── the renderer, on its own ────────────────────────────────────────────────
@@ -290,4 +295,29 @@ test('kosmos#8576: only the list across every project is sent lastActivityAt; th
   const files = await get('all=1&state=built');
   assert.ok(files.length > 0, 'the files form listed nothing, so this proves nothing');
   assert.ok(files.every((t) => !Object.prototype.hasOwnProperty.call(t, 'lastActivityAt')), 'the files form paid for a read it does not print');
+});
+
+/* kosmos#8577 item 1: a registry that stores one project id twice. The rows come from every record, but the board's
+   lookup for holdUntilMet keeps only the last, so a held row from the earlier record could be checked against a record
+   where the task it waits on is missing (read as met). Such an id gets no answer, and the row says it waits. Last in the
+   file, and the store is put back, so no other test sees the repeated id. */
+test('kosmos#8577: a project id stored twice never makes a hold\'s condition read as met', async () => {
+  const D = projects.create({ name: 'Delta 8577' }).id;
+  projects.mutate(D, (p) => ({ ...p, agents: ['otto'] }));
+  const first = tasks.create(D, { sentence: 'First', who: 'otto' });
+  const held = tasks.create(D, { sentence: 'After first', who: 'otto' });
+  tasks.setOnHold(D, held.number, true, { until: { task: first.number } });
+  const rowOf = async () => (await win(['task', 'list', '--all', '--blocked'])).out.find((l) => l.startsWith(D + '  #' + held.number + ' '));
+  assert.match(await rowOf(), new RegExp('waits on task ' + first.number + ' to close\\)$'), 'CONTROL: one record, the task it waits on is open');
+  const before = projects.readAll();
+  const rec = before.find((p) => p && p.id === D);
+  assert.ok(rec, 'CONTROL: the project record is stored');
+  try {
+    // A later record with the same id, without the task the hold waits on.
+    projects.writeAll([...before, { ...rec, tasks: (rec.tasks || []).filter((t) => t.number !== first.number) }]);
+    assert.equal(projects.readAll().filter((p) => p && p.id === D).length, 2, 'CONTROL: the id is stored twice');
+    assert.match(await rowOf(), new RegExp('waits on task ' + first.number + ' to close\\)$'), 'a repeated project id made the hold read as met');
+  } finally {
+    projects.writeAll(projects.readAll().filter((p, i, all) => !(p && p.id === D && all.findIndex((q) => q && q.id === D) !== i)));
+  }
 });

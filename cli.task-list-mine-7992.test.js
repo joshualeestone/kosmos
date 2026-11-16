@@ -44,7 +44,12 @@ const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it
 let A; let B; let C; let D;
 const N = {};
 const TOK = {};
+/* kosmos#8577 nit: the tasks are made at setup, so a run that crosses local midnight sees them as yesterday's. The
+   expected word follows the calendar day the setup ran on, never a fixed "today". */
+let SET_AT = Date.now();
+const ACT = () => (new Date(SET_AT).toDateString() === new Date().toDateString() ? 'last activity today' : 'last activity yesterday');
 test.before(async () => {
+  SET_AT = Date.now();
   await start(0);
   A = projects.create({ name: 'Alpha' }).id;
   B = projects.create({ name: 'Beta' }).id;
@@ -74,7 +79,7 @@ test.after(() => {
   fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
 
-const MARA_OPEN = () => [A + '  #' + N['a-mara'] + '  open  mara  Task a-mara  (last activity today)', B + '  #' + N['b-mara'] + '  open  mara  Task b-mara  (last activity today)', '2 open tasks of yours across 2 projects.'];   // kosmos#8576
+const MARA_OPEN = () => [A + '  #' + N['a-mara'] + '  open  mara  Task a-mara  (' + ACT() + ')', B + '  #' + N['b-mara'] + '  open  mara  Task b-mara  (' + ACT() + ')', '2 open tasks of yours across 2 projects.'];   // kosmos#8576
 
 // ── the renderer, on its own ────────────────────────────────────────────────
 test('engine: --mine says "of yours", and an older board that ignored mine=1 is refused, never printed as yours', () => {
@@ -146,7 +151,7 @@ test('Windows: --mine and --all --mine list only this agent\'s tasks; without an
   }
   const built = await win(['task', 'list', '--mine', '--built'], 'mara');
   assert.equal(built.code, 0, built.err);
-  assert.deepEqual(built.out, [A + '  #' + N['a-mara-built'] + '  built  mara  Task a-mara-built  (last activity today; waits on a review and close)  (not seen by the person since built)', '1 built task of yours across 1 project.']);
+  assert.deepEqual(built.out, [A + '  #' + N['a-mara-built'] + '  built  mara  Task a-mara-built  (' + ACT() + '; waits on a review and close)  (not seen by the person since built)', '1 built task of yours across 1 project.']);
   const none = await win(['task', 'list', '--mine'], null);
   assert.equal(none.code, 2);
   assert.match(none.err, /needs an agent's token/);
@@ -175,7 +180,7 @@ test('Mac: the same forms print the same lines as Windows; without an agent toke
     for (const args of [['--mine'], ['--all', '--mine']]) {
       const r = await mac(['task', 'list', ...args], 'otto');
       assert.equal(r.code, 0, r.out);
-      assert.deepEqual(r.out.trimEnd().split('\n'), [A + '  #' + N['a-otto'] + '  open  otto  Task a-otto  (last activity today)', C + '  #' + N['c-otto'] + '  open  otto  Task c-otto  (last activity today)', '2 open tasks of yours across 2 projects.'], args.join(' '));
+      assert.deepEqual(r.out.trimEnd().split('\n'), [A + '  #' + N['a-otto'] + '  open  otto  Task a-otto  (' + ACT() + ')', C + '  #' + N['c-otto'] + '  open  otto  Task c-otto  (' + ACT() + ')', '2 open tasks of yours across 2 projects.'], args.join(' '));
     }
     const stale = await mac(['task', 'list', '--mine', '--stale', '3'], 'mara');
     assert.equal(stale.code, 0, stale.out);

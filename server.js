@@ -23358,13 +23358,19 @@ const server = http.createServer(async (req, res) => {
          (tasks.holdUntilState: the task it waits on is closed or gone, or its time has passed). */
       const listing = allProjects && listOrder;
       const projectOf = listing ? new Map((everyProject || []).filter((x) => x && x.id).map((x) => [x.id, x])) : null;
+      /* kosmos#8577 item 1: a registry that stores one id twice keeps only the last record in projectOf, while the rows
+         come from every record, so a held row from the earlier one could be checked against the wrong record. Such an id
+         gets no answer: its rows say "waits on task N to close", which is true whichever record it is. */
+      const idTwice = listing ? (() => { const seen = new Set(); const twice = new Set();
+        for (const x of everyProject || []) if (x && x.id) { if (seen.has(x.id)) twice.add(x.id); seen.add(x.id); }
+        return twice; })() : null;
       const activityOf = listing ? (t) => {
         if (!t) return t;
         const extra = { lastActivityAt: tasks.lastActivityOf(t.projectId, t) || null };
         if (t.onHold === true && t.onHoldUntil) {
-          // No project found: no answer at all, never an empty project, which would read a hold on a task as met because
-          // the task is not there. A repeated project id is not handled here: kosmos#8577.
-          const p = projectOf.get(t.projectId);
+          // No project found, or one id stored twice (#8577): no answer at all, never a guess, which could read a hold on
+          // a task as met because the task is not in the record it was checked against.
+          const p = idTwice.has(t.projectId) ? null : projectOf.get(t.projectId);
           try { const st = p ? tasks.holdUntilState(p, t) : null; if (st) extra.holdUntilMet = st.met === true; } catch { /* said as before */ }
         }
         return Object.assign({}, t, extra);

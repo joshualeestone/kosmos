@@ -132,20 +132,26 @@ function waitsWords(x, now = Date.now()) {
        computer can tell too. A hold does not lift itself (engine/holdstale.js nudges someone to lift it), so the row
        says the condition is met and the task is still held, never that it still waits. */
     // The board's answer wins; this computer's clock only fills in when the board sent none.
+    // kosmos#8577 item 2: a held task in a paused project says both, as stateWords does ("its project is paused too").
+    const paused = x.projectPaused === true ? '; its project is paused too' : '';
     const due = x.holdUntilMet === true
       || (x.holdUntilMet === undefined && x.onHoldUntil && typeof x.onHoldUntil.at === 'string' && Date.parse(x.onHoldUntil.at) <= now);
     if (due) return 'its hold\'s condition is met, but it is still on hold' + (x.onHoldByPerson === true ? ' (only the person can lift it)' : '')
-      + (x.onHoldForPerson === true ? ', and it waits on the person' : '');
+      + (x.onHoldForPerson === true ? ', and it waits on the person' : '') + paused;
     const u = x.onHoldUntil;
     // Both parts when both hold (as stateWords says them): who it waits on, and what reopens it.
     const until = u && Number.isInteger(u.task) ? 'task ' + u.task + ' to close' : u && typeof u.at === 'string' ? 'until ' + (whenWords(u.at) || one(u.at)) : '';
     const parts = [x.onHoldForPerson === true ? 'the person' : '', until.startsWith('task') ? until : ''].filter(Boolean);
     const on = parts.length ? 'waits on ' + parts.join(' and ') : '';
     const time = until.startsWith('until') ? (on ? on + ', ' : 'waits ') + until : on;
-    return time || (x.onHoldByPerson === true ? 'held by the person' : '');
+    // #8577 nit: a person's hold keeps saying so when it also names a condition (only the person lifts it).
+    const held = x.onHoldByPerson === true ? 'held by the person' : '';
+    const words = time && held ? time + ' (' + held + ')' : time || held;
+    return words ? words + paused : (paused ? 'its project is paused' : '');
   }
   // Built before paused, as tasks.listGroup orders them (#5864): a built task's review can happen in a paused project.
-  if (x.builtAt) return 'waits on a review and close';
+  // #8577 nit: the same built test as tasks.listGroup (a non-empty string), so a stray non-string builtAt is not built.
+  if (typeof x.builtAt === 'string' && x.builtAt) return 'waits on a review and close';
   if (x.projectPaused === true) return 'waits on its project being resumed';
   if (x.repeatNextWords) return 'next run ' + one(x.repeatNextWords);
   return '';

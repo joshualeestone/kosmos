@@ -59,6 +59,29 @@ test('a built task waits on a review, a paused project on being resumed, a repea
   assert.match(row({ lastActivityAt: ago(2), repeat: { every: 'day' }, repeatNextWords: 'tomorrow at 9:00' }), /; next run tomorrow at 9:00\)$/);
 });
 
+test('#8577: a held task in a paused project says both, as its state words do', () => {
+  const held = (x) => row({ lastActivityAt: ago(3), onHold: true, projectPaused: true, ...x }, 'held');
+  assert.match(held({ onHoldUntil: { task: 7 } }), /; waits on task 7 to close; its project is paused too\)$/);
+  assert.match(held({ onHoldUntil: { task: 7 }, holdUntilMet: true }), /still on hold; its project is paused too\)$/, 'a met condition dropped the pause');
+  assert.match(held({ onHoldByPerson: true }), /; held by the person; its project is paused too\)$/);
+  assert.match(held({}), /\(last activity 3 days ago; its project is paused\)$/, 'a plain hold in a paused project says the pause alone');
+  assert.match(row({ lastActivityAt: ago(3), onHold: true, onHoldUntil: { task: 7 } }, 'held'), /; waits on task 7 to close\)$/, 'CONTROL: not paused, no pause words');
+});
+
+test('#8577: a person\'s hold with a condition not yet met still says it is held by the person', () => {
+  const held = (x) => row({ lastActivityAt: ago(3), onHold: true, onHoldByPerson: true, ...x }, 'held');
+  assert.match(held({ onHoldUntil: { task: 7 } }), /; waits on task 7 to close \(held by the person\)\)$/);
+  assert.match(held({ onHoldUntil: { at: new Date(NOW + 4 * DAY).toISOString() } }), /; waits until .+ \(held by the person\)\)$/);
+  assert.match(row({ lastActivityAt: ago(3), onHold: true, onHoldUntil: { task: 7 } }, 'held'), /; waits on task 7 to close\)$/, 'CONTROL: an agent\'s hold names no person');
+});
+
+test('#8577: a built row needs builtAt to be a non-empty string, as tasks.listGroup does', () => {
+  const r = (builtAt) => rows('built', [{ projectId: 'web', number: 4, sentence: 'Fix it', whoNames: ['ada'], lastActivityAt: ago(2), builtAt }])[0];
+  assert.match(r(ago(2)), /; waits on a review and close\)$/, 'CONTROL: a real builtAt');
+  assert.doesNotMatch(r(true), /waits on a review/, 'a non-string builtAt was read as built');
+  assert.doesNotMatch(r(''), /waits on a review/, 'an empty builtAt was read as built');
+});
+
 test('CONTROL: an older board that sends no lastActivityAt prints its rows as before, held and built ones too', () => {
   assert.equal(row({}), 'web  #4  open  ada  Fix it');
   assert.equal(row({ onHold: true, onHoldUntil: { task: 7 } }, 'held'), 'web  #4  blocked  ada  Fix it');
