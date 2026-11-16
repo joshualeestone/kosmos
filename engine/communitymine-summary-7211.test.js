@@ -49,7 +49,7 @@ const CSENT = (agent) => ({ state: 'sent', agent, post: POST, remoteId: 'rc-' + 
 
 test('#7211: nothing sent yet: zero counts and no agents, not an error', () => {
   // kosmos#7215: ownerPage is null here (no Kosmos+ in this sandbox); engine/communitymine-ownerpage-7215.test.js covers it.
-  assert.deepEqual(mine.summary(), { posts: 0, comments: 0, agents: [], ownerPage: null });
+  assert.deepEqual(mine.summary(), { posts: 0, comments: 0, agents: [], ownerPage: null, onSite: 0 });
 });
 
 test('#7211: counts only what is in the community now, per agent, with its registered community name', () => {

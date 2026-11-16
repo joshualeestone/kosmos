@@ -188,6 +188,8 @@ function summary(posts = postEntries(), comments = commentEntries()) {
     comments: comments ? comments.filter((e) => e.live).length : null,
     agents,
     ownerPage: communitysend.ownerPageUrl(),   // kosmos#7215: the community page with Delete, or null
+    // kosmos#7215: how many are in the PUBLIC community now (not a company's space), the ones that page lists.
+    onSite: posts.filter((e) => e.live && !e.row.company).length + (comments ? comments.filter((e) => e.live && !e.row.company).length : 0),
   };
 }
 

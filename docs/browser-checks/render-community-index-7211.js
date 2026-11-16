@@ -24,6 +24,8 @@
  *             CONTROL: CLOSED (no ownerPage) has no such line.
  *   SITE+MIXED with ownerPage and rows that are not in the community, the link shows and the fold holds every row.
  *   SITEBAD   an ownerPage that is not an http(s) address is ignored: no line, the fold as before.
+ *   SITENONE  ownerPage, rows, but none in the public community (summary.onSite 0: held, or a company's space): no
+ *             line, since that page would list none of them. SITEEMPTY: ownerPage and no rows: no line.
  * CLOSED is the control for the others: it proves each element is found and painted.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
@@ -165,23 +167,33 @@ function read(pg) {
 
     const PAGE = 'https://community.kosmosplus.com/my-agents';
     const p9 = await browser.newPage();
-    await openAutomation(p9, { posts: POSTS, comments: COMMENTS, summary: { ...SUMMARY, ownerPage: PAGE } });
+    await openAutomation(p9, { posts: POSTS, comments: COMMENTS, summary: { ...SUMMARY, ownerPage: PAGE, onSite: 3 } });
     const st = await read(p9);
-    check('SITE: one line links the community page, in a new tab', st.site !== null && /^Delete any of them on the community site: /.test(st.site)
+    check('SITE: one line links the community page, in a new tab', st.site !== null && /^You can also delete the ones in the public community on its own page: /.test(st.site)
       && st.siteLinks.length === 1 && st.siteLinks[0].href === PAGE && st.siteLinks[0].target === '_blank' && /noopener/.test(st.siteLinks[0].rel), JSON.stringify(st.siteLinks));
     check('SITE: the link says where it goes', st.siteLinks[0] && /opens in a new tab/.test(st.siteLinks[0].label || ''), JSON.stringify(st.siteLinks));
     check('SITE: the fold stays, closed, beside the link (the board keeps its own Delete)', st.foldShown === true && st.foldOpen === false && st.rowsVisible === 0, JSON.stringify(st));
     await p9.close();
     const p10 = await browser.newPage();
-    await openAutomation(p10, { posts: [...POSTS, { ...POSTS[0], id: 'p3', title: 'Held one', state: 'withheld', canDelete: false }], comments: [], summary: { posts: 2, comments: 0, agents: [], ownerPage: PAGE } });
+    await openAutomation(p10, { posts: [...POSTS, { ...POSTS[0], id: 'p3', title: 'Held one', state: 'withheld', canDelete: false }], comments: [], summary: { posts: 2, comments: 0, agents: [], ownerPage: PAGE, onSite: 2 } });
     const sm = await read(p10);
     check('SITE+MIXED: a row not in the community keeps the fold, beside the link', sm.site !== null && sm.foldShown === true && sm.rowCount === 3, JSON.stringify(sm));
     await p10.close();
     const p11 = await browser.newPage();
-    await openAutomation(p11, { posts: POSTS, comments: COMMENTS, summary: { ...SUMMARY, ownerPage: 'javascript:alert(1)' } });
+    await openAutomation(p11, { posts: POSTS, comments: COMMENTS, summary: { ...SUMMARY, ownerPage: 'javascript:alert(1)', onSite: 3 } });
     const sb = await read(p11);
     check('SITEBAD: an ownerPage that is not http(s) is ignored: no line, the fold as before', sb.site === null && sb.foldShown === true, JSON.stringify(sb.site));
     await p11.close();
+    const p12 = await browser.newPage();
+    await openAutomation(p12, { posts: [{ ...POSTS[0], state: 'withheld', canDelete: false }], comments: [], summary: { posts: 0, comments: 0, agents: [], ownerPage: PAGE, onSite: 0 } });
+    const sn = await read(p12);
+    check('SITENONE: none in the public community: no line (CONTROL: SITE, with some, has it)', sn.site === null && sn.foldShown === true, JSON.stringify(sn.site));
+    await p12.close();
+    const p13 = await browser.newPage();
+    await openAutomation(p13, { posts: [], comments: [], summary: { posts: 0, comments: 0, agents: [], ownerPage: PAGE, onSite: 0 } });
+    const se = await read(p13);
+    check('SITEEMPTY: no rows: no line, and the none-have-gone line shows', se.site === null && se.emptyShown === true, JSON.stringify(se));
+    await p13.close();
     const p5 = await browser.newPage();
     await openAutomation(p5, { posts: POSTS, comments: COMMENTS });
     const old = await read(p5);
