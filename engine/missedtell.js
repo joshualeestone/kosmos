@@ -8,6 +8,9 @@
  * reviewer is told by the task itself: while a run is missed it is in Needs Your Decision (personReviewMissed, read by
  * the Tasks route), and the history says so. Either way the task's history records the miss and who was told.
  *
+ * kosmos#8586: a reviewer that cannot be reached (off the project, or switched off in it) is recorded once per
+ * stall, not once per missed slot (markTold's stall mark, missQuiet).
+ *
  * Once: the task stores the slot it last told about (missToldAt). A slot is told only when it is newer than that, and
  * never a slot that passed before the reviewer was named. Nothing in a paused project or on a held task is told about
  * (#4771: Kosmos neither nudges nor hands those out). A delivery that reached nothing is tried again on later sweeps,
@@ -56,6 +59,7 @@ function owed(projects, now = Date.now()) {
         // Review 8: a reviewer whose swarm is switched off in THIS project is held, as the nudge and the reply nudge do.
         swarmOff: t.repeatReviewer ? require('./projects').isSwarmOff(p, t.repeatReviewer) : false,
         owners: [...new Set(tasks.partsOf(t).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))], members: Array.isArray(p.agents) ? p.agents.slice() : [],
+        quiet: t.missQuiet || null, lastRunAt: t.lastRunAt || null, repeatSetAt: t.repeatSetAt || null, repeatReviewerSetAt: t.repeatReviewerSetAt || null,
       });
     }
   }
@@ -84,13 +88,33 @@ function personReviewMissed(t, now = Date.now()) {
   return !(Number.isFinite(named) && missed.lastAt < named);
 }
 
-/* Store that `slot` was told about, and record it in the task's history. */
-function markTold(item, outcome) {
+/* kosmos#8586: a reviewer who cannot be reached (off the project, or switched off in it) is recorded once per stall,
+   not once per missed slot. The task keeps which reviewer and why, and when; while that holds (no run since, neither
+   the rule nor the reviewer changed), a later miss is not recorded again. markTold recording any other outcome (a
+   delivery that reached the reviewer, or one given up after MAX_TRIES) clears it. */
+function quietKey(item, why) { return String(item.reviewer) + '\n' + why; }
+function stillQuiet(item, why) {
+  const q = item.quiet;
+  if (!q || typeof q.who !== 'string' || q.who !== quietKey(item, why)) return false;
+  const at = Date.parse(q.at || '');
+  if (!Number.isFinite(at)) return false;
+  return !(Date.parse(item.lastRunAt || '') > at) && !(Date.parse(item.repeatSetAt || '') > at)
+    && !(Date.parse(item.repeatReviewerSetAt || '') > at);
+}
+
+/* Store that `slot` was told about, and record it in the task's history. `why` (an unreachable reviewer's reason) also
+   stores the stall (kosmos#8586); without it the stall is cleared. */
+function markTold(item, outcome, why = null, now = Date.now()) {
   const projects = require('./projects');
   const taskchat = require('./taskchat');
   projects.mutate(item.projectId, (p) => ({
     ...p,
-    tasks: (p.tasks || []).map((x) => (x && x.number === item.n ? { ...x, missToldAt: new Date(item.slot).toISOString() } : x)),
+    tasks: (p.tasks || []).map((x) => {
+      if (!x || x.number !== item.n) return x;
+      const { missQuiet, ...rest } = x;   // eslint-disable-line no-unused-vars
+      return { ...rest, missToldAt: new Date(item.slot).toISOString(),
+        ...(why ? { missQuiet: { who: quietKey(item, why), at: new Date(now).toISOString() } } : {}) };
+    }),
   }));
   taskchat.record(item.projectId, item.n, {
     kind: 'missed', slot: new Date(item.slot).toISOString(), count: item.count, ...(item.more ? { more: true } : {}),   // review 1: taskchat stamps its own `at`
@@ -133,10 +157,17 @@ function sweep(o) {
         if (book.get(key) === 'told') { results.push({ ...item, act: 'held', because: 'already told; its mark could not be saved' }); continue; }
         if (item.person) { markTold(item, 'person'); results.push({ ...item, act: 'person' }); continue; }
         // Review 1: a reviewer taken off the project is not typed into about its tasks (#5034's member boundary).
-        /* Review 12: these two last until the person changes something, so the slot is recorded once as not reached
-           (the history keeps one entry per slot, and the row's "could not reach" is the person's cue), never typed. */
-        if (!item.members.includes(item.reviewer)) { markTold(item, 'not reached'); results.push({ ...item, act: 'unreachable', because: 'the reviewer is no longer on the project' }); continue; }
-        if (item.swarmOff) { markTold(item, 'not reached'); results.push({ ...item, act: 'unreachable', because: 'the reviewer is switched off in this project' }); continue; }
+        /* Review 12: these two last until the person changes something, so they are never typed. kosmos#8586: and the
+           history gets one "could not reach" row per stall, not one per missed slot (the row is the person's cue).
+           The told mark is not advanced for the unrecorded ones, so the stall throttle counts from the last row. */
+        /* kosmos#8586: once per stall. The first missed slot is recorded; later ones of the same stall are not. */
+        const off = !item.members.includes(item.reviewer) ? ['off', 'the reviewer is no longer on the project']
+          : item.swarmOff ? ['swarm', 'the reviewer is switched off in this project'] : null;
+        if (off) {
+          const recorded = !stillQuiet(item, off[0]);
+          if (recorded) markTold(item, 'not reached', off[0], now);
+          results.push({ ...item, act: 'unreachable', because: off[1], recorded }); continue;
+        }
         if (o.allowed !== true) { results.push({ ...item, act: 'held', because: 'Kosmos does not type into agents yet' }); continue; }
         const card = cards.get(item.reviewer);
         if (!card) { results.push({ ...item, act: 'held', because: 'the reviewer is not running' }); continue; }

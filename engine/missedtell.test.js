@@ -327,3 +327,36 @@ test('#8581: a reviewer another sweep typed into in the last minute is held; con
   assert.equal(go(new Map([[ADA, NOW - 10000]])).results[0].act, 'held');
   assert.equal(go(new Map([[ADA, NOW - 70000]])).results[0].act, 'tell');
 });
+
+/* kosmos#8586 item 1: an unreachable reviewer is recorded once per STALL, not once per missed slot. */
+test('#8586: a reviewer off the project is recorded once for the whole stall; a run starts a new one; switched off is its own', () => {
+  const g = fixture(ADA);
+  projects.mutate(g.id, (x) => ({ ...x, agents: [REX] }));
+  const day = (k) => NOW + k * 86400000;
+  const sweep = (now) => mt.sweep({ projects: only(g.id), roster, now, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, idleSeen: settled(), deliver: () => { throw new Error('typed'); } });
+  const rows = () => taskchat.read(g.id, g.n).filter((e) => e.kind === 'missed').length;
+  assert.equal(sweep(NOW).results[0].recorded, true, 'the first missed slot is recorded');
+  for (const k of [1, 2]) assert.equal(sweep(day(k)).results[0].recorded, false, 'day ' + k + ' of the same stall is not');
+  assert.equal(rows(), 1);
+  // A run ends the stall (the control that it records at all after the first).
+  projects.mutate(g.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === g.n ? { ...t, lastRunAt: new Date(day(2) + 3600000).toISOString() } : t)) }));
+  assert.equal(sweep(day(3)).results[0].recorded, true, 'a run since: a new stall');
+  // Back on the project but switched off: a different reason, so it is recorded.
+  projects.mutate(g.id, (x) => ({ ...x, agents: [ADA, REX], swarmOff: [ADA] }));
+  const off = sweep(day(4)).results[0];
+  assert.match(off.because, /switched off/);
+  assert.equal(off.recorded, true, 'another reason is another stall');
+  assert.equal(rows(), 3);
+});
+
+test('#8586: naming another reviewer ends the stall (CONTROL: the same reviewer, next day, is not recorded)', () => {
+  const g = fixture(ADA);
+  projects.mutate(g.id, (x) => ({ ...x, agents: [] }));
+  const day = (k) => NOW + k * 86400000;
+  const sweep = (now) => mt.sweep({ projects: only(g.id), roster, now, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, idleSeen: settled(), deliver: () => { throw new Error('typed'); } });
+  assert.equal(sweep(NOW).results[0].recorded, true);
+  assert.equal(sweep(day(1)).results[0].recorded, false, 'control: same reviewer, same stall');
+  projects.mutate(g.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === g.n
+    ? { ...t, repeatReviewer: REX, repeatReviewerSetAt: new Date(day(1) + 3600000).toISOString() } : t)) }));
+  assert.equal(sweep(day(2)).results[0].recorded, true, 'a newly named reviewer: a new stall');
+});

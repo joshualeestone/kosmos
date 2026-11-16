@@ -306,3 +306,65 @@ test('#8581: a holder that is the task\'s named reviewer is left to the missed-r
   assert.equal(sent.length, 1);
   assert.match(sent[0].text, new RegExp('in ' + projects.readAll().find((x) => x.id === other.id).name));
 });
+
+/* kosmos#8586 item 1: an unreachable holder is recorded once per STALL, not once per slot. */
+test('#8586: a holder off the project is recorded once for the whole stall; a run or a rule change starts a new one', () => {
+  const { id, n } = fixture();
+  projects.mutate(id, (x) => ({ ...x, agents: [ADA] }));
+  const rows = () => taskchat.read(id, n).filter((e) => e.kind === 'due-told').length;
+  const day = (k) => NOW + k * 86400000;
+  const first = run([id]);
+  assert.equal(first.r.results[0].recorded, true, 'the first slot of the stall is recorded');
+  for (const k of [1, 2, 3]) {
+    const r = run([id], { now: day(k) });
+    assert.equal(r.r.results[0].act, 'unreachable', 'day ' + k + ' is still unreachable');
+    assert.equal(r.r.results[0].recorded, false, 'day ' + k + ' is not recorded again');
+  }
+  assert.equal(rows(), 1, 'one row for four missed slots of one stall');
+  // A run ends the stall: the next missed slot is recorded again (the control that it can record at all).
+  projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, lastRunAt: new Date(day(3) + 3600000).toISOString() } : t)) }));
+  assert.equal(run([id], { now: day(4) }).r.results[0].recorded, true, 'a run since: a new stall');
+  assert.equal(run([id], { now: day(5) }).r.results[0].recorded, false);
+  // A rule change ends it too.
+  projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, repeatSetAt: new Date(day(5) + 3600000).toISOString() } : t)) }));
+  assert.equal(run([id], { now: day(6) }).r.results[0].recorded, true, 'a rule changed since: a new stall');
+  assert.equal(rows(), 3);
+});
+
+test('#8586: a holder who came back and was told, then left again, starts a new stall', () => {
+  const { id, n } = fixture();
+  const day = (k) => NOW + k * 86400000;
+  const idle = (t) => new Map([[REX, { since: t - 120000, at: t - 60000 }], [ADA, { since: t - 120000, at: t - 60000 }]]);
+  projects.mutate(id, (x) => ({ ...x, agents: [ADA] }));
+  assert.equal(run([id]).r.results[0].recorded, true);
+  projects.mutate(id, (x) => ({ ...x, agents: [ADA, REX] }));
+  assert.equal(run([id], { now: day(1), idleSeen: idle(day(1)) }).sent.length, 1, 'back on the project: told');
+  assert.equal(stored(id, n).repeatDueQuiet, undefined, 'a real delivery clears the stall');
+  projects.mutate(id, (x) => ({ ...x, agents: [ADA] }));
+  assert.equal(run([id], { now: day(2) }).r.results[0].recorded, true, 'left again: recorded again');
+});
+
+/* kosmos#8586 item 2: a holder who is also the reviewer is left to the missed-run tell only when that tell takes the
+   slot. A slot missed before the reviewer was named is not the missed-run tell's, so it is told here. */
+test('#8586: a reviewer-holder named AFTER the slot is told here; control: named before it, left to the missed-run tell', () => {
+  const ago = new Date(NOW - 27 * 86400000).toISOString();
+  const late = fixture({ repeatReviewer: REX, repeatReviewerSetAt: new Date(NOW - 60000).toISOString() });
+  const early = fixture({ repeatReviewer: REX, repeatReviewerSetAt: ago });
+  const mt = require('../engine/missedtell');
+  assert.equal(mt.owed(only(late.id), NOW).length, 0, 'precondition: the missed-run tell does not take the late one');
+  assert.equal(mt.owed(only(early.id), NOW).length, 1, 'precondition: it does take the early one');
+  const { sent } = run([late.id, early.id]);
+  assert.equal(sent.length, 1, 'only one is told here');
+  assert.match(sent[0].text, new RegExp('in ' + projects.readAll().find((x) => x.id === late.id).name));
+});
+
+test('#8586: another set of holders is another stall (CONTROL: the same set, next day, is not recorded)', () => {
+  const { id, n } = fixture();
+  const day = (k) => NOW + k * 86400000;
+  projects.mutate(id, (x) => ({ ...x, agents: [] }));
+  assert.equal(run([id]).r.results[0].recorded, true);
+  assert.equal(run([id], { now: day(1) }).r.results[0].recorded, false, 'control: same holders, same stall');
+  projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n
+    ? { ...t, parts: [...t.parts, { n: 2, sentence: 'Second half', who: ADA, createdAt: new Date(day(1)).toISOString() }] } : t)) }));
+  assert.equal(run([id], { now: day(2) }).r.results[0].recorded, true, 'ADA joined the holders: a new stall');
+});
