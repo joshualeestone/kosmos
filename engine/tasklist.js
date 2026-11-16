@@ -126,8 +126,13 @@ function activityWords(at, now) {
   const d = Math.max(0, Math.round((new Date(n.getFullYear(), n.getMonth(), n.getDate()) - new Date(t.getFullYear(), t.getMonth(), t.getDate())) / DAY_MS));
   return d === 0 ? 'last activity today' : d === 1 ? 'last activity yesterday' : 'last activity ' + d + ' days ago';
 }
-function waitsWords(x) {
+function waitsWords(x, now = Date.now()) {
   if (x.onHold === true) {
+    /* The board says when the hold's own condition is already met (the task closed, the time passed); for a time this
+       computer can tell too. Then the row says the hold is due to lift, never that it still waits. */
+    const due = x.holdUntilMet === true
+      || (x.onHoldUntil && typeof x.onHoldUntil.at === 'string' && Date.parse(x.onHoldUntil.at) <= now);
+    if (due) return 'its hold is due to lift' + (x.onHoldForPerson === true ? ', and it waits on the person' : '');
     const u = x.onHoldUntil;
     // Both parts when both hold (as stateWords says them): who it waits on, and what reopens it.
     const until = u && Number.isInteger(u.task) ? 'task ' + u.task + ' to close' : u && typeof u.at === 'string' ? 'until ' + (whenWords(u.at) || one(u.at)) : '';
@@ -143,7 +148,7 @@ function waitsWords(x) {
 }
 function nextWords(x, now) {
   if (!x || !Object.prototype.hasOwnProperty.call(x, 'lastActivityAt')) return '';
-  return '  (' + [activityWords(x.lastActivityAt, now), waitsWords(x)].filter(Boolean).join('; ') + ')';
+  return '  (' + [activityWords(x.lastActivityAt, now), waitsWords(x, now)].filter(Boolean).join('; ') + ')';
 }
 /* kosmos#7151: ", left under closed task #N" for a task the board offers for retiring. */
 const leftWords = (x) => (Number.isSafeInteger(x.leftUnder) ? ', left under closed task #' + x.leftUnder : '');
