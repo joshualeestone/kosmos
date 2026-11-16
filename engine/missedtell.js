@@ -157,10 +157,7 @@ function sweep(o) {
         if (book.get(key) === 'told') { results.push({ ...item, act: 'held', because: 'already told; its mark could not be saved' }); continue; }
         if (item.person) { markTold(item, 'person'); results.push({ ...item, act: 'person' }); continue; }
         // Review 1: a reviewer taken off the project is not typed into about its tasks (#5034's member boundary).
-        /* Review 12: these two last until the person changes something, so they are never typed. kosmos#8586: and the
-           history gets one "could not reach" row per stall, not one per missed slot (the row is the person's cue).
-           The told mark is not advanced for the unrecorded ones, so the stall throttle counts from the last row. */
-        /* kosmos#8586: once per stall. The first missed slot is recorded; later ones of the same stall are not. */
+        // Review 12: these two last until the person changes something, so they are never typed. kosmos#8586: see stillQuiet().
         const off = !item.members.includes(item.reviewer) ? ['off', 'the reviewer is no longer on the project']
           : item.swarmOff ? ['swarm', 'the reviewer is switched off in this project'] : null;
         if (off) {
