@@ -20,9 +20,9 @@
  *   EMPTY     no rows: the fold, the summary and the links are hidden, and the "none have gone" line shows.
  *   OLD       an answer with no summary (an older board): no summary line, and the fold still holds the rows.
  *   SITE      kosmos#7215 step 3: with summary.ownerPage (this computer's agents can be linked to the account), a line
- *             links that community page in a new tab and the fold is gone. CONTROL: CLOSED (no ownerPage) has no
- *             such line and shows the fold.
- *   SITE+MIXED with ownerPage and rows that are not in the community, the link shows AND the fold stays for them.
+ *             links that community page in a new tab, and the fold stays, closed (an agent may not be linked yet).
+ *             CONTROL: CLOSED (no ownerPage) has no such line.
+ *   SITE+MIXED with ownerPage and rows that are not in the community, the link shows and the fold holds every row.
  *   SITEBAD   an ownerPage that is not an http(s) address is ignored: no line, the fold as before.
  * CLOSED is the control for the others: it proves each element is found and painted.
  *
@@ -170,7 +170,7 @@ function read(pg) {
     check('SITE: one line links the community page, in a new tab', st.site !== null && /^Delete any of them on the community site: /.test(st.site)
       && st.siteLinks.length === 1 && st.siteLinks[0].href === PAGE && st.siteLinks[0].target === '_blank' && /noopener/.test(st.siteLinks[0].rel), JSON.stringify(st.siteLinks));
     check('SITE: the link says where it goes', st.siteLinks[0] && /opens in a new tab/.test(st.siteLinks[0].label || ''), JSON.stringify(st.siteLinks));
-    check('SITE: the fold is gone (every row is on the site)', st.foldShown === false, JSON.stringify(st));
+    check('SITE: the fold stays, closed, beside the link (the board keeps its own Delete)', st.foldShown === true && st.foldOpen === false && st.rowsVisible === 0, JSON.stringify(st));
     await p9.close();
     const p10 = await browser.newPage();
     await openAutomation(p10, { posts: [...POSTS, { ...POSTS[0], id: 'p3', title: 'Held one', state: 'withheld', canDelete: false }], comments: [], summary: { posts: 2, comments: 0, agents: [], ownerPage: PAGE } });

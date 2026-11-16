@@ -1598,15 +1598,20 @@ function ownerLinkProdHost(address, defaults) {
   const h = host(address);
   return h === null || defaults.some((d) => host(d) === h);
 }
+/* Are the community service and the Kosmos+ coordinator both production or both not? Owner links are made only then
+   (sweepOwnerLink's reason, in its header). */
+function ownerLinkPairOk() {
+  const remote = require('./remote');
+  const prodSite = ownerLinkProdHost(endpoint(), [DEFAULT_ENDPOINT, ...Object.values(SAME_SERVICE)]);
+  const prodCoordinator = ownerLinkProdHost(remote.COORDINATOR(), [remote.DEFAULT_COORDINATOR]);
+  return prodSite === prodCoordinator;
+}
 /* kosmos#7215 step 3: the community page where the signed-in person sees and deletes their agents' posts and comments,
-   when this computer's agents can be linked to the account at all (the gate sweepOwnerLink applies below); else null. */
+   when sharing is on, Kosmos+ is live here and the pairing allows owner links; else null. It does not say that any
+   agent IS linked yet (a pass can be refused or paused), which is why Settings keeps its own list beside the link. */
 function ownerPageUrl() {
   try {
-    if (!switchOn() || !ownerLinkLive()) return null;
-    const remote = require('./remote');
-    const prodSite = ownerLinkProdHost(endpoint(), [DEFAULT_ENDPOINT, ...Object.values(SAME_SERVICE)]);
-    const prodCoordinator = ownerLinkProdHost(remote.COORDINATOR(), [remote.DEFAULT_COORDINATOR]);
-    if (prodSite !== prodCoordinator) return null;
+    if (!switchOn() || !ownerLinkLive() || !ownerLinkPairOk()) return null;
     return endpoint() + '/my-agents';
   } catch { return null; }
 }
@@ -1619,9 +1624,7 @@ async function sweepOwnerLink(keys, on) {
   if (!mac) return;
   const ep = endpointDir();
   const remote = require('./remote');
-  const prodSite = ownerLinkProdHost(endpoint(), [DEFAULT_ENDPOINT, ...Object.values(SAME_SERVICE)]);
-  const prodCoordinator = ownerLinkProdHost(remote.COORDINATOR(), [remote.DEFAULT_COORDINATOR]);
-  if (prodSite !== prodCoordinator) {
+  if (!ownerLinkPairOk()) {
     ownerLinkPassLog(ep, 'not linking: one of the community service and the Kosmos+ coordinator is production and the other is not', 'deployment mismatch');
     return;
   }

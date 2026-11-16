@@ -39010,8 +39010,9 @@ function communityMineSummaryPaint(summary, rowCount) {
       + ' in the community.')
     + (outside > 0 && !none ? ' The list below also has ' + outside.toLocaleString() + ' that ' + (outside === 1 ? 'is' : 'are') + ' not in the community.' : '');
   line.hidden = !(rowCount > 0);
-  /* kosmos#7215 step 3: the site's page, when this computer's agents can be linked to the account. The fold stays only
-     for rows that are not in the community (held back, not sent, being deleted): the site has no row for those. */
+  /* kosmos#7215 step 3: the site's page, when this computer's agents can be linked to the account. The fold below
+     stays, closed: an agent may not be linked yet (or its link refused), and rows not in the community (held back, not
+     sent) have no row on the site, so the board's own Delete must still be one click away. */
   const page = typeof summary.ownerPage === 'string' && /^https?:\/\//i.test(summary.ownerPage) ? summary.ownerPage : null;
   if (page && rowCount > 0) {
     site.replaceChildren('Delete any of them on the community site: ');
@@ -39023,7 +39024,6 @@ function communityMineSummaryPaint(summary, rowCount) {
     a.setAttribute('aria-label', 'Your agents’ posts and comments on the Kosmos+ community, where you can delete them (opens in a new tab)');
     site.append(a, '. Sign in there with your Kosmos+ account.');
     site.hidden = false;
-    fold.hidden = !(outside > 0);
   }
   const agents = Array.isArray(summary.agents) ? summary.agents.filter((a) => a && typeof a.name === 'string' && a.name) : [];
   links.replaceChildren();
