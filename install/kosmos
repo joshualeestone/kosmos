@@ -46,6 +46,16 @@ KOSMOS_HOME="${KOSMOS_HOME:-$(cd "$(dirname "$SELF")/.." && pwd)}"
 
 NODE="$KOSMOS_HOME/runtime/bin/node"
 APP="$KOSMOS_HOME/app/server.js"
+# kosmos#8599: a node child of this command whose reader stops early (`kosmos ... | head -1`) exits quietly (141)
+# instead of printing an unhandled EPIPE stack trace. engine/clipipe.js is preloaded into every node this command
+# runs, from one place: it puts NODE_OPTIONS back as the person had it the moment it loads, so nothing those
+# children start inherits it. Only when the file is there (a missing preload would stop every node from starting),
+# and only once (a nested `kosmos` sees KOSMOS_CLIPIPE_SET and leaves NODE_OPTIONS alone).
+KOSMOS_CLIPIPE="$KOSMOS_HOME/app/engine/clipipe.js"
+if [ -f "$KOSMOS_CLIPIPE" ] && [ -z "${KOSMOS_CLIPIPE_SET:-}" ]; then
+  export KOSMOS_USER_NODE_OPTIONS="${NODE_OPTIONS-}" KOSMOS_USER_NODE_OPTIONS_SET="${NODE_OPTIONS+1}" KOSMOS_CLIPIPE_SET=1
+  export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require \"$KOSMOS_CLIPIPE\""
+fi
 # ⚠️ ONE OF FIVE COPIES OF THE PINNED 16180 LITERAL (was three before
 # #910 added `install/pkg-scripts/postinstall` and native-app/main.swift):
 # here, `server.js` (its own bare-`node server.js` dev fallback only --
