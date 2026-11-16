@@ -1615,11 +1615,13 @@ function ownerPageUrl() {
     const mac = ownerLinkMac();
     if (!switchOn() || !ownerLinkLive() || !mac || !ownerLinkPairOk()) return null;
     const keys = loadJson(keysFile()) || {};
-    // An agent the sweep would leave linked: not a deleted or retiring one, not a test seat, not refused, with a name and
-    // a key, and its marker whole for that key (one registered again since, with a new key, is not linked yet).
-    const linked = Object.entries(keys).some(([agentKey, k]) => k && !agentKey.startsWith(RETIRED_PREFIX) && !retiring(agentKey)
-      && !testSeat(agentKey) && typeof k.apiKey === 'string' && k.apiKey && k.name && !k.refused
-      && k.ownerLinked === ownerLinkMarker(mac, k.apiKey));
+    // An agent linked through this computer for its current key (one registered again since is not), and one the sweep
+    // links at all: not a deleted or retiring one, not a test seat, not refused, with a name. The marker is checked
+    // first, so the retire list and the seat check are read only for an agent that has one. If either cannot be read,
+    // they answer "skip", so the link hides then, as the sweep sends nothing then.
+    const linked = Object.entries(keys).some(([agentKey, k]) => k && typeof k.apiKey === 'string' && k.apiKey
+      && k.ownerLinked === ownerLinkMarker(mac, k.apiKey) && k.name && !k.refused
+      && !agentKey.startsWith(RETIRED_PREFIX) && !retiring(agentKey) && !testSeat(agentKey));
     return linked ? endpoint() + '/my-agents' : null;
   } catch { return null; }
 }

@@ -149,6 +149,12 @@ test('#7215: no agent linked through this computer yet: no page (CONTROL: one co
   assert.equal(cs.ownerPageUrl(), null, 'a key the site refused: not linked');
   linkAgent(PROD, 'ownerLinked', 'mac-test-7215', 'key-ava', 'key-ava', {}, 'retired:ava:2026-11-16T00:00:00.000Z');
   assert.equal(cs.ownerPageUrl(), null, 'a deleted agent\'s old account (retired): not linked');
+  linkAgent(PROD, 'ownerLinked', 'mac-test-7215', 'key-ava', 'key-ava', {}, require('./communityswitch').TEST_SEAT_PREFIX + 'ava');
+  assert.equal(cs.ownerPageUrl(), null, 'a test seat: not linked');
+  linkAgent(PROD);
+  cs.requestRetire('ava');   // being retired (a delete or rename under way)
+  assert.equal(cs.ownerPageUrl(), null, 'an agent being retired: not linked');
+  fs.rmSync(process.env.AGENT_WORKFORCE_DATA, { recursive: true, force: true });   // the retire request goes with it
   linkAgent(PROD);
   assert.equal(cs.ownerPageUrl(), 'https://community.kosmosplus.com/my-agents', 'control: confirmed through this computer, for its current key');
 });
