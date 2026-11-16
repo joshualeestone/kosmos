@@ -71140,7 +71140,7 @@ function applyConsFold() {
   /* kosmos#8592: while the Issue filter is on (tab views only), the list is flat and nothing folds: a fold kept here
      would hide a marked sub-project the tile counts. The fold set itself is kept for when the filter is off again. */
   const pjFilter = !cons && document.body.classList.contains('filter-pjattn');
-  const treeMode = (cons || document.body.classList.contains('pj-roadmap')) && !pjFilter;
+  const treeMode = cons || document.body.classList.contains('pj-roadmap');
   /* Hide a folded branch by walking the RENDERED rows in tree order and their
      --pj-depth, NOT by walking PROJECTS. pjTreeRows re-homes a child of an
      archived/dangling parent (and any cycle) to the TOP level, so a raw parent-link
@@ -71179,14 +71179,14 @@ function applyConsFold() {
     if (!shouldHide) {
       // A VISIBLE folded parent collapses everything deeper than it until a row
       // returns to its depth or shallower; anything else clears the collapse.
-      cutoff = (treeMode && folded && caret) ? depth : Infinity;
+      cutoff = (treeMode && !pjFilter && folded && caret) ? depth : Infinity;   // kosmos#8592: no fold under the filter
     }
     if (!caret) continue;                          // a leaf: nothing to expand
-    if (treeMode) {
+    if (treeMode && !pjFilter) {
       const want = folded ? 'false' : 'true';
       if (row.getAttribute('aria-expanded') !== want) row.setAttribute('aria-expanded', want);
     } else if (row.hasAttribute('aria-expanded')) {
-      row.removeAttribute('aria-expanded');        // no folding in the grid
+      row.removeAttribute('aria-expanded');        // no folding in the grid, or under the Issue filter (kosmos#8592)
     }
     const glyph = folded ? '▸' : '▾';         // ▸ folded / ▾ open
     if (caret.textContent !== glyph) caret.textContent = glyph;
@@ -71352,7 +71352,7 @@ function pjAttnTileSync() {
   if (!tile) return;
   const on = document.body.classList.contains('filter-pjattn');
   const opens = !on && PJ_ATTN_IDS.length === 1;
-  tile.title = on ? 'Show all projects' : (opens ? 'Open the project that needs you' : 'Show only projects that need you');
+  tile.title = on ? 'View all projects' : (opens ? 'Open the project that needs you' : 'Show only projects that need you');
   if (opens) tile.removeAttribute('aria-pressed'); else tile.setAttribute('aria-pressed', String(on));
 }
 /* kosmos#8592 (a tester through Josh, 11-16): "1 Issue" opens the issue. One project: open it, as clicking its card

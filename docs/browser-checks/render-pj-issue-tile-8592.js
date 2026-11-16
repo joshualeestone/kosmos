@@ -133,7 +133,7 @@ const NONE = [{ id: 'idle', name: 'Idle One', archived: false, agents: [], summa
     check(s.kidChip, '2. the sub-project shows its parent chip while laid flat', JSON.stringify(s));
     if (process.env.SHOT_DIR) await p.screenshot({ path: path.join(process.env.SHOT_DIR, 'pj-issue-filter-8592.png') });
     check(!s.agentsFilter, '2. the Agents filter is untouched', JSON.stringify(s));
-    check(s.title === 'Show all projects', '2. while pressed the tile says a click shows all', s.title);
+    check(s.title === 'View all projects', '2. while pressed the tile says a click shows all', s.title);
     await p.click('#st-pjattn-tile');
     s = await state();
     check(!s.filter && s.pressed === 'false' && s.displayed.length === 5 && !s.exitShown, '2. a second click shows every project again', JSON.stringify(s));

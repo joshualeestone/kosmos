@@ -38,7 +38,7 @@ to the specific question or held task. If the tester meant "straight to the ques
   views), carets hide, and the shading counts only the rows shown.
 - The filter class reached the consolidated rail, which has no tile to undo it: the filter CSS and the fold stand-down
   are scoped to the tab views.
-- The tile's title says "Show all projects" while pressed.
+- The tile's title says "View all projects" while pressed (Josh's words, web.tasks-cap-1193).
 
 ## Final validation and review round 3 (taken)
 - The full suite's guards: the new check needed a SITE_COUNTS line and a try around its route handler (#6022).
