@@ -93,3 +93,23 @@ test('#7215: a check that throws past its own guard is no page, never a crash of
   remote.COORDINATOR = realCoordinator;
   assert.ok(cs.ownerPageUrl(), 'control');
 });
+
+/* summary() takes its entries as arguments, so the public count is pinned on exact entries: live and public counts,
+   a company space's does not, nor does one that is not live. */
+const entry = (live, company) => ({ live, key: null, row: { company } });
+test('#7215: onSite counts live PUBLIC posts and comments only (CONTROL: flipping one row changes the number)', () => {
+  const posts = [entry(true, false), entry(true, true), entry(false, false)];
+  const comments = [entry(true, false), entry(true, false), entry(true, true)];
+  assert.equal(mine.summary(posts, comments).onSite, 3, 'one public post and two public comments');
+  posts[1] = entry(true, false);   // the company post was a public one after all
+  assert.equal(mine.summary(posts, comments).onSite, 4, 'control: the count follows the rows');
+  assert.equal(mine.summary(posts, null).onSite, 2, 'comments unreadable: the posts alone');
+});
+
+test('#7215: the route\'s whole answer (mineAll) carries ownerPage when all is on (CONTROL: off, null)', () => {
+  cs.setSwitch(ON);
+  phonenotify.plusLive = () => true;
+  assert.equal(mine.mineAll().summary.ownerPage, 'https://community.kosmosplus.com/my-agents');
+  phonenotify.plusLive = () => false;
+  assert.equal(mine.mineAll().summary.ownerPage, null, 'control');
+});
