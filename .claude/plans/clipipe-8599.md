@@ -26,12 +26,21 @@ in full when nothing closes early.
   load, and is added only when the file exists.
 - The two board starts (install/kosmos `nohup "$NODE" "$APP"` and the `exec` foreground start) also load it, then
   restore NODE_OPTIONS before the board starts anything. Effect on the board: a board whose own stdout pipe closes
-  exits quietly instead of crashing with a trace; its stdout is the board log file in normal use.
+  exits quietly instead of crashing with a trace; its stdout is the board log file in normal use. Either way it ends;
+  the supervisor (launchd, systemd) restarts it as before, and only the trace in the log is gone. (Windows boards
+  keep their own design, #8373/#8424: a closed console copy is recorded and never ends the board; untouched.)
+- Four node steps in install/kosmos with a `||` fallback (connections list, task list, task log, roles list) pass 141
+  straight through, so a closed reader does not read as "Kosmos gave an answer we could not read" or reprint the raw
+  answer into the closed pipe. A step captured into a variable (`$(...)`) cannot see the person's reader.
 - Exit 141 rather than 0: what a shell reports for a program a closed pipe stopped (git, cat). `| head` without
   pipefail is unchanged; with pipefail it was already non-zero (the crash exited 1).
-- Weakest premise: NODE_OPTIONS quoting of a KOSMOS_HOME with a double quote in it. A space is quoted; a `"` in the
-  install path would break every CLI node start. Install paths are ~/.local/share/kosmos (a home folder name with a
-  `"` is the only way in).
+- A KOSMOS_HOME that is relative or holds `"` or `\` gets no guard (runs as before), since NODE_OPTIONS would read it
+  wrong and every node would fail. Spaces are quoted and work (test arm 5). A relative KOSMOS_HOME already fails on
+  main (the verbs' own require of "$KOSMOS_HOME/app/engine/..." resolves as a module name, measured), so that skip is
+  defensive only and has no test arm.
+- Accepted residual: a `kosmos` running while an update swaps app/ can start a node the instant clipipe.js is absent;
+  that node fails loudly ("Cannot find module") and a rerun works. Weakest premise: that no long-lived `kosmos`
+  process keeps starting nodes across an update (none found; reasoned, not measured).
 
 ## Validation
 - Real repro on Agent1s, real pulled reports: installed 0.8.06 17 stderr lines / 2 EPIPE; this branch 1 line / 0;
@@ -41,3 +50,13 @@ in full when nothing closes early.
   orgpolicy-names-6233: all pass.
 
 ## Review log
+### Review 1 (opus): 3 WARNINGs fixed, 1 deferred, 4 NITs (3 fixed, 1 left)
+- WARNING fixed: a preload path that NODE_OPTIONS or node would misread (relative, `"`, `\`) now gets no guard; a
+  space is tested (arm 5).
+- WARNING fixed: four `||` fallbacks no longer turn a closed reader (141) into a false "could not read" line or a
+  reprint into the closed pipe.
+- WARNING fixed by decision: the update-swap window is an accepted residual, stated in install/kosmos and here.
+- WARNING deferred to the closing gate: a full suite with the preload active (queued; one suite per Mac).
+- NITs fixed: the clipipe header's wording and node count; the board-exit note (Windows design untouched).
+- NIT left: the Windows check reads the entry block's text; the zip copies every non-test engine/*.js
+  (tools/build-kosmos-windows.sh), so engineDir() holds clipipe.js. A Windows run is on the card's checklist.
