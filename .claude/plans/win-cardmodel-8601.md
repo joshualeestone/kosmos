@@ -40,10 +40,9 @@ the same way.
   set after that transcript), the job-file helper already covers launchd, systemd and Task Scheduler, and a Mac agent
   whose plist is rewritten by a model change has the same stale-reading window. Rejected: a win32-only branch, which
   would leave the same window on Mac and a second rule to keep in step.
-- Rejected: reading the job's model in status.js for every running agent (the server comment at plannedFor explains
-  the per-poll cost); the stat of two files is what the Codex path already pays.
-- Known effect: on Windows /Change /DISABLE and /ENABLE also move the task file's time (#8466 note), so a stop/start
-  shows the job's (planned) model until the first reply. That is the model it will run, so it is true.
+- Rejected: reading the job's model for every running agent on every poll (the server comment at plannedFor explains
+  the per-poll cost). The two stats come first, so the job is read only once it is newer than the transcript: after a
+  rewrite, until the next reply (on Windows that read is cached, #2717).
 
 ## Weakest premise
 That a job naming a different model than the last reply means the agent runs the job's model. Two narrow cases where it
