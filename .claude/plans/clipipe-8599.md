@@ -111,3 +111,11 @@ in full when nothing closes early.
   the guard now steps aside when it is not the only listener (Decisions).
 - NITs fixed: clipipe.js says creating both streams at startup is deliberate and that only the installed layout is
   preloaded; test arm 1 asserts 141 through the wrapper (PIPESTATUS); the Windows test's name says "by source".
+### Review 8 (sonnet): loop stopped here (8-round rule; no BLOCKER was ever raised)
+- WARNING to follow-up card: no test pins "install/kosmos starts no tmux server" (a later `tmux new-session` would
+  carry the preload into panes); a grep guard test.
+- WARNING to follow-up card: "fails as loudly as before" for a non-EPIPE error is verified only on a synthetic
+  emitter (the trace differs from Node's own; the crash and non-zero exit are the same).
+- WARNING answered in the PR: the Windows entry is checked by source; the behaviour was measured by hand on Windows.
+- NITs to the same follow-up card: a 156-column comment line in clipipe.js; the preload epilogue sits after
+  module.exports; arm 2 could also assert NODE_OPTIONS is untouched.
