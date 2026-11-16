@@ -8,6 +8,9 @@
  *
  * install() gives stdout and stderr one listener: EPIPE exits with 141 (128 + SIGPIPE, what a shell reports for a
  * program a closed pipe stopped); any other stream error is thrown again, so it still fails as loudly as before.
+ * The exit is immediate (no async cleanup); for a CLI that is the point. The board loads it too when install/kosmos
+ * starts it, and a board whose stdout pipe closes now exits 141 instead of crashing with a trace (it ended either
+ * way; server.js has no uncaughtException handler).
  *
  * How it reaches the CLI:
  * - Mac and Linux: install/kosmos runs many separate node children. It adds `--require <this file>` to NODE_OPTIONS
