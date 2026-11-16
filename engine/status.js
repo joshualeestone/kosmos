@@ -6920,17 +6920,24 @@ function readCodexSession(agentName) {
    drops the reading of a session still running. */
 function withoutModelFromBeforeJob(sess, agentName) {
   if (!sess || !sess.found || !sess.model || !sess.file) return sess;
+  if (writtenBeforeJob(sess.file, agentName)) return { ...sess, model: null };
+  return sess;
+}
+
+/* Whether `file` (a session record) was last written before the agent's job file was. A job written after the record
+   (a model change rewrites it and restarts the agent) means the record's model is from before that change, so it is
+   not the model the agent runs now. Shared by the Codex reading (withoutModelFromBeforeJob) and the Claude one
+   (readModel, kosmos#8601), so the two cannot drift. Any stat that fails (no job: a fleet agent, an untied pane) is
+   "no", which changes nothing. */
+function writtenBeforeJob(file, agentName) {
   try {
     // #4918 review 11: on Linux the job file is the agent's systemd unit, not a plist (which never exists there).
     // kosmos#8466: on Windows it is the Scheduled Task's own file, not a plist (which never exists there either).
     const jobFile = process.platform === 'linux' ? require('./linuxjob').unitPath(agentName)
       : process.platform === 'win32' ? require('./win32job').taskFilePath(agentName)
         : require('./create').plistPath(agentName);
-    const jobAt = fs.statSync(jobFile).mtimeMs;
-    const rolloutAt = fs.statSync(sess.file).mtimeMs;
-    if (jobAt > rolloutAt) return { ...sess, model: null };
-  } catch { /* a stat that fails changes nothing */ }
-  return sess;
+    return fs.statSync(jobFile).mtimeMs > fs.statSync(file).mtimeMs;
+  } catch { return false; }
 }
 
 function readCodexContext(agentName, sess) {
@@ -7384,6 +7391,12 @@ function readModel(agentName, exactSession) {
   if (!file) return { model: null, confidence: CONFIDENCE.NONE };
   const { text, whole } = tailBytes(file, 65536);
   const now = text ? modelInText(text) : null;
+  /* kosmos#8601: a model change rewrites the job and restarts the agent, and Claude Code writes the new session's file
+     only at its first reply, so until then the newest transcript is the OLD session naming the OLD model. With the job
+     written after that transcript, the reading is from before the change: it travels as an earlier reading (the #6716
+     shape), `model` stays null, and the card shows the job's planned model (server.js plannedFor reads the job whenever
+     modelName is null). The same rule the Codex reading has had since #8466 (withoutModelFromBeforeJob). */
+  if (now && writtenBeforeJob(file, agentName)) return { model: now, confidence: CONFIDENCE.STRUCTURED, earlierSession: true };
   if (now) return { model: now, confidence: CONFIDENCE.STRUCTURED };
   // Review 10: only a session that has had NO reply borrows. One that replied but whose last 64 KB is a large paste or
   // tool result names no model in the tail, and must stay "Unknown Model" rather than take another session's.

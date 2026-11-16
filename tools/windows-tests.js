@@ -115,6 +115,7 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   'discover.adopt.test.js', 'qwen-review2-5977.test.js', 'machine.test.js', 'register.test.js', 'delete-leftover.test.js',
   'connect-keep-8293.test.js', 'create.compat-7206.test.js',
   'status.codex-model-switch-4416.test.js',   // kosmos#8466: a Codex model switch, read against the Scheduled Task's own file
+  'status.cardmodel-8601.test.js',   // kosmos#8601: a Claude model change, read against the Scheduled Task's own file
   // kosmos#8378: runner resolution and the codex install through the real Windows pipeline (tar.exe, codex.exe in the
   // tree, the verified marker); its chmod-folder and ~/.local/bin/agy arms skip with their reasons.
   'runners.test.js',
