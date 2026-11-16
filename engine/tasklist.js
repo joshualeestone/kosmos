@@ -120,16 +120,21 @@ function seenWords(x) {
 function activityWords(at, now) {
   const ms = typeof at === 'string' ? Date.parse(at) : NaN;
   if (!Number.isFinite(ms)) return 'no activity on record';
-  const d = Math.max(0, Math.floor((now - ms) / DAY_MS));
+  // Calendar days on this computer's clock, as confirmedWords counts them, so "today" and "yesterday" are true.
+  // Math.round absorbs a daylight-saving day; a time ahead of this clock is today, never a negative day.
+  const t = new Date(ms); const n = new Date(now);
+  const d = Math.max(0, Math.round((new Date(n.getFullYear(), n.getMonth(), n.getDate()) - new Date(t.getFullYear(), t.getMonth(), t.getDate())) / DAY_MS));
   return d === 0 ? 'last activity today' : d === 1 ? 'last activity yesterday' : 'last activity ' + d + ' days ago';
 }
 function waitsWords(x) {
   if (x.onHold === true) {
     const u = x.onHoldUntil;
-    if (x.onHoldForPerson === true) return 'waits on the person';
-    if (u && Number.isInteger(u.task)) return 'waits on task ' + u.task + ' to close';
-    if (u && typeof u.at === 'string') return 'waits until ' + (whenWords(u.at) || one(u.at));
-    return x.onHoldByPerson === true ? 'held by the person' : '';
+    // Both parts when both hold (as stateWords says them): who it waits on, and what reopens it.
+    const until = u && Number.isInteger(u.task) ? 'task ' + u.task + ' to close' : u && typeof u.at === 'string' ? 'until ' + (whenWords(u.at) || one(u.at)) : '';
+    const parts = [x.onHoldForPerson === true ? 'the person' : '', until.startsWith('task') ? until : ''].filter(Boolean);
+    const on = parts.length ? 'waits on ' + parts.join(' and ') : '';
+    const time = until.startsWith('until') ? (on ? on + ', ' : 'waits ') + until : on;
+    return time || (x.onHoldByPerson === true ? 'held by the person' : '');
   }
   if (x.projectPaused === true) return 'waits on its project being resumed';
   if (x.builtAt) return 'waits on a review and close';
