@@ -177,9 +177,11 @@ test('#8597: a stalled binary whose child holds the pipe is cut off at the bound
   fs.writeFileSync(bin, '#!/bin/sh\n( sleep 30 ) &\necho $! > ' + JSON.stringify(pidf) + '\nsleep 30\n');
   fs.chmodSync(bin, 0o755);
   const t0 = Date.now();
-  assert.equal(await pinModelMigration(home('model = "gpt-5.4"\n'), '', bin, { bundledMs: 400 }), false);
+  // A bound well past a shell's start on a loaded machine, and far below the 30 s stall.
+  assert.equal(await pinModelMigration(home('model = "gpt-5.4"\n'), '', bin, { bundledMs: 2000 }), false);
   const took = Date.now() - t0;
-  assert.ok(took < 3000, 'returned at the bound, not after the stall: ' + took + ' ms');
+  assert.ok(took < 15000, 'returned at the bound, not after the 30 s stall: ' + took + ' ms');
+  assert.ok(fs.existsSync(pidf), 'the stand-in started its child before the bound (else this arm proves nothing)');
   const gpid = Number(fs.readFileSync(pidf, 'utf8'));
   let alive = true;
   for (let i = 0; i < 20 && alive; i += 1) { try { process.kill(gpid, 0); } catch { alive = false; } if (alive) spawnSync('sleep', ['0.1']); }
@@ -197,4 +199,23 @@ test('#8597: a new config.toml is 0600 and an existing one keeps its mode', asyn
   assert.equal(await pinModelMigration(kept, '', codex.bin), true);
   assert.equal(fs.statSync(path.join(kept, 'config.toml')).mode & 0o777, 0o640);
   assert.deepEqual(fs.readdirSync(kept).filter((f) => f.endsWith('.tmp')), [], 'no temp copy left');
+});
+
+test('#8597: a config.toml another Kosmos writer holds is left alone after the lock wait (no write, no throw)', async () => {
+  const codex = fakeCodex(CATALOG);
+  const d = home('model = "gpt-5.4"\n');
+  fs.mkdirSync(path.join(d, 'config.toml.lock'));   // engine/filelock.js's lock, held (fresh, so it is not stale)
+  assert.equal(await pinModelMigration(d, '', codex.bin), false);
+  assert.equal(cfg(d), 'model = "gpt-5.4"\n');
+  fs.rmdirSync(path.join(d, 'config.toml.lock'));
+  assert.equal(await pinModelMigration(d, '', codex.bin), true, 'control: written once the lock is free');
+});
+
+test('#8597: a literal-string model is read too, and the --model=X and -m=X launch forms', async () => {
+  assert.equal(configModel("model = 'gpt-5.4'\n"), 'gpt-5.4');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
+  const block = src.slice(src.indexOf('_mig_model="$MODEL"'), src.indexOf('if [ -f "$DISMISS" ]', src.indexOf('_mig_model="$MODEL"')));
+  const run = (endpoint) => spawnSync(fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash', ['-c', 'set -u; MODEL=x; ENDPOINT_ARGS=("$@")\n' + block + '\nprintf %s "$_mig_model"', 'x', ...endpoint], { encoding: 'utf8' }).stdout;
+  assert.equal(run(['--model=gpt-6-sol']), 'gpt-6-sol');
+  assert.equal(run(['-m=gpt-5.4', '-c', 'a=b']), 'gpt-5.4');
 });

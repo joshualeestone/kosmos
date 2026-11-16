@@ -29,7 +29,9 @@
  *
  * kosmos#8597: it also answers Codex's model-migration menu (pinModelMigration, below). That one reads the catalog
  * the binary ships when the fetched cache does not answer, so a launch can spawn `codex debug models --bundled`,
- * bounded at BUNDLED_MS, and it takes engine/filelock.js for its config.toml write.
+ * bounded at BUNDLED_MS, and it takes engine/filelock.js and engine/securewrite.js for its config.toml write. The
+ * update dismissal above still needs nothing; the migration pin is the part that can cost a launch time (at most
+ * BUNDLED_MS plus the lock's wait), and it still never stops one.
  *
  * ⚠️ AND IT NEVER INVENTS A VERSION. Absent, unparseable, or no `latest_version`
  * all decline: dismissing a version codex has not told us about would be writing
@@ -122,8 +124,8 @@ function upgradeIn(catalog, model) {
 function configModel(text) {
   for (const line of String(text).split('\n')) {
     if (/^\s*\[/.test(line)) break;   // the first table: top-level keys are above it
-    const m = /^\s*model\s*=\s*"([^"\\]*)"\s*(#.*)?$/.exec(line);
-    if (m) return m[1];
+    const m = /^\s*model\s*=\s*(?:"([^"\\]*)"|'([^']*)')\s*(#.*)?$/.exec(line);
+    if (m) return m[1] !== undefined ? m[1] : m[2];
   }
   return null;
 }
@@ -204,18 +206,15 @@ async function pinModelMigration(home, model, codexBin, opts = {}) {
     if (!m || !SLUG.test(m)) return false;
     const to = await migrationTarget(h, m, codexBin, opts.bundledMs);
     if (!to) return false;
-    /* Under the lock the folder-trust and hook writers take on this file, re-read inside it, and replaced by a rename
-       of a complete temp copy, so a crash never leaves Codex a truncated config and a concurrent Kosmos writer is not lost. */
+    /* Under the lock the folder-trust and hook writers take on this file, re-read inside it, and saved the way
+       forgetCodexFolder saves it (securewrite, atomic only, own temps only), keeping the file's mode (0600 when new). */
     const locked = require('./filelock').withFileLock(file, () => {
       let now = '';
       let mode = 0o600;
       try { now = fs.readFileSync(file, 'utf8'); mode = fs.statSync(file).mode & 0o777; } catch (e) { if (!e || e.code !== 'ENOENT') return false; }
       const next = withMigration(now, m, to);
       if (next === null) return false;
-      const tmp = file + '.kosmos-' + process.pid + '.tmp';
-      fs.writeFileSync(tmp, next, { mode });
-      fs.chmodSync(tmp, mode);
-      fs.renameSync(tmp, file);
+      require('./securewrite').writeSecret(file, next, mode, { atomicOnly: true, ownTempsOnly: true });
       return true;
     });
     return Boolean(locked && locked.ok && locked.value);
