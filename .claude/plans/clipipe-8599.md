@@ -98,3 +98,9 @@ in full when nothing closes early.
 - NITs left: the system-node fallback's NODE_OPTIONS quote parsing (Node has parsed quoted NODE_OPTIONS since v12;
   the bundled runtime is 22); isBoard matches any server.js entry among the preload's inheritors (only the
   wrapper's own children, whose only server.js is the board).
+### Review 6 (sonnet): 2 WARNINGs fixed (wording), 4 NITs (3 fixed, 1 left)
+- WARNINGs fixed: clipipe.js says every non-board node install/kosmos runs is guarded (no engine file has its own
+  stdout/stderr 'error' handler to pre-empt), and that the immediate exit can lose a stderr note when stderr closed.
+- NITs fixed: the install/kosmos comment is shorter and drops a whole-file claim a later edit could falsify; test arm
+  5 uses a real folder with a space; the Windows entry swallows only MODULE_NOT_FOUND.
+- NIT left: none further.

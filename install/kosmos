@@ -46,21 +46,13 @@ KOSMOS_HOME="${KOSMOS_HOME:-$(cd "$(dirname "$SELF")/.." && pwd)}"
 
 NODE="$KOSMOS_HOME/runtime/bin/node"
 APP="$KOSMOS_HOME/app/server.js"
-# kosmos#8599: a node child of this command whose reader stops early (`kosmos ... | head -1`) exits quietly (141)
-# instead of printing an unhandled EPIPE stack trace. engine/clipipe.js is preloaded into every node this command
-# runs (the bundled one and kosmos_engine_node's system-node fallback alike; the installed layout's app/engine only,
-# a source-checkout KOSMOS_HOME runs unguarded, as before), from one place: it puts NODE_OPTIONS
-# back as the person had it the moment it loads, so nothing those children start inherits it. The board (server.js)
-# loads it too but is not guarded: it keeps its own behaviour on a closed stdout. Only when the file is readable (a
-# missing or unreadable preload would stop every node from starting),
-# only for an absolute path with no " or \ in it (NODE_OPTIONS reads both inside its quotes, and node would resolve a
-# relative one per child: either would stop every node; such a path runs unguarded, as before), and only once (a
-# nested `kosmos` sees KOSMOS_CLIPIPE_SET and leaves NODE_OPTIONS alone). Accepted residual: a `kosmos` still running
-# while an update swaps app/ can start a node in the instant the file is absent; that one node fails loudly
-# ("Cannot find module"), and running the command again works. This shell's own non-node children carry the two
-# variables too; none starts anything long-lived that runs node: this file starts no tmux server (its tmux calls are
-# ls, list-*, display-message and capture-pane), and the board, which starts agents, is node and restores them first.
-# KOSMOS_USER_NODE_OPTIONS_SET is "1" only when the person had NODE_OPTIONS set (even empty); clipipe.js reads it so.
+# kosmos#8599: every node this command runs, except the board (server.js), exits quietly (141) when its reader stops
+# early (`kosmos ... | head -1`) instead of printing an unhandled EPIPE trace. engine/clipipe.js is preloaded through
+# NODE_OPTIONS and puts NODE_OPTIONS back as the person had it the moment it loads, so nothing those nodes start
+# inherits it (see clipipe.js). Added only for a readable file at an absolute path with no " or \ (anything else
+# would stop every node from starting, so it runs unguarded, as before), and only once (a nested `kosmos` sees
+# KOSMOS_CLIPIPE_SET). Accepted residual: a node started in the instant an update swaps app/ fails loudly, and
+# running the command again works.
 KOSMOS_CLIPIPE="$KOSMOS_HOME/app/engine/clipipe.js"
 case "$KOSMOS_CLIPIPE" in /*) ;; *) KOSMOS_CLIPIPE="" ;; esac
 case "$KOSMOS_CLIPIPE" in *'"'*|*'\'*) KOSMOS_CLIPIPE="" ;; esac

@@ -66,8 +66,9 @@ cat > "$HOME_DIR/app/engine/feedback-triage.js" <<'EOF'
 module.exports = { digestFor: () => Array.from({ length: 20000 }, (_, i) => 'digest line ' + i + ' ' + 'x'.repeat(40)).join('\n') };
 EOF
 SPACED="$HOME_DIR/with space"
-mkdir -p "$SPACED"
-ln -s "$HOME_DIR/app" "$SPACED/app"; ln -s "$HOME_DIR/runtime" "$SPACED/runtime"
+mkdir -p "$SPACED/runtime/bin"
+cp -R "$HOME_DIR/app" "$SPACED/app"   # a real folder (not a link), so the path node is given has the space in it
+ln -s "$NODE_BIN" "$SPACED/runtime/bin/node"
 KOSMOS_HOME="$SPACED" bash "$REPO/install/kosmos" feedback triage --dir "$HOME_DIR/reports" 2>"$ERR" | head -1 > "$LINE"
 grep -q '^digest line 0 ' "$LINE" || fail "with a space in the home folder the reader got: $(cat "$LINE") / $(head -3 "$ERR")"
 if grep -qE "EPIPE|Unhandled 'error'|Cannot find module" "$ERR"; then fail "a home folder with a space: $(head -3 "$ERR")"; fi
