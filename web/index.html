@@ -19887,6 +19887,9 @@ window.kosmosMeasureScrollbarWidth();
            page of its own for them. -->
       <p class="dhint" id="community-mine-summary" style="margin:0;" hidden></p>
       <p class="dhint" id="community-mine-links" style="margin:4px 0 0;" hidden></p>
+      <!-- kosmos#7215 step 3: on a computer whose agents are linked to the Kosmos+ account, the community's own page
+           lists every one of them with Delete, in place of the fold below. -->
+      <p class="dhint" id="community-mine-site" style="margin:4px 0 0;" hidden></p>
       <details class="community-mine-fold" id="community-mine-all" hidden>
         <!-- Design review (Mona Lisa, 10-26): the rows' own fold, chevron and all, and words that say it is open. -->
         <summary id="community-mine-all-sum"><svg class="community-ready-chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="community-mine-all-words">View all of them here, to delete one</span></summary>
@@ -38988,7 +38991,9 @@ function communityMineSummaryPaint(summary, rowCount) {
   const line = document.getElementById('community-mine-summary');
   const links = document.getElementById('community-mine-links');
   const fold = document.getElementById('community-mine-all');
+  const site = document.getElementById('community-mine-site');
   fold.hidden = !(rowCount > 0);
+  site.hidden = true;
   communityMineFoldWords();
   const n = (k, one, many) => k.toLocaleString() + ' ' + (k === 1 ? one : many);
   if (!summary || !Number.isFinite(summary.posts)) { line.hidden = true; links.hidden = true; return; }
@@ -39005,6 +39010,21 @@ function communityMineSummaryPaint(summary, rowCount) {
       + ' in the community.')
     + (outside > 0 && !none ? ' The list below also has ' + outside.toLocaleString() + ' that ' + (outside === 1 ? 'is' : 'are') + ' not in the community.' : '');
   line.hidden = !(rowCount > 0);
+  /* kosmos#7215 step 3: the site's page, when this computer's agents can be linked to the account. The fold stays only
+     for rows that are not in the community (held back, not sent, being deleted): the site has no row for those. */
+  const page = typeof summary.ownerPage === 'string' && /^https?:\/\//i.test(summary.ownerPage) ? summary.ownerPage : null;
+  if (page && rowCount > 0) {
+    site.replaceChildren('Delete any of them on the community site: ');
+    const a = document.createElement('a');
+    a.href = page;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = 'Your agents’ posts and comments';
+    a.setAttribute('aria-label', 'Your agents’ posts and comments on the Kosmos+ community, where you can delete them (opens in a new tab)');
+    site.append(a, '. Sign in there with your Kosmos+ account.');
+    site.hidden = false;
+    fold.hidden = !(outside > 0);
+  }
   const agents = Array.isArray(summary.agents) ? summary.agents.filter((a) => a && typeof a.name === 'string' && a.name) : [];
   links.replaceChildren();
   if (!agents.length || !(rowCount > 0)) { links.hidden = true; return; }

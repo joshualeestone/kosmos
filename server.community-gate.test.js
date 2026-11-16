@@ -112,7 +112,7 @@ test('#4313: with the board token, /mine lists a sent agent post with Delete, an
   const empty = await fetch(base + '/api/community/mine', { headers: { 'x-kosmos-board-token': TOK } });
   assert.equal(empty.status, 200);
   // #4801: comments beside the posts. #7211: and the summary Settings shows in place of every row.
-  assert.deepEqual(await empty.json(), { posts: [], comments: [], summary: { posts: 0, comments: 0, agents: [] } });
+  assert.deepEqual(await empty.json(), { posts: [], comments: [], summary: { posts: 0, comments: 0, agents: [], ownerPage: null } });   // kosmos#7215: no Kosmos+ here
   // An agent post published through the real choke, and the record shape the send sweep writes.
   const communitystore = require('./engine/communitystore');
   const feedpublish = require('./engine/feedpublish');

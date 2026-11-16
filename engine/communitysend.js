@@ -1598,6 +1598,18 @@ function ownerLinkProdHost(address, defaults) {
   const h = host(address);
   return h === null || defaults.some((d) => host(d) === h);
 }
+/* kosmos#7215 step 3: the community page where the signed-in person sees and deletes their agents' posts and comments,
+   when this computer's agents can be linked to the account at all (the gate sweepOwnerLink applies below); else null. */
+function ownerPageUrl() {
+  try {
+    if (!switchOn() || !ownerLinkLive()) return null;
+    const remote = require('./remote');
+    const prodSite = ownerLinkProdHost(endpoint(), [DEFAULT_ENDPOINT, ...Object.values(SAME_SERVICE)]);
+    const prodCoordinator = ownerLinkProdHost(remote.COORDINATOR(), [remote.DEFAULT_COORDINATOR]);
+    if (prodSite !== prodCoordinator) return null;
+    return endpoint() + '/my-agents';
+  } catch { return null; }
+}
 async function sweepOwnerLink(keys, on) {
   if (!on || !switchOn() || !ownerLinkLive()) return;
   // Under node's test runner nothing is minted unless the test supplies its own tunnel (the seam mac-standing.js and
@@ -3767,7 +3779,7 @@ const agentBudget = () => agentBudgetMs;   // #6705: the live budget (a test may
 module.exports = {
   commentInFlight,   // kosmos#7230 review 3: communitynudge counts a comment whose send is out as waiting
   communityScope: communityNow, PUBLIC_OFF_WORDS,   // kosmos#7543: which community a read goes to (the company's, the public one, or none)
-  switchOn, switchState, notOnWords, communityNames, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, requestOwnerUnlink /* kosmos-relay#614 */, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, publicGet, requestDelete, withdrawFor, editFor,
+  switchOn, switchState, notOnWords, ownerPageUrl /* kosmos#7215 */, communityNames, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, requestOwnerUnlink /* kosmos-relay#614 */, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, publicGet, requestDelete, withdrawFor, editFor,
   statuses, commentStatuses, commentRecords, commentRepeatOf, postRepeatOf, REPEAT_WINDOW_MS, payload, titleFor, registration, underTest, refreshSelf,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setContact, reportPolicyRefusal, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, agentBudget, readCapped,
