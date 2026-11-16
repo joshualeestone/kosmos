@@ -46,6 +46,10 @@ in full when nothing closes early.
 - Real repro on Agent1s, real pulled reports: installed 0.8.06 17 stderr lines / 2 EPIPE; this branch 1 line / 0;
   this branch with the guard off 17 / 2. Full output 498764 bytes either way.
 - Mutant: install/kosmos from origin/main with this branch's tests: test-cli-epipe-8599.sh FAILS (the trace).
+- Windows, measured 2026-11-16 17:33 on the Windows test box (Server 2022, Node 22.12, Git Bash `| head -1`, 1 MB
+  write, this branch's clipipe.js): guarded rc 141, 0 stderr lines; unguarded control rc 1, 25 lines, 2 EPIPE (the
+  same unhandled 'error' trace). Windows reports the closed pipe as EPIPE, the code the guard handles. The CLI entry
+  block's install() call is checked by source (engine/clipipe.test.js), not run there.
 - Guards: engine.reachable, windows-coupling-audit-1732, windows-tests-1777, fixture-discipline, every-test-runs,
   orgpolicy-names-6233: all pass.
 
@@ -60,3 +64,10 @@ in full when nothing closes early.
 - NITs fixed: the clipipe header's wording and node count; the board-exit note (Windows design untouched).
 - NIT left: the Windows check reads the entry block's text; the zip copies every non-test engine/*.js
   (tools/build-kosmos-windows.sh), so engineDir() holds clipipe.js. A Windows run is on the card's checklist.
+### Review 2 (sonnet): 2 WARNINGs answered by measurement, 1 fixed by measurement, 2 NITs fixed
+- WARNINGs (one root cause): the wrapper's non-node children carry NODE_OPTIONS and the marker. Measured: install/kosmos
+  starts no tmux server (its tmux calls are ls, list-*, display-message, capture-pane) and the board restores both
+  before it starts agents; now stated in the install/kosmos comment. Setting it per node site was rejected (Decisions).
+- WARNING fixed: Windows measured on the test box (Validation above), not only reasoned.
+- NITs fixed: clipipe.js says the exit is immediate and what it means for a board; install/kosmos says what
+  KOSMOS_USER_NODE_OPTIONS_SET holds.

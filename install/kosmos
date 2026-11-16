@@ -54,7 +54,10 @@ APP="$KOSMOS_HOME/app/server.js"
 # relative one per child: either would stop every node; such a path runs unguarded, as before), and only once (a
 # nested `kosmos` sees KOSMOS_CLIPIPE_SET and leaves NODE_OPTIONS alone). Accepted residual: a `kosmos` still running
 # while an update swaps app/ can start a node in the instant the file is absent; that one node fails loudly
-# ("Cannot find module"), and running the command again works.
+# ("Cannot find module"), and running the command again works. This shell's own non-node children carry the two
+# variables too; none starts anything long-lived that runs node: this file starts no tmux server (its tmux calls are
+# ls, list-*, display-message and capture-pane), and the board, which starts agents, is node and restores them first.
+# KOSMOS_USER_NODE_OPTIONS_SET is "1" only when the person had NODE_OPTIONS set (even empty); clipipe.js reads it so.
 KOSMOS_CLIPIPE="$KOSMOS_HOME/app/engine/clipipe.js"
 case "$KOSMOS_CLIPIPE" in /*) ;; *) KOSMOS_CLIPIPE="" ;; esac
 case "$KOSMOS_CLIPIPE" in *'"'*|*'\'*) KOSMOS_CLIPIPE="" ;; esac
