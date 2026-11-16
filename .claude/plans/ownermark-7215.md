@@ -12,8 +12,11 @@ sweepOwnerLink does, and a test shows a marker for an old key does not count whi
 
 ## Change
 
-- engine/communitysend.js `ownerPageUrl()`: the comparison above (and an agent with no key is not linked).
+- engine/communitysend.js `ownerPageUrl()`: the comparison above, and the sweep's own filters (review round 1): a
+  deleted (retired) or retiring agent, a test seat, a refused key, or an entry with no name or key is not linked.
+  If the retire list or the seat check cannot be read, they answer "skip", so the link hides then.
 - engine/communitymine-ownerpage-7215.test.js: `linkAgent` writes the marker as communitysend does (computer id and
-  the key's digest); a stale-key case (marked for an old key, holding a new one) with the current-key control.
+  the key's digest); cases for a stale key, no key, a refused key, a retired account, a test seat and an agent being
+  retired, each beside the current-key control.
 
 Merges after the kosmos merge hold lifts (Baron's 0.8.06 promote, 11-16 15:58).
