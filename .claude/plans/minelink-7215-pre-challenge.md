@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: minelink-7215
-diff_hash: 62e443c47f019fa9e07b062f688e56be08c944b99dce570fee22f1b1bac9145f
+diff_hash: 23d467a7a9b31187911873099ebf9fa0b8dc6a0417175cb28a79dd469a39bd74
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-16T21:15:13Z
+timestamp: 2026-11-16T21:26:53Z
 iterations: 8
 converged: false
 ---
@@ -16,6 +16,8 @@ converged: false
 **Converged:** No. Stopped at the 8-round cap (Splinter's standing rule of 2026-10-31: cap 8 rounds unless a BLOCKER is open; leftovers go on a card). Round 8 found no BLOCKER.
 **Total findings:** 1 BLOCKER, 22 WARNINGs, 1 CONVENTION, about 25 NITs
 **Fixed:** 19 | **Deferred:** 4 | **Asked (awaiting user):** 0
+
+**After the loop (design review, kosmos#8591):** Mona Lisa approved placement and look in all four shots and recommended shorter words; taken in ba6fd0b923 ("To delete them from the public community, sign in to the community site with your Kosmos+ account.", linked on "the community site"). That commit had its own blind review (opus): 0 BLOCKERs, 0 WARNINGs, 3 NITs; two taken in a280ed1a58 (a plainer aria-label, and the SITE arm pins the link text and that its label starts with it, WCAG 2.5.3). Browser checks ALL PASS frozen at a280ed1a58; design shots retaken at a280ed1a58, 4 shots, 0 flagged.
 
 **Validation:** focused engine tests (every test file that reads communitymine, /api/community/mine or the owner-link code, plus fixture-discipline and the two name guards): 563 pass on f5bc0317a6. Browser checks render-community-index-7211, render-community-delete-4313 and mobile-shots through queued-heavy: ALL PASS on f5bc0317a6. Both browser-check gates (coarse #1720, surface #2518) rc 0.
 
