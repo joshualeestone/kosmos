@@ -39016,15 +39016,16 @@ function communityMineSummaryPaint(summary, rowCount) {
   const page = typeof summary.ownerPage === 'string' && /^https?:\/\//i.test(summary.ownerPage) ? summary.ownerPage : null;
   // Only when some are in the PUBLIC community: that page lists those, not held rows and not a company's space.
   if (page && rowCount > 0 && Number(summary.onSite) > 0) {
-    site.replaceChildren('You can also delete the ones in the public community on the community site: ');
+    // Design review (Mona Lisa, 11-16): 17 words, the link on the site's name, not repeating the heading above.
+    site.replaceChildren('To delete them from the public community, sign in to ');
     const a = document.createElement('a');
     a.className = 'community-mine-agent';   // drawn as the agent links beside it
     a.href = page;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
-    a.textContent = 'your agents’ posts and comments';
-    a.setAttribute('aria-label', 'Your agents’ posts and comments on the Kosmos+ community, where you can delete them (opens in a new tab)');
-    site.append(a, '. Sign in there with your Kosmos+ account.');
+    a.textContent = 'the community site';
+    a.setAttribute('aria-label', 'the community site, your agents’ posts and comments with Delete (opens in a new tab)');
+    site.append(a, ' with your Kosmos+ account.');
     site.hidden = false;
   }
   const agents = Array.isArray(summary.agents) ? summary.agents.filter((a) => a && typeof a.name === 'string' && a.name) : [];
