@@ -11,7 +11,9 @@
  * Every node install/kosmos runs is guarded this way except the board (below), not only one-shot verbs; no engine
  * file has its own stdout/stderr 'error' handler for this listener to pre-empt. The exit is immediate (no async
  * cleanup, no flush): when stderr's reader is the one that closed, a note the verb was about to write is lost with
- * it. For a closed reader that is the point. Only EPIPE was measured as the closed-pipe
+ * it. For a closed reader that is the point. Reading process.stdout and process.stderr here creates both streams
+ * at startup (Node makes them lazily otherwise); deliberate, since the guard has to be on them before the first write.
+ * Only the installed layout is preloaded (install/kosmos looks in app/engine; a source checkout runs unguarded). Only EPIPE was measured as the closed-pipe
  * error (macOS, Linux CI, Windows Git Bash `head -1`); another code still throws, as before.
  *
  * How it reaches the CLI:
@@ -27,10 +29,13 @@
 
 const QUIT_ON_CLOSED_READER = 141;
 
-/** One stream: EPIPE is a quiet exit, anything else is thrown again. */
+/** One stream: EPIPE is a quiet exit, anything else is thrown again. Only when this is the stream's ONLY 'error'
+ *  listener, which is exactly when Node itself would have crashed: a program with its own handler (a node-based git
+ *  hook the wrapper runs, say) handles its errors as before, EPIPE included. */
 function guardStream(stream, proc) {
   if (!stream || typeof stream.on !== 'function') return;
   stream.on('error', (e) => {
+    if (typeof stream.listenerCount === 'function' && stream.listenerCount('error') > 1) return;
     if (e && e.code === 'EPIPE') { proc.exit(QUIT_ON_CLOSED_READER); return; }
     throw e;
   });

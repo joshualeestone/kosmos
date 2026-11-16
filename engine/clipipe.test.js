@@ -97,7 +97,21 @@ test('any other stream error is thrown again (only EPIPE is quiet)', () => {
   assert.strictEqual(proc.stdout.listenerCount('error'), 1);
 });
 
-test('the Windows CLI guards itself before main() runs (it is one node program, with no install/kosmos preload)', () => {
+test('a program with its own error handler keeps it: the guard steps aside (CONTROL: alone, it acts)', () => {
+  const exits = [];
+  const proc = { stdout: new EventEmitter(), stderr: new EventEmitter(), exit: (c) => exits.push(c) };
+  clipipe.install(proc);
+  const theirs = [];
+  proc.stdout.on('error', (e) => theirs.push(e.code));
+  proc.stdout.emit('error', Object.assign(new Error('EIO'), { code: 'EIO' }));       // not thrown: theirs handled it
+  proc.stdout.emit('error', Object.assign(new Error('EPIPE'), { code: 'EPIPE' }));   // not an exit: theirs handled it
+  assert.deepStrictEqual(theirs, ['EIO', 'EPIPE']);
+  assert.deepStrictEqual(exits, []);
+  proc.stderr.emit('error', Object.assign(new Error('EPIPE'), { code: 'EPIPE' }));   // CONTROL: stderr has only ours
+  assert.deepStrictEqual(exits, [clipipe.QUIT_ON_CLOSED_READER]);
+});
+
+test('the Windows CLI guards itself before main() runs, checked by source (measured on Windows by hand; see the plan)', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
   const entry = src.slice(src.indexOf('if (require.main === module) {'));
   const guard = entry.indexOf("require(path.join(engineDir(), 'clipipe.js')).install(process)");

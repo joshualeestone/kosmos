@@ -20,6 +20,9 @@ in full when nothing closes early.
   person's NODE_OPTIONS). Registered in package.json test:shell.
 
 ## Decisions
+- The guard acts only when it is the stream's only 'error' listener (the case where Node itself would crash). A node
+  program with its own handler, such as one a git hook runs under the wrapper's NODE_OPTIONS, keeps its handling,
+  EPIPE included. Tested both ways, red when the check is removed.
 - One preload through NODE_OPTIONS, not ~125 site edits and not a shell shim (a shim needs three build scripts to ship
   it; engine/*.js ship already). Rejected: exporting NODE_OPTIONS and leaving it (it would reach the board, every
   agent and Claude Code itself, and a missing file would stop all of them starting). The preload removes itself on
@@ -98,9 +101,13 @@ in full when nothing closes early.
 - NITs left: the system-node fallback's NODE_OPTIONS quote parsing (Node has parsed quoted NODE_OPTIONS since v12;
   the bundled runtime is 22); isBoard matches any server.js entry among the preload's inheritors (only the
   wrapper's own children, whose only server.js is the board).
-### Review 6 (sonnet): 2 WARNINGs fixed (wording), 4 NITs (3 fixed, 1 left)
+### Review 6 (sonnet): 2 WARNINGs fixed (wording), 3 NITs fixed
 - WARNINGs fixed: clipipe.js says every non-board node install/kosmos runs is guarded (no engine file has its own
   stdout/stderr 'error' handler to pre-empt), and that the immediate exit can lose a stderr note when stderr closed.
 - NITs fixed: the install/kosmos comment is shorter and drops a whole-file claim a later edit could falsify; test arm
   5 uses a real folder with a space; the Windows entry swallows only MODULE_NOT_FOUND.
-- NIT left: none further.
+### Review 7 (opus): 1 WARNING fixed, 4 NITs fixed
+- WARNING fixed: a program with its own stdout/stderr 'error' handler had it overridden (rethrow, or exit on EPIPE);
+  the guard now steps aside when it is not the only listener (Decisions).
+- NITs fixed: clipipe.js says creating both streams at startup is deliberate and that only the installed layout is
+  preloaded; test arm 1 asserts 141 through the wrapper (PIPESTATUS); the Windows test's name says "by source".
