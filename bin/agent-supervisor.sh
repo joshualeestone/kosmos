@@ -1275,7 +1275,8 @@ if [ -z "$adopt" ]; then
       if [ "${#ENDPOINT_ARGS[@]}" -gt 0 ]; then
         _mig_model=""; _mig_next=0
         for _a in "${ENDPOINT_ARGS[@]}"; do
-          if [ "$_mig_next" = 1 ]; then _mig_model="$_a"; _mig_next=0; elif [ "$_a" = -m ] || [ "$_a" = --model ]; then _mig_next=1; fi
+          if [ "$_mig_next" = 1 ]; then _mig_model="$_a"; _mig_next=0
+          else case "$_a" in -m|--model) _mig_next=1 ;; --model=*) _mig_model="${_a#--model=}" ;; -m=*) _mig_model="${_a#-m=}" ;; esac; fi
         done
       fi
       if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${EFFECTIVE_CODEX_HOME:-}" "$_mig_model" "$CLAUDE" "$_mig_shared" >/dev/null 2>&1 || true; fi
