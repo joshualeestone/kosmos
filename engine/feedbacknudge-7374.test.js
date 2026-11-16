@@ -47,11 +47,13 @@ const noGuide = () => false;
 /* The roster comes back in the board's order, not the order given, so a card is found by its name. */
 const by = (cards, name) => cards.find((c) => c.sessionName.startsWith(name)).sessionName;
 /* An asked-record that lives in memory, so tests do not share the sandbox file unless they mean to. */
-function memAsked(start = null, worked = null) {
+function memAsked(start = null, worked = null, who = []) {
   let d = start;
   let w = worked;
+  let ws = who;
   const sets = [];
-  return { get: () => d, set: (date, session) => { d = date; sets.push([date, session]); return true; }, sets, workedOn: () => w, markWorked: (date) => { w = date; return true; } };
+  return { get: () => d, set: (date, session) => { d = date; sets.push([date, session]); return true; }, sets,
+    workedOn: () => w, workers: () => ws, markWorked: (date, workers) => { w = date; ws = workers || []; return true; } };
 }
 function run(cards, extra = {}) {
   const sent = [];
@@ -142,7 +144,7 @@ test('the record on disk is written and read back through the real file', () => 
   const real = { get: undefined };   // not a reader: sweepOnce falls back to the file
   assert.equal(run(cards, { asked: real }).sent.length, 1);
   const saved = JSON.parse(fs.readFileSync(nudge.askedFile(), 'utf8'));
-  assert.deepEqual(saved, { workedOn: TODAY, date: TODAY, session: cards[0].sessionName });
+  assert.deepEqual(saved, { workedOn: TODAY, workers: [cards[0].sessionName], date: TODAY, session: cards[0].sessionName });
   assert.equal(run(cards, { asked: real }).sent.length, 0, 'asked again from the file');
 });
 
@@ -325,4 +327,37 @@ test('the Project Manager role and the board ask agree that the report is sent, 
     assert.match(text, /Settings, Automation/);
   }
   assert.doesNotMatch(pm, /It is saved here, on this computer\.(?! *and)/);
+});
+
+/* kosmos#8572: the report is about the asked agent's own day, so only an agent with a day to report on is asked. */
+const idleAllDay = (c) => ({ ...c, lastWorked: { at: new Date(2026, 9, 26, 15, 0, 0).toISOString(), why: null } });   // last worked yesterday
+
+test('kosmos#8572: an idle Project Manager who did nothing today is not asked while the agent who worked is busy', () => {
+  const pm = { displayName: 'Pia', role: templateRole('pm') };
+  const busy = roster([['pia', pm], ['bo', { state: 'working' }]]).map((c) => (c.sessionName.startsWith('pia') ? idleAllDay(c) : worked(c)));
+  const r = run(busy);
+  assert.equal(r.sent.length, 0, 'the idle-all-day PM was asked: ' + JSON.stringify(r.out));
+  assert.equal(r.out.result.because, 'nobody who worked today is free to ask yet');
+  // Later, the worker is idle: it is asked, not the PM who did nothing.
+  const later = roster([['pia', pm], ['bo']]).map((c) => (c.sessionName.startsWith('pia') ? idleAllDay(c) : worked(c)));
+  assert.equal(run(later).sent[0][0], by(later, 'bo'));
+  // Control: when the PM also worked today, the PM is asked first, as before.
+  const both = roster([['pia', pm], ['bo']]).map((c) => worked(c));
+  assert.equal(run(both).sent[0][0], by(both, 'pia'));
+});
+
+test('kosmos#8572: an agent on a provider Kosmos cannot see is still asked; one that only worked yesterday is not', () => {
+  const unseen = roster([['ana'], ['bo']]).map((c) => (c.sessionName.startsWith('ana') ? idleAllDay(c) : { ...c, lastWorked: { at: null, why: 'no_source' } }));
+  assert.equal(run(unseen).sent[0][0], by(unseen, 'bo'));
+});
+
+test('kosmos#8572: after a restart, the ask goes to who the record saw working, not to any idle agent', () => {
+  const asked = memAsked();
+  const morning = roster([['ana'], ['bo']]).map((c) => (c.sessionName.startsWith('bo') ? worked(c) : idleAllDay(c)));
+  run(morning, { asked, now: new Date(2026, 9, 27, 10, 0, 0) });   // before NUDGE_HOUR: nobody asked, who worked is kept
+  assert.deepEqual(asked.workers(), [by(morning, 'bo')]);
+  const afterRestart = roster([['ana'], ['bo']]).map((c) => ({ ...c, lastWorked: { at: null, why: 'not_seen' } }));
+  assert.equal(run(afterRestart, { asked }).sent[0][0], by(afterRestart, 'bo'));
+  // Control: the same restarted roster with a record that names nobody asks nobody.
+  assert.equal(run(afterRestart, { asked: memAsked(null, TODAY, []) }).sent.length, 0);
 });
