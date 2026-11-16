@@ -22,7 +22,11 @@ FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-SB="$(mktemp -d "${TMPDIR:-/tmp}/test-supervisor-codexhome-leak-3430.XXXXXXXXXX")"
+# kosmos#8596: a Mac's TMPDIR ends in "/", which would put "//" in every path below, while the supervisor derives the
+# runtime home in node, which writes it with one slash. Strip the trailing slash so the expected path is written as the
+# supervisor writes it.
+_tmp="${TMPDIR:-/tmp}"; _tmp="${_tmp%/}"
+SB="$(mktemp -d "$_tmp/test-supervisor-codexhome-leak-3430.XXXXXXXXXX")"
 DEFAULT_HOME="$SB/default-codex"   # where auth lives (defaultAgentCodexHome, via the test seam)
 LEAK_HOME="$SB/leaked-codex"       # the tmux server-global CODEX_HOME the pane would inherit -- WRONG
 DATA_PARENT="$SB/data"
