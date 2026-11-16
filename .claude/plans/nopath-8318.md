@@ -11,6 +11,7 @@ Addresses kosmos#8318 (follow-up from the review of #8307). Unparked 11-16: `tas
 - Page calls on due, done-when, hold, unhold and parent: each on a task freshly delivered for it, asserting 200, the same task, the stored task STILL carrying the path (the control that makes an absent path mean a strip), and no path in the answer.
 - Agent-token calls on due, hold and done-when keep the path.
 - A landed commit: the page's due answer leaves out `landedRepo` while the stored task keeps it; the agent's answer keeps it.
+- Wider than the named fields (review iteration 3): every page answer checked above must hold no string under the test's sandbox at all, so a field that later starts carrying one of these local paths, under any name, fails too. Proven alone: with the landedRepo strip and its named check both removed, this check still fails.
 - Source guard: every `sendJson(res, N, { ... task ... })` in server.js, read from `sendJson(` to its matching bracket (so a key on the next line counts), uses `task: taskForCaller(`, except the two named above; it also pins the built route's `pageTask` line.
 - Red-capable: against main's server.js the page test and the guard fail; with one site reverted to `{ task: t }` both fail; the agent control passes throughout.
 
