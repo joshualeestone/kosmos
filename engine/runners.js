@@ -950,7 +950,7 @@ function resolveBin(provider, opts) {
   ];
   for (const c of candidates) {
     if (!isRunnable(c)) continue;
-    /* kosmos#8593: a managed Mac/Linux Codex older than the pin is still PRESENT (its agents keep running on it), but
+    /* kosmos#8593: a managed Mac/Linux Codex older than the pin is still PRESENT (agents can still start on it), but
        STALE, so install() replaces it and the board's upgrade sweep starts that (server.js). Only a version read off
        the tree that differs from the pin counts: an unreadable one is not called stale, so nothing reinstalls on a
        guess. */
@@ -1377,6 +1377,10 @@ function spawnTarget(bin, platform = process.platform, nodeBin = process.execPat
    Job state only: the routes still ask resolveBin for presence, the seam their tests stub. */
 function installing(provider) {
   const job = jobs[provider];
+  /* kosmos#8593 review 2: an UPGRADE of a stale runner does not count until its swap starts. Until then the previous,
+     proven tree is untouched and usable, so a route that refuses "while it installs" must not refuse for a download of
+     150 MB; from the swap on, the new tree is unproven, as in any install. */
+  if (job && job.upgrade === true && job.swapping !== true) return false;
   return !!job && job.phase !== 'installed' && job.phase !== 'failed';
 }
 
@@ -1437,7 +1441,9 @@ function install(provider, opts) {
     return refuse(`the ${provider} runner has a manifest entry but no resolution rule yet, so an install could never be seen; teach resolveBin about it first`);
   }
   /* kosmos#8593: a stale managed runner (older than the pin) is replaced, not answered as installed. The swap below
-     replaces the pkg/ tree whole, so its agents keep the old binary until they restart. */
+     replaces the pkg/ tree whole. A Codex already running keeps its own process, but NOT its files: anything it opens
+     beside its binary afterwards (codex-path/rg, bin/codex-code-mode-host) is the new tree's (review 2). New launches
+     get the new version. */
   if (existing.present && !existing.stale) {
     // A completed job for THIS binary carries the truthful receipt
     // (`proved`, real byte counts) -- hand that back rather than a
@@ -1495,6 +1501,10 @@ function install(provider, opts) {
   const doDownload = o.download || download;
 
   const job = { ...blankJob(), phase: 'downloading', receivedBytes: 0, totalBytes: m.downloadBytes, version: m.version };
+  /* kosmos#8593: replacing a stale Mac/Linux runner. Kept off the API's job shape (non-enumerable), read by installing()
+     and by the swap below, which keeps the previous tree until the new one proves itself. */
+  const upgrading = existing.stale === true && plat !== 'win32';
+  Object.defineProperty(job, 'upgrade', { value: upgrading, enumerable: false });
   jobs[provider] = job;
 
   const destDir = path.join(managedRoot(), provider);
@@ -1639,6 +1649,8 @@ function install(provider, opts) {
       fs.chmodSync(path.join(pkgNew, binInPackage), 0o755);
       try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch { /* the sweep gets it */ }
       stage = 'swap';
+      job.swapping = true;   // installing() counts an upgrade from here: the tree about to be in place is unproven
+      Object.defineProperty(job, 'swapping', { enumerable: false });
       // The verified marker comes down BEFORE a new tree goes in: from here until
       // --version passes, nothing on disk may vouch for what is at the stable path.
       if (plat === 'win32' && !(await rmRetrying(verifiedMarker(plat, provider), plat))) {
@@ -1650,8 +1662,12 @@ function install(provider, opts) {
       // Best-effort, like the sweeps: a locked OLD tree (antivirus still reading
       // it) must not fail an install whose new tree is already in place. The
       // age-gated sweep at the next install removes it.
-      try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch (e) {
-        console.warn(`[runners] ${provider} could not remove the previous tree yet: ${e && e.code}`);
+      // kosmos#8593 review 2: an UPGRADE keeps it until the new tree proves itself, so a failed prove puts the previous,
+      // working runner back instead of leaving none (it is removed after the prove below).
+      if (!upgrading) {
+        try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch (e) {
+          console.warn(`[runners] ${provider} could not remove the previous tree yet: ${e && e.code}`);
+        }
       }
       const unpacked = path.join(pkgDir, binInPackage);
       let finalBin;
@@ -1723,9 +1739,21 @@ function install(provider, opts) {
           await rmRetrying(pkgDir, plat);
           if (m.launcher === 'node') { try { fs.rmSync(finalBin, { force: true }); } catch { /* the marker keeps it absent */ } }
         } else { try { fs.rmSync(finalBin, { recursive: true, force: true }); } catch { /* best effort */ } }
+        /* kosmos#8593 review 2: an upgrade puts the previous tree and its link back, so a runner that worked before still
+           works (the failure is still reported). The new tree goes; the old one returns to pkg/, as it was. */
+        if (upgrading && fs.existsSync(pkgOld)) {
+          try {
+            fs.rmSync(pkgDir, { recursive: true, force: true });
+            fs.renameSync(pkgOld, pkgDir);
+            fs.rmSync(finalBin, { force: true });
+            fs.symlinkSync(path.relative(destDir, path.join(pkgDir, binInPackage)), finalBin);
+            err.message = err.message.replace(/, so it was not installed; you can try again$/, ', so the version already here is kept; you can try again');
+          } catch (e) { console.warn(`[runners] ${provider} could not put the previous version back: ${e && e.code}`); }
+        }
         err.plain = true;
         throw err;
       }
+      if (upgrading) { try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch { /* the age-gated sweep gets it */ } }
       // Only now, after the binary itself answered, may anything vouch for it.
       if (plat === 'win32') fs.writeFileSync(verifiedMarker(plat, provider), verifiedStamp(m) + '\n');
 

@@ -29191,15 +29191,24 @@ function start(port = PORT) {
       /* kosmos#8593: the bundled Codex follows the pin. A managed Mac/Linux Codex older than engine/runners.js's pin
          (resolveBin's `stale`) is replaced in the background, so a pin bump reaches computers that already have Codex,
          not only new installs (before this, nothing ever upgraded one: the user who asked for gpt-6-astra would have
-         kept 0.149.1). Agents keep running on the old binary until they restart. Gated like the sweeps here: inert
+         kept 0.149.1). Running agents are not restarted; a new launch gets the new version (one already running reads its
+         side files from the new tree, see runners.install). Gated like the sweeps here: inert
          under `node --test` and before the live-execution opt-in; operator brake AGENT_WORKFORCE_RUNNER_UPGRADE_OFF=1.
          First look two minutes after start, then every 30 minutes; install() joins a running job, never starts two. */
+      /* Review 2: at most RUNNER_UPGRADE_TRIES attempts per pinned version per board run. A failed upgrade puts the old
+         version back (still stale), so without a cap a download that keeps failing would repeat every 30 minutes. */
+      const RUNNER_UPGRADE_TRIES = 3;
+      const runnerUpgradeTries = new Map();
       const runnerUpgradeTick = () => {
         if (!liveExecution.liveExecutionAllowed()) return;   // inert under test / before opt-in
         if (process.env.AGENT_WORKFORCE_RUNNER_UPGRADE_OFF === '1') return;   // operator brake
         try {
           const r = runners.resolveBin('openai');
           if (!r || r.stale !== true || runners.installing('openai')) return;
+          const pin = runners.manifestFor('openai').version;
+          const tries = runnerUpgradeTries.get(pin) || 0;
+          if (tries >= RUNNER_UPGRADE_TRIES) return;
+          runnerUpgradeTries.set(pin, tries + 1);
           const job = runners.install('openai');
           process.stdout.write(`runner-upgrade: openai ${r.installedVersion || '?'} -> ${runners.manifestFor('openai').version}: ${job && job.phase}\n`);
         } catch (err) { console.warn(`[runner-upgrade] ${String((err && err.message) || err)}`); }

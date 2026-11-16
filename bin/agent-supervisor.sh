@@ -1257,6 +1257,19 @@ if [ -z "$adopt" ]; then
     # ran; 0.149.1 does not know the flag, so it is added only for a Codex of 0.169 or later (the version read above;
     # none read, no flag). Measured with --no-daemon on 0.169.0: no daemon left, and the Enter gap is unchanged.
     _codex_launch=()
+    # Review 2: the timed --version read above can come back empty (a slow first exec right after an update, or the
+    # shared-home branch, which does not read it). Then a MANAGED runner's version is read from its tree on disk
+    # (runners.installedVersion; no exec), so the first launch after an upgrade still gets --no-daemon.
+    if [ -z "${_codex_ver:-}" ] && [ -n "${_eng:-}" ] && [ -n "${NODE_BIN:-}" ]; then
+      _codex_ver="$("$NODE_BIN" -e '
+        try {
+          const fs = require("fs"); const r = require(process.argv[1]);
+          const real = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
+          const managed = real(r.managedBin(r.manifestFor("openai")));
+          if (managed && managed === real(process.argv[2])) process.stdout.write(r.installedVersion("openai") || "");
+        } catch (_) {}
+      ' "$_eng/runners.js" "$CLAUDE" 2>/dev/null || true)"
+    fi
     case "${_codex_ver:-}" in
       [0-9]*.[0-9]*.[0-9]*)
         if printf '%s\n' "$_codex_ver" | awk -F. '{ exit !($1 > 0 || $2 >= 169) }'; then _codex_launch=(--no-daemon); fi ;;

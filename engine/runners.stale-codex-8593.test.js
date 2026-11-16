@@ -104,3 +104,46 @@ test('installedVersion reads the npm version with or without the platform suffix
   assert.equal(runners.installedVersion('openai', 'darwin'), null, 'unreadable');
   assert.equal(runners.installedVersion('openai', 'win32'), null, 'Windows keeps its own marker');
 });
+
+test('kosmos#8593 review 2: an upgrade whose new Codex does not run puts the previous version back, still working', { skip: skipOnWin32(POSIX) }, async () => {
+  plantTree('0.149.1');
+  const { tgz, integrity } = tarball(PIN.version);
+  const job = runners.install('openai', { ...PLAT, legacyBin: LEGACY, integrity,
+    download: (url, file, j) => { const b = fs.readFileSync(tgz); j.totalBytes = b.length; j.receivedBytes = b.length; fs.writeFileSync(file, b); return Promise.resolve(); },
+    prove: (bin, done) => { if (fs.readFileSync(bin, 'utf8').includes(PIN.version)) done(new Error('does not run here')); else prove(bin, done); } });
+  await job.settled;
+  assert.equal(job.phase, 'failed', 'the failure is still reported');
+  assert.match(job.because || '', /version already here is kept/);
+  const r = runners.resolveBin('openai', { ...PLAT, legacyBin: LEGACY });
+  assert.equal(r.present, true, 'a runner is still there');
+  assert.equal(r.installedVersion, '0.149.1', 'and it is the previous one');
+  assert.equal(execFileSync(r.bin).toString().trim(), 'codex-cli 0.149.1', 'and it runs');
+  // CONTROL: a first install (nothing there before) that fails leaves nothing, as before.
+  removeTree(DEST);
+  const fresh = runners.install('openai', { ...PLAT, legacyBin: LEGACY, integrity,
+    download: (url, file, j) => { const b = fs.readFileSync(tgz); j.totalBytes = b.length; j.receivedBytes = b.length; fs.writeFileSync(file, b); return Promise.resolve(); },
+    prove: (bin, done) => done(new Error('does not run here')) });
+  await fresh.settled;
+  assert.equal(fresh.phase, 'failed');
+  assert.equal(runners.resolveBin('openai', { ...PLAT, legacyBin: LEGACY }).present, false, 'no runner after a failed first install');
+});
+
+test('kosmos#8593 review 2: an upgrade does not count as installing while it downloads (the old runner is usable), and does once it swaps', { skip: skipOnWin32(POSIX) }, async () => {
+  plantTree('0.149.1');
+  const { tgz, integrity } = tarball(PIN.version);
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  let during = null;
+  let atProve = null;
+  const job = runners.install('openai', { ...PLAT, legacyBin: LEGACY, integrity,
+    download: async (url, file, j) => { during = runners.installing('openai'); await gate; const b = fs.readFileSync(tgz); j.totalBytes = b.length; j.receivedBytes = b.length; fs.writeFileSync(file, b); },
+    prove: (bin, done) => { atProve = runners.installing('openai'); prove(bin, done); } });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(during, false, 'downloading an upgrade: not installing');
+  assert.equal(runners.resolveBin('openai', { ...PLAT, legacyBin: LEGACY }).present, true);
+  release();
+  await job.settled;
+  assert.equal(atProve, true, 'from the swap on, the unproven tree counts as installing');
+  assert.equal(job.phase, 'installed', job.because || '');
+  assert.equal(Object.keys(job).includes('upgrade'), false, 'the API job shape is unchanged');
+});
