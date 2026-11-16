@@ -29880,6 +29880,7 @@ function start(port = PORT) {
          which holds the rules and is tested there). Its own minute timer, not the Prompter tick: it runs whether or not
          the Prompter is on (the reviewer asked to be told), and the Prompter tick types only through prompterTick. The
          roster is read only when an AGENT reviewer is owed a line, so a quiet board costs one projects read a minute. */
+      const TELL_TYPED = new Map();   // kosmos#8581: session -> when the missed-run tell typed into it, read by the due-run tell
       const missedTellTick = setInterval(() => {
         try {
           const projs = projects.readAll();
@@ -29898,7 +29899,7 @@ function start(port = PORT) {
             deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),
             DELIVERY: chat.DELIVERY,
             nameOf: (sn) => { const c = Array.isArray(r) ? r.find((a) => a && a.sessionName === sn) : null; return (c && c.name) || sn; },
-            log: (x) => process.stdout.write(`missed-run tell: task #${x.task} (${x.project}) to ${x.reviewer} reached=${x.reached} delivery=${x.delivery} try ${x.tries}\n`),
+            log: (x) => { TELL_TYPED.set(x.reviewer, Date.now()); process.stdout.write(`missed-run tell: task #${x.task} (${x.project}) to ${x.reviewer} reached=${x.reached} delivery=${x.delivery} try ${x.tries}\n`); },
           });
         } catch { /* best-effort, like the nudge sweep */ }
       }, 60000);
@@ -29917,7 +29918,7 @@ function start(port = PORT) {
           const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
           const r = allowed && owedDue.some((x) => x.holders.some((h) => x.members.includes(h))) ? safeRoster() : null;
           repeatdue.sweep({
-            projects: projs, roster: r, now: Date.now(), prompterOn: false,
+            projects: projs, items: owedDue, roster: r, now: Date.now(), prompterOn: false, recentTyped: TELL_TYPED,
             allowed,
             limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
             sent: AGENT_NUDGE_SENT, book: REPEAT_DUE_BOOK, idleSeen: REPEAT_DUE_IDLE,

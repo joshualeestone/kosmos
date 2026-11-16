@@ -255,11 +255,17 @@ test('#8581: server.js runs the sweep on its own minute timer, only with the Pro
   assert.match(body, /book: REPEAT_DUE_BOOK, idleSeen: REPEAT_DUE_IDLE/, 'kept across passes (a fresh Map each minute would never settle)');
   assert.match(src, /const REPEAT_DUE_BOOK = new Map\(\);\s*const REPEAT_DUE_IDLE = new Map\(\);\s*const repeatDueTick/, 'made once, outside the timer');
   assert.equal((src.match(/repeatdue\.sweep\(/g) || []).length, 1, 'and nowhere else');
+  assert.match(body, /recentTyped: TELL_TYPED/, 'reads when the missed-run tell typed');
+  const m = src.slice(src.indexOf('const missedTellTick = setInterval('), i);
+  assert.match(m, /log: \(x\) => \{ TELL_TYPED\.set\(x\.reviewer, Date\.now\(\)\);/, 'which the missed-run tell records');
 });
 
 test('#8581: a stalled hourly repeat is told again every four hours, not every hour; a daily one each day', () => {
-  assert.equal(rd.stallGap({ every: 'minutes', n: 15 }, NOW), 60 * 60000);
-  assert.equal(rd.stallGap({ every: 'day', at: '09:30' }, NOW), 24 * 60 * 60000);
+  assert.equal(rd.stallSlots({ every: 'minutes', n: 15 }, NOW), 4, 'every 15 minutes: hourly');
+  assert.equal(rd.stallSlots({ every: 'minutes', n: 30 }, NOW), 4, 'every 30 minutes: every two hours');
+  assert.equal(rd.stallSlots({ every: 'hour', minute: 0 }, NOW), 4);
+  assert.equal(rd.stallSlots({ every: 'day', at: '09:30' }, NOW), 1, 'daily: each slot');
+  assert.equal(rd.stallSlots({ every: 'week', day: 1, at: '09:00' }, NOW), 1, 'weekly: each slot');
   const ago = new Date(NOW - 2 * 86400000).toISOString();
   const { id } = fixture({ repeat: { every: 'hour', minute: 0 }, lastRunAt: ago });
   const book = new Map();
@@ -268,4 +274,17 @@ test('#8581: a stalled hourly repeat is told again every four hours, not every h
   let told = 1;
   for (let h = 1; h <= 4; h += 1) { const t = NOW + h * 60 * 60000; told += run([id], { book, now: t, idleSeen: idle(t) }).sent.length; }
   assert.equal(told, 2, 'once more, four hours on');
+});
+
+test('#8581: an agent another sweep typed into this minute is held; control: a minute later it is told', () => {
+  const { id } = fixture();
+  const recentTyped = new Map([[REX, NOW - 10000]]);
+  assert.equal(run([id], { recentTyped }).sent.length, 0);
+  assert.equal(run([id], { recentTyped: new Map([[REX, NOW - 70000]]) }).sent.length, 1);
+});
+
+test('#8581: the line carries the record-by guidance the Prompter nudge gives', () => {
+  const { id } = fixture();
+  const { sent } = run([id]);
+  assert.match(sent[0].text, /record it before .*, ahead of the next one; if it is still going then, stop it, record it as it stands with what stopped it, and start the next\)/);
 });

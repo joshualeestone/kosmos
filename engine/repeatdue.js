@@ -14,8 +14,7 @@
  * lines for one run would be noise. The caller passes `prompterOn`.
  *
  * Once: the task stores the latest due slot it told about (repeatDueToldAt). A slot is told only when it is newer than
- * that. While one stall lasts (no run since the last line), it is told again only STALL_GAP past the last slot told:
- * stallGap(). Nothing in a paused project, on a held task, closed, or for a
+ * that. While one stall lasts (no run since the last line), it is told again only stallSlots() slots on. Nothing in a paused project, on a held task, closed, or for a
  * holder switched off in the project is told (#4771). One holder per slot: the first idle holder told answers it,
  * because one `kosmos task ran` answers the slot for the whole task. A delivery that reached nothing is tried again on
  * later sweeps, up to MAX_TRIES for one slot, then recorded as not reached so it never repeats for ever.
@@ -32,12 +31,19 @@ const SEEN_GAP_MS = 90 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
-/* How far past the last slot told a stalled repeat is told again: four periods, at least an hour and at most a day.
-   Every 15 minutes: hourly. Hourly: every 4 hours. Daily or slower: each slot. */
-function stallGap(rule, from) {
+/* How many slots past the last one told a stalled repeat must be before it is told again: four, at least an hour's
+   worth and at most a day's. Counted in the rule's own slots (nextAfter, local time), never in elapsed time, so a day
+   the clocks change is still one slot. */
+function stallSlots(rule, from) {
   const next = taskrepeat.nextAfter(rule, from);
   const period = next !== null && next > from ? next - from : DAY_MS;
-  return Math.min(DAY_MS, Math.max(HOUR_MS, 4 * period));
+  return Math.max(1, Math.min(Math.floor(DAY_MS / period), Math.max(4, Math.ceil(HOUR_MS / period))));
+}
+/* Have `need` slots of `rule` come after `from`, by `at`? */
+function slotsReached(rule, from, at, need) {
+  let s = from;
+  for (let n = 0; n < need; n += 1) { s = taskrepeat.nextAfter(rule, s); if (s === null || s > at) return false; }
+  return true;
 }
 
 function plain(s, max) { return require('./agentnudge').plainWords(s, max); }
@@ -57,10 +63,12 @@ function owed(projects, now = Date.now()) {
       if (slot === null || slot > now) continue;   // between runs, or no time to measure from (never claim a due run we cannot see)
       const latest = taskrepeat.latestAtOrBefore(t.repeat, slot, now);
       const at = latest !== null ? latest : slot;
-      const told = Date.parse(t.repeatDueToldAt || '');
+      /* A rule set or changed after the last line starts afresh: the old rule's line says nothing about the new one. */
+      const toldRaw = Date.parse(t.repeatDueToldAt || '');
+      const told = Number.isFinite(toldRaw) && !(Date.parse(t.repeatSetAt || '') > toldRaw) ? toldRaw : NaN;
       if (Number.isFinite(told) && at <= told) continue;
       const ranSince = Date.parse(t.lastRunAt || '') > told;
-      if (Number.isFinite(told) && !ranSince && at - told < stallGap(t.repeat, told)) continue;
+      if (Number.isFinite(told) && !ranSince && !slotsReached(t.repeat, told, at, stallSlots(t.repeat, told))) continue;
       const holders = [...new Set(tasks.partsOf(t).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))]
         .filter((who) => !P.isSwarmOff(p, who));
       if (!holders.length) continue;
@@ -80,7 +88,7 @@ function tellText(item) {
   const id = /^[A-Za-z0-9._-]{1,80}$/.test(item.projectId) && /[^.]/.test(item.projectId) ? item.projectId : '<project-id>';
   return 'Kosmos: your repeating task #' + item.n + ' in ' + plain(item.project, 80) + ', "' + plain(item.sentence, 160) + '", is due: '
     + 'its run ' + plain(item.words, 60) + (item.earlier ? ' and earlier ones have' : ' has') + ' not been reported. Run it now'
-    + (item.byWords ? ' (record it before ' + plain(item.byWords, 60) + ', ahead of the next one)' : '')
+    + (item.byWords ? ' (record it before ' + plain(item.byWords, 60) + ', ahead of the next one; if it is still going then, stop it, record it as it stands with what stopped it, and start the next)' : '')
     + ', then record it with kosmos task ran ' + id + ' ' + item.n + ' (add --unchanged if it found nothing new).';
 }
 
@@ -121,7 +129,9 @@ function sweep(o) {
     }
     const typedTo = new Set();
     const say = (r) => { if (typeof o.log === 'function') { try { o.log(r); } catch { /* never breaks a pass */ } } };
-    for (const item of owed(o.projects, now)) {
+    /* An agent another sweep typed into this minute (o.recentTyped, session -> ms) is held like one this pass typed to. */
+    const recent = o.recentTyped instanceof Map ? o.recentTyped : new Map();
+    for (const item of Array.isArray(o.items) ? o.items : owed(o.projects, now)) {
       try {
         const slotKey = item.projectId + '#' + item.n + '@' + item.slot;
         if (book.get(slotKey) === 'told') { results.push({ ...item, act: 'held', because: 'already told; its mark could not be saved' }); continue; }
@@ -134,7 +144,7 @@ function sweep(o) {
           const card = cards.get(h);
           if (!card) continue;
           if (!nudgeable(card)) { because = 'the holder is not idle, or cannot be typed into'; continue; }
-          if (typedTo.has(h)) { because = 'one line to an agent per minute'; continue; }
+          if (typedTo.has(h) || now - (Number(recent.get(h)) || -Infinity) < 60 * 1000) { because = 'one line to an agent per minute'; continue; }
           let since = null;
           if (typeof o.idleSince === 'function') { try { since = o.idleSince(h); } catch { since = null; } }
           if (!Number.isFinite(since)) { const idle = seen.get(h); since = idle ? idle.since : null; }
@@ -144,6 +154,7 @@ function sweep(o) {
         if (!picked) { results.push({ ...item, act: 'held', because }); continue; }
         if (sent.length >= cap) { results.push({ ...item, act: 'held', because: 'Agent Communication\'s limit of ' + cap + ' an hour is reached' }); continue; }
         typedTo.add(picked);
+        recent.set(picked, now);
         seen.delete(picked);
         let state = null;
         let wait = false;
@@ -166,4 +177,4 @@ function sweep(o) {
   return { results };
 }
 
-module.exports = { owed, tellText, markTold, sweep, stallGap, MAX_TRIES };
+module.exports = { owed, tellText, markTold, sweep, stallSlots, MAX_TRIES };
