@@ -182,7 +182,15 @@ function assertWords(words, { outcome, count, modelKey }) {
   } else if (account === 'mainAsBefore') {
     assert.match(words, modelKey === 'offered' ? /account and model it was set to before/ : /starts on your main account, as before/, label);
   } else if (account === 'main') {
-    assert.match(words, /on your main account, because /, label);
+    if (outcome === 'changed' || outcome === 'unusable') {
+      /* Round 6: read again, live, at Start at login, so the main account is said with "unless", never flatly. */
+      assert.match(words, outcome === 'changed'
+        ? /The account in the folder it used has signed out or changed\. It starts on your main account unless that same account is signed in there again before you use Start at login\./
+        : /The account folder it used cannot be used for it now\. It starts on your main account unless that folder can be used for it again before you use Start at login\./, label);
+      assert.doesNotMatch(words, /because /, label);
+    } else {
+      assert.match(words, /on your main account, because /, label);
+    }
     assert.match(words, /Choose its account( and model)? again/, label);
     assert.doesNotMatch(words, /only if/, label);
   } else {
@@ -399,5 +407,22 @@ test('kosmos#8510 round 5: an outcome the words do not know gets the neutral sen
     assert.match(leftover.startsAgainWords('unknown-why-8510'), /cannot reach the account folder it last used/);
   } finally {
     create.win32RecordedTask = real;
+  }
+});
+
+test('kosmos#8510 round 6: a folder holding another account, the same account signed in again before Start at login: on that folder, as the words allowed', WINDOWS_ONLY, () => {
+  const name = agentOnAccount('signback8510', SET_MODEL);
+  try {
+    signIn(ACCOUNT, { emailAddress: 'someone-else@example.test', organizationUuid: 'org-other' });
+    for (const words of taskOnlyDelete(name)) {
+      assert.match(words, /It starts on your main account unless that same account is signed in there again before you use Start at login\./);
+      assert.doesNotMatch(words, /but on your main account, because /, 'the main account was said as a flat fact');
+    }
+    signIn(ACCOUNT, OWNER);   // the person signs the same account back in
+    startAtLogin(name);
+    // The reason for "unless": the repair reads the account again and writes the task on that folder.
+    assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: SET_MODEL });
+  } finally {
+    signIn(ACCOUNT, OWNER);
   }
 });

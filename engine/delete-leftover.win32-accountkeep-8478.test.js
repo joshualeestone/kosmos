@@ -441,7 +441,7 @@ test('kosmos#8489: a folder unread at three Start at logins in a row is dropped 
     taskOnlyDelete(name); startAtLogin(name);
     assert.equal(store.readProfile(name).win32Task.unreadable, 2);
     const p = taskOnlyDelete(name);
-    assert.match(p.reassurance, /It starts on the model it was set to\. Kosmos could not read which account is in the account folder it last used\. Kosmos could not confirm that account at two earlier Start at logins either\./);
+    assert.match(p.reassurance, /It starts on the model it was set to\. Kosmos could not read which account is in the account folder it last used\. Kosmos also could not confirm that account at two earlier Start at logins./);
     startAtLogin(name);
     assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
     assert.equal(store.readProfile(name).win32Task.configDir, null, 'the folder was kept after three unreadable Start at logins');
@@ -488,7 +488,7 @@ test('kosmos#8489: a start that cannot reach the folder neither adds to nor clea
     assert.equal(store.readProfile(name).win32Task.unreadable, 2);
     fs.renameSync(unplugged, ACCOUNT);
     const p = taskOnlyDelete(name);
-    assert.match(p.reassurance, /Kosmos could not confirm that account at two earlier Start at logins either\./);
+    assert.match(p.reassurance, /Kosmos also could not confirm that account at two earlier Start at logins./);
     startAtLogin(name);
     assert.equal(store.readProfile(name).win32Task.configDir, null, 'a folder unreadable three times, with starts out of reach between, was kept');
   } finally {
@@ -616,7 +616,7 @@ test('kosmos#8478 round 3: a folder name is not an account: alice signs out, Kos
     startAtLogin(name);
     // The outcome first, so a control against code without the check shows the wrong account, not only other words.
     assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, 'the agent was put on bob\'s account');
-    const words = /It starts on the model it was set to, but on your main account, because the account in the folder it used has signed out or changed\. Choose its account again if it should use another\./;
+    const words = /It starts on the model it was set to\. The account in the folder it used has signed out or changed\. It starts on your main account unless that same account is signed in there again before you use Start at login\. Choose its account again if it should use another\./;
     assert.match(p.reassurance, words);
     assert.doesNotMatch(p.reassurance, /account and model it was set to before/, 'it promised the account it was set to, which is now bob\'s');
     assert.match(p.said, words);

@@ -71,7 +71,8 @@ delete-leftover.startsAgainWords ends the task-only delete's sentences and Resto
   (out of reach, retired model) about 136 words, offered about 108. Test cap KEPT_CLAUSE_MAX_WORDS = 145.
 - NIT: the kept-folder words now start a sentence of their own (". It starts on ..."), so the caller's sentence ends at
   "offers it." and every sentence the person sees in the plan and outcome is 30 words or fewer (tested end to end).
-  The generic outcomes keep their "; it starts" clause (out of this card).
+  The generic outcomes keep their "; it starts" clause (out of this card). [Superseded in round 3: every outcome now
+  starts its own sentences.]
 - NIT: "forgets it" is gone; every forget says "that folder".
 - End-to-end cases added: config readable again by Start at login, folder back holding another account, folder that
   could not be read going away before Start at login.

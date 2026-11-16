@@ -223,7 +223,7 @@ test('kosmos#8489: "could not read" ends: the third Start at login in a row drop
   const last = keptAs('torn2-8489', 2);
   assert.equal(why(last), 'unreadableGaveUp', 'a folder unread three Start at logins in a row was kept again');
   assert.equal(create.win32RecordedTask(last).accountOk, false);
-  assert.equal(leftover.startsAgainWords(last), ". It starts on the model it was set to. Kosmos could not read which account is in the account folder it last used. Kosmos could not confirm that account at two earlier Start at logins either. It starts on that folder's account only if Kosmos can read that account at Start at login and it is the same one. Otherwise it starts on your main account; choose its account again if it should use another.");
+  assert.equal(leftover.startsAgainWords(last), ". It starts on the model it was set to. Kosmos could not read which account is in the account folder it last used. Kosmos also could not confirm that account at two earlier Start at logins. It starts on that folder's account only if Kosmos can read that account at Start at login and it is the same one. Otherwise it starts on your main account; choose its account again if it should use another.");
 });
 
 test('kosmos#8489: a Grok sign-in file holding no x.ai sign-in is signed out (changed); two is "could not read"', () => {
@@ -320,5 +320,5 @@ test('kosmos#8489: the could-not-read words name the earlier unreadable starts o
   const first = at('left0-8489', 0);
   assert.doesNotMatch(first, /earlier Start at logins|for good|until/, first);
   assert.equal(at('left1-8489', 1), first);
-  assert.match(at('left2-8489', 2), /Kosmos could not confirm that account at two earlier Start at logins either\./);
+  assert.match(at('left2-8489', 2), /Kosmos also could not confirm that account at two earlier Start at logins\./);
 });

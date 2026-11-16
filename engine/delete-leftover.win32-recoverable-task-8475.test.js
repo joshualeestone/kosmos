@@ -532,6 +532,7 @@ test('kosmos#8475 review 5: a FILE where the folder is recorded is said plainly,
   // kosmos#8510: removed too, the longest way back ("in place of" and Restore), each sentence still under the cap.
   for (const removed of [false, true]) {
     const name = agent(removed ? 'filer8475' : 'file8475', { folder: false, profile: { dir: file } });
+    try {
     if (removed) markRemoved(name);
     const p = win.plan(name);
     assert.equal(p.ok, true, p.because);
@@ -545,7 +546,7 @@ test('kosmos#8475 review 5: a FILE where the folder is recorded is said plainly,
     assert.match(done.said, /put it back at .*, in place of what is there now\./);
     assertShortSentences(done.said, name);
     if (removed) assert.match(done.said, /in place of what is there now\. Then use Restore on its row in the removed agents list, and use Start at login when Kosmos offers it\./);
-    fs.rmSync(REMOVED, { force: true });
+    } finally { fs.rmSync(REMOVED, { force: true }); }
   }
   fs.rmSync(file, { force: true });
 });
