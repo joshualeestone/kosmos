@@ -48,8 +48,10 @@ NODE="$KOSMOS_HOME/runtime/bin/node"
 APP="$KOSMOS_HOME/app/server.js"
 # kosmos#8599: a node child of this command whose reader stops early (`kosmos ... | head -1`) exits quietly (141)
 # instead of printing an unhandled EPIPE stack trace. engine/clipipe.js is preloaded into every node this command
-# runs (the bundled one and kosmos_engine_node's system-node fallback alike), from one place: it puts NODE_OPTIONS back as the person had it the moment it loads, so nothing those
-# children start inherits it. Only when the file is there (a missing preload would stop every node from starting),
+# runs (the bundled one and kosmos_engine_node's system-node fallback alike), from one place: it puts NODE_OPTIONS
+# back as the person had it the moment it loads, so nothing those children start inherits it. The board (server.js)
+# loads it too but is not guarded: it keeps its own behaviour on a closed stdout. Only when the file is readable (a
+# missing or unreadable preload would stop every node from starting),
 # only for an absolute path with no " or \ in it (NODE_OPTIONS reads both inside its quotes, and node would resolve a
 # relative one per child: either would stop every node; such a path runs unguarded, as before), and only once (a
 # nested `kosmos` sees KOSMOS_CLIPIPE_SET and leaves NODE_OPTIONS alone). Accepted residual: a `kosmos` still running
@@ -61,7 +63,7 @@ APP="$KOSMOS_HOME/app/server.js"
 KOSMOS_CLIPIPE="$KOSMOS_HOME/app/engine/clipipe.js"
 case "$KOSMOS_CLIPIPE" in /*) ;; *) KOSMOS_CLIPIPE="" ;; esac
 case "$KOSMOS_CLIPIPE" in *'"'*|*'\'*) KOSMOS_CLIPIPE="" ;; esac
-if [ -n "$KOSMOS_CLIPIPE" ] && [ -f "$KOSMOS_CLIPIPE" ] && [ -z "${KOSMOS_CLIPIPE_SET:-}" ]; then
+if [ -n "$KOSMOS_CLIPIPE" ] && [ -f "$KOSMOS_CLIPIPE" ] && [ -r "$KOSMOS_CLIPIPE" ] && [ -z "${KOSMOS_CLIPIPE_SET:-}" ]; then
   export KOSMOS_USER_NODE_OPTIONS="${NODE_OPTIONS-}" KOSMOS_USER_NODE_OPTIONS_SET="${NODE_OPTIONS+1}" KOSMOS_CLIPIPE_SET=1
   export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require \"$KOSMOS_CLIPIPE\""
 fi

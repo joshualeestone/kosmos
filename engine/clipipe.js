@@ -8,16 +8,16 @@
  *
  * install() gives stdout and stderr one listener: EPIPE exits with 141 (128 + SIGPIPE, what a shell reports for a
  * program a closed pipe stopped); any other stream error is thrown again, so it still fails as loudly as before.
- * The exit is immediate (no async cleanup); for a CLI that is the point. The board loads it too when install/kosmos
- * starts it, and a board whose stdout pipe closes now exits 141 instead of crashing with a trace (it ended either
- * way; server.js has no uncaughtException handler).
+ * The exit is immediate (no async cleanup); for a CLI that is the point.
  *
  * How it reaches the CLI:
  * - Mac and Linux: install/kosmos runs many separate node children. It adds `--require <this file>` to NODE_OPTIONS
  *   once, and sets KOSMOS_CLIPIPE_SET=1 with the person's own NODE_OPTIONS saved beside it. Loaded that way, this
  *   module puts NODE_OPTIONS back as it was before the node's own code runs, so nothing that node starts (an agent,
- *   a setup run) inherits the preload. The wrapper's own non-node children (curl, git) still carry it; they do not
- *   read it.
+ *   a setup run) inherits the preload. The wrapper's own non-node children (curl, git) still carry it; a node one of
+ *   them starts restores it the same way.
+ * - The board: install/kosmos starts server.js with the preload too. It restores the environment and is NOT guarded,
+ *   so the board's behaviour on a closed stdout is unchanged.
  * - Windows: tools/windows/kosmos-cli.js is one node program and calls install() itself.
  */
 
@@ -54,5 +54,11 @@ function restoreNodeOptions(env) {
 
 module.exports = { install, restoreNodeOptions, QUIT_ON_CLOSED_READER };
 
-// Loaded as install/kosmos's preload: restore the environment, then guard.
-if (restoreNodeOptions(process.env)) install(process);
+/** The node is the board (server.js), which keeps its own closed-stdout behaviour. */
+function isBoard(argv) {
+  const entry = (argv && argv[1]) || '';
+  return /(^|[\\/])server\.js$/.test(entry);
+}
+
+// Loaded as install/kosmos's preload: restore the environment, then guard (not the board).
+if (restoreNodeOptions(process.env) && !isBoard(process.argv)) install(process);

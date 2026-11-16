@@ -1,10 +1,12 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits
 // kosmos#8599: a reader that stops early ends a CLI node process quietly (exit 141), not with an EPIPE stack trace.
 // The whole-CLI path (install/kosmos preloading this through NODE_OPTIONS) is tools/test-cli-epipe-8599.sh.
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
 const { spawn } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const clipipe = require('./clipipe');
@@ -46,6 +48,21 @@ test('as a preload: it restores the NODE_OPTIONS it was loaded with, then guards
     "process.stderr.write(JSON.stringify([process.env.NODE_OPTIONS ?? null, process.env.KOSMOS_CLIPIPE_SET ?? null]) + '\\n'); " + WRITER], env);
   assert.strictEqual(seen.code, 141, seen.err);
   assert.strictEqual(seen.err.trim(), '[null,null]');
+});
+
+test('the board (an entry named server.js) restores the env but is not guarded (CONTROL: another entry is)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-clipipe-8599-'));
+  const body = "process.stderr.write(JSON.stringify([process.env.NODE_OPTIONS ?? null]) + '\\n'); " + WRITER;
+  fs.writeFileSync(path.join(dir, 'server.js'), body);
+  fs.writeFileSync(path.join(dir, 'other.js'), body);
+  const env = { NODE_OPTIONS: '--require "' + GUARD + '"', KOSMOS_CLIPIPE_SET: '1',
+    KOSMOS_USER_NODE_OPTIONS: '', KOSMOS_USER_NODE_OPTIONS_SET: '' };
+  const board = await runAndCloseEarly([path.join(dir, 'server.js')], env);
+  assert.match(board.err, /^\[null\]/, 'the board still restores NODE_OPTIONS');
+  assert.match(board.err, /EPIPE/, 'the board keeps its own closed-stdout behaviour (no guard)');
+  const other = await runAndCloseEarly([path.join(dir, 'other.js')], env);
+  assert.strictEqual(other.code, 141, other.err);
+  assert.doesNotMatch(other.err, /EPIPE/);
 });
 
 test('restoreNodeOptions: back to the person\'s value, or unset when they had none; untouched without the marker', () => {
