@@ -20,15 +20,22 @@ the same way.
    before the job) is applied ONLY to Codex readings (readCodexSession). The Claude reading never passes through it.
 
 ## Change
-- engine/status.js readModel: when the transcript's model was read and the agent's job file is newer than that
-  transcript, the reading is from before the job was written. Return it as an earlier reading (`earlierSession: true`,
-  the #6716 shape), so `model` is null and the old name travels only as `earlierModelName`. server.js plannedFor then
-  reads the job (it does so whenever modelName is null), and the card's existing precedence (web/index.html: modelName,
-  then plannedModelName, earlierModelName last) shows the new model.
-- The job-file lookup is shared with `withoutModelFromBeforeJob` (one helper returning the job file's mtime for the
-  platform), so Codex and Claude cannot drift apart.
+- engine/status.js readModel: the transcript's model is read as an EARLIER reading (`earlierSession: true`, the #6716
+  shape) when BOTH hold: the agent's job file was written after that transcript (`writtenBeforeJob`, two stats), AND
+  the job names a different Claude model (`jobNamesAnotherModel`, via create.plannedModelOf, read only after a
+  rewrite). Then `model` is null and the old name travels only as `earlierModelName`; server.js plannedFor reads the
+  job whenever modelName is null, and the card's existing precedence (modelName, then plannedModelName, earlierModelName
+  last) shows the new model.
+- The job-file lookup is one helper (`writtenBeforeJob`) shared with the Codex rule (`withoutModelFromBeforeJob`).
 
 ## Decisions
+- Review 1: NOT the file time alone. On Windows every start, stop and restart moves the task file's time
+  (/Change /DISABLE and /ENABLE, the supervisor resuming the same conversation), and an account move or provider switch
+  rewrites the job on every platform, all with the model unchanged. Time alone blanked the model, the context ring
+  (limitFor(null)) and whoami's answer after every Windows restart. So the job must also NAME a different model.
+- Only a full `claude-...` id in the job is compared (what the picker writes). A job with no model or a short name
+  ("opus") cannot be compared with a transcript's full id, so the reading stands, as before. Same model: equal once a
+  "[1m]"-style suffix is set aside, or the same display name (a dated id and its undated form).
 - All platforms, not win32 only: the rule is platform-neutral (a job newer than the transcript means the model was
   set after that transcript), the job-file helper already covers launchd, systemd and Task Scheduler, and a Mac agent
   whose plist is rewritten by a model change has the same stale-reading window. Rejected: a win32-only branch, which
@@ -39,12 +46,20 @@ the same way.
   shows the job's (planned) model until the first reply. That is the model it will run, so it is true.
 
 ## Weakest premise
-That a job file newer than the transcript always means the job's model is the one to show. A job rewritten for
-another reason (an account move) keeps the same model, so the planned name equals the old one: no harm. A job with no
---model shows "Claude (its default model)" until the first reply, which is vaguer than the old reading but not false.
+That a job naming a different model than the last reply means the agent runs the job's model. Two narrow cases where it
+does not: a model change whose restart failed with the old process still alive (setModel's partial outcome), and a
+/model switch inside Claude Code followed by a job rewrite for another reason (an account move). In both the card names
+the job's model until the next reply. Before, the first was right and the second was right only by chance.
+Deviation from the card's control ("a Mac agent's card still behaves as now"): the rule is platform-neutral, so a Mac or
+Linux agent's card also shows the new model right after a change instead of the old one. Said on the card.
 
 ## Tests
 - New engine/status.cardmodel-8601.test.js: a Claude transcript naming model A, a job file written after it naming B:
   readModel gives earlierSession with A, the snapshot's model null and earlierModelName A; control with the job older
   than the transcript gives model A as today. Plus the platform job-file helper on win32 (task file path).
-- Live on the Windows box after merge: the #8466 trace (live8466d.js) shows the planned new model from +2 s on.
+- Review 1 controls: a rewrite naming the SAME model (restart, account move), no model, a short name, a [1m] suffix or a
+  dated id all leave the reading; mutation (dropping the model comparison) reds four of them; against origin/main's
+  status.js only the main case fails.
+- Live BEFORE merge (review 1), the branch's engine reading the real agent on the Windows box: before a change, current
+  Opus 4.8; 15 s after a change to Haiku 5.5, an earlier reading (card model null, so the job's Haiku 5.5 shows); after
+  changing back (a restart, same model), current again. Script work/t8471live/branchread.js.

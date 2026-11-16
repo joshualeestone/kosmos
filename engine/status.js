@@ -6940,6 +6940,22 @@ function writtenBeforeJob(file, agentName) {
   } catch { return false; }
 }
 
+/* kosmos#8601 review 1: whether the agent's job names a Claude model other than `readId` (the transcript's). Only a
+   full id the job names itself counts (`claude-...`, which is what the model picker writes): a job with no model, or a
+   short name like "opus", cannot be compared with a transcript's full id, so it is "no" and the reading stands, as
+   before. Two ids are the same model when they match once a "[1m]"-style suffix is set aside, or when they are shown
+   under the same name (a dated id and its undated form). A job that cannot be read is "no". */
+function jobNamesAnotherModel(agentName, readId) {
+  let planned = null;
+  try { planned = require('./create').plannedModelOf(agentName); } catch { planned = null; }
+  if (!planned || planned.isDefault || typeof planned.id !== 'string') return false;
+  const norm = (id) => String(id).trim().toLowerCase().replace(/\[[^\]]*\]$/, '');
+  const job = norm(planned.id);
+  const read = norm(readId);
+  if (!/^claude-/.test(job)) return false;
+  return job !== read && modelDisplayName(job) !== modelDisplayName(read);
+}
+
 function readCodexContext(agentName, sess) {
   // `sess` is the pre-read session snapshot() already holds for this pane; read it here
   // only when a direct caller (or a test) did not supply one, so the tick never reads the
@@ -7391,12 +7407,19 @@ function readModel(agentName, exactSession) {
   if (!file) return { model: null, confidence: CONFIDENCE.NONE };
   const { text, whole } = tailBytes(file, 65536);
   const now = text ? modelInText(text) : null;
-  /* kosmos#8601: a model change rewrites the job and restarts the agent, and Claude Code writes the new session's file
-     only at its first reply, so until then the newest transcript is the OLD session naming the OLD model. With the job
-     written after that transcript, the reading is from before the change: it travels as an earlier reading (the #6716
-     shape), `model` stays null, and the card shows the job's planned model (server.js plannedFor reads the job whenever
-     modelName is null). The same rule the Codex reading has had since #8466 (withoutModelFromBeforeJob). */
-  if (now && writtenBeforeJob(file, agentName)) return { model: now, confidence: CONFIDENCE.STRUCTURED, earlierSession: true };
+  /* kosmos#8601: a model change rewrites the job and restarts the agent, and until its next reply the newest transcript
+     still names the OLD model (on Windows the supervisor resumes the same conversation, and nothing is written to it
+     before a reply). So the reading is from before the change when BOTH hold: the job was written after the transcript,
+     AND the job names a different model. Then it travels as an earlier reading (the #6716 shape), `model` stays null,
+     and the card shows the job's model (server.js plannedFor reads the job whenever modelName is null).
+     Review 1: the file time alone is not a model change. On Windows every start, stop and restart moves the task file's
+     time (/Change /DISABLE and /ENABLE), and on every platform an account move or a provider switch rewrites the job,
+     all while the conversation and its model go on; blanking the model then also blanked the context ring and the
+     agent's own "which model am I". The time check stays first because it is two stats; the job is read only after a
+     rewrite. */
+  if (now && writtenBeforeJob(file, agentName) && jobNamesAnotherModel(agentName, now)) {
+    return { model: now, confidence: CONFIDENCE.STRUCTURED, earlierSession: true };
+  }
   if (now) return { model: now, confidence: CONFIDENCE.STRUCTURED };
   // Review 10: only a session that has had NO reply borrows. One that replied but whose last 64 KB is a large paste or
   // tool result names no model in the tail, and must stay "Unknown Model" rather than take another session's.
