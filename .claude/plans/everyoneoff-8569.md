@@ -1,7 +1,7 @@
 # everyoneoff-8569: a post that reached nobody never says "everyone on it has it"
 
-Card: kosmos#8569, item 1 (follow-up from #8566). Item 2 (nits in #8566's unmatchedNote) waits for #8566 to merge, since
-that code is not on main yet.
+Card: kosmos#8569 (follow-up from #8566), both items. Item 1 was built first; #8566 then merged, the branch was rebased
+onto it, and item 2 was added.
 
 ## Problem
 When every other member of a room is switched off in the project, engine/messages.js deliverOne returns before setting
@@ -34,3 +34,13 @@ member it delivers to, holds or leaves quiet; only a switched-off member (and no
   because, and controls (no outcomes key keeps the old verdict; the words inside a post are not read as the object).
   Two Windows fixtures that used `outcomes: {}` for a delivered post now name a delivered member.
 - Mutants: each CLI's branch removed turns its test red.
+
+## Item 2 (nits in #8566's unmatchedNote)
+- `outsiderHandle(word, outside, roster)`: the one rule for "this word names an agent on this computer who is not on the
+  project". outsidersNote speaks of that handle; unmatchedNote stays silent for it. Before, unmatchedNote re-derived it
+  (size === 1 without the handle-shape check), so the two could drift.
+- A name is said once whatever its case ("Josh & josh"), compared by nameKey.
+- A trailing possessive is said as the name ("Josh's" is said as Josh), as mayMean already reads it.
+- #8566's test title for a room of the poster alone no longer says the CLI says everyone has it.
+- Tests: engine/messages.unmatched-8566.test.js (case, possessive, a two-name control); the outsider sentence still passes
+  engine/messages.mention-4642.test.js. Mutants: the old dedupe, and no possessive strip, each turn the test red.

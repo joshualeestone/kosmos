@@ -137,7 +137,7 @@ test('a reply says nothing (it wakes the author it answers, whatever its header 
   } finally { board.restore(); }
 });
 
-test('a room of the poster alone says nothing (there is no one to address; the CLI says everyone has it)', () => {
+test('a room of the poster alone says nothing (there is no one to address; the CLI says it woke no one, kosmos#8569)', () => {
   for (const text of ['Leo -> all: x', 'Leo -> Everyone: y', 'Leo -> Josh: z']) assert.equal(note(text, FLEET(), ['leo']), undefined, text);
   assert.match(note('Leo -> Josh: z2', FLEET(), ['leo', 'kano']), /^Josh is not the name/, 'CONTROL: one other member and it is said');
 });
@@ -179,4 +179,13 @@ test('the note carries no double quote (kosmos post reads it with sed up to the 
   assert.doesNotMatch(sent.ambiguousNote, /"/);
   assert.equal(Object.keys(sent).pop(), 'ambiguousNote');
   assert.equal(note('Leo -> "Josh": hi'), undefined, 'a quoted part is not name-shaped');
+});
+
+/* kosmos#8569 item 2: one name in two spellings is said once, and a possessive is said as the name. */
+test('kosmos#8569: a name given twice in different case is said once, and a possessive is said as the name', () => {
+  assert.match(note('Leo -> Josh & josh: hi'), /^Josh is not the name of any member of this project, so this post woke no one by it/);
+  const poss = note("Leo -> Josh's: hi");   // one post: the same text again would fold as a retry and carry no note
+  assert.match(poss, /^Josh is not the name of any member/);
+  assert.doesNotMatch(poss, /Josh's/, 'the possessive was printed as written');
+  assert.match(note('Leo -> Josh & Dana: hi'), /^Josh and Dana are not names/, 'CONTROL: two different names are both said');
 });
