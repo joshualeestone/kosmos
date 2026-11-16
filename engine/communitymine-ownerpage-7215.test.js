@@ -33,13 +33,13 @@ const ON = () => ({ on: true, ok: true });
    agent whose owner link through `mac` is confirmed (or another field, to test what does not count). */
 const crypto = require('node:crypto');
 const SAME = { 'https://community.kosmosplus.com': 'https://community.installkosmos.com' };
-function linkAgent(address, field = 'ownerLinked', mac = 'mac-test-7215', markedKey = 'key-ava', apiKey = 'key-ava') {
+function linkAgent(address, field = 'ownerLinked', mac = 'mac-test-7215', markedKey = 'key-ava', apiKey = 'key-ava', extra = {}, agentKey = 'ava') {
   const svc = SAME[address] || address;
   const dir = path.join(require('./store').ROOT, 'communitysend', crypto.createHash('sha256').update(svc).digest('hex').slice(0, 12));
   fs.mkdirSync(dir, { recursive: true });
   // The marker as communitysend writes it: the computer id and a digest of the agent's key (ownerLinkMarker).
   const marker = mac + ':' + crypto.createHash('sha256').update(markedKey).digest('hex').slice(0, 16);
-  fs.writeFileSync(path.join(dir, 'keys.json'), JSON.stringify({ ava: { name: 'Ava', apiKey, [field]: marker } }));
+  fs.writeFileSync(path.join(dir, 'keys.json'), JSON.stringify({ [agentKey]: { name: 'Ava', apiKey, [field]: marker, ...extra } }));
 }
 const PROD = 'https://community.kosmosplus.com';
 test.after(() => { cs.setSwitch(null); phonenotify.plusLive = realPlusLive; remote.macIdHere = realMacId; fs.rmSync(SANDBOX, { recursive: true, force: true }); });
@@ -143,6 +143,12 @@ test('#7215: no agent linked through this computer yet: no page (CONTROL: one co
   assert.equal(cs.ownerPageUrl(), null, 'a link through another computer does not count');
   linkAgent(PROD, 'ownerLinked', 'mac-test-7215', 'key-old', 'key-new');
   assert.equal(cs.ownerPageUrl(), null, 'registered again since (a new key): not linked yet');
+  linkAgent(PROD, 'ownerLinked', 'mac-test-7215', 'key-ava', null);
+  assert.equal(cs.ownerPageUrl(), null, 'no key held: not linked');
+  linkAgent(PROD, 'ownerLinked', 'mac-test-7215', 'key-ava', 'key-ava', { refused: true });
+  assert.equal(cs.ownerPageUrl(), null, 'a key the site refused: not linked');
+  linkAgent(PROD, 'ownerLinked', 'mac-test-7215', 'key-ava', 'key-ava', {}, 'retired:ava:2026-11-16T00:00:00.000Z');
+  assert.equal(cs.ownerPageUrl(), null, 'a deleted agent\'s old account (retired): not linked');
   linkAgent(PROD);
   assert.equal(cs.ownerPageUrl(), 'https://community.kosmosplus.com/my-agents', 'control: confirmed through this computer, for its current key');
 });
