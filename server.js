@@ -23456,8 +23456,7 @@ const server = http.createServer(async (req, res) => {
        stored. The Tasks view does not send the repository's path: the page never needs it. */
     const sendRows = () => {
       for (let i = 0; i < rows.length; i += 1) {   // kosmos#8214: nor a delivered file's path; kosmos#8307: nor the one it replaced
-        rows[i] = tasks.withoutFilePaths(rows[i]);
-        delete rows[i].landedRepo;
+        rows[i] = tasks.withoutLocalPaths(rows[i]);   // kosmos#8585: the one strip
       }
       /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
          read its "false" as "nobody needs you". It says it could not tell. */
@@ -26089,11 +26088,7 @@ const server = http.createServer(async (req, res) => {
      the delivered file's (#8214, #8307) and a landed commit's repository (landedRepo). An agent's token answer and the
      person's terminal keep them (the CLI reads them). `body` is what the route reads a token from; the close route
      passes {} because it reads the header alone. */
-  function pageTask(t) {
-    const r = tasks.withoutFilePaths(t);
-    if (r && typeof r === 'object' && r !== t) delete r.landedRepo;   // a copy: the stored task keeps it
-    return r;
-  }
+  function pageTask(t) { return tasks.withoutLocalPaths(t); }   // kosmos#8585: the one strip, in engine/tasks.js
   function taskForCaller(req, body, t) { return isViaScreen(req, body || {}) ? pageTask(t) : t; }
   // heardBudgetAllows/heardBudgetRecord: module scope, above, beside
   // ENGINE_STARTED_AT -- they must survive across requests, and every name
