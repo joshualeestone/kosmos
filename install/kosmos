@@ -7866,16 +7866,20 @@ cmd_agent() {
       say "                                                  folder is still there is then gone for good and cannot be put back; --yes deletes"
       say "                                                  only leftovers that are nothing but a Windows startup job, so on a Mac"
       say "                                                  or Linux it deletes nothing today: run it at a terminal there"
+      say "  kosmos agent delete-leftovers --list            show what it would delete and what each one loses, and delete nothing"
       exit 2 ;;
     delete-leftovers)
       # kosmos#8547: --yes only; any other word is refused before any request.
-      local KOSMOS_DL_USAGE='Usage: kosmos agent delete-leftovers [--yes]   (--yes: no question, and only leftovers that are nothing but a startup job)'
+      local KOSMOS_DL_USAGE='Usage: kosmos agent delete-leftovers [--yes | --list]   (--yes: no question, and only leftovers that are nothing but a startup job; --list: show what would be deleted, delete nothing)'
       local _dlw=() _dla
-      KOSMOS_DL_YES=""
-      for _dla in "$@"; do if [ "$_dla" = "--yes" ]; then KOSMOS_DL_YES=1; else _dlw+=("$_dla"); fi; done
+      KOSMOS_DL_YES=""; KOSMOS_DL_LIST=""
+      for _dla in "$@"; do case "$_dla" in --yes) KOSMOS_DL_YES=1 ;; --list) KOSMOS_DL_LIST=1 ;; *) _dlw+=("$_dla") ;; esac; done
       _no_more_words "agent delete-leftovers" 0 "$KOSMOS_DL_USAGE" ${_dlw[@]+"${_dlw[@]}"}
-      if [ -z "$KOSMOS_DL_YES" ] && [ ! -t 0 ]; then
-        say "Nothing was deleted: there is no terminal here to confirm on. To remove only the startup jobs left by removed agents without being asked, add --yes."
+      if [ -n "$KOSMOS_DL_YES" ] && [ -n "$KOSMOS_DL_LIST" ]; then
+        say "--list only shows what would be deleted and --yes deletes, so use one or the other."; say "$KOSMOS_DL_USAGE"; exit 2
+      fi
+      if [ -z "$KOSMOS_DL_YES" ] && [ -z "$KOSMOS_DL_LIST" ] && [ ! -t 0 ]; then
+        say "Nothing was deleted: there is no terminal here to confirm on. To remove only the startup jobs left by removed agents without being asked, add --yes. To see what would be deleted, add --list."
         exit 2
       fi
       set -- ;;
@@ -8382,6 +8386,19 @@ cmd_agent() {
       done <<<"$dl_list"
       [ -z "$dl_typedl" ] || say "Left for the board, where each one asks for its name to be typed first: $dl_typedl."
       [ -z "$dl_heldl" ] || say "Left because --yes removes only startup jobs (these would also delete files and settings that do not all come back; run without --yes at a terminal, or delete them from the board): $dl_heldl."
+      # kosmos#8547: --list stops here, before the question and before any DELETE, with the same plan a delete would use.
+      if [ -n "$KOSMOS_DL_LIST" ]; then
+        if [ "${#dl_go[@]}" -eq 0 ]; then say "Nothing would be deleted here."; exit 0; fi
+        if [ "${#dl_go[@]}" = 1 ]; then dl_s=""; else dl_s="s"; fi
+        say ""
+        say "Would delete what is left of ${#dl_go[@]} removed agent$dl_s:"
+        for dl_i in "${!dl_go[@]}"; do say "  ${dl_goshown[$dl_i]}: ${dl_goloses[$dl_i]}"; done
+        [ -z "$dl_folders" ] || say "Their folders would go to the Trash."
+        for dl_i in "${!dl_gotask[@]}"; do [ -n "${dl_gotask[$dl_i]}" ] || dl_nfull=$((dl_nfull + 1)); done
+        [ "$dl_nfull" -eq 0 ] || say "$dl_nfull of these would delete more than a startup job: once deleted they cannot be put back from the board."
+        say "Nothing was deleted: --list only shows. To delete them, run it again without --list at a terminal (it asks once first)."
+        exit 0
+      fi
       if [ "${#dl_go[@]}" -eq 0 ]; then
         say "Nothing was deleted."
         if [ -n "$dl_typedl$dl_heldl$dl_notoff" ]; then exit 1; fi
