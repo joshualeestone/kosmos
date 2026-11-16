@@ -65,8 +65,10 @@ const HOOKS_FILE = 'hooks.json';
 /* The Codex versions whose trust hash was measured, per platform. 0.149.1 (10-16: Codex's own TUI trust wrote exactly
    trustHash()'s value; win32 forms measured on 0.149.1 win32-x64, #8348). kosmos#8593: 0.169.0 on the Mac (11-16: the
    real-Codex test in codexhooks-5812.test.js ran the installed hook with this record, and did not with one hex digit
-   changed). Windows is not measured on 0.169.0 and stays on 0.149.1 (runners.js CODEX_WIN32); a Mac still running
-   0.149.1 until its next update keeps its hook. A version is added here only after it is measured. */
+   changed; Linux shares the Mac's posix list, as it did for 0.149.1, without a Linux measurement of its own).
+   Windows is not measured on 0.169.0 and stays on 0.149.1 (runners.js CODEX_WIN32); a Mac still running 0.149.1 until
+   the board's upgrade sweep replaces it (server.js runner-upgrade) keeps its hook. A version is added here only after
+   it is measured. */
 const HASH_VERIFIED = Object.freeze({ posix: Object.freeze(['0.149.1', '0.169.0']), win32: Object.freeze(['0.149.1']) });
 function verifiedFor(plat) { return plat === 'win32' ? HASH_VERIFIED.win32 : HASH_VERIFIED.posix; }
 const EVENT = 'PreToolUse';

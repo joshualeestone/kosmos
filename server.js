@@ -29188,6 +29188,26 @@ function start(port = PORT) {
          AGENT_WORKFORCE_CLASS1_AUTOHANDLE_OFF=1 as an operator emergency brake.
          safeRoster(), NEVER paneRoster(): it needs the reconciled state + stateReportedBy
          the full snapshot cards carry. */
+      /* kosmos#8593: the bundled Codex follows the pin. A managed Mac/Linux Codex older than engine/runners.js's pin
+         (resolveBin's `stale`) is replaced in the background, so a pin bump reaches computers that already have Codex,
+         not only new installs (before this, nothing ever upgraded one: the user who asked for gpt-6-astra would have
+         kept 0.149.1). Agents keep running on the old binary until they restart. Gated like the sweeps here: inert
+         under `node --test` and before the live-execution opt-in; operator brake AGENT_WORKFORCE_RUNNER_UPGRADE_OFF=1.
+         First look two minutes after start, then every 30 minutes; install() joins a running job, never starts two. */
+      const runnerUpgradeTick = () => {
+        if (!liveExecution.liveExecutionAllowed()) return;   // inert under test / before opt-in
+        if (process.env.AGENT_WORKFORCE_RUNNER_UPGRADE_OFF === '1') return;   // operator brake
+        try {
+          const r = runners.resolveBin('openai');
+          if (!r || r.stale !== true || runners.installing('openai')) return;
+          const job = runners.install('openai');
+          process.stdout.write(`runner-upgrade: openai ${r.installedVersion || '?'} -> ${runners.manifestFor('openai').version}: ${job && job.phase}\n`);
+        } catch (err) { console.warn(`[runner-upgrade] ${String((err && err.message) || err)}`); }
+      };
+      const runnerUpgradeFirst = setTimeout(runnerUpgradeTick, 2 * 60 * 1000);
+      if (runnerUpgradeFirst && typeof runnerUpgradeFirst.unref === 'function') runnerUpgradeFirst.unref();
+      const runnerUpgradeSweep = setInterval(runnerUpgradeTick, 30 * 60 * 1000);
+      if (runnerUpgradeSweep && typeof runnerUpgradeSweep.unref === 'function') runnerUpgradeSweep.unref();
       const class1Attempts = new Map();
       const class1Sweep = setInterval(() => {
         // 🛑 LOAD-BEARING, DO NOT REMOVE: this is the ONLY gate on create.trustAgentFolder's

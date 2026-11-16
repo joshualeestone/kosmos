@@ -81,14 +81,21 @@ const MODEL_FIELDS = new Set(['slug', 'display_name', 'description', 'default_re
   'apply_patch_tool_type', 'web_search_tool_type', 'truncation_policy', 'supports_image_detail_original', 'context_window',
   'max_context_window', 'comp_hash', 'effective_context_window_percent', 'experimental_supported_tools', 'input_modalities',
   'supports_search_tool', 'use_responses_lite', 'node_repl_auto_review_required', 'node_repl_disabled', 'tool_mode',
-  'multi_agent_version']);
+  'multi_agent_version',
+  /* kosmos#8593, new in Codex 0.169.0's catalog (11-16): two are made safe below (FORCED and the delete), and the
+     capture test passed on 0.169.0 with them, on every model of a real catalog (10 models). */
+  'available_access_programs', 'multi_agent_reasoning_effort', 'supports_experimental_context',
+  'supports_reasoning_effort_updates']);
 /* Not forced: shell_type and web_search_tool_type, whose off values are not known and could make Codex refuse the
    catalog. The tools they shape are switched off by `--disable shell_tool`/`unified_exec` and `web_search="disabled"`
    instead; the capture test reds if either comes back (a mutation re-enabling the shell does). */
 const MAX_CATALOG_BYTES = 4 << 20;
 const FORCED = { apply_patch_tool_type: null, tool_mode: null, experimental_supported_tools: [], node_repl_disabled: true,
   supports_search_tool: false, include_apps_usage_instructions: false, include_plugin_usage_instructions: false,
-  include_skills_usage_instructions: false };
+  include_skills_usage_instructions: false,
+  /* kosmos#8593 (0.169.0): an access-program grant ({"cyber":["standard"]} in the catalog read) is cleared, since what it
+     unlocks is not known; experimental context is off. */
+  available_access_programs: { cyber: [] }, supports_experimental_context: false };
 /* The account's catalog made safe as { catalog }, or { why } saying which of the three reasons it cannot be used. */
 function catalogFor(accountDir) {
   let cache;
@@ -103,6 +110,7 @@ function catalogFor(accountDir) {
   return { catalog: { models: cache.models.map((m) => {
     const out = { ...m, ...FORCED };
     delete out.multi_agent_version;   // absent is a value Codex accepts (gpt-5.5 has none)
+    delete out.multi_agent_reasoning_effort;   // kosmos#8593: multi-agent is disabled for the read; absent is accepted
     return out;
   }) } };
 }

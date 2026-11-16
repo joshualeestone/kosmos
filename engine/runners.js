@@ -345,8 +345,8 @@ const GROK_LINUX = Object.freeze(Object.assign(Object.create(null), {
  * so the Mac, Windows and (#5419) Linux answers can never drift into separate resolvers.
  *
  * On win32 the openai entry is the darwin one with the Windows build's url,
- * integrity, binary path and size laid over it (version and name are shared: it is
- * the same pinned release). A Windows CPU with no published build (ia32) gets the
+ * integrity, binary path and size laid over it (the name is shared; the version is the
+ * Windows entry's own, 0.149.1, since the Mac and Linux pin moved to 0.169.0 in kosmos#8593). A Windows CPU with no published build (ia32) gets the
  * x64 entry, so install()'s arch guard refuses it BY NAME before a byte moves,
  * exactly as an Intel Mac is refused against the arm64 pin.
  * `platform`/`arch` default to this process; they are parameters so the win32
@@ -405,6 +405,20 @@ function verifiedMarker(platform = process.platform, provider = 'openai') {
 const verifiedStamp = (m) => `${m.version} ${m.binInPackage}`;
 function isVerified(m, platform = process.platform, provider = 'openai') {
   try { return fs.readFileSync(verifiedMarker(platform, provider), 'utf8').trim() === verifiedStamp(m); } catch { return false; }
+}
+
+/* kosmos#8593: the version of the managed Mac/Linux tree on disk, read from the package.json its npm tarball carries
+   (unpacked with --strip-components 1, so it sits at <runner>/pkg/package.json; Codex writes its version as
+   "<version>-<platform>-<arch>", e.g. "0.149.1-darwin-arm64"). null when it cannot be read: an older install, a tree
+   from elsewhere, a tarball with no package.json. Read, not run: resolveBin is on hot paths and --version is not. */
+function installedVersion(provider, platform = process.platform) {
+  if (platform === 'win32') return null;   // Windows has its own .verified marker, which names the version
+  try {
+    const v = JSON.parse(fs.readFileSync(path.join(managedRoot(), provider, 'pkg', 'package.json'), 'utf8')).version;
+    if (typeof v !== 'string') return null;
+    const m = /^(\d+\.\d+\.\d+)(?:-[a-z0-9]+-[a-z0-9]+)?$/.exec(v.trim());
+    return m ? m[1] : null;
+  } catch { return null; }
 }
 
 function managedBin(m, platform = process.platform, provider = 'openai') {
@@ -935,7 +949,16 @@ function resolveBin(provider, opts) {
     (opts && opts.legacyBin) || '/opt/homebrew/bin/codex',
   ];
   for (const c of candidates) {
-    if (isRunnable(c)) return { bin: c, present: true, managed: c === managed, overridden: false };
+    if (!isRunnable(c)) continue;
+    /* kosmos#8593: a managed Mac/Linux Codex older than the pin is still PRESENT (its agents keep running on it), but
+       STALE, so install() replaces it and the board's upgrade sweep starts that (server.js). Only a version read off
+       the tree that differs from the pin counts: an unreadable one is not called stale, so nothing reinstalls on a
+       guess. */
+    if (c === managed && plat !== 'win32') {
+      const v = installedVersion('openai', plat);
+      if (v && v !== mf.version) return { bin: c, present: true, managed: true, overridden: false, stale: true, installedVersion: v };
+    }
+    return { bin: c, present: true, managed: c === managed, overridden: false };
   }
   return { bin: managed, present: false, managed: true, overridden: false };
 }
@@ -1413,7 +1436,9 @@ function install(provider, opts) {
   if (!existing.bin) {
     return refuse(`the ${provider} runner has a manifest entry but no resolution rule yet, so an install could never be seen; teach resolveBin about it first`);
   }
-  if (existing.present) {
+  /* kosmos#8593: a stale managed runner (older than the pin) is replaced, not answered as installed. The swap below
+     replaces the pkg/ tree whole, so its agents keep the old binary until they restart. */
+  if (existing.present && !existing.stale) {
     // A completed job for THIS binary carries the truthful receipt
     // (`proved`, real byte counts) -- hand that back rather than a
     // synthetic. Otherwise: byte counts null, not zero, and `version` NULL
@@ -1993,4 +2018,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, installedVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
