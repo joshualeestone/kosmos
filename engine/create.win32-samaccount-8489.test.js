@@ -299,7 +299,7 @@ test('kosmos#8489: the out-of-reach words are the same at every count of earlier
       win32Task: { runner: 'claude', configDir: gone, model: SET_MODEL, account, kept: true, ...(unreadable ? { unreadable } : {}) } });
     return name;
   };
-  const REACH = /^\. It starts on the model it was set to\. Kosmos cannot reach the account folder it used right now\. If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login\. It starts on that folder's account only if Kosmos can reach the folder then and it holds the same account\. Otherwise it starts on your main account; choose its account again once that folder is back\.$/;
+  const REACH = /^\. It starts on the model it was set to\. Kosmos cannot reach the account folder it used right now\. If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login\. It starts on that folder's account only if Kosmos can reach the folder then and it holds the same account\. Otherwise it starts on your main account; choose its account again once that folder is back, or another account if it is gone\.$/;
   // kosmos#8510: the words say what THIS Start at login does, so the count of earlier ones changes nothing in them.
   const none = leftover.startsAgainWords(keptAs('away0-8489', 0));
   assert.equal(create.win32RecordedTask('away0-8489').accountWhy, 'unreachable');

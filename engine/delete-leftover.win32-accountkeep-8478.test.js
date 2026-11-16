@@ -306,7 +306,7 @@ test('kosmos#8478: an agent with nothing recorded whose task cannot be read at t
     'Start at login wrote a task and did not record it');
 });
 
-const CANNOT_REACH = /It starts on the model it was set to\. Kosmos cannot reach the account folder it used right now\. If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login\. It starts on that folder's account only if Kosmos can reach the folder then and it holds the same account\. Otherwise it starts on your main account; choose its account again once that folder is back\./;
+const CANNOT_REACH = /It starts on the model it was set to\. Kosmos cannot reach the account folder it used right now\. If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login\. It starts on that folder's account only if Kosmos can reach the folder then and it holds the same account\. Otherwise it starts on your main account; choose its account again once that folder is back, or another account if it is gone\./;
 
 test('kosmos#8478: a recorded account folder that cannot be reached falls back to the main account, says so, and comes back on it at the next Start at login, if no change to the agent rewrites its task first', WINDOWS_ONLY, () => {
   const name = agent('gone8478');
@@ -716,7 +716,7 @@ test('kosmos#8478: a recorded model no longer offered falls back to the model it
   // A model that has since left the list (setModel would refuse it now, so the record is written as an old task left it).
   store.writeProfile(name, { win32Task: { runner: 'claude', configDir: ACCOUNT, model: 'claude-opus-3', account: OWNER_IDENTITY } });
   const p = taskOnlyDelete(name);
-  assert.match(p.reassurance, /It starts on the account it was set to, but on the model it last ran, as the model it was set to is no longer offered\. Choose its model again if it used another\./);
+  assert.match(p.reassurance, /It starts on the account it was set to, but on the model it last ran, as the model it was set to is not offered now\. Choose its model again if it used another\./);
   startAtLogin(name);
   assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: LAST_RAN });
 });

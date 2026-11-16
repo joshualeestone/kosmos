@@ -26,6 +26,11 @@ delete-leftover.startsAgainWords ends the task-only delete's sentences and Resto
   (create.recordWin32Task).
 
 ## Decisions
+> **Superseded in part.** The first bullet (one model sentence chosen by `rec.modelOk`) still holds. The rest of this
+> section describes the original wording: the "Changing this agent's account or model makes Kosmos forget that folder"
+> sentence, the count clauses and the drop's "until then" were all removed in round 3, and the retired-model advice
+> was simplified in round 4. The shipped words are those in "Review round 3" and "Review round 4" below.
+
 - The three kept-folder outcomes (out of reach, could not read or confirm, the drop) lead with one shared model sentence
   chosen by `rec.modelOk`, then their account sentences. This removes the modelOk gate on the out-of-reach branch by
   construction, so a retired model can never fall through to the generic words again.
@@ -93,6 +98,20 @@ delete-leftover.startsAgainWords ends the task-only delete's sentences and Resto
   person sees is capped at 30 words with a workers path containing spaces, and every caller form (plain, removed,
   occupied, disk, out-of-sight leads, Restore) is capped in the 8475 tests. Whole clause cap 120 words (longest 110).
 
+## Review round 4
+- WARNING: the retired-model advice in the kept-folder outcomes asked for an order ("choose it again once it is on the
+  right account, choosing its account first if it is not"). Choosing the model first and the account second ends in
+  the same task (setAccount rewrites it keeping the model); the order only protected the kept record, which matters
+  only for a later task removal plus Start at login that round 3 stopped promising anything about. For a deleted
+  folder "the right account" never comes. Now the same words as every other outcome: "Choose its model again if it
+  used another." The test also asserts no order or waiting is asked.
+- NIT: out of reach now ends "choose its account again once that folder is back, or another account if it is gone."
+  statSync cannot tell a deleted folder from an unplugged one, so the words cover both.
+- NIT: "no longer offered" is now "not offered now". `modelOk` is also false for a model of the wrong shape and for a
+  runner with no model choice on Windows, which were never offered.
+- CONVENTION: this plan's Decisions, Weakest part and What would change my mind described removed wording; marked
+  and rewritten.
+
 ## Weakest part (round 3)
 The words no longer tell the person that a later removal of the startup job would try the folder again. That is true
 and occasionally useful, but saying it truthfully needed three conditions; it was dropped rather than half-said.
@@ -108,11 +127,10 @@ and occasionally useful, but saying it truthfully needed three conditions; it wa
   engine/delete-leftover.win32-accountkeep-8478.test.js. No web/ or docs/browser-checks file pins them.
 
 ## Weakest part
-"as does anything else that sets up its startup job again" is still a little abstract for a non-engineer; it is there
-because naming only the account and model setters would promise the folder survives a provider switch, an import or any
-other rewrite, which it does not. The 30-word sentence cap is a proxy for plainness, not a reading test.
+The words describe only what THIS Start at login does. A person who removes the startup job again later is not told
+that Kosmos would try the kept folder again (round 3 dropped that, since saying it truly needed three conditions).
+Separately, "not offered now" is a little vaguer than "no longer offered", traded for being true in every case.
 
 ## What would change my mind
-A list of every path that rewrites a task-only-deleted agent's startup job showing only the account and model setters
-can run in that window: then the shorter "Changing this agent's account or model makes Kosmos forget that folder."
-would be complete.
+A person-facing need to act on the kept record later (a support case where someone removed the startup job twice
+and expected the folder back): then a short, separate sentence about the later retry would earn its length.

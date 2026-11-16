@@ -931,7 +931,9 @@ function startsAgainWords(name, preview = false) {
   if (!rec) return '. It starts on your main account and the model it last ran, so choose its account and model again if it used others.';
   /* The model is decided on its own (register.repair: rec.modelOk puts back the model it was set to, otherwise the
      model it last ran), whatever happens to the account. */
-  const retired = 'the model it last ran, as the model it was set to is no longer offered';
+  /* "Not offered now", never "no longer offered": modelOk is also false for a model of the wrong shape and for a
+     runner that offers no model choice on Windows (create.win32ModelOffered), which were never offered at all. */
+  const retired = 'the model it last ran, as the model it was set to is not offered now';
   if (rec.accountOk) {
     if (rec.modelOk) return '. It starts on the account and model it was set to before.';
     return `. It starts on ${rec.configDir ? 'the account it was set to' : 'your main account, as before'}, but on ${retired}. Choose its model again if it used another.`;
@@ -957,16 +959,19 @@ function startsAgainWords(name, preview = false) {
      dropped ('unreadableGaveUp'). This Start at login puts the agent on that folder only if, by then, it is reachable and
      reads as the same account; otherwise on the main account, where it stays until its account is chosen again. */
   const model = rec.modelOk ? 'It starts on the model it was set to.' : `It starts on ${retired}.`;
-  /* With a retired model the person will want to choose its model again. A model change on the main account forgets
-     the kept folder, so the order is: the account first (if it is not on the right one), then the model. */
-  const modelLater = rec.modelOk ? '' : ' If it used another model, choose it again once it is on the right account, choosing its account first if it is not.';
+  /* With a retired model the person will want to choose its model again. No order is asked of them: choosing the model
+     first and the account second ends in the same task (setAccount rewrites it keeping the model). A model change on
+     the main account does forget the kept folder, but that record matters only if the startup job is removed and Start
+     at login used again, which these words no longer promise anything about (round 3). */
+  const modelLater = rec.modelOk ? '' : ' Choose its model again if it used another.';
   let why;
   if (rec.accountWhy === 'unreachable') {
     // statSync cannot tell a deleted folder from one on a disk or shared folder that is not connected: "cannot reach".
     why = 'Kosmos cannot reach the account folder it used right now.'
       + ' If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login.'
       + " It starts on that folder's account only if Kosmos can reach the folder then and it holds the same account."
-      + ' Otherwise it starts on your main account; choose its account again once that folder is back.';
+      // "or another account if it is gone": a folder that was deleted never comes back.
+      + ' Otherwise it starts on your main account; choose its account again once that folder is back, or another account if it is gone.';
   } else {
     /* Not a changed account (Claude Code or codex may be writing its config at that moment), so never "signed out or
        changed". The reason is the engine's (create.win32RecordedTask unreadableReason). For the last such start, the

@@ -167,10 +167,11 @@ function assertWords(words, { outcome, count, modelKey }) {
     assert.match(words, /model it was set to/, label);
     assert.doesNotMatch(words, /model it last ran|choose (it|its model) again/, label);
   } else {
-    assert.match(words, /the model it last ran, as the model it was set to is no longer offered/, label);
+    assert.match(words, /the model it last ran, as the model it was set to is not offered now/, label);
     if (kept) {
-      // A model change on the main account forgets the folder, so the account comes first: never "wait for" anything.
-      assert.match(words, / If it used another model, choose it again once it is on the right account, choosing its account first if it is not\.$/, label);
+      // Round 4: no order is asked (model then account ends in the same task), and nothing is waited for.
+      assert.match(words, / Choose its model again if it used another\.$/, label);
+      assert.doesNotMatch(words, /right account|account first|once it is/, label);
     } else {
       assert.match(words, /Choose its (account and )?model again/, label);
     }
@@ -190,7 +191,7 @@ function assertWords(words, { outcome, count, modelKey }) {
     assert.match(words, /Otherwise it starts on your main account; choose its account again/, label);
     if (outcome === 'outOfReach') {
       assert.match(words, /Kosmos cannot reach the account folder it used right now\. If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login\./, label);
-      assert.match(words, /choose its account again once that folder is back\./, label);
+      assert.match(words, /choose its account again once that folder is back, or another account if it is gone\./, label);
     } else {
       assert.match(words, OUTCOMES[outcome].reason === 'confirm' ? /could not confirm that the account folder it last used still holds the same account/ : /could not read which account is in the account folder it last used/, label);
     }
@@ -328,8 +329,8 @@ test('kosmos#8510: out of reach with a retired model, still not connected at Sta
   const name = agentOnAccount('stillaway8510', RETIRED_MODEL);
   fs.renameSync(ACCOUNT, unplugged);
   const [words] = taskOnlyDelete(name);
-  assert.match(words, /Otherwise it starts on your main account; choose its account again once that folder is back\./);
-  assert.match(words, /If it used another model, choose it again once it is on the right account, choosing its account first if it is not\./);
+  assert.match(words, /Otherwise it starts on your main account; choose its account again once that folder is back, or another account if it is gone\./);
+  assert.match(words, /Choose its model again if it used another\./);
   startAtLogin(name);
   assert.deepEqual(writtenTask(name), { configDir: null, model: LAST_RAN });
   assert.equal(offered(name), false, 'Start at login is offered again, so the words could have promised it');
