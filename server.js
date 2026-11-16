@@ -23362,7 +23362,10 @@ const server = http.createServer(async (req, res) => {
         if (!t) return t;
         const extra = { lastActivityAt: tasks.lastActivityOf(t.projectId, t) || null };
         if (t.onHold === true && t.onHoldUntil) {
-          try { const st = tasks.holdUntilState(projectOf.get(t.projectId) || { tasks: [] }, t); if (st) extra.holdUntilMet = st.met === true; } catch { /* said as before */ }
+          // No project found (a duplicated id keeps one record): no answer at all, never an empty project, which would read
+          // a hold on a task as met because the task is not there.
+          const p = projectOf.get(t.projectId);
+          try { const st = p ? tasks.holdUntilState(p, t) : null; if (st) extra.holdUntilMet = st.met === true; } catch { /* said as before */ }
         }
         return Object.assign({}, t, extra);
       } : (t) => t;
