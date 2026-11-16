@@ -164,7 +164,7 @@ test('kosmos#8566: a post addressed to a name no member has prints the verdict, 
 test('kosmos#8569: a post that reached nobody (every other member switched off here) never says everyone has it', { skip: SKIP_POSIX_SHELL }, async () => {
   const none = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: {} });
   assert.equal(none.code, 0, none.stdout + none.stderr);
-  assert.equal(none.stdout.trim(), 'Posted to proj. It woke no one: no other member is switched on in this project, so it is only in the room. To reach one anyway, name them: start with \'YourName -> Their Name:\' or @-name them (@all does not reach them).');
+  assert.equal(none.stdout.trim(), 'Posted to proj. It woke no one: no other member is switched on in this project (or there is none), so it is only in the room. To reach a switched-off member anyway, name them: start with \'YourName -> Their Name:\' or @-name them (@all does not reach them).');
   const dup = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: {}, duplicate: true });
   assert.doesNotMatch(dup.stdout, /Everyone on it has it waiting/, 'a folded retry of a post that reached nobody claimed everyone has it');
   const paused = await postAgainst({ state: 'placed', because: 'the room is paused', id: 'm1', outcomes: {} });
