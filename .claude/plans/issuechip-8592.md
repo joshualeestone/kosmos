@@ -28,7 +28,14 @@ That opening the project is "opening the issue". The project page shows its memb
 to the specific question or held task. If the tester meant "straight to the question", that is a follow-up.
 
 ## Checks
-- New docs/browser-checks/render-pj-issue-tile-8592.js (22 assertions, Roadmap and Grid, one/several/none, keyboard,
+- New docs/browser-checks/render-pj-issue-tile-8592.js (29 assertions, Roadmap and Grid, one/several/none, keyboard,
   the exit link, the flat sub-project, and the Agents tile control). Control: it fails on origin/main's page.
 - render-chip-filters-3423.js (Agents tile) still 22 PASS. 72 web unit tests touching the changed functions pass.
 - Wiring: README row, gated.txt entry; browser-checks-indexed and tools.browser-checks-wired tests pass.
+
+## Review round 1 (taken)
+- A folded parent hid a marked sub-project under the filter: the fold now stands down while the filter is on (tab
+  views), carets hide, and the shading counts only the rows shown.
+- The filter class reached the consolidated rail, which has no tile to undo it: the filter CSS and the fold stand-down
+  are scoped to the tab views.
+- The tile's title says "Show all projects" while pressed.

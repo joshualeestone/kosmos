@@ -127,9 +127,40 @@ const NONE = [{ id: 'idle', name: 'Idle One', archived: false, agents: [], summa
     check(s.kidChip, '2. the sub-project shows its parent chip while laid flat', JSON.stringify(s));
     if (process.env.SHOT_DIR) await p.screenshot({ path: path.join(process.env.SHOT_DIR, 'pj-issue-filter-8592.png') });
     check(!s.agentsFilter, '2. the Agents filter is untouched', JSON.stringify(s));
+    check(s.title === 'Show all projects', '2. while pressed the tile says a click shows all', s.title);
     await p.click('#st-pjattn-tile');
     s = await state();
     check(!s.filter && s.pressed === 'false' && s.displayed.length === 5 && !s.exitShown, '2. a second click shows every project again', JSON.stringify(s));
+
+    // 2a. a folded parent never hides a marked sub-project while the filter is on (review round 1). The filter is off here.
+    await p.evaluate(() => { PJ_TREE_FOLDED.add('calm'); applyConsFold(); });
+    s = await state();
+    check(!s.displayed.includes('kid'), '2a. control: with "Calm Parent" folded and no filter, its sub-project is hidden', JSON.stringify(s.displayed));
+    await p.click('#st-pjattn-tile');                       // on
+    s = await state();
+    check(JSON.stringify(s.displayed) === JSON.stringify(['held', 'kid', 'red']), '2a. with the parent folded, the filter still shows the marked sub-project', JSON.stringify(s.displayed));
+    const folds = await p.evaluate(() => [...document.querySelectorAll('#pj-list .pjtreefold')].filter((c) => getComputedStyle(c).display !== 'none').length);
+    check(folds === 0, '2a. no fold caret shows while the filter is on', String(folds));
+    await p.evaluate(() => { const b = document.querySelector('[data-pj-collapse-all], #pj-rm-collapse'); if (b) b.click(); else { PJ_TREE_FOLDED.add('red'); PJ_TREE_FOLDED.add('held'); applyConsFold(); } });
+    s = await state();
+    check(JSON.stringify(s.displayed) === JSON.stringify(['held', 'kid', 'red']), '2a. collapsing while filtered hides none of the marked projects', JSON.stringify(s.displayed));
+    const stripes = await p.evaluate(() => [...document.querySelectorAll('#pj-list .pj-row[data-project]')].filter((r) => getComputedStyle(r).display !== 'none').map((r) => r.classList.contains('pj-stripe')));
+    check(JSON.stringify(stripes) === JSON.stringify([false, true, false]), '2a. the shading alternates over the rows shown', JSON.stringify(stripes));
+    await p.click('#st-pjattn-tile');                       // off
+    await p.evaluate(() => { PJ_TREE_FOLDED.clear(); pjSaveFold(); applyConsFold(); });
+
+    // 2c. the consolidated layout is never filtered (it has no tile to undo it; review round 1).
+    await p.click('#st-pjattn-tile');                       // on
+    const cons = await p.evaluate(() => {
+      document.body.classList.add('consolidated');
+      applyConsFold();
+      const n = [...document.querySelectorAll('#pj-list .pj-row[data-project]')].filter((r) => getComputedStyle(r).display !== 'none').length;
+      document.body.classList.remove('consolidated');
+      applyConsFold();
+      return n;
+    });
+    check(cons === 5, '2c. under the consolidated layout every project row shows even with the filter class on', String(cons));
+    await p.click('#st-pjattn-tile');                       // off
 
     // 2b. the Grid layout filters the same way.
     await seed(SEVERAL, 'grid');
@@ -195,7 +226,7 @@ const NONE = [{ id: 'idle', name: 'Idle One', archived: false, agents: [], summa
     srv.kill();
   }
 
-  if (ran < 20) { console.log('pj-issue-tile: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 27) { console.log('pj-issue-tile: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   console.log(failures ? failures + ' FAILED' : 'ALL PASS (' + ran + ')');
   process.exit(failures ? 1 : 0);
 })();

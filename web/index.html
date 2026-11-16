@@ -2849,19 +2849,20 @@ body.filter-attn #orgview .onode:not([data-attn]) { opacity: .26; }
 /* kosmos#8592: the Projects tab's Issue tile, the same control look as #st-attn-tile above. With several projects
    needing the person it filters #pj-list to the rows marked data-attn (the tile's own count, written beside it in
    paintProjects). A sub-project shown without its parent is laid flat with its "under <parent>" chip, so it never
-   hangs indented under a row that is not there. */
+   hangs indented under a row that is not there. Scoped to the tab views: the consolidated rail has no tile to undo it. */
 #st-pjattn-tile { cursor: pointer; }
 #st-pjattn-tile:hover { border-color: var(--gold-deep); background: rgba(198,154,50,.07); }
 #st-pjattn-tile:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 #st-pjattn-tile[aria-pressed="true"] { border-color: var(--gold-deep); background: rgba(198,154,50,.14); }
 #st-pjattn-tile[aria-pressed="true"] .slab { color: var(--k-ink); font-weight: 600; }
-body.filter-pjattn .pj-attn-exit { display: inline-flex; }
-body.filter-pjattn #pj-list .pj-row:not([data-attn]) { display: none !important; }
-body.filter-pjattn #pj-list .pj-row { --pj-depth: 0 !important; }
+body.filter-pjattn:not(.consolidated) .pj-attn-exit { display: inline-flex; }
+body.filter-pjattn:not(.consolidated) #pj-list .pj-row:not([data-attn]) { display: none !important; }
+body.filter-pjattn:not(.consolidated) #pj-list .pj-row { --pj-depth: 0 !important; }
 /* !important: the tree rules these undo (#1994, #3276) sit later in this file and carry more specificity. */
-body.filter-pjattn #pj-list .pj-row.child { border-left: 0 !important; }
-body.filter-pjattn #pj-list .pj-row.child::before, body.filter-pjattn #pj-list .pj-row.child::after { display: none !important; }
-body.filter-pjattn #pj-list .pj-row.child .pj-parent { display: inline-block !important; }
+body.filter-pjattn:not(.consolidated) #pj-list .pj-row.child { border-left: 0 !important; }
+body.filter-pjattn:not(.consolidated) #pj-list .pj-row.child::before, body.filter-pjattn:not(.consolidated) #pj-list .pj-row.child::after { display: none !important; }
+body.filter-pjattn:not(.consolidated) #pj-list .pj-row.child .pj-parent { display: inline-block !important; }
+body.filter-pjattn:not(.consolidated) #pj-list .pjtreefold { display: none !important; }
 .stat.alert { border-color: rgba(179,38,30,.45); }
 /* The pack's status glyph family, shared by the tiles, the pills, and the
    list rows. The hazard is a TRIANGLE because shape is the carrier and
@@ -70916,8 +70917,8 @@ function paintProjects() {
   document.getElementById('st-pjattn').textContent = String(attnProjects);
   document.getElementById('st-pjattn-tile').hidden = !attnProjects;
   /* kosmos#8592: what a click does, said on the tile; and a filter left on with nothing to show turns itself off. */
-  document.getElementById('st-pjattn-tile').title = attnProjects === 1 ? 'Open the project that needs you' : 'Show only projects that need you';
   if (!attnProjects) setPjAttnFilter(false);
+  document.getElementById('st-pjattn-tile').title = pjAttnTileTitle();
   /* #3276: the Roadmap top strip's summary, from the SAME `active`/`attnProjects` the
      tiles use so the strip can never disagree with the count tile. "N need you" is
      appended only when non-zero (and never under a blind roster, matching the tile's
@@ -71159,7 +71160,10 @@ function applyConsFold() {
   // the JS fold would run where no caret is visible. Aligning this with the caret's CSS
   // gate keeps the two from drifting (render-cons-tree-2929's tab CONTROL asserts exactly
   // this -- a fold in the bare tab list must hide nothing and drop aria-expanded).
-  const treeMode = cons || document.body.classList.contains('pj-roadmap');
+  /* kosmos#8592: while the Issue filter is on (tab views only), the list is flat and nothing folds: a fold kept here
+     would hide a marked sub-project the tile counts. The fold set itself is kept for when the filter is off again. */
+  const pjFilter = !cons && document.body.classList.contains('filter-pjattn');
+  const treeMode = (cons || document.body.classList.contains('pj-roadmap')) && !pjFilter;
   /* Hide a folded branch by walking the RENDERED rows in tree order and their
      --pj-depth, NOT by walking PROJECTS. pjTreeRows re-homes a child of an
      archived/dangling parent (and any cycle) to the TOP level, so a raw parent-link
@@ -71194,7 +71198,7 @@ function applyConsFold() {
     /* #4730: every second VISIBLE row is shaded, counted here because this walk is what knows
        which rows a fold hid (CSS :nth-child would count the hidden ones and break the pattern).
        Only the tab list view draws the shade (the CSS is scoped to it). */
-    row.classList.toggle('pj-stripe', !shouldHide && (shown++ % 2 === 1));
+    row.classList.toggle('pj-stripe', !shouldHide && (!pjFilter || row.hasAttribute('data-attn')) && (shown++ % 2 === 1));
     if (!shouldHide) {
       // A VISIBLE folded parent collapses everything deeper than it until a row
       // returns to its depth or shallower; anything else clears the collapse.
@@ -71358,9 +71362,16 @@ function pjNeedsPerson(p, unreadable) {
   return (Number(s.needsYou) || 0) > 0 || (Number(s.heldForYou) || 0) > 0;
 }
 function setPjAttnFilter(on) {
+  const was = document.body.classList.contains('filter-pjattn');
   document.body.classList.toggle('filter-pjattn', !!on);
   const tile = document.getElementById('st-pjattn-tile');
-  if (tile) tile.setAttribute('aria-pressed', String(!!on));
+  if (tile) { tile.setAttribute('aria-pressed', String(!!on)); tile.title = pjAttnTileTitle(); }
+  if (was !== !!on && typeof applyConsFold === 'function') applyConsFold();   // fold and shading follow the filter
+}
+/* What a click on the tile does, in its words: show all again while pressed, else open one or show several. */
+function pjAttnTileTitle() {
+  if (document.body.classList.contains('filter-pjattn')) return 'Show all projects';
+  return PJ_ATTN_IDS.length === 1 ? 'Open the project that needs you' : 'Show only projects that need you';
 }
 /* kosmos#8592 (a tester through Josh, 11-16): "1 Issue" opens the issue. One project: open it, as clicking its card
    does. Several: show only those (the Agents tab's Issue tile filters the same way, #3423); a second click shows all. */
