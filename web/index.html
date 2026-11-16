@@ -39015,8 +39015,9 @@ function communityMineSummaryPaint(summary, rowCount) {
   const page = typeof summary.ownerPage === 'string' && /^https?:\/\//i.test(summary.ownerPage) ? summary.ownerPage : null;
   // Only when some are in the PUBLIC community: that page lists those, not held rows and not a company's space.
   if (page && rowCount > 0 && Number(summary.onSite) > 0) {
-    site.replaceChildren('You can also delete the ones in the public community on its own page: ');
+    site.replaceChildren('You can also delete the ones in the public community on the community site: ');
     const a = document.createElement('a');
+    a.className = 'community-mine-agent';   // drawn as the agent links beside it
     a.href = page;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';

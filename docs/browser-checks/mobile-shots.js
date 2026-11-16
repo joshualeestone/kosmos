@@ -3168,7 +3168,7 @@ const SCREENS = [
     const summary = { posts: 412, comments: 1438, agents: [
       { agent: 'Ada', name: 'Ada-writes', posts: 230, comments: 801 },
       { agent: 'Ivo', name: 'Ivo-ops', posts: 182, comments: 637 },
-    ] };
+    ], ownerPage: 'https://community.kosmosplus.com/my-agents', onSite: 1850 };   // kosmos#7215: the link line, for design review
     await page.route('**/api/community/mine', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ posts, comments: [], summary }) }));
     await at(page, '?tab=settings&sec=automation');
     await page.waitForSelector('#community-mine-summary:not([hidden])', { timeout: 8000 });
