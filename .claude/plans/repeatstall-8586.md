@@ -31,7 +31,16 @@ task and slot, or the missed-run tell already told it (`missToldAt >= slot`). As
 the two sweeps cannot disagree about whose slot it is.
 
 Known residual: a minutes-repeat whose missed-run tell is held by its hourly stall gate is told here instead for
-that slot, so such a holder can get one due-run line and, an hour later, one missed-run line. Both are true.
+that slot, so such a holder can get one due-run line and, an hour later, one missed-run line. Both are true. Not
+pinned by a test on purpose: a test would freeze a known imperfection as the contract.
+
+## Consequence of not advancing the told mark during a quiet stall (both modules)
+
+For the slots that are not recorded, `repeatDueToldAt` / `missToldAt` stay on the stall's first slot. So owed()
+offers the task on every sweep while the stall lasts (a result entry, no write and no roster read), and when the
+holder or reviewer comes back the existing stall throttles count from that first slot, so they may be told one slot
+sooner than if every slot had been recorded. That is the intended direction: the person is not waiting longer for a
+line because nobody could be reached earlier. The daily case is pinned by "a holder who came back and was told".
 
 ## Item 3 (optional stale-repeat mark in the task list): NOT built here
 
@@ -48,5 +57,5 @@ Recorded on the card so the next sweep's author sees it.
 ## Tests
 
 engine/repeatdue-8581.test.js and engine/missedtell.test.js gain #8586 tests, each with a control in the same
-test that IS recorded or told. Mutation: with stillQuiet() returning false and the item-2 filter reverted, all three
-new tests fail (44 pass, 3 fail); with the change, 47 pass. Focused run plus the standing guards: 94 pass.
+test that IS recorded or told. Mutation (measured once): with stillQuiet() returning false and the item-2 filter
+reverted, the then three new tests failed and every older test passed.

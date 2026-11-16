@@ -179,9 +179,7 @@ function sweep(o) {
         if (book.get(slotKey) === 'told') { results.push({ ...item, act: 'held', because: 'already told; its mark could not be saved' }); continue; }
         const onProject = item.holders.filter((h) => item.members.includes(h));
         if (!onProject.length) {
-          /* kosmos#8586: once per stall. The first slot is recorded; later ones of the same stall are not. The told
-             mark is deliberately NOT advanced for them, so owed() keeps offering the task and the stall throttle stays
-             measured from the last row really written. */
+          // kosmos#8586: see stillQuiet().
           if (stillQuiet(item)) { results.push({ ...item, act: 'unreachable', because: 'no holder is on the project', recorded: false }); continue; }
           book.set(slotKey, 'told'); mark(item, item.holders[0], 'unreachable', now);
           results.push({ ...item, act: 'unreachable', because: 'no holder is on the project', recorded: true }); continue;
