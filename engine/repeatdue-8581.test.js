@@ -402,18 +402,18 @@ test('#8586: a minutes repeat\'s reviewer-holder is never told here while the mi
   assert.match(sent[0].text, new RegExp('in ' + projects.readAll().find((x) => x.id === other.id).name));
 });
 
-test('#8586: a minutes repeat\'s holder who comes back mid-stall is told when the throttle from the stall\'s first slot allows', () => {
+test('#8586: a minutes repeat\'s holder back after an unrecorded slot is told at once (where recording every slot would wait an hour)', () => {
   const ago = new Date(NOW - 2 * 86400000).toISOString();
   const { id } = fixture({ repeat: { every: 'minutes', n: 15 }, lastRunAt: ago });
   projects.mutate(id, (x) => ({ ...x, agents: [ADA] }));
-  const t0 = NOW + 5 * 60000;
-  assert.equal(run([id], { now: t0 }).r.results[0].recorded, true, 'the stall is recorded');
-  const t1 = t0 + 20 * 60000;   // inside the hour the told-slot throttle would otherwise hold
-  const idle = new Map([[REX, { since: t1 - 120000, at: t1 - 60000 }]]);
-  assert.equal(run([id], { now: t1, idleSeen: idle }).sent.length, 0, 'control: still off the project, nothing typed');
+  const at = (min) => NOW + min * 60000;
+  const idle = (t) => new Map([[REX, { since: t - 120000, at: t - 60000 }]]);
+  assert.equal(run([id], { now: at(5) }).r.results[0].recorded, true, '11:05: the stall is recorded (11:00 slot)');
+  assert.equal(run([id], { now: at(25) }).r.results.length, 0, '11:25: the stall throttle from 11:00 holds; nothing offered');
+  const noon = run([id], { now: at(65) }).r.results[0];
+  assert.equal(noon.act, 'unreachable');
+  assert.equal(noon.recorded, false, '12:05: still away, the 12:00 slot is NOT recorded (the old code recorded it)');
   projects.mutate(id, (x) => ({ ...x, agents: [ADA, REX] }));
-  assert.equal(run([id], { now: t1, idleSeen: idle }).sent.length, 0, 'back at 11:25: the throttle from the 11:00 slot still holds');
-  const t2 = NOW + 65 * 60000;   // 12:05: the fourth 15-minute slot after 11:00 is due
-  const idle2 = new Map([[REX, { since: t2 - 120000, at: t2 - 60000 }]]);
-  assert.equal(run([id], { now: t2, idleSeen: idle2 }).sent.length, 1, 'told once the throttle from the stall\'s first slot allows');
+  // Had 12:00 been recorded, the told mark would be 12:00 and the throttle would hold until 13:00.
+  assert.equal(run([id], { now: at(70), idleSeen: idle(at(70)) }).sent.length, 1, '12:10: back on the project, told at once');
 });
