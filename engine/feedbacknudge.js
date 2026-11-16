@@ -11,6 +11,11 @@
  * Who is asked, one agent a day:
  *  - an idle card of ours that is not a switched-off swarm (the Assigner's idleCard, as engine/agentnudge.js uses), so a
  *    working agent is never interrupted;
+ *  - that itself worked today, or whose provider gives Kosmos no way to see that (no_source) (kosmos#8572). The report
+ *    is about the asked agent's own day (`kosmos feedback day`), so an agent that did nothing has nothing to report, and
+ *    asking it spends a turn of the person's account on an empty answer. When everyone who worked is still busy, nobody
+ *    is asked yet: a later tick asks once one is idle. Who was seen working today is kept on disk (`workers`), so a
+ *    restart later in the day does not forget them;
  *  - not the setup guide (it runs hands-off instructions, and its thread is masked on the page);
  *  - a Project Manager first (its instructions already carry the four questions), then a Project Director (it holds the
  *    picture across projects), else roster order. A card's role is the one its instruction file states ("You are
@@ -49,7 +54,8 @@ const NUDGE_HOUR = 17;
 /* The role keys asked first, in order (engine/roles.js). */
 const FIRST_ROLES = ['pm', 'director'];
 
-/* The record: { date: the day last asked, session: who, workedOn: the last day an agent was seen working }. Under the
+/* The record: { date: the day last asked, session: who, workedOn: the last day an agent was seen working, workers: the
+   sessions seen working on that day (kosmos#8572) }. Under the
    data root, so a sandboxed test never reads the live one. Unreadable or absent reads as never asked and never seen, so
    an ask is then possible again, never refused. `workedOn` is kept because the board's own record of who worked lives in
    memory (status.lastWorkedOf), so an afternoon restart (every update) would otherwise forget a full day's work (review 2). */
@@ -75,7 +81,8 @@ function fileAsked() {
     get: () => { const v = read(); return typeof v.date === 'string' ? v.date : null; },
     set: (date, session) => write({ date, session }),
     workedOn: () => { const v = read(); return typeof v.workedOn === 'string' ? v.workedOn : null; },
-    markWorked: (date) => write({ workedOn: date }),
+    workers: () => { const v = read(); return Array.isArray(v.workers) ? v.workers.filter((x) => typeof x === 'string') : []; },
+    markWorked: (date, workers) => write({ workedOn: date, workers: Array.isArray(workers) ? workers : [] }),
   };
 }
 
@@ -117,33 +124,37 @@ function nudgeText() {
   ].join(' ');
 }
 
+/* Whether one card of ours was seen working today (working now, or its last work today). */
+function seenWorking(c, today, dateKey) {
+  if (!c || c.isNamedOurs !== true) return false;
+  if (c.state === 'working') return true;
+  const w = c.lastWorked;
+  const at = w && typeof w.at === 'string' ? new Date(w.at) : null;
+  return Boolean(at && Number.isFinite(at.getTime()) && dateKey(at) === today);
+}
+/* A card of ours on a provider Kosmos cannot see (Antigravity, Muse). */
+function cannotSee(c) { return Boolean(c && c.isNamedOurs === true && c.lastWorked && c.lastWorked.why === 'no_source'); }
 /* Whether an agent of ours worked today: seen working today, or on a provider Kosmos cannot see (no_source). */
 function workedToday(roster, today, dateKey) {
-  return roster.some((c) => {
-    if (!c || c.isNamedOurs !== true) return false;
-    if (c.state === 'working') return true;
-    const w = c.lastWorked;
-    if (w && w.why === 'no_source') return true;
-    const at = w && typeof w.at === 'string' ? new Date(w.at) : null;
-    return Boolean(at && Number.isFinite(at.getTime()) && dateKey(at) === today);
-  });
+  return roster.some((c) => seenWorking(c, today, dateKey) || cannotSee(c));
 }
 
 /* Fails closed (review 2): a guide check that cannot tell throws, and candidates() leaves that card out. */
 function guideDefault(session) { return require('./setup-assistant').isGuideFolderStrict(session); }
-/* The cards that may be asked, in the order to ask them: idle cards of ours, not the guide, the first roles first, then
-   roster order (the sort is stable). Empty when none. */
-function candidates(roster, labels, isGuide = guideDefault) {
+/* The cards that may be asked, in the order to ask them: idle cards of ours, not the guide, that `mayAsk` allows, the
+   first roles first, then roster order (the sort is stable). Empty when none. */
+function candidates(roster, labels, isGuide = guideDefault, mayAsk = () => true) {
   const idle = roster.filter((c) => {
     if (!require('./assigner').idleCard(c)) return false;
-    try { return !isGuide(c.sessionName); } catch { return false; }
+    try { if (isGuide(c.sessionName)) return false; } catch { return false; }
+    try { return mayAsk(c) === true; } catch { return false; }
   });
   return idle.map((c, i) => ({ c, i, r: rankOf(c, labels) })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.c);
 }
 
 /*
  * The day's decision. o = { roster, send ({ on, ok }), today, hour, hasReport, askedDate, entry, labels, dateKey, isGuide,
- * workedOn (the day the record last saw an agent working) }.
+ * workedOn (the day the record last saw an agent working), workers (the sessions it saw working today) }.
  * Returns { act: 'none' | 'nudge', because, cards? } (cards: who to ask, in order).
  */
 function plan(o) {
@@ -156,8 +167,11 @@ function plan(o) {
   if (o.hasReport) return { act: 'none', because: 'today already has a report' };
   if (!(o.hour >= NUDGE_HOUR)) return { act: 'none', because: 'before ' + NUDGE_HOUR + ':00' };
   if (o.workedOn !== o.today && !workedToday(o.roster, o.today, o.dateKey)) return { act: 'none', because: 'no agent worked today' };
-  const cards = candidates(o.roster, o.labels, o.isGuide);
-  if (!cards.length) return { act: 'none', because: 'no idle agent to ask' };
+  if (!candidates(o.roster, o.labels, o.isGuide).length) return { act: 'none', because: 'no idle agent to ask' };
+  // kosmos#8572: only an agent with a day to report on.
+  const workers = Array.isArray(o.workers) ? o.workers : [];
+  const cards = candidates(o.roster, o.labels, o.isGuide, (c) => workers.includes(c.sessionName) || seenWorking(c, o.today, o.dateKey) || cannotSee(c));
+  if (!cards.length) return { act: 'none', because: 'nobody who worked today is free to ask yet' };
   return { act: 'nudge', cards, because: 'today has no report' };
 }
 
@@ -186,12 +200,18 @@ function sweepOnce(o) {
        does not forget it (review 2). Only written when it changes. */
     let workedOn = null;
     try { workedOn = typeof asked.workedOn === 'function' ? asked.workedOn() : null; } catch { workedOn = null; }
-    if (send && send.ok === true && send.on === true && workedOn !== today && workedToday(o.roster, today, dateKey)) {
+    // kosmos#8572: and WHO worked today, kept beside the day, so the ask goes to one of them after a restart too.
+    let workers = [];
+    if (workedOn === today) { try { workers = typeof asked.workers === 'function' ? asked.workers() : []; } catch { workers = []; } }
+    const seenNow = o.roster.filter((c) => seenWorking(c, today, dateKey)).map((c) => c.sessionName).filter((x) => typeof x === 'string');
+    const grown = seenNow.filter((x) => !workers.includes(x));
+    if (send && send.ok === true && send.on === true && (grown.length || (workedOn !== today && workedToday(o.roster, today, dateKey)))) {
       workedOn = today;
-      try { if (typeof asked.markWorked === 'function') asked.markWorked(today); } catch { /* the roster still says so this tick */ }
+      workers = workers.concat(grown);
+      try { if (typeof asked.markWorked === 'function') asked.markWorked(today, workers); } catch { /* the roster still says so this tick */ }
     }
     const p = plan({
-      roster: o.roster, send, today, hour: now.getHours(), hasReport, askedDate, entry, dateKey, workedOn,
+      roster: o.roster, send, today, hour: now.getHours(), hasReport, askedDate, entry, dateKey, workedOn, workers,
       labels: Array.isArray(o.labels) ? o.labels : firstLabels(), isGuide: typeof o.isGuide === 'function' ? o.isGuide : undefined,
     });
     if (p.act !== 'nudge') return { result: { act: 'none', because: p.because } };
@@ -273,4 +293,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { plan, candidates, rankOf, roleWords, workedToday, nudgeText, sweepOnce, makeTick, nudgeEnabled, askedFile, firstLabels, MAX_TRIES, NUDGE_HOUR, FIRST_ROLES };
+module.exports = { plan, candidates, rankOf, roleWords, workedToday, seenWorking, nudgeText, sweepOnce, makeTick, nudgeEnabled, askedFile, firstLabels, MAX_TRIES, NUDGE_HOUR, FIRST_ROLES };
