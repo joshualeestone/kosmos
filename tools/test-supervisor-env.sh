@@ -196,7 +196,12 @@ printf '%s\n' "$SB4/root/app/engine" > "$SB4/bin/engine-path"
 # path to node does not matter -- what is under test is that the SUPERVISOR
 # invoked it with a node that resolves off PATH.
 cat > "$SB4/bin/codex-dismiss-update.js" <<'STUBJS'
-require('node:fs').writeFileSync(process.env.DISMISS_MARKER, 'ran');
+require('node:fs').writeFileSync(process.env.DISMISS_MARKER, 'shim');
+STUBJS
+# kosmos#8597: the supervisor runs launch prep through its ENGINE path (an installed supervisor's folder has no
+# shim), so the stub engine carries codexupdate.js too, and the marker says which of the two ran.
+cat > "$SB4/root/app/engine/codexupdate.js" <<'STUBJS'
+require('node:fs').writeFileSync(process.env.DISMISS_MARKER, 'engine');
 STUBJS
 DATA4="$(mktemp -d "${TMPDIR:-/tmp}/test-supervisor-env.XXXXXXXXXX")"
 MARKER4="$SB4/dismiss-ran"
@@ -206,8 +211,10 @@ MARKER4="$SB4/dismiss-ran"
   export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
   /bin/bash "$SB4/bin/agent-supervisor.sh" codextest "$SB4/work" /usr/bin/true "$SB4/tmux" "$SB4/start.log" "" codex
 ) > "$SB4/out.log" 2>&1 || true
-if [ -f "$MARKER4" ]; then
-  ok "#1911: the codex-dismiss shim ran via the bundled node with node off PATH (a bare node would have silently no-op'd)"
+if [ "$(cat "$MARKER4" 2>/dev/null)" = engine ]; then
+  ok "#1911, kosmos#8597: the engine's launch prep ran via the bundled node with node off PATH (a bare node would have silently no-op'd)"
+elif [ -f "$MARKER4" ]; then
+  bad "kosmos#8597: the supervisor ran the shim beside itself, not the engine's codexupdate.js (an installed supervisor has no shim)"
 else
   bad "#1911: the codex-dismiss shim did not run with node off PATH -- a bare node cannot resolve on a Kosmos-only host: $(tail -3 "$SB4/out.log")"
 fi
