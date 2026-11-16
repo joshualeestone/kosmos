@@ -24,12 +24,24 @@ test('the last activity is said in days, and a task with no date says so', () =>
   assert.equal(row({ lastActivityAt: new Date(NOW + DAY).toISOString() }), 'web  #4  open  ada  Fix it  (last activity today)', 'a clock ahead of this one never prints a negative day');
 });
 
+test('days are calendar days on this computer\'s clock, not 24-hour blocks', () => {
+  // 09:00 local; the day before at 13:00 is under 24 hours back, and two days before at 23:00 is under 48.
+  const morning = new Date(2026, 10, 16, 9, 0).getTime();
+  const at = (y, mo, d, h) => new Date(y, mo, d, h, 0).toISOString();
+  const r = (when) => tasklist.acrossLines({ all: true, listState: 'open', tasks: [{ projectId: 'web', number: 4, sentence: 'x', lastActivityAt: when }] }, 'open', { now: morning }).lines[0];
+  assert.match(r(at(2026, 10, 15, 13)), /\(last activity yesterday\)$/, 'yesterday afternoon read as today');
+  assert.match(r(at(2026, 10, 14, 23)), /\(last activity 2 days ago\)$/, 'two days ago late in the evening read as yesterday');
+  assert.match(r(at(2026, 10, 16, 0)), /\(last activity today\)$/, 'CONTROL: just after midnight is today');
+});
+
 test('what a held task waits on, from its hold', () => {
   const held = (x) => row({ lastActivityAt: ago(3), onHold: true, ...x }, 'held');
   assert.match(held({ onHoldUntil: { task: 7 } }), /\(last activity 3 days ago; waits on task 7 to close\)$/);
   assert.match(held({ onHoldUntil: { at: '2026-11-20T15:00:00Z' } }), /\(last activity 3 days ago; waits until .+\)$/);
   assert.match(held({ onHoldForPerson: true }), /\(last activity 3 days ago; waits on the person\)$/);
   assert.match(held({ onHoldByPerson: true }), /\(last activity 3 days ago; held by the person\)$/);
+  assert.match(held({ onHoldForPerson: true, onHoldUntil: { task: 7 } }), /; waits on the person and task 7 to close\)$/, 'a hold for the person until a task says both');
+  assert.match(held({ onHoldForPerson: true, onHoldUntil: { at: '2026-11-20T15:00:00Z' } }), /; waits on the person, until .+\)$/);
   assert.match(held({}), /\(last activity 3 days ago\)$/, 'a plain hold says only when it last moved');
 });
 
@@ -49,4 +61,6 @@ test('CONTROL: an older board that sends no lastActivityAt prints its rows as be
 test('the words go only on the list across every project, not on one project\'s --stale list', () => {
   const stale = tasklist.acrossLines({ listState: 'open', quietDays: 1, tasks: [{ number: 3, sentence: 'x', lastActivityAt: ago(4) }] }, 'stale', { project: 'web', days: 1, now: NOW }).lines;
   assert.equal(stale[0], '#3  open  nobody  x  (quiet 4 days)');
+  const allStale = tasklist.acrossLines({ all: true, listState: 'open', quietDays: 1, tasks: [{ projectId: 'web', number: 3, sentence: 'x', lastActivityAt: ago(4) }] }, 'stale', { days: 1, now: NOW }).lines;
+  assert.equal(allStale[0], 'web  #3  open  nobody  x  (quiet 4 days)', '--all --stale keeps its own words');
 });

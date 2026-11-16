@@ -23351,7 +23351,8 @@ const server = http.createServer(async (req, res) => {
       };
       /* kosmos#8576 (feedback): on the list across every project (all=1), when each task last moved, by the same measure
          --stale uses (tasks.lastActivityOf), so a coordinator can tell waiting from drift without a threshold. Null when
-         there is no date. One transcript read per open row, as --stale already pays; a closed row reads none. */
+         there is no date. One transcript read per open row, as --stale already pays; a closed row reads none. Every all=1
+         answer pays it, `kosmos task files --all` too (built rows, which it does not print). */
       const activityOf = allProjects ? (t) => (t ? Object.assign({}, t, { lastActivityAt: tasks.lastActivityOf(t.projectId, t) || null }) : t) : (t) => t;
       sendJson(res, 200, { tasks: rows.map(withRepeatWords).map(taskseen ? seenOf : (t) => t).map(activityOf), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}), ...(allProjects ? { all: true } : {}), ...(mineCaller ? { mine: true } : {}) });   // kosmos#4787, kosmos#7992
       return;
