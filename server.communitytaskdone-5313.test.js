@@ -70,7 +70,7 @@ test('the task-CLOSE route fires the prompt only on an actual close transition: 
   const closeGuard = "if (taskAct[3] === 'close' && actor && !isViaScreen(req, {}) && !closedBeforeThisCall) {";
   assert.notEqual(SRC.indexOf(closeGuard), -1, 'the close prompt guard changed (close-only + actor + not-viaScreen + not-a-no-op-re-close)');
   // after the close 200
-  const closeSend = SRC.indexOf('sendJson(res, 200, { task: t, told })');
+  const closeSend = SRC.indexOf('sendJson(res, 200, { task: taskForCaller(req, {}, t), told })');   // kosmos#8318: the page's copy leaves out file paths
   assert.notEqual(closeSend, -1, 'the close route 200 was not found');
   assert.ok(closeSend < at, 'the close prompt does not fire after the 200');
   // the no-op guard is computed from the DERIVED closed state (progressOf), not raw closedAt
