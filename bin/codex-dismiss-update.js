@@ -21,7 +21,8 @@
  */
 
 /* kosmos#8597: both steps (the update notice and the model-migration menu) live in engine/codexupdate.js's
-   launchPrep, which the supervisor runs through its engine path; this shim is the same call for a checkout run. */
+   launchPrep, which the supervisor runs through its engine path whenever it has one. This shim makes the same call,
+   for a layout with no engine path and for a person running it by hand. */
 (async () => {
   try { await require('../engine/codexupdate').launchPrep(process.argv.slice(2)); } catch { /* never break a launch */ }
   process.exit(0);

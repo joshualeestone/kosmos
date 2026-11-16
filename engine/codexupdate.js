@@ -14,7 +14,7 @@
  * that is merely quiet, because the codex markers are question-shaped and this
  * prompt is not a question.
  *
- * 🔑 ITS OWN MODULE, WITH NO DEPENDENCIES, FOR ONE REASON: it is called from
+ * 🔑 ITS OWN MODULE, AND THE UPDATE DISMISSAL NEEDS NO DEPENDENCIES, FOR ONE REASON: it is called from
  * BOTH creation and the LAUNCH path. The launch caller is a shell script shim,
  * and pulling `create.js` or `codexsession.js` (which requires `status.js`) into
  * every agent start would put a large module in a path that has to be cheap and
@@ -140,7 +140,7 @@ function bundledCatalog(home, codexBin, ms = BUNDLED_MS) {
     const finish = (v) => { if (!done) { done = true; clearTimeout(timer); resolve(v); } };
     let child;
     try {
-      const env = { ...process.env, CODEX_HOME: home, PATH: [path.dirname(process.execPath), process.env.PATH || ''].join(path.delimiter) };
+      const env = { ...process.env, CODEX_HOME: home, PATH: [process.env.PATH || '', path.dirname(process.execPath)].filter(Boolean).join(path.delimiter) };
       child = require('node:child_process').spawn(codexBin, ['debug', 'models', '--bundled'], { env, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'ignore'] });
     } catch { resolve(null); return; }
     const timer = setTimeout(() => {
