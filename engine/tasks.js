@@ -1876,6 +1876,7 @@ function setRepeat(projectId, n, rule, opts = {}) {
 function dropReviewer(t) {
   delete t.repeatReviewer; delete t.repeatReviewerPerson; delete t.repeatReviewerByPerson; delete t.repeatReviewerSetAt; delete t.missToldAt;
   delete t.repeatDueToldAt;   // kosmos#8581: the due-run tell belongs to the rule too
+  delete t.missQuiet; delete t.repeatDueQuiet;   // kosmos#8586: so do the two tells' stall marks
 }
 function reviewerChoice(who) {
   const raw = who === undefined || who === null ? 'none' : String(who).trim();
@@ -1913,6 +1914,7 @@ function setReviewer(projectId, n, who, opts = {}) {
     if (!didChange && !lock) return p;
     if (didChange) {
       delete changed.repeatReviewer; delete changed.repeatReviewerPerson; delete changed.missToldAt;
+      delete changed.missQuiet;   // kosmos#8586: the old reviewer's stall mark goes with the old reviewer
       if (after === 'me') changed.repeatReviewerPerson = true;
       else if (after !== 'none') changed.repeatReviewer = after;
       if (after === 'none') delete changed.repeatReviewerSetAt; else changed.repeatReviewerSetAt = new Date().toISOString();

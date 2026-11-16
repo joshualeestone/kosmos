@@ -13,6 +13,9 @@
  * With the Prompter ON this sweep does nothing: prompterTick already nudges an idle holder about a due run, and two
  * lines for one run would be noise. The caller passes `prompterOn`.
  *
+ * kosmos#8586: a holder that cannot be reached (off the project) is recorded once per stall, not once per slot
+ * (markTold's stall mark, repeatDueQuiet).
+ *
  * Once: the task stores the latest due slot it told about (repeatDueToldAt). A slot is told only when it is newer than
  * that. While one stall lasts (no run since the last line), it is told again only stallSlots() slots on.
  * Nothing in a paused project, on a held task, closed, or for a
@@ -48,6 +51,14 @@ function slotsReached(rule, from, at, need) {
   return true;
 }
 
+/* Does the missed-run tell (missedtell.js) take task `t`'s slot `at`, or has it told it already? Asked of its own
+   owed(), so the two sweeps cannot disagree about whose slot it is. */
+function missedTellTakes(p, t, at, now) {
+  const told = Date.parse(t.missToldAt || '');
+  if (Number.isFinite(told) && told >= at) return true;
+  return require('./missedtell').owed([{ ...p, tasks: [t] }], now).some((i) => i.n === t.number && i.slot === at);
+}
+
 function plain(s, max) { return require('./agentnudge').plainWords(s, max); }
 
 /* The tasks whose holder is owed a line now: open, repeating, due, not on hold, in a live project, with a latest due
@@ -72,17 +83,20 @@ function owed(projects, now = Date.now()) {
       if (Number.isFinite(told) && at <= told) continue;
       const ranSince = Date.parse(t.lastRunAt || '') > told;
       if (Number.isFinite(told) && !ranSince && !slotsReached(t.repeat, told, at, stallSlots(t.repeat, told))) continue;
-      const holders = [...new Set(tasks.partsOf(t).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))]
-        .filter((who) => !P.isSwarmOff(p, who))
+      const everyHolder = [...new Set(tasks.partsOf(t).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))]
+        .filter((who) => !P.isSwarmOff(p, who));
+      const holders = everyHolder
         /* A holder that is also the task's named reviewer is told by the missed-run tell (missedtell.tellText's "You run
-           it and review its results"), never by both. */
-        .filter((who) => who !== t.repeatReviewer);
+           it and review its results"), never by both; but only when that tell takes this slot or already took it. A
+           slot missed before the reviewer was named is not the missed-run tell's (kosmos#8586), so it is told here. */
+        .filter((who) => who !== t.repeatReviewer || !missedTellTakes(p, t, at, now));
       if (!holders.length) continue;
       const by = taskrepeat.recordBy(t.repeat, at, now);
       out.push({
         projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: t.sentence || '',
         slot: at, earlier: missed.count > 1 || missed.more === true, words: taskrepeat.whenWords(at, now), byWords: by !== null ? taskrepeat.whenWords(by, now) : '',
-        holders, members: Array.isArray(p.agents) ? p.agents.slice() : [],
+        holders, everyHolder, members: Array.isArray(p.agents) ? p.agents.slice() : [],
+        quiet: t.repeatDueQuiet || null, lastRunAt: t.lastRunAt || null, repeatSetAt: t.repeatSetAt || null,
       });
     }
   }
@@ -98,13 +112,34 @@ function tellText(item) {
     + ', then record it with kosmos task ran ' + id + ' ' + item.n + ' (add --unchanged if it found nothing new).';
 }
 
-/* Store that `slot` was told about, and record it in the task's history. */
-function markTold(item, who, outcome) {
+/* kosmos#8586: an unreachable holder (off the project) is recorded once per stall, not once per slot. The task keeps
+   which holders could not be reached and when; while that holds (no run since, the rule unchanged, the same holders),
+   a later slot is not recorded again. The mark is cleared only when markTold records another outcome: a delivery
+   that reached the holder, or one given up after MAX_TRIES. A holder who comes back and is told, then leaves again,
+   starts a new stall; one who comes back and is never told before leaving again is still in the first.
+   The key is every holder of an open part, before the reviewer-holder filter, which depends on the slot. */
+function quietKey(item) { return (item.everyHolder || item.holders).slice().sort().join('\n'); }
+function stillQuiet(item) {
+  const q = item.quiet;
+  if (!q || typeof q.who !== 'string' || q.who !== quietKey(item)) return false;
+  const at = Date.parse(q.at || '');
+  if (!Number.isFinite(at)) return false;
+  return !(Date.parse(item.lastRunAt || '') > at) && !(Date.parse(item.repeatSetAt || '') > at);
+}
+
+/* Store that `slot` was told about, and record it in the task's history. `outcome` 'unreachable' also stores the stall
+   (kosmos#8586); any other outcome clears it. */
+function markTold(item, who, outcome, now = Date.now()) {
   const projects = require('./projects');
   const taskchat = require('./taskchat');
   projects.mutate(item.projectId, (p) => ({
     ...p,
-    tasks: (p.tasks || []).map((x) => (x && x.number === item.n ? { ...x, repeatDueToldAt: new Date(item.slot).toISOString() } : x)),
+    tasks: (p.tasks || []).map((x) => {
+      if (!x || x.number !== item.n) return x;
+      const { repeatDueQuiet, ...rest } = x;   // eslint-disable-line no-unused-vars
+      return { ...rest, repeatDueToldAt: new Date(item.slot).toISOString(),
+        ...(outcome === 'unreachable' ? { repeatDueQuiet: { who: quietKey(item), at: new Date(now).toISOString() } } : {}) };
+    }),
   }));
   taskchat.record(item.projectId, item.n, { kind: 'due-told', slot: new Date(item.slot).toISOString(), told: who, reached: outcome === 'reached' });
 }
@@ -143,7 +178,14 @@ function sweep(o) {
         const slotKey = item.projectId + '#' + item.n + '@' + item.slot;
         if (book.get(slotKey) === 'told') { results.push({ ...item, act: 'held', because: 'already told; its mark could not be saved' }); continue; }
         const onProject = item.holders.filter((h) => item.members.includes(h));
-        if (!onProject.length) { book.set(slotKey, 'told'); mark(item, item.holders[0], 'not reached'); results.push({ ...item, act: 'unreachable', because: 'no holder is on the project' }); continue; }
+        if (!onProject.length) {
+          /* kosmos#8586: once per stall. The first slot is recorded; later ones of the same stall are not. The told
+             mark is deliberately NOT advanced for them, so owed() keeps offering the task and the stall throttle stays
+             measured from the last row really written. */
+          if (stillQuiet(item)) { results.push({ ...item, act: 'unreachable', because: 'no holder is on the project', recorded: false }); continue; }
+          book.set(slotKey, 'told'); mark(item, item.holders[0], 'unreachable', now);
+          results.push({ ...item, act: 'unreachable', because: 'no holder is on the project', recorded: true }); continue;
+        }
         if (o.allowed !== true) { results.push({ ...item, act: 'held', because: 'Kosmos does not type into agents yet' }); continue; }
         let picked = null;
         let because = 'no holder is running';
