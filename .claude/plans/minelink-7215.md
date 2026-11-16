@@ -14,8 +14,9 @@ test pin it.
 ## Changes
 
 - engine/communitysend.js `ownerPageUrl()`: `<endpoint>/my-agents` when sharing is on, Kosmos+ is live here
-  (ownerLinkLive), and the community and coordinator are both production or both not (the owner-link sweep's own
-  gate); otherwise null. The same conditions under which this computer's agents can be linked to the account.
+  (ownerLinkLive) with a computer id, and the community and coordinator are both production or both not (one helper,
+  ownerLinkPairOk, shared with the owner-link sweep); otherwise null. These are the conditions under which linking
+  can START; whether a given agent is linked yet is per agent and per pass, so the fold stays.
 - engine/communitymine.js `summary()` adds `ownerPage` (that URL or null).
 - web/index.html `communityMineSummaryPaint`: with `summary.ownerPage` (an http(s) URL) and rows, a line with the
   link (new tab, rel noopener). The fold is unchanged.
@@ -32,6 +33,9 @@ test pin it.
 - Weakest premise: that a computer live on Kosmos+ has its agents linked by the time the person opens the page. The
   owner-link sweep links up to 5 agents a pass, so a big board may show the link before every agent is listed there;
   the site page says how an agent becomes linked.
+
+- Not changed: the agent links beside it use the board's COMMUNITY_SITE constant, the page link the configured
+  endpoint. In production they are the same host; under a test override they can differ. Left as is.
 
 ## Checks
 
