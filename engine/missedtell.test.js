@@ -375,3 +375,19 @@ test('#8586: the same reviewer named again, or a rule change, ends the stall (CO
   set({ repeatSetAt: new Date(day(3) + 3600000).toISOString() });   // the rule changed
   assert.equal(sweep(day(4)).results[0].recorded, true, 'a rule change: a new stall');
 });
+
+test('#8586: a reviewer who came back and was told, then left again, starts a new stall', () => {
+  const g = fixture(ADA);
+  projects.mutate(g.id, (x) => ({ ...x, agents: [REX] }));
+  const day = (k) => NOW + k * 86400000;
+  const idle = (t) => new Map([[ADA, { since: t - 120000, at: t - 60000 }], [REX, { since: t - 120000, at: t - 60000 }]]);
+  const sweep = (now, deliver) => mt.sweep({ projects: only(g.id), roster, now, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, idleSeen: idle(now), deliver });
+  assert.equal(sweep(NOW, () => { throw new Error('typed'); }).results[0].recorded, true);
+  assert.ok(stored(g.id, g.n).missQuiet, 'precondition: the stall mark is on the task');
+  projects.mutate(g.id, (x) => ({ ...x, agents: [ADA, REX] }));
+  const back = sweep(day(1), () => ({ state: 'placed' }));
+  assert.equal(back.results[0].act, 'tell', 'back on the project: told');
+  assert.equal(stored(g.id, g.n).missQuiet, undefined, 'a delivery clears the stall mark');
+  projects.mutate(g.id, (x) => ({ ...x, agents: [REX] }));
+  assert.equal(sweep(day(2), () => { throw new Error('typed'); }).results[0].recorded, true, 'left again: recorded again');
+});
