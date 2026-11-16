@@ -22,24 +22,20 @@ Fleet Builders m4415). Built on main after #8581 merged (63b68ce876).
 - markTold recording any other outcome clears the mark (a delivery that reached, one given up after MAX_TRIES,
   or for missedtell the person-as-reviewer row), so a holder who came back, was told, and left again starts a new
   stall. One who came back and was never told before leaving again is still in the first stall.
-- Known residual: on a minutes-repeat whose holders are an off-project agent AND an on-project reviewer-holder,
-  the hours when the missed-run tell's hourly gate holds the slot are told to the reviewer-holder by the due-run
-  tell, which clears the mark, so the off-project holder's row can come back about hourly. Narrow (minutes repeat,
-  mixed holders); not fixed here because clearing the mark only on a reach of an off-project holder would keep a
-  stall open across a real delivery.
 - Rejected: storing the mark in the sweep's in-memory book (lost on restart, which is when duplicates appeared);
   skipping in owed() (owed() has no project members for the reviewer case, and the sweep is where "unreachable" is
   decided).
 
 ## Item 2: the reviewer-holder gap (engine/repeatdue.js)
 
-The holder who is also `repeatReviewer` is excluded from the due-run tell only when `missedtell.owed()` takes this
-task and slot, or the missed-run tell already told it (`missToldAt >= slot`). Asking missedtell's own owed() means
-the two sweeps cannot disagree about whose slot it is.
+The holder who is also `repeatReviewer` is excluded from the due-run tell for every slot from the moment the
+reviewer was named (`repeatReviewerSetAt`), which is the missed-run tell's own rule for whose slot it is, and told
+by the due-run tell for a slot missed before that.
 
-Known residual: a minutes-repeat whose missed-run tell is held by its hourly stall gate is told here instead for
-that slot, so such a holder can get one due-run line and, an hour later, one missed-run line. Both are true. Not
-pinned by a test on purpose: a test would freeze a known imperfection as the contract.
+Rejected (it was the first version, review round 5 found it): asking `missedtell.owed()` whether it takes the slot
+right now. For a minutes repeat its hourly throttle answers "no" for most slots of a stall, so the reviewer-holder
+was told by both tells every hour. The rule decides whose slot it is; the throttle only decides when that tell
+speaks.
 
 ## Consequence of not advancing the told mark during a quiet stall (both modules)
 
