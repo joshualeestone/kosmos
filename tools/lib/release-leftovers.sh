@@ -17,19 +17,20 @@
 # checkout (outside it, so no git status sees them; nothing is deleted). And if the site still carries a COMMITTED
 # Linux manifest for <v> (an aborted cut commits it at step 7b), the cut is refused here with the commit to revert,
 # because release_linux_publish would otherwise refuse it at step 4b, about two hours in.
+# A COMMITTED Mac manifest for <v> (kosmos#8563) also makes this read the host, with no leftover file: served is
+# refused here; never served goes on, because step 4b copies a new Mac manifest over it.
 #
 #   release_leftovers_clear <site> <version> <host> <family>...     (families: arm64, linux-x64)
 # Prints what it found and did. 0: nothing in the way. 1: refused (the caller stops).
 #   release_leftovers_mark_served <site> <version>                  (step 8, once this cut's build is seen served)
-#   release_leftovers_guard_deploy <host> <version> <family> <sha> [7b|8]  (the stage, default 8, only changes whether
-#     the refusal says the step-7b site commit stays pushed; at 7b nothing is pushed yet, kosmos#8563)
-#     (step 8, just before vercel: refuses if ANOTHER build
-#     of <version> is served now. Step 1g reads the host hours earlier; a deploy still in flight then, or one that
+#   release_leftovers_guard_deploy <host> <version> <family> <sha> [7b|8]  (at 7b before the site commit, and at
+#     step 8 before vercel: refuses if ANOTHER build of <version> is served now. Step 1g reads the host hours earlier; a deploy still in flight then, or one that
 #     landed after its cut cleaned up and left no file, can be live by now. 404 or this cut's own sha: go on. Another
 #     checksum: refuse. Anything else: read again, KOSMOS_LEFTOVERS_TRIES times (12) KOSMOS_LEFTOVERS_RETRY_S apart
 #     (10 s), so a short host blip does not end a cut two hours in; then refuse. Release.sh runs it at 7b, before the
 #     site commit, and at step 8, before vercel and each retry. It narrows the window; a deploy landing after the
-#     last read is not seen.)
+#     last read is not seen. The stage, default 8, only sets whether a refusal says the 7b site commit stays pushed:
+#     at 7b nothing is pushed yet, kosmos#8563.)
 # Uses `curl` by name, so a test can define a curl function.
 
 # The marker lives in the site clone's common git dir (git rev-parse, so every worktree of one clone shares it): no
@@ -118,18 +119,17 @@ release_leftovers_clear() {
     if [ -z "$pv" ] && [ "$fam" = linux-x64 ]; then pv="$(release_leftovers_pointer_version "$host" latest.json)"; posfam=arm64; fi
     mine="$(release_leftovers_get "$host/dist/kosmos-$v-$fam.tar.gz.sha256")"
     if release_leftovers_is_sum "${mine#* }"; then
-      echo "release-leftovers: $host serves kosmos-$v-$fam.tar.gz.sha256 (a checksum), so $v was served for $fam and its versioned name is cache-immutable. Bump the version; do not move these files."
+      echo "release-leftovers: $host serves kosmos-$v-$fam.tar.gz.sha256 (a checksum), so $v was served for $fam and its versioned name is cache-immutable. Bump the version$(if [ "${#found[@]}" -gt 0 ]; then echo "; do not move these files"; fi)."
       refused=1; continue
     fi
     ctl="$(release_leftovers_get "$host/dist/kosmos-0.0.0-leftover-control-$fam.tar.gz.sha256")"
     pos=""; [ -n "$pv" ] && pos="$(release_leftovers_get "$host/dist/kosmos-$pv-$posfam.tar.gz.sha256")"
     if [ "${mine%% *}" != 404 ] || [ "${ctl%% *}" != 404 ] || [ "${pos%% *}" != 200 ] || ! release_leftovers_is_sum "${pos#* }"; then
       echo "release-leftovers: cannot tell whether $v was ever served for $fam (its .sha256 answered ${mine%% *}; a version that cannot exist answered ${ctl%% *}; $(if [ -n "$pv" ]; then echo "the served $pv answered ${pos%% *}"; else echo "no prod pointer could be read"; fi)), so nothing was moved."
-      if [ "${#found[@]}" -gt 0 ]; then
-        echo "   Read $host/dist/kosmos-$v-$fam.tar.gz.sha256 by hand: a checksum means it was served (bump the version); a 404 like a made-up version's means it never was (move the files listed above out of $site/dist, and cut again)."
-      else
-        echo "   Read $host/dist/kosmos-$v-$fam.tar.gz.sha256 by hand: a checksum means it was served (bump the version); a 404 like a made-up version's means it never was (cut again once the host answers)."
-      fi
+      local nv=""   # what "never served" leaves to do, from what this family found (kosmos#8563)
+      [ "${#found[@]}" -gt 0 ] && nv="move the files listed above out of $site/dist"
+      [ -n "$manifest" ] && nv="${nv:+$nv, }revert the site commit that carries $manifest"
+      echo "   Read $host/dist/kosmos-$v-$fam.tar.gz.sha256 by hand: a checksum means it was served (bump the version); a 404 like a made-up version's means it never was (${nv:-wait until the host answers}, and cut again)."
       refused=1; continue
     fi
     if [ -n "$manifest" ]; then

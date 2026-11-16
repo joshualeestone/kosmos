@@ -1898,7 +1898,7 @@ _site_commit_msg="$V: the $CUT_CHANNEL pointer ($POINTER_FILE), installer and ve
 # SITE_SHA. Named paths only; versions.html must be in the set. See
 # tools/lib/site-push.sh.
 . "$REPO/tools/lib/site-push.sh"
-# kosmos#8562: step 1g read the host hours ago and reads nothing when no leftover is here. Before this commit replaces
+# kosmos#8562: step 1g read the host hours ago and reads nothing when nothing of $V is here. Before this commit replaces
 # $V's committed manifest and pointer, ask: if ANOTHER build of $V is served (a deploy that landed after its cut cleaned
 # up, or one still in flight when 1g looked), stop here, with origin/main untouched. Step 8 asks again before vercel.
 # It narrows the window to the deploy itself; it does not close it. $1 is the stage (7b or 8), kosmos#8563.
