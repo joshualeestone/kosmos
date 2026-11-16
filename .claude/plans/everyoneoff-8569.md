@@ -11,7 +11,7 @@ waiting." The post woke no one. The same holds for a room with no other member a
 ## Decision
 Both CLIs (install/kosmos and tools/windows/kosmos-cli.js) treat a placed delivery whose `outcomes` is an empty object as
 reaching nobody: "Posted to <p>. It woke no one on this computer: no other member of this project is switched on here
-(or there is none). To reach a switched-off member anyway, name them: start with 'YourName -> Their Name:' or @-name them (@all does not reach them)."
+(or none is on this computer). To reach a switched-off member anyway, name them: start with 'YourName -> Their Name:' or @-name them (@all does not reach them)."
 (engine/messages.js namedHere: a named member is never in offHere, so naming one does reach it.) With the board's
 `because`, only "Posted to <p>." and the Note, as the quiet case does; the engine sends no `because` with an empty
 outcomes object today (loopPausedHere is set only for a member that gets an outcome), so that arm is defensive. A folded
@@ -36,9 +36,9 @@ member it delivers to, holds or leaves quiet; only a switched-off member (and no
 - Mutants: each CLI's branch removed turns its test red.
 
 ## Item 2 (nits in #8566's unmatchedNote)
-- `outsiderHandle(word, outside, roster)`: the one rule for "this word names an agent on this computer who is not on the
-  project". outsidersNote speaks of that handle; unmatchedNote stays silent for it. Before, unmatchedNote re-derived it
-  (size === 1 without the handle-shape check), so the two could drift.
+- `outsiderNamed(word, outside, roster)`: the one lookup for "this word names an agent on this computer who is not on the
+  project". outsidersNote speaks of it (when it is a handle kosmos msg takes); unmatchedNote stays silent for it, as before.
+  A trailing possessive is read as the name in both, so "Josh's" for an outsider josh gets the kosmos msg pointer.
 - A name is said once whatever its case ("Josh & josh"), compared by nameKey.
 - A trailing possessive is said as the name ("Josh's" is said as Josh), as mayMean already reads it.
 - #8566's test title for a room of the poster alone no longer says the CLI says everyone has it.
