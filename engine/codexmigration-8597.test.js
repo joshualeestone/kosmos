@@ -265,3 +265,29 @@ test('#8597: the bundled-catalog probe gets ONE CODEX_HOME, the agent\'s, whatev
   const lines = fs.readFileSync(out, 'utf8').trim().split('\n');
   assert.deepEqual(lines, ['CODEX_HOME=' + h], 'exactly one, the agent\'s home');
 });
+
+test('#8597: a cached upgrade in a shape this does not read falls through to the bundled catalog; control: a cached null is final', async () => {
+  const codex = fakeCodex(CATALOG);
+  for (const odd of ['gpt-5.6-terra', { to: 'gpt-5.6-terra' }, { model: 'acme/gpt-x' }]) {
+    const d = home('', { models: [{ slug: 'gpt-5.4', upgrade: odd }] });
+    assert.equal(await pinModelMigration(d, 'gpt-5.4', codex.bin), true, JSON.stringify(odd));
+    assert.match(cfg(d), /"gpt-5\.4" = "gpt-5\.6-terra"/, 'the bundled target');
+  }
+  const calls = codex.calls().length;
+  const d = home('', { models: [{ slug: 'gpt-5.4', upgrade: null }] });
+  assert.equal(await pinModelMigration(d, 'gpt-5.4', codex.bin), false);
+  assert.equal(codex.calls().length, calls, 'a cached null is final: the binary is not asked');
+});
+
+test('#8597: launch prep never pins without a named home (a hand run would reach the person\'s own ~/.codex)', async () => {
+  const { launchPrep } = require('./codexupdate');
+  const codex = fakeCodex(CATALOG);
+  const own = home('model = "gpt-5.4"\n');
+  const before = process.env.AGENT_WORKFORCE_CODEX_HOME;
+  process.env.AGENT_WORKFORCE_CODEX_HOME = own;   // what defaultHome() would answer
+  try { await launchPrep(['', '', codex.bin, '0']); } finally { if (before === undefined) delete process.env.AGENT_WORKFORCE_CODEX_HOME; else process.env.AGENT_WORKFORCE_CODEX_HOME = before; }
+  assert.equal(cfg(own), 'model = "gpt-5.4"\n', 'untouched');
+  const named = home('model = "gpt-5.4"\n');
+  await launchPrep([named, '', codex.bin, '0']);
+  assert.match(cfg(named), /"gpt-5\.6-terra"/, 'control: a named home is pinned');
+});

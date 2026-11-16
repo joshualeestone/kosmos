@@ -1270,13 +1270,13 @@ if [ -z "$adopt" ]; then
       # CODEX_HOME, so the dismiss must target the SAME home the pane reads or it writes the
       # update-notice dismissal into a different home than the running agent.
       # kosmos#8597: the shim also answers Codex's model-migration menu ahead of time, for the model this launch
-      # uses: an endpoint's own -m, else $MODEL, else (empty) config.toml's. And the binary, for its bundled catalog.
+      # uses: an endpoint's own -m first, then $MODEL, then (empty) config.toml's. And the binary, for its catalog.
       _mig_model="$MODEL"
       if [ "${#ENDPOINT_ARGS[@]}" -gt 0 ]; then
         _mig_model=""; _mig_next=0
         for _a in "${ENDPOINT_ARGS[@]}"; do
-          if [ "$_mig_next" = 1 ]; then _mig_model="$_a"; _mig_next=0
-          else case "$_a" in -m|--model) _mig_next=1 ;; --model=*) _mig_model="${_a#--model=}" ;; -m=*) _mig_model="${_a#-m=}" ;; esac; fi
+          if [ "$_mig_next" = 1 ]; then _mig_model="$_a"; _mig_next=0; continue; fi
+          case "$_a" in -m|--model) _mig_next=1 ;; --model=*) _mig_model="${_a#--model=}" ;; -m=*) _mig_model="${_a#-m=}" ;; esac
         done
       fi
       # kosmos#8597: through the engine path first. An installed supervisor's folder holds no copy of the shim (and no
