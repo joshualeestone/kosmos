@@ -195,7 +195,7 @@ test('kosmos#8593 review 4: a failure AFTER the swap (making the link) also puts
   } finally { fs.symlinkSync = real; }
   assert.equal(calls >= 2, true, 'the link step failed once, then the restore made the link');
   assert.equal(job.phase, 'failed');
-  assert.match(job.because || '', /version already here is kept/);
+  assert.match(job.because || '', /[.!?] The version already here is kept\.$/, 'one sentence after another, with its full stop');
   const r = runners.resolveBin('openai', { ...PLAT, legacyBin: LEGACY });
   assert.equal(r.present, true);
   assert.equal(r.installedVersion, '0.149.1');

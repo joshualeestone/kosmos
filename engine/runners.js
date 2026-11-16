@@ -1601,13 +1601,14 @@ function install(provider, opts) {
       const pkgDir = path.join(destDir, 'pkg');
       const pkgNew = path.join(destDir, `pkg.new-${process.pid}`);
       const pkgOld = path.join(destDir, `pkg.old-${process.pid}`);
+      let setAside = false;   // review 5: true only once THIS run moved the previous tree to pkgOld
       if (upgrading) {
         let tried = false;
         let restored = false;
         restorePrevious = () => {
           if (tried) return restored;
           tried = true;
-          if (!fs.existsSync(pkgOld)) return false;   // never set aside: pkg/ is still the previous tree
+          if (!setAside || !fs.existsSync(pkgOld)) return false;   // never set aside by this run: pkg/ is still the previous tree
           try {
             fs.rmSync(pkgDir, { recursive: true, force: true });
             fs.renameSync(pkgOld, pkgDir);
@@ -1689,6 +1690,7 @@ function install(provider, opts) {
       }
       if (fs.existsSync(pkgDir)) {
         await renameRetrying(pkgDir, pkgOld, plat);
+        setAside = true;
         /* kosmos#8593 review 3: a rename keeps the folder's OLD mtime, so the age-gated sweep of pkg.old-* trees (another
            board sharing this root) could take a kept tree mid-upgrade. Stamped now, it reads as fresh for an hour. */
         if (upgrading) { try { const t = new Date(); fs.utimesSync(pkgOld, t, t); } catch { /* best effort */ } }
@@ -1792,7 +1794,8 @@ function install(provider, opts) {
     } catch (err) {
       // kosmos#8593 review 4: a failure after an upgrade's swap started (a rename, the link) puts the previous tree back too.
       const kept = Boolean(restorePrevious && job.swapping === true && restorePrevious());
-      fail(plainFailure(err, m, stage) + (kept && !/version already here is kept/.test(String(err.message)) ? ' The version already here is kept.' : ''));
+      const said = plainFailure(err, m, stage);
+      fail(kept && !/version already here is kept/.test(said) ? `${said.replace(/\s+$/, '')}${/[.!?]$/.test(said.trim()) ? '' : '.'} The version already here is kept.` : said);
     }
   })();
   // Awaitable completion for harnesses; non-enumerable so the job's JSON
