@@ -10,10 +10,11 @@
  * program a closed pipe stopped); any other stream error is thrown again, so it still fails as loudly as before.
  *
  * How it reaches the CLI:
- * - Mac and Linux: install/kosmos runs about a hundred separate node children. It adds `--require <this file>` to
- *   NODE_OPTIONS once, and sets KOSMOS_CLIPIPE_SET=1 with the person's own NODE_OPTIONS saved beside it. Loaded that
- *   way, this module puts NODE_OPTIONS back as it was before anything else runs, so nothing a CLI node child starts
- *   (an agent, a setup run) inherits the preload.
+ * - Mac and Linux: install/kosmos runs many separate node children. It adds `--require <this file>` to NODE_OPTIONS
+ *   once, and sets KOSMOS_CLIPIPE_SET=1 with the person's own NODE_OPTIONS saved beside it. Loaded that way, this
+ *   module puts NODE_OPTIONS back as it was before the node's own code runs, so nothing that node starts (an agent,
+ *   a setup run) inherits the preload. The wrapper's own non-node children (curl, git) still carry it; they do not
+ *   read it.
  * - Windows: tools/windows/kosmos-cli.js is one node program and calls install() itself.
  */
 
