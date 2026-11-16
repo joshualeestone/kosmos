@@ -131,8 +131,9 @@ function waitsWords(x, now = Date.now()) {
     /* The board says when the hold's own condition is already met (the task closed, the time passed); for a time this
        computer can tell too. A hold does not lift itself (engine/holdstale.js nudges someone to lift it), so the row
        says the condition is met and the task is still held, never that it still waits. */
+    // The board's answer wins; this computer's clock only fills in when the board sent none.
     const due = x.holdUntilMet === true
-      || (x.onHoldUntil && typeof x.onHoldUntil.at === 'string' && Date.parse(x.onHoldUntil.at) <= now);
+      || (x.holdUntilMet === undefined && x.onHoldUntil && typeof x.onHoldUntil.at === 'string' && Date.parse(x.onHoldUntil.at) <= now);
     if (due) return 'its hold\'s condition is met, but it is still on hold' + (x.onHoldByPerson === true ? ' (only the person can lift it)' : '')
       + (x.onHoldForPerson === true ? ', and it waits on the person' : '');
     const u = x.onHoldUntil;

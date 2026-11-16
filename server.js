@@ -23350,14 +23350,15 @@ const server = http.createServer(async (req, res) => {
         try { at = t.projectId ? taskseen.seenAt(t.projectId, t.number) : null; } catch { at = null; }
         return Object.assign({}, t, { seenByPerson: at });
       };
-      /* kosmos#8576 (feedback): on the list across every project (all=1), when each task last moved, by the same measure
-         --stale uses (tasks.lastActivityOf), so a coordinator can tell waiting from drift without a threshold. Null when
-         there is no date. One transcript read per open row, as --stale already pays; a closed row reads none. Every all=1
-         answer pays it, `kosmos task files --all` too (built rows, which it does not print). */
-      /* And on a held row, whether its reopening condition is already met (tasks.holdUntilState: the task it waits on is
-         closed or gone, or its time has passed), so a hold that should have lifted is not said as still waiting. */
-      const projectOf = allProjects ? new Map((everyProject || []).filter((x) => x && x.id).map((x) => [x.id, x])) : null;
-      const activityOf = allProjects ? (t) => {
+      /* kosmos#8576 (feedback): on `kosmos task list --all` (all=1 with order=state, which both CLIs send for it), when each
+         task last moved, by the measure --stale uses (tasks.lastActivityOf), so a coordinator can tell waiting from drift
+         without a threshold; null when there is no date. It reads one transcript per row that is not closed (open, held or
+         built), where --stale reads the open group only; a closed row reads none. `kosmos task files --all` (no
+         order=state) prints none of it, so it pays nothing. On a held row too, whether its reopening condition is met
+         (tasks.holdUntilState: the task it waits on is closed or gone, or its time has passed). */
+      const listing = allProjects && listOrder;
+      const projectOf = listing ? new Map((everyProject || []).filter((x) => x && x.id).map((x) => [x.id, x])) : null;
+      const activityOf = listing ? (t) => {
         if (!t) return t;
         const extra = { lastActivityAt: tasks.lastActivityOf(t.projectId, t) || null };
         if (t.onHold === true && t.onHoldUntil) {

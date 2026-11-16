@@ -24,14 +24,13 @@ the --stale threshold or by opening each project.
 - Adding it to one project's plain list too: the card asks for the list across projects, and one project is opened.
 
 ## Weakest premise
-The cost is accepted, not avoided: every all=1 answer (`--all`, `--blocked`, `--built`, `--mine`, and `kosmos task files
---all`, which prints none of it) now reads one transcript per open row. `--stale` reads the same for every open task, so
-this is no new kind of cost, but it is now paid on the everyday forms. An opt-in parameter was considered and not taken
-(two CLIs to change for a read the stale list already makes); it is the first thing to do if --all is slow on a big board.
-A held row also carries holdUntilMet (tasks.holdUntilState), so a hold whose task closed or whose time passed says it is
-its condition is met and it is still on hold (holds do not lift themselves), not that it waits.
-That one transcript read per open row is cheap enough for every --all call. It is what --stale already does for all
-open tasks; if --all turns out slow on a big board, the read can move behind a flag.
+That the read is cheap enough. `kosmos task list --all` (all=1 with order=state) reads one transcript per row that is
+not closed: open, held or built, a wider set than --stale, which reads only the open group. `kosmos task files --all`
+sends no order=state and pays nothing. If --all is slow on a big board, the next step is an opt-in parameter.
+
+Also decided: a held row carries holdUntilMet (tasks.holdUntilState). A hold does not lift itself, so a row whose
+condition is met says so and that it is still on hold. The board's answer wins over this computer's clock, which only
+fills in when the board sent none.
 
 ## Tests
 - engine/tasklist.next-8576.test.js: today / yesterday / N days / no date / a clock ahead; each waits-on source; a
