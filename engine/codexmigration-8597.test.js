@@ -251,3 +251,17 @@ test('#8597: engine/codexupdate.js run as a script does both steps and exits 0, 
   assert.match(cfg(d), /"gpt-5\.6-terra"/);
   assert.equal(spawnSync(process.execPath, [mod, '/nonexistent/home', 'gpt-5.4', '/nonexistent/codex', '0']).status, 0);
 });
+
+test('#8597: the bundled-catalog probe gets ONE CODEX_HOME, the agent\'s, whatever spelling was inherited (#5386)', async () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ick-mig-env-'));
+  const out = path.join(d, 'env.txt');
+  const bin = path.join(d, 'codex');
+  fs.writeFileSync(bin, '#!/bin/sh\nenv | grep -i "^codex_home=" > ' + JSON.stringify(out) + "\ncat <<'EOF'\n" + JSON.stringify(CATALOG) + '\nEOF\n');
+  fs.chmodSync(bin, 0o755);
+  const h = home('model = "gpt-5.4"\n');
+  const before = process.env.Codex_Home;
+  process.env.Codex_Home = '/somewhere/else';
+  try { assert.equal(await pinModelMigration(h, '', bin), true); } finally { if (before === undefined) delete process.env.Codex_Home; else process.env.Codex_Home = before; }
+  const lines = fs.readFileSync(out, 'utf8').trim().split('\n');
+  assert.deepEqual(lines, ['CODEX_HOME=' + h], 'exactly one, the agent\'s home');
+});

@@ -140,7 +140,9 @@ function bundledCatalog(home, codexBin, ms = BUNDLED_MS) {
     const finish = (v) => { if (!done) { done = true; clearTimeout(timer); resolve(v); } };
     let child;
     try {
-      const env = { ...process.env, CODEX_HOME: home, PATH: [process.env.PATH || '', path.dirname(process.execPath)].filter(Boolean).join(path.delimiter) };
+      /* #5386: one key per name, whatever spelling was inherited (Windows names are case-insensitive). */
+      const { envSet } = require('./win32env');
+      const env = envSet(envSet({ ...process.env }, 'CODEX_HOME', home), 'PATH', [process.env.PATH || '', path.dirname(process.execPath)].filter(Boolean).join(path.delimiter));
       child = require('node:child_process').spawn(codexBin, ['debug', 'models', '--bundled'], { env, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'ignore'] });
     } catch { resolve(null); return; }
     const timer = setTimeout(() => {
