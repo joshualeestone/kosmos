@@ -31,13 +31,15 @@ const SEEN_GAP_MS = 90 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
-/* How many slots past the last one told a stalled repeat must be before it is told again: four, at least an hour's
-   worth and at most a day's. Counted in the rule's own slots (nextAfter, local time), never in elapsed time, so a day
-   the clocks change is still one slot. */
+/* How many of the rule's own slots past the last one told a stalled repeat waits before it is told again. Counted from
+   the slots in the 24 hours after `from` (nextAfter, local time), so uneven times in a day and a day the clocks change
+   are counted as the slots they are. */
+const PERDAY_WALK_CAP = 24 * 60;
 function stallSlots(rule, from) {
-  const next = taskrepeat.nextAfter(rule, from);
-  const period = next !== null && next > from ? next - from : DAY_MS;
-  return Math.max(1, Math.min(Math.floor(DAY_MS / period), Math.max(4, Math.ceil(HOUR_MS / period))));
+  let perDay = 0;
+  let s = from;
+  while (perDay < PERDAY_WALK_CAP) { s = taskrepeat.nextAfter(rule, s); if (s === null || s > from + DAY_MS) break; perDay += 1; }
+  return Math.max(1, Math.min(perDay, Math.max(4, Math.round(perDay / 24))));
 }
 /* Have `need` slots of `rule` come after `from`, by `at`? */
 function slotsReached(rule, from, at, need) {
@@ -63,6 +65,8 @@ function owed(projects, now = Date.now()) {
       if (slot === null || slot > now) continue;   // between runs, or no time to measure from (never claim a due run we cannot see)
       const latest = taskrepeat.latestAtOrBefore(t.repeat, slot, now);
       const at = latest !== null ? latest : slot;
+      /* Told only once the latest slot is overdue by the miss grace, so a holder that runs on time is never typed into. */
+      if (at + taskrepeat.missGraceFor(t.repeat) > now) continue;
       /* A rule set or changed after the last line starts afresh: the old rule's line says nothing about the new one. */
       const toldRaw = Date.parse(t.repeatDueToldAt || '');
       const told = Number.isFinite(toldRaw) && !(Date.parse(t.repeatSetAt || '') > toldRaw) ? toldRaw : NaN;
@@ -70,7 +74,10 @@ function owed(projects, now = Date.now()) {
       const ranSince = Date.parse(t.lastRunAt || '') > told;
       if (Number.isFinite(told) && !ranSince && !slotsReached(t.repeat, told, at, stallSlots(t.repeat, told))) continue;
       const holders = [...new Set(tasks.partsOf(t).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))]
-        .filter((who) => !P.isSwarmOff(p, who));
+        .filter((who) => !P.isSwarmOff(p, who))
+        /* A holder that is also the task's named reviewer is told by the missed-run tell (missedtell.tellText's "You run
+           it and review its results"), never by both. */
+        .filter((who) => who !== t.repeatReviewer);
       if (!holders.length) continue;
       const by = taskrepeat.recordBy(t.repeat, at, now);
       out.push({
@@ -106,7 +113,8 @@ function markTold(item, who, outcome) {
 /**
  * One pass. `o`: { projects, roster, now, prompterOn (bool), allowed (bool: live execution and the brake), limit
  * ({ on, perHour }), sent (the board-wide hour of Kosmos-to-agent lines), book (Map), idleSeen (Map), idleSince(session),
- * deliver(session, text, roster) -> { state }, DELIVERY, log, mark (test seam; markTold by default) }. Never throws.
+ * deliver(session, text, roster) -> { state }, DELIVERY, log, mark (test seam; markTold by default), items (owed()'s
+ * list when the caller already has it), recentTyped (Map, session -> ms, read and written) }. Never throws.
  */
 function sweep(o) {
   const results = [];
@@ -135,9 +143,9 @@ function sweep(o) {
       try {
         const slotKey = item.projectId + '#' + item.n + '@' + item.slot;
         if (book.get(slotKey) === 'told') { results.push({ ...item, act: 'held', because: 'already told; its mark could not be saved' }); continue; }
-        if (o.allowed !== true) { results.push({ ...item, act: 'held', because: 'Kosmos does not type into agents yet' }); continue; }
         const onProject = item.holders.filter((h) => item.members.includes(h));
         if (!onProject.length) { book.set(slotKey, 'told'); mark(item, item.holders[0], 'not reached'); results.push({ ...item, act: 'unreachable', because: 'no holder is on the project' }); continue; }
+        if (o.allowed !== true) { results.push({ ...item, act: 'held', because: 'Kosmos does not type into agents yet' }); continue; }
         let picked = null;
         let because = 'no holder is running';
         for (const h of onProject) {
