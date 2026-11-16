@@ -189,3 +189,8 @@ test('kosmos#8569: a name given twice in different case is said once, and a poss
   assert.doesNotMatch(poss, /Josh's/, 'the possessive was printed as written');
   assert.match(note('Leo -> Josh & Dana: hi'), /^Josh and Dana are not names/, 'CONTROL: two different names are both said');
 });
+
+test("kosmos#8569: a possessive naming an agent off the project is read as that agent, so it gets the outsider sentence", () => {
+  const n = note("Leo -> Homer's: please", [...FLEET(), fleet.agent('homer', { state: 'idle' })]);
+  assert.equal(n, 'homer is not on this project, so this post did not reach them. To reach them: kosmos msg homer.');
+});

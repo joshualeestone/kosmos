@@ -2503,11 +2503,12 @@ function ambiguousNote(ambiguous, mentioned, shown) {
   return out.join(' ');
 }
 
-/* kosmos#8569: the one handle an addressed word names among agents on this computer who are not on the project, or null.
-   outsidersNote speaks of that handle and unmatchedNote stays silent for it, so both read the same rule here. */
-function outsiderHandle(word, outside, roster) {
-  const hit = [...mentionedMembers('@' + word, outside, roster).mentioned];
-  return hit.length === 1 && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(hit[0]) ? hit[0] : null;
+/* kosmos#8569: the one agent an addressed word names among agents on this computer who are not on the project, or null.
+   It is the lookup both outsidersNote (which speaks of it) and unmatchedNote (which is silent for it) make; each still
+   picks its own words to look up. A trailing possessive is read as the name ("Josh's" is Josh). */
+function outsiderNamed(word, outside, roster) {
+  const hit = [...mentionedMembers('@' + String(word).replace(/'s$/i, ''), outside, roster).mentioned];
+  return hit.length === 1 ? hit[0] : null;
 }
 
 /* kosmos#8270: the sentence that tells an agent its post addressed another Kosmos agent on this computer who is not on
@@ -2530,7 +2531,7 @@ function outsidersNote(cleaned, recipients, roster, from, raw) {
     members.forEach(addKeys); addKeys(from);
     const found = new Map();   // the handle to type -> the name shown
     const add = (handle) => {
-      if (!handle) return;
+      if (!handle || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(handle)) return;   // only a handle kosmos msg can take
       const card = cards.find((c) => c.sessionName === handle);
       const shown = printableName(card && card.name) || printableName(handle);
       if (shown) found.set(handle, shown);
@@ -2542,13 +2543,13 @@ function outsidersNote(cleaned, recipients, roster, from, raw) {
       if (!/^(all|everyone)$/i.test(bare) && !targetResolves(bare, members, roster).length) {
         // The whole header name only, as the @ rule: a run of leading words would make "-> Design team:" mean an agent named
         // design, and a word of a display name "-> Team:" mean "Team Rocket". "-> Homer on m702:" says nothing, the safe side.
-        const key = nameKey(bare);
-        if (!insideKeys.has(key)) add(outsiderHandle(key, outside, roster));
+        const key = nameKey(bare.replace(/'s$/i, ''));   // kosmos#8569: "Josh's" is Josh, as unmatchedNote reads it
+        if (!insideKeys.has(key)) add(outsiderNamed(key, outside, roster));
       }
     }
     for (const m of String(cleaned || '').replace(/`[^`]*`/g, ' ').matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
       const word = m[2].replace(/[._-]+$/, '');
-      if (word && !/^(all|everyone)$/i.test(word) && !insideKeys.has(nameKey(word))) add(outsiderHandle(word, outside, roster));
+      if (word && !/^(all|everyone)$/i.test(word) && !insideKeys.has(nameKey(word))) add(outsiderNamed(word, outside, roster));
     }
     return [...found].map(([handle, name]) => name + ' is not on this project, so this post did not reach them. To reach them: kosmos msg ' + handle + '.').join(' ');
   } catch { return ''; }
@@ -2581,7 +2582,7 @@ function unmatchedNote(cleaned, recipients, roster, from, raw) {
     for (const part of head ? head.targets : []) {
       const bare = part.replace(/^@/, '').trim();
       if (!/^[A-Za-z][A-Za-z.'-]*(?: [A-Za-z][A-Za-z.'-]*){0,2}$/.test(bare) || bare.split(' ').some(mayMean)) continue;
-      if (outsiderHandle(nameKey(bare), outside, roster)) continue;   // outsidersNote speaks of this one
+      if (outsiderNamed(nameKey(bare.replace(/'s$/i, '')), outside, roster)) continue;   // the outsider lookup outsidersNote makes
       // kosmos#8569: said as a name, so a trailing possessive goes ("Josh's" is Josh), and one name in two spellings once.
       const shown = bare.replace(/'s$/i, '').slice(0, 60);
       const key = nameKey(shown);
