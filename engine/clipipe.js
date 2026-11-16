@@ -8,7 +8,8 @@
  *
  * install() gives stdout and stderr one listener: EPIPE exits with 141 (128 + SIGPIPE, what a shell reports for a
  * program a closed pipe stopped); any other stream error is thrown again, so it still fails as loudly as before.
- * The exit is immediate (no async cleanup); for a CLI that is the point.
+ * The exit is immediate (no async cleanup); for a CLI that is the point. Only EPIPE was measured as the closed-pipe
+ * error (macOS, Linux CI, Windows Git Bash `head -1`); another code still throws, as before.
  *
  * How it reaches the CLI:
  * - Mac and Linux: install/kosmos runs many separate node children. It adds `--require <this file>` to NODE_OPTIONS
