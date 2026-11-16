@@ -147,3 +147,35 @@ test('kosmos#8593 review 2: an upgrade does not count as installing while it dow
   assert.equal(job.phase, 'installed', job.because || '');
   assert.equal(Object.keys(job).includes('upgrade'), false, 'the API job shape is unchanged');
 });
+
+test('kosmos#8593 review 3: only an OLDER tree is stale; a newer one (another board with a later pin) is left alone', { skip: skipOnWin32(POSIX) }, () => {
+  assert.equal(runners.olderVersion('0.149.1', '0.169.0'), true);
+  assert.equal(runners.olderVersion('0.169.0', '0.169.0'), false);
+  assert.equal(runners.olderVersion('0.170.0', '0.169.0'), false);
+  assert.equal(runners.olderVersion('0.169.0', '0.169.1'), true);
+  assert.equal(runners.olderVersion('1.0.0', '0.169.0'), false);
+  assert.equal(runners.olderVersion('0.9.0', '0.10.0'), true, 'numeric, not text');
+  assert.equal(runners.olderVersion('x', '0.169.0'), false, 'unparsable is never stale');
+  const [ma, mi, pa] = PIN.version.split('.').map(Number);
+  plantTree(`${ma}.${mi + 1}.${pa}`);
+  const r = runners.resolveBin('openai', { ...PLAT, legacyBin: LEGACY });
+  assert.equal(r.present, true);
+  assert.ok(!r.stale, 'a newer tree is not stale');
+});
+
+test('kosmos#8593 review 3: status() reads the runner as present while an upgrade downloads', { skip: skipOnWin32(POSIX) || (process.platform !== 'darwin' && 'status() reads this process\'s platform; the fixture tree is the darwin layout') }, async () => {
+  plantTree('0.149.1');
+  const { tgz, integrity } = tarball(PIN.version);
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  let seen = null;
+  const job = runners.install('openai', { ...PLAT, legacyBin: LEGACY, integrity,
+    download: async (url, file, j) => { seen = runners.status().openai; await gate; const b = fs.readFileSync(tgz); j.totalBytes = b.length; j.receivedBytes = b.length; fs.writeFileSync(file, b); },
+    prove });
+  await new Promise((r) => setTimeout(r, 50));
+  assert.ok(seen, 'status was read during the download');
+  assert.equal(seen.present, true, 'not "missing" while the old runner is in place');
+  release();
+  await job.settled;
+  assert.equal(job.phase, 'installed', job.because || '');
+});

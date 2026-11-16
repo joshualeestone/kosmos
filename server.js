@@ -15124,8 +15124,9 @@ const server = http.createServer(async (req, res) => {
         // --version may still fail, and a key pasted in that instant would
         // reach a never-proven binary and surface a confusing login error
         // instead of this structured answer.
-        const liveJob = (runners.status().openai || {}).job;
-        const midInstall = liveJob && liveJob.phase !== 'installed' && liveJob.phase !== 'failed';
+        // kosmos#8593 review 3: runners.installing() answers, so an upgrade's download (the old Codex still usable) does
+        // not refuse; an install, or an upgrade from its swap on, still does.
+        const midInstall = runners.installing('openai');
         if (!resolved.present || midInstall) {
           sendJson(res, 400, {
             error: openaiAccounts.MISSING_RUNNER_SENTENCE,
@@ -15551,8 +15552,9 @@ const server = http.createServer(async (req, res) => {
         // Same runner resolution + structured needsRunner answer as the api-key route:
         // no OpenAI runner installed -> tell the screen to reveal the install step.
         const resolved = runners.resolveBin('openai');
-        const liveJob = (runners.status().openai || {}).job;
-        const midInstall = liveJob && liveJob.phase !== 'installed' && liveJob.phase !== 'failed';
+        // kosmos#8593 review 3: runners.installing() answers, so an upgrade's download (the old Codex still usable) does
+        // not refuse; an install, or an upgrade from its swap on, still does.
+        const midInstall = runners.installing('openai');
         if (!resolved.present || midInstall) {
           sendJson(res, 400, { error: openaiAccounts.MISSING_RUNNER_SENTENCE, needsRunner: true, provider: 'openai' });
           return;

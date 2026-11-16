@@ -411,6 +411,14 @@ function isVerified(m, platform = process.platform, provider = 'openai') {
    (unpacked with --strip-components 1, so it sits at <runner>/pkg/package.json; Codex writes its version as
    "<version>-<platform>-<arch>", e.g. "0.149.1-darwin-arm64"). null when it cannot be read: an older install, a tree
    from elsewhere, a tarball with no package.json. Read, not run: resolveBin is on hot paths and --version is not. */
+/* kosmos#8593 review 3: true when a is an older x.y.z than b. Only OLDER counts as stale: a newer managed tree (another
+   board with a later pin sharing this root) is never downgraded, and two boards cannot replace each other's tree. */
+function olderVersion(a, b) {
+  const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number);
+  if (pa.length !== 3 || pb.length !== 3 || pa.some((n) => !Number.isInteger(n)) || pb.some((n) => !Number.isInteger(n))) return false;
+  for (let i = 0; i < 3; i += 1) if (pa[i] !== pb[i]) return pa[i] < pb[i];
+  return false;
+}
 function installedVersion(provider, platform = process.platform) {
   if (platform === 'win32') return null;   // Windows has its own .verified marker, which names the version
   try {
@@ -956,7 +964,7 @@ function resolveBin(provider, opts) {
        guess. */
     if (c === managed && plat !== 'win32') {
       const v = installedVersion('openai', plat);
-      if (v && v !== mf.version) return { bin: c, present: true, managed: true, overridden: false, stale: true, installedVersion: v };
+      if (v && olderVersion(v, mf.version)) return { bin: c, present: true, managed: true, overridden: false, stale: true, installedVersion: v };
     }
     return { bin: c, present: true, managed: c === managed, overridden: false };
   }
@@ -1055,7 +1063,9 @@ function status() {
        is already up, so presence read true while --version could still fail, and
        both screens poll `present` to move on to the key step. A live job is the
        truth of that moment; install() and the add-key route already treat it so. */
-    const live = jobs[provider] && jobs[provider].phase !== 'installed' && jobs[provider].phase !== 'failed';
+    // kosmos#8593 review 3: installing() is the one answer, so an upgrade's download (the old runner still in place)
+    // does not read as "not present" here either.
+    const live = installing(provider);
     out[provider] = {
       name: m.name,
       // What the screens WILL branch on: a tarball gets a real byte progress
@@ -1656,7 +1666,12 @@ function install(provider, opts) {
       if (plat === 'win32' && !(await rmRetrying(verifiedMarker(plat, provider), plat))) {
         throw Object.assign(new Error('the verified marker could not be removed'), { code: 'EPERM' });
       }
-      if (fs.existsSync(pkgDir)) await renameRetrying(pkgDir, pkgOld, plat);
+      if (fs.existsSync(pkgDir)) {
+        await renameRetrying(pkgDir, pkgOld, plat);
+        /* kosmos#8593 review 3: a rename keeps the folder's OLD mtime, so the age-gated sweep of pkg.old-* trees (another
+           board sharing this root) could take a kept tree mid-upgrade. Stamped now, it reads as fresh for an hour. */
+        if (upgrading) { try { const t = new Date(); fs.utimesSync(pkgOld, t, t); } catch { /* best effort */ } }
+      }
       await renameRetrying(pkgNew, pkgDir, plat);
       pkgNewLive = null; // swapped in; nothing at the per-pid name any more
       // Best-effort, like the sweeps: a locked OLD tree (antivirus still reading
@@ -2046,4 +2061,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, installedVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, installedVersion, olderVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
