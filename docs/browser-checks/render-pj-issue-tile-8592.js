@@ -71,8 +71,12 @@ const NONE = [{ id: 'idle', name: 'Idle One', archived: false, agents: [], summa
     const errs = [];
     p.on('pageerror', (e) => errs.push(String(e)));
     // The projects read answers with whatever the test has seeded, so a background poll repaints the same rows.
-    await p.route('**/api/projects', (route) => p.evaluate(() => window.__seed || []).then((rows) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ projects: rows }) })));
+    await p.route('**/api/projects', async (route) => {
+      try {
+        const rows = await p.evaluate(() => window.__seed || []);
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ projects: rows }) });
+      } catch { await route.abort().catch(() => {}); }   // #6022: a poll caught by teardown must not crash the check
+    });
     await p.route('**/api/first-run', (r) => r.fulfill({ json: { done: true } }));   // past the guided setup, which this does not walk
     await p.goto('http://127.0.0.1:' + PORT + '/#projects', { waitUntil: 'domcontentloaded' });
     await p.waitForFunction(() => typeof window.paintProjects === 'function' && typeof window.pjAttnTileClick === 'function', { timeout: 10000 });
