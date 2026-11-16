@@ -996,6 +996,14 @@ function withoutFilePaths(t) {
   }
   return rest;
 }
+/* kosmos#8585: a task without any of this computer's paths: the delivered and replaced file's (withoutFilePaths) and a
+   landed commit's repository (landedRepo, #7508). The one place every view that leaves paths out uses, so a new
+   path-bearing field is stripped everywhere at once. A copy: the stored task keeps them. */
+function withoutLocalPaths(t) {
+  const r = withoutFilePaths(t);
+  if (r && typeof r === 'object' && r !== t) delete r.landedRepo;
+  return r;
+}
 /* kosmos#8307: two lists of names hold the same names in the same order (absent reads as empty). */
 function sameList(a, b) {
   const x = Array.isArray(a) ? a : [];
@@ -3056,4 +3064,4 @@ module.exports = { HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, close, reopen
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, withoutFilePaths, CLOSED_HOW, closedHowAt, closedHowOf, saveOnRemote, FINGERPRINT_RE, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, withoutFilePaths, withoutLocalPaths, CLOSED_HOW, closedHowAt, closedHowOf, saveOnRemote, FINGERPRINT_RE, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
