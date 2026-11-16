@@ -29207,6 +29207,9 @@ function start(port = PORT) {
         try {
           const r = runners.resolveBin('openai');
           if (!r || r.stale !== true || runners.installing('openai')) return;
+          // Review 4: an upgrade already downloading is not installing(), so it is checked here: joining it is not a try.
+          const live = (runners.status().openai || {}).job;
+          if (live && live.phase !== 'installed' && live.phase !== 'failed') return;
           const pin = runners.manifestFor('openai').version;
           const tries = runnerUpgradeTries.get(pin) || 0;
           if (tries >= RUNNER_UPGRADE_TRIES) return;

@@ -179,3 +179,26 @@ test('kosmos#8593 review 3: status() reads the runner as present while an upgrad
   await job.settled;
   assert.equal(job.phase, 'installed', job.because || '');
 });
+
+test('kosmos#8593 review 4: a failure AFTER the swap (making the link) also puts the previous version back', { skip: skipOnWin32(POSIX) }, async () => {
+  plantTree('0.149.1');
+  const { tgz, integrity } = tarball(PIN.version);
+  const real = fs.symlinkSync;
+  let calls = 0;
+  fs.symlinkSync = (...a) => { calls += 1; if (calls === 1) throw Object.assign(new Error('link refused'), { code: 'EPERM' }); return real(...a); };
+  let job;
+  try {
+    job = runners.install('openai', { ...PLAT, legacyBin: LEGACY, integrity,
+      download: (url, file, j) => { const b = fs.readFileSync(tgz); j.totalBytes = b.length; j.receivedBytes = b.length; fs.writeFileSync(file, b); return Promise.resolve(); },
+      prove });
+    await job.settled;
+  } finally { fs.symlinkSync = real; }
+  assert.equal(calls >= 2, true, 'the link step failed once, then the restore made the link');
+  assert.equal(job.phase, 'failed');
+  assert.match(job.because || '', /version already here is kept/);
+  const r = runners.resolveBin('openai', { ...PLAT, legacyBin: LEGACY });
+  assert.equal(r.present, true);
+  assert.equal(r.installedVersion, '0.149.1');
+  assert.equal(execFileSync(r.bin).toString().trim(), 'codex-cli 0.149.1');
+  assert.deepEqual(fs.readdirSync(DEST).filter((f) => /^pkg\.old-/.test(f)), [], 'no stranded previous tree');
+});

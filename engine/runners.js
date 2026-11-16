@@ -1533,6 +1533,9 @@ function install(provider, opts) {
   let pkgNewLive = null;
   // Which step a thrown error came from, so the catch-all can say it in words.
   let stage = 'prepare';
+  /* kosmos#8593 review 4: an upgrade puts the previous tree back on ANY failure after its swap starts, not only a failed
+     prove. Set once the tree paths are known (below); idempotent; acts only when the previous tree was set aside. */
+  let restorePrevious = null;
   const fail = (because) => {
     try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ }
     if (pkgNewLive) { try { fs.rmSync(pkgNewLive, { recursive: true, force: true }); } catch { /* the sweep gets it */ } }
@@ -1598,6 +1601,24 @@ function install(provider, opts) {
       const pkgDir = path.join(destDir, 'pkg');
       const pkgNew = path.join(destDir, `pkg.new-${process.pid}`);
       const pkgOld = path.join(destDir, `pkg.old-${process.pid}`);
+      if (upgrading) {
+        let tried = false;
+        let restored = false;
+        restorePrevious = () => {
+          if (tried) return restored;
+          tried = true;
+          if (!fs.existsSync(pkgOld)) return false;   // never set aside: pkg/ is still the previous tree
+          try {
+            fs.rmSync(pkgDir, { recursive: true, force: true });
+            fs.renameSync(pkgOld, pkgDir);
+            const link = path.join(destDir, m.binName);
+            fs.rmSync(link, { force: true });
+            fs.symlinkSync(path.relative(destDir, path.join(pkgDir, binInPackage)), link);
+            restored = true;
+          } catch (e) { console.warn(`[runners] ${provider} could not put the previous version back: ${e && e.code}`); }
+          return restored;
+        };
+      }
       // destDir FIRST: on a fresh machine (the exact #979 scenario) nothing
       // has created it yet, and the sweep's readdir would ENOENT the whole
       // install before a byte of the runner ever staged.
@@ -1756,14 +1777,8 @@ function install(provider, opts) {
         } else { try { fs.rmSync(finalBin, { recursive: true, force: true }); } catch { /* best effort */ } }
         /* kosmos#8593 review 2: an upgrade puts the previous tree and its link back, so a runner that worked before still
            works (the failure is still reported). The new tree goes; the old one returns to pkg/, as it was. */
-        if (upgrading && fs.existsSync(pkgOld)) {
-          try {
-            fs.rmSync(pkgDir, { recursive: true, force: true });
-            fs.renameSync(pkgOld, pkgDir);
-            fs.rmSync(finalBin, { force: true });
-            fs.symlinkSync(path.relative(destDir, path.join(pkgDir, binInPackage)), finalBin);
-            err.message = err.message.replace(/, so it was not installed; you can try again$/, ', so the version already here is kept; you can try again');
-          } catch (e) { console.warn(`[runners] ${provider} could not put the previous version back: ${e && e.code}`); }
+        if (restorePrevious && restorePrevious()) {
+          err.message = err.message.replace(/, so it was not installed; you can try again$/, ', so the version already here is kept; you can try again');
         }
         err.plain = true;
         throw err;
@@ -1775,7 +1790,9 @@ function install(provider, opts) {
       try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ }
       job.phase = 'installed';
     } catch (err) {
-      fail(plainFailure(err, m, stage));
+      // kosmos#8593 review 4: a failure after an upgrade's swap started (a rename, the link) puts the previous tree back too.
+      const kept = Boolean(restorePrevious && job.swapping === true && restorePrevious());
+      fail(plainFailure(err, m, stage) + (kept && !/version already here is kept/.test(String(err.message)) ? ' The version already here is kept.' : ''));
     }
   })();
   // Awaitable completion for harnesses; non-enumerable so the job's JSON
