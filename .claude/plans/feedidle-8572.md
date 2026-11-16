@@ -18,5 +18,5 @@ still busy, nobody is asked until one is free; a board restart in the afternoon 
   but `kosmos feedback day` shows only its own conversation and tasks, which is what the ask tells it to report on.
 
 ## Verification
-engine/feedbacknudge-7374.test.js (3 new tests, 2 updated), with a control (main's module fails 4); tree guards; the
+engine/feedbacknudge-7374.test.js (new tests for each case, and the record-file and restart tests updated), with a control (main's module fails 4); tree guards; the
 related feedback CLI, feedback-day and chat tests.

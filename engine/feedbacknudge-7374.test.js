@@ -363,6 +363,21 @@ test('kosmos#8572: a record from before this change (no workers list) still asks
   assert.equal(run(afterRestart, { asked: memAsked(null, TODAY, []) }).sent.length, 0);
 });
 
+test('kosmos#8572: the update-day choice holds all that day, even after an agent is seen working, and reads a real old file', () => {
+  // A record file as the code before this change wrote it: the day's work, no list.
+  fs.mkdirSync(path.dirname(nudge.askedFile()), { recursive: true });
+  fs.writeFileSync(nudge.askedFile(), JSON.stringify({ workedOn: TODAY }) + '\n');
+  const real = { get: undefined };   // not a reader: sweepOnce falls back to the file
+  // Bo is working now; ana worked before the restart and is idle, with nothing in memory to say so.
+  const now = roster([['ana'], ['bo', { state: 'working' }]]).map((c) => ({ ...c, lastWorked: { at: null, why: 'not_seen' } }));
+  const tried = [];
+  run(now, { asked: real, deliver: (s) => { tried.push(s); return { held: true }; } });
+  assert.deepEqual(tried, [by(now, 'ana')], 'the agent who worked before the restart was not offered the ask');
+  const saved = JSON.parse(fs.readFileSync(nudge.askedFile(), 'utf8'));
+  assert.equal(saved.workers, undefined, 'the old record was rewritten with only the agents seen after the restart');
+  fs.rmSync(nudge.askedFile(), { force: true });
+});
+
 test('kosmos#8572: after a restart, the ask goes to who the record saw working, not to any idle agent', () => {
   const asked = memAsked();
   const morning = roster([['ana'], ['bo']]).map((c) => (c.sessionName.startsWith('bo') ? worked(c) : idleAllDay(c)));
