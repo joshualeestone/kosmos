@@ -14,8 +14,8 @@
  *  - that itself worked today, or whose provider gives Kosmos no way to see that (no_source) (kosmos#8572). The report
  *    is about the asked agent's own day (`kosmos feedback day`), so an agent that did nothing has nothing to report, and
  *    asking it spends a turn of the person's account on an empty answer. When everyone who worked is still busy, nobody
- *    is asked yet: a later tick asks once one is idle. Who was seen working today is kept on disk (`workers`), so a
- *    restart later in the day does not forget them;
+ *    is asked yet: a later tick asks once one is idle. Who was seen working today is kept on disk (`workers`, by session
+ *    name, while sending is on), so a restart later in the day does not forget them;
  *  - not the setup guide (it runs hands-off instructions, and its thread is masked on the page);
  *  - a Project Manager first (its instructions already carry the four questions), then a Project Director (it holds the
  *    picture across projects), else roster order. A card's role is the one its instruction file states ("You are
@@ -55,7 +55,8 @@ const NUDGE_HOUR = 17;
 const FIRST_ROLES = ['pm', 'director'];
 
 /* The record: { date: the day last asked, session: who, workedOn: the last day an agent was seen working, workers: the
-   sessions seen working on that day (kosmos#8572) }. Under the
+   session names seen working on that day (kosmos#8572; an agent renamed later that day is not matched by its new name) }.
+   Under the
    data root, so a sandboxed test never reads the live one. Unreadable or absent reads as never asked and never seen, so
    an ask is then possible again, never refused. `workedOn` is kept because the board's own record of who worked lives in
    memory (status.lastWorkedOf), so an afternoon restart (every update) would otherwise forget a full day's work (review 2). */
@@ -81,7 +82,7 @@ function fileAsked() {
     get: () => { const v = read(); return typeof v.date === 'string' ? v.date : null; },
     set: (date, session) => write({ date, session }),
     workedOn: () => { const v = read(); return typeof v.workedOn === 'string' ? v.workedOn : null; },
-    workers: () => { const v = read(); return Array.isArray(v.workers) ? v.workers.filter((x) => typeof x === 'string') : []; },
+    workers: () => { const v = read(); return Array.isArray(v.workers) ? v.workers.filter((x) => typeof x === 'string') : null; },
     markWorked: (date, workers) => write({ workedOn: date, workers: Array.isArray(workers) ? workers : [] }),
   };
 }
@@ -154,7 +155,8 @@ function candidates(roster, labels, isGuide = guideDefault, mayAsk = () => true)
 
 /*
  * The day's decision. o = { roster, send ({ on, ok }), today, hour, hasReport, askedDate, entry, labels, dateKey, isGuide,
- * workedOn (the day the record last saw an agent working), workers (the sessions it saw working today) }.
+ * workedOn (the day the record last saw an agent working), workers (the sessions it saw working today, or null when the
+ * record keeps no list) }.
  * Returns { act: 'none' | 'nudge', because, cards? } (cards: who to ask, in order).
  */
 function plan(o) {
@@ -168,9 +170,11 @@ function plan(o) {
   if (!(o.hour >= NUDGE_HOUR)) return { act: 'none', because: 'before ' + NUDGE_HOUR + ':00' };
   if (o.workedOn !== o.today && !workedToday(o.roster, o.today, o.dateKey)) return { act: 'none', because: 'no agent worked today' };
   if (!candidates(o.roster, o.labels, o.isGuide).length) return { act: 'none', because: 'no idle agent to ask' };
-  // kosmos#8572: only an agent with a day to report on.
+  // kosmos#8572: only an agent with a day to report on. workers null: today's work is on record but not who did it (a record
+  // from before this change, read after the update's restart), so that one day any idle agent may be asked, as before.
   const workers = Array.isArray(o.workers) ? o.workers : [];
-  const cards = candidates(o.roster, o.labels, o.isGuide, (c) => workers.includes(c.sessionName) || seenWorking(c, o.today, o.dateKey) || cannotSee(c));
+  const anyIdle = o.workers === null && o.workedOn === o.today;
+  const cards = candidates(o.roster, o.labels, o.isGuide, (c) => anyIdle || workers.includes(c.sessionName) || seenWorking(c, o.today, o.dateKey) || cannotSee(c));
   if (!cards.length) return { act: 'none', because: 'nobody who worked today is free to ask yet' };
   return { act: 'nudge', cards, because: 'today has no report' };
 }
@@ -201,8 +205,11 @@ function sweepOnce(o) {
     let workedOn = null;
     try { workedOn = typeof asked.workedOn === 'function' ? asked.workedOn() : null; } catch { workedOn = null; }
     // kosmos#8572: and WHO worked today, kept beside the day, so the ask goes to one of them after a restart too.
+    // null: the record saw work today but keeps no list (it was written before kosmos#8572), so plan cannot tell who.
     let workers = [];
     if (workedOn === today) { try { workers = typeof asked.workers === 'function' ? asked.workers() : []; } catch { workers = []; } }
+    const unlisted = workedOn === today && workers === null;
+    if (!Array.isArray(workers)) workers = [];
     const seenNow = o.roster.filter((c) => seenWorking(c, today, dateKey)).map((c) => c.sessionName).filter((x) => typeof x === 'string');
     const grown = seenNow.filter((x) => !workers.includes(x));
     if (send && send.ok === true && send.on === true && (grown.length || (workedOn !== today && workedToday(o.roster, today, dateKey)))) {
@@ -211,7 +218,7 @@ function sweepOnce(o) {
       try { if (typeof asked.markWorked === 'function') asked.markWorked(today, workers); } catch { /* the roster still says so this tick */ }
     }
     const p = plan({
-      roster: o.roster, send, today, hour: now.getHours(), hasReport, askedDate, entry, dateKey, workedOn, workers,
+      roster: o.roster, send, today, hour: now.getHours(), hasReport, askedDate, entry, dateKey, workedOn, workers: unlisted && !grown.length ? null : workers,
       labels: Array.isArray(o.labels) ? o.labels : firstLabels(), isGuide: typeof o.isGuide === 'function' ? o.isGuide : undefined,
     });
     if (p.act !== 'nudge') return { result: { act: 'none', because: p.because } };

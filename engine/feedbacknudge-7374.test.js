@@ -349,6 +349,18 @@ test('kosmos#8572: an idle Project Manager who did nothing today is not asked wh
 test('kosmos#8572: an agent on a provider Kosmos cannot see is still asked; one that only worked yesterday is not', () => {
   const unseen = roster([['ana'], ['bo']]).map((c) => (c.sessionName.startsWith('ana') ? idleAllDay(c) : { ...c, lastWorked: { at: null, why: 'no_source' } }));
   assert.equal(run(unseen).sent[0][0], by(unseen, 'bo'));
+  // Every card held, so the loop tries all it may ask, in whatever order the board returns them: only bo is tried.
+  const tried = [];
+  run(unseen, { deliver: (s) => { tried.push(s); return { held: true }; } });
+  assert.deepEqual(tried, [by(unseen, 'bo')], 'an agent that only worked yesterday was offered the ask');
+});
+
+test('kosmos#8572: a record from before this change (no workers list) still asks someone on the day of the update', () => {
+  const legacy = { ...memAsked(null, TODAY), workers: () => null };   // worked today, but the record names nobody
+  const afterRestart = roster([['ana'], ['bo']]).map((c) => ({ ...c, lastWorked: { at: null, why: 'not_seen' } }));
+  assert.equal(run(afterRestart, { asked: legacy }).sent.length, 1, 'the day of the update was skipped');
+  // Control: an empty list (this change's record, nobody seen) asks nobody.
+  assert.equal(run(afterRestart, { asked: memAsked(null, TODAY, []) }).sent.length, 0);
 });
 
 test('kosmos#8572: after a restart, the ask goes to who the record saw working, not to any idle agent', () => {
