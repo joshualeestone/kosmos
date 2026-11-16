@@ -24,11 +24,11 @@ in full when nothing closes early.
   it; engine/*.js ship already). Rejected: exporting NODE_OPTIONS and leaving it (it would reach the board, every
   agent and Claude Code itself, and a missing file would stop all of them starting). The preload removes itself on
   load, and is added only when the file exists.
-- The two board starts (install/kosmos `nohup "$NODE" "$APP"` and the `exec` foreground start) also load it, then
-  restore NODE_OPTIONS before the board starts anything. Effect on the board: a board whose own stdout pipe closes
-  exits quietly instead of crashing with a trace; its stdout is the board log file in normal use. Either way it ends;
-  the supervisor (launchd, systemd) restarts it as before, and only the trace in the log is gone. (Windows boards
-  keep their own design, #8373/#8424: a closed console copy is recorded and never ends the board; untouched.)
+- The board is NOT guarded. install/kosmos's two board starts load the preload too (it is in NODE_OPTIONS); it
+  restores the environment and, seeing its entry is server.js, installs nothing. So the board's behaviour on a closed
+  stdout is exactly what it was. Review rounds 1 to 4 each raised the board (silent exit, restart status, no log
+  line); exempting it ends that question rather than defending a change nobody asked for. Tested both ways
+  (engine/clipipe.test.js: an entry named server.js keeps the EPIPE trace; another entry exits 141).
 - Eight node steps in install/kosmos that print to the person's stdout and have a fallback (connections list, what
   agents found, accounts, task list, task log, project list/show, agent list, roles list) pass 141 straight through.
   Found by reading every "could not read"/"did not run" sayer that follows a node step printing to stdout; the rest
@@ -36,8 +36,6 @@ in full when nothing closes early.
   runs with SIGPIPE ignored, which is how agents run it (Claude Code's Bash tool is a node child, and node ignores
   SIGPIPE): there a `say` into the closed pipe printed "write error" and exited 1. Under a plain shell `say` is
   killed by SIGPIPE first, so those sites were already quiet.
-- A board that dies on a closed stdout leaves no line (accepted: a stderr line on stdout EPIPE would print on every
-  CLI `| head`, the noise this card removes; the board's stdout is its log file in normal use).
 - Exit 141 rather than 0: what a shell reports for a program a closed pipe stopped (git, cat). `| head` without
   pipefail is unchanged; with pipefail it was already non-zero (the crash exited 1).
 - A KOSMOS_HOME that is relative or holds `"` or `\` gets no guard (runs as before), since NODE_OPTIONS would read it
@@ -85,3 +83,10 @@ in full when nothing closes early.
 - CONVENTION fixed: the Windows comment names only the measured case (Git Bash head -1).
 - NITs fixed: the test header's arm count; the install/kosmos comment names the system-node fallback.
 - NIT left: the Windows entry check reads source (review 1's NIT; measured behaviour is under Validation).
+### Review 4 (sonnet): 2 WARNINGs fixed, 4 NITs (2 fixed, 2 left)
+- WARNING fixed: the board is exempt from the guard (Decisions), so its exit status and log are unchanged; a test
+  covers both arms, red when the board check is forced off.
+- WARNING fixed: the preload is added only when the file is readable (`-r`), not only present.
+- NITs fixed: clipipe.js says a node started by the wrapper's non-node children restores the env too; the long
+  install/kosmos comment line is rewrapped.
+- NITs left: the test arm 1 exit code (arm 3 covers it); the Windows entry check reads source (measured on Windows).
