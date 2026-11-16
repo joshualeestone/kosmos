@@ -2862,7 +2862,8 @@ body.filter-pjattn:not(.consolidated) #pj-list .pj-row { --pj-depth: 0 !importan
 body.filter-pjattn:not(.consolidated) #pj-list .pj-row.child { border-left: 0 !important; }
 body.filter-pjattn:not(.consolidated) #pj-list .pj-row.child::before, body.filter-pjattn:not(.consolidated) #pj-list .pj-row.child::after { display: none !important; }
 body.filter-pjattn:not(.consolidated) #pj-list .pj-row.child .pj-parent { display: inline-block !important; }
-body.filter-pjattn:not(.consolidated) #pj-list .pjtreefold { display: none !important; }
+body.filter-pjattn:not(.consolidated) #pj-list .pjtreefold,
+body.filter-pjattn:not(.consolidated) #pj-rm-collapse, body.filter-pjattn:not(.consolidated) #pj-rm-expand { display: none !important; }
 .stat.alert { border-color: rgba(179,38,30,.45); }
 /* The pack's status glyph family, shared by the tiles, the pills, and the
    list rows. The hazard is a TRIANGLE because shape is the carrier and
@@ -69854,7 +69855,7 @@ async function watchForAgentNow(name, result, attempt) {
  * ------------------------------------------------------------------------ */
 
 let PROJECTS = [];
-/* kosmos#8592: the ids pjNeedsPerson picked on the last paint, in the order the cards show. The Issue tile's click reads it. */
+/* kosmos#8592: the ids pjNeedsPerson picked on the last paint. The Issue tile's click reads it. */
 let PJ_ATTN_IDS = [];
 let PJ_LOADED_ONCE = false;  // true once the first projects read has landed (the browser checks seed it); paintPjNone no longer reads it since #3597
 
@@ -71209,7 +71210,7 @@ function applyConsFold() {
       const want = folded ? 'false' : 'true';
       if (row.getAttribute('aria-expanded') !== want) row.setAttribute('aria-expanded', want);
     } else if (row.hasAttribute('aria-expanded')) {
-      row.removeAttribute('aria-expanded');        // no folding in the grid, or under the Issue filter (kosmos#8592)
+      row.removeAttribute('aria-expanded');        // no folding in the grid
     }
     const glyph = folded ? '▸' : '▾';         // ▸ folded / ▾ open
     if (caret.textContent !== glyph) caret.textContent = glyph;
@@ -71221,7 +71222,7 @@ function applyConsFold() {
    re-home focus), the row and its caret are the same elements before and after, so
    focus is never lost -- no re-homing needed. */
 function pjTreeToggleFold(id) {
-  if (!id) return;
+  if (!id || pjFoldFrozen()) return;
   if (PJ_TREE_FOLDED.has(id)) PJ_TREE_FOLDED.delete(id); else PJ_TREE_FOLDED.add(id);
   pjSaveFold();
   applyConsFold();
@@ -71232,9 +71233,14 @@ function pjTreeToggleFold(id) {
    Reads the same rendered rows applyConsFold walks -- a parent is any row that carries a
    caret -- so "all" means exactly the branches the person can see fold. Persist, then
    re-sync. Idempotent: collapsing an already-collapsed tree is a no-op write. */
+/* kosmos#8592: under the Issue filter (tab views) the list is flat and shows no fold, so a fold change there would be
+   saved unseen and greet the person when the filter goes. Nothing folds or unfolds until it is off. */
+function pjFoldFrozen() {
+  return document.body.classList.contains('filter-pjattn') && !document.body.classList.contains('consolidated');
+}
 function pjFoldAll(fold) {
   const list = document.getElementById('pj-list');
-  if (!list) return;
+  if (!list || pjFoldFrozen()) return;
   if (fold) {
     for (const caret of list.querySelectorAll('.pj-row[data-project] .pjtreefold')) {
       const row = caret.closest('.pj-row[data-project]');
@@ -71364,7 +71370,6 @@ function pjNeedsPerson(p, unreadable) {
 function setPjAttnFilter(on) {
   const was = document.body.classList.contains('filter-pjattn');
   document.body.classList.toggle('filter-pjattn', !!on);
-  const tile = document.getElementById('st-pjattn-tile');
   pjAttnTileSync();
   if (was !== !!on && typeof applyConsFold === 'function') applyConsFold();   // fold and shading follow the filter
 }
