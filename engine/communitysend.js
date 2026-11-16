@@ -1615,7 +1615,8 @@ function ownerPageUrl() {
     const mac = ownerLinkMac();
     if (!switchOn() || !ownerLinkLive() || !mac || !ownerLinkPairOk()) return null;
     const keys = loadJson(keysFile()) || {};
-    const linked = Object.values(keys).some((k) => k && typeof k.ownerLinked === 'string' && k.ownerLinked.startsWith(mac + ':'));
+    // The whole marker, as sweepOwnerLink compares it: an agent registered again since (a new key) is not linked yet.
+    const linked = Object.values(keys).some((k) => k && typeof k.apiKey === 'string' && k.ownerLinked === ownerLinkMarker(mac, k.apiKey));
     return linked ? endpoint() + '/my-agents' : null;
   } catch { return null; }
 }

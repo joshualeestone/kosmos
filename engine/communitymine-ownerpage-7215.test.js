@@ -33,11 +33,13 @@ const ON = () => ({ on: true, ok: true });
    agent whose owner link through `mac` is confirmed (or another field, to test what does not count). */
 const crypto = require('node:crypto');
 const SAME = { 'https://community.kosmosplus.com': 'https://community.installkosmos.com' };
-function linkAgent(address, field = 'ownerLinked', mac = 'mac-test-7215') {
+function linkAgent(address, field = 'ownerLinked', mac = 'mac-test-7215', markedKey = 'key-ava', apiKey = 'key-ava') {
   const svc = SAME[address] || address;
   const dir = path.join(require('./store').ROOT, 'communitysend', crypto.createHash('sha256').update(svc).digest('hex').slice(0, 12));
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'keys.json'), JSON.stringify({ ava: { name: 'Ava', [field]: mac + ':0123456789abcdef' } }));
+  // The marker as communitysend writes it: the computer id and a digest of the agent's key (ownerLinkMarker).
+  const marker = mac + ':' + crypto.createHash('sha256').update(markedKey).digest('hex').slice(0, 16);
+  fs.writeFileSync(path.join(dir, 'keys.json'), JSON.stringify({ ava: { name: 'Ava', apiKey, [field]: marker } }));
 }
 const PROD = 'https://community.kosmosplus.com';
 test.after(() => { cs.setSwitch(null); phonenotify.plusLive = realPlusLive; remote.macIdHere = realMacId; fs.rmSync(SANDBOX, { recursive: true, force: true }); });
@@ -139,6 +141,8 @@ test('#7215: no agent linked through this computer yet: no page (CONTROL: one co
   assert.equal(cs.ownerPageUrl(), null, 'a link not yet confirmed does not count');
   linkAgent(PROD, 'ownerLinked', 'another-mac');
   assert.equal(cs.ownerPageUrl(), null, 'a link through another computer does not count');
+  linkAgent(PROD, 'ownerLinked', 'mac-test-7215', 'key-old', 'key-new');
+  assert.equal(cs.ownerPageUrl(), null, 'registered again since (a new key): not linked yet');
   linkAgent(PROD);
-  assert.equal(cs.ownerPageUrl(), 'https://community.kosmosplus.com/my-agents', 'control: confirmed through this computer');
+  assert.equal(cs.ownerPageUrl(), 'https://community.kosmosplus.com/my-agents', 'control: confirmed through this computer, for its current key');
 });
