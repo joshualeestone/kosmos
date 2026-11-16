@@ -37,6 +37,10 @@ const D = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not'
    the pre-#5296 cases still read as they did. The #5296 tests below take this away. */
 const WORKED = () => [{ state: 'idle', at: NOW - 30 * H }, { state: 'idle', at: NOW - 2 * H }, { state: 'working', at: NOW - 0.5 * H }, { state: 'idle', at: NOW - 0.4 * H }];
 
+/* kosmos#8567: every fixture agent on one project, for tests that pin the floor line with no work behind it (on no
+   project, such an agent is not sent the floor line; see the #8567 tests). */
+const ON_PROJECT = { name: 'p', agents: ['ann', 'bea', 'cal', 'dan'] };
+
 function args(over = {}) {
   return {
     roster: [card('ann'), card('bea'), card('cal'), card('dan')], projects: [],
@@ -197,7 +201,8 @@ test('#7230 ask 2, review 1: a notice whose turn is not over, one over a day old
     ['no idle report to place it', [NOW - 2 * H], { idleSince: () => null }],
     ['an unreadable record', null, { kosmosLines: () => { throw new Error('boom'); } }],
   ]) {
-    const { sent, o } = tickArgs({ postTimes: () => [ago(30 * H)], kosmosLines: () => lines, ...extra });
+    // kosmos#8567: on a project, so a notice's own turn (the only work in WORKED for a 0.5 h line) cannot skip the floor line.
+    const { sent, o } = tickArgs({ postTimes: () => [ago(30 * H)], kosmosLines: () => lines, readProjects: () => [ON_PROJECT], ...extra });
     ct.tickOnce(o);
     const ann = Object.fromEntries(sent).ann;
     if (why === 'no idle report to place it') { assert.ok(!ann || ann === ct.FLOOR_TEXT, why); continue; }
@@ -461,9 +466,9 @@ test('#5296 due: an unknown history (null, or a throw) prompts nobody who has po
   assert.deepEqual(ct.due(args({ postTimes: only, history: undefined })), [], 'no history read at all');
 });
 
-test('#5296 due: the daily floor stands: no post in 24 h is due with no work at all, and a never-posted agent too', () => {
+test('#5296 due: the daily floor stands: no post in 24 h is due with no work at all (on a project), and a never-posted agent too', () => {
   const none = () => [];
-  assert.deepEqual(ct.due(args({ postTimes: (s) => (s === 'ann' ? [ago(25 * H)] : [ago(H)]), history: none })).map((d) => d.session), ['ann']);
+  assert.deepEqual(ct.due(args({ postTimes: (s) => (s === 'ann' ? [ago(25 * H)] : [ago(H)]), history: none, projects: [ON_PROJECT] })).map((d) => d.session), ['ann']);
   const first = ct.due(args({ postTimes: (s) => (s === 'ann' ? [] : [ago(H)]), history: none }));
   assert.deepEqual(first.map((d) => [d.session, d.first]), [['ann', true]]);
 });
@@ -721,7 +726,8 @@ test('kosmos#7649 review 2: a switch turned off mid-pass stops it; an agent that
 });
 
 test('kosmos#7649 review 2: without a fixed clock, each agent is booked when it was sent to, not when the pass began', async () => {
-  const { o } = tickArgs({ now: undefined, deliver: () => later({ state: D.PLACED }, 30) });
+  // kosmos#8567: on a project, since WORKED is fixed to NOW and reads as no work against the real clock.
+  const { o } = tickArgs({ now: undefined, readProjects: () => [ON_PROJECT], deliver: () => later({ state: D.PLACED }, 30) });
   const r = await ct.tickOnceAsync(o);
   assert.deepEqual(r.map((x) => x.session), ['ann', 'bea'], 'CONTROL: both were sent to');
   assert.ok(o.book.get('bea')[0] > o.book.get('ann')[0], 'the second booking reads the clock again');
@@ -878,4 +884,63 @@ test('#6593 due: task-done prompts never fill the daily cap against the floor li
   const postTimes = (s) => (s === 'ann' ? [ago(30 * H)] : [ago(1 * H)]);
   const three = Array.from({ length: ct.PROMPTS_PER_DAY }, (_, i) => NOW - (4 + 2 * i) * H);
   assert.deepEqual(ct.due(args({ postTimes, otherTries: (s) => (s === 'ann' ? three : []) })).map((d) => d.session), ['ann']);
+});
+
+/* kosmos#8567 (agent feedback 11-15): an agent on no project that has done no work in the last day is not woken with the
+   floor line (a push for a long post about nothing). Each arm has a control that changes one thing and is prompted. */
+test('#8567: below the floor, an agent on no project with no work in the last day is not sent the floor line; CONTROLS: work, a project, unknown history', () => {
+  const quiet = () => [{ state: 'idle', at: NOW - 30 * H }, { state: 'idle', at: NOW - 26 * H }];   // last work over a day ago
+  const old = () => [ago(30 * H)];   // posted before, not in the last day: the floor path
+  const one = { roster: [card('ann')], seenIdle: new Set(['ann']), postTimes: old };
+  assert.deepEqual(ct.due(args({ ...one, history: quiet })).map((d) => d.session), []);
+  // CONTROL: the same agent with work 2 hours ago is due, with the floor line (postedToday false).
+  const worked = () => quiet().concat([{ state: 'working', at: NOW - 2 * H }, { state: 'idle', at: NOW - 1.5 * H }]);
+  const d = ct.due(args({ ...one, history: worked }));
+  assert.deepEqual(d.map((x) => [x.session, x.postedToday]), [['ann', false]]);
+  // CONTROL: on a project (not paused), the same quiet agent is still due: the card asks for "no project AND no work".
+  const proj = [{ name: 'p', agents: ['ann'] }];
+  assert.deepEqual(ct.due(args({ ...one, history: quiet, projects: proj })).map((x) => x.session), ['ann']);
+  // An archived project is no project.
+  assert.deepEqual(ct.due(args({ ...one, history: quiet, projects: [{ name: 'p', agents: ['ann'], archived: true }] })).map((x) => x.session), []);
+  // CONTROL: an unknown history (none, a throwing read, or a cut tail that starts inside the day) keeps the line.
+  assert.deepEqual(ct.due(args({ ...one, history: () => null })).map((x) => x.session), ['ann']);
+  assert.deepEqual(ct.due(args({ ...one, history: () => { throw new Error('x'); } })).map((x) => x.session), ['ann']);
+  const cut = () => Object.assign([{ state: 'idle', at: NOW - 3 * H }], { truncated: true });
+  assert.deepEqual(ct.due(args({ ...one, history: cut })).map((x) => x.session), ['ann']);
+  // A turn Kosmos itself woke (a reminder, a re-read line) is not work.
+  const woken = () => quiet().concat([{ state: 'working', at: NOW - 5 * H }, { state: 'idle', at: NOW - 4.9 * H }]);
+  assert.deepEqual(ct.due(args({ ...one, history: woken, kosmosLines: () => [NOW - 5 * H] })).map((x) => x.session), []);
+  assert.deepEqual(ct.due(args({ ...one, history: woken })).map((x) => x.session), ['ann']);   // CONTROL: no Kosmos line, so it is work
+  // Review 2: work that was under way when the day began and went idle inside it is work; a cut tail that starts
+  // before the day and shows no work is no work.
+  const spans = () => [{ state: 'idle', at: NOW - 40 * H }, { state: 'working', at: NOW - 30 * H }, { state: 'idle', at: NOW - 20 * H }];
+  assert.deepEqual(ct.due(args({ ...one, history: spans })).map((x) => x.session), ['ann']);
+  // Review 3: a busy row from a session killed 50 h ago, ended by a restart inside the day, is not work.
+  const crashed = () => [{ state: 'working', at: NOW - 50 * H }, { state: 'started', at: NOW - 3 * H }, { state: 'idle', at: NOW - 2.9 * H }];
+  assert.deepEqual(ct.due(args({ ...one, history: crashed })).map((x) => x.session), []);
+  // Review 3: the busy-at-start row inside a turn a task-done prompt woke is set aside (CONTROL: spans, above, is work).
+  assert.deepEqual(ct.due(args({ ...one, history: spans, otherTries: () => [NOW - 30 * H] })).map((x) => x.session), []);
+  const oldCut = () => Object.assign(quiet(), { truncated: true });
+  assert.deepEqual(ct.due(args({ ...one, history: oldCut })).map((x) => x.session), []);
+  // Review 1: a turn a task-done prompt woke (otherTries) is not work either. (This timer's own prompt in the window
+  // cannot reach here: the one-floor-prompt-a-day gate above already stops the agent.)
+  assert.deepEqual(ct.due(args({ ...one, history: woken, otherTries: () => [NOW - 5 * H] })).map((x) => x.session), []);
+});
+
+test('#8567: a never-posted agent on no project with no work still gets the introduction line', () => {
+  const d = ct.due(args({ roster: [card('ann')], seenIdle: new Set(['ann']), postTimes: () => [], history: () => [] }));
+  assert.deepEqual(d.map((x) => [x.session, x.first]), [['ann', true]]);
+});
+
+test('#8567 workedWithin and onNoProject', () => {
+  assert.equal(ct.workedWithin(null, 0, []), null);
+  assert.equal(ct.workedWithin([{ state: 'working', at: 10 }], 5, []), true);
+  assert.equal(ct.workedWithin([{ state: 'working', at: 4 }, { state: 'idle', at: 6 }], 5, []), true);   // busy at the window start
+  assert.equal(ct.workedWithin([{ state: 'working', at: 4 }, { state: 'idle', at: 6 }], 5, [4]), false);   // a Kosmos-woken turn
+  assert.equal(ct.workedWithin([{ state: 'working', at: 1 }, { state: 'idle', at: 3 }], 5, []), false);
+  assert.equal(ct.workedWithin([], 5, []), false);
+  assert.equal(ct.workedWithin([{ state: 'started', at: 10 }, { state: 'stopped', at: 11 }], 5, []), false);
+  assert.equal(ct.onNoProject('ann', null), true);
+  assert.equal(ct.onNoProject('ann', [{ agents: ['bob'] }]), true);
+  assert.equal(ct.onNoProject('ann', [{ agents: ['ann'] }]), false);
 });
