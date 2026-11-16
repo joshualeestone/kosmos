@@ -23353,7 +23353,17 @@ const server = http.createServer(async (req, res) => {
          --stale uses (tasks.lastActivityOf), so a coordinator can tell waiting from drift without a threshold. Null when
          there is no date. One transcript read per open row, as --stale already pays; a closed row reads none. Every all=1
          answer pays it, `kosmos task files --all` too (built rows, which it does not print). */
-      const activityOf = allProjects ? (t) => (t ? Object.assign({}, t, { lastActivityAt: tasks.lastActivityOf(t.projectId, t) || null }) : t) : (t) => t;
+      /* And on a held row, whether its reopening condition is already met (tasks.holdUntilState: the task it waits on is
+         closed or gone, or its time has passed), so a hold that should have lifted is not said as still waiting. */
+      const projectOf = new Map((everyProject || []).filter((x) => x && x.id).map((x) => [x.id, x]));
+      const activityOf = allProjects ? (t) => {
+        if (!t) return t;
+        const extra = { lastActivityAt: tasks.lastActivityOf(t.projectId, t) || null };
+        if (t.onHold === true && t.onHoldUntil) {
+          try { const st = tasks.holdUntilState(projectOf.get(t.projectId) || { tasks: [] }, t); if (st) extra.holdUntilMet = st.met === true; } catch { /* said as before */ }
+        }
+        return Object.assign({}, t, extra);
+      } : (t) => t;
       sendJson(res, 200, { tasks: rows.map(withRepeatWords).map(taskseen ? seenOf : (t) => t).map(activityOf), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}), ...(allProjects ? { all: true } : {}), ...(mineCaller ? { mine: true } : {}) });   // kosmos#4787, kosmos#7992
       return;
     }
