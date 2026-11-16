@@ -79,6 +79,8 @@ function phrase(ev, nameOfMember, opts) {
       return ev.reached === false ? 'Still on hold while ' + who + ' worked in its project room; Kosmos could not reach ' + who
         : 'Still on hold while ' + who + ' worked in its project room; ' + who + ' was asked whether the hold still stands';
     }
+    /* kosmos#8581: its holder was told a run is due (engine/repeatdue.js), with the Prompter off. */
+    case 'due-told': { const who = nameOf(ev.told) || 'its holder'; return ev.reached === false ? 'A run was due; Kosmos could not reach ' + who : 'A run was due; ' + who + ' was told'; }
     case 'missed': {
       const runs = ev.more === true ? 'More than ' + ev.count + ' runs missed' : Number(ev.count) > 1 ? ev.count + ' runs missed' : 'A run was missed';
       if (ev.person) return runs + (agent ? '; the person reviews it' : '; you review it');
