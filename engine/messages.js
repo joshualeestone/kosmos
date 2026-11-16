@@ -2503,6 +2503,13 @@ function ambiguousNote(ambiguous, mentioned, shown) {
   return out.join(' ');
 }
 
+/* kosmos#8569: the one handle an addressed word names among agents on this computer who are not on the project, or null.
+   outsidersNote speaks of that handle and unmatchedNote stays silent for it, so both read the same rule here. */
+function outsiderHandle(word, outside, roster) {
+  const hit = [...mentionedMembers('@' + word, outside, roster).mentioned];
+  return hit.length === 1 && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(hit[0]) ? hit[0] : null;
+}
+
 /* kosmos#8270: the sentence that tells an agent its post addressed another Kosmos agent on this computer who is not on
    this project, so it reached them nowhere. It finds addressees as addressedMembers does, more strictly, and speaks only of someone it can
    identify on this computer: a real agent's card here (not a stray terminal session, which `kosmos msg` refuses), named in a header that
@@ -2522,11 +2529,11 @@ function outsidersNote(cleaned, recipients, roster, from, raw) {
     for (const c of Array.isArray(roster) ? roster : []) if (c && (members.includes(c.sessionName) || c.sessionName === from)) { addKeys(c.sessionName); addKeys(c.name); }
     members.forEach(addKeys); addKeys(from);
     const found = new Map();   // the handle to type -> the name shown
-    const add = (hit) => {
-      if (hit.length !== 1 || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(hit[0])) return;
-      const card = cards.find((c) => c.sessionName === hit[0]);
-      const shown = printableName(card && card.name) || printableName(hit[0]);
-      if (shown) found.set(hit[0], shown);
+    const add = (handle) => {
+      if (!handle) return;
+      const card = cards.find((c) => c.sessionName === handle);
+      const shown = printableName(card && card.name) || printableName(handle);
+      if (shown) found.set(handle, shown);
     };
     const poster = from === undefined || from === null ? [] : [String(from)];
     const head = postHeader(typeof raw === 'string' ? raw : String(cleaned || '')).find((h) => nameResolves(h.sender, poster, roster).length);
@@ -2536,12 +2543,12 @@ function outsidersNote(cleaned, recipients, roster, from, raw) {
         // The whole header name only, as the @ rule: a run of leading words would make "-> Design team:" mean an agent named
         // design, and a word of a display name "-> Team:" mean "Team Rocket". "-> Homer on m702:" says nothing, the safe side.
         const key = nameKey(bare);
-        if (!insideKeys.has(key)) add([...mentionedMembers('@' + key, outside, roster).mentioned]);
+        if (!insideKeys.has(key)) add(outsiderHandle(key, outside, roster));
       }
     }
     for (const m of String(cleaned || '').replace(/`[^`]*`/g, ' ').matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
       const word = m[2].replace(/[._-]+$/, '');
-      if (word && !/^(all|everyone)$/i.test(word) && !insideKeys.has(nameKey(word))) add([...mentionedMembers('@' + word, outside, roster).mentioned]);
+      if (word && !/^(all|everyone)$/i.test(word) && !insideKeys.has(nameKey(word))) add(outsiderHandle(word, outside, roster));
     }
     return [...found].map(([handle, name]) => name + ' is not on this project, so this post did not reach them. To reach them: kosmos msg ' + handle + '.').join(' ');
   } catch { return ''; }
@@ -2574,9 +2581,11 @@ function unmatchedNote(cleaned, recipients, roster, from, raw) {
     for (const part of head ? head.targets : []) {
       const bare = part.replace(/^@/, '').trim();
       if (!/^[A-Za-z][A-Za-z.'-]*(?: [A-Za-z][A-Za-z.'-]*){0,2}$/.test(bare) || bare.split(' ').some(mayMean)) continue;
-      if (mentionedMembers('@' + nameKey(bare), outside, roster).mentioned.size === 1) continue;   // outsidersNote's
-      const shown = bare.slice(0, 60);
-      if (!unmatched.includes(shown)) unmatched.push(shown);
+      if (outsiderHandle(nameKey(bare), outside, roster)) continue;   // outsidersNote speaks of this one
+      // kosmos#8569: said as a name, so a trailing possessive goes ("Josh's" is Josh), and one name in two spellings once.
+      const shown = bare.replace(/'s$/i, '').slice(0, 60);
+      const key = nameKey(shown);
+      if (shown && !unmatched.some((u) => nameKey(u) === key)) unmatched.push(shown);
     }
     if (!unmatched.length) return '';
     const handle = (m) => (/^[A-Za-z0-9._-]+$/.test(m) ? m : '');
