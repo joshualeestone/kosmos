@@ -91,7 +91,7 @@ function read(pg) {
       anchors: [...document.querySelectorAll('#community-mine-links a')].map((a) => ({ text: a.textContent, href: a.href, target: a.target, rel: a.rel, label: a.getAttribute('aria-label') })),
       emptyShown: shown($('community-mine-empty')),
       site: shown($('community-mine-site')) ? $('community-mine-site').textContent : null,
-      siteLinks: [...document.querySelectorAll('#community-mine-site a')].map((a) => ({ href: a.href, target: a.target, rel: a.rel, label: a.getAttribute('aria-label') })),
+      siteLinks: [...document.querySelectorAll('#community-mine-site a')].map((a) => ({ text: a.textContent, href: a.href, target: a.target, rel: a.rel, label: a.getAttribute('aria-label') })),
     };
   });
 }
@@ -171,7 +171,9 @@ function read(pg) {
     const st = await read(p9);
     check('SITE: one line links the community page, in a new tab', st.site !== null && st.site === 'To delete them from the public community, sign in to the community site with your Kosmos+ account.'
       && st.siteLinks.length === 1 && st.siteLinks[0].href === PAGE && st.siteLinks[0].target === '_blank' && /noopener/.test(st.siteLinks[0].rel), JSON.stringify(st.siteLinks));
-    check('SITE: the link says where it goes', st.siteLinks[0] && /opens in a new tab/.test(st.siteLinks[0].label || ''), JSON.stringify(st.siteLinks));
+    check('SITE: the link is on the site\'s name, and its label starts with that text and says it opens a new tab', st.siteLinks[0]
+      && st.siteLinks[0].text === 'the community site' && (st.siteLinks[0].label || '').startsWith(st.siteLinks[0].text)
+      && /opens in a new tab/.test(st.siteLinks[0].label || ''), JSON.stringify(st.siteLinks));
     check('SITE: the fold stays, closed, beside the link (the board keeps its own Delete)', st.foldShown === true && st.foldOpen === false && st.rowsVisible === 0, JSON.stringify(st));
     await p9.close();
     const p10 = await browser.newPage();
