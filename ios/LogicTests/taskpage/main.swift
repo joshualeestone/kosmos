@@ -192,6 +192,11 @@ check(Board.activityPhrase(["kind": "kept-dropped", "to": "dana", "person": true
       == "Your message to Dana was never sent: Kosmos kept it while Dana was out of usage and could not send it within a day", "a dropped message")
 check(Board.activityPhrase(["kind": "missed", "count": 3, "told": "dana", "reached": false], name: { _ in "Dana" }) == "3 runs missed; Kosmos could not reach Dana",
       "missed runs, the reviewer not reached")
+// kosmos#8581: a due run told to its holder, reached and not, as engine/taskactphrase.js words it.
+check(Board.activityPhrase(["kind": "due-told", "told": "dana", "reached": true], name: { _ in "Dana" }) == "A run was due; Dana was told",
+      "a due run, the holder told")
+check(Board.activityPhrase(["kind": "due-told", "told": "dana", "reached": false], name: { _ in "Dana" }) == "A run was due; Kosmos could not reach Dana",
+      "a due run, the holder not reached")
 
 section("the page's model, against a fake Mac")
 // kosmos#7751: on the main actor, as the model is. Unisolated, asyncSend ran on another thread (Swift 5 mode runs a

@@ -437,6 +437,10 @@ extension Board {
             return ev["reached"] as? Bool == false
                 ? "Still on hold while " + who + " worked in its project room; Kosmos could not reach " + who
                 : "Still on hold while " + who + " worked in its project room; " + who + " was asked whether the hold still stands"
+        // kosmos#8581: its holder was told a run is due (engine/repeatdue.js), as the page words it.
+        case "due-told":
+            let who = nameOf("told") ?? "its holder"
+            return ev["reached"] as? Bool == false ? "A run was due; Kosmos could not reach " + who : "A run was due; " + who + " was told"
         case "missed":
             let count = ev["count"].map { "\($0)" } ?? ""
             let runs = ev["more"] as? Bool == true ? "More than " + count + " runs missed" : (number(ev["count"]) ?? 0) > 1 ? count + " runs missed" : "A run was missed"

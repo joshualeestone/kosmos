@@ -14,8 +14,8 @@
  * lines for one run would be noise. The caller passes `prompterOn`.
  *
  * Once: the task stores the latest due slot it told about (repeatDueToldAt). A slot is told only when it is newer than
- * that. A task every few minutes is told again, while the same stall lasts, only for a slot an hour or more past the
- * last one told (as missedtell does for its reviewer). Nothing in a paused project, on a held task, closed, or for a
+ * that. While one stall lasts (no run since the last line), it is told again only STALL_GAP past the last slot told:
+ * stallGap(). Nothing in a paused project, on a held task, closed, or for a
  * holder switched off in the project is told (#4771). One holder per slot: the first idle holder told answers it,
  * because one `kosmos task ran` answers the slot for the whole task. A delivery that reached nothing is tried again on
  * later sweeps, up to MAX_TRIES for one slot, then recorded as not reached so it never repeats for ever.
@@ -30,6 +30,15 @@ const MAX_TRIES = 3;
 const SETTLED_MS = 50 * 1000;
 const SEEN_GAP_MS = 90 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+/* How far past the last slot told a stalled repeat is told again: four periods, at least an hour and at most a day.
+   Every 15 minutes: hourly. Hourly: every 4 hours. Daily or slower: each slot. */
+function stallGap(rule, from) {
+  const next = taskrepeat.nextAfter(rule, from);
+  const period = next !== null && next > from ? next - from : DAY_MS;
+  return Math.min(DAY_MS, Math.max(HOUR_MS, 4 * period));
+}
 
 function plain(s, max) { return require('./agentnudge').plainWords(s, max); }
 
@@ -51,7 +60,7 @@ function owed(projects, now = Date.now()) {
       const told = Date.parse(t.repeatDueToldAt || '');
       if (Number.isFinite(told) && at <= told) continue;
       const ranSince = Date.parse(t.lastRunAt || '') > told;
-      if (t.repeat.every === 'minutes' && Number.isFinite(told) && !ranSince && at - told < HOUR_MS) continue;
+      if (Number.isFinite(told) && !ranSince && at - told < stallGap(t.repeat, told)) continue;
       const holders = [...new Set(tasks.partsOf(t).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))]
         .filter((who) => !P.isSwarmOff(p, who));
       if (!holders.length) continue;
@@ -157,4 +166,4 @@ function sweep(o) {
   return { results };
 }
 
-module.exports = { owed, tellText, markTold, sweep, MAX_TRIES };
+module.exports = { owed, tellText, markTold, sweep, stallGap, MAX_TRIES };
