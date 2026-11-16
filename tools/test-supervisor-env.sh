@@ -216,7 +216,7 @@ if [ "$(cat "$MARKER4" 2>/dev/null)" = engine ]; then
 elif [ -f "$MARKER4" ]; then
   bad "kosmos#8597: the supervisor ran the shim beside itself, not the engine's codexupdate.js (an installed supervisor has no shim)"
 else
-  bad "#1911: the codex-dismiss shim did not run with node off PATH -- a bare node cannot resolve on a Kosmos-only host: $(tail -3 "$SB4/out.log")"
+  bad "#1911, kosmos#8597: the engine's launch prep did not run with node off PATH -- a bare node cannot resolve on a Kosmos-only host: $(tail -3 "$SB4/out.log")"
 fi
 
 # ---------------------------------------------------------------- #3769

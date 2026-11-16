@@ -29,7 +29,8 @@
  *
  * kosmos#8597: it also answers Codex's model-migration menu (pinModelMigration, below). That one reads the catalog
  * the binary ships when the fetched cache does not answer, so a launch can spawn `codex debug models --bundled`,
- * bounded at BUNDLED_MS, and it takes engine/filelock.js and engine/securewrite.js for its config.toml write. The
+ * bounded at BUNDLED_MS (node:child_process, engine/win32env.js), and it takes engine/filelock.js and engine/securewrite.js for its
+ * config.toml write. The
  * update dismissal above still needs nothing; the migration pin is the part that can cost a launch time (at most
  * BUNDLED_MS plus the lock's wait), and it still never stops one.
  *
@@ -116,8 +117,10 @@ function upgradeIn(catalog, model) {
   if (!list) return undefined;
   const m = list.find((x) => x && x.slug === model);
   if (!m) return undefined;   // this catalog does not know the model: ask the next one
-  const to = m.upgrade && typeof m.upgrade.model === 'string' ? m.upgrade.model : null;
-  return to && SLUG.test(to) && to !== model ? to : null;
+  if (m.upgrade === null || m.upgrade === undefined) return null;   // known, no upgrade: no menu
+  /* An upgrade in a shape this does not read is not an answer: ask the next catalog, or decline. */
+  const to = typeof m.upgrade === 'object' && typeof m.upgrade.model === 'string' ? m.upgrade.model : null;
+  return to && SLUG.test(to) && to !== model ? to : undefined;
 }
 
 /* The model the agent runs: the one it is launched with, else config.toml's top-level `model`. */
@@ -160,7 +163,7 @@ async function migrationTarget(home, model, codexBin, ms) {
   try { cached = upgradeIn(JSON.parse(fs.readFileSync(path.join(home, 'models_cache.json'), 'utf8')), model); } catch { cached = undefined; }
   if (cached !== undefined) return cached;
   if (!codexBin) return null;
-  return upgradeIn(await bundledCatalog(home, codexBin, ms), model) || null;
+  return upgradeIn(await bundledCatalog(home, codexBin, ms), model) || null;   // undefined (unknown or unreadable) is no target
 }
 
 /* The config text with `"<model>" = "<to>"` in [notice.model_migrations], or null when it is already there or the file
@@ -228,7 +231,8 @@ async function pinModelMigration(home, model, codexBin, opts = {}) {
 async function launchPrep(argv) {
   const a = Array.isArray(argv) ? argv : [];
   try { dismissUpdateNotice(a[0] || undefined); } catch { /* never break a launch */ }
-  try { if (a[3] !== '1') await pinModelMigration(a[0] || undefined, a[1] || '', a[2] || ''); } catch { /* never break a launch */ }
+  /* Only into a home it is NAMED: with none, defaultHome() would be the person's own ~/.codex (a hand run). */
+  try { if (a[0] && a[3] !== '1') await pinModelMigration(a[0], a[1] || '', a[2] || ''); } catch { /* never break a launch */ }
 }
 
 module.exports = { dismissUpdateNotice, defaultHome, homeIsNamed, pinModelMigration, migrationTarget, withMigration, configModel, bundledCatalog, launchPrep };
