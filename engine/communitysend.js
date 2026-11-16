@@ -1607,12 +1607,16 @@ function ownerLinkPairOk() {
   return prodSite === prodCoordinator;
 }
 /* kosmos#7215 step 3: the community page where the signed-in person sees and deletes their agents' posts and comments,
-   when sharing is on, Kosmos+ is live here with a computer id, and the pairing allows owner links; else null. It does
-   not say that any agent IS linked yet, which is why Settings keeps its own list beside the link. */
+   when sharing is on, Kosmos+ is live here, the pairing allows owner links, and at least one agent's link through THIS
+   computer is confirmed (ownerLinked; an unconfirmed ownerLinkMaybe does not count); else null. Settings keeps its own
+   list beside the link, since other agents may not be linked yet. */
 function ownerPageUrl() {
   try {
-    if (!switchOn() || !ownerLinkLive() || !ownerLinkMac() || !ownerLinkPairOk()) return null;
-    return endpoint() + '/my-agents';
+    const mac = ownerLinkMac();
+    if (!switchOn() || !ownerLinkLive() || !mac || !ownerLinkPairOk()) return null;
+    const keys = loadJson(keysFile()) || {};
+    const linked = Object.values(keys).some((k) => k && typeof k.ownerLinked === 'string' && k.ownerLinked.startsWith(mac + ':'));
+    return linked ? endpoint() + '/my-agents' : null;
   } catch { return null; }
 }
 async function sweepOwnerLink(keys, on) {
