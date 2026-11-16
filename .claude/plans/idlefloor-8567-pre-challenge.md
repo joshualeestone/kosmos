@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: idlefloor-8567
-diff_hash: 913324ef85c4e280c2eb42080012155c17e37b4742f23295d2cfc9fb2911788d
+diff_hash: c795e6466605f5db33ab2d3480289be96ab7051a55ced52aa2c869011d3223a1
 validation: passed (full suite through queued-heavy on d437730491, 18:18 to 18:42 CST: node 28698 pass, 0 fail; test:shell 4 shards all green; END rc=0)
 subdir_audit: passed (no CLAUDE.md changed)
 timestamp: 2026-11-16T00:42:44Z
