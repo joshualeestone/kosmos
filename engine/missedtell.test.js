@@ -360,3 +360,18 @@ test('#8586: naming another reviewer ends the stall (CONTROL: the same reviewer,
     ? { ...t, repeatReviewer: REX, repeatReviewerSetAt: new Date(day(1) + 3600000).toISOString() } : t)) }));
   assert.equal(sweep(day(2)).results[0].recorded, true, 'a newly named reviewer: a new stall');
 });
+
+test('#8586: the same reviewer named again, or a rule change, ends the stall (CONTROL: nothing changed, not recorded)', () => {
+  const g = fixture(ADA);
+  projects.mutate(g.id, (x) => ({ ...x, agents: [] }));
+  const day = (k) => NOW + k * 86400000;
+  const sweep = (now) => mt.sweep({ projects: only(g.id), roster, now, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, idleSeen: settled(), deliver: () => { throw new Error('typed'); } });
+  const set = (f) => projects.mutate(g.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === g.n ? { ...t, ...f } : t)) }));
+  assert.equal(sweep(NOW).results[0].recorded, true);
+  assert.equal(sweep(day(1)).results[0].recorded, false, 'control: nothing changed');
+  set({ repeatReviewerSetAt: new Date(day(1) + 3600000).toISOString() });   // the same reviewer, named again
+  assert.equal(sweep(day(2)).results[0].recorded, true, 'named again: a new stall');
+  assert.equal(sweep(day(3)).results[0].recorded, false, 'control: nothing changed since');
+  set({ repeatSetAt: new Date(day(3) + 3600000).toISOString() });   // the rule changed
+  assert.equal(sweep(day(4)).results[0].recorded, true, 'a rule change: a new stall');
+});
