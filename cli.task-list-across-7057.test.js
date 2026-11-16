@@ -279,3 +279,15 @@ test('kosmos#8576: a hold until a task that has since closed says its condition 
   tasks.close(C, first.number);
   assert.match(await rowOf(), /its hold's condition is met, but it is still on hold\)$/, 'the board did not say the hold\'s task had closed');
 });
+
+/* kosmos#8576: the activity read is paid only by the list (all=1 with order=state); kosmos task files --all asks with
+   all=1&state=built and no order, prints none of it, and so is sent none. */
+test('kosmos#8576: only the list across every project is sent lastActivityAt; the files form is not', async () => {
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const get = async (q) => (await (await fetch(base + '/api/tasks?' + q, { headers: { origin: base } })).json()).tasks || [];
+  const listed = await get('all=1&order=state&state=built');
+  assert.ok(listed.length > 0 && listed.every((t) => Object.prototype.hasOwnProperty.call(t, 'lastActivityAt')), 'CONTROL: the list form carries it');
+  const files = await get('all=1&state=built');
+  assert.ok(files.length > 0, 'the files form listed nothing, so this proves nothing');
+  assert.ok(files.every((t) => !Object.prototype.hasOwnProperty.call(t, 'lastActivityAt')), 'the files form paid for a read it does not print');
+});
