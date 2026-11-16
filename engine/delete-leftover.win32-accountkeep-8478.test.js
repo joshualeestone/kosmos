@@ -616,7 +616,7 @@ test('kosmos#8478 round 3: a folder name is not an account: alice signs out, Kos
     startAtLogin(name);
     // The outcome first, so a control against code without the check shows the wrong account, not only other words.
     assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, 'the agent was put on bob\'s account');
-    const words = /It starts on the model it was set to\. The account in the folder it used has signed out or changed\. It starts on your main account unless that same account is signed in there again before you use Start at login\. Choose its account again if it should use another\./;
+    const words = /It starts on the model it was set to\. The account in the folder it used has signed out or changed\. It starts on that folder's account only if that same account is signed in there again before you use Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\./;
     assert.match(p.reassurance, words);
     assert.doesNotMatch(p.reassurance, /account and model it was set to before/, 'it promised the account it was set to, which is now bob\'s');
     assert.match(p.said, words);

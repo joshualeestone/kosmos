@@ -113,6 +113,37 @@ delete-leftover.startsAgainWords ends the task-only delete's sentences and Resto
 - CONVENTION: this plan's Decisions, Weakest part and What would change my mind described removed wording; marked
   and rewritten.
 
+## Review round 5
+- WARNING: the kept-folder words were the fallthrough for ANY account outcome not handled above them. Today only
+  unreachable, unreadable and unreadableGaveUp reach it, but a value added to create.win32RecordedTask later would
+  have been promised a kept folder. Now only those three get the kept words; anything else gets a neutral
+  main-account sentence. Test stubs win32RecordedTask with an unknown value (and a control with a kept one);
+  mutation-checked: forcing the kept words reds it.
+- CONVENTION: create.win32RecordedTask's `unreadableLeft` had no reader left (the count clause went in round 3).
+  Removed.
+- NITs: one field (`accountWhy`) picks the reason; out of reach says "the account folder it last used", like the
+  other kept outcomes; a dead regex option and a no-op ternary in the tests removed.
+
+## Review round 6
+- WARNING (older than this card, but against its rule): "changed" said the main account as a flat fact. register.repair
+  reads the account again at Start at login, so the same account signed back in by then puts the task on that
+  folder. End-to-end test proves it (another account in the folder, words, owner signed back in, repair writes the
+  folder). Round 6 also gave "unusable" the same treatment; round 7 reversed that (below).
+- NITs: "Kosmos also could not confirm that account at two earlier Start at logins." (was "... either", after a
+  "could not read"); a removed.json cleanup moved into finally; a round 2 note marked superseded.
+
+## Review round 7
+- WARNING: "unusable" never comes right before Start at login. win32AccountThere refuses on a path that is not
+  absolute, an Antigravity or Muse runner, a Qwen home or a vendor folder name, all fixed in the record; its one live
+  check (the folder is a directory) is the reach check that already passed. So the round 6 "unless that folder can
+  be used again" named a hope with no action. Back to the flat "because ... cannot be used for it now".
+- NIT: "changed" now uses "only if" like the kept outcomes: "It starts on that folder's account only if that same
+  account is signed in there again before you use Start at login. Otherwise it starts on your main account". A
+  config mid-write reads as unreadable even with the same account, so "unless" was not quite sufficient.
+- NIT (not taken): on the out-of-reach plan, outOfSightWords (the agent's folder) and these words (the account
+  folder) each say to connect a disk. Both true, about two different folders; merging them is a wording change to
+  #8475's sentences, out of this card.
+
 ## Weakest part (round 3)
 The words no longer tell the person that a later removal of the startup job would try the folder again. That is true
 and occasionally useful, but saying it truthfully needed three conditions; it was dropped rather than half-said.
@@ -130,7 +161,10 @@ and occasionally useful, but saying it truthfully needed three conditions; it wa
 ## Weakest part
 The words describe only what THIS Start at login does. A person who removes the startup job again later is not told
 that Kosmos would try the kept folder again (round 3 dropped that, since saying it truly needed three conditions).
-Separately, "not offered now" is a little vaguer than "no longer offered", traded for being true in every case.
+"Not offered now" is a little vaguer than "no longer offered", traded for being true in every case. Which account
+outcomes are read again live at Start at login (only "changed" among the flat ones) was established by reading
+create.win32RecordedTask and win32AccountThere; a future live check added there would need the words revisited, and
+only the round 5 neutral fallback (for a NEW value) guards that automatically.
 
 ## What would change my mind
 A person-facing need to act on the kept record later (a support case where someone removed the startup job twice

@@ -182,17 +182,16 @@ function assertWords(words, { outcome, count, modelKey }) {
   } else if (account === 'mainAsBefore') {
     assert.match(words, modelKey === 'offered' ? /account and model it was set to before/ : /starts on your main account, as before/, label);
   } else if (account === 'main') {
-    if (outcome === 'changed' || outcome === 'unusable') {
-      /* Round 6: read again, live, at Start at login, so the main account is said with "unless", never flatly. */
-      assert.match(words, outcome === 'changed'
-        ? /The account in the folder it used has signed out or changed\. It starts on your main account unless that same account is signed in there again before you use Start at login\./
-        : /The account folder it used cannot be used for it now\. It starts on your main account unless that folder can be used for it again before you use Start at login\./, label);
+    if (outcome === 'changed') {
+      /* Round 6/7: read again, live, at Start at login, so the main account is never said flatly ("only if"). */
+      assert.match(words, /The account in the folder it used has signed out or changed\. It starts on that folder's account only if that same account is signed in there again before you use Start at login\. Otherwise it starts on your main account/, label);
       assert.doesNotMatch(words, /because /, label);
     } else {
+      // Fixed in the record (unusable included: win32AccountThere's refusals do not change), so said flatly.
       assert.match(words, /on your main account, because /, label);
+      assert.doesNotMatch(words, /only if|unless/, label);
     }
-    assert.match(words, /Choose its account( and model)? again/, label);
-    assert.doesNotMatch(words, /only if/, label);
+    assert.match(words, /[Cc]hoose its account( and model)? again/, label);
   } else {
     // This Start at login: that folder only if it can be used then, else the main account, and what to do about it.
     assert.match(words, /It starts on that folder's account only if Kosmos can (reach the folder then and it holds the same account|confirm that at Start at login|read that account at Start at login and it is the same one)\./, label);
@@ -415,7 +414,7 @@ test('kosmos#8510 round 6: a folder holding another account, the same account si
   try {
     signIn(ACCOUNT, { emailAddress: 'someone-else@example.test', organizationUuid: 'org-other' });
     for (const words of taskOnlyDelete(name)) {
-      assert.match(words, /It starts on your main account unless that same account is signed in there again before you use Start at login\./);
+      assert.match(words, /The account in the folder it used has signed out or changed\. It starts on that folder's account only if that same account is signed in there again before you use Start at login\. Otherwise it starts on your main account/);
       assert.doesNotMatch(words, /but on your main account, because /, 'the main account was said as a flat fact');
     }
     signIn(ACCOUNT, OWNER);   // the person signs the same account back in

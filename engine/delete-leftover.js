@@ -941,25 +941,25 @@ function startsAgainWords(name, preview = false) {
   /* The outcomes that keep no folder: the account cannot be put back, and the words say why. round 1: removed from
      Kosmos, so its folder name may now be someone else's; round 2: or not there when the startup job was removed
      (create.win32TaskOnTask); round 3: a folder NAME is not an account, so a record that never held whose account it
-     was is not trusted. (An account signed out or changed, and a folder this runner cannot use, are read again at
-     Start at login, so they have their own "unless" words above.) */
+     was is not trusted; and a folder this runner cannot use (win32AccountThere: a path, runner or folder name that no
+     longer fits, all fixed in the record; its one live check, that the folder is there, is the reach check that
+     already passed). An account signed out or changed has its own words below. */
   const because = {
     missing: 'because the account folder it used was not there when its startup job was removed',
     removed: 'because the account it used was disconnected or removed',   // round 5: forget (disconnect) clears it too
     unverifiable: 'because Kosmos did not record whose account was in the folder it used',
+    unusable: 'because the account folder it used cannot be used for it now',
   }[rec.accountWhy];   // win32RecordedTask sets accountWhy to accountGone for a removed account, so one field decides
-  /* Round 6: two of these are read again, live, when Start at login runs (register.repair calls win32RecordedTask
-     again): an account signed out or changed in that folder, and a folder this runner cannot use (win32AccountThere).
-     Put right by then (the same account signed in again, say), repair writes the task on that folder. So for those the
-     main account is said with "unless", never as a flat fact. The others are fixed in the record and cannot come back. */
-  const liveReason = {
-    changed: ['The account in the folder it used has signed out or changed.', 'unless that same account is signed in there again before you use Start at login'],
-    unusable: ['The account folder it used cannot be used for it now.', 'unless that folder can be used for it again before you use Start at login'],
-  }[rec.accountWhy];
-  if (liveReason) {
+  /* Round 6: an account signed out or changed in that folder is read again, live, when Start at login runs
+     (register.repair calls win32RecordedTask again). The same account signed in again by then puts the task on that
+     folder, so the main account is never said as a flat fact. Round 7: "only if", like the kept outcomes, because even
+     then a config being written at that moment reads as unreadable and the main account is used. */
+  if (rec.accountWhy === 'changed') {
     const modelNow = rec.modelOk ? 'It starts on the model it was set to.' : `It starts on ${retired}.`;
-    return `. ${modelNow} ${liveReason[0]} It starts on your main account ${liveReason[1]}.`
-      + (rec.modelOk ? ' Choose its account again if it should use another.' : ' Choose its account and model again if it used others.');
+    return `. ${modelNow} The account in the folder it used has signed out or changed.`
+      + " It starts on that folder's account only if that same account is signed in there again before you use Start at login."
+      + (rec.modelOk ? ' Otherwise it starts on your main account; choose its account again if it should use another.'
+        : ' Otherwise it starts on your main account. Choose its account and model again if it used others.');
   }
   if (because) {
     return rec.modelOk
