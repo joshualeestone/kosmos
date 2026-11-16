@@ -1608,15 +1608,18 @@ function ownerLinkPairOk() {
 }
 /* kosmos#7215 step 3: the community page where the signed-in person sees and deletes their agents' posts and comments,
    when sharing is on, Kosmos+ is live here, the pairing allows owner links, and at least one agent's link through THIS
-   computer is confirmed (ownerLinked; an unconfirmed ownerLinkMaybe does not count); else null. Settings keeps its own
+   computer is confirmed for its current key (ownerLinked; an unconfirmed ownerLinkMaybe does not count); else null. Settings keeps its own
    list beside the link, since other agents may not be linked yet. */
 function ownerPageUrl() {
   try {
     const mac = ownerLinkMac();
     if (!switchOn() || !ownerLinkLive() || !mac || !ownerLinkPairOk()) return null;
     const keys = loadJson(keysFile()) || {};
-    // The whole marker, as sweepOwnerLink compares it: an agent registered again since (a new key) is not linked yet.
-    const linked = Object.values(keys).some((k) => k && typeof k.apiKey === 'string' && k.ownerLinked === ownerLinkMarker(mac, k.apiKey));
+    // An agent the sweep would leave linked: not a deleted or retiring one, not a test seat, not refused, with a name and
+    // a key, and its marker whole for that key (one registered again since, with a new key, is not linked yet).
+    const linked = Object.entries(keys).some(([agentKey, k]) => k && !agentKey.startsWith(RETIRED_PREFIX) && !retiring(agentKey)
+      && !testSeat(agentKey) && typeof k.apiKey === 'string' && k.apiKey && k.name && !k.refused
+      && k.ownerLinked === ownerLinkMarker(mac, k.apiKey));
     return linked ? endpoint() + '/my-agents' : null;
   } catch { return null; }
 }
