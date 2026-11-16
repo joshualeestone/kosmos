@@ -45,6 +45,11 @@ the same way.
   the per-poll cost). The two stats come first, so the job is read only once it is newer than the transcript: after a
   rewrite, until the next reply (on Windows that read is cached, #2717).
 
+- Review 4: the reading's age is the TIMESTAMP of the reply that named the model (readBeforeJob / modelRowAt), not the
+  transcript file's time. Claude Code writes the person's prompt row as soon as it is sent, so with the file's time the
+  first message after a change made the transcript newer than the job and the old model read as current again until
+  the first reply. No readable timestamp in the tail: the file's time, as before. The Codex rule keeps the file time.
+
 ## Weakest premise
 That a job naming a different model than the last reply means the agent runs the job's model. Two narrow cases where it
 does not: a model change whose restart failed with the old process still alive (setModel's partial outcome), and a
@@ -79,3 +84,8 @@ Linux agent's card also shows the new model right after a change instead of the 
   create.plannedModelOf; the main case fails against origin/main's status.js. The server hop (modelName null on a running
   card fills plannedModelName from the job) is pinned by server.test.js "a tied card reports the model its job will start
   it on, and only when no live model was read".
+- Review 4, live with the branch engine on the Windows box (work/t8471live/prompt8601c.ps1, a fresh process per read,
+  since win32job remembers a task it has read until its own install, and only the board's own setModel refreshes
+  that): job naming Opus 4.8, last reply Haiku 5.5. Before the prompt: earlier (the card shows the planned Opus). Prompt
+  sent 23:54:09.154, user row written 09.72: the two reads after it are still earlier (the file time alone would have
+  read Haiku as current). Opus reply 10.661: current Opus. The card never named the wrong model.

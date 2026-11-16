@@ -67,7 +67,7 @@ test('kosmos#8601 review 2: with a real job naming another model, written after 
   assert.deepEqual(status.readModel('realswitch'), { model: 'claude-opus-4-8', confidence: 'structured', earlierSession: true });
 });
 
-test('kosmos#8601 review 2 CONTROL: a real job rewritten with the SAME model (a restart) leaves the reading', () => {
+test('kosmos#8601 review 2 CONTROL: a real job rewritten with the SAME model (an account move) leaves the reading', () => {
   session('realsame', replied('claude-opus-4-8'), 600);
   job('realsame', 'claude-opus-4-8', 5);
   assert.deepEqual(status.readModel('realsame'), { model: 'claude-opus-4-8', confidence: 'structured' });

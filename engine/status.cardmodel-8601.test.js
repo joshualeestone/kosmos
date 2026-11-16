@@ -79,7 +79,7 @@ test('kosmos#8601: a job rewritten after the transcript to name ANOTHER model ma
   assert.deepEqual(status.splitModelReading(status.readModel('switched')), { model: null, earlierModelName: 'Claude Opus 4.8' });
 });
 
-test('kosmos#8601 review 1 CONTROL: a restart or account move rewrites the job with the SAME model: the reading stands', () => {
+test('kosmos#8601 review 1 CONTROL: an account move, a provider switch or (Windows) a stop and start rewrites the job with the SAME model: the reading stands', () => {
   session('restarted', 'old.jsonl', replied('claude-opus-4-8'), 600);
   job('restarted', 5, 'claude-opus-4-8');
   assert.deepEqual(status.readModel('restarted'), current('claude-opus-4-8'));
@@ -104,6 +104,26 @@ test('kosmos#8601 review 1 CONTROL: the same model spelled with a [1m] suffix or
   session('dated', 'old.jsonl', replied('claude-haiku-4-5-20251001'), 600);
   job('dated', 5, 'claude-haiku-4-5');
   assert.deepEqual(status.readModel('dated'), current('claude-haiku-4-5-20251001'));
+});
+
+/* Review 4: Claude Code writes the person's prompt row as soon as it is sent, before any reply, so the file is newer
+   than the job while the newest REPLY is still the old model's. The reply row's own timestamp decides. */
+const at = (secAgo) => new Date(Date.now() - secAgo * 1000).toISOString();
+test('kosmos#8601 review 4: a prompt sent after the change does not bring the old model back before the first reply', () => {
+  session('prompted', 'old.jsonl', [
+    { type: 'assistant', message: { model: 'claude-opus-4-8' }, timestamp: at(600) },
+    { type: 'user', message: { content: 'hello after the change' }, timestamp: at(2) },   // sent after the change
+  ], 2);   // so the FILE is newer than the job
+  job('prompted', 300, 'claude-haiku-5-5');
+  assert.deepEqual(status.readModel('prompted'), { model: 'claude-opus-4-8', confidence: 'structured', earlierSession: true });
+});
+
+test('kosmos#8601 review 4 CONTROL: a reply timestamped after the job is the current model, whatever the file time says', () => {
+  session('repliedafter', 'old.jsonl', [
+    { type: 'assistant', message: { model: 'claude-opus-4-8' }, timestamp: at(60) },   // a reply after the rewrite
+  ], 600);   // a file time older than the job (copied back, say): the row's own time wins
+  job('repliedafter', 300, 'claude-haiku-5-5');
+  assert.deepEqual(status.readModel('repliedafter'), current('claude-opus-4-8'));
 });
 
 /* Review 3: pinned so a later change sees the window is deliberate. An id the name table does not know is shown raw,

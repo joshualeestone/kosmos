@@ -6934,14 +6934,49 @@ function withoutModelFromBeforeJob(sess, agentName) {
    the context ring and whoami as well. One job-file lookup for both, so the platforms cannot drift. Any stat that
    fails (no job: a fleet agent, an untied pane) is "no", which changes nothing. */
 function writtenBeforeJob(file, agentName) {
+  let fileAt;
+  try { fileAt = fs.statSync(file).mtimeMs; } catch { return false; }
+  return jobWrittenAfter(fileAt, agentName);
+}
+
+/* Whether the agent's job file was last written after `at` (ms). The one job-file lookup writtenBeforeJob and readModel
+   share. A stat that fails, or an `at` that is not a number, is "no". */
+function jobWrittenAfter(at, agentName) {
+  if (!Number.isFinite(at)) return false;
   try {
     // #4918 review 11: on Linux the job file is the agent's systemd unit, not a plist (which never exists there).
     // kosmos#8466: on Windows it is the Scheduled Task's own file, not a plist (which never exists there either).
     const jobFile = process.platform === 'linux' ? require('./linuxjob').unitPath(agentName)
       : process.platform === 'win32' ? require('./win32job').taskFilePath(agentName)
         : require('./create').plistPath(agentName);
-    return fs.statSync(jobFile).mtimeMs > fs.statSync(file).mtimeMs;
+    return fs.statSync(jobFile).mtimeMs > at;
   } catch { return false; }
+}
+
+/* kosmos#8601 review 4: whether the reading of `model` from `file` (whose tail is `text`) is older than the agent's job:
+   timed by the reply that named it, else by the file. */
+function readBeforeJob(file, text, model, agentName) {
+  const at = modelRowAt(text, model);
+  return at !== null ? jobWrittenAfter(at, agentName) : writtenBeforeJob(file, agentName);
+}
+
+/* kosmos#8601 review 4: when the reply that named `model` was written, read from that row's own `timestamp` in the
+   transcript tail (the newest assistant row naming it). The file's own time is not that moment: Claude Code appends
+   the person's prompt row as soon as it is sent, and tool rows during the turn, so after a model change the first
+   message to the agent made the file newer than the job and the OLD model read as current again until the first reply.
+   null when no such row with a readable timestamp is in the tail (the caller then uses the file's time). */
+function modelRowAt(text, model) {
+  const lines = String(text || '').split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line || line.indexOf(model) === -1) continue;
+    let row;
+    try { row = JSON.parse(line); } catch { continue; }   // the tail's first line can be cut
+    if (!row || row.type !== 'assistant' || !row.message || row.message.model !== model) continue;
+    const at = Date.parse(row.timestamp);
+    return Number.isFinite(at) ? at : null;
+  }
+  return null;
 }
 
 /* kosmos#8601 review 1: whether the agent's job names a Claude model other than `readId` (the transcript's). Only a
@@ -7412,18 +7447,20 @@ function readModel(agentName, exactSession) {
   const { text, whole } = tailBytes(file, 65536);
   const now = text ? modelInText(text) : null;
   /* kosmos#8601: a model change rewrites the job and restarts the agent, and until its next reply the newest transcript
-     still names the OLD model (on Windows the supervisor resumes the same conversation, and nothing is written to it
-     before a reply). So the reading is from before the change when BOTH hold: the job was written after the transcript,
-     AND the job names a different model. Then it travels as an earlier reading (the #6716 shape), `model` stays null,
-     and the card shows the job's model (server.js plannedFor reads the job whenever modelName is null).
+     still names the OLD model (on Windows the supervisor resumes the same conversation). So the reading is from before
+     the change when BOTH hold: the reply that named it was written before the job (readBeforeJob: that row's own
+     timestamp, review 4, since a prompt sent to the agent writes to the file before any reply does), AND the job names a
+     different model. Then it travels as an earlier reading (the #6716 shape), `model` stays null, and the card shows the
+     job's model (server.js plannedFor reads the job whenever modelName is null).
      Review 1: the file time alone is not a model change (see writtenBeforeJob: an account move or a provider switch
      rewrites the job on every platform, and on Windows a stop and start moves the task file's time), all while the
      conversation and its model go on; blanking the model then also blanked the context ring and the agent's own "which
      model am I". The time check stays first because it is two stats; the job is read only after a rewrite.
      Review 2: while the reading is earlier (a real model change, until the next reply), `model` is null on purpose for
      every consumer: the context ring's ceiling is unknown (the new model's may differ) and whoami answers from the
-     process's own --model. That is not a regression to "fix" by passing the old model through. */
-  if (now && writtenBeforeJob(file, agentName) && jobNamesAnotherModel(agentName, now)) {
+     process's own --model where it can read one, or with no model. That is not a regression to "fix" by passing the
+     old model through. */
+  if (now && readBeforeJob(file, text, now, agentName) && jobNamesAnotherModel(agentName, now)) {
     return { model: now, confidence: CONFIDENCE.STRUCTURED, earlierSession: true };
   }
   if (now) return { model: now, confidence: CONFIDENCE.STRUCTURED };
