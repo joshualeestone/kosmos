@@ -5137,3 +5137,31 @@ test('kosmos#7886 item 2: the claim line and the claim guard agree, post by post
     }
   });
 });
+
+/* kosmos#8569: both CLIs read a placed post whose outcomes object is EMPTY as reaching nobody on this computer. That rests
+   on the engine: a member switched off in the project gets no outcome at all (deliverOne returns before setting one), so a
+   post into a room whose every other member is off answers placed with {}. Pinned here, so an engine change that gives
+   an off member an outcome cannot leave the CLIs' tests green on stub answers. */
+test('kosmos#8569: a post into a room whose every other member is switched off answers placed with an empty outcomes object', () => {
+  const projects = require('./projects');
+  const made = projects.create({ name: 'All Off Room 8569' });
+  const pid = made.id || (made.project && made.project.id);
+  projects.setSwarmOn(pid, 'mara', false);
+  projects.setSwarmOn(pid, 'april', false);
+  try {
+    withFleet(room3(), (board) => {
+      fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+      fs.writeFileSync(messages.LOG, '');
+      armSender('leo-discord'); arm([]);
+      const off = messages.sendPost({ fromPane: '%7', project: pid, text: '@all a broadcast' }, board.agents, MEMBERS);
+      assert.equal(off.state, chat.DELIVERY.PLACED, 'a post that reached nobody was not answered placed: ' + (off.because || ''));
+      assert.deepEqual(off.outcomes, {}, 'a switched-off member was given an outcome, so both CLIs would misread this post');
+      projects.setSwarmOn(pid, 'april', true);
+      fs.writeFileSync(messages.LOG, '');
+      armSender('leo-discord'); arm([]);
+      const on = messages.sendPost({ fromPane: '%7', project: pid, text: '@all a broadcast' }, board.agents, MEMBERS);
+      assert.ok(Object.keys(on.outcomes || {}).includes('april'), 'CONTROL: with april switched on, its outcome is in the answer');
+      assert.ok(!Object.keys(on.outcomes || {}).includes('mara'), 'CONTROL: mara, still off, has none');
+    });
+  } finally { projects.setSwarmOn(pid, 'mara', true); projects.setSwarmOn(pid, 'april', true); }
+});

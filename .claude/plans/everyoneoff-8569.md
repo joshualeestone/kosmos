@@ -10,8 +10,8 @@ waiting." The post woke no one. The same holds for a room with no other member a
 
 ## Decision
 Both CLIs (install/kosmos and tools/windows/kosmos-cli.js) treat a placed delivery whose `outcomes` is an empty object as
-reaching nobody: "Posted to <p>. It woke no one: no other member is switched on in this project (or there is none), so it is only
-in the room. To reach a switched-off member anyway, name them: start with 'YourName -> Their Name:' or @-name them (@all does not reach them)."
+reaching nobody: "Posted to <p>. It woke no one on this computer: no other member of this project is switched on here
+(or there is none). To reach a switched-off member anyway, name them: start with 'YourName -> Their Name:' or @-name them (@all does not reach them)."
 (engine/messages.js namedHere: a named member is never in offHere, so naming one does reach it.) With the board's
 `because`, only "Posted to <p>." and the Note, as the quiet case does; the engine sends no `because` with an empty
 outcomes object today (loopPausedHere is set only for a member that gets an outcome), so that arm is defensive. A folded
@@ -23,6 +23,9 @@ The shell matches `"outcomes":{}` on the raw body: words in a post arrive JSON-e
 - A changed board answer (a new field): both CLIs can already tell from `outcomes`, and an older CLI keeps working.
 
 ## Weakest premise
+Scoped to this computer, and no "only in the room" claim: a room shared with another computer sends an agent's post
+out through its seat whatever the local outcomes say (server.js sendRoomPostAsAgent, federateOut), so an empty object
+says nothing about the far side.
 That an empty outcomes object only ever means nobody was delivered to. engine/messages.js sets an outcome for every
 member it delivers to, holds or leaves quiet; only a switched-off member (and no member at all) sets none.
 

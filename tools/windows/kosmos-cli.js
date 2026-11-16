@@ -887,7 +887,7 @@ async function verbPost(ctx, args) {
     const why = typeof d.because === 'string' && d.because ? d.because : '';   // round 4: a pause; the post did address them
     const hint = ' To reach someone, start with \'YourName -> Their Name:\', @-name them, or use @all.';
     const nobodyHint = ' To reach a switched-off member anyway, name them: start with \'YourName -> Their Name:\' or @-name them (@all does not reach them).';   // kosmos#8569: a named member is reached even when switched off
-    ctx.out(nobody ? 'Posted to ' + project + '.' + (why ? '' : ' It woke no one: no other member is switched on in this project (or there is none), so it is only in the room.' + nobodyHint)
+    ctx.out(nobody ? 'Posted to ' + project + '.' + (why ? '' : ' It woke no one on this computer: no other member of this project is switched on here (or there is none).' + nobodyHint)
       : quiet && why ? 'Posted to ' + project + '.'
       : quiet && outs.every((o) => o === 'quiet') ? 'Posted to ' + project + '. It woke no one: it addresses no member, so it is only in the room.' + hint
         : quiet ? 'Posted to ' + project + '. It reached only the members it addresses; the others can read it in the room.' + hint
