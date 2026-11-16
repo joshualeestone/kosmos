@@ -40,8 +40,16 @@ test('#8585: a copy, so the stored task keeps its paths; a non-object passes thr
   assert.equal(tasks.withoutLocalPaths(undefined), undefined);
 });
 
-/* The guard: outside engine/tasks.js, no source deletes one of these fields by hand, so a fourth path-bearing field
-   needs adding in one place only. Scans the board's own sources (server.js and engine/, tests excluded). */
+/* The guard: outside engine/tasks.js, no source strips one of these fields by hand, whether by `delete x.f`,
+   `delete x['f']`, or a rest destructure that drops it (`const { landedRepo, ...rest } = t`). It checks the fields it
+   names; a new path-bearing field still has to be added to withoutLocalPaths. Scans the board's own sources (server.js
+   and engine/, tests excluded). */
+const STRIPS = [
+  /delete\s+[\w.[\]'"]+(\.|\[\s*['"])(landedRepo|builtFilePath)\b/,   // delete x.f, delete x['f']
+  /delete\s+[\w.[\]'"]*builtReplaces(\.|\[\s*['"])filePath\b/,       // the replaced file's path
+  /\{[^}]*\b(landedRepo|builtFilePath)\b[^}]*\.\.\.\s*\w+\s*\}\s*=/,         // const { landedRepo, ...rest } = t
+  /\{[^}]*\bfilePath\b[^}]*\.\.\.\s*\w+\s*\}\s*=[^;]*builtReplaces/,         // const { filePath, ...r } = t.builtReplaces
+];
 test('#8585: no source strips a path-bearing field by hand outside tasks.withoutLocalPaths (source guard)', () => {
   const root = path.join(__dirname, '..');
   const files = [path.join(root, 'server.js')].concat(
@@ -50,7 +58,7 @@ test('#8585: no source strips a path-bearing field by hand outside tasks.without
   const bad = [];
   for (const f of files) {
     fs.readFileSync(f, 'utf8').split('\n').forEach((l, i) => {
-      if (/delete\s+[\w.[\]]+\.(landedRepo|builtFilePath)\b/.test(l)) bad.push(path.relative(root, f) + ':' + (i + 1) + ': ' + l.trim());
+      if (STRIPS.some((re) => re.test(l))) bad.push(path.relative(root, f) + ':' + (i + 1) + ': ' + l.trim());
     });
   }
   assert.deepEqual(bad, [], 'strip these through tasks.withoutLocalPaths instead:\n' + bad.join('\n'));
