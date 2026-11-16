@@ -376,6 +376,7 @@ test('#8547 --list (Mac): needs no terminal, shows the plan and sends no DELETE 
   assert.equal(r.code, 0, r.out);
   LIST_SHOWS(r.out);
   assert.match(r.out, /Their folders would go to the Trash\./);
+  assert.doesNotMatch(r.out, /\[y\/N\]|Delete all/, 'a list asked a question');
   await cli(port, ['agent', 'delete-leftovers', '--yes']);
   assert.ok(deletes(seen).length > 0, 'control: this stub did not record a DELETE');
 }));
