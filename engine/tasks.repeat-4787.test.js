@@ -343,9 +343,11 @@ test('#4787 slice 3 review 3: closing a repeating task drops its reviewer with i
   assert.ok(stored(p.id, n).missQuiet, 'precondition: the stall mark is on the task');
   tasks.setReviewer(p.id, n, 'bob', { person: true });
   assert.equal(stored(p.id, n).missQuiet, undefined, 'a new reviewer: the old stall mark is gone');
+  // Closing drops both stall marks with the rule (seeded again, so the check can fail).
+  projects.mutate(p.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, missQuiet: quiet, repeatDueQuiet: quiet } : t)) }));
   tasks.close(p.id, n);
   const t = stored(p.id, n);
-  for (const f of ['repeat', 'repeatReviewer', 'repeatReviewerByPerson', 'repeatReviewerSetAt', 'missToldAt']) assert.equal(t[f], undefined, f);
+  for (const f of ['repeat', 'repeatReviewer', 'repeatReviewerByPerson', 'repeatReviewerSetAt', 'missToldAt', 'missQuiet', 'repeatDueQuiet']) assert.equal(t[f], undefined, f);
   tasks.reopen(p.id, n);
   tasks.setRepeat(p.id, n, { every: 'day', at: '10:00' });
   tasks.setReviewer(p.id, n, 'bob');

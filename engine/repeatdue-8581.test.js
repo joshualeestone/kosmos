@@ -368,3 +368,20 @@ test('#8586: another set of holders is another stall (CONTROL: the same set, nex
     ? { ...t, parts: [...t.parts, { n: 2, sentence: 'Second half', who: ADA, createdAt: new Date(day(1)).toISOString() }] } : t)) }));
   assert.equal(run([id], { now: day(2) }).r.results[0].recorded, true, 'ADA joined the holders: a new stall');
 });
+
+test('#8586: a delivery given up after MAX_TRIES also clears the stall mark', () => {
+  const { id, n } = fixture();
+  const day = (k) => NOW + k * 86400000;
+  projects.mutate(id, (x) => ({ ...x, agents: [ADA] }));
+  assert.equal(run([id]).r.results[0].recorded, true);
+  assert.ok(stored(id, n).repeatDueQuiet, 'precondition: the stall mark is on the task');
+  projects.mutate(id, (x) => ({ ...x, agents: [ADA, REX] }));
+  const book = new Map();
+  const t = day(1);
+  const idle = () => new Map([[REX, { since: t - 120000, at: t - 60000 }]]);
+  for (let i = 0; i < rd.MAX_TRIES; i += 1) {
+    assert.ok(stored(id, n).repeatDueQuiet, 'still marked before try ' + (i + 1));
+    run([id], { now: t, book, idleSeen: idle(), deliver: () => ({ state: 'not-found' }) });
+  }
+  assert.equal(stored(id, n).repeatDueQuiet, undefined, 'given up after MAX_TRIES: the mark is cleared');
+});
