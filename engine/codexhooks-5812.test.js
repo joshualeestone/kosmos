@@ -23,12 +23,18 @@ const bridge = require(BRIDGE);
 
 const home = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-codexhooks-5812-')));
 
-const PINNED_VERSION = hooks.HASH_VERIFIED_FOR;
+const PINNED_VERSION = require('./runners').MANIFEST.openai.version;   // the Mac pin (kosmos#8593: 0.169.0)
 
 test('review 2: the hash is verified for the Codex Kosmos pins; a bump fails here until the hash is re-measured', () => {
-  // On a bump of engine/runners.js: trust the hook in the new Codex's TUI, compare the hash it writes with trustHash()
-  // (the first test's pin), run the real-Codex test below on the new build, then move HASH_VERIFIED_FOR.
-  assert.equal(hooks.HASH_VERIFIED_FOR, require('./runners').MANIFEST.openai.version);
+  // On a bump of engine/runners.js: run the real-Codex test below on the new build (it checks the record with a
+  // broken-hash control), then add the version to HASH_VERIFIED in codexhooks.js for that platform.
+  const runners = require('./runners');
+  assert.ok(hooks.verifiedFor('darwin').includes(runners.MANIFEST.openai.version), 'the Mac pin');
+  assert.ok(hooks.verifiedFor('linux').includes(runners.manifestFor('openai', 'linux', 'x64').version), 'the Linux pin');
+  for (const arch of ['x64', 'arm64']) assert.ok(hooks.verifiedFor('win32').includes(runners.manifestFor('openai', 'win32', arch).version), `the Windows ${arch} pin`);
+  // kosmos#8593 control: a version nobody measured is refused on every platform, and Windows does not take the Mac's.
+  for (const p of ['darwin', 'linux', 'win32']) assert.equal(hooks.verifiedFor(p).includes('0.150.0'), false, p);
+  assert.equal(hooks.verifiedFor('win32').includes('0.169.0'), false, 'Windows is not measured on 0.169.0');
 });
 
 test('the trust hash is the one the real Codex TUI wrote for this hook (codex-cli 0.149.1, 10-16)', () => {
@@ -157,9 +163,12 @@ test('review 1: any Codex but the pinned version gets no hook, and an earlier ho
   for (const v of ['0.150.0', '', undefined, `${PINNED_VERSION} `]) {
     const r = hooks.install(h, '/k/codex-report-bridge.js', v);
     assert.equal(r.ok, false, String(v));
-    assert.match(r.because, new RegExp(`known only for ${PINNED_VERSION.replace(/\./g, '\\.')}`));
+    assert.ok(r.because.includes(`known only for ${hooks.verifiedFor('darwin').join(' and ')}`), r.because);
     assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false);
   }
+  // kosmos#8593: a Mac still running the previous measured Codex (0.149.1, until its next update) keeps its hook.
+  assert.deepEqual(hooks.install(h, '/k/codex-report-bridge.js', '0.149.1'), { ok: true });
+  assert.ok(fs.existsSync(path.join(h, 'hooks.json')));
 });
 
 /* The record-before-hooks.json ORDER is not what this proves (review 3: either order passes, because the refusal removes

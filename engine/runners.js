@@ -75,7 +75,7 @@ const platformGate = require('./platform');
  * ⚠️ THE WHOLE PACKAGE IS STAGED, NOT ONE FILE. The tarball was opened
  * and read (2026-08-26) before this shape was chosen: the binary lives at
  * package/vendor/aarch64-apple-darwin/bin/codex WITH vendored siblings it
- * resolves relative to itself (codex-path/rg, codex-resources/zsh,
+ * resolves relative to itself (codex-path/rg, codex-resources/ (zsh/ through 0.149.1, voice/ from 0.169.0),
  * bin/codex-code-mode-host). Extracting the one binary would strand it
  * from its own tools, so the install unpacks the package tree and exposes
  * ONE stable path -- a `codex` symlink beside it -- which is what the
@@ -102,13 +102,21 @@ const MANIFEST = Object.assign(Object.create(null), {
        the same three names: the provider is OpenAI, the row says GPT, the
        thing installed is OpenAI's Codex. */
     name: "OpenAI's Codex",
-    version: '0.149.1',
+    /* kosmos#8593: 0.169.0 (was 0.149.1), the first pin whose Codex can run gpt-6-astra (0.149.1 is refused by the
+       server: "requires a newer version of Codex"). Measured 11-16 on this Mac: the tarball's sha512 is the registry's
+       below; the vendor tree keeps bin/codex, bin/codex-code-mode-host and codex-path/rg (codex-resources now holds
+       voice/, not zsh/, which nothing here reads); a ChatGPT token refresh still writes THROUGH the private home's
+       auth.json symlink into the account file (bin/agent-supervisor.sh relies on it; same result as 0.149.1, measured
+       both with a fake token endpoint); and the hook trust record is unchanged (engine/codexhooks.js).
+       ⚠️ WINDOWS STAYS ON 0.149.1 (CODEX_WIN32 below states its own version): its hook forms were measured on
+       0.149.1 win32, so its bump is Homer's, with its own measurement. */
+    version: '0.169.0',
     arch: 'arm64',
-    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-darwin-arm64.tgz',
-    integrity: 'sha512-6X84kTCbnTgPIJ2EdcPsrvwS0Wxsqpa+bCswGmRf4BjhcQ5nPMnBC6yCAaCMj+vrbXQHj+L6sa9FaR4QkmA1qw==',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-darwin-arm64.tgz',
+    integrity: 'sha512-5WsWFBbVP78D+6FvNo1MMVxLPZdmcoQlqVJFrF4qx/TmvneLnMQKtLyXkUo54XOTDfoYKpNouTJ/F7gTVA8FnQ==',
     binInPackage: 'vendor/aarch64-apple-darwin/bin/codex',
     binName: 'codex',
-    downloadBytes: 114152335,
+    downloadBytes: 153831622,
   },
   /* #3713: Google's Gemini CLI, which Kosmos's Gemini runner (#3296) drives. Same trust
      anchor as the codex entry: the npm registry's own sha512 for this exact tarball, fetched
@@ -219,7 +227,10 @@ Object.freeze(MANIFEST);
  * half-written tree.
  */
 const CODEX_WIN32 = Object.freeze(Object.assign(Object.create(null), {
+  /* kosmos#8593: Windows keeps 0.149.1 (the Mac and Linux pin moved to 0.169.0). Stated per entry so the base's
+     version does not reach Windows; the bump is Homer's (the win32 hook forms are measured per Codex version). */
   x64: Object.freeze({
+    version: '0.149.1',
     arch: 'x64',
     url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-win32-x64.tgz',
     integrity: 'sha512-G3QXGAg7nyyhqOeooAMUekBCeHd8a1QByhKcVAFyzNBaI06t6Ft7nsF+1SzFS0spuIdU4YyMi5YD26ukADBQUQ==',
@@ -227,6 +238,7 @@ const CODEX_WIN32 = Object.freeze(Object.assign(Object.create(null), {
     downloadBytes: 139929729,
   }),
   arm64: Object.freeze({
+    version: '0.149.1',
     arch: 'arm64',
     url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-win32-arm64.tgz',
     integrity: 'sha512-5K0DmOKGK9Bos627p8sK8ATHjovPK0sDyT6h9Cb+4v+5CW5SGw1HLgjGxoLfJ8g3cg6mtg/pRCXXo2L/j71UVA==',
@@ -291,17 +303,17 @@ const GROK_WIN32 = Object.freeze(Object.assign(Object.create(null), {
 const CODEX_LINUX = Object.freeze(Object.assign(Object.create(null), {
   x64: Object.freeze({
     arch: 'x64',
-    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-x64.tgz',
-    integrity: 'sha512-Of5fGYgr7tAMsyj6vhXb4/RM/UoA3Zq8BLegUBDC09UNy1XTLGYP/2XD+UX8z3qh0NDwxYdCjFIWdDNijKZggQ==',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-linux-x64.tgz',
+    integrity: 'sha512-o05NyAOCDygSPRo1yinzxvkRSdmsZyBD9E7mbpmjRanSfM8lypqWtQgEo4XfNkwhuCR2aFu8mlGOsQGFXVbVww==',
     binInPackage: 'vendor/x86_64-unknown-linux-musl/bin/codex',
-    downloadBytes: 125550959,
+    downloadBytes: 167001509,
   }),
   arm64: Object.freeze({
     arch: 'arm64',
-    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-arm64.tgz',
-    integrity: 'sha512-OqxUfZ1TVvHd18zHPKK/8ZRlpk8Vy11mg5CMHaLxNWldTbwVImDKtSLWT+m8m4NM5Sz4PbjtZMrVT/RfpBW/mQ==',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-linux-arm64.tgz',
+    integrity: 'sha512-NZ/DaQUpcQmxmqee7Z9uC1rzw3GhSbooawcaTe1LN5Yk+WlinUKGdTXJgClRT/9ogQEEM9TWxYzvxPfj5G/xFg==',
     binInPackage: 'vendor/aarch64-unknown-linux-musl/bin/codex',
-    downloadBytes: 118078094,
+    downloadBytes: 171743625,
   }),
 }));
 /* The layout is stated per entry (as GROK_WIN32 and CODEX_LINUX do), read from these tarballs, so a change to the Mac

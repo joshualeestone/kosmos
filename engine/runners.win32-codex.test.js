@@ -59,7 +59,9 @@ test('manifestFor picks the WINDOWS build on win32, never the Mac tarball', () =
   assert.match(x64.integrity, /^sha512-/);
   assert.equal(x64.binInPackage, 'vendor/x86_64-pc-windows-msvc/bin/codex.exe');
   assert.equal(x64.arch, 'x64');
-  assert.equal(x64.version, runners.MANIFEST.openai.version, 'one pinned release across platforms');
+  // kosmos#8593: Windows keeps its own pin (0.149.1) while the Mac and Linux moved to 0.169.0; its bump is Homer's.
+  assert.equal(x64.version, '0.149.1', 'the Windows pin, stated on the Windows entry');
+  assert.match(x64.url, new RegExp(`codex-${x64.version.replace(/\./g, '\\.')}-win32-x64\\.tgz$`), 'its tarball is its own version');
   assert.equal(x64.name, "OpenAI's Codex");
 
   const arm = runners.manifestFor('openai', 'win32', 'arm64');

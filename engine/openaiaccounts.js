@@ -1512,7 +1512,12 @@ async function checkLive(dir, opts) {
    rank comes from the first match, so mis-ordering would mis-describe a model,
    never mis-classify it as non-chat. */
 const OPENAI_CHAT_FAMILIES = [
-  { rank: 0, prefix: 'gpt-5', why: 'OpenAI\'s most capable. For work where being right matters more than being quick.' },
+  /* kosmos#8593: gpt-6 is recognised (gpt-6-astra, a user's request). Before this it classed 'unknown': offered, sorted
+     first by version, but marked "compatibility not verified" and never the default. The bundled Codex runs it from
+     0.169.0 (engine/runners.js). Its ORDER still comes from openaiHighTierRank (version then tier), so it sorts above
+     every gpt-5.x; the rank here only matters if that parse ever misses. */
+  { rank: 0, prefix: 'gpt-6', why: 'OpenAI\'s newest and most capable. For work where being right matters more than being quick.' },
+  { rank: 0, prefix: 'gpt-5', why: 'A very capable OpenAI model. For work where being right matters more than being quick.' },
   { rank: 1, prefix: 'o3', why: 'Reasoning-focused. Slower, and it works through harder problems step by step.' },
   { rank: 1, prefix: 'o4', why: 'Reasoning-focused. Slower, and it works through harder problems step by step.' },
   { rank: 2, prefix: 'gpt-4.1', why: 'A strong all-rounder, with room for long jobs.' },
@@ -1567,7 +1572,10 @@ const OPENAI_NON_CHAT = ['audio', 'realtime', 'transcribe', 'tts', 'search', 'im
    NOT in this repo, so this is built and tested against that shape; a non-gpt id
    would miss the parse and fall back to its class's rank (safe, not a wrong
    order) until the regex learns the shape. */
-const OPENAI_TOP_KNOWN_VERSION = 5; // the highest fixed family prefix (gpt-5)
+/* The version above which openaiHighTierRank orders ids by version and tier. It stays 5 after gpt-6 joined the fixed
+   families (kosmos#8593): it is the sort threshold, not the newest family, and moving it to 6 would tie every gpt-5.x
+   at the fixed rank 0 with gpt-6 and lose the 5.6 > 5.5 order. */
+const OPENAI_TOP_KNOWN_VERSION = 5;
 function openaiTierScore(low) {
   // Josh's within-version order, higher score = more capable = sorts earlier.
   if (low.includes('terra')) return 9;

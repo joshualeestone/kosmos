@@ -518,7 +518,7 @@ const codexhooks = require('./codexhooks');
 const codexInstall = (dir, root) => {
   fs.mkdirSync(dir, { recursive: true });
   const r = root || BUNDLE;
-  assert.deepEqual(codexhooks.install(dir, r + '\\app\\bin\\codex-report-bridge.js', codexhooks.HASH_VERIFIED_FOR, { platform: 'win32', node: r + '\\runtime\\node.exe' }), { ok: true });
+  assert.deepEqual(codexhooks.install(dir, r + '\\app\\bin\\codex-report-bridge.js', codexhooks.verifiedFor('win32')[0], { platform: 'win32', node: r + '\\runtime\\node.exe' }), { ok: true });
 };
 
 test('kosmos#8361: the uninstall takes this install\'s Codex hook and its record out of each ~/.codex-<label>; ~/.codex and another install\'s stay', async () => {

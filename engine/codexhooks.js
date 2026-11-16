@@ -30,13 +30,13 @@
  *     async false] }. Equal to the records Codex's own TUI trust wrote for this hook; one changed hex digit and the hook
  *     does not run.
  *
- * ⚠️ That hash is Codex's internal detail, verified for ONE version, HASH_VERIFIED_FOR. A Codex that computes it
+ * ⚠️ That hash is Codex's internal detail, verified per version (HASH_VERIFIED, per platform). A Codex that computes it
  * differently would stop every agent on the review screen, so install() runs only when the launching Codex reports
- * exactly that version, and otherwise removes our hooks.json. It is a constant of its own, NOT runners.js's pin (review
- * 2): gated on the pin, a bump to a new Codex would install an unverified record for it. A test holds the two equal,
- * so a bump fails until somebody moves this constant; the test's comment says what to measure first (the new Codex's
- * TUI trust, then the real-Codex test). Nothing can force the measurement: the real-Codex test runs only where that
- * exact Codex is installed.
+ * a version listed for its platform, and otherwise removes our hooks.json. It is a list of its own, NOT runners.js's
+ * pin (review 2): gated on the pin, a bump to a new Codex would install an unverified record for it. A test holds
+ * each platform's pin inside its list, so a bump fails until somebody adds the version; the test's comment says what
+ * to measure first (the new Codex's TUI trust, then the real-Codex test). Nothing can force the measurement: the
+ * real-Codex test runs only where that exact Codex is installed.
  *
  * ⚠️ An absent record is APPENDED (as create.js appendCodexTrust does: Codex writes this file too and takes no lock, and
  * an append cannot lose its edit). A CHANGED record is a whole-file replace (the line has to change in place), so an
@@ -62,8 +62,13 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const HOOKS_FILE = 'hooks.json';
-/* The one Codex version whose trust hash was measured (10-16: Codex's own TUI trust wrote exactly trustHash()'s value). */
-const HASH_VERIFIED_FOR = '0.149.1';
+/* The Codex versions whose trust hash was measured, per platform. 0.149.1 (10-16: Codex's own TUI trust wrote exactly
+   trustHash()'s value; win32 forms measured on 0.149.1 win32-x64, #8348). kosmos#8593: 0.169.0 on the Mac (11-16: the
+   real-Codex test in codexhooks-5812.test.js ran the installed hook with this record, and did not with one hex digit
+   changed). Windows is not measured on 0.169.0 and stays on 0.149.1 (runners.js CODEX_WIN32); a Mac still running
+   0.149.1 until its next update keeps its hook. A version is added here only after it is measured. */
+const HASH_VERIFIED = Object.freeze({ posix: Object.freeze(['0.149.1', '0.169.0']), win32: Object.freeze(['0.149.1']) });
+function verifiedFor(plat) { return plat === 'win32' ? HASH_VERIFIED.win32 : HASH_VERIFIED.posix; }
 const EVENT = 'PreToolUse';
 const EVENT_KEY = 'pre_tool_use';
 const MATCHER = 'apply_patch';
@@ -231,7 +236,8 @@ function install(home, bridge, version, opts) {
     if (plat === 'win32' && require('./hookpaths').ephemeralIntoDurable(path.join(home, HOOKS_FILE), [bridge, node], { platform: plat })) {
       return refuse('the bridge is under the temp folder, which is not kept, so it was not written into the Codex home');
     }
-    if (version !== HASH_VERIFIED_FOR) return refuse(`this Codex is ${version || 'of an unknown version'}, and the hook's trust record is known only for ${HASH_VERIFIED_FOR}`, typeof version === 'string' && version !== '');
+    const known = verifiedFor(plat);
+    if (!known.includes(version)) return refuse(`this Codex is ${version || 'of an unknown version'}, and the hook's trust record is known only for ${known.join(' and ')}`, typeof version === 'string' && version !== '');
     const st = fs.lstatSync(home);
     if (!st.isDirectory()) return refuse('the Codex home is not a folder');
     const hooksFile = path.join(home, HOOKS_FILE);
@@ -387,4 +393,4 @@ function unwireInstall(home, roots, opts) {
   }
 }
 
-module.exports = { install, removeOurs, unwireInstall, isOurs, HASH_VERIFIED_FOR, trustHash, commandFor, hooksJson, stateHeading, nextConfig, unsafeForWin32, HOOKS_FILE, MATCHER };
+module.exports = { install, removeOurs, unwireInstall, isOurs, HASH_VERIFIED, verifiedFor, trustHash, commandFor, hooksJson, stateHeading, nextConfig, unsafeForWin32, HOOKS_FILE, MATCHER };
