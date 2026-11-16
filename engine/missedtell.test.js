@@ -320,3 +320,10 @@ test('#4787 slice 3 review 13: a typing path that throws may have typed, so the 
   assert.equal(calls, 1);
   assert.ok(stored(id, n).missToldAt, 'told (unconfirmed)');
 });
+
+test('#8581: a reviewer another sweep typed into in the last minute is held; control: a minute later it is told', () => {
+  const { id } = fixture(ADA);
+  const go = (recentTyped) => mt.sweep({ projects: only(id), roster, now: NOW, allowed: true, limit: { on: false }, sent: [], book: new Map(), DELIVERY, idleSeen: settled(), recentTyped, deliver: () => ({ state: 'placed' }) });
+  assert.equal(go(new Map([[ADA, NOW - 10000]])).results[0].act, 'held');
+  assert.equal(go(new Map([[ADA, NOW - 70000]])).results[0].act, 'tell');
+});
