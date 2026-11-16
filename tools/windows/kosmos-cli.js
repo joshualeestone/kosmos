@@ -189,6 +189,7 @@ const USAGE = {
     '                                                  folder is still there is then gone for good and cannot be put back; --yes deletes',
     '                                                  only leftovers that are nothing but a startup job; it needs the board token,',
     '                                                  which a Windows agent may not hold',
+    '  kosmos agent delete-leftovers --list            show what it would delete and what each one loses, and delete nothing',
   ].join('\n'),
   feedback: [
     'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)',
@@ -2755,13 +2756,16 @@ async function agentRemove(ctx, args) {
    - with --yes, anything but a startup-job-only delete: a full delete retires the agent's community account and its
      tokens, which nothing brings back, so it needs a person at the terminal. --yes clears the tasks, which can always be
      set up again. */
-const AGENT_DELETE_LEFTOVERS_USAGE = 'Usage: kosmos agent delete-leftovers [--yes]   (--yes: no question, and only leftovers that are nothing but a startup job)';
+const AGENT_DELETE_LEFTOVERS_USAGE = 'Usage: kosmos agent delete-leftovers [--yes | --list]   (--yes: no question, and only leftovers that are nothing but a startup job; --list: show what would be deleted, delete nothing)';
 const LEFTOVER_DELETE_TIMEOUT_MS = 180000;   // a Windows Recycle Bin move can take 120 s (delete-leftover's own limit)
 async function agentDeleteLeftovers(ctx, args) {
   const yes = args.includes('--yes');
-  const words = args.filter((a) => a !== '--yes');
+  // kosmos#8547: --list builds the same plan from the same reads and stops before the question: it sends no DELETE.
+  const list = args.includes('--list');
+  const words = args.filter((a) => a !== '--yes' && a !== '--list');
   if (tooManyWords(ctx, 'agent delete-leftovers', 0, AGENT_DELETE_LEFTOVERS_USAGE, words)) return 2;
-  if (!yes && !ctx.canAsk()) { ctx.err('Nothing was deleted: there is no terminal here to confirm on. To remove only the startup jobs left by removed agents without being asked, add --yes.'); return 2; }
+  if (yes && list) { ctx.err('--list only shows what would be deleted and --yes deletes, so use one or the other.'); ctx.err(AGENT_DELETE_LEFTOVERS_USAGE); return 2; }
+  if (!yes && !list && !ctx.canAsk()) { ctx.err('Nothing was deleted: there is no terminal here to confirm on. To remove only the startup jobs left by removed agents without being asked, add --yes. To see what would be deleted, add --list.'); return 2; }
   const listed = await ctx.call('GET', '/api/removed', undefined, { timeoutMs: 25000, person: true });
   if (!listed.reached) return ctx.unreachable('read the removed agents');
   const lj = listed.json || {};
@@ -2807,6 +2811,17 @@ async function agentDeleteLeftovers(ctx, args) {
   if (fullHeld.length) ctx.out('Left because --yes removes only startup jobs (these would also delete files and settings that do not all come back; run without --yes at a terminal, or delete them from the board): ' + fullHeld.join(', ') + '.');
   // Anything not done (not offered, left for the board, or held by --yes) makes the run exit 1: a script reads 0 as all gone.
   const leftAny = notOffered.length || typed.length || fullHeld.length;
+  if (list) {
+    if (!go.length) { ctx.out('Nothing would be deleted here.'); return 0; }
+    ctx.out('');
+    ctx.out('Would delete what is left of ' + go.length + ' removed agent' + (go.length === 1 ? '' : 's') + ':');
+    for (const g of go) ctx.out('  ' + g.shown + ': ' + (Array.isArray(g.plan.loses) && g.plan.loses.length ? g.plan.loses.join('; ') : (g.plan.question || 'what is left of it')));
+    const fullL = go.filter((g) => !g.plan.taskOnly).length;
+    if (go.some((g) => g.plan.folder)) ctx.out('Their folders would go to the Recycle Bin.');
+    if (fullL) ctx.out(fullL + ' of these would delete more than a startup job: once deleted they cannot be put back from the board.');
+    ctx.out('Nothing was deleted: --list only shows. To delete them, run it again without --list at a terminal (it asks once first).');
+    return 0;
+  }
   if (!go.length) { ctx.out('Nothing was deleted.'); return leftAny ? 1 : 0; }
   ctx.out('');
   ctx.out('About to delete what is left of ' + go.length + ' removed agent' + (go.length === 1 ? '' : 's') + ':');

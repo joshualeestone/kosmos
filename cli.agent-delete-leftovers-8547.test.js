@@ -346,3 +346,57 @@ test('#8547: with more than 25 removed agents, both CLIs say how far the looking
     assert.match(m.out, /Looked at 25 of 30\.\.\./);
   });
 });
+
+/* ── --list (kosmos#8547, Homer's ask after a real run): the same plan, shown, and no DELETE ─────────────────────── */
+const LIST_SHOWS = (out) => {
+  assert.match(out, /Would delete what is left of 3 removed agents:/, out);
+  assert.match(out, /tasky: Its startup job/, out);   // the plan's own shown name wins over the list's shownAs
+  assert.match(out, /fully: Its folder/, out);
+  assert.match(out, /1 of these would delete more than a startup job: once deleted they cannot be put back from the board\./, out);
+  assert.match(out, /Left for the board, where each one asks for its name to be typed first: typey\./, out);
+  assert.match(out, /Not offered for zed:/, out);
+  assert.match(out, /Nothing was deleted: --list only shows\./, out);
+};
+
+test('#8547 --list (Windows): needs no terminal, shows the plan, asks nothing and sends no DELETE (control: --yes on the same board sends)', () => withStub(MIXED, async (port, seen) => {
+  const r = await winRun(port, ['agent', 'delete-leftovers', '--list']);
+  assert.equal(deletes(seen).length, 0, 'a list sent a DELETE');
+  assert.equal(r.code, 0, r.out + r.err);
+  LIST_SHOWS(r.out);
+  assert.match(r.out, /Their folders would go to the Recycle Bin\./);
+  assert.deepEqual(r.asked, [], 'a list asked a question');
+  assert.ok(seen.some((s) => s.url === '/api/agent/fully/leftover' && s.method === 'GET'), 'the list did not read the plans it shows');
+  await winRun(port, ['agent', 'delete-leftovers', '--yes']);
+  assert.ok(deletes(seen).length > 0, 'control: this stub did not record a DELETE');
+}));
+
+test('#8547 --list (Mac): needs no terminal, shows the plan and sends no DELETE (control: --yes on the same board sends)', () => withStub(MIXED, async (port, seen) => {
+  const r = await cli(port, ['agent', 'delete-leftovers', '--list']);
+  assert.equal(deletes(seen).length, 0, 'a list sent a DELETE');
+  assert.equal(r.code, 0, r.out);
+  LIST_SHOWS(r.out);
+  assert.match(r.out, /Their folders would go to the Trash\./);
+  await cli(port, ['agent', 'delete-leftovers', '--yes']);
+  assert.ok(deletes(seen).length > 0, 'control: this stub did not record a DELETE');
+}));
+
+test('#8547 --list with --yes is refused on both CLIs before the board is asked anything; an empty board lists nothing', async () => {
+  await withStub(MIXED, async (port, seen) => {
+    const w = await winRun(port, ['agent', 'delete-leftovers', '--list', '--yes']);
+    assert.equal(w.code, 2, w.out + w.err);
+    assert.match(w.err, /use one or the other/);
+    const m = await cli(port, ['agent', 'delete-leftovers', '--yes', '--list']);
+    assert.equal(m.code, 2, m.out);
+    assert.match(m.out, /use one or the other/);
+    assert.equal(seen.length, 0, 'a refused --list --yes reached the board');
+  });
+  await withStub({ removed: { agents: [{ name: 'zed' }] } }, async (port, seen) => {
+    const w = await winRun(port, ['agent', 'delete-leftovers', '--list']);
+    assert.equal(w.code, 0, w.out + w.err);
+    assert.match(w.out, /Nothing would be deleted here\./);
+    const m = await cli(port, ['agent', 'delete-leftovers', '--list']);
+    assert.equal(m.code, 0, m.out);
+    assert.match(m.out, /Nothing would be deleted here\./);
+    assert.equal(deletes(seen).length, 0);
+  });
+});
