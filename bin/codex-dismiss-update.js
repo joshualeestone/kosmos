@@ -15,24 +15,14 @@
  * notice could not be dismissed is a far worse outcome than the prompt this
  * exists to remove. The supervisor calls it without checking, deliberately.
  *
- * 🔑 The rule itself lives in engine/codexupdate.js, shared with creation, and
- * that module has no dependencies precisely so this shim stays cheap enough to
- * run in a launch path.
+ * 🔑 The rules live in engine/codexupdate.js, shared with creation. The update
+ * dismissal needs nothing; the model-migration pin (kosmos#8597) can take up to
+ * a few seconds at launch (bounded), and never stops one.
  */
 
-try {
-  const { dismissUpdateNotice } = require('../engine/codexupdate');
-  dismissUpdateNotice(process.argv[2] || undefined);
-} catch { /* never break a launch */ }
-/* kosmos#8597: and its model-migration menu: argv 3 is the model the agent is launched with (empty: config.toml's),
-   argv 4 the codex binary, for the catalog it ships. Each in its own try, so one failing never skips the other. */
-/* argv 5 is 1 when the agent's codex home is the person's own account home: never written into (as the hook install). */
+/* kosmos#8597: both steps (the update notice and the model-migration menu) live in engine/codexupdate.js's
+   launchPrep, which the supervisor runs through its engine path; this shim is the same call for a checkout run. */
 (async () => {
-  try {
-    if (process.argv[5] !== '1') {
-      const { pinModelMigration } = require('../engine/codexupdate');
-      await pinModelMigration(process.argv[2] || undefined, process.argv[3] || '', process.argv[4] || '');
-    }
-  } catch { /* never break a launch */ }
+  try { await require('../engine/codexupdate').launchPrep(process.argv.slice(2)); } catch { /* never break a launch */ }
   process.exit(0);
 })();

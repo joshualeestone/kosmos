@@ -219,3 +219,35 @@ test('#8597: a literal-string model is read too, and the --model=X and -m=X laun
   assert.equal(run(['--model=gpt-6-sol']), 'gpt-6-sol');
   assert.equal(run(['-m=gpt-5.4', '-c', 'a=b']), 'gpt-5.4');
 });
+
+test('#8597: installed layout: the supervisor runs launch prep through the engine path when its own folder has no shim', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
+  const from = src.indexOf('      DISMISS="$(cd "$(dirname "$0")" && pwd)/codex-dismiss-update.js"');
+  const to = src.indexOf('unset _mig_model _mig_next _mig_shared _a', from);
+  assert.ok(from > 0 && to > from, 'the block is there');
+  const block = src.slice(from, to);
+  const supDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ick-mig-sup-'));   // like Application Support/Kosmos/bin: no shim
+  const sh = (eng) => {
+    const d = home('model = "gpt-5.4"\n');
+    fs.writeFileSync(path.join(d, 'version.json'), JSON.stringify({ latest_version: '0.150.1' }));
+    const script = 'set -u; MODEL=""; ENDPOINT_ARGS=(); _mig_shared=0; NODE_BIN="$1"; _eng="$2"; EFFECTIVE_CODEX_HOME="$3"; CLAUDE="$4"\n' + block;
+    const r = spawnSync(fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash', ['-c', script, path.join(supDir, 'agent-supervisor.sh'), process.execPath, eng, d, fakeCodex(CATALOG).bin], { encoding: 'utf8' });
+    return { r, d };
+  };
+  const { r, d } = sh(__dirname);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(cfg(d), /"gpt-5\.4" = "gpt-5\.6-terra"/, 'pinned');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(d, 'version.json'), 'utf8')).dismissed_version, '0.150.1', 'and the update notice dismissed');
+  // Control: the same folder with no engine path finds no shim, and nothing is written (the pre-fix installed state).
+  const c = sh('');
+  assert.equal(cfg(c.d), 'model = "gpt-5.4"\n');
+});
+
+test('#8597: engine/codexupdate.js run as a script does both steps and exits 0, even on a missing home', () => {
+  const mod = path.join(__dirname, 'codexupdate.js');
+  const d = home('model = "gpt-5.4"\n');
+  fs.writeFileSync(path.join(d, 'version.json'), JSON.stringify({ latest_version: '0.150.1' }));
+  assert.equal(spawnSync(process.execPath, [mod, d, '', fakeCodex(CATALOG).bin, '0']).status, 0);
+  assert.match(cfg(d), /"gpt-5\.6-terra"/);
+  assert.equal(spawnSync(process.execPath, [mod, '/nonexistent/home', 'gpt-5.4', '/nonexistent/codex', '0']).status, 0);
+});
