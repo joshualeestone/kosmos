@@ -225,7 +225,7 @@ grep -q '^_vdep_before_retry() { _vdep_freeze_check; _vdep_served_check 8; }$' "
 # no leftover file. Served: refused now, not at 7b two hours in. Never served: goes on, says so, moves nothing.
 site; serve dist/kosmos-0.8.05-arm64.tar.gz.sha256 "$SUM  kosmos-0.8.05-arm64.tar.gz"
 out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
-[ "$rc" = 1 ] && has "$out" 'Bump the version' && [ -f "$T/site/dist/kosmos-0.8.05-arm64.manifest.json" ] && [ -z "$(aside)" ] \
+[ "$rc" = 1 ] && has "$out" 'Bump the version' && ! has "$out" 'do not move these files' && grep -qx "https://h/dist/kosmos-0.8.05-arm64.tar.gz.sha256" "$T/urls" && [ -f "$T/site/dist/kosmos-0.8.05-arm64.manifest.json" ] && [ -z "$(aside)" ] \
   && ok "a committed Mac manifest of a SERVED version refuses at 1g, before any build" || bad "mac manifest served: rc=$rc out=$out"
 site
 out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
@@ -234,8 +234,16 @@ out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
   && ok "a committed Mac manifest of a never-served version: the host is read, the cut goes on, nothing moves" || bad "mac manifest unserved: rc=$rc out=$out"
 site; touch "$T/down"
 out="$(release_leftovers_clear "$T/site" 0.8.05 https://h arm64)"; rc=$?
-[ "$rc" = 1 ] && has "$out" 'cannot tell' && has "$out" 'cut again once the host answers' && ! has "$out" 'files listed above' \
+[ "$rc" = 1 ] && has "$out" 'cannot tell' && has "$out" 'wait until the host answers, and cut again' && ! has "$out" 'files listed above' \
   && ok "a committed Mac manifest with the host down: refused, and the way on names no files (there are none)" || bad "mac manifest down: rc=$rc out=$out"
+
+# 22b. kosmos#8563: a committed LINUX manifest, no leftover file, host down: the way on names the commit to revert,
+# because waiting for the host alone would only reach the manifest refusal next.
+site; printf 'm\n' > "$T/site/dist/kosmos-0.8.05-linux-x64.manifest.json"
+git -C "$T/site" add -A && git -C "$T/site" commit -qm 'aborted 7b'; touch "$T/down"
+out="$(release_leftovers_clear "$T/site" 0.8.05 https://h linux-x64)"; rc=$?
+[ "$rc" = 1 ] && has "$out" 'revert the site commit that carries dist/kosmos-0.8.05-linux-x64.manifest.json, and cut again' && ! has "$out" 'wait until the host answers' \
+  && ok "a committed Linux manifest with the host down: the way on names the commit to revert" || bad "linux manifest down: rc=$rc out=$out"
 
 # 23. kosmos#8563: the guard's refusal says a site commit stays pushed only at step 8; at 7b nothing is pushed yet.
 site; serve dist/kosmos-0.8.05-arm64.tar.gz.sha256 "$SUM  kosmos-0.8.05-arm64.tar.gz"

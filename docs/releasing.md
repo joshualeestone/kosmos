@@ -452,7 +452,10 @@ Ctrl-C ends that wait safely.
    `kosmos-<V>-<family>.tar.gz.sha256` for each family, with a made-up version
    and the prod pointer's own version as controls, and moves never-served
    leftovers into a dated folder beside the site checkout (nothing deleted). It
-   refuses on anything it cannot read cleanly. **The name itself is guarded later,
+   refuses on anything it cannot read cleanly. A committed Mac manifest of `<V>`
+   with no leftover file makes it read the host too (kosmos#8563): served is
+   refused there, before any build; never served goes on with a one-line note,
+   because step 4b copies a new Mac manifest over it. **The name itself is guarded later,
    at 7b (before the site commit) and step 8 (before vercel and each retry):**
    each reads the served `.sha256` again and refuses if another build of `<V>` is
    served, retrying a short host blip for at least two minutes (up to about
