@@ -24,4 +24,10 @@ try {
   const { dismissUpdateNotice } = require('../engine/codexupdate');
   dismissUpdateNotice(process.argv[2] || undefined);
 } catch { /* never break a launch */ }
+/* kosmos#8597: and its model-migration menu: argv 3 is the model the agent is launched with (empty: config.toml's),
+   argv 4 the codex binary, for the catalog it ships. Each in its own try, so one failing never skips the other. */
+try {
+  const { pinModelMigration } = require('../engine/codexupdate');
+  pinModelMigration(process.argv[2] || undefined, process.argv[3] || '', process.argv[4] || '');
+} catch { /* never break a launch */ }
 process.exit(0);

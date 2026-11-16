@@ -1268,7 +1268,16 @@ if [ -z "$adopt" ]; then
       # empty for a default-account codex agent whose pane nonetheless inherits the server-global
       # CODEX_HOME, so the dismiss must target the SAME home the pane reads or it writes the
       # update-notice dismissal into a different home than the running agent.
-      if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${EFFECTIVE_CODEX_HOME:-}" >/dev/null 2>&1 || true; fi
+      # kosmos#8597: the shim also answers Codex's model-migration menu ahead of time, for the model this launch
+      # uses: an endpoint's own -m, else $MODEL, else (empty) config.toml's. And the binary, for its bundled catalog.
+      _mig_model="$MODEL"
+      if [ "${#ENDPOINT_ARGS[@]}" -gt 0 ]; then
+        _mig_model=""; _mig_next=0
+        for _a in "${ENDPOINT_ARGS[@]}"; do
+          if [ "$_mig_next" = 1 ]; then _mig_model="$_a"; _mig_next=0; elif [ "$_a" = -m ] || [ "$_a" = --model ]; then _mig_next=1; fi
+        done
+      fi
+      if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${EFFECTIVE_CODEX_HOME:-}" "$_mig_model" "$CLAUDE" >/dev/null 2>&1 || true; fi
     if [ "${#ENDPOINT_ARGS[@]}" -gt 0 ]; then
       # #5977: the endpoint's arguments carry their own -m (the account's model), so the agent's $MODEL is not used.
       launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" "${ENDPOINT_ARGS[@]}" || exit 1
