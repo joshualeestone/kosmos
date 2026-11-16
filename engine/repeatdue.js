@@ -51,12 +51,12 @@ function slotsReached(rule, from, at, need) {
   return true;
 }
 
-/* Does the missed-run tell (missedtell.js) take task `t`'s slot `at`, or has it told it already? Asked of its own
-   owed(), so the two sweeps cannot disagree about whose slot it is. */
-function missedTellTakes(p, t, at, now) {
-  const told = Date.parse(t.missToldAt || '');
-  if (Number.isFinite(told) && told >= at) return true;
-  return require('./missedtell').owed([{ ...p, tasks: [t] }], now).some((i) => i.n === t.number && i.slot === at);
+/* Is slot `at` the missed-run tell's (missedtell.js)? Every slot from the moment the reviewer was named is, by its own
+   rule (owed(): a slot before repeatReviewerSetAt is not put on the reviewer). Asked by that rule, not by owed()'s
+   answer this minute, which its hourly throttle for a minutes repeat would turn into "not its slot". */
+function missedTellTakes(t, at) {
+  const named = Date.parse(t.repeatReviewerSetAt || '');
+  return !(Number.isFinite(named) && at < named);
 }
 
 function plain(s, max) { return require('./agentnudge').plainWords(s, max); }
@@ -87,9 +87,9 @@ function owed(projects, now = Date.now()) {
         .filter((who) => !P.isSwarmOff(p, who));
       const holders = everyHolder
         /* A holder that is also the task's named reviewer is told by the missed-run tell (missedtell.tellText's "You run
-           it and review its results"), never by both; but only when that tell takes this slot or already took it. A
-           slot missed before the reviewer was named is not the missed-run tell's (kosmos#8586), so it is told here. */
-        .filter((who) => who !== t.repeatReviewer || !missedTellTakes(p, t, at, now));
+           it and review its results"), never by both; but a slot missed before the reviewer was named is not the
+           missed-run tell's (kosmos#8586), so it is told here. */
+        .filter((who) => who !== t.repeatReviewer || !missedTellTakes(t, at));
       if (!holders.length) continue;
       const by = taskrepeat.recordBy(t.repeat, at, now);
       out.push({

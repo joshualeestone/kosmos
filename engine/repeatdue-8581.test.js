@@ -385,3 +385,19 @@ test('#8586: a delivery given up after MAX_TRIES also clears the stall mark', ()
   }
   assert.equal(stored(id, n).repeatDueQuiet, undefined, 'given up after MAX_TRIES: the mark is cleared');
 });
+
+test('#8586: a minutes repeat\'s reviewer-holder is never told here while the missed-run tell throttles it (CONTROL: another holder is)', () => {
+  const ago = new Date(NOW - 2 * 86400000).toISOString();   // as the #8581 minutes test
+  const rule = { repeat: { every: 'minutes', n: 15 }, lastRunAt: ago, repeatSetAt: ago };
+  const rev = fixture({ ...rule, repeatReviewer: REX, repeatReviewerSetAt: ago });
+  const other = fixture({ ...rule, repeatReviewer: ADA, repeatReviewerSetAt: ago });
+  const mt = require('../engine/missedtell');
+  const t0 = NOW + 5 * 60000;   // the 11:00 slot, past its grace
+  // The missed-run tell told a slot 20 minutes before, so its hourly throttle holds the slot due now.
+  const earlier = new Date(t0 - 20 * 60000).toISOString();
+  projects.mutate(rev.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === rev.n ? { ...t, missToldAt: earlier } : t)) }));
+  assert.equal(mt.owed(only(rev.id), t0).length, 0, 'precondition: the missed-run tell holds this slot by its throttle');
+  const { sent } = run([rev.id, other.id], { now: t0, idleSeen: new Map([[REX, { since: t0 - 120000, at: t0 - 60000 }]]) });
+  assert.equal(sent.length, 1, 'only the other task\'s holder is told');
+  assert.match(sent[0].text, new RegExp('in ' + projects.readAll().find((x) => x.id === other.id).name));
+});
