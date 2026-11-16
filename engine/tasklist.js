@@ -129,10 +129,12 @@ function activityWords(at, now) {
 function waitsWords(x, now = Date.now()) {
   if (x.onHold === true) {
     /* The board says when the hold's own condition is already met (the task closed, the time passed); for a time this
-       computer can tell too. Then the row says the hold is due to lift, never that it still waits. */
+       computer can tell too. A hold does not lift itself (engine/holdstale.js nudges someone to lift it), so the row
+       says the condition is met and the task is still held, never that it still waits. */
     const due = x.holdUntilMet === true
       || (x.onHoldUntil && typeof x.onHoldUntil.at === 'string' && Date.parse(x.onHoldUntil.at) <= now);
-    if (due) return 'its hold is due to lift' + (x.onHoldForPerson === true ? ', and it waits on the person' : '');
+    if (due) return 'its hold\'s condition is met, but it is still on hold' + (x.onHoldByPerson === true ? ' (only the person can lift it)' : '')
+      + (x.onHoldForPerson === true ? ', and it waits on the person' : '');
     const u = x.onHoldUntil;
     // Both parts when both hold (as stateWords says them): who it waits on, and what reopens it.
     const until = u && Number.isInteger(u.task) ? 'task ' + u.task + ' to close' : u && typeof u.at === 'string' ? 'until ' + (whenWords(u.at) || one(u.at)) : '';

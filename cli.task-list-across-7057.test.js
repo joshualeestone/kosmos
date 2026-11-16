@@ -268,7 +268,7 @@ test('review 1 (nit 1): a Mac install whose engine predates --all says to update
 
 /* kosmos#8576: a hold whose reopening condition is already met says so on --all --blocked, from the real board's
    holdUntilMet. Its own project, made last, so the shared WANT lists above are untouched. */
-test('kosmos#8576: a hold until a task that has since closed is due to lift, from the real board', async () => {
+test('kosmos#8576: a hold until a task that has since closed says its condition is met, from the real board', async () => {
   const C = projects.create({ name: 'Gamma 8576' }).id;
   projects.mutate(C, (p) => ({ ...p, agents: ['otto'] }));
   const first = tasks.create(C, { sentence: 'First', who: 'otto' });
@@ -277,5 +277,5 @@ test('kosmos#8576: a hold until a task that has since closed is due to lift, fro
   const rowOf = async () => (await win(['task', 'list', '--all', '--blocked'])).out.find((l) => l.startsWith(C + '  #' + held.number + ' '));
   assert.match(await rowOf(), new RegExp('waits on task ' + first.number + ' to close\\)$'), 'CONTROL: the task it waits on is open');
   tasks.close(C, first.number);
-  assert.match(await rowOf(), /its hold is due to lift\)$/, 'the board did not say the hold\'s task had closed');
+  assert.match(await rowOf(), /its hold's condition is met, but it is still on hold\)$/, 'the board did not say the hold\'s task had closed');
 });
