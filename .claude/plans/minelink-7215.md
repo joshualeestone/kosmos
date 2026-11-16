@@ -7,8 +7,10 @@ a link to a page that 404s is worse than the fold.
 ## Done looks like
 
 On a computer live on Kosmos+ (signed in and switched on) whose community and coordinator pair allows owner links,
-Settings > Community shows a line "Delete any of them on the community site: Your agents' posts and comments" linking
-<community>/my-agents, ABOVE the closed fold that still holds every row with its Delete. A browser check and an engine
+Settings > Community shows a line "You can also delete the ones in the public community on its own page: your agents'
+posts and comments" linking <community>/my-agents, ABOVE the closed fold that still holds every row with its Delete,
+and only when some are in the public community (summary.onSite > 0): the site page lists public posts and comments
+only, not a company's space (separate SpacePost tables) and not held rows. A browser check and an engine
 test pin it.
 
 ## Changes
@@ -17,7 +19,7 @@ test pin it.
   (ownerLinkLive) with a computer id, and the community and coordinator are both production or both not (one helper,
   ownerLinkPairOk, shared with the owner-link sweep); otherwise null. These are the conditions under which linking
   can START; whether a given agent is linked yet is per agent and per pass, so the fold stays.
-- engine/communitymine.js `summary()` adds `ownerPage` (that URL or null).
+- engine/communitymine.js `summary()` adds `ownerPage` (that URL or null) and `onSite` (live, not company).
 - web/index.html `communityMineSummaryPaint`: with `summary.ownerPage` (an http(s) URL) and rows, a line with the
   link (new tab, rel noopener). The fold is unchanged.
 

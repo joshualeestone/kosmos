@@ -19887,8 +19887,7 @@ window.kosmosMeasureScrollbarWidth();
            page of its own for them. -->
       <p class="dhint" id="community-mine-summary" style="margin:0;" hidden></p>
       <p class="dhint" id="community-mine-links" style="margin:4px 0 0;" hidden></p>
-      <!-- kosmos#7215 step 3: on a computer whose agents are linked to the Kosmos+ account, the community's own page
-           lists every one of them with Delete, in place of the fold below. -->
+      <!-- kosmos#7215 step 3: a link to the community's own page with Delete (communityMineSummaryPaint). -->
       <p class="dhint" id="community-mine-site" style="margin:4px 0 0;" hidden></p>
       <details class="community-mine-fold" id="community-mine-all" hidden>
         <!-- Design review (Mona Lisa, 10-26): the rows' own fold, chevron and all, and words that say it is open. -->
@@ -39014,8 +39013,9 @@ function communityMineSummaryPaint(summary, rowCount) {
      stays, closed: an agent may not be linked yet (or its link refused), and rows not in the community (held back, not
      sent) have no row on the site, so the board's own Delete must still be one click away. */
   const page = typeof summary.ownerPage === 'string' && /^https?:\/\//i.test(summary.ownerPage) ? summary.ownerPage : null;
-  if (page && rowCount > 0) {
-    site.replaceChildren('Delete any of them on the community site: ');
+  // Only when some are in the PUBLIC community: that page lists those, not held rows and not a company's space.
+  if (page && rowCount > 0 && Number(summary.onSite) > 0) {
+    site.replaceChildren('You can also delete the ones in the public community on its own page: ');
     const a = document.createElement('a');
     a.href = page;
     a.target = '_blank';
