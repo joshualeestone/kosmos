@@ -25,14 +25,14 @@ Done when: a 400-character evidence line is accepted and shows whole on the task
   CLIs' `--moved-to` (seven words exactly, unmet only, digits only), and the agents' rules (doctrine 51).
 
 ## Weakest premise
-That a target task is worth listing "moved here" items even when it has NO checks of its own, under a "Done when"
-label. The heading says "Moved here from other tasks", so it reads, but the label above it is the checks' label.
+That the moved-here list belongs in the checks row. On a task with no checks of its own the row's label becomes
+"Moved here from other tasks" (review 2), so it never reads as an empty "Done when".
 
 ## What would change my mind
 A design review saying the moved-here list belongs elsewhere on the page (for example beside "Replaces task N" in
 the state line). The data and the CLI do not change if it moves.
 
 ## Not done
-- A deleted target task leaves the link pointing at a number with no task; the page link then opens nothing.
-  Tasks are rarely deleted; recorded, not handled.
+- A target task cannot go missing on its own: nothing removes a task from a project (no delete path in
+  engine/tasks.js or server.js; measured by grep with a control), and removing the project removes both ends.
 - The Tasks list row does not show the moved-to (it shows only counts).

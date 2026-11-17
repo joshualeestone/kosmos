@@ -6413,6 +6413,7 @@ cmd_task() {
       case "${4:-}" in met|unmet) ;; *) say "Say met or unmet for the check. $_kusage"; exit 2 ;; esac
       if [ "$#" = 7 ]; then
         # After met|unmet, so a bad verdict is named as that. A task number is 1 or more: 0 and 000 are refused here.
+        # Two cases: the first refuses only all zeros (0, 000), the second anything empty or not all digits.
         case "${7:-}" in ''|*[!0-9]*|*[!0]*) ;; *) say "--moved-to needs the number of the task the unmet part went to, from: kosmos task list <project-id>."; exit 2 ;; esac
         case "${7:-}" in ''|*[!0-9]*) say "--moved-to needs the number of the task the unmet part went to, from: kosmos task list <project-id>."; exit 2 ;; esac
         [ "${4:-}" = unmet ] || { say "Only an unmet check can be moved to another task; a met one is done here."; exit 2; }
@@ -7260,7 +7261,8 @@ cmd_task() {
       local project num _kn _kmet=true _khow _kmoved=""
       project="${1:-}"; num="${2:-}"; _kn="${3:-}"; [ "${4:-}" = met ] || _kmet=false
       # #8668: checked to be digits above; leading zeros dropped so the JSON is a number (010 is not valid JSON).
-      local _kto=""; [ "${6:-}" = "--moved-to" ] && _kto=$(printf '%s' "${7:-}" | sed 's/^0*//') && _kmoved=",\"movedTo\":$_kto"
+      local _kto=""
+      if [ "${6:-}" = "--moved-to" ]; then _kto=$(printf '%s' "${7:-}" | sed 's/^0*//'); _kmoved=",\"movedTo\":$_kto"; fi
       _khow="\"$(_task_check_json "${5:-}")\""
       local esc_pane; esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
       local _tok=""
