@@ -7264,6 +7264,16 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg-ext-tx { white-space: normal; overflow-wrap: anywhere; }
 /* kosmos#7129: a row that arrived while this computer was waiting to be let in (a sealed room would have refused it). */
 .msg-ext-unv { font: .75rem var(--font-ui); color: var(--label-2); margin-top: 2px; }
+/* #8631: Report and Block under an outside message. Quiet (the secondary label colour, small), but 44px tall to press,
+   since they are the only way to act on an outside sender from this computer. */
+.msg-ext-act { display: flex; align-items: center; gap: 14px; margin-top: 2px; }
+.msg-ext-act .msg-t { margin-left: auto; padding-left: 14px; }
+.msg-ext-act .linkish { font: .78rem var(--font-ui); color: var(--label-2); min-height: 44px; padding: 0; }
+.msg-ext-act .linkish:hover { color: var(--k-ink); }
+/* #8631: the room's line when a block hides messages, in the room notice's quiet band. */
+.pj-blocked-note { font: .8rem var(--font-ui); color: var(--label-2); text-align: center; margin: 6px 16px 0; }
+.pj-blocked-note .linkish { font: inherit; }
+#you-blocked .setrow { align-items: center; }   /* #8631: the name level with its Unblock */
 /* #2947 / #3260: the one flat cream fill (background-COLOR, not the `background`
    shorthand, so the #2921 hover overlay -- a background-IMAGE on .msg:hover
    .msg-bd -- composites on top of the cream instead of being cleared by a
@@ -14700,6 +14710,21 @@ window.kosmosMeasureScrollbarWidth();
   </div>
 </div>
 
+<!-- #8631: Block, the board's half of #8625. The delete dialog's shape: both buttons name the act, and not blocking takes
+     focus. The words are the phone's (BoardRoom.swift blockAskBody), with this computer's place for Unblock. -->
+<div class="rm-back" id="xblock-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true"
+       aria-labelledby="xblock-title" aria-describedby="xblock-small">
+    <h2 class="rm-title" id="xblock-title">Block them?</h2>
+    <p class="rm-small" id="xblock-small"></p>
+    <div class="rm-acts">
+      <button class="btn" id="xblock-keep" type="button">Don't block</button>
+      <button class="btn danger-btn" id="xblock-go" type="button">Block</button>
+    </div>
+    <div class="fmsg" id="xblock-msg" role="alert" aria-live="assertive"></div>
+  </div>
+</div>
+
 <div class="rm-back" id="hist-modal" hidden>
   <div class="rm-box" role="alertdialog" aria-modal="true"
        aria-labelledby="hist-title" aria-describedby="hist-small">
@@ -17864,6 +17889,8 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <div class="dm-earlier-wrap"><p class="dm-earlier" id="pj-room-older" role="status" aria-live="polite" hidden><span id="pj-room-older-text"></span> <button type="button" class="btn-quiet" id="pj-room-older-show" hidden>Try again</button></p></div>
       <div class="thread" id="pj-room"></div>
+      <!-- #8631: the room's one line when a block hides messages here (pjBlockedNoteSet), so they never vanish unexplained. -->
+      <p class="pj-blocked-note" id="pj-blocked-note" role="status" hidden></p>
       <!-- ⚠️ THE ROOM'S HALF OF THE SAME SIGNAL (#176), mounted where the agent
            page mounts its own: between the thread and the composer, so it sits
            against the box you are about to type into.
@@ -19115,6 +19142,15 @@ window.kosmosMeasureScrollbarWidth();
         <div class="fhint">Detected automatically from your computer, so your agents know your local time when you write to them. Nothing to fill in.</div>
         <div id="you-tz-display" role="status" aria-live="polite" style="margin-top:6px;font-weight:600;">…</div>
       </div>
+    </section>
+    <!-- #8631 (App Store guideline 1.2, the board's half of #8625): who the person blocked in a shared room, with Unblock.
+         Shown once GET /api/blocked has answered; a failed read leaves it hidden, never an empty list that reads as "no one"
+         (the phone's rule). Painted by blockedPaint on arrival at Your Profile. -->
+    <section class="dbox" id="you-blocked-box" tabindex="-1" hidden>
+      <h3 class="dlab">Blocked</h3>
+      <p class="dhint" style="margin:0 0 6px;">People from outside your Kosmos you blocked in a shared room. Their messages (the person, their agents and their other computers) are hidden on this computer and on the phone that shows it.</p>
+      <div id="you-blocked"></div>
+      <p class="fmsg" id="you-blocked-msg" role="status" aria-live="polite"></p>
     </section>
   </section>
   <section class="dsec" id="s-sec-accounts" data-sec="accounts" tabindex="-1" aria-label="AI Models" hidden>
@@ -47464,6 +47500,7 @@ function settingsGo(section, opts) {
      this section stays the one on screen -- gated there, not here, so a
      hidden Plus section still costs nobody a fetch. */
   if (section === 'plus') paintPlus();
+  if (section === 'you' && typeof blockedPaint === 'function') blockedPaint();   // #8631: the Blocked list, read on arrival
   if (section === 'accounts' && typeof aoKick === 'function') aoKick();   // #6178: the other computers' accounts, read on arrival
   /* #6176: the five-hour timer stops while the accounts list is hidden, and moving between sections does not repaint
      it: coming back to AI Models, a line past its reset is read again now, and otherwise the timer is set again. */
@@ -75501,6 +75538,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!document.getElementById('hist-modal').hidden) closeHistModal();
   if (!document.getElementById('msgdel-modal').hidden) msgDelClose();   // kosmos#7614
+  if (!document.getElementById('xblock-modal').hidden) xBlockClose();   // #8631
   /* #539's consent dialog leaves on Escape like every sibling. The fleet-wide
      one went with kosmos#1002; the per-agent dialog is the one that remains. */
   if (!document.getElementById('doc-modal').hidden) closeDocModal();
@@ -80971,6 +81009,175 @@ document.getElementById('msgdel-go').addEventListener('click', async () => {
     if (MSG_DEL === d) { say.textContent = 'We could not reach Kosmos to delete it. Try again in a moment.'; btn.disabled = false; }
   }
 });
+/* #8631 (App Store guideline 1.2): Report and Block on a message from outside this Kosmos, the board's half of #8625. The
+   routes are the board's own (server.js roomBlock, roomSender); the words are the phone's (ios/Kosmos/BoardRoom.swift). */
+const XREPORT_TO = 'hello@installkosmos.com';
+const XREPORT_SUBJECT = 'Kosmos report: a message in a shared room';   // the support inbox matches the "Kosmos report:" prefix
+/* The mail's body, line for line the phone's reportBody, so support reads one shape whichever device sent it. */
+function xReportBody(row, projectId, projectName, account) {
+  const words = String((row && row.text) || '');
+  return [
+    'I am reporting this message from someone outside my Kosmos.',
+    '',
+    'From: ' + ((row && row.from) || 'someone outside'),
+    'Sender account: ' + (account || 'not known'),
+    'Room: ' + (projectName || projectId) + ' (' + projectId + ')',
+    'Message id: ' + ((row && row.id) || ''),
+    'Sent: ' + ((row && row.at) || ''),
+    '',
+    'The message:',
+    words.length > 2000 ? words.slice(0, 2000) + ' (cut)' : words,
+    '',
+    'Why I am reporting it (optional):',
+    '',
+  ].join('\n');
+}
+/* The outside row a button names, from the room as last read (PJ_WIN), so the report carries its words and time. */
+function xRowById(id) {
+  const all = [].concat((typeof PJ_WIN !== 'undefined' && PJ_WIN.older) || [], (typeof PJ_WIN !== 'undefined' && PJ_WIN.newest) || []);
+  return all.find((r) => r && r.kind === 'external' && r.id === id) || null;
+}
+async function xReport(id) {
+  const pid = typeof PJ_CURRENT !== 'undefined' ? PJ_CURRENT : null;
+  const row = xRowById(id);
+  const say = document.getElementById('pj-room-msg');
+  if (!pid || !row) { if (say) say.textContent = 'We could not find that message. Read the room again and try once more.'; return; }
+  let account = null;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(pid) + '/room/' + encodeURIComponent(id) + '/sender');
+    const out = await res.json().catch(() => null);
+    if (res.ok && out && typeof out.account === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(out.account)) account = out.account;
+  } catch { /* the report still goes, saying the account is not known */ }
+  const p = typeof pjById === 'function' ? pjById(pid) : null;
+  const body = xReportBody(row, pid, p && p.name, account);
+  /* Copied as well as mailed: a computer with no mail app set up opens nothing and says nothing, so the line under the
+     composer always says where the report is (the phone's reportCopiedNote, for the case it cannot see). */
+  let copied = false;
+  try { if (navigator.clipboard) { await navigator.clipboard.writeText('To: ' + XREPORT_TO + '\nSubject: ' + XREPORT_SUBJECT + '\n\n' + body); copied = true; } } catch { copied = false; }
+  const a = document.createElement('a');
+  a.href = 'mailto:' + XREPORT_TO + '?subject=' + encodeURIComponent(XREPORT_SUBJECT) + '&body=' + encodeURIComponent(body);
+  a.rel = 'noopener'; a.style.display = 'none';
+  document.body.appendChild(a); a.click(); a.remove();
+  if (say) say.textContent = 'Your mail app should open with the report to ' + XREPORT_TO + '.'
+    + (copied ? ' If it did not, the report is copied: paste it into an email to that address.' : ' If it did not, send that address the message and who sent it.');
+}
+let XBLOCK = null;
+function xBlockAsk(id, btn) {
+  const pid = typeof PJ_CURRENT !== 'undefined' ? PJ_CURRENT : null;
+  const row = xRowById(id);
+  if (!pid || !row) return;
+  const name = row.from || 'this person';
+  XBLOCK = { project: pid, id, name, back: btn || null };
+  document.getElementById('xblock-small').textContent = 'You will not see messages from ' + name + "'s account (the person, their agents and their other computers) in any shared room, on this computer and on the phone that shows it. They are not told. You can unblock them in Settings, Your Profile.";
+  document.getElementById('xblock-msg').textContent = '';
+  document.getElementById('xblock-go').disabled = false;
+  document.getElementById('xblock-modal').hidden = false;
+  document.getElementById('xblock-keep').focus();
+}
+function xBlockClose() {
+  document.getElementById('xblock-modal').hidden = true;
+  const back = XBLOCK && XBLOCK.back && XBLOCK.back.isConnected ? XBLOCK.back : null;
+  XBLOCK = null;
+  if (back) back.focus({ preventScroll: true });
+}
+document.getElementById('xblock-keep').addEventListener('click', xBlockClose);
+document.getElementById('xblock-modal').addEventListener('click', (e) => { if (e.target.id === 'xblock-modal') xBlockClose(); });
+document.getElementById('xblock-go').addEventListener('click', async () => {
+  const d = XBLOCK;
+  const btn = document.getElementById('xblock-go');
+  const say = document.getElementById('xblock-msg');
+  if (!d) return;
+  btn.disabled = true;
+  say.textContent = 'Blocking\u2026';
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(d.project) + '/room/' + encodeURIComponent(d.id) + '/block',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const out = await res.json().catch(() => null);
+    const mine = XBLOCK === d;
+    /* Taken only on the answer that says so; anything else is the board's own reason, or a try-again for a fault. */
+    if (!res.ok || !out || out.blocked !== true) {
+      if (mine) {
+        const why = out && typeof out.error === 'string' && out.error.trim() ? ': ' + out.error.trim() : '';
+        say.textContent = 'We could not block them' + why + (res.status >= 500 ? '. Try again in a moment.' : '.');
+        btn.disabled = false;
+      }
+      return;
+    }
+    if (mine) { XBLOCK = null; document.getElementById('xblock-modal').hidden = true; }
+    msgToast((out.name || d.name) + ' is blocked. Their messages are hidden; unblock them in Settings, Your Profile.');
+    /* The block route removes rows the room already holds (its read leaves them out), so the window's held rows go too:
+       the window merge only adds, and a row the room no longer serves would otherwise stay on screen. */
+    const gone = new Set(out.hidden && Array.isArray(out.hidden[d.project]) ? out.hidden[d.project] : [d.id]);
+    if (typeof PJ_WIN !== 'undefined') {
+      PJ_WIN.older = (PJ_WIN.older || []).filter((r) => !(r && r.kind === 'external' && gone.has(r.id)));
+      PJ_WIN.stamp = null;
+    }
+    if (typeof loadRoom === 'function') { try { await loadRoom(); } catch { /* the next poll repaints */ } }
+  } catch {
+    if (XBLOCK === d) { say.textContent = 'We could not reach Kosmos to block them. Try again in a moment.'; btn.disabled = false; }
+  }
+});
+document.addEventListener('click', (e) => {
+  const t = e.target && e.target.closest ? e.target.closest('#pj-room [data-ext-report], #pj-room [data-ext-block], #pj-blocked-note [data-blocked-go]') : null;
+  if (!t) return;
+  if (t.hasAttribute('data-ext-report')) xReport(t.getAttribute('data-ext-report'));
+  else if (t.hasAttribute('data-ext-block')) xBlockAsk(t.getAttribute('data-ext-block'), t);
+  else { showTab('settings'); settingsGo('you', { focus: false }); const box = document.getElementById('you-blocked-box'); if (box && !box.hidden) box.focus(); }
+});
+/* #8631: the room's one line when a block hides messages in it (the room read's hiddenBlocked), so messages that left
+   are never unexplained. Set from every read, before the window decides whether to repaint. */
+function pjBlockedNoteSet(body) {
+  const el = document.getElementById('pj-blocked-note');
+  if (!el) return;
+  const n = body && Number.isInteger(body.hiddenBlocked) && body.hiddenBlocked > 0 ? body.hiddenBlocked : 0;
+  el.hidden = !n;
+  if (n) {
+    const words = n === 1 ? 'A message is hidden here because you blocked who sent it.' : n + ' messages are hidden here because you blocked who sent them.';
+    if (el.dataset.n !== String(n)) {
+      el.dataset.n = String(n);
+      el.innerHTML = esc(words) + ' <button type="button" class="linkish" data-blocked-go="1">Blocked, in Settings</button>';
+    }
+  } else delete el.dataset.n;
+}
+/* #8631: Settings, Your Profile, Blocked: the list with Unblock. A failed read hides the box, never an empty list that
+   reads as "no one" (the phone's rule). */
+let BLOCKED_GEN = 0;
+async function blockedPaint(note) {
+  const box = document.getElementById('you-blocked-box');
+  const list = document.getElementById('you-blocked');
+  const msg = document.getElementById('you-blocked-msg');
+  if (!box || !list) return;
+  const mine = ++BLOCKED_GEN;
+  let people = null;
+  try {
+    const res = await fetch('/api/blocked');
+    const out = await res.json().catch(() => null);
+    if (res.ok && out && Array.isArray(out.blocked)) people = out.blocked.filter((b) => b && typeof b.account === 'string' && b.account);
+  } catch { people = null; }
+  if (mine !== BLOCKED_GEN) return;
+  if (!people) { box.hidden = true; return; }
+  list.innerHTML = people.length
+    ? people.map((b) => '<div class="setrow"><div><b>' + esc(b.name || 'Someone outside') + '</b></div>'
+      + '<button type="button" class="btn" data-unblock="' + esc(b.account) + '" aria-label="Unblock ' + esc(b.name || 'them') + '">Unblock</button></div>').join('')
+    : '<p class="dhint" style="margin:0;">No one is blocked.</p>';
+  if (msg) msg.textContent = note || '';
+  box.hidden = false;
+}
+document.getElementById('you-blocked').addEventListener('click', async (e) => {
+  const b = e.target && e.target.closest ? e.target.closest('[data-unblock]') : null;
+  if (!b) return;
+  const account = b.getAttribute('data-unblock');
+  const name = (b.closest('.setrow') && b.closest('.setrow').querySelector('b')) ? b.closest('.setrow').querySelector('b').textContent : 'them';
+  b.disabled = true;
+  let ok = false;
+  try {
+    const res = await fetch('/api/blocked/unblock', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account }) });
+    const out = await res.json().catch(() => null);
+    ok = res.ok && !!out && out.unblocked === true;
+  } catch { ok = false; }
+  await blockedPaint(ok ? name + ' is unblocked. Their messages are back in your rooms.' : 'We could not unblock ' + name + '. Try again in a moment.');
+  if (ok && typeof PJ_WIN !== 'undefined') PJ_WIN.stamp = null;   // the open room shows them again on its next read
+});
 /* #6949: the room post's 🙋 claim ({by, at}, from the room read or a room route's answer) as the page shows it: the
    holder's name and how long ago, or null when there is no claim. Only a room post has one; a DM never passes it.
  */
@@ -82143,7 +82350,16 @@ function pjRoomRow(m, p, hideHeader) {
       + '<div class="msg-ext-tx">' + esc(m.text || '').replace(/\n/g, '<br>') + '</div>'
       /* kosmos#7129: the row arrived while this computer was waiting to be let in (a sealed room would have refused it); it says so for good. */
       + (m.unverified === true ? '<div class="msg-ext-unv">Arrived while this computer was waiting to be let in, so it may not be from anyone in this project.</div>' : '')
-      + (whenX ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '')
+      /* #8631 (App Store guideline 1.2, the board's half of #8625): Report and Block, as the phone's long-press sheet has
+         them. Never on the person's own post from another of their computers (sameAccount), and only for an x- id, the
+         one shape the block and sender routes name an outside message by. Quiet text buttons, always shown: a hover-only
+         control is one a person at the computer may never find, and these are the only way to act on an outside sender. */
+      + (m.sameAccount !== true && /^x-[0-9a-fA-F-]{8,64}$/.test(String(m.id || ''))
+        /* On the time's line, so the bubble grows by nothing (the first build gave them a row of their own). */
+        ? '<div class="msg-ext-act"><button type="button" class="linkish" data-ext-report="' + esc(String(m.id)) + '">Report</button>'
+          + '<button type="button" class="linkish" data-ext-block="' + esc(String(m.id)) + '">Block</button>'
+          + (whenX ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>'
+        : (whenX ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : ''))
       + '</div></div></div>';
   }
   if (m.kind === 'refused') {
@@ -82890,11 +83106,13 @@ async function loadRoom() {
       if (mine !== PJ_ROOM_GEN) return;
       if (!res.ok) throw new Error(body.error || 'we could not read the room');
       body.__whole = true;   // a keystroke paints from this body only (review 7)
+      pjBlockedNoteSet(body);   // #8631
     } else {
       if (PJ_WIN.pid !== PJ_CURRENT) pjWinReset(PJ_CURRENT);
       const win = PJ_WIN.gen;
       body = await pjWinRead(PJ_CURRENT, PJ_WIN_PAGE, null);
       if (mine !== PJ_ROOM_GEN || win !== PJ_WIN.gen) return;
+      pjBlockedNoteSet(body);   // #8631: before the window decides whether to repaint
       /* The read worked: a "could not read" line from an earlier poll goes now, before the returns below that paint
          nothing (no change, or a reader past the cap), or it would stay up on a quiet room (review 8). */
       const failMsg = document.getElementById('pj-room-msg');
