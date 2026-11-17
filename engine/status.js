@@ -8181,14 +8181,15 @@ let paneFolderSource = null;
 function setPaneFolderSource(fn) { paneFolderSource = typeof fn === 'function' ? fn : null; }
 /* Each line is `%<pane id>\t<session>\t<folder>`. A line that does not start with a pane id is a fragment (a folder
    whose name holds a newline splits its line), and one unreadable line refuses the whole answer: a guard that fails
-   closed cannot drop the pane it could not read. */
+   closed cannot drop the pane it could not read. An EMPTY folder is well-formed: tmux prints none for a dead pane or
+   one whose program it may not look into (a root process), and that pane is in no agent's folder. */
 function readPaneFolders(out) {
   const lines = String(out || '').split('\n').filter(Boolean);
   return lines.map((line) => {
-    const m = /^%\d+\t([^\t]*)\t(.+)$/.exec(line);
+    const m = /^%\d+\t([^\t]*)\t(.*)$/.exec(line);
     if (!m) throw new Error('we could not make sense of what came back');
     return { session: m[1], folder: m[2] };
-  });
+  }).filter((r) => r.folder);
 }
 function paneFolders() {
   if (paneFolderSource) return readPaneFolders(paneFolderSource());

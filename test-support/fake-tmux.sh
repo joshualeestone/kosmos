@@ -12,10 +12,16 @@
 # the display-message that chat.js and messages.js ask.
 #
 #   AGENT_WORKFORCE_FAKE_PANES     file of `list-panes -a -F` lines (default: none, an empty board)
+#   AGENT_WORKFORCE_FAKE_PANE_FOLDERS  file of `%id<TAB>session<TAB>folder` lines for the folder read (default: none)
 #   AGENT_WORKFORCE_FAKE_SESSIONS  file of `list-sessions -F` lines (default: none)
 #   AGENT_WORKFORCE_FAKE_SCREEN    file of `capture-pane` text (default: empty)
 case "$1" in
-  list-panes)    [ -n "$AGENT_WORKFORCE_FAKE_PANES" ] && [ -f "$AGENT_WORKFORCE_FAKE_PANES" ] && cat "$AGENT_WORKFORCE_FAKE_PANES"; exit 0 ;;
+  list-panes)
+    # kosmos#8640: status.js's folder read (`#{pane_id}<TAB>#{session_name}<TAB>#{pane_current_path}`) gets its own file.
+    case "$*" in
+      *pane_current_path*) [ -n "$AGENT_WORKFORCE_FAKE_PANE_FOLDERS" ] && [ -f "$AGENT_WORKFORCE_FAKE_PANE_FOLDERS" ] && cat "$AGENT_WORKFORCE_FAKE_PANE_FOLDERS"; exit 0 ;;
+    esac
+    [ -n "$AGENT_WORKFORCE_FAKE_PANES" ] && [ -f "$AGENT_WORKFORCE_FAKE_PANES" ] && cat "$AGENT_WORKFORCE_FAKE_PANES"; exit 0 ;;
   list-sessions) [ -n "$AGENT_WORKFORCE_FAKE_SESSIONS" ] && [ -f "$AGENT_WORKFORCE_FAKE_SESSIONS" ] && cat "$AGENT_WORKFORCE_FAKE_SESSIONS"; exit 0 ;;
   capture-pane)  [ -n "$AGENT_WORKFORCE_FAKE_SCREEN" ] && [ -f "$AGENT_WORKFORCE_FAKE_SCREEN" ] && cat "$AGENT_WORKFORCE_FAKE_SCREEN"; exit 0 ;;
   display-message)
