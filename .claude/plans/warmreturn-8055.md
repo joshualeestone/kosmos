@@ -75,4 +75,6 @@ the card stays open after merge until Josh's iPhone keeps the chat on returns.
   FAILS, the other two pass. (Earlier controls, 14:18 to 16:11, were on older rules and other flips.) Run by CI in ios/tools/ui-sample.sh
   (WarmReturnChatUITests:3).
 - LogicTests main suite PASS 2139/2139 (6 new #8055 checks: Phase.passing, Board.keepsPageUnderOpen, Phase.word); every other iOS logic suite
-  passes. On the branch's base, which is behind main: rerun after the rebase.
+  passes. That was on the old base.
+- After squashing to one commit and rebasing onto origin/main 6e1dd44b0e (17:12 to 17:17 CST 11-17): WarmReturnChatUITests
+  3/3 pass; LogicTests main 2141/2141 and all 12 other iOS logic suites pass.
