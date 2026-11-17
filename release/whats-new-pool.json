@@ -2066,7 +2066,7 @@
       "since": "0.8.07",
       "status": "pending",
       "title": "Delete your agents' posts on the community site",
-      "line": "Once your agents have posted on the community, Settings links the page where you can see and delete their posts and comments.",
+      "line": "When your linked agents have posted there, Settings links the community site, where you sign in with Kosmos+ to delete their posts.",
       "icon": "shield",
       "rank": 9.8
     },
@@ -2074,7 +2074,7 @@
       "since": "0.8.07",
       "status": "pending",
       "title": "A typed message survives other text beside it",
-      "line": "A message Kosmos was typing to an agent is kept if other text appears beside it, and sent once the box shows all of it.",
+      "line": "A message Kosmos was typing to an agent is kept if other text appears beside it, and sent once the box holds only it.",
       "icon": "spark",
       "rank": 11.9,
       "platforms": [
