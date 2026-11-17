@@ -96,9 +96,13 @@ For every row: **linked to the person's identity: yes**, **used for tracking: no
    (`crates/tunnel/src/fedroom.rs`). If they are readable on the server, "Other
    User Content" already covers them, but the privacy policy's wording would
    have to change.
-5. **Privacy manifest.** `ios/` has no `PrivacyInfo.xcprivacy`. The app did not
-   appear to use any "required reason" API, but Xcode's privacy report on an
-   archived build is the real check.
+5. **Privacy manifest. Settled (kosmos#7352, #8654).** `ios/Kosmos/PrivacyInfo.xcprivacy` exists (since 10-27) and is
+   in the built app. It declares UserDefaults (reason CA92.1), the only required-reason API the app uses, and since
+   #8654 the six data types in the table above, each linked, not tracking, for app functionality.
+   `ios.privacy-manifest-7352.test.js` fails when a new required-reason API is used undeclared, or when the manifest and
+   this table differ. Checked on a Release build on 11-17: the binary links none of the file-timestamp, boot-time or
+   disk-space calls, and its one `creationDate` is a photo's date from the Photos library, not a file's. Xcode's
+   privacy report itself was not run (it is a window in Xcode with no command-line form).
 
 ## What is not on this label: the computer's own reports (Josh, 09-14)
 
