@@ -42,6 +42,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const store = require('./store');
+const pdfpages = require('./pdfpages');   // kosmos#8637
 
 /* #6734: 100 MB. The file is streamed both ways (stored as it arrives, served from disk), so the cap is what a
    conversation should carry, not what the board can hold in memory. */
@@ -393,8 +394,9 @@ async function preview(rec) {
 }
 /** #6734: the same, as the file to send rather than its bytes ({ ok: true, type, file, unread }), so the route can
     stream a 100 MB image instead of reading it whole. `unread` is the sentence for a file that then cannot be read. */
-async function previewFile(rec) {
+async function previewFile(rec, opts) {
   if (!rec) return { ok: false, because: 'no such attachment' };
+  const page = opts && opts.page !== undefined ? opts.page : 1;
   if (rec.kind === 'image') {
     if (tooBigToPreview(rec)) return { ok: false, because: 'that image is too large to preview here; download it instead' };
     const type = imageTypeOf(rec.name) || (IMAGE_TYPES.has(String(rec.type).toLowerCase()) ? String(rec.type).toLowerCase() : null);
@@ -403,12 +405,33 @@ async function previewFile(rec) {
   }
   if (rec.kind !== 'pdf') return { ok: false, because: 'no preview for this kind of file' };
   if (tooBigToPreview(rec)) return { ok: false, because: 'that PDF is too large to preview here; download it instead' };
+  /* kosmos#8637: the page count (kept beside the file: an attachment never changes) and, past the first, the page
+     asked for. Page 1 is still Quick Look's picture, unchanged. */
+  if (!Number.isInteger(page) || page < 1) return { ok: false, because: 'there is no such page' };
+  /* The count costs a subprocess the first time, so it is read only when asked for (the viewer's HEAD) or needed (a
+     page past the first): showing page 1 does exactly what it did before. */
+  const pages = page > 1 || (opts && opts.count === true) ? await pdfPageCount(rec) : undefined;
+  if (page > 1) {
+    if (!pages || page > pages) return { ok: false, because: 'there is no such page' };
+    const outN = path.join(rec.dir, 'preview-p' + page + '.png');
+    if (!fs.existsSync(outN) && !(await pdfpages.render(rec.file, page - 1, outN))) return { ok: false, because: 'this computer could not draw that page' };
+    return { ok: true, type: 'image/png', file: outN, unread: 'this computer could not draw that page', pages };
+  }
   const out = path.join(rec.dir, 'preview.png');
   if (!fs.existsSync(out)) {
     const made = await renderPdf(rec.file, rec.dir, out);
     if (!made) return { ok: false, because: 'this computer could not draw the first page' };
   }
-  return { ok: true, type: 'image/png', file: out, unread: 'this computer could not draw the first page' };
+  return { ok: true, type: 'image/png', file: out, unread: 'this computer could not draw the first page', pages };
+}
+/* kosmos#8637: an attached PDF's page count, read once and kept beside it (pages.txt); null when it cannot be read,
+   which is not kept, so a later look tries again. */
+async function pdfPageCount(rec) {
+  const at = path.join(rec.dir, 'pages.txt');
+  try { const n = Number(fs.readFileSync(at, 'utf8').trim()); if (Number.isInteger(n) && n >= 1 && n <= pdfpages.MAX_PAGES) return n; } catch { /* not counted yet */ }
+  const n = await pdfpages.count(rec.file);
+  if (n) { try { fs.writeFileSync(at + '.' + process.pid + '.tmp', String(n)); fs.renameSync(at + '.' + process.pid + '.tmp', at); } catch { /* counted again next time */ } }
+  return n;
 }
 
 /**

@@ -7958,6 +7958,14 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
   gap: 10px; padding: 64px 24px 12px; }
 .pv-media { max-width: 100%; max-height: 100%; min-height: 0; object-fit: contain; border-radius: 4px; }
 .pv-note { margin: 0; color: rgba(255, 255, 255, .62); font: var(--text-caption) var(--font-ui); }
+.pv-pager { display: flex; align-items: center; gap: 12px; }   /* kosmos#8637: a PDF's pages, flipped by arrow buttons, the keys, or a swipe */
+.pv-pg { flex: none; width: 40px; height: 40px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .12); color: #fff;
+  font: 400 22px/1 var(--font-ui); cursor: pointer; }
+.pv-pg:hover:not(:disabled) { background: rgba(255, 255, 255, .22); }
+.pv-pg:disabled { opacity: .35; cursor: default; }
+.pv-pg:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@media (pointer: coarse) { .pv-pg { width: 44px; height: 44px; } }
+.pv-pager .pv-note { min-width: 7.5em; text-align: center; font-variant-numeric: tabular-nums; }
 .pv-text { margin: 0; max-width: min(100%, 48rem); max-height: 100%; overflow: auto; padding: 18px 20px; border-radius: 8px;
   background: rgba(255, 255, 255, .06); color: #f2f2f2; font: 13px/1.5 var(--font-mono, ui-monospace, monospace); white-space: pre-wrap; }
 .pv-file { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #fff; text-align: center; }
@@ -78259,6 +78267,76 @@ function pvSheetLoad(stage, url, fileCard, orText) {
     stage.textContent = ''; pvSheetInto(stage, j);
   }).catch(() => { if (stage.isConnected || wait.isConnected) card(''); });
 }
+/* kosmos#8637 (Josh 11-17: "if I have a multiple-page document like this ... it'd be great if I could have arrows to flip
+   through that"): a PDF's page count, from the board's preview route (a HEAD, which answers x-kosmos-pdf-pages). The three
+   routes are written out, as pvSheetLoad's are, so the route test (#3957) reads each; anything else is not asked and
+   answers 0 (one page, as before). */
+function pvPdfPageCount(url) {
+  let m;
+  let asked;
+  if ((m = /^\/api\/attachment\/([0-9a-f]{24})\/preview$/.exec(url))) asked = fetch('/api/attachment/' + m[1] + '/preview', { method: 'HEAD', cache: 'no-store' });
+  else if ((m = /^\/api\/agent\/([^/?]+)\/files\/preview\?name=([^&]*)$/.exec(url))) asked = fetch('/api/agent/' + m[1] + '/files/preview?name=' + m[2], { method: 'HEAD', cache: 'no-store' });
+  else if ((m = /^\/api\/project\/([^/?]+)\/file-preview\?name=([^&]*)$/.exec(url))) asked = fetch('/api/project/' + m[1] + '/file-preview?name=' + m[2], { method: 'HEAD', cache: 'no-store' });
+  else return Promise.resolve(0);
+  return asked.then((r) => {
+    const n = r.ok ? Number(r.headers.get('x-kosmos-pdf-pages')) : 0;
+    return Number.isInteger(n) && n > 1 ? n : 0;
+  }).catch(() => 0);
+}
+/* The address of page n (from 1) of a PDF whose first page is at `url`: page 1 is the address itself, unchanged. */
+function pvPdfPageUrl(url, n) { return n > 1 ? url + (url.indexOf('?') === -1 ? '?' : '&') + 'page=' + n : url; }
+/* kosmos#8637: once the count says there is more than one page, the note under the page becomes "Page 1 of 3" between
+   a previous and a next arrow. The arrow keys (the document's keydown, while the viewer is up) and a sideways swipe on
+   the page flip it too. A one-page PDF, or a count the board cannot give (not a Mac, an older board), keeps "The first
+   page", as before. An answer that arrives after the viewer closed draws nothing. */
+function pvPdfPager(back, stage, img, note, a) {
+  const url = a.preview;
+  pvPdfPageCount(url).then((pages) => {
+    if (pages < 2 || !document.contains(back) || !stage.contains(img)) return;
+    let at = 1;
+    const bar = document.createElement('div');
+    bar.className = 'pv-pager';
+    const prev = document.createElement('button');
+    prev.type = 'button'; prev.className = 'pv-pg'; prev.setAttribute('aria-label', 'Previous page'); prev.textContent = '\u2039';
+    const next = document.createElement('button');
+    next.type = 'button'; next.className = 'pv-pg'; next.setAttribute('aria-label', 'Next page'); next.textContent = '\u203a';
+    note.setAttribute('aria-live', 'polite');
+    note.replaceWith(bar);
+    bar.append(prev, note, next);
+    const show = (n) => {
+      if (!Number.isInteger(n) || n < 1 || n > pages || n === at) return;
+      at = n;
+      img.dataset.pvPage = String(n);
+      img.alt = 'Page ' + n + ' of ' + a.name;
+      img.src = pvPdfPageUrl(url, n);
+      note.textContent = 'Page ' + n + ' of ' + pages;
+      const had = document.activeElement;
+      prev.disabled = n === 1;
+      next.disabled = n === pages;
+      // An arrow that turns off under the focus hands it to the other one, so the keyboard is never left on nothing.
+      if (had === prev && prev.disabled) next.focus(); else if (had === next && next.disabled) prev.focus();
+    };
+    note.textContent = 'Page 1 of ' + pages;
+    img.dataset.pvPage = '1';
+    img.alt = 'Page 1 of ' + a.name;
+    prev.disabled = true;
+    prev.addEventListener('click', () => show(at - 1));
+    next.addEventListener('click', () => show(at + 1));
+    back.pvFlip = (by) => show(at + by);
+    // A sideways swipe of a finger on the page (the phone, through Kosmos+): left for the next page, right for the one before.
+    let from = null;
+    img.addEventListener('pointerdown', (e) => { from = e.pointerType === 'touch' ? { x: e.clientX, y: e.clientY } : null; });
+    img.addEventListener('pointerup', (e) => {
+      if (!from) return;
+      const dx = e.clientX - from.x;
+      const dy = e.clientY - from.y;
+      from = null;
+      if (Math.abs(dx) >= 40 && Math.abs(dx) > Math.abs(dy) * 1.5) show(at + (dx < 0 ? 1 : -1));
+    });
+    img.addEventListener('pointercancel', () => { from = null; });
+    img.style.touchAction = 'pan-y pinch-zoom';
+  });
+}
 function pvRevealWord() { return onWindows() ? 'Show in File Explorer' : 'Open in Finder'; }
 /* The preview's action is Download, not a reveal, through Kosmos+ (the file is not on this device) and, #5865, on
    Linux (revealFolder runs /usr/bin/open, which a Linux board does not have). */
@@ -78287,10 +78365,16 @@ function pvOpen(id, from) {
     img.alt = a.kind === 'pdf' ? 'The first page of ' + a.name : a.name;
     img.src = a.preview;
     stage.appendChild(img);
-    if (a.kind === 'pdf') { const c = document.createElement('p'); c.className = 'pv-note'; c.textContent = 'The first page'; stage.appendChild(c); }
+    let note = null;
+    if (a.kind === 'pdf') { note = document.createElement('p'); note.className = 'pv-note'; note.textContent = 'The first page'; stage.appendChild(note); }
     /* A picture that will not load (a PDF's first page is drawn by the Mac only, so Windows answers 404; an image
-       type the server cannot preview) shows the file's card instead of a broken image on the whole screen. */
-    img.addEventListener('error', () => { stage.textContent = ''; stage.appendChild(fileCard()); }, { once: true });
+       type the server cannot preview) shows the file's card instead of a broken image on the whole screen.
+       kosmos#8637: a later page that will not load says so under the arrows instead, so the others can still be flipped to. */
+    img.addEventListener('error', () => {
+      if (img.dataset.pvPage && img.dataset.pvPage !== '1' && note) { note.textContent = 'Kosmos could not draw page ' + img.dataset.pvPage; return; }
+      stage.textContent = ''; stage.appendChild(fileCard());
+    });
+    if (a.kind === 'pdf' && note) pvPdfPager(back, stage, img, note, a);
     pvZoomFrom(img, from);
   } else if (how === 'textOf' || how === 'snippet') {
     pvTextStage(stage, a, how, fileCard);
@@ -78340,7 +78424,7 @@ function pvOpen(id, from) {
   // A click on the dark closes it: anything but the file, the X, the action (its row, with #8120's Show in Finder), and the words a person may want to
   // select or copy (the name, a note, an error). Only when the press began on the dark too, so selecting a text
   // file's words and letting go past them does not close it.
-  const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, .pv-grid-wrap, .pv-tabs, #pv-x, .pv-acts, .pv-name, .pv-msg, .pv-note'));
+  const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, .pv-grid-wrap, .pv-tabs, .pv-pager, #pv-x, .pv-acts, .pv-name, .pv-msg, .pv-note'));
   let pressedOnFile = false;
   back.addEventListener('pointerdown', (e) => { pressedOnFile = onFile(e.target); });
   back.addEventListener('click', (e) => { if (!pressedOnFile && !onFile(e.target)) pvClose(); pressedOnFile = false; });
@@ -78510,10 +78594,16 @@ document.addEventListener('keydown', (e) => {
   const back = document.getElementById('pv-preview');
   if (!back || pvCovered()) return;
   if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); pvClose(); return; }
+  /* kosmos#8637: left and right flip a PDF's pages, unless a modifier is held or the focus is on a spreadsheet's tabs
+     (which are not shown beside a PDF, but the keys stay theirs). */
+  if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && typeof back.pvFlip === 'function' && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey
+    && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('.pv-tabs'))) {
+    e.preventDefault(); e.stopPropagation(); back.pvFlip(e.key === 'ArrowRight' ? 1 : -1); return;
+  }
   if (e.key !== 'Tab') return;
   e.stopPropagation();
   // #8120: Open in Finder beside the action too; #8122: a spreadsheet's selected tab and its grid (to scroll it), in page order.
-  const f = [...back.querySelectorAll('#pv-x, .pv-tab[aria-selected="true"], .pv-grid-wrap:not([hidden]), .pv-acts button, .pv-acts a')];
+  const f = [...back.querySelectorAll('#pv-x, .pv-tab[aria-selected="true"], .pv-grid-wrap:not([hidden]), .pv-pg:not(:disabled), .pv-acts button, .pv-acts a')];   // kosmos#8637: a PDF's arrows
   // Every Tab is moved here, never left to the browser: WebKit's own Tab skips buttons (Safari's default), so a step
   // left to it lands on the box instead of the next button.
   e.preventDefault();
