@@ -345,9 +345,9 @@ test('the board tick: gates, one restart through remove, the hourly log throttle
     `  1000     1   01:00:00 ${LINK} --dangerously-bypass-approvals-and-sandbox`,
     shell ? `  1001  1000      00:05 /bin/zsh -c make test` : '',
   ].join('\n');
-  let shell = false; let failPs = false; let allowed = true;
+  let shell = false; let failPs = false; let failTmux = false; let allowed = true;
   const d = {
-    run: async (cmd) => (cmd === 'ps' ? (failPs ? null : procsFor(shell)) : paneLine(ALPHA.session, '0.0', 1000)),
+    run: async (cmd) => (cmd === 'ps' ? (failPs ? null : procsFor(shell)) : (failTmux ? null : paneLine(ALPHA.session, '0.0', 1000))),
     roster: () => [ALPHA], isIdle: idle, runners: runnersStub,
     removal: { heldByMove: () => false, restartAsync: async (s, cause) => { calls.push([s, cause]); return { outcome: 'restarted' }; }, OUTCOME: { RESTARTED: 'restarted' } },
     allowed: () => allowed, platform: 'darwin', tmuxBin: 'tmux',
@@ -368,10 +368,11 @@ test('the board tick: gates, one restart through remove, the hourly log throttle
   await tick(); await tick();
   assert.deepEqual(calls, [[ALPHA.sessionName, 'restart']]);
   assert.ok(lines.some((l) => l === `runner-restart: ${ALPHA.sessionName} restarted\n`), lines.join(''));
-  // ps failing warns about ps, once, even after a tmux warning would have been used
-  failPs = true;
+  // A tmux miss at start, then ps failing for good: each is warned once, the first does not use up the second
   const tickPs = rr.makeTick(d);
-  await tickPs(); await tickPs();
+  failTmux = true; await tickPs();
+  failTmux = false; failPs = true; await tickPs(); await tickPs();
+  assert.equal(warns.filter((w) => /tmux list-panes failed/.test(w)).length, 1);
   assert.equal(warns.filter((w) => /ps failed/.test(w)).length, 1);
 });
 
