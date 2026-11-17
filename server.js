@@ -30685,7 +30685,7 @@ if (require.main === module) {
     }
     /* #8617: a Files folder that could not be made is said once per boot, so one that never gets made shows somewhere. */
     const noFolder = told.filter((t) => t && typeof t.folder === 'string' && t.folder);
-    if (noFolder.length) process.stderr.write(`Kosmos could not make the Files folder for ${noFolder.length} agent(s); they can still make it themselves. First: ${noFolder[0].agent} - ${noFolder[0].folder}\n`);
+    if (noFolder.length) process.stderr.write(`Kosmos could not make the Files folder for ${noFolder.length} agent(s). First: ${noFolder[0].agent} - ${noFolder[0].folder}\n`);
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh where agents save the files they make: ${String(err && err.message)}\n`);
   }
