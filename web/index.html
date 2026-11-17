@@ -42526,7 +42526,8 @@ function paintDetailSignedOut() {
         ? esc(ORG_SIGNED_OUT_SENTENCE) + ' This page ' + said + ' ' + DEVICE_SIGNIN_BUTTON
         : 'This page is signed out, so it ' + said + ' <a href="/">See how to sign in</a> on the board.';
       const put = () => { if (!note.hidden && note.dataset.kind === kind) note.innerHTML = html; };
-      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(put); else put();
+      // A frame later when the page is on screen; at once when it is not (a background tab runs no frames).
+      if (typeof requestAnimationFrame === 'function' && !document.hidden) requestAnimationFrame(put); else put();
     }
     if (!out && !note.hidden) {
       // Signed in again: focus on the note's way out returns to the section it was moved from, never to the page.
@@ -42535,18 +42536,14 @@ function paintDetailSignedOut() {
       note.dataset.kind = '';
       note.removeAttribute('tabindex');
       if (model) model.inert = false;
-      if (held && model) model.focus();
+      if (held && model && !model.hidden) model.focus();
     }
   }
   if (model && model.inert !== out) {
-    // Keyboard focus inside the section would fall to the page; it moves to the note instead (its way out once written).
+    // Keyboard focus inside the section would fall to the page; it moves to the note.
     const had = out && document.activeElement && model.contains(document.activeElement);
     model.inert = out;
-    if (had && note) {
-      const go = note.querySelector('a, button');
-      if (go) go.focus();
-      else { note.setAttribute('tabindex', '-1'); note.focus(); }
-    }
+    if (had && note) { note.setAttribute('tabindex', '-1'); note.focus(); }
   }
 }
 function relaySignedOut(status, body) {
