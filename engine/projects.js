@@ -2025,6 +2025,8 @@ function listFiles(folder, limit, opts) {
       try { dir.closeSync(); } catch { /* already closed */ }
     }
   }
+  // kosmos#8627: newest first BEFORE the cap below; the project Files screen says "showing the newest N" on that basis
+  // (web.files-sort-8627.test.js reds if the cut keeps any other files).
   files.sort((a, b) => (a.modified < b.modified ? 1 : a.modified > b.modified ? -1 : 0));
   /* #761: a stamp that changes whenever the list would, so a page can ask every
      few seconds and repaint only on change (Josh had to hard-refresh to see a
