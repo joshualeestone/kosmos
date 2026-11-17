@@ -779,6 +779,9 @@ function externalPost(projectId, { from, fromKind, text, member, unverified }) {
     at: new Date().toISOString(),
   };
   if (typeof member === 'string' && EXTERNAL_MEMBER.test(member)) row.member = member;
+  /* #8625: a person the person blocked: their new messages are not kept on this computer, so nothing is shown, pushed or
+     read by an agent for them. An unreadable block list blocks nothing (isBlocked reads it as empty). */
+  if (row.member && require('./blockedmembers').isBlocked(row.member)) return null;
   // kosmos#7129: the row arrived while this computer was waiting to be let in (a sealed room would have refused it). Kept for good.
   if (unverified === true) row.unverified = true;
   if (!row.text.trim() || !rowShaped(row)) return null;
