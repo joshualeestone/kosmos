@@ -510,9 +510,11 @@ extension Board {
     // #8625: Report sends the message to Kosmos by email, from the person's own mail app, to the address published on the
     // privacy page. The body carries what support needs to act: the words, who sent them, the room and the message id.
     static let reportAddress = "hello@installkosmos.com"
+    static let reportSubjectPrefix = "Kosmos report:"
     static func reportMail(row: RoomRow, project: String, projectName: String) -> URL? {
         guard row.kind == .external else { return nil }
-        let subject = "Report: a message in a shared room"
+        // A fixed prefix, so the support inbox can pick reports out of its other mail (Vivienne watches for it).
+        let subject = reportSubjectPrefix + " a message in a shared room"
         let body = [
             "I am reporting this message from someone outside my Kosmos.",
             "",
