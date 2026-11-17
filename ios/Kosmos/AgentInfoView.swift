@@ -392,7 +392,10 @@ struct AgentInfoView: View {
        files frame their drawings differently (OpenAI's fills about half its viewBox, Gemini's and Grok's nearly all of it;
        measured, the menu showed OpenAI at half the others' size). So each logo is trimmed to its drawn pixels, fitted
        into one box with its aspect kept, and stays a template image, so it takes the menu's own colour in light and dark. */
+    // Review 1: made once per logo (it never changes), not on every redraw of the section.
+    private static var menuMarks: [String: UIImage] = [:]
     private func menuMark(_ name: String) -> Image {
+        if let made = Self.menuMarks[name] { return Image(uiImage: made) }
         guard let src = UIImage(named: name) else { return Image(systemName: "circle") }
         let box = CGSize(width: 22, height: 22)
         let crop = Self.drawnRect(src)
@@ -403,7 +406,9 @@ struct AgentInfoView: View {
             src.draw(in: CGRect(x: (box.width - fitted.width) / 2 - crop.minX * scale, y: (box.height - fitted.height) / 2 - crop.minY * scale,
                                 width: src.size.width * scale, height: src.size.height * scale))
         }
-        return Image(uiImage: drawn.withRenderingMode(.alwaysTemplate))
+        let made = drawn.withRenderingMode(.alwaysTemplate)
+        Self.menuMarks[name] = made
+        return Image(uiImage: made)
     }
     // The part of an image that has any ink, in its own points (the whole image when it cannot be read). Drawn into a
     // bitmap made here with a known layout (RGBA, alpha the 4th byte): a renderer's own bitmap may be 64-bit or
@@ -413,17 +418,21 @@ struct AgentInfoView: View {
         let px = 128
         guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: px * 4,
                                   space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-              let cgSrc = img.cgImage ?? UIGraphicsImageRenderer(size: img.size).image(actions: { _ in img.draw(at: .zero) }).cgImage
+              let raw = ctx.data
         else { return whole }
-        ctx.draw(cgSrc, in: CGRect(x: 0, y: 0, width: px, height: px))
-        guard let raw = ctx.data else { return whole }
+        // Review 1: the logo (a vector asset, often with no cgImage) is drawn straight into this small bitmap, never
+        // rasterised at its own nominal size first (OpenAI's is 716 points). Flipped so UIKit's top is row 0.
+        ctx.translateBy(x: 0, y: CGFloat(px)); ctx.scaleBy(x: 1, y: -1)
+        UIGraphicsPushContext(ctx)
+        img.draw(in: CGRect(x: 0, y: 0, width: px, height: px))
+        UIGraphicsPopContext()
         let bytes = raw.bindMemory(to: UInt8.self, capacity: px * px * 4)
         var minX = px, minY = px, maxX = -1, maxY = -1
         for y in 0..<px { for x in 0..<px where bytes[(y * px + x) * 4 + 3] > 8 {
             minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
         } }
         guard maxX >= minX, maxY >= minY else { return whole }
-        // Row 0 of the buffer is the top of the image (CGContext.draw puts the image upright in a bitmap's memory order).
+        // Row 0 of the buffer is the top of the image (the flip above puts UIKit's y = 0 there).
         let sx = img.size.width / CGFloat(px), sy = img.size.height / CGFloat(px)
         return CGRect(x: CGFloat(minX) * sx, y: CGFloat(minY) * sy, width: CGFloat(maxX - minX + 1) * sx, height: CGFloat(maxY - minY + 1) * sy)
     }
