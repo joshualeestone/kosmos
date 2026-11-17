@@ -180,7 +180,7 @@ function assertWords(words, { outcome, count, modelKey }) {
     // kosmos#8584: a folder is read again at Start at login, so "if", with the main account as the other way.
     assert.match(words, modelKey === 'offered'
       ? /It starts on the model it was set to\. It starts on the account it was set to only if Kosmos finds that same account in its account folder at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\./
-      : /It starts on the account it was set to only if Kosmos finds that same account in its account folder at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\. It starts on the model it last ran/, label);
+      : /It starts on the model it last ran, as the model it was set to is not offered now\. It starts on the account it was set to only if Kosmos finds that same account in its account folder at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\. Choose its model again if it used another\./, label);
     assert.doesNotMatch(words, /because /, label);
   } else if (account === 'mainAsBefore') {
     assert.match(words, modelKey === 'offered' ? /account and model it was set to before/ : /starts on your main account, as before/, label);
@@ -431,8 +431,9 @@ test('kosmos#8510 round 6: a folder holding another account, the same account si
   }
 });
 
-/* kosmos#8584 review 1: the reverse of the test above. The words for a folder that is fine at the delete say "if it is
-   still signed in there at Start at login; otherwise your main account". Signed out in between, Start at login writes
+/* kosmos#8584 review 1: the reverse of the test above. The words for a folder that is fine at the delete say "only if
+   Kosmos finds that same account in its account folder at Start at login. Otherwise it starts on your main account".
+   Signed out in between, Start at login writes
    the main account (and the model it was set to), as the words said, and is not offered again. */
 test('kosmos#8584: a folder fine at the delete, signed out before Start at login: the main account, as the words said', WINDOWS_ONLY, () => {
   const name = agentOnAccount('signout8584', SET_MODEL);

@@ -951,7 +951,8 @@ function startsAgainWords(name, preview = false) {
         : '. It starts on the account and model it was set to before.';
     }
     return rec.configDir
-      ? `. ${onFolder}${otherwise} It starts on ${retired}. Choose its model again if it used another.`
+      // Review 3: the model first, as every other outcome says it, then the account, then the model advice last.
+      ? `. It starts on ${retired}. ${onFolder}${otherwise} Choose its model again if it used another.`
       : `. It starts on your main account, as before, but on ${retired}. Choose its model again if it used another.`;
   }
   /* The outcomes that keep no folder: the account cannot be put back, and the words say why. round 1: removed from
