@@ -294,3 +294,20 @@ test('#7467 CONTROL: a partial whose switch keeps its conversation (carried null
   assert.equal(r.body.outcome, 'partial');
   assert.equal(r.body.because, 'srv-sm-7467c is switched to Claude, on your main Claude account: it could not be moved to b@example.com (test). It is starting again now.');
 });
+
+/* kosmos#8618 (feedback: the switch refused a model's full id, and its refusal did not say what it accepts). */
+test('kosmos#8618 route: a switch to Claude takes a model\'s full id as well as its menu key, and a refusal names the keys', async () => {
+  const name = born('srv-sm-fullid');
+  await switchTo(name, { provider: 'google' });
+  restarts = 0;
+  let r = await switchTo(name, { provider: 'anthropic', model: 'claude-opus-5-5' });
+  assert.equal(r.status, 200, 'the full id was refused: ' + JSON.stringify(r.body));
+  assert.match(plist(name), /claude-opus-5-5/, 'the switched job does not carry the model named by its full id');
+  assert.equal(r.body.model && r.body.model.label, 'Claude Opus 5.5');
+  const other = born('srv-sm-fullid-bad');
+  await switchTo(other, { provider: 'google' });
+  r = await switchTo(other, { provider: 'anthropic', model: 'claude-opus-5-5x' });
+  assert.equal(r.status, 400, 'CONTROL: a near id is still refused');
+  assert.match(r.body.because, /pick a model from the list: fable52, .*opus55.*, haiku \(or a model's full id, such as claude-/, r.body.because);
+  assert.equal(store.readProfile(other).provider, 'google', 'a refused switch changed the provider');
+});

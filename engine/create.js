@@ -215,7 +215,16 @@ function modelsFor(provider) {
  * that produces an agent launched with a flag its runner has never heard of.
  */
 function modelFor(provider, modelKey) {
-  return modelsFor(provider).find((m) => m.key === String(modelKey)) || null;
+  // kosmos#8618: the menu key ("opus55") or the model's full id ("claude-opus-5-5"); either names one row.
+  const k = String(modelKey);
+  return modelsFor(provider).find((m) => m.key === k || m.arg === k) || null;
+}
+/* kosmos#8618 (feedback: a refusal said only "pick a model from the list", so an agent found the accepted value by
+   trial): the refusal names what is accepted, the menu keys of this provider's models, and that a full id works too. */
+function pickModelWords(provider) {
+  const ms = modelsFor(provider);
+  if (!ms.length) return 'pick a model from the list';
+  return 'pick a model from the list: ' + ms.map((m) => m.key).join(', ') + ' (or a model\'s full id, such as ' + ms[0].arg + ')';
 }
 
 /**
@@ -3232,12 +3241,12 @@ function setModel(name, modelKey, opts) {
          the day OpenAI rows are added -- and nothing would have caught it,
          because it is a sentence rather than a check. Scoped to the provider,
          the right refusal falls out of the data instead of being remembered. */
-      const elsewhere = MODELS.find((x) => x.key === String(modelKey));
+      const elsewhere = MODELS.find((x) => x.key === String(modelKey) || x.arg === String(modelKey));
       return {
         outcome: OUTCOME.REFUSED,
         because: elsewhere
           ? `${elsewhere.label} is not a model ${agentProvider === 'openai' ? 'OpenAI' : 'Anthropic'} runs, so ${spoken} cannot use it`
-          : 'pick a model from the list',
+          : pickModelWords(agentProvider),
       };
     }
   }
@@ -6145,12 +6154,12 @@ function createAgentInner(opts) {
          provider runs" send a person to different places. */
       const m = modelFor(provider, wantModelKey);
       if (!m) {
-        const elsewhere = MODELS.find((x) => x.key === String(wantModelKey));
+        const elsewhere = MODELS.find((x) => x.key === String(wantModelKey) || x.arg === String(wantModelKey));
         return {
           outcome: OUTCOME.REFUSED,
           because: elsewhere
             ? `${elsewhere.label} is not a model ${provider === 'openai' ? 'OpenAI' : 'Anthropic'} runs; pick one from that provider's list`
-            : 'pick a model from the list',
+            : pickModelWords(provider),
           steps,
         };
       }
@@ -7925,6 +7934,7 @@ module.exports = {
   modelsFor,
   defaultModelKeyFor, policyAllows,
   modelFor,
+  pickModelWords,
   SELF_STARTS,
   selfStarts,
   switchedOffSentence,
