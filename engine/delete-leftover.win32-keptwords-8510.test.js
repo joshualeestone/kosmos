@@ -179,8 +179,8 @@ function assertWords(words, { outcome, count, modelKey }) {
   if (account === 'folder') {
     // kosmos#8584: a folder is read again at Start at login, so "if", with the main account as the other way.
     assert.match(words, modelKey === 'offered'
-      ? /It starts on the model it was set to, and on the account it was set to if that account is still signed in there at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\./
-      : /It starts on the account it was set to if that account is still signed in there at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\. It starts on the model it last ran/, label);
+      ? /It starts on the model it was set to\. It starts on the account it was set to only if Kosmos finds that same account in its account folder at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\./
+      : /It starts on the account it was set to only if Kosmos finds that same account in its account folder at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\. It starts on the model it last ran/, label);
     assert.doesNotMatch(words, /because /, label);
   } else if (account === 'mainAsBefore') {
     assert.match(words, modelKey === 'offered' ? /account and model it was set to before/ : /starts on your main account, as before/, label);
@@ -438,7 +438,7 @@ test('kosmos#8584: a folder fine at the delete, signed out before Start at login
   const name = agentOnAccount('signout8584', SET_MODEL);
   try {
     for (const words of taskOnlyDelete(name)) {
-      assert.match(words, /It starts on the model it was set to, and on the account it was set to if that account is still signed in there at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\./);
+      assert.match(words, /It starts on the model it was set to\. It starts on the account it was set to only if Kosmos finds that same account in its account folder at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\./);
     }
     signIn(ACCOUNT, { emailAddress: 'someone-else@example.test', organizationUuid: 'org-other' });   // signed out, another in
     startAtLogin(name);
@@ -446,5 +446,36 @@ test('kosmos#8584: a folder fine at the delete, signed out before Start at login
     assert.equal(offered(name), false, 'Start at login is offered again, so the advice to choose its account would be wrong');
   } finally {
     signIn(ACCOUNT, OWNER);
+  }
+});
+
+/* kosmos#8584 review 2: the SAME account still signed in, yet Start at login writes the main account: the folder is out
+   of reach (a disk not connected), or its config cannot be read at that moment (being written). This is why the words
+   say "only if Kosmos finds that same account in its account folder", never a plain "if it is still signed in". */
+test('kosmos#8584 review 2: a folder fine at the delete, out of reach at Start at login: the main account, as the words said', WINDOWS_ONLY, () => {
+  const name = agentOnAccount('away8584', SET_MODEL);
+  let moved = false;
+  try {
+    for (const words of taskOnlyDelete(name)) assert.match(words, /only if Kosmos finds that same account in its account folder at Start at login\./);
+    fs.renameSync(ACCOUNT, unplugged);   // the account is still signed in there, but the disk is not connected
+    moved = true;
+    startAtLogin(name);
+    assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
+  } finally {
+    if (moved) fs.renameSync(unplugged, ACCOUNT);
+  }
+});
+
+test('kosmos#8584 review 2: a folder fine at the delete, its config mid-write at Start at login: the main account, as the words said', WINDOWS_ONLY, () => {
+  const name = agentOnAccount('midwrite8584', SET_MODEL);
+  const config = accounts.configFile(ACCOUNT);
+  const whole = fs.readFileSync(config, 'utf8');
+  try {
+    for (const words of taskOnlyDelete(name)) assert.match(words, /only if Kosmos finds that same account in its account folder at Start at login\./);
+    fs.writeFileSync(config, whole.slice(0, 10));   // the same account, its config being written at that moment
+    startAtLogin(name);
+    assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
+  } finally {
+    fs.writeFileSync(config, whole);
   }
 });

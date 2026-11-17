@@ -939,16 +939,19 @@ function startsAgainWords(name, preview = false) {
        win32RecordedTask again): unplugged or signed out by then, the task goes on the main account. So for a folder the
        words say "if"; the main account is always there and keeps the flat sentence. Review 1: the main-account fallback
        is where it then stays (Start at login is not offered again), so it gets the same advice as every other outcome
-       that lands there, in its own sentence to keep each under the 30-word cap. */
-    const stillThere = 'if that account is still signed in there at Start at login';
+       that lands there, in its own sentence to keep each under the 30-word cap. Review 2: "only if", never a plain
+       "if": with the same account still signed in, repair still writes the main account when the folder is out of reach
+       (a disk not connected) or its config cannot be read at that moment (being written). "Finds that same account in its
+       account folder" covers reach, read and match, as the kept outcomes' words do. */
+    const onFolder = 'It starts on the account it was set to only if Kosmos finds that same account in its account folder at Start at login.';
     const otherwise = ' Otherwise it starts on your main account; choose its account again if it should use another.';
     if (rec.modelOk) {
       return rec.configDir
-        ? `. It starts on the model it was set to, and on the account it was set to ${stillThere}.${otherwise}`
+        ? `. It starts on the model it was set to. ${onFolder}${otherwise}`
         : '. It starts on the account and model it was set to before.';
     }
     return rec.configDir
-      ? `. It starts on the account it was set to ${stillThere}.${otherwise} It starts on ${retired}. Choose its model again if it used another.`
+      ? `. ${onFolder}${otherwise} It starts on ${retired}. Choose its model again if it used another.`
       : `. It starts on your main account, as before, but on ${retired}. Choose its model again if it used another.`;
   }
   /* The outcomes that keep no folder: the account cannot be put back, and the words say why. round 1: removed from

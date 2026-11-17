@@ -22,6 +22,9 @@
   account is written and Start at login is not offered again.
 - Main-account accountOk keeps the flat sentence: nothing a person can do before Start at login removes the main
   account, and adding "if" there would be a hedge with no case behind it.
+- Review 2: "only if Kosmos finds that same account in its account folder at Start at login", never a plain "if ...
+  still signed in there": with the same account signed in, a folder out of reach or mid-write still goes on the main
+  account (end-to-end tests for both). The model gets its own first sentence to keep each under the cap.
 - First draft (superseded by review 1): one sentence, "... before if that account is still signed in there at Start
   at login; otherwise on your main account." It left out the advice to choose its account again, and adding that would
   pass the 30-word cap, hence the split above.
