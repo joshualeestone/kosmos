@@ -54,13 +54,13 @@ test('the Codex gate lets Windows and Linux through; every other runner arm stay
 
 test('manifestFor picks the WINDOWS build on win32, never the Mac tarball', () => {
   const x64 = runners.manifestFor('openai', 'win32', 'x64');
-  assert.match(x64.url, /codex-0\.149\.1-win32-x64\.tgz$/);
+  assert.match(x64.url, /codex-0\.169\.0-win32-x64\.tgz$/);
   assert.doesNotMatch(x64.url, /darwin/);
   assert.match(x64.integrity, /^sha512-/);
   assert.equal(x64.binInPackage, 'vendor/x86_64-pc-windows-msvc/bin/codex.exe');
   assert.equal(x64.arch, 'x64');
-  // kosmos#8593: Windows keeps its own pin (0.149.1) while the Mac and Linux moved to 0.169.0; its bump is Homer's.
-  assert.equal(x64.version, '0.149.1', 'the Windows pin, stated on the Windows entry');
+  // kosmos#8593: Windows has its own pin, measured on Windows (0.169.0, the same version as the Mac and Linux now).
+  assert.equal(x64.version, '0.169.0', 'the Windows pin, stated on the Windows entry');
   assert.match(x64.url, new RegExp(`codex-${x64.version.replace(/\./g, '\\.')}-win32-x64\\.tgz$`), 'its tarball is its own version');
   assert.equal(x64.name, "OpenAI's Codex");
 

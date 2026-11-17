@@ -32,9 +32,12 @@ test('review 2: the hash is verified for the Codex Kosmos pins; a bump fails her
   assert.ok(hooks.verifiedFor('darwin').includes(runners.MANIFEST.openai.version), 'the Mac pin');
   assert.ok(hooks.verifiedFor('linux').includes(runners.manifestFor('openai', 'linux', 'x64').version), 'the Linux pin');
   for (const arch of ['x64', 'arm64']) assert.ok(hooks.verifiedFor('win32').includes(runners.manifestFor('openai', 'win32', arch).version), `the Windows ${arch} pin`);
-  // kosmos#8593 control: a version nobody measured is refused on every platform, and Windows does not take the Mac's.
+  // kosmos#8593 control: a version nobody measured is refused on every platform.
   for (const p of ['darwin', 'linux', 'win32']) assert.equal(hooks.verifiedFor(p).includes('0.150.0'), false, p);
-  assert.equal(hooks.verifiedFor('win32').includes('0.169.0'), false, 'Windows is not measured on 0.169.0');
+  // kosmos#8593 (Windows half): 0.169.0 was measured on Windows on its own (codexhooks.win32-8348's real-Codex arm),
+  // and the Windows list is still its own object, so a later Mac-only version does not reach it.
+  assert.equal(hooks.verifiedFor('win32').includes('0.169.0'), true, 'Windows 0.169.0 measured');
+  assert.notEqual(hooks.verifiedFor('win32'), hooks.verifiedFor('darwin'), 'Windows must not share the Mac list object');
 });
 
 test('the trust hash is the one the real Codex TUI wrote for this hook (codex-cli 0.149.1, 10-16)', () => {

@@ -108,8 +108,7 @@ const MANIFEST = Object.assign(Object.create(null), {
        voice/, not zsh/, which nothing here reads); a ChatGPT token refresh still writes THROUGH the private home's
        auth.json symlink into the account file (bin/agent-supervisor.sh relies on it; same result as 0.149.1, measured
        both with a fake token endpoint); and the hook trust record is unchanged (engine/codexhooks.js).
-       ⚠️ WINDOWS STAYS ON 0.149.1 (CODEX_WIN32 below states its own version): its hook forms were measured on
-       0.149.1 win32, so its bump is Homer's, with its own measurement. */
+       Windows has its own entries (CODEX_WIN32 below), measured separately for its hook forms; it is on 0.169.0 too. */
     version: '0.169.0',
     arch: 'arm64',
     url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-darwin-arm64.tgz',
@@ -227,23 +226,28 @@ Object.freeze(MANIFEST);
  * half-written tree.
  */
 const CODEX_WIN32 = Object.freeze(Object.assign(Object.create(null), {
-  /* kosmos#8593: Windows keeps 0.149.1 (the Mac and Linux pin moved to 0.169.0). Stated per entry so the base's
-     version does not reach Windows; the bump is Homer's (the win32 hook forms are measured per Codex version). */
+  /* kosmos#8593: Windows moves to 0.169.0 too (the first Codex that can run gpt-6-astra on a ChatGPT sign-in). Still
+     stated per entry, so a later Mac/Linux bump cannot reach Windows unmeasured. Measured on the Windows box 11-16
+     (kosmos#8593 comment 6931488189): each tarball's sha512 is the registry's below and downloadBytes is its size;
+     codex.exe --version is codex-cli 0.169.0, Authenticode-signed by OpenAI; every file 0.149.1's vendor tree had is
+     still there (bin/codex.exe, bin/codex-code-mode-host.exe, codex-path/rg.exe, codex-resources/codex-command-runner.exe
+     and codex-windows-sandbox-setup.exe), plus codex-resources/voice/; arm64's file list matches x64's; and the real
+     Codex runs the win32 hook with our trust record and not with one hex digit changed (codexhooks.win32-8348). */
   x64: Object.freeze({
-    version: '0.149.1',
+    version: '0.169.0',
     arch: 'x64',
-    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-win32-x64.tgz',
-    integrity: 'sha512-G3QXGAg7nyyhqOeooAMUekBCeHd8a1QByhKcVAFyzNBaI06t6Ft7nsF+1SzFS0spuIdU4YyMi5YD26ukADBQUQ==',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-win32-x64.tgz',
+    integrity: 'sha512-nC+McFU8xRNL9tk3IhxcKdhcyOElwF/HhPO+gzSQCY7yjh3XdzSajX+MYWcHUVHWRHajfwn3/WgJYJK2wS+XWg==',
     binInPackage: 'vendor/x86_64-pc-windows-msvc/bin/codex.exe',
-    downloadBytes: 139929729,
+    downloadBytes: 187002407,
   }),
   arm64: Object.freeze({
-    version: '0.149.1',
+    version: '0.169.0',
     arch: 'arm64',
-    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-win32-arm64.tgz',
-    integrity: 'sha512-5K0DmOKGK9Bos627p8sK8ATHjovPK0sDyT6h9Cb+4v+5CW5SGw1HLgjGxoLfJ8g3cg6mtg/pRCXXo2L/j71UVA==',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-win32-arm64.tgz',
+    integrity: 'sha512-nTN9SpkacGohq60+I80R3t0R8Mhbnlt3OVYNahgAv1Gu77KFwhPc0vz9Ou/DAGDtYhKVWA/jiYXJXnlzkwb/JA==',
     binInPackage: 'vendor/aarch64-pc-windows-msvc/bin/codex.exe',
-    downloadBytes: 130863958,
+    downloadBytes: 175339080,
   }),
 }));
 
@@ -405,6 +409,54 @@ function verifiedMarker(platform = process.platform, provider = 'openai') {
 const verifiedStamp = (m) => `${m.version} ${m.binInPackage}`;
 function isVerified(m, platform = process.platform, provider = 'openai') {
   try { return fs.readFileSync(verifiedMarker(platform, provider), 'utf8').trim() === verifiedStamp(m); } catch { return false; }
+}
+/* kosmos#8593 (Windows): the swap lock. install() writes `<runners>/openai/.swapping` ({ pid, at }) before a Windows
+   tree swap takes the old tree away, and removes it when the job ends, either way. A Windows Codex agent's supervisor
+   (win32codexsup.js) waits on it before each turn, because it spawns the codex.exe it resolved once, without asking
+   resolveBin. A lock older than SWAP_LOCK_STALE_MS is a board that died mid-swap, and is ignored. */
+const SWAP_LOCK = '.swapping';
+const SWAP_LOCK_STALE_MS = 15 * 60 * 1000;
+/**
+ * Resolves true once no swap lock covers `bin` (at once when `bin` is not the managed Windows Codex, or there is no
+ * lock), or false when `timeoutMs` passed with the lock still up, after which the caller runs its turn as before.
+ * Never rejects. o: { timeoutMs = 180000, pollMs = 250, now = Date.now }.
+ */
+/* The lock that covers `bin`, found FROM THE BIN ITSELF (the openai folder above its pkg/ tree), or null when `bin` is
+   not inside a managed Codex tree. From the bin, not from managedRoot(): a supervisor and the board can spell the same
+   folder differently (an 8.3 name, forward slashes, \\?\, another root setting), and the lock beside the tree the bin
+   is in is the one that matters. Pure. */
+function swapLockFor(bin) {
+  const p = String(bin || '').replace(/\//g, '\\').replace(/^\\\\\?\\(?=[a-z]:\\)/i, '');
+  const m = /^(.*\\openai)\\pkg\\/i.exec(p);
+  return m ? `${m[1]}\\${SWAP_LOCK}` : null;
+}
+async function waitForSwap(bin, o = {}) {
+  const lock = swapLockFor(bin);
+  if (!lock) return true;
+  const now = o.now || Date.now;
+  const timeoutMs = Number.isFinite(o.timeoutMs) ? o.timeoutMs : 180000;
+  const pollMs = Number.isFinite(o.pollMs) ? o.pollMs : 250;
+  const until = now() + timeoutMs;
+  for (;;) {
+    /* Its age is the FILE's (mtime), not what it says: a lock a crash left half-written still goes stale. A lock that
+       cannot be read for any reason but its absence counts as held, until the cap. */
+    let held = false;
+    try { held = now() - fs.statSync(lock).mtimeMs < SWAP_LOCK_STALE_MS; } catch (e) { held = !!e && e.code !== 'ENOENT'; }
+    if (!held) return true;
+    if (now() >= until) return false;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+}
+/* kosmos#8593 (Windows): the version an EARLIER build's marker vouches for, when it vouches for the same binary path as
+   the pin (`<x.y.z> <binInPackage>`), else null. A marker naming another path does not vouch for what is at managedBin
+   now, so it is not read as an older install of it. */
+function verifiedVersion(m, platform = process.platform, provider = 'openai') {
+  let text;
+  try { text = fs.readFileSync(verifiedMarker(platform, provider), 'utf8').trim(); } catch { return null; }
+  const sp = text.indexOf(' ');
+  if (sp < 0 || text.slice(sp + 1) !== m.binInPackage) return null;
+  const v = text.slice(0, sp);
+  return /^\d+\.\d+\.\d+$/.test(v) ? v : null;
 }
 
 /* kosmos#8593: the version of the managed Mac/Linux tree on disk, read from the package.json its npm tarball carries
@@ -754,6 +806,81 @@ function authenticodeOf(file) {
       });
   });
 }
+/* kosmos#8593 (Windows): whether any process runs a program from inside `dir` (the managed runner folder): true, false,
+   or null when Windows could not be asked (no answer, no sentinel), which callers treat as running. One CIM read of every
+   process's image path, compared here in node (the whole check, PowerShell start included, measured ~0.45 s on the
+   Windows box: every same-drive path is resolved, a few hundred cheap local reads).
+   🛑 ONE FOLDER HAS SEVERAL SPELLINGS, and a miss here reads "nothing running", the unsafe answer. Windows reports a
+   program's path in the form it was STARTED by, which can mix 8.3 short and long parts (measured on the Windows box
+   2026-11-17: a program started under C:\...\LONGTE~1\... reports that form, whichever form the folder is asked by). So
+   both sides are resolved (fs.realpathSync.native gives the one long, real form, through 8.3 names and junctions) and
+   compared case-insensitively with a trailing separator, so a sibling that merely shares the prefix (openai-old) does not
+   count. A folder that cannot be resolved for any reason but its absence is no answer (null); a program path that cannot
+   be resolved is compared as reported.
+   🛑 RESOLVING A PATH CAN HANG: a program started from a network drive that has since gone away holds realpath for the
+   whole SMB timeout. So only paths on the managed folder's own local drive are resolved (a program anywhere else
+   cannot be inside it, unless a subst drive points into it, which Kosmos never does), they are resolved OFF the event
+   loop (fs.realpath.native), and the whole answer has a deadline after which it is no answer (null, read as running).
+   NOT COVERED: a process whose image path Windows will not tell this (non-elevated) board, an elevated or another
+   user's process, is dropped and so cannot count. Kosmos starts its Codex agents as this user, unelevated, so they are
+   always readable; a Codex someone started elevated by hand from the managed folder is not seen. */
+const RUNNING_OK = 'KOSMOS-RUNNING-READ-OK';
+const RUNNING_DEADLINE_MS = 20000;
+function managedProcessRunning(dir, opts) {
+  const ms = (opts && Number.isFinite(opts.deadlineMs) && opts.deadlineMs > 0) ? opts.deadlineMs : RUNNING_DEADLINE_MS;
+  let timer = null;
+  const deadline = new Promise((resolve) => { timer = setTimeout(() => resolve(null), ms); });
+  if (timer && typeof timer.unref === 'function') timer.unref();
+  const answer = realpathNative(dir).then(
+    (root) => readRunning(root, [String(dir), root], ms),
+    (e) => (e && e.code === 'ENOENT' ? false : null));   // no folder: nothing can run from it; any other refusal: no answer
+  return Promise.race([deadline, answer]).finally(() => clearTimeout(timer));
+}
+function readRunning(root, forms, ms = RUNNING_DEADLINE_MS) {
+  return new Promise((resolve) => {
+    const ps = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    // UTF-8 out, so a folder name outside the console's code page reaches node intact.
+    const script = '[Console]::OutputEncoding = [Text.Encoding]::UTF8; '
+      + 'Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object { $_.ExecutablePath } | Where-Object { $_ } | Sort-Object -Unique | ForEach-Object { [Console]::Out.WriteLine($_) }; '
+      + `[Console]::Out.WriteLine('${RUNNING_OK}')`;
+    execFile(ps, ['-NoProfile', '-NonInteractive', '-Command', script],
+      { windowsHide: true, timeout: ms, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },   // ends with the deadline
+      (err, stdout) => {
+        const paths = err ? null : parseExePaths(stdout);
+        if (paths === null) { resolve(null); return; }
+        exeUnder(paths, root, undefined, forms).then(resolve, () => resolve(null));
+      });
+  });
+}
+const realpathNative = (p) => new Promise((res, rej) => fs.realpath.native(p, (e, r) => (e ? rej(e) : res(r))));
+/** What managedProcessRunning's PowerShell printed -> the program paths, or null without the sentinel. Pure. */
+function parseExePaths(out) {
+  const lines = String(out == null ? '' : out).split(/\r?\n/).map((l) => l.trim());
+  if (!lines.includes(RUNNING_OK)) return null;
+  return lines.filter((l) => l && l !== RUNNING_OK);
+}
+/**
+ * Whether any of `paths` (as Windows reported them) lies inside `root` (already resolved): a Promise<boolean>.
+ * A path that already starts with the root, or with another spelling of it in `forms`, counts at once; otherwise only a
+ * path on one of those spellings' own drives is resolved (see managedProcessRunning on why). `real` is the seam
+ * (sync or async).
+ */
+async function exeUnder(paths, root, real = realpathNative, forms = [root]) {
+  const norm = (s) => String(s).replace(/[\\/]+$/, '').toLowerCase() + '\\';
+  const bases = [...new Set([root, ...forms].map(norm))];
+  const inside = (p) => bases.some((b) => String(p).toLowerCase().startsWith(b));
+  const drives = new Set(bases.map((b) => (/^[a-z]:\\/.test(b) ? b.slice(0, 2) : null)).filter(Boolean));
+  const toResolve = [];
+  for (const raw of paths) {
+    // A path Windows gives in its long-path form (\\?\C:\...) is the same path; read without the prefix.
+    const p = String(raw).replace(/^\\\\\?\\(?=[a-z]:\\)/i, '');
+    if (inside(p)) return true;
+    const drive = /^[a-z]:\\/i.test(p) ? p.slice(0, 2).toLowerCase() : null;
+    if (drive && drives.has(drive)) toResolve.push(p);
+  }
+  const resolved = await Promise.all(toResolve.map(async (p) => { try { return await real(p); } catch { return p; } }));
+  return resolved.some(inside);
+}
 /** Whether an Authenticode answer is Google's. Pure. */
 function agySignedByGoogle(sig) {
   return !!sig && sig.status === 'Valid' && AGY_SIGNER.test(String(sig.subject || '')) && AGY_SIGNER_ORG.test(String(sig.subject || ''));
@@ -965,6 +1092,14 @@ function resolveBin(provider, opts) {
      there, and that marker is written after --version succeeds and removed before
      any new tree is swapped in. */
   if (plat === 'win32' && isRunnable(managed) && !isVerified(mf, plat)) {
+    /* kosmos#8593 (Windows): a tree an OLDER build's marker vouches for ran its --version when that build installed it,
+       so it is still a runner (agents keep starting on it) but STALE, and the board's upgrade sweep replaces it. Only
+       older counts, as on the Mac. A NEWER build's marker (another board with a later pin sharing this root) reads
+       present and not stale, as a newer Mac tree does: read as absent, the screen would offer an install that puts this
+       board's older pin over it. */
+    const was = verifiedVersion(mf, plat);
+    if (was && olderVersion(was, mf.version)) return { bin: managed, present: true, managed: true, overridden: false, stale: true, installedVersion: was };
+    if (was && olderVersion(mf.version, was)) return { bin: managed, present: true, managed: true, overridden: false };
     const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/codex';
     if (isRunnable(legacy)) return { bin: legacy, present: true, managed: false, overridden: false };
     return { bin: managed, present: false, managed: true, overridden: false };
@@ -1531,9 +1666,22 @@ function install(provider, opts) {
   const doDownload = o.download || download;
 
   const job = { ...blankJob(), phase: 'downloading', receivedBytes: 0, totalBytes: m.downloadBytes, version: m.version };
-  /* kosmos#8593: replacing a stale Mac/Linux runner. Kept off the API's job shape (non-enumerable), read by installing()
-     and by the swap below, which keeps the previous tree until the new one proves itself. */
-  const upgrading = existing.stale === true && plat !== 'win32';
+  /* kosmos#8593: replacing a stale managed runner (Windows too, only while none of its agents runs, below). Kept off
+     the API's job shape (non-enumerable), read by installing() and by the swap below, which keeps the previous tree
+     until the new one proves itself. */
+  const upgrading = existing.stale === true;
+  /* kosmos#8593 (Windows): Windows lets the tree's folder be renamed while a codex.exe in it runs (measured on the
+     Windows box 2026-11-17), so a swap would leave a running older Codex starting its code-mode host from the NEW tree,
+     the #8598 failure, and the restart sweep that answers it on the Mac reads tmux, which Windows does not have. So a
+     Windows upgrade swaps only while NO process runs from the managed folder, asked again just before the swap; an
+     answer that cannot be read counts as running (the safe direction: the old version stays). Seam: o.codexRunning,
+     (dir, { deadlineMs }?) => Promise<boolean|null>. */
+  const codexRunning = o.codexRunning || managedProcessRunning;
+  // The marker the old tree carried, written back if this upgrade puts that tree back (restorePrevious).
+  let previousStamp = null;
+  if (upgrading && plat === 'win32') { try { previousStamp = fs.readFileSync(verifiedMarker(plat, provider), 'utf8').trim(); } catch { previousStamp = null; } }
+  // What that marker said, should it vanish before it is read: resolveBin read the version off it a moment ago.
+  if (upgrading && plat === 'win32' && !previousStamp && existing.installedVersion) previousStamp = `${existing.installedVersion} ${binInPackage}`;
   Object.defineProperty(job, 'upgrade', { value: upgrading, enumerable: false });
   jobs[provider] = job;
 
@@ -1556,11 +1704,43 @@ function install(provider, opts) {
   /* kosmos#8593 review 4: an upgrade puts the previous tree back on ANY failure after its swap starts, not only a failed
      prove. Set once the tree paths are known (below); idempotent; acts only when the previous tree was set aside. */
   let restorePrevious = null;
-  const fail = (because) => {
-    try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ }
+  /* kosmos#8593 (Windows): the swap lock (see SWAP_LOCK) is THIS job's while it holds it; every way out of the job takes
+     it down (fail() and the installed line below), so a crash is the only way one is left, and that one goes stale. */
+  let swapLockHeld = false;
+  /* What this job wrote into the lock. Taken down only while it still says that: a second board sharing this runners
+     root (a from-source board beside an installed one) that wrote its own lock since keeps it. Two swaps of one root at
+     once stay the residual the staging comment above already names. */
+  let swapLockText = null;
+  const releaseSwapLock = () => {
+    if (!swapLockHeld) return;
+    swapLockHeld = false;
+    const file = path.join(managedRoot(), provider, SWAP_LOCK);
+    try {
+      if (fs.readFileSync(file, 'utf8') === swapLockText) fs.rmSync(file, { force: true });
+    } catch { /* gone already, or it goes stale */ }
+  };
+  const fail = (because, keepStaging = false) => {
+    if (!keepStaging) { try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ } }
     if (pkgNewLive) { try { fs.rmSync(pkgNewLive, { recursive: true, force: true }); } catch { /* the sweep gets it */ } }
+    releaseSwapLock();
     job.phase = 'failed';
     job.because = because;
+  };
+  /* kosmos#8593 (Windows): true (and the job ends, marked `waited`) when a Windows upgrade must wait because an agent
+     runs from the managed folder, or that cannot be read (see codexRunning). Asked before the download and again just
+     before the swap; `keepStaging` keeps a tarball already downloaded and verified, for the next look to reuse. A wait,
+     not a failed try: engine/runnerupgrade.js hands the try back when it sees `waited`. */
+  const waitForAgents = async (keepStaging, beforeWait, deadlineMs) => {
+    if (!upgrading || plat !== 'win32') return false;
+    let busy = null;
+    try { busy = await codexRunning(destDir, deadlineMs ? { deadlineMs } : undefined); } catch { busy = null; }
+    if (busy === false) return false;
+    if (beforeWait) {
+      try { beforeWait(); } catch (e) { console.warn(`[runners] ${provider} could not vouch for the version already here again: ${e && e.code}`); }
+    }
+    Object.defineProperty(job, 'waited', { value: true, enumerable: false });
+    fail(`${m.name || 'the runner'} has a newer version, but ${busy === true ? 'an agent is running on the version already here' : 'we could not check whether an agent is running on the version already here'}, so that version is kept; it updates by itself once none is`, keepStaging);
+    return true;
   };
 
   const run = (async () => {
@@ -1579,9 +1759,25 @@ function install(provider, opts) {
           }
         } catch { /* best effort */ }
       }
-      fs.rmSync(staging, { force: true });
-      stage = 'download';
-      await doDownload(url, staging, job);
+      /* Windows upgrade, first look: an agent already running means the swap could not happen, so nothing downloads. A
+         tarball an earlier look kept is kept again: nothing is unpacked yet, and the checksum still decides its use.
+         o.agentsCheckedIdle: the caller asked a moment ago (engine/runnerupgrade.js), so this look is skipped; the one
+         before the swap is never skipped. */
+      if (o.agentsCheckedIdle !== true && await waitForAgents(true)) return;
+      /* kosmos#8593 (Windows): a tarball this process downloaded for an upgrade that then had to wait for an agent is
+         kept (waitForAgents), so the next look does not fetch ~187 MB again. It is only REUSED here, at its full
+         published size, and the checksum below still decides: wrong bytes are discarded as always. The cost: one copy of
+         the archive in .tmp per board process while agents keep it waiting (the stray sweep skips this process's own
+         name); a restarted board has a new name, so the age-gated sweep removes the old copy an hour later. */
+      let kept = 0;
+      if (upgrading && plat === 'win32') { try { kept = fs.statSync(staging).size; } catch { kept = 0; } }
+      if (kept > 0 && kept === m.downloadBytes) {
+        job.totalBytes = kept; job.receivedBytes = kept;
+      } else {
+        fs.rmSync(staging, { force: true });
+        stage = 'download';
+        await doDownload(url, staging, job);
+      }
       stage = 'prepare';
 
       // A size mismatch that closed cleanly is a network fact, not a
@@ -1604,6 +1800,9 @@ function install(provider, opts) {
         return;
       }
 
+      // kosmos#8593 (Windows): asked again before the ~187 MB tree is unpacked, so a turn under way since the first
+      // look costs a wait, not an unpack thrown away; the verified tarball is kept for the next look.
+      if (await waitForAgents(true)) return;
       job.phase = 'unpacking';
       // The verified archive's WHOLE package tree lands under pkg/ (the
       // binary resolves vendored siblings -- rg, zsh, code-mode-host --
@@ -1628,13 +1827,34 @@ function install(provider, opts) {
         restorePrevious = () => {
           if (tried) return restored;
           tried = true;
-          if (!setAside || !fs.existsSync(pkgOld)) return false;   // never set aside by this run: pkg/ is still the previous tree
+          /* Windows: the marker came down before the set-aside, so a swap that failed before moving anything (the rename
+             refused) still has the previous tree at pkg/ with nothing vouching for it. Its marker goes back. */
+          const vouchAgain = () => {
+            if (plat !== 'win32' || !previousStamp) return false;
+            fs.writeFileSync(verifiedMarker(plat, provider), previousStamp + '\n');
+            return true;
+          };
+          if (!setAside || !fs.existsSync(pkgOld)) {   // never set aside by this run: pkg/ is still the previous tree
+            if (setAside) return false;   // set aside, then lost: nothing to put back
+            try { restored = vouchAgain(); } catch (e) { console.warn(`[runners] ${provider} could not vouch for the previous version again: ${e && e.code}`); }
+            return restored;
+          }
           try {
-            fs.rmSync(pkgDir, { recursive: true, force: true });
+            /* The new tree has to leave pkg/ first. On Windows antivirus can hold a fresh codex.exe so the tree will not
+               delete; it can still be RENAMED (measured: Windows renames a folder under an open exe), so it is moved to
+               a pkg.new-* name the age-gated sweep removes later, and the previous tree still comes back. */
+            try { fs.rmSync(pkgDir, { recursive: true, force: true }); } catch (e) {
+              if (!fs.existsSync(pkgDir)) throw e;
+              fs.renameSync(pkgDir, `${pkgNew}-failed-${Date.now()}`);
+            }
             fs.renameSync(pkgOld, pkgDir);
-            const link = path.join(destDir, m.binName);
-            fs.rmSync(link, { force: true });
-            fs.symlinkSync(path.relative(destDir, path.join(pkgDir, binInPackage)), link);
+            if (plat === 'win32') {
+              vouchAgain();   // no link on Windows: the binary inside the tree is the runner, and the marker vouches for it
+            } else {
+              const link = path.join(destDir, m.binName);
+              fs.rmSync(link, { force: true });
+              fs.symlinkSync(path.relative(destDir, path.join(pkgDir, binInPackage)), link);
+            }
             restored = true;
           } catch (e) { console.warn(`[runners] ${provider} could not put the previous version back: ${e && e.code}`); }
           return restored;
@@ -1700,14 +1920,35 @@ function install(provider, opts) {
       // (A no-op on win32, where executability is the .exe suffix.)
       fs.chmodSync(path.join(pkgNew, binInPackage), 0o755);
       try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch { /* the sweep gets it */ }
+      // Asked again here, the last moment before the swap; the verified tarball is kept for the next look.
+      if (await waitForAgents(true)) return;
       stage = 'swap';
       job.swapping = true;   // installing() counts an upgrade from here: the tree about to be in place is unproven
       Object.defineProperty(job, 'swapping', { enumerable: false });
+      /* kosmos#8593 (Windows): the swap lock goes up FIRST. A running Windows Codex agent does not ask resolveBin or the
+         marker before a turn: its supervisor resolved codex.exe once and spawns it per turn (win32codexsup.js). It does
+         wait, before each turn, while this lock is up (waitForSwap), so from here no new turn starts on the old tree. */
+      if (plat === 'win32') {
+        swapLockText = JSON.stringify({ pid: process.pid, at: Date.now(), job: Math.random().toString(36).slice(2) }) + '\n';
+        fs.writeFileSync(path.join(destDir, SWAP_LOCK), swapLockText);
+        swapLockHeld = true;
+      }
       // The verified marker comes down BEFORE a new tree goes in: from here until
       // --version passes, nothing on disk may vouch for what is at the stable path.
       if (plat === 'win32' && !(await rmRetrying(verifiedMarker(plat, provider), plat))) {
         throw Object.assign(new Error('the verified marker could not be removed'), { code: 'EPERM' });
       }
+      /* kosmos#8593 (Windows): with the swap lock up, no agent STARTS a turn (its supervisor waits), and with the marker
+         down nothing new resolves this tree; so one more look HERE catches a turn that began just before the lock went
+         up. What is left uncovered: a turn whose supervisor read the lock as clear in the instant before it was written
+         and spawned after this look's process snapshot (the gap between a file read and a spawn, milliseconds). An
+         agent found now puts the marker back and the swap waits; the look above stays so the common wait never takes
+         the marker down. ITS COST, named: while the lock is up a turn waits (this look is a CIM read, ~0.45 s measured
+         on the Windows box), so it has a short deadline (5 s): one that runs out is no answer, read as running, and the
+         marker goes back. */
+      if (await waitForAgents(true, () => {
+        if (previousStamp) fs.writeFileSync(verifiedMarker(plat, provider), previousStamp + '\n');
+      }, 5000)) return;
       if (fs.existsSync(pkgDir)) {
         await renameRetrying(pkgDir, pkgOld, plat);
         setAside = true;
@@ -1816,10 +2057,12 @@ function install(provider, opts) {
          needs its `to` to be the version installed now). */
       /* Review 3: a non-upgrade install of the version an earlier upgrade brought (a repair) keeps that record, since
          agents on the replaced version may still be waiting for their restart. */
+      // On Windows nothing reads this record yet (the restart sweep is Mac/Linux); it is written alike so it is true there too.
       if (upgrading) writeUpgradeStamp(destDir, { from: existing.installedVersion || null, to: m.version, at: swappedAt });
       else if ((upgradeStamp(provider) || {}).to !== m.version) writeUpgradeStamp(destDir, null);
       // Only now, after the binary itself answered, may anything vouch for it.
       if (plat === 'win32') fs.writeFileSync(verifiedMarker(plat, provider), verifiedStamp(m) + '\n');
+      releaseSwapLock();   // the new tree is proven and vouched for: turns may start on it
 
       try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ }
       job.phase = 'installed';
@@ -2113,4 +2356,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, installedVersion, upgradeStamp, UPGRADE_STAMP, olderVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, installedVersion, verifiedVersion, managedProcessRunning, parseExePaths, exeUnder, waitForSwap, swapLockFor, SWAP_LOCK, upgradeStamp, UPGRADE_STAMP, olderVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };

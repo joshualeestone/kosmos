@@ -66,10 +66,12 @@ const HOOKS_FILE = 'hooks.json';
    trustHash()'s value; win32 forms measured on 0.149.1 win32-x64, #8348). kosmos#8593: 0.169.0 on the Mac (11-16: the
    real-Codex test in codexhooks-5812.test.js ran the installed hook with this record, and did not with one hex digit
    changed; Linux shares the Mac's posix list, as it did for 0.149.1, without a Linux measurement of its own).
-   Windows is not measured on 0.169.0 and stays on 0.149.1 (runners.js CODEX_WIN32); a Mac still running 0.149.1 until
-   the board's upgrade sweep replaces it (server.js runner-upgrade) keeps its hook. A version is added here only after
-   it is measured. */
-const HASH_VERIFIED = Object.freeze({ posix: Object.freeze(['0.149.1', '0.169.0']), win32: Object.freeze(['0.149.1']) });
+   Windows 0.169.0 measured 11-16 on the Windows box (kosmos#8593): the real-Codex arm of codexhooks.win32-8348.test.js
+   ran the installed hook (PowerShell command form, TOML literal-string key) with this record and not with one hex digit
+   changed, a home in another case still ran it, and a failing hook reported and let the edit through. 0.149.1 stays on
+   both lists, so an agent still running it until the board's upgrade sweep replaces it (server.js runner-upgrade)
+   keeps its hook. A version is added here only after it is measured. */
+const HASH_VERIFIED = Object.freeze({ posix: Object.freeze(['0.149.1', '0.169.0']), win32: Object.freeze(['0.149.1', '0.169.0']) });
 function verifiedFor(plat) { return plat === 'win32' ? HASH_VERIFIED.win32 : HASH_VERIFIED.posix; }
 const EVENT = 'PreToolUse';
 const EVENT_KEY = 'pre_tool_use';

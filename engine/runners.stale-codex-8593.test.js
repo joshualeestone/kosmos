@@ -56,7 +56,7 @@ test('the pin moved past 0.149.1 (this file is about that bump)', () => {
   assert.notEqual(PIN.version, '0.149.1');
 });
 
-test('kosmos#8593: a managed Codex older than the pin is present but stale, and install() replaces it with the pin', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows keeps its own pin and .verified marker (runners.win32-codex.test.js)') }, async () => {
+test('kosmos#8593: a managed Codex older than the pin is present but stale, and install() replaces it with the pin', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows upgrades through its own .verified marker, only while no agent runs (runners.win32-upgrade-8593.test.js)') }, async () => {
   plantTree('0.149.1');
   const before = runners.resolveBin('openai', { ...PLAT, legacyBin: LEGACY });
   assert.equal(before.present, true, 'its agents keep running on it meanwhile');
@@ -79,7 +79,7 @@ test('kosmos#8593: a managed Codex older than the pin is present but stale, and 
   assert.equal(runners.installedVersion('openai', 'darwin'), PIN.version);
 });
 
-test('kosmos#8593 CONTROLS: a tree at the pin, or one whose version cannot be read, is not stale and is not reinstalled', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows keeps its own pin and .verified marker (runners.win32-codex.test.js)') }, async () => {
+test('kosmos#8593 CONTROLS: a tree at the pin, or one whose version cannot be read, is not stale and is not reinstalled', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows upgrades through its own .verified marker, only while no agent runs (runners.win32-upgrade-8593.test.js)') }, async () => {
   for (const [why, version] of [['at the pin', PIN.version], ['no package.json', null]]) {
     plantTree(version);
     const r = runners.resolveBin('openai', { ...PLAT, legacyBin: LEGACY });
@@ -92,7 +92,7 @@ test('kosmos#8593 CONTROLS: a tree at the pin, or one whose version cannot be re
   }
 });
 
-test('installedVersion reads the npm version with or without the platform suffix; anything else is null', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows keeps its own pin and .verified marker (runners.win32-codex.test.js)') }, () => {
+test('installedVersion reads the npm version with or without the platform suffix; anything else is null', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows upgrades through its own .verified marker, only while no agent runs (runners.win32-upgrade-8593.test.js)') }, () => {
   const pj = nodePath.join(DEST, 'pkg', 'package.json');
   plantTree('0.149.1');
   for (const [raw, want] of [['0.149.1-darwin-arm64', '0.149.1'], ['0.169.0', '0.169.0'], ['0.169.0-linux-x64', '0.169.0'], ['0.171.0-alpha.9-darwin-arm64', null], ['', null], [7, null]]) {
@@ -104,7 +104,7 @@ test('installedVersion reads the npm version with or without the platform suffix
   assert.equal(runners.installedVersion('openai', 'win32'), null, 'Windows keeps its own marker');
 });
 
-test('kosmos#8593 review 2: an upgrade whose new Codex does not run puts the previous version back, still working', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows keeps its own pin and .verified marker (runners.win32-codex.test.js)') }, async () => {
+test('kosmos#8593 review 2: an upgrade whose new Codex does not run puts the previous version back, still working', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows upgrades through its own .verified marker, only while no agent runs (runners.win32-upgrade-8593.test.js)') }, async () => {
   plantTree('0.149.1');
   const { tgz, integrity } = tarball(PIN.version);
   const job = runners.install('openai', { ...PLAT, legacyBin: LEGACY, integrity,
@@ -127,7 +127,7 @@ test('kosmos#8593 review 2: an upgrade whose new Codex does not run puts the pre
   assert.equal(runners.resolveBin('openai', { ...PLAT, legacyBin: LEGACY }).present, false, 'no runner after a failed first install');
 });
 
-test('kosmos#8593 review 2: an upgrade does not count as installing while it downloads (the old runner is usable), and does once it swaps', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows keeps its own pin and .verified marker (runners.win32-codex.test.js)') }, async () => {
+test('kosmos#8593 review 2: an upgrade does not count as installing while it downloads (the old runner is usable), and does once it swaps', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows upgrades through its own .verified marker, only while no agent runs (runners.win32-upgrade-8593.test.js)') }, async () => {
   plantTree('0.149.1');
   const { tgz, integrity } = tarball(PIN.version);
   let release;
@@ -147,7 +147,7 @@ test('kosmos#8593 review 2: an upgrade does not count as installing while it dow
   assert.equal(Object.keys(job).includes('upgrade'), false, 'the API job shape is unchanged');
 });
 
-test('kosmos#8593 review 3: only an OLDER tree is stale; a newer one (another board with a later pin) is left alone', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows keeps its own pin and .verified marker (runners.win32-codex.test.js)') }, () => {
+test('kosmos#8593 review 3: only an OLDER tree is stale; a newer one (another board with a later pin) is left alone', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows upgrades through its own .verified marker, only while no agent runs (runners.win32-upgrade-8593.test.js)') }, () => {
   assert.equal(runners.olderVersion('0.149.1', '0.169.0'), true);
   assert.equal(runners.olderVersion('0.169.0', '0.169.0'), false);
   assert.equal(runners.olderVersion('0.170.0', '0.169.0'), false);
@@ -162,7 +162,7 @@ test('kosmos#8593 review 3: only an OLDER tree is stale; a newer one (another bo
   assert.ok(!r.stale, 'a newer tree is not stale');
 });
 
-test('kosmos#8593 review 3: status() reads the runner as present while an upgrade downloads', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows keeps its own pin and .verified marker (runners.win32-codex.test.js)') || (process.platform !== 'darwin' && "status() reads this process's platform; the fixture tree is the darwin layout") }, async () => {
+test('kosmos#8593 review 3: status() reads the runner as present while an upgrade downloads', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows upgrades through its own .verified marker, only while no agent runs (runners.win32-upgrade-8593.test.js)') || (process.platform !== 'darwin' && "status() reads this process's platform; the fixture tree is the darwin layout") }, async () => {
   plantTree('0.149.1');
   const { tgz, integrity } = tarball(PIN.version);
   let release;
@@ -179,7 +179,7 @@ test('kosmos#8593 review 3: status() reads the runner as present while an upgrad
   assert.equal(job.phase, 'installed', job.because || '');
 });
 
-test('kosmos#8593 review 4: a failure AFTER the swap (making the link) also puts the previous version back', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows keeps its own pin and .verified marker (runners.win32-codex.test.js)') }, async () => {
+test('kosmos#8593 review 4: a failure AFTER the swap (making the link) also puts the previous version back', { skip: skipOnWin32('it upgrades a stale Mac/Linux managed Codex through the POSIX pipeline (a #!/bin/sh program behind a symlink, /usr/bin/tar), which Windows does not have; Windows upgrades through its own .verified marker, only while no agent runs (runners.win32-upgrade-8593.test.js)') }, async () => {
   plantTree('0.149.1');
   const { tgz, integrity } = tarball(PIN.version);
   const real = fs.symlinkSync;

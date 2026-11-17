@@ -165,6 +165,10 @@ function superviseCodexStreaming(spec, opts) {
     try { const r = require('./runners').resolveBin(runner); if (r && r.present) return r.bin; } catch { /* the bare name */ }
     return bin;
   };
+  /* kosmos#8593: before each Codex turn, wait out a swap of the managed Codex (runners.waitForSwap). A seam for tests;
+     inside a test run the default does not wait, so a suite never sits on a real runners folder. */
+  const swapWait = typeof o.swapWait === 'function' ? o.swapWait
+    : (b) => (require('./live-execution').inTestRun() ? Promise.resolve(true) : require('./runners').waitForSwap(b));
   const cliDir = o.cliDir !== undefined ? o.cliDir : win32launch.agentCliDir();
   /* kosmos#8348: put the Codex edit hook into the agent's named Codex home. A seam for tests; the default asks the
      codex it will run for its version (the hook's trust record is known for one version only, codexhooks.js) and
@@ -254,7 +258,9 @@ function superviseCodexStreaming(spec, opts) {
        claude one. */
     stream.wrote();
     const turnAt = Date.now();   // #5949: an idle the agent's own hook reports after this belongs to this turn
-    Promise.resolve(runTurn({
+    /* kosmos#8593: a Codex turn waits while the managed Codex is being swapped for a newer version (runners.waitForSwap,
+       capped; past the cap it runs as before), so it never starts on a tree that is being taken away. */
+    Promise.resolve(runner === 'codex' ? swapWait(binNow()) : true).then(() => (!running ? { ok: false, stopped: true } : runTurn({
       bin: binNow(),
       message: msg,
       sessionId: threadId || undefined,   // resume the codex thread for continuity
@@ -263,7 +269,7 @@ function superviseCodexStreaming(spec, opts) {
       cwd: s.cwd,
       env: turnEnv,
       onSpawn: (c) => { turnChild = c; },
-    })).then((r) => {
+    }))).then((r) => {
       turnChild = null;
       if (!running) { turning = false; return; }
       /* resetSession: a gemini/grok turn whose conversation cannot be resumed (a failed first
