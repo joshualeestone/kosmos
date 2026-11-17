@@ -9,7 +9,7 @@ waited for the same way; a name that is really missing answers exactly as before
 1. server.js `POST /api/msg`: for a sender its agent token identified, with words the send would take, if the
    recipient has no roster card and `startingAgent(to)` (from #8652) is true, wait with `awaitRosterRow(to)` and
    re-read the roster; if the row never shows, answer `could_not` "NAME is still starting, so nothing was sent. Try
-   again in a moment." and keep it as a refused send (`messages.logRefusedSend`, now exported), as every other
+   again in a moment." and keep it as a refused send (`messages.logRefusedSend`, already exported), as every other
    attributed refusal is. Same 200/`could_not` shape the route uses for every refusal.
 2. server.js `startingAgent`: besides a record row written in the last minute, an agent that has a record row and
    whose current run began in the last minute counts as starting. The supervisor's state file
@@ -41,3 +41,7 @@ Time budget: 6 s wait plus the Windows delivery's own 8 s timeout is near the Wi
   the send would refuse keep their own refusal; the starting refusal is kept as a refused send.
 - engine/win32streamstate.test.js: the publisher writes startedAt, keeps it across a turn's writes, and a relaunch
   moves it; startedAt() reads it and is null for a cleared or missing file.
+- Iteration 3: the DM route's relaunch behaviour is pinned (409 starting, and 404 at once for a stopped agent), and a
+  state file from an older supervisor (no startedAt) is pinned as not starting. Not changed: sendAsync's own
+  refusals (rate limits, blocks) come after the wait, so such a sender to a starting agent hears "still starting"
+  first; rare, and the next send gets the real reason.

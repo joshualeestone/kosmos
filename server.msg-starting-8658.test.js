@@ -219,3 +219,37 @@ test('#8658 the still-starting refusal is kept as a refused send, like every oth
   assert.match(all, /"refused"/, 'no refused event was kept for the sender');
   assert.match(all, /slow2 is still starting/, 'the refused event does not carry the starting sentence');
 });
+
+/* The person's DM route shares startingAgent, so a relaunch changes it too: pinned here. */
+async function dm(name, text) {
+  const t0 = Date.now();
+  const res = await fetch(`${base}/api/agent/${encodeURIComponent(name)}/thread`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }),
+  });
+  return { status: res.status, json: await res.json().catch(() => null), ms: Date.now() - t0 };
+}
+
+test('#8658 DM route: a relaunching agent is waited for, then refused as starting (409), not as missing', async () => {
+  worker('dmrelaunch'); recordRow('dmrelaunch', 10 * 60 * 1000); stateFile('dmrelaunch', 500);
+  const r = await dm('dmrelaunch', 'hello');
+  assert.equal(r.status, 409, JSON.stringify(r.json));
+  assert.equal(r.json.because, 'starting');
+  assert.ok(r.ms >= 1900, 'it did not wait: ' + r.ms + ' ms');
+});
+
+test('#8658 DM route CONTROL: a stopped agent (old row, old run) is 404 at once, as before', async () => {
+  worker('dmstopped'); recordRow('dmstopped', 10 * 60 * 1000); stateFile('dmstopped', 10 * 60 * 1000);
+  const r = await dm('dmstopped', 'hello');
+  assert.equal(r.status, 404, JSON.stringify(r.json));
+  assert.ok(r.ms < 1500, 'a stopped agent made the DM wait: ' + r.ms + ' ms');
+});
+
+test('#8658 a state file from an older supervisor (no startedAt) is not a relaunch, and does not wait', async () => {
+  worker('oldsup'); recordRow('oldsup', 10 * 60 * 1000);
+  fs.mkdirSync(STATE_DIR, { recursive: true });
+  fs.writeFileSync(path.join(STATE_DIR, store.safeKey('oldsup') + '.json'),
+    JSON.stringify({ v: 1, state: 'idle', sessionId: 'x', pid: 1, at: new Date().toISOString() }));
+  const r = await msg('oldsup', 'hello');
+  assert.doesNotMatch(String(r.delivery.because), /still starting/, JSON.stringify(r.json));
+  assert.ok(r.ms < 1500, 'an older supervisor\'s file made the message wait: ' + r.ms + ' ms');
+});
