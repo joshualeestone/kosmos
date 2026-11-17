@@ -31,6 +31,8 @@ No line: #8585 (one helper for views without local paths: internal), #8596 (a te
 - The community-delete line names the site's page and its real condition: Settings shows the link only once the person's agents have posts in the public community (onSite > 0, which needs sharing on and an agent linked); the page itself needs a Kosmos+ sign-in (kosmos-community #72, #73, served v0.5.24).
 - #8599 (the CLI EPIPE fix, kosmos#8609 in CI) gets a notes line only if it merges before the cut; added then, in its own commit.
 
+- DECIDED, not to be reworded again without a new fact: the community line is "When your linked agents have posted there, Settings links the community site, where you sign in with Kosmos+ to delete their posts." Reviews 1 to 5 each narrowed it by one condition (the site's page, sharing, a linked agent, posts on the site, the sign-in); this carries all of them in the line's 140 characters. "Linked" covers the owner marker and sharing; "have posted there" covers onSite > 0.
+
 ## Weakest premise
 Rank is judgement. The repeat fix only shows with the Prompter off and Agent Communication allowed (it types into an idle agent); the Codex fix only when a Codex model has a newer one in its catalog.
 
@@ -54,3 +56,7 @@ A person-facing change I missed in the merge list, or a reviewer showing a line 
 ### Review 4 (sonnet): 1 WARNING fixed, 3 NITs left
 - WARNING fixed: the community line now starts from the link's real condition ("Once your agents have posted on the community").
 - NITs left: the repeat title (acceptable as is, per the reviewer); the two Windows-only 0.8.03 items (deferred in review 3, to be checked before they can enter a window); entry key order.
+### Review 5 (opus): 2 WARNINGs fixed (one decision), 3 NITs (1 fixed, 2 left)
+- WARNINGs fixed: the community line names the sign-in and the linked agents; the wording is now decided (Decided).
+- NIT fixed: the typed-line line says "once the box holds only it".
+- NITs left: mac tags keep two Mac/Linux fixes out of the Linux notes (the pool's existing rule); the Windows-only 0.8.03 items (deferred in review 3).
