@@ -8156,6 +8156,16 @@ function paneRoster() {
   return paneRosterFrom(paneSource ? paneSource() : tmuxPanes());
 }
 /* #6173: the same roster from a tmux look that does not block the board's thread (an account move's restarts). */
+/* kosmos#8640: one look at tmux, read two ways: the roster (as paneRoster) and the panes that say which agent they run
+   (`@kosmos_agent`), as { claim, session }. ONE read, so a caller asking "is X running" makes the same single tmux
+   call it made before, and it THROWS the same way when tmux could not be asked. paneRoster's rows stay as they are:
+   their shape is pinned in fixture-discipline.test.js. */
+function paneLook() {
+  const out = paneSource ? paneSource() : tmuxPanes();
+  const roster = paneRosterFrom(out);
+  const claims = readPanes(out).panes.filter((p) => typeof p.claim === 'string' && p.claim).map((p) => ({ claim: p.claim, session: p.session }));
+  return { roster, claims };
+}
 async function paneRosterAsync() {
   return paneRosterFrom(paneSource ? paneSource() : await tmuxPanesAsync());
 }
@@ -10497,7 +10507,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { paneLook /* kosmos#8640 */, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
