@@ -135,9 +135,9 @@ test('no finished upgrade (stale, installing or unreadable): nothing at all', as
   }
 });
 
-test('a codex that is not the managed one (a person\'s own) is not ours to restart', async () => {
+test('a codex that is not the managed one (a person\'s own) is not ours to restart, and says so', async () => {
   const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, target: ALPHA.target, ageSec: 3600, bin: '/opt/homebrew/bin/codex' }] });
-  assert.deepEqual(await twice(o), []);
+  assert.deepEqual((await twice(o)).map((d) => d.act), ['no-managed-codex']);
   assert.deepEqual(restarted, []);
 });
 
@@ -263,9 +263,9 @@ test('the pane is found by the card\'s target (the real tmux session), not its b
   await twice(o);
   assert.deepEqual(restarted, [ALPHA.sessionName], 'restarted by its board name, found by its tmux session');
   // CONTROL: keyed by the board name only (the bug), the agent is never found
-  const wrong = new Map([[ALPHA.sessionName + '-not-a-session', 1000]]);
+  const wrong = new Map([[ALPHA.sessionName, 1000]]);   // a tmux session that only shares the board name
   const { o: o2, restarted: r2 } = opts({ panes: () => wrong, procs: () => procs });
-  assert.deepEqual(await twice(o2), []);
+  assert.deepEqual((await twice(o2)).map((d) => d.act), ['no-managed-codex']);
   assert.deepEqual(r2, []);
 });
 
@@ -293,4 +293,15 @@ test('a managed codex that starts another (a nested exec) is judged by the outer
   assert.equal(found.pid, 10);
   assert.equal(found.startedAt, NOW - 3600 * 1000);
   assert.equal(found.job, false, 'a nested codex is not a shell job');
+});
+
+test('the real ps, run with the sweep\'s own arguments, parses: this process is in the table with its parent', { skip: process.platform === 'win32' && 'the sweep is Mac/Linux only' }, () => {
+  const out = require('node:child_process').execFileSync('ps', rr.PS_ARGS, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const t = rr.parseProcs(out);
+  assert.ok(t.size > 1, 'more than one row parsed');
+  const me = t.get(process.pid);
+  assert.ok(me, 'this test process is in the table');
+  assert.equal(me.ppid, process.ppid);
+  assert.ok(Number.isFinite(me.ageSec) && me.ageSec >= 0);
+  assert.ok(me.command.includes(process.execPath) || /node/.test(me.command), me.command);
 });

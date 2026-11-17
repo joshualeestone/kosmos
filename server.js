@@ -29235,7 +29235,7 @@ function start(port = PORT) {
       const runnerRestartTried = new Map();
       let runnerRestartRunning = false;
       let runnerRestartWarned = false;
-      const runnerRestartSaid = new Set();
+      const runnerRestartSaid = new Map();
       const runnerRestartTick = async () => {
         if (runnerRestartRunning || process.platform === 'win32') return;
         if (!liveExecution.liveExecutionAllowed()) return;
@@ -29260,7 +29260,11 @@ function start(port = PORT) {
             console.warn('[runner-restart] tmux list-panes failed, so no Codex agent can be checked');
           }
           const readAt = Date.now();   // before ps, so a process's start time (now minus its age) is never read late
-          const psText = paneText === null ? null : await run('ps', ['-eo', 'pid=,ppid=,etime=,command=']);
+          const psText = paneText === null ? null : await run('ps', rr.PS_ARGS);
+          if (paneText !== null && psText === null && !runnerRestartWarned) {
+            runnerRestartWarned = true;
+            console.warn('[runner-restart] ps failed, so no Codex agent can be checked');
+          }
           const panes = rr.parsePanes(paneText);
           const procs = rr.parseProcs(psText);
           const done = await rr.passOnce({
@@ -29280,12 +29284,15 @@ function start(port = PORT) {
             now: readAt,
           });
           for (const d of done) {
-            /* A restart or refusal is said each time; an agent held back by a running job is said once per pin, so a
-               sweep stuck behind one is told from one with nobody to restart (review 3). */
-            const once = d.act === 'has-job' ? `${ms.pin}\t${d.session}` : null;
-            if (once && runnerRestartSaid.has(once)) continue;
-            if (d.act !== 'restarted' && d.act !== 'refused' && !once) continue;
-            if (once) runnerRestartSaid.add(once);
+            /* A restart or refusal is said each time. An agent held back by a running job, or a Codex card with no managed
+               Codex under it, is said the first time and then once an hour while it lasts (60 passes), so a sweep that
+               never acts is told from one with nobody to restart (reviews 3 and 5). */
+            if (d.act === 'has-job' || d.act === 'no-managed-codex') {
+              const key = `${ms.pin}\t${d.session}\t${d.act}`;
+              const n = (runnerRestartSaid.get(key) || 0) + 1;
+              runnerRestartSaid.set(key, n);
+              if (n % 60 !== 1) continue;
+            } else if (d.act !== 'restarted' && d.act !== 'refused') continue;
             process.stdout.write(`runner-restart: ${d.session} ${d.act}${d.because ? ' (' + d.because + ')' : ''}\n`);
           }
         } catch (err) { console.warn(`[runner-restart] ${String((err && err.message) || err)}`); }

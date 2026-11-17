@@ -64,7 +64,11 @@ function parsePanes(text) {
   return map;
 }
 
-/** `ps -eo pid=,ppid=,etime=,command=` -> Map pid -> { ppid, ageSec, command }. */
+/* The process table this sweep reads (server.js runs `ps` with these). -ww: some Linux ps cut a piped line to 80
+   columns, which would cut the managed folder's prefix off a long path (review 5). */
+const PS_ARGS = ['-ww', '-eo', 'pid=,ppid=,etime=,command='];
+
+/** PS_ARGS output -> Map pid -> { ppid, ageSec, command }. */
 function parseProcs(text) {
   const map = new Map();
   for (const line of String(text || '').split('\n')) {
@@ -173,8 +177,8 @@ function codexUnderPane(panePid, procs, kids, managedDir, nowMs) {
  *                       (one per agent per pin per board run); a refused one is tried again, up to MAX_TRIES. A board
  *                       restart empties it; a restarted agent then reads 'already-new', so it is not restarted again
  *   now                 ms (tests)
- * Returns [{ session, act }]: 'restarted' | 'refused' | 'not-idle' | 'has-host' | 'has-job' | 'held-by-move' | 'already-new' | 'tried'.
- * Agents that are not managed Codex are not listed.
+ * Returns [{ session, act }]: 'restarted' | 'refused' | 'not-idle' | 'has-host' | 'has-job' | 'held-by-move' | 'no-managed-codex' | 'already-new' | 'tried'.
+ * A Codex card with no managed Codex under its pane is listed as 'no-managed-codex'.
  */
 async function passOnce(o) {
   const out = [];
@@ -206,10 +210,13 @@ async function passOnce(o) {
     for (const card of codexCards) {
       const session = String(card.sessionName);
       /* The pane the card describes, by its target (the real tmux session and pane), then the real session: the board
-         name (sessionName) differs from the tmux session for a legacy agent and on a named-world board (review 3). */
-      const panePid = [card.target, card.session, card.sessionName].map((k) => (k ? panes.get(String(k)) : undefined)).find((v) => v !== undefined);
+         name (sessionName) differs from the tmux session for a legacy agent and on a named-world board (review 3), and
+         a tmux session that merely shares the board name is somebody else's (review 5). */
+      const panePid = [card.target, card.session].map((k) => (k ? panes.get(String(k)) : undefined)).find((v) => v !== undefined);
       const found = codexUnderPane(panePid, procs, kids, m.dir, now);
-      if (!found) continue;   // not the managed Codex (a person's own codex, or no process): not ours to restart
+      // Not the managed Codex (a person's own codex, or no process): not ours to restart. Said, so a match that never
+      // fires (a launch path the prefix does not see) is told from a fleet with nobody on the old version (review 5).
+      if (!found) { out.push({ session, act: 'no-managed-codex' }); continue; }
       /* Started after the swap: it runs the new version already. The 1 s slack is ps's etime resolution: a process a
          second either side of the swap is called old, which costs at most one restart, never a missed one. */
       if (found.startedAt > m.swappedAt + 1000) { out.push({ session, act: 'already-new' }); continue; }
@@ -263,4 +270,4 @@ function managedState(runners) {
   } catch { return null; }
 }
 
-module.exports = { PANE_FORMAT, managedState, passOnce, parsePanes, parseProcs, etimeSeconds, codexUnderPane, childrenOf, isManagedCodex, isCodeModeHost, isShell, MAX_PER_PASS, MAX_TRIES };
+module.exports = { PANE_FORMAT, PS_ARGS, managedState, passOnce, parsePanes, parseProcs, etimeSeconds, codexUnderPane, childrenOf, isManagedCodex, isCodeModeHost, isShell, MAX_PER_PASS, MAX_TRIES };
