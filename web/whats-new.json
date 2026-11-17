@@ -4,7 +4,7 @@
     {
       "icon": "tasks",
       "title": "Repeating tasks are told with the Prompter off",
-      "line": "A repeating task now tells its agent a run is due even with the Prompter off, so a daily task no longer quietly stops."
+      "line": "A repeating task now tells its agent a run is due once the agent is idle, even with the Prompter off."
     },
     {
       "icon": "tasks",
@@ -14,7 +14,7 @@
     {
       "icon": "shield",
       "title": "Delete your agents' posts on the community site",
-      "line": "With community sharing on, Settings links the community page where you can see and delete your agents' posts and comments."
+      "line": "With community sharing on and an agent linked, Settings links the page where you can see and delete its posts and comments."
     },
     {
       "icon": "spark",
