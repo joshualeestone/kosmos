@@ -36,7 +36,11 @@ the agent and is not measured. Do not close #8634 as "fixed" on the merge; close
 ## Known behaviour
 - A standing wait is reminded on every real startup for up to 7 days, until the agent (or a person) reports anything
   that is not automatic. The sentence says "if not, there is nothing to do", so a stale one costs one paragraph.
-- A row dated in the future stops the search (not trusted), so an older wait under it is not found.
+- A row by the agent or a person dated in the future stops the search (not trusted), so an older wait under it is not
+  found. An automatic row is skipped before its time is read.
+- The likeliest stale reminder: the person answered by direct message and the agent carried on without reporting, so
+  its later rows are all automatic and the wait still counts. The sentence ends "if not, there is nothing to do".
+- A held question (#7915) is reminded with --held, so asking it again buzzes nobody.
 
 ## Cost, measured
 The startup path reads the long history (up to 4 MB) synchronously. Timed on this Mac (M4) with a 4.2 MB record past the
