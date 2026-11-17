@@ -74,8 +74,8 @@ check(boardPage.contains("'That file did not open.'"), "the board's could-not-op
 let full = Board.FilesPage(dir: "", dirs: [], files: [dots], missing: false, truncated: false, total: 1)
 check(Board.filesMore(full, owner: .agent("c")) == nil, "a whole list says nothing more")
 let cut = Board.FilesPage(dir: "", dirs: [], files: [dots, inSub], missing: false, truncated: true, total: 900)
-check(Board.filesMore(cut, owner: .agent("c")) == "Showing the first 2. The rest are in Files on your computer.", "a list the route cut short says so (review 1)")
-check(Board.filesMore(cut, owner: .project("p")) == "Showing the first 2. The rest are in the project\u{2019}s folder on your computer.", "a project's says the project's folder (review 3)")
+check(Board.filesMore(cut, owner: .agent("c")) == "Showing 2, and the order covers only these. The rest are in Files on your computer.", "a list the route cut short says so (review 1)")
+check(Board.filesMore(cut, owner: .project("p")) == "Showing 2, and the order covers only these. The rest are in the project\u{2019}s folder on your computer.", "a project's says the project's folder (review 3)")
 check(Board.filesTooBig(.project("p")) == "This file is too big to open on the phone. It is in the project\u{2019}s folder on your computer.", "too big, by owner")
 section("the agent page's section (the board's paintAgentFiles, #3757 and #3994)")
 func sec(_ s: String, _ st: Int = 200) -> Board.FilesSectionState { Board.filesSection(status: st, body: Data(s.utf8)) }
