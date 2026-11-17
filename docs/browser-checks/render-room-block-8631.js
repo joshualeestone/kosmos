@@ -311,11 +311,13 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
         pjBlockedNoteSet({ hiddenBlocked: 3 });
         pjWinReset('p-1');
         const same = !document.getElementById('pj-blocked-note').hidden;
+        PJ_WIN.hiddenLive = 3;
         pjWinReset('p-2');
-        return { same, other: document.getElementById('pj-blocked-note').hidden };
+        return { same, other: document.getElementById('pj-blocked-note').hidden, forgot: PJ_WIN.hiddenLive === undefined };
       });
       ok(t + ' a reset of the same room keeps the note', reset.same === true, JSON.stringify(reset));
       ok(t + ' CONTROL: another room clears it', reset.other === true, JSON.stringify(reset));
+      ok(t + ' another room forgets the old room\'s count too', reset.forgot === true, JSON.stringify(reset));
       // The note's link lands on the list once it has been read (round 1: it focused a box that was still hidden).
       const landed = await page.evaluate(async () => {
         document.getElementById('you-blocked-box').hidden = true;
