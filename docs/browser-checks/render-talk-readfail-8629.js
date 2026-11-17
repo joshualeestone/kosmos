@@ -22,6 +22,8 @@
  *   K. a question's choice buttons are disabled while the read fails and given back after.
  *   D. a box with no rows yet ("Opening...") still paints the failure sentence alone.
  *   S. after a standing refusal, a cached repaint does not bring an earlier failure's sentence back.
+ *   E. (review 7) an earlier-messages load that ends while the thread's read is failing still updates the line above
+ *      the kept rows: "Loading earlier messages..." does not outlive its load, and a failed load offers Try again.
  *   C. the standing refusal (`because: 'borrowed'`) still paints its sentence alone, as before.
  * With the #8629 change reverted, arm A fails (rows gone during the failure, then on different words).
  *
@@ -66,6 +68,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const enc = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { 'content-type': 'application/json' } });
     window.fetch = async (url) => {
       const u = String(url);
+      // E: an earlier-messages load the arm holds open and then answers (checked before /thread, which it contains).
+      if (u.includes('/thread/older')) return new Promise((res) => { window.__olderRelease = () => res(enc({ error: 'the board did not answer' }, 502)); });
       if (u.includes('/thread')) {
         if (window.__answer === 'fail') return enc({ error: 'the board did not answer' }, 502);
         if (window.__answer === 'borrowed') return enc({ error: 'no agent by that name', because: 'borrowed' }, 404);
@@ -198,6 +202,24 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     window.__fx = { ...window.__fx, asking: false, asked: null, options: null };
     await paint('ok');
 
+    // E. an earlier load outliving a failed thread read (review 7).
+    window.__fx = { ...window.__fx, olderCount: 5 };
+    await paint('ok');
+    earlierReset('april'); EARLIER.open = true; EARLIER.before = 5;
+    const olderText = () => { const o = document.getElementById('d-talk-older'); const tx = document.getElementById('d-talk-older-text'); return o && !o.hidden && tx ? tx.textContent : ''; };
+    const loadDone = earlierMore();
+    await settle();
+    out.eLoading = olderText();
+    await paint('fail');
+    if (typeof window.__olderRelease === 'function') window.__olderRelease();
+    await loadDone;
+    await settle();
+    out.eAfter = olderText();
+    out.eRetry = !document.getElementById('d-talk-older-show').hidden;
+    earlierReset('april');
+    window.__fx = { ...window.__fx, olderCount: 0 };
+    await paint('ok');
+
     // D. a box with no rows yet (an agent just opened, its "Opening..." note up) still paints the failure alone:
     //    nothing is kept, so no earlier agent's rows can stand under this one's name.
     setThread(th, '<p class="dmnone">Opening&hellip;</p>', null);
@@ -259,6 +281,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!near(r.qYBack, r.qY0)) problems.push('Q: the next good poll moved the reader: m25 at ' + r.qY0 + 'px, back at ' + r.qYBack + 'px');
     if (r.qInertBack !== false) problems.push('Q: the question box stayed inert after a read worked');
     if (r.dRows !== 0 || !/could not read this conversation just now/.test(String(r.dText)) || r.dLine !== null) problems.push('D: a failure on a box with no rows yet should paint the sentence alone (rows ' + r.dRows + ', text ' + JSON.stringify(r.dText) + ', line ' + JSON.stringify(r.dLine) + ')');
+    if (!/Loading earlier/.test(String(r.eLoading))) problems.push('setup E: the earlier load never showed "Loading earlier messages", so arm E tested nothing (' + JSON.stringify(r.eLoading) + ')');
+    else if (/Loading earlier/.test(String(r.eAfter)) || r.eRetry !== true) problems.push('E: an earlier load that ended during a failed read left the older line stale (' + JSON.stringify(r.eAfter) + ', Try again shown ' + r.eRetry + ')');
     if (r.sStale !== null) problems.push('S: after the standing refusal a cached repaint put the old failure line back: ' + JSON.stringify(r.sStale));
     if (r.cRows !== 0 || !/cannot show a conversation for this name/.test(String(r.cText))) problems.push('C: the standing refusal changed (rows ' + r.cRows + ', text ' + JSON.stringify(r.cText) + ')');
   }

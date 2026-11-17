@@ -7440,7 +7440,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dmchoice-n { color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
 /* #8629: a failed read that kept the rows says so in one line at the thread's end, apart from the last message;
    the question box above is frozen (inert) until the next good read, and looks it. */
-.dm-readfail { margin-top: 8px; }
+.dmnone.dm-readfail { margin-top: 8px; }   /* kosmos#8629 review 7: two classes, so .dmnone's later margin: 0 does not win */
 #d-qask[inert] { opacity: .6; }
 .dmchoices-msg { font-size: .8125rem; color: var(--k-ink-2); }
 /* #6172: a lasting choice pressed once, waiting for the second press that sends it. */
@@ -44655,7 +44655,10 @@ function earlierRepaint() {
   const thread = document.getElementById('d-dmthread');
   if (!thread || !thread.__lastBody || thread.__lastSession !== EARLIER.session) return;
   if (!CURRENT || CURRENT.sessionName !== EARLIER.session) return;   // mid-switch: the thread still holds the last agent's body
-  if (thread.__readFailed) return;   // the last read FAILED and the thread says so: an earlier load does not draw over it
+  /* the last read FAILED and the thread says so: an earlier load does not draw over it. kosmos#8629 review 7: but the
+     older line above the kept rows is still brought up to date, or "Loading earlier messages..." outlived its load for as
+     long as the reads kept failing (and a failed earlier load never offered Try again). */
+  if (thread.__readFailed) { paintOlderLine(thread.__lastBody, thread.__lastSession); return; }
   paintTalkThread(thread.__lastBody, thread.__lastName);
   paintOlderLine(thread.__lastBody, thread.__lastSession);
 }
