@@ -78,3 +78,13 @@ test('a provider outage after the agent\'s own wait neither ends it nor becomes 
   // A clock that ran ahead: a wait dated after now is not trusted.
   assert.equal(away.lastWait([{ state: 'blocked', by: 'agent', at: NOW + H }], { nowMs: NOW }), null);
 });
+
+test('any report of its own that is not a wait ends the wait, whatever its state', () => {
+  const STATES = require('./selfreport').STATES;
+  assert.ok(Array.isArray(STATES) && STATES.includes('blocked'), 'precondition: the report states are exported');
+  for (const st of STATES.filter((x) => x !== 'needs_you' && x !== 'blocked')) {
+    assert.equal(away.lastWait([row('blocked', 'agent', 20), row(st, 'agent', 10), row('idle', 'auto', 1)], { nowMs: NOW }), null, st + ' by the agent did not end the wait');
+  }
+  // CONTROL: a later wait of its own is the wait (the newer one).
+  assert.deepEqual(away.lastWait([row('blocked', 'agent', 20), row('needs_you', 'agent', 10)], { nowMs: NOW }), { state: 'needs_you', atMs: NOW - 10 * H });
+});

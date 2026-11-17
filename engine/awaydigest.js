@@ -72,7 +72,8 @@ function windowFrom(history, { startup, nowMs }) {
    nothing typed into a startup can read as an instruction).
    history: the agent's self-reports, oldest first. Returns { state, atMs } when the latest report the AGENT or a PERSON
    made is a needs_you or blocked by the agent, newer than MAX_WINDOW_MS; otherwise null. Automatic reports (the hook's
-   started, working, idle, and a permission prompt's needs_you) neither make a wait nor end one; a person's clear ends it. */
+   started, working, idle, and a permission prompt's needs_you) neither make a wait nor end one. Any other row the agent
+   made, whatever its state, ends it, and so does a person's clear. */
 const WAIT_STATES = new Set(['needs_you', 'blocked']);
 function lastWait(history, { nowMs }) {
   const rows = Array.isArray(history) ? history : [];
