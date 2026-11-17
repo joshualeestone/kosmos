@@ -126,13 +126,26 @@ test('kosmos#8601 review 4 CONTROL: a reply timestamped after the job is the cur
   assert.deepEqual(status.readModel('repliedafter'), current('claude-opus-4-8'));
 });
 
-/* Review 3: pinned so a later change sees the window is deliberate. An id the name table does not know is shown raw,
-   so its dated and undated forms do not match: after a rewrite naming one, a reply naming the other reads as earlier
-   until the next reply (the card then shows the job's id, the same model). */
-test('kosmos#8601 review 3: an unknown dated id against its undated form reads as another model (accepted)', () => {
-  session('unknowndate', 'old.jsonl', replied('claude-zeta-9'), 600);
-  job('unknowndate', 5, 'claude-zeta-9-20991231');
-  assert.equal(status.readModel('unknowndate').earlierSession, true);
+/* Review 5 (flipped from review 3's "accepted"): a model the name table does not know yet still matches its own dated
+   form, either way round, so a routine rewrite (an account move) does not hide its reading. A different model still
+   reads as another. */
+test('kosmos#8601 review 5 CONTROL: an unknown model\'s dated and undated ids are the same model', () => {
+  session('unknowndate', 'old.jsonl', replied('claude-zeta-9-20991231'), 600);
+  job('unknowndate', 5, 'claude-zeta-9');
+  assert.deepEqual(status.readModel('unknowndate'), current('claude-zeta-9-20991231'));
+  session('unknownat', 'old.jsonl', replied('claude-zeta-9'), 600);
+  job('unknownat', 5, 'claude-zeta-9@20991231');
+  assert.deepEqual(status.readModel('unknownat'), current('claude-zeta-9'));
+  session('unknownother', 'old.jsonl', replied('claude-zeta-9-20991231'), 600);
+  job('unknownother', 5, 'claude-zeta-10');
+  assert.equal(status.readModel('unknownother').earlierSession, true, 'a different unknown model read as the same');
+});
+
+/* Review 5: a naming reply whose timestamp cannot be read falls back to the file's time, as before review 4. */
+test('kosmos#8601 review 5: an unreadable timestamp on the naming reply falls back to the file time', () => {
+  session('badts', 'old.jsonl', [{ type: 'assistant', message: { model: 'claude-opus-4-8' }, timestamp: 'not a time' }], 600);
+  job('badts', 5, 'claude-haiku-5-5');
+  assert.equal(status.readModel('badts').earlierSession, true);
 });
 
 test('kosmos#8601 CONTROL: a job older than the transcript leaves the reading, whatever model it names', () => {

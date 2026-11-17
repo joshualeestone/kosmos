@@ -6982,13 +6982,14 @@ function modelRowAt(text, model) {
 /* kosmos#8601 review 1: whether the agent's job names a Claude model other than `readId` (the transcript's). Only a
    full id the job names itself counts (`claude-...`, which is what the model picker writes): a job with no model, or a
    short name like "opus", cannot be compared with a transcript's full id, so it is "no" and the reading stands, as
-   before. Two ids are the same model when they match once a "[1m]"-style suffix is set aside, or when they are shown
-   under the same name (a dated id and its undated form). A job that cannot be read is "no". */
+   before. Two ids are the same model when they match once a "[1m]"-style suffix and a snapshot date ("-20251001", or
+   "@20251001") are set aside (review 5: a model the name table does not know yet still matches its dated form), or
+   when they are shown under the same name. A job that cannot be read is "no". */
 function jobNamesAnotherModel(agentName, readId) {
   let planned = null;
   try { planned = require('./create').plannedModelOf(agentName); } catch { planned = null; }
   if (!planned || planned.isDefault || typeof planned.id !== 'string') return false;
-  const norm = (id) => String(id).trim().toLowerCase().replace(/\[[^\]]*\]$/, '');
+  const norm = (id) => String(id).trim().toLowerCase().replace(/\[[^\]]*\]$/, '').replace(/[-@]\d{8}$/, '');
   const job = norm(planned.id);
   const read = norm(readId);
   if (!/^claude-/.test(job)) return false;
@@ -7455,7 +7456,8 @@ function readModel(agentName, exactSession) {
      Review 1: the file time alone is not a model change (see writtenBeforeJob: an account move or a provider switch
      rewrites the job on every platform, and on Windows a stop and start moves the task file's time), all while the
      conversation and its model go on; blanking the model then also blanked the context ring and the agent's own "which
-     model am I". The time check stays first because it is two stats; the job is read only after a rewrite.
+     model am I". The age check runs first (readBeforeJob: finding the naming reply's timestamp in the tail already read,
+     then a stat of the job), so the job itself is read only after a rewrite.
      Review 2: while the reading is earlier (a real model change, until the next reply), `model` is null on purpose for
      every consumer: the context ring's ceiling is unknown (the new model's may differ) and whoami answers from the
      process's own --model where it can read one, or with no model. That is not a regression to "fix" by passing the

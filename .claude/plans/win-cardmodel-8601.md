@@ -62,8 +62,9 @@ null for the context ring and whoami until that reply. Bounded by the next reply
 Review 3: a narrow window where the card still names the old model: the agent is mid-reply when the change rewrites the
 job, and the old process appends a row before the restart stops it. The transcript is then newer than the job and the
 old model reads as current until the next reply. The original symptom in a small window, not a regression.
-Review 3: an unknown dated id (one MODEL_NAMES does not know) in the job against its undated form in the transcript
-reads as "another model"; pinned by a test as the accepted behaviour.
+Review 3 said an unknown dated id against its undated form reads as "another model" (accepted). Review 5 reversed
+that: a snapshot date ("-YYYYMMDD" or "@YYYYMMDD") is set aside before comparing, so a model the name table does not
+know yet matches its own dated form and a routine rewrite does not hide its reading; the test is now a control.
 Review 2: like the Codex rule it shares writtenBeforeJob with, this reads the job in this process's own world only
 (no worldId), so an agent of a named world (#1704) keeps today's behaviour. Not new; noted.
 Deviation from the card's control ("a Mac agent's card still behaves as now"): the rule is platform-neutral, so a Mac or
