@@ -14,7 +14,7 @@ app and extension keep one version (ios/tools/test-archive-config.sh checks that
 
 ## Decided, and rejected
 - Rejected: renaming the App Store version to 0.1.0 in App Store Connect. It would show a beta-looking number on the
-  public page, and the listing copy already plans 1.0 then 1.0.1. Reversible either way until Josh submits.
+  public page, and the listing draft on kosmos#7352 (issuecomment-6444393418, "What's New ... goes in at 1.0.1") already plans 1.0 then 1.0.1. Reversible either way until Josh submits.
 
 ## Weakest premise
 That nothing in the app, the board or its tools gates on the iPhone app's version. Review 1 checked: the plists carry
@@ -24,3 +24,6 @@ fixed (docs/phone-push-go-live.md); the remaining "0.1.0" strings are test fixtu
 
 ## Tests
 ios/tools/test-archive-config.sh: VERDICT PASS (one version across app and extension, four lines).
+
+## Review notes
+- Iteration 1: a doc line stated 0.1.0 (docs/phone-push-go-live.md); fixed. Iteration 2: only notes; converged.
