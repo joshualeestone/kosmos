@@ -16,7 +16,7 @@ roster row) or refused with "still starting, nothing was sent"; a name that is r
 1. `win32roster.makeCachedRun`: `refreshAsync()`, a background read that resolves when it lands (joins one in
    flight), so a waiter never blocks the board's thread. The stale path uses the same `kick`.
 2. server.js: `startingAgent(name)`: no card holds the name, the worker folder exists, not removed, and a record row
-   under the name written in the last 60 s. `awaitRosterRow(name)`: up to 10 s, 1 s steps, refresh then re-check.
+   under the name written in the last 60 s. `awaitRosterRow(name)`: up to 8 s (the iPhone allows a request 15 s), 1 s steps, a fresh read raced against the time left, then re-check.
 3. DM POST gate: a starting agent is waited for; if the row never shows, 409 `because: 'starting'` with
    "NAME is still starting, so nothing was sent. Try again in a moment." 409 not 503, because the page and the
    iPhone read a 5xx on a send as "may have gone".
@@ -29,7 +29,7 @@ roster row) or refused with "still starting, nothing was sent"; a name that is r
 - `/api/msg` (agent to agent) has the same race but answers 200 could_not, not 404; left for a follow-up card.
 
 ## Weakest premise
-That the gap is registration lag plus cache age, i.e. the session becomes live within ~10 s. If a restore
+That the gap is registration lag plus cache age, i.e. the session becomes live within ~8 s. If a restore
 sometimes never reaches the live list, the send now ends in 409 instead of 404: more honest, still not delivered.
 
 ## Tests
@@ -40,3 +40,10 @@ sometimes never reaches the live list, the send now ends in 409 instead of 404: 
   throwing reader.
 - Focused run of 33 files (DM routes, every win32roster reader, fixture/brand/name/reachable/separator guards):
   750 tests, 0 fail.
+
+## Review notes
+- Iteration 1: the wait could overrun on a slow roster read (fixed: raced against the time left, 8 s); the Windows
+  roster path is now driven end to end in the test through win32roster.make, with a control that fails without the
+  fresh read; visibility is gated on time, not on a read count.
+- Not changed: a mis-cased name while starting still 404s (the record match is exact, as before); a failed forced
+  read is kept as a failure in the cache, as the stale path already did, and the roster's 15 s hold covers it.
