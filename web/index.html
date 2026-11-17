@@ -77001,6 +77001,9 @@ function pjDocsPaintPage() {
     DOCS_SORT = filesSortMode(sel.value);
     sel.value = DOCS_SORT;
     filesSortSave(DOCS_SORT_KEY, DOCS_SORT);
+    // Only the list this open painted: the row is hidden until it is, so a hidden row means nothing to re-sort here.
+    const row = document.getElementById('docs-sortrow');
+    if (PJ_VIEW !== 'docs' || !row || row.hidden) return;
     PJ_DOCS_FILES = filesSorted(PJ_DOCS_FILES, DOCS_SORT);
     PJ_DOCS_PAGE = 0;
     if (PJ_DOCS_FILES.length) pjDocsPaintPage();

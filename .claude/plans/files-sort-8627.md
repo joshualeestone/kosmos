@@ -45,7 +45,8 @@ matches the old order. Check the iPhone app's Files list; file a follow-up card 
   controls (server order), reload persistence per screen, refused storage, 412px touch geometry.
 
 ## Status
-- [x] Built, unit tests and browser check green (54 PASS; 11 FAIL with the default mutated to A to Z).
+- [x] Built, unit tests and browser check green (66 PASS on the final check; it reds with the default mutated to A to Z,
+  and its empty-project arm reds with the open-time hide of the sort row removed).
 - [x] Surface gate GATE_RC=0 (trailer for render-room-msgbox-2806.js, which passes).
 - [ ] challenge-loop (in progress; findings and fixes are in the commit messages)
 - [ ] PR, CI, merge, design shots, iPhone follow-up check
