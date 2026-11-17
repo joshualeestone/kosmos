@@ -22,7 +22,7 @@ const fleet = require('../test-support/fleet');
 const dmfiles = require('./dmfiles');
 const projects = require('./projects');
 
-test.after(() => { fleet.restore(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+test.after(() => { fleet.restore(); require('../test-support/remove-tree').removeTree(SANDBOX); });   // the Windows-safe retry
 
 function agentFile(name, text) {
   const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, name);
@@ -36,11 +36,11 @@ test('#8617: ensureFolder makes the Files folder once, and keeps one already the
   const own = agentFile('maker', 'You are maker.\n');
   const dir = dmfiles.filesDir('maker');
   assert.equal(fs.existsSync(dir), false, 'PRECONDITION');
-  assert.deepEqual(dmfiles.ensureFolder('maker'), { ok: true, created: true, because: null });
+  assert.deepEqual(dmfiles.ensureFolder('maker'), { ok: true, created: true, connected: false, because: null, code: null });
   assert.ok(fs.lstatSync(dir).isDirectory());
   assert.equal(path.dirname(dir), own);
   fs.writeFileSync(path.join(dir, 'report.txt'), 'kept');
-  assert.deepEqual(dmfiles.ensureFolder('maker'), { ok: true, created: false, because: null });
+  assert.deepEqual(dmfiles.ensureFolder('maker'), { ok: true, created: false, connected: false, because: null, code: null });
   assert.equal(fs.readFileSync(path.join(dir, 'report.txt'), 'utf8'), 'kept', 'a folder already there is left as it is');
 });
 
@@ -48,6 +48,7 @@ test('#8617: an agent with no folder of its own gets none (the parent is never m
   const dir = dmfiles.filesDir('ghost');
   const r = dmfiles.ensureFolder('ghost');
   assert.equal(r.ok, false);
+  assert.match(r.because, /no folder of its own/);
   assert.equal(fs.existsSync(path.dirname(dir)), false, 'its own folder was made');
 });
 

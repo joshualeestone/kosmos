@@ -117,33 +117,37 @@ function ownDir(sessionName, folder) {
 }
 
 /**
- * #8617: make the agent's Files folder if it is not there. Answers { ok, created, because }
- * and never throws. Only the one folder is made (never its parents, so an agent with no
- * folder of its own gets none), and a name already there is left alone: a folder is fine,
- * and anything else (a file, or a link, even one to a folder) is not ours to replace.
- * A connected agent (its folder is the person's own, recorded in its profile) is left to
- * make it itself, as its instructions say: Kosmos does not add folders to the person's.
+ * #8617: make the agent's Files folder if it is not there. Answers { ok, created, connected,
+ * because, code } on every exit (code is null unless the make itself failed) and never throws.
+ * Only the one folder is made (never its parents, so an agent with no folder of its own gets
+ * none), and a name already there is left alone: a folder is fine, and anything else (a file,
+ * or a link, even one to a folder) is not ours to replace. A connected agent (its folder is the
+ * person's own, recorded in its profile) is left to make it itself, as its instructions say:
+ * Kosmos does not add folders to the person's.
  */
 function ensureFolder(sessionName) {
+  const answer = (ok, created, because, more) => ({ ok, created, connected: false, because, code: null, ...more });
   let connected = null;
+  /* recordedDirSpelling catches an unreadable profile itself (null: not connected), so this catch is only a module
+     that fails to load; refused, the safe way. */
   try { connected = require('./create').recordedDirSpelling(sessionName); } catch { connected = 'unknown'; }
-  if (connected === 'unknown') return { ok: false, created: false, connected: false, because: 'we could not tell whether it works in a folder you brought in' };
-  if (connected) return { ok: false, created: false, connected: true, because: 'it works in a folder you brought in, so Kosmos does not add a folder to it' };
+  if (connected === 'unknown') return answer(false, false, 'we could not load the check for a folder you brought in');
+  if (connected) return answer(false, false, 'it works in a folder you brought in, so Kosmos does not add a folder to it', { connected: true });
   const dir = filesDir(sessionName);
-  if (!dir) return { ok: false, created: false, because: 'it has no folder of its own on this computer' };
+  if (!dir) return answer(false, false, 'it has no folder of its own on this computer');
   try {
-    if (!fs.statSync(path.dirname(dir)).isDirectory()) return { ok: false, created: false, because: 'its own folder is not a folder' };
-  } catch { return { ok: false, created: false, because: 'it has no folder of its own on this computer' }; }
+    if (!fs.statSync(path.dirname(dir)).isDirectory()) return answer(false, false, 'its own folder is not a folder');
+  } catch { return answer(false, false, 'it has no folder of its own on this computer'); }
   try {
     fs.mkdirSync(dir);
-    return { ok: true, created: true, because: null };
+    return answer(true, true, null);
   } catch (err) {
-    if (!err || err.code !== 'EEXIST') return { ok: false, created: false, because: 'it could not be made', code: (err && err.code) || null };   // never err.message: it carries the path
+    if (!err || err.code !== 'EEXIST') return answer(false, false, 'it could not be made', { code: (err && err.code) || 'unknown' });   // never err.message: it carries the path
   }
   let st = null;
   try { st = fs.lstatSync(dir); } catch { st = null; }
-  if (st && st.isDirectory()) return { ok: true, created: false, because: null };
-  return { ok: false, created: false, because: st && st.isSymbolicLink() ? 'its Files is a link to somewhere else' : 'something that is not a folder is already called Files' };
+  if (st && st.isDirectory()) return answer(true, false, null);
+  return answer(false, false, st && st.isSymbolicLink() ? 'its Files is a link to somewhere else' : 'something that is not a folder is already called Files');
 }
 
 /**

@@ -92,3 +92,7 @@ measured; the new test file runs on Windows (tools/windows-tests.js) but its lin
 - Final validation (6j) failed on one guard: windows-tests-1777 (a test that branches on a win32 host must run on
   Windows or be excluded with a reason), from the round 3 skip. Fixed by adding the file to the Windows run
   (tools/windows-tests.js ALSO), so the folder logic now runs on a real Windows disk; the link arm skips there.
+- Round 5 (blind, opus, after the 6j fix): no BLOCKER, 1 WARNING, 4 NIT.
+  - WARNING fixed: the boot line said agents "can still make it themselves", false when a file is in the way; dropped.
+  - NITs fixed: ensureFolder answers the same keys on every exit; the unknown branch says it covers only a module that
+    fails to load; the no-folder arm asserts its reason; the test cleanup uses the Windows-safe removeTree.
