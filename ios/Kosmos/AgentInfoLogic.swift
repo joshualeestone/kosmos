@@ -500,7 +500,7 @@ extension Board {
     static func switchNothingLine(_ d: AgentDetails) -> String {
         if providerOf(d) == "meta" { return "Moving an agent on Meta Muse to another provider is not offered yet." }
         // Review 2: about what THIS PHONE can offer, since the board can offer more (Gemini by subscription, the vendors).
-        return "There is nothing this phone can switch it to. Its board on your computer lists every provider it can move to, and adds new ones in Settings, AI Models."
+        return "There is nothing this phone can switch it to. Its board on your computer lists every provider it can move to, and you can add new ones there in Settings, AI Models."
     }
 
     // The model menu (fillSwitchModel): Claude's from /api/roles, OpenAI's per account; the rest pick their own.

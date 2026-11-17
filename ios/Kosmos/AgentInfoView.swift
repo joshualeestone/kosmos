@@ -409,7 +409,6 @@ struct AgentInfoView: View {
         }
         let fromProvider = currentProvider ?? ""
         switching = true
-        defer { switching = false }
         let account = switchAccounts.isEmpty ? nil : switchAccount
         let picked = switchAccountTouched
         let model = switchModels.isEmpty ? nil : switchModel
@@ -418,10 +417,11 @@ struct AgentInfoView: View {
             Board.providerSwitchRequest(mac: $0, session: session, to: to, account: account, picked: picked, model: model)
         }
         let said = Board.providerSwitchResult(status: res?.1.statusCode ?? 0, body: res?.0)
+        switching = false   // review 4: the answer is in, so the button stops saying it is still switching
         switchLine = (said.sentence, said.ok)
         UIAccessibility.post(notification: .announcement, argument: said.sentence)
         if let to = Board.providerSwitchLanded(status: res?.1.statusCode ?? 0, body: res?.0), to != fromProvider {
-            landed = (to, fromProvider)
+            landed = (to, landed?.from ?? fromProvider)   // review 4: a second switch before status catches up keeps the first from
         }
         if said.ok { switchTo = nil }
         await load()
