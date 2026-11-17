@@ -29222,6 +29222,64 @@ function start(port = PORT) {
       if (runnerUpgradeFirst && typeof runnerUpgradeFirst.unref === 'function') runnerUpgradeFirst.unref();
       const runnerUpgradeSweep = setInterval(runnerUpgradeTick, 30 * 60 * 1000);
       if (runnerUpgradeSweep && typeof runnerUpgradeSweep.unref === 'function') runnerUpgradeSweep.unref();
+      /* kosmos#8598: after that swap, a running older Codex that starts its code-mode host gets the NEW tree's host and
+         every code-mode call fails until it restarts (measured on the card). Once a minute, restart at its next idle
+         point a managed Codex agent whose process predates the swap and has no code-mode host yet (engine/runnerrestart.js
+         says who and why; a restart starts the conversation over, so one with a host already, the safe case, is left
+         alone). Mac/Linux only (Windows stays on 0.149.1). Gated like the sweeps here; brake
+         AGENT_WORKFORCE_RUNNER_RESTART_OFF=1. */
+      const runnerRestartSeenIdle = new Set();
+      const runnerRestartTried = new Map();
+      let runnerRestartRunning = false;
+      const runnerRestartTick = async () => {
+        if (runnerRestartRunning || process.platform === 'win32') return;
+        if (!liveExecution.liveExecutionAllowed()) return;
+        if (process.env.AGENT_WORKFORCE_RUNNER_RESTART_OFF === '1') return;
+        runnerRestartRunning = true;
+        try {
+          const rr = require('./engine/runnerrestart');
+          // No Codex card of ours, or no finished upgrade: nothing to read the process table for.
+          const cards = safeRoster();
+          if (!Array.isArray(cards) || !cards.some((c) => c && c.runner === 'codex' && c.isNamedOurs === true)) { runnerRestartSeenIdle.clear(); return; }
+          const rb = runners.resolveBin('openai');
+          if (!rb || rb.managed !== true || rb.stale === true) return;
+          const { execFile } = require('node:child_process');
+          const run = (cmd, args) => new Promise((resolve) => {
+            execFile(cmd, args, { encoding: 'utf8', timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, out) => resolve(err ? null : String(out || '')));
+          });
+          // Both tables are read once per pass, before passOnce, which reads them synchronously.
+          const paneText = await run(process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux', ['list-panes', '-a', '-F', '#{session_name} #{pane_pid}']);
+          const psText = paneText === null ? null : await run('ps', ['-eo', 'pid=,ppid=,etime=,command=']);
+          const panes = new Map();
+          for (const line of String(paneText || '').split('\n')) {
+            const m = line.match(/^(\S+)\s+(\d+)$/);
+            if (m && !panes.has(m[1])) panes.set(m[1], Number(m[2]));
+          }
+          const procs = rr.parseProcs(psText);
+          const done = await rr.passOnce({
+            roster: () => safeRoster(),
+            isIdle: (c) => require('./engine/agentnudge').nudgeableCard(c),
+            seenIdle: runnerRestartSeenIdle,
+            tried: runnerRestartTried,
+            allowed: () => liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_RUNNER_RESTART_OFF !== '1',
+            managed: () => {
+              const r = runners.resolveBin('openai');
+              const dir = require('node:path').join(runners.managedRoot(), 'openai');
+              const ready = Boolean(r && r.managed === true && r.present === true && r.stale !== true && !runners.installing('openai'));
+              return { dir, ready, swappedAt: require('node:fs').statSync(require('node:path').join(dir, 'pkg')).ctimeMs, pin: runners.manifestFor('openai').version };
+            },
+            panes: () => panes,
+            procs: () => procs,
+            // 'restart': the card's word for a plain restart (engine/disruption.js CAUSES); the board line below says why.
+            restart: (session) => removal.restartAsync(session, 'restart'),
+            RESTARTED: removal.OUTCOME.RESTARTED,
+          });
+          for (const d of done) if (d.act === 'restarted' || d.act === 'refused') process.stdout.write(`runner-restart: ${d.session} ${d.act}${d.because ? ' (' + d.because + ')' : ''}\n`);
+        } catch (err) { console.warn(`[runner-restart] ${String((err && err.message) || err)}`); }
+        finally { runnerRestartRunning = false; }
+      };
+      const runnerRestartSweep = setInterval(() => { runnerRestartTick(); }, 60 * 1000);
+      if (runnerRestartSweep && typeof runnerRestartSweep.unref === 'function') runnerRestartSweep.unref();
       const class1Attempts = new Map();
       const class1Sweep = setInterval(() => {
         // 🛑 LOAD-BEARING, DO NOT REMOVE: this is the ONLY gate on create.trustAgentFolder's
