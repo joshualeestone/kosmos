@@ -119,3 +119,4 @@ in full when nothing closes early.
 - WARNING answered in the PR: the Windows entry is checked by source; the behaviour was measured by hand on Windows.
 - NITs to the same follow-up card: a 156-column comment line in clipipe.js; the preload epilogue sits after
   module.exports; arm 2 could also assert NODE_OPTIONS is untouched.
+### After review 8: validation found tools.windows-kosmos-cli-board-proof-1765 pins the entry block as `main(process.argv.slice(2))` right after `if (require.main === module) {`; the guard moved to its own block above it (no behaviour change). All 113 test files reading kosmos-cli.js pass.
