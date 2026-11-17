@@ -6995,9 +6995,10 @@ function newestReplyAt(text) {
     if (!line || !isReplyLine(line)) continue;
     let row;
     try { row = JSON.parse(line); } catch { continue; }   // the tail's first line can be cut
-    // isReplyLine is the one reply rule (kosmos#8605): it rejects API errors and a line whose first "model" value starts
-    // with "<" (`<synthetic>`), tested on the raw line, as hasReplied does.
+    // isReplyLine (hasReplied's test) rejects API errors and passes a line if ANY "model" value on it does not start with
+    // "<", so the row's own model is checked here too: a `<synthetic>` row is never a reply (kosmos#8605 review 2).
     if (!row || row.type !== 'assistant' || !row.message || typeof row.message.model !== 'string') continue;
+    if (row.message.model.startsWith('<')) continue;
     const at = Date.parse(row.timestamp);
     return Number.isFinite(at) ? at : null;
   }
@@ -7011,10 +7012,11 @@ function newestReplyAt(text) {
    "@20251001") are set aside (review 5: a model the name table does not know yet still matches its dated form), or
    when they are shown under the same name. A job that cannot be read is "no".
    kosmos#8605: on Windows plannedModelOf reads the task through win32job.cachedTaskSpec, which this process refreshes
-   only on its own install, remove, disable or enable (#2717, #3013). That is right here because a model is changed only by create.setModel,
-   called only from the board's own routes (server.js), so the board process that reads this has already refreshed
-   it. A rewrite from another process would leave the cache on the old model and this would answer "same" (the old
-   bug, silently): a new path that changes a model outside the board must forget the cached task (win32job). */
+   only on its own install, remove, disable or enable (#2717, #3013). That is right here because every rewrite that
+   changes a model (create.setModel, create.setProvider) runs in the board process, from its own routes in server.js,
+   and goes through win32job.install, which forgets the cached task first; so the board process that reads this has
+   already refreshed it. A rewrite from another process would leave the cache on the old model and this would answer
+   "same" (the old bug, silently): a new path that changes a model outside the board must forget the cached task. */
 function jobNamesAnotherModel(agentName, readId) {
   let planned = null;
   try { planned = require('./create').plannedModelOf(agentName); } catch { planned = null; }
@@ -7497,8 +7499,9 @@ function readModel(agentName, exactSession) {
      two models) is not the session the job starts, so its reading is never judged against that job.
      kosmos#8605: "no session given" also counts as the agent's own, though server.js measured readModel('foo') can land
      on foo-discord. That is safe only for today's no-session callers: repair's modelFor acts only on agents with no job
-     (so readBeforeJob is "no"), and whoami without a card falls back to the process's --model anyway. A new caller
-     that reads a running agent with no session should pass the session. */
+     (so readBeforeJob is "no"), and for whoami without a card a rule that fires drops the reading in favour of the
+     process's own --model (server.js skips an earlierSession record), never the job's model. A new caller that reads a
+     running agent with no session should pass the session. */
   const ownSession = exactSession === undefined || exactSession === null
     || String(exactSession).toLowerCase() === String(agentName).toLowerCase();
   if (now && ownSession && readBeforeJob(file, text, agentName) && jobNamesAnotherModel(agentName, now)) {

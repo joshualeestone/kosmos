@@ -7,19 +7,21 @@
   and fails against origin/main's status.js.
 - The Windows task-cache premise, the "no session given" premise and the named-world gap are written where a later
   reader will see them (code comments), so none is left implicit.
-- newestReplyAt has one rule for what counts as a reply (isReplyLine), with no second, dead check.
+- newestReplyAt counts a reply as hasReplied does (isReplyLine), plus a check of the row's own model (review 2: the
+  `<synthetic>` check is NOT dead, since isReplyLine passes a line if ANY model value on it is real; kept, commented).
 - The cut-first-line gap is recorded (comment) as a known, bounded case.
 - Review 1: the named-world comment corrected (this process's world, not the default one) and the real gap named: a
   board in a named world has sessions `name+world`, so the #8601 rule never applies there (older than #8601; noted).
   Cache refresh list completed (install, remove, disable, enable); a second stat-count test for the file-time path.
 - Behaviour otherwise unchanged: the #8601 tests, the Codex #4416 tests and status.test.js pass as before.
 
-## Change (engine/status.js only, plus one test)
+## Change (engine/status.js only, plus two tests)
 - `jobMtime(agentName)`: the one job-file lookup, one stat, ms or null. `writtenBeforeJob` (the Codex rule) and
   `readBeforeJob` (the Claude rule) each call it once. `jobWrittenAfter` and `jobExists` are gone.
-- `newestReplyAt`: the `<synthetic>` check is removed; `isReplyLine` (hasReplied's test) already rules it out.
-- Comments: the Windows `cachedTaskSpec` premise (model changes only through the board's `create.setModel`, verified:
-  its only callers are server.js routes); the "no session" callers; the named-world gap; the cut-first-line gap.
+- `newestReplyAt`: the `<synthetic>` check stays, as a check of `row.message.model` (any model starting with "<"),
+  with a comment saying why it is not covered by `isReplyLine`.
+- Comments: the Windows `cachedTaskSpec` premise (every model-changing rewrite, `create.setModel` and `create.setProvider`,
+  runs in the board process from server.js routes and goes through win32job.install, which forgets the cache first); the "no session" callers; the named-world gap; the cut-first-line gap.
 
 ## Decisions
 - Not done: refreshing the Windows task cache when the task file is newer than the cached read. Every model change is
@@ -34,5 +36,5 @@ routes); a CLI that wrote the task directly would break it silently, which the c
 ## Tests
 - engine/status.cardmodel-8601.test.js: new "kosmos#8605: one stat of the job file per reading" (counts statSync calls
   on the job file; 1 on the branch, 2 against origin/main's status.js).
-- The 8601 files, status.test.js, earlier-model-6716, modelname-4416, codex-model-switch-4416 and the policy tests:
-  357 + 1 pass.
+- A second stat-count test (review 1) for the file-time path. The 8601 files, status.test.js, earlier-model-6716,
+  modelname-4416, codex-model-switch-4416 and the policy tests all pass.
