@@ -597,6 +597,26 @@ final class RoomStore: ObservableObject {
         await loadRoom(project)
     }
 
+    // #8625: the report mail for one outside message, with the sender's account when the board names it (a report still
+    // goes without it). The body is returned too, for when no mail app takes the mail (reportNotSent).
+    func report(_ row: Board.RoomRow, in project: String, projectName: String) async -> (url: URL?, body: String) {
+        var account: String?
+        #if DEBUG
+        if Self.sample { account = "sample-account" }
+        #endif
+        if account == nil {
+            let epoch = client.chatEpoch
+            let answer = await client.throughMac { Board.roomSenderRequest(mac: $0, project: project, message: row.id) }
+            if same(epoch) { account = Board.senderAccount(status: answer?.1.statusCode, answer?.0) }
+        }
+        return (Board.reportMail(row: row, project: project, projectName: projectName, account: account),
+                Board.reportBody(row: row, project: project, projectName: projectName, account: account))
+    }
+    func reportNotSent(_ body: String, in project: String) {
+        UIPasteboard.general.string = body
+        notes[project] = Board.reportCopiedNote
+    }
+
     // The project's members the board says need the person now (their card's tone), for the pinned line.
     // kosmos#7106: the room's needs-you notice from the projects route's own count for THIS project (needsYouHere), as
     // the board's pjNeedsNotice; an agent's card tone can be about another project, so it is never the test here.

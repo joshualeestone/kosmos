@@ -610,6 +610,7 @@ struct MessageActionsSheet: View {
     var panelMore: (() -> Void)? = nil
     // The panel closes when the keyboard goes, and the question lowers it, so the host asks the question, not these rows.
     var panelDelete: (() -> Void)? = nil
+    var panelBlock: (() -> Void)? = nil   // #8625: the same, for Block's question
     @Environment(\.dismiss) private var dismissSheet
     private func dismiss() { if let panelClose { panelClose() } else { dismissSheet() } }
     @State private var confirmingDelete = false   // kosmos#7614: Delete asks first, in the board's own words
@@ -694,7 +695,7 @@ struct MessageActionsSheet: View {
                 row("Report message", "flag") { after(report); dismiss() }
             }
             if target.block != nil {
-                row("Block " + target.blockName, "hand.raised", destructive: true) { confirmingBlock = true }
+                row("Block " + target.blockName, "hand.raised", destructive: true) { if let panelBlock { panelBlock() } else { confirmingBlock = true } }
             }
             // kosmos#7614: last and red, on the person's own message only; it asks once, as the board does.
             if target.delete != nil {
@@ -785,6 +786,7 @@ struct MessageActionsHost: ViewModifier {
     // keyboard up: it rises behind it (#7530). More, which needs the room, still lowers it and opens the sheet.
     @State private var panel: MessageActionTarget?
     @State private var askDelete: MessageActionTarget?   // the panel's Delete question: see panelDelete
+    @State private var askBlock: MessageActionTarget?    // #8625: the panel's Block question, for the same reason
     @State private var keyboardUp = false
     @State private var keyboardTop: CGFloat = 0
     @State private var detent: PresentationDetent = .large
@@ -840,7 +842,8 @@ struct MessageActionsHost: ViewModifier {
                                 detent = .large
                                 target = t
                             },
-                            panelDelete: { askDelete = t; panel = nil })
+                            panelDelete: { askDelete = t; panel = nil },
+                            panelBlock: { askBlock = t; panel = nil })
     }
 
     func body(content: Content) -> some View {
@@ -859,7 +862,13 @@ struct MessageActionsHost: ViewModifier {
             } message: { _ in
                 Text(Board.deleteConfirmBody)
             }
-            .environment(\.shownMessageActions, (panel ?? target ?? askDelete)?.id)
+            .alert(Board.blockAskTitle, isPresented: Binding(get: { askBlock != nil }, set: { if !$0 { askBlock = nil } }), presenting: askBlock) { t in
+                Button("Block", role: .destructive) { t.block?(); askBlock = nil }
+                Button("Cancel", role: .cancel) { askBlock = nil }
+            } message: { t in
+                Text(Board.blockAskBody(t.blockName))
+            }
+            .environment(\.shownMessageActions, (panel ?? target ?? askDelete ?? askBlock)?.id)
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
                 keyboardUp = true
                 if let f = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect { keyboardTop = f.minY }

@@ -33,8 +33,10 @@ an operational dependency, said on the card.
 
 ## Not covered yet
 
-- Rows kept before a block are filtered only in the room route; other readers (an agent's `kosmos room` of old rows)
-  still see them. New rows never reach anyone.
+- Rows kept before a block are filtered in the room route (both its arms, so an agent's `kosmos room` too) and in the
+  unread counts. The quiet-run and acknowledgement logic (messages.js, rows of the room as stored) still sees them;
+  they never reach a person or a pane from there. New rows never reach anyone.
+- A block lives on the one board the phone shows; a person with several computers blocks on each.
 - The desktop board's room has no Report or Block buttons yet (App Review reads the iPhone app; the routes are the
   board's, so the desktop page can add them later). A follow-up card.
 
@@ -62,3 +64,22 @@ an operational dependency, said on the card.
   reported, refusal sentences) and settings suite (the list and unblock requests, a malformed account, empty vs failed
   read). Every iOS logic suite passes; both typechecks (release and DEBUG) pass; server.ios-routes-6838 passes with the
   three new phone requests; the 85 repo tests that read the iOS sources pass; check-listing.sh passes.
+
+## Review
+
+- Round 1 (blind, opus): 1 BLOCKER, 6 WARNING, 1 CONVENTION, 3 NIT.
+  - BLOCKER fixed: Block's question in the in-chat panel (keyboard up) vanished with the panel, so the block never ran;
+    it is asked by the host now (panelBlock, askBlock), as Delete's is.
+  - WARNING fixed: the person's own post from another computer (same_account) was offered Report and Block, and could be
+    blocked; the row keeps sameAccount, the phone hides both, the block and sender routes refuse it (409). Tested.
+  - WARNING fixed: a report could not name who to act on (the message id is this computer's own); a new sender route
+    gives the account, which the mail carries as "Sender account". Tested both sides.
+  - WARNING fixed: a mail that no app takes failed silently; the report is copied and the room says where to send it.
+  - WARNING fixed: a blocked sender still spent the room's minute and day budget; fedseats drops them first
+    (deps.isBlocked). Tested with a control that shows the harm without it.
+  - WARNING fixed (words): Block covers the whole outside Kosmos (its person and agents) and the computer the phone shows;
+    the question, Settings and the review notes say so.
+  - WARNING fixed: unread counts left blocked rows in; filtered. Tested.
+  - CONVENTION fixed: the plan's "not covered" line was wrong about `kosmos room`.
+  - NITs fixed: a full block list is 409, not 503; agent tokens refused on every new route (header and body), tested.
+    Not acted on: isViaScreen on unblock (the routes follow the room delete route's guard).

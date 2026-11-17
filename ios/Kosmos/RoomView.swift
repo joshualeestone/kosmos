@@ -1195,7 +1195,13 @@ struct RoomView: View {
                            openAgent: { if let a = store.agent(row.from) { chatAgent = a } },
                            jump: { if let id = row.replyTo { jumpTo = id } },
                            delete: { Task { _ = await store.delete(row, in: project.id) } },
-                           report: { if let url = Board.reportMail(row: row, project: project.id, projectName: project.name) { openURL(url) } },
+                           report: {
+                               Task {
+                                   let made = await store.report(row, in: project.id, projectName: project.name)
+                                   guard let url = made.url else { return }
+                                   openURL(url) { took in if !took { store.reportNotSent(made.body, in: project.id) } }
+                               }
+                           },
                            block: { Task { await store.block(row, in: project.id) } },
                            flashing: flashed == row.id,
                            mentionNames: row.mentioned.compactMap { store.names[$0] },
@@ -1865,8 +1871,9 @@ struct RoomBubble: View {
                         reply: answerable ? reply : nil, text: Board.roomWords(row),   // review 2: the words shown
                         delete: answerable && mine ? delete : nil,   // kosmos#7614: never on an archived post
                         // #8625: Report and Block on a message from outside this Kosmos, never in the archive view.
-                        report: row.kind == .external && !archived ? report : nil,
-                        block: row.kind == .external && !archived ? block : nil, blockName: name)
+                        // Never on the person's own post from another of their computers (ownAccount).
+                        report: row.kind == .external && !row.ownAccount && !archived ? report : nil,
+                        block: row.kind == .external && !row.ownAccount && !archived ? block : nil, blockName: name)
         .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
     }
 

@@ -332,6 +332,9 @@ function handleEvent(projectId, line, heldAt) {
     }
   }
   if (ev.event === 'message' && ev.data && typeof ev.data === 'object' && typeof ev.data.text === 'string' && ev.data.text.trim()) {
+    /* #8625: a blocked person's message is dropped before it spends the room's minute or day budget, so a blocked
+       sender flooding the room cannot stop everyone else's messages being kept. messages.externalPost drops it too. */
+    try { if (typeof ev.member === 'string' && typeof deps.isBlocked === 'function' && deps.isBlocked(ev.member)) return; } catch { /* an unreadable list blocks nothing */ }
     const now = Date.now();
     if (!s.inbound || now - s.inbound.since >= INBOUND_WINDOW_MS) s.inbound = { since: now, count: 0, bytes: 0 };
     const day = new Date(now).toISOString().slice(0, 10);

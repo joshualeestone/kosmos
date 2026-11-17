@@ -24,7 +24,7 @@ function fakeChild() {
   return c;
 }
 
-function harness({ enrolled = true, allowed, edges = null, exists = () => true, gate = null, keptOn = undefined, createdAt = () => undefined } = {}) {
+function harness({ enrolled = true, allowed, edges = null, exists = () => true, gate = null, keptOn = undefined, createdAt = () => undefined, isBlocked } = {}) {
   const spawned = [];
   const recorded = [];
   const statuses = [];
@@ -46,6 +46,7 @@ function harness({ enrolled = true, allowed, edges = null, exists = () => true, 
     externalKeptOn: keptOn,
     projectCreatedAt: (projectId) => createdAt(projectId),
     note: (projectId, text) => notes.push({ projectId, text }),
+    ...(isBlocked ? { isBlocked } : {}),   // #8625: absent means not wired, as before
   });
   return h;
 }
@@ -4210,3 +4211,28 @@ test('#5191: a revoked member\'s stamped post is refused before it can take a he
   assert.deepStrictEqual(shown(h), []);
 });
 
+
+test('#8625: a blocked sender is dropped before the room budget, so their flood does not stop anyone else being kept', async () => {
+  federation.recordLink('proj-blk', { role: 'member', edge_id: 'edge-blk' });
+  const h = harness({ isBlocked: (member) => String(member).split(':')[0] === 'acctX' });
+  await fedseats.ensure('proj-blk');
+  for (let i = 0; i < fedseats.INBOUND_PER_WINDOW + 10; i++) {
+    fedseats.onEvent('proj-blk', JSON.stringify({ event: 'message', member: 'acctX:mac', data: { from: 'Flood', text: 'spam ' + i } }));
+  }
+  fedseats.onEvent('proj-blk', JSON.stringify({ event: 'message', member: 'acctY', data: { from: 'Bea', text: 'still here' } }));
+  const kept = h.recorded.filter((r) => r.projectId === 'proj-blk');
+  assert.deepStrictEqual(kept.map((r) => r.from), ['Bea'], 'nothing from the blocked sender, and Bea is not cut off by their flood');
+  assert.strictEqual(h.notes.filter((n) => n.projectId === 'proj-blk').length, 0, 'no "sent more than Kosmos keeps" note from a blocked flood');
+});
+
+test('#8625 CONTROL: unwired (no isBlocked), the same flood spends the minute budget and cuts the next sender off', async () => {
+  federation.recordLink('proj-blk2', { role: 'member', edge_id: 'edge-blk2' });
+  const h = harness();
+  await fedseats.ensure('proj-blk2');
+  for (let i = 0; i < fedseats.INBOUND_PER_WINDOW + 10; i++) {
+    fedseats.onEvent('proj-blk2', JSON.stringify({ event: 'message', member: 'acctX:mac', data: { from: 'Flood', text: 'spam ' + i } }));
+  }
+  fedseats.onEvent('proj-blk2', JSON.stringify({ event: 'message', member: 'acctY', data: { from: 'Bea', text: 'still here' } }));
+  const kept = h.recorded.filter((r) => r.projectId === 'proj-blk2');
+  assert.strictEqual(kept.some((r) => r.from === 'Bea'), false, 'without the early drop, Bea is cut off by the flood');
+});
