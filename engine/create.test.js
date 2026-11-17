@@ -3461,6 +3461,18 @@ test('#5626: an agent created on Haiku 5.5 launches with claude-haiku-5-5 and is
   assert.equal(plannedModel('haikufourfive'), 'claude-haiku-4-5-20251001', 'CONTROL: Haiku 4.5 is still Haiku 4.5');
 });
 
+/* kosmos#8618: an agent can be created by a model's full id as well as its menu key; the job carries that model. */
+test('kosmos#8618: an agent created by a full model id launches on that model; a near id is refused with the key list', WIN_LAUNCHD, () => {
+  recorder();
+  create.setDryRun(false);
+  const r = create.createAgent({ ...BINS, name: 'byfullid', role: 'pm', model: 'claude-opus-5-5' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  assert.equal(plannedModel('byfullid'), 'claude-opus-5-5', 'an agent created by full id does not run that model');
+  const bad = create.createAgent({ ...BINS, name: 'bynearid', role: 'pm', model: 'claude-opus-5-5x' });
+  assert.equal(bad.outcome, create.OUTCOME.REFUSED, 'CONTROL: a near id was accepted');
+  assert.match(bad.because, /^pick a model from the list: fable52 \(Claude Fable 5\.2\), /, bad.because);
+});
+
 /**
  * ⚠️ NULL MEANS WE DO NOT KNOW, AND THE THREE WAYS OF NOT KNOWING ALL HAVE TO
  * REACH IT. A reader that returned the default model for a job that carries no

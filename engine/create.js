@@ -209,7 +209,7 @@ function modelsFor(provider) {
 /**
  * Resolve a model WITHIN a provider, by its menu key or its full id (kosmos#8618), or answer null.
  *
- * ⚠️ THE REFUSAL IS THE POINT. Both call sites used a bare
+ * ⚠️ THE REFUSAL IS THE POINT. Both of its first call sites used a bare
  * `MODELS.find(x => x.key === key)`, which cannot tell "no such model" from
  * "a real model belonging to the other vendor" -- and the second is the one
  * that produces an agent launched with a flag its runner has never heard of.
