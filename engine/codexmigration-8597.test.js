@@ -159,7 +159,7 @@ test('#8597: it declines a file it would not edit cleanly: CRLF, a literal-strin
   assert.equal(await pinModelMigration(d, '', codex.bin), true);
 });
 
-test('#8597: the shim never writes into the person\'s own codex home (argv 5 is 1); control: 0 writes', () => {
+test('#8597: the shim never writes into the person\'s own codex home (its 4th argument is 1); control: 0 writes', () => {
   const shim = path.join(__dirname, '..', 'bin', 'codex-dismiss-update.js');
   const bin = fakeCodex(CATALOG).bin;
   const own = home('model = "gpt-5.4"\n');
