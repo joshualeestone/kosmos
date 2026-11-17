@@ -6085,6 +6085,7 @@ const FORM_TYPES = new Set([
    for the internet. A refusal or "nothing to show" attaches nothing: absence
    is how the page draws a link that stays a link. The image is this board's
    own path, never the site's. `opts.bare === false` (kosmos#7861) previews only links typed with http(s). */
+const PREVIEW_PICTURE_WAIT_MS = 10 * 1000;   // kosmos#8636: how long a new card waits for its picture's verdict
 function withPreviews(rows, opts) {
   const bareAllowed = !(opts && opts.bare === false);
   if (!Array.isArray(rows)) return rows;
@@ -6106,9 +6107,25 @@ function withPreviews(rows, opts) {
     const hit = found.bare ? unfurl.peekBare(link) : unfurl.peek(link);
     if (hit === null) { unfurl.warm(link, { bare: found.bare }); continue; }
     if (!hit.ok) continue;
+    /* kosmos#8636: the picture only once it is known to load. Not yet known: the card waits for a later poll (warm
+       fetches the picture with the page), so it does not first appear as an empty box that fills in or breaks. Once the
+       picture fetch settles, a picture that failed or timed out gives the card with its words and no picture. */
+    let image = '';
+    if (hit.image) {
+      /* A good verdict is refreshed when a browser draws the picture (the picture route fetches bytes the cache let go),
+         not for every row a read carries; a bad one, which no browser asks for, is refreshed here. */
+      const state = unfurl.imageState(hit.image, { refreshGood: false });
+      if (state === null) {
+        unfurl.warmImage(hit.image);
+        // A card first seen moments ago waits for its picture; an older one (a board just started, a verdict dropped)
+        // keeps its words meanwhile, so a card already on screen does not vanish for a poll.
+        const age = Date.now() - Date.parse(hit.fetchedAt || '');
+        if (Number.isFinite(age) && age <= PREVIEW_PICTURE_WAIT_MS) continue;   // no readable time: past the wait
+      }
+      if (state === 'good') image = '/api/unfurl/image?url=' + encodeURIComponent(hit.image);
+    }
     r.preview = {
-      url: hit.url, title: hit.title, description: hit.description, site: hit.site, fetchedAt: hit.fetchedAt,
-      image: hit.image ? '/api/unfurl/image?url=' + encodeURIComponent(hit.image) : '',
+      url: hit.url, title: hit.title, description: hit.description, site: hit.site, fetchedAt: hit.fetchedAt, image,
     };
   }
   return rows;
@@ -22474,8 +22491,15 @@ const server = http.createServer(async (req, res) => {
     let target = '';
     try { target = new URL(req.url, ROUTING_BASE).searchParams.get('url') || ''; } catch { target = ''; }
     if (!target) { sendJson(res, 400, { error: 'say which link' }); return; }
-    unfurl.preview(target).then((got) => {
+    unfurl.preview(target).then(async (got) => {
       if (!got.ok) { sendJson(res, 200, { ok: false, because: got.because }); return; }
+      // kosmos#8636: a picture that cannot be fetched is left out, so the card keeps its words with no broken box.
+      const state = got.image ? unfurl.imageState(got.image) : 'good';
+      if (state === 'bad') got = { ...got, image: '' };
+      else if (state === null) {
+        const pic = await (unfurl.warmImage(got.image, { now: true }) || unfurl.image(got.image)).catch(() => null);
+        if (!pic || !pic.ok) got = { ...got, image: '' };
+      }
       sendJson(res, 200, {
         ok: true, url: got.url, title: got.title, description: got.description, site: got.site, fetchedAt: got.fetchedAt,
         /* The image is served back through this process, never as the site's
@@ -22491,7 +22515,9 @@ const server = http.createServer(async (req, res) => {
     let target = '';
     try { target = new URL(req.url, ROUTING_BASE).searchParams.get('url') || ''; } catch { target = ''; }
     if (!target) { sendJson(res, 400, { error: 'say which image' }); return; }
-    unfurl.image(target).then((got) => {
+    // kosmos#8636: shares a fetch of this picture already running (a poll's warm-up), else its cached answer, else a new fetch.
+    Promise.resolve(unfurl.warmImage(target, { now: true }) || unfurl.image(target)).then((got) => {
+      if (!got) got = { ok: false, because: 'we could not read that image' };
       if (!got.ok) { sendJson(res, 404, { error: got.because }); return; }
       /* Raster only (the engine refuses SVG), and sandboxed anyway: this is
          a third party's bytes on the board's own origin, so nothing in them

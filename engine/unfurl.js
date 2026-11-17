@@ -66,19 +66,28 @@ function cached(key) {
 }
 function remember(key, value) {
   drop(key);
-  while (cache.size >= CACHE_MAX) drop(cache.keys().next().value);
+  /* kosmos#8636: at the count cap a picture entry goes before a page preview, so picture warm-ups for many links can
+     never push a card's page preview out of the room. */
+  while (cache.size >= CACHE_MAX) {
+    let victim = null;
+    for (const k of cache.keys()) { if (k.startsWith('i:')) { victim = k; break; } }
+    drop(victim === null ? cache.keys().next().value : victim);
+  }
   imageBytes += sizeOf(value);
   /* Images are bytes: evict oldest until the budget holds, so two hundred
-     five-megabyte images cannot sit in memory for ten minutes. */
-  while (imageBytes > IMAGE_CACHE_BYTES && cache.size) {
-    const oldest = cache.keys().next().value;
-    if (oldest === key) break;
+     five-megabyte images cannot sit in memory for ten minutes. kosmos#8636: only
+     images (with bytes) go for the byte budget, never a page preview, which frees
+     no bytes and whose loss would take a whole card off the room. */
+  while (imageBytes > IMAGE_CACHE_BYTES) {
+    let oldest = null;
+    for (const [k, v] of cache) { if (k !== key && sizeOf(v.value) > 0) { oldest = k; break; } }
+    if (oldest === null) break;
     drop(oldest);
   }
   cache.set(key, { at: Date.now(), value });
   return value;
 }
-function resetForTests() { cache.clear(); imageBytes = 0; fetcher = (url, opts) => fetch(url, opts); resolver = (host) => dns.lookup(host, { all: true }); }
+function resetForTests() { cache.clear(); knownImages.clear(); imageFlights.clear(); imagesRunning = 0; imagesWaiting.length = 0; imageBytes = 0; fetcher = (url, opts) => fetch(url, opts); resolver = (host) => dns.lookup(host, { all: true }); }
 
 /** Is this address one that must never be fetched from here? */
 function privateAddress(ip) {
@@ -305,20 +314,22 @@ async function preview(raw) {
 async function image(raw) {
   const key = 'i:' + String(raw);
   const hit = cached(key);
-  if (hit) return hit;
+  if (hit) { if (!knownImages.has(String(raw))) known(raw, hit.ok, !hit.ok && passingForPicture(hit.because)); return hit; }   // kosmos#8636: a verdict for what is cached
   const got = await guardedFetch(raw, 'image/*');
-  if (!got.ok) return remember(key, got);
+  if (!got.ok) { known(raw, false, passingForPicture(got.because)); return remember(key, got); }
   try {
     const type = (got.res.headers.get('content-type') || '').toLowerCase().split(';')[0].trim();
     /* 🛑 NO SVG. An SVG carries script, and this proxy serves it on the
        board's own origin, where the write routes live with no login: "open
        image in new tab" on a hostile og:image would run that script as the
        board. Raster types only; the route adds a sandboxing CSP as well. */
-    if (!/^image\/(png|jpeg|gif|webp|avif)$/.test(type)) { discard(got.res); return remember(key, { ok: false, because: 'that is not an image this board will show' }); }
+    if (!/^image\/(png|jpeg|gif|webp|avif)$/.test(type)) { discard(got.res); known(raw, false); return remember(key, { ok: false, because: 'that is not an image this board will show' }); }
     const bytes = await readCapped(got.res, IMAGE_MAX, false);
-    if (!bytes) return remember(key, { ok: false, because: 'that image is too large to show' });
+    if (!bytes) { known(raw, false); return remember(key, { ok: false, because: 'that image is too large to show' }); }
+    known(raw, true);
     return remember(key, { ok: true, type, bytes });
   } catch {
+    known(raw, false, true);
     return remember(key, { ok: false, because: 'we could not read that image' });
   } finally {
     clearTimeout(got.timer);
@@ -482,6 +493,53 @@ function peekBare(httpsUrl) {
   return p && (p.ok || !unreached(p.because)) ? p : null;
 }
 
+/* kosmos#8636: the one test of whether a picture's failed fetch may be a passing one: unreached() (not reached, too
+   slow, a 5xx), or a name that did not resolve, which may be a moment's DNS trouble. Only for a picture's verdict:
+   unreached() also decides a bare address's http fallback, where a name that does not resolve must not count. */
+function passingForPicture(because) { return unreached(because) || because === 'that site could not be found'; }
+/* kosmos#8636 (Josh 11-17: a link preview's picture "keeps not rendering", a broken "?" box 17 minutes on): whether a
+   preview's image could be fetched, kept apart from the bytes (which the image cache drops after ten minutes or
+   when over its budget) for a day, so dropped bytes never decide whether a card has its picture, and the last answer
+   decides while a newer one is fetched. At most KNOWN_MAX addresses, oldest dropped first. A verdict that ages out or
+   is dropped is fetched again, and the card waits for it as it did the first time. `passing` (the site not reached,
+   too slow, a 5xx, a read that broke off) never turns a picture that loaded into one that did not. */
+const KNOWN_MS = 24 * 60 * 60 * 1000;
+const KNOWN_MAX = 1000;
+const knownImages = new Map();
+function known(raw, ok, passing) {
+  const key = String(raw);
+  const was = knownImages.get(key);
+  if (!ok && passing && was && was.ok) return;   // keeps the old time too, so the next refresh tries again
+  knownImages.delete(key);
+  knownImages.set(key, { ok, at: Date.now(), passing: !ok && !!passing });
+  while (knownImages.size > KNOWN_MAX) knownImages.delete(knownImages.keys().next().value);
+}
+/** kosmos#8636: 'good' or 'bad' from the last answer for this image address, or null when it was never fetched (or
+    not for a day). NOT a pure read: a last answer older than the image cache's own ten minutes (a passing failure's,
+    one minute) starts a fresh fetch in the background, never awaited, so a card's picture follows the site. */
+function imageState(raw, opts) {
+  const refreshGood = !(opts && opts.refreshGood === false);
+  let k = knownImages.get(String(raw));
+  if (!k) {
+    // Bytes (or a refusal) still cached for an address whose verdict was dropped: that answer is the verdict.
+    const c = cached('i:' + String(raw));
+    if (!c) return null;
+    known(raw, !!c.ok, !c.ok && passingForPicture(c.because));
+    k = knownImages.get(String(raw));
+  } else {
+    // A verdict read is a verdict in use (a card on screen): moved to the newest end, so the KNOWN_MAX cap drops the
+    // ones nobody is reading first. Its time is kept.
+    knownImages.delete(String(raw));
+    knownImages.set(String(raw), k);
+  }
+  const age = Date.now() - k.at;
+  if (age > KNOWN_MS) { knownImages.delete(String(raw)); return null; }
+  // The verdict's age, not the bytes cache, decides when a picture is asked again: a 404 whose cached refusal has
+  // expired after a minute is not fetched again until its verdict is ten minutes old.
+  if (age > (k.passing ? REFUSAL_MS : CACHE_MS) && (refreshGood || !k.ok)) warmImage(raw);
+  return k.ok ? 'good' : 'bad';
+}
+
 /* In flight, so a poll every five seconds does not start a second fetch for
    a link whose first is still running. */
 const inflight = new Set();
@@ -492,7 +550,46 @@ function warm(raw, opts) {
   const key = (bare ? 'b:' : 'p:') + String(raw);
   if ((bare ? peekBare(String(raw)) : cached(key)) || inflight.has(key)) return;
   inflight.add(key);
-  (bare ? previewBare(String(raw)) : preview(String(raw))).catch(() => {}).finally(() => inflight.delete(key));
+  /* kosmos#8636: the preview's picture is fetched in the same warm-up, so the card is ready with or without it by
+     the time a poll can carry it, instead of its picture being asked for only once the page draws an empty box. */
+  (bare ? previewBare(String(raw)) : preview(String(raw)))
+    // The picture's fetch is started, not awaited: it has its own in-flight entry, and the page's is released now.
+    .then((got) => { if (got && got.ok && got.image && imageState(got.image) === null) warmImage(got.image); })
+    .catch(() => {}).finally(() => inflight.delete(key));
+}
+/** kosmos#8636: start fetching a preview's picture if nothing is cached, under its own in-flight entry so a poll or a
+    route that asks meanwhile shares that fetch instead of starting a second. Returns the fetch's promise (the one
+    already running, if any; it resolves to image()'s answer, or undefined if it threw), or null when the answer is
+    already cached. */
+const imageFlights = new Map();
+/* At most IMAGE_AT_ONCE picture fetches run together (each may hold IMAGE_MAX in memory before the cache budget
+   applies); the rest wait their turn. */
+const IMAGE_AT_ONCE = 4;
+let imagesRunning = 0;
+const imagesWaiting = [];
+function imageTurn() { return imagesRunning < IMAGE_AT_ONCE ? (imagesRunning++, Promise.resolve()) : new Promise((r) => imagesWaiting.push(r)); }
+function imageDone() { const next = imagesWaiting.shift(); if (next) next(); else imagesRunning = Math.max(0, imagesRunning - 1); }
+/* `opts.now` (the picture route, a browser waiting on an <img>): shares a fetch already running but never queues
+   behind the background warm-ups. */
+function warmImage(raw, opts) {
+  const key = String(raw);
+  const now = !!(opts && opts.now === true);
+  const flight = imageFlights.get(key);
+  if (flight) {
+    // A browser asking for a picture whose background fetch is still waiting for a slot starts it now; the waiting
+    // turn then hands its slot back and answers with this fetch.
+    if (now && !flight.direct) flight.direct = image(key).catch(() => undefined);
+    return flight.direct || flight.p;
+  }
+  if (cached('i:' + key)) return null;
+  const f = { direct: now ? image(key).catch(() => undefined) : null, p: null };
+  f.p = (f.direct || imageTurn().then(() => {
+    if (f.direct) { imageDone(); return f.direct; }
+    f.direct = image(key).catch(() => undefined).finally(imageDone);
+    return f.direct;
+  })).catch(() => undefined).finally(() => imageFlights.delete(key));
+  imageFlights.set(key, f);
+  return f.p;
 }
 
-module.exports = { firstLinkInfo, bareWeb, bareSplit, previewBare, peekBare, peek, warm, preview, image, pageText, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };
+module.exports = { firstLinkInfo, bareWeb, bareSplit, previewBare, peekBare, peek, warm, preview, image, imageState, warmImage, pageText, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };
