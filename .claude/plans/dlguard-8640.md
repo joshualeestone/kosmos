@@ -11,8 +11,9 @@
 ## Change
 - status.paneLook(): one listing read as the roster (shape unchanged, pinned by fixture-discipline) and the
   claims { claim, session }. Throws as paneRoster does.
-- status.paneFolders(): a second listing, `#{session_name}\t#{pane_current_path}`, because the folder is
-  not one of PANE_COLUMNS. Throws when it cannot be read or every line is unreadable (fails closed);
+- status.paneFolders(): a second listing, `tmux -u list-panes -a -F '#{pane_id}\t#{session_name}\t#{pane_current_path}'`,
+  because the folder is not one of PANE_COLUMNS. Throws when it cannot be read or ANY line is unreadable
+  (fails closed; plan() then says something open on this computer could not be read);
   [] with no tmux server. With a pane source set it never asks tmux: tests inject setPaneFolderSource,
   and on WINDOWS (roster not tmux) it answers [] so the folder check does nothing there (follow-up).
 - delete-leftover plan(): running if the session names the agent, OR a pane's claim is this world's launch key
@@ -36,7 +37,7 @@
 
 ## Weakest premise
 That a running agent has a tmux pane whose current folder is inside its folder, or its name/claim. An agent
-that `cd`s out of its folder in a session named otherwise is still invisible; so is anything outside tmux.
+that `cd`s out of its folder in a session named otherwise is still invisible; so is anything outside tmux, or on another tmux server (`-L`).
 
 ## Not in this branch (on the card)
 - settingsLeftovers and namedRecords still decide "running" by session name, so /api/removed can still LIST

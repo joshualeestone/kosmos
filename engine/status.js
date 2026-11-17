@@ -8177,9 +8177,9 @@ function paneLook() {
    "is anything running inside this agent's folder", which needs neither the session name nor a claim: an agent a
    person's own tooling relaunched carries neither, and was offered for deletion while running. A second listing (the
    folder is not one of PANE_COLUMNS). THROWS when it could not be read, or when any line of it is unreadable, so a
-   delete check fails closed; [] when no tmux server is running. With a pane source set it never asks tmux: in a test
-   it reads the injected folder source ([] when none), and on Windows, whose roster is not tmux, it answers [], so
-   this check does nothing there. */
+   delete check fails closed; [] when no tmux server is running. An injected folder source (tests) always wins;
+   otherwise, with a pane source set it never asks tmux and answers [] (on Windows, whose roster is not tmux, so this
+   check does nothing there). It asks the default tmux server only, as the roster does. */
 let paneFolderSource = null;
 function setPaneFolderSource(fn) { paneFolderSource = typeof fn === 'function' ? fn : null; }
 /* Each line is `%<pane id>\t<session>\t<folder>`. A line that does not start with a pane id is a fragment (a folder

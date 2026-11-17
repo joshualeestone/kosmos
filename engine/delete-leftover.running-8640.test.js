@@ -148,7 +148,8 @@ test('a folder listing with a line it cannot read refuses the plan (a fragment o
   status.setPaneFolderSource(() => `%1\tw\t/somewhere/else\n${dir}/tail-of-a-split-path\n`);
   const p = mac.plan('agent5');
   assert.equal(p.ok, false, 'an unreadable pane line was dropped and the plan offered the agent');
-  assert.match(p.because, /could not check whether .* is running/);
+  assert.match(p.because, /Something open on this computer could not be read/);
+  assert.doesNotMatch(p.because, /Try again in a moment/);
 });
 
 test('the folder match is case-blind on a Mac, and matches the folder\'s real path (on a Mac /var is /private/var)', () => {
