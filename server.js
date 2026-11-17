@@ -6046,9 +6046,8 @@ function withPreviews(rows, opts) {
     if (hit === null) { unfurl.warm(link, { bare: found.bare }); continue; }
     if (!hit.ok) continue;
     /* kosmos#8636: the picture only once it is known to load. Not yet known: the card waits for a later poll (warm
-       fetches the picture with the page), so it does not first appear as an empty box that fills in or breaks. The
-       wait ends with the picture fetch's own timeout (unfurl TIMEOUT_MS), after which a slow picture is a failure and
-       the card comes with its words. One that could not be fetched: the card has no picture, its words kept. */
+       fetches the picture with the page), so it does not first appear as an empty box that fills in or breaks. Once the
+       picture fetch settles, a picture that failed or timed out gives the card with its words and no picture. */
     let image = '';
     if (hit.image) {
       const state = unfurl.imageState(hit.image);
@@ -22402,7 +22401,6 @@ const server = http.createServer(async (req, res) => {
       const state = got.image ? unfurl.imageState(got.image) : 'good';
       if (state === 'bad') got = { ...got, image: '' };
       else if (state === null) {
-        // The fetch already running for this picture (warm, a poll) if there is one, else a new one; never two.
         const pic = await (unfurl.warmImage(got.image) || unfurl.image(got.image)).catch(() => null);
         if (!pic || !pic.ok) got = { ...got, image: '' };
       }
@@ -22421,7 +22419,9 @@ const server = http.createServer(async (req, res) => {
     let target = '';
     try { target = new URL(req.url, ROUTING_BASE).searchParams.get('url') || ''; } catch { target = ''; }
     if (!target) { sendJson(res, 400, { error: 'say which image' }); return; }
-    unfurl.image(target).then((got) => {
+    // kosmos#8636: shares a fetch of this picture already running (a poll's warm-up), else its cached answer, else a new fetch.
+    Promise.resolve(unfurl.warmImage(target) || unfurl.image(target)).then((got) => {
+      if (!got) got = { ok: false, because: 'we could not read that image' };
       if (!got.ok) { sendJson(res, 404, { error: got.because }); return; }
       /* Raster only (the engine refuses SVG), and sandboxed anyway: this is
          a third party's bytes on the board's own origin, so nothing in them

@@ -160,3 +160,48 @@ test('a verdict in use is kept when the cap drops verdicts; the ones nobody read
   assert.equal(unfurl.imageState('https://other8636.com/0.png'), null, 'CONTROL: an unread verdict was not dropped first');
 });
 
+
+test('a picture host whose name does not resolve for a moment is a passing failure: a good verdict stays, a first one retries in a minute', async () => {
+  unfurl.warm('https://site8636.com/');
+  await settle();
+  assert.equal(unfurl.imageState(IMG), 'good');
+  unfurl.setResolver(async () => { throw new Error('ENOTFOUND'); });
+  shift += 11 * 60 * 1000;
+  unfurl.imageState(IMG);
+  await settle();
+  assert.equal(unfurl.imageState(IMG), 'good', 'a DNS blip took a loaded picture away');
+  unfurl.resetForTests();
+  unfurl.setResolver(async () => { throw new Error('ENOTFOUND'); });
+  await unfurl.image(IMG);
+  assert.equal(unfurl.imageState(IMG), 'bad');
+  let asked = 0;
+  unfurl.setResolver(async () => { asked++; return [{ address: '93.184.216.34', family: 4 }]; });
+  unfurl.setFetcher(async () => answer(200, 'image/png', PNG));
+  shift += 70 * 1000;
+  unfurl.imageState(IMG);
+  await settle();
+  assert.ok(asked >= 1, 'not tried again after a minute');
+  assert.equal(unfurl.imageState(IMG), 'good');
+});
+
+test('warm releases the page\'s in-flight entry without waiting for its picture', async () => {
+  let release;
+  imageAnswer = () => new Promise((r) => { release = () => r(answer(200, 'image/png', PNG)); });
+  unfurl.warm('https://site8636.com/');
+  await settle();
+  assert.equal(calls.filter((u) => u === IMG).length, 1, 'CONTROL: the picture is being fetched');
+  // The page's preview is cached, so a second warm must start nothing; what matters is that it is not refused for being in flight.
+  const before = calls.length;
+  unfurl.resetForTests();
+  unfurl.setResolver(async () => [{ address: '93.184.216.34', family: 4 }]);
+  unfurl.setFetcher(async (url) => { calls.push(String(url)); return url === IMG ? new Promise(() => {}) : answer(200, 'text/html', Buffer.from('<head><meta property="og:title" content="T"><meta property="og:image" content="/og.png"></head>')); });
+  unfurl.warm('https://site8636.com/');
+  await settle();
+  unfurl.resetForTests();   // the page cache is gone; only the in-flight entry could still stop a new warm
+  unfurl.setResolver(async () => [{ address: '93.184.216.34', family: 4 }]);
+  unfurl.setFetcher(async (url) => { calls.push(String(url)); return answer(200, 'text/html', Buffer.from('<title>x</title>')); });
+  unfurl.warm('https://site8636.com/');
+  await settle();
+  assert.ok(calls.slice(before).filter((u) => u === 'https://site8636.com/').length >= 2, 'the page stayed in flight while its picture hung');
+  release();
+});

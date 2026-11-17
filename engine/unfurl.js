@@ -307,7 +307,9 @@ async function image(raw) {
   const hit = cached(key);
   if (hit) { if (!knownImages.has(String(raw))) known(raw, hit.ok, !hit.ok && unreached(hit.because)); return hit; }   // kosmos#8636: a verdict for what is cached
   const got = await guardedFetch(raw, 'image/*');
-  if (!got.ok) { known(raw, false, unreached(got.because)); return remember(key, got); }
+  // A name that did not resolve may be a moment's DNS trouble: passing, for a picture's verdict only (unreached() also
+  // decides a bare address's http fallback, where it must not count).
+  if (!got.ok) { known(raw, false, unreached(got.because) || got.because === 'that site could not be found'); return remember(key, got); }
   try {
     const type = (got.res.headers.get('content-type') || '').toLowerCase().split(';')[0].trim();
     /* 🛑 NO SVG. An SVG carries script, and this proxy serves it on the
@@ -539,7 +541,8 @@ function warm(raw, opts) {
   /* kosmos#8636: the preview's picture is fetched in the same warm-up, so the card is ready with or without it by
      the time a poll can carry it, instead of its picture being asked for only once the page draws an empty box. */
   (bare ? previewBare(String(raw)) : preview(String(raw)))
-    .then((got) => (got && got.ok && got.image && imageState(got.image) === null ? warmImage(got.image) : null))
+    // The picture's fetch is started, not awaited: it has its own in-flight entry, and the page's is released now.
+    .then((got) => { if (got && got.ok && got.image && imageState(got.image) === null) warmImage(got.image); })
     .catch(() => {}).finally(() => inflight.delete(key));
 }
 /** kosmos#8636: start fetching a preview's picture if nothing is cached, under its own in-flight entry so a poll or a

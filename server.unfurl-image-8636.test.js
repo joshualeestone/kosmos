@@ -115,3 +115,22 @@ test('the direct preview route leaves out a picture that cannot be fetched, and 
   const good = await ask('https://good8636.com/');
   assert.match(good.image, /^\/api\/unfurl\/image\?url=/, 'CONTROL: a picture that loads is kept');
 });
+
+test('the picture route shares a fetch of that picture already running, instead of fetching the site again', async () => {
+  let release;
+  let pics = 0;
+  unfurl.setFetcher(async (url) => {
+    calls.push(String(url));
+    if (url === 'https://slow8636.com/og.png') { pics++; return new Promise((r) => { release = () => r(answer(200, 'image/png', PNG)); }); }
+    throw new Error('no such page in the fixture: ' + url);
+  });
+  const running = unfurl.warmImage('https://slow8636.com/og.png');
+  assert.ok(running, 'CONTROL: a fetch is running');
+  const asked = fetch(base() + '/api/unfurl/image?url=' + encodeURIComponent('https://slow8636.com/og.png'));
+  await new Promise((r) => setTimeout(r, 50));
+  release();
+  const res = await asked;
+  assert.equal(res.status, 200);
+  assert.equal((await res.arrayBuffer()).byteLength, PNG.length);
+  assert.equal(pics, 1, 'the route fetched the picture a second time');
+});
