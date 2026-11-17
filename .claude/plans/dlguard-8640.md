@@ -15,13 +15,15 @@
   not one of PANE_COLUMNS. Throws when it cannot be read or every line is unreadable (fails closed);
   [] with no tmux server. With a pane source set it never asks tmux: tests inject setPaneFolderSource,
   and on WINDOWS (roster not tmux) it answers [] so the folder check does nothing there (follow-up).
-- delete-leftover plan(): running if the session names the agent, OR a claim does (the part before `+`,
-  for a named world), OR a pane works in the agent's folder or in a folder its profile records elsewhere
-  (resolved once, as written and as a real path; pane folders compared as tmux gives them, so nothing
-  per pane touches the disk on the board thread; case-blind on Mac/Windows; a folder boundary, not a
-  prefix). Each listing line carries its pane id, and any line without one refuses the plan (a folder
-  name holding a newline). The folder refusal says "something is working in X's folder"; neither
-  refusal names tmux.
+- delete-leftover plan(): running if the session names the agent, OR a pane's claim is this world's launch key
+  for it (launchidentity.launchKey; another world's `name+world` does not match), OR a pane works in the
+  agent's folder (workerDir: the usable recorded folder, else workers/<name>; resolved once, as written and
+  as a real path; pane folders compared as tmux gives them, so nothing per pane touches the disk on the
+  board thread; case-blind on Mac/Windows; a folder boundary, not a prefix). A folder outside where Kosmos
+  keeps agents is refused earlier in plan(), so it never reaches this check. Each listing line carries its
+  pane id; a line without one refuses the plan (a folder name holding a newline); a pane with an EMPTY
+  folder (dead, or a root process) holds nothing. The folder refusal names the session, never tmux.
+- test-support/fake-tmux.sh answers the folder read from AGENT_WORKFORCE_FAKE_PANE_FOLDERS.
 - Cost: a plan whose session and claim do not match makes a second tmux call (one list-panes).
 - Rejected: adding `claim` or the folder to roster rows/PANE_COLUMNS (pinned shape, hand-built fixtures).
 

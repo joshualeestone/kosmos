@@ -108,7 +108,7 @@ test('a pane whose session and claim match nothing, but which works in the agent
   status.setPaneFolderSource(() => `%1\torchestrator\t${dir}\n`);
   const p = mac.plan('agent1');
   assert.equal(p.ok, false, 'a live pane in agent1\'s own folder was offered for deletion');
-  assert.match(p.because, /working in agent1's folder/);
+  assert.match(p.because, /working in agent1's folder right now \(in a session called orchestrator\)/);
   assert.doesNotMatch(p.because, /tmux/i);
   const done = mac.del('agent1');
   assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'the delete went ahead over a running agent');
@@ -118,7 +118,9 @@ test('a pane whose session and claim match nothing, but which works in the agent
 test('a pane working in a subfolder of the agent\'s folder holds it too; a sibling sharing the prefix does not', () => {
   const dir = leftoverAgent('agent2');
   status.setPaneFolderSource(() => `%2\tw\t${nodePath.join(dir, 'notes')}\n`);
-  assert.equal(mac.plan('agent2').ok, false, 'a pane in agent2/notes did not hold agent2');
+  const p2 = mac.plan('agent2');
+  assert.equal(p2.ok, false, 'a pane in agent2/notes did not hold agent2');
+  assert.match(p2.because, /working in agent2's folder/);
   leftoverAgent('agent3');
   const sibling = leftoverAgent('agent30');
   status.setPaneFolderSource(() => `%3\tw\t${sibling}\n`);
@@ -133,9 +135,11 @@ test('the folder check fails closed: a tmux that cannot be asked refuses the pla
   assert.match(p.because, /could not check whether .* is running/);
 });
 
-test('a named world\'s claim (name+world) holds the agent too', () => {
+test('the claim must be THIS world\'s key: in the default world a name+world claim is another world\'s agent', () => {
   leftoverAgent('greed');
   status.setPaneSource(() => fleet.line({ session: 'renamed', claim: 'greed+work', title: '✳ Claude Code' }));
+  assert.equal(mac.plan('greed').ok, true, 'another world\'s claim held this world\'s greed');
+  status.setPaneSource(() => fleet.line({ session: 'renamed', claim: 'greed', title: '✳ Claude Code' }));
   assert.equal(mac.plan('greed').ok, false);
 });
 
@@ -147,22 +151,20 @@ test('a folder listing with a line it cannot read refuses the plan (a fragment o
   assert.match(p.because, /could not check whether .* is running/);
 });
 
-test('the folder match is case-blind on a Mac, and sees through a symlinked workers folder', () => {
+test('the folder match is case-blind on a Mac, and matches the folder\'s real path (on a Mac /var is /private/var)', () => {
   const dir = leftoverAgent('agent6');
   status.setPaneFolderSource(() => `%1\tw\t${dir.replace(/agent6$/, 'AGENT6')}\n`);
-  assert.equal(mac.plan('agent6').ok, false, 'AGENT6 did not hold agent6 on a case-blind disk');
-  const link = nodePath.join(SANDBOX, 'workers-link');
-  try { fs.symlinkSync(process.env.AGENT_WORKFORCE_WORKERS, link); } catch { /* already there */ }
+  const p6 = mac.plan('agent6');
+  assert.equal(p6.ok, false, 'AGENT6 did not hold agent6 on a case-blind disk');
+  assert.match(p6.because, /working in agent6's folder/);
   const real = fs.realpathSync(dir);
   status.setPaneFolderSource(() => `%1\tw\t${real}\n`);
   assert.equal(mac.plan('agent6').ok, false, 'the real path of agent6 did not hold it');
 });
 
-test('a folder the profile records outside the workers folder holds the agent too', () => {
-  leftoverAgent('agent7');
-  const elsewhere = nodePath.join(SANDBOX, 'projects', 'agent7-home');
-  fs.mkdirSync(elsewhere, { recursive: true });
-  require('./store').writeProfile('agent7', { displayName: 'Agent 7', dir: elsewhere });
-  status.setPaneFolderSource(() => `%1\tw\t${elsewhere}\n`);
-  assert.equal(mac.plan('agent7').ok, false, 'a pane in agent7\'s recorded folder did not hold it');
+test('a pane with no folder (a dead pane, or a root process tmux may not look into) holds nothing and refuses nothing', () => {
+  leftoverAgent('agent8');
+  status.setPaneFolderSource(() => '%1\tother\t/elsewhere\n%2\tdead\t\n');
+  assert.equal(mac.plan('agent8').ok, true, 'an empty-folder pane made every delete refuse');
 });
+
