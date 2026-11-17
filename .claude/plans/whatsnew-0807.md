@@ -45,5 +45,5 @@ A person-facing change I missed in the merge list, or a reviewer showing a line 
 - NIT left: the hand retirement rests on latest-win.json reading 0.8.06 (re-read this evening: 0.8.06, 32f15fd1).
 ### Review 2 (sonnet): 2 WARNINGs fixed, 2 NITs (1 fixed, 1 left)
 - WARNINGs fixed: the repeat line says the agent is told once idle (and no longer promises a daily task never stops); the community line names the linked-agent condition.
-- NIT fixed: the Windows startup-job title says what it changes ("Removing a startup job says what happens to its folder").
+- NIT fixed: the Windows startup-job title says what it changes ("A removed startup job explains its folder").
 - NIT left: the typed-line line does not say the retries are bounded (rank 11.9, out of the window).

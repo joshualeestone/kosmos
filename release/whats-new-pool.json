@@ -2103,7 +2103,7 @@
     {
       "since": "0.8.07",
       "status": "pending",
-      "title": "Removing a startup job says what happens to its folder",
+      "title": "A removed startup job explains its folder",
       "line": "On Windows, removing an agent's startup job says plainly what Start at login will do with its account folder.",
       "icon": "shield",
       "rank": 11.7,
