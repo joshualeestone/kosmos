@@ -561,12 +561,15 @@ const IMAGE_AT_ONCE = 4;
 let imagesRunning = 0;
 const imagesWaiting = [];
 function imageTurn() { return imagesRunning < IMAGE_AT_ONCE ? (imagesRunning++, Promise.resolve()) : new Promise((r) => imagesWaiting.push(r)); }
-function imageDone() { const next = imagesWaiting.shift(); if (next) next(); else imagesRunning--; }
-function warmImage(raw) {
+function imageDone() { const next = imagesWaiting.shift(); if (next) next(); else imagesRunning = Math.max(0, imagesRunning - 1); }
+/* `opts.now` (the picture route, a browser waiting on an <img>): shares a fetch already running but never queues
+   behind the background warm-ups. */
+function warmImage(raw, opts) {
   const key = String(raw);
   if (imageFlights.has(key)) return imageFlights.get(key);
   if (cached('i:' + key)) return null;
-  const p = imageTurn().then(() => image(key).finally(imageDone)).catch(() => undefined).finally(() => imageFlights.delete(key));
+  const run = opts && opts.now === true ? image(key) : imageTurn().then(() => image(key).finally(imageDone));
+  const p = run.catch(() => undefined).finally(() => imageFlights.delete(key));
   imageFlights.set(key, p);
   return p;
 }

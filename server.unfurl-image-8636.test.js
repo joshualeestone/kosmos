@@ -154,3 +154,24 @@ test('a new card waits for its picture, but one older than the wait keeps its wo
     assert.equal(later.preview.image, '', 'a picture not known to load was put on the card');
   } finally { Date.now = realNow; }
 });
+
+test('the picture route does not queue behind background warm-ups that fill every slot', async () => {
+  const hung = [];
+  unfurl.setFetcher(async (url) => {
+    calls.push(String(url));
+    if (/\/bg\d\.png$/.test(url)) return new Promise((r) => hung.push(r));
+    if (url === 'https://wanted8636.com/og.png') return answer(200, 'image/png', PNG);
+    throw new Error('no such page in the fixture: ' + url);
+  });
+  for (let i = 0; i < 4; i++) unfurl.warmImage('https://busy8636.com/bg' + i + '.png');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(hung.length, 4, 'CONTROL: four background fetches hold every slot');
+  const res = await Promise.race([
+    fetch(base() + '/api/unfurl/image?url=' + encodeURIComponent('https://wanted8636.com/og.png')),
+    new Promise((r) => setTimeout(() => r(null), 2000)),
+  ]);
+  assert.ok(res, 'the picture route waited behind the background fetches');
+  assert.equal(res.status, 200);
+  await res.arrayBuffer();
+  hung.forEach((r) => r(answer(200, 'image/png', PNG)));
+});

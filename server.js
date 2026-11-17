@@ -6057,7 +6057,7 @@ function withPreviews(rows, opts) {
         // A card first seen moments ago waits for its picture; an older one (a board just started, a verdict dropped)
         // keeps its words meanwhile, so a card already on screen does not vanish for a poll.
         const age = Date.now() - Date.parse(hit.fetchedAt || '');
-        if (!(age > PREVIEW_PICTURE_WAIT_MS)) continue;
+        if (Number.isFinite(age) && age <= PREVIEW_PICTURE_WAIT_MS) continue;   // no readable time: past the wait
       }
       if (state === 'good') image = '/api/unfurl/image?url=' + encodeURIComponent(hit.image);
     }
@@ -22427,7 +22427,7 @@ const server = http.createServer(async (req, res) => {
     try { target = new URL(req.url, ROUTING_BASE).searchParams.get('url') || ''; } catch { target = ''; }
     if (!target) { sendJson(res, 400, { error: 'say which image' }); return; }
     // kosmos#8636: shares a fetch of this picture already running (a poll's warm-up), else its cached answer, else a new fetch.
-    Promise.resolve(unfurl.warmImage(target) || unfurl.image(target)).then((got) => {
+    Promise.resolve(unfurl.warmImage(target, { now: true }) || unfurl.image(target)).then((got) => {
       if (!got) got = { ok: false, because: 'we could not read that image' };
       if (!got.ok) { sendJson(res, 404, { error: got.because }); return; }
       /* Raster only (the engine refuses SVG), and sandboxed anyway: this is
