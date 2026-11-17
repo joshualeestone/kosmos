@@ -76,3 +76,12 @@ test('the page declares LPV_FAILED before the card renderer, and keeps the newes
   assert.equal(LPV_FAILED.has('/api/unfurl/image?url=0'), false, 'the oldest failure was kept over the newest');
   assert.equal(LPV_FAILED.has('/api/unfurl/image?url=500'), true, 'the newest failure was not kept');
 });
+
+test('a card with no words whose picture failed here is not drawn at all; with words it keeps them', () => {
+  LPV_FAILED.clear();
+  const pic = '/api/unfurl/image?url=only';
+  assert.match(pjPreviewCard({ url: 'https://pic.example/', image: pic }), /<img/, 'CONTROL: a picture-only card is drawn while its picture loads');
+  LPV_FAILED.add(pic);
+  assert.equal(pjPreviewCard({ url: 'https://pic.example/', image: pic }), '', 'a card with nothing left to show was drawn');
+  assert.match(pjPreviewCard({ url: 'https://pic.example/', title: 'Words', image: pic }), /Words/);
+});

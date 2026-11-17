@@ -305,11 +305,9 @@ async function preview(raw) {
 async function image(raw) {
   const key = 'i:' + String(raw);
   const hit = cached(key);
-  if (hit) { if (!knownImages.has(String(raw))) known(raw, hit.ok, !hit.ok && unreached(hit.because)); return hit; }   // kosmos#8636: a verdict for what is cached
+  if (hit) { if (!knownImages.has(String(raw))) known(raw, hit.ok, !hit.ok && passingForPicture(hit.because)); return hit; }   // kosmos#8636: a verdict for what is cached
   const got = await guardedFetch(raw, 'image/*');
-  // A name that did not resolve may be a moment's DNS trouble: passing, for a picture's verdict only (unreached() also
-  // decides a bare address's http fallback, where it must not count).
-  if (!got.ok) { known(raw, false, unreached(got.because) || got.because === 'that site could not be found'); return remember(key, got); }
+  if (!got.ok) { known(raw, false, passingForPicture(got.because)); return remember(key, got); }
   try {
     const type = (got.res.headers.get('content-type') || '').toLowerCase().split(';')[0].trim();
     /* 🛑 NO SVG. An SVG carries script, and this proxy serves it on the
@@ -492,6 +490,10 @@ function peekBare(httpsUrl) {
    decides while a newer one is fetched. At most KNOWN_MAX addresses, oldest dropped first. A verdict that ages out or
    is dropped is fetched again, and the card waits for it as it did the first time. `passing` (the site not reached,
    too slow, a 5xx, a read that broke off) never turns a picture that loaded into one that did not. */
+/* kosmos#8636: the one test of whether a picture's failed fetch may be a passing one: unreached() (not reached, too
+   slow, a 5xx), or a name that did not resolve, which may be a moment's DNS trouble. Only for a picture's verdict:
+   unreached() also decides a bare address's http fallback, where a name that does not resolve must not count. */
+function passingForPicture(because) { return unreached(because) || because === 'that site could not be found'; }
 const KNOWN_MS = 24 * 60 * 60 * 1000;
 const KNOWN_MAX = 1000;
 const knownImages = new Map();
@@ -512,7 +514,7 @@ function imageState(raw) {
     // Bytes (or a refusal) still cached for an address whose verdict was dropped: that answer is the verdict.
     const c = cached('i:' + String(raw));
     if (!c) return null;
-    known(raw, !!c.ok, !c.ok && unreached(c.because));
+    known(raw, !!c.ok, !c.ok && passingForPicture(c.because));
     k = knownImages.get(String(raw));
   } else {
     // A verdict read is a verdict in use (a card on screen): moved to the newest end, so the KNOWN_MAX cap drops the

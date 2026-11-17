@@ -78033,9 +78033,9 @@ function pjPreviewCard(preview) {
   if (!p || typeof p.url !== 'string' || !/^https?:\/\//.test(p.url)) return '';
   const title = typeof p.title === 'string' && p.title.trim() ? p.title.trim() : null;
   const desc = typeof p.description === 'string' && p.description.trim() ? p.description.trim() : null;
-  if (!title && !desc && !p.image) return '';
   // kosmos#8636. The typeof is for tests that lift this function without LPV_FAILED; in the page it is declared above.
   const image = typeof p.image === 'string' && /^\/api\//.test(p.image) && !(typeof LPV_FAILED !== 'undefined' && LPV_FAILED.has(p.image)) ? p.image : null;
+  if (!title && !desc && !image) return '';   // a picture that failed here is no reason to draw a card
   let site = typeof p.site === 'string' && p.site.trim() ? p.site.trim() : '';
   if (!site) { try { site = new URL(p.url).host; } catch { site = ''; } }
   /* #761 (Josh, 2026-08-24 21:56: "a much, much larger OG image... below the
