@@ -593,7 +593,17 @@ final class RoomStore: ObservableObject {
         let epoch = client.chatEpoch
         let answer = await client.throughMac { Board.roomBlockRequest(mac: $0, project: project, message: row.id) }
         guard same(epoch) else { return }
-        notes[project] = Board.blockRefusal(status: answer?.1.statusCode, answer?.0) ?? Board.blockedNote(name)
+        let refused = Board.blockRefusal(status: answer?.1.statusCode, answer?.0)
+        notes[project] = refused ?? Board.blockedNote(name)
+        if refused == nil {
+            // Out of every room this phone holds, the live rows and an open archive, and kept out of later reads (a merge
+            // only ever adds rows): the same set Delete uses.
+            for (room, ids) in Board.blockHidden(answer?.0) {
+                deletedPosts[room, default: []].formUnion(ids)
+                if let shown = rows[room] { rows[room] = Board.withoutDeleted(shown, ids) }
+                if var a = archive[room] { a.rows = Board.withoutDeleted(a.rows, ids); archive[room] = a }
+            }
+        }
         await loadRoom(project)
     }
 

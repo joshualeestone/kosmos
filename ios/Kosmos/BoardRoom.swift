@@ -468,8 +468,17 @@ extension Board {
 
     // kosmos#7614 review 3: rows shown without the posts this phone deleted. A read already in the air when a delete
     // landed still carries the post, and a merge only ever adds rows, so without this it would come back and stay.
+    // #8625: also outside messages a block hid (their x- ids never collide with a post's m ids).
     static func withoutDeleted(_ rows: [RoomRow], _ deleted: Set<String>) -> [RoomRow] {
-        deleted.isEmpty ? rows : rows.filter { !($0.kind == .post && deleted.contains($0.id)) }
+        deleted.isEmpty ? rows : rows.filter { !(($0.kind == .post || $0.kind == .external) && deleted.contains($0.id)) }
+    }
+    // #8625: the block route's answer: the outside message ids it now hides, per room. Empty for an answer it cannot read.
+    static func blockHidden(_ data: Data?) -> [String: Set<String>] {
+        guard let obj = data.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
+              let hidden = obj["hidden"] as? [String: Any] else { return [:] }
+        var out: [String: Set<String>] = [:]
+        for (project, ids) in hidden { if let ids = ids as? [String] { out[project] = Set(ids) } }
+        return out
     }
 
     // kosmos#7614: POST /api/project/<id>/room/<post id>/delete, an empty body: the person's own post, gone for everyone.

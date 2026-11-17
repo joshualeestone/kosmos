@@ -2095,6 +2095,17 @@ do {
     if let tricky, let raw = Board.reportMail(row: tricky, project: "p-shared", projectName: "Catalogue")?.absoluteString {
         check(raw.contains("a%2Bb%20%26%20c%23d%0Aline%20two") && !raw.contains("+"), "the raw mail link encodes +, &, # and the line break, so the words reach support unchanged")
     } else { check(false, "premise: the tricky message makes a mail link") }
+    // A block hides rows the phone already shows: a later read without them merges onto them (a merge only adds), so the
+    // ids the block route gave keep them out.
+    let shown = Board.parseRoom(Data(#"{"ok":true,"rows":[{"kind":"external","id":"x-aaaaaaaa-0001","from":"Ana","fromKind":"person","text":"rude","at":"2026-11-17T08:00:00.000Z"},{"kind":"external","id":"x-bbbbbbbb-0001","from":"Bea","fromKind":"person","text":"fine","at":"2026-11-17T08:01:00.000Z"}]}"#.utf8))?.rows ?? []
+    let later = Board.parseRoom(Data(#"{"ok":true,"rows":[{"kind":"external","id":"x-bbbbbbbb-0001","from":"Bea","fromKind":"person","text":"fine","at":"2026-11-17T08:01:00.000Z"}]}"#.utf8))?.rows ?? []
+    let merged = Board.mergeRoom(later, with: shown)
+    check(merged.contains { $0.id == "x-aaaaaaaa-0001" }, "premise: a merge alone keeps the blocked row the phone already showed")
+    let hidden = Board.blockHidden(Data(#"{"blocked":true,"name":"Ana","hidden":{"p-shared":["x-aaaaaaaa-0001"]}}"#.utf8))
+    check(hidden == ["p-shared": ["x-aaaaaaaa-0001"]], "the block route's hidden ids are read per room")
+    let after = Board.withoutDeleted(merged, hidden["p-shared"] ?? [])
+    check(!after.contains { $0.id == "x-aaaaaaaa-0001" } && after.contains { $0.id == "x-bbbbbbbb-0001" }, "the blocked row is gone after the merge; someone else's stays")
+    check(Board.blockHidden(Data("not json".utf8)).isEmpty, "an answer it cannot read hides nothing on its own")
     check(Board.senderAccount(status: 200, Data(#"{"account":"acctA"}"#.utf8)) == "acctA", "the account is read")
     check(Board.senderAccount(status: 200, Data(#"{"account":"../x"}"#.utf8)) == nil && Board.senderAccount(status: 409, Data(#"{"account":"acctA"}"#.utf8)) == nil,
           "a malformed account or a refusal is no account")

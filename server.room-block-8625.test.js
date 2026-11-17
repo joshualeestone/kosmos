@@ -115,7 +115,10 @@ test('#8625: an unknown message is 404; an agent token is refused (403)', async 
 test('#8625: blocking one message hides that person on every computer, and only them', async () => {
   const res = await post(`/api/project/${encodeURIComponent(pid)}/room/x-a1/block`);
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { blocked: true, name: 'Ana' });
+  const said = await res.json();
+  assert.equal(said.blocked, true);
+  assert.equal(said.name, 'Ana');
+  assert.deepEqual(said.hidden, { [pid]: ['x-a1', 'x-a2'] }, 'the ids the phone must remove, both computers, and only Ana\'s');
   assert.deepEqual(await outsideIds(), ['x-b1', 'x-me', 'x-me-old', 'x-old'], 'Ana from both computers is gone; Bea, the person\'s own and the unstamped row stay');
   const unread = messages.unreadAll();
   assert.equal(unread && unread[pid], 4, 'the unread count leaves the blocked person\'s two rows out (6 outside rows, 2 hidden)');
