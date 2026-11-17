@@ -115,4 +115,8 @@ test('both pages carry the control with the four words, newest first chosen, and
   // Both painters sort what they show with the page's own choice.
   assert.match(SCRIPT, /const files = filesSorted\(body\.files, AGENT_FILES_SORT\);/);
   assert.match(SCRIPT, /PJ_DOCS_FILES = filesSorted\(files, DOCS_SORT\);/);
+  // A change of order re-sorts the answer on screen without a read, and passes no status line, so nothing is re-announced.
+  assert.match(SCRIPT, /agentFilesAllRows\(list, null, document\.getElementById\('d-filesall-more'\), shown\.dir, shown\.body\);/);
+  // Opening another agent forgets the kept answer, beside the stamp it clears, so A then B then A cannot re-sort A's old list.
+  assert.match(SCRIPT, /AGENT_FILES_ALL_FAIL = null;\n    AGENT_FILES_ALL_SHOWN = null;/);
 });

@@ -45970,7 +45970,7 @@ function refocusRow(box, key) {
 /* kosmos#8627 (Josh, 11-17: "I can't find it because I can't sort by the date"): the Files pages' four orders. Newest
    first unless this browser chose another, remembered per page (an agent's Files, a project's Files) in localStorage,
    which may be missing or refuse (a private window), so every read and write is guarded and the default stands.
-   A to Z is the server's own order (engine/projects.js byName), so choosing it shows exactly the old list.
+   A to Z compares as engine/projects.js byName does.
    Rows by `modified` (the date each row shows); a row without a readable date goes last in both date orders,
    and equal dates fall back to A to Z, so an order never depends on how the server listed them. Pure. */
 const FILES_SORTS = ['newest', 'oldest', 'az', 'za'];
@@ -46241,13 +46241,14 @@ function agentFilesGo(dir) {
   paintAgentFilesAll(CURRENT.sessionName);
 }
 /* kosmos#8627: the Files screen's rows for one browse answer, folders first and each group in the chosen order, with the
-   empty sentence and the overflow line. Called by paintAgentFilesAll and by a change of order. */
+   overflow line, and (given `msg`) the empty sentence. A change of order passes no `msg`, so the status line is not
+   rewritten. */
 function agentFilesAllRows(list, msg, more, dir, body) {
   list.textContent = '';
   if (more) more.hidden = true;
   const dirs = filesSorted(body.dirs, AGENT_FILES_SORT);
   const files = filesSorted(body.files, AGENT_FILES_SORT);
-  msg.textContent = dirs.length || files.length ? '' : (dir ? 'This folder is empty.' : 'This agent has no files yet.');
+  if (msg) msg.textContent = dirs.length || files.length ? '' : (dir ? 'This folder is empty.' : 'This agent has no files yet.');
   for (const d of dirs) list.append(agentDirRow(d));
   const downloads = kplusRemote() || onLinux();   // kosmos#7952: where a file is saved to this device rather than opened
   for (const f of files) {
@@ -46334,10 +46335,7 @@ async function paintAgentFilesAll(sessionName) {
     const shown = AGENT_FILES_ALL_SHOWN;
     const list = document.getElementById('d-filesall-list');
     if (shown && list && shown.who === CURRENT.sessionName && shown.dir === AGENT_FILES_DIR) {
-      // The rows on screen, in the new order: no read, so a failing one cannot take away the list being read.
-      const hadFocus = focusedRowKey(list);
-      agentFilesAllRows(list, document.getElementById('d-filesall-msg'), document.getElementById('d-filesall-more'), shown.dir, shown.body);
-      refocusRow(list, hadFocus);
+      agentFilesAllRows(list, null, document.getElementById('d-filesall-more'), shown.dir, shown.body);
       return;
     }
     AGENT_FILES_ALL_STAMP = null;   // nothing on screen to re-sort: read it in the new order
@@ -46731,6 +46729,7 @@ function openDetail(sessionName, section, fromProject) {
     AGENT_FILES_DIR = '';
     AGENT_FILES_ALL_STAMP = null;
     AGENT_FILES_ALL_FAIL = null;
+    AGENT_FILES_ALL_SHOWN = null;   // kosmos#8627: the list it held was cleared just above
     AGENT_FILES_FOCUS = false;
     { const el = document.getElementById('d-filesall-path'); if (el) { el.textContent = ''; el.hidden = true; } }
   }
