@@ -18,6 +18,8 @@ Done when: a 400-character evidence line is accepted and shows whole on the task
   back-link on the target (two copies of one fact, and a reopen/renumber would leave one stale).
 - **Only on an unmet check.** A met check went nowhere. Refused onto its own task and onto a task that does not
   exist (409, read inside the write). A stored movedTo on a met result is ignored on read.
+- A closed target is allowed: a closed task can be reopened, and refusing it would make an agent reopen a task
+  just to record where work went. The link reads as where the part went, not as a claim it is still open.
 - Reporting the same words without --moved-to is a change (the link goes), so an agent can take a link back.
 - Surfaces: engine (tasks.js), the route (server.js passes body.movedTo), the page (link on the check, a
   "Moved here from other tasks" list on the target; the row also shows for a target with no checks of its own),

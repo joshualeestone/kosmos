@@ -18285,7 +18285,7 @@ window.kosmosMeasureScrollbarWidth();
         <div class="tmeta"><span>State</span><b id="tk-state"></b></div>
         <!-- kosmos#8137: on a task with several agents, who has finished and who has not. Hidden otherwise. -->
         <div class="tmeta" id="tk-wholeft-row" hidden><span>Who</span><b id="tk-wholeft"></b></div>
-        <!-- #8464 item 2: what finished means for this task, and what its agents say about each check. Hidden when it has none. -->
+        <!-- #8464 item 2: what finished means for this task, and what its agents say about each check. Hidden when it has none, unless another task's check moved here (#8668): then it lists those under "Moved here from other tasks". -->
         <div class="tmeta" id="tk-donewhen-row" hidden><span id="tk-donewhen-label">Done when</span><b><ol id="tk-donewhen" class="tk-donewhen"></ol><span id="tk-movedhere-head" class="tk-movedhere-head" hidden>Moved here from other tasks</span><ul id="tk-movedhere" class="tk-donewhen" hidden></ul></b></div>
         <!-- #3861 part 2: the task this one is part of, a way up. Hidden when it stands alone. -->
         <div class="tmeta" id="tk-partof-row" hidden><span>Part of</span><b><button class="linkish" type="button" id="tk-partof"></button></b></div>
@@ -73768,7 +73768,7 @@ function paintTaskPage() {
         if (here) {
           here.replaceChildren(...movedHere.map((m) => {
             const li = document.createElement('li');
-            li.append(document.createTextNode('Check ' + m.check + ' of '), link(m.from), document.createTextNode(', not met there: ' + m.words));
+            li.append(document.createTextNode('Check ' + m.check + ' of '), link(m.from), document.createTextNode(', reported not met there: ' + m.words));
             return li;
           }));
           here.hidden = !movedHere.length;

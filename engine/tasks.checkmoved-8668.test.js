@@ -54,8 +54,8 @@ test('the cap is the built note\'s, counted in characters, so a 400-character li
   assert.equal(code, 400); assert.match(msg, /1000 characters or fewer/);
   assert.doesNotMatch(msg, /"/, 'no double quote: install/kosmos lifts the refusal with a sed that stops at one');
   // Still one line of plain text, whatever its length.
-  assert.match(status(() => tasks.setCheckResult(id, a, 1, true, 'a b', { by: 'mara' }))[1], /one line of plain text/);
-  assert.equal(status(() => tasks.setCheckResult(id, a, 1, true, 'a‌b', { by: 'mara' }))[0], 200, 'the zero-width non-joiner a word needs (control)');
+  assert.match(status(() => tasks.setCheckResult(id, a, 1, true, 'a\u2028b', { by: 'mara' }))[1], /one line of plain text/);
+  assert.equal(status(() => tasks.setCheckResult(id, a, 1, true, 'a\u200cb', { by: 'mara' }))[0], 200, 'the zero-width non-joiner a word needs (control)');
 });
 
 test('a check sentence keeps its own 200 (only the evidence grew)', () => {

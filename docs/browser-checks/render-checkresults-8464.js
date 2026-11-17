@@ -152,7 +152,7 @@ function chk(ok, label, extra) {
       chk(dst.open === 5, `${tag} the link opens task 5`, String(dst.open));
       chk(dst.row === false && dst.label === 'Moved here from other tasks' && dst.head === true && dst.ownHidden === true,
         `${tag} task 5, with no checks of its own, shows the moved-here list under its own label (never an empty Done when)`, JSON.stringify([dst.row, dst.label, dst.head, dst.ownHidden]));
-      chk(JSON.stringify(dst.items) === JSON.stringify(['Check 1 of task 4, not met there: it works on Windows']) && dst.link.sub === '4' && dst.own === 0,
+      chk(JSON.stringify(dst.items) === JSON.stringify(['Check 1 of task 4, reported not met there: it works on Windows']) && dst.link.sub === '4' && dst.own === 0,
         `${tag} it names the check and links back to task 4`, JSON.stringify(dst));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `checkresults-movedhere-${theme}-${width}.png`), fullPage: true });
 
