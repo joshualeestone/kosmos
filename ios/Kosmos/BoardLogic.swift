@@ -19,6 +19,11 @@ enum Board {
         !liveOrStarting && !(hasList && keepsList)
     }
 
+    /// kosmos#8055: whether a tab keeps its page (never the connection screen) because a chat or task is open on top of it.
+    /// Swapping the page under the open link closes what is open, so it is kept through a brief state (Phase.passing);
+    /// a refusal, a sign-out or a wait for Allow still swap it and close what is open. Agents, Today and Tasks all ask this.
+    static func keepsPageUnderOpen(open: Bool, passing: Bool) -> Bool { open && passing }
+
     /// kosmos#8055 (Josh 11-05: back from another app, the chat drops to the agents list): the line that says why an open
     /// chat closed without the person pressing back, so the next time it happens the screen names the cause.
     /// `noticedLater`: the close happened while the tab was gone (redrawn, or the app started again), so the time is when

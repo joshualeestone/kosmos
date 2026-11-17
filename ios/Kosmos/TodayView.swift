@@ -89,6 +89,11 @@ struct TodayView: View {
 
     // As the Agents tab: a list once the Mac has answered, marked not updating while it does not.
     private var shown: Bool? {
+        // kosmos#8055: while a chat or a task is open on top through a brief state, the page under it stays (swapping it
+        // closes what is open); live and not yet read, it is drawn as not updating rather than the connection screen.
+        if Board.keepsPageUnderOpen(open: openAgent != nil || openTask != nil, passing: client.phase.passing) {
+            switch client.phase { case .live: return !client.fresh; default: return true }
+        }
         switch client.phase {
         case .starting, .connecting, .unreachable: return client.agents.isEmpty ? nil : true
         case .live: return client.updatedAt == nil ? nil : !client.fresh

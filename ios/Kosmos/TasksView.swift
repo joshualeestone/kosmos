@@ -24,7 +24,10 @@ struct TasksTab: View {
         NavigationView {
             Group {
                 // kosmos#8054: the list is read only through a computer this phone is let into (BoardClient.refreshTasks).
-                if Board.showsConnectionScreen(liveOrStarting: client.phase.liveOrStarting, keepsList: client.phase.keepsList,
+                // kosmos#8055: not while a chat or a task is open on top through a brief state (swapping the page closes what
+                // is open); a refusal still shows it.
+                if !Board.keepsPageUnderOpen(open: openAgent != nil || openTask != nil, passing: client.phase.passing),
+                   Board.showsConnectionScreen(liveOrStarting: client.phase.liveOrStarting, keepsList: client.phase.keepsList,
                                                hasList: client.tasksList != nil) {
                     BoardStates(client: client, openBoard: openBoard,
                                 signedOutDetail: "Your tasks show here once you are signed in.") { EmptyView() }
