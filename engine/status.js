@@ -6934,36 +6934,46 @@ function withoutModelFromBeforeJob(sess, agentName) {
    the context ring and whoami as well. One job-file lookup for both, so the platforms cannot drift. Any stat that
    fails (no job: a fleet agent, an untied pane) is "no", which changes nothing. */
 function writtenBeforeJob(file, agentName) {
+  const jobAt = jobMtime(agentName);
+  if (jobAt === null) return false;
   let fileAt;
   try { fileAt = fs.statSync(file).mtimeMs; } catch { return false; }
-  return jobWrittenAfter(fileAt, agentName);
+  return jobAt > fileAt;
 }
 
-/* Whether the agent's job file was last written after `at` (ms). The one job-file lookup writtenBeforeJob and readModel
-   share. A stat that fails, or an `at` that is not a number, is "no". */
-function jobWrittenAfter(at, agentName) {
-  if (!Number.isFinite(at)) return false;
+/* The agent's job file's time (ms), or null when it has none or it cannot be read: the one job-file lookup the Codex
+   rule (writtenBeforeJob) and the Claude rule (readBeforeJob) share, one stat per call.
+   kosmos#8605: named worlds (#1704) are not looked up here (no worldId), so this is the default world's job for the
+   name. The Claude rule is safe from that only because readModel applies it to the agent's own session, and a named
+   world's session (`ava+qa`) is not the bare name; a new caller passing only a name must not rely on it for another
+   world. */
+function jobMtime(agentName) {
   try {
     // #4918 review 11: on Linux the job file is the agent's systemd unit, not a plist (which never exists there).
     // kosmos#8466: on Windows it is the Scheduled Task's own file, not a plist (which never exists there either).
     const jobFile = process.platform === 'linux' ? require('./linuxjob').unitPath(agentName)
       : process.platform === 'win32' ? require('./win32job').taskFilePath(agentName)
         : require('./create').plistPath(agentName);
-    return fs.statSync(jobFile).mtimeMs > at;
-  } catch { return false; }
+    return fs.statSync(jobFile).mtimeMs;
+  } catch { return null; }
 }
 
 /* kosmos#8601 review 4: whether the agent has replied at all since its job was written: timed by the newest reply in
-   `text` (the transcript tail), else by `file`'s own time. Review 6: the agent with no job file (a fleet agent, an
-   untied pane) is answered by one stat, before the tail is scanned. */
+   `text` (the transcript tail), else by `file`'s own time. kosmos#8605: the job is stat'd ONCE, first, so an agent with
+   no job file (a fleet agent, an untied pane) costs one stat and no tail scan, and one with a job costs one job stat,
+   plus a stat of the transcript only when no reply timestamp is in the tail.
+   Known gap (kosmos#8605): when the newest reply is the tail's cut first line (the last 64 KB is mostly one large
+   tool result or paste), its timestamp cannot be read, the file's time decides, and a prompt sent after the change
+   brings the old model back until the next reply, as before #8601 review 4. Narrow; bounded by that reply. */
 function readBeforeJob(file, text, agentName) {
-  if (!jobExists(agentName)) return false;   // nothing to compare with
+  const jobAt = jobMtime(agentName);
+  if (jobAt === null) return false;   // nothing to compare with
   const at = newestReplyAt(text);
-  return at !== null ? jobWrittenAfter(at, agentName) : writtenBeforeJob(file, agentName);
+  if (at !== null) return jobAt > at;
+  let fileAt;
+  try { fileAt = fs.statSync(file).mtimeMs; } catch { return false; }
+  return jobAt > fileAt;
 }
-
-/* Whether the agent has a job file at all (one stat; any real file time is after 0). */
-const jobExists = (agentName) => jobWrittenAfter(0, agentName);
 
 /* kosmos#8601: when the agent last replied, read from the newest assistant row's own `timestamp` in the transcript tail.
    Review 4: not the file's own time, because Claude Code appends the person's prompt row as soon as it is sent (and tool
@@ -6985,8 +6995,8 @@ function newestReplyAt(text) {
     if (!line || !isReplyLine(line)) continue;
     let row;
     try { row = JSON.parse(line); } catch { continue; }   // the tail's first line can be cut
+    // isReplyLine has already ruled out `<synthetic>` and API errors (kosmos#8605: one rule, not two).
     if (!row || row.type !== 'assistant' || !row.message || typeof row.message.model !== 'string') continue;
-    if (row.message.model === '<synthetic>') continue;
     const at = Date.parse(row.timestamp);
     return Number.isFinite(at) ? at : null;
   }
@@ -6998,7 +7008,12 @@ function newestReplyAt(text) {
    short name like "opus", cannot be compared with a transcript's full id, so it is "no" and the reading stands, as
    before. Two ids are the same model when they match once a "[1m]"-style suffix and a snapshot date ("-20251001", or
    "@20251001") are set aside (review 5: a model the name table does not know yet still matches its dated form), or
-   when they are shown under the same name. A job that cannot be read is "no". */
+   when they are shown under the same name. A job that cannot be read is "no".
+   kosmos#8605: on Windows plannedModelOf reads the task through win32job.cachedTaskSpec, which this process refreshes
+   only on its own install or remove (#2717). That is right here because a model is changed only by create.setModel,
+   called only from the board's own routes (server.js), so the board process that reads this has already refreshed
+   it. A rewrite from another process would leave the cache on the old model and this would answer "same" (the old
+   bug, silently): a new path that changes a model outside the board must forget the cached task (win32job). */
 function jobNamesAnotherModel(agentName, readId) {
   let planned = null;
   try { planned = require('./create').plannedModelOf(agentName); } catch { planned = null; }
@@ -7478,7 +7493,11 @@ function readModel(agentName, exactSession) {
      old model through.
      Review 7: only for the agent's OWN session. The job is filed under the board name, and a session read by
      `exactSession` that is not that name (the foo / foo-discord collision server.js documents: one name, two sessions,
-     two models) is not the session the job starts, so its reading is never judged against that job. */
+     two models) is not the session the job starts, so its reading is never judged against that job.
+     kosmos#8605: "no session given" also counts as the agent's own, though server.js measured readModel('foo') can land
+     on foo-discord. That is safe only for today's no-session callers: repair's modelFor acts only on agents with no job
+     (so readBeforeJob is "no"), and whoami without a card falls back to the process's --model anyway. A new caller
+     that reads a running agent with no session should pass the session. */
   const ownSession = exactSession === undefined || exactSession === null
     || String(exactSession).toLowerCase() === String(agentName).toLowerCase();
   if (now && ownSession && readBeforeJob(file, text, agentName) && jobNamesAnotherModel(agentName, now)) {

@@ -214,3 +214,21 @@ test('kosmos#8601: after the first reply on the new model, that reply is the cur
   session('replies', 'new.jsonl', replied('claude-haiku-5-5'), 5);   // its first reply since the change
   assert.deepEqual(status.readModel('replies'), current('claude-haiku-5-5'));
 });
+
+/* kosmos#8605: the job file is stat'd once per reading (it was twice: an existence check, then the comparison). */
+test('kosmos#8605: one stat of the job file per reading', () => {
+  session('onestat', 'old.jsonl', [{ type: 'assistant', message: { model: 'claude-opus-4-8' }, timestamp: at(900) }], 600);
+  const jobFile = job('onestat', 5, 'claude-haiku-5-5');
+  const realStat = fs.statSync;
+  let jobStats = 0;
+  fs.statSync = function (p, ...rest) {
+    if (path.resolve(String(p)) === path.resolve(jobFile)) jobStats++;
+    return realStat.call(this, p, ...rest);
+  };
+  try {
+    assert.equal(status.readModel('onestat').earlierSession, true);
+  } finally {
+    fs.statSync = realStat;
+  }
+  assert.equal(jobStats, 1, `the job file was stat'd ${jobStats} times for one reading`);
+});
