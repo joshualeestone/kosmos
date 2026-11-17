@@ -127,37 +127,53 @@ function labelRows() {
     .map((n) => 'NSPrivacyCollectedDataType' + n.replace(/\s+/g, ''));
   return { body: body.length, types };
 }
-// A minimal plist reader: dict, array, key, string, true, false. Comments are dropped first.
+// A minimal plist reader: dict, array, key, string, true, false. Comments, the XML declaration and the DOCTYPE are
+// dropped first. Review 2: EVERY other tag refuses (an <integer> in an array was skipped, and a wrong manifest passed),
+// <string/> is an empty string, and anything after the root dict refuses.
 function parsePlist(xml) {
-  const tokens = [...xml.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<(\/?)(dict|array|key|string|true|false)(\/?)>([^<]*)/g)];
+  const src = xml.replace(/<!--[\s\S]*?-->/g, '').replace(/<\?xml[^>]*\?>/, '').replace(/<!DOCTYPE[^>]*>/, '');
+  const tokens = [];
+  for (const m of src.matchAll(/<(\/?)([A-Za-z]+)\s*(\/?)>([^<]*)/g)) {
+    if (m[2] === 'plist') continue;
+    if (!['dict', 'array', 'key', 'string', 'true', 'false'].includes(m[2])) throw new Error('a tag this reader does not know: <' + m[2] + '>');
+    tokens.push(m);
+  }
   let i = 0;
-  const skipToRoot = () => { while (i < tokens.length && !(tokens[i][1] === '' && tokens[i][2] === 'dict')) i += 1; };
   function value() {
+    if (i >= tokens.length) throw new Error('the plist ended early');
     const [, close, tag, selfClose, text] = tokens[i++];
     if (close) throw new Error('unexpected </' + tag + '>');
-    if (tag === 'true' || tag === 'false') { if (!selfClose) i += 1; return tag === 'true'; }
-    if (tag === 'string' || tag === 'key') { i += 1; return text; }
-    if (tag === 'array') { if (selfClose) return []; const out = []; while (!(tokens[i][1] && tokens[i][2] === 'array')) out.push(value()); i += 1; return out; }
-    if (tag === 'dict') {
-      if (selfClose) return {};
-      const out = {};
-      while (!(tokens[i][1] && tokens[i][2] === 'dict')) {
-        if (tokens[i][2] !== 'key') throw new Error('a dict value without a key');
-        const k = value();
-        if (Object.prototype.hasOwnProperty.call(out, k)) throw new Error('duplicate key ' + k);
-        out[k] = value();
-      }
+    if (tag === 'true' || tag === 'false') { if (!selfClose) { if (!(tokens[i] && tokens[i][1] && tokens[i][2] === tag)) throw new Error('<' + tag + '> not closed'); i += 1; } return tag === 'true'; }
+    if (tag === 'string' || tag === 'key') {
+      if (selfClose) return '';
+      if (!(tokens[i] && tokens[i][1] && tokens[i][2] === tag)) throw new Error('<' + tag + '> not closed');
       i += 1;
-      return out;
+      return text;
     }
-    throw new Error('unknown tag ' + tag);
+    if (tag === 'array') { if (selfClose) return []; const out = []; while (!(tokens[i] && tokens[i][1] && tokens[i][2] === 'array')) out.push(value()); i += 1; return out; }
+    if (selfClose) return {};
+    const out = {};
+    while (!(tokens[i] && tokens[i][1] && tokens[i][2] === 'dict')) {
+      if (!tokens[i] || tokens[i][2] !== 'key') throw new Error('a dict value without a key');
+      const k = value();
+      if (Object.prototype.hasOwnProperty.call(out, k)) throw new Error('duplicate key ' + k);
+      out[k] = value();
+    }
+    i += 1;
+    return out;
   }
-  skipToRoot();
-  return value();
+  if (!tokens.length || tokens[0][2] !== 'dict') throw new Error('the plist does not start with a dict');
+  const root = value();
+  if (i !== tokens.length) throw new Error('something after the root dict');
+  return root;
 }
 test('kosmos#8654: the plist reader this test relies on refuses a duplicate key and reads booleans and arrays', () => {
   assert.throws(() => parsePlist('<plist><dict><key>a</key><true/><key>a</key><false/></dict></plist>'), /duplicate key a/);
   assert.deepEqual(parsePlist('<plist><dict><key>a</key><array><string>x</string></array><key>b</key><false/><key>c</key><array/></dict></plist>'), { a: ['x'], b: false, c: [] });
+  // Review 2: an unknown tag, even inside an array, refuses; <string/> is empty; anything after the root refuses.
+  assert.throws(() => parsePlist('<plist><dict><key>a</key><array><string>x</string><integer>2</integer></array></dict></plist>'), /does not know: <integer>/);
+  assert.deepEqual(parsePlist('<plist><dict><key>a</key><string/><key>b</key><true /></dict></plist>'), { a: '', b: true });
+  assert.throws(() => parsePlist('<plist><dict></dict><key>z</key><true/></plist>'), /after the root/);
 });
 test('kosmos#8654: the manifest declares exactly the data types the App Privacy label declares, as the label says them', () => {
   const md = fs.readFileSync(LABEL, 'utf8');
