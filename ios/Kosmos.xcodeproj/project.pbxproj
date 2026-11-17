@@ -358,7 +358,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 1.0;
 				CODE_SIGN_ENTITLEMENTS = Kosmos.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID)";
 				PROVISIONING_PROFILE_SPECIFIER = "$(KOSMOS_APP_PROFILE)";
@@ -392,7 +392,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 1.0;
 				CODE_SIGN_ENTITLEMENTS = Kosmos.entitlements;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID)";
 				PROVISIONING_PROFILE_SPECIFIER = "$(KOSMOS_APP_PROFILE)";
@@ -419,7 +419,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID).notice";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "$(KOSMOS_NOTICE_PROFILE)";
@@ -446,7 +446,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.1.0;
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID).notice";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "$(KOSMOS_NOTICE_PROFILE)";
