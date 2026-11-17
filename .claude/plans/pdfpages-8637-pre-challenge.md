@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: pdfpages-8637
-diff_hash: a1fb99581113bf1b31e5f6320b2196961bb9ba0739853df93a9337f99fedfd56
-validation: passed (targeted 25-file list, 523 pass 0 fail at 4e33eb9c; NOT the full suite: a full-suite hold is on Mortals, so CI runs the full suite)
+diff_hash: 537eeb77778787dcc9d4babb61d9047a777ce65fe30910bafae714179d600fe8
+validation: passed (targeted 25-file list, 524 pass 0 fail at 4eec2eec78; NOT the full suite: a full-suite hold is on Mortals, so CI runs the full suite)
 subdir_audit: not run (no subdirectory CLAUDE.md changed)
-timestamp: 2026-11-17T17:29:32Z
-iterations: 8
+timestamp: 2026-11-17T17:44:41Z
+iterations: 9
 converged: false
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8
-**Converged:** No. Stopped after iteration 8 by the fleet's standing review cap ("8 rounds unless a BLOCKER is open"); no BLOCKER was open (the one BLOCKER, iteration 1, is fixed). Iteration 8 still raised one new WARNING, fixed in 4e33eb9c, so the last fix has not itself been reviewed by a further pass.
-**Total findings (BLOCKER/WARNING/CONVENTION):** 1 BLOCKER, 19 WARNINGs, 2 CONVENTIONs, plus NITs
-**Fixed:** 17 | **Deferred:** 5 (counting repeats once) | **Asked:** 0
+**Iterations:** 9
+**Converged:** No. Stopped after iteration 8 by the fleet's standing review cap ("8 rounds unless a BLOCKER is open"; no BLOCKER open). At the code reviewer's request (Raiden, m7637) a ninth fresh blind pass re-read the whole change, including iteration 8's fix: no BLOCKER, two WARNINGs and NITs, all fixed in 4eec2eec78, and Raiden reviewed that product delta (m7642): no new findings. No further blind pass ran after that fix.
+**Total findings (BLOCKER/WARNING/CONVENTION):** 1 BLOCKER, 21 WARNINGs, 2 CONVENTIONs, plus NITs
+**Fixed:** 19 | **Deferred:** 5 (counting repeats once) | **Asked:** 0
 
 Origin column: the per-finding blame lookup (6c-bis) was not run in this loop, so every row is recorded BRANCH, the fail-safe default. Several later findings were plainly about earlier fix commits (the sandbox, added in iteration 5, was the subject of iterations 6 to 8).
 
@@ -87,6 +87,15 @@ Validation note: the canonical helper runs the full suite, which the Mortals hol
 - [WARNING] a sandbox that breaks on another macOS would lose the feature silently --> FIXED (4e33eb9c: said once per board run, without the file's name; test)
 - The plan's phone claim was softened to say the Kosmos+ path is not measured.
 
+#### Iteration 9
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 0 (recorded BRANCH)
+- [WARNING] engine/filepreview.js — later pages could grow the Files cache forty-fold (200 folders x 40 pages) --> FIXED (4eec2eec78: pruneLaterPages keeps 400 across the cache; test)
+- [WARNING] docs/browser-checks/mobile-shots.js — the seed changes agent-files-all and the comment said otherwise --> FIXED (4eec2eec78: comment corrected; agent-files-all lists one more row)
+- [NIT] attachment render folder could leak on a crash --> fixed (drawn in the system temporary folder, moved in); [NIT] stale comments --> fixed; [NIT] label and picture disagree while loading --> fixed (dimmed until load)
+- Also before iteration 9: the shots screen waited on the label, not page 2's picture (Raiden m7637) --> FIXED (5f3429fa4f)
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
@@ -110,6 +119,8 @@ Validation note: the canonical helper runs the full suite, which the Mortals hol
 | 17 | 7 | WARNING | engine/pdfpages.js | BRANCH | sandbox allowed starting programs | FIXED | 6baf3c67 |
 | 18 | 7 | WARNING | engine/attachments.js | BRANCH | upload's folder writable to PDFKit | FIXED | 6baf3c67 |
 | 19 | 8 | WARNING | engine/pdfpages.js | BRANCH | silent sandbox failure | FIXED | 4e33eb9c |
+| 20 | 9 | WARNING | engine/filepreview.js | BRANCH | Files cache could grow forty-fold | FIXED | 4eec2eec78 |
+| 21 | 9 | WARNING | docs/browser-checks/mobile-shots.js | BRANCH | seed comment wrong about agent-files-all | FIXED | 4eec2eec78 |
 
 ### Outstanding questions (ASKED)
 - None.
