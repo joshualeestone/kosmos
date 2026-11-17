@@ -10,7 +10,7 @@
  * a real 200-message DM in WebKit and Chromium: back 534 px off. This check itself runs Chromium only. A board on this computer almost never fails a
  * poll, so every local check held still; a board reached over the network fails one now and then.
  *
- * This drives the REAL paintTalk (fetch answered here, the page's own code otherwise) through three arms:
+ * This drives the REAL paintTalk (fetch answered here, the page's own code otherwise) through these arms:
  *   A. a reader in the middle of a long older message: good poll, FAILED poll, good poll with a new message
  *      that pushes the oldest row out (the board sends only the newest 200).
  *      The message must not move on screen at any step, its rows must stay during the failure, and the
@@ -21,8 +21,7 @@
  *   K. a question's choice buttons are disabled while the read fails and given back after.
  *   D. a box with no rows yet ("Opening...") still paints the failure sentence alone.
  *   C. the standing refusal (`because: 'borrowed'`) still paints its sentence alone, as before.
- * Red-capable: with the #8629 change reverted, arm A fails (rows gone during the failure, then on different
- * words). Run both ways before this landed.
+ * With the #8629 change reverted, arm A fails (rows gone during the failure, then on different words).
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-talk-readfail-8629.js
@@ -108,6 +107,13 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     await paint('fail');   // a network that keeps failing: still one line, the reader still where they were
     out.aLines2 = th.querySelectorAll(':scope > p.dm-readfail').length;
     out.aYFail2 = rowY('m25');
+    // a repaint from the cached body while the read is still failing (a search or a pending send does this):
+    // the rows are rewritten, and the failure line must still be there under them
+    th.__lastBody = { ...th.__lastBody, messages: [...th.__lastBody.messages, { id: 'mc', at: new Date().toISOString(), text: 'a row only the cache repaint has', from: 'april', delivery: null }] };
+    paintTalkThread(th.__lastBody, 'April');
+    await settle();
+    out.aCacheRewrote = !!th.querySelector('[data-mid="mc"]');
+    out.aLineAfterCache = failLine();
     const ms = window.__fx.messages;
     // as the board's 200-message window does: the new message pushes the oldest row out, above the reader
     window.__fx = { ...window.__fx, olderCount: 1, messages: [...ms.slice(1), { id: 'm30', at: new Date().toISOString(), text: 'a new agent message', from: 'april', delivery: null }] };
@@ -208,6 +214,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       if (r.kOffFail !== true) problems.push('K: during a failed read the choice buttons stayed pressable, and a press would do nothing');
       if (r.kOnBack !== true || r.kMarksLeft !== 0) problems.push('K: the next good read did not give the choice buttons back (live ' + r.kOnBack + ', marks left ' + r.kMarksLeft + ')');
     }
+    if (r.aCacheRewrote !== true) problems.push('setup A: the cache repaint did not rewrite the rows, so the line was never at risk');
+    else if (!/could not read this conversation just now/.test(String(r.aLineAfterCache))) problems.push('A: a repaint from the cached body during a failure dropped the failure line');
     if (r.aLines2 !== 1 || !near(r.aYFail2, r.aY0)) problems.push('A: a second failed poll in a row stacked lines or moved the reader (lines ' + r.aLines2 + ', m25 at ' + r.aYFail2 + 'px vs ' + r.aY0 + 'px)');
     if (r.aLineBack !== null) problems.push('A: the failure line stayed after a read worked: ' + JSON.stringify(r.aLineBack));
     if (!(r.bGapFail <= 4)) problems.push('B (control): a reader at the floor was left ' + r.bGapFail + 'px above it, with the failure line below the fold');

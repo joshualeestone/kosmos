@@ -44907,6 +44907,9 @@ function paintTalkThread(body, name) {
     const choiceFocus = onChoice ? onChoice.getAttribute('data-n') : null;
     const focusGen = onChoice ? onChoice.getAttribute('data-gen') : null;
     setThread(thread, dmHtml, threadKey);
+    /* #8629: a repaint from the cached body while reads are failing (a search, a pending send) puts the failure
+       line back under the rows it may have just rewritten. */
+    if (thread.__readFailed && thread.__readFailText) dmReadFailLine(thread, thread.__readFailText);
     if (choiceFocus !== null && !thread.contains(document.activeElement)) {
       /* Review 28: back onto the same choice only for the SAME question; a redraw that changed the question sends focus
          to the message box, so a keyboard user's next Enter never answers a question they have not read. */
@@ -44930,9 +44933,7 @@ function paintTalkThread(body, name) {
    so neither adding nor removing it moves a reader above it; a reader at the floor is kept on the floor, so the
    line is not left below the fold. Plain text (textContent), never markup: the detail is the server's words.
    While it shows, the kept rows' choice buttons are disabled, because with no read their press does nothing
-   (DM_CHOICES is null); removing the line enables only the ones this disabled. A repaint from the cached body
-   (a search keystroke) can rewrite the rows and drop the line while reads still fail; the next failed poll
-   puts it back. */
+   (DM_CHOICES is null); removing the line enables only the ones this disabled. */
 function dmReadFailLine(th, text) {
   if (!th || typeof th.querySelector !== 'function') return;
   let line = th.querySelector(':scope > p.dm-readfail');
@@ -45101,8 +45102,9 @@ async function paintTalk(sessionName, agentName) {
     const keepRows = !standing && failTh && failTh.__lastCount !== null && failTh.__lastCount !== undefined
       && !!failTh.querySelector('[data-mid]');
     if (keepRows) {
-      dmReadFailLine(failTh, 'We could not read this conversation just now, so this may not be the newest. ('
-        + ((err && err.message) || 'no detail') + ')');
+      failTh.__readFailText = 'We could not read this conversation just now, so this may not be the newest. ('
+        + ((err && err.message) || 'no detail') + ')';
+      dmReadFailLine(failTh, failTh.__readFailText);
     } else {
       setThread(failTh, '<p class="dmnone">'
         + (standing
@@ -45115,7 +45117,7 @@ async function paintTalk(sessionName, agentName) {
        (nothing in it can be pressed or focused over a read that failed, and it is dimmed); hiding it would slide the reader by
        its height and showing it again on the next good read would slide them back. The next good read clears
        `inert`. With no rows to keep it is hidden, as before. */
-    if (keepRows) document.getElementById('d-qask').inert = true;
+    if (keepRows) { const q = document.getElementById('d-qask'); if (!q.hidden) q.inert = true; }
     else document.getElementById('d-qask').hidden = true;
     /* ⚠️ AND THE TWO SENTENCES FROM THE LAST GOOD PAINT. "5 older messages are
        still kept" standing over "we could not read this conversation" is the
