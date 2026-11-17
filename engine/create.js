@@ -207,7 +207,7 @@ function modelsFor(provider) {
 }
 
 /**
- * Resolve a model key WITHIN a provider, or answer null.
+ * Resolve a model WITHIN a provider, by its menu key or its full id (kosmos#8618), or answer null.
  *
  * ⚠️ THE REFUSAL IS THE POINT. Both call sites used a bare
  * `MODELS.find(x => x.key === key)`, which cannot tell "no such model" from
@@ -224,7 +224,10 @@ function modelFor(provider, modelKey) {
 function pickModelWords(provider) {
   const ms = modelsFor(provider);
   if (!ms.length) return 'pick a model from the list';
-  return 'pick a model from the list: ' + ms.map((m) => m.key).join(', ') + ' (or a model\'s full id, such as ' + ms[0].arg + ')';
+  // Each key with its label, so "haiku" reads as Haiku 4.5; the example id is the default model's, not the costliest.
+  const example = ms.find((m) => m.default) || ms[0];
+  return 'pick a model from the list: ' + ms.map((m) => m.key + ' (' + m.label + ')').join(', ')
+    + '. A model\'s full id works too, such as ' + example.arg;
 }
 
 /**
@@ -3241,7 +3244,7 @@ function setModel(name, modelKey, opts) {
          the day OpenAI rows are added -- and nothing would have caught it,
          because it is a sentence rather than a check. Scoped to the provider,
          the right refusal falls out of the data instead of being remembered. */
-      const elsewhere = MODELS.find((x) => x.key === String(modelKey) || x.arg === String(modelKey));
+      const elsewhere = MODELS.find((x) => x.key === String(modelKey));
       return {
         outcome: OUTCOME.REFUSED,
         because: elsewhere
@@ -6154,7 +6157,7 @@ function createAgentInner(opts) {
          provider runs" send a person to different places. */
       const m = modelFor(provider, wantModelKey);
       if (!m) {
-        const elsewhere = MODELS.find((x) => x.key === String(wantModelKey) || x.arg === String(wantModelKey));
+        const elsewhere = MODELS.find((x) => x.key === String(wantModelKey));
         return {
           outcome: OUTCOME.REFUSED,
           because: elsewhere

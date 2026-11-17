@@ -3955,8 +3955,10 @@ test('setModel rewrites the startup file and keeps everything else about the job
 
   /* kosmos#8618: the refusal names what is accepted (every menu key, and that a full id works), and a model's full id
      is accepted as well as its key, landing on the same row. */
-  for (const m of create.modelsFor('anthropic')) assert.ok(bad.because.includes(m.key), 'the refusal did not name ' + m.key + ': ' + bad.because);
-  assert.match(bad.because, /full id, such as claude-/);
+  // The exact list, in menu order (a substring check would miss "opus" inside "opus55").
+  const listed = create.modelsFor('anthropic').map((m) => m.key + ' (' + m.label + ')').join(', ');
+  assert.ok(bad.because.includes('pick a model from the list: ' + listed + '.'), 'the refusal did not list every key: ' + bad.because);
+  assert.match(bad.because, /A model's full id works too, such as claude-sonnet-5$/, 'the example is the default model\'s id');
   const byId = create.setModel(name, 'claude-opus-5-5');
   assert.equal(byId.outcome, create.OUTCOME.CREATED, byId.because);
   assert.equal(byId.model.key, 'opus55', 'a full id did not land on its menu row');
