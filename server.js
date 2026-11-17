@@ -6045,9 +6045,9 @@ function withPreviews(rows, opts) {
     const hit = found.bare ? unfurl.peekBare(link) : unfurl.peek(link);
     if (hit === null) { unfurl.warm(link, { bare: found.bare }); continue; }
     if (!hit.ok) continue;
-    /* kosmos#8636: the picture only once it is known to load. Not yet fetched: the card waits for the next poll
-       (warm fetches it with the page), so it appears once, whole, never as an empty box that fills in or breaks. One
-       that could not be fetched: the card has no picture, its words kept, never a broken box. */
+    /* kosmos#8636: the picture only once it is known to load. Not yet known: the card waits for a later poll (warm
+       fetches the picture with the page), so it does not first appear as an empty box that fills in or breaks. One that
+       could not be fetched: the card has no picture, its words kept. */
     let image = '';
     if (hit.image) {
       const state = unfurl.imageState(hit.image);
@@ -22398,7 +22398,9 @@ const server = http.createServer(async (req, res) => {
     unfurl.preview(target).then(async (got) => {
       if (!got.ok) { sendJson(res, 200, { ok: false, because: got.because }); return; }
       // kosmos#8636: a picture that cannot be fetched is left out, so the card keeps its words with no broken box.
-      if (got.image && unfurl.imageState(got.image) !== 'good') {
+      const state = got.image ? unfurl.imageState(got.image) : 'good';
+      if (state === 'bad') got = { ...got, image: '' };
+      else if (state === null) {
         const pic = await unfurl.image(got.image).catch(() => null);
         if (!pic || !pic.ok) got = { ...got, image: '' };
       }

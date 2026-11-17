@@ -13,11 +13,13 @@ const nodePath = require('node:path');
 const page = require('./test-support/page');
 const SCRIPT = page.scriptOf(fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8'));
 // eslint-disable-next-line no-new-func
-const lpvImageFailed = new Function("'use strict';\n" + page.lift(SCRIPT, 'lpvImageFailed') + '\nreturn lpvImageFailed;')();
+const { lpvImageFailed, pjPreviewCard, LPV_FAILED } = new Function('esc', "'use strict';\nconst LPV_FAILED = new Set();\n" + page.lift(SCRIPT, 'lpvImageFailed') + '\n'
+  + page.lift(SCRIPT, 'pjPreviewCard') + '\nreturn { lpvImageFailed, pjPreviewCard, LPV_FAILED };')((x) => String(x).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';'));
 
 /* An element with just closest() and remove(), chained by class. */
 function el(tag, cls, parent) {
-  const e = { tagName: tag, cls, parent, removed: false };
+  const e = { tagName: tag, cls, parent, removed: false, src: '' };
+  e.getAttribute = (k) => (k === 'src' ? e.src : null);
   e.closest = (sel) => { for (let n = e; n; n = n.parent) if ('.' + n.cls === sel) return n; return null; };
   e.remove = () => { e.removed = true; };
   return e;
@@ -47,4 +49,18 @@ test('any other failing image or element is left alone', () => {
 
 test('the page listens for it in the capture phase (an error does not bubble)', () => {
   assert.match(SCRIPT, /document\.addEventListener\('error', lpvImageFailed, true\);/);
+});
+
+test('a picture that failed here is not asked for again when the card is drawn again; others still are', () => {
+  LPV_FAILED.clear();
+  const preview = { url: 'https://name.example/', title: 'Name', image: '/api/unfurl/image?url=https%3A%2F%2Fname.example%2Fog.jpeg' };
+  assert.match(pjPreviewCard(preview), /<img src=/, 'CONTROL: the card asks for its picture');
+  const card = el('A', 'lpv', null);
+  const img = el('IMG', '', el('SPAN', 'lpv-img', card));
+  img.src = preview.image;
+  lpvImageFailed({ target: img });
+  const again = pjPreviewCard(preview);
+  assert.doesNotMatch(again, /<img/, 'the redrawn card asked again for a picture that failed');
+  assert.match(again, /lpv-title">Name</, 'the words went too');
+  assert.match(pjPreviewCard({ ...preview, image: '/api/unfurl/image?url=other' }), /<img src=/, 'another picture was refused');
 });

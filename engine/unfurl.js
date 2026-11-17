@@ -307,7 +307,7 @@ async function image(raw) {
   const hit = cached(key);
   if (hit) return hit;
   const got = await guardedFetch(raw, 'image/*');
-  if (!got.ok) { known(raw, false); return remember(key, got); }
+  if (!got.ok) { known(raw, false, unreached(got.because)); return remember(key, got); }
   try {
     const type = (got.res.headers.get('content-type') || '').toLowerCase().split(';')[0].trim();
     /* 🛑 NO SVG. An SVG carries script, and this proxy serves it on the
@@ -316,11 +316,11 @@ async function image(raw) {
        board. Raster types only; the route adds a sandboxing CSP as well. */
     if (!/^image\/(png|jpeg|gif|webp|avif)$/.test(type)) { discard(got.res); known(raw, false); return remember(key, { ok: false, because: 'that is not an image this board will show' }); }
     const bytes = await readCapped(got.res, IMAGE_MAX, false);
-    if (!bytes) return remember(key, { ok: false, because: 'that image is too large to show' });
+    if (!bytes) { known(raw, false); return remember(key, { ok: false, because: 'that image is too large to show' }); }
     known(raw, true);
     return remember(key, { ok: true, type, bytes });
   } catch {
-    known(raw, false);
+    known(raw, false, true);
     return remember(key, { ok: false, because: 'we could not read that image' });
   } finally {
     clearTimeout(got.timer);
@@ -486,13 +486,17 @@ function peekBare(httpsUrl) {
 
 /* kosmos#8636 (Josh 11-17: a link preview's picture "keeps not rendering", a broken "?" box 17 minutes on): whether a
    preview's image could be fetched, kept apart from the bytes (which the image cache drops after ten minutes or
-   when over its budget) for a day, so the card a poll carries is decided by the last answer while a newer one is
-   fetched, and never flips between with-picture and without. At most KNOWN_MAX addresses, oldest dropped first. */
+   when over its budget) for a day, so dropped bytes never decide whether a card has its picture, and the last answer
+   decides while a newer one is fetched. At most KNOWN_MAX addresses, oldest dropped first. A verdict that ages out or
+   is dropped is fetched again, and the card waits for it as it did the first time. `passing` (the site not reached,
+   too slow, a 5xx, a read that broke off) never turns a picture that loaded into one that did not. */
 const KNOWN_MS = 24 * 60 * 60 * 1000;
 const KNOWN_MAX = 1000;
 const knownImages = new Map();
-function known(raw, ok) {
+function known(raw, ok, passing) {
   const key = String(raw);
+  const was = knownImages.get(key);
+  if (!ok && passing && was && was.ok) return;   // keeps the old time too, so the next refresh tries again
   knownImages.delete(key);
   knownImages.set(key, { ok, at: Date.now() });
   while (knownImages.size > KNOWN_MAX) knownImages.delete(knownImages.keys().next().value);
@@ -521,15 +525,16 @@ function warm(raw, opts) {
   /* kosmos#8636: the preview's picture is fetched in the same warm-up, so the card is ready with or without it by
      the time a poll can carry it, instead of its picture being asked for only once the page draws an empty box. */
   (bare ? previewBare(String(raw)) : preview(String(raw)))
-    .then((got) => (got && got.ok && got.image && imageState(got.image) === null ? image(got.image) : null))
+    .then((got) => (got && got.ok && got.image && imageState(got.image) === null ? warmImage(got.image) : null))
     .catch(() => {}).finally(() => inflight.delete(key));
 }
-/** kosmos#8636: start fetching a preview's picture if nothing is cached or running; never awaited. */
+/** kosmos#8636: start fetching a preview's picture if nothing is cached or running, under its own in-flight key so a
+    poll that lands meanwhile does not start a second; resolves when it is done (nothing awaits it but warm). */
 function warmImage(raw) {
   const key = 'i:' + String(raw);
-  if (cached(key) || inflight.has(key)) return;
+  if (cached(key) || inflight.has(key)) return null;
   inflight.add(key);
-  image(String(raw)).catch(() => {}).finally(() => inflight.delete(key));
+  return image(String(raw)).catch(() => {}).finally(() => inflight.delete(key));
 }
 
 module.exports = { firstLinkInfo, bareWeb, bareSplit, previewBare, peekBare, peek, warm, preview, image, imageState, warmImage, pageText, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };

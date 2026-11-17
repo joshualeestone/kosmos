@@ -78,3 +78,42 @@ test('an SVG or other non-raster answer counts as bad, and so does a fetch that 
   await unfurl.image(IMG);
   assert.equal(unfurl.imageState(IMG), 'bad');
 });
+
+test('a picture over the size cap is bad, so its card shows words only instead of never appearing', async () => {
+  imageAnswer = () => answer(200, 'image/png', Buffer.alloc(unfurl.IMAGE_MAX + 1));
+  unfurl.warm('https://site8636.com/');
+  await settle();
+  assert.equal(unfurl.imageState(IMG), 'bad');
+});
+
+test('a passing failure (too slow, not reached, a 5xx) never turns a picture that loaded into bad; a real answer does', async () => {
+  unfurl.warm('https://site8636.com/');
+  await settle();
+  assert.equal(unfurl.imageState(IMG), 'good');
+  for (const passing of [() => answer(503, 'text/html', Buffer.from('busy')), () => { throw new TypeError('fetch failed'); }]) {
+    shift += 11 * 60 * 1000;
+    imageAnswer = passing;
+    assert.equal(unfurl.imageState(IMG), 'good');   // starts the refresh
+    await settle();
+    assert.equal(unfurl.imageState(IMG), 'good', 'a passing failure took the picture away');
+  }
+  shift += 11 * 60 * 1000;
+  imageAnswer = () => answer(404, 'text/html', Buffer.from('gone'));
+  unfurl.imageState(IMG);
+  await settle();
+  assert.equal(unfurl.imageState(IMG), 'bad', 'CONTROL: a real answer still replaces it');
+});
+
+test('a poll that lands while warm is fetching the picture does not start a second fetch of it', async () => {
+  let release;
+  imageAnswer = () => new Promise((r) => { release = () => r(answer(200, 'image/png', PNG)); });
+  unfurl.warm('https://site8636.com/');
+  await settle();
+  assert.equal(calls.filter((u) => u === IMG).length, 1, 'CONTROL: the picture fetch started');
+  assert.equal(unfurl.imageState(IMG), null);
+  assert.equal(unfurl.warmImage(IMG), null, 'a second fetch was started while the first ran');
+  release();
+  await settle();
+  assert.equal(calls.filter((u) => u === IMG).length, 1);
+  assert.equal(unfurl.imageState(IMG), 'good');
+});

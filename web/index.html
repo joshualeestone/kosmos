@@ -78031,7 +78031,7 @@ function pjPreviewCard(preview) {
   const title = typeof p.title === 'string' && p.title.trim() ? p.title.trim() : null;
   const desc = typeof p.description === 'string' && p.description.trim() ? p.description.trim() : null;
   if (!title && !desc && !p.image) return '';
-  const image = typeof p.image === 'string' && /^\/api\//.test(p.image) ? p.image : null;
+  const image = typeof p.image === 'string' && /^\/api\//.test(p.image) && !(typeof LPV_FAILED !== 'undefined' && LPV_FAILED.has(p.image)) ? p.image : null;   // kosmos#8636
   let site = typeof p.site === 'string' && p.site.trim() ? p.site.trim() : '';
   if (!site) { try { site = new URL(p.url).host; } catch { site = ''; } }
   /* #761 (Josh, 2026-08-24 21:56: "a much, much larger OG image... below the
@@ -78051,11 +78051,15 @@ function pjPreviewCard(preview) {
 /* kosmos#8636: a preview picture that still fails in the browser (the board's image cache let it go and the site no
    longer answers, or Kosmos+ dropped it) takes its box away, so the card keeps its words and never shows a broken
    picture. An error does not bubble, so this listens in the capture phase. */
+const LPV_FAILED = new Set();   // pictures that failed here, so a redrawn card does not ask for them again
 function lpvImageFailed(e) {
   const t = e && e.target;
   if (!t || t.tagName !== 'IMG' || !t.closest) return;
   const box = t.closest('.lpv-img');
-  if (box && box.closest('.lpv')) box.remove();
+  if (!box || !box.closest('.lpv')) return;
+  const src = t.getAttribute && t.getAttribute('src');
+  if (src && LPV_FAILED.size < 500) LPV_FAILED.add(src);
+  box.remove();
 }
 document.addEventListener('error', lpvImageFailed, true);
 
