@@ -5,8 +5,9 @@
 ## Finished means
 - "changed" with a retired model: the model advice is its own sentence, true whichever account the agent lands on
   (it used to sit only after "Otherwise ... main account").
-- accountOk on an account FOLDER: "It starts on the account (and model) it was set to before" says "if that account is
-  still signed in there at Start at login; otherwise on your main account", because register.repair reads the folder
+- accountOk on an account FOLDER: the account is said with "if that account is
+  still signed in there at Start at login" and an "Otherwise ... main account; choose its account again" sentence,
+  because register.repair reads the folder
   again, live, at Start at login. On the main account (no folder) the flat sentence stays: it is always there.
 - engine/delete-leftover.win32-accountkeep-8478.test.js: the two "also could not confirm" pins end in `\.`, not `.`;
   the stale title about the later retry is reworded.
@@ -21,8 +22,9 @@
   account is written and Start at login is not offered again.
 - Main-account accountOk keeps the flat sentence: nothing a person can do before Start at login removes the main
   account, and adding "if" there would be a hedge with no case behind it.
-- Rejected: a separate "if" sentence after the flat one. One sentence with "if ...; otherwise ..." keeps it under the cap
-  and reads in one go.
+- First draft (superseded by review 1): one sentence, "... before if that account is still signed in there at Start
+  at login; otherwise on your main account." It left out the advice to choose its account again, and adding that would
+  pass the 30-word cap, hence the split above.
 
 ## Weakest premise
 "still signed in there" stands for repair's two checks (the folder is reachable AND holds the same account). A folder
