@@ -66,3 +66,13 @@ test('the wait sits after what could not reach the agent, as its own paragraph',
   assert.match(first, /^Kosmos: since it last heard from this agent/);
   assert.match(second, /^Kosmos: before this session, this agent last reported that it was waiting \(needs_you,/);
 });
+
+test('a provider outage after the agent\'s own wait neither ends it nor becomes it; a row dated in the future is no wait', () => {
+  // The hook's automatic blocked (StopFailure, #6209) after the agent's own wait: the agent's wait still stands.
+  const hist = [row('blocked', 'agent', 20), row('working', 'auto', 10), row('blocked', 'auto', 9, { on: 'provider api (rate_limit)' }), row('idle', 'auto', 1)];
+  assert.deepEqual(away.lastWait(hist, { nowMs: NOW }), { state: 'blocked', atMs: NOW - 20 * H });
+  // Only an automatic outage: no wait.
+  assert.equal(away.lastWait([row('blocked', 'auto', 9), row('idle', 'auto', 1)], { nowMs: NOW }), null);
+  // A clock that ran ahead: a wait dated after now is not trusted.
+  assert.equal(away.lastWait([{ state: 'blocked', by: 'agent', at: NOW + H }], { nowMs: NOW }), null);
+});

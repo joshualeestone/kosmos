@@ -19211,7 +19211,9 @@ const server = http.createServer(async (req, res) => {
        board), with no agent parameter, so an agent holding only its own token reads only its own. `at=startup` is
        Kosmos's Claude Code hook, called before it reports `started`, so the window starts at the agent's latest report;
        otherwise it is the window that startup had. `as=hook` answers the SessionStart hook JSON or an empty body, on
-       every failure too; `as=text` the lines a person reads; otherwise JSON. Nothing is cleared. */
+       every failure too; `as=text` the lines a person reads; otherwise JSON. Nothing is cleared. kosmos#8634: on the
+       startup path the hook JSON also says when the agent's own last report was a wait (needs_you or blocked) that
+       nothing has ended since, and the JSON form carries it as `wait`. */
     req.resume();
     let as = null;
     let fromPane = null;
@@ -19243,13 +19245,15 @@ const server = http.createServer(async (req, res) => {
       /* At a startup the window starts at the latest report, which the default tail always holds. By hand it needs the
          report before the newest `started`, which a busy session can push past that tail, so the longer read is used. */
       // The Windows hook (as=hook without at=startup) asks right after its own `started`, which the default tail holds.
-      const hist = startup || as === 'hook' ? selfreport.history(name) : selfreport.history(name, selfreport.HISTORY_MAX_BYTES);
+      /* kosmos#8634: one long read serves both: the window needs only the latest rows, and a standing wait can sit a day
+         back under a busy agent's automatic reports, past the short read. */
+      const hist = selfreport.history(name, selfreport.HISTORY_MAX_BYTES);
       const win = away.windowFrom(hist, { startup, nowMs: now });
-      /* kosmos#8634: a wait the agent reported before it went down, which its restart's own reports replaced on the board.
-         A wait can be a day old under a busy agent's automatic reports, past the short read, so it is looked for in the
-         long one (once per startup). */
+      /* kosmos#8634: the agent's own wait from before a restart, which the new run's `started` replaced on the board
+         (#1058). Only on the startup path (the Mac hook's at=startup, the Windows hook's as=hook): by hand, inside a
+         session, a wait the agent just reported is still on the board and is not this. */
       let wait = null;
-      try { wait = away.lastWait(startup || as === 'hook' ? selfreport.history(name, selfreport.HISTORY_MAX_BYTES) : hist, { nowMs: now }); } catch { wait = null; }
+      if (startup || as === 'hook') { try { wait = away.lastWait(hist, { nowMs: now }); } catch { wait = null; } }
       let digest = away.build({ name, sinceMs: NaN, untilMs: NaN });
       let unread = false;   // a record that could not be read: "nothing arrived" would then be a guess
       if (win) {
