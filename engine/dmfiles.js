@@ -38,7 +38,7 @@
  * (tellAgent, which the boot sweep runs for every agent), so the agent has a real
  * folder to save into and attach from before its first save. ensureFolder makes only
  * that one folder, inside a folder that is already there (followed if it is a link, as
- * the Files route does), never where Files itself is a link, and never in a folder the
+ * the Files routes' own parent check does), never where Files itself is a link, and never in a folder the
  * person brought in (a connected agent). The Reveal button does make it there: the
  * person asked for it then.
  */
@@ -132,8 +132,12 @@ function ensureFolder(sessionName) {
      that fails to load; refused, the safe way. */
   try { connected = require('./create').recordedDirSpelling(sessionName); } catch { connected = 'unknown'; }
   if (connected === 'unknown') return answer(false, false, 'we could not load the check for a folder you brought in');
-  if (connected) return answer(false, false, 'it works in a folder you brought in, so Kosmos does not add a folder to it', { connected: true });
   const dir = filesDir(sessionName);
+  /* Connected only when Files would really land in the recorded folder: one that is gone or unusable makes filesDir fall
+     back to the agent's own Kosmos folder, and there the folder is made as for any agent. */
+  if (connected && dir && path.resolve(path.dirname(dir)) === path.resolve(connected)) {
+    return answer(false, false, 'it works in a folder you brought in, so Kosmos does not add a folder to it', { connected: true });
+  }
   if (!dir) return answer(false, false, 'it has no folder of its own on this computer');
   try {
     if (!fs.statSync(path.dirname(dir)).isDirectory()) return answer(false, false, 'its own folder is not a folder');
@@ -342,7 +346,7 @@ function tellAgent(sessionName, roster, opts) {
        verdict: the block still tells the agent to create it if it is missing. */
     /* The reason a folder could not be made rides as `folder`, so the boot sweep can say it (a connected agent's is
        not a failure and is not said). */
-    const folderNote = () => { const f = ensureFolder(sessionName); return f.ok || f.connected ? {} : { folder: f.because }; };
+    const folderNote = () => { const f = ensureFolder(sessionName); return f.ok || f.connected ? {} : { folder: f.code ? `${f.because} (${f.code})` : f.because }; };
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false, ...folderNote() };
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: WROTE_WHY });
     return { state: projects.TOLD.TOLD, because: null, changed: true, ...folderNote() };   // kosmos#5304: the running agent is owed a re-read

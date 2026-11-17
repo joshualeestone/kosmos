@@ -22667,7 +22667,9 @@ const server = http.createServer(async (req, res) => {
                block existed. */
             ['how to connect a provider', () => connections.syncEveryone(roster), 'connections'],
             /* #3614: where to save a file made for the person in a direct message. Per-agent
-               (it names each agent's own folder), and a no-op once an agent has it. */
+               (it names each agent's own folder), and a no-op once an agent has it. #8617: it also makes an
+               agent's Files folder when it is missing (dmfiles.ensureFolder); a folder it could not make is said
+               by the boot sweep, not here. */
             ['where to save the files it makes', () => dmfiles.syncEveryone(roster), 'dmfiles'],
           ];
           for (const [what, run, section] of sideWork) {

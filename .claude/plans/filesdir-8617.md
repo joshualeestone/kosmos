@@ -100,3 +100,10 @@ measured; the new test file runs on Windows (tools/windows-tests.js) but its lin
   - WARNING fixed: a test comment still said the file was not in the Windows run.
   - NIT fixed: failure messages read as expectations. Not acted on: merging the stacked comments in tellAgent; the
     About-you save not saying a missing folder (the boot line does).
+- Round 7 (blind, opus): no BLOCKER, 2 WARNING, 4 NIT.
+  - WARNING fixed: an agent whose recorded folder is gone falls back to its own Kosmos folder, yet was treated as
+    connected and got no Files; connected now means Files would really land in the recorded folder. Tested.
+  - WARNING fixed: a folder not made at birth is now a non-gating creation step, like the other optional birth steps;
+    the create test asserts a made folder adds no such step.
+  - NITs fixed: the error code rides in the boot line; header wording; the About-you comment says it makes folders.
+    Not acted on: a test of the boot line's text itself.
