@@ -410,6 +410,17 @@ const verifiedStamp = (m) => `${m.version} ${m.binInPackage}`;
 function isVerified(m, platform = process.platform, provider = 'openai') {
   try { return fs.readFileSync(verifiedMarker(platform, provider), 'utf8').trim() === verifiedStamp(m); } catch { return false; }
 }
+/* kosmos#8593 (Windows): the version an EARLIER build's marker vouches for, when it vouches for the same binary path as
+   the pin (`<x.y.z> <binInPackage>`), else null. A marker naming another path does not vouch for what is at managedBin
+   now, so it is not read as an older install of it. */
+function verifiedVersion(m, platform = process.platform, provider = 'openai') {
+  let text;
+  try { text = fs.readFileSync(verifiedMarker(platform, provider), 'utf8').trim(); } catch { return null; }
+  const sp = text.indexOf(' ');
+  if (sp < 0 || text.slice(sp + 1) !== m.binInPackage) return null;
+  const v = text.slice(0, sp);
+  return /^\d+\.\d+\.\d+$/.test(v) ? v : null;
+}
 
 /* kosmos#8593: the version of the managed Mac/Linux tree on disk, read from the package.json its npm tarball carries
    (unpacked with --strip-components 1, so it sits at <runner>/pkg/package.json; Codex writes its version as
@@ -758,6 +769,27 @@ function authenticodeOf(file) {
       });
   });
 }
+/* kosmos#8593 (Windows): whether any process runs a program from inside `dir` (the managed runner folder): true, false,
+   or null when Windows could not be asked (no answer, no sentinel), which callers treat as running. One CIM read of every
+   process's image path; the folder rides in the environment, not the command, and is matched case-insensitively with
+   its trailing separator, so a sibling folder that merely shares the prefix (openai-old) does not count. */
+const RUNNING_OK = 'KOSMOS-RUNNING-READ-OK';
+function managedProcessRunning(dir) {
+  return new Promise((resolve) => {
+    const ps = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const script = '$d = $env:KOSMOS_RUNNER_DIR.TrimEnd([char]92) + [char]92; '
+      + '$n = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($d, [StringComparison]::OrdinalIgnoreCase) }).Count; '
+      + `[Console]::Out.Write("$n ${RUNNING_OK}")`;
+    execFile(ps, ['-NoProfile', '-NonInteractive', '-Command', script],
+      { windowsHide: true, timeout: 60000, env: Object.assign({}, process.env, { KOSMOS_RUNNER_DIR: dir }) },
+      (err, stdout) => { resolve(err ? null : parseRunning(stdout)); });
+  });
+}
+/** What managedProcessRunning's PowerShell printed -> true/false/null. Pure, exported for tests. */
+function parseRunning(out) {
+  const m = new RegExp(`^(\\d+) ${RUNNING_OK}$`).exec(String(out == null ? '' : out).trim());
+  return m ? Number(m[1]) > 0 : null;
+}
 /** Whether an Authenticode answer is Google's. Pure. */
 function agySignedByGoogle(sig) {
   return !!sig && sig.status === 'Valid' && AGY_SIGNER.test(String(sig.subject || '')) && AGY_SIGNER_ORG.test(String(sig.subject || ''));
@@ -969,6 +1001,11 @@ function resolveBin(provider, opts) {
      there, and that marker is written after --version succeeds and removed before
      any new tree is swapped in. */
   if (plat === 'win32' && isRunnable(managed) && !isVerified(mf, plat)) {
+    /* kosmos#8593 (Windows): a tree an OLDER build's marker vouches for ran its --version when that build installed it,
+       so it is still a runner (agents keep starting on it) but STALE, and the board's upgrade sweep replaces it. Only
+       older counts, as on the Mac: a newer marker (another board with a later pin) is not downgraded. */
+    const was = verifiedVersion(mf, plat);
+    if (was && olderVersion(was, mf.version)) return { bin: managed, present: true, managed: true, overridden: false, stale: true, installedVersion: was };
     const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/codex';
     if (isRunnable(legacy)) return { bin: legacy, present: true, managed: false, overridden: false };
     return { bin: managed, present: false, managed: true, overridden: false };
@@ -1535,9 +1572,19 @@ function install(provider, opts) {
   const doDownload = o.download || download;
 
   const job = { ...blankJob(), phase: 'downloading', receivedBytes: 0, totalBytes: m.downloadBytes, version: m.version };
-  /* kosmos#8593: replacing a stale Mac/Linux runner. Kept off the API's job shape (non-enumerable), read by installing()
+  /* kosmos#8593: replacing a stale managed runner (Windows too, only while none of its agents runs, below). Kept off the API's job shape (non-enumerable), read by installing()
      and by the swap below, which keeps the previous tree until the new one proves itself. */
-  const upgrading = existing.stale === true && plat !== 'win32';
+  const upgrading = existing.stale === true;
+  /* kosmos#8593 (Windows): Windows lets the tree's folder be renamed while a codex.exe in it runs (measured on the
+     Windows box 2026-11-17), so a swap would leave a running older Codex starting its code-mode host from the NEW tree,
+     the #8598 failure, and the restart sweep that answers it on the Mac reads tmux, which Windows does not have. So a
+     Windows upgrade swaps only while NO process runs from the managed folder, asked again just before the swap; an
+     answer that cannot be read counts as running (the safe direction: the old version stays). Seam: o.codexRunning,
+     (dir) => Promise<boolean|null>. */
+  const codexRunning = o.codexRunning || managedProcessRunning;
+  // The marker the old tree carried, written back if this upgrade puts that tree back (restorePrevious).
+  let previousStamp = null;
+  if (upgrading && plat === 'win32') { try { previousStamp = fs.readFileSync(verifiedMarker(plat, provider), 'utf8').trim(); } catch { previousStamp = null; } }
   Object.defineProperty(job, 'upgrade', { value: upgrading, enumerable: false });
   jobs[provider] = job;
 
@@ -1632,13 +1679,28 @@ function install(provider, opts) {
         restorePrevious = () => {
           if (tried) return restored;
           tried = true;
-          if (!setAside || !fs.existsSync(pkgOld)) return false;   // never set aside by this run: pkg/ is still the previous tree
+          /* Windows: the marker came down before the set-aside, so a swap that failed before moving anything (the rename
+             refused) still has the previous tree at pkg/ with nothing vouching for it. Its marker goes back. */
+          const vouchAgain = () => {
+            if (plat !== 'win32' || !previousStamp) return false;
+            fs.writeFileSync(verifiedMarker(plat, provider), previousStamp + '\n');
+            return true;
+          };
+          if (!setAside || !fs.existsSync(pkgOld)) {   // never set aside by this run: pkg/ is still the previous tree
+            if (setAside) return false;   // set aside, then lost: nothing to put back
+            try { restored = vouchAgain(); } catch (e) { console.warn(`[runners] ${provider} could not vouch for the previous version again: ${e && e.code}`); }
+            return restored;
+          }
           try {
             fs.rmSync(pkgDir, { recursive: true, force: true });
             fs.renameSync(pkgOld, pkgDir);
-            const link = path.join(destDir, m.binName);
-            fs.rmSync(link, { force: true });
-            fs.symlinkSync(path.relative(destDir, path.join(pkgDir, binInPackage)), link);
+            if (plat === 'win32') {
+              vouchAgain();   // no link on Windows: the binary inside the tree is the runner, and the marker vouches for it
+            } else {
+              const link = path.join(destDir, m.binName);
+              fs.rmSync(link, { force: true });
+              fs.symlinkSync(path.relative(destDir, path.join(pkgDir, binInPackage)), link);
+            }
             restored = true;
           } catch (e) { console.warn(`[runners] ${provider} could not put the previous version back: ${e && e.code}`); }
           return restored;
@@ -1704,6 +1766,14 @@ function install(provider, opts) {
       // (A no-op on win32, where executability is the .exe suffix.)
       fs.chmodSync(path.join(pkgNew, binInPackage), 0o755);
       try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch { /* the sweep gets it */ }
+      if (upgrading && plat === 'win32') {   // asked again here, the last moment before the swap (see codexRunning)
+        let busy = null;
+        try { busy = await codexRunning(destDir); } catch { busy = null; }
+        if (busy !== false) {
+          fail(`${m.name || 'the runner'} has a newer version ready, but ${busy === true ? 'an agent is running on the version already here' : 'we could not check whether an agent is running on the version already here'}, so that version is kept; it updates once none is`);
+          return;
+        }
+      }
       stage = 'swap';
       job.swapping = true;   // installing() counts an upgrade from here: the tree about to be in place is unproven
       Object.defineProperty(job, 'swapping', { enumerable: false });
@@ -2117,4 +2187,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, installedVersion, upgradeStamp, UPGRADE_STAMP, olderVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, installedVersion, verifiedVersion, managedProcessRunning, parseRunning, upgradeStamp, UPGRADE_STAMP, olderVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };

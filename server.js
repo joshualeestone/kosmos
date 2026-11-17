@@ -29366,7 +29366,7 @@ function start(port = PORT) {
          AGENT_WORKFORCE_CLASS1_AUTOHANDLE_OFF=1 as an operator emergency brake.
          safeRoster(), NEVER paneRoster(): it needs the reconciled state + stateReportedBy
          the full snapshot cards carry. */
-      /* kosmos#8593: the bundled Codex follows the pin. A managed Mac/Linux Codex older than engine/runners.js's pin
+      /* kosmos#8593: the bundled Codex follows the pin. A managed Codex older than engine/runners.js's pin
          (resolveBin's `stale`) is replaced in the background, so a pin bump reaches computers that already have Codex,
          not only new installs (before this, nothing ever upgraded one: the user who asked for gpt-6-astra would have
          kept 0.149.1). Running agents are not restarted; a new launch gets the new version (one already running reads its
@@ -29389,9 +29389,19 @@ function start(port = PORT) {
           const pin = runners.manifestFor('openai').version;
           const tries = runnerUpgradeTries.get(pin) || 0;
           if (tries >= RUNNER_UPGRADE_TRIES) return;
-          runnerUpgradeTries.set(pin, tries + 1);
-          const job = runners.install('openai');
-          process.stdout.write(`runner-upgrade: openai ${r.installedVersion || '?'} -> ${runners.manifestFor('openai').version}: ${job && job.phase}\n`);
+          const start = () => {
+            runnerUpgradeTries.set(pin, (runnerUpgradeTries.get(pin) || 0) + 1);
+            const job = runners.install('openai');
+            process.stdout.write(`runner-upgrade: openai ${r.installedVersion || '?'} -> ${pin}: ${job && job.phase}\n`);
+          };
+          /* kosmos#8593 (Windows): a Windows upgrade swaps only while no agent runs from the managed folder
+             (runners.install says why), so the sweep asks first and waits for its next look instead of downloading a
+             tree it cannot swap in. A wait is not a try: an agent that keeps running must not use up the three. */
+          if (process.platform !== 'win32') { start(); return; }
+          runners.managedProcessRunning(path.join(runners.managedRoot(), 'openai')).then((busy) => {
+            if (busy !== false) { process.stdout.write(`runner-upgrade: openai ${r.installedVersion || '?'} -> ${pin}: waiting (${busy === true ? 'an agent is running on it' : 'could not check'})\n`); return; }
+            try { start(); } catch (err) { console.warn(`[runner-upgrade] ${String((err && err.message) || err)}`); }
+          }, () => {});
         } catch (err) { console.warn(`[runner-upgrade] ${String((err && err.message) || err)}`); }
       };
       const runnerUpgradeFirst = setTimeout(runnerUpgradeTick, 2 * 60 * 1000);
@@ -29402,7 +29412,7 @@ function start(port = PORT) {
          every code-mode call fails until it restarts (measured on the card). Once a minute, restart at its next idle
          point a managed Codex agent whose process predates the swap and has no code-mode host from before it
          (engine/runnerrestart.js says who and why; a restart starts the conversation over, so the safe case is left
-         alone). Mac/Linux only (Windows stays on 0.149.1). Gated like the sweeps here; brake
+         alone). Mac/Linux only (a Windows upgrade waits until no agent runs on the old tree, so none is left on it). Gated like the sweeps here; brake
          AGENT_WORKFORCE_RUNNER_RESTART_OFF=1. */
       const runnerRestartTick = require('./engine/runnerrestart').makeTick({
         run: (cmd, args) => new Promise((resolve) => {
