@@ -7,8 +7,8 @@ An agent that holds a room post id (a notice, a reply's --in-reply-to) has to li
 had a listing over 35 KB, cut off, and several agents answering the same post.
 
 ## Decision
-- Board (server.js, the room route's text view): ?post=<id> returns that one post (archive included: it was asked for
-  by id); ?since=<id> returns the live rows after it, OLDEST first, up to n (default 40), with how many more and the
+- Board (server.js, the room route's text view): ?post=<id> returns that one post (refused when it is in the room's
+  archive: archiving promises the person its posts leave what agents read); ?since=<id> returns the live rows after it, OLDEST first, up to n (default 40), with how many more and the
   exact `kosmos room <project> --since <last id>` for them; archived rows skipped are said, never hidden. A head line
   "Read by id: " marks the answer. Malformed id, unknown id, both flags, or with --unanswered: refused in words.
 - CLI (install/kosmos): --post <id>, --since <id> (and = forms); [m42] or m42; refused before any request when

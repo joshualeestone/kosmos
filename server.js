@@ -24643,7 +24643,7 @@ const server = http.createServer(async (req, res) => {
            a post the reader makes later counts for a held ask from that moment (messages.laterOwnPost). */
         let toldFor = new Map();
         if (readerName) { try { toldFor = roomhold.toldIn(readerName, id); } catch { toldFor = new Map(); } }
-        /* kosmos#8616: read by id. One post (--post), wherever it sits, archive included, since it was asked for by name;
+        /* kosmos#8616: read by id. One post (--post), unless it is in the room's archive (review 1: agents do not read the archive);
            or the live rows after one (--since), OLDEST first, up to textRows (-n), saying how many more there are and the
            exact command for them, so an agent can read a busy room forward from the post it last read. Said in a head line
            (ROOM_BY_ID_HEAD), so it never reads as the whole room and a CLI can tell a board that ignored ?post/?since. */
@@ -24678,7 +24678,7 @@ const server = http.createServer(async (req, res) => {
             byIdHead = (total === 0 ? ROOM_BY_ID_HEAD + 'nothing after ' + want + ' yet.\n'
               : ROOM_BY_ID_HEAD + total + (total === 1 ? ' row' : ' rows') + ' after ' + want
                 + (more ? '; the oldest ' + tail.length + ' are below, then ' + more + ' more ('
-                  + (lastId ? 'read them with kosmos room ' + id + ' --since ' + lastId : 'read them with a larger -n') + ')' : '') + ':\n')
+                  + (lastId ? 'read them with kosmos room ' + id + ' --since ' + lastId + (textRows !== messages.ROOM_READ_ROWS ? ' -n ' + textRows : '') : 'read them with a larger -n') + ')' : '') + ':\n')
               + (skipped ? '[kosmos] ' + skipped + (skipped === 1 ? ' row' : ' rows') + ' right after ' + want + ' ' + (skipped === 1 ? 'is' : 'are')
                 + ' in this room\'s archive and not shown here.\n' : '');
           }

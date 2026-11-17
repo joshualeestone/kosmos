@@ -86,7 +86,7 @@ test('kosmos#8616: --since reads the rows after the post, oldest first, up to n,
   assert.ok(order.every((x, k) => x > 0 && (k === 0 || x > order[k - 1])), 'not all, or not oldest first:\n' + all.text);
   assert.ok(!shown(all.text, ids[0]) && !shown(all.text, ids[1]), 'the post itself or an older one came too:\n' + all.text);
   const page = await room(pid, '&since=' + ids[1] + '&n=2');
-  assert.ok(page.text.includes('Read by id: 4 rows after ' + ids[1] + '; the oldest 2 are below, then 2 more (read them with kosmos room ' + pid + ' --since ' + ids[3] + '):\n'), page.text);
+  assert.ok(page.text.includes('Read by id: 4 rows after ' + ids[1] + '; the oldest 2 are below, then 2 more (read them with kosmos room ' + pid + ' --since ' + ids[3] + ' -n 2):\n'), page.text);
   assert.ok(shown(page.text, ids[2]) && shown(page.text, ids[3]) && !shown(page.text, ids[4]), 'n=2 is not the OLDEST two after it:\n' + page.text);
   const last = await room(pid, '&since=' + ids[5]);
   assert.ok(last.text.includes('Read by id: nothing after ' + ids[5] + ' yet.\n'), last.text);
