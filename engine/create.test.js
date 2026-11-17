@@ -3989,6 +3989,9 @@ test('setModel rewrites the startup file and keeps everything else about the job
   assert.equal(create.plannedModelArg(name), 'claude-opus-5-5');
   assert.equal(create.modelFor('anthropic', 'claude-sonnet-5').key, 'sonnet');
   assert.equal(create.modelFor('anthropic', 'claude-opus-5-5x'), null, 'CONTROL: a near id is not a model');
+  const padded = create.setModel(name, ' claude-sonnet-5-5 ');
+  assert.equal(padded.outcome, create.OUTCOME.CREATED, 'a pasted id with spaces around it was refused: ' + padded.because);
+  assert.equal(create.plannedModelArg(name), 'claude-sonnet-5-5');
 
   /* 🛑 AND AN AGENT KOSMOS DID NOT START IS REFUSED, not regenerated. We have no
      record of which binaries it was built against. */
