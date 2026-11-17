@@ -4757,10 +4757,11 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
 /* #4937: the Documents screen's In the project folder | From this conversation switch. Each segment shows
    only its own parts; the folder's count, pager and sentence go with the folder. */
 .docs-seg { margin: 0 0 var(--space-5); }
-#pj-docs-view[data-docseg="convo"] :is(#docs-count, #docs-list, #docs-pager, #docs-msg, #docs-sortrow) { display: none; }
-/* kosmos#8627: the folder list's sort, on its own line above the count. */
+#pj-docs-view[data-docseg="convo"] :is(#docs-count, #docs-list, #docs-pager, #docs-msg) { display: none; }
+/* kosmos#8627: the folder list's sort, on its own line above the count, and gone with the folder's other parts when
+   the conversation's files show. */
 #docs-sortrow { margin: 0 0 8px; }
-#docs-sortrow[hidden] { display: none; }
+#docs-sortrow[hidden], [data-docseg="convo"] #docs-sortrow { display: none; }
 #pj-docs-view:not([data-docseg="convo"]) #docs-convo { display: none; }
 /* A phone: both segments share the row (measured: 344px of words in a 296px view at 320px wide). */
 @media (max-width: 400px) {
@@ -6859,7 +6860,8 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    Touch screens and any coarse pointer: desktop is unchanged. */
 @media (hover: none), (pointer: coarse) {
   #d-term-say { font-size: 16px; min-height: 44px; }
-  :is(#d-open-terminal, #d-remove-start, #d-term-send, #d-trust-restart, #team-orgchart-open, #plus-site-link, #pj-sort, #d-files-sort, #docs-sort) { min-height: 44px; }
+  :is(#d-open-terminal, #d-remove-start, #d-term-send, #d-trust-restart, #team-orgchart-open, #plus-site-link, #pj-sort) { min-height: 44px; }
+  :is(#d-files-sort, #docs-sort) { min-height: 44px; }   /* kosmos#8627: the Files sorts, as #pj-sort */
   #plus-site-link { display: inline-flex; align-items: center; }
   #tsk-back { position: relative; }
   #tsk-back::after { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
