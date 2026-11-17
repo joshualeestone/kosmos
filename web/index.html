@@ -44629,7 +44629,10 @@ function earlierRepaint() {
   /* the last read FAILED and the thread says so: an earlier load does not draw over it. kosmos#8629 review 7: but the
      older line above the kept rows is still brought up to date, or "Loading earlier messages..." outlived its load for as
      long as the reads kept failing (and a failed earlier load never offered Try again). */
-  if (thread.__readFailed) { paintOlderLine(thread.__lastBody, thread.__lastSession); return; }
+  if (thread.__readFailed) {   // review 8: only over kept rows; a sentence alone (refusal, no list yet) keeps it hidden
+    if (thread.querySelector('[data-mid]')) paintOlderLine(thread.__lastBody, thread.__lastSession);
+    return;
+  }
   paintTalkThread(thread.__lastBody, thread.__lastName);
   paintOlderLine(thread.__lastBody, thread.__lastSession);
 }
