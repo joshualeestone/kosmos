@@ -28330,7 +28330,7 @@ function showTab(tab) {
     if (rr) rr.innerHTML = '';
   } else { paintRemoved(); paintSurvival(); }
   PANELS.forEach((p) => { document.getElementById('panel-' + p).hidden = (p !== tab); });
-  if (tab === 'settings') { centreSettingsPill(); refreshSurvivalHidden(); }
+  if (tab === 'settings') { centreSettingsPill(); refreshSurvivalHidden(); if (SETTINGS_SEC === 'you' && typeof blockedPaint === 'function') blockedPaint(); }   // #8631: arriving without settingsGo
   /* #1615: un-blue + tear down the Plus canvases when leaving Settings (or when
      the Settings section is not Plus); re-blue + re-mount on return. The Settings
      section persists across tab switches, so this must run on every tab change,
@@ -79815,7 +79815,7 @@ let PJ_ROOM_GEN = 0;
 const PJ_WIN_PAGE = 200;
 const PJ_WIN_HOLD_MAX = 1000;   // rows held because new posts ARRIVED, at most (reviews 6, 7); the live count Mona's design keeps
 const PJ_WIN = { pid: null, older: [], byReader: false, paintedAt: 0, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: 0, archivedCount: 0, archiveMarker: null };
-function pjWinReset(pid) { Object.assign(PJ_WIN, { pid, older: [], byReader: false, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1, archivedCount: 0, archiveMarker: null }); pjWinOlderLine(); }
+function pjWinReset(pid) { Object.assign(PJ_WIN, { pid, older: [], byReader: false, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1, archivedCount: 0, archiveMarker: null }); pjWinOlderLine(); if (typeof pjBlockedNoteSet === 'function') pjBlockedNoteSet(null); }   // #8631: another room's line goes
 /* The line over the room's top: "Loading earlier messages..." while a page is read; after a failed read, why, with Try
    again, which stays until the person presses it (a scroll event must not turn one failure into a stream of requests,
    as the Direct conversation's line learned, #6086). Nothing at all otherwise. */
@@ -81026,18 +81026,29 @@ function xReportBody(row, projectId, projectName, account) {
     'Sent: ' + ((row && row.at) || ''),
     '',
     'The message:',
-    words.length > 2000 ? words.slice(0, 2000) + ' (cut)' : words,
+    // Cut by character, as the phone's prefix(2000) does: a cut inside an emoji leaves half of it, which encodeURIComponent refuses.
+    Array.from(words).length > 2000 ? Array.from(words).slice(0, 2000).join('') + ' (cut)' : words,
     '',
     'Why I am reporting it (optional):',
     '',
   ].join('\n');
 }
-/* The outside row a button names, from the room as last read (PJ_WIN), so the report carries its words and time. */
+/* The outside row a button names, from whatever the room painted it from: the window (PJ_WIN), a search's whole-room
+   read (#pj-room's __lastBody), or the archive (PJ_ARCH). The report carries its words and time. */
 function xRowById(id) {
-  const all = [].concat((typeof PJ_WIN !== 'undefined' && PJ_WIN.older) || [], (typeof PJ_WIN !== 'undefined' && PJ_WIN.newest) || []);
+  const box = document.getElementById('pj-room');
+  const all = [].concat((typeof PJ_WIN !== 'undefined' && PJ_WIN.older) || [], (typeof PJ_WIN !== 'undefined' && PJ_WIN.newest) || [],
+    (box && box.__lastBody && Array.isArray(box.__lastBody.rows)) ? box.__lastBody.rows : [],
+    (typeof PJ_ARCH !== 'undefined' && Array.isArray(PJ_ARCH.rows)) ? PJ_ARCH.rows : []);
   return all.find((r) => r && r.kind === 'external' && r.id === id) || null;
 }
+let XREPORT_BUSY = false;   // one report at a time: a second press while the sender is read would open a second mail
 async function xReport(id) {
+  if (XREPORT_BUSY) return;
+  XREPORT_BUSY = true;
+  try { await xReportSend(id); } finally { XREPORT_BUSY = false; }
+}
+async function xReportSend(id) {
   const pid = typeof PJ_CURRENT !== 'undefined' ? PJ_CURRENT : null;
   const row = xRowById(id);
   const say = document.getElementById('pj-room-msg');
@@ -81065,7 +81076,11 @@ let XBLOCK = null;
 function xBlockAsk(id, btn) {
   const pid = typeof PJ_CURRENT !== 'undefined' ? PJ_CURRENT : null;
   const row = xRowById(id);
-  if (!pid || !row) return;
+  if (!pid || !row) {
+    const say = document.getElementById('pj-room-msg');
+    if (say) say.textContent = 'We could not find that message. Read the room again and try once more.';
+    return;
+  }
   const name = row.from || 'this person';
   XBLOCK = { project: pid, id, name, back: btn || null };
   document.getElementById('xblock-small').textContent = 'You will not see messages from ' + name + "'s account (the person, their agents and their other computers) in any shared room, on this computer and on the phone that shows it. They are not told. You can unblock them in Settings, Your Profile.";
@@ -81112,6 +81127,7 @@ document.getElementById('xblock-go').addEventListener('click', async () => {
       PJ_WIN.older = (PJ_WIN.older || []).filter((r) => !(r && r.kind === 'external' && gone.has(r.id)));
       PJ_WIN.stamp = null;
     }
+    if (typeof PJ_ARCH !== 'undefined' && Array.isArray(PJ_ARCH.rows)) PJ_ARCH.rows = PJ_ARCH.rows.filter((r) => !(r && r.kind === 'external' && gone.has(r.id)));
     if (typeof loadRoom === 'function') { try { await loadRoom(); } catch { /* the next poll repaints */ } }
   } catch {
     if (XBLOCK === d) { say.textContent = 'We could not reach Kosmos to block them. Try again in a moment.'; btn.disabled = false; }
@@ -81122,8 +81138,16 @@ document.addEventListener('click', (e) => {
   if (!t) return;
   if (t.hasAttribute('data-ext-report')) xReport(t.getAttribute('data-ext-report'));
   else if (t.hasAttribute('data-ext-block')) xBlockAsk(t.getAttribute('data-ext-block'), t);
-  else { showTab('settings'); settingsGo('you', { focus: false }); const box = document.getElementById('you-blocked-box'); if (box && !box.hidden) box.focus(); }
+  else xBlockedOpen();
 });
+/* The room note's link: Settings, Your Profile, then the Blocked box once its list has been read (it is hidden until then). */
+async function xBlockedOpen() {
+  showTab('settings');
+  settingsGo('you', { focus: false });
+  await blockedPaint();
+  const box = document.getElementById('you-blocked-box');
+  if (box && !box.hidden) { box.scrollIntoView({ block: 'nearest' }); box.focus({ preventScroll: true }); }
+}
 /* #8631: the room's one line when a block hides messages in it (the room read's hiddenBlocked), so messages that left
    are never unexplained. Set from every read, before the window decides whether to repaint. */
 function pjBlockedNoteSet(body) {
@@ -82355,7 +82379,6 @@ function pjRoomRow(m, p, hideHeader) {
          one shape the block and sender routes name an outside message by. Quiet text buttons, always shown: a hover-only
          control is one a person at the computer may never find, and these are the only way to act on an outside sender. */
       + (m.sameAccount !== true && /^x-[0-9a-fA-F-]{8,64}$/.test(String(m.id || ''))
-        /* On the time's line, so the bubble grows by nothing (the first build gave them a row of their own). */
         ? '<div class="msg-ext-act"><button type="button" class="linkish" data-ext-report="' + esc(String(m.id)) + '">Report</button>'
           + '<button type="button" class="linkish" data-ext-block="' + esc(String(m.id)) + '">Block</button>'
           + (whenX ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>'
