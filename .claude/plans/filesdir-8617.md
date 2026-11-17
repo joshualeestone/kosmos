@@ -51,7 +51,7 @@ Files as an invitation. Nothing in the tree does today (the page lists it; reply
 ## Not measured
 
 Windows: a junction or reparse point named Files is reasoned to read as EEXIST and then not a directory under lstat, not
-measured; the new test file is not in the Windows run (symlinks there need elevation).
+measured; the new test file runs on Windows (tools/windows-tests.js) but its link arm skips there (symlinks need elevation).
 
 ## Tests
 
@@ -89,3 +89,6 @@ measured; the new test file is not in the Windows run (symlinks there need eleva
     the dash tells them apart.
   - NIT recorded in Decided: a deleted empty Files comes back on the next start. Other NITs (a shared reason string, the
     create.js comment, one assertion message's phrasing) not acted on.
+- Final validation (6j) failed on one guard: windows-tests-1777 (a test that branches on a win32 host must run on
+  Windows or be excluded with a reason), from the round 3 skip. Fixed by adding the file to the Windows run
+  (tools/windows-tests.js ALSO), so the folder logic now runs on a real Windows disk; the link arm skips there.
