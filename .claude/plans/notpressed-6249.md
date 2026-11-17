@@ -43,12 +43,14 @@ A person who deletes their own words and leaves exactly our line may have been a
 later sends it. The same is already true of any plain unsent line today, so this adds no new kind of risk. It does add
 one more case where it can happen. And in the not-pressed case someone was typing in that box under 2 seconds
 earlier, so a person is likelier to be at it than for a plain unsent line, and the 30 s first retry is the one most
-likely to land mid-edit. Still bounded by the whole-line match.
+likely to land mid-edit. So a line kept beside other text skips the 30 s retry; its first press is the 2 min one.
+Still bounded by the whole-line match.
 
 ## Stated limit
 
 A line kept beside other text counts only in a box of 6 rows or fewer (STUCK_ROWS_MAX), because a box of 7 or more may
-be hiding rows above, where that other text may be. At 80 columns that is roughly 450 characters; a longer line is
+be hiding rows above, where that other text may be (measured for #6717: the box scrolls at 7 rows at pane heights 15,
+24, 40 and 60; a pane under 15 rows is not measured). At 80 columns that is roughly 450 characters; a longer line is
 never pressed once it met other text, even after the other text goes. The #6717 sweep then moves the box into a
 draft after 10 minutes (when it is short enough to read whole) or leaves it. Accepting a visible end would risk the
 other text sitting in the rows above it, which is the one thing this must never send. The sentence a sender reads says
@@ -67,8 +69,8 @@ in composerHolds, not here.
   end of a mixed line is never pressed (CONTROL: a plain one is); the mark survives a restart.
 - engine/chat.composer-6249.test.js: the round 2 test now pins the part that still holds (never pressed while the
   other text is there).
-- Control 1 (re-measured after round 3): the new file against main's chat.js: 8 of 10 fail. The two that pass there
-  are the never-press arms (the scroll limit and the short line), which hold on main because main keeps nothing.
+- Control 1 (re-measured after round 6): the new file against main's chat.js: 11 of 12 fail. The one that passes is the
+  fold test (nothing kept), which holds on main because main keeps nothing.
 - Control 2: with only the `if (kept.mixed) return false;` line removed, the scroll and restart tests fail.
 - engine/autohandoff-log-8021.test.js: the board log's sentence for a line kept beside other text.
 - Focused run: the chat composer/unsent/stuckinput/pastechip/chipshapes/8021 files: 135 pass. Guards
@@ -120,3 +122,11 @@ Challenge loop, capped at 8 rounds unless a BLOCKER is open.
     fewer, and a caller that gives no rows gets no press. Test with a plain-line control; the stated limit updated.
   - NITs fixed: the CONFIRM_WORDS header, the downgrade note's wording, the composer test title points at this file.
   - Mutation check: removing either new guard fails exactly its test.
+- Round 6 (blind, sonnet): no BLOCKER, 3 WARNING, 3 NIT.
+  - WARNING answered by measurement: a shorter pane scrolling sooner. The #6717 measurement already in the code (the
+    box scrolls at 7 rows at pane heights 15, 24, 40 and 60) is now cited at the rule; under 15 rows is unmeasured.
+  - WARNING fixed: a kept line skips the 30 s retry (someone was typing seconds ago); its first press is at 2 min.
+  - WARNING (a note): the record a kept line replaces was already gone, since the box was read empty first; said in
+    the comment.
+  - NITs fixed: the downgrade note sits on the `mixed` spread; the plan's counts re-measured. Not acted on: a test of
+    `keptMixed` without an unsentSeq (no path sets one without the other).
