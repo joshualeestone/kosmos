@@ -655,7 +655,9 @@ function history(sessionName, tailBytes) {
     // #5635 F2: an operator's clear is marked, so a reader can tell it from the agent stopping (projectview.workExcused).
     // kosmos#8634: the hook's and the agent's own are marked too, so a reader can tell the agent's own wait from an automatic one.
     const by = row.by === 'operator' || row.by === 'auto' || row.by === 'agent' ? row.by : null;
-    if (Number.isFinite(at)) out.push(by ? { state: row.state, at, by } : { state: row.state, at });
+    // kosmos#8634: and a held question (#7915), so a reminder to ask it again says --held and buzzes nobody.
+    const held = row.state === 'needs_you' && row.held === true;
+    if (Number.isFinite(at)) out.push({ state: row.state, at, ...(by ? { by } : {}), ...(held ? { held: true } : {}) });
   }
   out.truncated = cut;   // the record is longer than the tail: rows older than out[0] exist and are not here
   return out;

@@ -7,6 +7,9 @@ require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, remo
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const os = require('node:os');
+const path = require('node:path');
+process.env.AGENT_WORKFORCE_DATA = require('node:fs').mkdtempSync(path.join(os.tmpdir(), 'kosmos-away8634-'));   // the held test records reports
 const away = require('./awaydigest');
 
 const H = 60 * 60 * 1000;
@@ -87,4 +90,24 @@ test('any report of its own that is not a wait ends the wait, whatever its state
   }
   // CONTROL: a later wait of its own is the wait (the newer one).
   assert.deepEqual(away.lastWait([row('blocked', 'agent', 20), row('needs_you', 'agent', 10)], { nowMs: NOW }), { state: 'needs_you', atMs: NOW - 10 * H });
+});
+
+test('a held question comes back held, and the reminder says --held so asking again buzzes nobody', () => {
+  const w = away.lastWait([row('needs_you', 'agent', 5, { held: true }), row('started', 'auto', 1)], { nowMs: NOW });
+  assert.deepEqual(w, { state: 'needs_you', atMs: NOW - 5 * H, held: true });
+  assert.match(away.waitText(w), /kosmos report needs_you --held \.\.\., held as before, so nothing buzzes the person/);
+  // CONTROL: an ordinary question is not held and its command has no --held.
+  const plain = away.lastWait([row('needs_you', 'agent', 5), row('started', 'auto', 1)], { nowMs: NOW });
+  assert.equal(plain.held, undefined);
+  assert.doesNotMatch(away.waitText(plain), /--held/);
+});
+
+test('history() keeps a held question\'s flag, and only on a needs_you', () => {
+  const fs = require('node:fs');
+  const selfreport = require('./selfreport');
+  selfreport.record('held-8634', { state: 'needs_you', because: 'which one?', held: true });
+  fs.appendFileSync(selfreport.fileFor('held-8634'), JSON.stringify({ state: 'blocked', held: true, by: 'agent', at: new Date().toISOString() }) + '\n');
+  const h = selfreport.history('held-8634');
+  assert.equal(h[0].held, true, 'a held question lost its flag');
+  assert.equal(h[1].held, undefined, 'a blocked row was given a held flag');
 });

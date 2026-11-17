@@ -73,7 +73,8 @@ function windowFrom(history, { startup, nowMs }) {
    history: the agent's self-reports, oldest first. Returns { state, atMs } when the latest report the AGENT or a PERSON
    made is a needs_you or blocked by the agent, newer than MAX_WINDOW_MS; otherwise null. Automatic reports (the hook's
    started, working, idle, and a permission prompt's needs_you) neither make a wait nor end one. Any other row the agent
-   made, whatever its state, ends it, and so does a person's clear. */
+   made, whatever its state, ends it, and so do a person's clear and a row with no author (written before authors were
+   kept). A held question (#7915) comes back as { held: true }, so the reminder says --held. */
 const WAIT_STATES = new Set(['needs_you', 'blocked']);
 function lastWait(history, { nowMs }) {
   const rows = Array.isArray(history) ? history : [];
@@ -82,7 +83,7 @@ function lastWait(history, { nowMs }) {
     if (!r || !Number.isFinite(r.at) || r.by === 'auto') continue;
     if (r.by !== 'agent' || !WAIT_STATES.has(r.state)) return null;
     if (!(nowMs - r.at <= MAX_WINDOW_MS) || r.at > nowMs) return null;
-    return { state: r.state, atMs: r.at };
+    return r.held === true ? { state: r.state, atMs: r.at, held: true } : { state: r.state, atMs: r.at };
   }
   return null;
 }
@@ -175,7 +176,8 @@ function waitText(wait) {
   return 'Kosmos: before this session, this agent last reported that it was waiting (' + wait.state + ', at '
     + isoSecond(wait.atMs) + '), and it has not said otherwise since. A new run replaces a waiting report on the board, '
     + 'so the board no longer shows it. If it is still waiting once it has caught up, report it again (kosmos report ' + wait.state
-    + ' ...); if not, there is nothing to do.';
+    + (wait.held === true ? ' --held' : '') + ' ...'
+    + (wait.held === true ? ', held as before, so nothing buzzes the person' : '') + '); if not, there is nothing to do.';
 }
 
 function contextText(digest, wait) {
