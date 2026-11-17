@@ -80116,7 +80116,7 @@ let PJ_ROOM_GEN = 0;
 const PJ_WIN_PAGE = 200;
 const PJ_WIN_HOLD_MAX = 1000;   // rows held because new posts ARRIVED, at most (reviews 6, 7); the live count Mona's design keeps
 const PJ_WIN = { pid: null, older: [], byReader: false, paintedAt: 0, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: 0, archivedCount: 0, archiveMarker: null };
-function pjWinReset(pid) { Object.assign(PJ_WIN, { pid, older: [], byReader: false, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1, archivedCount: 0, archiveMarker: null }); pjWinOlderLine(); if (typeof pjBlockedNoteSet === 'function') pjBlockedNoteSet(null); }   // #8631: another room's line goes
+function pjWinReset(pid) { const roomChanged = PJ_WIN.pid !== pid; Object.assign(PJ_WIN, { pid, older: [], byReader: false, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1, archivedCount: 0, archiveMarker: null }); pjWinOlderLine(); if (roomChanged && typeof pjBlockedNoteSet === 'function') pjBlockedNoteSet(null); }   // #8631: another room's line goes
 /* The line over the room's top: "Loading earlier messages..." while a page is read; after a failed read, why, with Try
    again, which stays until the person presses it (a scroll event must not turn one failure into a stream of requests,
    as the Direct conversation's line learned, #6086). Nothing at all otherwise. */
@@ -81391,6 +81391,7 @@ function xBlockAsk(id, btn) {
   document.getElementById('xblock-keep').focus();
 }
 function xBlockClose() {
+  if (XBLOCK && XBLOCK.pending) return;   // the block is being sent; the dialog closes on its answer
   document.getElementById('xblock-modal').hidden = true;
   const back = XBLOCK && XBLOCK.back && XBLOCK.back.isConnected ? XBLOCK.back : null;
   XBLOCK = null;
@@ -81404,6 +81405,7 @@ document.getElementById('xblock-go').addEventListener('click', async () => {
   const say = document.getElementById('xblock-msg');
   if (!d) return;
   btn.disabled = true;
+  d.pending = true;
   say.textContent = 'Blocking\u2026';
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(d.project) + '/room/' + encodeURIComponent(d.id) + '/block',
@@ -81412,6 +81414,7 @@ document.getElementById('xblock-go').addEventListener('click', async () => {
     const mine = XBLOCK === d;
     /* Taken only on the answer that says so; anything else is the board's own reason, or a try-again for a fault. */
     if (!res.ok || !out || out.blocked !== true) {
+      d.pending = false;
       if (mine) {
         const why = out && typeof out.error === 'string' && out.error.trim() ? ': ' + out.error.trim() : '';
         say.textContent = 'We could not block them' + why + (res.status >= 500 ? '. Try again in a moment.' : '.');
@@ -81419,7 +81422,13 @@ document.getElementById('xblock-go').addEventListener('click', async () => {
       }
       return;
     }
-    if (mine) { XBLOCK = null; document.getElementById('xblock-modal').hidden = true; }
+    d.pending = false;
+    if (mine) {
+      XBLOCK = null;
+      document.getElementById('xblock-modal').hidden = true;
+      const post = document.getElementById('pj-post');   // the pressed Block button leaves with the message
+      if (post && post.offsetParent) post.focus({ preventScroll: true });
+    }
     msgToast((out.name || d.name) + ' is blocked. Their messages are hidden; unblock them in Settings, Your Profile.');
     /* The block route removes rows the room already holds (its read leaves them out), so the window's held rows go too:
        the window merge only adds, and a row the room no longer serves would otherwise stay on screen. */
@@ -81431,6 +81440,7 @@ document.getElementById('xblock-go').addEventListener('click', async () => {
     if (typeof PJ_ARCH !== 'undefined' && Array.isArray(PJ_ARCH.rows)) PJ_ARCH.rows = PJ_ARCH.rows.filter((r) => !(r && r.kind === 'external' && gone.has(r.id)));
     if (typeof loadRoom === 'function') { try { await loadRoom(); } catch { /* the next poll repaints */ } }
   } catch {
+    d.pending = false;
     if (XBLOCK === d) { say.textContent = 'We could not reach Kosmos to block them. Try again in a moment.'; btn.disabled = false; }
   }
 });
@@ -81480,7 +81490,12 @@ async function blockedPaint(note) {
     if (res.ok && out && Array.isArray(out.blocked)) people = out.blocked.filter((b) => b && typeof b.account === 'string' && b.account);
   } catch { people = null; }
   if (mine !== BLOCKED_GEN) return;
-  if (!people) { box.hidden = true; return; }
+  if (!people) {
+    // After an Unblock the list on screen stays, with the line; only a first read that fails hides the box.
+    if (note && !box.hidden) { if (msg) msg.textContent = note; return; }
+    box.hidden = true;
+    return;
+  }
   list.innerHTML = people.length
     ? people.map((b) => '<div class="setrow"><div><b>' + esc(b.name || 'Someone outside') + '</b></div>'
       + '<button type="button" class="btn" data-unblock="' + esc(b.account) + '" aria-label="Unblock ' + esc(b.name || 'them') + '">Unblock</button></div>').join('')
@@ -81501,6 +81516,8 @@ document.getElementById('you-blocked').addEventListener('click', async (e) => {
     ok = res.ok && !!out && out.unblocked === true;
   } catch { ok = false; }
   await blockedPaint(ok ? name + ' is unblocked. Their messages are back in your rooms.' : 'We could not unblock ' + name + '. Try again in a moment.');
+  const boxU = document.getElementById('you-blocked-box');   // the pressed Unblock button was repainted away
+  if (boxU && !boxU.hidden) boxU.focus({ preventScroll: true });
   if (ok && typeof PJ_WIN !== 'undefined') PJ_WIN.stamp = null;   // the open room shows them again on its next read
 });
 /* #6949: the room post's 🙋 claim ({by, at}, from the room read or a room route's answer) as the page shows it: the
