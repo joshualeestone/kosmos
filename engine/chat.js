@@ -237,7 +237,8 @@ function loadUnsent() {
   for (const [target, e] of Object.entries(raw)) {
     /* A seq names a message row of the process that wrote it, so a loaded line carries none. */
     if (e && typeof e.wire === 'string' && e.wire && Date.now() - (Number(e.at) || 0) <= UNSENT_KEEP_MS) {
-      /* #6249: a board older than this reads no `mixed`, and would take such a line by a visible end. */
+      /* #6249: a board downgraded to a version from before `mixed` drops the mark, and would take such a line by a
+         visible end. */
       unsentIdNext += 1;
       unsentWires.set(target, { id: unsentIdNext, wire: e.wire, at: Number(e.at) || 0, seq: null, seen: typeof e.seen === 'string' ? e.seen : '',
         target, ...(e.mixed === true ? { mixed: true } : {}), ...(typeof e.chip === 'string' && e.chip ? { chip: e.chip, chipPid: typeof e.chipPid === 'string' ? e.chipPid : '' } : {}) });
@@ -1039,10 +1040,11 @@ function rememberedShows(text, kept, exact = false, rows = 0) {
     return typeof kept.chip === 'string' && !!kept.chip && squash(text) === kept.chip
       && !!kept.chipPid && !!kept.target && panePidOf(kept.target) === kept.chipPid;
   }
+  /* #6249 (Angel, 11-16): a line left beside other text (rememberMixed) is ours only whole, and only in a box short
+     enough to show everything it holds (STUCK_ROWS_MAX): rows hidden above it are where that other text may be. A
+     caller that gives no rows gets no press. */
+  if (kept.mixed) return rows > 0 && rows <= STUCK_ROWS_MAX && composerIsAll(text, kept.wire);
   if (composerIsAll(text, kept.wire)) return true;
-  /* #6249 (Angel, 11-16): a line left beside other text (rememberMixed) is ours only whole: the rows above a visible end
-     are where that other text was. */
-  if (kept.mixed) return false;
   const t = squash(text);
   if (!t || !squash(kept.wire).endsWith(t)) return false;
   if (kept.seen && t === kept.seen && t.length >= 20) return true;
@@ -2892,7 +2894,8 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       rememberUnsent(target, { wire, at: Date.now(), seq: null, seen: '', light: true });
       scheduleUnsentRetries(target, allowed.card, UNSENT_RETRY_MS.slice(0, 1));
     } else forgetUnsent(target);
-    const out = confirmedVerdict(v, result);
+    /* #6249: the sentence promises a later send only for a line kept here. */
+    const out = confirmedVerdict(v, result && result.ours && !keptMixed ? { ...result, ours: false } : result);
     const told = seq == null ? out : { ...out, unsentSeq: seq, ...(keptMixed ? { keptMixed: true } : {}) };
     return told.state === v.state ? told : { ...told, paneNote: noteFor(told.state) };
   };

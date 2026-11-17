@@ -47,8 +47,9 @@ likely to land mid-edit. Still bounded by the whole-line match.
 
 ## Stated limit
 
-A line too long for the box (it scrolls at about 7 rows, roughly 500 characters at 80 columns) never shows whole, so
-once it met other text it is never pressed, even after the other text goes. The #6717 sweep then moves the box into a
+A line kept beside other text counts only in a box of 6 rows or fewer (STUCK_ROWS_MAX), because a box of 7 or more may
+be hiding rows above, where that other text may be. At 80 columns that is roughly 450 characters; a longer line is
+never pressed once it met other text, even after the other text goes. The #6717 sweep then moves the box into a
 draft after 10 minutes (when it is short enough to read whole) or leaves it. Accepting a visible end would risk the
 other text sitting in the rows above it, which is the one thing this must never send. The sentence a sender reads says
 so ("a line too long for the box never does"), and a test pins it.
@@ -61,7 +62,7 @@ in composerHolds, not here.
 
 ## Tests
 
-- engine/chat.notpressed-6249.test.js (new, 10 tests): the number on the verdict; the next delivery presses only after
+- engine/chat.notpressed-6249.test.js (new, 12 tests): the number on the verdict; the next delivery presses only after
   the other text goes; after-Enter `other` too; retries press only an exact box; an emptied box forgets it; a scrolled
   end of a mixed line is never pressed (CONTROL: a plain one is); the mark survives a restart.
 - engine/chat.composer-6249.test.js: the round 2 test now pins the part that still holds (never pressed while the
@@ -111,3 +112,11 @@ Challenge loop, capped at 8 rounds unless a BLOCKER is open.
     an older record; it now needs `emptyBefore`, as the not-pressed path does.
   - NITs: `keptMixed` is set where the line is kept, not inferred from the outcome; the older-board note moved above the
     load; `seesOurs` being loose is accepted (it only keeps a line, never presses one).
+- Round 5 (blind, opus): no BLOCKER, 2 WARNING, 3 NIT.
+  - WARNING fixed (a round 4 slip): after round 4 required `emptyBefore` to keep a line, the sentence still promised a
+    later send on `ours` alone; it now follows the keep. Test: a box unreadable before the paste keeps nothing and
+    promises nothing (CONTROL: read empty first, kept and said).
+  - WARNING fixed: a kept line counted as whole in a box of 7+ rows, which may hide rows above; now only in 6 rows or
+    fewer, and a caller that gives no rows gets no press. Test with a plain-line control; the stated limit updated.
+  - NITs fixed: the CONFIRM_WORDS header, the downgrade note's wording, the composer test title points at this file.
+  - Mutation check: removing either new guard fails exactly its test.
