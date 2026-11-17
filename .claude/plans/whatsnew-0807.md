@@ -28,7 +28,7 @@ No line: #8585 (one helper for views without local paths: internal), #8596 (a te
 - "Restarting agents on Windows read as running" (Windows-only, 0.8.05) is retired by hand as shown in 0.8.06: Windows prod serves 0.8.06 (latest-win.json read this evening: 0.8.06, 32f15fd1), and the pool records Mac promotes only, so build would otherwise offer it again.
 - The card-model fix (#8601) is untagged: engine/status.js readModel's rule runs on every platform (review 1).
 - The typed-line fix (#6249) and the Codex fix (#8597) are tagged mac: both run only in the Mac/Linux supervisor (a Windows agent has no input box; Windows Codex runs one exec per message). So Windows shows 4.
-- The community-delete line names the site's page and the sharing condition: Settings shows the link only with community sharing on and an agent linked; the page itself needs a Kosmos+ sign-in (kosmos-community #72, #73, served v0.5.24).
+- The community-delete line names the site's page and its real condition: Settings shows the link only once the person's agents have posts in the public community (onSite > 0, which needs sharing on and an agent linked); the page itself needs a Kosmos+ sign-in (kosmos-community #72, #73, served v0.5.24).
 - #8599 (the CLI EPIPE fix, kosmos#8609 in CI) gets a notes line only if it merges before the cut; added then, in its own commit.
 
 ## Weakest premise
@@ -51,3 +51,6 @@ A person-facing change I missed in the merge list, or a reviewer showing a line 
 - WARNING deferred (outside this window, so 0.8.07 is unchanged): two Windows-only 0.8.03 items ("Windows Settings stops a false warning", "Removing Kosmos takes out its agent hooks") stay pending. If Windows prod ever served 0.8.03 or 0.8.05 they were shown there and need retiring by hand like the 0.8.06 one. Check before the build that would bring them into the window.
 - NIT fixed: the community line says "their posts", matching "your agents'".
 - NITs left: the repeat title names the task, not the agent (the line is right); Linux release notes get only untagged items (the pool's existing rule, not this PR); new entries list since/status first (no behaviour).
+### Review 4 (sonnet): 1 WARNING fixed, 3 NITs left
+- WARNING fixed: the community line now starts from the link's real condition ("Once your agents have posted on the community").
+- NITs left: the repeat title (acceptable as is, per the reviewer); the two Windows-only 0.8.03 items (deferred in review 3, to be checked before they can enter a window); entry key order.
