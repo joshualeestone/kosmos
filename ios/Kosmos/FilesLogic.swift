@@ -25,6 +25,8 @@ extension Board {
     }
     struct ListedFolder: Equatable, Identifiable {
         let name: String
+        // kosmos#8632: the browse route sends a folder's time too, so Newest first and Oldest first order folders as well.
+        var modified: Date? = nil
         var id: String { name }
         var shownName: String { name.split(separator: "/").last.map(String.init) ?? name }
     }
@@ -159,8 +161,8 @@ extension Board {
             guard let rawFiles = obj["files"] as? [Any] else { return .refused(filesCannotRead) }
             let files = rawFiles.compactMap { ($0 as? [String: Any]).flatMap(listedFile) }
             let dirs = (obj["dirs"] as? [Any] ?? []).compactMap { d -> ListedFolder? in
-                guard let n = (d as? [String: Any])?["name"] as? String, safeRelPath(n) else { return nil }
-                return ListedFolder(name: n)
+                guard let o = d as? [String: Any], let n = o["name"] as? String, safeRelPath(n) else { return nil }
+                return ListedFolder(name: n, modified: modifiedTime(o))
             }
             let total = (obj["total"] as? Int) ?? files.count
             return .page(FilesPage(dir: obj["dir"] as? String ?? "", dirs: dirs, files: files, missing: missing,
@@ -178,12 +180,69 @@ extension Board {
     private static func listedFile(_ o: [String: Any]) -> ListedFile? {
         guard let name = o["name"] as? String, safeRelPath(name) else { return nil }
         let size = (o["size"] as? NSNumber).flatMap { n -> Int? in n.doubleValue >= 0 ? n.intValue : nil }
-        // The board sends toISOString() (milliseconds); a plain ISO time or epoch milliseconds are read too.
-        var when: Date?
-        if let s = o["modified"] as? String { when = isoWithMs.date(from: s) ?? isoPlain.date(from: s) }
-        else if let n = o["modified"] as? NSNumber { when = Date(timeIntervalSince1970: n.doubleValue / 1000) }
         let by = (o["changedBy"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        return ListedFile(name: name, size: size, modified: when, changedBy: by)
+        return ListedFile(name: name, size: size, modified: modifiedTime(o), changedBy: by)
+    }
+    // The board sends toISOString() (milliseconds); a plain ISO time or epoch milliseconds are read too.
+    private static func modifiedTime(_ o: [String: Any]) -> Date? {
+        if let s = o["modified"] as? String { return isoWithMs.date(from: s) ?? isoPlain.date(from: s) }
+        if let n = o["modified"] as? NSNumber { return Date(timeIntervalSince1970: n.doubleValue / 1000) }
+        return nil
+    }
+
+    /* kosmos#8632 (Josh 11-17 08:53, on the board: "I can't find it because I can't sort by the date"; #8627 adds the
+       board's four-way sort, this is the phone's): an agent's and a project's Files in one of four orders, the board's
+       words, Newest first by default. Folders stay above files, each group in the chosen order. A to Z is the server's
+       byName (engine/projects.js: localeCompare with numeric and base sensitivity, so case and accents are ignored and
+       numbers go in number order), which is the order an agent's folder arrives in, so the two apps agree. */
+    enum FilesSort: String, CaseIterable { case newest, oldest, az, za }
+    static let filesSortDefault = FilesSort.newest
+    static func filesSortLabel(_ s: FilesSort) -> String {
+        switch s {
+        case .newest: return "Newest first"
+        case .oldest: return "Oldest first"
+        case .az: return "A to Z"
+        case .za: return "Z to A"
+        }
+    }
+    static func filesSort(saved: String) -> FilesSort { FilesSort(rawValue: saved) ?? filesSortDefault }
+    // Remembered on this phone per screen: an agent's Files (every folder in it) and a project's Files each keep their own.
+    static func filesSortKey(_ owner: FilesOwner) -> String {
+        switch owner {
+        case .agent: return "kosmos.filesSort.agent"
+        case .project: return "kosmos.filesSort.project"
+        }
+    }
+    /* The server's byName. Pinned to "en" because Node's localeCompare with no locale used en-US on the Mac it was
+       measured on (29 names with case, accents, punctuation, numbers and ties: identical order; the phone's own locale
+       and en_US_POSIX each differed). A board whose Mac runs another locale (Swedish puts Å after z) can differ there. */
+    private static let byNameLocale = Locale(identifier: "en")
+    static func filesByName(_ a: String, _ b: String) -> ComparisonResult {
+        a.compare(b, options: [.caseInsensitive, .diacriticInsensitive, .numeric], range: nil, locale: byNameLocale)
+    }
+    /* One group in an order. By time: no time goes last whichever way, and a tie goes by name. A tie by name keeps the
+       order it arrived in (the server's sort is stable), and Z to A turns only the names around, never that tie. */
+    static func filesOrdered<T>(_ items: [T], by sort: FilesSort, name: (T) -> String, modified: (T) -> Date?) -> [T] {
+        items.enumerated().sorted { x, y in
+            let a = x.element, b = y.element
+            if sort == .newest || sort == .oldest {
+                switch (modified(a), modified(b)) {
+                case let (ma?, mb?) where ma != mb: return sort == .newest ? ma > mb : ma < mb
+                case (_?, nil): return true
+                case (nil, _?): return false
+                default: break
+                }
+            }
+            let r = filesByName(name(a), name(b))
+            if r == .orderedSame { return x.offset < y.offset }
+            return sort == .za ? r == .orderedDescending : r == .orderedAscending
+        }.map(\.element)
+    }
+    static func filesSorted(_ page: FilesPage, by sort: FilesSort) -> FilesPage {
+        FilesPage(dir: page.dir,
+                  dirs: filesOrdered(page.dirs, by: sort, name: \.name, modified: \.modified),
+                  files: filesOrdered(page.files, by: sort, name: \.name, modified: \.modified),
+                  missing: page.missing, truncated: page.truncated, total: page.total)
     }
 
     // A row's small line, as the board's pjDocMeta: size, date, and the agent that changed it last when recorded. (The
