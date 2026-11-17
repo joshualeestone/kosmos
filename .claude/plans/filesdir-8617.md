@@ -53,7 +53,7 @@ measured; the new test file is not in the Windows run (symlinks there need eleva
 
 ## Tests
 
-- New `engine/dmfiles.folder-8617.test.js` (6): made once and kept with its files; no parent made; a file, a link and a
+- New `engine/dmfiles.folder-8617.test.js` (7): made once and kept with its files; no parent made; a file, a link and a
   dangling link are never replaced or followed; the sweep makes it for an existing agent with the verdict unchanged;
   CONTROL: a refused tell makes none.
 - `engine/create.test.js`: a new agent has an empty Files from birth, beside its instructions file.
@@ -70,3 +70,8 @@ measured; the new test file is not in the Windows run (symlinks there need eleva
     now skips an agent whose profile records a folder; test with a plain-agent control; removing the skip fails it.
   - NITs fixed: no raw error message (it carries the path); the sweep test checks the file called Files survives; the
     Windows gap is stated under Not measured; the requires sit together.
+- Round 2 (blind, sonnet): no BLOCKER, 1 WARNING, 4 NIT.
+  - WARNING fixed: the folder was made before the instructions write, so a failed write left one; it is now made only
+    once the block is in place (already current, or just written). Test for the already-current exit.
+  - NITs: confirmed only discover.js writes a profile `dir` (connected agents only); a test name narrowed to what it
+    proves; the redundant try in create.js kept (it covers a module that fails to load).
