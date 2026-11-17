@@ -158,7 +158,8 @@ async function preview(folder, name, where, opts) {
   if (!Number.isInteger(page) || page < 1) return { ok: false, because: 'there is no such page' };
   if (page > 1) return laterPage(got, dir, hash, page, opts && opts.owner);
   /* The viewer's HEAD asks only for the count, at the same moment as its GET draws page 1: drawing page 1 here too
-     would copy the file and run Quick Look twice (review 1). So a count-only ask counts and draws nothing. */
+     would copy the file and run Quick Look twice (review 1). So a count-only ask counts and draws nothing, and its 200
+     says nothing about whether page 1 can be drawn (the GET answers that). */
   if (opts && opts.countOnly === true) {
     const pages = await pageCount(got, dir, hash, opts.owner);
     return { ok: true, type: 'image/png', bytes: Buffer.alloc(0), ...(pages ? { pages } : {}) };

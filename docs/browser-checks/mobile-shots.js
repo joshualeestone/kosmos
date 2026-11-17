@@ -3824,7 +3824,7 @@ function seedFiles(roots) {
   try {
     fs.writeFileSync(words, ['Spring lookbook, page one', 'Spring lookbook, page two', 'Spring lookbook, page three'].join('\n\f'));
     const pdf = path.join(chatFiles, 'spring-lookbook.pdf');
-    fs.writeFileSync(pdf, require('node:child_process').execFileSync('/usr/sbin/cupsfilter', ['-m', 'application/pdf', words], { stdio: ['ignore', 'pipe', 'ignore'] }));
+    fs.writeFileSync(pdf, require('node:child_process').execFileSync('/usr/sbin/cupsfilter', ['-m', 'application/pdf', words], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 15000 }));
     const t = new Date(t0 - 60e3);
     fs.utimesSync(pdf, t, t);
   } catch { /* not a Mac: the pdf-pages screen has nothing to open */ } finally { fs.rmSync(words, { force: true }); }

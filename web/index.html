@@ -78377,7 +78377,8 @@ function pvOpen(id, from) {
     if (a.kind === 'pdf') { note = document.createElement('p'); note.className = 'pv-note'; note.textContent = 'The first page'; stage.appendChild(note); }
     /* A picture that will not load (a PDF's first page is drawn by the Mac only, so Windows answers 404; an image
        type the server cannot preview) shows the file's card instead of a broken image on the whole screen.
-       kosmos#8637: a later page that will not load says so under the arrows instead, so the others can still be flipped to. */
+       kosmos#8637: a later page that will not load says so under the arrows instead, so the others can still be flipped to
+       (so this listener stays for every load, not once). */
     img.addEventListener('error', () => {
       if (img.dataset.pvPage && img.dataset.pvPage !== '1' && note) { img.style.opacity = '0'; note.textContent = 'Kosmos could not draw page ' + img.dataset.pvPage; return; }
       stage.textContent = ''; stage.appendChild(fileCard());

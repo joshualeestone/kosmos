@@ -10,8 +10,10 @@
  *
  * Review 5: the PDF is untrusted (a chat upload, a file any agent wrote), and Quick Look parses its first page in a
  * sandboxed extension, where this osascript would otherwise run with the board's full rights. So every call runs under
- * sandbox-exec (SANDBOX): no network, no writes but the output's folder, and nothing under the account's home read but
- * the PDF's own folder and the output's. With no sandbox-exec, nothing is drawn or counted (one page, as before).
+ * sandbox-exec (SANDBOX): no network, no program started but osascript itself, no writes but a fresh empty folder made
+ * for that one call (never the folder the PDF sits in, which for an attachment holds the person's upload), and nothing
+ * under the account's home read but the PDF's folder and that one. It does NOT narrow mach-lookup or other IPC, which
+ * AppKit needs to draw at all. With no sandbox-exec, nothing is drawn or counted (one page, as before).
  * At most MAX_AT_ONCE run at a time; the rest wait their turn, so a held arrow key cannot start dozens at once.
  *
  * Not a Mac (and no test seam): count answers null and render false, so the viewer shows the first page alone, as
@@ -53,6 +55,7 @@ function available() { return seam !== null || process.platform === 'darwin'; }
 const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 /* Paths come in as -D parameters, never spliced into the profile's text. */
 const SANDBOX = '(version 1)(allow default)(deny network*)'
+  + '(deny process-exec*)(allow process-exec* (literal "/usr/bin/osascript"))'
   + '(deny file-write*)(allow file-write* (subpath (param "OUT")))'
   + '(deny file-read* (subpath (param "HOME")))(allow file-read* (subpath (param "IN")) (subpath (param "OUT")))';
 /* The account's own home, from the user database rather than $HOME, which a board's environment can point elsewhere. */
@@ -84,9 +87,12 @@ function believed(n) { return Number.isInteger(n) && n >= 1 && n <= MAX_PAGES ? 
 async function count(file) {
   if (seam) { try { return believed(seam.count(file)); } catch { return null; } }
   if (process.platform !== 'darwin') return null;
-  const dir = path.dirname(String(file));
-  const m = /^pages (\d+)$/.exec(await runScript([String(file)], dir, dir));
-  return m ? believed(Number(m[1])) : null;
+  let empty = null;
+  try {
+    empty = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-pdfcount-'));   // a count writes nothing; its one writable folder is empty
+    const m = /^pages (\d+)$/.exec(await runScript([String(file)], path.dirname(String(file)), empty));
+    return m ? believed(Number(m[1])) : null;
+  } catch { return null; } finally { if (empty) { try { fs.rmSync(empty, { recursive: true, force: true }); } catch { /* best effort */ } } }
 }
 
 /* Two requests for one page share one drawing (as attachments.renderPdf does). */
@@ -95,16 +101,22 @@ const drawing = new Map();
     reader never sees half a PNG. Resolves true when `out` exists after. */
 function render(file, index, out) {
   if (drawing.has(out)) return drawing.get(out);
-  const tmp = out + '.' + process.pid + '-' + Date.now() + '.tmp.png';
   const p = (async () => {
     if (!Number.isInteger(index) || index < 0) return false;
-    if (seam) { try { if (!seam.render(file, index, tmp)) return false; } catch { return false; } }
-    else {
-      if (process.platform !== 'darwin') return false;
-      if (!/^ok \d+$/.test(await runScript([String(file), String(index), tmp], path.dirname(String(file)), path.dirname(out)))) { try { fs.rmSync(tmp, { force: true }); } catch { /* gone */ } return false; }
-    }
-    try { fs.renameSync(tmp, out); } catch { try { fs.rmSync(tmp, { force: true }); } catch { /* gone */ } }
-    return fs.existsSync(out);
+    /* Drawn into a fresh folder beside `out` (r-<pid>-..., the name filepreview's sweep removes when its process is
+       gone), the only folder the sandbox lets PDFKit write, then renamed into place whole. */
+    let work = null;
+    try {
+      work = fs.mkdtempSync(path.join(path.dirname(out), 'r-' + process.pid + '-'));
+      const tmp = path.join(work, 'page.png');
+      if (seam) { try { if (!seam.render(file, index, tmp)) return false; } catch { return false; } }
+      else {
+        if (process.platform !== 'darwin') return false;
+        if (!/^ok \d+$/.test(await runScript([String(file), String(index), tmp], path.dirname(String(file)), work))) return false;
+      }
+      fs.renameSync(tmp, out);
+      return fs.existsSync(out);
+    } catch { return false; } finally { if (work) { try { fs.rmSync(work, { recursive: true, force: true }); } catch { /* best effort */ } } }
   })().finally(() => drawing.delete(out));
   drawing.set(out, p);
   return p;

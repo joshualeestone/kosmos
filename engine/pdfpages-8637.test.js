@@ -126,6 +126,9 @@ test('every PDFKit call runs under sandbox-exec with the PDF\'s folder and the o
       assert.equal(bin, '/usr/bin/sandbox-exec');
       const profile = args[args.indexOf('-p') + 1];
       assert.match(profile, /\(deny network\*\)/);
+      assert.match(profile, /\(deny process-exec\*\)\(allow process-exec\* \(literal "\/usr\/bin\/osascript"\)\)/);
+      const out = args.find((x) => x.startsWith('OUT=')).slice(4);
+      assert.notEqual(out, fs.realpathSync(SB), 'the PDF\'s own folder is writable');
       assert.match(profile, /\(deny file-write\*\)\(allow file-write\* \(subpath \(param "OUT"\)\)\)/);
       assert.match(profile, /\(deny file-read\* \(subpath \(param "HOME"\)\)\)/);
       assert.ok(args.includes('IN=' + fs.realpathSync(SB)), 'the PDF\'s folder is not the readable one');
