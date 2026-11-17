@@ -410,38 +410,6 @@ const at = async (page, qs) => {
 };
 /* #4470: the new look, as the hidden switch (Settings > Advanced > Try the new look) turns it on: the page reads
    localStorage 'kosmos-look' before paint. Set it, reload, and wait for the attribute the new look keys on. */
-/* kosmos#8628: the My Agents rings screens (see their entries in SCREENS). */
-async function myAgentsRings(page, data, folded) {
-    const PCTS = [10, 50, 70, 95];
-    await page.route('**/api/status*', async (r) => {
-      try {   // #6022: a late answer after close is caught, not a crash
-        if (r.request().method() !== 'GET') return await r.fallback();
-        let resp;
-        try { resp = await fetchBoard(r); } catch { return await r.fallback(); }
-        const j = await resp.json().catch(() => null);
-        if (!j) return await r.fulfill({ response: resp });
-        let n = 0;
-        const walk = (v) => {
-          if (Array.isArray(v)) { for (const x of v) walk(x); return; }
-          if (!v || typeof v !== 'object') return;
-          if ('sessionName' in v) {
-            const pct = PCTS[n++ % PCTS.length];
-            v.context = { tokens: pct * 10000, percent: pct, overCeiling: false, notYet: false, ceiling: 1000000,
-              ceilingAssumed: false, confidence: 'structured', because: 'measured, against a limit we have watched it hit' };
-            return;
-          }
-          for (const x of Object.values(v)) walk(x);
-        };
-        walk(j);
-        return await r.fulfill({ response: resp, json: j });
-      } catch { await r.abort().catch(() => {}); }
-    });
-    await page.addInitScript((f) => { try { localStorage.setItem('kosmos.fold.myagents', f ? '1' : '0'); } catch { /* storage refused */ } }, folded);
-    await newLook(page);
-    await at(page, '?agent=' + data.chatAgent);
-    await page.waitForSelector('#my-agents:not([hidden]) .lring', { state: 'visible', timeout: 8000 });
-    await page.waitForTimeout(600);
-}
 const newLook = async (page) => {
   await page.evaluate(() => localStorage.setItem('kosmos-look', 'new'));
   await page.reload({ waitUntil: 'load' });
@@ -449,6 +417,41 @@ const newLook = async (page) => {
   if (await page.$('#firstrun:not([hidden])')) await page.keyboard.press('Escape');   // as the render check does after a reload
   await page.waitForTimeout(900);
 };
+/* kosmos#8628: the My Agents rings screens (see their entries in SCREENS). */
+async function myAgentsRings(page, data, folded) {
+  // My Agents is drawn only from 1160px (web/index.html MY_AGENTS_MIN_WIDTH); a narrower size says so here.
+  const vw = page.viewportSize();
+  if (vw && vw.width < 1160) throw new Error('My Agents is not drawn below 1160px wide; this size is ' + vw.width + 'px');
+  const PCTS = [10, 50, 70, 95];
+  await page.route('**/api/status*', async (r) => {
+    try {   // #6022: a late answer after close is caught, not a crash
+      if (r.request().method() !== 'GET') return await r.fallback();
+      let resp;
+      try { resp = await fetchBoard(r); } catch { return await r.fallback(); }
+      const j = await resp.json().catch(() => null);
+      if (!j) return await r.fulfill({ response: resp });
+      let n = 0;
+      const walk = (v) => {
+        if (Array.isArray(v)) { for (const x of v) walk(x); return; }
+        if (!v || typeof v !== 'object') return;
+        if ('sessionName' in v) {
+          const pct = PCTS[n++ % PCTS.length];
+          v.context = { tokens: pct * 10000, percent: pct, overCeiling: false, notYet: false, ceiling: 1000000,
+            ceilingAssumed: false, confidence: 'structured', because: 'measured, against a limit we have watched it hit' };
+          return;
+        }
+        for (const x of Object.values(v)) walk(x);
+      };
+      walk(j);
+      return await r.fulfill({ response: resp, json: j });
+    } catch { await r.abort().catch(() => {}); }
+  });
+  await page.addInitScript((f) => { try { localStorage.setItem('kosmos.fold.myagents', f ? '1' : '0'); } catch { /* storage refused */ } }, folded);
+  await newLook(page);
+  await at(page, '?agent=' + data.chatAgent);
+  await page.waitForSelector('#my-agents:not([hidden]) .lring', { state: 'visible', timeout: 8000 });
+  await page.waitForTimeout(600);
+}
 
 /* #4594: the consolidated view without writing it. The page reads its layout from GET /api/style (paintStyles, also
    on later polls), so a page-only applyLayout was undone mid-shot; saving it with PUT /api/style would change the
@@ -3121,12 +3124,8 @@ const SCREENS = [
     await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
   } },
-  /* kosmos#8628 (Josh, 11-17): the memory rings round the pictures in My Agents (#8303), the list down the left of
-     the agent page, got fatter as they filled and were cut square at high fill. These shots show three rings, one
-     across the bands (10 and 50 green, 70 amber, 95 red), open and folded (the folded rail is the one in Josh's screenshot).
-     The readings are stubbed in this screen's own context: every card's context is rewritten on GET /api/status to
-     a measured reading at one of those percents, in turn, so the shot never depends on what the fleet seeds.
-     Desktop only: My Agents shows from 1160px (MY_AGENTS_MIN_WIDTH). */
+  /* kosmos#8628 (Josh, 11-17): the memory rings in My Agents (#8303), open and folded, with the readings stubbed by
+     myAgentsRings so a ring in each band is on screen. */
   { name: 'myagents-rings-8628', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page, data) => {
     await myAgentsRings(page, data, false);
   } },

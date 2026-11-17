@@ -19,6 +19,7 @@ One thin constant stroke at every fill; fullness by arc length and colour only; 
   instrument with an inline 6, and asserts a ring outside the members column also stays 2.5.
 - docs/browser-checks/mobile-shots.js: screens myagents-rings-8628(-folded) with readings stubbed at 10/50/70/95.
 
+- Visible beyond the list: the grid card gauge keeps its drawn 4 at amber and red (it was 5 and 6), per the ruling.
+
 ## Not changed
 - iPhone (ios/Kosmos/AgentsView.swift memoryRing): 2.5 pt in every band, overlay outside the clip. Read, not run.
-- The grid card gauge thins at amber/red (6 to its own 4): that is the ruling (one weight everywhere).
