@@ -19242,11 +19242,8 @@ const server = http.createServer(async (req, res) => {
       const name = sender.card.sessionName;
       const away = require('./engine/awaydigest');
       const now = Date.now();
-      /* At a startup the window starts at the latest report, which the default tail always holds. By hand it needs the
-         report before the newest `started`, which a busy session can push past that tail, so the longer read is used. */
-      // The Windows hook (as=hook without at=startup) asks right after its own `started`, which the default tail holds.
-      /* kosmos#8634: one long read serves both: the window needs only the latest rows, and a standing wait can sit a day
-         back under a busy agent's automatic reports, past the short read. */
+      /* The long read serves every form. By hand the window needs the report before the newest `started`, which a busy
+         session can push past the short tail; kosmos#8634: a standing wait can sit a day back under automatic reports. */
       const hist = selfreport.history(name, selfreport.HISTORY_MAX_BYTES);
       const win = away.windowFrom(hist, { startup, nowMs: now });
       /* kosmos#8634: the agent's own wait from before a restart, which the new run's `started` replaced on the board

@@ -17,11 +17,13 @@ agent its wait is gone.
 - engine/awaydigest.js: lastWait(history) finds the agent's own last needs_you/blocked that nothing the agent or a
   person said since has ended (automatic rows neither make nor end one; 7-day limit). contextText/hookJson add a
   paragraph naming the state and time and `kosmos report <state> ...`; no report words.
-- server.js /api/away: computes the wait from the long history at a startup (and the Windows hook's call) and passes it
-  to the hook, text and JSON forms.
+- server.js /api/away: one long history read; the wait is computed only on the startup path (the Mac hook's
+  at=startup, the Windows hook's as=hook) and goes into the hook JSON (and the JSON form's `wait` there). By hand, inside
+  a session, there is no wait: one just reported is still on the board.
 - engine/selfreport.js history(): keeps `by` for 'auto' and 'agent' rows too (it kept only 'operator').
 - Tests: engine/awaydigest-8634.test.js (unit, controls), server.away-8634.test.js (a wait past the 64 KB short read
-  reaches the hook; an ended wait makes nothing), engine/selfreport.test.js (the row-shape pin updated).
+  reaches the Mac hook; the Windows hook's call after its own `started` carries it; an ended wait makes nothing, with
+  the history shown read; by hand there is no reminder), engine/selfreport.test.js (the row-shape pin updated).
 
 ## Rejected
 Restoring the old report on the board: the agent may have been unblocked while down (#1058's reason).
