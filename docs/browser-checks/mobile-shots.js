@@ -410,6 +410,38 @@ const at = async (page, qs) => {
 };
 /* #4470: the new look, as the hidden switch (Settings > Advanced > Try the new look) turns it on: the page reads
    localStorage 'kosmos-look' before paint. Set it, reload, and wait for the attribute the new look keys on. */
+/* kosmos#8628: the My Agents rings screens (see their entries in SCREENS). */
+async function myAgentsRings(page, data, folded) {
+    const PCTS = [10, 50, 70, 95];
+    await page.route('**/api/status*', async (r) => {
+      try {   // #6022: a late answer after close is caught, not a crash
+        if (r.request().method() !== 'GET') return await r.fallback();
+        let resp;
+        try { resp = await fetchBoard(r); } catch { return await r.fallback(); }
+        const j = await resp.json().catch(() => null);
+        if (!j) return await r.fulfill({ response: resp });
+        let n = 0;
+        const walk = (v) => {
+          if (Array.isArray(v)) { for (const x of v) walk(x); return; }
+          if (!v || typeof v !== 'object') return;
+          if ('sessionName' in v) {
+            const pct = PCTS[n++ % PCTS.length];
+            v.context = { tokens: pct * 10000, percent: pct, overCeiling: false, notYet: false, ceiling: 1000000,
+              ceilingAssumed: false, confidence: 'structured', because: 'measured, against a limit we have watched it hit' };
+            return;
+          }
+          for (const x of Object.values(v)) walk(x);
+        };
+        walk(j);
+        return await r.fulfill({ response: resp, json: j });
+      } catch { await r.abort().catch(() => {}); }
+    });
+    await page.addInitScript((f) => { try { localStorage.setItem('kosmos.fold.myagents', f ? '1' : '0'); } catch { /* storage refused */ } }, folded);
+    await newLook(page);
+    await at(page, '?agent=' + data.chatAgent);
+    await page.waitForSelector('#my-agents:not([hidden]) .lring', { state: 'visible', timeout: 8000 });
+    await page.waitForTimeout(600);
+}
 const newLook = async (page) => {
   await page.evaluate(() => localStorage.setItem('kosmos-look', 'new'));
   await page.reload({ waitUntil: 'load' });
@@ -3095,37 +3127,12 @@ const SCREENS = [
      The readings are stubbed in this screen's own context: every card's context is rewritten on GET /api/status to
      a measured reading at one of those percents, in turn, so the shot never depends on what the fleet seeds.
      Desktop only: My Agents shows from 1160px (MY_AGENTS_MIN_WIDTH). */
-  ...[false, true].map((folded) => ({ name: 'myagents-rings-8628' + (folded ? '-folded' : ''), owner: 'Ice Cream Kitty', desktopOnly: true, go: async (page, data) => {
-    const PCTS = [10, 50, 70, 95];
-    await page.route('**/api/status*', async (r) => {
-      try {   // #6022: a late answer after close is caught, not a crash
-        if (r.request().method() !== 'GET') return await r.fallback();
-        let resp;
-        try { resp = await fetchBoard(r); } catch { return await r.fallback(); }
-        const j = await resp.json().catch(() => null);
-        if (!j) return await r.fulfill({ response: resp });
-        let n = 0;
-        const walk = (v) => {
-          if (Array.isArray(v)) { for (const x of v) walk(x); return; }
-          if (!v || typeof v !== 'object') return;
-          if ('sessionName' in v) {
-            const pct = PCTS[n++ % PCTS.length];
-            v.context = { tokens: pct * 10000, percent: pct, overCeiling: false, notYet: false, ceiling: 1000000,
-              ceilingAssumed: false, confidence: 'structured', because: 'measured, against a limit we have watched it hit' };
-            return;
-          }
-          for (const x of Object.values(v)) walk(x);
-        };
-        walk(j);
-        return await r.fulfill({ response: resp, json: j });
-      } catch { await r.abort().catch(() => {}); }
-    });
-    await page.addInitScript((f) => { try { localStorage.setItem('kosmos.fold.myagents', f ? '1' : '0'); } catch { /* storage refused */ } }, folded);
-    await newLook(page);
-    await at(page, '?agent=' + data.chatAgent);
-    await page.waitForSelector('#my-agents:not([hidden]) .lring', { state: 'visible', timeout: 8000 });
-    await page.waitForTimeout(600);
-  } })),
+  { name: 'myagents-rings-8628', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page, data) => {
+    await myAgentsRings(page, data, false);
+  } },
+  { name: 'myagents-rings-8628-folded', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page, data) => {
+    await myAgentsRings(page, data, true);
+  } },
   /* #4470: Settings in the new look, for the side by side with 'settings'. */
   { name: 'nl-settings', owner: 'Mona Lisa', go: async (page) => {
     await newLook(page);

@@ -658,7 +658,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    page, where a person actually looks; this puts the at-a-glance signal there, off
    the same reading the MEMORY panel shows. The ring sits just outside the 88px
    avatar (the pack allows the ring to extend past the avatar's box), on the shared
-   .gt/.gf colours and weight. First child of .dav-wrap so the avatar + membadge
+   .gt/.gf colours. First child of .dav-wrap so the avatar + membadge
    stack above it. */
 .dring { position: absolute; inset: -6px; width: 100px; height: 100px; pointer-events: none; }
 .dring svg { width: 100px; height: 100px; display: block; }
@@ -24091,9 +24091,8 @@ function ring(a) {
   const clip = 'clip-' + a.sessionName.replace(/[^A-Za-z0-9_-]/g, '_');
   const av = face(a);
 
-  /* ⚠️ The pack gauge: gt/gf/gu classes, base stroke-width 4 as an
-     ATTRIBUTE so the .warn/.high CSS (5/6) can thicken it -- weight is the
-     third cue after arc length and colour. The unknown-memory fact is carried
+  /* ⚠️ The pack gauge: gt/gf/gu classes, stroke-width 4 as an ATTRIBUTE
+     (kosmos#8628: the bands change colour only, never weight). The unknown-memory fact is carried
      two ways on the board card: this ring's aria-label (whichever `memUnknown`
      sentence applies) and the dashed shape the pack pairs with the unknown card.
      (#3501 removed the third, the visible `.membadge unk` caption word; the

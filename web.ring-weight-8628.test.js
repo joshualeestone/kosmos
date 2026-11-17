@@ -57,24 +57,26 @@ test('#8628: the warn and high bands change colour only, never weight', () => {
 });
 
 /** viewBox half-size, radius and the fill arc's stroke width, read off one ring drawing's source. */
-function geometry(name) {
-  const src = slice(name);
+function geometryOf(name, src) {
   const vb = src.match(/viewBox="0 0 (\d+(?:\.\d+)?) \1"/);
   const r = src.match(/const R = (\d+(?:\.\d+)?)/);
   const sw = src.match(/class="gf \$\{[^}]+\}"[^>]*?stroke-width="(\d+(?:\.\d+)?)"/);
   assert.ok(vb && r && sw, `${name}: could not read its viewBox, R and fill stroke-width`);
   return { half: Number(vb[1]) / 2, r: Number(r[1]), sw: Number(sw[1]) };
 }
+const fits = (g) => g.r + g.sw / 2 <= g.half;
 
 test('#8628: every ring keeps its stroke inside its own box, so nothing is clipped', () => {
   for (const name of ['ring', 'lrowRing', 'detailRing', 'orgRing']) {
-    const g = geometry(name);
-    assert.ok(g.r + g.sw / 2 <= g.half,
-      `${name}: r ${g.r} + width ${g.sw}/2 = ${g.r + g.sw / 2} passes the box edge at ${g.half}`);
+    const g = geometryOf(name, slice(name));
+    assert.ok(fits(g), `${name}: r ${g.r} + width ${g.sw}/2 = ${g.r + g.sw / 2} passes the box edge at ${g.half}`);
   }
 });
 
-test('control: the old band width on the small ring would have failed the box check', () => {
-  const g = geometry('lrowRing');
-  assert.ok(g.r + 6 / 2 > g.half, 'the box check could not see the clip Josh reported');
+test('control: the box check fails on the real small ring drawn at the old band width', () => {
+  /* The real lrowRing source with its fill stroke set to 6, the width .gf.high used to force: the same reader and the
+     same check must call it clipped, or the test above could not see the fault Josh reported. */
+  const thick = slice('lrowRing').replace(/(class="gf \$\{[^}]+\}"[^>]*?stroke-width=")[\d.]+"/, (m, head) => head + '6"');
+  assert.notEqual(thick, slice('lrowRing'), 'the control did not change the drawing');
+  assert.equal(fits(geometryOf('lrowRing (stroke 6)', thick)), false);
 });
