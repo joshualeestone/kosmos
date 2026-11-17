@@ -364,6 +364,17 @@ extension Board {
             case .alibaba: return "Alibaba Qwen"
             }
         }
+        // kosmos#8635: its logo in the "Switch to" menu, the same asset the Runs on row draws for an agent on it
+        // (runnerMark), so a provider looks the same on the menu and on the agent once it has switched.
+        var mark: String {
+            switch self {
+            case .anthropic: return "MarkClaude"
+            case .openai: return "MarkOpenAI"
+            case .google: return "MarkGemini"
+            case .xai: return "MarkGrok"
+            case .alibaba: return "MarkQwen"
+            }
+        }
         // The dialog's title word (changeProviderNow's dialog `label`): the company for Claude, as the board says it.
         var titleWord: String { self == .anthropic ? "Anthropic" : word }
         // The word for it inside a sentence, as the board's switch dialog uses (switchFamilyNote's fromWord/toWord).

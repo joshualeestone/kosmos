@@ -258,6 +258,19 @@ check(boardPage.contains("return shown + ' keeps its name, its face, its instruc
       && boardPage.contains("'Its saved notes are copied into its folder; anything it only remembers from talking is lost.'"), "the board's switchFamilyNote words still")
 check(boardPage.contains("const runnerOf = (p) => (p === 'alibaba' ? 'openai' : p);"), "the board's switchCrossesFamily still")
 
+section("switch menu logos (kosmos#8635)")
+// An agent ON each provider, as /api/status sends it, so the menu's logo is the one Runs on would draw after the switch.
+let onEach: [Board.SwitchProvider: String] = [.anthropic: #""runner":"""#, .openai: #""runner":"codex""#, .google: #""runner":"gemini""#,
+                                              .xai: #""runner":"grok""#, .alibaba: #""runner":"codex","account":{"provider":"alibaba"}"#]
+for p in Board.SwitchProvider.allCases {
+    let d = det(onEach[p]!)
+    check(Board.providerOf(d) == p.rawValue, "\(p.rawValue): the fixture is an agent on it")
+    check(Board.runnerMark(d) == p.mark, "\(p.rawValue): the menu's logo is Runs on's (\(p.mark))")
+    let asset = repo.appendingPathComponent("ios/Kosmos/Assets.xcassets/\(p.mark).imageset/Contents.json")
+    check(FileManager.default.fileExists(atPath: asset.path), "\(p.rawValue): \(p.mark) is in the app's assets")
+}
+check(!FileManager.default.fileExists(atPath: repo.appendingPathComponent("ios/Kosmos/Assets.xcassets/MarkNobody.imageset/Contents.json").path), "CONTROL: a missing asset is seen as missing")
+
 print("")
 // kosmos#7842: only an answer that says what the thing is now (200, 404) replaces a value shown.
 check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(400, #"{"error":"bad request"}"#))) == ("Old text", nil), "a 400 is about the request: it keeps what was shown")
