@@ -126,3 +126,14 @@ test('#8617: the sweep makes the folder whether the block was just written or al
   assert.equal(again[0].changed, false, 'PRECONDITION: the block was already current');
   assert.ok(fs.lstatSync(dmfiles.filesDir('current')).isDirectory(), 'an unchanged block made no folder');
 });
+
+test('#8617: a connected agent whose recorded folder is gone falls back to its own Kosmos folder, and gets Files there', () => {
+  const store = require('./store');
+  const own = agentFile('moved', 'You are moved.\n');
+  store.writeProfile('moved', { dir: path.join(SANDBOX, 'no-such-folder') });
+  assert.equal(path.dirname(dmfiles.filesDir('moved')), own, 'PRECONDITION: filesDir fell back to its own Kosmos folder');
+  const r = dmfiles.ensureFolder('moved');
+  assert.equal(r.connected, false);
+  assert.equal(r.created, true, 'the folder its instructions name was not made');
+  assert.equal(fs.existsSync(path.join(SANDBOX, 'no-such-folder')), false, 'nothing was made at the recorded folder');
+});

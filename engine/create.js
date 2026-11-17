@@ -7181,7 +7181,11 @@ function createAgentInner(opts) {
     fs.writeFileSync(instructionFile(name, runner), text, 'utf8');
     /* #8617: its Files folder from birth, so the agent has a folder to save into and attach from before its first
        save. Not gating: the files section still tells the agent to create it if it is missing. */
-    try { require('./dmfiles').ensureFolder(name); } catch { /* the block covers a folder that is not there */ }
+    let made = null;
+    try { made = require('./dmfiles').ensureFolder(name); } catch { made = null; }
+    if (!made || (!made.ok && !made.connected)) {
+      steps.push({ label: 'could not make its Files folder' + (made && made.because ? ' (' + made.because + ')' : '') + '; its instructions tell it to make one when it saves a file', ok: false });
+    }
   });
 
   /* #3769: the setup guide's folder is guarded BEFORE anything can start it: its marker (which the

@@ -7286,4 +7286,5 @@ test('#8617: a new agent has its Files folder from birth, beside its instruction
   assert.equal(path.dirname(dir), path.dirname(create.instructionFile('files-born')), 'the folder sits beside the instructions file');
   assert.ok(fs.lstatSync(dir).isDirectory(), 'the agent was made with no Files folder');
   assert.deepEqual(fs.readdirSync(dir), [], 'the new Files folder is empty');
+  assert.equal(made.steps.some((st) => /Files folder/.test(st.label || '')), false, 'a folder that was made must not be reported as a failed step');
 });
