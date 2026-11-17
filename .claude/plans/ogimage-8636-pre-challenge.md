@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: ogimage-8636
-diff_hash: 65bb1be9a1df9603a7589e616e74585aae42c7f91d01ad6fb1d5682275705a68
+diff_hash: ab86757b5296b1339dbacc6c403135a9dd5c1b59890ac03d768b066a710cebd8
 validation: passed (targeted 19-file list, 597 pass 0 fail at 57e27832b7, run after the box hold lifted; NOT the full suite: the Mortals full-suite hold stands, CI runs it; surface gate #2518 run locally, passes)
 subdir_audit: not run (no subdirectory CLAUDE.md changed)
-timestamp: 2026-11-17T18:43:51Z
+timestamp: 2026-11-17T21:24:08Z
 iterations: 9
 converged: false
 ---
@@ -133,6 +133,13 @@ Validation note: the canonical helper runs the full suite, which the Mortals hol
 | 25 | 9 | WARNING | engine/unfurl.js | BRANCH | route queued behind same-address flight | FIXED | 57e27832b7 |
 | 26 | 9 | WARNING | engine/unfurl.js | BRANCH | count cap dropped page previews | FIXED | 57e27832b7 |
 | 27 | 9 | WARNING | server.js | BRANCH | reads refreshed good verdicts | FIXED | 57e27832b7 |
+
+### After the loop: CI's browser-check gate (#1720)
+- CI on b57f33d3c7 refused the web/ change for having no docs/browser-checks assertion. Added a real check
+  (a9eca2f0dd: render-lpv-image-8636.js, registered in gated.txt and the README; docs only, no product code): a DM
+  thread with a preview whose picture answers 404 keeps its words and no box, a redraw does not ask again, and a
+  loading picture shows (control). Run on Mortals: 9 PASS. Negative control against main: the two no-box assertions
+  FAIL. Merged onto current main (after #8642): targeted list plus the check-list guards, 639 pass, 0 fail.
 
 ### Outstanding questions (ASKED)
 - None.
