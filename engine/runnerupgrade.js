@@ -70,6 +70,8 @@ function makeTick(d) {
       // On Windows this tick just found no agent running, so install() skips its own first look (not the pre-swap one).
       const job = run.install('openai', d.platform === 'win32' ? { agentsCheckedIdle: true } : undefined);
       say(`runner-upgrade: openai ${from} -> ${pin}: ${job && job.phase}\n`);
+      /* kosmos#8659: the try is handed back only through `settled`. A job without it keeps its try spent, with no line
+         here; every job install() returns today carries one (runners.js, Object.defineProperty(job, 'settled')). */
       if (job && job.settled && typeof job.settled.then === 'function') {
         job.settled.then(() => {
           if (job.waited !== true) return;

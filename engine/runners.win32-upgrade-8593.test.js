@@ -554,3 +554,39 @@ test('win32: the check sees a running program when the folder is given by its 8.
     assert.equal(await runners.managedProcessRunning(long), false, 'a running sibling is not the folder');
   } finally { child.kill(); await settle(); }
 });
+
+/* kosmos#8659: the last look's deadline follows this machine's own earlier looks, so a box where the look is slow
+   does not time out at the last step on every try. The rule itself runs on every platform. */
+test('#8659 lastLookDeadlineMs: three times the slowest earlier look, at least 5 s and at most 20 s', () => {
+  assert.equal(runners.lastLookDeadlineMs(0), 5000, 'no measurement: the old 5 s');
+  assert.equal(runners.lastLookDeadlineMs(450), 5000, 'the measured 0.45 s look: still 5 s');
+  assert.equal(runners.lastLookDeadlineMs(2500), 7500, 'a slow box gets room');
+  assert.equal(runners.lastLookDeadlineMs(60000), 20000, 'never more than 20 s of turns held behind the lock');
+  for (const bad of [NaN, -1, undefined, null, Infinity]) assert.equal(runners.lastLookDeadlineMs(bad), 5000, String(bad));
+});
+
+test('#8659 win32: after slow earlier looks, the last look is given room (not the fixed 5 s)', { skip: WIN_ONLY }, async () => {
+  plantOld();
+  const { tgz, integrity } = winFixture();
+  const optsSeen = [];
+  try {
+    const job = runners.install('openai', { legacyBin: LEGACY, download: downloadFrom(tgz), integrity, prove: ok, agentsCheckedIdle: true,
+      codexRunning: (dir, opts) => { optsSeen.push(opts); return new Promise((r) => setTimeout(() => r(optsSeen.length === 1 ? false : true), optsSeen.length === 1 ? 2200 : 0)); } });
+    await job.settled;
+    const last = optsSeen[optsSeen.length - 1];
+    assert.ok(last && last.deadlineMs >= 6600 && last.deadlineMs <= 20000, 'the last look kept the fixed deadline after a slow look: ' + JSON.stringify(optsSeen));
+  } finally { clear(); try { fs.rmSync(stagingFile(), { force: true }); } catch { /* gone */ } }
+});
+
+test('#8659 win32: a last look that runs out of time says so in the job, not as an ordinary "could not check"', { skip: WIN_ONLY }, async () => {
+  plantOld();
+  const { tgz, integrity } = winFixture();
+  const answers = [false, false, null];   // idle twice, then the marker-down look gives no answer (its deadline ran out)
+  try {
+    const job = runners.install('openai', { legacyBin: LEGACY, download: downloadFrom(tgz), integrity, prove: ok, agentsCheckedIdle: true,
+      codexRunning: () => Promise.resolve(answers.shift()) });
+    await job.settled;
+    assert.equal(job.waited, true);
+    assert.match(job.because, /did not answer within \d+ s/, 'the timeout at the last step reads like any other wait: ' + job.because);
+  } finally { clear(); try { fs.rmSync(stagingFile(), { force: true }); } catch { /* gone */ } }
+});
