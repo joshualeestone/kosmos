@@ -6946,8 +6946,9 @@ function fileBefore(file, jobAt) {
 /* The agent's job file's time (ms), or null when it has none or it cannot be read: the one job-file lookup the Codex
    rule (writtenBeforeJob) and the Claude rule (readBeforeJob) share, one stat per call.
    kosmos#8605: no worldId is passed, so each lookup (plistPath, unitPath, taskFilePath) falls back to THIS process's
-   world (launchidentity.currentWorldId), never another world's job; readModel's own-session test uses the same world
-   (kosmos#8610: the launch key, `name+world` on a named-world board), so the session and the job always agree. */
+   world (launchidentity.currentWorldId), never another world's job. readModel's own-session test (kosmos#8610) takes
+   the bare name or this world's launch key, the two shapes this world's own agents' sessions come in (Windows rows
+   are the bare name in every world); another world's sessions are filtered out before readModel (parsePanes). */
 function jobMtime(agentName) {
   try {
     // #4918 review 11: on Linux the job file is the agent's systemd unit, not a plist (which never exists there).
@@ -7502,14 +7503,16 @@ function readModel(agentName, exactSession) {
      (so readBeforeJob is "no"), and for whoami without a card (or with a card that has no session) a rule that fires
      drops the reading in favour of the process's own --model (server.js skips an earlierSession record), never the
      job's model. A new caller that reads a running agent with no session should pass the session.
-     kosmos#8610: "the agent's own session" is its LAUNCH KEY in this process's world (launchidentity.launchKey): the
-     bare name in the default world, `name+world` (`ava+qa`) on a board running in a named world, which is the session
-     that board's own agents run in and the world whose job jobMtime reads. A session from another world (a bare `ava`
-     read by a named-world board, or `ava+qa` by the default board) is not the one that job starts, so it never gets
-     the rule. */
+     kosmos#8610: "the agent's own session" is the bare name OR its launch key in this process's world
+     (launchidentity.launchKey: `name+world`, `ava+qa`, on a board running in a named world). Both shapes reach here
+     for a named-world board's own agents: a macOS or Linux pane's session is the launch key, while a Windows row's is
+     the plain name in every world (win32roster lists only this world's store, see parsePanes). Neither shape can
+     belong to another world here: parsePanes drops another world's macOS or Linux session before the snapshot reads
+     it, and the Windows roster holds this world's agents only. So the job jobMtime reads (this world's) is the one
+     that session runs. */
   const ownKey = launchidentity.launchKey(agentName, launchidentity.currentWorldId()).toLowerCase();
-  const ownSession = exactSession === undefined || exactSession === null
-    || String(exactSession).toLowerCase() === ownKey;
+  const asked = exactSession === undefined || exactSession === null ? null : String(exactSession).toLowerCase();
+  const ownSession = asked === null || asked === String(agentName).toLowerCase() || asked === ownKey;
   if (now && ownSession && readBeforeJob(file, text, agentName) && jobNamesAnotherModel(agentName, now)) {
     return { model: now, confidence: CONFIDENCE.STRUCTURED, earlierSession: true };
   }
