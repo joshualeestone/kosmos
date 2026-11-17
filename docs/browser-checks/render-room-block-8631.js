@@ -95,7 +95,9 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
         && lines.includes('Room: Launch room (p-1)') && lines.includes('Message id: ' + ROW.id) && lines.includes('hello from outside'), body);
       ok(t + ' an unknown account says so', (await page.evaluate((row) => xReportBody(row, 'p-1', 'Launch room', null), ROW)).includes('Sender account: not known'));
 
-      // 3. Block: asks first, then removes the person's held rows on the board's yes.
+      // 3. Block: asks first, then removes the person's held rows on the board's yes. The dialog lives in the room's column
+      // (as the archive's does), so the room is shown first, as it is whenever a Block button can be pressed.
+      await page.evaluate(() => { showTab('projects'); const col = document.getElementById('xblock-modal').closest('.pjmid'); for (let e = col; e && e !== document.body; e = e.parentElement) e.hidden = false; });
       const ask = await page.evaluate((row) => {
         PJ_CURRENT = 'p-1';
         PJ_WIN.older = [row, Object.assign({}, row, { id: 'x-other-0000', from: 'Bea' })];
