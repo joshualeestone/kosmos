@@ -151,3 +151,32 @@ test('a failed count is remembered for ten minutes per key, then tried again', (
   assert.equal(pdfpages.failedRecently('k-a', t + 10 * 60 * 1000), false, 'still remembered after ten minutes');
   assert.equal(pdfpages.failedRecently('k-a', t + 60 * 1000), false, 'an expired entry was kept');
 });
+
+test('a failed PDFKit run is said once per board run, never naming the file; a PDF that is not one is not', { skip: !(process.platform === 'darwin' && fs.existsSync('/usr/bin/sandbox-exec')) && 'needs macOS sandbox-exec' }, async () => {
+  const cp = require('node:child_process');
+  const realExecFile = cp.execFile;
+  const realWarn = console.warn;
+  const said = [];
+  let answer = (cb) => cb(null, 'ERR open\n');
+  cp.execFile = (bin, args, opts, cb) => setImmediate(() => answer(cb));
+  console.warn = (...a) => said.push(a.join(' '));
+  const id = require.resolve('./pdfpages');
+  delete require.cache[id];
+  try {
+    const fresh = require('./pdfpages');
+    const pdf = path.join(SB, 'secret-name.pdf');
+    fs.writeFileSync(pdf, '%PDF-1.4');
+    assert.equal(await fresh.count(pdf), null);
+    assert.deepEqual(said, [], 'a file that is not a PDF was reported as the Mac failing');
+    answer = (cb) => { const e = new Error('denied'); e.code = 1; cb(e, ''); };
+    assert.equal(await fresh.count(pdf), null);
+    assert.equal(await fresh.render(pdf, 1, path.join(SB, 'x.png')), false);
+    assert.equal(said.length, 1, 'said more than once: ' + JSON.stringify(said));
+    assert.match(said[0], /\[pdfpages\].*exit 1/);
+    assert.ok(!said[0].includes('secret-name') && !said[0].includes(SB), 'the log named the file');
+  } finally {
+    cp.execFile = realExecFile;
+    console.warn = realWarn;
+    delete require.cache[id];
+  }
+});

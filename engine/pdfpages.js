@@ -67,16 +67,28 @@ const waiting = [];
 function turn() { return running < MAX_AT_ONCE ? (running++, Promise.resolve()) : new Promise((r) => waiting.push(r)); }
 function done() { const next = waiting.shift(); if (next) next(); else running--; }
 
+/* Said once per board run (review 8): a macOS whose PDFKit needs something the sandbox refuses would otherwise lose
+   the arrows with no word anywhere, and the failed-count memory would keep it quiet. Never the PDF's path or name. */
+let saidFailure = false;
+function sayFailureOnce(why) {
+  if (saidFailure) return;
+  saidFailure = true;
+  console.warn('[pdfpages] a PDF page could not be counted or drawn (' + why + '); the file preview shows the first page only');
+}
+
 /* The script's answer, or '' for any failure (no sandbox-exec, a timeout, a refusal). `inDir` holds the PDF; `outDir`
    is the only folder it may write. */
 async function runScript(args, inDir, outDir) {
-  if (!fs.existsSync(SANDBOX_EXEC)) return '';
+  if (!fs.existsSync(SANDBOX_EXEC)) { sayFailureOnce('no sandbox-exec on this Mac'); return ''; }
   await turn();
   try {
     return await new Promise((resolve) => {
       execFile(SANDBOX_EXEC, ['-p', SANDBOX, '-D', 'HOME=' + fs.realpathSync(realHome()), '-D', 'IN=' + fs.realpathSync(inDir), '-D', 'OUT=' + fs.realpathSync(outDir),
         '/usr/bin/osascript', '-l', 'JavaScript', '-e', SCRIPT, ...args], { timeout: TIMEOUT_MS, maxBuffer: 64 * 1024 }, (err, stdout) => {
-        resolve(err ? '' : String(stdout || '').trim());
+        const said = err ? '' : String(stdout || '').trim();
+        // A PDF that is not one answers ERR open, which is the file's doing, not the Mac's; anything else is said once.
+        if (err) sayFailureOnce(err.killed ? 'timed out' : 'exit ' + (err.code === undefined ? '?' : err.code));
+        resolve(said);
       });
     });
   } catch { return ''; } finally { done(); }

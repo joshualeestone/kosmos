@@ -2,7 +2,9 @@
 
 ## Finished looks like
 - A PDF with more than one page shows previous and next arrows and "Page N of M" in the preview (Files lists and chat
-  attachments alike); the arrow keys flip pages; a swipe flips pages on a touch screen (the phone through Kosmos+ uses this page).
+  attachments alike); the arrow keys flip pages; a swipe flips pages on a touch screen. The phone through Kosmos+ uses
+  this page, but whether its relay passes the HEAD and the x-kosmos-pdf-pages header is NOT measured (the relay is not
+  in this repo); if it does not, the phone shows the first page only, as before. To check on a live board.
 - A one-page PDF, an image, a text file and a spreadsheet look as they do today (control).
 - Measured on a real board with a three-page PDF.
 
