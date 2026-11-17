@@ -14738,21 +14738,6 @@ window.kosmosMeasureScrollbarWidth();
   </div>
 </div>
 
-<!-- #8631: Block, the board's half of #8625. The delete dialog's shape: both buttons name the act, and not blocking takes
-     focus. The words are the phone's (BoardRoom.swift blockAskBody), with this computer's place for Unblock. -->
-<div class="rm-back" id="xblock-modal" hidden>
-  <div class="rm-box" role="alertdialog" aria-modal="true"
-       aria-labelledby="xblock-title" aria-describedby="xblock-small">
-    <h2 class="rm-title" id="xblock-title">Block them?</h2>
-    <p class="rm-small" id="xblock-small"></p>
-    <div class="rm-acts">
-      <button class="btn" id="xblock-keep" type="button">Don't block</button>
-      <button class="btn danger-btn" id="xblock-go" type="button">Block</button>
-    </div>
-    <div class="fmsg" id="xblock-msg" role="alert" aria-live="assertive"></div>
-  </div>
-</div>
-
 <div class="rm-back" id="hist-modal" hidden>
   <div class="rm-box" role="alertdialog" aria-modal="true"
        aria-labelledby="hist-title" aria-describedby="hist-small">
@@ -17902,6 +17887,20 @@ window.kosmosMeasureScrollbarWidth();
            body row (web.consolidated-980.test.js). It is position:fixed, so it still covers the window. -->
       <!-- kosmos#7365 slice 3b: "Archive older messages" (Mona's design, card comment 6449440652). The wording promises no
            more than the server does: it keeps the last day live, so the receipt states the time it actually used. -->
+      <!-- #8631 (inside the room column, as the archive's dialog is, so the body keeps its 42 children): Block, the board's half of #8625. The delete dialog's shape: both buttons name the act, and not blocking takes
+           focus. The words are the phone's (BoardRoom.swift blockAskBody), with this computer's place for Unblock. -->
+      <div class="rm-back" id="xblock-modal" hidden>
+        <div class="rm-box" role="alertdialog" aria-modal="true"
+             aria-labelledby="xblock-title" aria-describedby="xblock-small">
+          <h2 class="rm-title" id="xblock-title">Block them?</h2>
+          <p class="rm-small" id="xblock-small"></p>
+          <div class="rm-acts">
+            <button class="btn" id="xblock-keep" type="button">Don't block</button>
+            <button class="btn danger-btn" id="xblock-go" type="button">Block</button>
+          </div>
+          <div class="fmsg" id="xblock-msg" role="alert" aria-live="assertive"></div>
+        </div>
+      </div>
       <div class="rm-back" id="pjarch-modal" hidden>
         <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="pjarch-title" aria-describedby="pjarch-small">
           <h2 class="rm-title" id="pjarch-title">Archive older messages?</h2>
@@ -28371,7 +28370,8 @@ function showTab(tab) {
     if (rr) rr.innerHTML = '';
   } else { paintRemoved(); paintSurvival(); }
   PANELS.forEach((p) => { document.getElementById('panel-' + p).hidden = (p !== tab); });
-  if (tab === 'settings') { centreSettingsPill(); refreshSurvivalHidden(); if (SETTINGS_SEC === 'you' && typeof blockedPaint === 'function') blockedPaint(); }   // #8631: the Blocked list, read on arrival
+  if (tab === 'settings') { centreSettingsPill(); refreshSurvivalHidden(); }
+  if (tab === 'settings' && SETTINGS_SEC === 'you' && typeof blockedPaint === 'function') blockedPaint();   // #8631: the Blocked list, read on arrival
   /* #1615: un-blue + tear down the Plus canvases when leaving Settings (or when
      the Settings section is not Plus); re-blue + re-mount on return. The Settings
      section persists across tab switches, so this must run on every tab change,
@@ -83490,7 +83490,7 @@ async function loadRoom() {
       if (mine !== PJ_ROOM_GEN) return;
       if (!res.ok) throw new Error(body.error || 'we could not read the room');
       body.__whole = true;   // a keystroke paints from this body only (review 7)
-      pjBlockedNoteSet(body);   // #8631
+      if (typeof pjBlockedNoteSet === 'function') pjBlockedNoteSet(body);   // #8631 (guarded: tests lift loadRoom alone)
     } else {
       if (PJ_WIN.pid !== PJ_CURRENT) pjWinReset(PJ_CURRENT);
       const win = PJ_WIN.gen;
@@ -83499,7 +83499,7 @@ async function loadRoom() {
       // #8631: the live part's line, set before the window decides whether to repaint; while the archive is showing, the
       // archive's own read sets it, and this one is kept for when the reader goes back to the room.
       PJ_WIN.hiddenLive = body.hiddenBlocked;
-      if (!(typeof pjArchShowing === 'function' && pjArchShowing())) pjBlockedNoteSet(body);
+      if (typeof pjBlockedNoteSet === 'function' && !(typeof pjArchShowing === 'function' && pjArchShowing())) pjBlockedNoteSet(body);
       /* The read worked: a "could not read" line from an earlier poll goes now, before the returns below that paint
          nothing (no change, or a reader past the cap), or it would stay up on a quiet room (review 8). */
       const failMsg = document.getElementById('pj-room-msg');
