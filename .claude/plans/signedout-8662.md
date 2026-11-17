@@ -12,7 +12,7 @@ Many agents read "unknown model" and the model picker did nothing; the tab had b
 ## Change
 - web/index.html: `#d-signedout`, one note above the agent page's sections (its words live once, in paintDetailSignedOut:
   the page shows what it last read, nothing on it can be saved until a sign-in, its model controls are paused, and
-  "Sign this tab in again" links the board, where the sign-in steps are; a relay sign-out gets the board's own sentence
+  "See how to sign in" links the board, where the sign-in steps are; a relay sign-out gets the board's own sentence
   and Sign in button). `paintDetailSignedOut()` shows it and makes `#d-sec-model` inert while
   `BOARD_NEEDS_SIGNIN` (403, this computer's page) or `BOARD_SIGNED_OUT` (#718 relay) holds. Driven by the STATUS poll
   only (its refusal path, both success paths and the outage path, #268): loadProjects also writes the flags, and a
@@ -26,7 +26,7 @@ Many agents read "unknown model" and the model picker did nothing; the tab had b
 - docs/browser-checks/render-detail-signedout-8662.js: both looks; control before the sign-out; note + inert after;
   both cleared on sign-in; the relay sign-out's own wording and button; an outage after a sign-out clears the note
   (#268); keyboard focus moves to the note when the section locks (new look). Red against main's page on the sign-out
-  and relay arms (measured at round 0: 4 of 11), and on the outage arms with that repaint removed (measured).
+  and relay arms (measured on the first version: 4 of 11 then; the check now has 23), and on the outage arms with that repaint removed (measured).
 - web.made-before.test.js: modelLine signed out, with signed-in controls.
 
 ## Split
@@ -42,6 +42,11 @@ any surface drawn from what the page last read; it is pinned by the unit test, n
 - Shared constants for "Made before Kosmos recorded this" and the signed-out line: tests lift modelLine, tileModelLine
   and lmodelCell alone, so a page-level constant breaks them (measured: 4 failures); the words stay literal, pinned by
   web.made-before.test.js against modelLine's own output.
+
+## Residual
+- loadProjects also writes the sign-in flags (it does not repaint the agent page, on purpose). When status says 403 and
+  a projects read fails another way, modelLine's wording can read "Unknown Model" until the next status poll while the
+  note stays up. Cosmetic, and it self-heals on the next poll.
 
 ## Not done
 Only the Model section is made inert. Other sections' writes (Instructions, Remove, Memory's Compact/Clear) are also
