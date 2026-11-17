@@ -3470,7 +3470,18 @@ test('kosmos#8618: an agent created by a full model id launches on that model; a
   assert.equal(plannedModel('byfullid'), 'claude-opus-5-5', 'an agent created by full id does not run that model');
   const bad = create.createAgent({ ...BINS, name: 'bynearid', role: 'pm', model: 'claude-opus-5-5x' });
   assert.equal(bad.outcome, create.OUTCOME.REFUSED, 'CONTROL: a near id was accepted');
-  assert.match(bad.because, /^pick a model from the list: fable52 \(Claude Fable 5\.2\), /, bad.because);
+  const listed = create.modelsFor('anthropic').map((m) => m.key + ' (' + m.label + ')').join(', ');
+  assert.ok(bad.because.startsWith('pick a model from the list: ' + listed + '.'), bad.because);
+});
+
+/* kosmos#8618: modelFor takes a key or a full id, so every key and every id must name exactly one row across the list. */
+test('kosmos#8618: every Claude model key and full id is unique across the list, so either names one row', () => {
+  const names = create.modelsFor('anthropic').flatMap((m) => [m.key, m.arg]);
+  assert.equal(new Set(names).size, names.length, 'a key or id names two rows: ' + names.join(', '));
+  for (const m of create.modelsFor('anthropic')) {
+    assert.equal(create.modelFor('anthropic', m.key), m, 'its key did not find ' + m.key);
+    assert.equal(create.modelFor('anthropic', m.arg), m, 'its full id did not find ' + m.key);
+  }
 });
 
 /**
@@ -3970,7 +3981,8 @@ test('setModel rewrites the startup file and keeps everything else about the job
   // The exact list, in menu order (a substring check would miss "opus" inside "opus55").
   const listed = create.modelsFor('anthropic').map((m) => m.key + ' (' + m.label + ')').join(', ');
   assert.ok(bad.because.includes('pick a model from the list: ' + listed + '.'), 'the refusal did not list every key: ' + bad.because);
-  assert.match(bad.because, /A model's full id works too, such as claude-sonnet-5$/, 'the example is the default model\'s id');
+  const defaultId = create.modelsFor('anthropic').find((m) => m.default).arg;
+  assert.ok(bad.because.endsWith('A model\'s full id works too, such as ' + defaultId), 'the example is the default model\'s id: ' + bad.because);
   const byId = create.setModel(name, 'claude-opus-5-5');
   assert.equal(byId.outcome, create.OUTCOME.CREATED, byId.because);
   assert.equal(byId.model.key, 'opus55', 'a full id did not land on its menu row');
