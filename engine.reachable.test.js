@@ -284,6 +284,9 @@ const EXCUSED = {
    read the module). Keyed by FILE, like TRIAGED_5548, because several names are generic (setClock, setBin, _lock):
    a by-name excuse would also hide a real orphan of the same name in another module (#5548 review 2). */
 const SEAMS_5548 = {
+  // kosmos#8640: the pane-folder source, so engine/delete-leftover.running-8640.test.js can say which folder a pane works in
+  // without the real tmux, as setPaneSource does for the listing. Production reads tmux; only tests call it.
+  setPaneFolderSource: 'engine/status.js',
   // kosmos#8122 xlsxprev-8122: the reader's pure helpers (cell refs, dates, number formats, the XML clean) and its test clock,
   // so engine/xlsxpreview-review-8122.test.js can pin each review finding on its own. Production calls only readXlsx.
   _internal: 'engine/xlsxpreview.js',

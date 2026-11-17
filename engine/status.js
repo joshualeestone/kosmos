@@ -8156,18 +8156,45 @@ function paneRoster() {
   return paneRosterFrom(paneSource ? paneSource() : tmuxPanes());
 }
 /* #6173: the same roster from a tmux look that does not block the board's thread (an account move's restarts). */
-/* kosmos#8640: one look at tmux, read two ways: the roster (as paneRoster) and the panes that say which agent they run
-   (`@kosmos_agent`), as { claim, session }. ONE read, so a caller asking "is X running" makes the same single tmux
-   call it made before, and it THROWS the same way when tmux could not be asked. paneRoster's rows stay as they are:
-   their shape is pinned in fixture-discipline.test.js. */
+async function paneRosterAsync() {
+  return paneRosterFrom(paneSource ? paneSource() : await tmuxPanesAsync());
+}
+/* kosmos#8640: one listing read two ways: the roster (as paneRoster) and each pane's `@kosmos_agent` claim with its
+   session, as { claim, session }. The supervisor stamps the claim with the session's own name, so the claim differs
+   from the session only after a session is renamed; that is the case this lets a caller see. It THROWS as paneRoster
+   does when the listing could not be read. paneRoster's rows stay as they are: their shape is pinned in
+   fixture-discipline.test.js. */
 function paneLook() {
   const out = paneSource ? paneSource() : tmuxPanes();
   const roster = paneRosterFrom(out);
   const claims = readPanes(out).panes.filter((p) => typeof p.claim === 'string' && p.claim).map((p) => ({ claim: p.claim, session: p.session }));
   return { roster, claims };
 }
-async function paneRosterAsync() {
-  return paneRosterFrom(paneSource ? paneSource() : await tmuxPanesAsync());
+/* kosmos#8640: every pane's session and the folder it is in now, as { session, folder }. The question it answers is
+   "is anything running inside this agent's folder", which needs neither the session name nor a claim: an agent a
+   person's own tooling relaunched carries neither, and was offered for deletion while running. A second listing (the
+   folder is not one of PANE_COLUMNS). THROWS when it could not be read, or when every line of it is unreadable, so a
+   delete check fails closed; [] when no tmux server is running. With a pane source set it never asks tmux: in a test
+   it reads the injected folder source ([] when none), and on Windows, whose roster is not tmux, it answers [], so
+   this check does nothing there. */
+let paneFolderSource = null;
+function setPaneFolderSource(fn) { paneFolderSource = typeof fn === 'function' ? fn : null; }
+function readPaneFolders(out) {
+  const lines = String(out || '').split('\n').filter(Boolean);
+  const rows = lines.map((line) => {
+    const tab = line.indexOf('\t');
+    return tab < 0 ? null : { session: line.slice(0, tab), folder: line.slice(tab + 1) };
+  }).filter((r) => r && r.folder);
+  if (lines.length && !rows.length) throw new Error('we could not make sense of what came back');
+  return rows;
+}
+function paneFolders() {
+  if (paneFolderSource) return readPaneFolders(paneFolderSource());
+  if (paneSource) return [];
+  const got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', '#{session_name}\t#{pane_current_path}']);
+  if (got.ran && got.status === 0) return readPaneFolders(got.out);
+  if (tmuxSaidNoServer(got)) return [];
+  throw new Error('we could not see what is running on this computer');
 }
 function paneRosterFrom(out) {
   if (out === null || out === undefined) {
@@ -10507,7 +10534,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { paneLook /* kosmos#8640 */, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, setPaneFolderSource /* kosmos#8640, tests */, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)

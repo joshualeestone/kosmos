@@ -3,12 +3,14 @@
  * kosmos#8640: delete-leftovers must never offer an agent that is RUNNING, whatever the record says.
  *
  * A tester's board listed 15 live agents as removed. Every delete re-plans, and the plan refuses an agent with a live
- * pane, but it recognised a live pane only by a tmux SESSION NAMED EXACTLY FOR THE AGENT. A running agent in a session
- * named otherwise (the legacy `<name>-discord`, or a relaunch that put it somewhere else and tied it by its
- * `@kosmos_agent` claim) was invisible to it, so its folder and job were offered for deletion.
+ * pane, but it recognised a live pane only by its SESSION NAME (`<name>` or `<name>-discord`). A running agent whose
+ * session was renamed (its `@kosmos_agent` claim still names it), or one a person's own tooling started in a session of
+ * its own, was invisible to it, so its folder and job were offered for deletion.
  *
  * Arms: the session named for the agent (the control that already refused); `<name>-discord`; another session whose
- * pane claims the agent; and the negative control, nothing running, which must still be offered.
+ * pane claims the agent; a pane whose session AND claim match nothing but which works inside the agent's folder (an
+ * agent a person's own tooling started: the 9-day agents on the tester's board); a tmux that cannot be asked; and the
+ * negative controls, nothing running and a sibling folder sharing the name's prefix, which must still be offered.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -50,7 +52,7 @@ function leftoverAgent(name) {
 }
 
 test.beforeEach(() => { fs.mkdirSync(process.env.AGENT_WORKFORCE_TRASH, { recursive: true }); status.setPaneSource(() => ''); });
-test.afterEach(() => { status.setPaneSource(null); });
+test.afterEach(() => { status.setPaneSource(null); status.setPaneFolderSource(null); });
 
 test('control: a pane in the session named for the agent refuses (it already did)', () => {
   leftoverAgent('wrath');
@@ -71,7 +73,7 @@ test('a running agent in its <name>-discord session is not offered, and its fold
   assert.ok(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), 'the running agent lost its folder');
 });
 
-test('a pane in another session that claims the agent (@kosmos_agent) is not offered', () => {
+test('a pane in a renamed session that still claims the agent (@kosmos_agent) is not offered', () => {
   const dir = leftoverAgent('lust');
   status.setPaneSource(() => fleet.line({ session: 'relaunched-3', claim: 'lust', title: '✳ Claude Code' }));
   const p = mac.plan('lust');
@@ -98,4 +100,41 @@ test('negative control: with nothing running the leftover is still offered, and 
   assert.equal(mac.plan('juan').ok, true, 'a pane for a different agent held this one');
   status.setPaneSource(() => fleet.line({ session: 'juan-discord-old', claim: '', title: '✳ Claude Code' }));
   assert.equal(mac.plan('juan').ok, true, 'a session that only starts with the name held this one');
+});
+
+test('a pane whose session and claim match nothing, but which works in the agent\'s folder, is running', () => {
+  const dir = leftoverAgent('agent1');
+  status.setPaneSource(() => fleet.line({ session: 'orchestrator', claim: '', title: '✳ Claude Code' }));
+  status.setPaneFolderSource(() => `orchestrator\t${dir}\n`);
+  const p = mac.plan('agent1');
+  assert.equal(p.ok, false, 'a live pane in agent1\'s own folder was offered for deletion');
+  assert.match(p.because, /working in agent1's folder/);
+  assert.doesNotMatch(p.because, /tmux/i);
+  const done = mac.del('agent1');
+  assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'the delete went ahead over a running agent');
+  assert.ok(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), 'the running agent lost its folder');
+});
+
+test('a pane working in a subfolder of the agent\'s folder holds it too; a sibling sharing the prefix does not', () => {
+  const dir = leftoverAgent('agent2');
+  status.setPaneFolderSource(() => `w\t${nodePath.join(dir, 'notes')}\n`);
+  assert.equal(mac.plan('agent2').ok, false, 'a pane in agent2/notes did not hold agent2');
+  leftoverAgent('agent3');
+  const sibling = leftoverAgent('agent30');
+  status.setPaneFolderSource(() => `w\t${sibling}\n`);
+  assert.equal(mac.plan('agent3').ok, true, 'a pane in agent30 held agent3 (a prefix match, not a folder match)');
+});
+
+test('the folder check fails closed: a tmux that cannot be asked refuses the plan', () => {
+  leftoverAgent('agent4');
+  status.setPaneFolderSource(() => { throw new Error('tmux went away'); });
+  const p = mac.plan('agent4');
+  assert.equal(p.ok, false);
+  assert.match(p.because, /could not check whether .* is running/);
+});
+
+test('a named world\'s claim (name+world) holds the agent too', () => {
+  leftoverAgent('greed');
+  status.setPaneSource(() => fleet.line({ session: 'renamed', claim: 'greed+work', title: '✳ Claude Code' }));
+  assert.equal(mac.plan('greed').ok, false);
 });

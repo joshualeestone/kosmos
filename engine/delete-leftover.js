@@ -489,19 +489,35 @@ function plan(name, opts) {
      the two names as one. */
   const caseBlind = platform === 'darwin' || platform === 'win32';
   const sameName = (a) => (caseBlind ? String(a).toLowerCase() === clean.toLowerCase() : a === clean);
-  /* kosmos#8640: a pane CLAIMING the agent counts too. The session name alone missed a running agent that a relaunch
-     put in a session named otherwise and tied by its @kosmos_agent claim, and offered that agent's folder and job. */
+  /* kosmos#8640: the session name alone missed a running agent whose session was renamed (its @kosmos_agent claim still
+     names it) and one a person's own tooling started in a session of its own (no claim, but working in the agent's
+     folder), and offered that agent's folder and job. Both count as running now. */
   let byClaim = false;
+  let byFolder = false;
   try {
     const look = status.paneLook();
     live = look.roster.find((c) => sameName(c.sessionName)) || null;
-    if (!live) { live = look.claims.find((c) => sameName(c.claim)) || null; byClaim = !!live; }
+    if (!live) { live = look.claims.find((c) => sameName(c.claim.split('+')[0])) || null; byClaim = !!live; }   // a named world's claim is name+world
+    /* A pane working INSIDE the agent's folder, whatever its session or claim. It may be the agent or anything else
+       working there; either way nothing in that folder is offered. Real paths, so a symlinked workers folder still
+       matches; case-blind where the disk is. */
+    if (!live) {
+      const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+      const norm = (p) => (caseBlind ? real(p).toLowerCase() : real(p));
+      const home = norm(create.workerDir(clean));
+      const inside = (f) => { const n = norm(f); return n === home || n.startsWith(home + path.sep); };
+      const pane = status.paneFolders().find((r) => inside(r.folder));
+      if (pane) { live = { session: pane.session, sessionName: pane.session }; byFolder = true; }
+    }
   }
   catch {
     return { ok: false, because: `we could not check whether ${shown} is running right now, so we have not offered to delete anything. Try again in a moment.` };
   }
+  if (live && byFolder) {
+    return { ok: false, because: `Something is working in ${shown}'s folder right now, so nothing of ${shown} is offered for deletion. Stop it first if you want ${shown} gone.` };
+  }
   if (live && byClaim) {
-    return { ok: false, because: `${shown} is running (in the tmux session ${live.session}), so there is nothing left over to delete. Remove it first if you want it gone.` };
+    return { ok: false, because: `${shown} is running under another name here, so there is nothing left over to delete. Remove it first if you want it gone.` };
   }
   if (live) {
     const who = live.sessionName === clean ? shown : (status.readIdentity(live.sessionName).displayName || live.sessionName);
