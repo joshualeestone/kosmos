@@ -10,6 +10,8 @@
 - newestReplyAt counts a reply as hasReplied does (isReplyLine), plus a check of the row's own model (review 2: the
   `<synthetic>` check is NOT dead, since isReplyLine passes a line if ANY model value on it is real; kept, commented).
 - The cut-first-line gap is recorded (comment) as a known, bounded case.
+- Review 3: comments only (the reply-rule header now matches the row check; rewrites named by mechanism,
+  rewriteAgentJob and installPlan; the named-world gap is from #8601 review 7, card only, filed as #8610).
 - Review 1: the named-world comment corrected (this process's world, not the default one) and the real gap named: a
   board in a named world has sessions `name+world`, so the #8601 rule never applies there (older than #8601; noted).
   Cache refresh list completed (install, remove, disable, enable); a second stat-count test for the file-time path.

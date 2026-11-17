@@ -6944,9 +6944,10 @@ function writtenBeforeJob(file, agentName) {
 /* The agent's job file's time (ms), or null when it has none or it cannot be read: the one job-file lookup the Codex
    rule (writtenBeforeJob) and the Claude rule (readBeforeJob) share, one stat per call.
    kosmos#8605: no worldId is passed, so each lookup (plistPath, unitPath, taskFilePath) falls back to THIS process's
-   world (launchidentity.currentWorldId), never another world's job. Known gap, older than #8601: on a board running in a
-   named world (#1704) its agents' sessions are `name+world` (`ava+qa`), which readModel does not count as the agent's
-   own session, so the Claude rule never applies there and such a card keeps the old model until the next reply. */
+   world (launchidentity.currentWorldId), never another world's job. Known gap (kosmos#8610), from #8601 review 7's
+   own-session test: on a board running in a named world (#1704) its agents' sessions are `name+world` (`ava+qa`),
+   which readModel does not count as the agent's own, so the Claude rule never applies on the CARD there and such a card
+   keeps the old model until the next reply. (No-session callers, whoami and repair, still count as own.) */
 function jobMtime(agentName) {
   try {
     // #4918 review 11: on Linux the job file is the agent's systemd unit, not a plist (which never exists there).
@@ -6982,8 +6983,9 @@ function readBeforeJob(file, text, agentName) {
    read: modelInText prefers an id the name table knows over a newer one it does not, so after a change to a model not
    yet in the table the read model stays the old one, and timing that old row kept the reading "earlier" through every
    reply on the new model. A reply after the job means the agent has answered since the change, whatever its id; then
-   the reading stands, as modelInText chose it. What counts as a reply is hasReplied's own test (isReplyLine: an
-   assistant row with a real model, not an API error), so the two cannot disagree; a `<synthetic>` row is not one.
+   the reading stands, as modelInText chose it. A reply here is hasReplied's test (isReplyLine: not an API error, and
+   some real model value on the line) PLUS the row's own model being real, so every reply here is one to hasReplied
+   too (not the reverse: a `<synthetic>` row carrying another real model field is a reply only to hasReplied).
    null when no such row with a readable timestamp is in the tail (the caller then uses the file's time). */
 function newestReplyAt(text) {
   const s = String(text || '');
@@ -7012,10 +7014,10 @@ function newestReplyAt(text) {
    "@20251001") are set aside (review 5: a model the name table does not know yet still matches its dated form), or
    when they are shown under the same name. A job that cannot be read is "no".
    kosmos#8605: on Windows plannedModelOf reads the task through win32job.cachedTaskSpec, which this process refreshes
-   only on its own install, remove, disable or enable (#2717, #3013). That is right here because every rewrite that
-   changes a model (create.setModel, create.setProvider) runs in the board process, from its own routes in server.js,
-   and goes through win32job.install, which forgets the cached task first; so the board process that reads this has
-   already refreshed it. A rewrite from another process would leave the cache on the old model and this would answer
+   only on its own install, remove, disable or enable (#2717, #3013). That is right here because every job rewrite
+   (create.rewriteAgentJob, behind setModel, setProvider and the account setters) runs in the board process from its
+   own routes in server.js and goes through win32job's install or installSteps, whose shared installPlan forgets the
+   cached task first; so the board process that reads this has already refreshed it. A rewrite from another process would leave the cache on the old model and this would answer
    "same" (the old bug, silently): a new path that changes a model outside the board must forget the cached task. */
 function jobNamesAnotherModel(agentName, readId) {
   let planned = null;
@@ -7499,9 +7501,9 @@ function readModel(agentName, exactSession) {
      two models) is not the session the job starts, so its reading is never judged against that job.
      kosmos#8605: "no session given" also counts as the agent's own, though server.js measured readModel('foo') can land
      on foo-discord. That is safe only for today's no-session callers: repair's modelFor acts only on agents with no job
-     (so readBeforeJob is "no"), and for whoami without a card a rule that fires drops the reading in favour of the
-     process's own --model (server.js skips an earlierSession record), never the job's model. A new caller that reads a
-     running agent with no session should pass the session. */
+     (so readBeforeJob is "no"), and for whoami without a card (or with a card that has no session) a rule that fires
+     drops the reading in favour of the process's own --model (server.js skips an earlierSession record), never the
+     job's model. A new caller that reads a running agent with no session should pass the session. */
   const ownSession = exactSession === undefined || exactSession === null
     || String(exactSession).toLowerCase() === String(agentName).toLowerCase();
   if (now && ownSession && readBeforeJob(file, text, agentName) && jobNamesAnotherModel(agentName, now)) {
