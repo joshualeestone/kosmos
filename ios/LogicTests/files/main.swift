@@ -181,6 +181,11 @@ check(names(byNameInput.map { lf($0) }, .az) == byNameNode, "A to Z is the serve
 check(names(byNameNode.reversed().map { lf($0) }, .az) != byNameNode, "CONTROL: a tie (Été notes / ete Notes) arriving the other way round stays the other way round, so the check above can fail")
 check(names(byNameInput.map { lf($0) }, .za).first == "zeta.pdf" && names(byNameInput.map { lf($0) }, .za).last == "_draft.md", "Z to A turns it around")
 check(names(byNameInput.map { lf($0) }, .za).filter { ["résumé.docx", "resume.docx", "Resume.docx"].contains($0) } == ["résumé.docx", "resume.docx", "Resume.docx"], "Z to A keeps a tie by name in the order it came")
+// Review 3: leading zeros and dotted versions, measured the same way (x1, x01 and x001 are equal to byName, so they keep
+// the order they came in).
+let zerosNode = ["0.txt","00.txt","a01b.txt","a1b.txt","v1.2.9.zip","v1.2.10.zip","x1.txt","x01.txt","x001.txt","x2.txt","x02.txt","x10.txt","x010.txt"]
+check(names(["x1.txt","x01.txt","x001.txt","x10.txt","x010.txt","x2.txt","x02.txt","v1.2.10.zip","v1.2.9.zip","0.txt","00.txt","a01b.txt","a1b.txt"].map { lf($0) }, .az) == zerosNode,
+      "A to Z with leading zeros and versions is the server's too")
 let timed = [lf("b old.txt", 86_400), lf("a new.txt", 60), lf("c none.txt"), lf("d mid.txt", 3600), lf("e mid.txt", 3600)]
 check(names(timed, .newest) == ["a new.txt", "d mid.txt", "e mid.txt", "b old.txt", "c none.txt"], "Newest first: a file saved a minute ago on top; the same time by name; no time last")
 check(names(timed, .oldest) == ["b old.txt", "d mid.txt", "e mid.txt", "a new.txt", "c none.txt"], "Oldest first: the other way; the same time still by name; no time still last")

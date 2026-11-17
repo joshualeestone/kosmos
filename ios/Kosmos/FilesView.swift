@@ -22,9 +22,10 @@ struct FilesView: View {
     // kosmos#8632: the order, kept on this phone per screen (an agent's Files, a project's Files).
     @AppStorage private var sortSaved: String
     private var sortChoice: Board.FilesSort { Board.filesSort(saved: sortSaved) }
-    // The page in that order, kept rather than sorted in body: A to Z over 1000 rows took about 15 ms per sort on a Mac
-    // (review 2), and body runs again on every change while a file opens.
-    @State private var sortedPage: Board.FilesPage?
+    // The page in that order, kept rather than sorted in body: A to Z over 1000 rows took about 15 ms per sort on a Mac,
+    // unoptimized (review 2), and body runs again on every change while a file opens. Kept with the order it was sorted
+    // in, so body sorts again itself if the order moved on without show(_:) (review 3).
+    @State private var sortedPage: (sort: Board.FilesSort, page: Board.FilesPage)?
 
     init(client: BoardClient, owner: Board.FilesOwner, dir: String = "", openOnBoard: @escaping () -> Void, titled: Bool = true) {
         self.client = client
@@ -64,7 +65,7 @@ struct FilesView: View {
             case .refused(let why)?:
                 Section { Text(why).foregroundColor(Palette.secondary) }
             case .page(let unsorted)?:
-                let page = sortedPage ?? Board.filesSorted(unsorted, by: sortChoice)
+                let page = sortedPage.flatMap { $0.sort == sortChoice ? $0.page : nil } ?? Board.filesSorted(unsorted, by: sortChoice)
                 if page.dirs.isEmpty && page.files.isEmpty {
                     Section { Text(Board.filesEmpty(owner: owner, dir: dir)).foregroundColor(Palette.secondary) }
                 } else {
@@ -102,7 +103,8 @@ struct FilesView: View {
         .kosmosSolidTopBar()
         // kosmos#8632: in the top bar whenever there is something to order (on the project page too, while its Files
         // segment shows: that page has no top-bar button of its own).
-        .toolbar { ToolbarItem(placement: .navigationBarTrailing) { if hasRows { sortMenu } } }
+        // Review 3: the condition outside the item (as KosmosBarLeading's switcher), so no list leaves no item at all.
+        .toolbar { if hasRows { ToolbarItem(placement: .navigationBarTrailing) { sortMenu } } }
         .dotsRefresh { await load() }
         // Review 2: keyed on the account, so a sign-out, another account or another Mac cancels the old read and starts
         // a new one; load() also drops an answer that lands for the account before.
@@ -148,7 +150,7 @@ struct FilesView: View {
     // Sets the list and its sorted page together.
     private func show(_ r: Board.FilesRead?) {
         read = r
-        if case .page(let p)? = r { sortedPage = Board.filesSorted(p, by: sortChoice) } else { sortedPage = nil }
+        if case .page(let p)? = r { sortedPage = (sortChoice, Board.filesSorted(p, by: sortChoice)) } else { sortedPage = nil }
     }
 
     #if DEBUG
