@@ -121,6 +121,11 @@ CURL
 chmod +x "$BIN/curl"
 cat > "$BIN/vercel" <<'VERCEL'
 #!/bin/bash
+# kosmos#8656: the deploy refreshes the sign-in with `vercel whoami` first (site_vercel_deploy): that publishes nothing.
+[ "${1:-}" = whoami ] && { echo "tester"; exit 0; }
+# kosmos#8656: every deploy try is counted, and AFTERDEPLOY_MOVE changes a live pointer as the refusal comes.
+n=$(cat "$LIVE_DIR/.vercel-tries" 2>/dev/null || echo 0); echo $((n + 1)) > "$LIVE_DIR/.vercel-tries"
+[ -n "${AFTERDEPLOY_MOVE:-}" ] && mkdir -p "$LIVE_DIR/dist" && printf '{"version":"9.9.99"}\n' > "$LIVE_DIR/dist/$AFTERDEPLOY_MOVE"
 # kosmos#6771: VERCEL_REFUSE=auth answers as the CLI does when its sign-in or token is refused; =other fails otherwise.
 # kosmos#8512: VERCEL_REFUSE=nodeploy exits 0 having published nothing (the 0.8.05 cut's partial upload).
 [ "${VERCEL_REFUSE:-}" = nodeploy ] && { echo "Deploying chaoskosmos"; exit 0; }
@@ -302,10 +307,19 @@ VERCEL_TOKEN=tok-for-vercel VERCEL_REFUSE=whosees run_deploy "$S10" "$L10" --pub
 # the autodeploy counts it rather than letting its "already live" shortcut bless an unverified deploy.
 read -r S11 L11 <<<"$(make_publish_scenario ok)"
 VERCEL_REFUSE=afterdeploy run_deploy "$S11" "$L11" --publish
-if [ "$RC" = 1 ] && has "$out" "vercel deploy --prod failed (rc 1)" && ! has "$out" "exiting 77"; then
-  pass "B5d: a refusal after a deployment was made: exit 1 (counted), not 77"
+if [ "$RC" = 1 ] && has "$out" "vercel deploy --prod failed (rc 1)" && ! has "$out" "exiting 77" && [ "$(cat "$L11/.vercel-tries" 2>/dev/null)" = 1 ]; then
+  pass "B5d: a refusal after a deployment was made: exit 1 (counted), not 77, and never tried again (kosmos#8656)"
 else
-  bad "B5d: a refusal after a deployment (rc=$RC); out=$out"
+  bad "B5d: a refusal after a deployment (rc=$RC, tries=$(cat "$L11/.vercel-tries" 2>/dev/null)); out=$out"
+fi
+# B5e) kosmos#8656: the same, when the deployment it made moved a live pointer: still exit 1 ("failed after a
+# deployment"), never 75 ("nothing has been deployed", which would be false), and one try.
+read -r S12 L12 <<<"$(make_publish_scenario ok)"
+VERCEL_REFUSE=afterdeploy AFTERDEPLOY_MOVE=latest-win.json run_deploy "$S12" "$L12" --publish
+if [ "$RC" = 1 ] && has "$out" "after it had made a deployment" && ! has "$out" "nothing has been deployed" && [ "$(cat "$L12/.vercel-tries" 2>/dev/null)" = 1 ]; then
+  pass "B5e: a refusal after a deployment that moved a pointer: exit 1, one try, never 'nothing has been deployed'"
+else
+  bad "B5e: refusal after a deployment that moved a pointer (rc=$RC, tries=$(cat "$L12/.vercel-tries" 2>/dev/null)); out=$out"
 fi
 # B8-CONTROL: the curl stand-in does record a VERCEL_TOKEN it is given, so B8's "never sees it" can fail.
 ( VERCEL_TOKEN=x LIVE_DIR="$T/b8ctl" HOST_URL="$HOSTURL"; export VERCEL_TOKEN LIVE_DIR HOST_URL; mkdir -p "$LIVE_DIR"; "$BIN/curl" -s "$HOSTURL/x" >/dev/null 2>&1 )
