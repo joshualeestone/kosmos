@@ -13746,7 +13746,7 @@ window.kosmosMeasureScrollbarWidth();
   <div class="dsecs">
   <!-- kosmos#8662: an agent page open when the tab is signed out (a restart or an update signs tabs out) kept its last
        reading and its controls with nothing saying why they no longer work. -->
-  <p class="d-signedout" id="d-signedout" role="status" hidden>This tab is signed out, so this page shows what it last read and cannot change anything, the model included. <a href="/">Sign this tab in again</a> to see and change models.</p>
+  <p class="d-signedout" id="d-signedout" role="status" hidden></p><!-- filled by paintDetailSignedOut, the one place its words live -->
   <section class="dsec" id="d-sec-talk" data-sec="talk" tabindex="-1" aria-label="Talk">
 
   <!-- 🛑 THE ROOM-CONVERSATION BOX IS GONE (Josh, 2026-08-23 12:38: "i want to
@@ -42514,9 +42514,11 @@ function paintDetailSignedOut() {
        this computer's tab with the steps on the board. Rewritten only when the kind changes (a button under focus). */
     const kind = out ? (relay ? 'relay' : 'tab') : '';
     if (kind && note.dataset.kind !== kind) {
+      /* True as written: the board refuses every change while signed out, and the model controls are paused here. */
+      const said = ' This page shows what it last read, and nothing on it can be saved until you sign in again; its model controls are paused.';
       note.innerHTML = relay
-        ? esc(ORG_SIGNED_OUT_SENTENCE) + ' This page shows what it last read and cannot change anything, the model included. ' + DEVICE_SIGNIN_BUTTON
-        : 'This tab is signed out, so this page shows what it last read and cannot change anything, the model included. <a href="/">Sign this tab in again</a> to see and change models.';
+        ? esc(ORG_SIGNED_OUT_SENTENCE) + said + ' ' + DEVICE_SIGNIN_BUTTON
+        : 'This tab is signed out.' + said + ' <a href="/">Sign this tab in again</a> to see and change models.';
       note.dataset.kind = kind;
     }
     if (note.hidden === out) note.hidden = !out;
