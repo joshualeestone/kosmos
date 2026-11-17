@@ -306,9 +306,12 @@ test('kosmos#8618 route: a switch to Claude takes a model\'s full id as well as 
   assert.equal(r.body.model && r.body.model.label, 'Claude Opus 5.5');
   const other = born('srv-sm-fullid-bad');
   await switchTo(other, { provider: 'google' });
+  restarts = 0;
   r = await switchTo(other, { provider: 'anthropic', model: 'claude-opus-5-5x' });
   assert.equal(r.status, 400, 'CONTROL: a near id is still refused');
+  assert.equal(restarts, 0, 'a refused switch restarted the agent');
   const listed = create.modelsFor('anthropic').map((m) => m.key + ' (' + m.label + ')').join(', ');
-  assert.ok(r.body.because.endsWith('pick a model from the list: ' + listed + '. A model\'s full id works too, such as claude-sonnet-5'), r.body.because);
+  const defaultId = create.modelsFor('anthropic').find((m) => m.default).arg;
+  assert.ok(r.body.because.endsWith('pick a model from the list: ' + listed + '. A model\'s full id works too, such as ' + defaultId), r.body.because);
   assert.equal(store.readProfile(other).provider, 'google', 'a refused switch changed the provider');
 });
