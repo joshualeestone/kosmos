@@ -11,7 +11,8 @@ three code nits are closed. The cross-version resume check is recorded on the ca
    A look that ran out of a deadline it was given ends the job with "the last check ... did not answer within N s".
 2. Same file: when the marker cannot be put back after the last look, `console.error` and say the version reads absent
    until the next install (was a warn).
-3. engine/runnerupgrade.js: a comment that the try is handed back only through `settled`, and that every job has it.
+3. engine/runnerupgrade.js: a comment that the try is handed back only through `settled`; install()'s refusals and its
+   already-installed answer have none, and none of those is a wait.
 4. engine/codexhooks-5812.test.js: a content check of the Windows verified list (the identity check could not see a
    Mac-only version copied in).
 
@@ -37,3 +38,9 @@ finished), so it could be slower than any earlier look; three times the slowest 
   the last look room; a last look with no answer names the timeout. The existing arm pinning 5 s after fast looks
   still holds.
 - engine/codexhooks-5812.test.js: the Windows list's content.
+
+## Review notes
+- Iteration 1: the slow-look Windows test could not reach the last look, and the timeout wording fired on a quick
+  failure; both fixed, with a control. The runnerupgrade comment was wrong about which jobs carry settled; fixed.
+- Iteration 2: the timeout arm sleeps the real 5 s deadline on CI (kept: it is what a real timeout looks like). A
+  look slower than the 20 s default never raises the deadline; that case already waits at the earlier look.
