@@ -311,7 +311,11 @@ struct AgentInfoView: View {
                             let changed = v != switchAccount
                             switchAccount = v
                             switchAccountTouched = true
-                            if changed && switchTo == .openai { Task { await loadOpenaiModels() } }
+                            if changed && switchTo == .openai {
+                                // Review 5: the old list goes and the button waits in the same frame, not when the Task runs.
+                                openaiModels = []; switchModel = ""; openaiModelsLoading = true
+                                Task { await loadOpenaiModels() }
+                            }
                         })) {
                             ForEach(switchAccounts) { Text($0.label).tag(String?.some($0.dir)) }
                         }
@@ -360,7 +364,7 @@ struct AgentInfoView: View {
     // on screen (a switch that landed partway, an account removed on the computer, a model no longer listed).
     private func keepPicksValid() {
         // Review 3: status has caught up (or moved on), so the landed provider is no longer needed.
-        if let l = landed, let d = details, Board.providerOf(d) != l.from { landed = nil }
+        if let l = landed, let d = details, Board.providerOf(d) != l.from || Board.providerOf(d) == l.to { landed = nil }
         if let to = switchTo, !switchTargets.contains(to) { switchTo = nil; confirmSwitch = false; return }
         guard switchTo != nil else { return }
         if let dir = switchAccount, !switchAccounts.contains(where: { $0.dir == dir }) {
@@ -421,7 +425,10 @@ struct AgentInfoView: View {
         switchLine = (said.sentence, said.ok)
         UIAccessibility.post(notification: .announcement, argument: said.sentence)
         if let to = Board.providerSwitchLanded(status: res?.1.statusCode ?? 0, body: res?.0), to != fromProvider {
-            landed = (to, landed?.from ?? fromProvider)   // review 4: a second switch before status catches up keeps the first from
+            // Review 4: a second switch before status catches up keeps the first from. Review 5: a switch back to where
+            // it started is no move at all.
+            let from = landed?.from ?? fromProvider
+            landed = to == from ? nil : (to, from)
         }
         if said.ok { switchTo = nil }
         await load()
