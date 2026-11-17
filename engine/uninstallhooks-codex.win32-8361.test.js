@@ -12,7 +12,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const hooks = require('./codexhooks');
-const V = hooks.HASH_VERIFIED_FOR;
+const V = hooks.verifiedFor('win32')[0];
 const home = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'uninstallhooks-8361-')));
 const THIS = 'C:\\Users\\a\\AppData\\Local\\Programs\\Kosmos';
 const OTHER = 'D:\\OtherKosmos';

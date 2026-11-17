@@ -28,17 +28,19 @@ const { superviseCodexStreaming, installCodexHookFor, codexVersionOf } = require
 const home = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-codexhooks-8348-')));
 const W = { platform: 'win32', node: 'C:\\Program Files\\Kosmos\\runtime\\node.exe' };
 const WBRIDGE = 'C:\\Users\\a b\\AppData\\Local\\Programs\\Kosmos\\app\\bin\\codex-report-bridge.js';
-const V = hooks.HASH_VERIFIED_FOR;
+const V = hooks.verifiedFor('win32')[0];   // kosmos#8593: the Windows list (0.149.1 only)
 
 test('the trust record is measured for the Codex Kosmos ships for Windows; moving that pin fails here until it is re-measured', () => {
   // On a bump of CODEX_WIN32 in engine/runners.js: run the real-Codex arm below on the new Windows build (it checks the
-  // record with a broken-hash control), then move HASH_VERIFIED_FOR. Without this, every Windows Codex agent would
+  // record with a broken-hash control), then add the version to HASH_VERIFIED.win32 in codexhooks.js. Without this, every Windows Codex agent would
   // lose its hook quietly, the only trace a codex-hook-skipped line in its supervisor log.
   const runners = require('./runners');
   for (const arch of Object.keys(runners.CODEX_WIN32)) {
     const m = /\/codex-([0-9]+\.[0-9]+\.[0-9]+)-win32-/.exec(runners.CODEX_WIN32[arch].url);
     assert.ok(m, `the ${arch} pin names its version`);
-    assert.equal(m[1], V, `the Windows ${arch} Codex pin`);
+    assert.ok(hooks.verifiedFor('win32').includes(m[1]), `the Windows ${arch} Codex pin is a measured version`);
+    // kosmos#8593: the version Windows actually installs is its own (the Mac pin moved on), not the base's.
+    assert.equal(runners.manifestFor('openai', 'win32', arch).version, m[1], `the Windows ${arch} manifest version is its tarball's`);
   }
 });
 

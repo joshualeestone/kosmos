@@ -15124,8 +15124,9 @@ const server = http.createServer(async (req, res) => {
         // --version may still fail, and a key pasted in that instant would
         // reach a never-proven binary and surface a confusing login error
         // instead of this structured answer.
-        const liveJob = (runners.status().openai || {}).job;
-        const midInstall = liveJob && liveJob.phase !== 'installed' && liveJob.phase !== 'failed';
+        // kosmos#8593 review 3: runners.installing() answers, so an upgrade's download (the old Codex still usable) does
+        // not refuse; an install, or an upgrade from its swap on, still does.
+        const midInstall = runners.installing('openai');
         if (!resolved.present || midInstall) {
           sendJson(res, 400, {
             error: openaiAccounts.MISSING_RUNNER_SENTENCE,
@@ -15551,8 +15552,9 @@ const server = http.createServer(async (req, res) => {
         // Same runner resolution + structured needsRunner answer as the api-key route:
         // no OpenAI runner installed -> tell the screen to reveal the install step.
         const resolved = runners.resolveBin('openai');
-        const liveJob = (runners.status().openai || {}).job;
-        const midInstall = liveJob && liveJob.phase !== 'installed' && liveJob.phase !== 'failed';
+        // kosmos#8593 review 3: runners.installing() answers, so an upgrade's download (the old Codex still usable) does
+        // not refuse; an install, or an upgrade from its swap on, still does.
+        const midInstall = runners.installing('openai');
         if (!resolved.present || midInstall) {
           sendJson(res, 400, { error: openaiAccounts.MISSING_RUNNER_SENTENCE, needsRunner: true, provider: 'openai' });
           return;
@@ -29188,6 +29190,38 @@ function start(port = PORT) {
          AGENT_WORKFORCE_CLASS1_AUTOHANDLE_OFF=1 as an operator emergency brake.
          safeRoster(), NEVER paneRoster(): it needs the reconciled state + stateReportedBy
          the full snapshot cards carry. */
+      /* kosmos#8593: the bundled Codex follows the pin. A managed Mac/Linux Codex older than engine/runners.js's pin
+         (resolveBin's `stale`) is replaced in the background, so a pin bump reaches computers that already have Codex,
+         not only new installs (before this, nothing ever upgraded one: the user who asked for gpt-6-astra would have
+         kept 0.149.1). Running agents are not restarted; a new launch gets the new version (one already running reads its
+         side files from the new tree, see runners.install). Gated like the sweeps here: inert
+         under `node --test` and before the live-execution opt-in; operator brake AGENT_WORKFORCE_RUNNER_UPGRADE_OFF=1.
+         First look two minutes after start, then every 30 minutes; install() joins a running job, never starts two. */
+      /* Review 2: at most RUNNER_UPGRADE_TRIES attempts per pinned version per board run. A failed upgrade puts the old
+         version back (still stale), so without a cap a download that keeps failing would repeat every 30 minutes. */
+      const RUNNER_UPGRADE_TRIES = 3;
+      const runnerUpgradeTries = new Map();
+      const runnerUpgradeTick = () => {
+        if (!liveExecution.liveExecutionAllowed()) return;   // inert under test / before opt-in
+        if (process.env.AGENT_WORKFORCE_RUNNER_UPGRADE_OFF === '1') return;   // operator brake
+        try {
+          const r = runners.resolveBin('openai');
+          if (!r || r.stale !== true || runners.installing('openai')) return;
+          // Review 4: an upgrade already downloading is not installing(), so it is checked here: joining it is not a try.
+          const live = (runners.status().openai || {}).job;
+          if (live && live.phase !== 'installed' && live.phase !== 'failed') return;
+          const pin = runners.manifestFor('openai').version;
+          const tries = runnerUpgradeTries.get(pin) || 0;
+          if (tries >= RUNNER_UPGRADE_TRIES) return;
+          runnerUpgradeTries.set(pin, tries + 1);
+          const job = runners.install('openai');
+          process.stdout.write(`runner-upgrade: openai ${r.installedVersion || '?'} -> ${runners.manifestFor('openai').version}: ${job && job.phase}\n`);
+        } catch (err) { console.warn(`[runner-upgrade] ${String((err && err.message) || err)}`); }
+      };
+      const runnerUpgradeFirst = setTimeout(runnerUpgradeTick, 2 * 60 * 1000);
+      if (runnerUpgradeFirst && typeof runnerUpgradeFirst.unref === 'function') runnerUpgradeFirst.unref();
+      const runnerUpgradeSweep = setInterval(runnerUpgradeTick, 30 * 60 * 1000);
+      if (runnerUpgradeSweep && typeof runnerUpgradeSweep.unref === 'function') runnerUpgradeSweep.unref();
       const class1Attempts = new Map();
       const class1Sweep = setInterval(() => {
         // 🛑 LOAD-BEARING, DO NOT REMOVE: this is the ONLY gate on create.trustAgentFolder's

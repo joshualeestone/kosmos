@@ -102,7 +102,10 @@ test('#5346 (a): with the reader\'s flags, a captured request offers only update
     for (const b of bodies) {
       assert.equal(b.model, slug, 'the run used the model asked for');
       const tools = c.offeredTools(b);
-      assert.deepEqual([...new Set(tools)].sort(), [...c.ALLOWED_TOOLS].sort(), slug + ': tools offered: ' + JSON.stringify(tools));
+      /* kosmos#8593: every offered tool is one that cannot act, and at least one tool came through (the capture read
+         the tools). A subset, not the exact pair: Codex 0.169.0 offers only request_user_input (update_plan is gone),
+         which is safer, not a gap. The CONTROL below proves this check sees a tool that can act. */
+      assert.ok(tools.length >= 1 && tools.every((t) => c.ALLOWED_TOOLS.includes(t)), slug + ': tools offered: ' + JSON.stringify(tools));
       // The picture is in the request itself (base64), not left as a path for a tool to open.
       assert.match(JSON.stringify(b), /data:image\/png;base64,/);
     }
@@ -116,7 +119,8 @@ test('#5346 (a): the reader\'s own command line, with no model named, offers onl
   assert.ok(bodies.length >= 1, 'Codex sent no model request to the capture server');
   for (const b of bodies) {
     assert.ok(slugs.includes(b.model), 'the default model ' + b.model + ' is not in the hardened catalog');
-    assert.deepEqual([...new Set(c.offeredTools(b))].sort(), [...c.ALLOWED_TOOLS].sort(), 'tools offered: ' + JSON.stringify(c.offeredTools(b)));
+    const offered = c.offeredTools(b);   // kosmos#8593: only tools that cannot act, as above
+    assert.ok(offered.length >= 1 && offered.every((t) => c.ALLOWED_TOOLS.includes(t)), 'tools offered: ' + JSON.stringify(offered));
   }
 });
 

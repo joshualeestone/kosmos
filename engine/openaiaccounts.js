@@ -1512,7 +1512,12 @@ async function checkLive(dir, opts) {
    rank comes from the first match, so mis-ordering would mis-describe a model,
    never mis-classify it as non-chat. */
 const OPENAI_CHAT_FAMILIES = [
-  { rank: 0, prefix: 'gpt-5', why: 'OpenAI\'s most capable. For work where being right matters more than being quick.' },
+  /* kosmos#8593: gpt-6 is recognised (gpt-6-astra, a user's request). Before this it classed 'unknown': offered, sorted
+     first by version, but marked "compatibility not verified" and never the default. The bundled Codex runs it from
+     0.169.0 (engine/runners.js). Its ORDER still comes from openaiHighTierRank (version then tier), so it sorts above
+     every gpt-5.x; the rank here only matters if that parse ever misses. */
+  { rank: 0, prefix: 'gpt-6', why: 'OpenAI\'s newest and most capable. For work where being right matters more than being quick.' },
+  { rank: 0, prefix: 'gpt-5', why: 'A very capable OpenAI model. For work where being right matters more than being quick.' },
   { rank: 1, prefix: 'o3', why: 'Reasoning-focused. Slower, and it works through harder problems step by step.' },
   { rank: 1, prefix: 'o4', why: 'Reasoning-focused. Slower, and it works through harder problems step by step.' },
   { rank: 2, prefix: 'gpt-4.1', why: 'A strong all-rounder, with room for long jobs.' },
@@ -1556,9 +1561,9 @@ const OPENAI_NON_CHAT = ['audio', 'realtime', 'transcribe', 'tts', 'search', 'im
    chatModelsFromList: a gpt id NEWER than the top fixed family gets a rank that
    sorts it above every fixed family, by version then tier. It does NOT change
    the model's CLASS -- a recognised gpt-5.<x> stays recognised (no marker), and
-   an unrecognised higher major (gpt-6) stays 'unknown' (keeps its
+   an unrecognised higher major (gpt-7; gpt-6 is recognised since kosmos#8593) stays 'unknown' (keeps its
    "compatibility not verified" marker and can never be the pre-selected default),
-   it just sorts first. Forward-compatible: gpt-6 sorts above gpt-5.6 with no code
+   it just sorts first. Forward-compatible: a new major sorts above gpt-5.6 with no code
    change; gpt-5 and below fall through to their fixed ranks (no regression).
 
    ⚠️ ID-FORMAT ASSUMPTION, the one thing that could make this a no-op: the parse
@@ -1567,7 +1572,10 @@ const OPENAI_NON_CHAT = ['audio', 'realtime', 'transcribe', 'tts', 'search', 'im
    NOT in this repo, so this is built and tested against that shape; a non-gpt id
    would miss the parse and fall back to its class's rank (safe, not a wrong
    order) until the regex learns the shape. */
-const OPENAI_TOP_KNOWN_VERSION = 5; // the highest fixed family prefix (gpt-5)
+/* The version above which openaiHighTierRank orders ids by version and tier. It stays 5 after gpt-6 joined the fixed
+   families (kosmos#8593): it is the sort threshold, not the newest family, and moving it to 6 would tie every gpt-5.x
+   at the fixed rank 0 with gpt-6 and lose the 5.6 > 5.5 order. */
+const OPENAI_TOP_KNOWN_VERSION = 5;
 function openaiTierScore(low) {
   // Josh's within-version order, higher score = more capable = sorts earlier.
   if (low.includes('terra')) return 9;
@@ -1613,7 +1621,9 @@ function openaiHighTierRank(low) {
 function openaiModelClass(id) {
   const low = String(id).toLowerCase();
   if (OPENAI_NON_CHAT.some((bad) => low.includes(bad))) return { kind: 'nonchat' };
-  const fam = OPENAI_CHAT_FAMILIES.find((f) => low.startsWith(f.prefix));
+  /* kosmos#8593 review 1: a prefix ending in a digit does not take another digit after it, so 'gpt-6' is not gpt-60
+     and 'o1' is not o10 (gpt-4o, gpt-4.1 and gpt-6-astra still match). */
+  const fam = OPENAI_CHAT_FAMILIES.find((f) => low.startsWith(f.prefix) && !(/\d$/.test(f.prefix) && /\d/.test(low.charAt(f.prefix.length))));
   return fam ? { kind: 'chat', fam } : { kind: 'unknown' };
 }
 
@@ -1662,7 +1672,7 @@ function chatModelsFromList(data) {
          the TOP by version then tier. This is an ORDER override only -- it does
          NOT change the class: a recognised gpt-5.<x> (already chat via the gpt-5
          prefix) keeps its recognised status and family why; an unrecognised
-         higher major (gpt-6) stays 'unknown', keeping its unverified marker and
+         higher major (gpt-7; gpt-6 is recognised since kosmos#8593) stays 'unknown', keeping its unverified marker and
          never-default status, it just sorts first. */
       const hi = openaiHighTierRank(String(id).toLowerCase());
       if (c.kind === 'chat') return { id, rank: hi != null ? hi : c.fam.rank, why: c.fam.why, unverified: false };

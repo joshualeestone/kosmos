@@ -75,7 +75,7 @@ const platformGate = require('./platform');
  * ⚠️ THE WHOLE PACKAGE IS STAGED, NOT ONE FILE. The tarball was opened
  * and read (2026-08-26) before this shape was chosen: the binary lives at
  * package/vendor/aarch64-apple-darwin/bin/codex WITH vendored siblings it
- * resolves relative to itself (codex-path/rg, codex-resources/zsh,
+ * resolves relative to itself (codex-path/rg, codex-resources/ (zsh/ through 0.149.1, voice/ from 0.169.0),
  * bin/codex-code-mode-host). Extracting the one binary would strand it
  * from its own tools, so the install unpacks the package tree and exposes
  * ONE stable path -- a `codex` symlink beside it -- which is what the
@@ -102,13 +102,21 @@ const MANIFEST = Object.assign(Object.create(null), {
        the same three names: the provider is OpenAI, the row says GPT, the
        thing installed is OpenAI's Codex. */
     name: "OpenAI's Codex",
-    version: '0.149.1',
+    /* kosmos#8593: 0.169.0 (was 0.149.1), the first pin whose Codex can run gpt-6-astra (0.149.1 is refused by the
+       server: "requires a newer version of Codex"). Measured 11-16 on this Mac: the tarball's sha512 is the registry's
+       below; the vendor tree keeps bin/codex, bin/codex-code-mode-host and codex-path/rg (codex-resources now holds
+       voice/, not zsh/, which nothing here reads); a ChatGPT token refresh still writes THROUGH the private home's
+       auth.json symlink into the account file (bin/agent-supervisor.sh relies on it; same result as 0.149.1, measured
+       both with a fake token endpoint); and the hook trust record is unchanged (engine/codexhooks.js).
+       ⚠️ WINDOWS STAYS ON 0.149.1 (CODEX_WIN32 below states its own version): its hook forms were measured on
+       0.149.1 win32, so its bump is Homer's, with its own measurement. */
+    version: '0.169.0',
     arch: 'arm64',
-    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-darwin-arm64.tgz',
-    integrity: 'sha512-6X84kTCbnTgPIJ2EdcPsrvwS0Wxsqpa+bCswGmRf4BjhcQ5nPMnBC6yCAaCMj+vrbXQHj+L6sa9FaR4QkmA1qw==',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-darwin-arm64.tgz',
+    integrity: 'sha512-5WsWFBbVP78D+6FvNo1MMVxLPZdmcoQlqVJFrF4qx/TmvneLnMQKtLyXkUo54XOTDfoYKpNouTJ/F7gTVA8FnQ==',
     binInPackage: 'vendor/aarch64-apple-darwin/bin/codex',
     binName: 'codex',
-    downloadBytes: 114152335,
+    downloadBytes: 153831622,
   },
   /* #3713: Google's Gemini CLI, which Kosmos's Gemini runner (#3296) drives. Same trust
      anchor as the codex entry: the npm registry's own sha512 for this exact tarball, fetched
@@ -219,7 +227,10 @@ Object.freeze(MANIFEST);
  * half-written tree.
  */
 const CODEX_WIN32 = Object.freeze(Object.assign(Object.create(null), {
+  /* kosmos#8593: Windows keeps 0.149.1 (the Mac and Linux pin moved to 0.169.0). Stated per entry so the base's
+     version does not reach Windows; the bump is Homer's (the win32 hook forms are measured per Codex version). */
   x64: Object.freeze({
+    version: '0.149.1',
     arch: 'x64',
     url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-win32-x64.tgz',
     integrity: 'sha512-G3QXGAg7nyyhqOeooAMUekBCeHd8a1QByhKcVAFyzNBaI06t6Ft7nsF+1SzFS0spuIdU4YyMi5YD26ukADBQUQ==',
@@ -227,6 +238,7 @@ const CODEX_WIN32 = Object.freeze(Object.assign(Object.create(null), {
     downloadBytes: 139929729,
   }),
   arm64: Object.freeze({
+    version: '0.149.1',
     arch: 'arm64',
     url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-win32-arm64.tgz',
     integrity: 'sha512-5K0DmOKGK9Bos627p8sK8ATHjovPK0sDyT6h9Cb+4v+5CW5SGw1HLgjGxoLfJ8g3cg6mtg/pRCXXo2L/j71UVA==',
@@ -291,17 +303,17 @@ const GROK_WIN32 = Object.freeze(Object.assign(Object.create(null), {
 const CODEX_LINUX = Object.freeze(Object.assign(Object.create(null), {
   x64: Object.freeze({
     arch: 'x64',
-    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-x64.tgz',
-    integrity: 'sha512-Of5fGYgr7tAMsyj6vhXb4/RM/UoA3Zq8BLegUBDC09UNy1XTLGYP/2XD+UX8z3qh0NDwxYdCjFIWdDNijKZggQ==',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-linux-x64.tgz',
+    integrity: 'sha512-o05NyAOCDygSPRo1yinzxvkRSdmsZyBD9E7mbpmjRanSfM8lypqWtQgEo4XfNkwhuCR2aFu8mlGOsQGFXVbVww==',
     binInPackage: 'vendor/x86_64-unknown-linux-musl/bin/codex',
-    downloadBytes: 125550959,
+    downloadBytes: 167001509,
   }),
   arm64: Object.freeze({
     arch: 'arm64',
-    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-arm64.tgz',
-    integrity: 'sha512-OqxUfZ1TVvHd18zHPKK/8ZRlpk8Vy11mg5CMHaLxNWldTbwVImDKtSLWT+m8m4NM5Sz4PbjtZMrVT/RfpBW/mQ==',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-linux-arm64.tgz',
+    integrity: 'sha512-NZ/DaQUpcQmxmqee7Z9uC1rzw3GhSbooawcaTe1LN5Yk+WlinUKGdTXJgClRT/9ogQEEM9TWxYzvxPfj5G/xFg==',
     binInPackage: 'vendor/aarch64-unknown-linux-musl/bin/codex',
-    downloadBytes: 118078094,
+    downloadBytes: 171743625,
   }),
 }));
 /* The layout is stated per entry (as GROK_WIN32 and CODEX_LINUX do), read from these tarballs, so a change to the Mac
@@ -333,8 +345,8 @@ const GROK_LINUX = Object.freeze(Object.assign(Object.create(null), {
  * so the Mac, Windows and (#5419) Linux answers can never drift into separate resolvers.
  *
  * On win32 the openai entry is the darwin one with the Windows build's url,
- * integrity, binary path and size laid over it (version and name are shared: it is
- * the same pinned release). A Windows CPU with no published build (ia32) gets the
+ * integrity, binary path and size laid over it (the name is shared; the version is the
+ * Windows entry's own, 0.149.1, since the Mac and Linux pin moved to 0.169.0 in kosmos#8593). A Windows CPU with no published build (ia32) gets the
  * x64 entry, so install()'s arch guard refuses it BY NAME before a byte moves,
  * exactly as an Intel Mac is refused against the arm64 pin.
  * `platform`/`arch` default to this process; they are parameters so the win32
@@ -393,6 +405,28 @@ function verifiedMarker(platform = process.platform, provider = 'openai') {
 const verifiedStamp = (m) => `${m.version} ${m.binInPackage}`;
 function isVerified(m, platform = process.platform, provider = 'openai') {
   try { return fs.readFileSync(verifiedMarker(platform, provider), 'utf8').trim() === verifiedStamp(m); } catch { return false; }
+}
+
+/* kosmos#8593: the version of the managed Mac/Linux tree on disk, read from the package.json its npm tarball carries
+   (unpacked with --strip-components 1, so it sits at <runner>/pkg/package.json; Codex writes its version as
+   "<version>-<platform>-<arch>", e.g. "0.149.1-darwin-arm64"). null when it cannot be read: an older install, a tree
+   from elsewhere, a tarball with no package.json. Read, not run: resolveBin is on hot paths and --version is not. */
+/* kosmos#8593 review 3: true when a is an older x.y.z than b. Only OLDER counts as stale: a newer managed tree (another
+   board with a later pin sharing this root) is never downgraded, and two boards cannot replace each other's tree. */
+function olderVersion(a, b) {
+  const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number);
+  if (pa.length !== 3 || pb.length !== 3 || pa.some((n) => !Number.isInteger(n)) || pb.some((n) => !Number.isInteger(n))) return false;
+  for (let i = 0; i < 3; i += 1) if (pa[i] !== pb[i]) return pa[i] < pb[i];
+  return false;
+}
+function installedVersion(provider, platform = process.platform) {
+  if (platform === 'win32') return null;   // Windows has its own .verified marker, which names the version
+  try {
+    const v = JSON.parse(fs.readFileSync(path.join(managedRoot(), provider, 'pkg', 'package.json'), 'utf8')).version;
+    if (typeof v !== 'string') return null;
+    const m = /^(\d+\.\d+\.\d+)(?:-[a-z0-9]+-[a-z0-9]+)?$/.exec(v.trim());
+    return m ? m[1] : null;
+  } catch { return null; }
 }
 
 function managedBin(m, platform = process.platform, provider = 'openai') {
@@ -923,7 +957,16 @@ function resolveBin(provider, opts) {
     (opts && opts.legacyBin) || '/opt/homebrew/bin/codex',
   ];
   for (const c of candidates) {
-    if (isRunnable(c)) return { bin: c, present: true, managed: c === managed, overridden: false };
+    if (!isRunnable(c)) continue;
+    /* kosmos#8593: a managed Mac/Linux Codex older than the pin is still PRESENT (agents can still start on it), but
+       STALE, so install() replaces it and the board's upgrade sweep starts that (server.js). Only a version read off
+       the tree that differs from the pin counts: an unreadable one is not called stale, so nothing reinstalls on a
+       guess. */
+    if (c === managed && plat !== 'win32') {
+      const v = installedVersion('openai', plat);
+      if (v && olderVersion(v, mf.version)) return { bin: c, present: true, managed: true, overridden: false, stale: true, installedVersion: v };
+    }
+    return { bin: c, present: true, managed: c === managed, overridden: false };
   }
   return { bin: managed, present: false, managed: true, overridden: false };
 }
@@ -1020,7 +1063,9 @@ function status() {
        is already up, so presence read true while --version could still fail, and
        both screens poll `present` to move on to the key step. A live job is the
        truth of that moment; install() and the add-key route already treat it so. */
-    const live = jobs[provider] && jobs[provider].phase !== 'installed' && jobs[provider].phase !== 'failed';
+    // kosmos#8593 review 3: installing() is the one answer, so an upgrade's download (the old runner still in place)
+    // does not read as "not present" here either.
+    const live = installing(provider);
     out[provider] = {
       name: m.name,
       // What the screens WILL branch on: a tarball gets a real byte progress
@@ -1342,6 +1387,10 @@ function spawnTarget(bin, platform = process.platform, nodeBin = process.execPat
    Job state only: the routes still ask resolveBin for presence, the seam their tests stub. */
 function installing(provider) {
   const job = jobs[provider];
+  /* kosmos#8593 review 2: an UPGRADE of a stale runner does not count until its swap starts. Until then the previous,
+     proven tree is untouched and usable, so a route that refuses "while it installs" must not refuse for a download of
+     150 MB; from the swap on, the new tree is unproven, as in any install. */
+  if (job && job.upgrade === true && job.swapping !== true) return false;
   return !!job && job.phase !== 'installed' && job.phase !== 'failed';
 }
 
@@ -1401,7 +1450,11 @@ function install(provider, opts) {
   if (!existing.bin) {
     return refuse(`the ${provider} runner has a manifest entry but no resolution rule yet, so an install could never be seen; teach resolveBin about it first`);
   }
-  if (existing.present) {
+  /* kosmos#8593: a stale managed runner (older than the pin) is replaced, not answered as installed. The swap below
+     replaces the pkg/ tree whole. A Codex already running keeps its own process, but NOT its files: anything it opens
+     beside its binary afterwards (codex-path/rg, bin/codex-code-mode-host) is the new tree's (review 2). New launches
+     get the new version. */
+  if (existing.present && !existing.stale) {
     // A completed job for THIS binary carries the truthful receipt
     // (`proved`, real byte counts) -- hand that back rather than a
     // synthetic. Otherwise: byte counts null, not zero, and `version` NULL
@@ -1458,6 +1511,10 @@ function install(provider, opts) {
   const doDownload = o.download || download;
 
   const job = { ...blankJob(), phase: 'downloading', receivedBytes: 0, totalBytes: m.downloadBytes, version: m.version };
+  /* kosmos#8593: replacing a stale Mac/Linux runner. Kept off the API's job shape (non-enumerable), read by installing()
+     and by the swap below, which keeps the previous tree until the new one proves itself. */
+  const upgrading = existing.stale === true && plat !== 'win32';
+  Object.defineProperty(job, 'upgrade', { value: upgrading, enumerable: false });
   jobs[provider] = job;
 
   const destDir = path.join(managedRoot(), provider);
@@ -1476,6 +1533,9 @@ function install(provider, opts) {
   let pkgNewLive = null;
   // Which step a thrown error came from, so the catch-all can say it in words.
   let stage = 'prepare';
+  /* kosmos#8593 review 4: an upgrade puts the previous tree back on ANY failure after its swap starts, not only a failed
+     prove. Set once the tree paths are known (below); idempotent; acts only when the previous tree was set aside. */
+  let restorePrevious = null;
   const fail = (because) => {
     try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ }
     if (pkgNewLive) { try { fs.rmSync(pkgNewLive, { recursive: true, force: true }); } catch { /* the sweep gets it */ } }
@@ -1541,6 +1601,25 @@ function install(provider, opts) {
       const pkgDir = path.join(destDir, 'pkg');
       const pkgNew = path.join(destDir, `pkg.new-${process.pid}`);
       const pkgOld = path.join(destDir, `pkg.old-${process.pid}`);
+      let setAside = false;   // review 5: true only once THIS run moved the previous tree to pkgOld
+      if (upgrading) {
+        let tried = false;
+        let restored = false;
+        restorePrevious = () => {
+          if (tried) return restored;
+          tried = true;
+          if (!setAside || !fs.existsSync(pkgOld)) return false;   // never set aside by this run: pkg/ is still the previous tree
+          try {
+            fs.rmSync(pkgDir, { recursive: true, force: true });
+            fs.renameSync(pkgOld, pkgDir);
+            const link = path.join(destDir, m.binName);
+            fs.rmSync(link, { force: true });
+            fs.symlinkSync(path.relative(destDir, path.join(pkgDir, binInPackage)), link);
+            restored = true;
+          } catch (e) { console.warn(`[runners] ${provider} could not put the previous version back: ${e && e.code}`); }
+          return restored;
+        };
+      }
       // destDir FIRST: on a fresh machine (the exact #979 scenario) nothing
       // has created it yet, and the sweep's readdir would ENOENT the whole
       // install before a byte of the runner ever staged.
@@ -1602,19 +1681,31 @@ function install(provider, opts) {
       fs.chmodSync(path.join(pkgNew, binInPackage), 0o755);
       try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch { /* the sweep gets it */ }
       stage = 'swap';
+      job.swapping = true;   // installing() counts an upgrade from here: the tree about to be in place is unproven
+      Object.defineProperty(job, 'swapping', { enumerable: false });
       // The verified marker comes down BEFORE a new tree goes in: from here until
       // --version passes, nothing on disk may vouch for what is at the stable path.
       if (plat === 'win32' && !(await rmRetrying(verifiedMarker(plat, provider), plat))) {
         throw Object.assign(new Error('the verified marker could not be removed'), { code: 'EPERM' });
       }
-      if (fs.existsSync(pkgDir)) await renameRetrying(pkgDir, pkgOld, plat);
+      if (fs.existsSync(pkgDir)) {
+        await renameRetrying(pkgDir, pkgOld, plat);
+        setAside = true;
+        /* kosmos#8593 review 3: a rename keeps the folder's OLD mtime, so the age-gated sweep of pkg.old-* trees (another
+           board sharing this root) could take a kept tree mid-upgrade. Stamped now, it reads as fresh for an hour. */
+        if (upgrading) { try { const t = new Date(); fs.utimesSync(pkgOld, t, t); } catch { /* best effort */ } }
+      }
       await renameRetrying(pkgNew, pkgDir, plat);
       pkgNewLive = null; // swapped in; nothing at the per-pid name any more
       // Best-effort, like the sweeps: a locked OLD tree (antivirus still reading
       // it) must not fail an install whose new tree is already in place. The
       // age-gated sweep at the next install removes it.
-      try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch (e) {
-        console.warn(`[runners] ${provider} could not remove the previous tree yet: ${e && e.code}`);
+      // kosmos#8593 review 2: an UPGRADE keeps it until the new tree proves itself, so a failed prove puts the previous,
+      // working runner back instead of leaving none (it is removed after the prove below).
+      if (!upgrading) {
+        try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch (e) {
+          console.warn(`[runners] ${provider} could not remove the previous tree yet: ${e && e.code}`);
+        }
       }
       const unpacked = path.join(pkgDir, binInPackage);
       let finalBin;
@@ -1686,16 +1777,25 @@ function install(provider, opts) {
           await rmRetrying(pkgDir, plat);
           if (m.launcher === 'node') { try { fs.rmSync(finalBin, { force: true }); } catch { /* the marker keeps it absent */ } }
         } else { try { fs.rmSync(finalBin, { recursive: true, force: true }); } catch { /* best effort */ } }
+        /* kosmos#8593 review 2: an upgrade puts the previous tree and its link back, so a runner that worked before still
+           works (the failure is still reported). The new tree goes; the old one returns to pkg/, as it was. */
+        if (restorePrevious && restorePrevious()) {
+          err.message = err.message.replace(/, so it was not installed; you can try again$/, ', so the version already here is kept; you can try again');
+        }
         err.plain = true;
         throw err;
       }
+      if (upgrading) { try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch { /* the age-gated sweep gets it */ } }
       // Only now, after the binary itself answered, may anything vouch for it.
       if (plat === 'win32') fs.writeFileSync(verifiedMarker(plat, provider), verifiedStamp(m) + '\n');
 
       try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ }
       job.phase = 'installed';
     } catch (err) {
-      fail(plainFailure(err, m, stage));
+      // kosmos#8593 review 4: a failure after an upgrade's swap started (a rename, the link) puts the previous tree back too.
+      const kept = Boolean(restorePrevious && job.swapping === true && restorePrevious());
+      const said = plainFailure(err, m, stage);
+      fail(kept && !/version already here is kept/.test(said) ? `${said.replace(/\s+$/, '')}${/[.!?]$/.test(said.trim()) ? '' : '.'} The version already here is kept.` : said);
     }
   })();
   // Awaitable completion for harnesses; non-enumerable so the job's JSON
@@ -1981,4 +2081,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, installedVersion, olderVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };

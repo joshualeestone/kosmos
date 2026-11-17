@@ -23,20 +23,20 @@ const platformGate = require('./platform');
 
 test('#5419: Linux Codex is the linux build for the CPU, pinned to the registry sha512, with its musl binary', () => {
   const x64 = runners.manifestFor('openai', 'linux', 'x64');
-  assert.equal(x64.url, 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-x64.tgz');
-  assert.equal(x64.integrity, 'sha512-Of5fGYgr7tAMsyj6vhXb4/RM/UoA3Zq8BLegUBDC09UNy1XTLGYP/2XD+UX8z3qh0NDwxYdCjFIWdDNijKZggQ==');
+  assert.equal(x64.url, 'https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-linux-x64.tgz');
+  assert.equal(x64.integrity, 'sha512-o05NyAOCDygSPRo1yinzxvkRSdmsZyBD9E7mbpmjRanSfM8lypqWtQgEo4XfNkwhuCR2aFu8mlGOsQGFXVbVww==');
   assert.equal(x64.binInPackage, 'vendor/x86_64-unknown-linux-musl/bin/codex');
   assert.equal(x64.binName, 'codex', 'the stable name is the Mac one, not codex.exe');
   assert.equal(x64.arch, 'x64');
   const arm = runners.manifestFor('openai', 'linux', 'arm64');
-  assert.equal(arm.url, 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-arm64.tgz');
+  assert.equal(arm.url, 'https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-linux-arm64.tgz');
   assert.equal(arm.binInPackage, 'vendor/aarch64-unknown-linux-musl/bin/codex');
   assert.equal(arm.arch, 'arm64');
   // Every pin as a literal, so a typo in any of them fails here, not as a checksum refusal on a real box.
-  assert.equal(arm.integrity, 'sha512-OqxUfZ1TVvHd18zHPKK/8ZRlpk8Vy11mg5CMHaLxNWldTbwVImDKtSLWT+m8m4NM5Sz4PbjtZMrVT/RfpBW/mQ==');
-  assert.equal(x64.downloadBytes, 125550959);
-  assert.equal(arm.downloadBytes, 118078094);
-  assert.equal(x64.version, '0.149.1', 'the pinned release (literal, not read off the Mac entry)');
+  assert.equal(arm.integrity, 'sha512-NZ/DaQUpcQmxmqee7Z9uC1rzw3GhSbooawcaTe1LN5Yk+WlinUKGdTXJgClRT/9ogQEEM9TWxYzvxPfj5G/xFg==');
+  assert.equal(x64.downloadBytes, 167001509);
+  assert.equal(arm.downloadBytes, 171743625);
+  assert.equal(x64.version, '0.169.0', 'the pinned release (literal, not read off the Mac entry; kosmos#8593)');
 });
 
 test('#5419: Linux Grok is the linux build for the CPU, laid out as the Mac one (bin/grok.br to bin/grok-native)', () => {

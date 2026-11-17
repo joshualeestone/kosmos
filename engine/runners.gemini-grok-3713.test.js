@@ -127,9 +127,10 @@ test('#5419: on Linux, Grok installs the same way: expanded after the checksum, 
 for (const [arch, triple] of [['x64', 'x86_64-unknown-linux-musl'], ['arm64', 'aarch64-unknown-linux-musl']]) {
   test(`#5419: on Linux ${arch}, Codex installs its ${arch} musl build, runs from the managed path, and is found afterwards`, { skip: skipOnWin32(POSIX_CODEX) }, async () => {
     fs.rmSync(nodePath.join(SANDBOX, 'runners', 'openai'), { recursive: true, force: true });
-    const program = '#!/bin/sh\necho "codex-cli 0.149.1 $1"\n';
+    const V = runners.manifestFor('openai', 'linux', arch).version;   // kosmos#8593: the pin, not a literal that a bump strands
+    const program = `#!/bin/sh\necho "codex-cli ${V} $1"\n`;
     const { tgz, integrity } = tarball([[`package/vendor/${triple}/bin/codex`, program, 0o755],
-      ['package/package.json', `{"name":"@openai/codex","version":"0.149.1-linux-${arch}"}`]]);
+      ['package/package.json', `{"name":"@openai/codex","version":"${V}-linux-${arch}"}`]]);
     let askedUrl = null;
     const legacy = nodePath.join(SANDBOX, 'legacy', 'codex');
     const job = runners.install('openai', {
@@ -139,8 +140,8 @@ for (const [arch, triple] of [['x64', 'x86_64-unknown-linux-musl'], ['arm64', 'a
     });
     await job.settled;
     assert.equal(job.phase, 'installed', job.because || '');
-    assert.equal(askedUrl, `https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-linux-${arch}.tgz`, 'not the Linux tarball for this CPU');
-    assert.equal(job.proved, 'codex-cli 0.149.1 --version', 'the binary path inside the tarball for this CPU is the one that ran');
+    assert.equal(askedUrl, `https://registry.npmjs.org/@openai/codex/-/codex-${V}-linux-${arch}.tgz`, 'not the Linux tarball for this CPU');
+    assert.equal(job.proved, `codex-cli ${V} --version`, 'the binary path inside the tarball for this CPU is the one that ran');
     const r = runners.resolveBin('openai', { legacyBin: legacy, platform: 'linux', arch });
     assert.equal(r.present, true, 'not found afterwards on Linux');
     assert.equal(r.managed, true);

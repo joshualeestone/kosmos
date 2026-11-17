@@ -1218,8 +1218,8 @@ if [ -z "$adopt" ]; then
     # #5812 item 2: the PreToolUse hook that tells the board which files a Codex agent is about to edit (the undo copy,
     # #5153, and "changed by" on a project file). engine/codexhooks.js writes it, with the trust record Codex needs before
     # it will run it, into the agent's PRIVATE home (#4592). Codex has hooks on by default and, in the TUI, STOPS on an
-    # untrusted hook ("Hooks need review"), so the install runs only for the one Codex version its trust hash was verified
-    # for (codexhooks.js HASH_VERIFIED_FOR) and removes its hooks.json whenever it cannot vouch for the record: a failure
+    # untrusted hook ("Hooks need review"), so the install runs only for a Codex version its trust hash was verified
+    # for (codexhooks.js HASH_VERIFIED, per platform) and removes its hooks.json whenever it cannot vouch for the record: a failure
     # launches the agent with no hook, as before, never on the review screen (unless an old hooks.json of ours cannot be
     # deleted, in a 0700 home Kosmos owns).
     # Review 5: never into a home that resolved to the person's own account home (their Codex Desktop's, perhaps).
@@ -1247,10 +1247,34 @@ if [ -z "$adopt" ]; then
       if ! _hooks_why="$("$NODE_BIN" "$_eng/codexhooks.js" install "$EFFECTIVE_CODEX_HOME" "$BRIDGE" "$_codex_ver" 2>&1 >/dev/null)"; then
         say "$SESSION: its file-edit hook was not set up (${_hooks_why:-no reason given}); undo copies and changed-by will miss its edits"
       fi
-      unset _hooks_why _codex_ver
+      unset _hooks_why
     fi
     _mig_shared="${_codex_home_shared:-0}"   # kosmos#8597: the migration pin skips the person's own home too
     unset _codex_home_shared
+    # kosmos#8593: Codex 0.169.0's interactive screen runs through a shared background app-server daemon by default. It
+    # copies itself into the Codex home (packages/) and OUTLIVES the pane (measured 11-16: its daemons were left running
+    # under pid 1 after their tmux sessions ended). --no-daemon keeps it in the pane's own process, as 0.149.1 always
+    # ran; 0.149.1 does not know the flag, so it is added only for a Codex of 0.169 or later (the version read above;
+    # none read, no flag). Measured with --no-daemon on 0.169.0: no daemon left, and the Enter gap is unchanged.
+    _codex_launch=()
+    # Review 2: the timed --version read above can come back empty (a slow first exec right after an update, or the
+    # shared-home branch, which does not read it). Then a MANAGED runner's version is read from its tree on disk
+    # (runners.installedVersion; no exec), so the first launch after an upgrade still gets --no-daemon.
+    if [ -z "${_codex_ver:-}" ] && [ -n "${_eng:-}" ] && [ -n "${NODE_BIN:-}" ]; then
+      _codex_ver="$("$NODE_BIN" -e '
+        try {
+          const fs = require("fs"); const r = require(process.argv[1]);
+          const real = (p) => { try { return fs.realpathSync(p); } catch { return null; } };
+          const managed = real(r.managedBin(r.manifestFor("openai")));
+          if (managed && managed === real(process.argv[2])) process.stdout.write(r.installedVersion("openai") || "");
+        } catch (_) {}
+      ' "$_eng/runners.js" "$CLAUDE" 2>/dev/null || true)"
+    fi
+    case "${_codex_ver:-}" in
+      [0-9]*.[0-9]*.[0-9]*)
+        if printf '%s\n' "$_codex_ver" | awk -F. '{ exit !($1 > 0 || $2 >= 169) }'; then _codex_launch=(--no-daemon); fi ;;
+    esac
+    unset _codex_ver
       # Answer codex's update notice before the pane starts (#1315). Creation
       # dismisses the version current when the agent was MADE; this dismisses
       # whatever is current NOW, which is what stops an EXISTING agent meeting a
@@ -1288,12 +1312,13 @@ if [ -z "$adopt" ]; then
       unset _mig_model _mig_next _mig_shared _a
     if [ "${#ENDPOINT_ARGS[@]}" -gt 0 ]; then
       # #5977: the endpoint's arguments carry their own -m (the account's model), so the agent's $MODEL is not used.
-      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" "${ENDPOINT_ARGS[@]}" || exit 1
+      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox ${_codex_launch[@]+"${_codex_launch[@]}"} -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" "${ENDPOINT_ARGS[@]}" || exit 1
     elif [ -n "$MODEL" ]; then
-      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" -m "$MODEL" || exit 1
+      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox ${_codex_launch[@]+"${_codex_launch[@]}"} -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" -m "$MODEL" || exit 1
     else
-      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" || exit 1
+      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox ${_codex_launch[@]+"${_codex_launch[@]}"} -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" || exit 1
     fi
+    unset _codex_launch
   elif [ "$RUNNER" = gemini ]; then
     # #3296: the Gemini runner. Self-reporting is NOT a launch flag (as codex's
     # notify is) -- gemini has its own hook system, and engine/create.js wrote the
