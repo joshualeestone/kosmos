@@ -771,7 +771,8 @@ function authenticodeOf(file) {
 }
 /* kosmos#8593 (Windows): whether any process runs a program from inside `dir` (the managed runner folder): true, false,
    or null when Windows could not be asked (no answer, no sentinel), which callers treat as running. One CIM read of every
-   process's image path, compared here in node.
+   process's image path, compared here in node (the whole check, PowerShell start included, measured ~0.45 s on the
+   Windows box: every same-drive path is resolved, a few hundred cheap local reads).
    🛑 ONE FOLDER HAS SEVERAL SPELLINGS, and a miss here reads "nothing running", the unsafe answer. Windows reports a
    program's path in the form it was STARTED by, which can mix 8.3 short and long parts (measured on the Windows box
    2026-11-17: a program started under C:\...\LONGTE~1\... reports that form, whichever form the folder is asked by). So
@@ -788,16 +789,17 @@ function authenticodeOf(file) {
    always readable; a Codex someone started elevated by hand from the managed folder is not seen. */
 const RUNNING_OK = 'KOSMOS-RUNNING-READ-OK';
 const RUNNING_DEADLINE_MS = 20000;
-function managedProcessRunning(dir) {
+function managedProcessRunning(dir, opts) {
+  const ms = (opts && Number.isFinite(opts.deadlineMs) && opts.deadlineMs > 0) ? opts.deadlineMs : RUNNING_DEADLINE_MS;
   let timer = null;
-  const deadline = new Promise((resolve) => { timer = setTimeout(() => resolve(null), RUNNING_DEADLINE_MS); });
+  const deadline = new Promise((resolve) => { timer = setTimeout(() => resolve(null), ms); });
   if (timer && typeof timer.unref === 'function') timer.unref();
   const answer = realpathNative(dir).then(
-    (root) => readRunning(root, [String(dir), root]),
+    (root) => readRunning(root, [String(dir), root], ms),
     (e) => (e && e.code === 'ENOENT' ? false : null));   // no folder: nothing can run from it; any other refusal: no answer
   return Promise.race([deadline, answer]).finally(() => clearTimeout(timer));
 }
-function readRunning(root, forms) {
+function readRunning(root, forms, ms = RUNNING_DEADLINE_MS) {
   return new Promise((resolve) => {
     const ps = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     // UTF-8 out, so a folder name outside the console's code page reaches node intact.
@@ -805,7 +807,7 @@ function readRunning(root, forms) {
       + 'Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object { $_.ExecutablePath } | Where-Object { $_ } | Sort-Object -Unique | ForEach-Object { [Console]::Out.WriteLine($_) }; '
       + `[Console]::Out.WriteLine('${RUNNING_OK}')`;
     execFile(ps, ['-NoProfile', '-NonInteractive', '-Command', script],
-      { windowsHide: true, timeout: RUNNING_DEADLINE_MS, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },   // ends with the deadline
+      { windowsHide: true, timeout: ms, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },   // ends with the deadline
       (err, stdout) => {
         const paths = err ? null : parseExePaths(stdout);
         if (paths === null) { resolve(null); return; }
@@ -1634,11 +1636,13 @@ function install(provider, opts) {
      the #8598 failure, and the restart sweep that answers it on the Mac reads tmux, which Windows does not have. So a
      Windows upgrade swaps only while NO process runs from the managed folder, asked again just before the swap; an
      answer that cannot be read counts as running (the safe direction: the old version stays). Seam: o.codexRunning,
-     (dir) => Promise<boolean|null>. */
+     (dir, { deadlineMs }?) => Promise<boolean|null>. */
   const codexRunning = o.codexRunning || managedProcessRunning;
   // The marker the old tree carried, written back if this upgrade puts that tree back (restorePrevious).
   let previousStamp = null;
   if (upgrading && plat === 'win32') { try { previousStamp = fs.readFileSync(verifiedMarker(plat, provider), 'utf8').trim(); } catch { previousStamp = null; } }
+  // What that marker said, should it vanish before it is read: resolveBin read the version off it a moment ago.
+  if (upgrading && plat === 'win32' && !previousStamp && existing.installedVersion) previousStamp = `${existing.installedVersion} ${binInPackage}`;
   Object.defineProperty(job, 'upgrade', { value: upgrading, enumerable: false });
   jobs[provider] = job;
 
@@ -1671,10 +1675,10 @@ function install(provider, opts) {
      runs from the managed folder, or that cannot be read (see codexRunning). Asked before the download and again just
      before the swap; `keepStaging` keeps a tarball already downloaded and verified, for the next look to reuse. A wait,
      not a failed try: engine/runnerupgrade.js hands the try back when it sees `waited`. */
-  const waitForAgents = async (keepStaging, beforeWait) => {
+  const waitForAgents = async (keepStaging, beforeWait, deadlineMs) => {
     if (!upgrading || plat !== 'win32') return false;
     let busy = null;
-    try { busy = await codexRunning(destDir); } catch { busy = null; }
+    try { busy = await codexRunning(destDir, deadlineMs ? { deadlineMs } : undefined); } catch { busy = null; }
     if (busy === false) return false;
     if (beforeWait) {
       try { beforeWait(); } catch (e) { console.warn(`[runners] ${provider} could not vouch for the version already here again: ${e && e.code}`); }
@@ -1871,10 +1875,13 @@ function install(provider, opts) {
       /* kosmos#8593 (Windows): with the marker down, nothing new can start on the old tree (resolveBin reads it absent,
          and installing() is true from job.swapping), so one more look HERE closes the window the marker removal's
          retries opened (seconds, under antivirus): only the rename itself is left uncovered. An agent found now puts
-         the marker back and the swap waits. The look above stays so the common wait never takes the marker down. */
+         the marker back and the swap waits. The look above stays so the common wait never takes the marker down.
+         ITS COST, named: while this look runs (a CIM read, ~0.45 s measured on the Windows box) Codex reads absent, so a
+         turn that starts in it is refused rather than run on the old tree. So it gets a short deadline (5 s); one that
+         runs out is no answer, read as running: the marker goes back and the swap waits for the next look. */
       if (await waitForAgents(true, () => {
         if (previousStamp) fs.writeFileSync(verifiedMarker(plat, provider), previousStamp + '\n');
-      })) return;
+      }, 5000)) return;
       if (fs.existsSync(pkgDir)) {
         await renameRetrying(pkgDir, pkgOld, plat);
         setAside = true;

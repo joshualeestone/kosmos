@@ -335,11 +335,13 @@ test('win32: an agent that starts while the marker comes down is caught by the l
   const { tgz, integrity } = winFixture();
   const answers = [false, true];   // (first look skipped) idle just before the swap, an agent by the time the marker is down
   let markerAtLastLook;
+  const optsSeen = [];
   try {
     const job = runners.install('openai', { legacyBin: LEGACY, download: downloadFrom(tgz), integrity, prove: ok, agentsCheckedIdle: true,
-      codexRunning: () => { if (answers.length === 1) markerAtLastLook = marker(); return Promise.resolve(answers.shift()); } });
+      codexRunning: (dir, opts) => { optsSeen.push(opts); if (answers.length === 1) markerAtLastLook = marker(); return Promise.resolve(answers.shift()); } });
     await job.settled;
     assert.equal(markerAtLastLook, null, 'PRECONDITION: the last look ran with the marker down');
+    assert.deepEqual(optsSeen, [undefined, { deadlineMs: 5000 }], 'the marker-down look, and only it, has the short deadline');
     assert.equal(job.phase, 'failed'); assert.equal(job.waited, true);
     assert.equal(marker(), before, 'vouched for again');
     assert.equal(isOldTree(), true, 'nothing was set aside');
@@ -428,6 +430,8 @@ test('win32: the real process check sees a program running from a folder, and no
   assert.equal(await runners.managedProcessRunning(idle), false);
   // A folder that is not there runs nothing: false, not "no answer".
   assert.equal(await runners.managedProcessRunning(path.join(SANDBOX, 'never-made')), false);
+  // A deadline too short for PowerShell to answer is no answer (null, read as running), never "nothing running".
+  assert.equal(await runners.managedProcessRunning(path.dirname(process.execPath), { deadlineMs: 1 }), null);
 });
 
 test('win32: the check sees a running program when the folder is given by its 8.3 short name', { skip: WIN_ONLY }, async (t) => {
