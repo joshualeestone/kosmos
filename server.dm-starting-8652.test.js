@@ -43,12 +43,13 @@ const fleet = require('./test-support/fleet');
 const RECORD = path.join(store.ROOT, 'win32-sessions', 'record.json');
 const REMOVED = path.join(store.ROOT, 'removed.json');
 
-/* The roster: '' (nobody) for the first `hiddenFor` looks at `name`'s row, then its tied row. `looks` counts reads. */
-let roster = { name: null, hiddenFor: Infinity, looks: 0, stranger: null };
+/* The roster: `name`'s tied row is listed only from `visibleAt` on (a time, not a count of reads, so a read added
+   anywhere on the route cannot move it). `looks` counts reads. */
+let roster = { name: null, visibleAt: Infinity, looks: 0, stranger: null };
 function rosterSource() {
   roster.looks += 1;
   const lines = [];
-  if (roster.name && roster.looks > roster.hiddenFor) lines.push(fleet.line({ session: roster.name, claim: roster.name }));
+  if (roster.name && Date.now() >= roster.visibleAt) lines.push(fleet.line({ session: roster.name, claim: roster.name }));
   if (roster.stranger) lines.push(fleet.line({ session: roster.stranger, claim: '' }));
   return lines.join('\n') + (lines.length ? '\n' : '');
 }
@@ -70,8 +71,10 @@ test.before(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
 });
 test.beforeEach(() => {
-  roster = { name: null, hiddenFor: Infinity, looks: 0, stranger: null };
-  app._setStartWaitForTest({ maxMs: 3000, stepMs: 100 });
+  roster = { name: null, visibleAt: Infinity, looks: 0, stranger: null };
+  status.setPaneSource(rosterSource);
+  app._setStartWaitForTest(null);
+  app._setStartWaitForTest({ maxMs: 3000, stepMs: 100, refresh: null });
   fs.rmSync(RECORD, { force: true });
 });
 test.after(() => {
@@ -89,20 +92,20 @@ async function send(name, text) {
   return { status: res.status, json: await res.json().catch(() => null), ms: Date.now() - t0 };
 }
 
-test('#8652 a starting agent whose row appears a few looks later is waited for and not refused', async () => {
+test('#8652 a starting agent whose row appears a moment later is waited for and not refused', async () => {
   worker('newbie'); recordRow('newbie', 1000);
-  roster.name = 'newbie'; roster.hiddenFor = 3;
+  roster.name = 'newbie'; roster.visibleAt = Date.now() + 300;
   const r = await send('newbie', 'hello');
   assert.notEqual(r.status, 404, 'the first message to a starting agent was refused as missing: ' + JSON.stringify(r.json));
   assert.notEqual(r.status, 409, 'the row appeared inside the wait, yet the send gave up: ' + JSON.stringify(r.json));
   assert.equal(r.status, 200, JSON.stringify(r.json));
-  assert.ok(roster.looks > 3, 'premise: the roster was read again until the row showed');
+  assert.ok(r.ms >= 250, 'premise: the row was not there when the send arrived, yet it took ' + r.ms + ' ms');
 });
 
 test('#8652 CONTROL: with the wait off, the same starting agent is not reached (the race this file must be able to see)', async () => {
   app._setStartWaitForTest({ maxMs: 0 });
   worker('newbie2'); recordRow('newbie2', 1000);
-  roster.name = 'newbie2'; roster.hiddenFor = 3;
+  roster.name = 'newbie2'; roster.visibleAt = Date.now() + 300;
   const r = await send('newbie2', 'hello');
   assert.ok(r.status === 404 || r.status === 409, 'the control cannot see the race: ' + r.status);
   assert.equal(r.json && r.json.error && /no agent by that name|still starting/.test(r.json.error), true, JSON.stringify(r.json));
@@ -154,4 +157,48 @@ test('#8652 a stranger\'s pane holding the name is refused as today and never wa
   const r = await send('zeta', 'hello');
   assert.equal(r.status, 404, JSON.stringify(r.json));
   assert.ok(r.ms < 1500, 'a borrowed name made the send wait: ' + r.ms + ' ms');
+});
+
+/* The Windows path end to end, on any platform: the board's roster is win32roster.make() over a cached
+   `claude agents --json` reader (stubbed), filtered by the sandboxed ownership record, exactly as the Windows board
+   wires it. The session is registered with the stub 300 ms after the send; until then the cache holds the list
+   from before. Only the wait's fresh read (refreshAsync) can show it inside the 1.5 s bound, because the cache
+   serves its first answer unchanged for 2 s. */
+const win32roster = require('./engine/win32roster');
+function windowsRoster(name, sessionId) {
+  let registered = false;
+  const liveNow = () => (registered ? [{ pid: 4242, cwd: 'x', kind: 'interactive', startedAt: 1, sessionId, name, status: 'idle' }] : []);
+  const cached = win32roster.makeCachedRun({ run: liveNow, runAsync: (cb) => setTimeout(() => cb(liveNow()), 20), freshMs: 2000, staleMs: 30000 });
+  status.setPaneSource(win32roster.make({ run: cached, codexLive: () => [] }));
+  setTimeout(() => { registered = true; }, 300);
+  return cached;
+}
+function recordedId(name) {
+  const cur = JSON.parse(fs.readFileSync(RECORD, 'utf8'));
+  return Object.keys(cur).find((id) => cur[id].name === name);
+}
+
+test('#8652 Windows roster: the wait reads the roster afresh and finds the session the cache did not have yet', async () => {
+  worker('winnew'); recordRow('winnew', 1000);
+  const cached = windowsRoster('winnew', recordedId('winnew'));
+  app._setStartWaitForTest({ maxMs: 1500, stepMs: 100, refresh: () => cached.refreshAsync() });
+  const r = await send('winnew', 'hello');
+  assert.equal(r.status, 200, 'the fresh read did not reach the gate: ' + JSON.stringify(r.json));
+  assert.ok(r.ms >= 250 && r.ms < 1500, 'premise: delivered after the session registered and inside the bound: ' + r.ms + ' ms');
+});
+
+test('#8652 Windows roster CONTROL: without the fresh read, the cached roster hides the session for the whole wait', async () => {
+  worker('winold'); recordRow('winold', 1000);
+  windowsRoster('winold', recordedId('winold'));
+  app._setStartWaitForTest({ maxMs: 1500, stepMs: 100, refresh: null });
+  const r = await send('winold', 'hello');
+  assert.equal(r.status, 409, 'the cache showed the session without a fresh read, so the arm above proves nothing: ' + JSON.stringify(r.json));
+});
+
+test('#8652 a roster read slower than the time left does not stretch the wait', async () => {
+  worker('slowread'); recordRow('slowread', 1000);
+  app._setStartWaitForTest({ maxMs: 800, stepMs: 100, refresh: () => new Promise((res) => setTimeout(res, 5000).unref()) });
+  const r = await send('slowread', 'hello');
+  assert.equal(r.status, 409, JSON.stringify(r.json));
+  assert.ok(r.ms < 2000, 'a slow roster read held the send past its bound: ' + r.ms + ' ms');
 });
