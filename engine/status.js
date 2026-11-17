@@ -8161,7 +8161,8 @@ async function paneRosterAsync() {
 }
 /* kosmos#8640: one listing read two ways: the roster (as paneRoster) and each pane's `@kosmos_agent` claim with its
    session, as { claim, session }. The supervisor stamps the claim with the session's own name, so the claim differs
-   from the session only after a session is renamed; that is the case this lets a caller see. It THROWS as paneRoster
+   from the session only after a session is renamed; that is the case this lets a caller see. The claims come from
+   panes readPanes kept, so in a named world a session renamed without its `+world` suffix is not among them. It THROWS as paneRoster
    does when the listing could not be read. paneRoster's rows stay as they are: their shape is pinned in
    fixture-discipline.test.js. */
 function paneLook() {
@@ -8181,8 +8182,9 @@ let paneFolderSource = null;
 function setPaneFolderSource(fn) { paneFolderSource = typeof fn === 'function' ? fn : null; }
 /* Each line is `%<pane id>\t<session>\t<folder>`. A line that does not start with a pane id is a fragment (a folder
    whose name holds a newline splits its line), and one unreadable line refuses the whole answer: a guard that fails
-   closed cannot drop the pane it could not read. An EMPTY folder is well-formed: tmux prints none for a dead pane or
-   one whose program it may not look into (a root process), and that pane is in no agent's folder. */
+   closed cannot drop the pane it could not read, so until that pane closes every agent's delete is refused. An EMPTY
+   folder is well-formed: tmux prints none for a dead pane or one whose program it may not look into (a root
+   process). Such a pane is taken to be in no agent's folder; that is a premise, not a measurement. */
 function readPaneFolders(out) {
   const lines = String(out || '').split('\n').filter(Boolean);
   return lines.map((line) => {
@@ -8194,7 +8196,8 @@ function readPaneFolders(out) {
 function paneFolders() {
   if (paneFolderSource) return readPaneFolders(paneFolderSource());
   if (paneSource) return [];
-  const got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', '#{pane_id}\t#{session_name}\t#{pane_current_path}']);
+  // The tmux that last LISTED panes (tmuxPanesSteps sets it, after any re-pick past a version wall), else the default.
+  const got = shDetail(TMUX_READ_BY || tmuxBin(), ['list-panes', '-a', '-F', '#{pane_id}\t#{session_name}\t#{pane_current_path}']);
   if (got.ran && got.status === 0) return readPaneFolders(got.out);
   if (tmuxSaidNoServer(got)) return [];
   throw new Error('we could not see what is running on this computer');

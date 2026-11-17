@@ -499,7 +499,8 @@ function plan(name, opts) {
     live = look.roster.find((c) => sameName(c.sessionName)) || null;
     if (!live) {
       // The claim is this world's launch key for the agent (`name`, or `name+world` in a named world).
-      const key = require('./launchidentity').launchKey(clean, require('./launchidentity').currentWorldId());
+      const identity = require('./launchidentity');
+      const key = identity.launchKey(clean, identity.currentWorldId());
       const c = look.claims.find((r) => (caseBlind ? r.claim.toLowerCase() === key.toLowerCase() : r.claim === key));
       if (c) { live = { session: c.session, sessionName: c.session }; byClaim = true; }
     }
@@ -509,16 +510,23 @@ function plan(name, opts) {
     if (!live) {
       /* The agent's folder (workerDir: the one a profile records, when usable, else workers/<name>) is resolved ONCE,
          as written and as a real path; a pane's folder is compared as tmux gives it, which is already the real working
-         folder, so nothing per pane touches the disk on the board's thread. (A folder outside where Kosmos keeps
-         agents never gets here: the plan refuses it above.) */
+         folder, so nothing per pane touches the disk on the board's thread. A folder outside where Kosmos keeps
+         agents is left out: below, the plan refuses one that exists ("not where Kosmos keeps agents"), and no pane
+         can work in one that does not, so matching panes under it (a whole home or projects folder) would only
+         put the wrong sentence first. */
       const fold = (p) => (caseBlind ? p.toLowerCase() : p);
       const homes = new Set();
       const dir = create.workerDir(clean);
-      if (typeof dir === 'string' && dir && path.isAbsolute(dir)) {
+      let underWorkers = false;
+      try { underWorkers = insideDir(fs.realpathSync(dir), fs.realpathSync(create.WORKERS_DIR)); }
+      catch { underWorkers = typeof dir === 'string' && insideDir(path.resolve(dir), path.resolve(create.WORKERS_DIR)); }
+      if (typeof dir === 'string' && dir && path.isAbsolute(dir) && underWorkers) {
         homes.add(fold(path.resolve(dir)));
         try { homes.add(fold(fs.realpathSync(dir))); } catch { /* not there: as written only */ }
       }
       const inside = (f) => { const n = fold(path.resolve(f)); for (const h of homes) if (n === h || n.startsWith(h + path.sep)) return true; return false; };
+      /* Read even when the roster is empty: the roster keeps only sessions it can name as agents, and a pane in a session
+         it cannot name is exactly the one this check is for. */
       const pane = homes.size ? status.paneFolders().find((r) => inside(r.folder)) : null;
       if (pane) { live = { session: pane.session, sessionName: pane.session }; byFolder = true; }
     }
