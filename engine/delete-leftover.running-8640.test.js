@@ -62,7 +62,7 @@ test('control: a pane in the session named for the agent refuses (it already did
   assert.match(p.because, /is running/);
 });
 
-test('a running agent in its <name>-discord session is not offered, and its folder survives a delete', () => {
+test('control: a running agent in its <name>-discord session is not offered (the roster already mapped it), and its folder survives a delete', () => {
   const dir = leftoverAgent('envy');
   status.setPaneSource(() => fleet.line({ session: 'envy-discord', claim: '', title: '✳ Claude Code' }));
   const p = mac.plan('envy');
@@ -168,3 +168,15 @@ test('a pane with no folder (a dead pane, or a root process tmux may not look in
   assert.equal(mac.plan('agent8').ok, true, 'an empty-folder pane made every delete refuse');
 });
 
+
+test('a recorded folder outside where Kosmos keeps agents is not matched against panes: the plan says where it is instead', () => {
+  leftoverAgent('agent10');
+  const broad = nodePath.join(SANDBOX, 'projects');
+  fs.mkdirSync(nodePath.join(broad, 'some-project'), { recursive: true });
+  require('./store').writeProfile('agent10', { displayName: 'Agent 10', dir: broad });
+  status.setPaneFolderSource(() => `%1\tw\t${nodePath.join(broad, 'some-project')}\n`);
+  const p = mac.plan('agent10');
+  assert.equal(p.ok, false);
+  assert.doesNotMatch(p.because, /working in/, 'a pane anywhere under a broad recorded folder held the agent');
+  assert.match(p.because, /not where Kosmos keeps agents/);
+});

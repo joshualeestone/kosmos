@@ -20,12 +20,19 @@
   agent's folder (workerDir: the usable recorded folder, else workers/<name>; resolved once, as written and
   as a real path; pane folders compared as tmux gives them, so nothing per pane touches the disk on the
   board thread; case-blind on Mac/Windows; a folder boundary, not a prefix). A folder outside where Kosmos
-  keeps agents is refused earlier in plan(), so it never reaches this check. Each listing line carries its
+  keeps agents is left out of this arm: plan() refuses one that exists a few lines later, and no pane can
+  work in one that does not. The folder read uses the tmux that last listed panes (after any re-pick). Each listing line carries its
   pane id; a line without one refuses the plan (a folder name holding a newline); a pane with an EMPTY
   folder (dead, or a root process) holds nothing. The folder refusal names the session, never tmux.
 - test-support/fake-tmux.sh answers the folder read from AGENT_WORKFORCE_FAKE_PANE_FOLDERS.
 - Cost: a plan whose session and claim do not match makes a second tmux call (one list-panes).
 - Rejected: adding `claim` or the folder to roster rows/PANE_COLUMNS (pinned shape, hand-built fixtures).
+
+## Known limits, written in the code
+- In a named world, a session renamed without its `+world` suffix is dropped by readPanes, so its claim is
+  not seen (the folder arm still covers it while it works in its folder).
+- One unreadable folder-listing line refuses every agent's delete until that pane closes (safe side).
+- An empty folder is taken to mean "in no agent's folder" (a premise, not measured).
 
 ## Weakest premise
 That a running agent has a tmux pane whose current folder is inside its folder, or its name/claim. An agent
