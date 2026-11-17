@@ -986,25 +986,30 @@ case "$LIVE_PTRS_NOW" in *" 000 "*) echo "deploy-site: could not re-read the liv
 # kosmos#6620: asked again just before vercel (the fetches above take minutes): a freeze pushed meanwhile from another
 # machine, at a version or bytes other than what this deploy carries, stops it. This narrows the window to the deploy
 # itself; it does not close it (a freeze landing while vercel uploads is not seen here).
-if ! pointer_freeze_fetch "$SITE"; then
-  echo "deploy-site: could not fetch origin/main to re-check the pointer freeze just before deploying (kosmos#6620); going on (the early check passed minutes ago)"
-elif git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then
-  _late_v=$(git -C "$SITE" show "origin/main:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^mac=//p' | head -1)
-  _late_sha=$(git -C "$SITE" show "origin/main:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^sha256=//p' | head -1)
-  if [ "$(ptr_version "$CJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CJ")" != "$_late_sha" ]; } \
-    || { [ -n "$CSJ" ] && { [ "$(ptr_version "$CSJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CSJ")" != "$_late_sha" ]; }; }; }; then
-    echo "deploy-site: the pointers were FROZEN at ${_late_v:-an unreadable marker} on origin/main while this ran, and this deploy carries $(ptr_version "$CJ")$( [ "$(ptr_version "$CJ")" = "$_late_v" ] && echo " naming another artifact than the pinned build (sha256 $(ptr_sha "$CJ"), the freeze names ${_late_sha})") -- refusing (kosmos#6620); nothing was deployed"
-    rm -rf "$EXPORT"; exit 1
+# kosmos#8656: a function, so the deploy's retry asks it again before each try (as the cut's #7711 hook does).
+_ds_late_freeze_check() {
+  if ! pointer_freeze_fetch "$SITE"; then
+    echo "deploy-site: could not fetch origin/main to re-check the pointer freeze just before deploying (kosmos#6620); going on (the early check passed minutes ago)"
+  elif git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then
+    _late_v=$(git -C "$SITE" show "origin/main:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^mac=//p' | head -1)
+    _late_sha=$(git -C "$SITE" show "origin/main:dist/POINTER_FROZEN" 2>/dev/null | sed -n 's/^sha256=//p' | head -1)
+    if [ "$(ptr_version "$CJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CJ")" != "$_late_sha" ]; } \
+      || { [ -n "$CSJ" ] && { [ "$(ptr_version "$CSJ")" != "$_late_v" ] || { [ -n "$_late_sha" ] && [ "$(ptr_sha "$CSJ")" != "$_late_sha" ]; }; }; }; then
+      echo "deploy-site: the pointers were FROZEN at ${_late_v:-an unreadable marker} on origin/main while this ran, and this deploy carries $(ptr_version "$CJ")$( [ "$(ptr_version "$CJ")" = "$_late_v" ] && echo " naming another artifact than the pinned build (sha256 $(ptr_sha "$CJ"), the freeze names ${_late_sha})") -- refusing (kosmos#6620); nothing was deployed"
+      return 1
+    fi
+    # And the rest of what the freeze holds still (the early check's list, against the freeze that landed meanwhile).
+    if ! _late_moved="$(pointer_freeze_moved "$SITE" origin/main "$H")"; then
+      echo "deploy-site: the pointers were FROZEN on origin/main while this ran, and $H could not be compared with the freeze commit -- refusing (kosmos#6620); nothing was deployed"
+      return 1
+    elif [ -n "$_late_moved" ]; then
+      echo "deploy-site: the pointers were FROZEN at ${_late_v:-an unreadable marker} on origin/main while this ran, and this deploy changes $(printf '%s' "$_late_moved" | tr '\n' ' ')since the freeze commit -- refusing (kosmos#6620); nothing was deployed"
+      return 1
+    fi
   fi
-  # And the rest of what the freeze holds still (the early check's list, against the freeze that landed meanwhile).
-  if ! _late_moved="$(pointer_freeze_moved "$SITE" origin/main "$H")"; then
-    echo "deploy-site: the pointers were FROZEN on origin/main while this ran, and $H could not be compared with the freeze commit -- refusing (kosmos#6620); nothing was deployed"
-    rm -rf "$EXPORT"; exit 1
-  elif [ -n "$_late_moved" ]; then
-    echo "deploy-site: the pointers were FROZEN at ${_late_v:-an unreadable marker} on origin/main while this ran, and this deploy changes $(printf '%s' "$_late_moved" | tr '\n' ' ')since the freeze commit -- refusing (kosmos#6620); nothing was deployed"
-    rm -rf "$EXPORT"; exit 1
-  fi
-fi
+  return 0
+}
+_ds_late_freeze_check || { rm -rf "$EXPORT"; exit 1; }
 # kosmos#6771: the CLI says only "Not authorized" when its sign-in or token is refused, which on the Mortals autodeploy
 # read as a site problem. Its output is kept (and still shown as it runs), and that refusal is said in full: whether a
 # token was given (VERCEL_TOKEN, which the CLI reads from the environment, so it is never on a command line). Through
@@ -1038,22 +1043,42 @@ else
   # kosmos#8656: the promote path (promote-channel, then this) had no retry, and Vercel refused two prod promotes on
   # 2026-11-17 with "Not authorized" while `vercel whoami` answered the right account: the same refusal a cut survives
   # through site_vercel_deploy (#7711), which refreshes the sign-in first and tries again a minute apart. That is used
-  # here too. Before each retry the live pointers are read again, as the first deploy's #5589 check does, and a change
-  # ends this run with nothing deployed (exit 75 from the retry hook, said below).
-  _ds_vercel_once() { ( cd "$EXPORT" && if [ -n "$_vercel_token" ]; then VERCEL_TOKEN="$_vercel_token" vercel deploy --prod --yes; else vercel deploy --prod --yes; fi ); }
-  _ds_before_retry() {
-    _ds_ptrs=$(live_pointer_snapshot)
-    [ "$_ds_ptrs" = "$LIVE_PTRS_BEFORE" ] || { echo "deploy-site: a live pointer changed while waiting to retry the deploy (#5589, kosmos#8656)"; exit 75; }
+  # here too, with three rules of this script's own:
+  #   - a try that made a deployment (an Inspect/Production/Preview URL in its output) is never tried again: it returns
+  #     86, which site_vercel_deploy does not retry, and this run fails as one that failed after deploying;
+  #   - before each retry the pointer freeze (#6620) and the live pointers (#5589) are read again, and a freeze or a
+  #     moved pointer ends the run with nothing deployed;
+  #   - only the LAST try's output is classified below, so an earlier refusal cannot name a later, other failure.
+  # Each try's output is still shown as it runs (tee) and kept in $VLAST; its code goes through a file, not a pipe.
+  VLAST=$(mktemp "${TMPDIR:-/tmp}/deploy-site-vercel-last.XXXXXX") && VRC1=$(mktemp "${TMPDIR:-/tmp}/deploy-site-vercel-rc1.XXXXXX") \
+    || { echo "deploy-site: could not make temp files for the deploy's output"; rm -f "$VRC" "$VOUT"; rm -rf "$EXPORT"; exit 1; }
+  _ds_vercel_try() {
+    ( cd "$EXPORT" && if [ -n "$_vercel_token" ]; then VERCEL_TOKEN="$_vercel_token" vercel deploy --prod --yes; else vercel deploy --prod --yes; fi ) \
+      && echo 0 > "$VRC1" || echo $? > "$VRC1"
   }
-  # The retry runs in its own subshell, so the hook's `exit 75` ends only that and comes back as its exit code. Written
-  # to a file, not a pipe, so the code read is the deploy's own; the output is printed once it is done.
+  _ds_vercel_once() {
+    _ds_vercel_try 2>&1 | tee "$VLAST"
+    _ds_r=$(cat "$VRC1" 2>/dev/null)
+    case "$_ds_r" in ''|*[!0-9]*) _ds_r=1 ;; esac
+    if [ "$_ds_r" != 0 ] && sed "s/$(printf '\033')\[[0-9;]*m//g" "$VLAST" | grep -qiE '(inspect|production|preview):[[:space:]]*https://'; then return 86; fi
+    return "$_ds_r"
+  }
+  _ds_before_retry() {
+    _ds_late_freeze_check || exit 76
+    _ds_ptrs=$(live_pointer_snapshot)
+    case "$_ds_ptrs" in *" 000 "*) echo "deploy-site: could not re-read the live pointers before retrying the deploy (#5589, kosmos#8656)"; exit 75 ;; esac
+    [ "$_ds_ptrs" = "$LIVE_PTRS_BEFORE" ] || { echo "deploy-site: a live pointer changed while waiting to retry the deploy (#5589, kosmos#8656)"; echo "  before: $LIVE_PTRS_BEFORE"; echo "  now:    $_ds_ptrs"; exit 75; }
+  }
+  # In its own subshell, so the hook's exit ends only the retry and comes back as its code. Not piped: each try tees.
   _ds_vrc=0
-  ( KOSMOS_VERCEL_BEFORE_RETRY=_ds_before_retry site_vercel_deploy "$EXPORT" _ds_vercel_once ) > "$VOUT" 2>&1 || _ds_vrc=$?
-  cat "$VOUT"
+  ( KOSMOS_VERCEL_BEFORE_RETRY=_ds_before_retry site_vercel_deploy "$EXPORT" _ds_vercel_once ) || _ds_vrc=$?
+  cp "$VLAST" "$VOUT" 2>/dev/null; rm -f "$VLAST" "$VRC1"
+  case "$_ds_vrc" in
+    75) rm -f "$VRC" "$VOUT"; echo "deploy-site: refusing; nothing has been deployed. Update the site checkout to origin/main and run again (#5589)."; rm -rf "$EXPORT"; exit 75 ;;
+    76) rm -f "$VRC" "$VOUT"; echo "deploy-site: refusing before the retry; nothing has been deployed (kosmos#6620, #8656)."; rm -rf "$EXPORT"; exit 1 ;;
+    86) rm -f "$VRC" "$VOUT"; echo "deploy-site: vercel deploy --prod failed (rc 1) after it had made a deployment, so it was not tried again (kosmos#8656)"; rm -rf "$EXPORT"; exit 1 ;;
+  esac
   echo "$_ds_vrc" > "$VRC"
-  if [ "$(cat "$VRC" 2>/dev/null)" = 75 ]; then
-    rm -f "$VRC" "$VOUT"; echo "deploy-site: refusing; nothing has been deployed. Update the site checkout to origin/main and run again (#5589)."; rm -rf "$EXPORT"; exit 75
-  fi
 fi
 vrc=$(cat "$VRC"); rm -f "$VRC"
 case "$vrc" in ''|*[!0-9]*) vrc=1 ;; esac   # no code written is a failure, never a pass

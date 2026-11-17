@@ -110,6 +110,8 @@ cat > "$BIN/vercel" <<'VERCEL'
 n=$(cat "$LIVE_DIR/.vercel-tries" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$LIVE_DIR/.vercel-tries"
 if [ -n "${REFUSE_N:-}" ] && [ "$n" -le "$REFUSE_N" ]; then
   [ -n "${MOVE_PTR_ON_REFUSE:-}" ] && printf '{"version":"9.9.99"}\n' > "$LIVE_DIR/dist/$MOVE_PTR_ON_REFUSE"
+  # FREEZE_ON_REFUSE_CLONE: another machine pushes a pointer freeze while this deploy waits to retry (#6620).
+  [ -n "${FREEZE_ON_REFUSE_CLONE:-}" ] && git -C "$FREEZE_ON_REFUSE_CLONE" push -q origin main && : > "$FREEZE_ON_REFUSE_CLONE.pushed"
   echo "Error: Not authorized" >&2; exit 1
 fi
 # `vercel deploy --prod --yes` runs with the EXPORT as cwd. Publish it into LIVE (additive copy;
@@ -919,8 +921,22 @@ read -r S88 L88 <<<"$(make_scenario)"
 export REFUSE_N=1 KOSMOS_VERCEL_RETRY_S=0 MOVE_PTR_ON_REFUSE=latest-win.json
 run_deploy "$S88" "$L88" --promote
 unset REFUSE_N KOSMOS_VERCEL_RETRY_S MOVE_PTR_ON_REFUSE
-[ "$RC" = 75 ] && [ "$(served_ver "$L88")" = "$OLD" ] && [ "$(cat "$L88/.vercel-tries")" = 1 ] && has "$out" "nothing has been deployed" \
+[ "$RC" = 75 ] && [ "$(served_ver "$L88")" = "$OLD" ] && [ "$(cat "$L88/.vercel-tries")" = 1 ] && has "$out" "changed while waiting to retry the deploy" \
   && pass "8656: a live pointer that moves before the retry stops it: exit 75, one try, live untouched" || bad "8656 pointer moved before retry (rc=$RC, tries=$(cat "$L88/.vercel-tries" 2>/dev/null), out=$out)"
+
+# R4) a pointer freeze pushed from another machine while it waits to retry (#6620): refuse before the retry, one try,
+# live untouched (the cut's #7711 hook asks the same).
+read -r S89 L89 <<<"$(make_rollback_scenario)"
+git init -q --bare --initial-branch=main "$S89.origin.git" && git -C "$S89" remote add origin "$S89.origin.git" && git -C "$S89" push -q origin main
+git clone -q "$S89.origin.git" "$S89.other" && git -C "$S89.other" config user.email t@t && git -C "$S89.other" config user.name t
+printf 'mac=%s\nbecause=frozen while it waits to retry\nat=2026-11-17T00:00:00Z\n' "$NEW" > "$S89.other/dist/POINTER_FROZEN"
+git -C "$S89.other" add dist/POINTER_FROZEN && git -C "$S89.other" commit -q -m "frozen elsewhere, during the retry wait"
+LIVE89="$(cat "$L89/dist/latest.json")"
+export REFUSE_N=1 KOSMOS_VERCEL_RETRY_S=0 FREEZE_ON_REFUSE_CLONE="$S89.other"
+run_deploy "$S89" "$L89" --promote
+unset REFUSE_N KOSMOS_VERCEL_RETRY_S FREEZE_ON_REFUSE_CLONE
+{ [ "$RC" = 1 ] && [ -e "$S89.other.pushed" ] && has "$out" "refusing before the retry" && [ "$(cat "$L89/.vercel-tries")" = 1 ] && [ "$(cat "$L89/dist/latest.json")" = "$LIVE89" ]; } \
+  && pass "8656: a freeze pushed while it waits to retry stops the retry: exit 1, one try, live untouched" || bad "8656 freeze during the retry wait (rc=$RC, pushed=$([ -e "$S89.other.pushed" ] && echo y || echo n), tries=$(cat "$L89/.vercel-tries" 2>/dev/null)) out=$out"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

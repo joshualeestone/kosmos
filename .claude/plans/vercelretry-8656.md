@@ -11,20 +11,25 @@ Card: #8656 (Splinter 15:3x 11-17). Owner: Baron Draxum.
   the promote path runs, called vercel once.
 
 ## Change
-- deploy-site.sh, the non-terminal path (promotes, autodeploy): the deploy goes through site_vercel_deploy, with a
-  before-retry hook that re-reads the live pointers (#5589) and ends the run with exit 75, nothing deployed, if one
-  moved. The output is still captured, so a refusal on every try still exits 77 with the #6771 sentence. A person at a
-  terminal keeps the CLI as before.
-- tools/test-deploy-site-promote.sh: the vercel stub answers `whoami` (it would otherwise publish there) and can refuse
-  N times or move a pointer at a refusal. Three arms: refused once then published (2 tries); refused every try (exit 77
-  after 4 tries, live untouched); a pointer moved before the retry (exit 75, one try, live untouched). All three are
-  red against main's deploy-site.sh (one try, exit 77).
-- test-deploy-site-exit0-2791.sh sets KOSMOS_VERCEL_RETRY_S=0: three of its arms are refused on purpose and would now
-  wait 3 min (measured 244 s against main's 63 s; 62 s with the export).
+- deploy-site.sh, the non-terminal path (promotes, autodeploy): the deploy goes through site_vercel_deploy (#7711),
+  with three rules of its own:
+  - a try that made a deployment (an Inspect/Production/Preview URL in its output) is never tried again: it returns
+    86, which site_vercel_deploy does not retry, and the run exits 1 ("failed (rc 1) after it had made a deployment");
+  - before each retry the pointer freeze (#6620, `_ds_late_freeze_check`, now a function the first check also uses)
+    and the live pointers (#5589) are read again: a freeze ends it with exit 1, a moved or unreadable pointer with 75,
+    nothing deployed;
+  - each try's output is shown as it runs (tee) and only the LAST try's is classified (77 vs 1).
+  A person at a terminal keeps the CLI as before.
+- Tests: test-deploy-site-promote.sh R1 (refused once, then published), R2 (refused every try: 77 after 4), R3 (a
+  pointer moved before the retry: 75, one try), R4 (a freeze pushed during the wait: 1, one try);
+  test-deploy-site-exit0-2791.sh B5d (a refusal after a deployment: 1, one try) and B5e (the same with a moved
+  pointer: 1, never "nothing has been deployed"). Both stubs answer `vercel whoami` without publishing. R1 to R3 are
+  red against main; B5d, B5e and R4 are red against this branch's first commit 70a2df6d84 (4 tries; 75 "nothing
+  deployed"; a deploy over the freeze). exit0-2791 sets KOSMOS_VERCEL_RETRY_S=0 (its refused arms would wait 3 min).
 
 ## Cost, decided
-A box whose token is truly refused (#6771) now waits about 3 min before exiting 77, as a cut does. The autodeploy
-retries a 75 on its next tick and parks on a 77, so it only spends those minutes, once per tick.
+A box whose token is truly refused (#6771) now spends about 3 min retrying before it exits 77, as a cut does. The
+autodeploy neither counts nor parks a 77 (red once a day, site-autodeploy.sh), so it spends those minutes per tick.
 
 ## Weakest premise
 That the refusal is the token-refresh race #7711 describes. Why Vercel refuses is still unknown; each try prints the
