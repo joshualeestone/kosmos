@@ -364,6 +364,8 @@ extension Board {
             case .alibaba: return "Alibaba Qwen"
             }
         }
+        // The dialog's title word (changeProviderNow's dialog `label`): the company for Claude, as the board says it.
+        var titleWord: String { self == .anthropic ? "Anthropic" : word }
         // The word for it inside a sentence, as the board's switch dialog uses (switchFamilyNote's fromWord/toWord).
         var word: String {
             switch self {
@@ -392,10 +394,10 @@ extension Board {
     static func providerWord(_ id: String) -> String {
         if let p = SwitchProvider(rawValue: id) { return p.word }
         switch id {
-        case "antigravity": return "Gemini"
+        case "antigravity": return "Gemini (Google subscription)"
         case "meta": return "Meta Muse"
         case "deepseek": return "DeepSeek"
-        case "glm": return "GLM"
+        case "glm": return "Z.ai GLM"
         case "minimax": return "MiniMax"
         default: return id
         }
@@ -440,7 +442,7 @@ extension Board {
     }
     // The board's acctPrimaryName: a chosen name first, then for Qwen its own words, then email, key tail, label.
     static func accountName(_ a: [String: Any]) -> String {
-        func text(_ k: String) -> String? { (a[k] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } }
+        func text(_ k: String) -> String? { (a[k] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } }
         if let n = text("name") { return n }
         let p = ((a["provider"] as? String) ?? "").lowercased()
         if p == "alibaba" {
@@ -451,10 +453,25 @@ extension Board {
         let keyed = ["openai", "google", "xai", "deepseek", "glm", "minimax"].contains(p)
         return text("email") ?? (keyed ? text("keyTail").map { "API key ending " + $0 } : nil) ?? text("label") ?? text("dir") ?? ""
     }
+    // Review 2: two rows must never read alike (the board's accountQualifiers), and a live check that came back unknown
+    // says so (fillSwitchAccounts' labelOf). The qualifier here is the row's other detail (email, key tail, then its
+    // folder's last part), which keeps rows apart; its exact words can differ from the board's.
     static func switchAccounts(_ rows: [[String: Any]], for provider: SwitchProvider) -> [SwitchAccount] {
-        rows.filter { listed($0, for: provider) }.compactMap { a in
-            guard let dir = a["dir"] as? String, !dir.isEmpty else { return nil }
-            return SwitchAccount(dir: dir, label: accountName(a), isDefault: (a["isDefault"] as? Bool) == true)
+        let kept = rows.filter { listed($0, for: provider) }.filter { (($0["dir"] as? String) ?? "").isEmpty == false }
+        let names = kept.map { accountName($0) }
+        var seen: [String: Int] = [:]
+        for n in names { seen[n.lowercased(), default: 0] += 1 }
+        return zip(kept, names).map { a, name in
+            func text(_ k: String) -> String? { (a[k] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } }
+            let dir = a["dir"] as! String
+            var label = name
+            if (seen[name.lowercased()] ?? 0) > 1 {
+                let other = [text("email"), text("keyTail").map { "API key ending " + $0 }, Optional((dir as NSString).lastPathComponent)]
+                    .compactMap { $0 }.first { $0.lowercased() != name.lowercased() } ?? dir
+                label += " (" + other + ")"
+            }
+            if ((a["connection"] as? [String: Any])?["state"] as? String) == "unknown" { label += " (could not check just now)" }
+            return SwitchAccount(dir: dir, label: label, isDefault: (a["isDefault"] as? Bool) == true)
         }
     }
     // Which providers the phone offers this agent: every one with an account it could land on, never its own (the
@@ -474,7 +491,8 @@ extension Board {
     // What the section says when it offers nothing, in the board's words where the board has them.
     static func switchNothingLine(_ d: AgentDetails) -> String {
         if providerOf(d) == "meta" { return "Moving an agent on Meta Muse to another provider is not offered yet." }
-        return "There is nothing to switch it to yet: no other provider on your computer has an account it can use. Add one on its board, in Settings, AI Models."
+        // Review 2: about what THIS PHONE can offer, since the board can offer more (Gemini by subscription, the vendors).
+        return "There is nothing this phone can switch it to. Its board on your computer lists every provider it can move to, and adds new ones in Settings, AI Models."
     }
 
     // The model menu (fillSwitchModel): Claude's from /api/roles, OpenAI's per account; the rest pick their own.
@@ -550,8 +568,11 @@ extension Board {
     }
     static func switchNote(from: String, to: SwitchProvider, name: String) -> String {
         let fromWord = providerWord(from), toWord = to.word
+        // Review 2: within one family, the board's own words (its d-provider-go dialog when switchFamilyNote is ''): the
+        // past stays readable, and the conversation ends as on any restart.
         guard switchCrossesFamily(from, to.rawValue) else {
-            return "\(name) keeps its name, its face, its instructions, its files and its conversation, and restarts on \(toWord)."
+            return "\(name) keeps its name, its face, its instructions, its files, and everything it has done; its past stays readable. "
+                + "It restarts, so this conversation ends, as it does on any restart."
         }
         func claudeSide(_ p: String) -> Bool { ["anthropic", "deepseek", "glm", "minimax"].contains(p) }
         let notes = (claudeSide(from) && claudeSide(to.rawValue))
