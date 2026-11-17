@@ -81048,23 +81048,37 @@ async function xReport(id) {
   XREPORT_BUSY = true;
   try { await xReportSend(id); } finally { XREPORT_BUSY = false; }
 }
+/* Safari and the Mac app's web view let a page write the clipboard only while the press is still the person's own, and
+   an awaited network read ends that. So the copy starts inside the press, with the text as a promise that the sender
+   read fills in (ClipboardItem); where ClipboardItem is missing, the text is written after the read. */
+function xReportCopy(textPromise) {
+  try {
+    if (navigator.clipboard && typeof ClipboardItem === 'function' && navigator.clipboard.write) {
+      return navigator.clipboard.write([new ClipboardItem({ 'text/plain': textPromise.then((t) => new Blob([t], { type: 'text/plain' })) })]).then(() => true, () => false);
+    }
+  } catch { /* the write-after-read below */ }
+  return textPromise.then((t) => (navigator.clipboard ? navigator.clipboard.writeText(t).then(() => true, () => false) : false));
+}
 async function xReportSend(id) {
   const pid = typeof PJ_CURRENT !== 'undefined' ? PJ_CURRENT : null;
   const row = xRowById(id);
   const say = document.getElementById('pj-room-msg');
   if (!pid || !row) { if (say) say.textContent = 'We could not find that message. Read the room again and try once more.'; return; }
-  let account = null;
-  try {
-    const res = await fetch('/api/project/' + encodeURIComponent(pid) + '/room/' + encodeURIComponent(id) + '/sender');
-    const out = await res.json().catch(() => null);
-    if (res.ok && out && typeof out.account === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(out.account)) account = out.account;
-  } catch { /* the report still goes, saying the account is not known */ }
   const p = typeof pjById === 'function' ? pjById(pid) : null;
-  const body = xReportBody(row, pid, p && p.name, account);
+  const bodyP = (async () => {
+    let account = null;
+    try {
+      const res = await fetch('/api/project/' + encodeURIComponent(pid) + '/room/' + encodeURIComponent(id) + '/sender');
+      const out = await res.json().catch(() => null);
+      if (res.ok && out && typeof out.account === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(out.account)) account = out.account;
+    } catch { /* the report still goes, saying the account is not known */ }
+    return xReportBody(row, pid, p && p.name, account);
+  })();
   /* Copied as well as mailed: a computer with no mail app set up opens nothing and says nothing, so the line under the
      composer always says where the report is (the phone's reportCopiedNote, for the case it cannot see). */
-  let copied = false;
-  try { if (navigator.clipboard) { await navigator.clipboard.writeText('To: ' + XREPORT_TO + '\nSubject: ' + XREPORT_SUBJECT + '\n\n' + body); copied = true; } } catch { copied = false; }
+  const copiedP = xReportCopy(bodyP.then((b) => 'To: ' + XREPORT_TO + '\nSubject: ' + XREPORT_SUBJECT + '\n\n' + b));
+  const body = await bodyP;
+  const copied = await copiedP;
   const a = document.createElement('a');
   a.href = 'mailto:' + XREPORT_TO + '?subject=' + encodeURIComponent(XREPORT_SUBJECT) + '&body=' + encodeURIComponent(body);
   a.rel = 'noopener'; a.style.display = 'none';
@@ -81125,8 +81139,11 @@ document.getElementById('xblock-go').addEventListener('click', async () => {
     if (mine) {
       XBLOCK = null;
       document.getElementById('xblock-modal').hidden = true;
-      const post = document.getElementById('pj-post');   // the pressed Block button leaves with the message
+      // The pressed Block button leaves with the message: the message box, or in the archive its Back to the room.
+      const post = document.getElementById('pj-post');
+      const back = document.getElementById('pj-arch-back');
       if (post && post.offsetParent) post.focus({ preventScroll: true });
+      else if (back && back.offsetParent) back.focus({ preventScroll: true });
     }
     msgToast((out.name || d.name) + ' is blocked. Their messages are hidden; unblock them in Settings, Your Profile.');
     /* The block route removes rows the room already holds (its read leaves them out), so the window's held rows go too:
@@ -81136,7 +81153,17 @@ document.getElementById('xblock-go').addEventListener('click', async () => {
       PJ_WIN.older = (PJ_WIN.older || []).filter((r) => !(r && r.kind === 'external' && gone.has(r.id)));
       PJ_WIN.stamp = null;
     }
-    if (typeof PJ_ARCH !== 'undefined' && Array.isArray(PJ_ARCH.rows)) PJ_ARCH.rows = PJ_ARCH.rows.filter((r) => !(r && r.kind === 'external' && gone.has(r.id)));
+    if (typeof PJ_ARCH !== 'undefined' && Array.isArray(PJ_ARCH.rows)) {
+      PJ_ARCH.rows = PJ_ARCH.rows.filter((r) => !(r && r.kind === 'external' && gone.has(r.id)));
+      /* The live read does not repaint while the archive is showing, so the archive repaints its own rows, keeping the
+         reader's place as its refresh does. */
+      if (typeof pjArchShowing === 'function' && pjArchShowing()) {
+        const box = document.getElementById('pj-room');
+        const at = box ? threadAnchor(box) : null;
+        paintArch();
+        if (at) restoreThreadAnchor(box, at);
+      }
+    }
     if (typeof loadRoom === 'function') { try { await loadRoom(); } catch { /* the next poll repaints */ } }
   } catch {
     d.pending = false;
@@ -81214,6 +81241,7 @@ document.getElementById('you-blocked').addEventListener('click', async (e) => {
     const out = await res.json().catch(() => null);
     ok = res.ok && !!out && out.unblocked === true;
   } catch { ok = false; }
+  if (ok && b.closest('.setrow')) b.closest('.setrow').remove();   // gone from the list even if the re-read fails
   await blockedPaint(ok ? name + ' is unblocked. Their messages are back in your rooms.' : 'We could not unblock ' + name + '. Try again in a moment.');
   const boxU = document.getElementById('you-blocked-box');   // the pressed Unblock button was repainted away
   if (boxU && !boxU.hidden) boxU.focus({ preventScroll: true });
