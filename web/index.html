@@ -28371,7 +28371,6 @@ function showTab(tab) {
   } else { paintRemoved(); paintSurvival(); }
   PANELS.forEach((p) => { document.getElementById('panel-' + p).hidden = (p !== tab); });
   if (tab === 'settings') { centreSettingsPill(); refreshSurvivalHidden(); }
-  if (tab === 'settings' && SETTINGS_SEC === 'you' && typeof blockedPaint === 'function') blockedPaint();   // #8631: the Blocked list, read on arrival
   /* #1615: un-blue + tear down the Plus canvases when leaving Settings (or when
      the Settings section is not Plus); re-blue + re-mount on return. The Settings
      section persists across tab switches, so this must run on every tab change,
@@ -28458,6 +28457,7 @@ function showTab(tab) {
   // below: a machine report painted once would go on asserting a world
   // that stopped being true (the app can be moved, sleep settings change).
   if (tab === 'settings') paintSettings();
+  if (tab === 'settings' && SETTINGS_SEC === 'you' && typeof blockedPaint === 'function') blockedPaint();   // #8631: the Blocked list, read on arrival
   // #3559: the Tasks view re-reads on every arrival, same rule as Settings and Projects.
   if (tab === 'tasks') tskLoad(true);
   if (tab !== 'projects') {

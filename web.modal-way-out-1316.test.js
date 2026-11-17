@@ -40,8 +40,8 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   const found = modals();
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
-  assert.ok(found.length <= 27,   // 27: kosmos#6255's Help Kosmos grow; 26: kosmos#7614's Delete message confirm; 25: kosmos#7365's Archive older messages confirm; 24: #6722's picture editor; 23: #5393's At a glance sheet; 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice); 21: #4930's file preview; 22: #4649's invite sheet
-    `${found.length} modals now, up from 27 (kosmos#6255's Help Kosmos grow). A new one joined the page: sweep it, then raise this number.`);
+  assert.ok(found.length <= 28,   // 28: kosmos#8631's Block them? confirm; 27: kosmos#6255's Help Kosmos grow; 26: kosmos#7614's Delete message confirm; 25: kosmos#7365's Archive older messages confirm; 24: #6722's picture editor; 23: #5393's At a glance sheet; 18: #3955's Kosmos has been updated window; 19: #4080's Lost your phone? dialog; 20: #4343's restart screen (#4820 removed #4288's Community notice); 21: #4930's file preview; 22: #4649's invite sheet
+    `${found.length} modals now, up from 28 (kosmos#8631's Block them? confirm). A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**
@@ -66,6 +66,7 @@ const ESCAPES_VIA = {
   updconfirm:       /Escape[\s\S]{0,300}updconfirm/,
   'hist-modal':     /Escape[\s\S]{0,300}hist-modal/,
   'msgdel-modal':   /Escape[\s\S]{0,300}msgdel-modal/,   // kosmos#7614: Escape keeps the message (Keep it)
+  'xblock-modal':   /Escape[\s\S]{0,400}xblock-modal/,   // kosmos#8631: Escape does not block (Don't block)
   'pol-modal':      /pol-modal'\)\.hidden\) return;/,
   'doc-modal':      /Escape[\s\S]{0,300}doc-modal/,
   'rst-modal':      /Escape[\s\S]{0,300}rst-modal/,
