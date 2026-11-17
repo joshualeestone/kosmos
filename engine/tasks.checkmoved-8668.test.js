@@ -75,6 +75,7 @@ test('an unmet check moved to another task stores the link, and the activity say
   assert.equal(ev.movedTo, b);
   assert.match(phrase.phrase(ev), new RegExp('is not met: .*no Windows box to run it on.*\\. Moved to task ' + b + '$'));
   assert.doesNotMatch(phrase.phrase({ ...ev, met: true }), /Moved to/, 'a met row never says it moved (control)');
+  assert.match(phrase.phrase({ ...ev, how: 'done.' }), /done\. Moved to task /, 'words that end a sentence are not given a second full stop');
   // The same report again records nothing; the same words without the link are a change.
   assert.equal(tasks.setCheckResult(id, a, 2, false, 'no Windows box to run it on', { by: 'mara', movedTo: b }).changed, false);
   assert.equal(tasks.setCheckResult(id, a, 2, false, 'no Windows box to run it on', { by: 'mara' }).changed, true);
@@ -107,7 +108,7 @@ test('kosmos task show names the link on both tasks', () => {
   const from = tasklist.showLines(body, a, 'proj').lines.join('\n');
   assert.match(from, /says not met: "no Windows box".*; moved to task 2/);
   const to = tasklist.showLines(body, b, 'proj').lines.join('\n');
-  assert.match(to, /Moved here from other tasks:\n {4}check 2 of task 1, reported not met there/);
+  assert.match(to, /Moved here from other tasks:\n {4}check 2 of task 1, reported not met there: it works on Windows$/m);
   const control = tasklist.showLines(body, a, 'proj').lines.join('\n');
   assert.doesNotMatch(control, /Moved here/, 'the reporting task itself lists nothing moved here');
 });

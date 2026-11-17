@@ -1777,7 +1777,8 @@ function changeDoneWhen(projectId, n, nextFrom, { by = null, person = false } = 
  * write, against the checks as they are then. A closed task is refused (409), as is a task with no checks or no such
  * check. The same report again records nothing. Returns { task, changed }. Throws with a sentence and `err.status`.
  * #8668: `movedTo`, a task number, says an UNMET check's part went to that task (another task on this project); the task
- * page shows the link on both tasks. Refused with met (a met check went nowhere) and for this task itself.
+ * page shows the link on both tasks. Refused with met (a met check went nowhere), for this task itself, and (409) for a
+ * task number with no task on this project.
  */
 function setCheckResult(projectId, n, check, met, how, { by = null, movedTo = null } = {}) {
   const fail = (msg, status) => { const e = new Error(msg); if (status) e.status = status; return e; };

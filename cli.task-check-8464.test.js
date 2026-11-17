@@ -110,7 +110,7 @@ const SENDS = [
     (b) => assert.deepEqual([b.check, b.met, b.how, 'movedTo' in b], [1, false, 'fails on Linux', false], 'a newline becomes a space; unmet is false; no link unless asked')],
   // #8668: an unmet check's part moved to another task; leading zeros still send a JSON number.
   [['task', 'check', 'p5152', '3', '1', 'unmet', 'no Windows box', '--moved-to', '012'], '/api/project/p5152/task/3/check',
-    (b) => assert.deepEqual([b.check, b.met, b.how, b.movedTo], [1, false, 'no Windows box', 12])],
+    (b, out) => { assert.deepEqual([b.check, b.met, b.how, b.movedTo], [1, false, 'no Windows box', 12]); if (out !== undefined) assert.match(out, /moved to task 12\./); }],
   // #8668: 1000 characters of evidence reach the board whole (the board holds the limit).
   [['task', 'check', 'p5152', '3', '1', 'met', 'e'.repeat(1000)], '/api/project/p5152/task/3/check',
     (b) => assert.equal(b.how, 'e'.repeat(1000))],
@@ -123,6 +123,9 @@ const REFUSED = [
   [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', 'four'], /--moved-to needs the number/],
   [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '-4'], /--moved-to needs the number/],
   [['task', 'check', 'p5152', '3', '1', 'met', 'a', '--moved-to', '4'], /Only an unmet check/],
+  [['task', 'check', 'p5152', '3', '1', 'maybe', 'a', '--moved-to', '4'], /Say met or unmet/],
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '0'], /--moved-to needs the number/],
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '000'], /--moved-to needs the number/],
   [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '4', 'x'], /Usage: kosmos task check/],
   [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved', '4'], /Usage: kosmos task check/],
   [['task', 'check', 'p5152', 'three', '1', 'met', 'x'], /must be a number/],
@@ -146,7 +149,7 @@ test('install/kosmos: task check sends the report, with the agent token', { skip
       assert.equal(got.route, route);
       assert.equal(got.body.unparseable, undefined, 'the CLI sent JSON the board cannot read: ' + got.body.unparseable);
       assert.equal(got.agent, TOKEN, 'the agent token was not presented');
-      check(got.body);
+      check(got.body, r.out);
       assert.match(r.out, /not a verification/);
     }
   });
@@ -182,7 +185,7 @@ test('Windows CLI: task check sends the same bodies, and refuses the same argume
     assert.equal(posts.length, 1);
     assert.equal(posts[0].route, route);
     assert.equal(posts[0].agent, TOKEN);
-    check(posts[0].body);
+    check(posts[0].body, r.out);
     assert.match(r.out, /not a verification/);
   }
   for (const [args, says] of REFUSED) {

@@ -6406,15 +6406,17 @@ cmd_task() {
       # #8668: or seven, ending --moved-to <task-number>, on an unmet check only (the board refuses the rest too).
       local _kusage="Usage: kosmos task check <project-id> <task-number> <check-number> met|unmet \"<how you checked it>\" [--moved-to <task-number>]"
       { [ "$#" = 5 ] || { [ "$#" = 7 ] && [ "${6:-}" = "--moved-to" ]; }; } || { say "$_kusage"; exit 2; }
-      if [ "$#" = 7 ]; then
-        case "${7:-}" in ''|*[!0-9]*) say "--moved-to needs the number of the task the unmet part went to, from: kosmos task list <project-id>."; exit 2 ;; esac
-        [ "${4:-}" = unmet ] || { say "Only an unmet check can be moved to another task; a met one is done here."; exit 2; }
-      fi
       [ -n "${1:-}" ] || { say "$_kusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       # One digit, and no arithmetic, as done-when --check: a task holds up to 3.
       case "${3:-}" in [1-9]) ;; *) say "The check number must be the one kosmos task list shows, like 1 or 2."; exit 2 ;; esac
       case "${4:-}" in met|unmet) ;; *) say "Say met or unmet for the check. $_kusage"; exit 2 ;; esac
+      if [ "$#" = 7 ]; then
+        # After met|unmet, so a bad verdict is named as that. A task number is 1 or more: 0 and 000 are refused here.
+        case "${7:-}" in ''|*[!0-9]*|*[!0]*) ;; *) say "--moved-to needs the number of the task the unmet part went to, from: kosmos task list <project-id>."; exit 2 ;; esac
+        case "${7:-}" in ''|*[!0-9]*) say "--moved-to needs the number of the task the unmet part went to, from: kosmos task list <project-id>."; exit 2 ;; esac
+        [ "${4:-}" = unmet ] || { say "Only an unmet check can be moved to another task; a met one is done here."; exit 2; }
+      fi
       [ -n "$(printf '%s' "${5:-}" | tr -d '[:space:]\001-\037\177')" ] || { say "Say in a few words how you checked it. $_kusage"; exit 2; }
       case "${5:-}" in --|--[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) say "That looks like an option, not how you checked it. $_kusage"; exit 2 ;; esac ;;
     close)
@@ -7258,7 +7260,7 @@ cmd_task() {
       local project num _kn _kmet=true _khow _kmoved=""
       project="${1:-}"; num="${2:-}"; _kn="${3:-}"; [ "${4:-}" = met ] || _kmet=false
       # #8668: checked to be digits above; leading zeros dropped so the JSON is a number (010 is not valid JSON).
-      [ "${6:-}" = "--moved-to" ] && _kmoved=",\"movedTo\":$(printf '%s' "${7:-}" | sed 's/^0*//; s/^$/0/')"
+      local _kto=""; [ "${6:-}" = "--moved-to" ] && _kto=$(printf '%s' "${7:-}" | sed 's/^0*//') && _kmoved=",\"movedTo\":$_kto"
       _khow="\"$(_task_check_json "${5:-}")\""
       local esc_pane; esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
       local _tok=""
@@ -7272,7 +7274,7 @@ cmd_task() {
         '{"task":'*)
           local _kword="met"; [ "$_kmet" = true ] || _kword="not met"
           case "$body" in *'"changed":false'*) say "Check $_kn on task $num was already reported $_kword, in those words." ;;
-            *) say "Reported check $_kn on task $num on ${project:-the project} as $_kword${_kmoved:+, moved to task ${7:-}}. It reads as your word, not a verification. See them with: kosmos task show ${project:-<project-id>} $num" ;; esac ;;
+            *) say "Reported check $_kn on task $num on ${project:-the project} as $_kword${_kto:+, moved to task $_kto}. It reads as your word, not a verification. See them with: kosmos task show ${project:-<project-id>} $num" ;; esac ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not report that check: ${because:-it did not say why}."; exit 1 ;;

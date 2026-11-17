@@ -2130,13 +2130,14 @@ const CHECK_USAGE = 'Usage: kosmos task check <project-id> <task-number> <check-
 async function taskCheck(ctx, args) {
   // #8668, as install/kosmos: five words, or seven ending --moved-to <task-number> on an unmet check.
   if (!(args.length === 5 || (args.length === 7 && args[5] === '--moved-to')) || !args[0]) { ctx.err(CHECK_USAGE); return 2; }
-  if (args.length === 7 && !/^[0-9]+$/.test(args[6])) { ctx.err('--moved-to needs the number of the task the unmet part went to, from: kosmos task list <project-id>.'); return 2; }
-  if (args.length === 7 && args[3] !== 'unmet') { ctx.err('Only an unmet check can be moved to another task; a met one is done here.'); return 2; }
-  const movedTo = args.length === 7 ? Number(args[6]) : null;
   const [project, num, which, verdict] = args;
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
   if (!/^[1-9]$/.test(which)) { ctx.err('The check number must be the one kosmos task list shows, like 1 or 2.'); return 2; }
   if (verdict !== 'met' && verdict !== 'unmet') { ctx.err('Say met or unmet for the check. ' + CHECK_USAGE); return 2; }
+  // #8668, as install/kosmos: after met|unmet, so a bad verdict is named as that; a task number is 1 or more.
+  if (args.length === 7 && !/^0*[1-9][0-9]*$/.test(args[6])) { ctx.err('--moved-to needs the number of the task the unmet part went to, from: kosmos task list <project-id>.'); return 2; }
+  if (args.length === 7 && verdict !== 'unmet') { ctx.err('Only an unmet check can be moved to another task; a met one is done here.'); return 2; }
+  const movedTo = args.length === 7 ? Number(args[6]) : null;
   const how = String(args[4]).replace(/[\t\r\n]/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '');
   if (!how.trim()) { ctx.err('Say in a few words how you checked it. ' + CHECK_USAGE); return 2; }
   if (how === '--' || /^--[A-Za-z]/.test(how)) { ctx.err('That looks like an option, not how you checked it. ' + CHECK_USAGE); return 2; }
@@ -2149,7 +2150,7 @@ async function taskCheck(ctx, args) {
   if (r.json && r.json.task) {
     const word = met ? 'met' : 'not met';
     ctx.out(r.json.changed === false ? 'Check ' + which + ' on task ' + num + ' was already reported ' + word + ', in those words.'
-      : 'Reported check ' + which + ' on task ' + num + ' on ' + project + ' as ' + word + (movedTo !== null ? ', moved to task ' + args[6] : '') + '. It reads as your word, not a verification. See them with: kosmos task show ' + project + ' ' + num);
+      : 'Reported check ' + which + ' on task ' + num + ' on ' + project + ' as ' + word + (movedTo !== null ? ', moved to task ' + movedTo : '') + '. It reads as your word, not a verification. See them with: kosmos task show ' + project + ' ' + num);
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not report that check: ' + ctx.refusedBy(r) + '.'); return 1; }
