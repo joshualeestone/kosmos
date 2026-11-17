@@ -34,18 +34,21 @@ const IDLE = cards([codex('alpha', 'idle'), codex('beta', 'idle'), fleet.agent('
 const ALPHA = pick(IDLE, 'alpha'); const BETA = pick(IDLE, 'beta'); const CLAUDIA = pick(IDLE, 'claudia'); const OTHER = pick(IDLE, 'other');
 const ALPHA_BUSY = pick(cards([codex('alpha', 'working')]), 'alpha');   // the same agent, gone back to work
 const idle = (c) => require('./agentnudge').nudgeableCard(c);
+// A pane line as tmux renders rr.PANE_FORMAT: each field put where the format names it.
+const paneLine = (session, pane, pid) => rr.PANE_FORMAT.replace('#{session_name}', session).replace('#{window_index}.#{pane_index}', pane).replace('#{pane_pid}', String(pid));
 
 /** A world: panes for each session, and a process table where each pane leader is the managed Codex. */
 function world(agents) {
-  const panes = new Map();
+  const panes = new Map();   // keyed as parsePanes keys it: by the pane target the card carries
   const procs = new Map();
   let pid = 1000;
   for (const a of agents) {
     const lead = pid++;
-    panes.set(a.session, lead);
+    panes.set(a.target || a.session, lead);
     procs.set(lead, { ppid: 1, ageSec: a.ageSec, command: `${a.bin || LINK} --dangerously-bypass-approvals-and-sandbox` });
     if (a.host) procs.set(pid++, { ppid: lead, ageSec: a.hostAgeSec === undefined ? 1800 : a.hostAgeSec, command: `${HOST} --stdio` });
     if (a.shell) procs.set(pid++, { ppid: lead, ageSec: 5, command: '/bin/zsh -c make test' });
+    if (a.server) procs.set(pid++, { ppid: lead, ageSec: 3000, command: '/usr/local/bin/node /tools/some-mcp-server.js' });
   }
   return { panes, procs };
 }
@@ -64,7 +67,7 @@ function opts(over) {
     now: NOW,
   }, over);
   if (!o.panes || !o.procs) {
-    const w = world(over && over.agents ? over.agents : [{ session: ALPHA.sessionName, ageSec: 3600 }]);
+    const w = world(over && over.agents ? over.agents : [{ session: ALPHA.sessionName, target: ALPHA.target, ageSec: 3600 }]);
     o.panes = o.panes || (() => w.panes);
     o.procs = o.procs || (() => w.procs);
   }
@@ -87,14 +90,14 @@ test('an old Codex with no code-mode host is restarted at its second idle pass, 
 });
 
 test('a code-mode host started BEFORE the swap is the old tree\'s, the safe case: left alone', async () => {
-  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, ageSec: 3600, host: true, hostAgeSec: 1800 }] });
+  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, target: ALPHA.target, ageSec: 3600, host: true, hostAgeSec: 1800 }] });
   const out = await twice(o);
   assert.deepEqual(out.map((d) => d.act), ['has-host']);
   assert.deepEqual(restarted, []);
 });
 
 test('a code-mode host started AFTER the swap is the new tree\'s, the measured failure: restarted', async () => {
-  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, ageSec: 3600, host: true, hostAgeSec: 60 }] });
+  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, target: ALPHA.target, ageSec: 3600, host: true, hostAgeSec: 60 }] });
   const out = await twice(o);
   assert.deepEqual(out.map((d) => d.act), ['restarted']);
   assert.deepEqual(restarted, [ALPHA.sessionName]);
@@ -111,14 +114,14 @@ test('an agent an account move holds is left to the move', async () => {
 });
 
 test('a background shell job under an idle Codex holds the restart (it would kill the job)', async () => {
-  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, ageSec: 3600, shell: true }] });
+  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, target: ALPHA.target, ageSec: 3600, shell: true }] });
   const out = await twice(o);
   assert.deepEqual(out.map((d) => d.act), ['has-job']);
   assert.deepEqual(restarted, []);
 });
 
 test('a Codex started after the swap already runs the new version', async () => {
-  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, ageSec: 60 }] });
+  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, target: ALPHA.target, ageSec: 60 }] });
   const out = await twice(o);
   assert.deepEqual(out.map((d) => d.act), ['already-new']);
   assert.deepEqual(restarted, []);
@@ -133,14 +136,14 @@ test('no finished upgrade (stale, installing or unreadable): nothing at all', as
 });
 
 test('a codex that is not the managed one (a person\'s own) is not ours to restart', async () => {
-  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, ageSec: 3600, bin: '/opt/homebrew/bin/codex' }] });
+  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, target: ALPHA.target, ageSec: 3600, bin: '/opt/homebrew/bin/codex' }] });
   assert.deepEqual(await twice(o), []);
   assert.deepEqual(restarted, []);
 });
 
 test('a card that is not a Codex card of ours is skipped', async () => {
   for (const c of [CLAUDIA, OTHER]) {
-    const { o, restarted } = opts({ roster: () => [c], agents: [{ session: c.sessionName, ageSec: 3600 }] });
+    const { o, restarted } = opts({ roster: () => [c], agents: [{ session: c.sessionName, target: c.target, ageSec: 3600 }] });
     assert.deepEqual(await twice(o), []);
     assert.deepEqual(restarted, []);
   }
@@ -163,7 +166,7 @@ test('a card that went busy on the fresh read just before the restart is held', 
 
 test('one restart per pass, so a fleet is spread out', async () => {
   const roster = () => [ALPHA, BETA];
-  const { o, restarted } = opts({ roster, agents: [{ session: ALPHA.sessionName, ageSec: 3600 }, { session: BETA.sessionName, ageSec: 3600 }] });
+  const { o, restarted } = opts({ roster, agents: [{ session: ALPHA.sessionName, target: ALPHA.target, ageSec: 3600 }, { session: BETA.sessionName, target: BETA.target, ageSec: 3600 }] });
   await twice(o);
   assert.deepEqual(restarted, [ALPHA.sessionName]);
   await rr.passOnce(o);
@@ -246,7 +249,37 @@ test('the managed folder may sit under a path with a space; a person\'s own code
 });
 
 test('a host started within a second of the swap cannot be told apart, so it counts as the new tree\'s: restarted', async () => {
-  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, ageSec: 3600, host: true, hostAgeSec: 600 }] });   // SWAP is 600 s ago
+  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, target: ALPHA.target, ageSec: 3600, host: true, hostAgeSec: 600 }] });   // SWAP is 600 s ago
   await twice(o);
   assert.deepEqual(restarted, [ALPHA.sessionName]);
+});
+
+test('the pane is found by the card\'s target (the real tmux session), not its board name', async () => {
+  assert.notEqual(ALPHA.session, ALPHA.sessionName, 'the fixture is a legacy agent whose tmux session differs from its name');
+  const panes = rr.parsePanes([paneLine(ALPHA.session, '0.0', 1000), paneLine('other', '0.0', 2000)].join('\n'));
+  assert.equal(panes.get(ALPHA.target), 1000);
+  const procs = new Map([[1000, { ppid: 1, ageSec: 3600, command: `${LINK} --x` }]]);
+  const { o, restarted } = opts({ panes: () => panes, procs: () => procs });
+  await twice(o);
+  assert.deepEqual(restarted, [ALPHA.sessionName], 'restarted by its board name, found by its tmux session');
+  // CONTROL: keyed by the board name only (the bug), the agent is never found
+  const wrong = new Map([[ALPHA.sessionName + '-not-a-session', 1000]]);
+  const { o: o2, restarted: r2 } = opts({ panes: () => wrong, procs: () => procs });
+  assert.deepEqual(await twice(o2), []);
+  assert.deepEqual(r2, []);
+});
+
+test('a long-lived child that is not a shell (a tool server) does not hold the restart', async () => {
+  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, target: ALPHA.target, ageSec: 3600, server: true }] });
+  await twice(o);
+  assert.deepEqual(restarted, [ALPHA.sessionName]);
+});
+
+test('isShell and parsePanes', () => {
+  for (const c of ['/bin/zsh -c x', '-zsh', 'bash -lc ls', '/bin/sh']) assert.equal(rr.isShell(c), true, c);
+  for (const c of ['/usr/bin/node x.js', 'zshell', '']) assert.equal(rr.isShell(c), false, c);
+  const m = rr.parsePanes([paneLine('a b', '1.2', 77), paneLine('a b', '0.0', 66), 'bad line'].join('\n'));
+  assert.equal(m.get('a b:1.2'), 77);
+  assert.equal(m.get('a b:0.0'), 66);
+  assert.equal(m.get('a b'), 77, 'the session maps to its first pane listed');
 });

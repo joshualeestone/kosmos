@@ -46,6 +46,24 @@ function etimeSeconds(s) {
   return ((d * 24 + h) * 60 + mi) * 60 + se;
 }
 
+/* The one pane listing this sweep reads, and its one parser (server.js passes PANE_FORMAT to `tmux list-panes -a -F`).
+   A tab separates the fields because a session name can hold a space. */
+const SEP = '\t';
+const PANE_FORMAT = ['#{session_name}', '#{window_index}.#{pane_index}', '#{pane_pid}'].join(SEP);
+/** PANE_FORMAT lines -> Map keyed by the pane target (`session:window.pane`, as a card's target) and by the session
+    (its first pane listed), to the pane's pid. */
+function parsePanes(text) {
+  const map = new Map();
+  for (const line of String(text || '').split('\n')) {
+    const m = /^(.+)\t(\d+\.\d+)\t(\d+)$/.exec(line);
+    if (!m) continue;
+    const pid = Number(m[3]);
+    map.set(`${m[1]}:${m[2]}`, pid);
+    if (!map.has(m[1])) map.set(m[1], pid);
+  }
+  return map;
+}
+
 /** `ps -eo pid=,ppid=,etime=,command=` -> Map pid -> { ppid, ageSec, command }. */
 function parseProcs(text) {
   const map = new Map();
@@ -108,6 +126,13 @@ function isCodeModeHost(command, managedDir) {
   return runsProgram(command, dir, 'codex-code-mode-host');
 }
 
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'ksh', 'tcsh', 'csh']);
+/** A shell, by the name of the program its command line starts with (a login shell's leading '-' dropped). */
+function isShell(command) {
+  const first = String(command || '').trim().split(/\s/)[0] || '';
+  return SHELLS.has(first.split(/[\\/]/).pop().replace(/^-/, ''));
+}
+
 /**
  * What one agent's pane holds, from one process table: the managed Codex process under the pane (the first found,
  * breadth-first, so the pane's own leader wins over anything it started), when it started, and whether a code-mode
@@ -120,9 +145,11 @@ function codexUnderPane(panePid, procs, kids, managedDir, nowMs) {
     if (!p || !isManagedCodex(p.command, managedDir)) continue;
     const under = descendants(pid, kids).filter((d) => d !== pid && procs.has(d));
     const hosts = under.filter((d) => isCodeModeHost(procs.get(d).command, managedDir));
-    /* Anything else still running under it (a background shell job) reads idle on the card, and a restart would kill
-       it (the hazard engine/automove.js names), so it waits for a pass where nothing runs. */
-    const job = under.some((d) => !isCodeModeHost(procs.get(d).command, managedDir));
+    /* A command the agent runs is a SHELL Codex starts (its shell tools run through one); a background one reads idle on
+       the card, and a restart would kill it (the hazard engine/automove.js names), so it waits for a pass where none
+       runs. Only Codex's own shell children count: a long-lived child that is not a shell (a tool server it keeps for
+       the session) would otherwise hold the restart for good (review 3). */
+    const job = (kids.get(pid) || []).some((d) => procs.has(d) && isShell(procs.get(d).command));
     // The newest host's start time: one started after the swap is the NEW tree's host, the measured failure.
     const hostStartedAt = hosts.length ? Math.max(...hosts.map((d) => nowMs - procs.get(d).ageSec * 1000)) : null;
     return { pid, startedAt: nowMs - p.ageSec * 1000, host: hosts.length > 0, hostStartedAt, job };
@@ -138,7 +165,7 @@ function codexUnderPane(panePid, procs, kids, managedDir, nowMs) {
  *   allowed()           live execution and the brake
  *   managed()           managedState() below: { dir, ready, swappedAt, pin }; null or not ready skips the pass
  *   heldByMove(s)       remove.heldByMove: true leaves the agent to the account move holding it
- *   panes()             Map session -> pane pid
+ *   panes()             Map -> pane pid, keyed by pane target (`session:window.pane`) and by tmux session name
  *   procs()             Map pid -> { ppid, ageSec, command } (parseProcs)
  *   restart(session)    async; resolves { outcome, because } (remove.restartAsync; the card shows it as a plain restart)
  *   RESTARTED           remove.OUTCOME.RESTARTED
@@ -178,7 +205,10 @@ async function passOnce(o) {
 
     for (const card of codexCards) {
       const session = String(card.sessionName);
-      const found = codexUnderPane(panes.get(session), procs, kids, m.dir, now);
+      /* The pane the card describes, by its target (the real tmux session and pane), then the real session: the board
+         name (sessionName) differs from the tmux session for a legacy agent and on a named-world board (review 3). */
+      const panePid = [card.target, card.session, card.sessionName].map((k) => (k ? panes.get(String(k)) : undefined)).find((v) => v !== undefined);
+      const found = codexUnderPane(panePid, procs, kids, m.dir, now);
       if (!found) continue;   // not the managed Codex (a person's own codex, or no process): not ours to restart
       /* Started after the swap: it runs the new version already. The 1 s slack is ps's etime resolution: a process a
          second either side of the swap is called old, which costs at most one restart, never a missed one. */
@@ -233,4 +263,4 @@ function managedState(runners) {
   } catch { return null; }
 }
 
-module.exports = { managedState, passOnce, parseProcs, etimeSeconds, codexUnderPane, childrenOf, isManagedCodex, isCodeModeHost, MAX_PER_PASS, MAX_TRIES };
+module.exports = { PANE_FORMAT, managedState, passOnce, parsePanes, parseProcs, etimeSeconds, codexUnderPane, childrenOf, isManagedCodex, isCodeModeHost, isShell, MAX_PER_PASS, MAX_TRIES };

@@ -83,7 +83,7 @@ test('kosmos#8598: an upgrade that fails and puts the previous version back writ
   assert.equal(runners.upgradeStamp('openai'), null);
 });
 
-test('kosmos#8598: a first install (nothing replaced) removes an earlier record', { skip: SKIP }, async () => {
+test('kosmos#8598: a first install (nothing replaced) removes an earlier record for another version', { skip: SKIP }, async () => {
   removeTree(DEST);
   fs.mkdirSync(DEST, { recursive: true });
   fs.writeFileSync(STAMP, JSON.stringify({ from: '0.100.0', to: '0.149.1', at: 1 }));
@@ -107,4 +107,16 @@ test('kosmos#8598: upgradeStamp reads only a well-formed record', () => {
   }
   fs.rmSync(STAMP, { force: true });
   assert.equal(runners.upgradeStamp('openai'), null, 'absent');
+});
+
+test('kosmos#8598 review 3: an install of the version an earlier upgrade brought keeps that record', { skip: SKIP }, async () => {
+  removeTree(DEST);
+  fs.mkdirSync(DEST, { recursive: true });
+  const rec = { from: '0.149.1', to: PIN.version, at: 12345 };
+  fs.writeFileSync(STAMP, JSON.stringify(rec));
+  const { tgz, integrity } = tarball(PIN.version);
+  const job = runners.install('openai', { ...PLAT, legacyBin: LEGACY, integrity, download: feed(tgz), prove });
+  await job.settled;
+  assert.equal(job.phase, 'installed', job.because || '');
+  assert.deepEqual(runners.upgradeStamp('openai'), rec, 'agents still on 0.149.1 may be waiting for their restart');
 });

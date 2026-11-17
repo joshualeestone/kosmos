@@ -1807,10 +1807,13 @@ function install(provider, opts) {
       if (upgrading) { try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch { /* the age-gated sweep gets it */ } }
       /* kosmos#8598: an upgrade that proved itself records what it replaced and when, so the board's runner-restart sweep
          (engine/runnerrestart.js) restarts only agents still running the replaced version. Any other install removes the
-         record: a same-version repair or a first install replaced no running version. Best effort: no record means no
+         record unless it names the version installed now (a repair, below). Best effort: no record means no
          restarts, the safe direction, and a write that fails leaves an older record that cannot fire (the sweep also
          needs its `to` to be the version installed now). */
-      writeUpgradeStamp(destDir, upgrading ? { from: existing.installedVersion || null, to: m.version, at: swappedAt } : null);
+      /* Review 3: a non-upgrade install of the version an earlier upgrade brought (a repair) keeps that record, since
+         agents on the replaced version may still be waiting for their restart. */
+      if (upgrading) writeUpgradeStamp(destDir, { from: existing.installedVersion || null, to: m.version, at: swappedAt });
+      else if ((upgradeStamp(provider) || {}).to !== m.version) writeUpgradeStamp(destDir, null);
       // Only now, after the binary itself answered, may anything vouch for it.
       if (plat === 'win32') fs.writeFileSync(verifiedMarker(plat, provider), verifiedStamp(m) + '\n');
 

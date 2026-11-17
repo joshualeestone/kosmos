@@ -29232,6 +29232,7 @@ function start(port = PORT) {
       const runnerRestartTried = new Map();
       let runnerRestartRunning = false;
       let runnerRestartWarned = false;
+      const runnerRestartSaid = new Set();
       const runnerRestartTick = async () => {
         if (runnerRestartRunning || process.platform === 'win32') return;
         if (!liveExecution.liveExecutionAllowed()) return;
@@ -29250,17 +29251,14 @@ function start(port = PORT) {
             execFile(cmd, args, { encoding: 'utf8', timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, out) => resolve(err ? null : String(out || '')));
           });
           // Both tables are read once per pass, before passOnce, which reads them synchronously.
-          const paneText = await run(process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux', ['list-panes', '-a', '-F', '#{session_name} #{pane_pid}']);
+          const paneText = await run(process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux', ['list-panes', '-a', '-F', rr.PANE_FORMAT]);
           if (paneText === null && !runnerRestartWarned) {
             runnerRestartWarned = true;   // once per board run, so a sweep that cannot look is told from one with nobody to restart
             console.warn('[runner-restart] tmux list-panes failed, so no Codex agent can be checked');
           }
+          const readAt = Date.now();   // before ps, so a process's start time (now minus its age) is never read late
           const psText = paneText === null ? null : await run('ps', ['-eo', 'pid=,ppid=,etime=,command=']);
-          const panes = new Map();
-          for (const line of String(paneText || '').split('\n')) {
-            const m = line.match(/^(\S+)\s+(\d+)$/);
-            if (m && !panes.has(m[1])) panes.set(m[1], Number(m[2]));
-          }
+          const panes = rr.parsePanes(paneText);
           const procs = rr.parseProcs(psText);
           const done = await rr.passOnce({
             roster: () => safeRoster(),
@@ -29276,8 +29274,17 @@ function start(port = PORT) {
             // 'restart': the card's word for a plain restart (engine/disruption.js CAUSES); the board line below says why.
             restart: (session) => removal.restartAsync(session, 'restart'),
             RESTARTED: removal.OUTCOME.RESTARTED,
+            now: readAt,
           });
-          for (const d of done) if (d.act === 'restarted' || d.act === 'refused') process.stdout.write(`runner-restart: ${d.session} ${d.act}${d.because ? ' (' + d.because + ')' : ''}\n`);
+          for (const d of done) {
+            /* A restart or refusal is said each time; an agent held back by a running job is said once per pin, so a
+               sweep stuck behind one is told from one with nobody to restart (review 3). */
+            const once = d.act === 'has-job' ? `${ms.pin}\t${d.session}` : null;
+            if (once && runnerRestartSaid.has(once)) continue;
+            if (d.act !== 'restarted' && d.act !== 'refused' && !once) continue;
+            if (once) runnerRestartSaid.add(once);
+            process.stdout.write(`runner-restart: ${d.session} ${d.act}${d.because ? ' (' + d.because + ')' : ''}\n`);
+          }
         } catch (err) { console.warn(`[runner-restart] ${String((err && err.message) || err)}`); }
         finally { runnerRestartRunning = false; }
       };
