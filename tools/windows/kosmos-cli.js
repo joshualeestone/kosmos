@@ -4322,10 +4322,13 @@ module.exports = { main, argvFrom, versionLine, DESCRIBE, USAGE_REPLY_FILE, repl
   taskList, // #1307: the task list's rendering (the webhook mark), for cli.task-webhook-1307.test.js
 };
 
+// kosmos#8599: a reader that stops early (`kosmos ... | head -1` in Git Bash, measured on Windows) ends the command
+// quietly instead of with an unhandled EPIPE stack trace. The same guard install/kosmos preloads. Its own block, so the
+// entry below stays exactly `main(process.argv.slice(2))` (tools.windows-kosmos-cli-board-proof-1765.test.js).
 if (require.main === module) {
-  // kosmos#8599: a reader that stops early (`kosmos ... | head -1` in Git Bash, measured on Windows) ends the command
-  // quietly instead of with an unhandled EPIPE stack trace. The same guard install/kosmos preloads.
   try { require(path.join(engineDir(), 'clipipe.js')).install(process); } catch (e) { if (!e || e.code !== 'MODULE_NOT_FOUND') throw e; /* an older engine: as before */ }
+}
+if (require.main === module) {
   main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => {
     process.stderr.write('kosmos: ' + String((e && e.message) || e) + '\n');
     process.exitCode = 1;
