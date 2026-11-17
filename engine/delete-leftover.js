@@ -489,9 +489,19 @@ function plan(name, opts) {
      the two names as one. */
   const caseBlind = platform === 'darwin' || platform === 'win32';
   const sameName = (a) => (caseBlind ? String(a).toLowerCase() === clean.toLowerCase() : a === clean);
-  try { live = status.paneRoster().find((c) => sameName(c.sessionName)) || null; }
+  /* kosmos#8640: a pane CLAIMING the agent counts too. The session name alone missed a running agent that a relaunch
+     put in a session named otherwise and tied by its @kosmos_agent claim, and offered that agent's folder and job. */
+  let byClaim = false;
+  try {
+    const look = status.paneLook();
+    live = look.roster.find((c) => sameName(c.sessionName)) || null;
+    if (!live) { live = look.claims.find((c) => sameName(c.claim)) || null; byClaim = !!live; }
+  }
   catch {
     return { ok: false, because: `we could not check whether ${shown} is running right now, so we have not offered to delete anything. Try again in a moment.` };
+  }
+  if (live && byClaim) {
+    return { ok: false, because: `${shown} is running (in the tmux session ${live.session}), so there is nothing left over to delete. Remove it first if you want it gone.` };
   }
   if (live) {
     const who = live.sessionName === clean ? shown : (status.readIdentity(live.sessionName).displayName || live.sessionName);
