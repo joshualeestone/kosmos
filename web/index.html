@@ -3270,10 +3270,15 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 .agauge svg { width: 82px; height: 82px; display: block; }
 .gt { stroke: rgba(20,22,26,.10); }
 /* Green to amber to red as it fills (Josh's call): safe on a gauge because the
-   ARC LENGTH carries the value; colour is redundant, weight is a third cue. */
+   ARC LENGTH carries the value; colour is redundant.
+   kosmos#8628 (Josh, 11-17): the bands change COLOUR ONLY, never weight. They used to set 5 and 6, so a ring
+   got fatter as it filled, and on a small ring (r 15.5 in a 34 box) the fat stroke reached past the box and was
+   cut square at the top, bottom and sides. Every ring now keeps the width its own drawing gives it, at every
+   fill; each drawing keeps r + width/2 inside its box (lrowRing 15.5+1.25 <= 17, the card 30+2 <= 36, the
+   detail and org rings 47+2 <= 50), so nothing is clipped. */
 .gf { stroke: #2f7d5a; stroke-linecap: round; }
-.gf.warn { stroke: #d97528; stroke-width: 5; }
-.gf.high { stroke: #b3261e; stroke-width: 6; }
+.gf.warn { stroke: #d97528; }
+.gf.high { stroke: #b3261e; }
 .gu { stroke: rgba(20,22,26,.22); stroke-dasharray: 3 5; }
 .acard .avatar-bg { fill: rgba(20,22,26,.06); stroke: var(--k-rule); stroke-width: 0.5; }
 .acard .avatar-initials { fill: var(--k-ink-2); letter-spacing: .02em; }
@@ -5871,7 +5876,6 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
     background: transparent; border: 1.5px solid var(--k-ink-2); }
   html[data-layout="consolidated"] body.consolidated .lrow > .lav > img, html[data-layout="consolidated"] body.consolidated .lrow > .lav > .lavtint { position: absolute; left: 5px; top: 5px; width: 24px; height: 24px; font-size: 10px; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lav > .lring { display: block; position: absolute; inset: 0; width: 34px; height: 34px; }
-  html[data-layout="consolidated"] body.consolidated .lring .gf.warn, html[data-layout="consolidated"] body.consolidated .lring .gf.high { stroke-width: 2.5; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lav > .lwarn { display: block; position: absolute; left: 50%; top: 50%; width: 18px; height: 16px; transform: translate(-50%, -52%); }
   /* The board's stats row and summary belong to the tab, not the rail; the
      list rows say each agent's state, and the + at the rail's top (a later
@@ -8855,9 +8859,6 @@ html.has-speak .asp-speak { display: grid; }
    ring sits just OUTSIDE the full-size photo (the consolidated row shrinks its photo instead), and
    both are scoped to the tab view's members so a picker or the consolidated layout is unchanged. */
 html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face > .lring { display: block; position: absolute; inset: -4px; width: 42px; height: 42px; pointer-events: none; }
-/* The global .gf.warn / .gf.high widths (5, 6) are for the grid card's large gauge; on a 42px ring
-   they would clip at the edge and spread over the photo. Same override as the consolidated rail. */
-html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .lring .gf.warn, html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .lring .gf.high { stroke-width: 2.5; }
 html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd::after {
   content: ""; position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border-radius: 50%;
   background: #2f7d5a; box-shadow: 0 0 0 2px var(--k-surface); }
