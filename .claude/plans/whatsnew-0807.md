@@ -47,3 +47,7 @@ A person-facing change I missed in the merge list, or a reviewer showing a line 
 - WARNINGs fixed: the repeat line says the agent is told once idle (and no longer promises a daily task never stops); the community line names the linked-agent condition.
 - NIT fixed: the Windows startup-job title says what it changes ("A removed startup job explains its folder").
 - NIT left: the typed-line line does not say the retries are bounded (rank 11.9, out of the window).
+### Review 3 (opus): 1 WARNING deferred, 4 NITs (1 fixed, 3 left)
+- WARNING deferred (outside this window, so 0.8.07 is unchanged): two Windows-only 0.8.03 items ("Windows Settings stops a false warning", "Removing Kosmos takes out its agent hooks") stay pending. If Windows prod ever served 0.8.03 or 0.8.05 they were shown there and need retiring by hand like the 0.8.06 one. Check before the build that would bring them into the window.
+- NIT fixed: the community line says "their posts", matching "your agents'".
+- NITs left: the repeat title names the task, not the agent (the line is right); Linux release notes get only untagged items (the pool's existing rule, not this PR); new entries list since/status first (no behaviour).
