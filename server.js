@@ -6877,6 +6877,10 @@ const COVERED_EXCERPT_CHARS = 60;
 /* #4926: a line of `kosmos room <id> --unanswered`'s answer starts with this. Both CLIs look for a line starting with it
    to tell a board that ignored the flag (an older one, which sends the whole room) from one that applied it. */
 const UNANSWERED_HEAD = 'Waiting on an answer from you: ';
+/* kosmos#8616: the head of a read by id (kosmos room --post / --since), and the shape of a room post id (messages.js
+   gives posts 'm' and a number). */
+const ROOM_BY_ID_HEAD = 'Read by id: ';
+const ROOM_POST_ID = /^m[1-9]\d{0,11}$/;
 /* kosmos#7969 (the 0.7.88 cross-seat report: 39, 41 and 102 old posts on three seats' --unanswered): an agent's ask older
    than this is counted, not listed, unless the reader adds --all. Measured on one seat in a busy room: of the 168 it
    listed, the 150 whose rows were found in the store were all older than 3 days. A person's ask stays listed unless it
@@ -24323,6 +24327,10 @@ const server = http.createServer(async (req, res) => {
        own line instead (kosmos#4926). */
     let onlyUnanswered = false;
     let unansweredAll = false;   // kosmos#7969: --all, the asks older than UNANSWERED_DAYS too
+    /* kosmos#8616: `kosmos room <id> --post <post-id>` reads that one post, and `--since <post-id>` the rows after it (text
+       view only): an agent that holds a post id (a notice, a reply's --in-reply-to) need not list a busy room to find it. */
+    let readPost = null;
+    let readSince = null;
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       asText = q.get('as') === 'text';
@@ -24333,6 +24341,8 @@ const server = http.createServer(async (req, res) => {
       archiveView = av === '1' ? 'archive' : av === '0' ? 'live' : null;  // the text view ignores it: agents read the live part only
       onlyUnanswered = asText && q.get('unanswered') === '1';
       unansweredAll = onlyUnanswered && q.get('all') === '1';
+      if (asText && q.has('post')) readPost = q.get('post');
+      if (asText && q.has('since')) readSince = q.get('since');
     } catch { asText = false; }
     /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
        do, instead of rendering it as an empty room -- a typo or a hyphenated-name
@@ -24633,7 +24643,47 @@ const server = http.createServer(async (req, res) => {
            a post the reader makes later counts for a held ask from that moment (messages.laterOwnPost). */
         let toldFor = new Map();
         if (readerName) { try { toldFor = roomhold.toldIn(readerName, id); } catch { toldFor = new Map(); } }
-        for (let i = rows.length - 1; i >= archivedCount && (onlyUnanswered || tail.length < textRows); i--) {
+        /* kosmos#8616: read by id. One post (--post), unless it is in the room's archive (review 1: agents do not read the archive);
+           or the live rows after one (--since), OLDEST first, up to textRows (-n), saying how many more there are and the
+           exact command for them, so an agent can read a busy room forward from the post it last read. Said in a head line
+           (ROOM_BY_ID_HEAD), so it never reads as the whole room and a CLI can tell a board that ignored ?post/?since. */
+        let byIdHead = '';
+        if (readPost !== null || readSince !== null) {
+          const refuse = (code, words) => { res.writeHead(code, { 'content-type': 'text/plain; charset=utf-8' }); res.end(words + '\n'); };
+          if (readPost !== null && readSince !== null) { refuse(400, 'Read one post (--post) or the posts after one (--since), not both.'); return; }
+          if (onlyUnanswered) { refuse(400, '--post and --since do not go with --unanswered: read one way at a time.'); return; }
+          const want = readPost !== null ? readPost : readSince;
+          if (!ROOM_POST_ID.test(want)) { refuse(400, 'That is not a post id. A post id looks like m42: it is the id in brackets before each post in kosmos room.'); return; }
+          const at = rows.findIndex((r) => r && r.id === want);
+          /* Review 1: a room log that could not be read in full cannot say a post is not there. */
+          if (at < 0 && rec.ok === false) { refuse(503, 'Kosmos could not read all of this room, so it cannot say whether post ' + want + ' is in it. Try again in a moment.'); return; }
+          if (at < 0) { refuse(404, 'There is no post ' + want + ' in this room.'); return; }
+          /* Review 1: an archived post is not read back. Archiving tells the person its posts "leave this room and what
+             agents read here" (the archive confirm), so a read by id keeps that promise. */
+          if (readPost !== null && at < archivedCount) { refuse(404, 'Post ' + want + ' is in this room\'s archive, which agents do not read.'); return; }
+          if (readPost !== null) {
+            tail.push(rows[at]);
+            byIdHead = ROOM_BY_ID_HEAD + 'post ' + want + ':\n';
+          } else {
+            const start = Math.max(at + 1, archivedCount);
+            const skipped = start - (at + 1);   // archived rows after the post: not shown here, as in every agent read
+            /* Not capped for outside senders (#3311's half): paging forward recovers every row, so the cap's purpose (local
+               posts kept in a fixed-size view) does not arise; a page may be all outside rows. "After" is the room's own
+               order (by time), so a slow post written after this read can sort before rows already read (review 1). */
+            for (let i = start; i < rows.length && tail.length < textRows; i++) tail.push(rows[i]);
+            const more = rows.length - start - tail.length;
+            let lastId = null;
+            for (let i = tail.length - 1; i >= 0 && !lastId; i--) if (tail[i] && ROOM_POST_ID.test(String(tail[i].id || ''))) lastId = tail[i].id;
+            const total = tail.length + more;
+            byIdHead = (total === 0 ? ROOM_BY_ID_HEAD + 'nothing after ' + want + ' yet.\n'
+              : ROOM_BY_ID_HEAD + total + (total === 1 ? ' row' : ' rows') + ' after ' + want
+                + (more ? '; the oldest ' + tail.length + ' are below, then ' + more + ' more ('
+                  + (lastId ? 'read them with kosmos room ' + id + ' --since ' + lastId + (textRows !== messages.ROOM_READ_ROWS ? ' -n ' + textRows : '') : 'read them with a larger -n') + ')' : '') + ':\n')
+              + (skipped ? '[kosmos] ' + skipped + (skipped === 1 ? ' row' : ' rows') + ' right after ' + want + ' ' + (skipped === 1 ? 'is' : 'are')
+                + ' in this room\'s archive and not shown here.\n' : '');
+          }
+        }
+        if (!byIdHead) for (let i = rows.length - 1; i >= archivedCount && (onlyUnanswered || tail.length < textRows); i--) {
           /* #4926: --unanswered walks the whole live room, not just the last N rows, so an ask further back that is still
              open is found; N then caps how many are listed (the newest), and the count says how many there are. */
           if (onlyUnanswered) {
@@ -24781,7 +24831,8 @@ const server = http.createServer(async (req, res) => {
         });
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
-          : (lines.length || onlyUnanswered ? ''
+          // kosmos#8616 review 1: a read by id says what it found in its own head; the room-wide empty lines would be false.
+          : (lines.length || onlyUnanswered || byIdHead ? ''
             // kosmos#7365 slice 3: a room whose every message is archived is not an empty room.
             : archivedCount > 0 ? 'Everything said in this room so far is archived; nothing has been said since.\n'
             : 'Nothing has been said in this room yet.\n');
@@ -24818,7 +24869,7 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
         /* #4926: a filtered view says it is one, so it never reads as the whole room, and a CLI can tell a board that
            ignored ?unanswered=1 (an older one) by this line being absent. */
-        const filtered = !onlyUnanswered ? ''
+        const filtered = !onlyUnanswered ? byIdHead
           : lines.length ? UNANSWERED_HEAD + openAsks + (openAsks === 1 ? ' post' : ' posts')
             + ' in this room (each asked you something, and no post of yours cites it by id with --in-reply-to)'   // kosmos#7936: post's flag
             + (openAsks > tail.length ? (tail.length === 1 ? '; the newest is below' : '; the newest ' + tail.length + ' are below') : '') + ':\n'

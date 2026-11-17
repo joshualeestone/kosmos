@@ -5686,11 +5686,21 @@ cmd_room() {
   # #7848: and that no other agent they asked has claimed (the board decides; this only passes the flag).
   # kosmos#7969: --all (with --unanswered) shows the asks older than the board's few days too.
   local _n="" _ngiven=0 _arg _unans="" _all=0
+  # kosmos#8616: --post <post-id> reads one post; --since <post-id> the rows after it (oldest first, up to -n).
+  local _byid="" _byidval=""
   project=""
   while [ $# -gt 0 ]; do
     _arg="$1"; shift
     case "$_arg" in
       --unanswered) _unans="&unanswered=1" ;;
+      --post|--since)
+        [ "$_byid" != "${_arg#--}" ] || { say "Give $_arg once."; exit 2; }
+        [ -z "$_byid" ] || { say "Read one post (--post) or the posts after one (--since), not both."; exit 2; }
+        _byid="${_arg#--}"; _byidval="${1:-}"; shift 2>/dev/null || true ;;
+      --post=*|--since=*)
+        [ "$_byid" != "$(_a="${_arg%%=*}"; printf '%s' "${_a#--}")" ] || { say "Give ${_arg%%=*} once."; exit 2; }
+        [ -z "$_byid" ] || { say "Read one post (--post) or the posts after one (--since), not both."; exit 2; }
+        _byid="${_arg%%=*}"; _byid="${_byid#--}"; _byidval="${_arg#*=}" ;;
       --all) _all=1 ;;
       -n|--limit) _ngiven=1; _n="${1:-}"; shift 2>/dev/null || true ;;
       --limit=*)  _ngiven=1; _n="${_arg#--limit=}" ;;
@@ -5700,8 +5710,21 @@ cmd_room() {
     esac
   done
   if [ -z "$project" ]; then
-    say "Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too), and an agent's ask you posted after, not citing an older post, is named on its own line instead; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
+    say "Usage: kosmos room <project-id> [-n N] [--unanswered [--all]] [--post <post-id> | --since <post-id>]   (read a room, the last 40 rows or the last N, up to 200; --post: that one post (not one in the room's archive); --since: the rows after that post in the room's order, oldest first, up to -n; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too), and an agent's ask you posted after, not citing an older post, is named on its own line instead; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
     exit 2
+  fi
+  # kosmos#8616: a post id is m and a number, as kosmos room shows it in brackets ([m42] or m42 both read).
+  if [ -n "$_byid" ]; then
+    [ -z "$_unans" ] || { say "--$_byid does not go with --unanswered: read one way at a time."; exit 2; }
+    _byidval="${_byidval#[}"; _byidval="${_byidval%]}"
+    case "$_byidval" in
+      m[1-9]*) case "${_byidval#m}" in *[!0-9]*) _byidval="" ;; esac ;;
+      *) _byidval="" ;;
+    esac
+    if [ -z "$_byidval" ] || [ "${#_byidval}" -gt 13 ]; then
+      say "--$_byid takes a post id, like m42: the id in brackets before each post in kosmos room."; exit 2
+    fi
+    [ "$_byid" = post ] && [ "$_ngiven" = 1 ] && { say "-n does not go with --post: --post reads one post."; exit 2; }
   fi
   if [ "$_all" = 1 ]; then
     [ -n "$_unans" ] || { say "--all goes with --unanswered: kosmos room <project-id> --unanswered --all"; exit 2; }
@@ -5736,7 +5759,7 @@ cmd_room() {
   # once the CLI stops holding the person's board token.
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
-  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text${_n:+&n=$_n}${_unans}" 2>/dev/null) || _rc=$?
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text${_n:+&n=$_n}${_unans}${_byid:+&$_byid=$_byidval}" 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
     say_unreached "read that room" "$_rc"
     exit 1
@@ -5756,6 +5779,13 @@ cmd_room() {
   # kosmos#7969: matched in the shell, not by piping the body into grep -q: under pipefail grep -q exiting at its first
   # match SIGPIPEs the printf on a body bigger than the pipe buffer, and that false status printed this sentence over a
   # correct answer in a long room.
+  # kosmos#8616: the same check for a read by id: a board that ignored ?post / ?since answered with the room's tail.
+  if [ -n "$_byid" ]; then
+    case $'\n'"$_body" in
+      *$'\n''Read by id: '*) ;;
+      *) say "This Kosmos does not know --$_byid yet, so what is above is the end of the room, not what you asked for. Update Kosmos to use it." >&2 ;;
+    esac
+  fi
   if [ -n "$_unans" ]; then
     case $'\n'"$_body" in
       *$'\n''Waiting on an answer from you: '*) ;;
