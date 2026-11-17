@@ -7,9 +7,11 @@
 # read went to the real tmux on the PATH and the suite measured the
 # operator's live fleet. This answers the three reads engine/status.js and
 # engine/chat.js make, from files a test can write, and behaves like echo for
-# everything else so the write-side assertions keep their receipt. Four
-# readers in all: status.js's list-panes, list-sessions and capture-pane, and
-# the display-message that chat.js and messages.js ask.
+# everything else so the write-side assertions keep their receipt. Five
+# readers in all: status.js's list-panes, list-sessions and capture-pane, the
+# display-message that chat.js and messages.js ask, and (kosmos#8640) any
+# list-panes asking for pane_current_path (status.js's folder read and
+# machinecost.js's PANE_LIST), which reads its own fixture below.
 #
 #   AGENT_WORKFORCE_FAKE_PANES     file of `list-panes -a -F` lines (default: none, an empty board)
 #   AGENT_WORKFORCE_FAKE_PANE_FOLDERS  file of `%id<TAB>session<TAB>folder` lines for the folder read (default: none)

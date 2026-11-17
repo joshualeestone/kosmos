@@ -527,7 +527,16 @@ function plan(name, opts) {
       const inside = (f) => { const n = fold(path.resolve(f)); for (const h of homes) if (n === h || n.startsWith(h + path.sep)) return true; return false; };
       /* Read even when the roster is empty: the roster keeps only sessions it can name as agents, and a pane in a session
          it cannot name is exactly the one this check is for. */
-      const pane = homes.size ? status.paneFolders().find((r) => inside(r.folder)) : null;
+      let folders = [];
+      if (homes.size) {
+        /* Its own sentence: a line the listing could not read can be ANY pane on this computer (a folder whose name holds
+           a newline), so "try again in a moment" would promise a remedy that does not exist until that pane closes. */
+        try { folders = status.paneFolders(); }
+        catch {
+          return { ok: false, because: `Something open on this computer could not be read, so we could not check whether ${shown} is running and have not offered to delete anything. Closing windows you are not using may help.` };
+        }
+      }
+      const pane = folders.find((r) => inside(r.folder));
       if (pane) { live = { session: pane.session, sessionName: pane.session }; byFolder = true; }
     }
   }
