@@ -47,3 +47,6 @@ sometimes never reaches the live list, the send now ends in 409 instead of 404: 
   fresh read; visibility is gated on time, not on a read count.
 - Not changed: a mis-cased name while starting still 404s (the record match is exact, as before); a failed forced
   read is kept as a failure in the cache, as the stale path already did, and the roster's 15 s hold covers it.
+- Iteration 2, not changed: a refresh waiter is released only when the read calls back, and the production reader
+  (execFile with a timeout) always does. A double press or a client that gave up during the wait is delivered once
+  the row shows, as a slow send is today; the 8 s bound stays under the iPhone's 15 s, and the page has no timeout.
