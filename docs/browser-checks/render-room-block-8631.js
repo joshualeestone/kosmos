@@ -135,6 +135,50 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
       }, ROW);
       ok(t + ' a refusal leaves the dialog open with the board\'s reason', refused.open && refused.msg === 'We could not block them: this message has no sender Kosmos can name.' && refused.again, JSON.stringify(refused));
 
+      // 3c. The real buttons in #pj-room, through the page's own click handling (round 1: every arm above called the
+      // functions directly, so a broken selector in the delegation would have stayed green).
+      const real = await page.evaluate(async (row) => {
+        const room = document.getElementById('pj-room');
+        const long = Object.assign({}, row, { id: 'x-cccc3333-0003', text: 'a'.repeat(1999) + '\u{1F600}' + 'tail' });
+        PJ_CURRENT = 'p-1';
+        PJ_WIN.older = [long];
+        PJ_WIN.newest = [];
+        room.innerHTML = pjRoomRow(long, { agents: [] });
+        window.__posted = [];
+        window.fetch = async (url, opts) => {
+          window.__posted.push([String(url), opts && opts.method || 'GET', opts && opts.body || null]);
+          if (/\/sender$/.test(String(url))) return { ok: true, status: 200, json: async () => ({ account: 'acctA' }) };
+          return { ok: true, status: 200, json: async () => ({ blocked: true, name: 'Ana', hidden: {} }) };
+        };
+        const say = document.getElementById('pj-room-msg');
+        say.textContent = '';
+        let threw = null;
+        window.addEventListener('unhandledrejection', (e) => { threw = String(e.reason); }, { once: true });
+        room.querySelector('[data-ext-report]').click();
+        for (let i = 0; i < 50 && !say.textContent; i += 1) await new Promise((r) => setTimeout(r, 20));
+        const out = { said: say.textContent, threw, sender: window.__posted.some((q) => q[0] === '/api/project/p-1/room/x-cccc3333-0003/sender') };
+        room.querySelector('[data-ext-block]').click();
+        out.dialog = !document.getElementById('xblock-modal').hidden;
+        xBlockClose();
+        // A row only the archive holds (the archive view paints PJ_ARCH.rows into the same room).
+        PJ_WIN.older = [];
+        PJ_ARCH.rows = [Object.assign({}, row, { id: 'x-dddd4444-0004' })];
+        xBlockAsk('x-dddd4444-0004', null);
+        out.archive = !document.getElementById('xblock-modal').hidden;
+        xBlockClose();
+        PJ_ARCH.rows = [];
+        say.textContent = '';
+        xBlockAsk('x-eeee5555-0005', null);
+        out.missing = { dialog: !document.getElementById('xblock-modal').hidden, said: say.textContent };
+        room.innerHTML = '';
+        return out;
+      }, ROW);
+      ok(t + ' the real Report button reads the sender and says where the report went', real.sender && real.said.startsWith('Your mail app should open with the report to hello@installkosmos.com.'), JSON.stringify(real));
+      ok(t + ' an emoji at the 2000-character cut does not break the report', real.threw === null && real.said !== '', String(real.threw));
+      ok(t + ' the real Block button opens the dialog', real.dialog === true);
+      ok(t + ' a row only the archive holds can be blocked', real.archive === true);
+      ok(t + ' a message no longer in the room says so rather than doing nothing', real.missing.dialog === false && real.missing.said === 'We could not find that message. Read the room again and try once more.', JSON.stringify(real.missing));
+
       // 4. The room's one line.
       const note = await page.evaluate(() => {
         const el = document.getElementById('pj-blocked-note');
@@ -181,6 +225,16 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
       ok(t + ' a blocked person is listed with Unblock', list.one.text.includes('Ana') && list.one.btn === 'Unblock' && list.one.label === 'Unblock Ana', JSON.stringify(list.one));
       ok(t + ' Unblock posts that account', list.unblock.posted.some((p) => p[0] === '/api/blocked/unblock' && p[1] === 'POST' && p[2] === JSON.stringify({ account: 'acctA' })), JSON.stringify(list.unblock.posted));
       ok(t + ' and says so', list.unblock.msg === 'Ana is unblocked. Their messages are back in your rooms.', list.unblock.msg);
+      // The note's link lands on the list once it has been read (round 1: it focused a box that was still hidden).
+      const landed = await page.evaluate(async () => {
+        document.getElementById('you-blocked-box').hidden = true;
+        window.__list = { ok: true, status: 200, json: async () => ({ blocked: [{ account: 'acctB', name: 'Bea', at: '2026-11-17T15:00:00Z' }] }) };
+        pjBlockedNoteSet({ hiddenBlocked: 1 });
+        document.querySelector('#pj-blocked-note [data-blocked-go]').click();
+        for (let i = 0; i < 50 && document.activeElement && document.activeElement.id !== 'you-blocked-box'; i += 1) await new Promise((r) => setTimeout(r, 20));
+        return { focus: document.activeElement && document.activeElement.id, shown: !document.getElementById('you-blocked-box').hidden, settings: !document.getElementById('panel-settings').hidden };
+      });
+      ok(t + ' the note\'s link opens Settings on the Blocked list', landed.settings && landed.shown && landed.focus === 'you-blocked-box', JSON.stringify(landed));
       await page.close();
     }
   } finally {

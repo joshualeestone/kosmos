@@ -14,7 +14,8 @@ Settings, Your Profile lists blocked people with Unblock; a room where a block h
 - **Report and Block are quiet text buttons on the outside message's time line**, always shown. Rejected: hover-only (a
   person at the computer may never find the only way to act on an outside sender); the room's "..." message menu (outside
   rows have no reaction bar to hang it on, and adding one brings reactions to rows that never had them). The first build
-  gave them a row of their own; on screen that made every outside bubble a line taller, so they moved onto the time's line.
+  gave them a row of their own above the time; they now share the time's line. That line is 44px tall for the
+  press target, so an outside bubble is still about 24px taller than before; accepted for a control a person must be able to hit.
 - **Never on the person's own post from another computer** (`sameAccount`) and only for an `x-` id, the routes' own rule.
 - **Report opens a mailto AND copies the report**, and the line under the composer says both. A computer with no mail app
   opens nothing and reports nothing, so the copy is the fallback the phone's reportCopiedNote gives.
