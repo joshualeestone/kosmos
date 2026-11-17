@@ -84,6 +84,25 @@ test('A to Z is exactly the order the Files screen showed before (the server lis
   }
 });
 
+test('the project route cuts AFTER sorting newest first, so its count line can say "showing the newest N"', () => {
+  const projects = require('./engine/projects');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'files-sort-8627-cap-'));
+  try {
+    // Written in name order with dates that are not, so a cut in any other order keeps a different pair.
+    [['a.txt', 3], ['b.txt', 1], ['c.txt', 4], ['d.txt', 2]].forEach(([n, d]) => {
+      fs.writeFileSync(path.join(dir, n), 'x');
+      const t = new Date(Date.UTC(2026, 10, d));
+      fs.utimesSync(path.join(dir, n), t, t);
+    });
+    const listed = projects.listFiles(dir, 2, { maxDepth: 0 });
+    assert.equal(listed.total, 4);
+    assert.deepEqual(listed.files.map((f) => f.name), ['c.txt', 'a.txt'], 'the two shown are the two newest');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  assert.match(SCRIPT, /'; showing the newest ' \+ PJ_DOCS_FILES\.length \+ ', the rest are in the folder itself'/);
+});
+
 test('both pages carry the control with the four words, newest first chosen, and remember per page', () => {
   for (const id of ['d-files-sort', 'docs-sort']) {
     const m = new RegExp('<select id="' + id + '" aria-label="Sort files">([\\s\\S]*?)</select>').exec(PAGE);
