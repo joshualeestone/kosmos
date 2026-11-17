@@ -101,6 +101,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     out.aYFail = rowY('m25');
     out.aRowsFail = th.querySelectorAll('[data-mid]').length;
     out.aLineFail = failLine();
+    await paint('fail');   // a network that keeps failing: still one line, the reader still where they were
+    out.aLines2 = th.querySelectorAll(':scope > p.dm-readfail').length;
+    out.aYFail2 = rowY('m25');
     const ms = window.__fx.messages;
     // as the board's 200-message window does: the new message pushes the oldest row out, above the reader
     window.__fx = { ...window.__fx, olderCount: 1, messages: [...ms.slice(1), { id: 'm30', at: new Date().toISOString(), text: 'a new agent message', from: 'april', delivery: null }] };
@@ -172,6 +175,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!near(r.aYFail, r.aY0)) problems.push('A: the failed poll moved the reader: m25 at ' + r.aY0 + 'px, then ' + r.aYFail + 'px');
     if (!near(r.aYBack, r.aY0)) problems.push('A: the next good poll put the reader somewhere else: m25 at ' + r.aY0 + 'px, back at ' + r.aYBack + 'px');
     if (!/could not read this conversation just now/.test(String(r.aLineFail))) problems.push('A: the failure is no longer said under the kept rows (line: ' + JSON.stringify(r.aLineFail) + ')');
+    if (r.aLines2 !== 1 || !near(r.aYFail2, r.aY0)) problems.push('A: a second failed poll in a row stacked lines or moved the reader (lines ' + r.aLines2 + ', m25 at ' + r.aYFail2 + 'px vs ' + r.aY0 + 'px)');
     if (r.aLineBack !== null) problems.push('A: the failure line stayed after a read worked: ' + JSON.stringify(r.aLineBack));
     if (!(r.bGapFail <= 4)) problems.push('B (control): a reader at the floor was left ' + r.bGapFail + 'px above it, with the failure line below the fold');
     if (!/could not read/.test(String(r.bLineFail))) problems.push('B (control): no failure line for a reader at the floor');

@@ -45162,6 +45162,9 @@ async function paintTalk(sessionName, agentName) {
   }
   if (mine !== TALK_LOAD) return;
   if (!CURRENT || CURRENT.sessionName !== sessionName) return;
+  /* #8629: a failed read that kept the rows made #d-qask inert. Cleared here, before anything below shows it
+     or hands focus into it. */
+  document.getElementById('d-qask').inert = false;
   dmChoicesFrom(body, sessionName);   // #5406: after the two checks above, so an older read never replaces a newer one's
 
 
@@ -45461,7 +45464,6 @@ async function paintTalk(sessionName, agentName) {
   const thread = document.getElementById('d-dmthread');
   thread.__lastBody = body; thread.__lastName = name; thread.__lastSession = sessionName;
   thread.__readFailed = false;   // kosmos#5841
-  document.getElementById('d-qask').inert = false;   // #8629: made inert by a failed read that kept the rows
   /* kosmos#5841: a thread that SHRANK below the earlier rows' end (a file set aside) would duplicate them: close. */
   if (earlierOn(sessionName) && Array.isArray(body.messages) && (Number(body.olderCount) || 0) < EARLIER.end) earlierReset(sessionName);   // a FAILED read reports olderCount 0: not a shrink
   paintTalkThread(body, name);
@@ -47019,6 +47021,7 @@ function openDetail(sessionName, section, fromProject) {
      -- a private conversation and a live question with buttons that send. */
   {
     document.getElementById('d-qask').hidden = true;
+    document.getElementById('d-qask').inert = false;   // #8629: the last agent's failed read must not follow
     /* ⚠️ THE SENTENCE AND THE CAPTURED PANE TOO. They sit behind `hidden`, so
        nothing was shown — but this block's own rule is that the box holds the
        strongest version of cross-agent misattribution, and leaving one agent's
