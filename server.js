@@ -9624,6 +9624,8 @@ const server = http.createServer(async (req, res) => {
     if (verb === 'reveal' && req.method === 'POST') {
       // Created on first use (#3614 item 1): inside the agent's own existing folder, one level,
       // never following a link. An existing non-folder by that name is refused, not replaced.
+      // #8617: Kosmos now makes it on its own too (dmfiles.ensureFolder), except in a connected agent's
+      // folder (the person's own). Here it is made there as well, deliberately: the person pressed Reveal.
       try {
         let st = null;
         try { st = fs.lstatSync(folder); } catch (e) { if (!e || e.code !== 'ENOENT') throw e; }
@@ -30681,6 +30683,9 @@ if (require.main === module) {
       const why = (stuck[0] && stuck[0].because) || 'no reason given';
       process.stderr.write(`Kosmos could not refresh where ${stuck.length} of ${told.length} agent(s) save the files they make; they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${why}\n`);
     }
+    /* #8617: a Files folder that could not be made is said once per boot, so one that never gets made shows somewhere. */
+    const noFolder = told.filter((t) => t && typeof t.folder === 'string' && t.folder);
+    if (noFolder.length) process.stderr.write(`Kosmos could not make the Files folder for ${noFolder.length} agent(s); they can still make it themselves. First: ${noFolder[0].agent} - ${noFolder[0].folder}\n`);
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh where agents save the files they make: ${String(err && err.message)}\n`);
   }

@@ -51,7 +51,8 @@ test('#8617: an agent with no folder of its own gets none (the parent is never m
   assert.equal(fs.existsSync(path.dirname(dir)), false, 'its own folder was made');
 });
 
-test('#8617: a file or a link already called Files is never replaced, and nothing is made through a link', () => {
+/* Symlinks need elevation on Windows; this file is not in the Windows run, and the guard keeps it portable if added. */
+test('#8617: a file or a link already called Files is never replaced, and nothing is made through a link', { skip: process.platform === 'win32' && 'symlinks need elevation on Windows' }, () => {
   agentFile('hasfile', 'x\n');
   fs.writeFileSync(dmfiles.filesDir('hasfile'), 'a file');
   const f = dmfiles.ensureFolder('hasfile');
@@ -87,6 +88,8 @@ test('#8617: the sweep (tellAgent) makes the folder for an agent made before thi
   fs.writeFileSync(dmfiles.filesDir('blocked'), 'a file');
   const t2 = dmfiles.syncEveryone([tied('blocked')]);
   assert.equal(t2[0].state, projects.TOLD.TOLD, 'the block still landed');
+  assert.match(t2[0].folder || '', /not a folder/, 'the reason the folder could not be made is not carried for the boot line');
+  assert.equal(told[0].folder, undefined, 'CONTROL: a folder that was made carries no note');
   assert.equal(fs.readFileSync(dmfiles.filesDir('blocked'), 'utf8'), 'a file', 'the sweep replaced the file called Files');
 });
 
@@ -108,6 +111,7 @@ test('#8617: a connected agent (its folder is the person\'s own) gets no Files f
   assert.match(r.because, /folder you brought in/);
   const told = dmfiles.syncEveryone([tied('linked')]);
   assert.equal(told[0].state, projects.TOLD.TOLD, 'the block is still written');
+  assert.equal(told[0].folder, undefined, 'a connected agent is not a failure to report');
   assert.equal(fs.existsSync(path.join(theirs, 'Files')), false, 'Kosmos added a Files folder to the person\'s own folder');
   agentFile('plainone', 'You are plain.\n');
   assert.equal(dmfiles.ensureFolder('plainone').created, true, 'CONTROL: an agent in its own Kosmos folder gets one');
