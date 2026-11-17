@@ -1967,7 +1967,7 @@ function install(provider, opts) {
          and spawned after this look's process snapshot (the gap between a file read and a spawn, milliseconds). An
          agent found now puts the marker back and the swap waits; the look above stays so the common wait never takes
          the marker down. ITS COST, named: while the lock is up a turn waits (this look is a CIM read, ~0.45 s measured
-         on the Windows box), so it has a short deadline: one that runs out is no answer, read as running, and the
+         on the Windows box), so its deadline is at most 20 s: one that runs out is no answer, read as running, and the
          marker goes back. kosmos#8659: the deadline follows this machine's own earlier looks (lastLookDeadlineMs), so
          a box where the look is slow does not time out here on every try. */
       if (await waitForAgents(true, () => {
