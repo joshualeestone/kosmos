@@ -346,11 +346,12 @@ function showLines(body, num, project) {
       }
     });
   }
-  /* #8668: unmet checks on other tasks of this project whose part moved to this one, from theirs (stored once, there). */
+  /* #8668: unmet checks on other tasks of this project whose part moved to this one, from theirs (stored once, there).
+     A report counts by checkResultsOf's rule (an object with met and a string how). */
   const here = [];
   for (const o of tasks) {
     if (!o || o.number === n || !Array.isArray(o.doneWhen) || !Array.isArray(o.doneWhenResults)) continue;
-    o.doneWhen.forEach((c, i) => { const r = o.doneWhenResults[i]; if (r && typeof r === 'object' && r.met === false && typeof r.how === 'string' && r.movedTo === n && Number.isSafeInteger(o.number))   // checkResultsOf's rule for a report here.push({ from: o.number, check: i + 1, words: typeof c === 'string' ? q(scrub(c)) : null }); });
+    o.doneWhen.forEach((c, i) => { const r = o.doneWhenResults[i]; if (r && typeof r === 'object' && r.met === false && typeof r.how === 'string' && r.movedTo === n && Number.isSafeInteger(o.number)) here.push({ from: o.number, check: i + 1, words: typeof c === 'string' ? q(scrub(c)) : null }); });
   }
   if (here.length) {
     here.sort((a, b) => a.from - b.from || a.check - b.check);
