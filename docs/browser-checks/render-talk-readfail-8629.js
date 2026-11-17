@@ -7,7 +7,7 @@
  * "We could not read this conversation just now", which collapses the box (the reader's place is gone for a
  * poll), and the next good poll put the reader back by a PIXEL offset, because a note carries no anchor
  * (setThread's #1037 rule). With a message arriving meanwhile, that offset is on different words. Measured on
- * a real 200-message DM in WebKit and Chromium: back 534 px off. A board on this computer almost never fails a
+ * a real 200-message DM in WebKit and Chromium: back 534 px off. This check itself runs Chromium only. A board on this computer almost never fails a
  * poll, so every local check held still; a board reached over the network fails one now and then.
  *
  * This drives the REAL paintTalk (fetch answered here, the page's own code otherwise) through three arms:
@@ -17,6 +17,8 @@
  *      failure must still be SAID (one line at the thread's end) and be gone once a read works.
  *   Q. the same with the question box (#d-qask) showing above the thread: it stays put and goes inert.
  *   B. CONTROL, a reader at the floor: the failure line is in view, and a new message still brings them down.
+ *   F. keyboard focus on a link in a kept row stays on it.
+ *   K. a question's choice buttons are disabled while the read fails and given back after.
  *   D. a box with no rows yet ("Opening...") still paints the failure sentence alone.
  *   C. the standing refusal (`because: 'borrowed'`) still paints its sentence alone, as before.
  * Red-capable: with the #8629 change reverted, arm A fails (rows gone during the failure, then on different
@@ -54,7 +56,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const msgs = [];
     for (let i = 0; i < 30; i += 1) {
       const agent = i % 2 === 1;
-      msgs.push({ id: 'm' + i, at: new Date(now - (60 - i) * 60000).toISOString(), text: i === 25 ? long : ('message ' + i),
+      msgs.push({ id: 'm' + i, at: new Date(now - (60 - i) * 60000).toISOString(), text: i === 25 ? long : (i === 24 ? 'see https://example.com/page for the report' : ('message ' + i)),
         from: agent ? 'april' : null, delivery: agent ? null : { state: 'placed', because: null, paneState: 'idle', paneNote: null } });
     }
     window.__fx = { messages: msgs, olderCount: 0, historyBecause: null, historyUnfilable: false, presence: 'on', presenceBecause: null,
@@ -80,6 +82,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     CURRENT = { sessionName: 'april', name: 'April' };
     document.getElementById('panel-detail').hidden = false;
     const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+    document.querySelectorAll('body > *').forEach((el) => { el.inert = false; });   // the first-run screen leaves the rest inert
     const settle = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
     const paint = async (answer) => { window.__answer = answer; await paintTalk('april', 'April'); await settle(); };
     const rowY = (mid) => { const row = th.querySelector('[data-mid="' + mid + '"]'); return row ? Math.round(row.getBoundingClientRect().top) : null; };
@@ -101,6 +104,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     out.aYFail = rowY('m25');
     out.aRowsFail = th.querySelectorAll('[data-mid]').length;
     out.aLineFail = failLine();
+    out.aLineLast = !!(th.lastElementChild && th.lastElementChild.matches('p.dm-readfail[role="status"]'));
     await paint('fail');   // a network that keeps failing: still one line, the reader still where they were
     out.aLines2 = th.querySelectorAll(':scope > p.dm-readfail').length;
     out.aYFail2 = rowY('m25');
@@ -147,6 +151,27 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     out.bNewestY = rowY('m31');
     out.boxBottom = Math.round(th.getBoundingClientRect().bottom);
 
+    // F. focus on a link inside a kept row stays there through a failed poll (it is still on screen).
+    const link = th.querySelector('[data-mid="m24"] a');
+    out.fHasLink = !!link;
+    if (link) { link.focus(); out.fWas = document.activeElement === link; await paint('fail'); out.fFocusKept = document.activeElement === link; await paint('ok'); }
+
+    // K. the agent asks a question with choices: while a read fails its buttons are disabled (a press would do
+    //    nothing), and the next good read gives back exactly the ones the failure disabled.
+    const qmsgs = [...window.__fx.messages, { id: 'q1', at: new Date().toISOString(), text: 'Which one?', from: 'april', kind: 'question', delivery: null }];
+    window.__fx = { ...window.__fx, messages: qmsgs, asking: true, asked: 'ask-1', options: [{ n: 1, label: 'Yes' }, { n: 2, label: 'No' }] };
+    await paint('ok');
+    const btns = () => [...th.querySelectorAll('button.dmchoice')];
+    out.kCount = btns().length;
+    out.kOnBefore = btns().every((b) => !b.disabled);
+    await paint('fail');
+    out.kOffFail = btns().length > 0 && btns().every((b) => b.disabled);
+    await paint('ok');
+    out.kOnBack = btns().length > 0 && btns().every((b) => !b.disabled);
+    out.kMarksLeft = th.querySelectorAll('[data-readfail-off]').length;
+    window.__fx = { ...window.__fx, asking: false, asked: null, options: null };
+    await paint('ok');
+
     // D. a box with no rows yet (an agent just opened, its "Opening..." note up) still paints the failure alone:
     //    nothing is kept, so no earlier agent's rows can stand under this one's name.
     setThread(th, '<p class="dmnone">Opening&hellip;</p>', null);
@@ -175,6 +200,14 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!near(r.aYFail, r.aY0)) problems.push('A: the failed poll moved the reader: m25 at ' + r.aY0 + 'px, then ' + r.aYFail + 'px');
     if (!near(r.aYBack, r.aY0)) problems.push('A: the next good poll put the reader somewhere else: m25 at ' + r.aY0 + 'px, back at ' + r.aYBack + 'px');
     if (!/could not read this conversation just now/.test(String(r.aLineFail))) problems.push('A: the failure is no longer said under the kept rows (line: ' + JSON.stringify(r.aLineFail) + ')');
+    if (r.aLineLast !== true) problems.push('A: the failure line is not the thread\'s last child with role=status, so it can sit above a reader');
+    if (r.fHasLink !== true || r.fWas !== true) problems.push('setup F: no focused link in m24 (link ' + r.fHasLink + ', focused ' + r.fWas + '), so the focus arm tested nothing');
+    else if (r.fFocusKept !== true) problems.push('F: a failed poll moved keyboard focus off a link that is still on screen');
+    if (!(r.kCount >= 2) || r.kOnBefore !== true) problems.push('setup K: the question did not render live choice buttons (' + r.kCount + ', live ' + r.kOnBefore + ')');
+    else {
+      if (r.kOffFail !== true) problems.push('K: during a failed read the choice buttons stayed pressable, and a press would do nothing');
+      if (r.kOnBack !== true || r.kMarksLeft !== 0) problems.push('K: the next good read did not give the choice buttons back (live ' + r.kOnBack + ', marks left ' + r.kMarksLeft + ')');
+    }
     if (r.aLines2 !== 1 || !near(r.aYFail2, r.aY0)) problems.push('A: a second failed poll in a row stacked lines or moved the reader (lines ' + r.aLines2 + ', m25 at ' + r.aYFail2 + 'px vs ' + r.aY0 + 'px)');
     if (r.aLineBack !== null) problems.push('A: the failure line stayed after a read worked: ' + JSON.stringify(r.aLineBack));
     if (!(r.bGapFail <= 4)) problems.push('B (control): a reader at the floor was left ' + r.bGapFail + 'px above it, with the failure line below the fold');
