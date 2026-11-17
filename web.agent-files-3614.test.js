@@ -26,7 +26,7 @@ test.after(() => { try { BOARD.restore(); } catch { /* restored */ } fs.rmSync(S
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
 // #6724: the Files screen is the browser now: its row, path and folder helpers come with it.
-const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'fileFingerprint', 'rowKey', 'focusedRowKey', 'refocusRow', 'paintAgentFiles', 'folderIcon', 'agentDirRow', 'agentFilesPath', 'paintAgentFilesAll', 'agentFileWithDownload']);   // kosmos#7952: the Files screen's download button
+const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'fileFingerprint', 'rowKey', 'focusedRowKey', 'refocusRow', 'paintAgentFiles', 'folderIcon', 'agentDirRow', 'agentFilesPath', 'paintAgentFilesAll', 'agentFileWithDownload', 'filesSortMode', 'filesSorted']);   // kosmos#7952: the Files screen's download button
 
 test('the Files block sits directly under the four-pack, inside the left column, with the Explorer copy', () => {
   const navEnd = PAGE.indexOf('</nav>', PAGE.indexOf('id="d-nav"'));
@@ -65,6 +65,7 @@ function harness(respond, current = card('ana'), linux = false) {
   const make2 = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'asSentence', 'env',
     'let AGENT_FILES_EPOCH = 0; let AGENT_FILES_STAMP = null; let AGENT_FILES_ALL_EPOCH = 0; const AGENT_FILES_SHOWN = 10;\n'
     + 'let AGENT_FILES_DIR = ""; let AGENT_FILES_ALL_STAMP = null; let AGENT_FILES_FOCUS = false;\n'   // #6724
+    + 'const FILES_SORTS = ["newest", "oldest", "az", "za"]; let AGENT_FILES_SORT = "az";\n'   // kosmos#8627: these rows are pinned A to Z; the sort itself is web.files-sort-8627.test.js
     + 'const kplusRemote = () => false;\n'   // #5165: at the computer
     + 'const onLinux = () => env.LINUX;\n'   // #5865: a Mac board unless the test says Linux
     + 'const platformCopy = (key, mac) => mac;\n'   // #5865: the overflow line names the button in its platform's words
