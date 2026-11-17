@@ -33,7 +33,7 @@ That the gap is registration lag plus cache age, i.e. the session becomes live w
 sometimes never reaches the live list, the send now ends in 409 instead of 404: more honest, still not delivered.
 
 ## Tests
-- server.dm-starting-8652.test.js: row appears after 3 looks (200); never appears (409, bounded); missing name,
+- server.dm-starting-8652.test.js: row appears 300 ms later (200); the Windows roster (win32roster.make) found by the fresh read, with a control without it (409); a slow read cannot stretch the bound; never appears (409, bounded); missing name,
   old record row, removed agent, stranger's pane (404, no wait); control with the wait off (not reached).
   Against the unchanged server.js the two starting arms fail and the rest pass.
 - engine/win32roster.cached.test.js: refreshAsync resolves on landing, shares one read, keeps a failure, survives a
