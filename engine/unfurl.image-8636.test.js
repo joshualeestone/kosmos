@@ -117,3 +117,30 @@ test('a poll that lands while warm is fetching the picture does not start a seco
   assert.equal(calls.filter((u) => u === IMG).length, 1);
   assert.equal(unfurl.imageState(IMG), 'good');
 });
+
+test('a first fetch that fails only for a moment is tried again after a minute, not ten', async () => {
+  imageAnswer = () => answer(503, 'text/html', Buffer.from('busy'));
+  unfurl.warm('https://site8636.com/');
+  await settle();
+  assert.equal(unfurl.imageState(IMG), 'bad');
+  imageAnswer = () => answer(200, 'image/png', PNG);
+  shift = 30 * 1000;
+  unfurl.imageState(IMG);
+  await settle();
+  assert.equal(calls.filter((u) => u === IMG).length, 1, 'tried again within the minute');
+  shift = 70 * 1000;
+  unfurl.imageState(IMG);
+  await settle();
+  assert.equal(calls.filter((u) => u === IMG).length, 2, 'not tried again after a minute');
+  assert.equal(unfurl.imageState(IMG), 'good');
+  // CONTROL: a real answer (404) waits the full ten minutes.
+  unfurl.resetForTests();
+  unfurl.setResolver(async () => [{ address: '93.184.216.34', family: 4 }]);
+  let n = 0;
+  unfurl.setFetcher(async (url) => { if (url === IMG) n++; return answer(404, 'text/html', Buffer.from('gone')); });
+  await unfurl.image(IMG);
+  shift += 70 * 1000;
+  unfurl.imageState(IMG);
+  await settle();
+  assert.equal(n, 1, 'a 404 was asked again after a minute');
+});

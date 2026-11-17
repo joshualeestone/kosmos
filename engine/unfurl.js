@@ -305,7 +305,7 @@ async function preview(raw) {
 async function image(raw) {
   const key = 'i:' + String(raw);
   const hit = cached(key);
-  if (hit) return hit;
+  if (hit) { if (!knownImages.has(String(raw))) known(raw, hit.ok); return hit; }   // kosmos#8636: a verdict for what is cached
   const got = await guardedFetch(raw, 'image/*');
   if (!got.ok) { known(raw, false, unreached(got.because)); return remember(key, got); }
   try {
@@ -498,17 +498,24 @@ function known(raw, ok, passing) {
   const was = knownImages.get(key);
   if (!ok && passing && was && was.ok) return;   // keeps the old time too, so the next refresh tries again
   knownImages.delete(key);
-  knownImages.set(key, { ok, at: Date.now() });
+  knownImages.set(key, { ok, at: Date.now(), passing: !ok && !!passing });
   while (knownImages.size > KNOWN_MAX) knownImages.delete(knownImages.keys().next().value);
 }
 /** kosmos#8636: 'good' or 'bad' from the last answer for this image address, or null when it was never fetched (or
-    not for a day). A last answer older than the image cache's own ten minutes starts a fresh fetch, never awaited. */
+    not for a day). NOT a pure read: a last answer older than the image cache's own ten minutes (a passing failure's,
+    one minute) starts a fresh fetch in the background, never awaited, so a card's picture follows the site. */
 function imageState(raw) {
-  const k = knownImages.get(String(raw));
-  if (!k) return null;
+  let k = knownImages.get(String(raw));
+  if (!k) {
+    // Bytes (or a refusal) still cached for an address whose verdict was dropped: that answer is the verdict.
+    const c = cached('i:' + String(raw));
+    if (!c) return null;
+    known(raw, !!c.ok);
+    k = knownImages.get(String(raw));
+  }
   const age = Date.now() - k.at;
   if (age > KNOWN_MS) { knownImages.delete(String(raw)); return null; }
-  if (age > CACHE_MS) warmImage(raw);
+  if (age > (k.passing ? REFUSAL_MS : CACHE_MS)) warmImage(raw);
   return k.ok ? 'good' : 'bad';
 }
 

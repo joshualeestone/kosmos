@@ -25,6 +25,12 @@
 - The page removes a preview's picture box when the picture still fails in the browser (lpvImageFailed, capture).
 - Rejected: reserving space or a placeholder (the box is the problem); retrying a 404 sooner (it is the site's answer).
 
+- A picture whose first fetch fails only for a moment (too slow, not reached, a 5xx) is tried again after a minute,
+  not ten; until then the card shows its words only, so it can gain its picture once (accepted: withholding the card
+  until a slow site answers could mean no card at all). A picture that loaded keeps its verdict through such a failure.
+- Cost: the picture is fetched when a poll first carries the link (someone is reading), not when the page draws it:
+  one extra fetch per previewed link, capped at IMAGE_MAX and held in the existing 32 MB image cache.
+
 ## Weakest part
 - "Takes forever" was not reproduced: every fetch measured was under half a second. The likely cause is the picture
   being fetched only on draw, which this removes; a real-board check with Josh's sites is still owed.

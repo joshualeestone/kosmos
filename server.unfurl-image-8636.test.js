@@ -64,21 +64,26 @@ test.beforeEach(() => {
   });
 });
 
-/* A message in the agent's direct thread, read back through the route the page polls; every read is returned. */
-async function postAndReadAll(text, reads) {
+/* A message in the agent's direct thread, read back through the route the page polls until a read carries the card
+   (up to five seconds, so a loaded runner is not a red) and then `after` more times; every read is returned. */
+async function postAndReadAll(text, after) {
   seq += 1;
   chat.appendMessage(chat.DIRECT, AGENT, { text, at: new Date(Date.now() + seq).toISOString(), delivery: { state: chat.DELIVERY.PLACED } });
   const seen = [];
-  for (let i = 0; i < reads; i += 1) {
-    const all = (await (await fetch(base() + '/api/agent/' + encodeURIComponent(AGENT) + '/thread')).json()).messages;
-    seen.push(all.find((x) => x.text === text));
+  const read = async () => (await (await fetch(base() + '/api/agent/' + encodeURIComponent(AGENT) + '/thread')).json()).messages.find((x) => x.text === text);
+  const until = Date.now() + 5000;
+  while (Date.now() < until) {
+    const r = await read();
+    seen.push(r);
+    if (r && r.preview) break;
     await new Promise((res) => setTimeout(res, 20));
   }
+  for (let i = 0; i < after; i += 1) { seen.push(await read()); await new Promise((res) => setTimeout(res, 10)); }
   return seen;
 }
 
 test('a picture the site cannot serve gives a card with its words and no picture, never a broken box', async () => {
-  const reads = await postAndReadAll('see https://broken8636.com/ now', 40);
+  const reads = await postAndReadAll('see https://broken8636.com/ now', 10);
   const withCard = reads.filter((r) => r && r.preview);
   assert.ok(withCard.length > 0, 'CONTROL: the card appeared at all');
   for (const r of withCard) {
@@ -89,7 +94,7 @@ test('a picture the site cannot serve gives a card with its words and no picture
 });
 
 test('a picture that can be fetched comes with the card on its first appearance, and the card never shows without it', async () => {
-  const reads = await postAndReadAll('see https://good8636.com/ now', 40);
+  const reads = await postAndReadAll('see https://good8636.com/ now', 10);
   const withCard = reads.filter((r) => r && r.preview);
   assert.ok(withCard.length > 0, 'CONTROL: the card appeared at all');
   for (const r of withCard) assert.match(r.preview.image, /^\/api\/unfurl\/image\?url=https%3A%2F%2Fgood8636\.com%2Fog\.png$/, 'a card came without its picture');

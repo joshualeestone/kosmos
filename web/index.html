@@ -78025,6 +78025,9 @@ function pjRich(text) {
    (Josh: "the board can fetch it, don't leak IPs"). Title is the link; host
    in small type; description clamped by CSS. Same new-tab, no-referrer
    treatment as the inline link. Escaped field by field. */
+/* kosmos#8636: pictures that failed in this page, so a redrawn card does not ask for them again. Kept until the page
+   reloads (at most 500), so a picture that failed only for a moment stays away until then. */
+const LPV_FAILED = new Set();
 function pjPreviewCard(preview) {
   const p = preview && typeof preview === 'object' ? preview : null;
   if (!p || typeof p.url !== 'string' || !/^https?:\/\//.test(p.url)) return '';
@@ -78051,7 +78054,6 @@ function pjPreviewCard(preview) {
 /* kosmos#8636: a preview picture that still fails in the browser (the board's image cache let it go and the site no
    longer answers, or Kosmos+ dropped it) takes its box away, so the card keeps its words and never shows a broken
    picture. An error does not bubble, so this listens in the capture phase. */
-const LPV_FAILED = new Set();   // pictures that failed here, so a redrawn card does not ask for them again
 function lpvImageFailed(e) {
   const t = e && e.target;
   if (!t || t.tagName !== 'IMG' || !t.closest) return;
