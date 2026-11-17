@@ -7017,8 +7017,9 @@ function newestReplyAt(text) {
    only on its own install, remove, disable or enable (#2717, #3013). That is right here because every job rewrite
    (create.rewriteAgentJob, behind setModel, setProvider and the account setters) runs in the board process from its
    own routes in server.js and goes through win32job's install or installSteps, whose shared installPlan forgets the
-   cached task first; so the board process that reads this has already refreshed it. A rewrite from another process would leave the cache on the old model and this would answer
-   "same" (the old bug, silently): a new path that changes a model outside the board must forget the cached task. */
+   cached task first; so the board process that reads this has already refreshed it. A rewrite from another process
+   would leave the cache on the old model and this would answer "same" (the old bug, silently): a new path that
+   changes a model outside the board must forget the cached task. */
 function jobNamesAnotherModel(agentName, readId) {
   let planned = null;
   try { planned = require('./create').plannedModelOf(agentName); } catch { planned = null; }
