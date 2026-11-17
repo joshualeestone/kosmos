@@ -15,6 +15,8 @@
 #   AGENT_WORKFORCE_FAKE_PANE_FOLDERS  file of `%id<TAB>session<TAB>folder` lines for the folder read (default: none)
 #   AGENT_WORKFORCE_FAKE_SESSIONS  file of `list-sessions -F` lines (default: none)
 #   AGENT_WORKFORCE_FAKE_SCREEN    file of `capture-pane` text (default: empty)
+# `-u` (force UTF-8) is an option before the command, as status.js's folder read and machinecost.js send it.
+[ "$1" = "-u" ] && shift
 case "$1" in
   list-panes)
     # kosmos#8640: a read asking for pane_current_path gets its own file: status.js's folder read

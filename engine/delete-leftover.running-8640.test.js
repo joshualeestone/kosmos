@@ -217,7 +217,7 @@ test('production read: a tmux that answers the folder read with an error refuses
   leftoverAgent('agent13');
   const stub = nodePath.join(SANDBOX, 'tmux-folders-fail.sh');
   // Lists panes for the roster read; fails the folder read the way a broken tmux does (non-zero, not "no server").
-  fs.writeFileSync(stub, '#!/bin/sh\ncase "$*" in *pane_current_path*) echo "protocol version mismatch" >&2; exit 1 ;; esac\nexit 0\n');
+  fs.writeFileSync(stub, '#!/bin/sh\ncase "$*" in *pane_current_path*) case "$1" in -u) ;; *) echo "no -u" >&2; exit 3 ;; esac; echo "protocol version mismatch" >&2; exit 1 ;; esac\nexit 0\n');
   fs.chmodSync(stub, 0o755);
   const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
   process.env.AGENT_WORKFORCE_TMUX_BIN = stub;

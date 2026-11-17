@@ -8199,7 +8199,8 @@ function paneFolders() {
   if (paneFolderSource) return readPaneFolders(paneFolderSource());
   if (paneSource) return [];
   // The tmux that last LISTED panes (tmuxPanesSteps sets it, after any re-pick past a version wall), else the default.
-  const got = shDetail(TMUX_READ_BY || tmuxBin(), ['list-panes', '-a', '-F', '#{pane_id}\t#{session_name}\t#{pane_current_path}']);
+  // `-u`: without a UTF-8 locale tmux writes the tabs as `_`, every line would be unreadable, and every delete refused.
+  const got = shDetail(TMUX_READ_BY || tmuxBin(), ['-u', 'list-panes', '-a', '-F', '#{pane_id}\t#{session_name}\t#{pane_current_path}']);
   if (got.ran && got.status === 0) return readPaneFolders(got.out);
   if (tmuxSaidNoServer(got)) return [];
   throw new Error('we could not see what is running on this computer');
