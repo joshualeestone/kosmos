@@ -528,10 +528,14 @@ const LINES = [
   'kept to the tasks you hold, in every project you are on.',
   '',
   '**When it is done, report each check, then mark it built.** Say per check whether',
-  'it is met and, in one line, how you checked it (the task page shows it as your word):',
+  'it is met and, in one line, how you checked it (the task page shows it as your word;',
+  'it holds 1000 characters, room for the values you saw and where each came from):',
   '',
   '`kosmos task check <project-id> <task-number> 1 met "<how you checked it>"`',
   '`kosmos task check <project-id> <task-number> 2 unmet "<what is still wrong>"`',
+  '',
+  'When an unmet check\'s part goes to another task, add `--moved-to <that task\'s number>`',
+  'after the words, so both tasks show where it went.',
   '',
   'Then mark it built with a short note (it holds 1000 characters, room to say what is',
   'covered and what is not). Once every check is reported met, the note is optional:',
@@ -1348,8 +1352,10 @@ function block() {
  *     new heading; the Windows block lacks one heading the Mac block has, so missingFrom never offers it there.
  *     WEAKEST PREMISE, NAMED: that the board writes an agent's instructions on the agent's own platform (true while
  *     agents run on the computer whose board writes them).
+ *  51. kosmos#8668: how a check was checked holds 1000 characters (the built note's room), and an unmet check's part
+ *     can be linked to the task it went to with `--moved-to`. No new heading.
  */
-const DOCTRINE_VERSION = 50;
+const DOCTRINE_VERSION = 51;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

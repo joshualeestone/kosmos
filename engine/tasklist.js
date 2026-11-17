@@ -339,11 +339,23 @@ function showLines(body, num, project) {
       const r = results[i];
       if (r && typeof r === 'object' && typeof r.met === 'boolean' && typeof r.how === 'string') {
         lines.push('       ' + (typeof r.by === 'string' && r.by.trim() ? q(r.by) : 'an agent') + ' says ' + (r.met ? 'met' : 'not met') + ': "' + q(r.how) + '"'
-          + (whenWords(r.at) ? ', ' + whenWords(r.at) : ''));
+          + (whenWords(r.at) ? ', ' + whenWords(r.at) : '')
+          + (r.met === false && Number.isSafeInteger(r.movedTo) && r.movedTo > 0 ? '; moved to task ' + r.movedTo : ''));   // #8668
       } else {
         lines.push('       not reported yet');
       }
     });
+  }
+  /* #8668: unmet checks on other tasks of this project whose part moved to this one, from theirs (stored once, there). */
+  const here = [];
+  for (const o of tasks) {
+    if (!o || o.number === n || !Array.isArray(o.doneWhen) || !Array.isArray(o.doneWhenResults)) continue;
+    o.doneWhen.forEach((c, i) => { const r = o.doneWhenResults[i]; if (r && r.met === false && r.movedTo === n && Number.isSafeInteger(o.number)) here.push({ from: o.number, check: i + 1 }); });
+  }
+  if (here.length) {
+    here.sort((a, b) => a.from - b.from || a.check - b.check);
+    lines.push('Moved here from other tasks:');
+    for (const m of here) lines.push('    check ' + m.check + ' of task ' + m.from + ', reported not met there');
   }
   if (!x.isClosed && x.repeatWords) field('Repeats', one(x.repeatWords) + (x.repeatNextWords ? ', next ' + one(x.repeatNextWords) : ''));
   // Review 6: a repeating task's last run (what `task ran` records), so its latest delivery is part of the task whole.

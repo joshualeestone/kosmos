@@ -26804,7 +26804,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #8464 item 2: an agent reports how one done-when check went. Body { check: <number>, met: true|false, how: "<one
-     line>" }. Named as done-when names its caller, and only an agent on the project; the screen has no such report (the
+     line>", movedTo?: <task number> (#8668, unmet only: the task its unmet part went to) }. Named as done-when names its caller, and only an agent on the project; the screen has no such report (the
      person changes the checks themselves), and an unnamed caller is refused by tasks.setCheckResult (403). */
   const taskCheck = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/check$/);
   if (taskCheck && req.method === 'POST') {
@@ -26822,7 +26822,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const by = who.card ? who.card.sessionName : null;
         // #4733, as the built note: the setup guide's words are masked before they are stored.
-        const out = tasks.setCheckResult(id, taskCheck[2], body.check, body.met, typeof body.how === 'string' ? guideMasked(by, body.how) : body.how, { by });
+        const out = tasks.setCheckResult(id, taskCheck[2], body.check, body.met, typeof body.how === 'string' ? guideMasked(by, body.how) : body.how, { by, movedTo: body.movedTo === undefined ? null : body.movedTo });   // #8668
         sendJson(res, 200, { task: taskForCaller(req, body, out.task), changed: out.changed });
       } catch (err) {
         const msg = String((err && err.message) || '');

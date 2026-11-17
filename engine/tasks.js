@@ -78,6 +78,8 @@ function dueProblem(dueDate) {
    every other field here follows. */
 const DONE_WHEN_MAX = 3;
 const DONE_CHECK_MAX = 200;
+/* What makes a line not one line of plain text (see doneWhenProblem). Shared with a check report's words (#8668). */
+const NOT_ONE_LINE_RE = /(?!\u200c)[\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Zl}\p{Zp}\u115f\u1160\u3164\uffa0]/u;
 function doneWhenProblem(doneWhen) {
   if (doneWhen === undefined || doneWhen === null) return null; // none / clear
   /* The sentences carry no double quote: install/kosmos lifts a refusal out of the JSON with a sed that stops at the
@@ -94,7 +96,7 @@ function doneWhenProblem(doneWhen) {
        reads), private use, unassigned and lone surrogates, line and paragraph separators, and the blank Hangul fillers.
        Except U+200C (zero-width non-joiner), which Persian and several Indic scripts need to spell a word (review 6):
        it joins nothing and carries no words. */
-    if (/(?!\u200c)[\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Zl}\p{Zp}\u115f\u1160\u3164\uffa0]/u.test(c)) return 'each done-when check has to be one line of plain text';
+    if (NOT_ONE_LINE_RE.test(c)) return 'each done-when check has to be one line of plain text';
     if (c.trim().length > DONE_CHECK_MAX) return `each done-when check has to be ${DONE_CHECK_MAX} characters or fewer`;
   }
   return null;
@@ -120,7 +122,10 @@ function doneWhenWords(list) {
    verification: every reader says the agent "says" or "reported" it, never that it is met. Nothing parses the built note (#5705). The results go when what
    they describe goes: a changed check drops its own result, a new list drops them all, and taking the built mark off,
    new work and a reopen drop them with the landed commit (LANDED_FIELDS). Closing keeps them, as it keeps the commit. */
-const CHECK_HOW_MAX = DONE_CHECK_MAX;   // checked by doneWhenProblem, whose limit this is
+/* #8668: how a check was checked is evidence (two values and where each came from), not a check's sentence, so it has
+   the built note's room (BUILT_NOTE_MAX, #8352) rather than the 200 a check has; a cut-down proof reads as a stronger one.
+   Counted in characters, as the built note is. `movedTo`, on an unmet report only: the task the unmet part went to. */
+const CHECK_HOW_MAX = 1000;
 /** The results as stored, aligned with `t.doneWhen`: a list of the same length, or null when there are no checks. */
 function checkResultsOf(t) {
   const checks = t && Array.isArray(t.doneWhen) && t.doneWhen.length ? t.doneWhen : null;
@@ -129,7 +134,8 @@ function checkResultsOf(t) {
   return checks.map((_, i) => {
     const r = stored[i];
     return r && typeof r === 'object' && typeof r.met === 'boolean' && typeof r.how === 'string'
-      ? { met: r.met, how: r.how, by: typeof r.by === 'string' ? r.by : null, at: typeof r.at === 'string' ? r.at : null } : null;
+      ? { met: r.met, how: r.how, by: typeof r.by === 'string' ? r.by : null, at: typeof r.at === 'string' ? r.at : null,
+        ...(r.met === false && Number.isSafeInteger(r.movedTo) && r.movedTo > 0 ? { movedTo: r.movedTo } : {}) } : null;
   });
 }
 /** { total, reported, met } over a task's checks, or null when it has none. */
@@ -1770,13 +1776,19 @@ function changeDoneWhen(projectId, n, nextFrom, { by = null, person = false } = 
  * name, required: a report is an agent's word, and an unnamed one could be nobody's. The number is read inside the
  * write, against the checks as they are then. A closed task is refused (409), as is a task with no checks or no such
  * check. The same report again records nothing. Returns { task, changed }. Throws with a sentence and `err.status`.
+ * #8668: `movedTo`, a task number, says an UNMET check's part went to that task (another task on this project); the task
+ * page shows the link on both tasks. Refused with met (a met check went nowhere) and for this task itself.
  */
-function setCheckResult(projectId, n, check, met, how, { by = null } = {}) {
+function setCheckResult(projectId, n, check, met, how, { by = null, movedTo = null } = {}) {
   const fail = (msg, status) => { const e = new Error(msg); if (status) e.status = status; return e; };
   if (typeof check !== 'number' || !Number.isInteger(check) || check < 1) throw fail('the check number has to be 1 or more, as kosmos task list shows them');
   if (typeof met !== 'boolean') throw fail('say whether the check is met or unmet');
   if (typeof how !== 'string' || !how.trim()) throw fail('say in one line how you checked it');
-  if (doneWhenProblem([how.trim()])) throw fail(`how you checked it has to be one line of plain text, ${CHECK_HOW_MAX} characters or fewer`);
+  if (NOT_ONE_LINE_RE.test(how.trim())) throw fail('how you checked it has to be one line of plain text');
+  if (Array.from(how.trim()).length > CHECK_HOW_MAX) throw fail(`keep how you checked it to ${CHECK_HOW_MAX} characters or fewer`);
+  if (movedTo !== null && movedTo !== undefined && (typeof movedTo !== 'number' || !Number.isSafeInteger(movedTo) || movedTo < 1)) throw fail('moved to needs the number of the task the unmet part went to, as kosmos task list shows it');
+  const moved = movedTo === null || movedTo === undefined ? null : movedTo;
+  if (moved !== null && met) throw fail('only an unmet check can be moved to another task; a met one is done here');
   const who = doneWhenSetter(typeof by === 'string' ? by.trim() : null);
   if (!who) throw fail('a check report needs the agent that makes it, and this caller could not be named', 403);
   const said = how.trim();
@@ -1792,16 +1804,18 @@ function setCheckResult(projectId, n, check, met, how, { by = null } = {}) {
     const results = checkResultsOf(t);
     if (!results) throw fail('that task has no done-when checks to report on', 409);
     if (check > results.length) throw fail(`that task has ${results.length} done-when ${results.length === 1 ? 'check' : 'checks'}, so there is no check ${check}`, 409);
+    if (moved !== null && moved === t.number) throw fail('a check cannot be moved to its own task; name the task the unmet part went to');
+    if (moved !== null && !byNumber(p, moved)) throw fail('there is no task ' + moved + ' on this project for the unmet part to have moved to', 409);
     const was = results[check - 1];
-    if (was && was.met === met && was.how === said && was.by === who) { changed = t; throw NO_WRITE; }
+    if (was && was.met === met && was.how === said && was.by === who && (was.movedTo || null) === moved) { changed = t; throw NO_WRITE; }
     didChange = true;
-    changed = { ...t, doneWhenResults: results.map((r, i) => (i === check - 1 ? { met, how: said, by: who, at: new Date().toISOString() } : r)) };
+    changed = { ...t, doneWhenResults: results.map((r, i) => (i === check - 1 ? { met, how: said, by: who, at: new Date().toISOString(), ...(moved !== null ? { movedTo: moved } : {}) } : r)) };
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   } catch (err) {
     if (err !== NO_WRITE) throw err;
   }
-  if (didChange) taskchat.record(projectId, changed.number, { kind: 'check-reported', check, met, how: said, by: who });
+  if (didChange) taskchat.record(projectId, changed.number, { kind: 'check-reported', check, met, how: said, by: who, ...(moved !== null ? { movedTo: moved } : {}) });
   return { task: changed, changed: didChange };
 }
 
