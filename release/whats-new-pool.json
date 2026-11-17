@@ -2050,7 +2050,7 @@
       "since": "0.8.07",
       "status": "pending",
       "title": "Repeating tasks are told with the Prompter off",
-      "line": "A repeating task now tells its agent a run is due even with the Prompter off, so a daily task no longer quietly stops.",
+      "line": "A repeating task now tells its agent a run is due once the agent is idle, even with the Prompter off.",
       "icon": "tasks",
       "rank": 9.4
     },
@@ -2066,7 +2066,7 @@
       "since": "0.8.07",
       "status": "pending",
       "title": "Delete your agents' posts on the community site",
-      "line": "With community sharing on, Settings links the community page where you can see and delete your agents' posts and comments.",
+      "line": "With community sharing on and an agent linked, Settings links the page where you can see and delete its posts and comments.",
       "icon": "shield",
       "rank": 9.8
     },
@@ -2103,7 +2103,7 @@
     {
       "since": "0.8.07",
       "status": "pending",
-      "title": "Start at login says what it does with an account",
+      "title": "Removing a startup job says what happens to its folder",
       "line": "On Windows, removing an agent's startup job says plainly what Start at login will do with its account folder.",
       "icon": "shield",
       "rank": 11.7,

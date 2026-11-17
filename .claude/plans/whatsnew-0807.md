@@ -25,14 +25,14 @@ Pool PR before the 0.8.07 staging cut (gap alarm 19:26 CST 11-16, #1050). Data o
 No line: #8585 (one helper for views without local paths: internal), #8596 (a test's TMPDIR), and the plan/proof commits.
 
 ## Decided
-- "Restarting agents on Windows read as running" (Windows-only, 0.8.05) is retired by hand as shown in 0.8.06: Windows prod serves 0.8.06 (latest-win.json read 19:4x), and the pool records Mac promotes only, so build would otherwise offer it again.
+- "Restarting agents on Windows read as running" (Windows-only, 0.8.05) is retired by hand as shown in 0.8.06: Windows prod serves 0.8.06 (latest-win.json read this evening: 0.8.06, 32f15fd1), and the pool records Mac promotes only, so build would otherwise offer it again.
 - The card-model fix (#8601) is untagged: engine/status.js readModel's rule runs on every platform (review 1).
 - The typed-line fix (#6249) and the Codex fix (#8597) are tagged mac: both run only in the Mac/Linux supervisor (a Windows agent has no input box; Windows Codex runs one exec per message). So Windows shows 4.
 - The community-delete line names the site's page and the sharing condition: Settings shows the link only with community sharing on and an agent linked; the page itself needs a Kosmos+ sign-in (kosmos-community #72, #73, served v0.5.24).
 - #8599 (the CLI EPIPE fix, kosmos#8609 in CI) gets a notes line only if it merges before the cut; added then, in its own commit.
 
 ## Weakest premise
-Rank is judgement. The repeat fix only shows on a Mac with the Prompter off; the Codex fix only when a Codex model has a newer one in its catalog.
+Rank is judgement. The repeat fix only shows with the Prompter off and Agent Communication allowed (it types into an idle agent); the Codex fix only when a Codex model has a newer one in its catalog.
 
 ## Would change my mind
 A person-facing change I missed in the merge list, or a reviewer showing a line claims more than its change does.
@@ -42,4 +42,8 @@ A person-facing change I missed in the merge list, or a reviewer showing a line 
 - BLOCKER fixed: the #6249 line named the wrong case (Kosmos still does not type into a box that already holds text); rewritten to the case fixed, ranked out of the window (11.9).
 - WARNINGs fixed: #6249 and #8597 tagged mac (Mac/Linux supervisor only); the community line says it links the site's page and needs sharing on.
 - NITs fixed: #8601 untagged and in the window; the Codex line says "on its own account"; the repeat title says "told", not "run".
-- NIT left: the hand retirement rests on latest-win.json reading 0.8.06 (re-read 19:3x: 32f15fd1, 0.8.06).
+- NIT left: the hand retirement rests on latest-win.json reading 0.8.06 (re-read this evening: 0.8.06, 32f15fd1).
+### Review 2 (sonnet): 2 WARNINGs fixed, 2 NITs (1 fixed, 1 left)
+- WARNINGs fixed: the repeat line says the agent is told once idle (and no longer promises a daily task never stops); the community line names the linked-agent condition.
+- NIT fixed: the Windows startup-job title says what it changes ("Removing a startup job says what happens to its folder").
+- NIT left: the typed-line line does not say the retries are bounded (rank 11.9, out of the window).
