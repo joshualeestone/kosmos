@@ -76985,7 +76985,7 @@ function pjDocsPaintPage() {
     b.append(n, w); box.append(b);
   }
   const floor = PJ_DOCS_TOTAL > PJ_DOCS_FILES.length
-    ? '; showing the newest ' + PJ_DOCS_FILES.length + ', the rest are in the folder itself' : '';   // kosmos#8627: the route sends the newest, whatever order they are shown in
+    ? '; showing ' + (PJ_DOCS_VIEW_PARTIAL ? '' : 'the newest ') + PJ_DOCS_FILES.length + ', the rest are in the folder itself' : '';   // kosmos#8627: newest only when the walk read the whole folder
   count.textContent = (PJ_DOCS_TOTAL + (PJ_DOCS_TOTAL === 1 ? ' file' : ' files'))
     + (pages > 1 ? ' · page ' + (PJ_DOCS_PAGE + 1) + ' of ' + pages : '') + floor;
   count.hidden = false;

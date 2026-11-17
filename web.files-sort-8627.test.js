@@ -100,7 +100,8 @@ test('the project route cuts AFTER sorting newest first, so its count line can s
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-  assert.match(SCRIPT, /'; showing the newest ' \+ PJ_DOCS_FILES\.length \+ ', the rest are in the folder itself'/);
+  // A walk stopped by its read budget sorted only what it read, so the line says "newest" only when nothing was cut short.
+  assert.match(SCRIPT, /'; showing ' \+ \(PJ_DOCS_VIEW_PARTIAL \? '' : 'the newest '\) \+ PJ_DOCS_FILES\.length \+ ', the rest are in the folder itself'/);
 });
 
 test('both pages carry the control with the four words, newest first chosen, and remember per page', () => {
