@@ -542,6 +542,12 @@ function plan(name, opts) {
       }
       const pane = folders.find((r) => inside(r.folder));
       if (pane) { live = { session: pane.session, sessionName: pane.session }; byFolder = true; }
+      /* kosmos#8644 item 2: a folder cut short by a newline in its name is only the START of the real one. It could be
+         inside this agent's folder only if this agent's folder begins with it (a head already inside is found above).
+         Then fail closed, as one unreadable line did for every agent before; otherwise it is someone else's pane. */
+      else if (folders.some((r) => r.cut && [...homes].some((h) => h.startsWith(fold(path.resolve(r.folder)))))) {
+        return { ok: false, because: `Something open on this computer could not be read, so we could not check whether ${shown} is running and have not offered to delete anything. Closing windows you are not using may help.` };
+      }
     }
   }
   catch {

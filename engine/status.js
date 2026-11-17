@@ -8187,13 +8187,22 @@ function setPaneFolderSource(fn) { paneFolderSource = typeof fn === 'function' ?
    closed cannot drop the pane it could not read, so until that pane closes every agent's delete is refused. An EMPTY
    folder is well-formed: tmux prints none for a dead pane or one whose program it may not look into (a root
    process). Such a pane is taken to be in no agent's folder; that is a premise, not a measurement. */
+/* kosmos#8644 item 2: a folder whose name holds a newline splits its pane's line in two: a head that reads (the pane id,
+   the session, the folder up to the newline) and a tail that does not. One such pane, anyone's, used to refuse every
+   delete on the computer. Now the head keeps `cut: true` (its folder is only the start of the real one), and the caller
+   decides whether the real folder could be inside the agent it asks about. Still THROWN, so every delete still fails
+   closed: a line that starts a pane and does not read (a newline in the session name), and a tail with no pane before it. */
 function readPaneFolders(out) {
   const lines = String(out || '').split('\n').filter(Boolean);
-  return lines.map((line) => {
+  const rows = [];
+  let last = null;
+  for (const line of lines) {
     const m = /^%\d+\t([^\t]*)\t(.*)$/.exec(line);
-    if (!m) throw new Error('we could not make sense of what came back');
-    return { session: m[1], folder: m[2] };
-  }).filter((r) => r.folder);
+    if (m) { last = { session: m[1], folder: m[2] }; rows.push(last); continue; }
+    if (/^%\d+\t/.test(line) || !last) throw new Error('we could not make sense of what came back');
+    last.cut = true;   // the rest of last's folder, after a newline in its name
+  }
+  return rows.filter((r) => r.folder);
 }
 /* kosmos#8644 item 1: one body, two drivers (as tmuxPanesSteps), so the board's synchronous read and the delete plan's
    async one can never read the folders differently, and both fail closed the same way. */
