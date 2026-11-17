@@ -86,13 +86,17 @@ test('kosmos#8616: a malformed id, both flags, --post with -n, or with --unanswe
       ['room', 'newboard', '--post', '42'], ['room', 'newboard', '--post', 'm0'], ['room', 'newboard', '--post', 'mx1'],
       ['room', 'newboard', '--post'], ['room', 'newboard', '--post', 'm1', '--since', 'm2'],
       ['room', 'newboard', '--post', 'm1', '-n', '3'], ['room', 'newboard', '--since', 'm1', '--unanswered'],
-      ['room', 'newboard', '--post', 'm12345678901234'],
+      ['room', 'newboard', '--post', 'm12345678901234'], ['room', 'newboard', '--post', 'm1', '--post', 'm2'],
     ]) {
       hits.length = 0;
       const out = await runCli(args, envFor(port));
       assert.equal(out.code, 2, args.join(' ') + ' was not refused: ' + out.stdout + out.stderr);
       assert.deepEqual(roomReads(hits), [], args.join(' ') + ' reached the board');
     }
+    // Review 1: a repeated flag is named as repeated, not as a mix of the two.
+    const twice = await runCli(['room', 'newboard', '--since', 'm1', '--since=m2'], envFor(port));
+    assert.equal(twice.code, 2);
+    assert.match(twice.stdout + twice.stderr, /Give --since once/);
   }));
 
 test('kosmos#8616: an older board that ignored the flag is said; a plain read is not (control)', { skip: SKIP_POSIX_SHELL }, () =>

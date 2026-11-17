@@ -24655,13 +24655,21 @@ const server = http.createServer(async (req, res) => {
           const want = readPost !== null ? readPost : readSince;
           if (!ROOM_POST_ID.test(want)) { refuse(400, 'That is not a post id. A post id looks like m42: it is the id in brackets before each post in kosmos room.'); return; }
           const at = rows.findIndex((r) => r && r.id === want);
+          /* Review 1: a room log that could not be read in full cannot say a post is not there. */
+          if (at < 0 && rec.ok === false) { refuse(503, 'Kosmos could not read all of this room, so it cannot say whether post ' + want + ' is in it. Try again in a moment.'); return; }
           if (at < 0) { refuse(404, 'There is no post ' + want + ' in this room.'); return; }
+          /* Review 1: an archived post is not read back. Archiving tells the person its posts "leave this room and what
+             agents read here" (the archive confirm), so a read by id keeps that promise. */
+          if (readPost !== null && at < archivedCount) { refuse(404, 'Post ' + want + ' is in this room\'s archive, which agents do not read.'); return; }
           if (readPost !== null) {
             tail.push(rows[at]);
-            byIdHead = ROOM_BY_ID_HEAD + 'post ' + want + (at < archivedCount ? ' (it is in this room\'s archive)' : '') + ':\n';
+            byIdHead = ROOM_BY_ID_HEAD + 'post ' + want + ':\n';
           } else {
             const start = Math.max(at + 1, archivedCount);
             const skipped = start - (at + 1);   // archived rows after the post: not shown here, as in every agent read
+            /* Not capped for outside senders (#3311's half): paging forward recovers every row, so the cap's purpose (local
+               posts kept in a fixed-size view) does not arise; a page may be all outside rows. "After" is the room's own
+               order (by time), so a slow post written after this read can sort before rows already read (review 1). */
             for (let i = start; i < rows.length && tail.length < textRows; i++) tail.push(rows[i]);
             const more = rows.length - start - tail.length;
             let lastId = null;
@@ -24823,7 +24831,8 @@ const server = http.createServer(async (req, res) => {
         });
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
-          : (lines.length || onlyUnanswered ? ''
+          // kosmos#8616 review 1: a read by id says what it found in its own head; the room-wide empty lines would be false.
+          : (lines.length || onlyUnanswered || byIdHead ? ''
             // kosmos#7365 slice 3: a room whose every message is archived is not an empty room.
             : archivedCount > 0 ? 'Everything said in this room so far is archived; nothing has been said since.\n'
             : 'Nothing has been said in this room yet.\n');

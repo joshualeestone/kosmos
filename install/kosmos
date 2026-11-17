@@ -5694,9 +5694,11 @@ cmd_room() {
     case "$_arg" in
       --unanswered) _unans="&unanswered=1" ;;
       --post|--since)
+        [ "$_byid" != "${_arg#--}" ] || { say "Give $_arg once."; exit 2; }
         [ -z "$_byid" ] || { say "Read one post (--post) or the posts after one (--since), not both."; exit 2; }
         _byid="${_arg#--}"; _byidval="${1:-}"; shift 2>/dev/null || true ;;
       --post=*|--since=*)
+        [ "$_byid" != "$(_a="${_arg%%=*}"; printf '%s' "${_a#--}")" ] || { say "Give ${_arg%%=*} once."; exit 2; }
         [ -z "$_byid" ] || { say "Read one post (--post) or the posts after one (--since), not both."; exit 2; }
         _byid="${_arg%%=*}"; _byid="${_byid#--}"; _byidval="${_arg#*=}" ;;
       --all) _all=1 ;;
@@ -5708,7 +5710,7 @@ cmd_room() {
     esac
   done
   if [ -z "$project" ]; then
-    say "Usage: kosmos room <project-id> [-n N] [--unanswered [--all]] [--post <post-id> | --since <post-id>]   (read a room, the last 40 rows or the last N, up to 200; --post: that one post; --since: the rows after that post, oldest first, up to -n; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too), and an agent's ask you posted after, not citing an older post, is named on its own line instead; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
+    say "Usage: kosmos room <project-id> [-n N] [--unanswered [--all]] [--post <post-id> | --since <post-id>]   (read a room, the last 40 rows or the last N, up to 200; --post: that one post (not one in the room's archive); --since: the rows after that post in the room's order, oldest first, up to -n; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too), and an agent's ask you posted after, not citing an older post, is named on its own line instead; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
     exit 2
   fi
   # kosmos#8616: a post id is m and a number, as kosmos room shows it in brackets ([m42] or m42 both read).

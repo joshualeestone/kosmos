@@ -25,6 +25,7 @@ const fleet = require('./test-support/fleet');
 const messages = require('./engine/messages');
 const projects = require('./engine/projects');
 const sendertoken = require('./engine/sendertoken');
+const roomarchive = require('./engine/roomarchive');
 
 let base;
 let roster;
@@ -89,6 +90,37 @@ test('kosmos#8616: --since reads the rows after the post, oldest first, up to n,
   assert.ok(shown(page.text, ids[2]) && shown(page.text, ids[3]) && !shown(page.text, ids[4]), 'n=2 is not the OLDEST two after it:\n' + page.text);
   const last = await room(pid, '&since=' + ids[5]);
   assert.ok(last.text.includes('Read by id: nothing after ' + ids[5] + ' yet.\n'), last.text);
+  // Review 1: the room-wide empty line would be false here (the room has posts).
+  assert.ok(!/Nothing has been said in this room yet|is archived; nothing has been said since/.test(last.text), 'an empty --since called the room empty:\n' + last.text);
+});
+
+/* Posts dated `daysAgo` days back (oldest first), so an archive marker can cover them (a marker reaches only rows over a day old). */
+function oldPosts(project, n, daysAgo) {
+  const ids = [];
+  for (let k = 0; k < n; k++) {
+    const id = 'm' + (86160 + (++seq));
+    append({ id, kind: 'post', from: POSTER, to: [ME], project, text: 'old ' + id, at: new Date(Date.now() - daysAgo * 86400000 - (n - k) * 1000).toISOString(), outcomes: {} });
+    ids.push(id);
+  }
+  return ids;
+}
+
+test('kosmos#8616 review 1: an archived post is not read back by --post; --since past the archive says what it skipped', async () => {
+  const pid = newRoom('ById8616f');
+  const old = oldPosts(pid, 3, 3);
+  const fresh = posts(pid, 2);
+  assert.equal(roomarchive.setMarker(pid, new Date().toISOString()).ok, true);
+  const r = await room(pid, '&post=' + old[1]);
+  assert.equal(r.status, 404, 'an archived post was read back:\n' + r.text);
+  assert.equal(r.text, 'Post ' + old[1] + ' is in this room\'s archive, which agents do not read.\n');
+  // CONTROL: a live post in the same room reads.
+  const live = await room(pid, '&post=' + fresh[0]);
+  assert.equal(live.status, 200, live.text);
+  assert.ok(shown(live.text, fresh[0]));
+  const since = await room(pid, '&since=' + old[0]);
+  assert.equal(since.status, 200, since.text);
+  assert.ok(since.text.includes('[kosmos] 2 rows right after ' + old[0] + ' are in this room\'s archive and not shown here.\n'), since.text);
+  assert.ok(shown(since.text, fresh[0]) && shown(since.text, fresh[1]) && !shown(since.text, old[1]) && !shown(since.text, old[2]), since.text);
 });
 
 test('kosmos#8616: a post id that is malformed or not in this room, both flags, or with --unanswered, is refused in words', async () => {
