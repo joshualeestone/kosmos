@@ -47,6 +47,7 @@ any surface drawn from what the page last read; it is pinned by the unit test, n
 - loadProjects also writes the sign-in flags (it does not repaint the agent page, on purpose). When status says 403 and
   a projects read fails another way, modelLine's wording can read "Unknown Model" until the next status poll while the
   note stays up. Cosmetic, and it self-heals on the next poll.
+- After a sign-in the note and the lock clear on the next status poll, at most 5 s later (setInterval(tick, 5000)).
 
 ## Not done
 Only the Model section is made inert. Other sections' writes (Instructions, Remove, Memory's Compact/Clear) are also

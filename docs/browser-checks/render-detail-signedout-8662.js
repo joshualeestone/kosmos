@@ -104,6 +104,15 @@ const state = (page) => page.evaluate(() => {
       check(`${look}: relay sign-out: the board's own sentence and Sign in button, the Model section inert`,
         relay.note && /phone or computer was signed out/i.test(relay.text) && button && relay.inert, JSON.stringify({ ...relay, button }));
 
+      // The note's link leads to the sign-in steps: following it while signed out lands on the board's not-signed-in box.
+      refuse = '403';
+      await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && !n.hidden && n.querySelector('a'); }, null, { timeout: 20000 }).catch(() => {});
+      await Promise.all([page.waitForNavigation({ waitUntil: 'load' }).catch(() => {}), page.click('#d-signedout a').catch(() => {})]);
+      await page.waitForFunction(() => /not signed in/i.test(document.body.innerText) && /Sign this tab in again/.test(document.body.innerText), null, { timeout: 20000 }).catch(() => {});
+      const landed = await page.evaluate(() => ({ box: /This board is not signed in/i.test(document.body.innerText), steps: /Sign this tab in again/.test(document.body.innerText) }));
+      check(`${look}: the note's link lands on the board's sign-in box and its steps`, landed.box && landed.steps, JSON.stringify(landed));
+      await page.goto(BASE + '/?agent=' + encodeURIComponent(first || ''), { waitUntil: 'load' });
+
       refuse = 'down';
       await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && n.hidden; }, null, { timeout: 20000 }).catch(() => {});
       const down = await state(page);
