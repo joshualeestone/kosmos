@@ -45,6 +45,14 @@ one more case where it can happen. And in the not-pressed case someone was typin
 earlier, so a person is likelier to be at it than for a plain unsent line, and the 30 s first retry is the one most
 likely to land mid-edit. Still bounded by the whole-line match.
 
+## Stated limit
+
+A line too long for the box (it scrolls at about 7 rows, roughly 500 characters at 80 columns) never shows whole, so
+once it met other text it is never pressed, even after the other text goes. The #6717 sweep then moves the box into a
+draft after 10 minutes (when it is short enough to read whole) or leaves it. Accepting a visible end would risk the
+other text sitting in the rows above it, which is the one thing this must never send. The sentence a sender reads says
+so ("a line too long for the box never does"), and a test pins it.
+
 ## What would change my mind
 
 If the "other" text turns out to be our own line drawn differently (the #8333 hypothesis), remembering does not help:
@@ -78,3 +86,10 @@ Challenge loop, capped at 8 rounds unless a BLOCKER is open.
     promise ("sends it later only if...", no longer "on its own") is added only when the line was kept.
   - NITs fixed: comments no longer claim the next delivery's look is exact, and drop the "emptied box forgets it"
     claim; weakest premise extended (someone was at that box under 2 s earlier).
+- Round 2 (blind, sonnet): no BLOCKER, 2 WARNING, 3 NIT.
+  - WARNING answered by decision and words: a long mixed line is never pressed (stated limit above); the sentence
+    now says the whole line must show and that a line too long for the box never does.
+  - WARNING fixed: the restart test's "whole" control drew a 1,700-character line unscrolled, a screen no pane
+    draws; it now uses a 380-character line (5 rows) and a 4-row end of it. The scroll test is titled as the limit.
+  - NITs: the retry re-read returning `other` without `ours` is commented as deliberate; `sawOurs` from the first
+    read is kept (any press still needs an exact whole-line match); the test count (8) is right.

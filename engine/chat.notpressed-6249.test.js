@@ -79,7 +79,7 @@ test('#6249: a line not pressed (other text in the box) carries its number, and 
   assert.equal(v1.confirm, 'not-pressed', 'PRECONDITION: the not-pressed branch');
   assert.equal(t1.enters(), 0, 'never an Enter over the other text');
   assert.ok(Number.isInteger(v1.unsentSeq), 'a number, so the message row can be told when it goes');
-  assert.match(v1.because, /sends it later only if the other text goes and the box shows just this line/);
+  assert.match(v1.because, /sends it later only if the other text goes and the whole of this line shows in the box/);
   // The other text is still there: refused as before, nothing pressed.
   const t2 = arm([box(OTHER + ' ' + MSG)]);
   assert.equal(chat.deliver('al', 'a later line', roster).inputHeld, true);
@@ -164,7 +164,9 @@ test('#6249: a box that empties (someone sent or cleared both) forgets the line;
   assert.equal(later.enters(), 0);
 }));
 
-test('#6249: a scrolled box showing only an end of a line that met other text is never pressed (CONTROL: a plain unsent line is)', () => withAgent((roster) => {
+/* The stated limit: a line too long for the box never shows whole, so once it met other text it is never pressed, even
+   after the other text is gone; the #6717 sweep is what ends the stall. */
+test('#6249 (the stated limit): a scrolled box showing only an end of a line that met other text is never pressed (CONTROL: a plain unsent line is)', () => withAgent((roster) => {
   const scrolled = box(LONG, 7);
   // CONTROL: a plain unsent long line, the same scrolled box later: the next delivery presses it (#6436).
   arm([EMPTY, scrolled]);
@@ -180,13 +182,16 @@ test('#6249: a scrolled box showing only an end of a line that met other text is
   assert.equal(t.enters(), 0, 'the rows above the visible end are where the other text was');
 }));
 
+/* A line that fits the box whole (five rows at 80 columns; 7 rows is where a box scrolls), so both arms are screens a
+   real pane draws: the whole line, and a four-row end of it (a narrower pane), which a plain line would be pressed on. */
+const MID = LONG.slice(0, 380);
 test('#6249: the mark survives a board restart', () => withAgent((roster) => {
-  quiet(() => { arm([EMPTY, box(OTHER + ' ' + LONG)]); chat.deliver('al', LONG, roster); });
+  quiet(() => { arm([EMPTY, box(OTHER + ' ' + MID)]); chat.deliver('al', MID, roster); });
   chat.restartUnsentForTests();
-  const t = arm([box(LONG, 7)]);
+  const t = arm([box(MID.slice(-300))]);
   assert.equal(chat.deliver('al', 'next', roster).inputHeld, true);
   assert.equal(t.enters(), 0, 'still only whole after the restart');
-  const whole = arm([box(LONG), EMPTY, EMPTY, box('next'), EMPTY]);
+  const whole = arm([box(MID), EMPTY, EMPTY, box('next'), EMPTY]);
   assert.equal(chat.deliver('al', 'next', roster).earlierSubmitted, true, 'CONTROL: whole, it is pressed');
   assert.equal(whole.enters(), 2);
 }));

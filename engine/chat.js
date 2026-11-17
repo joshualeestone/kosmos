@@ -1086,7 +1086,7 @@ const SUBMIT_LOOK_MS = 60;   // round 4, measured on 2.1.300: the box reads empt
 const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there, and Kosmos presses Enter on it again on its own over the next few minutes, then every ten minutes while it sits there, and before the next thing it types to this agent, while the box shows only that line';
 const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
 /* #6249 (Angel, 11-16): said only when the box was seen holding our words (rememberMixed kept the line). */
-const KEPT_LATER = ', and Kosmos sends it later only if the other text goes and the box shows just this line';
+const KEPT_LATER = ', and Kosmos sends it later only if the other text goes and the whole of this line shows in the box (a line too long for the box never does)';
 const UNSENT_OTHER_KEPT_BECAUSE = UNSENT_OTHER_BECAUSE + KEPT_LATER;
 const NOT_OURS_BECAUSE = 'its input box already holds text that was not sent, so this was not typed behind it';
 /* kosmos#8333: what the delivery log may say about a box that was not pressed. Everything but the marks a fold is made of
@@ -1132,7 +1132,7 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
       const shownChips = new Set(shown.match(ANY_CHIP) || []);
       const couldBeOurFold = !pin && !shown.replace(ANY_CHIP, '') && String(wire).length >= CHIP_MIN_CHARS;   // the tie's own test
       if (isLoneChip(box.text) || couldBeOurFold || pinned.some((c) => shownChips.has(c))) return { outcome: 'other', retried };
-      return stillHoldsOurEnd(box.text, wire) ? { outcome: 'other', retried, ours: true } : { outcome: 'sent', retried };
+      return stillHoldsOurEnd(box.text, wire) ? { outcome: 'other', retried, ours: true } : { outcome: 'sent', retried };   // #6249: ours kept by settle
     }
     if (waited < settleMs) {
       yield { wait: SUBMIT_LOOK_MS };
@@ -1143,7 +1143,7 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
     if (!verifyAtSend(card).ok) return { outcome: 'unsent', retried, text: box.text };   // never an Enter into what it became
     const now = readComposer(target);   // round 4: read again right before it, so nothing typed meanwhile goes with ours
     if (!now.ok) return { outcome: 'unread', retried };   // round 6: a box that cannot be read is not someone's text
-    if (composerHolds(now.text, wire, pin) !== 'ours') return { outcome: now.text ? 'other' : 'sent', retried };
+    if (composerHolds(now.text, wire, pin) !== 'ours') return { outcome: now.text ? 'other' : 'sent', retried };   // #6249: no `ours`, so not kept (deliberately conservative)
     const again = tmux(['send-keys', '-t', target, 'Enter']);
     if (!again.ran || again.status !== 0) return { outcome: 'unsent', retried, text: now.text };
     retried = true;
