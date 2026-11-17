@@ -291,6 +291,7 @@ render-switch-claude-5091
 render-talk
 render-talk-anchor-1926
 render-talk-fill-2622
+render-talk-readfail-8629
 render-talk-search
 render-task-receipt-prs-6842
 render-task-taps-5200
