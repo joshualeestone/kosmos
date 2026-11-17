@@ -148,13 +148,30 @@ test('kosmos#8644 item 2: a folder split by a newline refuses only the agents it
   // Someone else's pane in "/somewhere/else<newline>...": its real folder is under /somewhere, never inside agent5.
   status.setPaneFolderSource(() => `%1\tw\t/somewhere/else\n${dir}/tail-of-a-split-path\n`);
   assert.equal(mac.plan('agent5').ok, true, 'a split folder that cannot be agent5\'s refused agent5 (#8644: one pane refused every delete)');
-  // Its head is the start of agent5's own folder: the real folder could be inside it, so it fails closed.
+  // Review 1: a head that is only a STRING prefix ("…/age" then a newline then "nt5/notes") is a folder named
+  // "age<newline>nt5", not agent5: it does not hold agent5 either.
   const head = dir.slice(0, dir.length - 3);
   status.setPaneFolderSource(() => `%1\tw\t${head}\n${dir.slice(-3)}/notes\n`);
-  const p = mac.plan('agent5');
-  assert.equal(p.ok, false, 'a split folder that could be inside agent5 let the plan offer it');
+  assert.equal(mac.plan('agent5').ok, true, 'a split folder that is only a string prefix of agent5 refused agent5');
+});
+
+test('kosmos#8644 item 2: an agent whose folder name holds a newline, with a pane working in it, still refuses', () => {
+  const name = 'ag\nent7';
+  const dir = leftoverAgent(name);
+  status.setPaneFolderSource(() => '');
+  assert.equal(mac.plan(name).ok, true, 'CONTROL: with nothing running, the agent is offered (so a refusal below is the pane)');
+  status.setPaneFolderSource(() => `%1\tw\t${dir}/notes\n`);   // tmux prints the newline raw: head "…/ag", tail "ent7/notes"
+  const p = mac.plan(name);
+  assert.equal(p.ok, false, 'a pane working inside a folder whose name holds a newline let the plan offer it');
   assert.match(p.because, /Something open on this computer could not be read/);
-  assert.doesNotMatch(p.because, /Try again in a moment/);
+});
+
+test('kosmos#8644 review 1: a pane line whose folder is not an absolute path is unreadable, and refuses', () => {
+  leftoverAgent('agent8');
+  status.setPaneFolderSource(() => '%1\tw\trelative/folder\n');
+  assert.equal(mac.plan('agent8').ok, false, 'a relative folder (shifted fields) was read as a folder');
+  status.setPaneFolderSource(() => '%1\tw\t/somewhere/else\n');
+  assert.equal(mac.plan('agent8').ok, true, 'CONTROL: an absolute unrelated folder refused');
 });
 
 test('kosmos#8644 item 2: a line that starts a pane and does not read, or a fragment with no pane before it, still refuses every agent', () => {
