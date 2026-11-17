@@ -31,8 +31,11 @@ matches the old order. Check the iPhone app's Files list; file a follow-up card 
   among files would be a new layout nobody asked for).
 - Client-side sort, no new route parameter: the agent browse answer is capped at BROWSE_MAX_ENTRIES and the
   project route at 500, both already say when they are partial.
-- Weakest premise: the project route sends the newest 500, so on a folder over 500 files "Oldest first" is the
-  oldest of those 500. The screen already says the rest are in the folder itself.
+- Weakest premise: both lists are capped before the page sorts them. The project route sends the newest 500
+  (it sorts, then cuts), so on a folder over 500 files "Oldest first" is the oldest of those 500; its count line
+  says "showing the newest 500". The agent browse route cuts at 1,000 entries in the order the disk reads them, so
+  on a folder that big "Newest first" can miss the newest file; its overflow line says not all are listed.
+  Deferred (noted on the card): fixing it means sorting on the server before the cap.
 
 ## Tests
 - web.files-sort-8627.test.js: lifted functions, the four orders, default and fallback, undated and tie
@@ -44,5 +47,5 @@ matches the old order. Check the iPhone app's Files list; file a follow-up card 
 ## Status
 - [x] Built, unit tests and browser check green (54 PASS; 11 FAIL with the default mutated to A to Z).
 - [x] Surface gate GATE_RC=0 (trailer for render-room-msgbox-2806.js, which passes).
-- [ ] challenge-loop
+- [ ] challenge-loop (iteration 1: 3 WARNINGs, 2 fixed, 1 deferred; iteration 2: the cap test and this premise)
 - [ ] PR, CI, merge, design shots, iPhone follow-up check
