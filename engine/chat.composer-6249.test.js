@@ -353,7 +353,7 @@ test('#6249 round 2, reversed by kosmos#6436: a remembered line hours old is sti
    remembered now, and pressed only when the box shows exactly all of it (engine/chat.notpressed-6249.test.js). */
 test('#6249 round 2, reversed 11-16 (see chat.notpressed-6249.test.js): a line that met other text is never pressed while the other text is there', () => withAgent({}, (roster) => {
   arm([EMPTY, box(MSG), box('the person typed ' + MSG)]);
-  chat.deliver('al', MSG, roster);
+  assert.ok(Number.isInteger(chat.deliver('al', MSG, roster).unsentSeq), 'PRECONDITION: the line was kept');
   const t = arm([box('the person typed ' + MSG)]);
   const v = chat.deliver('al', 'a later line', roster);
   assert.equal(v.inputHeld, true);

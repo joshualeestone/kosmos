@@ -236,12 +236,14 @@ function loadUnsent() {
   if (!raw || typeof raw !== 'object') return;
   for (const [target, e] of Object.entries(raw)) {
     /* A seq names a message row of the process that wrote it, so a loaded line carries none. */
-    if (e && typeof e.wire === 'string' && e.wire && Date.now() - (Number(e.at) || 0) <= UNSENT_KEEP_MS) {
+    /* #6249: a line kept beside other text is written as `mixedWire`, never `wire`, so a board from before this skips
+       it rather than load it as a plain line it would press by a visible end. */
+    const mixed = !!e && typeof e.mixedWire === 'string' && !!e.mixedWire;
+    const wire = mixed ? e.mixedWire : e && e.wire;
+    if (e && typeof wire === 'string' && wire && Date.now() - (Number(e.at) || 0) <= UNSENT_KEEP_MS) {
       unsentIdNext += 1;
-      unsentWires.set(target, { id: unsentIdNext, wire: e.wire, at: Number(e.at) || 0, seq: null, seen: typeof e.seen === 'string' ? e.seen : '',
-        /* #6249: a board downgraded to a version from before `mixed` drops this mark, and would take the line by a
-           visible end. */
-        target, ...(e.mixed === true ? { mixed: true } : {}), ...(typeof e.chip === 'string' && e.chip ? { chip: e.chip, chipPid: typeof e.chipPid === 'string' ? e.chipPid : '' } : {}) });
+      unsentWires.set(target, { id: unsentIdNext, wire, at: Number(e.at) || 0, seq: null, seen: typeof e.seen === 'string' ? e.seen : '',
+        target, ...(mixed ? { mixed: true } : {}), ...(typeof e.chip === 'string' && e.chip ? { chip: e.chip, chipPid: typeof e.chipPid === 'string' ? e.chipPid : '' } : {}) });
     }
   }
 }
@@ -254,7 +256,7 @@ function saveUnsent() {
     for (const [target] of oldest) unsentWires.delete(target);
   }
   const out = {};
-  for (const [target, e] of unsentWires) if (!e.light) out[target] = { wire: e.wire, at: e.at, seen: e.seen || '', ...(e.mixed ? { mixed: true } : {}), ...(e.chip ? { chip: e.chip, chipPid: e.chipPid || '' } : {}) };
+  for (const [target, e] of unsentWires) if (!e.light) out[target] = { ...(e.mixed ? { mixedWire: e.wire } : { wire: e.wire }), at: e.at, seen: e.seen || '', ...(e.chip ? { chip: e.chip, chipPid: e.chipPid || '' } : {}) };
   try {
     const file = UNSENT_FILE();
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -2656,7 +2658,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
         if (!earlierSubmitted && box.ok && rememberedShows(box.text, kept, false, box.rows)) {
           /* Still there: a full record's day runs from now; a light record keeps its time and its one retry. */
           rememberUnsent(target, kept.light ? kept : { ...kept, at: Date.now() });
-          scheduleUnsentRetries(target, allowed.card, kept.light ? UNSENT_RETRY_MS.slice(0, 1) : UNSENT_RETRY_MS);
+          scheduleUnsentRetries(target, allowed.card, kept.light ? UNSENT_RETRY_MS.slice(0, 1) : kept.mixed ? UNSENT_RETRY_MS.slice(1) : UNSENT_RETRY_MS);
         }
       }
       /* busy (round 2): a sweep that counts its tries waits for the box rather than spend them on it. */
@@ -2885,7 +2887,9 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
     } else if (result && result.outcome === 'other' && result.ours && emptyBefore) {
       /* #6249 (Angel, 11-16): our end was seen in the box with other text. Before this it was forgotten. Other 'other'
          answers (a chip, a box that never showed our end) are forgotten as before, and so is any whose box was not read
-         empty before our paste (an older line may be there too). */
+         empty before our paste (an older line may be there too). Known cost: if our Enter did send it and our end came
+         back within the watch (a peer quoting it, or recalled from history beside other text), it may be pressed again
+         should the box later show it whole. */
       seq = rememberMixed(target, wire, allowed.card);
       keptMixed = true;
     } else if (result && result.outcome === 'unread') {

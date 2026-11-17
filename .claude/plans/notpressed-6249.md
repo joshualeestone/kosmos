@@ -23,7 +23,8 @@ sweep later moves the whole box into a draft for the person, so the agent never 
   records for any unsubmitted verdict) and from settle() for the after-Enter `other` outcome.
 - `rememberedShows`: a `mixed` line counts only when the box shows all of it. A plain unsent line may also count by a
   long visible end in a scrolled box; a mixed one may not, because the rows above that end are where the other text was.
-- `mixed` is kept on disk and loaded back, so a board restart keeps the rule.
+- On disk a mixed line is written as `mixedWire`, never `wire`, so a restart keeps the rule and a board from before
+  this (which reads only `wire`) skips the record instead of pressing it by a visible end.
 - The two sentences a sender reads now say what happens next: pressed on its own only if the other text goes and the
   box shows just this line.
 
@@ -71,7 +72,8 @@ in composerHolds, not here.
   other text is there).
 - Control 1 (re-measured after round 6): the new file against main's chat.js: 11 of 12 fail. The one that passes is the
   fold test (nothing kept), which holds on main because main keeps nothing.
-- Control 2: with only the `if (kept.mixed) return false;` line removed, the scroll and restart tests fail.
+- Control 2 (round 5 shape): with the `mixed` guard in rememberedShows reduced to `composerIsAll` alone, the seven-row
+  test fails; with the whole guard removed, the scroll and restart tests fail.
 - engine/autohandoff-log-8021.test.js: the board log's sentence for a line kept beside other text.
 - Focused run: the chat composer/unsent/stuckinput/pastechip/chipshapes/8021 files: 135 pass. Guards
   (fixture-discipline, sandbox-data-4796, no-brand-refs, no-name-refs, engine.reachable) and engine/messages*: 387 pass.
@@ -130,3 +132,10 @@ Challenge loop, capped at 8 rounds unless a BLOCKER is open.
     the comment.
   - NITs fixed: the downgrade note sits on the `mixed` spread; the plan's counts re-measured. Not acted on: a test of
     `keptMixed` without an unsentSeq (no path sets one without the other).
+- Round 7 (blind, opus): no BLOCKER, 1 WARNING, 1 CONVENTION, 4 NIT.
+  - WARNING fixed: a downgraded board would load a kept line as a plain one; it is now written as `mixedWire`, which
+    an older board does not read. Tested on the file.
+  - NIT fixed: the next delivery's re-remember of a kept line also skips the 30 s retry.
+  - NIT fixed (words): the known cost of a line our Enter did send coming back within the watch is in the comment.
+  - NIT fixed: the composer round-2 test asserts the line was kept first. CONVENTION fixed: Control 2 re-described.
+  - NIT not acted on: the sentence does not mention the #6717 draft path (same as before this change).

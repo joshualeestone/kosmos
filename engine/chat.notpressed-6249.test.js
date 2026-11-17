@@ -97,14 +97,15 @@ test('#6249: a not-pressed line is kept on disk marked mixed; a plain unsent lin
   quiet(() => { arm([EMPTY, box(OTHER + ' ' + MSG)]); chat.deliver('al', MSG, roster); });
   const mixed = Object.values(JSON.parse(fs.readFileSync(file, 'utf8')));
   assert.equal(mixed.length, 1);
-  assert.equal(mixed[0].wire.endsWith(MSG), true);
-  assert.equal(mixed[0].mixed, true, 'marked: it met other text');
+  assert.equal(mixed[0].mixedWire.endsWith(MSG), true);
+  assert.equal(mixed[0].wire, undefined, 'no `wire`: a board from before this skips the record instead of pressing it by its end');
   chat.resetForTests();
   arm([EMPTY, box(MSG)]);
   assert.equal(chat.deliver('al', MSG, roster).confirm, 'unsent', 'PRECONDITION: a plain unsent line');
   const plain = Object.values(JSON.parse(fs.readFileSync(file, 'utf8')));
   assert.equal(plain.length, 1);
-  assert.equal(plain[0].mixed, undefined, 'a plain line carries no mark');
+  assert.equal(plain[0].mixedWire, undefined, 'a plain line carries no mark');
+  assert.equal(plain[0].wire.endsWith(MSG), true);
 }));
 
 test('#6249: other text that never showed our words (a fold) is not kept, and the sentence promises nothing', () => withAgent((roster) => {
