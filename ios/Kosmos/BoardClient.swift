@@ -47,6 +47,37 @@ final class BoardClient: ObservableObject {
             }
         }
 
+        /// kosmos#8055: the phase in a few plain words, no computer's name, for the device log.
+        var word: String {
+            switch self {
+            case .starting: return "starting"
+            case .signedOut: return "signed out"
+            case .noMac: return "no computer"
+            case .waitingForAllow: return "waiting for Allow"
+            case .connecting: return "connecting"
+            case .denied: return "not allowed"
+            case .kosmosPlusDown: return "Kosmos+ not answering"
+            case .kosmosPlusRefused: return "Kosmos+ refused"
+            case .unreachable: return "computer not answering"
+            case .macRefused: return "the computer refused"
+            case .signInAgain: return "sign in again"
+            case .signInHere: return "sign in here"
+            case .macHeld: return "the computer is not taking sign-ins"
+            case .live: return "live"
+            }
+        }
+
+        /// kosmos#8055 (reviews 4, 5, 7): the states an open chat stays open through, the ones the client leaves by itself:
+        /// starting (a reconnect, often with no agents yet), connecting, the computer not answering (retried every 15 s), and
+        /// live. Every other phase needs the person (Try again, Allow, sign in) on the connection screen, so it still closes
+        /// an open chat, as before: Kosmos+ not answering, a wait for Allow, a refusal, signed out, no computer.
+        var passing: Bool {
+            switch self {
+            case .starting, .connecting, .unreachable, .live: return true
+            default: return false
+            }
+        }
+
         /// The phases in which a list already on screen stays (kosmos#8054), the ones AgentsView.shownList keeps.
         var keepsList: Bool {
             switch self {
@@ -297,6 +328,11 @@ final class BoardClient: ObservableObject {
     private var loop: Task<Void, Never>?
     // Bumped by every start and stop, so a run that was cancelled cannot write the screen afterwards.
     private var generation = 0
+    #if DEBUG
+    private var sampleFlipDone = false   // kosmos#8055: KOSMOS_SAMPLE_RETURN_FLIP flips once, on the first return
+    /// kosmos#8055 review 3: set when that flip has happened, so WarmReturnChatUITests can see it did (ContentView marks it).
+    @Published private(set) var sampleFlipped = false
+    #endif
     // The Mac this client holds a session for and the Kosmos+ session it was opened under: a sign-out or another
     // account in the board's web tabs drops it (start()).
     private var admitted: (mac: Board.Mac, url: URL, session: String)?
@@ -348,6 +384,23 @@ final class BoardClient: ObservableObject {
             // Josh 2026-11-06 18:14: with KOSMOS_SAMPLE_AGENTS=1, KOSMOS_SAMPLE_WAIT=allow or connecting holds the board's
             // connection screen on that wait (every tab that shows it), for a simulator picture and the UI test; a Mac
             // named Studio Mac, code 7K3Q.
+            // kosmos#8055: KOSMOS_SAMPLE_RETURN_FLIP=1 makes the first start after the app came back to the front a reconnect
+            // with no agents for one second before the board answers again, the flip that closed an open chat, for
+            // WarmReturnChatUITests.
+            // gen > 1 skips the launch's own start; cameBackAt is set only once the app has really come back.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_RETURN_FLIP"] == "1", gen > 1, cameBackAt != nil, !sampleFlipDone {
+                sampleFlipDone = true
+                sampleFlipped = true
+                // review 7: a reconnect with the list not read yet (the client empties it and starts again), the state an
+                // open chat used to close in: the page swapped to the first-connect wait. The client leaves it by itself.
+                agents = []
+                phase = .starting
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                    guard let self, self.generation == gen else { return }
+                    self.start()
+                }
+                return
+            }
             switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_WAIT"] {
             case "allow": phase = .waitingForAllow(mac: "Studio Mac", code: "7K3Q"); return
             case "connecting": phase = .connecting(mac: "Studio Mac"); return

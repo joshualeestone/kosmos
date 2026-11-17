@@ -177,6 +177,16 @@ struct ContentView: View {
                 }
                 // Mona Lisa's spec: the app's tint is the board's ink, so the selected tab is not system blue.
                 .tint(Palette.primary)
+                #if DEBUG
+                // kosmos#8055 review 3: a one-point mark once KOSMOS_SAMPLE_RETURN_FLIP's flip has happened, so the UI test
+                // can tell a return that went through the wait from one that did not.
+                .overlay(alignment: .topLeading) {
+                    if board.sampleFlipped {
+                        Color.clear.frame(width: 1, height: 1).accessibilityElement().accessibilityLabel("sample flip")
+                            .accessibilityIdentifier("sample-flip-fired")
+                    }
+                }
+                #endif
                 // kosmos#7266 (Josh 10-28): the tab bar shrinks while a list scrolls down and comes back on scrolling up,
                 // the system's own behaviour on iOS 26 (Instagram-style). Earlier systems keep the bar as it is.
                 .modifier(TabBarMinimizesOnScroll())

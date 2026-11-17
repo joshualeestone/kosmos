@@ -105,8 +105,9 @@ struct AgentsView: View {
                     }
                 }
                 .background(Palette.ground.ignoresSafeArea())
-                // The link sits on the page, not on a row: a row (or the whole list) that stops being drawn, as when the
-                // Mac asks for Allow again, would otherwise close the chat under the person.
+                // The link sits on the page, not on a row, so a row that stops being drawn does not close the chat. The page's
+                // content being swapped (the connection screen for the list) closes it too, so shownList keeps the list while a
+                // chat is open through a brief state (kosmos#8055).
                 .background(
                     NavigationLink(isActive: Binding(get: { openAgent != nil }, set: { if !$0 { linkClosed(); openAgent = nil } })) {
                         if let agent = openAgent {
@@ -191,6 +192,15 @@ struct AgentsView: View {
             #endif
         }
         .onDisappear { visible = false; wasBackground = false; client.hide(BoardClient.agentsViewer); closedNote = nil }   // kosmos#8055: the line goes once the person has left the list
+        // kosmos#8055 (Josh 11-17 12:52: the screen closed a chat 2 s after the app came back): the list giving way to the
+        // connection screen, and coming back.
+        // In the device log only: with a chat open through a brief state the swap no longer happens, so it is not named as a
+        // chat's cause (a refusal still swaps it and closes the chat, as before).
+        .onChange(of: shownList == nil) { gone in
+            let why = client.phase.word + ", " + String(client.agents.count) + " agents"
+            let chat = openAgent == nil ? "no chat open" : "a chat open"
+            NSLog("[Chat] %@", gone ? "the list gave way to the connection screen (" + why + ", " + chat + ")" : "the list is shown (" + why + ", " + chat + ")")
+        }
         // No polling in the background: stop when the app leaves the screen, resume when it comes back.
         .onChange(of: scenePhase) { phase in
             guard visible else { return }
@@ -332,9 +342,22 @@ struct AgentsView: View {
     // from a single place: a list drawn from several switch branches is a new list at every phase change, which throws
     // the person back to the top and cancels a pull in progress.
     private var shownList: Bool? {
+        // kosmos#8055 review 1, 4, 5: while a chat is open through a brief state (Phase.passing) the page under it stays a
+        // list, even an empty one (the first start after a return can show no agents yet). Not covered (review 5): a Keychain
+        // read that misses on a return reads as signed out, which is not brief, so that still closes the chat.
+        // (Phase.passing is today the same set as keepsList, so only an empty list reaches here; a logic test pins it.)
+        if Board.keepsPageUnderOpen(open: openAgent != nil, passing: client.phase.passing), client.agents.isEmpty {
+            if case .live = client.phase { return client.agentsListStale }
+            return true
+        }
         guard !client.agents.isEmpty else { return nil }
         // The reaching spinner is only for a first connect with nothing to show yet (spec frame 3); the rule for "not
         // updating" is the client's, shared with the tab badge (kosmos#7342 review 1).
+        /* kosmos#8055 (Josh 11-17 12:52): swapping the page for the connection screen closed an open chat (measured: a
+           reconnect with no agents on a return did it; WarmReturnChatUITests). An open chat through a brief state with no
+           list is kept above; an open chat in a phase that needs the person (Allow, Try again, sign in) still reaches the
+           guard below and closes, as before. Back on the list a wait shows as before; pressing Back during one is expected to show the list
+           while the chat slides away, then the connection screen (not measured). */
         guard client.phase.keepsList else { return nil }
         return client.agentsListStale
     }

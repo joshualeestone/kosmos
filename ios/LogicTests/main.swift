@@ -6101,6 +6101,28 @@ do {
           "CONTROL: live or on its first connect, the tab's own list or wait")
 }
 
+// kosmos#8055 review 5: the brief states an open chat stays open through (AgentsView, Today and Tasks keep their page).
+do {
+    let mac = Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true)
+    let all: [BoardClient.Phase] = [.starting, .live(mac: mac), .signedOut, .noMac, .waitingForAllow(mac: "Studio", code: "7K3Q"),
+                                    .connecting(mac: "Studio"), .denied(mac: "Studio"), .kosmosPlusDown, .kosmosPlusRefused,
+                                    .unreachable(mac: "Studio"), .macRefused(mac: "Studio"), .signInAgain(mac: "Studio"),
+                                    .signInHere(mac: "Studio"), .macHeld(mac: "Studio", because: nil)]
+    check(all.allSatisfy { $0.keepsList == $0.passing }, "the states an open chat is kept through are exactly the list-keeping ones (AgentsView then needs only the empty-list arm)")
+    check(all.filter { $0.passing }.count == 4, "four states the client leaves by itself: the list-keeping ones (a new phase defaults to closing)")
+    let closing: [BoardClient.Phase] = [.signedOut, .noMac, .waitingForAllow(mac: "Studio", code: "7K3Q"), .denied(mac: "Studio"), .kosmosPlusDown,
+                                        .kosmosPlusRefused, .macRefused(mac: "Studio"), .signInAgain(mac: "Studio"),
+                                        .signInHere(mac: "Studio"), .macHeld(mac: "Studio", because: nil)]
+    check(closing.allSatisfy { !$0.passing }, "CONTROL: Kosmos+ not answering, a refusal, signed out, no computer and a wait for Allow still close an open chat")
+    check(all.filter { $0.passing }.allSatisfy { Board.keepsPageUnderOpen(open: true, passing: $0.passing) }
+          && closing.allSatisfy { !Board.keepsPageUnderOpen(open: true, passing: $0.passing) },
+          "with a chat or task open, Agents, Today and Tasks keep their page through a brief state and swap it on the others")
+    check(all.allSatisfy { !Board.keepsPageUnderOpen(open: false, passing: $0.passing) },
+          "CONTROL: with nothing open the page is never held, whatever the phase")
+    check(all.allSatisfy { !$0.word.isEmpty && !$0.word.contains("Studio") && !$0.word.contains("7K3Q") && !$0.word.contains("\u{2014}") },
+          "each phase has words for the device log, with no computer's name, no Allow code and no em dash")
+}
+
 // kosmos#8055: the line that says why an open chat closed, and when one is written.
 do {
     check(Board.chatClosedLine(name: "Dana", why: "the screen closed it under 1 s after the app came back, probably not a press on back", at: "2:14 PM")
