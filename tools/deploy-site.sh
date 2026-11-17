@@ -1081,7 +1081,12 @@ else
   if [ -n "$_vercel_token" ]; then
     ( _ds_vercel_once ) || _ds_vrc=$?
   else
-    ( KOSMOS_VERCEL_BEFORE_RETRY=_ds_before_retry site_vercel_deploy "$EXPORT" _ds_vercel_once ) || _ds_vrc=$?
+    # Its temp files go in a directory of this run's own, removed whatever the retry did: the hook's `exit 75/76` ends
+    # site_vercel_deploy before its own clean-up, which left kosmos-vercel.* files behind (the suite's #4273 leak check).
+    _ds_vtmp=$(mktemp -d "${TMPDIR:-/tmp}/deploy-site-vercel-tries.XXXXXX") \
+      || { echo "deploy-site: could not make a temp folder for the deploy's tries"; rm -f "$VRC" "$VOUT" "$VLAST" "$VRC1"; rm -rf "$EXPORT"; exit 1; }
+    ( KOSMOS_VERCEL_TMP=$_ds_vtmp KOSMOS_VERCEL_BEFORE_RETRY=_ds_before_retry site_vercel_deploy "$EXPORT" _ds_vercel_once ) || _ds_vrc=$?
+    rm -rf "$_ds_vtmp"
   fi
   _ds_last_rc=$(cat "$VRC1" 2>/dev/null)
   cp "$VLAST" "$VOUT" 2>/dev/null; rm -f "$VLAST" "$VRC1"
