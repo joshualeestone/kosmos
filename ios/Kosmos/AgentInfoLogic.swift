@@ -421,28 +421,38 @@ extension Board {
         if p == "meta" || (a["authMode"] as? String) == "muse" { return "meta" }
         return ["openai", "google", "xai", "alibaba", "deepseek", "glm", "minimax"].contains(p) ? p : "anthropic"
     }
-    // The board's filter (fillSwitchAccounts' list, paintKeyedProviderOptions' `has`): a live check that is not 'none',
-    // not marked unofferable, and for Claude one that shares the agents' history (memoryShared, #5091).
-    private static func offerable(_ a: [String: Any], for provider: SwitchProvider) -> Bool {
+    // The board's list filter (fillSwitchAccounts, claudeNoTarget): a live check that is not 'none', not marked
+    // unofferable, and for Claude one that shares the agents' history (memoryShared, #5091). A rejected or signed-out
+    // BADGE does not remove a row here: the board still lists it, as Move does (review 1, finding 5).
+    private static func listed(_ a: [String: Any], for provider: SwitchProvider) -> Bool {
         guard accountProviderOf(a) == provider.rawValue else { return false }
-        let c = a["connection"] as? [String: Any]
-        if let c {
-            if let badge = c["badge"] as? String, badge == "rejected" || badge == "signed_out" { return false }
-            if (c["state"] as? String) == "none" { return false }
-        }
+        if ((a["connection"] as? [String: Any])?["state"] as? String) == "none" { return false }
         if (a["offerable"] as? Bool) == false { return false }
         if provider == .anthropic && (a["memoryShared"] as? Bool) != true { return false }
         return true
     }
-    // The board's acctPrimaryName, without its Qwen host form (a Qwen row is named by its label).
-    private static func accountName(_ a: [String: Any]) -> String {
+    // The board's acctOfferableTarget, which only Gemini, Grok and Qwen's place in the provider menu also need
+    // (paintKeyedProviderOptions' `has`): a rejected or signed-out badge does not count there.
+    private static func offerableTarget(_ a: [String: Any]) -> Bool {
+        guard let c = a["connection"] as? [String: Any] else { return true }
+        if let badge = c["badge"] as? String { return badge != "rejected" && badge != "signed_out" }
+        return (c["state"] as? String) != "none"
+    }
+    // The board's acctPrimaryName: a chosen name first, then for Qwen its own words, then email, key tail, label.
+    static func accountName(_ a: [String: Any]) -> String {
         func text(_ k: String) -> String? { (a[k] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } }
-        let keyed = ["openai", "google", "xai", "alibaba", "deepseek", "glm", "minimax"].contains(((a["provider"] as? String) ?? "").lowercased())
-        if keyed, let n = text("name") { return n }
+        if let n = text("name") { return n }
+        let p = ((a["provider"] as? String) ?? "").lowercased()
+        if p == "alibaba" {
+            if (a["local"] as? Bool) == true { return "Qwen on this computer" }
+            if let host = text("baseUrl").flatMap({ URL(string: $0)?.host }), !host.isEmpty { return host }
+            return text("label") ?? "Qwen endpoint"
+        }
+        let keyed = ["openai", "google", "xai", "deepseek", "glm", "minimax"].contains(p)
         return text("email") ?? (keyed ? text("keyTail").map { "API key ending " + $0 } : nil) ?? text("label") ?? text("dir") ?? ""
     }
     static func switchAccounts(_ rows: [[String: Any]], for provider: SwitchProvider) -> [SwitchAccount] {
-        rows.filter { offerable($0, for: provider) }.compactMap { a in
+        rows.filter { listed($0, for: provider) }.compactMap { a in
             guard let dir = a["dir"] as? String, !dir.isEmpty else { return nil }
             return SwitchAccount(dir: dir, label: accountName(a), isDefault: (a["isDefault"] as? Bool) == true)
         }
@@ -453,7 +463,18 @@ extension Board {
         guard d.isNamedOurs, !d.neverRecorded else { return [] }
         let current = providerOf(d)
         if current == "meta" { return [] }   // the board: moving an agent on Meta Muse is not offered yet
-        return SwitchProvider.allCases.filter { $0.rawValue != current && !switchAccounts(rows, for: $0).isEmpty }
+        return SwitchProvider.allCases.filter { p in
+            guard p.rawValue != current else { return false }
+            let list = rows.filter { listed($0, for: p) }
+            // Gemini, Grok and Qwen need a row the board's provider menu would also count (acctOfferableTarget).
+            if p == .google || p == .xai || p == .alibaba { return list.contains(where: offerableTarget) }
+            return !list.isEmpty
+        }
+    }
+    // What the section says when it offers nothing, in the board's words where the board has them.
+    static func switchNothingLine(_ d: AgentDetails) -> String {
+        if providerOf(d) == "meta" { return "Moving an agent on Meta Muse to another provider is not offered yet." }
+        return "There is nothing to switch it to yet: no other provider on your computer has an account it can use. Add one on its board, in Settings, AI Models."
     }
 
     // The model menu (fillSwitchModel): Claude's from /api/roles, OpenAI's per account; the rest pick their own.
@@ -481,8 +502,9 @@ extension Board {
         return r
     }
     static func openaiModelsRequest(mac: URL, dir: String) -> URLRequest? {
+        // A SITES entry in server.ios-routes-6838.test.js, as the other requests that carry a query.
         var c = URLComponents(url: URL(string: "/api/accounts/openai/models", relativeTo: mac)!.absoluteURL, resolvingAgainstBaseURL: false)
-        c?.queryItems = [URLQueryItem(name: "dir", value: dir)]
+        c?.percentEncodedQueryItems = [URLQueryItem(name: "dir", value: dir.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")]
         guard let url = c?.url else { return nil }
         var r = URLRequest(url: url)
         r.setValue("application/json", forHTTPHeaderField: "Accept")
