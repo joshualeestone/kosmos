@@ -9,6 +9,9 @@
   reader will see them (code comments), so none is left implicit.
 - newestReplyAt has one rule for what counts as a reply (isReplyLine), with no second, dead check.
 - The cut-first-line gap is recorded (comment) as a known, bounded case.
+- Review 1: the named-world comment corrected (this process's world, not the default one) and the real gap named: a
+  board in a named world has sessions `name+world`, so the #8601 rule never applies there (older than #8601; noted).
+  Cache refresh list completed (install, remove, disable, enable); a second stat-count test for the file-time path.
 - Behaviour otherwise unchanged: the #8601 tests, the Codex #4416 tests and status.test.js pass as before.
 
 ## Change (engine/status.js only, plus one test)

@@ -232,3 +232,21 @@ test('kosmos#8605: one stat of the job file per reading', () => {
   }
   assert.equal(jobStats, 1, `the job file was stat'd ${jobStats} times for one reading`);
 });
+
+/* kosmos#8605: with no readable reply timestamp the transcript's file time decides, and the job is still stat'd once. */
+test('kosmos#8605: one stat of the job file when the file time decides', () => {
+  session('onestatfile', 'old.jsonl', replied('claude-opus-4-8'), 600);   // no timestamp on the reply
+  const jobFile = job('onestatfile', 5, 'claude-haiku-5-5');
+  const realStat = fs.statSync;
+  let jobStats = 0;
+  fs.statSync = function (p, ...rest) {
+    if (path.resolve(String(p)) === path.resolve(jobFile)) jobStats++;
+    return realStat.call(this, p, ...rest);
+  };
+  try {
+    assert.equal(status.readModel('onestatfile').earlierSession, true);
+  } finally {
+    fs.statSync = realStat;
+  }
+  assert.equal(jobStats, 1, `the job file was stat'd ${jobStats} times for one reading`);
+});

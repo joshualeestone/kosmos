@@ -6943,10 +6943,10 @@ function writtenBeforeJob(file, agentName) {
 
 /* The agent's job file's time (ms), or null when it has none or it cannot be read: the one job-file lookup the Codex
    rule (writtenBeforeJob) and the Claude rule (readBeforeJob) share, one stat per call.
-   kosmos#8605: named worlds (#1704) are not looked up here (no worldId), so this is the default world's job for the
-   name. The Claude rule is safe from that only because readModel applies it to the agent's own session, and a named
-   world's session (`ava+qa`) is not the bare name; a new caller passing only a name must not rely on it for another
-   world. */
+   kosmos#8605: no worldId is passed, so each lookup (plistPath, unitPath, taskFilePath) falls back to THIS process's
+   world (launchidentity.currentWorldId), never another world's job. Known gap, older than #8601: on a board running in a
+   named world (#1704) its agents' sessions are `name+world` (`ava+qa`), which readModel does not count as the agent's
+   own session, so the Claude rule never applies there and such a card keeps the old model until the next reply. */
 function jobMtime(agentName) {
   try {
     // #4918 review 11: on Linux the job file is the agent's systemd unit, not a plist (which never exists there).
@@ -6995,7 +6995,8 @@ function newestReplyAt(text) {
     if (!line || !isReplyLine(line)) continue;
     let row;
     try { row = JSON.parse(line); } catch { continue; }   // the tail's first line can be cut
-    // isReplyLine has already ruled out `<synthetic>` and API errors (kosmos#8605: one rule, not two).
+    // isReplyLine is the one reply rule (kosmos#8605): it rejects API errors and a line whose first "model" value starts
+    // with "<" (`<synthetic>`), tested on the raw line, as hasReplied does.
     if (!row || row.type !== 'assistant' || !row.message || typeof row.message.model !== 'string') continue;
     const at = Date.parse(row.timestamp);
     return Number.isFinite(at) ? at : null;
@@ -7010,7 +7011,7 @@ function newestReplyAt(text) {
    "@20251001") are set aside (review 5: a model the name table does not know yet still matches its dated form), or
    when they are shown under the same name. A job that cannot be read is "no".
    kosmos#8605: on Windows plannedModelOf reads the task through win32job.cachedTaskSpec, which this process refreshes
-   only on its own install or remove (#2717). That is right here because a model is changed only by create.setModel,
+   only on its own install, remove, disable or enable (#2717, #3013). That is right here because a model is changed only by create.setModel,
    called only from the board's own routes (server.js), so the board process that reads this has already refreshed
    it. A rewrite from another process would leave the cache on the old model and this would answer "same" (the old
    bug, silently): a new path that changes a model outside the board must forget the cached task (win32job). */
