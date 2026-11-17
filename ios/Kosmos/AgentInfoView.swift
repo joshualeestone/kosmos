@@ -33,6 +33,23 @@ struct AgentInfoView: View {
     @State private var asking: Board.FreshStart?
     @State private var freshLine: (text: String, ok: Bool)?
     @State private var freshBusy = false
+    // kosmos#8626: the provider switch. The accounts are /api/accounts (nil until read, the board's ACCOUNTS_LOADED;
+    // accountsFailed is its ACCOUNTS_UNREADABLE), Claude's models ride the /api/roles read the page already makes.
+    @State private var accountRows: [[String: Any]]?
+    @State private var accountsFailed = false
+    @State private var claudeModels: [Board.SwitchModel] = []
+    @State private var switchTo: Board.SwitchProvider?
+    @State private var switchAccount: String?
+    @State private var switchAccountTouched = false
+    @State private var switchModel = ""
+    @State private var openaiModels: [Board.SwitchModel] = []
+    @State private var openaiModelsLoading = false
+    @State private var openaiModelsGen = 0   // review 3: the newest load is the one that counts (the board's SWITCH_MODEL_GEN)
+    // Review 3: where a switch landed and where it came from, until /api/status catches up with the restart.
+    @State private var landed: (to: String, from: String)?
+    @State private var switching = false
+    @State private var switchLine: (text: String, ok: Bool)?
+    @State private var confirmSwitch = false
     // kosmos#7679: the Files section's read and its opener, owned here so they attach once, to the List (review 1).
     @State private var filesRead: Board.FilesSectionState = .hidden
     // kosmos#7679: whether the first Files read has come back, so the Files segment can tell loading from empty.
@@ -73,7 +90,9 @@ struct AgentInfoView: View {
         .navigationTitle(live.name)
         .toolbar(.hidden, for: .tabBar)
         .task { await load() }
-        .dotsRefresh { await load() }
+        // Review 6: a refresh clears a success or a "cannot tell" line (the refresh answers it); a refusal or a switch
+        // saved but not started stays, as it is still true.
+        .dotsRefresh { if let l = switchLine, l.ok || l.text == Board.switchUnknown { switchLine = nil }; await load() }
         .filesQuickLook(filesOpener, client: client)   // kosmos#7679: once, here, never on a Section's rows
         .confirmationDialog(asking.map { Board.freshConfirm($0, name: live.name).title } ?? "",
                             isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),
@@ -219,10 +238,15 @@ struct AgentInfoView: View {
                     Text(Board.modelLine(details)).foregroundColor(Palette.primary)
                 }
                 if let account = details.accountLabel { row("Account", account) }
+                if let landed, Board.providerOf(details) == landed.from {
+                    Text("Moving to \(Board.providerWord(landed.to)). This shows here once it has restarted.")
+                        .font(.footnote).foregroundColor(Palette.secondary)
+                }
             } else {
                 unread
             }
         } header: { label("Runs on") }
+        switchSection
         Section {
             HStack {
                 Text("How full").foregroundColor(Palette.primary)
@@ -243,6 +267,237 @@ struct AgentInfoView: View {
             Text("Each one shows what it stands to lose before you choose.")
         }
         moreRow
+    }
+
+    // MARK: Switch provider (kosmos#8626)
+
+    private var currentProvider: String? { landed?.to ?? details.map(Board.providerOf) }
+    private var switchTargets: [Board.SwitchProvider] {
+        guard let details, let rows = accountRows else { return [] }
+        return Board.switchTargets(details, accounts: rows, landed: landed?.to)
+    }
+    private var switchAccounts: [Board.SwitchAccount] {
+        guard let to = switchTo, let rows = accountRows else { return [] }
+        return Board.switchAccounts(rows, for: to)
+    }
+    private var switchModels: [Board.SwitchModel] {
+        switch switchTo {
+        case .anthropic: return claudeModels
+        case .openai: return openaiModels
+        default: return []
+        }
+    }
+    @ViewBuilder private var switchSection: some View {
+        if let details, details.isNamedOurs, !details.neverRecorded {
+            Section {
+                if accountRows == nil {
+                    if accountsFailed {
+                        Text("We could not check which providers your computer has connected. Pull down to try again.").foregroundColor(Palette.secondary)
+                    } else {
+                        HStack { Spacer(); SweepDots(label: "Checking your providers", scales: false); Spacer() }
+                    }
+                } else if switchTargets.isEmpty {
+                    Text(Board.switchNothingLine(details)).foregroundColor(Palette.secondary)
+                } else {
+                    Picker("Switch to", selection: $switchTo) {
+                        Text("Choose").tag(Board.SwitchProvider?.none)
+                        // kosmos#8635: each with its logo (a Label's image shows in the iOS 16+ menu; template images take
+                        // the menu's own colour, so they read in light and dark).
+                        ForEach(switchTargets) { p in
+                            Label { Text(p.label) } icon: { menuMark(p.mark) }.tag(Board.SwitchProvider?.some(p))
+                        }
+                    }
+                    .disabled(switching)
+                    // Review 1: only a pick resets the rest. Clearing it after a switch must not wipe the result line.
+                    .onChange(of: switchTo) { v in if v != nil { pickedProvider() } }
+                    if switchAccounts.count > 1 {
+                        // Review 1: "picked" is set by the person's own change only, never by the default this page
+                        // puts in when a provider is chosen (the board's SWITCH_ACCT_TOUCHED).
+                        Picker("Account", selection: Binding(get: { switchAccount }, set: { v in
+                            let changed = v != switchAccount
+                            switchAccount = v
+                            switchAccountTouched = true
+                            if changed && switchTo == .openai {
+                                // Review 5: the old list goes and the button waits in the same frame, not when the Task runs.
+                                openaiModels = []; switchModel = ""; openaiModelsLoading = true
+                                Task { await loadOpenaiModels() }
+                            }
+                        })) {
+                            ForEach(switchAccounts) { Text($0.label).tag(String?.some($0.dir)) }
+                        }
+                        .disabled(switching)
+                    } else if let only = switchAccounts.first {
+                        row("Account", only.label)
+                    }
+                    if openaiModelsLoading && switchTo == .openai {
+                        HStack { Text("Model").foregroundColor(Palette.primary); Spacer(); SweepDots(label: "Loading this account\u{2019}s models", scales: false) }
+                    } else if !switchModels.isEmpty {
+                        Picker("Model", selection: $switchModel) {
+                            ForEach(switchModels) { Text($0.label).tag($0.key) }
+                        }
+                        .disabled(switching)
+                    }
+                    if let to = switchTo, let from = currentProvider, to.rawValue != from {
+                        Text(Board.switchNote(from: from, to: to, name: live.name))
+                            .font(.footnote).foregroundColor(Palette.secondary)
+                        Button { confirmSwitch = true } label: {
+                            HStack {
+                                Text(switching ? "Switching\u{2026}" : "Switch and restart")
+                                if switching { Spacer(); SweepDots(label: "Switching", scales: false) }
+                            }
+                        }
+                        .disabled(switching || openaiModelsLoading)
+                        .confirmationDialog("Switch \(live.name) to \(to.titleWord)?", isPresented: $confirmSwitch, titleVisibility: .visible) {
+                            Button("Switch and restart") { Task { await doSwitch(to) } }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text(Board.switchNote(from: from, to: to, name: live.name))
+                        }
+                    }
+                }
+                if let switchLine {
+                    Text(switchLine.text).font(.footnote).foregroundColor(switchLine.ok ? Palette.secondary : Palette.dangerWord)
+                }
+            } header: { label("Switch AI provider") } footer: {
+                // Review 2: no claim that they are offered there (each has its own switch), only where they are done.
+                if Board.providerOf(details) != "meta" {
+                    Text("Some providers, such as Gemini on a Google subscription, can be switched only on your computer\u{2019}s board.")
+                }
+            }
+        }
+    }
+    // Review 1: after any read, a pick the fresh lists no longer hold is dropped, so what is sent is always something
+    // on screen (a switch that landed partway, an account removed on the computer, a model no longer listed).
+    private func keepPicksValid() {
+        // Review 6: with one row or none there is no menu, so nothing was picked from one (the board refills and resets).
+        if switchAccounts.count <= 1 { switchAccountTouched = false }
+        // Review 3: status has caught up (or moved on), so the landed provider is no longer needed.
+        if let l = landed, let d = details, Board.providerOf(d) != l.from || Board.providerOf(d) == l.to { landed = nil }
+        if let to = switchTo, !switchTargets.contains(to) { switchTo = nil; confirmSwitch = false; return }
+        guard switchTo != nil else { return }
+        if let dir = switchAccount, !switchAccounts.contains(where: { $0.dir == dir }) {
+            confirmSwitch = false   // review 3: a dialog never confirms an account that is not the one on screen
+            switchAccount = (switchAccounts.first(where: { $0.isDefault }) ?? switchAccounts.first)?.dir
+            switchAccountTouched = false
+            if switchTo == .openai {   // review 2: the new account's own list; review 6: the old one goes in this frame
+                openaiModels = []; switchModel = ""; openaiModelsLoading = true
+                Task { await loadOpenaiModels() }
+            }
+        }
+        if !switchModels.isEmpty, !switchModels.contains(where: { $0.key == switchModel }) {
+            switchModel = (switchModels.first(where: { $0.isDefault }) ?? switchModels.first)?.key ?? ""
+        }
+    }
+    /* kosmos#8635: a system menu ignores SwiftUI's size modifiers and draws each vector logo at its own size, and the
+       files frame their drawings differently (OpenAI's fills about half its viewBox, Gemini's and Grok's nearly all of it;
+       measured, the menu showed OpenAI at half the others' size). So each logo is trimmed to its drawn pixels, fitted
+       into one box with its aspect kept, and stays a template image, so it takes the menu's own colour in light and dark. */
+    // Review 1: made once per logo (it never changes), not on every redraw of the section.
+    private static var menuMarks: [String: UIImage] = [:]
+    private func menuMark(_ name: String) -> Image {
+        if let made = Self.menuMarks[name] { return Image(uiImage: made) }
+        guard let src = UIImage(named: name) else { return Image(systemName: "circle") }
+        let box = CGSize(width: 22, height: 22)
+        let crop = Self.drawnRect(src)
+        let scale = min(box.width / max(crop.width, 1), box.height / max(crop.height, 1))
+        let fitted = CGSize(width: crop.width * scale, height: crop.height * scale)
+        let drawn = UIGraphicsImageRenderer(size: box).image { _ in
+            // The whole source, scaled and shifted so its drawn part lands centred in the box.
+            src.draw(in: CGRect(x: (box.width - fitted.width) / 2 - crop.minX * scale, y: (box.height - fitted.height) / 2 - crop.minY * scale,
+                                width: src.size.width * scale, height: src.size.height * scale))
+        }
+        let made = drawn.withRenderingMode(.alwaysTemplate)
+        Self.menuMarks[name] = made
+        return Image(uiImage: made)
+    }
+    // The part of an image that has any ink, in its own points (the whole image when it cannot be read). Drawn into a
+    // bitmap made here with a known layout (RGBA, alpha the 4th byte): a renderer's own bitmap may be 64-bit or
+    // little-endian alpha-first, and reading the wrong byte finds no ink (measured: every logo came back whole).
+    private static func drawnRect(_ img: UIImage) -> CGRect {
+        let whole = CGRect(origin: .zero, size: img.size)
+        let px = 128
+        guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: px * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let raw = ctx.data
+        else { return whole }
+        // Review 1: the logo (a vector asset, often with no cgImage) is drawn straight into this small bitmap, never
+        // rasterised at its own nominal size first (OpenAI's is 716 points). Flipped so UIKit's top is row 0.
+        ctx.translateBy(x: 0, y: CGFloat(px)); ctx.scaleBy(x: 1, y: -1)
+        UIGraphicsPushContext(ctx)
+        img.draw(in: CGRect(x: 0, y: 0, width: px, height: px))
+        UIGraphicsPopContext()
+        let bytes = raw.bindMemory(to: UInt8.self, capacity: px * px * 4)
+        var minX = px, minY = px, maxX = -1, maxY = -1
+        for y in 0..<px { for x in 0..<px where bytes[(y * px + x) * 4 + 3] > 8 {
+            minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+        } }
+        guard maxX >= minX, maxY >= minY else { return whole }
+        // Row 0 of the buffer is the top of the image (the flip above puts UIKit's y = 0 there).
+        let sx = img.size.width / CGFloat(px), sy = img.size.height / CGFloat(px)
+        return CGRect(x: CGFloat(minX) * sx, y: CGFloat(minY) * sy, width: CGFloat(maxX - minX + 1) * sx, height: CGFloat(maxY - minY + 1) * sy)
+    }
+
+    private func pickedProvider() {
+        switchLine = nil
+        confirmSwitch = false
+        switchAccountTouched = false
+        let accounts = switchAccounts
+        switchAccount = (accounts.first(where: { $0.isDefault }) ?? accounts.first)?.dir
+        openaiModels = []
+        openaiModelsLoading = false   // a load for an earlier pick never holds this one's button
+        switchModel = (claudeModels.first(where: { $0.isDefault }) ?? claudeModels.first)?.key ?? ""
+        if switchTo == .openai { switchModel = ""; openaiModelsLoading = true; Task { await loadOpenaiModels() } }
+    }
+    private func loadOpenaiModels() async {
+        // Review 2: another account's models are never on screen while this one's load (the board's fillSwitchModel).
+        openaiModelsGen += 1
+        let gen = openaiModelsGen
+        openaiModels = []
+        switchModel = ""
+        guard switchTo == .openai, let dir = switchAccount else { openaiModelsLoading = false; return }
+        openaiModelsLoading = true
+        #if DEBUG
+        if AgentInfoView.sample { openaiModelsLoading = false; openaiModels = Board.parseSwitchModels(Data(#"{"ok":true,"models":[{"key":"gpt-5.6","label":"GPT 5.6"},{"key":"gpt-5.6-mini","label":"GPT 5.6 mini"}]}"#.utf8), openai: true); return }
+        #endif
+        let res = await client.throughMac { Board.openaiModelsRequest(mac: $0, dir: dir) }
+        guard gen == openaiModelsGen, switchTo == .openai, switchAccount == dir else { return }   // a newer load is the one shown
+        openaiModelsLoading = false
+        openaiModels = res.flatMap { $0.1.statusCode == 200 ? Board.parseSwitchModels($0.0, openai: true) : nil } ?? []
+        if !openaiModels.contains(where: { $0.key == switchModel }) { switchModel = "" }
+    }
+    private func doSwitch(_ to: Board.SwitchProvider) async {
+        // Review 2: what is still on offer, never a pick a read dropped while the dialog was up.
+        guard switchTo == to, switchTargets.contains(to), !openaiModelsLoading else {
+            switchLine = ("The choice changed while you were deciding, so nothing was switched. Pick again.", false)
+            return
+        }
+        let fromProvider = currentProvider ?? ""
+        switching = true
+        let account = switchAccounts.isEmpty ? nil : switchAccount
+        let picked = switchAccountTouched
+        let model = switchModels.isEmpty ? nil : switchModel
+        let session = agent.session
+        let res = await client.throughMac {
+            Board.providerSwitchRequest(mac: $0, session: session, to: to, account: account, picked: picked, model: model)
+        }
+        let said = Board.providerSwitchResult(status: res?.1.statusCode ?? 0, body: res?.0)
+        switching = false   // review 4: the answer is in, so the button stops saying it is still switching
+        switchLine = (said.sentence, said.ok)
+        UIAccessibility.post(notification: .announcement, argument: said.sentence)
+        if let to = Board.providerSwitchLanded(status: res?.1.statusCode ?? 0, body: res?.0), to != fromProvider {
+            // Review 4: a second switch before status catches up keeps the first from. Review 5: a switch back to where
+            // it started is no move at all.
+            let from = landed?.from ?? fromProvider
+            landed = to == from ? nil : (to, from)
+        }
+        if said.ok { switchTo = nil }
+        await load()
+        await client.refreshNow()
+        // Review 3: the restart takes a moment to show in /api/status; read once more so Runs on catches up.
+        if landed != nil {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            await load()
+        }
     }
 
     @ViewBuilder private var moreRow: some View {
@@ -323,6 +578,8 @@ struct AgentInfoView: View {
         async let rl = client.throughMac { Board.rolesRequest(mac: $0) }
         let (s, i, k, roles) = await (status, instr, sk, rl)
         if let t = roles.flatMap({ $0.1.statusCode == 200 ? Board.parseRoleTitles($0.0) : nil }) { roleTitles = t }
+        // kosmos#8626: the same answer carries the models a Claude agent can start on (the board's CREATE_MODELS).
+        if let m = roles.flatMap({ $0.1.statusCode == 200 ? Board.parseSwitchModels($0.0, openai: false) : nil }), !m.isEmpty { claudeModels = m }
         let d = s.flatMap { $0.1.statusCode == 200 ? Board.parseAgentDetails($0.0, session: session) : nil }
         if let d {
             // Only into fields the person has not changed (a refresh must not undo their typing).
@@ -334,6 +591,18 @@ struct AgentInfoView: View {
         (skills, skillsWhy) = Board.profileNext(shown: skills, read: Board.skillsRead(k))
         readFailed = d == nil   // the details' own read (the name footer and Runs on); each section says its own why
         await filesDone
+        // kosmos#8626: last, as it can take a while (one live check per account, as on the board); a list already
+        // read is kept through a read that fails, as the other sections keep theirs.
+        // Review 1: only for an agent the section is shown for, as each read costs a live check per account.
+        guard let shown = details, shown.isNamedOurs, !shown.neverRecorded else { return }
+        let ac = await client.throughMac { Board.accountsRequest(mac: $0) }
+        if let rows = ac.flatMap({ $0.1.statusCode == 200 ? Board.parseSwitchAccounts($0.0) : nil }) {
+            accountRows = rows
+            accountsFailed = false
+        } else if accountRows == nil {
+            accountsFailed = true
+        }
+        keepPicksValid()
     }
 
     private func loadFiles(_ session: String) async {
@@ -381,17 +650,27 @@ struct AgentInfoView: View {
 
     #if DEBUG
     // KOSMOS_SAMPLE_AGENTS=1 (a Debug build): the sample agent's page without a Mac, for the design shots.
-    // KOSMOS_SAMPLE_INFO=ai opens on AI Settings, =files on Files.
+    // KOSMOS_SAMPLE_INFO=ai opens on AI Settings, =files on Files; KOSMOS_SAMPLE_SWITCH=<provider> also picks a switch.
     static var sample: Bool { ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" }
     private func applySample() {
         let d = Board.AgentDetails(session: live.session, name: live.name, role: live.role, reportsTo: nil, runner: "",
                                    modelName: "Opus 5.5", plannedModelName: nil, settingModelName: nil, neverRecorded: false,
-                                   accountProvider: nil, accountLabel: "Work account", running: true)
+                                   accountProvider: nil, accountLabel: "Work account", running: true, isNamedOurs: true)
+        // kosmos#8626: a computer with Claude, OpenAI and Gemini connected, for the switch's design shots.
+        accountRows = Board.parseSwitchAccounts(Data(#"{"accounts":[{"provider":"anthropic","dir":"/s/c","name":"Work account","email":"work@example.com","memoryShared":true,"isDefault":true},{"provider":"openai","dir":"/s/o","name":"Studio","keyTail":"4F2A"},{"provider":"google","dir":"/s/g","keyTail":"91C0"},{"provider":"xai","dir":"/s/x","keyTail":"7B1D"}]}"#.utf8))
+        claudeModels = Board.parseSwitchModels(Data(#"{"models":[{"key":"opus","label":"Claude Opus 5.5","default":true},{"key":"sonnet","label":"Claude Sonnet 5.5"},{"key":"haiku","label":"Claude Haiku 5.5"}]}"#.utf8), openai: false)
         details = d
         fill(d)
         instructions = "You look after the spring catalogue: the cover, the order of the pages, and getting proofs to the printer on time.\n\nAsk before you spend money or send anything outside the team."
         skills = [Board.Skill(key: "meeting-minutes", name: "Meeting minutes"), Board.Skill(key: "proof-checklist", name: "Proof checklist")]
         switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_INFO"] { case "ai": part = .ai; case "files": part = .files; default: break }
+        // kosmos#8626: KOSMOS_SAMPLE_SWITCH=openai (or google, xai) opens AI Settings with that provider picked, for the
+        // store screen that shows a switch.
+        if let s = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SWITCH"].flatMap(Board.SwitchProvider.init(rawValue:)) {
+            part = .ai
+            switchTo = s
+            pickedProvider()
+        }
     }
     #endif
 }

@@ -23,6 +23,9 @@ extension Board {
         let accountProvider: String?
         let accountLabel: String?
         let running: Bool
+        // kosmos#8626: the board offers a provider switch only for an agent it names as its own (paintProviderPicker's
+        // `usable`: isNamedOurs and not neverRecorded). Absent is read as false, so an older board offers nothing.
+        var isNamedOurs = false
         // The board's "is it running" for the model line (cardStOf(a).pres === 'off'): the state "stopped", which a live
         // pane can carry while `running` is still true (review 1).
         var stopped = false
@@ -54,6 +57,7 @@ extension Board {
             accountLabel: text(account?["name"]) ?? text(account?["email"])
                 ?? text(account?["keyTail"]).map { "API key ending " + $0 } ?? text(account?["label"]),
             running: (row["running"] as? Bool) != false,
+            isNamedOurs: (row["isNamedOurs"] as? Bool) == true,
             // The board's cardStOf presence off: stopped, or a restart that did not come back (#4006).
             stopped: (row["state"] as? String) == "stopped"
                 || ((row["state"] as? String) == "needs_you" && ((row["disruption"] as? [String: Any])?["failed"] as? Bool) == true))
@@ -336,5 +340,281 @@ extension Board {
         let lead = which == .compact ? "Asked it to compact. " : "Asked it to clear. "
         let note = (d?["paneNote"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "It does this the moment it is between tasks."
         return (lead + note, true)
+    }
+}
+
+// MARK: Switch provider (kosmos#8626: POST /api/agent/<n>/provider, the board's changeProviderNow)
+//
+// The phone offers what the board's own picker offers, from the same three reads and with the same rules:
+// GET /api/accounts (paintKeyedProviderOptions, claudeNoTarget, openaiAllDead, fillSwitchAccounts), GET /api/roles
+// `models` (fillSwitchModel's Claude list) and GET /api/accounts/openai/models?dir= (its OpenAI list). The board stays
+// the place for the rest: Gemini by Google subscription, Meta Muse, and the vendors behind Claude Code (DeepSeek, GLM,
+// MiniMax) each carry a gate of their own there, so the phone does not offer them and says where they are.
+extension Board {
+    enum SwitchProvider: String, CaseIterable, Identifiable {
+        case anthropic, openai, google, xai, alibaba
+        var id: String { rawValue }
+        // The board's own option words (web/index.html, the d-provider menu).
+        var label: String {
+            switch self {
+            case .anthropic: return "Anthropic / Claude"
+            case .openai: return "OpenAI / Codex"
+            case .google: return "Google Gemini (API key)"
+            case .xai: return "xAI Grok"
+            case .alibaba: return "Alibaba Qwen"
+            }
+        }
+        // kosmos#8635: its logo in the "Switch to" menu, the same asset the Runs on row draws for an agent on it
+        // (runnerMark), so a provider looks the same on the menu and on the agent once it has switched.
+        var mark: String {
+            switch self {
+            case .anthropic: return "MarkClaude"
+            case .openai: return "MarkOpenAI"
+            case .google: return "MarkGemini"
+            case .xai: return "MarkGrok"
+            case .alibaba: return "MarkQwen"
+            }
+        }
+        // The dialog's title word (changeProviderNow's dialog `label`): the company for Claude, as the board says it.
+        var titleWord: String { self == .anthropic ? "Anthropic" : word }
+        // The word for it inside a sentence, as the board's switch dialog uses (switchFamilyNote's fromWord/toWord).
+        var word: String {
+            switch self {
+            case .anthropic: return "Claude"
+            case .openai: return "OpenAI"
+            case .google: return "Gemini"
+            case .xai: return "Grok"
+            case .alibaba: return "Qwen"
+            }
+        }
+    }
+
+    // The board's providerOf, on the fields /api/status sends: a provider id, which may be one the phone does not offer.
+    static func providerOf(_ d: AgentDetails) -> String {
+        switch d.runner {
+        case "codex": return d.accountProvider == "alibaba" ? "alibaba" : "openai"
+        case "gemini": return "google"
+        case "grok": return "xai"
+        case "antigravity": return "antigravity"
+        case "muse": return "meta"
+        default:
+            if let p = d.accountProvider, ["deepseek", "glm", "minimax"].contains(p) { return p }
+            return "anthropic"
+        }
+    }
+    static func providerWord(_ id: String) -> String {
+        if let p = SwitchProvider(rawValue: id) { return p.word }
+        switch id {
+        case "antigravity": return "Gemini (Google subscription)"
+        case "meta": return "Meta Muse"
+        case "deepseek": return "DeepSeek"
+        case "glm": return "Z.ai GLM"
+        case "minimax": return "MiniMax"
+        default: return id
+        }
+    }
+
+    // One row of GET /api/accounts that a switch could land on.
+    struct SwitchAccount: Equatable, Identifiable {
+        let dir: String
+        let label: String
+        let isDefault: Bool
+        var id: String { dir }
+    }
+    // The answer to GET /api/accounts, or nil when it could not be read (the board's ACCOUNTS_UNREADABLE).
+    static func parseSwitchAccounts(_ data: Data?) -> [[String: Any]]? {
+        guard let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rows = obj["accounts"] as? [[String: Any]] else { return nil }
+        return rows
+    }
+    // The board's acctProvider.
+    static func accountProviderOf(_ a: [String: Any]) -> String {
+        let p = ((a["provider"] as? String) ?? "").lowercased()
+        if p == "antigravity" || (a["authMode"] as? String) == "antigravity" { return "antigravity" }
+        if p == "meta" || (a["authMode"] as? String) == "muse" { return "meta" }
+        return ["openai", "google", "xai", "alibaba", "deepseek", "glm", "minimax"].contains(p) ? p : "anthropic"
+    }
+    // The board's list filter (fillSwitchAccounts, claudeNoTarget): a live check that is not 'none', not marked
+    // unofferable, and for Claude one that shares the agents' history (memoryShared, #5091). A rejected or signed-out
+    // BADGE does not remove a row here: the board still lists it, as Move does (review 1, finding 5).
+    private static func listed(_ a: [String: Any], for provider: SwitchProvider) -> Bool {
+        guard accountProviderOf(a) == provider.rawValue else { return false }
+        if ((a["connection"] as? [String: Any])?["state"] as? String) == "none" { return false }
+        if (a["offerable"] as? Bool) == false { return false }
+        if provider == .anthropic && (a["memoryShared"] as? Bool) != true { return false }
+        return true
+    }
+    // The board's acctOfferableTarget, which only Gemini, Grok and Qwen's place in the provider menu also need
+    // (paintKeyedProviderOptions' `has`): a rejected or signed-out badge does not count there.
+    private static func offerableTarget(_ a: [String: Any]) -> Bool {
+        guard let c = a["connection"] as? [String: Any] else { return true }
+        if let badge = c["badge"] as? String { return badge != "rejected" && badge != "signed_out" }
+        return (c["state"] as? String) != "none"
+    }
+    // The board's acctPrimaryName: a chosen name first, then for Qwen its own words, then email, key tail, label.
+    static func accountName(_ a: [String: Any]) -> String {
+        func text(_ k: String) -> String? { (a[k] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } }
+        if let n = text("name") { return n }
+        let p = ((a["provider"] as? String) ?? "").lowercased()
+        if p == "alibaba" {
+            if (a["local"] as? Bool) == true { return "Qwen on this computer" }
+            if let host = text("baseUrl").flatMap({ URL(string: $0)?.host }), !host.isEmpty { return host }
+            return text("label") ?? "Qwen endpoint"
+        }
+        let keyed = ["openai", "google", "xai", "deepseek", "glm", "minimax"].contains(p)
+        return text("email") ?? (keyed ? text("keyTail").map { "API key ending " + $0 } : nil) ?? text("label") ?? text("dir") ?? ""
+    }
+    // Review 2: two rows must never read alike (the board's accountQualifiers), and a live check that came back unknown
+    // says so (fillSwitchAccounts' labelOf). The qualifier here is the row's other detail (email, key tail, then its
+    // folder's last part), which keeps rows apart; its exact words can differ from the board's.
+    static func switchAccounts(_ rows: [[String: Any]], for provider: SwitchProvider) -> [SwitchAccount] {
+        let kept = rows.filter { listed($0, for: provider) }.filter { (($0["dir"] as? String) ?? "").isEmpty == false }
+        let names = kept.map { accountName($0) }
+        var seen: [String: Int] = [:]
+        for n in names { seen[n.lowercased(), default: 0] += 1 }
+        let out: [SwitchAccount] = zip(kept, names).map { a, name in
+            func text(_ k: String) -> String? { (a[k] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } }
+            let dir = a["dir"] as! String
+            var label = name
+            if (seen[name.lowercased()] ?? 0) > 1 {
+                let other = [text("email"), text("keyTail").map { "API key ending " + $0 }, Optional((dir as NSString).lastPathComponent)]
+                    .compactMap { $0 }.first { $0.lowercased() != name.lowercased() } ?? dir
+                label += " (" + other + ")"
+            }
+            if ((a["connection"] as? [String: Any])?["state"] as? String) == "unknown" { label += " (could not check just now)" }
+            return SwitchAccount(dir: dir, label: label, isDefault: (a["isDefault"] as? Bool) == true)
+        }
+        // Review 3: when even the qualifier clashes (one email, two folders named alike), the whole folder, which is unique.
+        var count: [String: Int] = [:]
+        for r in out { count[r.label.lowercased(), default: 0] += 1 }
+        return out.map { r in
+            guard (count[r.label.lowercased()] ?? 0) > 1 else { return r }
+            let name = zip(kept, names).first { ($0.0["dir"] as? String) == r.dir }?.1 ?? r.label
+            let unknown = r.label.hasSuffix(" (could not check just now)") ? " (could not check just now)" : ""
+            return SwitchAccount(dir: r.dir, label: name + " (" + r.dir + ")" + unknown, isDefault: r.isDefault)
+        }
+    }
+    // Which providers the phone offers this agent: every one with an account it could land on, never its own (the
+    // board refuses a no-op), and nothing at all for an agent the board would not let you switch.
+    static func switchTargets(_ d: AgentDetails, accounts rows: [[String: Any]], landed: String? = nil) -> [SwitchProvider] {
+        guard d.isNamedOurs, !d.neverRecorded else { return [] }
+        let current = landed ?? providerOf(d)
+        if current == "meta" { return [] }   // the board: moving an agent on Meta Muse is not offered yet
+        return SwitchProvider.allCases.filter { p in
+            guard p.rawValue != current else { return false }
+            let list = rows.filter { listed($0, for: p) }
+            // Gemini, Grok and Qwen need a row the board's provider menu would also count (acctOfferableTarget).
+            if p == .google || p == .xai || p == .alibaba { return list.contains(where: offerableTarget) }
+            return !list.isEmpty
+        }
+    }
+    // What the section says when it offers nothing, in the board's words where the board has them.
+    static func switchNothingLine(_ d: AgentDetails) -> String {
+        if providerOf(d) == "meta" { return "Moving an agent on Meta Muse to another provider is not offered yet." }
+        // Review 2: about what THIS PHONE can offer, since the board can offer more (Gemini by subscription, the vendors).
+        return "There is nothing this phone can switch it to. Its board on your computer lists every provider it can move to, and you can add new ones there in Settings, AI Models."
+    }
+
+    // The model menu (fillSwitchModel): Claude's from /api/roles, OpenAI's per account; the rest pick their own.
+    struct SwitchModel: Equatable, Identifiable {
+        let key: String   // "" is "let OpenAI choose"
+        let label: String
+        let isDefault: Bool
+        var id: String { key }
+    }
+    static func parseSwitchModels(_ data: Data?, openai: Bool) -> [SwitchModel] {
+        guard let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+        if openai && (obj["ok"] as? Bool) != true { return [] }
+        let list = (obj["models"] as? [[String: Any]] ?? []).compactMap { m -> SwitchModel? in
+            guard let key = m["key"] as? String, !key.isEmpty else { return nil }
+            return SwitchModel(key: key, label: (m["label"] as? String) ?? key, isDefault: (m["default"] as? Bool) == true)
+        }
+        if openai && !list.isEmpty { return [SwitchModel(key: "", label: "Let OpenAI choose (recommended)", isDefault: true)] + list }
+        return list
+    }
+
+    static func accountsRequest(mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/accounts", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+    static func openaiModelsRequest(mac: URL, dir: String) -> URLRequest? {
+        // A SITES entry in server.ios-routes-6838.test.js, as the other requests that carry a query.
+        var c = URLComponents(url: URL(string: "/api/accounts/openai/models", relativeTo: mac)!.absoluteURL, resolvingAgainstBaseURL: false)
+        c?.percentEncodedQueryItems = [URLQueryItem(name: "dir", value: dir.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")]
+        guard let url = c?.url else { return nil }
+        var r = URLRequest(url: url)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+    // The board's body: what is on screen is what is sent (the account whenever a menu shows), and whether a person
+    // chose it travels separately; a model only for Claude and OpenAI, and never the "let OpenAI choose" row.
+    static func providerSwitchRequest(mac: URL, session: String, to provider: SwitchProvider, account: String?,
+                                      picked: Bool, model: String?) -> URLRequest? {
+        guard isAgentSession(session) else { return nil }
+        var body: [String: Any] = ["provider": provider.rawValue, "account": account ?? NSNull(), "picked": picked && account != nil]
+        if let model, !model.isEmpty, provider == .anthropic || provider == .openai { body["model"] = model }
+        guard let json = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/provider", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = json
+        return r
+    }
+    // The route's own sentence, as the board shows it (msg.textContent = out.because): it says what came across and what
+    // did not. `ok` only for outcome "changed"; a partial is saved but not running on the new provider yet.
+    // Review 3: no answer (or one that is not the route's) never says "nothing was switched": the request may have
+    // landed and the restart run. It says it cannot tell, and where to look.
+    static let switchUnknown = "We did not get an answer, so we cannot tell whether it switched. Pull down to see what it runs on now."
+    static func providerSwitchResult(status: Int, body: Data?) -> (sentence: String, ok: Bool) {
+        guard status != 0, let obj = body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) else {
+            return (switchUnknown, false)
+        }
+        let because = (obj["because"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+            ?? (obj["error"] as? String).map(sentence)
+        if (200..<300).contains(status), (obj["outcome"] as? String) == "changed" { return (because ?? "Switched.", true) }
+        // A refusal (4xx, outcome refused) wrote nothing (server.js checks before any write); anything else may have.
+        let refused = (obj["outcome"] as? String) == "refused" || (400..<500).contains(status)
+        return (because ?? (refused ? "That did not work, so nothing was switched." : switchUnknown), false)
+    }
+    // The provider the route says it is now starting on, for the page to use until /api/status catches up with the
+    // restart (the board patches CURRENT the same way). Review 6: only when it did restart: outcome changed, or the
+    // #5091 partial with restarted true. A switch saved but not started is not moving anywhere until someone starts it.
+    static func providerSwitchLanded(status: Int, body: Data?) -> String? {
+        guard (200..<300).contains(status), let obj = body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) else { return nil }
+        let outcome = (obj["outcome"] as? String) ?? ""
+        guard outcome == "changed" || (outcome == "partial" && (obj["restarted"] as? Bool) == true) else { return nil }
+        return (obj["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    // What the person is told before the switch: the board's switchFamilyNote, word for word, for the providers the
+    // phone offers (no vendor behind Claude Code is a target here, but one can be where the agent comes FROM).
+    static func switchCrossesFamily(_ from: String, _ to: String) -> Bool {
+        func claudeSide(_ p: String) -> Bool { ["anthropic", "deepseek", "glm", "minimax"].contains(p) }
+        func vendor(_ p: String) -> Bool { ["deepseek", "glm", "minimax"].contains(p) }
+        if from.isEmpty || to.isEmpty || from == to { return false }
+        if claudeSide(from) != claudeSide(to) || vendor(from) || vendor(to) { return true }
+        func runnerOf(_ p: String) -> String { p == "alibaba" ? "openai" : p }
+        return !claudeSide(from) && runnerOf(from) != runnerOf(to)
+    }
+    static func switchNote(from: String, to: SwitchProvider, name: String) -> String {
+        let fromWord = providerWord(from), toWord = to.word
+        // Review 2: within one family, the board's own words (its d-provider-go dialog when switchFamilyNote is ''): the
+        // past stays readable, and the conversation ends as on any restart.
+        guard switchCrossesFamily(from, to.rawValue) else {
+            return "\(name) keeps its name, its face, its instructions, its files, and everything it has done; its past stays readable. "
+                + "It restarts, so this conversation ends, as it does on any restart."
+        }
+        func claudeSide(_ p: String) -> Bool { ["anthropic", "deepseek", "glm", "minimax"].contains(p) }
+        let notes = (claudeSide(from) && claudeSide(to.rawValue))
+            ? "Its saved notes stay behind with \(fromWord) and do not come across; anything it only remembers from talking is lost."
+            : (claudeSide(to.rawValue) || !claudeSide(from))
+            ? "Any notes in its folder stay there; anything it only remembers from talking is lost. Any notes \(fromWord) saved for it stay behind there."
+            : "Its saved notes are copied into its folder; anything it only remembers from talking is lost."
+        return "\(name) keeps its name, its face, its instructions and its files, and restarts. "
+            + "Its conversation does not come across: \(toWord) cannot read \(fromWord)\u{2019}s history. " + notes
     }
 }
