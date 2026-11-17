@@ -571,22 +571,46 @@ test('#8659 win32: after slow earlier looks, the last look is given room (not th
   const optsSeen = [];
   try {
     const job = runners.install('openai', { legacyBin: LEGACY, download: downloadFrom(tgz), integrity, prove: ok, agentsCheckedIdle: true,
-      codexRunning: (dir, opts) => { optsSeen.push(opts); return new Promise((r) => setTimeout(() => r(optsSeen.length === 1 ? false : true), optsSeen.length === 1 ? 2200 : 0)); } });
+      /* Three looks (the first is skipped by agentsCheckedIdle): before the unpack (slow, idle), before the swap (idle),
+         and with the marker down (an agent, so the job waits there and the test reads that look's deadline). */
+      codexRunning: (dir, opts) => {
+        optsSeen.push(opts);
+        const n = optsSeen.length;
+        return new Promise((r) => setTimeout(() => r(n <= 2 ? false : true), n === 1 ? 2200 : 0));
+      } });
     await job.settled;
-    const last = optsSeen[optsSeen.length - 1];
-    assert.ok(last && last.deadlineMs >= 6600 && last.deadlineMs <= 20000, 'the last look kept the fixed deadline after a slow look: ' + JSON.stringify(optsSeen));
+    assert.equal(optsSeen.length, 3, 'PRECONDITION: the job reached the marker-down look: ' + JSON.stringify(optsSeen));
+    const last = optsSeen[2];
+    assert.ok(last && last.deadlineMs > 5000 && last.deadlineMs <= 20000, 'the last look kept the fixed deadline after a slow look: ' + JSON.stringify(optsSeen));
   } finally { clear(); try { fs.rmSync(stagingFile(), { force: true }); } catch { /* gone */ } }
 });
 
 test('#8659 win32: a last look that runs out of time says so in the job, not as an ordinary "could not check"', { skip: WIN_ONLY }, async () => {
   plantOld();
   const { tgz, integrity } = winFixture();
-  const answers = [false, false, null];   // idle twice, then the marker-down look gives no answer (its deadline ran out)
+  let n = 0;
+  try {
+    /* Idle twice; then the marker-down look gives no answer only once its deadline has passed, as a real timeout does. */
+    const job = runners.install('openai', { legacyBin: LEGACY, download: downloadFrom(tgz), integrity, prove: ok, agentsCheckedIdle: true,
+      codexRunning: (dir, opts) => { n += 1; return n <= 2 ? Promise.resolve(false) : new Promise((r) => setTimeout(() => r(null), opts.deadlineMs + 20)); } });
+    await job.settled;
+    assert.equal(n, 3, 'PRECONDITION: the job reached the marker-down look');
+    assert.equal(job.waited, true);
+    assert.match(job.because, /did not answer within [\d.]+ s/, 'the timeout at the last step reads like any other wait: ' + job.because);
+  } finally { clear(); try { fs.rmSync(stagingFile(), { force: true }); } catch { /* gone */ } }
+});
+
+test('#8659 win32 CONTROL: a last look that fails at once is a "could not check", not a timeout', { skip: WIN_ONLY }, async () => {
+  plantOld();
+  const { tgz, integrity } = winFixture();
+  const answers = [false, false, null];   // the marker-down look fails straight away
   try {
     const job = runners.install('openai', { legacyBin: LEGACY, download: downloadFrom(tgz), integrity, prove: ok, agentsCheckedIdle: true,
       codexRunning: () => Promise.resolve(answers.shift()) });
     await job.settled;
+    assert.equal(answers.length, 0, 'PRECONDITION: the job reached the marker-down look');
     assert.equal(job.waited, true);
-    assert.match(job.because, /did not answer within \d+ s/, 'the timeout at the last step reads like any other wait: ' + job.because);
+    assert.doesNotMatch(job.because, /did not answer within/, 'a quick failure was reported as a timeout: ' + job.because);
+    assert.match(job.because, /could not check/);
   } finally { clear(); try { fs.rmSync(stagingFile(), { force: true }); } catch { /* gone */ } }
 });
