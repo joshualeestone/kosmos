@@ -229,3 +229,38 @@ test('production read: a tmux that answers the folder read with an error refuses
     assert.match(p.because, /could not check whether .* is running/);
   } finally { if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved; }
 });
+
+// kosmos#8644 item 1: planAsync reads the folder listing off the board's thread and hands it to plan(); the same answers.
+test('kosmos#8644: planAsync refuses a pane in the agent\'s folder with plan()\'s own sentence', async () => {
+  const dir = leftoverAgent('async1');
+  status.setPaneSource(() => fleet.line({ session: 'orchestrator', claim: '', title: '✳ Claude Code' }));
+  status.setPaneFolderSource(() => `%1\torchestrator\t${dir}\n`);
+  const p = await leftover.planAsync('async1', { platform: 'darwin' });
+  assert.equal(p.ok, false, 'planAsync offered a running agent\'s folder');
+  assert.equal(p.because, mac.plan('async1').because, 'planAsync and plan() said different things');
+});
+
+test('kosmos#8644: planAsync still fails closed when the folder listing cannot be read', async () => {
+  leftoverAgent('async2');
+  status.setPaneFolderSource(() => { throw new Error('tmux went away'); });
+  const p = await leftover.planAsync('async2', { platform: 'darwin' });
+  assert.equal(p.ok, false, 'an unreadable listing let planAsync offer the delete');
+  assert.match(p.because, /could not check whether .* is running/);
+});
+
+test('kosmos#8644: planAsync never makes the synchronous folder read (the board-thread wait it removes)', async () => {
+  leftoverAgent('async3');
+  status.setPaneFolderSource(() => '');
+  const sync = status.paneFolders;
+  let syncCalls = 0;
+  status.paneFolders = () => { syncCalls += 1; throw new Error('the board thread was asked'); };
+  try {
+    const p = await leftover.planAsync('async3', { platform: 'darwin' });
+    assert.equal(syncCalls, 0, 'planAsync made the synchronous tmux read');
+    assert.equal(p.ok, true, 'with nothing running and the listing read off-thread, the plan should go ahead: ' + p.because);
+    // CONTROL: plan() alone still makes the synchronous read (and here meets the stand-in that throws).
+    const q = mac.plan('async3');
+    assert.equal(syncCalls, 1, 'CONTROL: plan() did not read the folders itself');
+    assert.equal(q.ok, false, 'CONTROL: the throwing stand-in did not refuse plan()');
+  } finally { status.paneFolders = sync; }
+});

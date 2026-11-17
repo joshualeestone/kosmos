@@ -8195,16 +8195,21 @@ function readPaneFolders(out) {
     return { session: m[1], folder: m[2] };
   }).filter((r) => r.folder);
 }
-function paneFolders() {
+/* kosmos#8644 item 1: one body, two drivers (as tmuxPanesSteps), so the board's synchronous read and the delete plan's
+   async one can never read the folders differently, and both fail closed the same way. */
+function* paneFoldersSteps() {
   if (paneFolderSource) return readPaneFolders(paneFolderSource());
   if (paneSource) return [];
   // The tmux that last LISTED panes (tmuxPanesSteps sets it, after any re-pick past a version wall), else the default.
   // `-u`: without a UTF-8 locale tmux writes the tabs as `_`, every line would be unreadable, and every delete refused.
-  const got = shDetail(TMUX_READ_BY || tmuxBin(), ['-u', 'list-panes', '-a', '-F', '#{pane_id}\t#{session_name}\t#{pane_current_path}']);
+  const got = yield [TMUX_READ_BY || tmuxBin(), ['-u', 'list-panes', '-a', '-F', '#{pane_id}\t#{session_name}\t#{pane_current_path}']];
   if (got.ran && got.status === 0) return readPaneFolders(got.out);
   if (tmuxSaidNoServer(got)) return [];
   throw new Error('we could not see what is running on this computer');
 }
+function paneFolders() { return driveShSync(paneFoldersSteps()); }
+// kosmos#8644 item 1: the same read off the board's thread, for planAsync (a wedged tmux waits there, not on the board).
+function paneFoldersAsync() { return driveShAsync(paneFoldersSteps()); }
 function paneRosterFrom(out) {
   if (out === null || out === undefined) {
     throw new Error('we could not see what is running on this computer');
@@ -10543,7 +10548,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, setPaneFolderSource /* kosmos#8640, tests */, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
