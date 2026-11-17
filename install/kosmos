@@ -4472,7 +4472,8 @@ cmd_file_notices() {
 # kosmos#8548: what reached you while you were not running (room posts to you, `kosmos msg` messages, the person's direct
 # messages), as counts, post ids and names. Nothing is cleared. --hook is what Kosmos's Claude Code hook runs at a real
 # startup, BEFORE it reports `started`, so the window starts at your last report: it prints the SessionStart hook JSON only
-# when something arrived, nothing otherwise, always exits 0, with a 1 s cap. Run by hand, it shows the same window your
+# when something arrived or (kosmos#8634) your own last report was a wait nothing has ended, nothing otherwise, always
+# exits 0, with a 1 s cap. Run by hand, it shows the same window your
 # newest startup had.
 cmd_away() {
   local _hook=0

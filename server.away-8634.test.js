@@ -94,3 +94,25 @@ test('CONTROL: a wait the agent ended before the restart makes no reminder (and 
     } finally { sendertoken.revoke('leo'); }
   });
 });
+
+test('by hand (inside a session) the wait is not this: no reminder, and the text keeps its own last line', async () => {
+  await withBoard(async () => {
+    const now = Date.now();
+    const file = selfreport.fileFor('leo');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const rows = [{ state: 'started', by: 'auto', at: now - 3 * H }, { state: 'working', by: 'auto', at: now - 2 * H },
+      { state: 'blocked', by: 'agent', because: 'waiting on review', at: now - H }];
+    fs.writeFileSync(file, rows.map((r) => JSON.stringify({ ...r, at: new Date(r.at).toISOString() })).join('\n') + '\n');
+    const tok = sendertoken.mint('leo').token;
+    try {
+      const text = await fetch(base + '/api/away?as=text', { headers: { 'x-kosmos-agent-token': tok } }).then((r) => r.text());
+      assert.doesNotMatch(text, /waiting \(blocked/, 'a wait still on the board was described as replaced');
+      assert.match(text, /Kosmos has no earlier report from you|Nothing arrived for you while you were not running/, text);
+      const json = await fetch(base + '/api/away', { headers: { 'x-kosmos-agent-token': tok } }).then((r) => r.json());
+      assert.equal(json.wait, null);
+      // CONTROL: the same record on the startup path does carry it.
+      const hook = await hookFor(tok);
+      assert.match(JSON.parse(hook.text).hookSpecificOutput.additionalContext, /waiting \(blocked, at /);
+    } finally { sendertoken.revoke('leo'); }
+  });
+});

@@ -172,8 +172,8 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
 function waitText(wait) {
   if (!wait || !WAIT_STATES.has(wait.state) || !Number.isFinite(wait.atMs)) return '';
   return 'Kosmos: before this session, this agent last reported that it was waiting (' + wait.state + ', at '
-    + isoSecond(wait.atMs) + '), and it has not said otherwise since. The board no longer shows that wait: this startup '
-    + 'replaced it. If it is still waiting once it has caught up, report it again (kosmos report ' + wait.state
+    + isoSecond(wait.atMs) + '), and it has not said otherwise since. A new run replaces a waiting report on the board, '
+    + 'so the board no longer shows it. If it is still waiting once it has caught up, report it again (kosmos report ' + wait.state
     + ' ...); if not, there is nothing to do.';
 }
 
