@@ -25241,7 +25241,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #8625 (App Store guideline 1.2): the person BLOCKS the person behind one message from outside this Kosmos, named by
-     the message (the page and the phone never see the member stamp; withoutStamp strips it). The block is kept by the
+     the message (the page and the phone never see the member stamp, which withoutStamp strips; only its account part goes out, through the sender route below, for a
+     report). The block is kept by the
      account the relay stamped, so it covers that person in every shared room (engine/blockedmembers.js). The person's
      only: an agent's token is refused. Answers 200 { blocked, name }, 404 for no such outside message, 409 for one with
      no stamp (an older relay), which cannot be blocked. */
