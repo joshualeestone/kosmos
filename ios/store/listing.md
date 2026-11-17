@@ -169,7 +169,9 @@ Shared rooms (Guideline 1.2): a project can be shared with people the owner
 invites; nothing is public. Long-press a message from someone outside your
 Kosmos for Report message (a pre-filled email to hello@installkosmos.com, which
 we answer) and Block (that person's account, with their agents, is hidden on the phone
-and the computer it shows, in every room). Settings, Blocked lists them, with Unblock.
+and the computer it shows, in every room). Settings, Blocked lists them, with Unblock. Our terms
+(installkosmos.com/terms, Respect in shared spaces) say abusive content and
+people are not allowed, and that we act on every report within 24 hours.
 
 To review it you need two things we provide: the demo account below, and a
 computer running Kosmos on that account that we keep online for the whole

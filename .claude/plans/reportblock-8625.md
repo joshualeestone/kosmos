@@ -126,5 +126,15 @@ an operational dependency, said on the card.
   - NITs fixed: the Unblock line clears on the next Settings read; the sample build has a Blocked list (matched by the
     path's last part, so the phone-routes test reads no new route). Not acted on: the privacy text about a report
     carrying the sender's account id (the site change for the terms handles the privacy page).
-  - Known: after Unblock, the phone keeps that person's rows hidden until the app reloads its rooms (account switch or
+  - (Fixed in round 6:) after Unblock, the phone kept that person's rows hidden until the app reloaded its rooms (account switch or
     restart), since the hidden ids stay in Delete's set for the session.
+- Round 6 (blind, sonnet): no BLOCKER, 5 WARNING, 4 NIT.
+  - WARNING fixed: the block list cache could serve a stale list after two writes with the same time and size; a write
+    now clears it.
+  - WARNING fixed: Unblock did not let the phone show the person again until the app reloaded rooms; a block's hidden ids
+    are kept apart from deleted posts and cleared when Settings unblocks (a notification the room store hears).
+  - WARNING fixed: archive reads (open, refresh, older pages) now drop the hidden ids too, so a read in flight during a
+    block cannot paint them back.
+  - WARNING answered: the 1.2 terms piece is the site change "Respect in shared spaces" (chaoskosmos-site respect-8625,
+    live after build 63); the review notes now name it. Filtering: rooms are invite-only and nothing is public.
+  - WARNING accepted again: own account before any marked row (see round 5).

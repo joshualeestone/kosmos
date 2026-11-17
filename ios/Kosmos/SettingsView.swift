@@ -310,6 +310,7 @@ struct SettingsView: View {
         guard let mac, let r = Settings.unblockRequest(mac, account: person.account) else { return }
         let (status, _) = await send(r)
         blockedNote = (200...299).contains(status) ? person.name + " is unblocked." : "We could not unblock " + person.name + ". Try again in a moment."
+        if (200...299).contains(status) { NotificationCenter.default.post(name: .kosmosUnblocked, object: nil) }   // rooms let them back
         await readBlocked()
     }
 

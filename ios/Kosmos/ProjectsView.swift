@@ -110,7 +110,17 @@ final class RoomStore: ObservableObject {
     #endif
 
     private let client: BoardClient
-    init(client: BoardClient) { self.client = client }
+    init(client: BoardClient) {
+        self.client = client
+        // #8625: an Unblock in Settings lets that person's messages back: the ids a block hid are no longer kept out.
+        unblockWatch = NotificationCenter.default.addObserver(forName: .kosmosUnblocked, object: nil, queue: .main) { [weak self] _ in
+            self?.blockHidden = [:]
+        }
+    }
+    private var unblockWatch: NSObjectProtocol?
+    // #8625: the outside message ids a block hid, per room, kept apart from deletedPosts so an Unblock can let them back.
+    private var blockHidden: [String: Set<String>] = [:]
+    private func hiddenIn(_ project: String) -> Set<String> { (hiddenIn(project)).union(blockHidden[project] ?? []) }
 
     // Sign-out, another account or another Mac (the client's chatEpoch): nothing of the one before is kept, and a read
     // that was in the air when it moved is dropped (each read checks `same`).
@@ -200,7 +210,7 @@ final class RoomStore: ObservableObject {
                 room = room.replacingOccurrences(of: #""text":"Copy for pages 1 to 8 is done. Pages 9 to 12 wait for the new photos.","mentioned":[],"#,
                     with: #""text":"Copy for pages 1 to 8 is done. Pages 9 to 12 wait for the new photos from northfieldstudio.com","mentioned":[],"preview":{"url":"https://northfieldstudio.com","site":"northfieldstudio.com","title":"Northfield Studio, product photography","description":"Catalogue and product photography for small brands, shot in natural light.","image":"/api/unfurl/image?url=https%3A%2F%2Fnorthfieldstudio.com%2Fog.jpg"},"#)
             }
-            rows[project] = Board.withoutDeleted(Board.parseRoom(Data((Self.sampleLongRoom ?? room).utf8), names: names)?.rows ?? [], deletedPosts[project] ?? [])
+            rows[project] = Board.withoutDeleted(Board.parseRoom(Data((Self.sampleLongRoom ?? room).utf8), names: names)?.rows ?? [], hiddenIn(project))
             // kosmos#7072: KOSMOS_SAMPLE_HELD=1 shows the sample room held, for its screenshots (a Debug build only).
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_HELD"] == "1", !Self.sampleReopened.contains(project) {
                 held[project] = .some(Self.sampleHeldUntil)
@@ -244,7 +254,7 @@ final class RoomStore: ObservableObject {
                                           fresh: fresh.rows, unread: page.unread, at: Date())
         spokeAt[project] = stamped.spokeAt
         if stamped.baselined { spokeBaseline.insert(project) }
-        rows[project] = Board.withoutDeleted(fresh.rows, deletedPosts[project] ?? [])
+        rows[project] = Board.withoutDeleted(fresh.rows, hiddenIn(project))
         older[project] = fresh.older
         if newest { archivedCount[project] = page.archivedCount }
         // Review 1: an archive set or undone elsewhere while this one shows: read it again, as the board's poll does
@@ -283,7 +293,7 @@ final class RoomStore: ObservableObject {
         }
         // Review 3: the archive's count stays the archive's; the live count is the live read's (it is what a move is
         // measured against).
-        archive[project] = ArchiveView(rows: page.rows, older: (page.olderCount, page.olderCursor), opening: false, count: page.archivedCount)
+        archive[project] = ArchiveView(rows: Board.withoutDeleted(page.rows, hiddenIn(project)), older: (page.olderCount, page.olderCursor), opening: false, count: page.archivedCount)
     }
     // The archive's newest page again, in place of what it showed (its count changed under it). Kept as it was when the
     // read fails; dropped when the archive was closed or opened again meanwhile.
@@ -300,7 +310,7 @@ final class RoomStore: ObservableObject {
             archiveRefreshFailed[project] = (want, Date()); return
         }
         archiveRefreshFailed[project] = nil
-        archive[project] = ArchiveView(rows: page.rows, older: (page.olderCount, page.olderCursor), opening: false, count: page.archivedCount)
+        archive[project] = ArchiveView(rows: Board.withoutDeleted(page.rows, hiddenIn(project)), older: (page.olderCount, page.olderCursor), opening: false, count: page.archivedCount)
     }
     // Back to the room: the archive's rows go, and a read still on its way for it is dropped.
     func closeArchive(_ project: String) {
@@ -321,7 +331,7 @@ final class RoomStore: ObservableObject {
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
             now.olderFailed = true; archive[project] = now; return
         }
-        now.rows = Board.mergeRoom(page.rows, with: now.rows)
+        now.rows = Board.withoutDeleted(Board.mergeRoom(page.rows, with: now.rows), hiddenIn(project))
         now.older = (page.olderCount, page.olderCursor)
         archive[project] = now
     }
@@ -350,7 +360,7 @@ final class RoomStore: ObservableObject {
             else if retried { olderFailed.insert(project) }
             return
         }
-        rows[project] = Board.withoutDeleted(Board.mergeRoom(page.rows, with: rows[project] ?? []), deletedPosts[project] ?? [])
+        rows[project] = Board.withoutDeleted(Board.mergeRoom(page.rows, with: rows[project] ?? []), hiddenIn(project))
         older[project] = (page.olderCount, page.olderCursor)
         archivedCount[project] = page.archivedCount
     }
@@ -599,7 +609,7 @@ final class RoomStore: ObservableObject {
             // Out of every room this phone holds, the live rows and an open archive, and kept out of later reads (a merge
             // only ever adds rows): the same set Delete uses.
             for (room, ids) in Board.blockHidden(answer?.0) {
-                deletedPosts[room, default: []].formUnion(ids)
+                blockHidden[room, default: []].formUnion(ids)
                 if let shown = rows[room] { rows[room] = Board.withoutDeleted(shown, ids) }
                 if var a = archive[room] { a.rows = Board.withoutDeleted(a.rows, ids); archive[room] = a }
             }
