@@ -167,8 +167,9 @@ test('kosmos#8478: an agent on another account and a chosen model comes back on 
     'the task write did not record the account folder and model it wrote');
 
   const p = taskOnlyDelete(name);
-  assert.match(p.reassurance, /Then use Start at login when Kosmos offers it\. It starts on the account and model it was set to before\./);
-  assert.doesNotMatch(p.reassurance, /main account|last ran/, 'it promised the main account and the last model for an agent whose own are recorded');
+  assert.match(p.reassurance, /Then use Start at login when Kosmos offers it\. It starts on the model it was set to\. It starts on the account it was set to only if Kosmos finds that same account in its account folder at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\./);
+  // kosmos#8584: "otherwise on your main account" is the folder's fallback; the flat promise is what must not appear.
+  assert.doesNotMatch(p.reassurance, /It starts on your main account|last ran/, 'it promised the main account and the last model for an agent whose own are recorded');
 
   const r = startAtLogin(name);
   assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: SET_MODEL }, 'Start at login did not put back its account folder and model');
@@ -249,7 +250,7 @@ test('kosmos#8478 round 6: a model change after the disconnect and bob\'s sign-i
       // The outcome first, so a control against the old code shows the wrong account, not only other words.
       assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, `${name} was put on bob's account`);
       assert.match(p.reassurance, why, `${name}: the plan's words`);
-      assert.doesNotMatch(p.reassurance, /account and model it was set to before/, `${name}: promised bob's account`);
+      assert.doesNotMatch(p.reassurance, /account and model it was set to before|only if Kosmos finds/, `${name}: promised bob's account`);
     }
   } finally {
     fs.rmSync(alice.dir, { recursive: true, force: true });
@@ -308,7 +309,7 @@ test('kosmos#8478: an agent with nothing recorded whose task cannot be read at t
 
 const CANNOT_REACH = /It starts on the model it was set to\. Kosmos cannot reach the account folder it last used right now\. If that folder is on a disk or shared folder that is not connected, connect it before you use Start at login\. It starts on that folder's account only if Kosmos can reach the folder then and it holds the same account\. Otherwise it starts on your main account; choose its account again once that folder is back, or another account if it is gone\./;
 
-test('kosmos#8478: a recorded account folder that cannot be reached falls back to the main account, says so, and comes back on it at the next Start at login, if no change to the agent rewrites its task first', WINDOWS_ONLY, () => {
+test('kosmos#8478: a recorded account folder that cannot be reached falls back to the main account and says so; the record is kept (used only if its startup job is removed again)', WINDOWS_ONLY, () => {
   const name = agent('gone8478');
   assert.equal(chooseThenModel(name, ACCOUNT, 'opus55').outcome, create.OUTCOME.CREATED);
   // round 1: out of reach, as a disk that is not connected is (a folder moved away reads the same to Kosmos).
@@ -323,7 +324,7 @@ test('kosmos#8478: a recorded account folder that cannot be reached falls back t
   assert.equal(store.readProfile(name).win32Task.configDir, ACCOUNT, 'the repair overwrote the recorded account folder with the main account');
   // The disk is back: the next time the task goes, Start at login puts it back on its own account.
   fs.renameSync(unplugged, ACCOUNT);
-  assert.match(taskOnlyDelete(name).reassurance, /It starts on the account and model it was set to before\./);
+  assert.match(taskOnlyDelete(name).reassurance, /It starts on the model it was set to\. It starts on the account it was set to only if Kosmos finds that same account in its account folder at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\./);
   startAtLogin(name);
   assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: SET_MODEL }, 'with its folder back the agent did not come back on it');
 });
@@ -346,7 +347,7 @@ test('kosmos#8489: a recorded account whose config cannot be read right now (Cla
   assert.equal(kept.configDir, ACCOUNT, 'the record of an account that only could not be read was dropped');
   assert.deepEqual(kept.account, OWNER_IDENTITY, 'the kept record lost whose account it was');
   fs.writeFileSync(config, whole);   // Claude Code finished writing
-  assert.match(taskOnlyDelete(name).reassurance, /It starts on the account and model it was set to before\./);
+  assert.match(taskOnlyDelete(name).reassurance, /It starts on the model it was set to\. It starts on the account it was set to only if Kosmos finds that same account in its account folder at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\./);
   startAtLogin(name);
   assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: SET_MODEL }, 'with its config readable again the agent did not come back on its account');
 });
@@ -441,7 +442,7 @@ test('kosmos#8489: a folder unread at three Start at logins in a row is dropped 
     taskOnlyDelete(name); startAtLogin(name);
     assert.equal(store.readProfile(name).win32Task.unreadable, 2);
     const p = taskOnlyDelete(name);
-    assert.match(p.reassurance, /It starts on the model it was set to\. Kosmos could not read which account is in the account folder it last used\. Kosmos also could not confirm that account at two earlier Start at logins./);
+    assert.match(p.reassurance, /It starts on the model it was set to\. Kosmos could not read which account is in the account folder it last used\. Kosmos also could not confirm that account at two earlier Start at logins\./);
     startAtLogin(name);
     assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
     assert.equal(store.readProfile(name).win32Task.configDir, null, 'the folder was kept after three unreadable Start at logins');
@@ -488,7 +489,7 @@ test('kosmos#8489: a start that cannot reach the folder neither adds to nor clea
     assert.equal(store.readProfile(name).win32Task.unreadable, 2);
     fs.renameSync(unplugged, ACCOUNT);
     const p = taskOnlyDelete(name);
-    assert.match(p.reassurance, /Kosmos also could not confirm that account at two earlier Start at logins./);
+    assert.match(p.reassurance, /Kosmos also could not confirm that account at two earlier Start at logins\./);
     startAtLogin(name);
     assert.equal(store.readProfile(name).win32Task.configDir, null, 'a folder unreadable three times, with starts out of reach between, was kept');
   } finally {
@@ -575,7 +576,9 @@ test('kosmos#8478 round 4: a stale record loses to the task: recorded on alice, 
     startAtLogin(name);
     // The outcome first, so a control against the old code shows the wrong account, not only other words.
     assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, 'Start at login put it on alice although its task ran on the main account');
+    // The task ran on the main account, so the words are the flat main-account ones (kosmos#8584: only a folder says "if").
     assert.match(p.reassurance, /It starts on the account and model it was set to before\./, 'the plan did not read what the delete records');
+    assert.doesNotMatch(p.reassurance, /only if Kosmos finds/, 'the main account was given the folder\'s "only if"');
     assert.equal(store.readProfile(name).win32Task.configDir, null);
   } finally { fs.rmSync(alice.dir, { recursive: true, force: true }); }
 });
@@ -618,7 +621,7 @@ test('kosmos#8478 round 3: a folder name is not an account: alice signs out, Kos
     assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL }, 'the agent was put on bob\'s account');
     const words = /It starts on the model it was set to\. The account in the folder it used has signed out or changed\. It starts on that folder's account only if that same account is signed in there again before you use Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\./;
     assert.match(p.reassurance, words);
-    assert.doesNotMatch(p.reassurance, /account and model it was set to before/, 'it promised the account it was set to, which is now bob\'s');
+    assert.doesNotMatch(p.reassurance, /account and model it was set to before|only if Kosmos finds/, 'it promised the account it was set to, which is now bob\'s');
     assert.match(p.said, words);
     assert.equal(recorded.account && recorded.account.email, 'alice@example.test', 'the record did not keep whose account it was');
   } finally { fs.rmSync(alice.dir, { recursive: true, force: true }); }
@@ -716,7 +719,7 @@ test('kosmos#8478: a recorded model no longer offered falls back to the model it
   // A model that has since left the list (setModel would refuse it now, so the record is written as an old task left it).
   store.writeProfile(name, { win32Task: { runner: 'claude', configDir: ACCOUNT, model: 'claude-opus-3', account: OWNER_IDENTITY } });
   const p = taskOnlyDelete(name);
-  assert.match(p.reassurance, /It starts on the account it was set to, but on the model it last ran, as the model it was set to is not offered now\. Choose its model again if it used another\./);
+  assert.match(p.reassurance, /It starts on the model it last ran, as the model it was set to is not offered now\. It starts on the account it was set to only if Kosmos finds that same account in its account folder at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\. Choose its model again if it used another\./);
   startAtLogin(name);
   assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: LAST_RAN });
 });
@@ -732,7 +735,7 @@ test('kosmos#8478: Restore after the task-only delete says the agent starts on t
     taskOnlyDelete(name);
     const back = remove.restore(name, { platform: 'win32' });
     assert.equal(back.outcome, remove.OUTCOME.PARTIAL, JSON.stringify(back));
-    assert.match(back.because, /Use Start at login when Kosmos offers it\. It starts on the account and model it was set to before\.$/);
+    assert.match(back.because, /Use Start at login when Kosmos offers it\. It starts on the model it was set to\. It starts on the account it was set to only if Kosmos finds that same account in its account folder at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\.$/);
     startAtLogin(name);
     assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: SET_MODEL });
   } finally {

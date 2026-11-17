@@ -935,8 +935,25 @@ function startsAgainWords(name, preview = false) {
      runner that offers no model choice on Windows (create.win32ModelOffered), which were never offered at all. */
   const retired = 'the model it last ran, as the model it was set to is not offered now';
   if (rec.accountOk) {
-    if (rec.modelOk) return '. It starts on the account and model it was set to before.';
-    return `. It starts on ${rec.configDir ? 'the account it was set to' : 'your main account, as before'}, but on ${retired}. Choose its model again if it used another.`;
+    /* kosmos#8584: an account FOLDER is read again, live, when Start at login runs (register.repair calls
+       win32RecordedTask again): unplugged or signed out by then, the task goes on the main account. So for a folder the
+       words say "if"; the main account is always there and keeps the flat sentence. Review 1: the main-account fallback
+       is where it then stays (Start at login is not offered again), so it gets the same advice as every other outcome
+       that lands there, in its own sentence to keep each under the 30-word cap. Review 2: "only if", never a plain
+       "if": with the same account still signed in, repair still writes the main account when the folder is out of reach
+       (a disk not connected) or its config cannot be read at that moment (being written). "Finds that same account in its
+       account folder" covers reach, read and match, as the kept outcomes' words do. */
+    const onFolder = 'It starts on the account it was set to only if Kosmos finds that same account in its account folder at Start at login.';
+    const otherwise = ' Otherwise it starts on your main account; choose its account again if it should use another.';
+    if (rec.modelOk) {
+      return rec.configDir
+        ? `. It starts on the model it was set to. ${onFolder}${otherwise}`
+        : '. It starts on the account and model it was set to before.';
+    }
+    return rec.configDir
+      // Review 3: the model first, as every other outcome says it, then the account, then the model advice last.
+      ? `. It starts on ${retired}. ${onFolder}${otherwise} Choose its model again if it used another.`
+      : `. It starts on your main account, as before, but on ${retired}. Choose its model again if it used another.`;
   }
   /* The outcomes that keep no folder: the account cannot be put back, and the words say why. round 1: removed from
      Kosmos, so its folder name may now be someone else's; round 2: or not there when the startup job was removed
@@ -958,8 +975,9 @@ function startsAgainWords(name, preview = false) {
     const modelNow = rec.modelOk ? 'It starts on the model it was set to.' : `It starts on ${retired}.`;
     return `. ${modelNow} The account in the folder it used has signed out or changed.`
       + " It starts on that folder's account only if that same account is signed in there again before you use Start at login."
-      + (rec.modelOk ? ' Otherwise it starts on your main account; choose its account again if it should use another.'
-        : ' Otherwise it starts on your main account. Choose its account and model again if it used others.');
+      + ' Otherwise it starts on your main account; choose its account again if it should use another.'
+      // kosmos#8584: the model advice is its own sentence, true on both paths (the same account back, or the main one).
+      + (rec.modelOk ? '' : ' Choose its model again if it used another.');
   }
   if (because) {
     return rec.modelOk
