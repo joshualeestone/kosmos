@@ -22,6 +22,9 @@ struct FilesView: View {
     // kosmos#8632: the order, kept on this phone per screen (an agent's Files, a project's Files).
     @AppStorage private var sortSaved: String
     private var sortChoice: Board.FilesSort { Board.filesSort(saved: sortSaved) }
+    // The page in that order, kept rather than sorted in body: A to Z over 1000 rows took about 15 ms per sort on a Mac
+    // (review 2), and body runs again on every change while a file opens.
+    @State private var sortedPage: Board.FilesPage?
 
     init(client: BoardClient, owner: Board.FilesOwner, dir: String = "", openOnBoard: @escaping () -> Void, titled: Bool = true) {
         self.client = client
@@ -61,7 +64,7 @@ struct FilesView: View {
             case .refused(let why)?:
                 Section { Text(why).foregroundColor(Palette.secondary) }
             case .page(let unsorted)?:
-                let page = Board.filesSorted(unsorted, by: sortChoice)
+                let page = sortedPage ?? Board.filesSorted(unsorted, by: sortChoice)
                 if page.dirs.isEmpty && page.files.isEmpty {
                     Section { Text(Board.filesEmpty(owner: owner, dir: dir)).foregroundColor(Palette.secondary) }
                 } else {
@@ -104,9 +107,10 @@ struct FilesView: View {
         // Review 2: keyed on the account, so a sign-out, another account or another Mac cancels the old read and starts
         // a new one; load() also drops an answer that lands for the account before.
         .task(id: client.chatEpoch) {
-            if readFor != client.chatEpoch { read = nil; opener.failed = nil; readFor = client.chatEpoch }
+            if readFor != client.chatEpoch { show(nil); opener.failed = nil; readFor = client.chatEpoch }
             await load()
         }
+        .onChange(of: sortSaved) { _ in show(read) }
         .filesQuickLook(opener, client: client)
     }
 
@@ -125,7 +129,7 @@ struct FilesView: View {
 
     private func load() async {
         #if DEBUG
-        if let sample = FilesView.sample(owner: owner, dir: dir) { read = sample; return }
+        if let sample = FilesView.sample(owner: owner, dir: dir) { show(sample); return }
         #endif
         let epoch = client.chatEpoch
         let res = await client.throughMac { mac in
@@ -138,7 +142,13 @@ struct FilesView: View {
         // What a refresh keeps: Board.filesScreenKeepsShown.
         let got = Board.filesResult(status: res?.1.statusCode ?? 0, body: res?.0)
         if Board.filesScreenKeepsShown(got, status: res?.1.statusCode ?? 0, body: res?.0, owner: owner, dir: dir), case .page = read { return }
-        read = got
+        show(got)
+    }
+
+    // Sets the list and its sorted page together.
+    private func show(_ r: Board.FilesRead?) {
+        read = r
+        if case .page(let p)? = r { sortedPage = Board.filesSorted(p, by: sortChoice) } else { sortedPage = nil }
     }
 
     #if DEBUG
