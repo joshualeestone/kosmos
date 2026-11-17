@@ -61,6 +61,7 @@ function write(accounts) {
     const tmp = file + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({ v: 1, accounts }), { mode: 0o600 });
     try { fs.renameSync(tmp, file); } catch (err) { try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ } throw err; }
+    cached = null;   // the next read sees this write, however coarse the file's time is
     return { ok: true };
   } catch (err) {
     return { ok: false, because: 'the block list could not be saved', code: (err && err.code) || null };

@@ -1429,3 +1429,6 @@ extension Board {
         }
     }
 }
+
+// #8625: posted by Settings when an Unblock was taken, so the rooms stop keeping that person's hidden messages out.
+extension Notification.Name { static let kosmosUnblocked = Notification.Name("kosmos.unblocked") }
