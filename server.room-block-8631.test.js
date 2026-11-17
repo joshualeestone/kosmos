@@ -91,6 +91,8 @@ test('#8631: rows of a blocked person in the archived stretch are not counted fo
   assert.equal((await post(`/api/project/${encodeURIComponent(pid)}/room/x-a1/block`)).status, 200);
   const live = await read('?n=50&archive=0');
   assert.equal(Object.prototype.hasOwnProperty.call(live, 'hiddenBlocked'), false, 'nothing the live room would show is hidden');
+  assert.equal((await read('?n=50&archive=1')).hiddenBlocked, 2, 'the archive view says what it hides');
+  assert.equal((await read('')).hiddenBlocked, 2, 'the whole room (a search) counts both parts');
   // CONTROL: with the marker gone, the same block hides two live rows again.
   roomarchive.clearMarker(pid);
   assert.equal((await read('?n=50&archive=0')).hiddenBlocked, 2);

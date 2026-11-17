@@ -104,6 +104,8 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
         window.__answer = { status: 200, body: { blocked: true, name: 'Ana', hidden: { 'p-1': [row.id] } } };
         window.fetch = async (url, opts) => {
           window.__posted.push([String(url), opts && opts.method || 'GET', opts && opts.body || null]);
+          // Only the block route gets the arm's answer; the page's own background reads get nothing to misread.
+          if (!/\/block$/.test(String(url))) return { ok: false, status: 404, json: async () => ({}) };
           const a = window.__answer;
           return { ok: a.status >= 200 && a.status < 300, status: a.status, json: async () => a.body };
         };
@@ -135,6 +137,17 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
         xBlockClose();
         return out;
       }, ROW);
+      const unconfirmed = await page.evaluate(async (row) => {
+        window.__answer = { status: 200, body: { ok: true } };
+        PJ_WIN.older = [row];
+        xBlockAsk(row.id, null);
+        document.getElementById('xblock-go').click();
+        for (let i = 0; i < 50 && document.getElementById('xblock-msg').textContent === 'Blocking\u2026'; i += 1) await new Promise((r) => setTimeout(r, 20));
+        const out = document.getElementById('xblock-msg').textContent;
+        xBlockClose();
+        return out;
+      }, ROW);
+      ok(t + ' a 2xx that does not say blocked is not called a failure (the phone\'s words)', unconfirmed === 'We could not confirm the block. If their messages are still shown, try again.', unconfirmed);
       ok(t + ' a refusal leaves the dialog open with the board\'s reason', refused.open && refused.msg === 'We could not block them: this message has no sender Kosmos can name.' && refused.again, JSON.stringify(refused));
 
       // 3c. The real buttons in #pj-room, through the page's own click handling (round 1: every arm above called the
@@ -150,15 +163,19 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
         window.fetch = async (url, opts) => {
           window.__posted.push([String(url), opts && opts.method || 'GET', opts && opts.body || null]);
           if (/\/sender$/.test(String(url))) return { ok: true, status: 200, json: async () => ({ account: 'acctA' }) };
-          return { ok: true, status: 200, json: async () => ({ blocked: true, name: 'Ana', hidden: {} }) };
+          if (/\/block$/.test(String(url))) return { ok: true, status: 200, json: async () => ({ blocked: true, name: 'Ana', hidden: {} }) };
+          return { ok: false, status: 404, json: async () => ({}) };
         };
         const say = document.getElementById('pj-room-msg');
         say.textContent = '';
-        let threw = null;
+        let threw = null, href = null;
         window.addEventListener('unhandledrejection', (e) => { threw = String(e.reason); }, { once: true });
+        const realClick = HTMLAnchorElement.prototype.click;
+        HTMLAnchorElement.prototype.click = function () { if (/^mailto:/.test(this.href)) { href = this.href; return; } return realClick.call(this); };
         room.querySelector('[data-ext-report]').click();
         for (let i = 0; i < 50 && !say.textContent; i += 1) await new Promise((r) => setTimeout(r, 20));
-        const out = { said: say.textContent, threw, sender: window.__posted.some((q) => q[0] === '/api/project/p-1/room/x-cccc3333-0003/sender') };
+        HTMLAnchorElement.prototype.click = realClick;
+        const out = { said: say.textContent, threw, href, sender: window.__posted.some((q) => q[0] === '/api/project/p-1/room/x-cccc3333-0003/sender') };
         room.querySelector('[data-ext-block]').click();
         out.dialog = !document.getElementById('xblock-modal').hidden;
         xBlockClose();
@@ -176,10 +193,45 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
         return out;
       }, ROW);
       ok(t + ' the real Report button reads the sender and says where the report went', real.sender && real.said.startsWith('Your mail app should open with the report to hello@installkosmos.com.'), JSON.stringify(real));
+      const mail = real.href ? new URL(real.href) : null;
+      ok(t + ' the mail goes to the published address with the phone\'s subject and the sender\'s account', !!mail && mail.pathname === 'hello@installkosmos.com'
+        && mail.searchParams.get('subject') === 'Kosmos report: a message in a shared room' && (mail.searchParams.get('body') || '').includes('Sender account: acctA'), String(real.href).slice(0, 160));
       ok(t + ' an emoji at the 2000-character cut does not break the report', real.threw === null && real.said !== '', String(real.threw));
       ok(t + ' the real Block button opens the dialog', real.dialog === true);
       ok(t + ' a row only the archive holds can be blocked', real.archive === true);
       ok(t + ' a message no longer in the room says so rather than doing nothing', real.missing.dialog === false && real.missing.said === 'We could not find that message. Read the room again and try once more.', JSON.stringify(real.missing));
+
+      // 4a. The real loadRoom sets the line from the room read (round 7: the call sites were untested), and the archive's
+      // own read sets it while the archive shows; going back to the room puts the room's own line back.
+      // On a page of its own: the arms above leave fetch stubbed for the whole page, and the page's own poll runs too.
+      const fresh = await browser.newPage({ viewport: { width: 1100, height: 800 }, colorScheme: theme });
+      fresh.on('pageerror', (e) => problems.push(t + ' pageerror (wired): ' + e.message));
+      await fresh.goto(PAGE);
+      const wired = await fresh.evaluate(async () => {
+        const settle = async () => { await loadRoom(); await new Promise((r) => setTimeout(r, 400)); await loadRoom(); };
+        const el = document.getElementById('pj-blocked-note');
+        const saved = { read: window.pjWinRead, byId: window.pjById, cur: PJ_CURRENT };
+        window.pjById = () => ({ id: 'p-9', name: 'Wired', agents: [] });
+        PJ_CURRENT = 'p-9';
+        pjWinReset('p-9');
+        window.pjWinRead = async (pid, n, cursor, archive) => (archive
+          ? { ok: true, rows: [], olderCount: 0, olderCursor: null, archivedCount: 0, archiveMarker: null, hiddenBlocked: 5 }
+          : { ok: true, rows: [], unanswered: [], olderCount: 0, olderCursor: null, archivedCount: 0, archiveMarker: null, hiddenBlocked: window.__hid });
+        const out = {};
+        window.__hid = 2; await settle(); out.two = el.hidden ? null : el.textContent;
+        window.__hid = undefined; await settle(); out.none = el.hidden;
+        window.__hid = 2; await settle();
+        await pjArchOpen(false); out.arch = el.hidden ? null : el.textContent;
+        await loadRoom(); out.archAfterPoll = el.hidden ? null : el.textContent;
+        pjArchClose(true); out.back = el.hidden ? null : el.textContent;
+        window.pjWinRead = saved.read; window.pjById = saved.byId; PJ_CURRENT = saved.cur; pjWinReset(saved.cur);
+        return out;
+      });
+      await fresh.close();
+      ok(t + ' the room read sets the line through loadRoom', wired.two && wired.two.startsWith('2 messages are hidden here'), JSON.stringify(wired));
+      ok(t + ' CONTROL: a read with no count clears it', wired.none === true, JSON.stringify(wired));
+      ok(t + ' the archive says what a block hides in it, and a live poll does not overwrite that', wired.arch && wired.arch.startsWith('5 messages') && wired.archAfterPoll && wired.archAfterPoll.startsWith('5 messages'), JSON.stringify(wired));
+      ok(t + ' back in the room, the room\'s own line returns', wired.back && wired.back.startsWith('2 messages'), JSON.stringify(wired));
 
       // 4. The room's one line.
       const note = await page.evaluate(() => {
@@ -202,7 +254,8 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
         window.fetch = async (url, opts) => {
           window.__posted.push([String(url), opts && opts.method || 'GET', opts && opts.body || null]);
           if (String(url) === '/api/blocked') return window.__list;
-          return { ok: true, status: 200, json: async () => ({ unblocked: true, changed: true }) };
+          if (String(url) === '/api/blocked/unblock') return { ok: true, status: 200, json: async () => ({ unblocked: true, changed: true }) };
+          return { ok: false, status: 404, json: async () => ({}) };
         };
         window.__list = { ok: false, status: 503, json: async () => ({ error: 'no' }) };
         box.hidden = false;
