@@ -213,6 +213,7 @@ test('#570 7c it starts once, and every LATER start is a resume of the same id',
   kids[0].die(1);
   assert.deepEqual(asked, [null, 'session-1'], 'and the death brings it back as a RESUME');
   h.stop();
+  win32sessions.forget('session-1');   // #8658: the resume re-stamps its row in this file's store
 });
 
 test('#570 7c a death is known from the child, not from a poll', () => {
@@ -1405,4 +1406,35 @@ test('#2281 a re-arm retires the prior pending registration timer (crash loop)',
   timers.shift()();          // run the restart: startOnce arms a SECOND registration timer
   assert.deepEqual(cleared, [1], 'arming the restart cleared the first start pending timer');
   h.stop();
+});
+
+test('#8658 a RESUME re-stamps its own row (same id), so the board sees an agent that has only just started', () => {
+  const recorded = [];
+  const spy = {
+    record: (id, meta) => { recorded.push(id); return win32sessions.record(id, meta); },
+    forget: (id) => win32sessions.forget(id),
+    read: () => win32sessions.read(),
+    pruneName: (name, keep) => win32sessions.pruneName(name, keep),
+  };
+  const t = resumingSupervisor('restamp-1', { sessions: spy });
+  const before = win32sessions.read()[t.firstId];
+  assert.ok(before, 'premise: the birth row is there');
+  recorded.length = 0;
+  t.kids[0].die(1);                                    // the crash comes back as a resume
+  assert.deepEqual(t.asked, [null, t.firstId], 'premise: the second start resumed the same session');
+  assert.deepEqual(recorded, [t.firstId], 'the resume did not re-stamp its own row, or recorded another id');
+  const rows = Object.values(win32sessions.read()).filter((r) => r && r.name === 'restamp-1');
+  assert.equal(rows.length, 1, 'a resume must never add a second row for one agent');
+  t.h.stop();
+  win32sessions.forget(t.firstId);
+});
+
+test('#8658 a re-stamp that throws does not stop the resumed run', () => {
+  const t = resumingSupervisor('restamp-2', {
+    sessions: { record: () => { throw new Error('locked'); }, forget: () => ({ ok: true }), read: () => ({}), pruneName: () => ({ ok: true, removed: 0 }) },
+  });
+  t.kids[0].die(1);
+  assert.ok(t.events.some((e) => e.action === 'resumed'), 'the resume was lost because the re-stamp threw');
+  t.h.stop();
+  win32sessions.forget(t.firstId);
 });

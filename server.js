@@ -20447,7 +20447,7 @@ const server = http.createServer(async (req, res) => {
           bad.status = 400;
           throw bad;
         }
-        const roster = safeRoster();
+        let roster = safeRoster();
         if (roster === null) {
           sendJson(res, 200, { delivery: { state: 'could_not', because: 'we could not check which agents are running, so nothing was sent' } });
           return;
@@ -20456,6 +20456,19 @@ const server = http.createServer(async (req, res) => {
         if (tokenSender && !tokenSender.ok) {
           sendJson(res, 200, { delivery: { state: 'could_not', because: tokenSender.because } });
           return;
+        }
+        /* kosmos#8658: an agent's message to an agent that has only just started waits for it, as a person's does
+           (#8652), then is refused as starting rather than as nobody of that name. */
+        if (typeof body.to === 'string' && !knownAgent(body.to) && startingAgent(body.to)) {
+          if (!(await awaitRosterRow(body.to))) {
+            sendJson(res, 200, { delivery: { state: 'could_not', because: `${body.to} is still starting, so nothing was sent. Try again in a moment.` } });
+            return;
+          }
+          roster = safeRoster();
+          if (roster === null) {
+            sendJson(res, 200, { delivery: { state: 'could_not', because: 'we could not check which agents are running, so nothing was sent' } });
+            return;
+          }
         }
         const delivery = await messages.sendAsync({
           fromPane: body.from_pane,
