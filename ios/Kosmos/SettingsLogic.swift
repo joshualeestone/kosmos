@@ -76,6 +76,47 @@ enum Settings {
 
     static func readRequest(_ mac: Mac) -> URLRequest? { request(mac, method: "GET") }
 
+    // #8625 (App Store guideline 1.2): the people from outside this Kosmos the person blocked, and unblocking one. The
+    // board's routes (server.js /api/blocked, /api/blocked/unblock), with the same cookie and headers as the switch above.
+    struct Blocked: Equatable, Identifiable {
+        let account: String
+        let name: String
+        var id: String { account }
+    }
+    // The cookie and headers every request to the computer carries (as request(_:method:body:) above sets them).
+    private static func sign(_ r: inout URLRequest, _ mac: Mac) {
+        r.httpShouldHandleCookies = false
+        r.setValue("\(Board.macCookieName)=\(mac.cookie)", forHTTPHeaderField: "Cookie")
+        r.setValue("same-origin", forHTTPHeaderField: Board.fetchSiteHeader)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+    }
+    static func blockedRequest(_ mac: Mac) -> URLRequest? {
+        var r = URLRequest(url: URL(string: "/api/blocked", relativeTo: mac.url)!.absoluteURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        r.httpMethod = "GET"
+        sign(&r, mac)
+        return r
+    }
+    static func unblockRequest(_ mac: Mac, account: String) -> URLRequest? {
+        guard account.range(of: #"^[A-Za-z0-9_-]{1,80}$"#, options: .regularExpression) != nil,
+              let body = try? JSONSerialization.data(withJSONObject: ["account": account]) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/blocked/unblock", relativeTo: mac.url)!.absoluteURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        r.httpMethod = "POST"
+        sign(&r, mac)
+        r.httpBody = body
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return r
+    }
+    // The list from a 200 JSON answer, in the board's order; nil for anything else (so a failed read never shows "none").
+    static func blocked(status: Int, data: Data) -> [Blocked]? {
+        guard status == 200, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let list = obj["blocked"] as? [[String: Any]] else { return nil }
+        return list.compactMap { e in
+            guard let account = e["account"] as? String, !account.isEmpty else { return nil }
+            let name = (e["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Someone from outside"
+            return Blocked(account: account, name: name)
+        }
+    }
+
     // nil kind: the master switch ({ on }); a kind: that one switch ({ kind, on }), as the board sends them.
     static func writeRequest(_ mac: Mac, kind: Kind?, on: Bool) -> URLRequest? {
         var body: [String: Any] = ["on": on]

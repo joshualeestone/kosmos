@@ -35,8 +35,19 @@ an operational dependency, said on the card.
 
 - Rows kept before a block are filtered only in the room route; other readers (an agent's `kosmos room` of old rows)
   still see them. New rows never reach anyone.
-- Slices still to build: the phone (long-press Report and Block, the Blocked list in Settings), the desktop room's
-  buttons, the review notes and age-rating.md.
+- The desktop board's room has no Report or Block buttons yet (App Review reads the iPhone app; the routes are the
+  board's, so the desktop page can add them later). A follow-up card.
+
+## The phone (slice 2)
+
+- The long-press sheet (ComposerExtras.swift) gains optional Report message and Block rows, set only for a message from
+  outside this Kosmos and never in the archive view (RoomView.swift). Block asks first, in plain words, and says they
+  are not told. Existing callers are unchanged (both default to nil).
+- Report opens the person's mail app with a message to hello@installkosmos.com: from, room name and id, message id, time
+  and the words (Board.reportMail). Block posts to the board's block route by message id (Board.roomBlockRequest; only
+  x- ids go into a path), then re-reads the room; the line under the composer says done or why not.
+- Settings gains Blocked: the list from the board, with Unblock; a failed read shows no section, never an empty list.
+- The store texts say so: the review notes (Guideline 1.2 paragraph) and age-rating.md.
 
 ## Tests
 
@@ -46,3 +57,8 @@ an operational dependency, said on the card.
 - Controls: removing the room-route filter fails the hiding test; removing the arrival drop fails the new-message test.
 - Neighbours and guards (messages, fedseats, room and federation route tests, fixture-discipline, sandbox-data,
   brand and name refs, engine.reachable): 887 pass.
+
+- Phone: room suite (#8625 section: the block request and its path guard, the report mail's fields, a post is not
+  reported, refusal sentences) and settings suite (the list and unblock requests, a malformed account, empty vs failed
+  read). Every iOS logic suite passes; both typechecks (release and DEBUG) pass; server.ios-routes-6838 passes with the
+  three new phone requests; the 85 repo tests that read the iOS sources pass; check-listing.sh passes.

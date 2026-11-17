@@ -481,6 +481,59 @@ extension Board {
         return r
     }
 
+    // #8625 (App Store guideline 1.2): POST /api/project/<id>/room/<message id>/block, an empty body: the person behind one
+    // message from outside this Kosmos is blocked, on every computer and in every room (the board resolves who sent it).
+    // Outside message ids are the board's x-<uuid>; anything else is never put into a path.
+    static func roomBlockRequest(mac: URL, project: String, message: String) -> URLRequest? {
+        guard isProjectId(project), message.range(of: #"^x-[0-9a-fA-F-]{8,64}$"#, options: .regularExpression) != nil else { return nil }
+        var r = URLRequest(url: URL(string: "/api/project/\(project)/room/\(message)/block", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = Data("{}".utf8)
+        return r
+    }
+    // nil when the block took (a 2xx with blocked: true); otherwise the sentence to show. An answer this build cannot read
+    // is a refusal, never taken for a block.
+    static func blockRefusal(status: Int?, _ data: Data?) -> String? {
+        let obj = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if let status, (200...299).contains(status), let obj, isTrue(obj["blocked"]) { return nil }
+        let why = (obj?["error"] as? String).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        return "We could not block them" + (why.map { ": " + $0 } ?? "") + ". Try again in a moment."
+    }
+    static let blockAskTitle = "Block this person?"
+    static func blockAskBody(_ name: String) -> String {
+        "You will not see messages from \(name) in any shared room, on this phone or on your computer. They are not told. You can unblock them in Settings."
+    }
+    static func blockedNote(_ name: String) -> String { "\(name) is blocked. Their messages are hidden; unblock them in Settings." }
+
+    // #8625: Report sends the message to Kosmos by email, from the person's own mail app, to the address published on the
+    // privacy page. The body carries what support needs to act: the words, who sent them, the room and the message id.
+    static let reportAddress = "hello@installkosmos.com"
+    static func reportMail(row: RoomRow, project: String, projectName: String) -> URL? {
+        guard row.kind == .external else { return nil }
+        let subject = "Report: a message in a shared room"
+        let body = [
+            "I am reporting this message from someone outside my Kosmos.",
+            "",
+            "From: " + (row.from ?? "someone outside"),
+            "Room: " + projectName + " (" + project + ")",
+            "Message id: " + row.id,
+            "Sent: " + (row.atRaw ?? ""),
+            "",
+            "The message:",
+            roomWords(row),
+            "",
+            "Why I am reporting it (optional):",
+            "",
+        ].joined(separator: "\n")
+        var c = URLComponents()
+        c.scheme = "mailto"
+        c.path = reportAddress
+        c.queryItems = [URLQueryItem(name: "subject", value: subject), URLQueryItem(name: "body", value: body)]
+        return c.url
+    }
+
     // The react route's answer ({ ok, of, reactions }, server.js roomReact): the post it toggled and its fresh pills,
     // in the room's own shape. Patching that row from it reaches a post above the newest page, which no re-read does.
     static func reacted(_ data: Data) -> (of: String, reactions: [Reaction])? {

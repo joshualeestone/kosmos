@@ -98,6 +98,22 @@ section("Kosmos+ pages")
 check(Settings.accountURL(coordinator: coordinator).absoluteString == "https://login.kosmosplus.com/account", "the account page")
 check(Settings.deleteAccountURL(coordinator: coordinator).absoluteString == "https://login.kosmosplus.com/delete-account", "the delete-account flow")
 
+// #8625 (App Store guideline 1.2): the Blocked list and Unblock.
+do {
+    let m = Settings.Mac(name: "Studio", url: URL(string: "https://mac.example.test")!, cookie: "c123")
+    let r = Settings.blockedRequest(m)
+    check(r?.httpMethod == "GET" && r?.url?.path == "/api/blocked" && r?.value(forHTTPHeaderField: "Cookie")?.hasSuffix("=c123") == true,
+          "the Blocked list is read from the computer with its sign-in")
+    let u = Settings.unblockRequest(m, account: "acctA")
+    let sent = u?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: String] }
+    check(u?.httpMethod == "POST" && u?.url?.path == "/api/blocked/unblock" && sent == ["account": "acctA"], "Unblock posts the account the list gave")
+    check(Settings.unblockRequest(m, account: "../etc") == nil, "a malformed account is never sent")
+    let list = Settings.blocked(status: 200, data: Data(#"{"blocked":[{"account":"acctA","name":"Ana","at":"x"},{"account":"acctB","name":""}]}"#.utf8))
+    check(list == [Settings.Blocked(account: "acctA", name: "Ana"), Settings.Blocked(account: "acctB", name: "Someone from outside")], "the list, with a name for one that has none")
+    check(Settings.blocked(status: 200, data: Data(#"{"blocked":[]}"#.utf8)) == [], "an empty list is no one")
+    check(Settings.blocked(status: 503, data: Data(#"{"blocked":[]}"#.utf8)) == nil, "a failed read is not an empty list")
+}
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

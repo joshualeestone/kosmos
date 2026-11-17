@@ -581,6 +581,22 @@ final class RoomStore: ObservableObject {
         return result
     }
 
+    // #8625 (App Store guideline 1.2): block the person behind a message from outside this Kosmos. The board resolves who
+    // sent it and hides them in every room on every computer, so the room is re-read rather than patched here; the line
+    // under the composer says it was done, or why not.
+    func block(_ row: Board.RoomRow, in project: String) async {
+        guard row.kind == .external else { return }
+        let name = row.from ?? "this person"
+        #if DEBUG
+        if Self.sample { rows[project]?.removeAll { $0.kind == .external && $0.from == row.from }; notes[project] = Board.blockedNote(name); return }
+        #endif
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.roomBlockRequest(mac: $0, project: project, message: row.id) }
+        guard same(epoch) else { return }
+        notes[project] = Board.blockRefusal(status: answer?.1.statusCode, answer?.0) ?? Board.blockedNote(name)
+        await loadRoom(project)
+    }
+
     // The project's members the board says need the person now (their card's tone), for the pinned line.
     // kosmos#7106: the room's needs-you notice from the projects route's own count for THIS project (needsYouHere), as
     // the board's pjNeedsNotice; an agent's card tone can be about another project, so it is never the test here.

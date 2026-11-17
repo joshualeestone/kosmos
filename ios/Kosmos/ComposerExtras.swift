@@ -450,6 +450,11 @@ struct MessageActionTarget: Identifiable {
     // kosmos#7614: set only on the person's own message; asks before deleting it for everyone, then runs once the sheet
     // has gone. nil hides Delete.
     var delete: (() -> Void)? = nil
+    // #8625 (App Store guideline 1.2): set only on a message from outside this Kosmos. Report opens a mail to Kosmos;
+    // Block asks first, then blocks the person behind it. nil hides each.
+    var report: (() -> Void)? = nil
+    var block: (() -> Void)? = nil
+    var blockName: String = ""
 }
 
 private struct MessageActionsOpenKey: EnvironmentKey { static let defaultValue: ((MessageActionTarget) -> Void)? = nil }
@@ -608,6 +613,7 @@ struct MessageActionsSheet: View {
     @Environment(\.dismiss) private var dismissSheet
     private func dismiss() { if let panelClose { panelClose() } else { dismissSheet() } }
     @State private var confirmingDelete = false   // kosmos#7614: Delete asks first, in the board's own words
+    @State private var confirmingBlock = false    // #8625: Block asks first, as Delete does
 
     private var more: Bool { detent == .large }
 
@@ -683,6 +689,13 @@ struct MessageActionsSheet: View {
                     dismiss()
                 }
             }
+            // #8625: on a message from outside this Kosmos only. Block is red and asks once, as Delete does.
+            if let report = target.report {
+                row("Report message", "flag") { after(report); dismiss() }
+            }
+            if target.block != nil {
+                row("Block " + target.blockName, "hand.raised", destructive: true) { confirmingBlock = true }
+            }
             // kosmos#7614: last and red, on the person's own message only; it asks once, as the board does.
             if target.delete != nil {
                 row(Board.deleteConfirmYes + " message", "trash", destructive: true) { if let panelDelete { panelDelete() } else { confirmingDelete = true } }
@@ -698,6 +711,15 @@ struct MessageActionsSheet: View {
             Button(Board.deleteConfirmNo, role: .cancel) {}
         } message: {
             Text(Board.deleteConfirmBody)
+        }
+        .alert(Board.blockAskTitle, isPresented: $confirmingBlock) {
+            Button("Block", role: .destructive) {
+                if let block = target.block { after(block) }
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(Board.blockAskBody(target.blockName))
         }
         .padding(.horizontal, 16).padding(.top, panelClose == nil ? 20 : 12).padding(.bottom, 12)
         // kosmos#7419 build 11 (Mona Lisa): fill the sheet to its bottom edge, so the sheet's own background (ground)
@@ -785,7 +807,9 @@ struct MessageActionsHost: ViewModifier {
         let rowH: CGFloat = typeSize.isAccessibilitySize ? 76 : 50
         return (32 + (t.react != nil ? 56 : 0) + (t.reply != nil ? rowH + 12 : 0) + (t.text.isEmpty ? 0 : rowH)
                        // Review 2: the reaction row's 56 and Reply's +12 carry the gap after them; Copy text's row does not.
-                       + (t.delete != nil ? rowH + (t.text.isEmpty ? 0 : 12) : 0) + 24)
+                       + (t.delete != nil ? rowH + (t.text.isEmpty ? 0 : 12) : 0)
+                       // #8625: Report and Block, each a row with the gap before it.
+                       + (t.report != nil ? rowH + 12 : 0) + (t.block != nil ? rowH + 12 : 0) + 24)
     }
 
     // kosmos#7419 build 11: our dim stands in for the system's only where the system's is off (16.4+, small height).
@@ -908,7 +932,8 @@ struct MessageActions: ViewModifier {
                     MessageActionsHost.sampleOpened = true
                     // KOSMOS_SAMPLE_MINE=<emoji> (Mona Lisa's #7419 shot): that quick reaction shows as already the person's.
                     if let mine = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_MINE"], !mine.isEmpty {
-                        t = MessageActionTarget(mine: t.mine.union([mine]), react: t.react, reply: t.reply, text: t.text, delete: t.delete)
+                        t = MessageActionTarget(mine: t.mine.union([mine]), react: t.react, reply: t.reply, text: t.text, delete: t.delete,
+                                                report: t.report, block: t.block, blockName: t.blockName)
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { opened = t.id; open?(t) }
                     if want == "more" { DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { NotificationCenter.default.post(name: .sampleSheetMore, object: nil) } }
@@ -936,8 +961,10 @@ struct MessageActionsAccessibility: ViewModifier {
 
 extension View {
     func messageActions(mine: Set<String>, react: ((String) -> Void)?, reply: (() -> Void)?, text: String,
-                        delete: (() -> Void)? = nil) -> some View {
-        modifier(MessageActions(target: { MessageActionTarget(mine: mine, react: react, reply: reply, text: text, delete: delete) }))
+                        delete: (() -> Void)? = nil, report: (() -> Void)? = nil, block: (() -> Void)? = nil,
+                        blockName: String = "") -> some View {
+        modifier(MessageActions(target: { MessageActionTarget(mine: mine, react: react, reply: reply, text: text, delete: delete,
+                                                                report: report, block: block, blockName: blockName) }))
     }
     func messageActionsHost() -> some View { modifier(MessageActionsHost()) }
     func messageActionsAccessibility(mine: Set<String>, react: ((String) -> Void)?, reply: (() -> Void)?, text: String,

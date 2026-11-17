@@ -31,6 +31,9 @@ struct SettingsView: View {
     @State private var mac: Settings.Mac?
     // Bumped by every write, so a read that started before it cannot paint the older state over the newer one.
     @State private var generation = 0
+    // #8625: the people from outside this Kosmos the person blocked; nil until read (or when the read failed).
+    @State private var blockedList: [Settings.Blocked]?
+    @State private var blockedNote: String?
 
     private static var sample: Bool {
         #if DEBUG
@@ -53,6 +56,7 @@ struct SettingsView: View {
                     if KosmosConfig.requireBiometricUnlock { security }
                     account
                     chat
+                    blocked
                     board
                     about
                 }
@@ -269,6 +273,46 @@ struct SettingsView: View {
         }
     }
 
+    // #8625 (App Store guideline 1.2): who is blocked, and Unblock. Shown once read; a failed read shows nothing rather
+    // than an empty list that would read as "no one".
+    @ViewBuilder private var blocked: some View {
+        if let list = blockedList {
+            Section {
+                if list.isEmpty {
+                    Text("No one is blocked.").foregroundColor(Palette.secondary)
+                }
+                ForEach(list) { person in
+                    HStack {
+                        Text(person.name).foregroundColor(Palette.primary)
+                        Spacer()
+                        Button("Unblock") { Task { await unblock(person) } }
+                            .accessibilityLabel("Unblock " + person.name)
+                    }
+                    .frame(minHeight: 44)
+                }
+            } header: {
+                Text("Blocked")
+            } footer: {
+                Text(blockedNote ?? "People from outside your Kosmos you blocked in a shared room. Their messages are hidden on this phone and on your computer.")
+                    .font(.footnote).foregroundColor(Palette.secondary)
+            }
+        }
+    }
+
+    @MainActor private func readBlocked() async {
+        guard let mac, let r = Settings.blockedRequest(mac) else { blockedList = nil; return }
+        let (status, data) = await send(r)
+        guard !Task.isCancelled else { return }
+        blockedList = Settings.blocked(status: status, data: data)
+    }
+
+    @MainActor private func unblock(_ person: Settings.Blocked) async {
+        guard let mac, let r = Settings.unblockRequest(mac, account: person.account) else { return }
+        let (status, _) = await send(r)
+        blockedNote = (200...299).contains(status) ? person.name + " is unblocked." : "We could not unblock " + person.name + ". Try again in a moment."
+        await readBlocked()
+    }
+
     @ViewBuilder private var board: some View {
         Section {
             Button(action: openBoardSettings) { row("Settings on your computer's board", detail: nil) }
@@ -342,6 +386,7 @@ struct SettingsView: View {
         } else {
             load = .failed(Settings.refusal(status: status, data: data, writing: false))
         }
+        await readBlocked()   // #8625
     }
 
     @MainActor private func write(kind: Settings.Kind?, on: Bool) async {

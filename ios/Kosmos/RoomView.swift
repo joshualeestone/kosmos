@@ -18,6 +18,7 @@ struct RoomView: View {
     // The project as the room opened; `project` reads the list's current row (members change while it is open).
     let opened: Board.ProjectRow
     private var project: Board.ProjectRow { store.list?.projects.first { $0.id == opened.id } ?? opened }
+    @Environment(\.openURL) private var openURL   // #8625: Report opens a mail to Kosmos
     let openPage: (URL) -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
@@ -1194,6 +1195,8 @@ struct RoomView: View {
                            openAgent: { if let a = store.agent(row.from) { chatAgent = a } },
                            jump: { if let id = row.replyTo { jumpTo = id } },
                            delete: { Task { _ = await store.delete(row, in: project.id) } },
+                           report: { if let url = Board.reportMail(row: row, project: project.id, projectName: project.name) { openURL(url) } },
+                           block: { Task { await store.block(row, in: project.id) } },
                            flashing: flashed == row.id,
                            mentionNames: row.mentioned.compactMap { store.names[$0] },
                            thumbnails: client.thumbnails, fileStates: fileStates, openFile: openFile,
@@ -1701,6 +1704,8 @@ struct RoomBubble: View {
     // kosmos#7101: a reply's header goes to the post it answers (the board's #3745), and that post flashes.
     var jump: () -> Void = {}
     var delete: (() -> Void)? = nil   // kosmos#7614: the person's own post only (its sheet asks first)
+    var report: (() -> Void)? = nil   // #8625: a message from outside this Kosmos only
+    var block: (() -> Void)? = nil    // #8625: likewise; its sheet asks first
     var flashing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotionHere
 
@@ -1858,7 +1863,10 @@ struct RoomBubble: View {
         // round the bubble, not round the empty side of the frame.
         .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: answerable ? react : nil,
                         reply: answerable ? reply : nil, text: Board.roomWords(row),   // review 2: the words shown
-                        delete: answerable && mine ? delete : nil)   // kosmos#7614: never on an archived post
+                        delete: answerable && mine ? delete : nil,   // kosmos#7614: never on an archived post
+                        // #8625: Report and Block on a message from outside this Kosmos, never in the archive view.
+                        report: row.kind == .external && !archived ? report : nil,
+                        block: row.kind == .external && !archived ? block : nil, blockName: name)
         .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
     }
 
