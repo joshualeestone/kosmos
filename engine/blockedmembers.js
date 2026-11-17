@@ -24,7 +24,9 @@ const MAX = 500;   // a bound on the record, far above any person's list
 /** The account part of a stamped member ("acct" or "acct:computer"), or null when it is not well shaped. */
 function accountOf(member) {
   if (typeof member !== 'string') return null;
-  const acct = member.split(':')[0];
+  // The account is everything before the first colon (an account id, not a path list).
+  const cut = member.indexOf(':');
+  const acct = cut < 0 ? member : member.slice(0, cut);
   return ACCOUNT.test(acct) ? acct : null;
 }
 

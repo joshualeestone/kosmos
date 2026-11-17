@@ -154,3 +154,6 @@ an operational dependency, said on the card.
   and the observer holds self weakly); re-read open rooms on Unblock (they come back on the next poll or reopen); tell
   the person when the block list file is unreadable (it fails open on purpose, see the header); agent-side room
   context (quiet-run and acknowledgement logic) still reads rows kept before a block (stated above).
+- Final validation (6j), first run: two Windows-coupling guards (#1732) flagged `member.split(':')` as a path-list split.
+  It splits an account from a computer, not a path; rewritten with indexOf, same behaviour. The guards, the board tests
+  and the shared-room tests pass (236).
