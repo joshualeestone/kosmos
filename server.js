@@ -6051,7 +6051,9 @@ function withPreviews(rows, opts) {
        picture fetch settles, a picture that failed or timed out gives the card with its words and no picture. */
     let image = '';
     if (hit.image) {
-      const state = unfurl.imageState(hit.image);
+      /* A good verdict is refreshed when a browser draws the picture (the picture route fetches bytes the cache let go),
+         not for every row a read carries; a bad one, which no browser asks for, is refreshed here. */
+      const state = unfurl.imageState(hit.image, { refreshGood: false });
       if (state === null) {
         unfurl.warmImage(hit.image);
         // A card first seen moments ago waits for its picture; an older one (a board just started, a verdict dropped)
@@ -22408,7 +22410,7 @@ const server = http.createServer(async (req, res) => {
       const state = got.image ? unfurl.imageState(got.image) : 'good';
       if (state === 'bad') got = { ...got, image: '' };
       else if (state === null) {
-        const pic = await (unfurl.warmImage(got.image) || unfurl.image(got.image)).catch(() => null);
+        const pic = await (unfurl.warmImage(got.image, { now: true }) || unfurl.image(got.image)).catch(() => null);
         if (!pic || !pic.ok) got = { ...got, image: '' };
       }
       sendJson(res, 200, {

@@ -66,7 +66,13 @@ function cached(key) {
 }
 function remember(key, value) {
   drop(key);
-  while (cache.size >= CACHE_MAX) drop(cache.keys().next().value);
+  /* kosmos#8636: at the count cap a picture entry goes before a page preview, so picture warm-ups for many links can
+     never push a card's page preview out of the room. */
+  while (cache.size >= CACHE_MAX) {
+    let victim = null;
+    for (const k of cache.keys()) { if (k.startsWith('i:')) { victim = k; break; } }
+    drop(victim === null ? cache.keys().next().value : victim);
+  }
   imageBytes += sizeOf(value);
   /* Images are bytes: evict oldest until the budget holds, so two hundred
      five-megabyte images cannot sit in memory for ten minutes. kosmos#8636: only
@@ -511,7 +517,8 @@ function known(raw, ok, passing) {
 /** kosmos#8636: 'good' or 'bad' from the last answer for this image address, or null when it was never fetched (or
     not for a day). NOT a pure read: a last answer older than the image cache's own ten minutes (a passing failure's,
     one minute) starts a fresh fetch in the background, never awaited, so a card's picture follows the site. */
-function imageState(raw) {
+function imageState(raw, opts) {
+  const refreshGood = !(opts && opts.refreshGood === false);
   let k = knownImages.get(String(raw));
   if (!k) {
     // Bytes (or a refusal) still cached for an address whose verdict was dropped: that answer is the verdict.
@@ -529,7 +536,7 @@ function imageState(raw) {
   if (age > KNOWN_MS) { knownImages.delete(String(raw)); return null; }
   // The verdict's age, not the bytes cache, decides when a picture is asked again: a 404 whose cached refusal has
   // expired after a minute is not fetched again until its verdict is ten minutes old.
-  if (age > (k.passing ? REFUSAL_MS : CACHE_MS)) warmImage(raw);
+  if (age > (k.passing ? REFUSAL_MS : CACHE_MS) && (refreshGood || !k.ok)) warmImage(raw);
   return k.ok ? 'good' : 'bad';
 }
 
@@ -566,12 +573,23 @@ function imageDone() { const next = imagesWaiting.shift(); if (next) next(); els
    behind the background warm-ups. */
 function warmImage(raw, opts) {
   const key = String(raw);
-  if (imageFlights.has(key)) return imageFlights.get(key);
+  const now = !!(opts && opts.now === true);
+  const flight = imageFlights.get(key);
+  if (flight) {
+    // A browser asking for a picture whose background fetch is still waiting for a slot starts it now; the waiting
+    // turn then hands its slot back and answers with this fetch.
+    if (now && !flight.direct) flight.direct = image(key).catch(() => undefined);
+    return flight.direct || flight.p;
+  }
   if (cached('i:' + key)) return null;
-  const run = opts && opts.now === true ? image(key) : imageTurn().then(() => image(key).finally(imageDone));
-  const p = run.catch(() => undefined).finally(() => imageFlights.delete(key));
-  imageFlights.set(key, p);
-  return p;
+  const f = { direct: now ? image(key).catch(() => undefined) : null, p: null };
+  f.p = (f.direct || imageTurn().then(() => {
+    if (f.direct) { imageDone(); return f.direct; }
+    f.direct = image(key).catch(() => undefined).finally(imageDone);
+    return f.direct;
+  })).catch(() => undefined).finally(() => imageFlights.delete(key));
+  imageFlights.set(key, f);
+  return f.p;
 }
 
 module.exports = { firstLinkInfo, bareWeb, bareSplit, previewBare, peekBare, peek, warm, preview, image, imageState, warmImage, pageText, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };

@@ -236,3 +236,47 @@ test('at most four picture fetches run at once; the rest wait their turn', async
   const got = await Promise.all(all);
   assert.ok(got.every((g) => g && g.ok), 'a queued fetch did not resolve to its picture');
 });
+
+test('a browser asking for a picture whose background fetch is still waiting for a slot gets it fetched at once', async () => {
+  const hung = [];
+  unfurl.setFetcher(async (url) => { calls.push(String(url)); if (/\/slot\d\.png$/.test(url)) return new Promise((r) => hung.push(r)); return answer(200, 'image/png', PNG); });
+  for (let i = 0; i < 4; i++) unfurl.warmImage('https://slots8636.com/slot' + i + '.png');
+  const queued = unfurl.warmImage(IMG);   // waits for a slot
+  await settle();
+  assert.equal(calls.filter((u) => u === IMG).length, 0, 'CONTROL: the background fetch is still waiting');
+  const now = unfurl.warmImage(IMG, { now: true });
+  const got = await Promise.race([now, new Promise((r) => setTimeout(() => r('waited'), 500))]);
+  assert.notEqual(got, 'waited', 'the browser waited behind the background queue for the same picture');
+  assert.equal(got && got.ok, true);
+  hung.forEach((r) => r(answer(200, 'image/png', PNG)));
+  assert.equal((await queued) && (await queued).ok, true, 'the queued turn did not answer with the same fetch');
+  assert.equal(calls.filter((u) => u === IMG).length, 1, 'the picture was fetched twice');
+});
+
+test('at the 200-entry count cap a picture entry goes before a page preview', async () => {
+  unfurl.setFetcher(async (url) => (/\/page\d+$/.test(url) ? answer(200, 'text/html', Buffer.from('<head><meta property="og:title" content="P"></head>')) : answer(200, 'image/png', PNG)));
+  const pages = [];
+  for (let i = 0; i < 50; i++) { const u = 'https://count8636.com/page' + i; await unfurl.preview(u); pages.push(u); }
+  for (let i = 0; i < 200; i++) await unfurl.image('https://count8636.com/' + i + '.png');
+  for (const u of pages) assert.ok(unfurl.peek(u), 'a page preview was dropped by the count cap for a picture: ' + u);
+});
+
+test('a read does not refresh a good verdict (the browser drawing it does); a bad one it does', async () => {
+  unfurl.warm('https://site8636.com/');
+  await settle();
+  shift = 11 * 60 * 1000;
+  const before = calls.filter((u) => u === IMG).length;
+  assert.equal(unfurl.imageState(IMG, { refreshGood: false }), 'good');
+  await settle();
+  assert.equal(calls.filter((u) => u === IMG).length, before, 'a read refreshed a good verdict');
+  imageAnswer = () => answer(404, 'text/html', Buffer.from('gone'));
+  unfurl.resetForTests();
+  unfurl.setResolver(async () => [{ address: '93.184.216.34', family: 4 }]);
+  unfurl.setFetcher(async (url) => { calls.push(String(url)); return imageAnswer(); });
+  await unfurl.image(IMG);
+  shift += 11 * 60 * 1000;
+  const b2 = calls.filter((u) => u === IMG).length;
+  unfurl.imageState(IMG, { refreshGood: false });
+  await settle();
+  assert.equal(calls.filter((u) => u === IMG).length, b2 + 1, 'a stale bad verdict was not refreshed by a read');
+});
