@@ -419,13 +419,20 @@ const SWAP_LOCK_STALE_MS = 15 * 60 * 1000;
 /**
  * Resolves true once no swap lock covers `bin` (at once when `bin` is not the managed Windows Codex, or there is no
  * lock), or false when `timeoutMs` passed with the lock still up, after which the caller runs its turn as before.
- * Never rejects. o: { timeoutMs = 180000, pollMs = 250, root = managedRoot(), now = Date.now }.
+ * Never rejects. o: { timeoutMs = 180000, pollMs = 250, now = Date.now }.
  */
+/* The lock that covers `bin`, found FROM THE BIN ITSELF (the openai folder above its pkg/ tree), or null when `bin` is
+   not inside a managed Codex tree. From the bin, not from managedRoot(): a supervisor and the board can spell the same
+   folder differently (an 8.3 name, forward slashes, \\?\, another root setting), and the lock beside the tree the bin
+   is in is the one that matters. Pure. */
+function swapLockFor(bin) {
+  const p = String(bin || '').replace(/\//g, '\\').replace(/^\\\\\?\\(?=[a-z]:\\)/i, '');
+  const m = /^(.*\\openai)\\pkg\\/i.exec(p);
+  return m ? `${m[1]}\\${SWAP_LOCK}` : null;
+}
 async function waitForSwap(bin, o = {}) {
-  const root = o.root || managedRoot();
-  const folder = path.win32.join(root, 'openai').toLowerCase() + '\\';
-  if (!String(bin || '').toLowerCase().startsWith(folder)) return true;
-  const lock = path.win32.join(root, 'openai', SWAP_LOCK);
+  const lock = swapLockFor(bin);
+  if (!lock) return true;
   const now = o.now || Date.now;
   const timeoutMs = Number.isFinite(o.timeoutMs) ? o.timeoutMs : 180000;
   const pollMs = Number.isFinite(o.pollMs) ? o.pollMs : 250;
@@ -1700,10 +1707,17 @@ function install(provider, opts) {
   /* kosmos#8593 (Windows): the swap lock (see SWAP_LOCK) is THIS job's while it holds it; every way out of the job takes
      it down (fail() and the installed line below), so a crash is the only way one is left, and that one goes stale. */
   let swapLockHeld = false;
+  /* What this job wrote into the lock. Taken down only while it still says that: a second board sharing this runners
+     root (a from-source board beside an installed one) that wrote its own lock since keeps it. Two swaps of one root at
+     once stay the residual the staging comment above already names. */
+  let swapLockText = null;
   const releaseSwapLock = () => {
     if (!swapLockHeld) return;
     swapLockHeld = false;
-    try { fs.rmSync(path.join(managedRoot(), provider, SWAP_LOCK), { force: true }); } catch { /* it goes stale */ }
+    const file = path.join(managedRoot(), provider, SWAP_LOCK);
+    try {
+      if (fs.readFileSync(file, 'utf8') === swapLockText) fs.rmSync(file, { force: true });
+    } catch { /* gone already, or it goes stale */ }
   };
   const fail = (because, keepStaging = false) => {
     if (!keepStaging) { try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ } }
@@ -1915,7 +1929,8 @@ function install(provider, opts) {
          marker before a turn: its supervisor resolved codex.exe once and spawns it per turn (win32codexsup.js). It does
          wait, before each turn, while this lock is up (waitForSwap), so from here no new turn starts on the old tree. */
       if (plat === 'win32') {
-        fs.writeFileSync(path.join(destDir, SWAP_LOCK), JSON.stringify({ pid: process.pid, at: Date.now() }) + '\n');
+        swapLockText = JSON.stringify({ pid: process.pid, at: Date.now(), job: Math.random().toString(36).slice(2) }) + '\n';
+        fs.writeFileSync(path.join(destDir, SWAP_LOCK), swapLockText);
         swapLockHeld = true;
       }
       // The verified marker comes down BEFORE a new tree goes in: from here until
@@ -2341,4 +2356,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, installedVersion, verifiedVersion, managedProcessRunning, parseExePaths, exeUnder, waitForSwap, SWAP_LOCK, upgradeStamp, UPGRADE_STAMP, olderVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, installedVersion, verifiedVersion, managedProcessRunning, parseExePaths, exeUnder, waitForSwap, swapLockFor, SWAP_LOCK, upgradeStamp, UPGRADE_STAMP, olderVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };

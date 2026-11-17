@@ -119,18 +119,48 @@ test('waitForSwap: clear at once with no lock or for a codex outside the managed
   const bin = path.win32.join(root, 'openai', 'pkg', 'codex.exe');
   const lock = path.win32.join(root, 'openai', runners.SWAP_LOCK);
   fs.mkdirSync(path.dirname(lock), { recursive: true });
-  assert.equal(await runners.waitForSwap(bin, { root, timeoutMs: 0 }), true, 'no lock');
+  assert.equal(await runners.waitForSwap(bin, { timeoutMs: 0 }), true, 'no lock');
   fs.writeFileSync(lock, '{}');
-  assert.equal(await runners.waitForSwap('C:\\elsewhere\\codex.exe', { root, timeoutMs: 0 }), true, 'not the managed codex');
-  assert.equal(await runners.waitForSwap('codex', { root, timeoutMs: 0 }), true, 'a bare name is not the managed codex');
-  assert.equal(await runners.waitForSwap(bin, { root, timeoutMs: 30, pollMs: 5 }), false, 'a fresh lock held past the cap');
+  assert.equal(await runners.waitForSwap('C:\\elsewhere\\codex.exe', { timeoutMs: 0 }), true, 'not a managed codex');
+  assert.equal(await runners.waitForSwap('codex', { timeoutMs: 0 }), true, 'a bare name is not a managed codex');
+  assert.equal(await runners.waitForSwap(bin, { timeoutMs: 30, pollMs: 5 }), false, 'a fresh lock held past the cap');
+  // Every spelling of the same bin finds the same lock: forward slashes, other case, the \\?\ form, the 8.3 name.
+  const short = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    '[Console]::Out.Write((New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:KOSMOS_LONG_DIR).ShortPath)'],
+  { encoding: 'utf8', env: { ...process.env, KOSMOS_LONG_DIR: root } }).trim();
+  for (const spelt of [bin.replace(/\\/g, '/'), bin.toUpperCase(), `\\\\?\\${bin}`, path.win32.join(short, 'openai', 'pkg', 'codex.exe')]) {
+    assert.equal(await runners.waitForSwap(spelt, { timeoutMs: 20, pollMs: 5 }), false, `held for ${spelt}`);
+  }
   setTimeout(() => fs.rmSync(lock, { force: true }), 40);
-  assert.equal(await runners.waitForSwap(bin, { root, timeoutMs: 5000, pollMs: 5 }), true, 'clear once the lock comes down');
+  assert.equal(await runners.waitForSwap(bin, { timeoutMs: 5000, pollMs: 5 }), true, 'clear once the lock comes down');
   fs.writeFileSync(lock, 'half-writ');   // a crash mid-write: its age, not its text, decides
   const old = new Date(Date.now() - 16 * 60 * 1000);
   fs.utimesSync(lock, old, old);
-  assert.equal(await runners.waitForSwap(bin, { root, timeoutMs: 0 }), true, 'a lock a dead board left goes stale');
-  assert.equal(await runners.waitForSwap(bin.toUpperCase(), { root: root.toLowerCase(), timeoutMs: 0 }), true, 'case does not matter (stale still)');
+  assert.equal(await runners.waitForSwap(bin, { timeoutMs: 0 }), true, 'a lock a dead board left goes stale');
+});
+
+test('swapLockFor finds the lock beside the openai tree a bin is in, in any spelling; null outside one', () => {
+  assert.equal(runners.swapLockFor('C:\\R\\openai\\pkg\\vendor\\x\\codex.exe'), 'C:\\R\\openai\\.swapping');
+  assert.equal(runners.swapLockFor('C:/R/OpenAI/pkg/vendor/x/codex.exe'), 'C:\\R\\OpenAI\\.swapping');
+  assert.equal(runners.swapLockFor('\\\\?\\C:\\R\\openai\\pkg\\codex.exe'), 'C:\\R\\openai\\.swapping');
+  for (const b of ['codex', 'C:\\R\\openai\\codex.exe', 'C:\\R\\openai-old\\pkg\\codex.exe', '', null]) {
+    assert.equal(runners.swapLockFor(b), null, JSON.stringify(b));
+  }
+});
+
+test('win32: a job takes down only its own swap lock, never one another board wrote since', { skip: WIN_ONLY }, async () => {
+  plantOld();
+  const { tgz, integrity } = winFixture();
+  const lockFile = path.join(DEST(), runners.SWAP_LOCK);
+  try {
+    const job = runners.install('openai', { legacyBin: LEGACY, download: downloadFrom(tgz), integrity,
+      codexRunning: () => Promise.resolve(false),
+      // While this job proves, another board sharing the root puts up its own lock.
+      prove: (bin, done) => { fs.writeFileSync(lockFile, '{"pid":1,"at":1,"job":"other"}\n'); done(null, 'codex-cli 9.9.9\n'); } });
+    await job.settled;
+    assert.equal(job.phase, 'installed', job.because || '');
+    assert.equal(fs.readFileSync(lockFile, 'utf8'), '{"pid":1,"at":1,"job":"other"}\n', 'the other board\'s lock stays');
+  } finally { clear(); }
 });
 
 test('win32: the swap lock is up from before the marker comes down until the new tree is proven, and down on every way out', { skip: WIN_ONLY }, async () => {
