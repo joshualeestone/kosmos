@@ -32,6 +32,8 @@ this does not revisit that.
 - **Connected agents are skipped.** Their folder is the person's own (often a project or repo, sometimes on a share);
   the boot sweep and the About-you save run for them too, and Kosmos should not add a folder there uninvited. They keep
   the instruction to make it themselves. The check reads the profile only (`recordedDirSpelling`), never the folder.
+- **A Files folder a person deletes comes back empty on the next board start.** Accepted: the page hides an empty
+  folder, and the agent is told to save there.
 - **Kept: the block's "create the folder if it is not there yet".** Still true for a folder that could not be made (a
   file in the way), or one a person deleted.
 
@@ -82,3 +84,8 @@ measured; the new test file is not in the Windows run (symlinks there need eleva
     difference is now said on both sides.
   - NITs fixed: the older header line, "never through a link" scoped to Files itself, an unknown connected check has its
     own reason, the link test skips on Windows.
+- Round 4 (blind, sonnet): no BLOCKER, 1 WARNING (described by the reviewer as not a defect), 4 NIT. Converged.
+  - WARNING deferred: the boot line's words cover a real mkdir failure and an unreadable profile alike; the reason after
+    the dash tells them apart.
+  - NIT recorded in Decided: a deleted empty Files comes back on the next start. Other NITs (a shared reason string, the
+    create.js comment, one assertion message's phrasing) not acted on.
