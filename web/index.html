@@ -3443,6 +3443,10 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
            competes with the headings above it. */
         color: var(--k-ink-2); margin: 0 0 10px; font-weight: 600; }
 .dhint { font-size: .9375rem; color: var(--k-ink-2); margin-bottom: 14px; line-height: 1.55; }
+/* kosmos#8662: the agent page's signed-out note (paintDetailSignedOut), the amber of the board's own sign-in box. */
+.d-signedout { margin: 0 0 14px; padding: 10px 14px; border: 1px solid var(--warn-ink); border-radius: 10px; font-size: .9375rem; line-height: 1.5; color: var(--k-ink); }
+.d-signedout a { color: inherit; font-weight: 600; }
+#d-sec-model[inert] { opacity: .55; }
 /* The icon and the sentence that names it, side by side (kosmos#1212). Baseline
    is wrong here: the picture is the subject, not a bullet, so they centre. */
 .dockrow { display: flex; align-items: center; gap: 12px; margin: 12px 0 0; }
@@ -13740,6 +13744,9 @@ window.kosmosMeasureScrollbarWidth();
   </section>
   </div>
   <div class="dsecs">
+  <!-- kosmos#8662: an agent page open when the tab is signed out (a restart or an update signs tabs out) kept its last
+       reading and its controls with nothing saying why they no longer work. -->
+  <p class="d-signedout" id="d-signedout" role="status" hidden>This tab is signed out, so this page shows what it last read and cannot change anything, the model included. <a href="/">Sign this tab in again</a> to see and change models.</p>
   <section class="dsec" id="d-sec-talk" data-sec="talk" tabindex="-1" aria-label="Talk">
 
   <!-- 🛑 THE ROOM-CONVERSATION BOX IS GONE (Josh, 2026-08-23 12:38: "i want to
@@ -23482,6 +23489,9 @@ function modelLine(a) {
      to look, no restart will fill it in, and the wording (ruled on card #150)
      says history rather than failure. The server decides `neverRecorded`
      (tied pane, no plist), so every surface splits the same way. */
+  /* kosmos#8662: signed out, the board cannot read the model, so it says that rather than "Unknown Model". */
+  if (!name && ((typeof BOARD_NEEDS_SIGNIN !== 'undefined' && BOARD_NEEDS_SIGNIN === true)
+    || (typeof BOARD_SIGNED_OUT !== 'undefined' && BOARD_SIGNED_OUT === true))) return 'Signed out: sign in to see its model';
   if (!name) return a.neverRecorded === true ? 'Made before Kosmos recorded this' : 'Unknown Model';
   return /^claude/i.test(name) ? name : 'Claude ' + name;
 }
@@ -27440,6 +27450,7 @@ async function tick() {
       if (BOARD_NEEDS_SIGNIN && typeof signedOutTellApp === 'function') signedOutTellApp();   // #6358 (some tests lift tick alone)
       // #718 state 3: the relay's own answer for a remote device whose sign-in lapsed.
       BOARD_SIGNED_OUT = relaySignedOut(res.status, said);
+      if (typeof paintDetailSignedOut === 'function') paintDetailSignedOut();   // kosmos#8662
       throw new Error(parts.join(' · '));
     }
     const data = await res.json();
@@ -27453,6 +27464,7 @@ async function tick() {
     SIGNED_OUT_TOLD_AT = 0; SIGNED_OUT_SINCE = 0;   // #6358: a later sign-out is told at once
     if (typeof SIGNIN_FAILED_AT_LOAD !== 'undefined' && SIGNIN_FAILED_AT_LOAD) { SIGNIN_FAILED_AT_LOAD = false; try { sessionStorage.removeItem(SIGNIN_FAILED_KEY); } catch { /* no storage */ } }
     BOARD_SIGNED_OUT = false;
+    if (typeof paintDetailSignedOut === 'function') paintDetailSignedOut();   // kosmos#8662: a sign-in clears the note
 
     const lim = new URLSearchParams(location.search).get('limit');
     LAST = data.agents;
@@ -42484,6 +42496,18 @@ let BOARD_NEEDS_SIGNIN = false;
    (/api/projects). When their two reads disagree, the one that landed last wins until the next
    poll, the same as BOARD_NEEDS_SIGNIN. */
 let BOARD_SIGNED_OUT = false;
+/* kosmos#8662: the agent page's signed-out state. The board's grid says "not signed in" (#2023), but an agent page that
+   was open when the tab was signed out kept its last reading and its Model controls, and a switch there went nowhere
+   with nothing saying why. While the board needs a sign-in (this computer's tab, or a lapsed relay sign-in, #718): the
+   note above the sections shows, and the Model section is inert (no click or keyboard focus reaches the picker). Run on
+   every status poll, so a sign-in clears both on the next poll. */
+function paintDetailSignedOut() {
+  const out = BOARD_NEEDS_SIGNIN === true || BOARD_SIGNED_OUT === true;
+  const note = document.getElementById('d-signedout');
+  if (note && note.hidden === out) note.hidden = !out;
+  const model = document.getElementById('d-sec-model');
+  if (model && model.inert !== out) model.inert = out;
+}
 function relaySignedOut(status, body) {
   return status === 401 && !!body && body.signed_out === true;
 }

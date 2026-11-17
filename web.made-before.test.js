@@ -196,3 +196,28 @@ test('the explainer names the way in, once, and only for the never-recorded stat
   assert.ok(/getElementById\('d-model-msg'\)[\s\S]{0,120}?\.textContent = ''/.test(od),
     'openDetail no longer clears the model message, so a refusal lingers across an agent switch');
 });
+
+/* kosmos#8662: signed out, the board cannot read a model at all, so the line says the sign-out, not "Unknown Model".
+   Lifted with the sign-in flags declared, as the page has them; without them (every other caller here) the typeof
+   guard keeps the old lines. */
+function runModelLineSignedOut(agent, flags) {
+  const src = liftAll(SCRIPT, ['modelLine']);
+  const run = new Function('a', 'f', `
+    const cardStOf = () => ({ pres: 'off' });
+    let BOARD_NEEDS_SIGNIN = f.needs === true;
+    let BOARD_SIGNED_OUT = f.relay === true;
+    ${src}
+    return modelLine(a);
+  `);
+  return run(agent, flags);
+}
+
+test('kosmos#8662: signed out, an unread model says so; signed in, the old lines hold', () => {
+  assert.equal(runModelLineSignedOut({}, { needs: true }), 'Signed out: sign in to see its model');
+  assert.equal(runModelLineSignedOut({ neverRecorded: true }, { relay: true }), 'Signed out: sign in to see its model');
+  // CONTROL: signed in, the same agents read as before.
+  assert.equal(runModelLineSignedOut({}, {}), 'Unknown Model');
+  assert.equal(runModelLineSignedOut({ neverRecorded: true }, {}), 'Made before Kosmos recorded this');
+  // A model the board already read is still named while signed out (the page shows what it last read).
+  assert.match(runModelLineSignedOut({ modelName: 'Claude Opus 5.5' }, { needs: true }), /Opus 5\.5/);
+});
