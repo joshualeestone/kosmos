@@ -44972,14 +44972,19 @@ function dmReadFailLine(th, text) {
     return;
   }
   const atFloor = threadAtBottom(th);
+  for (const b of th.querySelectorAll('button.dmchoice:not([disabled])')) { b.disabled = true; b.setAttribute('data-readfail-off', ''); }
   if (!line) {
+    /* Inserted EMPTY and filled on the next frame: several screen readers do not announce a live region that arrives
+       already holding its words. */
     line = document.createElement('p');
     line.className = 'dmnone dm-readfail';
     line.setAttribute('role', 'status');
     th.appendChild(line);
+    const fill = () => { if (!line.isConnected) return; line.textContent = text; if (atFloor) pinToBottom(th); };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(fill); else fill();
+    return;
   }
   if (line.textContent !== text) line.textContent = text;   // a live region: unchanged words are not said again each poll
-  for (const b of th.querySelectorAll('button.dmchoice:not([disabled])')) { b.disabled = true; b.setAttribute('data-readfail-off', ''); }
   if (atFloor) pinToBottom(th);
 }
 async function paintTalk(sessionName, agentName) {
@@ -45135,6 +45140,7 @@ async function paintTalk(sessionName, agentName) {
         + ((err && err.message) || 'no detail') + ')';
       dmReadFailLine(failTh, failTh.__readFailText);
     } else {
+      if (failTh) failTh.__readFailText = null;   // the rows went: a cached repaint must not put a transient line back
       setThread(failTh, '<p class="dmnone">'
         + (standing
           ? 'We cannot show a conversation for this name.'
@@ -47043,6 +47049,7 @@ function openDetail(sessionName, section, fromProject) {
   {
     document.getElementById('d-qask').hidden = true;
     document.getElementById('d-qask').inert = false;   // #8629: the last agent's failed read must not follow
+    document.getElementById('d-dmthread').__readFailText = null;   // #8629: nor its failure sentence
     /* ⚠️ THE SENTENCE AND THE CAPTURED PANE TOO. They sit behind `hidden`, so
        nothing was shown — but this block's own rule is that the box holds the
        strongest version of cross-agent misattribution, and leaving one agent's
