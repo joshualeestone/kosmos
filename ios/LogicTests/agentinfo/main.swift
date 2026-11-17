@@ -173,6 +173,58 @@ check(Board.freshResult(.clear, status: 0, body: nil) == ("We could not reach Ko
 check(Board.freshResult(.clear, status: 200, body: Data("{}".utf8)).ok == false, "no delivery to read: never said to have gone")
 check(Board.freshResult(.clear, status: 404, body: Data(#"{"error":"no agent by that name"}"#.utf8)) == ("No agent by that name.", false), "a refusal before delivery: the route's own words")
 
+
+section("switch provider (kosmos#8626, the board's changeProviderNow)")
+func det(_ row: String) -> Board.AgentDetails { Board.parseAgentDetails(Data(("{\"agents\":[{\"sessionName\":\"a\"," + row + "}]}").utf8), session: "a")! }
+let onClaude = det(#""runner":"","isNamedOurs":true,"account":{"provider":"anthropic"}"#)
+let onCodex = det(#""runner":"codex","isNamedOurs":true"#)
+let onQwen = det(#""runner":"codex","isNamedOurs":true,"account":{"provider":"alibaba"}"#)
+let onSeek = det(#""runner":"","isNamedOurs":true,"account":{"provider":"deepseek"}"#)
+check(Board.providerOf(onClaude) == "anthropic" && Board.providerOf(onCodex) == "openai" && Board.providerOf(onQwen) == "alibaba"
+      && Board.providerOf(det(#""runner":"gemini""#)) == "google" && Board.providerOf(det(#""runner":"grok""#)) == "xai"
+      && Board.providerOf(det(#""runner":"muse""#)) == "meta" && Board.providerOf(onSeek) == "deepseek", "providerOf, as the board's")
+check(boardPage.contains("const providerOf = (a) => ((a && a.runner === 'codex') ? ((a.account && a.account.provider === 'alibaba') ? 'alibaba' : 'openai')"), "the board's providerOf still")
+let accountsJSON = #"{"accounts":[{"provider":"anthropic","dir":"/c/main","email":"me@x","memoryShared":true,"isDefault":true},{"provider":"anthropic","dir":"/c/solo","email":"solo@x","memoryShared":false},{"provider":"openai","dir":"/o/one","name":"Work","keyTail":"9A1F","connection":{"state":"ok"}},{"provider":"openai","dir":"/o/dead","email":"d@x","connection":{"state":"none"}},{"provider":"google","dir":"/g/k","keyTail":"77","offerable":false},{"provider":"xai","dir":"/x/k","keyTail":"55","connection":{"badge":"rejected","state":"ok"}},{"provider":"alibaba","dir":"/q/k","label":"Qwen endpoint"}]}"#
+let rows = Board.parseSwitchAccounts(Data(accountsJSON.utf8))!
+check(Board.parseSwitchAccounts(Data("<html>sign in</html>".utf8)) == nil, "the gate's page is not a list (the board's unreadable state)")
+check(Board.switchAccounts(rows, for: .anthropic) == [Board.SwitchAccount(dir: "/c/main", label: "me@x", isDefault: true)], "Claude: only an account that shares the agents' history (#5091)")
+check(Board.switchAccounts(rows, for: .openai).map(\.label) == ["Work"], "OpenAI: a dead sign-in is left out; a keyed row is named by its name")
+check(Board.switchAccounts(rows, for: .google).isEmpty && Board.switchAccounts(rows, for: .xai).isEmpty, "unofferable and rejected rows are left out")
+check(Board.switchTargets(onClaude, accounts: rows) == [.openai, .alibaba], "Claude agent: the providers with a live account, never its own")
+check(Board.switchTargets(onCodex, accounts: rows) == [.anthropic, .alibaba], "OpenAI agent: back to Claude, or Qwen")
+check(Board.switchTargets(det(#""runner":"","isNamedOurs":false"#), accounts: rows).isEmpty, "an agent the board does not name as its own: nothing offered")
+check(Board.switchTargets(det(#""runner":"","isNamedOurs":true,"neverRecorded":true"#), accounts: rows).isEmpty, "a never-recorded agent: nothing offered")
+check(Board.switchTargets(det(#""runner":"muse","isNamedOurs":true"#), accounts: rows).isEmpty, "Meta Muse: not offered, as the board")
+check(Board.switchTargets(det(#""runner":"","isNamedOurs":true"#), accounts: rows) != [] , "CONTROL: the same agent, ours and recorded, is offered some")
+check(boardPage.contains("&& (keyed !== 'anthropic' || x.memoryShared));") && boardPage.contains("return c.state !== 'none';") && boardPage.contains("if (c.badge) return c.badge !== 'rejected' && c.badge !== 'signed_out';"), "the board's account filter still")
+let claudeModels = Board.parseSwitchModels(Data(#"{"roles":[],"models":[{"key":"opus","label":"Claude Opus 5.5","default":true},{"key":"haiku","label":"Claude Haiku 5.5"}]}"#.utf8), openai: false)
+check(claudeModels.map(\.key) == ["opus", "haiku"] && claudeModels[0].isDefault, "Claude's models from /api/roles")
+let oaModels = Board.parseSwitchModels(Data(#"{"ok":true,"models":[{"key":"gpt-5.6","label":"GPT 5.6"}]}"#.utf8), openai: true)
+check(oaModels.map(\.key) == ["", "gpt-5.6"], "OpenAI: let it choose first, then the account's list")
+check(Board.parseSwitchModels(Data(#"{"ok":false,"models":[{"key":"gpt-5.6"}]}"#.utf8), openai: true).isEmpty, "an OpenAI list that is not ok: no menu")
+let sw = Board.providerSwitchRequest(mac: mac, session: "cleo", to: .openai, account: "/o/one", picked: true, model: "gpt-5.6")!
+let swBody = try! JSONSerialization.jsonObject(with: sw.httpBody!) as! [String: Any]
+check(sw.httpMethod == "POST" && sw.url?.path == "/api/agent/cleo/provider", "the board's route")
+check(swBody["provider"] as? String == "openai" && swBody["account"] as? String == "/o/one" && swBody["picked"] as? Bool == true && swBody["model"] as? String == "gpt-5.6", "provider, account, picked and model, as the board sends them")
+let swLet = try! JSONSerialization.jsonObject(with: Board.providerSwitchRequest(mac: mac, session: "cleo", to: .openai, account: "/o/one", picked: false, model: "")!.httpBody!) as! [String: Any]
+check(swLet["model"] == nil && swLet["picked"] as? Bool == false, "let OpenAI choose: no model sent; not picked when not touched")
+let swQwen = try! JSONSerialization.jsonObject(with: Board.providerSwitchRequest(mac: mac, session: "cleo", to: .alibaba, account: nil, picked: true, model: "x")!.httpBody!) as! [String: Any]
+check(swQwen["model"] == nil && swQwen["account"] is NSNull && swQwen["picked"] as? Bool == false, "a provider that picks its own model: none sent; no account means not picked")
+check(Board.providerSwitchRequest(mac: mac, session: "../x", to: .openai, account: nil, picked: false, model: nil) == nil, "not an agent's name: no request")
+check(boardPage.contains("provider: want,") && boardPage.contains("...(pickedModel ? { model: pickedModel.key } : {}),"), "the board's body still")
+check(Board.providerSwitchResult(status: 200, body: Data(#"{"outcome":"changed","because":"Cleo is on OpenAI now."}"#.utf8)) == ("Cleo is on OpenAI now.", true), "changed: the route's own sentence")
+check(Board.providerSwitchResult(status: 200, body: Data(#"{"outcome":"partial","because":"We saved the switch to OpenAI, but could not start it again."}"#.utf8)).ok == false, "partial is not a success")
+check(Board.providerSwitchResult(status: 400, body: Data(#"{"outcome":"refused","because":"It already runs on OpenAI."}"#.utf8)) == ("It already runs on OpenAI.", false), "refused: its reason")
+check(Board.providerSwitchResult(status: 0, body: nil).ok == false, "no answer: never said to have switched")
+check(Board.providerSwitchResult(status: 200, body: Data("{}".utf8)).ok == false, "CONTROL: a 200 without outcome changed is not a switch")
+let crossNote = Board.switchNote(from: "anthropic", to: .openai, name: "Cleo")
+check(crossNote == "Cleo keeps its name, its face, its instructions and its files, and restarts. Its conversation does not come across: OpenAI cannot read Claude\u{2019}s history. Its saved notes are copied into its folder; anything it only remembers from talking is lost.", "Claude to OpenAI: the conversation does not come across, said before the switch")
+check(Board.switchNote(from: "openai", to: .anthropic, name: "Cleo").contains("Any notes in its folder stay there") && Board.switchNote(from: "google", to: .openai, name: "Cleo").contains("does not come across"), "back to Claude, and between two that are not Claude Code")
+check(Board.switchNote(from: "openai", to: .alibaba, name: "Cleo").contains("and its conversation"), "OpenAI to Qwen keeps it (one Codex home)")
+check(boardPage.contains("return shown + ' keeps its name, its face, its instructions and its files, and restarts. '") && boardPage.contains("'Its conversation does not come across: ' + toWord + ' cannot read ' + fromWord + '’s history. '")
+      && boardPage.contains("'Its saved notes are copied into its folder; anything it only remembers from talking is lost.'"), "the board's switchFamilyNote words still")
+check(boardPage.contains("const runnerOf = (p) => (p === 'alibaba' ? 'openai' : p);"), "the board's switchCrossesFamily still")
+
 print("")
 // kosmos#7842: only an answer that says what the thing is now (200, 404) replaces a value shown.
 check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(400, #"{"error":"bad request"}"#))) == ("Old text", nil), "a 400 is about the request: it keeps what was shown")

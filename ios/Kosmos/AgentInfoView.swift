@@ -33,6 +33,19 @@ struct AgentInfoView: View {
     @State private var asking: Board.FreshStart?
     @State private var freshLine: (text: String, ok: Bool)?
     @State private var freshBusy = false
+    // kosmos#8626: the provider switch. The accounts are /api/accounts (nil until read, the board's ACCOUNTS_LOADED;
+    // accountsFailed is its ACCOUNTS_UNREADABLE), Claude's models ride the /api/roles read the page already makes.
+    @State private var accountRows: [[String: Any]]?
+    @State private var accountsFailed = false
+    @State private var claudeModels: [Board.SwitchModel] = []
+    @State private var switchTo: Board.SwitchProvider?
+    @State private var switchAccount: String?
+    @State private var switchAccountTouched = false
+    @State private var switchModel = ""
+    @State private var openaiModels: [Board.SwitchModel] = []
+    @State private var switching = false
+    @State private var switchLine: (text: String, ok: Bool)?
+    @State private var confirmSwitch = false
     // kosmos#7679: the Files section's read and its opener, owned here so they attach once, to the List (review 1).
     @State private var filesRead: Board.FilesSectionState = .hidden
     // kosmos#7679: whether the first Files read has come back, so the Files segment can tell loading from empty.
@@ -223,6 +236,7 @@ struct AgentInfoView: View {
                 unread
             }
         } header: { label("Runs on") }
+        switchSection
         Section {
             HStack {
                 Text("How full").foregroundColor(Palette.primary)
@@ -243,6 +257,122 @@ struct AgentInfoView: View {
             Text("Each one shows what it stands to lose before you choose.")
         }
         moreRow
+    }
+
+    // MARK: Switch provider (kosmos#8626)
+
+    private var switchTargets: [Board.SwitchProvider] {
+        guard let details, let rows = accountRows else { return [] }
+        return Board.switchTargets(details, accounts: rows)
+    }
+    private var switchAccounts: [Board.SwitchAccount] {
+        guard let to = switchTo, let rows = accountRows else { return [] }
+        return Board.switchAccounts(rows, for: to)
+    }
+    private var switchModels: [Board.SwitchModel] {
+        switch switchTo {
+        case .anthropic: return claudeModels
+        case .openai: return openaiModels
+        default: return []
+        }
+    }
+    @ViewBuilder private var switchSection: some View {
+        if let details, details.isNamedOurs, !details.neverRecorded {
+            Section {
+                if accountRows == nil {
+                    if accountsFailed {
+                        Text("We could not check which providers your computer has connected. Pull down to try again.").foregroundColor(Palette.secondary)
+                    } else {
+                        HStack { Spacer(); SweepDots(label: "Checking your providers", scales: false); Spacer() }
+                    }
+                } else if switchTargets.isEmpty {
+                    Text("No other provider is connected on your computer yet. Add one on its board, in Settings, AI Models.").foregroundColor(Palette.secondary)
+                } else {
+                    Picker("Switch to", selection: $switchTo) {
+                        Text("Choose").tag(Board.SwitchProvider?.none)
+                        ForEach(switchTargets) { Text($0.label).tag(Board.SwitchProvider?.some($0)) }
+                    }
+                    .disabled(switching)
+                    .onChange(of: switchTo) { _ in pickedProvider() }
+                    if switchAccounts.count > 1 {
+                        Picker("Account", selection: $switchAccount) {
+                            ForEach(switchAccounts) { Text($0.label).tag(String?.some($0.dir)) }
+                        }
+                        .disabled(switching)
+                        .onChange(of: switchAccount) { _ in
+                            switchAccountTouched = true
+                            if switchTo == .openai { Task { await loadOpenaiModels() } }
+                        }
+                    } else if let only = switchAccounts.first {
+                        row("Account", only.label)
+                    }
+                    if !switchModels.isEmpty {
+                        Picker("Model", selection: $switchModel) {
+                            ForEach(switchModels) { Text($0.label).tag($0.key) }
+                        }
+                        .disabled(switching)
+                    }
+                    if let to = switchTo {
+                        Text(Board.switchNote(from: Board.providerOf(details), to: to, name: live.name))
+                            .font(.footnote).foregroundColor(Palette.secondary)
+                        Button { confirmSwitch = true } label: {
+                            HStack {
+                                Text(switching ? "Switching\u{2026}" : "Switch and restart")
+                                if switching { Spacer(); SweepDots(label: "Switching", scales: false) }
+                            }
+                        }
+                        .disabled(switching)
+                        .confirmationDialog("Switch \(live.name) to \(to.word)?", isPresented: $confirmSwitch, titleVisibility: .visible) {
+                            Button("Switch and restart") { Task { await doSwitch(to) } }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text(Board.switchNote(from: Board.providerOf(details), to: to, name: live.name))
+                        }
+                    }
+                }
+                if let switchLine {
+                    Text(switchLine.text).font(.footnote).foregroundColor(switchLine.ok ? Palette.secondary : Palette.dangerWord)
+                }
+            } header: { label("Switch AI provider") } footer: {
+                Text("Gemini on a Google subscription, Meta Muse and the providers that run on Claude Code are switched on your computer\u{2019}s board.")
+            }
+        }
+    }
+    private func pickedProvider() {
+        switchLine = nil
+        switchAccountTouched = false
+        let accounts = switchAccounts
+        switchAccount = (accounts.first(where: { $0.isDefault }) ?? accounts.first)?.dir
+        openaiModels = []
+        switchModel = (claudeModels.first(where: { $0.isDefault }) ?? claudeModels.first)?.key ?? ""
+        if switchTo == .openai { switchModel = ""; Task { await loadOpenaiModels() } }
+    }
+    private func loadOpenaiModels() async {
+        guard switchTo == .openai, let dir = switchAccount else { openaiModels = []; return }
+        #if DEBUG
+        if AgentInfoView.sample { openaiModels = Board.parseSwitchModels(Data(#"{"ok":true,"models":[{"key":"gpt-5.6","label":"GPT 5.6"},{"key":"gpt-5.6-mini","label":"GPT 5.6 mini"}]}"#.utf8), openai: true); return }
+        #endif
+        let res = await client.throughMac { Board.openaiModelsRequest(mac: $0, dir: dir) }
+        guard switchTo == .openai, switchAccount == dir else { return }   // a newer pick is the one shown
+        openaiModels = res.flatMap { $0.1.statusCode == 200 ? Board.parseSwitchModels($0.0, openai: true) : nil } ?? []
+        if !openaiModels.contains(where: { $0.key == switchModel }) { switchModel = "" }
+    }
+    private func doSwitch(_ to: Board.SwitchProvider) async {
+        switching = true
+        defer { switching = false }
+        let account = switchAccounts.isEmpty ? nil : switchAccount
+        let picked = switchAccountTouched
+        let model = switchModels.isEmpty ? nil : switchModel
+        let session = agent.session
+        let res = await client.throughMac {
+            Board.providerSwitchRequest(mac: $0, session: session, to: to, account: account, picked: picked, model: model)
+        }
+        let said = Board.providerSwitchResult(status: res?.1.statusCode ?? 0, body: res?.0)
+        switchLine = (said.sentence, said.ok)
+        UIAccessibility.post(notification: .announcement, argument: said.sentence)
+        if said.ok { switchTo = nil }
+        await load()
+        await client.refreshNow()
     }
 
     @ViewBuilder private var moreRow: some View {
@@ -323,6 +453,8 @@ struct AgentInfoView: View {
         async let rl = client.throughMac { Board.rolesRequest(mac: $0) }
         let (s, i, k, roles) = await (status, instr, sk, rl)
         if let t = roles.flatMap({ $0.1.statusCode == 200 ? Board.parseRoleTitles($0.0) : nil }) { roleTitles = t }
+        // kosmos#8626: the same answer carries the models a Claude agent can start on (the board's CREATE_MODELS).
+        if let m = roles.flatMap({ $0.1.statusCode == 200 ? Board.parseSwitchModels($0.0, openai: false) : nil }), !m.isEmpty { claudeModels = m }
         let d = s.flatMap { $0.1.statusCode == 200 ? Board.parseAgentDetails($0.0, session: session) : nil }
         if let d {
             // Only into fields the person has not changed (a refresh must not undo their typing).
@@ -334,6 +466,15 @@ struct AgentInfoView: View {
         (skills, skillsWhy) = Board.profileNext(shown: skills, read: Board.skillsRead(k))
         readFailed = d == nil   // the details' own read (the name footer and Runs on); each section says its own why
         await filesDone
+        // kosmos#8626: last, as it can take a while (one live check per account, as on the board); a list already
+        // read is kept through a read that fails, as the other sections keep theirs.
+        let ac = await client.throughMac { Board.accountsRequest(mac: $0) }
+        if let rows = ac.flatMap({ $0.1.statusCode == 200 ? Board.parseSwitchAccounts($0.0) : nil }) {
+            accountRows = rows
+            accountsFailed = false
+        } else if accountRows == nil {
+            accountsFailed = true
+        }
     }
 
     private func loadFiles(_ session: String) async {
@@ -386,7 +527,10 @@ struct AgentInfoView: View {
     private func applySample() {
         let d = Board.AgentDetails(session: live.session, name: live.name, role: live.role, reportsTo: nil, runner: "",
                                    modelName: "Opus 5.5", plannedModelName: nil, settingModelName: nil, neverRecorded: false,
-                                   accountProvider: nil, accountLabel: "Work account", running: true)
+                                   accountProvider: nil, accountLabel: "Work account", running: true, isNamedOurs: true)
+        // kosmos#8626: a computer with Claude, OpenAI and Gemini connected, for the switch's design shots.
+        accountRows = Board.parseSwitchAccounts(Data(#"{"accounts":[{"provider":"anthropic","dir":"/s/c","name":"Work account","email":"work@example.com","memoryShared":true,"isDefault":true},{"provider":"openai","dir":"/s/o","name":"Studio","keyTail":"4F2A"},{"provider":"google","dir":"/s/g","keyTail":"91C0"},{"provider":"xai","dir":"/s/x","keyTail":"7B1D"}]}"#.utf8))
+        claudeModels = Board.parseSwitchModels(Data(#"{"models":[{"key":"opus","label":"Claude Opus 5.5","default":true},{"key":"sonnet","label":"Claude Sonnet 5.5"},{"key":"haiku","label":"Claude Haiku 5.5"}]}"#.utf8), openai: false)
         details = d
         fill(d)
         instructions = "You look after the spring catalogue: the cover, the order of the pages, and getting proofs to the printer on time.\n\nAsk before you spend money or send anything outside the team."
