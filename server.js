@@ -4490,7 +4490,7 @@ function knownAgent(name) {
    message in that window was refused 404 "no agent by that name", which is false. True only when no card holds the
    name at all (a stranger's pane is never waited on), the agent's folder is here, it is not removed, and its record
    row was written within START_GRACE_MS. Everything else answers false, so a missing name never waits. The record,
-   not the platform, is the gate: only the Windows supervisor writes it, so on a Mac this is false. */
+   not the platform, is the gate. */
 const START_GRACE_MS = 60000;
 /* 8 s, not more: the iPhone gives a request 15 s (BoardClient+App.swift) and the relay adds its own time, and a
    send that times out reads there as "may have gone", the answer this wait exists to avoid. */
