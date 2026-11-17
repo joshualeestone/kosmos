@@ -2697,7 +2697,8 @@ const SCREENS = [
     await page.waitForFunction(() => {
       const n = document.querySelector('#pv-preview .pv-pager .pv-note');
       const img = document.querySelector('#pv-preview .pv-media');
-      return n && n.textContent === 'Page 2 of 3' && img && img.complete && img.naturalWidth > 0;
+      // The pager asks for the picture once flipping pauses, so the label changes first: wait for page 2's own picture.
+      return n && n.textContent === 'Page 2 of 3' && img && /[?&]page=2$/.test(img.getAttribute('src') || '') && img.complete && img.naturalWidth > 0;
     }, null, { timeout: 15000 });
   } },
   { name: 'agent-profile', owner: 'unowned', go: async (page, data) => {
