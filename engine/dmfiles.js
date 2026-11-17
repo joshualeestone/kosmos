@@ -327,12 +327,13 @@ function tellAgent(sessionName, roster, opts) {
     }
     const next = applyTo(current.text || '', sessionName);   // #4420: the block, and the pointer
     if (next === null) return { state: projects.TOLD.COULD_NOT, because: 'it has no folder of its own on this computer to name' };
-    /* #8617: the folder the block names, for an agent made before Kosmos made it at birth. Its answer does not
-       change this verdict: the block still tells the agent to create it if it is missing. */
-    ensureFolder(sessionName);
     /* Unchanged is TOLD, not a failure: the block already says this. */
-    if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false };
+    /* #8617: the folder the block names, for an agent made before Kosmos made it at birth: made only once the block is
+       in place (already, or just written), so a write that fails leaves nothing behind. Its answer does not change the
+       verdict: the block still tells the agent to create it if it is missing. */
+    if (next === current.text) { ensureFolder(sessionName); return { state: projects.TOLD.TOLD, because: null, changed: false }; }
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: WROTE_WHY });
+    ensureFolder(sessionName);
     return { state: projects.TOLD.TOLD, because: null, changed: true };   // kosmos#5304: the running agent is owed a re-read
   } catch (err) {
     const raw = (err && err.message) || '';

@@ -51,7 +51,7 @@ test('#8617: an agent with no folder of its own gets none (the parent is never m
   assert.equal(fs.existsSync(path.dirname(dir)), false, 'its own folder was made');
 });
 
-test('#8617: a file or a link already called Files is never replaced or followed', () => {
+test('#8617: a file or a link already called Files is never replaced, and nothing is made through a link', () => {
   agentFile('hasfile', 'x\n');
   fs.writeFileSync(dmfiles.filesDir('hasfile'), 'a file');
   const f = dmfiles.ensureFolder('hasfile');
@@ -111,4 +111,13 @@ test('#8617: a connected agent (its folder is the person\'s own) gets no Files f
   assert.equal(fs.existsSync(path.join(theirs, 'Files')), false, 'Kosmos added a Files folder to the person\'s own folder');
   agentFile('plainone', 'You are plain.\n');
   assert.equal(dmfiles.ensureFolder('plainone').created, true, 'CONTROL: an agent in its own Kosmos folder gets one');
+});
+
+test('#8617: the sweep makes the folder whether the block was just written or already current', () => {
+  agentFile('current', 'You are current.\n');
+  dmfiles.syncEveryone([tied('current')]);
+  fs.rmdirSync(dmfiles.filesDir('current'));
+  const again = dmfiles.syncEveryone([tied('current')]);
+  assert.equal(again[0].changed, false, 'PRECONDITION: the block was already current');
+  assert.ok(fs.lstatSync(dmfiles.filesDir('current')).isDirectory(), 'an unchanged block made no folder');
 });
