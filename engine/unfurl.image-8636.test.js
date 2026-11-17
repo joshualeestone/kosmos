@@ -111,8 +111,12 @@ test('a poll that lands while warm is fetching the picture does not start a seco
   await settle();
   assert.equal(calls.filter((u) => u === IMG).length, 1, 'CONTROL: the picture fetch started');
   assert.equal(unfurl.imageState(IMG), null);
-  assert.equal(unfurl.warmImage(IMG), null, 'a second fetch was started while the first ran');
+  const shared = unfurl.warmImage(IMG);
+  assert.ok(shared && typeof shared.then === 'function', 'no running fetch was handed back');
+  assert.equal(unfurl.warmImage(IMG), shared, 'a second ask got a different fetch');
   release();
+  const got = await shared;
+  assert.equal(got && got.ok, true, 'the shared fetch did not resolve to the picture');
   await settle();
   assert.equal(calls.filter((u) => u === IMG).length, 1);
   assert.equal(unfurl.imageState(IMG), 'good');
@@ -144,3 +148,15 @@ test('a first fetch that fails only for a moment is tried again after a minute, 
   await settle();
   assert.equal(n, 1, 'a 404 was asked again after a minute');
 });
+
+test('a verdict in use is kept when the cap drops verdicts; the ones nobody reads go first', async () => {
+  unfurl.setFetcher(async (url) => { calls.push(String(url)); return answer(200, 'image/png', PNG); });
+  await unfurl.image(IMG);
+  for (let i = 0; i < 1000; i++) {
+    await unfurl.image('https://other8636.com/' + i + '.png');
+    if (i % 100 === 0) assert.equal(unfurl.imageState(IMG), 'good', 'the verdict on screen went at ' + i);   // read: in use
+  }
+  assert.equal(unfurl.imageState(IMG), 'good', 'a verdict being read was dropped by the cap');
+  assert.equal(unfurl.imageState('https://other8636.com/0.png'), null, 'CONTROL: an unread verdict was not dropped first');
+});
+

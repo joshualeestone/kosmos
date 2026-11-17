@@ -78,7 +78,7 @@ function remember(key, value) {
   cache.set(key, { at: Date.now(), value });
   return value;
 }
-function resetForTests() { cache.clear(); knownImages.clear(); imageBytes = 0; fetcher = (url, opts) => fetch(url, opts); resolver = (host) => dns.lookup(host, { all: true }); }
+function resetForTests() { cache.clear(); knownImages.clear(); imageFlights.clear(); imageBytes = 0; fetcher = (url, opts) => fetch(url, opts); resolver = (host) => dns.lookup(host, { all: true }); }
 
 /** Is this address one that must never be fetched from here? */
 function privateAddress(ip) {
@@ -305,7 +305,7 @@ async function preview(raw) {
 async function image(raw) {
   const key = 'i:' + String(raw);
   const hit = cached(key);
-  if (hit) { if (!knownImages.has(String(raw))) known(raw, hit.ok); return hit; }   // kosmos#8636: a verdict for what is cached
+  if (hit) { if (!knownImages.has(String(raw))) known(raw, hit.ok, !hit.ok && unreached(hit.because)); return hit; }   // kosmos#8636: a verdict for what is cached
   const got = await guardedFetch(raw, 'image/*');
   if (!got.ok) { known(raw, false, unreached(got.because)); return remember(key, got); }
   try {
@@ -510,8 +510,13 @@ function imageState(raw) {
     // Bytes (or a refusal) still cached for an address whose verdict was dropped: that answer is the verdict.
     const c = cached('i:' + String(raw));
     if (!c) return null;
-    known(raw, !!c.ok);
+    known(raw, !!c.ok, !c.ok && unreached(c.because));
     k = knownImages.get(String(raw));
+  } else {
+    // A verdict read is a verdict in use (a card on screen): moved to the newest end, so the KNOWN_MAX cap drops the
+    // ones nobody is reading first. Its time is kept.
+    knownImages.delete(String(raw));
+    knownImages.set(String(raw), k);
   }
   const age = Date.now() - k.at;
   if (age > KNOWN_MS) { knownImages.delete(String(raw)); return null; }
@@ -535,13 +540,18 @@ function warm(raw, opts) {
     .then((got) => (got && got.ok && got.image && imageState(got.image) === null ? warmImage(got.image) : null))
     .catch(() => {}).finally(() => inflight.delete(key));
 }
-/** kosmos#8636: start fetching a preview's picture if nothing is cached or running, under its own in-flight key so a
-    poll that lands meanwhile does not start a second; resolves when it is done (nothing awaits it but warm). */
+/** kosmos#8636: start fetching a preview's picture if nothing is cached, under its own in-flight entry so a poll or a
+    route that asks meanwhile shares that fetch instead of starting a second. Returns the fetch's promise (the one
+    already running, if any; it resolves to image()'s answer, or undefined if it threw), or null when the answer is
+    already cached. */
+const imageFlights = new Map();
 function warmImage(raw) {
-  const key = 'i:' + String(raw);
-  if (cached(key) || inflight.has(key)) return null;
-  inflight.add(key);
-  return image(String(raw)).catch(() => {}).finally(() => inflight.delete(key));
+  const key = String(raw);
+  if (imageFlights.has(key)) return imageFlights.get(key);
+  if (cached('i:' + key)) return null;
+  const p = image(key).catch(() => undefined).finally(() => imageFlights.delete(key));
+  imageFlights.set(key, p);
+  return p;
 }
 
 module.exports = { firstLinkInfo, bareWeb, bareSplit, previewBare, peekBare, peek, warm, preview, image, imageState, warmImage, pageText, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };

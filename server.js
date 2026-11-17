@@ -22401,7 +22401,8 @@ const server = http.createServer(async (req, res) => {
       const state = got.image ? unfurl.imageState(got.image) : 'good';
       if (state === 'bad') got = { ...got, image: '' };
       else if (state === null) {
-        const pic = await unfurl.image(got.image).catch(() => null);
+        // The fetch already running for this picture (warm, a poll) if there is one, else a new one; never two.
+        const pic = await (unfurl.warmImage(got.image) || unfurl.image(got.image)).catch(() => null);
         if (!pic || !pic.ok) got = { ...got, image: '' };
       }
       sendJson(res, 200, {

@@ -64,3 +64,15 @@ test('a picture that failed here is not asked for again when the card is drawn a
   assert.match(again, /lpv-title">Name</, 'the words went too');
   assert.match(pjPreviewCard({ ...preview, image: '/api/unfurl/image?url=other' }), /<img src=/, 'another picture was refused');
 });
+
+test('the page declares LPV_FAILED before the card renderer, and keeps the newest 500 failures', () => {
+  const at = SCRIPT.indexOf('const LPV_FAILED = new Set();');
+  assert.ok(at > 0, 'LPV_FAILED is not declared in the page');
+  assert.ok(at < SCRIPT.indexOf('function pjPreviewCard('), 'LPV_FAILED is declared after the renderer that reads it');
+  LPV_FAILED.clear();
+  const card = el('A', 'lpv', null);
+  for (let i = 0; i < 501; i++) { const img = el('IMG', '', el('SPAN', 'lpv-img', card)); img.src = '/api/unfurl/image?url=' + i; lpvImageFailed({ target: img }); }
+  assert.equal(LPV_FAILED.size, 500);
+  assert.equal(LPV_FAILED.has('/api/unfurl/image?url=0'), false, 'the oldest failure was kept over the newest');
+  assert.equal(LPV_FAILED.has('/api/unfurl/image?url=500'), true, 'the newest failure was not kept');
+});

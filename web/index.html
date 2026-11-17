@@ -78026,7 +78026,7 @@ function pjRich(text) {
    in small type; description clamped by CSS. Same new-tab, no-referrer
    treatment as the inline link. Escaped field by field. */
 /* kosmos#8636: pictures that failed in this page, so a redrawn card does not ask for them again. Kept until the page
-   reloads (at most 500), so a picture that failed only for a moment stays away until then. */
+   reloads (the newest 500), so a picture that failed only for a moment stays away until then. */
 const LPV_FAILED = new Set();
 function pjPreviewCard(preview) {
   const p = preview && typeof preview === 'object' ? preview : null;
@@ -78034,7 +78034,8 @@ function pjPreviewCard(preview) {
   const title = typeof p.title === 'string' && p.title.trim() ? p.title.trim() : null;
   const desc = typeof p.description === 'string' && p.description.trim() ? p.description.trim() : null;
   if (!title && !desc && !p.image) return '';
-  const image = typeof p.image === 'string' && /^\/api\//.test(p.image) && !(typeof LPV_FAILED !== 'undefined' && LPV_FAILED.has(p.image)) ? p.image : null;   // kosmos#8636
+  // kosmos#8636. The typeof is for tests that lift this function without LPV_FAILED; in the page it is declared above.
+  const image = typeof p.image === 'string' && /^\/api\//.test(p.image) && !(typeof LPV_FAILED !== 'undefined' && LPV_FAILED.has(p.image)) ? p.image : null;
   let site = typeof p.site === 'string' && p.site.trim() ? p.site.trim() : '';
   if (!site) { try { site = new URL(p.url).host; } catch { site = ''; } }
   /* #761 (Josh, 2026-08-24 21:56: "a much, much larger OG image... below the
@@ -78060,7 +78061,7 @@ function lpvImageFailed(e) {
   const box = t.closest('.lpv-img');
   if (!box || !box.closest('.lpv')) return;
   const src = t.getAttribute && t.getAttribute('src');
-  if (src && LPV_FAILED.size < 500) LPV_FAILED.add(src);
+  if (src) { LPV_FAILED.delete(src); LPV_FAILED.add(src); if (LPV_FAILED.size > 500) LPV_FAILED.delete(LPV_FAILED.values().next().value); }
   box.remove();
 }
 document.addEventListener('error', lpvImageFailed, true);
