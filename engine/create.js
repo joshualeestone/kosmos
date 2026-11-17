@@ -215,8 +215,9 @@ function modelsFor(provider) {
  * that produces an agent launched with a flag its runner has never heard of.
  */
 function modelFor(provider, modelKey) {
-  // kosmos#8618: the menu key ("opus55") or the model's full id ("claude-opus-5-5"); either names one row.
-  const k = String(modelKey);
+  // kosmos#8618: the menu key ("opus55") or the model's full id ("claude-opus-5-5"); either names one row. Trimmed, so a
+  // pasted id with a stray space resolves the same on the model route (untrimmed body) as on the provider route.
+  const k = String(modelKey).trim();
   return modelsFor(provider).find((m) => m.key === k || m.arg === k) || null;
 }
 /* kosmos#8618 (feedback: a refusal said only "pick a model from the list", so an agent found the accepted value by
