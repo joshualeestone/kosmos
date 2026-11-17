@@ -49,16 +49,16 @@ test('#8617: an agent with no folder of its own gets none (the parent is never m
   const r = dmfiles.ensureFolder('ghost');
   assert.equal(r.ok, false);
   assert.match(r.because, /no folder of its own/);
-  assert.equal(fs.existsSync(path.dirname(dir)), false, 'its own folder was made');
+  assert.equal(fs.existsSync(path.dirname(dir)), false, 'an agent with no folder must not get one');
 });
 
-/* Symlinks need elevation on Windows; this file is not in the Windows run, and the guard keeps it portable if added. */
+/* This file runs on Windows (tools/windows-tests.js); this arm skips there, since symlinks need elevation. */
 test('#8617: a file or a link already called Files is never replaced, and nothing is made through a link', { skip: process.platform === 'win32' && 'symlinks need elevation on Windows' }, () => {
   agentFile('hasfile', 'x\n');
   fs.writeFileSync(dmfiles.filesDir('hasfile'), 'a file');
   const f = dmfiles.ensureFolder('hasfile');
   assert.equal(f.ok, false);
-  assert.equal(fs.readFileSync(dmfiles.filesDir('hasfile'), 'utf8'), 'a file', 'the file was replaced');
+  assert.equal(fs.readFileSync(dmfiles.filesDir('hasfile'), 'utf8'), 'a file', 'a file called Files must stay a file');
   // A link to a real folder elsewhere: not ours, so not used, and nothing is made in its target.
   agentFile('haslink', 'x\n');
   const elsewhere = path.join(SANDBOX, 'elsewhere');
@@ -67,7 +67,7 @@ test('#8617: a file or a link already called Files is never replaced, and nothin
   const l = dmfiles.ensureFolder('haslink');
   assert.equal(l.ok, false);
   assert.match(l.because, /link/);
-  assert.ok(fs.lstatSync(dmfiles.filesDir('haslink')).isSymbolicLink(), 'the link was replaced');
+  assert.ok(fs.lstatSync(dmfiles.filesDir('haslink')).isSymbolicLink(), 'a link called Files must stay a link');
   // A dangling link: mkdir would refuse anyway; it stays a link and nothing is made where it points.
   agentFile('dangling', 'x\n');
   const nowhere = path.join(SANDBOX, 'nowhere');
@@ -91,7 +91,7 @@ test('#8617: the sweep (tellAgent) makes the folder for an agent made before thi
   assert.equal(t2[0].state, projects.TOLD.TOLD, 'the block still landed');
   assert.match(t2[0].folder || '', /not a folder/, 'the reason the folder could not be made is not carried for the boot line');
   assert.equal(told[0].folder, undefined, 'CONTROL: a folder that was made carries no note');
-  assert.equal(fs.readFileSync(dmfiles.filesDir('blocked'), 'utf8'), 'a file', 'the sweep replaced the file called Files');
+  assert.equal(fs.readFileSync(dmfiles.filesDir('blocked'), 'utf8'), 'a file', 'the sweep must leave a file called Files as it is');
 });
 
 test('#8617 CONTROL: a refused tell (not on the roster) makes no folder', () => {
