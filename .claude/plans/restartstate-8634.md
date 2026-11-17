@@ -25,3 +25,18 @@ agent its wait is gone.
 
 ## Rejected
 Restoring the old report on the board: the agent may have been unblocked while down (#1058's reason).
+
+## What this is and is not
+A MITIGATION, not a fix of the board symptom. After a restart the card still reads "working" during the startup turn and
+then idle. What changes: the agent is told its own wait is gone and how to say it again. Whether it re-reports is up to
+the agent and is not measured. Do not close #8634 as "fixed" on the merge; close it on the served build with that said.
+
+## Known behaviour
+- A standing wait is reminded on every real startup for up to 7 days, until the agent (or a person) reports anything
+  that is not automatic. The sentence says "if not, there is nothing to do", so a stale one costs one paragraph.
+- A row dated in the future stops the search (not trusted), so an older wait under it is not found.
+
+## Cost, measured
+The startup path reads the long history (up to 4 MB) synchronously. Timed on this Mac (M4) with a 4.2 MB record past the
+cap, read + windowFrom + lastWait: 11 to 14 ms over 5 runs; a real 3 MB record: about 10 ms. The Mac hook's curl cap
+is 1 s.
