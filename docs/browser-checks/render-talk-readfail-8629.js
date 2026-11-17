@@ -21,6 +21,7 @@
  *      failure closes, is caught on the conversation box.
  *   K. a question's choice buttons are disabled while the read fails and given back after.
  *   D. a box with no rows yet ("Opening...") still paints the failure sentence alone.
+ *   S. after a standing refusal, a cached repaint does not bring an earlier failure's sentence back.
  *   C. the standing refusal (`because: 'borrowed'`) still paints its sentence alone, as before.
  * With the #8629 change reverted, arm A fails (rows gone during the failure, then on different words).
  *
@@ -210,6 +211,14 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     await paint('borrowed');
     out.cRows = th.querySelectorAll('[data-mid]').length;
     out.cText = th.textContent.trim().slice(0, 80);
+    // S. a kept-rows failure, then the standing refusal, then a repaint from the cached body: the transient sentence
+    //    belongs to the failure the refusal replaced, so it must not come back under the cached rows.
+    await paint('ok');
+    await paint('fail');
+    await paint('borrowed');
+    paintTalkThread(th.__lastBody, 'April');
+    await settle();
+    out.sStale = failLine();
     window.__answer = 'ok';
     return out;
   });
@@ -250,6 +259,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!near(r.qYBack, r.qY0)) problems.push('Q: the next good poll moved the reader: m25 at ' + r.qY0 + 'px, back at ' + r.qYBack + 'px');
     if (r.qInertBack !== false) problems.push('Q: the question box stayed inert after a read worked');
     if (r.dRows !== 0 || !/could not read this conversation just now/.test(String(r.dText)) || r.dLine !== null) problems.push('D: a failure on a box with no rows yet should paint the sentence alone (rows ' + r.dRows + ', text ' + JSON.stringify(r.dText) + ', line ' + JSON.stringify(r.dLine) + ')');
+    if (r.sStale !== null) problems.push('S: after the standing refusal a cached repaint put the old failure line back: ' + JSON.stringify(r.sStale));
     if (r.cRows !== 0 || !/cannot show a conversation for this name/.test(String(r.cText))) problems.push('C: the standing refusal changed (rows ' + r.cRows + ', text ' + JSON.stringify(r.cText) + ')');
   }
 
