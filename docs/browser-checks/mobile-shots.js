@@ -3091,12 +3091,12 @@ const SCREENS = [
   } },
   /* kosmos#8628 (Josh, 11-17): the memory rings round the pictures in My Agents (#8303), the list down the left of
      the agent page, got fatter as they filled and were cut square at high fill. These shots show three rings, one
-     in each band (about 10, 50 and 95 percent), open and folded (the folded rail is the one in Josh's screenshot).
+     across the bands (10 and 50 green, 70 amber, 95 red), open and folded (the folded rail is the one in Josh's screenshot).
      The readings are stubbed in this screen's own context: every card's context is rewritten on GET /api/status to
-     a measured reading at one of the three percents, in turn, so the shot never depends on what the fleet seeds.
+     a measured reading at one of those percents, in turn, so the shot never depends on what the fleet seeds.
      Desktop only: My Agents shows from 1160px (MY_AGENTS_MIN_WIDTH). */
   ...[false, true].map((folded) => ({ name: 'myagents-rings-8628' + (folded ? '-folded' : ''), owner: 'Ice Cream Kitty', desktopOnly: true, go: async (page, data) => {
-    const PCTS = [10, 50, 95];
+    const PCTS = [10, 50, 70, 95];
     await page.route('**/api/status*', async (r) => {
       try {   // #6022: a late answer after close is caught, not a crash
         if (r.request().method() !== 'GET') return await r.fallback();
