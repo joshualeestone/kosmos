@@ -3446,7 +3446,6 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 /* kosmos#8662: the agent page's signed-out note (paintDetailSignedOut), the amber of the board's own sign-in box. */
 .d-signedout { margin: 0 0 14px; padding: 10px 14px; border: 1px solid var(--warn-ink); border-radius: 10px; font-size: .9375rem; line-height: 1.5; color: var(--k-ink); }
 .d-signedout a { color: inherit; font-weight: 600; }
-#d-sec-model[inert] { opacity: .55; }
 /* The icon and the sentence that names it, side by side (kosmos#1212). Baseline
    is wrong here: the picture is the subject, not a bullet, so they centre. */
 .dockrow { display: flex; align-items: center; gap: 12px; margin: 12px 0 0; }
@@ -23413,7 +23412,8 @@ function lmodelCell(a) {
   const line = tileModelLine(a);
   // #7978: in this cell, never as its own: the row's grid has exactly seven children.
   const flag = typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : '';
-  // kosmos#8662: by the words, not by asking modelLine, which says the sign-out (to be read) while the board is signed out.
+  /* kosmos#8662: by the words, not by asking modelLine, which says the sign-out (to be read) while the board is signed out.
+     Literals, not shared constants: tests lift these functions alone; web.made-before.test.js pins modelLine's words. */
   return (line === 'Made before Kosmos recorded this' ? '<span class="vh">' + esc(line) + '</span>' : esc(line)) + flag;
 }
 /* #6716 (Josh: "I am not sure why it doesnt recognize Renet's model"): the TILE's and the list row's model line. Where
@@ -42501,33 +42501,49 @@ let BOARD_NEEDS_SIGNIN = false;
 let BOARD_SIGNED_OUT = false;
 /* kosmos#8662: the agent page's signed-out state. The board's grid says "not signed in" (#2023), but an agent page that
    was open when the tab was signed out kept its last reading and its Model controls, and a switch there went nowhere
-   with nothing saying why. While the board needs a sign-in (this computer's tab, or a lapsed relay sign-in, #718): the
-   note above the sections shows, and the Model section is inert (no click or keyboard focus reaches the picker). Run on
-   every status poll, so a sign-in clears both on the next poll. */
+   with nothing saying why. While the board needs a sign-in (this computer's page, or a lapsed relay sign-in, #718): the
+   note above the sections shows, and the Model section is inert (no click or keyboard focus reaches the picker). Driven
+   by the STATUS poll only (its refusal, success and outage paths): loadProjects also writes the flags, and a projects
+   read failing another way while status says 403 would flip the lock, and keyboard focus with it, on alternate polls. */
 function paintDetailSignedOut() {
   const relay = BOARD_SIGNED_OUT === true;
   const out = BOARD_NEEDS_SIGNIN === true || relay;
   const note = document.getElementById('d-signedout');
   const model = document.getElementById('d-sec-model');
   if (note) {
-    /* #718: a phone or computer reaching the Mac through the relay signs in with the board's own button and sentence;
-       this computer's tab with the steps on the board. Rewritten only when the kind changes (a button under focus). */
-    const kind = out ? (relay ? 'relay' : 'tab') : '';
-    if (kind && note.dataset.kind !== kind) {
-      /* True as written: the board refuses every change while signed out, and the model controls are paused here. */
-      const said = ' This page shows what it last read, and nothing on it can be saved until you sign in again; its model controls are paused.';
-      note.innerHTML = relay
-        ? esc(ORG_SIGNED_OUT_SENTENCE) + said + ' ' + DEVICE_SIGNIN_BUTTON
-        : 'This tab is signed out.' + said + ' <a href="/">Sign this tab in again</a> to see and change models.';
+    const kind = out ? (relay ? 'relay' : 'here') : '';
+    if (kind && (note.hidden || note.dataset.kind !== kind)) {
+      /* Shown first, then written: a live region's text written inside a hidden subtree is not reliably announced, and
+         a second sign-out of the same kind must be announced too. Not rewritten while it stays shown (a focused
+         button). The link only opens the board, where the steps are, so it says that. */
+      note.hidden = false;
+      note.textContent = '';
       note.dataset.kind = kind;
+      const said = 'shows what it last read, and nothing on it can be saved until you sign in again; its model controls are paused.';
+      const html = relay
+        ? esc(ORG_SIGNED_OUT_SENTENCE) + ' This page ' + said + ' ' + DEVICE_SIGNIN_BUTTON
+        : 'This page is signed out, so it ' + said + ' <a href="/">See how to sign in</a> on the board.';
+      const put = () => { if (!note.hidden && note.dataset.kind === kind) note.innerHTML = html; };
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(put); else put();
     }
-    if (note.hidden === out) note.hidden = !out;
+    if (!out && !note.hidden) {
+      // Signed in again: focus on the note's way out returns to the section it was moved from, never to the page.
+      const held = note.contains(document.activeElement);
+      note.hidden = true;
+      note.dataset.kind = '';
+      if (model) model.inert = false;
+      if (held && model) model.focus();
+    }
   }
   if (model && model.inert !== out) {
-    // Keyboard focus inside the section would fall to the page; it moves to the way out instead.
+    // Keyboard focus inside the section would fall to the page; it moves to the note instead (its way out once written).
     const had = out && document.activeElement && model.contains(document.activeElement);
     model.inert = out;
-    if (had && note) { const go = note.querySelector('a, button'); if (go) go.focus(); }
+    if (had && note) {
+      const go = note.querySelector('a, button');
+      if (go) go.focus();
+      else { note.setAttribute('tabindex', '-1'); note.focus(); }
+    }
   }
 }
 function relaySignedOut(status, body) {
@@ -72133,7 +72149,6 @@ async function loadProjects() {
       // projectsUnreadable 500) must clear the flag, not leave a prior true.
       BOARD_NEEDS_SIGNIN = got403;
       BOARD_SIGNED_OUT = gotSignedOut;
-      if (typeof paintDetailSignedOut === 'function') paintDetailSignedOut();   // kosmos#8662
       throw new Error(body.error || 'we cannot read your projects right now');
     }
     PROJECTS = body.projects || [];
@@ -72172,7 +72187,6 @@ async function loadProjects() {
     PJ_AGENTS_UNREADABLE = body.agentsUnreadable === true;
     PJ_READ_FAILED = false;
     BOARD_NEEDS_SIGNIN = false; BOARD_SIGNED_OUT = false; BOARD_DEVICE_OFFLINE = false; // #2023 / #718 states 3 and 1: a readable projects response means this device is online and authed.
-    if (typeof paintDetailSignedOut === 'function') paintDetailSignedOut();   // kosmos#8662
     /* After the outcome is recorded, never before: the sentence's "no
        projects" verdict reads PJ_READ_FAILED, and a read that recovers on an
        empty board would otherwise paint one poll of the wrong sentence. */
@@ -72184,7 +72198,6 @@ async function loadProjects() {
     // (a sticky true drew the signin remedy over a genuine outage).
     BOARD_NEEDS_SIGNIN = got403;
     BOARD_SIGNED_OUT = gotSignedOut;
-    if (typeof paintDetailSignedOut === 'function') paintDetailSignedOut();   // kosmos#8662
     BOARD_DEVICE_OFFLINE = !reached && deviceOffline();   // #718 state 1
     /* #6537: the boxes below say only that the board tries again (OFFLINE_SENTENCE); "You are offline" is the top
        note's. A phone that goes offline and opens Projects before the next status poll reaches here first, so this

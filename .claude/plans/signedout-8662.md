@@ -14,8 +14,13 @@ Many agents read "unknown model" and the model picker did nothing; the tab had b
   the page shows what it last read, nothing on it can be saved until a sign-in, its model controls are paused, and
   "Sign this tab in again" links the board, where the sign-in steps are; a relay sign-out gets the board's own sentence
   and Sign in button). `paintDetailSignedOut()` shows it and makes `#d-sec-model` inert while
-  `BOARD_NEEDS_SIGNIN` (403, this computer's tab) or `BOARD_SIGNED_OUT` (#718 relay) holds; run from the status poll's
-  refusal path and its success path, so a sign-in clears both on the next poll.
+  `BOARD_NEEDS_SIGNIN` (403, this computer's page) or `BOARD_SIGNED_OUT` (#718 relay) holds. Driven by the STATUS poll
+  only (its refusal path, both success paths and the outage path, #268): loadProjects also writes the flags, and a
+  projects read failing another way while status says 403 would flip the lock and keyboard focus on alternate polls.
+  Shown first, then written (a live region written while hidden is not reliably announced), and written again on every
+  new sign-out. Focus inside the section moves to the note when it locks and back to the section when it unlocks. The
+  reading is not dimmed (the note tells the person to rely on it). Wording is platform-neutral ("This page"), and the
+  link says what it does ("See how to sign in" on the board).
 - `modelLine`: with no model read and the board signed out, "Signed out: sign in to see its model", not "Unknown
   Model" (typeof-guarded, so a lifted modelLine without the flags keeps the old lines).
 - docs/browser-checks/render-detail-signedout-8662.js: both looks; control before the sign-out; note + inert after;
@@ -32,6 +37,11 @@ linking AI Settings).
 A mid-session sign-out replaces the grid and the list with the board's own "not signed in" box (#2023), and a tab that
 loads signed out draws no cards, so a card does not keep its old text there. The modelLine wording is the fallback for
 any surface drawn from what the page last read; it is pinned by the unit test, not by a browser arm.
+
+## Deferred from review
+- Shared constants for "Made before Kosmos recorded this" and the signed-out line: tests lift modelLine, tileModelLine
+  and lmodelCell alone, so a page-level constant breaks them (measured: 4 failures); the words stay literal, pinned by
+  web.made-before.test.js against modelLine's own output.
 
 ## Not done
 Only the Model section is made inert. Other sections' writes (Instructions, Remove, Memory's Compact/Clear) are also
