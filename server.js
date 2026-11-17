@@ -24534,6 +24534,9 @@ const server = http.createServer(async (req, res) => {
       // Sorted in place with the comparator `rows` uses below, so that later sort finds them already in order.
       roomRows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
       const archivedSrc = new Set(roomRows.slice(0, roomarchive.archivedCount(roomRows, archiveMarker, Date.now())));
+      /* #8631: how many of this room's rows a block hides, so the page can say in one line that messages are hidden here
+         (the JSON arm only; 0 is never sent). */
+      const hiddenBlocked = blockedNow.size ? roomRows.filter((m) => bmRoom.hides(m, blockedNow)).length : 0;
       const kept = roomRows
         /* #8625: a blocked person's rows leave the room here, after the archive split above, so blocking or unblocking
            someone never moves the archived stretch. */
@@ -25067,14 +25070,14 @@ const server = http.createServer(async (req, res) => {
         // The next older page's cursor: the first row's time and how many rows of that time sit ahead of it.
         const olderCursor = olderCount > 0 && page[0] && typeof page[0].key === 'string' ? page[0].key : null;
         sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(page), unanswered: silent, olderCount, olderCursor,
-          archivedCount, archiveMarker }, held ? { held } : {}));
+          archivedCount, archiveMarker }, held ? { held } : {}, hiddenBlocked ? { hiddenBlocked } : {}));
         return;
       }
       /* #185: which addressed agents have not answered which posts, from
          the record alone; the page renders the small line from this and
          never re-derives it. Best-effort like the room itself. */
       sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(rows), unanswered: silent, archivedCount, archiveMarker },
-        held ? { held } : {}));
+        held ? { held } : {}, hiddenBlocked ? { hiddenBlocked } : {}));
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the room') });
     }
