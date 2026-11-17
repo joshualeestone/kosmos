@@ -24435,7 +24435,6 @@ const server = http.createServer(async (req, res) => {
       // #8625: the person's own accounts (marked same_account), so the phone never offers to report or block them.
       const ownNow = bmRoom.ownAccounts(rec.rows);
       const roomRows = guideMaskedRows(rec.rows, null)
-        .filter((m) => !bmRoom.hides(m, blockedNow))
         /* Refused rows too (#315): the valve notice is deduped per room, so
            without these every agent blocked after the first vanishes silently
            and reads as unresponsive. The refusal contract already records
@@ -24449,6 +24448,9 @@ const server = http.createServer(async (req, res) => {
       roomRows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
       const archivedSrc = new Set(roomRows.slice(0, roomarchive.archivedCount(roomRows, archiveMarker, Date.now())));
       const kept = roomRows
+        /* #8625: a blocked person's rows leave the room here, after the archive split above, so blocking or unblocking
+           someone never moves the archived stretch. */
+        .filter((m) => !bmRoom.hides(m, blockedNow))
         /* A note written for the agents (the "no brief yet" coordination note) is theirs to
            read through `kosmos room` (the text arm below keeps it), not the first thing a
            person sees in a new room: the JSON arm is the person's view, and leaving it out

@@ -28,9 +28,14 @@ function accountOf(member) {
   return ACCOUNT.test(acct) ? acct : null;
 }
 
-function read() {
-  let raw = null;
-  try { raw = JSON.parse(fs.readFileSync(FILE(), 'utf8')); } catch { return {}; }
+/* The record, or null when it exists but could not be read (a read error, or not JSON). Missing is an empty record. A
+   reader treats null as no blocks (nothing is hidden by a fault); a writer refuses on null, so a failed read can never
+   be saved over the person's whole list. */
+function readOrNull() {
+  let text;
+  try { text = fs.readFileSync(FILE(), 'utf8'); } catch (err) { return err && err.code === 'ENOENT' ? {} : null; }
+  let raw;
+  try { raw = JSON.parse(text); } catch { return null; }
   const out = {};
   const accounts = raw && typeof raw === 'object' && raw.accounts && typeof raw.accounts === 'object' ? raw.accounts : {};
   for (const [acct, e] of Object.entries(accounts)) {
@@ -39,6 +44,7 @@ function read() {
   }
   return out;
 }
+function read() { return readOrNull() || {}; }
 
 function write(accounts) {
   try {
@@ -72,7 +78,8 @@ function hides(row, set) {
 function block(member, name) {
   const acct = accountOf(member);
   if (!acct) return { ok: false, because: 'that message has no sender Kosmos can block' };
-  const accounts = read();
+  const accounts = readOrNull();
+  if (!accounts) return { ok: false, because: 'the block list could not be read, so nothing was changed' };
   if (!Object.prototype.hasOwnProperty.call(accounts, acct) && Object.keys(accounts).length >= MAX) {
     return { ok: false, full: true, because: 'the block list is full' };
   }
@@ -83,7 +90,8 @@ function block(member, name) {
 
 function unblock(account) {
   if (typeof account !== 'string' || !ACCOUNT.test(account)) return { ok: false, because: 'that is not a blocked person' };
-  const accounts = read();
+  const accounts = readOrNull();
+  if (!accounts) return { ok: false, because: 'the block list could not be read, so nothing was changed' };
   if (!Object.prototype.hasOwnProperty.call(accounts, account)) return { ok: true, changed: false };
   delete accounts[account];
   const saved = write(accounts);

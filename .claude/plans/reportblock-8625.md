@@ -101,3 +101,15 @@ an operational dependency, said on the card.
   - NITs fixed: the module is looked up once per request; a failed rename removes its temp file; the quoted words in the
     mail are capped at 2,000 characters (the id lets support read the rest). Not acted on: caching the block list
     between messages (two small file reads per arriving outside message).
+- Round 4 (blind, sonnet): no BLOCKER, 4 WARNING, 3 NIT.
+  - WARNING fixed: a failed read of the block list read as empty, so the next Block saved one entry over the whole
+    list; block and unblock now refuse when the file exists but cannot be read (a missing file is still empty). Tested
+    (the file is left as it was, nobody is hidden; CONTROL: no file at all, Block works).
+  - WARNING fixed: the block filter ran before the archive split and could move the archived stretch; it runs after it
+    now. The archive tests (45) pass.
+  - WARNING routed to Josh: guideline 1.2 also asks for terms that say objectionable content and abusive users are not
+    tolerated. installkosmos.com/terms exists (200) and says neither; that is legal text under his name. On #7352.
+  - WARNING accepted: an own account with no marked row at all is offered Block, which the board refuses with a plain
+    sentence; Unblock is never needed for it.
+  - NITs not acted on: the Settings footer note stays until the view is rebuilt; status mapping for a malformed stored
+    member (cannot happen today); code comments say "read by an agent" of new rows, which is true.

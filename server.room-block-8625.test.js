@@ -140,3 +140,17 @@ test('#8625: unblocking brings their kept messages back into the room', async ()
   assert.ok(ids.includes('x-a1') && ids.includes('x-a2'));
   assert.equal((await post('/api/blocked/unblock', { account: '../etc' })).status, 400, 'a malformed account is refused');
 });
+
+test('#8625: an unreadable block list is never saved over: Block refuses and the file is left as it was', async () => {
+  const file = blocked.FILE();
+  fs.writeFileSync(file, '{ not json');
+  const res = await post(`/api/project/${encodeURIComponent(pid)}/room/x-b1/block`);
+  assert.equal(res.status, 503);
+  assert.match((await res.json()).error, /could not be read/);
+  assert.equal(fs.readFileSync(file, 'utf8'), '{ not json', 'the file a person may still recover was not overwritten');
+  const shown = await outsideIds();
+  for (const id of ['x-a1', 'x-a2', 'x-b1', 'x-me', 'x-me-old', 'x-old']) assert.ok(shown.includes(id), 'an unreadable list hides nobody: ' + id);
+  fs.rmSync(file, { force: true });
+  // CONTROL: with no file at all (a person who never blocked anyone), Block works.
+  assert.equal((await post(`/api/project/${encodeURIComponent(pid)}/room/x-b1/block`)).status, 200);
+});
