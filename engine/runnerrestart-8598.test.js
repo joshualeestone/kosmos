@@ -295,7 +295,7 @@ test('a managed codex that starts another (a nested exec) is judged by the outer
   assert.equal(found.job, false, 'a nested codex is not a shell job');
 });
 
-test('the real ps, run with the sweep\'s own arguments, parses: this process is in the table with its parent', { skip: process.platform === 'win32' && 'the sweep is Mac/Linux only' }, () => {
+test('the real ps, run with the sweep\'s own arguments, parses: this process is in the table with its parent', { skip: require('../test-support/skip-on-win32').skipOnWin32('it runs the POSIX ps the Mac/Linux sweep reads; the sweep does not run on Windows') }, () => {
   const out = require('node:child_process').execFileSync('ps', rr.PS_ARGS, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   const t = rr.parseProcs(out);
   assert.ok(t.size > 1, 'more than one row parsed');
