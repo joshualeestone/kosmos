@@ -5,8 +5,12 @@ Card: joshualeestone/kosmos#8617 (feedback, two installs, 11-04 and 11-08).
 ## What finished looks like
 
 A newly made agent has an empty Files folder beside its instructions file, and an agent made before this gets one the
-next time the board starts (the boot sweep). The agent page then lists an empty Files rather than a missing one, and the
-agent has a folder to save into and attach from. Nothing that is already called Files is replaced or followed.
+next time the board starts (the boot sweep). The agent has a real folder to save into and attach from (`kosmos reply
+--file` refuses a missing one) before its first save. Nothing already called Files is replaced or followed, and a
+connected agent (working in a folder the person brought in) is left to make its own.
+
+The page does not change: it hides the Files section for an empty folder and a missing one alike (#3757's ruling), and
+this does not revisit that.
 
 ## The change
 
@@ -25,6 +29,9 @@ agent has a folder to save into and attach from. Nothing that is already called 
 - **Rejected: making it when the page asks for the list.** A read (GET) that writes would be a side effect in a path the
   page polls; and the agent, not only the page, needs the folder.
 - **Rejected: `recursive: true`.** It would make an agent folder that does not exist, for a name that is not an agent.
+- **Connected agents are skipped.** Their folder is the person's own (often a project or repo, sometimes on a share);
+  the boot sweep and the About-you save run for them too, and Kosmos should not add a folder there uninvited. They keep
+  the instruction to make it themselves. The check reads the profile only (`recordedDirSpelling`), never the folder.
 - **Kept: the block's "create the folder if it is not there yet".** Still true for a folder that could not be made (a
   file in the way), or one a person deleted.
 
@@ -39,12 +46,27 @@ dmfiles resolves through `instructions.fileFor` (safeKey); the code already note
 A report that a person's Files filled with something they did not expect: it would mean an agent or tool reads an empty
 Files as an invitation. Nothing in the tree does today (the page lists it; replyfile only attaches from it).
 
+## Not measured
+
+Windows: a junction or reparse point named Files is reasoned to read as EEXIST and then not a directory under lstat, not
+measured; the new test file is not in the Windows run (symlinks there need elevation).
+
 ## Tests
 
-- New `engine/dmfiles.folder-8617.test.js` (5): made once and kept with its files; no parent made; a file, a link and a
+- New `engine/dmfiles.folder-8617.test.js` (6): made once and kept with its files; no parent made; a file, a link and a
   dangling link are never replaced or followed; the sweep makes it for an existing agent with the verdict unchanged;
   CONTROL: a refused tell makes none.
 - `engine/create.test.js`: a new agent has an empty Files from birth, beside its instructions file.
 - Controls: with the create.js call removed, the create test fails; with the tellAgent call removed, the sweep test fails.
 - Readers and guards (30 files that read dmfiles or the Files route, create.test.js, fixture-discipline, sandbox-data,
   no-brand-refs, no-name-refs, engine.reachable): 1,028 pass, 0 fail, 69 skipped.
+
+## Review
+
+- Round 1 (blind, opus): no BLOCKER, 2 WARNING, 4 NIT.
+  - WARNING fixed (words): the comments and plan said the page would show an empty Files; it hides the section for
+    empty and missing alike (#3757). Reworded to the real benefit: a folder to save into and attach from.
+  - WARNING fixed: the sweep would have made Files inside a connected agent's folder (the person's own). ensureFolder
+    now skips an agent whose profile records a folder; test with a plain-agent control; removing the skip fails it.
+  - NITs fixed: no raw error message (it carries the path); the sweep test checks the file called Files survives; the
+    Windows gap is stated under Not measured; the requires sit together.

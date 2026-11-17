@@ -87,6 +87,7 @@ test('#8617: the sweep (tellAgent) makes the folder for an agent made before thi
   fs.writeFileSync(dmfiles.filesDir('blocked'), 'a file');
   const t2 = dmfiles.syncEveryone([tied('blocked')]);
   assert.equal(t2[0].state, projects.TOLD.TOLD, 'the block still landed');
+  assert.equal(fs.readFileSync(dmfiles.filesDir('blocked'), 'utf8'), 'a file', 'the sweep replaced the file called Files');
 });
 
 test('#8617 CONTROL: a refused tell (not on the roster) makes no folder', () => {
@@ -94,4 +95,20 @@ test('#8617 CONTROL: a refused tell (not on the roster) makes no folder', () => 
   const t = dmfiles.tellAgent('stranger', []);
   assert.equal(t.state, projects.TOLD.COULD_NOT, 'PRECONDITION: refused');
   assert.equal(fs.existsSync(dmfiles.filesDir('stranger')), false, 'a folder was made for an agent the sweep refused');
+});
+
+test('#8617: a connected agent (its folder is the person\'s own) gets no Files folder from Kosmos; CONTROL: a plain one does', () => {
+  const store = require('./store');
+  const theirs = fs.mkdtempSync(path.join(SANDBOX, 'their-repo-'));
+  fs.writeFileSync(path.join(theirs, 'CLAUDE.md'), 'You are linked.\n');
+  store.writeProfile('linked', { dir: theirs });
+  assert.equal(path.dirname(dmfiles.filesDir('linked')), theirs, 'PRECONDITION: its Files would be in the person\'s folder');
+  const r = dmfiles.ensureFolder('linked');
+  assert.equal(r.ok, false);
+  assert.match(r.because, /folder you brought in/);
+  const told = dmfiles.syncEveryone([tied('linked')]);
+  assert.equal(told[0].state, projects.TOLD.TOLD, 'the block is still written');
+  assert.equal(fs.existsSync(path.join(theirs, 'Files')), false, 'Kosmos added a Files folder to the person\'s own folder');
+  agentFile('plainone', 'You are plain.\n');
+  assert.equal(dmfiles.ensureFolder('plainone').created, true, 'CONTROL: an agent in its own Kosmos folder gets one');
 });

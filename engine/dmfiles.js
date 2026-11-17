@@ -33,14 +33,13 @@
  *
  * #8617 (feedback, two installs): the Files folder itself is made when the agent is
  * made (create.js) and, for an agent made before this, when this block is written
- * (tellAgent, which the boot sweep runs for every agent), so the page shows an empty
- * Files list rather than none and the agent has a folder to attach from. ensureFolder
- * makes only that one folder, inside a folder that is already there, and never
- * through a link.
+ * (tellAgent, which the boot sweep runs for every agent), so the agent has a real
+ * folder to save into and attach from before its first save. ensureFolder makes only
+ * that one folder, inside a folder that is already there, never through a link, and
+ * never in a folder the person brought in (a connected agent).
  */
 
 const fs = require('node:fs');
-
 const path = require('node:path');
 const projects = require('./projects');
 const instructions = require('./instructions');
@@ -118,8 +117,13 @@ function ownDir(sessionName, folder) {
  * and never throws. Only the one folder is made (never its parents, so an agent with no
  * folder of its own gets none), and a name already there is left alone: a folder is fine,
  * and anything else (a file, or a link, even one to a folder) is not ours to replace.
+ * A connected agent (its folder is the person's own, recorded in its profile) is left to
+ * make it itself, as its instructions say: Kosmos does not add folders to the person's.
  */
 function ensureFolder(sessionName) {
+  let connected = null;
+  try { connected = require('./create').recordedDirSpelling(sessionName); } catch { connected = 'unknown'; }
+  if (connected) return { ok: false, created: false, because: 'it works in a folder you brought in, so Kosmos does not add a folder to it' };
   const dir = filesDir(sessionName);
   if (!dir) return { ok: false, created: false, because: 'it has no folder of its own on this computer' };
   try {
@@ -129,7 +133,7 @@ function ensureFolder(sessionName) {
     fs.mkdirSync(dir);
     return { ok: true, created: true, because: null };
   } catch (err) {
-    if (!err || err.code !== 'EEXIST') return { ok: false, created: false, because: String((err && err.message) || 'it could not be made') };
+    if (!err || err.code !== 'EEXIST') return { ok: false, created: false, because: 'it could not be made', code: (err && err.code) || null };   // never err.message: it carries the path
   }
   let st = null;
   try { st = fs.lstatSync(dir); } catch { st = null; }
