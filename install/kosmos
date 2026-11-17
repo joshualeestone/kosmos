@@ -6246,7 +6246,7 @@ cmd_task() {
   local _tmine=""   # kosmos#7992: `task list --mine` / `task list --all --mine`: only the tasks this agent holds
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|check|hold|unhold|repeat|ran|told>"
+      say "Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|check|hold|unhold|repeat|ran|told|edit>"
       say "  kosmos task list <project-id> [--state open|built|held|done]  list this project's tasks, open first"
       say "  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each"
       say "  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first"
@@ -6273,6 +6273,7 @@ cmd_task() {
       say "      --clear                                                  take the built mark off"
       say "      --file <path>                                            send the delivered file's fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark; another agent's mark keeps them, your own mark without --file drops them"
       say "      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes"
+      say "  kosmos task edit <project-id> <task-number> [--title \"<new title>\"] [--detail \"<new detail>\" | --clear-detail]  fix a task's title or detail"
       say "  kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]  say what finished means for it, or --check <number> \"<wording>\" to change one"
       say "      --clear                                                  take its checks off"
       say "  kosmos task check <project-id> <task-number> <check-number> met|unmet \"<how you checked it>\"  report how one done-when check went"
@@ -6401,6 +6402,32 @@ cmd_task() {
         [ "$_dn" -le 3 ] || { say "A task holds up to 3 done-when checks. Quote each check, so its words stay together."; exit 2; }
       fi
       fi ;;
+    edit)
+      # kosmos#8664: <project> <task-number> then --title "<new>", --detail "<new>" or --clear-detail, at least one, each once.
+      local _eusage="Usage: kosmos task edit <project-id> <task-number> [--title \"<new title>\"] [--detail \"<new detail>\" | --clear-detail]   (at least one)"
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ "$#" -ge 3 ]; } || { say "$_eusage"; exit 2; }
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
+      # Walks a copy of the words: this block must leave "$@" as it is for the send below.
+      local _et=0 _ed=0 _ec=0 _ei=3 _ew _ev
+      while [ "$_ei" -le "$#" ]; do
+        _ew="${!_ei}"; _ev=""; [ "$_ei" -lt "$#" ] && { local _ej=$((_ei + 1)); _ev="${!_ej}"; }
+        case "$_ew" in
+          --title)
+            [ "$_et" = 0 ] || { say "Say --title once. $_eusage"; exit 2; }
+            [ "$_ei" -lt "$#" ] || { say "--title needs the new title after it. $_eusage"; exit 2; }
+            [ -n "$(printf '%s' "$_ev" | tr -d '[:space:]\001-\037\177')" ] || { say "A task needs a title: say what needs doing. $_eusage"; exit 2; }
+            _et=1; _ei=$((_ei + 2)) ;;
+          --detail)
+            [ "$_ed" = 0 ] || { say "Say --detail once. $_eusage"; exit 2; }
+            [ "$_ei" -lt "$#" ] || { say "--detail needs the new detail after it (or use --clear-detail). $_eusage"; exit 2; }
+            _ed=1; _ei=$((_ei + 2)) ;;
+          --clear-detail) [ "$_ec" = 0 ] || { say "Say --clear-detail once. $_eusage"; exit 2; }; _ec=1; _ei=$((_ei + 1)) ;;
+          --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task edit" "$_eusage" "$_ew" ;;
+          *) say "Put --title or --detail before the new words, and quote them. $_eusage"; exit 2 ;;
+        esac
+      done
+      [ "$_ed" = 0 ] || [ "$_ec" = 0 ] || { say "--detail and --clear-detail do not go together. $_eusage"; exit 2; }
+      [ "$_et$_ed$_ec" != 000 ] || { say "$_eusage"; exit 2; } ;;
     check)
       # #8464 item 2: <project> <task-number> <check-number> met|unmet "<how>", exactly five, checked before the board.
       local _kusage="Usage: kosmos task check <project-id> <task-number> <check-number> met|unmet \"<how you checked it>\""
@@ -6613,7 +6640,7 @@ cmd_task() {
         esac
       fi ;;
     *)
-      say "Unknown: kosmos task $sub. Try: list | add | assign | close | reopen | message | activity | show | files | built | done-when | check | hold | unhold | repeat | ran | told"
+      say "Unknown: kosmos task $sub. Try: list | add | assign | close | reopen | message | activity | show | files | built | done-when | check | hold | unhold | repeat | ran | told | edit"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -7241,6 +7268,41 @@ cmd_task() {
           if [ "$clear" = true ]; then say "Took the done-when checks off task $num on ${project:-the project}."
           elif [ -n "$_one" ]; then say "Done-when check $_one on task $num on ${project:-the project} now reads as you wrote it. See them with: kosmos task list ${project:-<project-id>}"
           else say "Task $num on ${project:-the project} is done when its checks are met. See them with: kosmos task list ${project:-<project-id>}"; fi ;;
+        '{"error":'*)
+          local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          say "Kosmos could not change that task: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when changing that task."; exit 1 ;;
+      esac
+      ;;
+    edit)
+      # kosmos#8664: change the title and/or the detail (checked above). The agent token names who changed it (the pane is
+      # the fallback, as for done-when); the change is kept in the task's activity.
+      local project num _etitle="" _edetail="" _ehas_t=0 _ehas_d=0 _eclear=0
+      project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --title) _etitle="$2"; _ehas_t=1; shift 2 ;;
+          --detail) _edetail="$2"; _ehas_d=1; shift 2 ;;
+          --clear-detail) _eclear=1; shift ;;
+          *) shift ;;
+        esac
+      done
+      local _ebody=""
+      [ "$_ehas_t" = 0 ] || _ebody="\"sentence\":\"$(_task_check_json "$_etitle")\""
+      if [ "$_ehas_d" = 1 ]; then
+        local esc_edetail; esc_edetail=$(printf '%s' "$_edetail" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
+        _ebody="${_ebody:+$_ebody,}\"detail\":\"$esc_edetail\""
+      elif [ "$_eclear" = 1 ]; then _ebody="${_ebody:+$_ebody,}\"detail\":null"; fi
+      local esc_pane; esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      local _tok=""
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
+      local rc=0 body
+      body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/text" \
+        -H 'content-type: application/json' \
+        --data "{$_ebody,\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say_unreached "change that task" "$rc" write; exit 1; }
+      case "$body" in
+        '{"task":'*) say "Changed task $num on ${project:-the project}. See it with: kosmos task show ${project:-<project-id>} $num" ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not change that task: ${because:-it did not say why}."; exit 1 ;;

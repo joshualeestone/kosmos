@@ -106,7 +106,7 @@ const USAGE = {
   room: 'Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too), and an agent\'s ask you posted after, not citing an older post, is named on its own line instead; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   notice: 'Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos\'s own voice, the text on stdin, its line breaks kept (agents reading the room see it on one line), at most 4000 characters; <source> names the job, such as "builder alarm")',
   task: [
-    'Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|check|hold|unhold|repeat|ran|told>',
+    'Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|check|hold|unhold|repeat|ran|told|edit>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
     '  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each',
     '  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first',
@@ -133,6 +133,7 @@ const USAGE = {
     '      --clear                                                  take the built mark off',
     '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) and its path with the mark; another agent\'s mark keeps them, your own mark without --file drops them',
     '      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes',
+    '  kosmos task edit <project-id> <task-number> [--title "<new title>"] [--detail "<new detail>" | --clear-detail]  fix a task\'s title or detail',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it, or --check <number> "<wording>" to change one',
     '      --clear                                                  take its checks off',
     '  kosmos task check <project-id> <task-number> <check-number> met|unmet "<how you checked it>"  report how one done-when check went',
@@ -2072,6 +2073,48 @@ async function taskBuilt(ctx, args) {
   return 1;
 }
 
+/* kosmos#8664, as install/kosmos cmd_task edit: change a task's title and/or detail after it is made. At least one of
+   --title "<new>", --detail "<new>" or --clear-detail, each once; checked before any request. The agent token names who
+   changed it, and the change is kept in the task's activity. */
+const TASK_EDIT_USAGE = 'Usage: kosmos task edit <project-id> <task-number> [--title "<new title>"] [--detail "<new detail>" | --clear-detail]   (at least one)';
+async function taskEdit(ctx, args) {
+  const [project, num] = args;
+  if (!project || !num || args.length < 3) { ctx.err(TASK_EDIT_USAGE); return 2; }
+  if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+  const body = { from_pane: '' };
+  let hasTitle = false, hasDetail = false, clearDetail = false;
+  for (let i = 2; i < args.length; i += 1) {
+    const a = args[i];
+    if (a === '--title') {
+      if (hasTitle) { ctx.err('Say --title once. ' + TASK_EDIT_USAGE); return 2; }
+      if (i + 1 >= args.length) { ctx.err('--title needs the new title after it. ' + TASK_EDIT_USAGE); return 2; }
+      const t = String(args[i + 1]).replace(/[\t\r\n]/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '');
+      if (!t.trim()) { ctx.err('A task needs a title: say what needs doing. ' + TASK_EDIT_USAGE); return 2; }
+      body.sentence = t; hasTitle = true; i += 1;
+    } else if (a === '--detail') {
+      if (hasDetail) { ctx.err('Say --detail once. ' + TASK_EDIT_USAGE); return 2; }
+      if (i + 1 >= args.length) { ctx.err('--detail needs the new detail after it (or use --clear-detail). ' + TASK_EDIT_USAGE); return 2; }
+      body.detail = String(args[i + 1]).replace(/[\t\r]/g, ' ').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
+      hasDetail = true; i += 1;
+    } else if (a === '--clear-detail') {
+      if (clearDetail) { ctx.err('Say --clear-detail once. ' + TASK_EDIT_USAGE); return 2; }
+      clearDetail = true;
+    } else if (/^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task edit', TASK_EDIT_USAGE, a); return 2; }
+    else { ctx.err('Put --title or --detail before the new words, and quote them. ' + TASK_EDIT_USAGE); return 2; }
+  }
+  if (hasDetail && clearDetail) { ctx.err('--detail and --clear-detail do not go together. ' + TASK_EDIT_USAGE); return 2; }
+  if (clearDetail) body.detail = null;
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/text', body);
+  if (!r.reached) {
+    return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
+      : ctx.unreachable('change that task');
+  }
+  if (r.json && r.json.task) { ctx.out('Changed task ' + num + ' on ' + project + '. See it with: kosmos task show ' + project + ' ' + num); return 0; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when changing that task.');
+  return 1;
+}
+
 /* #5152 slice 1, as install/kosmos cmd_task done-when: set what finished means for a task (1 to 3 checks, each one
    argument), or take them off with --clear. The agent token names who changed it. */
 const DONE_WHEN_USAGE = 'Usage: kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]   (or --clear, or --check <number> "<wording>" to change one)';
@@ -3944,7 +3987,7 @@ const SUBCOMMAND_HANDLERS = {
   },
   room: { reopen: roomReopen },
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
-  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, show: taskShow, files: taskFiles, built: taskBuilt, 'done-when': taskDoneWhen, check: taskCheck, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
+  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, show: taskShow, files: taskFiles, built: taskBuilt, 'done-when': taskDoneWhen, check: taskCheck, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold, edit: taskEdit /* kosmos#8664 */ },
   project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, test: projectTest, role: projectRole, 'remove-member': projectRemoveMember },
   agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, move: agentMove, restart: agentRestart, remove: agentRemove, 'delete-leftovers': agentDeleteLeftovers },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },

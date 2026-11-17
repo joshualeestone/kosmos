@@ -1670,6 +1670,54 @@ function setDue(projectId, n, dueDate) {
 }
 
 /**
+ * kosmos#8664: change a task's title, its detail, or both, after it is made (`kosmos task edit`). `sentence` and
+ * `detail` are each left as they are when undefined; a detail of null or blank text clears it. Checked as create checks
+ * them (a title is required and at most SENTENCE_MAX; a detail at most DETAIL_MAX), except that an over-long title is
+ * refused here rather than moved into the detail: an edit says exactly what it changes. A closed task can be edited too,
+ * since correcting what a task was called changes no work. The change is recorded in the task's activity with the old and
+ * new words and who made it (`by`, an agent's session name, or `person` for the screen). Changing nothing records
+ * nothing. Returns the task as stored. Throws with a sentence (a 404 for no such task, else a 400).
+ */
+function setText(projectId, n, { sentence, detail } = {}, { by = null, person = false } = {}) {
+  if (sentence === undefined && detail === undefined) throw new Error('say the new title, the new detail, or both');
+  if (sentence !== undefined) {
+    if (typeof sentence !== 'string' || !sentence.trim()) throw new Error('a task needs a title: say what needs doing');
+    if (sentence.trim().length > SENTENCE_MAX) throw new Error(`say what needs doing in ${SENTENCE_MAX} characters or fewer; the detail has the room`);
+  }
+  if (detail !== undefined) {
+    const problem = detailProblem(detail);
+    if (problem) throw new Error(problem);
+  }
+  const nextSentence = sentence === undefined ? undefined : sentence.trim();
+  const nextDetail = detail === undefined ? undefined : ((typeof detail === 'string' && detail.trim()) ? detail.trim() : null);
+  let changed;
+  let before;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    before = { sentence: t.sentence, detail: t.detail || null };
+    changed = {
+      ...t,
+      ...(nextSentence !== undefined ? { sentence: nextSentence } : {}),
+      ...(nextDetail !== undefined ? { detail: nextDetail } : {}),
+    };
+    return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+  });
+  const titleChanged = nextSentence !== undefined && nextSentence !== before.sentence;
+  const detailChanged = nextDetail !== undefined && nextDetail !== before.detail;
+  if (titleChanged || detailChanged) {
+    const who = person ? { person: true } : doneWhenSetter(by) ? { by: doneWhenSetter(by) } : {};
+    taskchat.record(projectId, changed.number, {
+      kind: 'edited',
+      ...(titleChanged ? { fromTitle: before.sentence, title: nextSentence } : {}),
+      ...(detailChanged ? { fromDetail: before.detail, detail: nextDetail, detailCleared: nextDetail === null } : {}),
+      ...who,
+    });
+  }
+  return changed;
+}
+
+/**
  * #5152 slice 1: set, change or clear (`doneWhen` null or []) what finished means for a task. Checked whole before
  * the write. A CLOSED task is refused: closing is the end of the work, and changing what done meant after it would
  * rewrite what was checked. Setting the list it already has records nothing, as setDue does. `by` is the agent that
@@ -3062,7 +3110,7 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
   return out.slice(0, 3);
 }
 
-module.exports = { HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
+module.exports = { HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, setText /* kosmos#8664 */, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,

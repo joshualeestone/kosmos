@@ -51,6 +51,15 @@ function phrase(ev, nameOfMember, opts) {
       return (who ? who + ' set' : 'Set') + ' what done means' + (ev.doneWhen ? ': ' + own(ev.doneWhen) : '');
     }
     case 'done-when-cleared': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
+    case 'edited': {   // kosmos#8664
+      const who = ev.person ? YOU : nameOf(ev.by);
+      const bits = [];
+      if (typeof ev.title === 'string') bits.push('the title from ' + own(ev.fromTitle == null ? '' : ev.fromTitle) + ' to ' + own(ev.title));
+      if (ev.detailCleared === true) bits.push('cleared the detail');
+      else if (typeof ev.detail === 'string') bits.push('changed the detail');
+      const what = bits.length ? bits.join(' and ').replace(/^the title/, 'changed the title') : 'changed the task';
+      return who ? who + ' ' + what : what.charAt(0).toUpperCase() + what.slice(1);
+    }
     // #8464 item 2: an agent's report on one check. Its word, never a verification, so it reads "says".
     case 'check-reported': { const who = nameOf(ev.by) || 'An agent'; return who + ' says done-when check ' + (Number(ev.check) >= 1 ? Number(ev.check) : '?') + (ev.met === true ? ' is met' : ' is not met') + (ev.how ? ': ' + own(ev.how) : ''); }
     // kosmos#7180: a hold that waits for something says what (ev.until: "task #12" or a time).
