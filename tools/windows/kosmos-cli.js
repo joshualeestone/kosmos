@@ -106,7 +106,7 @@ const USAGE = {
   room: 'Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too), and an agent\'s ask you posted after, not citing an older post, is named on its own line instead; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   notice: 'Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos\'s own voice, the text on stdin, its line breaks kept (agents reading the room see it on one line), at most 4000 characters; <source> names the job, such as "builder alarm")',
   task: [
-    'Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|check|hold|unhold|repeat|ran|told>',
+    'Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|check|hold|unhold|repeat|ran|told|wake>',
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
     '  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each',
     '  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first',
@@ -146,6 +146,7 @@ const USAGE = {
     '      --at <HH:MM>  (several a day: --at 09:00,21:00; hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating',
     '  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed',
     '  kosmos task ran <project-id> <task-number> ["what this run found"]  record that a repeating task\'s job just ran',
+    '  kosmos task wake <project-id> <task-number> --pr <owner/name#123>  tell you once when it merges (also --branch owner/name:main, --file <path>, --at 2h|HH:MM; --clear)',
     '      --unchanged                                              it found nothing new (the task\'s page rolls such runs up)',
     '      --value "<reading>"                                      what it found, checked against what the person was last told',
     '  kosmos task told <project-id> <task-number> [--value "<what you said>"]  record what you just told the person (default: the last --value)',
@@ -1387,6 +1388,10 @@ async function taskList(ctx, args) {
     const by = (x.addedVia === 'process' && x.addedBy && !(x.whoNames || []).some((n) => key(n) !== '' && key(n) === key(x.addedBy))) ? ' [added by ' + q(x.addedBy) + ']' : '';
     /* kosmos#4787 review 3, as install/kosmos: a repeating task says so, with its next run in the board's words. */
     const rep = !x.isClosed && x.repeatWords ? ' [repeats ' + one(x.repeatWords) + (x.repeatNextWords ? ', next ' + one(x.repeatNextWords) : '') + ']' : '';
+    /* kosmos#8669, as install/kosmos: what it waits for (kosmos task wake), or what it woke on. Its brackets are dropped
+       (a file's name is in it), so it cannot print a mark of its own. */
+    const wf = (v) => one(v).replace(/[[\]]/g, '');
+    const wk = !x.isClosed && x.wakeWords ? ' [' + wf(x.wakeWords) + ']' : !x.isClosed && x.wakeMetWords ? ' [woke: ' + wf(x.wakeMetWords) + ']' : '';
     /* #5152, as install/kosmos: what finished means for it, so an agent can read its checks back, and who set them
        (review 2): the person, or the agent named, as [added by] names who added the task. */
     const setBy = x.doneWhenByPerson === true ? ', set by the person' : (x.doneWhenBy ? ', set by ' + q(x.doneWhenBy) : '');
@@ -1402,7 +1407,7 @@ async function taskList(ctx, args) {
     const dw = Array.isArray(x.doneWhen) && x.doneWhen.length ? '    done when' + setBy + ': ' + x.doneWhen.map((c, i) => (i + 1) + ') ' + fold(c)).join(' ') + rw : '';
     ctx.out('[' + (x.number != null ? x.number : '?') + '] ' + (x.isClosed ? (Number.isInteger(x.replacedBy) ? '[replaced by ' + x.replacedBy + '] ' : x.closedUnrun === true ? '[not run] ' : '[done] ') :   /* #6923 */ (x.onHold === true ? '[on hold' + holdUntilWords(x) + '] ' + (x.builtAt ? '[built] ' : '')   // #5864: the marks name the group first
       : x.builtAt ? '[built] ' + (x.projectPaused === true ? '[project paused] ' : '')
-        : x.projectPaused === true ? '[on hold] ' : '')) + words + who + by + up + kids + rep);
+        : x.projectPaused === true ? '[on hold] ' : '')) + words + who + by + up + kids + rep + wk);
     if (dw) ctx.out(dw);
     // kosmos#8137, as install/kosmos: on its own indented line, as done-when, so a task's words cannot print it.
     const wl = x.whoIsLeft;
@@ -2293,6 +2298,38 @@ async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnl
         : reviewerOnly ? reviewerOnly + ' will be told when task ' + num + ' on ' + project + ' misses a run.'
         : 'Task ' + num + ' on ' + project + ' now repeats ' + (r.json.words || 'on that schedule') + '.' + (alsoReviewer ? ' ' + alsoReviewer + ' will be told when it misses a run.' : '') + ' Each time its job runs, record it with: kosmos task ran ' + project + ' ' + num);
     if (which === 'ran' && body && body.value !== undefined) { const line = vsToldLine(project, num, r.json.vs_told); if (line) ctx.out(line); }
+    return 0;
+  }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when changing that task.');
+  return 1;
+}
+
+/* kosmos#8669, as install/kosmos cmd_task wake: what a task waits for (a pull request merging, a branch moving, a file
+   changing, a time), or --clear. One of them; the board reads GitHub or the file once and refuses what it cannot watch. */
+const WAKE_USAGE = 'Usage: kosmos task wake <project-id> <task-number> --pr <owner/name#123> | --branch <owner/name:branch> | --file <path> | --at <30m|2h|1d|HH:MM|YYYY-MM-DD HH:MM>   (or --clear)';
+async function taskWake(ctx, args) {
+  const [project, num] = args;
+  if (!project || !num || args.length < 3) { ctx.err(WAKE_USAGE); return 2; }
+  if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+  let kind = '', value = '', want = '', count = 0, clear = false;
+  for (const a of args.slice(2)) {
+    if (want) { if (/^--/.test(a)) { ctx.err('--' + want + ' needs a value, not ' + a + '. ' + WAKE_USAGE); return 2; } kind = want; value = a; want = ''; continue; }
+    if (a === '--pr' || a === '--branch' || a === '--file' || a === '--at') { want = a.slice(2); count += 1; }
+    else if (a === '--clear') { clear = true; count += 1; }
+    else if (/^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task wake', WAKE_USAGE, a); return 2; }
+    else { ctx.err('Say what to wake on with --pr, --branch, --file or --at. ' + WAKE_USAGE); return 2; }
+  }
+  if (want) { ctx.err('--' + want + ' needs a value. ' + WAKE_USAGE); return 2; }
+  if (count !== 1) { ctx.err('Say one thing to wake on (a task waits for one). ' + WAKE_USAGE); return 2; }
+  // A file is sent as its full path: the board does not share this command's folder.
+  if (kind === 'file') { try { value = (ctx.pathRules || require('node:path')).resolve(ctx.cwd(), value); } catch (_) { /* sent as given; the board asks for a full path */ } }
+  const body = clear ? { clear: true, from_pane: '' } : { [kind]: value, from_pane: '' };
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/wake', body);
+  if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; check the task (kosmos task show ' + project + ' ' + num + ') before doing it again.') : ctx.unreachable('change that task');
+  if (r.json && r.json.task) {
+    ctx.out(clear ? (r.json.changed === false ? 'Task ' + num + ' on ' + project + ' was not waiting for anything.' : 'Task ' + num + ' on ' + project + ' no longer waits for anything.')
+      : 'Task ' + num + ' on ' + project + ' now ' + (r.json.words || 'waits for that') + '. Kosmos looks once a minute and tells its holder once when it happens.');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }
@@ -3944,7 +3981,7 @@ const SUBCOMMAND_HANDLERS = {
   },
   room: { reopen: roomReopen },
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
-  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, show: taskShow, files: taskFiles, built: taskBuilt, 'done-when': taskDoneWhen, check: taskCheck, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
+  task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, show: taskShow, files: taskFiles, built: taskBuilt, 'done-when': taskDoneWhen, check: taskCheck, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold, wake: taskWake },
   project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, test: projectTest, role: projectRole, 'remove-member': projectRemoveMember },
   agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, move: agentMove, restart: agentRestart, remove: agentRemove, 'delete-leftovers': agentDeleteLeftovers },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },

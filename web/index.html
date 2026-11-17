@@ -18349,6 +18349,8 @@ window.kosmosMeasureScrollbarWidth();
         <div class="tk-repeat-actions"><button class="btn" id="tk-repeat-save" type="button" aria-label="Save how this task repeats" disabled>Save</button></div>
         <p class="fmsg" id="tk-repeat-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" id="tk-repeat-line" style="margin:4px 0 0;" hidden></p>
+        <!-- kosmos#8669: what the task waits for (kosmos task wake), or what it woke on, in the board's words. -->
+        <p class="dhint" id="tk-wake-line" style="margin:4px 0 0;" hidden></p>
         <!-- kosmos#4787 slice 3: who is told when a run is missed (once per missed run): nobody, the person (the task then
              waits in Needs Your Decision), or an agent on the project (one line in its session). Saved on change. -->
         <div class="tmeta" id="tk-review-row" hidden><span>If missed, tell</span>
@@ -72649,6 +72651,18 @@ const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
    first roster that changes a name repaints once (see the LAST assignment). */
 /* kosmos#4787: the repeat line's sentence, from the board's fields: "Repeats every day at 9am. Last run 2 hours ago by
    Ada: found 3 new listings. Next tomorrow at 9am." With no run yet it says so, unless a missed run already does (#5444). */
+/* kosmos#8669: what a task waits for (kosmos task wake), or what it woke on and whether its holder was told, from the
+   board's words (taskwake.fieldsOf, which sends them for an open task only). '' for none. */
+function tskWakeSentence(t) {
+  if (!t) return '';
+  if (typeof t.wakeWords === 'string' && t.wakeWords) {
+    return t.wakeWords.charAt(0).toUpperCase() + t.wakeWords.slice(1) + '.' + (t.wakeProblem ? ' Not checked just now: ' + t.wakeProblem + '.' : '');
+  }
+  if (typeof t.wakeMetWords === 'string' && t.wakeMetWords) {
+    return 'Woke: ' + t.wakeMetWords + '.' + (!t.wakeToldAt ? ' Its holder is still to be told.' : t.wakeReached === true ? ' Its holder was told.' : ' Its holder could not be reached.');
+  }
+  return '';
+}
 function tskRepeatSentence(t, now) {
   const words = t.repeatWords || 'on a schedule';
   /* kosmos#4787 slice 2: a missed run leads the line, in the board's own words (taskrepeat.missedRuns), so the person
@@ -73037,6 +73051,8 @@ function tskRow(t, at) {
      so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
      run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
   const repeatLine = !t.repeat || t.state === 'closed' ? '' : '<div class="why tsk-repeat' + (tskRepeatMissed(t) ? ' missed' : '') + '">' + esc(tskRepeatSentence(t, Date.now())) + '</div>';
+  const wakeSaid = t.state === 'closed' ? '' : tskWakeSentence(t);   // kosmos#8669
+  const wakeLine = wakeSaid ? '<div class="why tsk-wake">' + esc(wakeSaid) + '</div>' : '';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
     /* #4226: the checkbox sits in a label, so on a touchscreen the label can widen the tap area to 44px (below). */
     + '<label class="tsk-hit"><input type="checkbox" data-key="' + esc(tskKey(t)) + '"' + (on ? ' checked' : '')
@@ -73061,7 +73077,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + waitLine + whoLine + forYouLine + repeatLine + whoLeftLine + checksLine + landedLine + builtLine + replacedLine + closedHowLine + '</div>'   /* kosmos#8158: the commit line first, so Undo cannot read as undoing it */
+    + '</div>' + cannot + waitLine + whoLine + forYouLine + repeatLine + wakeLine + whoLeftLine + checksLine + landedLine + builtLine + replacedLine + closedHowLine + '</div>'   /* kosmos#8158: the commit line first, so Undo cannot read as undoing it */
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */
@@ -73780,6 +73796,7 @@ function paintTaskPage() {
   // A finished task has nothing to hold: no control, no hint.
   for (const hid of ['tk-hold-row', 'tk-hold-hint']) { const el = document.getElementById(hid); if (el) el.hidden = TK_ACT === 'reopen'; }
   tkPaintRepeat(p, t);
+  { const wl = document.getElementById('tk-wake-line'); if (wl) { const said = TK_ACT === 'reopen' ? '' : tskWakeSentence(t); if (wl.textContent !== said) wl.textContent = said; wl.hidden = !said; } }   // kosmos#8669
   const holdHint = document.getElementById('tk-hold-hint');
   /* #6683 item 3: a held task says who takes it off. The engine keeps a hold made here for the person alone
      (tasks.setOnHold refuses anyone else); a hold made elsewhere (an agent, or kosmos task hold from a terminal, which

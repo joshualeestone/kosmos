@@ -1001,7 +1001,11 @@ function withoutFilePaths(t) {
    path-bearing field is stripped everywhere at once. A copy: the stored task keeps them. */
 function withoutLocalPaths(t) {
   const r = withoutFilePaths(t);
-  if (r && typeof r === 'object' && r !== t) delete r.landedRepo;
+  if (r && typeof r === 'object' && r !== t) {
+    delete r.landedRepo;
+    // kosmos#8669: a file wake keeps the file's name in its words; its path stays on this computer.
+    if (r.wake && typeof r.wake === 'object' && 'path' in r.wake) { const { path: _p, ...w } = r.wake; r.wake = w; }   // eslint-disable-line no-unused-vars
+  }
   return r;
 }
 /* kosmos#8307: two lists of names hold the same names in the same order (absent reads as empty). */
@@ -1860,6 +1864,67 @@ function setRepeat(projectId, n, rule, opts = {}) {
       : { kind: 'repeat-cleared', via: person ? 'screen' : 'agent' });
   }
   return changed;
+}
+
+/**
+ * kosmos#8669: give a task a wake condition, replace it, or take it off (`wake` null). `wake` is taskwake.prepare's
+ * answer (already read from GitHub or the disk), checked whole here (taskwake.wakeProblem) so the store never holds a
+ * shape the checker cannot read. Setting one starts it afresh: what an earlier wake found and who it told go. A closed
+ * task takes none. As for a repeat rule, the person's wake is theirs: a process cannot change or clear it.
+ * `opts`: { person (the screen), by (the agent's session name), now }. Returns { task, changed }.
+ */
+function setWake(projectId, n, wake, opts = {}) {
+  const taskwake = require('./taskwake');
+  if (wake !== null) { const problem = taskwake.wakeProblem(wake); if (problem) throw new Error(problem); }
+  const person = opts.person === true;
+  const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+  let changed;
+  let didChange = false;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    if (wake && progressOf(t).closed) throw new Error('that task is closed; reopen it to give it a wake');
+    if (!person && t.wake && t.wake.byPerson === true) throw new Error('the person set what this task waits for, so only they can change it');
+    if (!wake && !t.wake) { changed = t; return p; }
+    didChange = true;
+    changed = { ...t };
+    delete changed.wake; delete changed.wakeMet; delete changed.wakeToldAt; delete changed.wakeTold;
+    if (wake) {
+      const { kind } = wake;
+      const keep = kind === 'pr' ? ['repo', 'number'] : kind === 'branch' ? ['repo', 'branch', 'from'] : kind === 'file' ? ['path', 'name', 'from', 'size', 'mtimeMs'] : ['at'];
+      const w = { kind };
+      for (const k of keep) if (wake[k] !== undefined) w[k] = wake[k];
+      w.setAt = new Date(now).toISOString();
+      if (person) w.byPerson = true; else if (typeof opts.by === 'string' && opts.by) w.setBy = opts.by;
+      changed.wake = w;
+    }
+    return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+  });
+  if (didChange) {
+    taskchat.record(projectId, changed.number, changed.wake
+      ? { kind: 'wake-set', on: changed.wake.kind, words: taskwake.waitWords(changed.wake, now), via: person ? 'screen' : 'agent' }
+      : { kind: 'wake-cleared', via: person ? 'screen' : 'agent' });
+  }
+  return { task: changed, changed: didChange };
+}
+/**
+ * kosmos#8669: the board's check found task n's wake happened; keep that on the task (`wakeMet`: { at, words }), only
+ * for the wake it checked (the same setAt) and only once. Returns true when it wrote; never throws.
+ */
+function saveWakeMet(projectId, n, setAt, met) {
+  let wrote = false;
+  try {
+    projects.mutate(projectId, (p) => {
+      const t = byNumber(p, n);
+      if (!t || !t.wake || (t.wake.setAt || '') !== setAt || t.wakeMet || progressOf(t).closed) throw NO_WRITE;
+      wrote = true;
+      const at = met && typeof met.at === 'string' ? met.at : new Date().toISOString();
+      const words = met && typeof met.words === 'string' ? met.words.slice(0, 200) : 'it happened';
+      return { ...p, tasks: (p.tasks || []).map((x) => (x.number === t.number ? { ...t, wakeMet: { at, words } } : x)) };
+    });
+  } catch { return false; }
+  if (wrote) taskchat.record(projectId, n, { kind: 'wake-met', words: met && met.words });
+  return wrote;
 }
 
 /**
@@ -3066,4 +3131,4 @@ module.exports = { HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, close, reopen
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, withoutFilePaths, withoutLocalPaths, CLOSED_HOW, closedHowAt, closedHowOf, saveOnRemote, FINGERPRINT_RE, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, withoutFilePaths, withoutLocalPaths, CLOSED_HOW, closedHowAt, closedHowOf, saveOnRemote, FINGERPRINT_RE, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setWake, saveWakeMet, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
