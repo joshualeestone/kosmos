@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: ogimage-8636
-diff_hash: 9a1f9ae16757f19fe161452b6690e3430ca24979db46b4a484b7fc07670b3943
-validation: passed (targeted 19-file list, 594 pass 0 fail at fb891429ca, run after the box hold lifted; NOT the full suite: the Mortals full-suite hold stands, CI runs it; surface gate #2518 run locally, passes)
+diff_hash: 65bb1be9a1df9603a7589e616e74585aae42c7f91d01ad6fb1d5682275705a68
+validation: passed (targeted 19-file list, 597 pass 0 fail at 57e27832b7, run after the box hold lifted; NOT the full suite: the Mortals full-suite hold stands, CI runs it; surface gate #2518 run locally, passes)
 subdir_audit: not run (no subdirectory CLAUDE.md changed)
-timestamp: 2026-11-17T18:32:54Z
-iterations: 8
+timestamp: 2026-11-17T18:43:51Z
+iterations: 9
 converged: false
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8
-**Converged:** No. Stopped after iteration 8 by the fleet's standing review cap ("8 rounds unless a BLOCKER is open"); no BLOCKER was open (the one BLOCKER, iteration 1, is fixed). Iteration 8's two fixes (fb891429ca) were not reviewed by a further pass.
-**Total findings (BLOCKER/WARNING/CONVENTION):** 1 BLOCKER, 26 WARNINGs, 1 CONVENTION, plus NITs
-**Fixed:** 20 | **Deferred:** 8 (counting repeats once) | **Asked:** 0
+**Iterations:** 9
+**Converged:** No. Stopped after iteration 8 by the fleet's standing review cap ("8 rounds unless a BLOCKER is open"; no BLOCKER open). At the code reviewer's request (Raiden, m7661) a ninth fresh blind pass re-read the whole change, including iteration 8's fixes: no BLOCKER, three WARNINGs, all fixed in 57e27832b7, and Raiden reviewed that product delta (m7665): no new findings. No further blind pass ran after that fix.
+**Total findings (BLOCKER/WARNING/CONVENTION):** 1 BLOCKER, 29 WARNINGs, 1 CONVENTION, plus NITs
+**Fixed:** 23 | **Deferred:** 8 (counting repeats once) | **Asked:** 0
 
 Origin column: the per-finding blame lookup (6c-bis) was not run in this loop; every row is recorded BRANCH, the fail-safe default. Several findings were plainly about earlier fixes (iteration 5's first warning concerned iteration 4's own comment, which was then cut back, not rewritten).
 
@@ -93,6 +93,15 @@ Validation note: the canonical helper runs the full suite, which the Mortals hol
 - [WARNING] an unreadable fetchedAt hid a card indefinitely --> FIXED (fb891429ca: treated as past the wait)
 - [NIT] resetForTests could push the running count negative --> fixed (clamped)
 
+#### Iteration 9
+**Reviewer model:** opus (read only)
+**New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 3 NITs
+**Self-generated:** 0 (recorded BRANCH; the first concerned iteration 8's fix)
+- [WARNING] the picture route still waited behind a same-address background fetch queued for a slot --> FIXED (57e27832b7: flight object; a now caller starts it; test)
+- [WARNING] the 200-entry count cap could drop page previews --> FIXED (57e27832b7: a picture entry goes first; test)
+- [WARNING] every read refreshed stale good verdicts for every row --> FIXED (57e27832b7: reads refresh only bad verdicts; a good one refreshes when drawn; test)
+- [NIT] the direct route queued too --> fixed (now:true)
+
 ### Final Ledger
 
 | # | Iter | Category | File | Origin | Description | Status | Resolution |
@@ -121,6 +130,9 @@ Validation note: the canonical helper runs the full suite, which the Mortals hol
 | 22 | 7 | WARNING | engine/unfurl.js | BRANCH | no concurrency cap | FIXED | 46ab1e7b31 |
 | 23 | 8 | WARNING | engine/unfurl.js | BRANCH | route queued behind warm-ups | FIXED | fb891429ca |
 | 24 | 8 | WARNING | server.js | BRANCH | NaN age hid card | FIXED | fb891429ca |
+| 25 | 9 | WARNING | engine/unfurl.js | BRANCH | route queued behind same-address flight | FIXED | 57e27832b7 |
+| 26 | 9 | WARNING | engine/unfurl.js | BRANCH | count cap dropped page previews | FIXED | 57e27832b7 |
+| 27 | 9 | WARNING | server.js | BRANCH | reads refreshed good verdicts | FIXED | 57e27832b7 |
 
 ### Outstanding questions (ASKED)
 - None.
