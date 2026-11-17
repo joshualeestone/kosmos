@@ -826,6 +826,17 @@ function authenticodeOf(file) {
    always readable; a Codex someone started elevated by hand from the managed folder is not seen. */
 const RUNNING_OK = 'KOSMOS-RUNNING-READ-OK';
 const RUNNING_DEADLINE_MS = 20000;
+/* kosmos#8659: the deadline of the Windows upgrade's last look before the swap, from the slowest earlier look on the
+   same machine that answered: three times that, at least 5 s and at most 20 s. While it runs, agent turns wait behind
+   the swap lock, so it stays short; but a fixed 5 s timed out on every try on a box where the look itself takes
+   longer, and the upgrade never landed. */
+const LAST_LOOK_MIN_MS = 5000;
+const LAST_LOOK_MAX_MS = 20000;
+function lastLookDeadlineMs(slowestMs) {
+  const s = Number.isFinite(slowestMs) && slowestMs > 0 ? slowestMs : 0;
+  return Math.min(LAST_LOOK_MAX_MS, Math.max(LAST_LOOK_MIN_MS, Math.ceil(3 * s)));
+}
+
 function managedProcessRunning(dir, opts) {
   const ms = (opts && Number.isFinite(opts.deadlineMs) && opts.deadlineMs > 0) ? opts.deadlineMs : RUNNING_DEADLINE_MS;
   let timer = null;
@@ -1730,16 +1741,26 @@ function install(provider, opts) {
      runs from the managed folder, or that cannot be read (see codexRunning). Asked before the download and again just
      before the swap; `keepStaging` keeps a tarball already downloaded and verified, for the next look to reuse. A wait,
      not a failed try: engine/runnerupgrade.js hands the try back when it sees `waited`. */
+  let slowestLookMs = 0;   // kosmos#8659: the slowest look on this machine that gave an answer, for the last look's deadline
   const waitForAgents = async (keepStaging, beforeWait, deadlineMs) => {
     if (!upgrading || plat !== 'win32') return false;
     let busy = null;
+    const asked = Date.now();
     try { busy = await codexRunning(destDir, deadlineMs ? { deadlineMs } : undefined); } catch { busy = null; }
+    if (busy !== null) slowestLookMs = Math.max(slowestLookMs, Date.now() - asked);
     if (busy === false) return false;
     if (beforeWait) {
-      try { beforeWait(); } catch (e) { console.warn(`[runners] ${provider} could not vouch for the version already here again: ${e && e.code}`); }
+      /* kosmos#8659: louder than a warning. The marker could not go back, so the previous tree reads absent until a
+         later install vouches for it again. */
+      try { beforeWait(); } catch (e) { console.error(`[runners] ${provider} could not vouch for the version already here again, so it reads absent until the next install: ${e && e.code}`); }
     }
     Object.defineProperty(job, 'waited', { value: true, enumerable: false });
-    fail(`${m.name || 'the runner'} has a newer version, but ${busy === true ? 'an agent is running on the version already here' : 'we could not check whether an agent is running on the version already here'}, so that version is kept; it updates by itself once none is`, keepStaging);
+    /* kosmos#8659: a look that ran out of a deadline it was given says so, so a slow machine that keeps waiting at the
+       last step is visible in the board log as that, not as an ordinary "could not check". */
+    const why = busy === true ? 'an agent is running on the version already here'
+      : deadlineMs ? `the last check for an agent on the version already here did not answer within ${Math.round(deadlineMs / 1000)} s`
+        : 'we could not check whether an agent is running on the version already here';
+    fail(`${m.name || 'the runner'} has a newer version, but ${why}, so that version is kept; it updates by itself once none is`, keepStaging);
     return true;
   };
 
@@ -1944,11 +1965,12 @@ function install(provider, opts) {
          and spawned after this look's process snapshot (the gap between a file read and a spawn, milliseconds). An
          agent found now puts the marker back and the swap waits; the look above stays so the common wait never takes
          the marker down. ITS COST, named: while the lock is up a turn waits (this look is a CIM read, ~0.45 s measured
-         on the Windows box), so it has a short deadline (5 s): one that runs out is no answer, read as running, and the
-         marker goes back. */
+         on the Windows box), so it has a short deadline: one that runs out is no answer, read as running, and the
+         marker goes back. kosmos#8659: the deadline follows this machine's own earlier looks (lastLookDeadlineMs), so
+         a box where the look is slow does not time out here on every try. */
       if (await waitForAgents(true, () => {
         if (previousStamp) fs.writeFileSync(verifiedMarker(plat, provider), previousStamp + '\n');
-      }, 5000)) return;
+      }, lastLookDeadlineMs(slowestLookMs))) return;
       if (fs.existsSync(pkgDir)) {
         await renameRetrying(pkgDir, pkgOld, plat);
         setAside = true;
@@ -2356,4 +2378,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, installedVersion, verifiedVersion, managedProcessRunning, parseExePaths, exeUnder, waitForSwap, swapLockFor, SWAP_LOCK, upgradeStamp, UPGRADE_STAMP, olderVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { lastLookDeadlineMs, MANIFEST, CODEX_WIN32, installedVersion, verifiedVersion, managedProcessRunning, parseExePaths, exeUnder, waitForSwap, swapLockFor, SWAP_LOCK, upgradeStamp, UPGRADE_STAMP, olderVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };

@@ -38,6 +38,9 @@ test('review 2: the hash is verified for the Codex Kosmos pins; a bump fails her
   // and the Windows list is still its own object, so a later Mac-only version does not reach it.
   assert.equal(hooks.verifiedFor('win32').includes('0.169.0'), true, 'Windows 0.169.0 measured');
   assert.notEqual(hooks.verifiedFor('win32'), hooks.verifiedFor('darwin'), 'Windows must not share the Mac list object');
+  /* kosmos#8659: and by content, which the identity check above cannot see: a Mac-only version copied into the Windows
+     list fails here. A version added to it needs its own Windows measurement (codexhooks.win32-8348's real-Codex arm). */
+  assert.deepEqual([...hooks.verifiedFor('win32')], ['0.149.1', '0.169.0'], 'the Windows list changed: measure the new version on Windows first');
 });
 
 test('the trust hash is the one the real Codex TUI wrote for this hook (codex-cli 0.149.1, 10-16)', () => {
