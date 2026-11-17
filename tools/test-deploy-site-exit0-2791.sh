@@ -31,6 +31,8 @@ export KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=0.0.0
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
 DEPLOY="$HERE/deploy-site.sh"
+# kosmos#8656: deploy-site retries a deploy refused with "Not authorized" 60 s apart (site_vercel_deploy); no wait here.
+export KOSMOS_VERCEL_RETRY_S=0
 [ -f "$DEPLOY" ] || { echo "FAIL: deploy-site.sh not found at $DEPLOY"; exit 1; }
 
 fails=0
