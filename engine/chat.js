@@ -237,9 +237,9 @@ function loadUnsent() {
   for (const [target, e] of Object.entries(raw)) {
     /* A seq names a message row of the process that wrote it, so a loaded line carries none. */
     if (e && typeof e.wire === 'string' && e.wire && Date.now() - (Number(e.at) || 0) <= UNSENT_KEEP_MS) {
+      /* #6249: a board older than this reads no `mixed`, and would take such a line by a visible end. */
       unsentIdNext += 1;
       unsentWires.set(target, { id: unsentIdNext, wire: e.wire, at: Number(e.at) || 0, seq: null, seen: typeof e.seen === 'string' ? e.seen : '',
-        /* #6249: a board older than this reads no `mixed`, and would take such a line by a visible end. */
         target, ...(e.mixed === true ? { mixed: true } : {}), ...(typeof e.chip === 'string' && e.chip ? { chip: e.chip, chipPid: typeof e.chipPid === 'string' ? e.chipPid : '' } : {}) });
     }
   }
@@ -2864,6 +2864,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   const needsConfirm = (v) => !!v && v.state === DELIVERY.PLACED && composerReadable(allowed.card);
   const settle = (v, result) => {
     let seq = null;
+    let keptMixed = false;
     /* `seen` only when it is an end of ours (a box still drawing our start shows a beginning, which no later read can
        match as the end). */
     const endSeen = (t) => { const q = squash(t); return q && squash(wire).endsWith(q) ? q : ''; };
@@ -2877,10 +2878,12 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       rememberUnsent(target, { wire, at: Date.now(), seq, seen: chipSeen ? '' : endSeen(result.text),
         ...(chipSeen ? { chip: chipSeen, chipPid: panePidOf(target) } : {}) });
       scheduleUnsentRetries(target, allowed.card);
-    } else if (result && result.outcome === 'other' && result.ours) {
+    } else if (result && result.outcome === 'other' && result.ours && emptyBefore) {
       /* #6249 (Angel, 11-16): our end was seen in the box with other text. Before this it was forgotten. Other 'other'
-         answers (a chip, a re-read before the retry) never saw our words, so they are forgotten as before. */
+         answers (a chip, a box that never showed our end) are forgotten as before, and so is any whose box was not read
+         empty before our paste (an older line may be there too). */
       seq = rememberMixed(target, wire, allowed.card);
+      keptMixed = true;
     } else if (result && result.outcome === 'unread') {
       /* kosmos#6436: no box to read after the Enter (the turn's screen, or a dialog drawn over it). Usually the line
          went; if it did not, nothing would know it is ours. Remembered lightly (in this process only, never written to
@@ -2890,7 +2893,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       scheduleUnsentRetries(target, allowed.card, UNSENT_RETRY_MS.slice(0, 1));
     } else forgetUnsent(target);
     const out = confirmedVerdict(v, result);
-    const told = seq == null ? out : { ...out, unsentSeq: seq, ...(result && result.outcome === 'other' ? { keptMixed: true } : {}) };
+    const told = seq == null ? out : { ...out, unsentSeq: seq, ...(keptMixed ? { keptMixed: true } : {}) };
     return told.state === v.state ? told : { ...told, paneNote: noteFor(told.state) };
   };
   const confirmSync = (v) => {

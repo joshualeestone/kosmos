@@ -104,3 +104,10 @@ Challenge loop, capped at 8 rounds unless a BLOCKER is open.
   - NITs fixed: kept only when the box was read empty before our paste (`emptyBefore`); a line under 20 characters
     (spaces not counted) is never counted as seen; a note that an older board reads no `mixed`; the restart test
     has a plain-line control on the same screen.
+- Round 4 (blind, sonnet): no BLOCKER, 2 WARNING, 3 NIT.
+  - WARNING fixed: the stated-limit test never proved the line was kept, so its refusal could pass on an empty memory;
+    it now asserts the kept verdict first.
+  - WARNING fixed: the after-Enter path kept a line even when the box was not read empty before our paste, replacing
+    an older record; it now needs `emptyBefore`, as the not-pressed path does.
+  - NITs: `keptMixed` is set where the line is kept, not inferred from the outcome; the older-board note moved above the
+    load; `seesOurs` being loose is accepted (it only keeps a line, never presses one).
