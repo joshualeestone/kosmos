@@ -96,6 +96,16 @@ function stateDir() { return path.join(store.ROOT, 'win32-state'); }
    profile can never be filed under two spellings of one name. */
 function statePath(name) { return path.join(stateDir(), store.safeKey(name) + '.json'); }
 
+/* kosmos#8658: when the agent's supervisor last wrote its state file (it writes one the moment a run starts, a crash
+   relaunch included), in ms, or null when there is none it can read. The board's starting check reads it. */
+function writtenAt(name) {
+  let rec;
+  try { rec = JSON.parse(fs.readFileSync(statePath(name), 'utf8')); } catch { return null; }
+  if (!rec || typeof rec !== 'object' || rec.v !== STATE_FILE_VERSION) return null;
+  const at = Date.parse(rec.at);
+  return Number.isFinite(at) ? at : null;
+}
+
 /** What one stream event means for working/idle: BUSY, IDLE, or null for no claim. */
 function stateAfterEvent(event) {
   if (!event || typeof event !== 'object' || Array.isArray(event)) return null;
@@ -863,4 +873,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { STEP_CLOCK_MS, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
+module.exports = { writtenAt, STEP_CLOCK_MS, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
