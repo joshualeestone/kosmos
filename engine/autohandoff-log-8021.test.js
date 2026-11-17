@@ -37,6 +37,9 @@ test('#8021: an Enter that did not take, one pressed into other text, and one ne
   // chat.js deliver, the box already held other text before the Enter (UNSENT_NOT_PRESSED_BECAUSE): never pressed.
   const notPressed = run({ state: DELIVERY.UNCONFIRMED, unsubmitted: true, confirm: 'not-pressed', because: 'x', at: 'x', paneState: 'idle' });
   assert.equal(promptLogLine(notPressed), 'autohandoff: mara at 86%: handoff prompt left in its box: the box already held other text, so Enter was not pressed' + AGAIN);
+  // #6249: the same, kept beside the other text (chat.js rememberMixed): said with its condition, not as a plain kept line.
+  const kept = run({ state: DELIVERY.UNCONFIRMED, unsubmitted: true, confirm: 'not-pressed', because: 'x', unsentSeq: 4, keptMixed: true, at: 'x', paneState: 'idle' });
+  assert.equal(promptLogLine(kept), 'autohandoff: mara at 86%: handoff prompt left in its box: the box already held other text, so Enter was not pressed; kept as a numbered unsent line, pressed later only if the other text goes and the whole line shows' + AGAIN);
 });
 
 test('#8021: held by text already in the box says so, not "not kept"; a plain could-not and an unknown verdict too', () => {

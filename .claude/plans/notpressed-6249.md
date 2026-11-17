@@ -61,13 +61,15 @@ in composerHolds, not here.
 
 ## Tests
 
-- engine/chat.notpressed-6249.test.js (new, 8 tests): the number on the verdict; the next delivery presses only after
+- engine/chat.notpressed-6249.test.js (new, 10 tests): the number on the verdict; the next delivery presses only after
   the other text goes; after-Enter `other` too; retries press only an exact box; an emptied box forgets it; a scrolled
   end of a mixed line is never pressed (CONTROL: a plain one is); the mark survives a restart.
 - engine/chat.composer-6249.test.js: the round 2 test now pins the part that still holds (never pressed while the
   other text is there).
-- Control 1: the new file against main's chat.js: 6 of 7 fail (the scroll test passes there because nothing was kept).
+- Control 1 (re-measured after round 3): the new file against main's chat.js: 8 of 10 fail. The two that pass there
+  are the never-press arms (the scroll limit and the short line), which hold on main because main keeps nothing.
 - Control 2: with only the `if (kept.mixed) return false;` line removed, the scroll and restart tests fail.
+- engine/autohandoff-log-8021.test.js: the board log's sentence for a line kept beside other text.
 - Focused run: the chat composer/unsent/stuckinput/pastechip/chipshapes/8021 files: 135 pass. Guards
   (fixture-discipline, sandbox-data-4796, no-brand-refs, no-name-refs, engine.reachable) and engine/messages*: 387 pass.
 
@@ -93,3 +95,12 @@ Challenge loop, capped at 8 rounds unless a BLOCKER is open.
     draws; it now uses a 380-character line (5 rows) and a 4-row end of it. The scroll test is titled as the limit.
   - NITs: the retry re-read returning `other` without `ours` is commented as deliberate; `sawOurs` from the first
     read is kept (any press still needs an exact whole-line match); the test count (8) is right.
+- Round 3 (blind, opus): no BLOCKER, 2 WARNING, 1 CONVENTION, 4 NIT.
+  - WARNING fixed: the async re-read before the one retry, finding someone typing beside ours, still forgot the line;
+    it now carries `ours` when our end is there, and a test drives that path.
+  - WARNING fixed: the auto-handoff log said a kept line is "to be pressed later"; a line kept beside other text
+    now says it is pressed only if the other text goes and the whole line shows (`keptMixed` on the verdict), tested.
+  - CONVENTION fixed: Control 1 re-measured (8 of 10 fail on main).
+  - NITs fixed: kept only when the box was read empty before our paste (`emptyBefore`); a line under 20 characters
+    (spaces not counted) is never counted as seen; a note that an older board reads no `mixed`; the restart test
+    has a plain-line control on the same screen.

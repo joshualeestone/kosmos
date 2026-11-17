@@ -239,6 +239,7 @@ function loadUnsent() {
     if (e && typeof e.wire === 'string' && e.wire && Date.now() - (Number(e.at) || 0) <= UNSENT_KEEP_MS) {
       unsentIdNext += 1;
       unsentWires.set(target, { id: unsentIdNext, wire: e.wire, at: Number(e.at) || 0, seq: null, seen: typeof e.seen === 'string' ? e.seen : '',
+        /* #6249: a board older than this reads no `mixed`, and would take such a line by a visible end. */
         target, ...(e.mixed === true ? { mixed: true } : {}), ...(typeof e.chip === 'string' && e.chip ? { chip: e.chip, chipPid: typeof e.chipPid === 'string' ? e.chipPid : '' } : {}) });
     }
   }
@@ -1047,6 +1048,11 @@ function rememberedShows(text, kept, exact = false, rows = 0) {
   if (kept.seen && t === kept.seen && t.length >= 20) return true;
   return !exact && t.length >= SCROLLED_MIN && rows >= SCROLLED_ROWS;
 }
+/* #6249 (Angel, 11-16): our words seen in a box that holds other text too: our last 20 characters there, spaces not counted. A
+   line shorter than that is never counted, since all of it could sit inside someone else's words. */
+function seesOurs(text, wire) {
+  return squash(wire).length >= 20 && stillHoldsOurEnd(text, wire);
+}
 /* Round 9: does the box still hold the end of what we pasted (its last 20 characters, or all of a shorter message)? */
 function stillHoldsOurEnd(text, wire) {
   const w = squash(wire);
@@ -1132,7 +1138,8 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
       const shownChips = new Set(shown.match(ANY_CHIP) || []);
       const couldBeOurFold = !pin && !shown.replace(ANY_CHIP, '') && String(wire).length >= CHIP_MIN_CHARS;   // the tie's own test
       if (isLoneChip(box.text) || couldBeOurFold || pinned.some((c) => shownChips.has(c))) return { outcome: 'other', retried };
-      return stillHoldsOurEnd(box.text, wire) ? { outcome: 'other', retried, ours: true } : { outcome: 'sent', retried };   // #6249: ours kept by settle
+      if (!stillHoldsOurEnd(box.text, wire)) return { outcome: 'sent', retried };
+      return { outcome: 'other', retried, ...(seesOurs(box.text, wire) ? { ours: true } : {}) };   // #6249: `ours` is kept by settle
     }
     if (waited < settleMs) {
       yield { wait: SUBMIT_LOOK_MS };
@@ -1143,7 +1150,7 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
     if (!verifyAtSend(card).ok) return { outcome: 'unsent', retried, text: box.text };   // never an Enter into what it became
     const now = readComposer(target);   // round 4: read again right before it, so nothing typed meanwhile goes with ours
     if (!now.ok) return { outcome: 'unread', retried };   // round 6: a box that cannot be read is not someone's text
-    if (composerHolds(now.text, wire, pin) !== 'ours') return { outcome: now.text ? 'other' : 'sent', retried };   // #6249: no `ours`, so not kept (deliberately conservative)
+    if (composerHolds(now.text, wire, pin) !== 'ours') return { outcome: now.text ? 'other' : 'sent', retried, ...(now.text && seesOurs(now.text, wire) ? { ours: true } : {}) };   // #6249
     const again = tmux(['send-keys', '-t', target, 'Enter']);
     if (!again.ran || again.status !== 0) return { outcome: 'unsent', retried, text: now.text };
     retried = true;
@@ -2820,9 +2827,9 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       console.warn(notPressedLine(wire, box.text, laterHolds, looked));
       /* #6249 (Angel, 11-16): kept only when our end was seen in the box (measured 11-14: box 448 chars, ours 292,
          steady), as settle keeps an after-Enter 'other'. A box that never showed our words (a fold) is not kept. */
-      const sawOurs = stillHoldsOurEnd(box.text, wire);
+      const sawOurs = emptyBefore && seesOurs(box.text, wire);
       const seq = sawOurs ? rememberMixed(target, wire, allowed.card) : null;
-      return { state: DELIVERY.UNCONFIRMED, unsubmitted: true, confirm: 'not-pressed', because: sawOurs ? UNSENT_NOT_PRESSED_BECAUSE + KEPT_LATER : UNSENT_NOT_PRESSED_BECAUSE, ...(sawOurs ? { unsentSeq: seq } : {}), at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };   // kosmos#8021: Enter never pressed
+      return { state: DELIVERY.UNCONFIRMED, unsubmitted: true, confirm: 'not-pressed', because: sawOurs ? UNSENT_NOT_PRESSED_BECAUSE + KEPT_LATER : UNSENT_NOT_PRESSED_BECAUSE, ...(sawOurs ? { unsentSeq: seq, keptMixed: true } : {}), at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };   // kosmos#8021: Enter never pressed
     }
   }
   const entered = tmux(['send-keys', '-t', target, 'Enter']);
@@ -2883,7 +2890,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       scheduleUnsentRetries(target, allowed.card, UNSENT_RETRY_MS.slice(0, 1));
     } else forgetUnsent(target);
     const out = confirmedVerdict(v, result);
-    const told = seq == null ? out : { ...out, unsentSeq: seq };
+    const told = seq == null ? out : { ...out, unsentSeq: seq, ...(result && result.outcome === 'other' ? { keptMixed: true } : {}) };
     return told.state === v.state ? told : { ...told, paneNote: noteFor(told.state) };
   };
   const confirmSync = (v) => {
