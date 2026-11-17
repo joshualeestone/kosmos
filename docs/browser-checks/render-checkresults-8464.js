@@ -1,4 +1,4 @@
-// Browser-check-surface: tk-donewhen tk-donewhen-row tsk-checks
+// Browser-check-surface: tk-donewhen tk-donewhen-row tsk-checks tk-movedhere
 'use strict';
 /**
  * #8464 item 2: what agents report about a task's done-when checks (kosmos task check), on the screen.
@@ -10,6 +10,9 @@
  *  - a task with no checks shows no "Done when" row at all,
  *  - the Tasks row of a task with reports says "1 of 3 checks reported met, 1 reported not met"; a task with checks
  *    and no reports says nothing about them,
+ *  - #8668: a 400-character report shows whole; an unmet check moved to another task says "Moved to task 5" with a
+ *    link that opens it, and task 5 (which has no checks of its own) lists "Check 1 of task 4, not met there: ..."
+ *    with a link back,
  *  - light and dark, 1400 and 390 wide, with no sideways scroll and no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -62,6 +65,11 @@ function chk(ok, label, extra) {
   tasks.setCheckResult(proj.id, 1, 2, false, 'the page shows <b>old</b> notes still', { by: 'ada' });
   tasks.create(proj.id, { sentence: 'Checks, none reported', who: 'ada', made, doneWhen: ['it ships'] });   // 2
   tasks.create(proj.id, { sentence: 'No checks at all', who: 'ada', made });                                // 3
+  // #8668: a long unmet report whose part moved to task 5.
+  tasks.create(proj.id, { sentence: 'Ship on every platform', who: 'ada', made, doneWhen: ['it works on Windows'] });   // 4
+  tasks.create(proj.id, { sentence: 'Windows follow-up', who: 'ada', made });                                // 5
+  const LONG = 'no Windows box here; ' + 'checked the Mac build, the Linux build and the served pointer by hand. '.repeat(6);
+  tasks.setCheckResult(proj.id, 4, 1, false, LONG.trim(), { by: 'ada', movedTo: 5 });
   require('../../engine/store').writeSettings({ tasksTabShown: true });
 
   const server = await srv.start(0);
@@ -117,9 +125,38 @@ function chk(ok, label, extra) {
       chk(one.right <= one.vw + 1, `${tag} the checks stay inside the window`, one.right + ' > ' + one.vw);
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `checkresults-task-${theme}-${width}.png`), fullPage: true });
 
+      /* #8668: the moved-to link on the reporting task, and its list on the task it went to. */
+      await openTask(page, 4);
+      await page.waitForFunction(() => !document.getElementById('tk-donewhen-row').hidden, null, { timeout: 8000 }).catch(() => {});
+      const src = await page.evaluate(() => {
+        const why = document.querySelector('#tk-donewhen > li .why');
+        const b = why && why.querySelector('button.linkish');
+        return { says: why ? why.textContent : '', link: b ? b.dataset.sub : null, linkText: b ? b.textContent : null,
+          clipped: why ? why.scrollHeight > why.clientHeight + 1 || why.scrollWidth > why.clientWidth + 1 : true,
+          hereHidden: document.getElementById('tk-movedhere').hidden };
+      });
+      const LONGT = 'no Windows box here; ' + 'checked the Mac build, the Linux build and the served pointer by hand. '.repeat(6);
+      chk(LONGT.trim().length >= 400, `${tag} the fixture's report is at least 400 characters`, String(LONGT.trim().length));
+      chk(src.says === 'Ada says not met: ' + LONGT.trim() + ' Moved to task 5', `${tag} the long report shows whole, then where it moved`, src.says.slice(-60));
+      chk(!src.clipped, `${tag} the long report is not cut by the box`);
+      chk(src.link === '5' && src.linkText === 'task 5', `${tag} the moved-to words are a link to task 5`, JSON.stringify([src.link, src.linkText]));
+      chk(src.hereHidden === true, `${tag} the reporting task lists nothing moved here`);
+      await page.click('#tk-donewhen > li .why button.linkish');
+      await page.waitForFunction(() => TK_OPEN === 5, null, { timeout: 8000 }).catch(() => {});
+      const dst = await page.evaluate(() => ({ open: TK_OPEN, row: document.getElementById('tk-donewhen-row').hidden,
+        head: document.getElementById('tk-movedhere-head').hidden,
+        items: [...document.querySelectorAll('#tk-movedhere > li')].map((li) => li.textContent),
+        link: (document.querySelector('#tk-movedhere > li button.linkish') || {}).dataset || {},
+        own: document.querySelectorAll('#tk-donewhen > li').length }));
+      chk(dst.open === 5, `${tag} the link opens task 5`, String(dst.open));
+      chk(dst.row === false && dst.head === false, `${tag} task 5, with no checks of its own, shows the moved-here list`, JSON.stringify([dst.row, dst.head]));
+      chk(JSON.stringify(dst.items) === JSON.stringify(['Check 1 of task 4, not met there: it works on Windows']) && dst.link.sub === '4' && dst.own === 0,
+        `${tag} it names the check and links back to task 4`, JSON.stringify(dst));
+      if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `checkresults-movedhere-${theme}-${width}.png`), fullPage: true });
+
       await openTask(page, 3);
-      const none = await page.evaluate(() => ({ hidden: document.getElementById('tk-donewhen-row').hidden, items: document.querySelectorAll('#tk-donewhen > li').length }));
-      chk(none.hidden === true, `${tag} a task with no checks has no Done when row (control: the list above did paint)`, JSON.stringify(none));
+      const none = await page.evaluate(() => ({ hidden: document.getElementById('tk-donewhen-row').hidden, items: document.querySelectorAll('#tk-donewhen > li').length, here: document.getElementById('tk-movedhere').hidden }));
+      chk(none.hidden === true && none.here === true, `${tag} a task with no checks has no Done when row (control: the list above did paint)`, JSON.stringify(none));
 
       const bad = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
       chk(!bad, `${tag} no sideways scroll`);
