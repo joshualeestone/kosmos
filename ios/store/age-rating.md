@@ -24,7 +24,7 @@ rating).
 | Unrestricted web access | **No** | there is no general browser: the in-app view shows the person's own board (on their own computer) and their Kosmos+ account pages, such as Delete account; every other link opens in Safari |
 | Parental controls, age assurance | No | the app has none |
 | Messaging and chat | **Yes** | a shared project room shows messages from people outside the person's own Kosmos (`RoomRow.Kind.external`, `fromKind` person, in ios/Kosmos/BoardRoom.swift) |
-| User-generated content | **Yes** | the same shared rooms. Only people a room was shared with can post; nothing is public and there is no way to reach strangers |
+| User-generated content | **Yes** | the same shared rooms. Only people a room was shared with can post; nothing is public and there is no way to reach strangers. Guideline 1.2: Report message (a mail to hello@installkosmos.com) and Block on a long-press, and Settings, Blocked with Unblock (#8625) |
 
 Read from the code, not walked: if the reviewed build hides shared rooms, both
 can become No.

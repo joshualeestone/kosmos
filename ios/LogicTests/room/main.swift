@@ -2061,6 +2061,31 @@ do {
     check(merged.first { $0.id == "p1" }?.preview?.title == "Northfield", "a preview arriving on a later poll replaces the row shown")
 }
 
+section("#8625: report and block a message from outside this Kosmos (App Store guideline 1.2)")
+do {
+    let mac = URL(string: "http://127.0.0.1:4005")!
+    let page = Board.parseRoom(Data(#"{"ok":true,"rows":[{"kind":"external","id":"x-3f2a9c1e-77aa-4b1d-9c2e-0a1b2c3d4e5f","from":"Ana","fromKind":"person","text":"something rude","at":"2026-11-17T08:00:00.000Z"},{"kind":"post","id":"m7","from":"dana","text":"ours","at":"2026-11-17T08:01:00.000Z"}]}"#.utf8))
+    let ext = page?.rows.first { $0.kind == .external }
+    let post = page?.rows.first { $0.kind == .post }
+    check(ext != nil && post != nil, "premise: an outside message and a post read")
+    if let ext {
+        let r = Board.roomBlockRequest(mac: mac, project: "p-shared", message: ext.id)
+        check(r?.httpMethod == "POST" && r?.url?.path == "/api/project/p-shared/room/\(ext.id)/block", "Block posts to the board's block route for that message")
+        check(Board.roomBlockRequest(mac: mac, project: "p-shared", message: "m7") == nil, "a room post's id is never sent to Block (only x- ids)")
+        check(Board.roomBlockRequest(mac: mac, project: "p-shared", message: "x-../../etc") == nil, "nothing that is not an outside id goes into the path")
+        let mail = Board.reportMail(row: ext, project: "p-shared", projectName: "Catalogue")
+        let parts = mail.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        check(mail?.scheme == "mailto" && parts?.path == Board.reportAddress, "Report opens a mail to the published address")
+        let body = parts?.queryItems?.first { $0.name == "body" }?.value ?? ""
+        check(body.contains("From: Ana") && body.contains("something rude") && body.contains("Message id: \(ext.id)") && body.contains("Room: Catalogue (p-shared)"),
+              "the mail carries who, the words, the message id and the room")
+    }
+    if let post { check(Board.reportMail(row: post, project: "p-shared", projectName: "Catalogue") == nil, "CONTROL: a room post of this Kosmos is not reported") }
+    check(Board.blockRefusal(status: 200, Data(#"{"blocked":true,"name":"Ana"}"#.utf8)) == nil, "a taken block says nothing went wrong")
+    check(Board.blockRefusal(status: 409, Data(#"{"error":"that message has no sender Kosmos can block"}"#.utf8))?.contains("no sender Kosmos can block") == true, "a refusal says the board's reason")
+    check(Board.blockRefusal(status: 200, Data("not json".utf8)) != nil, "an answer this build cannot read is a refusal, never a block")
+}
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
