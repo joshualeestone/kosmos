@@ -1747,7 +1747,8 @@ function install(provider, opts) {
     let busy = null;
     const asked = Date.now();
     try { busy = await codexRunning(destDir, deadlineMs ? { deadlineMs } : undefined); } catch { busy = null; }
-    if (busy !== null) slowestLookMs = Math.max(slowestLookMs, Date.now() - asked);
+    const tookMs = Date.now() - asked;
+    if (busy !== null) slowestLookMs = Math.max(slowestLookMs, tookMs);
     if (busy === false) return false;
     if (beforeWait) {
       /* kosmos#8659: louder than a warning. The marker could not go back, so the previous tree reads absent until a
@@ -1755,10 +1756,11 @@ function install(provider, opts) {
       try { beforeWait(); } catch (e) { console.error(`[runners] ${provider} could not vouch for the version already here again, so it reads absent until the next install: ${e && e.code}`); }
     }
     Object.defineProperty(job, 'waited', { value: true, enumerable: false });
-    /* kosmos#8659: a look that ran out of a deadline it was given says so, so a slow machine that keeps waiting at the
-       last step is visible in the board log as that, not as an ordinary "could not check". */
+    /* kosmos#8659: a look that used up the deadline it was given says so, so a slow machine that keeps waiting at the
+       last step shows as that in the board log. A look that failed sooner (no answer, quickly) is a "could not check". */
+    const ranOut = busy === null && deadlineMs && tookMs >= deadlineMs - 50;
     const why = busy === true ? 'an agent is running on the version already here'
-      : deadlineMs ? `the last check for an agent on the version already here did not answer within ${Math.round(deadlineMs / 1000)} s`
+      : ranOut ? `the last check for an agent on the version already here did not answer within ${Number((deadlineMs / 1000).toFixed(1))} s`
         : 'we could not check whether an agent is running on the version already here';
     fail(`${m.name || 'the runner'} has a newer version, but ${why}, so that version is kept; it updates by itself once none is`, keepStaging);
     return true;
