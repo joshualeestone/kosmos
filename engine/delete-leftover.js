@@ -497,16 +497,28 @@ function plan(name, opts) {
   try {
     const look = status.paneLook();
     live = look.roster.find((c) => sameName(c.sessionName)) || null;
-    if (!live) { live = look.claims.find((c) => sameName(c.claim.split('+')[0])) || null; byClaim = !!live; }   // a named world's claim is name+world
+    if (!live) {
+      const c = look.claims.find((r) => sameName(r.claim.split('+')[0]));   // a named world's claim is name+world
+      if (c) { live = { session: c.session, sessionName: c.session }; byClaim = true; }
+    }
     /* A pane working INSIDE the agent's folder, whatever its session or claim. It may be the agent or anything else
        working there; either way nothing in that folder is offered. Real paths, so a symlinked workers folder still
        matches; case-blind where the disk is. */
     if (!live) {
-      const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
-      const norm = (p) => (caseBlind ? real(p).toLowerCase() : real(p));
-      const home = norm(create.workerDir(clean));
-      const inside = (f) => { const n = norm(f); return n === home || n.startsWith(home + path.sep); };
-      const pane = status.paneFolders().find((r) => inside(r.folder));
+      /* The agent's folders are resolved ONCE (the workers folder and a folder its profile records elsewhere), as
+         written and as real paths; a pane's folder is compared as tmux gives it, which is already the real working
+         folder, so nothing per pane touches the disk on the board's thread. */
+      const fold = (p) => (caseBlind ? p.toLowerCase() : p);
+      const homes = new Set();
+      let recordedDir = null;
+      try { recordedDir = require('./store').readProfile(clean).dir || null; } catch { recordedDir = null; }
+      for (const h of [create.workerDir(clean), recordedDir]) {
+        if (typeof h !== 'string' || !h) continue;
+        homes.add(fold(path.resolve(h)));
+        try { homes.add(fold(fs.realpathSync(h))); } catch { /* not there: as written only */ }
+      }
+      const inside = (f) => { const n = fold(path.resolve(f)); for (const h of homes) if (n === h || n.startsWith(h + path.sep)) return true; return false; };
+      const pane = homes.size ? status.paneFolders().find((r) => inside(r.folder)) : null;
       if (pane) { live = { session: pane.session, sessionName: pane.session }; byFolder = true; }
     }
   }
