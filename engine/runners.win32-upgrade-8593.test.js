@@ -141,6 +141,8 @@ for (const [busy, says] of [[true, /an agent is running/], [null, /could not che
       assert.equal(job.phase, 'failed');
       assert.match(job.because, says);
       assert.match(job.because, /version is kept/);
+      assert.equal(job.waited, true, 'marked as a wait, so the sweep hands its try back (engine/runnerupgrade.js)');
+      assert.equal(Object.keys(job).includes('waited'), false, 'kept off the API job shape');
       assert.doesNotMatch(job.because, /—/, 'no em dash');
       assert.equal(marker(), before, 'the marker never came down');
       assert.equal(isOldTree(), true);
@@ -179,7 +181,36 @@ test('win32: an upgrade whose new Codex does not run puts the previous tree AND 
     const r = runners.resolveBin('openai', { legacyBin: LEGACY });
     assert.equal(r.present, true, 'a runner that worked before still works'); assert.equal(r.stale, true);
     assert.equal(runners.upgradeStamp('openai'), null, 'no upgrade is recorded');
+    assert.notEqual(job.waited, true, 'a failed prove is a real try, not a wait');
   } finally { clear(); }
+});
+
+test('win32: a failed upgrade whose new tree will not delete (antivirus) still puts the previous tree back', { skip: WIN_ONLY }, async () => {
+  plantOld();
+  const before = marker();
+  const { tgz, integrity } = winFixture();
+  const pkgDir = path.join(DEST(), 'pkg');
+  const realRm = fs.rmSync;
+  let refused = 0;
+  fs.rmSync = function (p, o) {
+    if (path.resolve(String(p)) === path.resolve(pkgDir) && !fs.existsSync(path.join(pkgDir, 'old-tree.txt'))) {
+      refused++;
+      throw Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' });
+    }
+    return realRm.call(fs, p, o);
+  };
+  try {
+    const job = runners.install('openai', { legacyBin: LEGACY, download: downloadFrom(tgz), integrity,
+      codexRunning: () => Promise.resolve(false), prove: (bin, done) => done(new Error('exit code 1')) });
+    await job.settled;
+    assert.ok(refused >= 2, 'PRECONDITION: removing the new tree was refused, by the retried rm and by the restore');
+    assert.equal(job.phase, 'failed');
+    assert.match(job.because, /version already here is kept/);
+    assert.equal(isOldTree(), true, 'the previous tree is back at pkg/');
+    assert.equal(marker(), before, 'and vouched for');
+    assert.equal(runners.resolveBin('openai', { legacyBin: LEGACY }).present, true);
+    assert.ok(strays().some((f) => /^pkg\.new-\d+-failed$/.test(f)), 'the stuck new tree waits under a name the age-gated sweep removes');
+  } finally { fs.rmSync = realRm; clear(); }
 });
 
 test('win32: a swap whose first rename is refused vouches for the untouched previous tree again', { skip: WIN_ONLY }, async () => {

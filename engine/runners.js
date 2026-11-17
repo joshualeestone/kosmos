@@ -1572,8 +1572,9 @@ function install(provider, opts) {
   const doDownload = o.download || download;
 
   const job = { ...blankJob(), phase: 'downloading', receivedBytes: 0, totalBytes: m.downloadBytes, version: m.version };
-  /* kosmos#8593: replacing a stale managed runner (Windows too, only while none of its agents runs, below). Kept off the API's job shape (non-enumerable), read by installing()
-     and by the swap below, which keeps the previous tree until the new one proves itself. */
+  /* kosmos#8593: replacing a stale managed runner (Windows too, only while none of its agents runs, below). Kept off
+     the API's job shape (non-enumerable), read by installing() and by the swap below, which keeps the previous tree
+     until the new one proves itself. */
   const upgrading = existing.stale === true;
   /* kosmos#8593 (Windows): Windows lets the tree's folder be renamed while a codex.exe in it runs (measured on the
      Windows box 2026-11-17), so a swap would leave a running older Codex starting its code-mode host from the NEW tree,
@@ -1692,7 +1693,13 @@ function install(provider, opts) {
             return restored;
           }
           try {
-            fs.rmSync(pkgDir, { recursive: true, force: true });
+            /* The new tree has to leave pkg/ first. On Windows antivirus can hold a fresh codex.exe so the tree will not
+               delete; it can still be RENAMED (measured: Windows renames a folder under an open exe), so it is moved to
+               a pkg.new-* name the age-gated sweep removes later, and the previous tree still comes back. */
+            try { fs.rmSync(pkgDir, { recursive: true, force: true }); } catch (e) {
+              if (!fs.existsSync(pkgDir)) throw e;
+              fs.renameSync(pkgDir, `${pkgNew}-failed`);
+            }
             fs.renameSync(pkgOld, pkgDir);
             if (plat === 'win32') {
               vouchAgain();   // no link on Windows: the binary inside the tree is the runner, and the marker vouches for it
@@ -1770,6 +1777,8 @@ function install(provider, opts) {
         let busy = null;
         try { busy = await codexRunning(destDir); } catch { busy = null; }
         if (busy !== false) {
+          // A wait, not a failed try: engine/runnerupgrade.js hands the try back when it sees this.
+          Object.defineProperty(job, 'waited', { value: true, enumerable: false });
           fail(`${m.name || 'the runner'} has a newer version ready, but ${busy === true ? 'an agent is running on the version already here' : 'we could not check whether an agent is running on the version already here'}, so that version is kept; it updates once none is`);
           return;
         }

@@ -29369,41 +29369,19 @@ function start(port = PORT) {
       /* kosmos#8593: the bundled Codex follows the pin. A managed Codex older than engine/runners.js's pin
          (resolveBin's `stale`) is replaced in the background, so a pin bump reaches computers that already have Codex,
          not only new installs (before this, nothing ever upgraded one: the user who asked for gpt-6-astra would have
-         kept 0.149.1). Running agents are not restarted; a new launch gets the new version (one already running reads its
-         side files from the new tree, see runners.install). Gated like the sweeps here: inert
-         under `node --test` and before the live-execution opt-in; operator brake AGENT_WORKFORCE_RUNNER_UPGRADE_OFF=1.
-         First look two minutes after start, then every 30 minutes; install() joins a running job, never starts two. */
-      /* Review 2: at most RUNNER_UPGRADE_TRIES attempts per pinned version per board run. A failed upgrade puts the old
-         version back (still stale), so without a cap a download that keeps failing would repeat every 30 minutes. */
-      const RUNNER_UPGRADE_TRIES = 3;
-      const runnerUpgradeTries = new Map();
-      const runnerUpgradeTick = () => {
-        if (!liveExecution.liveExecutionAllowed()) return;   // inert under test / before opt-in
-        if (process.env.AGENT_WORKFORCE_RUNNER_UPGRADE_OFF === '1') return;   // operator brake
-        try {
-          const r = runners.resolveBin('openai');
-          if (!r || r.stale !== true || runners.installing('openai')) return;
-          // Review 4: an upgrade already downloading is not installing(), so it is checked here: joining it is not a try.
-          const live = (runners.status().openai || {}).job;
-          if (live && live.phase !== 'installed' && live.phase !== 'failed') return;
-          const pin = runners.manifestFor('openai').version;
-          const tries = runnerUpgradeTries.get(pin) || 0;
-          if (tries >= RUNNER_UPGRADE_TRIES) return;
-          const start = () => {
-            runnerUpgradeTries.set(pin, (runnerUpgradeTries.get(pin) || 0) + 1);
-            const job = runners.install('openai');
-            process.stdout.write(`runner-upgrade: openai ${r.installedVersion || '?'} -> ${pin}: ${job && job.phase}\n`);
-          };
-          /* kosmos#8593 (Windows): a Windows upgrade swaps only while no agent runs from the managed folder
-             (runners.install says why), so the sweep asks first and waits for its next look instead of downloading a
-             tree it cannot swap in. A wait is not a try: an agent that keeps running must not use up the three. */
-          if (process.platform !== 'win32') { start(); return; }
-          runners.managedProcessRunning(path.join(runners.managedRoot(), 'openai')).then((busy) => {
-            if (busy !== false) { process.stdout.write(`runner-upgrade: openai ${r.installedVersion || '?'} -> ${pin}: waiting (${busy === true ? 'an agent is running on it' : 'could not check'})\n`); return; }
-            try { start(); } catch (err) { console.warn(`[runner-upgrade] ${String((err && err.message) || err)}`); }
-          }, () => {});
-        } catch (err) { console.warn(`[runner-upgrade] ${String((err && err.message) || err)}`); }
-      };
+         kept 0.149.1). Running agents are not restarted; a new launch gets the new version (on the Mac one already
+         running reads its side files from the new tree, see runners.install; on Windows the swap waits until none
+         runs). Gated like the sweeps here: inert under `node --test` and before the live-execution opt-in; operator brake
+         AGENT_WORKFORCE_RUNNER_UPGRADE_OFF=1. First look two minutes after start, then every 30 minutes; install() joins
+         a running job, never starts two. engine/runnerupgrade.js holds the rules (tries, the Windows wait). */
+      const runnerUpgradeTick = require('./engine/runnerupgrade').makeTick({
+        runners,
+        platform: process.platform,
+        allowed: () => liveExecution.liveExecutionAllowed(),   // inert under test / before opt-in
+        braked: () => process.env.AGENT_WORKFORCE_RUNNER_UPGRADE_OFF === '1',   // operator brake
+        write: (line) => process.stdout.write(line),
+        warn: (line) => console.warn(line),
+      });
       const runnerUpgradeFirst = setTimeout(runnerUpgradeTick, 2 * 60 * 1000);
       if (runnerUpgradeFirst && typeof runnerUpgradeFirst.unref === 'function') runnerUpgradeFirst.unref();
       const runnerUpgradeSweep = setInterval(runnerUpgradeTick, 30 * 60 * 1000);
@@ -29412,7 +29390,7 @@ function start(port = PORT) {
          every code-mode call fails until it restarts (measured on the card). Once a minute, restart at its next idle
          point a managed Codex agent whose process predates the swap and has no code-mode host from before it
          (engine/runnerrestart.js says who and why; a restart starts the conversation over, so the safe case is left
-         alone). Mac/Linux only (a Windows upgrade waits until no agent runs on the old tree, so none is left on it). Gated like the sweeps here; brake
+         alone). Mac/Linux only (a Windows upgrade waits until no agent runs on the old tree; see engine/runnerupgrade.js). Gated like the sweeps here; brake
          AGENT_WORKFORCE_RUNNER_RESTART_OFF=1. */
       const runnerRestartTick = require('./engine/runnerrestart').makeTick({
         run: (cmd, args) => new Promise((resolve) => {
