@@ -133,12 +133,15 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     await page.click('[data-tab="projects"]');
     await page.waitForSelector('#panel-projects', { state: 'visible', timeout: 5000 });
     await page.click(`#pj-list .pj-row[data-project="${pid}"]`);
-    await page.waitForSelector('#pj-docs-all:not([hidden])', { timeout: 8000 });
-    await page.click('#pj-docs-all');
-    if (rowsWanted === 0) {   // an empty folder: wait for its sentence instead of rows
+    if (rowsWanted === 0) {
+      // An empty folder has no View All link, so the Files screen is opened by the function that link calls.
+      await page.waitForFunction((id) => PJ_CURRENT === id, pid, { timeout: 8000 });
+      await page.evaluate(() => openDocsView());
       await page.waitForFunction(() => /Nothing here yet/.test(document.getElementById('docs-msg').textContent), null, { timeout: 8000 });
       return;
     }
+    await page.waitForSelector('#pj-docs-all:not([hidden])', { timeout: 8000 });
+    await page.click('#pj-docs-all');
     await page.waitForFunction((n) => document.querySelectorAll('#docs-list .pj-doc').length === n, rowsWanted, { timeout: 8000 }).catch(async (e) => {
       // Say what the screen showed instead, so a red here names its cause.
       console.log('project Files screen: ' + JSON.stringify(await page.evaluate(() => ({ view: !document.getElementById('pj-docs-view').hidden,
