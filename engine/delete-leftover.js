@@ -535,7 +535,7 @@ function plan(name, opts) {
     return { ok: false, because: `we could not check whether ${shown} is running right now, so we have not offered to delete anything. Try again in a moment.` };
   }
   if (live && byFolder) {
-    return { ok: false, because: `Something is working in ${shown}'s folder right now (in a session called ${live.session}), so nothing of ${shown} is offered for deletion. Stop that first if you want ${shown} gone.` };
+    return { ok: false, because: `Something is still open and working in ${shown}'s folder right now (it shows as "${live.session}"), so nothing of ${shown} is offered for deletion. Close it and try again if you want ${shown} gone.` };
   }
   if (live && byClaim) {
     return { ok: false, because: `${shown} is running under another name here, so there is nothing left over to delete. Remove it first if you want it gone.` };
@@ -1695,7 +1695,8 @@ function del(name, opts) {
 /* kosmos#7835: the drive probe and the Recycle Bin moves (Windows PowerShell) held the whole board, every page, request
    and health check, while they ran: the probe up to 5 s on an agent page, a move up to 120 s behind a hidden error
    dialog. planAsync and delAsync give the same answers as plan and del with those waits off the board. Still in the
-   board's own time: the plan itself (folder measure, roster), and Task Scheduler's removal of a startup job. */
+   board's own time: the plan itself (folder measure, roster, and for a name no session or claim matches a second
+   tmux read of each pane's folder, kosmos#8640), and Task Scheduler's removal of a startup job. */
 const deleting = new Set();
 /* The name a delete holds, folded as create folds a name (slugFor: "Miles Davis" and "miles-davis" are one agent), so
    any spelling of the same agent meets the hold. */

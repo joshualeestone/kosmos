@@ -8162,7 +8162,9 @@ async function paneRosterAsync() {
 /* kosmos#8640: one listing read two ways: the roster (as paneRoster) and each pane's `@kosmos_agent` claim with its
    session, as { claim, session }. The supervisor stamps the claim with the session's own name, so the claim differs
    from the session only after a session is renamed; that is the case this lets a caller see. The claims come from
-   panes readPanes kept, so in a named world a session renamed without its `+world` suffix is not among them. It THROWS as paneRoster
+   panes readPanes kept, so in a named world a session renamed without its `+world` suffix is not among them, and an
+   unreadable line is a missed claim. The folder read (paneFolders) refuses on one instead, and covers both gaps
+   while the pane works in the agent's folder. It THROWS as paneRoster
    does when the listing could not be read. paneRoster's rows stay as they are: their shape is pinned in
    fixture-discipline.test.js. */
 function paneLook() {

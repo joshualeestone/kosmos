@@ -108,8 +108,8 @@ test('a pane whose session and claim match nothing, but which works in the agent
   status.setPaneFolderSource(() => `%1\torchestrator\t${dir}\n`);
   const p = mac.plan('agent1');
   assert.equal(p.ok, false, 'a live pane in agent1\'s own folder was offered for deletion');
-  assert.match(p.because, /working in agent1's folder right now \(in a session called orchestrator\)/);
-  assert.doesNotMatch(p.because, /tmux/i);
+  assert.match(p.because, /open and working in agent1's folder right now \(it shows as "orchestrator"\)/);
+  assert.doesNotMatch(p.because, /tmux|session/i);
   const done = mac.del('agent1');
   assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'the delete went ahead over a running agent');
   assert.ok(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), 'the running agent lost its folder');
@@ -179,4 +179,52 @@ test('a recorded folder outside where Kosmos keeps agents is not matched against
   assert.equal(p.ok, false);
   assert.doesNotMatch(p.because, /working in/, 'a pane anywhere under a broad recorded folder held the agent');
   assert.match(p.because, /not where Kosmos keeps agents/);
+});
+
+test('a pane in the workers folder itself holds no agent (a boundary, not an ancestor match)', () => {
+  leftoverAgent('agent11');
+  status.setPaneFolderSource(() => `%1\tw\t${process.env.AGENT_WORKFORCE_WORKERS}\n`);
+  assert.equal(mac.plan('agent11').ok, true);
+});
+
+/* The production half of paneFolders: a real tmux PROGRAM is run (the repo's fake, test-support/fake-tmux.sh), with no
+   pane source injected, so shDetail, the listing format and the parser are exercised as on a Mac. */
+test('production read: the fake tmux reports a pane in the agent\'s folder, and the plan refuses', () => {
+  const dir = leftoverAgent('agent12');
+  const panes = nodePath.join(SANDBOX, 'fake-panes.txt');
+  const folders = nodePath.join(SANDBOX, 'fake-folders.txt');
+  fs.writeFileSync(panes, '');
+  fs.writeFileSync(folders, `%7\tsomething-else\t${dir}\n`);
+  const saved = { bin: process.env.AGENT_WORKFORCE_TMUX_BIN, p: process.env.AGENT_WORKFORCE_FAKE_PANES, f: process.env.AGENT_WORKFORCE_FAKE_PANE_FOLDERS };
+  process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, '..', 'test-support', 'fake-tmux.sh');
+  process.env.AGENT_WORKFORCE_FAKE_PANES = panes;
+  process.env.AGENT_WORKFORCE_FAKE_PANE_FOLDERS = folders;
+  status.setPaneSource(null);
+  try {
+    const p = mac.plan('agent12');
+    assert.equal(p.ok, false, 'the folder read through a real tmux program did not see the pane: ' + p.because);
+    assert.match(p.because, /open and working in agent12's folder/);
+    fs.writeFileSync(folders, '');
+    assert.equal(mac.plan('agent12').ok, true, 'with no pane in the folder the leftover was not offered');
+  } finally {
+    for (const [k, v] of [['AGENT_WORKFORCE_TMUX_BIN', saved.bin], ['AGENT_WORKFORCE_FAKE_PANES', saved.p], ['AGENT_WORKFORCE_FAKE_PANE_FOLDERS', saved.f]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
+test('production read: a tmux that answers the folder read with an error refuses the plan', () => {
+  leftoverAgent('agent13');
+  const stub = nodePath.join(SANDBOX, 'tmux-folders-fail.sh');
+  // Lists panes for the roster read; fails the folder read the way a broken tmux does (non-zero, not "no server").
+  fs.writeFileSync(stub, '#!/bin/sh\ncase "$*" in *pane_current_path*) echo "protocol version mismatch" >&2; exit 1 ;; esac\nexit 0\n');
+  fs.chmodSync(stub, 0o755);
+  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  process.env.AGENT_WORKFORCE_TMUX_BIN = stub;
+  status.setPaneSource(null);
+  try {
+    const p = mac.plan('agent13');
+    assert.equal(p.ok, false, 'a failed folder read let the plan offer the agent');
+    assert.match(p.because, /could not check whether .* is running/);
+  } finally { if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved; }
 });
