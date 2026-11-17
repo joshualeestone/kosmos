@@ -44,6 +44,9 @@ struct AgentInfoView: View {
     @State private var switchModel = ""
     @State private var openaiModels: [Board.SwitchModel] = []
     @State private var openaiModelsLoading = false
+    @State private var openaiModelsGen = 0   // review 3: the newest load is the one that counts (the board's SWITCH_MODEL_GEN)
+    // Review 3: where a switch landed and where it came from, until /api/status catches up with the restart.
+    @State private var landed: (to: String, from: String)?
     @State private var switching = false
     @State private var switchLine: (text: String, ok: Bool)?
     @State private var confirmSwitch = false
@@ -87,7 +90,7 @@ struct AgentInfoView: View {
         .navigationTitle(live.name)
         .toolbar(.hidden, for: .tabBar)
         .task { await load() }
-        .dotsRefresh { await load() }
+        .dotsRefresh { switchLine = nil; await load() }
         .filesQuickLook(filesOpener, client: client)   // kosmos#7679: once, here, never on a Section's rows
         .confirmationDialog(asking.map { Board.freshConfirm($0, name: live.name).title } ?? "",
                             isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),
@@ -233,6 +236,10 @@ struct AgentInfoView: View {
                     Text(Board.modelLine(details)).foregroundColor(Palette.primary)
                 }
                 if let account = details.accountLabel { row("Account", account) }
+                if let landed, Board.providerOf(details) == landed.from {
+                    Text("Moving to \(Board.providerWord(landed.to)). This shows here once it has restarted.")
+                        .font(.footnote).foregroundColor(Palette.secondary)
+                }
             } else {
                 unread
             }
@@ -262,9 +269,10 @@ struct AgentInfoView: View {
 
     // MARK: Switch provider (kosmos#8626)
 
+    private var currentProvider: String? { landed?.to ?? details.map(Board.providerOf) }
     private var switchTargets: [Board.SwitchProvider] {
         guard let details, let rows = accountRows else { return [] }
-        return Board.switchTargets(details, accounts: rows)
+        return Board.switchTargets(details, accounts: rows, landed: landed?.to)
     }
     private var switchAccounts: [Board.SwitchAccount] {
         guard let to = switchTo, let rows = accountRows else { return [] }
@@ -319,8 +327,8 @@ struct AgentInfoView: View {
                         }
                         .disabled(switching)
                     }
-                    if let to = switchTo, to.rawValue != Board.providerOf(details) {
-                        Text(Board.switchNote(from: Board.providerOf(details), to: to, name: live.name))
+                    if let to = switchTo, let from = currentProvider, to.rawValue != from {
+                        Text(Board.switchNote(from: from, to: to, name: live.name))
                             .font(.footnote).foregroundColor(Palette.secondary)
                         Button { confirmSwitch = true } label: {
                             HStack {
@@ -333,7 +341,7 @@ struct AgentInfoView: View {
                             Button("Switch and restart") { Task { await doSwitch(to) } }
                             Button("Cancel", role: .cancel) {}
                         } message: {
-                            Text(Board.switchNote(from: Board.providerOf(details), to: to, name: live.name))
+                            Text(Board.switchNote(from: from, to: to, name: live.name))
                         }
                     }
                 }
@@ -351,9 +359,12 @@ struct AgentInfoView: View {
     // Review 1: after any read, a pick the fresh lists no longer hold is dropped, so what is sent is always something
     // on screen (a switch that landed partway, an account removed on the computer, a model no longer listed).
     private func keepPicksValid() {
-        if let to = switchTo, !switchTargets.contains(to) { switchTo = nil; return }
+        // Review 3: status has caught up (or moved on), so the landed provider is no longer needed.
+        if let l = landed, let d = details, Board.providerOf(d) != l.from { landed = nil }
+        if let to = switchTo, !switchTargets.contains(to) { switchTo = nil; confirmSwitch = false; return }
         guard switchTo != nil else { return }
         if let dir = switchAccount, !switchAccounts.contains(where: { $0.dir == dir }) {
+            confirmSwitch = false   // review 3: a dialog never confirms an account that is not the one on screen
             switchAccount = (switchAccounts.first(where: { $0.isDefault }) ?? switchAccounts.first)?.dir
             switchAccountTouched = false
             if switchTo == .openai { Task { await loadOpenaiModels() } }   // review 2: the new account's own list
@@ -364,16 +375,19 @@ struct AgentInfoView: View {
     }
     private func pickedProvider() {
         switchLine = nil
+        confirmSwitch = false
         switchAccountTouched = false
         let accounts = switchAccounts
         switchAccount = (accounts.first(where: { $0.isDefault }) ?? accounts.first)?.dir
         openaiModels = []
         openaiModelsLoading = false   // a load for an earlier pick never holds this one's button
         switchModel = (claudeModels.first(where: { $0.isDefault }) ?? claudeModels.first)?.key ?? ""
-        if switchTo == .openai { switchModel = ""; Task { await loadOpenaiModels() } }
+        if switchTo == .openai { switchModel = ""; openaiModelsLoading = true; Task { await loadOpenaiModels() } }
     }
     private func loadOpenaiModels() async {
         // Review 2: another account's models are never on screen while this one's load (the board's fillSwitchModel).
+        openaiModelsGen += 1
+        let gen = openaiModelsGen
         openaiModels = []
         switchModel = ""
         guard switchTo == .openai, let dir = switchAccount else { openaiModelsLoading = false; return }
@@ -382,14 +396,18 @@ struct AgentInfoView: View {
         if AgentInfoView.sample { openaiModelsLoading = false; openaiModels = Board.parseSwitchModels(Data(#"{"ok":true,"models":[{"key":"gpt-5.6","label":"GPT 5.6"},{"key":"gpt-5.6-mini","label":"GPT 5.6 mini"}]}"#.utf8), openai: true); return }
         #endif
         let res = await client.throughMac { Board.openaiModelsRequest(mac: $0, dir: dir) }
-        guard switchTo == .openai, switchAccount == dir else { return }   // a newer pick is the one shown
+        guard gen == openaiModelsGen, switchTo == .openai, switchAccount == dir else { return }   // a newer load is the one shown
         openaiModelsLoading = false
         openaiModels = res.flatMap { $0.1.statusCode == 200 ? Board.parseSwitchModels($0.0, openai: true) : nil } ?? []
         if !openaiModels.contains(where: { $0.key == switchModel }) { switchModel = "" }
     }
     private func doSwitch(_ to: Board.SwitchProvider) async {
         // Review 2: what is still on offer, never a pick a read dropped while the dialog was up.
-        guard switchTo == to, switchTargets.contains(to), !openaiModelsLoading else { return }
+        guard switchTo == to, switchTargets.contains(to), !openaiModelsLoading else {
+            switchLine = ("The choice changed while you were deciding, so nothing was switched. Pick again.", false)
+            return
+        }
+        let fromProvider = currentProvider ?? ""
         switching = true
         defer { switching = false }
         let account = switchAccounts.isEmpty ? nil : switchAccount
@@ -402,9 +420,17 @@ struct AgentInfoView: View {
         let said = Board.providerSwitchResult(status: res?.1.statusCode ?? 0, body: res?.0)
         switchLine = (said.sentence, said.ok)
         UIAccessibility.post(notification: .announcement, argument: said.sentence)
+        if let to = Board.providerSwitchLanded(status: res?.1.statusCode ?? 0, body: res?.0), to != fromProvider {
+            landed = (to, fromProvider)
+        }
         if said.ok { switchTo = nil }
         await load()
         await client.refreshNow()
+        // Review 3: the restart takes a moment to show in /api/status; read once more so Runs on catches up.
+        if landed != nil {
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            await load()
+        }
     }
 
     @ViewBuilder private var moreRow: some View {
