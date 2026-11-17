@@ -28,7 +28,8 @@ const { superviseCodexStreaming, installCodexHookFor, codexVersionOf } = require
 const home = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-codexhooks-8348-')));
 const W = { platform: 'win32', node: 'C:\\Program Files\\Kosmos\\runtime\\node.exe' };
 const WBRIDGE = 'C:\\Users\\a b\\AppData\\Local\\Programs\\Kosmos\\app\\bin\\codex-report-bridge.js';
-const V = hooks.verifiedFor('win32')[0];   // kosmos#8593: the Windows list (0.149.1 only)
+// kosmos#8593: the version Windows ships (the real-Codex arm needs that build); it is on the Windows measured list.
+const V = require('./runners').manifestFor('openai', 'win32', 'x64').version;
 
 test('the trust record is measured for the Codex Kosmos ships for Windows; moving that pin fails here until it is re-measured', () => {
   // On a bump of CODEX_WIN32 in engine/runners.js: run the real-Codex arm below on the new Windows build (it checks the

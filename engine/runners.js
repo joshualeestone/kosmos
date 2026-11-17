@@ -108,8 +108,7 @@ const MANIFEST = Object.assign(Object.create(null), {
        voice/, not zsh/, which nothing here reads); a ChatGPT token refresh still writes THROUGH the private home's
        auth.json symlink into the account file (bin/agent-supervisor.sh relies on it; same result as 0.149.1, measured
        both with a fake token endpoint); and the hook trust record is unchanged (engine/codexhooks.js).
-       ⚠️ WINDOWS STAYS ON 0.149.1 (CODEX_WIN32 below states its own version): its hook forms were measured on
-       0.149.1 win32, so its bump is Homer's, with its own measurement. */
+       Windows has its own entries (CODEX_WIN32 below), measured separately for its hook forms; it is on 0.169.0 too. */
     version: '0.169.0',
     arch: 'arm64',
     url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-darwin-arm64.tgz',
@@ -227,23 +226,28 @@ Object.freeze(MANIFEST);
  * half-written tree.
  */
 const CODEX_WIN32 = Object.freeze(Object.assign(Object.create(null), {
-  /* kosmos#8593: Windows keeps 0.149.1 (the Mac and Linux pin moved to 0.169.0). Stated per entry so the base's
-     version does not reach Windows; the bump is Homer's (the win32 hook forms are measured per Codex version). */
+  /* kosmos#8593: Windows moves to 0.169.0 too (the first Codex that can run gpt-6-astra on a ChatGPT sign-in). Still
+     stated per entry, so a later Mac/Linux bump cannot reach Windows unmeasured. Measured on the Windows box 11-16
+     (kosmos#8593 comment 6931488189): each tarball's sha512 is the registry's below and downloadBytes is its size;
+     codex.exe --version is codex-cli 0.169.0, Authenticode-signed by OpenAI; every file 0.149.1's vendor tree had is
+     still there (bin/codex.exe, bin/codex-code-mode-host.exe, codex-path/rg.exe, codex-resources/codex-command-runner.exe
+     and codex-windows-sandbox-setup.exe), plus codex-resources/voice/; arm64's file list matches x64's; and the real
+     Codex runs the win32 hook with our trust record and not with one hex digit changed (codexhooks.win32-8348). */
   x64: Object.freeze({
-    version: '0.149.1',
+    version: '0.169.0',
     arch: 'x64',
-    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-win32-x64.tgz',
-    integrity: 'sha512-G3QXGAg7nyyhqOeooAMUekBCeHd8a1QByhKcVAFyzNBaI06t6Ft7nsF+1SzFS0spuIdU4YyMi5YD26ukADBQUQ==',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-win32-x64.tgz',
+    integrity: 'sha512-nC+McFU8xRNL9tk3IhxcKdhcyOElwF/HhPO+gzSQCY7yjh3XdzSajX+MYWcHUVHWRHajfwn3/WgJYJK2wS+XWg==',
     binInPackage: 'vendor/x86_64-pc-windows-msvc/bin/codex.exe',
-    downloadBytes: 139929729,
+    downloadBytes: 187002407,
   }),
   arm64: Object.freeze({
-    version: '0.149.1',
+    version: '0.169.0',
     arch: 'arm64',
-    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.149.1-win32-arm64.tgz',
-    integrity: 'sha512-5K0DmOKGK9Bos627p8sK8ATHjovPK0sDyT6h9Cb+4v+5CW5SGw1HLgjGxoLfJ8g3cg6mtg/pRCXXo2L/j71UVA==',
+    url: 'https://registry.npmjs.org/@openai/codex/-/codex-0.169.0-win32-arm64.tgz',
+    integrity: 'sha512-nTN9SpkacGohq60+I80R3t0R8Mhbnlt3OVYNahgAv1Gu77KFwhPc0vz9Ou/DAGDtYhKVWA/jiYXJXnlzkwb/JA==',
     binInPackage: 'vendor/aarch64-pc-windows-msvc/bin/codex.exe',
-    downloadBytes: 130863958,
+    downloadBytes: 175339080,
   }),
 }));
 
