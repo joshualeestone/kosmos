@@ -771,24 +771,50 @@ function authenticodeOf(file) {
 }
 /* kosmos#8593 (Windows): whether any process runs a program from inside `dir` (the managed runner folder): true, false,
    or null when Windows could not be asked (no answer, no sentinel), which callers treat as running. One CIM read of every
-   process's image path; the folder rides in the environment, not the command, and is matched case-insensitively with
-   its trailing separator, so a sibling folder that merely shares the prefix (openai-old) does not count. */
+   process's image path, compared here in node.
+   🛑 ONE FOLDER HAS SEVERAL SPELLINGS, and a miss here reads "nothing running", the unsafe answer. Windows reports a
+   program's path in the form it was STARTED by, which can mix 8.3 short and long parts (measured on the Windows box
+   2026-11-17: a program started under C:\...\LONGTE~1\... reports that form, whichever form the folder is asked by). So
+   both sides are resolved (fs.realpathSync.native gives the one long, real form, through 8.3 names and junctions) and
+   compared case-insensitively with a trailing separator, so a sibling that merely shares the prefix (openai-old) does not
+   count. A folder that cannot be resolved for any reason but its absence is no answer (null); a program path that cannot
+   be resolved is compared as reported. */
 const RUNNING_OK = 'KOSMOS-RUNNING-READ-OK';
 function managedProcessRunning(dir) {
+  let root;
+  try { root = fs.realpathSync.native(dir); } catch (e) {
+    if (!e || e.code !== 'ENOENT') return Promise.resolve(null);
+    return Promise.resolve(false);   // no folder: nothing can run from it
+  }
   return new Promise((resolve) => {
     const ps = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-    const script = '$d = $env:KOSMOS_RUNNER_DIR.TrimEnd([char]92) + [char]92; '
-      + '$n = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($d, [StringComparison]::OrdinalIgnoreCase) }).Count; '
-      + `[Console]::Out.Write("$n ${RUNNING_OK}")`;
+    // UTF-8 out, so a folder name outside the console's code page reaches node intact.
+    const script = '[Console]::OutputEncoding = [Text.Encoding]::UTF8; '
+      + 'Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object { $_.ExecutablePath } | Where-Object { $_ } | Sort-Object -Unique | ForEach-Object { [Console]::Out.WriteLine($_) }; '
+      + `[Console]::Out.WriteLine('${RUNNING_OK}')`;
     execFile(ps, ['-NoProfile', '-NonInteractive', '-Command', script],
-      { windowsHide: true, timeout: 60000, env: Object.assign({}, process.env, { KOSMOS_RUNNER_DIR: dir }) },
-      (err, stdout) => { resolve(err ? null : parseRunning(stdout)); });
+      { windowsHide: true, timeout: 60000, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout) => {
+        const paths = err ? null : parseExePaths(stdout);
+        resolve(paths === null ? null : exeUnder(paths, root));
+      });
   });
 }
-/** What managedProcessRunning's PowerShell printed -> true/false/null. Pure, exported for tests. */
-function parseRunning(out) {
-  const m = new RegExp(`^(\\d+) ${RUNNING_OK}$`).exec(String(out == null ? '' : out).trim());
-  return m ? Number(m[1]) > 0 : null;
+/** What managedProcessRunning's PowerShell printed -> the program paths, or null without the sentinel. Pure. */
+function parseExePaths(out) {
+  const lines = String(out == null ? '' : out).split(/\r?\n/).map((l) => l.trim());
+  if (!lines.includes(RUNNING_OK)) return null;
+  return lines.filter((l) => l && l !== RUNNING_OK);
+}
+/** Whether any of `paths` (as Windows reported them) lies inside `root` (already resolved). `real` is the seam. */
+function exeUnder(paths, root, real = (p) => fs.realpathSync.native(p)) {
+  const base = String(root).replace(/[\\/]+$/, '').toLowerCase() + '\\';
+  for (const p of paths) {
+    let r = p;
+    try { r = real(p); } catch { r = p; }
+    if (String(r).toLowerCase().startsWith(base)) return true;
+  }
+  return false;
 }
 /** Whether an Authenticode answer is Google's. Pure. */
 function agySignedByGoogle(sig) {
@@ -1608,11 +1634,24 @@ function install(provider, opts) {
   /* kosmos#8593 review 4: an upgrade puts the previous tree back on ANY failure after its swap starts, not only a failed
      prove. Set once the tree paths are known (below); idempotent; acts only when the previous tree was set aside. */
   let restorePrevious = null;
-  const fail = (because) => {
-    try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ }
+  const fail = (because, keepStaging = false) => {
+    if (!keepStaging) { try { fs.rmSync(staging, { force: true }); } catch { /* the sweep gets it */ } }
     if (pkgNewLive) { try { fs.rmSync(pkgNewLive, { recursive: true, force: true }); } catch { /* the sweep gets it */ } }
     job.phase = 'failed';
     job.because = because;
+  };
+  /* kosmos#8593 (Windows): true (and the job ends, marked `waited`) when a Windows upgrade must wait because an agent
+     runs from the managed folder, or that cannot be read (see codexRunning). Asked before the download and again just
+     before the swap; `keepStaging` keeps a tarball already downloaded and verified, for the next look to reuse. A wait,
+     not a failed try: engine/runnerupgrade.js hands the try back when it sees `waited`. */
+  const waitForAgents = async (keepStaging) => {
+    if (!upgrading || plat !== 'win32') return false;
+    let busy = null;
+    try { busy = await codexRunning(destDir); } catch { busy = null; }
+    if (busy === false) return false;
+    Object.defineProperty(job, 'waited', { value: true, enumerable: false });
+    fail(`${m.name || 'the runner'} has a newer version, but ${busy === true ? 'an agent is running on the version already here' : 'we could not check whether an agent is running on the version already here'}, so that version is kept; it updates by itself once none is`, keepStaging);
+    return true;
   };
 
   const run = (async () => {
@@ -1631,9 +1670,20 @@ function install(provider, opts) {
           }
         } catch { /* best effort */ }
       }
-      fs.rmSync(staging, { force: true });
-      stage = 'download';
-      await doDownload(url, staging, job);
+      // Windows upgrade, first look: an agent already running means the swap could not happen, so nothing downloads.
+      if (await waitForAgents(false)) return;
+      /* kosmos#8593 (Windows): a tarball this process downloaded for an upgrade that then had to wait for an agent is
+         kept (waitForAgents), so the next look does not fetch ~187 MB again. It is only REUSED here, at its full
+         published size, and the checksum below still decides: wrong bytes are discarded as always. */
+      let kept = 0;
+      if (upgrading && plat === 'win32') { try { kept = fs.statSync(staging).size; } catch { kept = 0; } }
+      if (kept > 0 && kept === m.downloadBytes) {
+        job.totalBytes = kept; job.receivedBytes = kept;
+      } else {
+        fs.rmSync(staging, { force: true });
+        stage = 'download';
+        await doDownload(url, staging, job);
+      }
       stage = 'prepare';
 
       // A size mismatch that closed cleanly is a network fact, not a
@@ -1698,7 +1748,7 @@ function install(provider, opts) {
                a pkg.new-* name the age-gated sweep removes later, and the previous tree still comes back. */
             try { fs.rmSync(pkgDir, { recursive: true, force: true }); } catch (e) {
               if (!fs.existsSync(pkgDir)) throw e;
-              fs.renameSync(pkgDir, `${pkgNew}-failed`);
+              fs.renameSync(pkgDir, `${pkgNew}-failed-${Date.now()}`);
             }
             fs.renameSync(pkgOld, pkgDir);
             if (plat === 'win32') {
@@ -1773,16 +1823,8 @@ function install(provider, opts) {
       // (A no-op on win32, where executability is the .exe suffix.)
       fs.chmodSync(path.join(pkgNew, binInPackage), 0o755);
       try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch { /* the sweep gets it */ }
-      if (upgrading && plat === 'win32') {   // asked again here, the last moment before the swap (see codexRunning)
-        let busy = null;
-        try { busy = await codexRunning(destDir); } catch { busy = null; }
-        if (busy !== false) {
-          // A wait, not a failed try: engine/runnerupgrade.js hands the try back when it sees this.
-          Object.defineProperty(job, 'waited', { value: true, enumerable: false });
-          fail(`${m.name || 'the runner'} has a newer version ready, but ${busy === true ? 'an agent is running on the version already here' : 'we could not check whether an agent is running on the version already here'}, so that version is kept; it updates once none is`);
-          return;
-        }
-      }
+      // Asked again here, the last moment before the swap; the verified tarball is kept for the next look.
+      if (await waitForAgents(true)) return;
       stage = 'swap';
       job.swapping = true;   // installing() counts an upgrade from here: the tree about to be in place is unproven
       Object.defineProperty(job, 'swapping', { enumerable: false });
@@ -1899,6 +1941,7 @@ function install(provider, opts) {
          needs its `to` to be the version installed now). */
       /* Review 3: a non-upgrade install of the version an earlier upgrade brought (a repair) keeps that record, since
          agents on the replaced version may still be waiting for their restart. */
+      // On Windows nothing reads this record yet (the restart sweep is Mac/Linux); it is written alike so it is true there too.
       if (upgrading) writeUpgradeStamp(destDir, { from: existing.installedVersion || null, to: m.version, at: swappedAt });
       else if ((upgradeStamp(provider) || {}).to !== m.version) writeUpgradeStamp(destDir, null);
       // Only now, after the binary itself answered, may anything vouch for it.
@@ -2196,4 +2239,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, installedVersion, verifiedVersion, managedProcessRunning, parseRunning, upgradeStamp, UPGRADE_STAMP, olderVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, installedVersion, verifiedVersion, managedProcessRunning, parseExePaths, exeUnder, upgradeStamp, UPGRADE_STAMP, olderVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };

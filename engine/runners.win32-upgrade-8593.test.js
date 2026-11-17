@@ -18,7 +18,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawn } = require('node:child_process');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-runners-w8593-'));
 process.env.AGENT_WORKFORCE_RUNNERS_DIR = path.join(SANDBOX, 'runners');
@@ -73,12 +73,29 @@ test('the Windows pin is newer than the version older builds installed (this fil
   assert.equal(runners.olderVersion(OLD, runners.manifestFor('openai', 'win32', 'x64').version), true);
 });
 
-test('parseRunning: a count with the sentinel is an answer; anything else is no answer (null, read as running)', () => {
-  assert.equal(runners.parseRunning('0 KOSMOS-RUNNING-READ-OK'), false);
-  assert.equal(runners.parseRunning('3 KOSMOS-RUNNING-READ-OK\r\n'), true);
-  for (const s of ['', null, undefined, '0', 'KOSMOS-RUNNING-READ-OK', 'x KOSMOS-RUNNING-READ-OK', 'garbage']) {
-    assert.equal(runners.parseRunning(s), null, JSON.stringify(s));
+test('parseExePaths: the paths are an answer only with the sentinel; without it there is no answer (null, read as running)', () => {
+  assert.deepEqual(runners.parseExePaths('C:\\a\\b.exe\r\nC:\\c d\\e.exe\r\nKOSMOS-RUNNING-READ-OK\r\n'), ['C:\\a\\b.exe', 'C:\\c d\\e.exe']);
+  assert.deepEqual(runners.parseExePaths('KOSMOS-RUNNING-READ-OK'), [], 'no programs at all is still an answer');
+  for (const s of ['', null, undefined, 'C:\\a\\b.exe', 'garbage', 'x KOSMOS-RUNNING-READ-OK']) {
+    assert.equal(runners.parseExePaths(s), null, JSON.stringify(s));
   }
+});
+
+test('exeUnder: a program inside the folder, in any spelling that resolves to it, counts; a sibling prefix does not', () => {
+  const root = 'C:\\Users\\Pat Doe\\Kosmos\\runners\\openai';
+  // The seam stands in for realpath: the short and mixed spellings resolve to the long one.
+  const real = (p) => ({
+    'C:\\Users\\PATDOE~1\\Kosmos\\runners\\openai\\pkg\\codex.exe': `${root}\\pkg\\codex.exe`,
+    'c:\\users\\pat doe\\KOSMOS\\RUNNE~1\\openai\\pkg\\codex.exe': `${root}\\pkg\\codex.exe`,
+  })[p] || p;
+  assert.equal(runners.exeUnder([`${root}\\pkg\\codex.exe`], root, real), true, 'as given');
+  assert.equal(runners.exeUnder(['C:\\Users\\PATDOE~1\\Kosmos\\runners\\openai\\pkg\\codex.exe'], root, real), true, '8.3 form');
+  assert.equal(runners.exeUnder(['c:\\users\\pat doe\\KOSMOS\\RUNNE~1\\openai\\pkg\\codex.exe'], root, real), true, 'mixed, other case');
+  assert.equal(runners.exeUnder([`${root}-old\\pkg\\codex.exe`, 'C:\\Windows\\explorer.exe'], root, real), false, 'a sibling that shares the prefix');
+  assert.equal(runners.exeUnder([`${root}\\pkg\\codex.exe`], `${root}\\`, real), true, 'a root given with its trailing separator');
+  const throws = () => { throw new Error('EPERM'); };
+  assert.equal(runners.exeUnder([`${root}\\pkg\\codex.exe`], root, throws), true, 'a path that cannot be resolved is compared as reported');
+  assert.equal(runners.exeUnder([], root, real), false);
 });
 
 test('win32: a tree an older build vouched for is present but stale; its agents keep starting on it', { skip: WIN_ONLY }, () => {
@@ -153,6 +170,69 @@ for (const [busy, says] of [[true, /an agent is running/], [null, /could not che
   });
 }
 
+/* The staging tarball install() keeps across a wait (its per-process name, in the managed .tmp folder). */
+const stagingFile = () => path.join(runners.managedRoot(), '.tmp', `openai-${pin().version}-${process.pid}.tgz`);
+const counting = (src) => { const d = downloadFrom(src); const f = (...a) => { f.calls += 1; return d(...a); }; f.calls = 0; return f; };
+// The fixture's own size stands in for the published size, which is what lets a kept tarball be reused.
+const withSize = (tgz) => ({ ...pin(), downloadBytes: fs.statSync(tgz).size });
+
+test('win32: an agent already running at the first look downloads nothing', { skip: WIN_ONLY }, async () => {
+  plantOld();
+  const { tgz, integrity } = winFixture();
+  const download = counting(tgz);
+  try {
+    const job = runners.install('openai', { legacyBin: LEGACY, download, integrity, prove: ok, manifest: withSize(tgz),
+      codexRunning: () => Promise.resolve(true) });
+    await job.settled;
+    assert.equal(job.phase, 'failed'); assert.equal(job.waited, true);
+    assert.equal(download.calls, 0, 'no 187 MB fetched for a swap that cannot happen');
+    assert.equal(isOldTree(), true);
+  } finally { clear(); }
+});
+
+test('win32: a tarball downloaded before an agent started is kept, and the next look reuses it instead of fetching again', { skip: WIN_ONLY }, async () => {
+  plantOld();
+  const { tgz, integrity } = winFixture();
+  const download = counting(tgz);
+  const answers = [false, true];   // idle at the first look, an agent started during the download
+  try {
+    const first = runners.install('openai', { legacyBin: LEGACY, download, integrity, prove: ok, manifest: withSize(tgz),
+      codexRunning: () => Promise.resolve(answers.shift()) });
+    await first.settled;
+    assert.equal(first.phase, 'failed'); assert.equal(first.waited, true);
+    assert.equal(download.calls, 1);
+    assert.equal(fs.existsSync(stagingFile()), true, 'the verified tarball is kept');
+    assert.equal(isOldTree(), true);
+
+    const second = runners.install('openai', { legacyBin: LEGACY, download, integrity, prove: ok, manifest: withSize(tgz),
+      codexRunning: () => Promise.resolve(false) });
+    await second.settled;
+    assert.equal(second.phase, 'installed', second.because || '');
+    assert.equal(download.calls, 1, 'reused, not fetched again');
+    assert.equal(fs.existsSync(stagingFile()), false, 'and removed once installed');
+    assert.equal(marker(), `${pin().version} ${pin().binInPackage}`);
+  } finally { clear(); try { fs.rmSync(stagingFile(), { force: true }); } catch { /* gone */ } }
+});
+
+test('win32: a kept tarball whose bytes no longer match is discarded by the checksum, never unpacked', { skip: WIN_ONLY }, async () => {
+  plantOld();
+  const before = marker();
+  const { tgz, integrity } = winFixture();
+  const download = counting(tgz);
+  fs.mkdirSync(path.dirname(stagingFile()), { recursive: true });
+  fs.writeFileSync(stagingFile(), Buffer.alloc(fs.statSync(tgz).size, 7));   // the right size, the wrong bytes
+  try {
+    const job = runners.install('openai', { legacyBin: LEGACY, download, integrity, prove: ok, manifest: withSize(tgz),
+      codexRunning: () => Promise.resolve(false) });
+    await job.settled;
+    assert.equal(job.phase, 'failed');
+    assert.match(job.because, /did not match its published checksum/);
+    assert.equal(download.calls, 0, 'PRECONDITION: the kept file was the one checked');
+    assert.equal(fs.existsSync(stagingFile()), false, 'the wrong bytes are deleted, so the next look downloads fresh');
+    assert.equal(marker(), before); assert.equal(isOldTree(), true);
+  } finally { clear(); try { fs.rmSync(stagingFile(), { force: true }); } catch { /* gone */ } }
+});
+
 test('win32: a check that throws counts as running (the old version stays)', { skip: WIN_ONLY }, async () => {
   plantOld();
   const { tgz, integrity } = winFixture();
@@ -209,7 +289,7 @@ test('win32: a failed upgrade whose new tree will not delete (antivirus) still p
     assert.equal(isOldTree(), true, 'the previous tree is back at pkg/');
     assert.equal(marker(), before, 'and vouched for');
     assert.equal(runners.resolveBin('openai', { legacyBin: LEGACY }).present, true);
-    assert.ok(strays().some((f) => /^pkg\.new-\d+-failed$/.test(f)), 'the stuck new tree waits under a name the age-gated sweep removes');
+    assert.ok(strays().some((f) => /^pkg\.new-\d+-failed-\d+$/.test(f)), 'the stuck new tree waits under a name the age-gated sweep removes');
   } finally { fs.rmSync = realRm; clear(); }
 });
 
@@ -245,4 +325,24 @@ test('win32: the real process check sees a program running from a folder, and no
   assert.equal(await runners.managedProcessRunning(idle), false);
   // A sibling that only shares the prefix is not the folder.
   assert.equal(await runners.managedProcessRunning(path.dirname(process.execPath).slice(0, -1)), false);
+  // A folder that is not there runs nothing: false, not "no answer".
+  assert.equal(await runners.managedProcessRunning(path.join(SANDBOX, 'never-made')), false);
+});
+
+test('win32: the check sees a running program when the folder is given by its 8.3 short name', { skip: WIN_ONLY }, async (t) => {
+  const long = path.join(SANDBOX, 'a long runner folder name');
+  fs.mkdirSync(long, { recursive: true });
+  const exe = path.join(long, 'codex.exe');
+  fs.copyFileSync(process.execPath, exe);
+  // The folder's 8.3 name, asked of Windows (the path rides in the environment, so no quoting can change it).
+  const short = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    '[Console]::Out.Write((New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:KOSMOS_LONG_DIR).ShortPath)'],
+  { encoding: 'utf8', env: { ...process.env, KOSMOS_LONG_DIR: long } }).trim();
+  if (!short || short.toLowerCase() === long.toLowerCase()) { t.skip('8.3 names are off on this volume'); return; }
+  const child = spawn(exe, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+  try {
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(await runners.managedProcessRunning(short), true, `started by its long name, asked by ${short}`);
+    assert.equal(await runners.managedProcessRunning(long), true);
+  } finally { child.kill(); await new Promise((r) => setTimeout(r, 500)); }
 });
