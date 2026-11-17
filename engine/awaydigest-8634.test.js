@@ -14,8 +14,10 @@ const NOW = Date.parse('2026-11-17T15:00:00Z');
 const row = (state, by, hoursAgo, extra) => ({ state, by, at: NOW - hoursAgo * H, ...(extra || {}) });
 
 test('an agent\'s own blocked, followed only by automatic reports, is the wait', () => {
+  // The real sequence: a deliberate wait refuses automatic working/idle over it (selfreport's clobber guard), so what
+  // follows it in a record is the new run's automatic `started`, then that run's turns.
   const hist = [row('working', 'auto', 30), row('blocked', 'agent', 20, { because: 'SECRET-WORDS waiting on review' }),
-    row('working', 'auto', 10), row('idle', 'auto', 9), row('working', 'auto', 2), row('idle', 'auto', 1)];
+    row('started', 'auto', 2), row('working', 'auto', 2), row('idle', 'auto', 1)];
   assert.deepEqual(away.lastWait(hist, { nowMs: NOW }), { state: 'blocked', atMs: NOW - 20 * H });
   const needs = [row('needs_you', 'agent', 3), row('idle', 'auto', 1)];
   assert.deepEqual(away.lastWait(needs, { nowMs: NOW }), { state: 'needs_you', atMs: NOW - 3 * H });

@@ -91,6 +91,11 @@ test('CONTROL: a wait the agent ended before the restart makes no reminder (and 
       const hook = await hookFor(tok);
       assert.equal(hook.code, 200);
       assert.equal(hook.text, '');
+      // The record WAS read (a window) and the wait was looked for and found ended (null), not a lookup that failed.
+      const json = await fetch(base + '/api/away?at=startup', { headers: { 'x-kosmos-agent-token': tok } }).then((r) => r.json());
+      assert.equal(json.ok, true);
+      assert.ok(json.window && Number.isFinite(json.window.sinceMs), 'the history was not read: ' + JSON.stringify(json));
+      assert.equal(json.wait, null);
     } finally { sendertoken.revoke('leo'); }
   });
 });
@@ -113,6 +118,25 @@ test('by hand (inside a session) the wait is not this: no reminder, and the text
       // CONTROL: the same record on the startup path does carry it.
       const hook = await hookFor(tok);
       assert.match(JSON.parse(hook.text).hookSpecificOutput.additionalContext, /waiting \(blocked, at /);
+    } finally { sendertoken.revoke('leo'); }
+  });
+});
+
+test('the Windows hook (as=hook, asked AFTER its own started) carries the wait too', async () => {
+  await withBoard(async () => {
+    const now = Date.now();
+    const file = selfreport.fileFor('leo');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    // The real sequence: the agent's own wait, then the new run's automatic `started` (which replaced it on the board).
+    const rows = [{ state: 'blocked', by: 'agent', because: 'waiting on review', at: now - 5 * H },
+      { state: 'started', by: 'auto', at: now - 1000 }];
+    fs.writeFileSync(file, rows.map((r) => JSON.stringify({ ...r, at: new Date(r.at).toISOString() })).join('\n') + '\n');
+    const tok = sendertoken.mint('leo').token;
+    try {
+      const res = await fetch(base + '/api/away?as=hook', { headers: { 'x-kosmos-agent-token': tok } });
+      const text = await res.text();
+      assert.equal(res.status, 200, text);
+      assert.match(JSON.parse(text).hookSpecificOutput.additionalContext, /waiting \(blocked, at /);
     } finally { sendertoken.revoke('leo'); }
   });
 });

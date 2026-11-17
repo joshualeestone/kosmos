@@ -816,7 +816,8 @@ async function main(io) {
      had: from the report before the newest `started` to it. Only with an agent token (this hook never sends a pane).
      Not printed when the report failed (reporting being off is said instead; the hook prints one JSON object). A
      supervisor's relaunch with `claude --resume` is a `resume`, not a startup, so reportFor returned null above.
-     proven(c, AWAY_TIMEOUT_MS) bounds the proof and the fetch together. */
+     kosmos#8634: the answer also carries the agent's own last wait (needs_you or blocked) that nothing has ended, which
+     this `started` has just replaced on the board. proven(c, AWAY_TIMEOUT_MS) bounds the proof and the fetch together. */
   if (event === 'SessionStart' && verdict.ok && agentToken(env)) {
     let awayJson = '';
     try {
