@@ -103,6 +103,15 @@ CURL
 chmod +x "$BIN/curl"
 cat > "$BIN/vercel" <<'VERCEL'
 #!/bin/bash
+# kosmos#8656: the deploy refreshes the sign-in with `vercel whoami` first (site_vercel_deploy, #7711): it publishes nothing.
+[ "${1:-}" = whoami ] && { echo "tester"; exit 0; }
+# kosmos#8656: refuse the first REFUSE_N deploys the way Vercel did on 11-17 (exit 1, "Error: Not authorized", nothing
+# made), counting every try in $LIVE_DIR/.vercel-tries. MOVE_PTR_ON_REFUSE: a live pointer changes at the first refusal.
+n=$(cat "$LIVE_DIR/.vercel-tries" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$LIVE_DIR/.vercel-tries"
+if [ -n "${REFUSE_N:-}" ] && [ "$n" -le "$REFUSE_N" ]; then
+  [ -n "${MOVE_PTR_ON_REFUSE:-}" ] && printf '{"version":"9.9.99"}\n' > "$LIVE_DIR/dist/$MOVE_PTR_ON_REFUSE"
+  echo "Error: Not authorized" >&2; exit 1
+fi
 # `vercel deploy --prod --yes` runs with the EXPORT as cwd. Publish it into LIVE (additive copy;
 # a real deploy replaces the site, but additive is enough to run the served-verify honestly).
 mkdir -p "$LIVE_DIR/dist"
@@ -886,6 +895,32 @@ serve_pkg "$L84" Kosmos-staging.pkg "STAGING-PKG-BYTES"
 run_deploy "$S84" "$L84" --promote
 [ "$RC" = 0 ] && [ "$(cat "$L84/dist/Kosmos-staging.pkg")" = "STAGING-PKG-BYTES" ] && [ -f "$S84/dist/Kosmos-staging.pkg.inputs" ] \
   && pass "8167: a served staging pkg is fetched and still served after a deploy from a box without it" || bad "8167 fetch staging pkg (rc=$RC, out=$out)"
+
+# =============================================================================================
+# kosmos#8656: a deploy Vercel refuses with "Not authorized" is tried again (site_vercel_deploy, #7711), and the retry
+# re-reads the live pointers first (#5589).
+served_ver() { sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$1/dist/latest.json"; }
+# R1) refused once, then published.
+read -r S86 L86 <<<"$(make_scenario)"
+export REFUSE_N=1 KOSMOS_VERCEL_RETRY_S=0
+run_deploy "$S86" "$L86" --promote
+unset REFUSE_N KOSMOS_VERCEL_RETRY_S
+[ "$RC" = 0 ] && [ "$(served_ver "$L86")" = "$NEW" ] && [ "$(cat "$L86/.vercel-tries")" = 2 ] && has "$out" "Not authorized; trying again" \
+  && pass "8656: a deploy refused with Not authorized is tried again and serves NEW (2 tries)" || bad "8656 retry then publish (rc=$RC, tries=$(cat "$L86/.vercel-tries" 2>/dev/null), out=$out)"
+# R2) refused every time: still the #6771 refusal (exit 77 and its sentence), after every try, and live keeps OLD.
+read -r S87 L87 <<<"$(make_scenario)"
+export REFUSE_N=99 KOSMOS_VERCEL_RETRY_S=0
+run_deploy "$S87" "$L87" --promote
+unset REFUSE_N KOSMOS_VERCEL_RETRY_S
+[ "$RC" = 77 ] && [ "$(served_ver "$L87")" = "$OLD" ] && [ "$(cat "$L87/.vercel-tries")" = 4 ] && has "$out" "refused (rc 1): exiting 77" \
+  && pass "8656: refused on every try: exit 77 after 4 tries, live untouched" || bad "8656 refused every try (rc=$RC, tries=$(cat "$L87/.vercel-tries" 2>/dev/null), out=$out)"
+# R3) a live pointer moves while it waits to retry: refuse (75), no second deploy, live keeps OLD.
+read -r S88 L88 <<<"$(make_scenario)"
+export REFUSE_N=1 KOSMOS_VERCEL_RETRY_S=0 MOVE_PTR_ON_REFUSE=latest-win.json
+run_deploy "$S88" "$L88" --promote
+unset REFUSE_N KOSMOS_VERCEL_RETRY_S MOVE_PTR_ON_REFUSE
+[ "$RC" = 75 ] && [ "$(served_ver "$L88")" = "$OLD" ] && [ "$(cat "$L88/.vercel-tries")" = 1 ] && has "$out" "nothing has been deployed" \
+  && pass "8656: a live pointer that moves before the retry stops it: exit 75, one try, live untouched" || bad "8656 pointer moved before retry (rc=$RC, tries=$(cat "$L88/.vercel-tries" 2>/dev/null), out=$out)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

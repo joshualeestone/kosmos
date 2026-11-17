@@ -1034,7 +1034,27 @@ vercel_deploy_rc() {
 if [ -t 1 ]; then
   vercel_deploy_rc; : > "$VOUT"
   [ "$(cat "$VRC" 2>/dev/null)" = 0 ] || echo "deploy-site: if the CLI said 'Not authorized', see kosmos#6771 (sign the CLI in here, or give a VERCEL_TOKEN)"
-else vercel_deploy_rc 2>&1 | tee "$VOUT"; fi
+else
+  # kosmos#8656: the promote path (promote-channel, then this) had no retry, and Vercel refused two prod promotes on
+  # 2026-11-17 with "Not authorized" while `vercel whoami` answered the right account: the same refusal a cut survives
+  # through site_vercel_deploy (#7711), which refreshes the sign-in first and tries again a minute apart. That is used
+  # here too. Before each retry the live pointers are read again, as the first deploy's #5589 check does, and a change
+  # ends this run with nothing deployed (exit 75 from the retry hook, said below).
+  _ds_vercel_once() { ( cd "$EXPORT" && if [ -n "$_vercel_token" ]; then VERCEL_TOKEN="$_vercel_token" vercel deploy --prod --yes; else vercel deploy --prod --yes; fi ); }
+  _ds_before_retry() {
+    _ds_ptrs=$(live_pointer_snapshot)
+    [ "$_ds_ptrs" = "$LIVE_PTRS_BEFORE" ] || { echo "deploy-site: a live pointer changed while waiting to retry the deploy (#5589, kosmos#8656)"; exit 75; }
+  }
+  # The retry runs in its own subshell, so the hook's `exit 75` ends only that and comes back as its exit code. Written
+  # to a file, not a pipe, so the code read is the deploy's own; the output is printed once it is done.
+  _ds_vrc=0
+  ( KOSMOS_VERCEL_BEFORE_RETRY=_ds_before_retry site_vercel_deploy "$EXPORT" _ds_vercel_once ) > "$VOUT" 2>&1 || _ds_vrc=$?
+  cat "$VOUT"
+  echo "$_ds_vrc" > "$VRC"
+  if [ "$(cat "$VRC" 2>/dev/null)" = 75 ]; then
+    rm -f "$VRC" "$VOUT"; echo "deploy-site: refusing; nothing has been deployed. Update the site checkout to origin/main and run again (#5589)."; rm -rf "$EXPORT"; exit 75
+  fi
+fi
 vrc=$(cat "$VRC"); rm -f "$VRC"
 case "$vrc" in ''|*[!0-9]*) vrc=1 ;; esac   # no code written is a failure, never a pass
 if [ "$vrc" != 0 ]; then
