@@ -165,6 +165,7 @@ const EXCUSED = {
   ageMemberChangesForTests: 'test seam: ages the membership records instead of shortening the hour (#803)',
   setPaneSource: 'test seam: keeps status reads off the real machine',
   setRenderer: 'test seam (attachments preview)',
+  setImplForTest: 'test seam (kosmos#8637): engine/pdfpages.js counts and draws a PDF\'s later pages through macOS PDFKit (osascript); server.pdf-pages-8637.test.js answers both from a fake so the routes are asserted on any host and no subprocess runs. Production never sets it.',
   setRevealRunner: 'test seam (projects reveal)',
   setRevealEnv: 'test seam (#5881): engine/projects.js opens with xdg-open on a Linux board whose environment has a desktop (DISPLAY or WAYLAND_DISPLAY); a suite states the environment through it. Production reads process.env.',
   setRevealPlatform: 'test seam (win32-board-copy): engine/projects.js picks the Mac (/usr/bin/open), Windows (File Explorer) or Linux (xdg-open, #5881) opener; the Mac suites state darwin through it so their pins hold on a Windows box. Production reads process.platform.',

@@ -22,6 +22,7 @@ const crypto = require('node:crypto');
 const store = require('./store');
 const projects = require('./projects');
 const attachments = require('./attachments');
+const pdfpages = require('./pdfpages');   // kosmos#8637
 
 /* Review 13: read at each use, never frozen at load (store.js #1443): a module that fixes path.join(store.ROOT, ...)
    once would keep writing private copies of a person's PDFs into whichever data root was set when it first loaded. */
@@ -37,7 +38,7 @@ let NOFOLLOW = KERNEL_NOFOLLOW;
 const NONBLOCK = fs.constants.O_NONBLOCK;
 function _setNofollowForTest(v) { NOFOLLOW = arguments.length ? v : KERNEL_NOFOLLOW; }
 
-/* #6734: its own limit, not the attachment cap. This preview reads the whole file (and a PDF twice), so when the cap
+/* #6734: its own limit, not the attachment cap. This preview reads the whole file (a PDF more than once: kosmos#8637's count and later pages each copy it), so when the cap
    rose to 100 MB it stayed at the 25 MB it was built under. */
 const MAX_PREVIEW_BYTES = 25 * 1024 * 1024;
 function tooBig(st) { return st.size > MAX_PREVIEW_BYTES; }
@@ -96,6 +97,28 @@ function readHead(got, max) {
   } catch { return { ok: false, because: 'that file could not be read' }; }
   finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
+/* kosmos#8637 (review 9): later pages across the WHOLE cache, so CACHE_KEEP folders times KEEP_PAGES pages cannot
+   grow it forty-fold. The oldest drawn go first; a first page or a count is never removed here. */
+const LATER_PAGES_KEEP = 400;
+function pruneLaterPages() {
+  const CACHE = cacheDir();
+  let dirs = [];
+  try { dirs = fs.readdirSync(CACHE, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => path.join(CACHE, e.name)); } catch { return; }
+  const pages = [];
+  for (const d of dirs) {
+    let names = [];
+    try { names = fs.readdirSync(d); } catch { continue; }
+    for (const n of names) {
+      if (!/^[0-9a-f]{32}-p\d+\.png$/.test(n)) continue;
+      let t = 0;
+      try { t = fs.statSync(path.join(d, n)).mtimeMs; } catch { continue; }
+      pages.push({ f: path.join(d, n), t });
+    }
+  }
+  if (pages.length <= LATER_PAGES_KEEP) return;
+  pages.sort((a, b) => a.t - b.t);
+  for (const { f } of pages.slice(0, pages.length - LATER_PAGES_KEEP)) { try { fs.rmSync(f, { force: true }); } catch { /* next time */ } }
+}
 function prune() {
   let ents;
   const CACHE = cacheDir();
@@ -149,7 +172,20 @@ async function preview(folder, name, where, opts) {
      (one file, named by a hash of it), so a picture and the stamp it belongs to can never be paired wrongly by two
      previews racing; each render works in its own folder and is renamed into place whole. */
   const stamp = [got.st.dev, got.st.ino, got.st.size, got.st.mtimeMs, got.st.ctimeMs].concat(got.st.inoExact === undefined ? [] : [String(got.st.inoExact)]).join('|');   // hashed only (#1732: not ':'); #7229: the exact id on Windows
-  const out = path.join(dir, crypto.createHash('sha256').update(stamp).digest('hex').slice(0, 32) + '.png');
+  const hash = crypto.createHash('sha256').update(stamp).digest('hex').slice(0, 32);
+  const out = path.join(dir, hash + '.png');
+  /* kosmos#8637: a page past the first (drawn by PDFKit, engine/pdfpages.js, kept as <hash>-p<N>.png beside the first)
+     and, when asked (the viewer's HEAD), the page count (<hash>.pages). Page 1 is drawn as before. */
+  const page = opts && opts.page !== undefined ? opts.page : 1;
+  if (!Number.isInteger(page) || page < 1) return { ok: false, because: 'there is no such page' };
+  if (page > 1) return laterPage(got, dir, hash, page, opts && opts.owner);
+  /* The viewer's HEAD asks only for the count, at the same moment as its GET draws page 1: drawing page 1 here too
+     would copy the file and run Quick Look twice (review 1). So a count-only ask counts and draws nothing, and its 200
+     says nothing about whether page 1 can be drawn (the GET answers that). */
+  if (opts && opts.countOnly === true) {
+    const pages = await pageCount(got, dir, hash, opts.owner);
+    return { ok: true, type: 'image/png', bytes: Buffer.alloc(0), ...(pages ? { pages } : {}) };
+  }
   if (!fs.existsSync(out)) {
     const read = readChecked(got);   // review 2: the renderer reads a private copy, never the person's path
     if (!read.ok) return read;
@@ -162,7 +198,7 @@ async function preview(folder, name, where, opts) {
       const drawn = path.join(work, 'preview.png');
       made = await attachments.renderPdf(copy, work, drawn);
       if (made) {
-        for (const n of fs.readdirSync(dir)) if (/\.png$/.test(n) && path.join(dir, n) !== out) { try { fs.rmSync(path.join(dir, n), { force: true }); } catch { /* next time */ } }
+        dropOtherStamps(dir, hash);   // kosmos#8637: this file's later pages and count stay; an older file's go
         fs.renameSync(drawn, out);
         noteSource(dir, got.target, opts && opts.owner);   // #5254: before prune/sweep, and only beside a page that exists
       }
@@ -180,7 +216,83 @@ async function preview(folder, name, where, opts) {
   // #5254: a page drawn before this change gets its record on its next view. Only beside a page that exists (review
   // 1: a sweep during this render may have taken the folder; never recreate it holding a record and no page).
   if (fs.existsSync(out)) noteSource(dir, got.target, opts && opts.owner);
-  try { return { ok: true, type: 'image/png', bytes: fs.readFileSync(out) }; } catch { return { ok: false, because: 'this computer could not draw the first page' }; }
+  let bytes;
+  try { bytes = fs.readFileSync(out); } catch { return { ok: false, because: 'this computer could not draw the first page' }; }
+  const pages = opts && opts.count === true ? await pageCount(got, dir, hash, opts.owner) : undefined;
+  return { ok: true, type: 'image/png', bytes, ...(pages ? { pages } : {}) };
+}
+/* kosmos#8637: the cached pictures and counts that belong to an older stamp of this file (it changed since) go; this
+   stamp's first page, later pages and count stay. */
+function dropOtherStamps(dir, hash) {
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return; }
+  for (const n of names) {
+    if (!/\.(png|pages)$/.test(n) || n.startsWith(hash + '.') || n.startsWith(hash + '-p')) continue;
+    try { fs.rmSync(path.join(dir, n), { force: true }); } catch { /* next time */ }
+  }
+}
+/* kosmos#8637: runs `fn(copy, work)` on a private copy of the walked file (review 2 of #4997: nothing reads the
+   person's path but the one checked handle), in its own render folder (r-<pid>-..., which sweep leaves alone while it
+   is live), removed after. Answers fn's result, or { ok: false, because } when the file cannot be read. */
+async function withPrivateCopy(got, dir, fn) {
+  const read = readChecked(got);
+  if (!read.ok) return read;
+  const work = path.join(dir, 'r-' + process.pid + '-' + crypto.randomBytes(6).toString('hex'));
+  try {
+    fs.mkdirSync(work, { recursive: true });
+    const copy = path.join(work, 'source.pdf');
+    fs.writeFileSync(copy, read.bytes);
+    return await fn(copy, work);
+  } catch { return { ok: false, because: 'this computer could not draw that page' }; }
+  finally { try { fs.rmSync(work, { recursive: true, force: true }); } catch { /* best effort */ } }
+}
+/* kosmos#8637: this stamp's page count, read once and kept (<hash>.pages) with the folder's source record, so sweep
+   removes it when the PDF goes; null when it cannot be read, which is not kept. */
+async function pageCount(got, dir, hash, owner) {
+  const at = path.join(dir, hash + '.pages');
+  const ok = (n) => Number.isInteger(n) && n >= 1 && n <= pdfpages.MAX_PAGES;
+  try { const n = Number(fs.readFileSync(at, 'utf8').trim()); if (ok(n)) return n; } catch { /* not counted yet */ }
+  if (!pdfpages.available() || pdfpages.failedRecently(hash)) return null;
+  const n = await withPrivateCopy(got, dir, (copy) => pdfpages.count(copy));
+  if (!ok(n)) { pdfpages.noteFailed(hash); try { fs.rmdirSync(dir); } catch { /* not empty, or never made */ } return null; }
+  try {
+    dropOtherStamps(dir, hash);
+    // #5434: flushed before it becomes the file, 0600 like the source record beside it
+    require('./securewrite').writeSecret(at, String(n), 0o600, { atomicOnly: true });
+    noteSource(dir, got.target, owner);   // #5254
+    prune();
+  } catch { /* counted again next time */ }
+  return n;
+}
+/* kosmos#8637: page `page` (2 or more) of the PDF, as { ok, type, bytes, pages } or { ok: false, because }. A page past
+   the end, or a count that cannot be read, is no such page. */
+async function laterPage(got, dir, hash, page, owner) {
+  if (!pdfpages.available()) return { ok: false, because: 'this computer cannot draw that page' };
+  const pages = await pageCount(got, dir, hash, owner);
+  if (!pages || page > pages) {
+    try { fs.rmdirSync(dir); } catch { /* not empty (this file's first page is there), or never made */ }
+    return { ok: false, because: 'there is no such page' };
+  }
+  const out = path.join(dir, hash + '-p' + page + '.png');
+  if (!fs.existsSync(out)) {
+    const made = await withPrivateCopy(got, dir, async (copy) => {
+      dropOtherStamps(dir, hash);
+      // pdfpages.render draws to a temporary name beside `out` and renames it into place whole (a picture that can
+      // always be drawn again, so a move, like the first page's, not a flushed save).
+      if (!(await pdfpages.render(copy, page - 1, out))) return false;
+      pdfpages.keepNewestPages(dir, new RegExp('^' + hash + '-p\\d+\\.png$'));
+      pruneLaterPages();
+      noteSource(dir, got.target, owner);   // #5254: so sweep can tell when the PDF goes
+      return true;
+    });
+    if (made !== true) {
+      try { fs.rmdirSync(dir); } catch { /* not empty, or already gone */ }
+      return made && made.ok === false ? made : { ok: false, because: 'this computer could not draw that page' };
+    }
+    prune();
+    sweep();   // #5254
+  }
+  try { return { ok: true, type: 'image/png', bytes: fs.readFileSync(out), pages }; } catch { return { ok: false, because: 'this computer could not draw that page' }; }
 }
 
 /* #5254: a cached first page goes when its PDF, its project or its agent goes, not only when 200 newer renders push it

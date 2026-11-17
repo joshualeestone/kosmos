@@ -42,6 +42,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const store = require('./store');
+const pdfpages = require('./pdfpages');   // kosmos#8637
 
 /* #6734: 100 MB. The file is streamed both ways (stored as it arrives, served from disk), so the cap is what a
    conversation should carry, not what the board can hold in memory. */
@@ -67,9 +68,10 @@ function kindOf(type, name) {
 /** One path segment, never empty, never a dotfile, never a path, no control
     characters (they would reach the pane in the bracketed line and be refused
     there, after the upload had already said yes), cut on characters rather
-    than code units so a surrogate pair is never halved, and never one of the
-    two names this module writes beside the file. A leading `-` is kept: the
-    renderer is always handed the absolute path, never the bare name. */
+    than code units so a surrogate pair is never halved, and never record.json
+    or preview.png. A leading `-` is kept: the renderer is always handed the
+    absolute path, never the bare name. kosmos#8637's page files (PAGES_FILE,
+    pageFile) start with a dot, which this strips, so a stored name can never be one. */
 const RESERVED = new Set(['record.json', 'preview.png']);
 function safeName(name) {
   // #6734 review 11: leading spaces and dots are stripped together, so " .upload.part" cannot keep its dot and be
@@ -93,7 +95,7 @@ function storedAsIs(name) {
   if (typeof name !== 'string' || !name || name.length > 640 || name === '.' || name === '..') return false;
   if (/[/\\\0\u0000-\u001f\u007f]/.test(name)) return false;
   const plain = foldName(name);
-  return plain !== PART && !RESERVED.has(plain);
+  return plain !== PART && !RESERVED.has(plain) && plain !== PAGES_FILE && !/^\.pdf-page-\d+\.png$/.test(plain);   // kosmos#8637
 }
 
 /** Where an owner's attachments live: ('project', id) or ('agent', name). */
@@ -110,6 +112,10 @@ function newId() { return crypto.randomBytes(12).toString('hex'); }
    strips leading dots, so no stored file can carry it, and `read` never sees the folder until record.json is
    written after the rename: a half-arrived file is never an attachment. */
 const PART = '.upload.part';
+/* kosmos#8637: an attached PDF's page count and its pages past the first, beside it. Dot names, so safeName can never
+   store an upload under them (a PDF uploaded as "pages.txt" must not be overwritten by its own count). */
+const PAGES_FILE = '.pdf-pages';
+function pageFile(page) { return '.pdf-page-' + page + '.png'; }
 
 /** A new attachment's folder, made, with its paths: { id, dir, name, file, part }. */
 function slot(scope, owner, name) {
@@ -393,8 +399,9 @@ async function preview(rec) {
 }
 /** #6734: the same, as the file to send rather than its bytes ({ ok: true, type, file, unread }), so the route can
     stream a 100 MB image instead of reading it whole. `unread` is the sentence for a file that then cannot be read. */
-async function previewFile(rec) {
+async function previewFile(rec, opts) {
   if (!rec) return { ok: false, because: 'no such attachment' };
+  const page = opts && opts.page !== undefined ? opts.page : 1;
   if (rec.kind === 'image') {
     if (tooBigToPreview(rec)) return { ok: false, because: 'that image is too large to preview here; download it instead' };
     const type = imageTypeOf(rec.name) || (IMAGE_TYPES.has(String(rec.type).toLowerCase()) ? String(rec.type).toLowerCase() : null);
@@ -403,12 +410,39 @@ async function previewFile(rec) {
   }
   if (rec.kind !== 'pdf') return { ok: false, because: 'no preview for this kind of file' };
   if (tooBigToPreview(rec)) return { ok: false, because: 'that PDF is too large to preview here; download it instead' };
+  /* kosmos#8637: the page count (kept beside the file: an attachment never changes) and, past the first, the page
+     asked for. Page 1 is still Quick Look's picture, unchanged. */
+  if (!Number.isInteger(page) || page < 1) return { ok: false, because: 'there is no such page' };
+  /* The count costs a subprocess the first time, so it is read only when asked for (the viewer's HEAD) or needed (a
+     page past the first): showing page 1 does exactly what it did before. */
+  const pages = page > 1 || (opts && opts.count === true) ? await pdfPageCount(rec) : undefined;
+  // The viewer's HEAD and GET both reach page 1 below at once; renderPdf shares one drawing per `out`, so Quick Look runs once.
+  if (page > 1) {
+    if (!pages || page > pages) return { ok: false, because: 'there is no such page' };
+    const outN = path.join(rec.dir, pageFile(page));
+    if (!fs.existsSync(outN)) {
+      if (!(await pdfpages.render(rec.file, page - 1, outN))) return { ok: false, because: 'this computer could not draw that page' };
+      pdfpages.keepNewestPages(rec.dir, /^\.pdf-page-\d+\.png$/);
+    }
+    return { ok: true, type: 'image/png', file: outN, unread: 'this computer could not draw that page', pages };
+  }
   const out = path.join(rec.dir, 'preview.png');
   if (!fs.existsSync(out)) {
     const made = await renderPdf(rec.file, rec.dir, out);
     if (!made) return { ok: false, because: 'this computer could not draw the first page' };
   }
-  return { ok: true, type: 'image/png', file: out, unread: 'this computer could not draw the first page' };
+  return { ok: true, type: 'image/png', file: out, unread: 'this computer could not draw the first page', pages };
+}
+/* kosmos#8637: an attached PDF's page count, read once and kept beside it (PAGES_FILE); null when it cannot be read,
+   which is not kept, so a later look tries again. */
+async function pdfPageCount(rec) {
+  const at = path.join(rec.dir, PAGES_FILE);
+  try { const n = Number(fs.readFileSync(at, 'utf8').trim()); if (Number.isInteger(n) && n >= 1 && n <= pdfpages.MAX_PAGES) return n; } catch { /* not counted yet */ }
+  if (pdfpages.failedRecently(rec.file)) return null;
+  const n = await pdfpages.count(rec.file);
+  if (n) { try { store.saveFlushed(at, String(n)); } catch { /* counted again next time */ } }   // #5434: flushed before it is the file
+  else pdfpages.noteFailed(rec.file);
+  return n;
 }
 
 /**

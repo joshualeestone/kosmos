@@ -2007,6 +2007,7 @@ const ROOM_NOTICE_SOURCE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/;
 const unfurl = require('./engine/unfurl');
 const attachments = require('./engine/attachments');
 const filepreview = require('./engine/filepreview');   // #4997: the preview for a file in a Files list
+const pdfpages = require('./engine/pdfpages');   // kosmos#8637: a PDF's later pages and its page count
 const sheetpreview = require('./engine/sheetpreview');   // kosmos#8122: an attached spreadsheet's read-only grid
 const zipwrite = require('./engine/zipwrite');   // #6724: a folder of an agent's Files, downloaded as one zip
 // #3485: the community feed's board->feed choke (feedguard scrub -> trust -> store).
@@ -6434,10 +6435,15 @@ function listedFileVerb(req, res, verb, folder, where, opts) {
     return true;
   }
   const sandbox = "default-src 'none'; sandbox";
-  filepreview.preview(folder, named, where, opts).then((pv) => {
+  /* kosmos#8637: ?page=N for a PDF's later pages; a HEAD also reads the page count (x-kosmos-pdf-pages). A GET of
+     page 1 does what it always did. */
+  let pageRaw = null;
+  try { pageRaw = new URL(req.url, ROUTING_BASE).searchParams.get('page'); } catch { pageRaw = ''; }
+  const page = pdfpages.pageOf(pageRaw);   // null (not a page) is refused by a PDF's preview only; other kinds ignore it
+  filepreview.preview(folder, named, where, { ...(opts || {}), page, count: req.method === 'HEAD', countOnly: req.method === 'HEAD' && page === 1 }).then((pv) => {
     if (!pv.ok) { sendJson(res, 404, { ok: false, because: pv.because }); return; }
     // #6724: a text preview is the START of the file; the page says so when it was cut.
-    res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, no-cache', 'x-content-type-options': 'nosniff', 'content-security-policy': sandbox, ...(pv.cut ? { 'x-kosmos-preview-cut': '1' } : {}) });
+    res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, no-cache', 'x-content-type-options': 'nosniff', 'content-security-policy': sandbox, ...(pv.cut ? { 'x-kosmos-preview-cut': '1' } : {}), ...(pv.pages ? { 'x-kosmos-pdf-pages': String(pv.pages) } : {}) });
     res.end(req.method === 'HEAD' ? undefined : pv.bytes);
   }).catch(() => sendJson(res, 404, { ok: false, because: 'this computer could not draw that file' }));
   return true;
@@ -22372,9 +22378,14 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (attachGet[2]) {
-      attachments.previewFile(rec).then((pv) => {
+      /* kosmos#8637: ?page=N for a PDF's later pages; a HEAD also reads the page count (x-kosmos-pdf-pages), which is
+         how the viewer learns whether to show arrows. A GET of page 1 does what it always did. */
+      let pageRaw = null;
+      try { pageRaw = new URL(req.url, ROUTING_BASE).searchParams.get('page'); } catch { pageRaw = ''; }
+      const page = pdfpages.pageOf(pageRaw);   // null (not a page) is refused by a PDF's preview only; an image ignores it
+      attachments.previewFile(rec, { page, count: req.method === 'HEAD' }).then((pv) => {
         if (!pv.ok) { sendJson(res, 404, { error: pv.because }); return; }
-        sendFileStream(req, res, pv.file, pv.unread, { 'content-type': pv.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox" });
+        sendFileStream(req, res, pv.file, pv.unread, { 'content-type': pv.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", ...(pv.pages ? { 'x-kosmos-pdf-pages': String(pv.pages) } : {}) });
       }).catch(() => sendJson(res, 404, { error: 'this computer could not draw the first page' }));
       return;
     }
