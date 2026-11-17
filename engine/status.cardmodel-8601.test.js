@@ -161,6 +161,28 @@ test('kosmos#8601 review 7: another session sharing the board name is never judg
   assert.equal(status.readModel('shared', 'SHARED').earlierSession, true);
 });
 
+/* kosmos#8610: on a board running in a named world its own agents' sessions reach readModel in two shapes: the launch
+   key `name+world` (a macOS or Linux pane) and the bare name (a Windows row, which is the plain name in every world).
+   Both are the agent's own there, so both get the rule. The default world is unchanged, and there `name+qa` (another
+   world's launch key) is not the agent's own. */
+test('kosmos#8610: on a named-world board both own shapes (name+world, and the bare name a Windows row carries) get the rule', () => {
+  session('wshared', 'old.jsonl', replied('claude-opus-4-8'), 600);
+  job('wshared', 5, 'claude-haiku-5-5');
+  const before = process.env.KOSMOS_WORLD;
+  process.env.KOSMOS_WORLD = 'qa';
+  try {
+    assert.equal(status.readModel('wshared', 'wshared+qa').earlierSession, true, 'a macOS/Linux named-world pane did not get the rule');
+    assert.equal(status.readModel('wshared', 'WSHARED+QA').earlierSession, true);
+    assert.equal(status.readModel('wshared', 'wshared').earlierSession, true, 'a Windows named-world row (bare name) did not get the rule');
+    assert.deepEqual(status.readModel('wshared', 'wshared-discord'), current('claude-opus-4-8'), 'a name-sharing session got the rule');
+  } finally {
+    if (before === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = before;
+  }
+  // CONTROL, the default world: the bare name is the agent's own; another world's launch key is not.
+  assert.equal(status.readModel('wshared', 'wshared').earlierSession, true);
+  assert.deepEqual(status.readModel('wshared', 'wshared+qa'), current('claude-opus-4-8'));
+});
+
 /* Review 7: an API-error row carrying a real model is not a reply (hasReplied's own test), so it does not end the
    window. */
 test('kosmos#8601 review 7: an API error row is not a reply', () => {
