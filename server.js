@@ -24429,10 +24429,13 @@ const server = http.createServer(async (req, res) => {
       /* kosmos#7365 slice 3: the room's rows before the audience filter, the set the archive rule counts, so both arms
          agree on where the archive ends. */
       /* #8625: rows from a person the person blocked, kept before the block, are left out as the room is read. */
+      const bmRoom = require('./engine/blockedmembers');
       let blockedNow = new Set();
-      try { blockedNow = require('./engine/blockedmembers').blockedSet(); } catch { blockedNow = new Set(); }
+      try { blockedNow = bmRoom.blockedSet(); } catch { blockedNow = new Set(); }
+      // #8625: the person's own accounts (marked same_account), so the phone never offers to report or block them.
+      const ownNow = bmRoom.ownAccounts(rec.rows);
       const roomRows = guideMaskedRows(rec.rows, null)
-        .filter((m) => !require('./engine/blockedmembers').hides(m, blockedNow))
+        .filter((m) => !bmRoom.hides(m, blockedNow))
         /* Refused rows too (#315): the valve notice is deduped per room, so
            without these every agent blocked after the first vanishes silently
            and reads as unresponsive. The refusal contract already records
@@ -24462,6 +24465,7 @@ const server = http.createServer(async (req, res) => {
           : m.kind === 'external'
           ? Object.assign({ kind: 'external', id: m.id, from: m.from, fromKind: m.fromKind, text: m.text, at: m.at, external: true },
             m.unverified === true ? { unverified: true } : {},   // kosmos#7129
+            bmRoom.isOwn(m, ownNow) ? { sameAccount: true } : {},   // #8625: the person's own other computer
             /* #4649 slice 3: the owner's own label for the account that posted (the relay's stamp, matched on this
                board). The stamp itself never leaves the board. */
             (() => { const l = typeof m.member === 'string' ? labelOf.get(m.member) : null; return l ? { invited_as: l } : {}; })())
@@ -25259,9 +25263,8 @@ const server = http.createServer(async (req, res) => {
         /* The person's own account: this row, or any kept row from the same account, marked same_account by the relay (a
            row kept before #8625 stored that mark carries none, so the others are asked too). */
         const bm = require('./engine/blockedmembers');
-        const acct = bm.accountOf(row.member);
         let own = row.sameAccount === true;
-        if (!own && acct) { try { own = (messages.record().rows || []).some((m) => m && m.kind === 'external' && m.sameAccount === true && bm.accountOf(m.member) === acct); } catch { own = false; } }
+        if (!own) { try { own = bm.isOwn(row, bm.ownAccounts(messages.record().rows)); } catch { own = false; } }
         if (own) { sendJson(res, 409, { error: 'that message is from your own account, on another of your computers' }); return; }
         const out = bm.block(row.member, row.from);
         if (!out.ok) { sendJson(res, out.full || !row.member ? 409 : 503, { error: out.because }); return; }
@@ -25286,8 +25289,11 @@ const server = http.createServer(async (req, res) => {
     let row = null;
     try { row = (messages.record().rows || []).find((m) => m && m.kind === 'external' && m.id === msgId && m.project === found.id) || null; } catch { row = null; }
     if (!row) { sendJson(res, 404, { error: 'there is no message from outside by that id in this room' }); return; }
-    const account = require('./engine/blockedmembers').accountOf(row.member);
-    if (!account || row.sameAccount === true) { sendJson(res, 409, { error: 'this message has no sender Kosmos can name' }); return; }
+    const bmS = require('./engine/blockedmembers');
+    const account = bmS.accountOf(row.member);
+    let ownS = row.sameAccount === true;
+    if (!ownS) { try { ownS = bmS.isOwn(row, bmS.ownAccounts(messages.record().rows)); } catch { ownS = false; } }
+    if (!account || ownS) { sendJson(res, 409, { error: 'this message has no sender Kosmos can name' }); return; }
     sendJson(res, 200, { account });
     return;
   }

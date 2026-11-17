@@ -46,7 +46,7 @@ function write(accounts) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const tmp = file + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({ v: 1, accounts }), { mode: 0o600 });
-    fs.renameSync(tmp, file);
+    try { fs.renameSync(tmp, file); } catch (err) { try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ } throw err; }
     return { ok: true };
   } catch (err) {
     return { ok: false, because: 'the block list could not be saved', code: (err && err.code) || null };
@@ -90,10 +90,22 @@ function unblock(account) {
   return saved.ok ? { ok: true, changed: true } : saved;
 }
 
+/** The accounts the relay marked same_account on any kept outside row: the person's own, on their other computers. A
+    row kept before that mark was stored carries none, so its account is found through any other row that does. */
+function ownAccounts(rows) {
+  const out = new Set();
+  for (const m of rows || []) if (m && m.kind === 'external' && m.sameAccount === true) { const a = accountOf(m.member); if (a) out.add(a); }
+  return out;
+}
+/** Is this outside row the person's own (marked itself, or its account marked on another row)? */
+function isOwn(row, own) {
+  return !!row && (row.sameAccount === true || (!!own && own.has(accountOf(row.member))));
+}
+
 /** The list for Settings: account, the name seen when blocking, and when. Newest first. */
 function list() {
   return Object.entries(read()).map(([account, e]) => ({ account, name: e.name, at: e.at }))
     .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
 }
 
-module.exports = { accountOf, isBlocked, blockedSet, hides, block, unblock, list, FILE };
+module.exports = { accountOf, isBlocked, blockedSet, hides, block, unblock, list, ownAccounts, isOwn, FILE };

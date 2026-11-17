@@ -6,7 +6,7 @@ user-generated content and 1.2 asks for report and block.
 
 ## What finished looks like
 
-On the iPhone (and the desktop room), a message from outside your Kosmos can be reported to Kosmos and its sender
+On the iPhone, a message from outside your Kosmos can be reported to Kosmos and its sender
 blocked. A blocked person's messages are gone from your rooms on every computer they use and in every room, new ones are
 not kept or pushed, and you can unblock them in Settings. A report reaches Kosmos with the message, who sent it and the
 room. The submitted build carries this.
@@ -43,7 +43,7 @@ an operational dependency, said on the card.
 ## The phone (slice 2)
 
 - The long-press sheet (ComposerExtras.swift) gains optional Report message and Block rows, set only for a message from
-  outside this Kosmos and never in the archive view (RoomView.swift). Block asks first, in plain words, and says they
+  outside this Kosmos, in the archive view too, and never on the person's own post from another computer (RoomView.swift). Block asks first, in plain words, and says they
   are not told. Existing callers are unchanged (both default to nil).
 - Report opens the person's mail app with a message to hello@installkosmos.com: from, room name and id, message id, time
   and the words (Board.reportMail). Block posts to the board's block route by message id (Board.roomBlockRequest; only
@@ -91,3 +91,13 @@ an operational dependency, said on the card.
     account any kept row marks as the person's own. Residual: an own account with no marked row at all; Unblock undoes it.
   - WARNING recorded: quiet-run and acknowledgement logic still read a blocked person's stored rows (stated above).
   - NITs fixed: wording says the person's account (their agents and other computers), not "their Kosmos"; test count.
+- Round 3 (blind, opus): no BLOCKER, 3 WARNING, 2 CONVENTION, 5 NIT.
+  - WARNING fixed: the room route never sent the own-account mark, so the phone's check could not fire on a real board
+    (its test fed the mark by hand); the route now sends sameAccount for the person's own accounts (one helper,
+    blockedmembers.ownAccounts/isOwn, shared by the room, block and sender routes). Tested through the real route.
+  - WARNING fixed: the sender route lacked the older-row fallback; shared helper, tested on the older row.
+  - WARNING fixed: every block refusal said "try again"; only a 5xx or no answer does now.
+  - CONVENTIONs fixed: the archive comment and the plan's definition of done (iPhone only; desktop is the follow-up).
+  - NITs fixed: the module is looked up once per request; a failed rename removes its temp file; the quoted words in the
+    mail are capped at 2,000 characters (the id lets support read the rest). Not acted on: caching the block list
+    between messages (two small file reads per arriving outside message).

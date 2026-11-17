@@ -131,11 +131,12 @@ function unreadAll() {
   if (seen === null) return null;
   const out = {};
   // #8625: a blocked person's rows kept before the block are not counted, as the room does not show them.
+  const bm = require('./blockedmembers');
   let blocked = new Set();
-  try { blocked = require('./blockedmembers').blockedSet(); } catch { blocked = new Set(); }
+  try { blocked = bm.blockedSet(); } catch { blocked = new Set(); }
   for (const m of rec.rows) {
     if (!m || (m.kind !== 'post' && m.kind !== 'external') || !m.project || m.operator === true) continue;
-    if (blocked.size && require('./blockedmembers').hides(m, blocked)) continue;
+    if (blocked.size && bm.hides(m, blocked)) continue;
     const since = seen[m.project] ? Date.parse(seen[m.project]) : -Infinity;
     const at = Date.parse(m.at);
     if (!Number.isFinite(at) || at <= since) continue;

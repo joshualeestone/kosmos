@@ -1870,7 +1870,7 @@ struct RoomBubble: View {
         .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: answerable ? react : nil,
                         reply: answerable ? reply : nil, text: Board.roomWords(row),   // review 2: the words shown
                         delete: answerable && mine ? delete : nil,   // kosmos#7614: never on an archived post
-                        // #8625: Report and Block on a message from outside this Kosmos, never in the archive view.
+                        // #8625: Report and Block on a message from outside this Kosmos.
                         // Never on the person's own post from another of their computers (ownAccount). In the archive view
                         // too: a message the person can read there can be reported (guideline 1.2).
                         report: row.kind == .external && !row.ownAccount ? report : nil,

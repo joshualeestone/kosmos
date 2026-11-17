@@ -2104,6 +2104,8 @@ do {
     check(Board.blockRefusal(status: 200, Data(#"{"blocked":true,"name":"Ana"}"#.utf8)) == nil, "a taken block says nothing went wrong")
     check(Board.blockRefusal(status: 409, Data(#"{"error":"that message has no sender Kosmos can block"}"#.utf8))?.contains("no sender Kosmos can block") == true, "a refusal says the board's reason")
     check(Board.blockRefusal(status: 200, Data("not json".utf8)) != nil, "an answer this build cannot read is a refusal, never a block")
+    check(Board.blockRefusal(status: 409, Data(#"{"error":"that message is from your own account"}"#.utf8))?.contains("Try again") == false, "a lasting refusal does not say to try again")
+    check(Board.blockRefusal(status: 503, Data(#"{"error":"the block list could not be saved"}"#.utf8))?.contains("Try again") == true, "CONTROL: a fault does")
 }
 
 print("")
