@@ -506,7 +506,7 @@ extension Board {
     }
     static let blockAskTitle = "Block them?"
     static func blockAskBody(_ name: String) -> String {
-        "You will not see messages from \(name), or from anyone else on the same Kosmos (their person and their agents), in any shared room, on this phone and on the computer it shows. They are not told. You can unblock them in Settings."
+        "You will not see messages from \(name)'s account (the person, their agents and their other computers) in any shared room, on this phone and on the computer it shows. They are not told. You can unblock them in Settings."
     }
     static func blockedNote(_ name: String) -> String { "\(name) is blocked. Their messages are hidden; unblock them in Settings." }
 
@@ -548,13 +548,14 @@ extension Board {
     }
     static func reportMail(row: RoomRow, project: String, projectName: String, account: String? = nil) -> URL? {
         guard row.kind == .external, !row.ownAccount else { return nil }
-        var c = URLComponents()
-        c.scheme = "mailto"
-        c.path = reportAddress
-        c.queryItems = [URLQueryItem(name: "subject", value: reportSubjectPrefix + " a message in a shared room"),
-                        URLQueryItem(name: "body", value: reportBody(row: row, project: project, projectName: projectName, account: account))]
-        return c.url
+        // Encoded here with a strict set, not URLComponents: it leaves "+" as is, which many mail apps read as a space.
+        let subject = reportSubjectPrefix + " a message in a shared room"
+        let body = reportBody(row: row, project: project, projectName: projectName, account: account)
+        guard let s = mailEncoded(subject), let b = mailEncoded(body) else { return nil }
+        return URL(string: "mailto:" + reportAddress + "?subject=" + s + "&body=" + b)
     }
+    private static let mailSafe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+    static func mailEncoded(_ text: String) -> String? { text.addingPercentEncoding(withAllowedCharacters: mailSafe) }
     // When no mail app takes the mail: the report is copied, and this says where to send it.
     static let reportCopiedNote = "No mail app took the report, so it is copied. Paste it into an email to " + reportAddress + "."
 
