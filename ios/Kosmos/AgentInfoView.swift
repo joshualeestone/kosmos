@@ -43,6 +43,7 @@ struct AgentInfoView: View {
     @State private var switchAccountTouched = false
     @State private var switchModel = ""
     @State private var openaiModels: [Board.SwitchModel] = []
+    @State private var openaiModelsLoading = false
     @State private var switching = false
     @State private var switchLine: (text: String, ok: Bool)?
     @State private var confirmSwitch = false
@@ -299,9 +300,10 @@ struct AgentInfoView: View {
                         // Review 1: "picked" is set by the person's own change only, never by the default this page
                         // puts in when a provider is chosen (the board's SWITCH_ACCT_TOUCHED).
                         Picker("Account", selection: Binding(get: { switchAccount }, set: { v in
+                            let changed = v != switchAccount
                             switchAccount = v
                             switchAccountTouched = true
-                            if switchTo == .openai { Task { await loadOpenaiModels() } }
+                            if changed && switchTo == .openai { Task { await loadOpenaiModels() } }
                         })) {
                             ForEach(switchAccounts) { Text($0.label).tag(String?.some($0.dir)) }
                         }
@@ -309,13 +311,15 @@ struct AgentInfoView: View {
                     } else if let only = switchAccounts.first {
                         row("Account", only.label)
                     }
-                    if !switchModels.isEmpty {
+                    if openaiModelsLoading && switchTo == .openai {
+                        HStack { Text("Model").foregroundColor(Palette.primary); Spacer(); SweepDots(label: "Loading this account\u{2019}s models", scales: false) }
+                    } else if !switchModels.isEmpty {
                         Picker("Model", selection: $switchModel) {
                             ForEach(switchModels) { Text($0.label).tag($0.key) }
                         }
                         .disabled(switching)
                     }
-                    if let to = switchTo {
+                    if let to = switchTo, to.rawValue != Board.providerOf(details) {
                         Text(Board.switchNote(from: Board.providerOf(details), to: to, name: live.name))
                             .font(.footnote).foregroundColor(Palette.secondary)
                         Button { confirmSwitch = true } label: {
@@ -324,8 +328,8 @@ struct AgentInfoView: View {
                                 if switching { Spacer(); SweepDots(label: "Switching", scales: false) }
                             }
                         }
-                        .disabled(switching)
-                        .confirmationDialog("Switch \(live.name) to \(to.word)?", isPresented: $confirmSwitch, titleVisibility: .visible) {
+                        .disabled(switching || openaiModelsLoading)
+                        .confirmationDialog("Switch \(live.name) to \(to.titleWord)?", isPresented: $confirmSwitch, titleVisibility: .visible) {
                             Button("Switch and restart") { Task { await doSwitch(to) } }
                             Button("Cancel", role: .cancel) {}
                         } message: {
@@ -337,7 +341,10 @@ struct AgentInfoView: View {
                     Text(switchLine.text).font(.footnote).foregroundColor(switchLine.ok ? Palette.secondary : Palette.dangerWord)
                 }
             } header: { label("Switch AI provider") } footer: {
-                Text("Gemini on a Google subscription and the providers that run on Claude Code are switched on your computer\u{2019}s board.")
+                // Review 2: no claim that they are offered there (each has its own switch), only where they are done.
+                if Board.providerOf(details) != "meta" {
+                    Text("Some providers, such as Gemini on a Google subscription, can be switched only on your computer\u{2019}s board.")
+                }
             }
         }
     }
@@ -349,6 +356,7 @@ struct AgentInfoView: View {
         if let dir = switchAccount, !switchAccounts.contains(where: { $0.dir == dir }) {
             switchAccount = (switchAccounts.first(where: { $0.isDefault }) ?? switchAccounts.first)?.dir
             switchAccountTouched = false
+            if switchTo == .openai { Task { await loadOpenaiModels() } }   // review 2: the new account's own list
         }
         if !switchModels.isEmpty, !switchModels.contains(where: { $0.key == switchModel }) {
             switchModel = (switchModels.first(where: { $0.isDefault }) ?? switchModels.first)?.key ?? ""
@@ -360,20 +368,28 @@ struct AgentInfoView: View {
         let accounts = switchAccounts
         switchAccount = (accounts.first(where: { $0.isDefault }) ?? accounts.first)?.dir
         openaiModels = []
+        openaiModelsLoading = false   // a load for an earlier pick never holds this one's button
         switchModel = (claudeModels.first(where: { $0.isDefault }) ?? claudeModels.first)?.key ?? ""
         if switchTo == .openai { switchModel = ""; Task { await loadOpenaiModels() } }
     }
     private func loadOpenaiModels() async {
-        guard switchTo == .openai, let dir = switchAccount else { openaiModels = []; return }
+        // Review 2: another account's models are never on screen while this one's load (the board's fillSwitchModel).
+        openaiModels = []
+        switchModel = ""
+        guard switchTo == .openai, let dir = switchAccount else { openaiModelsLoading = false; return }
+        openaiModelsLoading = true
         #if DEBUG
-        if AgentInfoView.sample { openaiModels = Board.parseSwitchModels(Data(#"{"ok":true,"models":[{"key":"gpt-5.6","label":"GPT 5.6"},{"key":"gpt-5.6-mini","label":"GPT 5.6 mini"}]}"#.utf8), openai: true); return }
+        if AgentInfoView.sample { openaiModelsLoading = false; openaiModels = Board.parseSwitchModels(Data(#"{"ok":true,"models":[{"key":"gpt-5.6","label":"GPT 5.6"},{"key":"gpt-5.6-mini","label":"GPT 5.6 mini"}]}"#.utf8), openai: true); return }
         #endif
         let res = await client.throughMac { Board.openaiModelsRequest(mac: $0, dir: dir) }
         guard switchTo == .openai, switchAccount == dir else { return }   // a newer pick is the one shown
+        openaiModelsLoading = false
         openaiModels = res.flatMap { $0.1.statusCode == 200 ? Board.parseSwitchModels($0.0, openai: true) : nil } ?? []
         if !openaiModels.contains(where: { $0.key == switchModel }) { switchModel = "" }
     }
     private func doSwitch(_ to: Board.SwitchProvider) async {
+        // Review 2: what is still on offer, never a pick a read dropped while the dialog was up.
+        guard switchTo == to, switchTargets.contains(to), !openaiModelsLoading else { return }
         switching = true
         defer { switching = false }
         let account = switchAccounts.isEmpty ? nil : switchAccount
