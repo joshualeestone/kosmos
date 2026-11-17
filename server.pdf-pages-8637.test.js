@@ -194,3 +194,49 @@ test('filepreview.preview refuses a page that is not a whole number from 1', asy
   assert.equal(ok.ok, true, 'CONTROL: page 2');
   assert.equal(ok.pages, 3);
 });
+
+test('attachment: a PDF uploaded as "pages.txt" (or any page-file name) is never overwritten by its own count or pages', async () => {
+  reset(3);
+  const body = Buffer.from('%PDF-1.4 the only copy');
+  for (const name of ['pages.txt', '.pdf-pages', 'preview-p2.png', '.pdf-page-2.png']) {
+    const rec = attachments.save('agent', 'ava', { name, type: 'application/pdf', bytes: body });
+    assert.ok(!['.pdf-pages', '.pdf-page-2.png'].includes(path.basename(rec.file)), 'stored under a page file\'s name: ' + rec.file);
+    const h = await fetch(`${base()}/api/attachment/${rec.id}/preview`, { method: 'HEAD' });
+    if (rec.kind === 'pdf') {
+      assert.equal(h.headers.get('x-kosmos-pdf-pages'), '3', name);
+      await (await fetch(`${base()}/api/attachment/${rec.id}/preview?page=2`)).arrayBuffer();
+    }
+    assert.deepEqual(fs.readFileSync(rec.file), body, name + ': the upload itself was overwritten');
+  }
+});
+
+test('Files list: the viewer\'s HEAD counts without drawing page 1 (its GET does that), and the count is kept', async () => {
+  reset(3);
+  let drawn = 0;
+  attachments.setRenderer((file, dir) => { drawn++; fs.writeFileSync(path.join(dir, 'preview.png'), Buffer.concat([PNG, Buffer.from('first:'), fs.readFileSync(file)])); });
+  try {
+    fs.writeFileSync(path.join(FILES, 'headonly.pdf'), Buffer.from('%PDF-1.4 headonly'));
+    const h = await fetch(filesUrl('headonly.pdf'), { method: 'HEAD' });
+    assert.equal(h.status, 200);
+    assert.equal(h.headers.get('x-kosmos-pdf-pages'), '3');
+    assert.equal(drawn, 0, 'the HEAD drew page 1');
+    const g = await fetch(filesUrl('headonly.pdf'));
+    assert.match(Buffer.from(await g.arrayBuffer()).toString('latin1'), /first:%PDF-1\.4 headonly/, 'CONTROL: the GET draws page 1');
+    assert.equal(drawn, 1);
+    await fetch(filesUrl('headonly.pdf'), { method: 'HEAD' });
+    assert.equal(seam.counts.length, 1, 'the count was read again instead of kept');
+  } finally {
+    attachments.setRenderer((file, dir) => { fs.writeFileSync(path.join(dir, 'preview.png'), Buffer.concat([PNG, Buffer.from('first:'), fs.readFileSync(file)])); });
+  }
+});
+
+test('Files list: flipping a PDF whose first page was never drawn counts once, not once per page', async () => {
+  reset(4);
+  fs.writeFileSync(path.join(FILES, 'direct-pages.pdf'), Buffer.from('%PDF-1.4 direct-pages'));
+  for (const n of [2, 3, 4]) {
+    const r = await fetch(filesUrl('direct-pages.pdf', '&page=' + n));
+    assert.equal(r.status, 200, 'page ' + n);
+    await r.arrayBuffer();
+  }
+  assert.equal(seam.counts.length, 1);
+});

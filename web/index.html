@@ -78373,6 +78373,7 @@ function pvOpen(id, from) {
     img.addEventListener('error', () => {
       if (img.dataset.pvPage && img.dataset.pvPage !== '1' && note) { note.textContent = 'Kosmos could not draw page ' + img.dataset.pvPage; return; }
       stage.textContent = ''; stage.appendChild(fileCard());
+      delete back.pvFlip;   // kosmos#8637: the card has no pages to flip
     });
     if (a.kind === 'pdf' && note) pvPdfPager(back, stage, img, note, a);
     pvZoomFrom(img, from);

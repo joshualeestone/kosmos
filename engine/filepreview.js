@@ -157,6 +157,12 @@ async function preview(folder, name, where, opts) {
   const page = opts && opts.page !== undefined ? opts.page : 1;
   if (!Number.isInteger(page) || page < 1) return { ok: false, because: 'there is no such page' };
   if (page > 1) return laterPage(got, dir, hash, page, opts && opts.owner);
+  /* The viewer's HEAD asks only for the count, at the same moment as its GET draws page 1: drawing page 1 here too
+     would copy the file and run Quick Look twice (review 1). So a count-only ask counts and draws nothing. */
+  if (opts && opts.countOnly === true) {
+    const pages = await pageCount(got, dir, hash, opts.owner);
+    return { ok: true, type: 'image/png', bytes: Buffer.alloc(0), ...(pages ? { pages } : {}) };
+  }
   if (!fs.existsSync(out)) {
     const read = readChecked(got);   // review 2: the renderer reads a private copy, never the person's path
     if (!read.ok) return read;
@@ -189,7 +195,7 @@ async function preview(folder, name, where, opts) {
   if (fs.existsSync(out)) noteSource(dir, got.target, opts && opts.owner);
   let bytes;
   try { bytes = fs.readFileSync(out); } catch { return { ok: false, because: 'this computer could not draw the first page' }; }
-  const pages = opts && opts.count === true ? await pageCount(got, dir, hash) : undefined;
+  const pages = opts && opts.count === true ? await pageCount(got, dir, hash, opts.owner) : undefined;
   return { ok: true, type: 'image/png', bytes, ...(pages ? { pages } : {}) };
 }
 /* kosmos#8637: the cached pictures and counts that belong to an older stamp of this file (it changed since) go; this
@@ -217,26 +223,29 @@ async function withPrivateCopy(got, dir, fn) {
   } catch { return { ok: false, because: 'this computer could not draw that page' }; }
   finally { try { fs.rmSync(work, { recursive: true, force: true }); } catch { /* best effort */ } }
 }
-/* kosmos#8637: this stamp's page count, read once and kept (<hash>.pages); null when it cannot be read, which is not
-   kept. Only into a folder that already holds this file's first page: a count is never the only thing in a folder. */
-async function pageCount(got, dir, hash) {
+/* kosmos#8637: this stamp's page count, read once and kept (<hash>.pages) with the folder's source record, so sweep
+   removes it when the PDF goes; null when it cannot be read, which is not kept. */
+async function pageCount(got, dir, hash, owner) {
   const at = path.join(dir, hash + '.pages');
   const ok = (n) => Number.isInteger(n) && n >= 1 && n <= pdfpages.MAX_PAGES;
   try { const n = Number(fs.readFileSync(at, 'utf8').trim()); if (ok(n)) return n; } catch { /* not counted yet */ }
   if (!pdfpages.available()) return null;
   const n = await withPrivateCopy(got, dir, (copy) => pdfpages.count(copy));
-  if (!ok(n)) return null;
-  if (fs.existsSync(path.join(dir, hash + '.png'))) {
+  if (!ok(n)) { try { fs.rmdirSync(dir); } catch { /* not empty, or never made */ } return null; }
+  try {
+    dropOtherStamps(dir, hash);
     // #5434: flushed before it becomes the file, 0600 like the source record beside it
-    try { require('./securewrite').writeSecret(at, String(n), 0o600, { atomicOnly: true }); } catch { /* counted again next time */ }
-  }
+    require('./securewrite').writeSecret(at, String(n), 0o600, { atomicOnly: true });
+    noteSource(dir, got.target, owner);   // #5254
+    prune();
+  } catch { /* counted again next time */ }
   return n;
 }
 /* kosmos#8637: page `page` (2 or more) of the PDF, as { ok, type, bytes, pages } or { ok: false, because }. A page past
    the end, or a count that cannot be read, is no such page. */
 async function laterPage(got, dir, hash, page, owner) {
   if (!pdfpages.available()) return { ok: false, because: 'this computer cannot draw that page' };
-  const pages = await pageCount(got, dir, hash);
+  const pages = await pageCount(got, dir, hash, owner);
   if (!pages || page > pages) {
     try { fs.rmdirSync(dir); } catch { /* not empty (this file's first page is there), or never made */ }
     return { ok: false, because: 'there is no such page' };

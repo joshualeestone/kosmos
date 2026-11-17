@@ -3820,15 +3820,14 @@ function seedFiles(roots) {
   /* kosmos#8637: a real three-page PDF for the pdf-pages screen, made by this Mac's own print filter from words only
      (no name, path or date is drawn on the pages). Dated before every row above, so the agent-files screens, which show
      the newest ten, look as they did; the screen opens it from View All. Not a Mac: no file, and that screen errors. */
+  const words = path.join(chatFiles, '.three.txt');
   try {
-    const words = path.join(chatFiles, '.three.txt');
     fs.writeFileSync(words, ['Spring lookbook, page one', 'Spring lookbook, page two', 'Spring lookbook, page three'].join('\n\f'));
     const pdf = path.join(chatFiles, 'spring-lookbook.pdf');
     fs.writeFileSync(pdf, require('node:child_process').execFileSync('/usr/sbin/cupsfilter', ['-m', 'application/pdf', words], { stdio: ['ignore', 'pipe', 'ignore'] }));
-    fs.rmSync(words, { force: true });
     const t = new Date(t0 - 60e3);
     fs.utimesSync(pdf, t, t);
-  } catch { /* not a Mac: the pdf-pages screen has nothing to open */ }
+  } catch { /* not a Mac: the pdf-pages screen has nothing to open */ } finally { fs.rmSync(words, { force: true }); }
   // The store set records this after the project exists, naming it (seed below).
   if (!DATA.askInProject) {
     landed(require(path.join(REPO, 'engine', 'selfreport')).record(DATA.askAgent, {

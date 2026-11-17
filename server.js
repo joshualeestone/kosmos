@@ -6441,7 +6441,7 @@ function listedFileVerb(req, res, verb, folder, where, opts) {
   try { pageRaw = new URL(req.url, ROUTING_BASE).searchParams.get('page'); } catch { pageRaw = ''; }
   const page = pdfpages.pageOf(pageRaw);
   if (page === null) { sendJson(res, 404, { ok: false, because: 'there is no such page' }); return true; }
-  filepreview.preview(folder, named, where, { ...(opts || {}), page, count: req.method === 'HEAD' }).then((pv) => {
+  filepreview.preview(folder, named, where, { ...(opts || {}), page, count: req.method === 'HEAD', countOnly: req.method === 'HEAD' && page === 1 }).then((pv) => {
     if (!pv.ok) { sendJson(res, 404, { ok: false, because: pv.because }); return; }
     // #6724: a text preview is the START of the file; the page says so when it was cut.
     res.writeHead(200, { 'content-type': pv.type, 'cache-control': 'private, no-cache', 'x-content-type-options': 'nosniff', 'content-security-policy': sandbox, ...(pv.cut ? { 'x-kosmos-preview-cut': '1' } : {}), ...(pv.pages ? { 'x-kosmos-pdf-pages': String(pv.pages) } : {}) });

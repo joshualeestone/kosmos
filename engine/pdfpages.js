@@ -79,7 +79,8 @@ function render(file, index, out) {
   return p;
 }
 
-/** The page asked for in a preview address: an integer from 1, or 1 for none or anything else. */
+/** The page asked for in a preview address: 1 when none is given, the number for a whole number from 1 (written
+    without a leading zero, at most five digits), null for anything else (the routes answer 404). */
 function pageOf(raw) {
   const s = String(raw === undefined || raw === null ? '' : raw);
   return /^[1-9]\d{0,4}$/.test(s) ? Number(s) : (s === '' ? 1 : null);

@@ -68,9 +68,10 @@ function kindOf(type, name) {
 /** One path segment, never empty, never a dotfile, never a path, no control
     characters (they would reach the pane in the bracketed line and be refused
     there, after the upload had already said yes), cut on characters rather
-    than code units so a surrogate pair is never halved, and never one of the
-    two names this module writes beside the file. A leading `-` is kept: the
-    renderer is always handed the absolute path, never the bare name. */
+    than code units so a surrogate pair is never halved, and never record.json
+    or preview.png. A leading `-` is kept: the renderer is always handed the
+    absolute path, never the bare name. kosmos#8637's page files (PAGES_FILE,
+    pageFile) start with a dot, which this strips, so a stored name can never be one. */
 const RESERVED = new Set(['record.json', 'preview.png']);
 function safeName(name) {
   // #6734 review 11: leading spaces and dots are stripped together, so " .upload.part" cannot keep its dot and be
@@ -94,7 +95,7 @@ function storedAsIs(name) {
   if (typeof name !== 'string' || !name || name.length > 640 || name === '.' || name === '..') return false;
   if (/[/\\\0\u0000-\u001f\u007f]/.test(name)) return false;
   const plain = foldName(name);
-  return plain !== PART && !RESERVED.has(plain);
+  return plain !== PART && !RESERVED.has(plain) && plain !== PAGES_FILE && !/^\.pdf-page-\d+\.png$/.test(plain);   // kosmos#8637
 }
 
 /** Where an owner's attachments live: ('project', id) or ('agent', name). */
@@ -111,6 +112,10 @@ function newId() { return crypto.randomBytes(12).toString('hex'); }
    strips leading dots, so no stored file can carry it, and `read` never sees the folder until record.json is
    written after the rename: a half-arrived file is never an attachment. */
 const PART = '.upload.part';
+/* kosmos#8637: an attached PDF's page count and its pages past the first, beside it. Dot names, so safeName can never
+   store an upload under them (a PDF uploaded as "pages.txt" must not be overwritten by its own count). */
+const PAGES_FILE = '.pdf-pages';
+function pageFile(page) { return '.pdf-page-' + page + '.png'; }
 
 /** A new attachment's folder, made, with its paths: { id, dir, name, file, part }. */
 function slot(scope, owner, name) {
@@ -413,7 +418,7 @@ async function previewFile(rec, opts) {
   const pages = page > 1 || (opts && opts.count === true) ? await pdfPageCount(rec) : undefined;
   if (page > 1) {
     if (!pages || page > pages) return { ok: false, because: 'there is no such page' };
-    const outN = path.join(rec.dir, 'preview-p' + page + '.png');
+    const outN = path.join(rec.dir, pageFile(page));
     if (!fs.existsSync(outN) && !(await pdfpages.render(rec.file, page - 1, outN))) return { ok: false, because: 'this computer could not draw that page' };
     return { ok: true, type: 'image/png', file: outN, unread: 'this computer could not draw that page', pages };
   }
@@ -424,10 +429,10 @@ async function previewFile(rec, opts) {
   }
   return { ok: true, type: 'image/png', file: out, unread: 'this computer could not draw the first page', pages };
 }
-/* kosmos#8637: an attached PDF's page count, read once and kept beside it (pages.txt); null when it cannot be read,
+/* kosmos#8637: an attached PDF's page count, read once and kept beside it (PAGES_FILE); null when it cannot be read,
    which is not kept, so a later look tries again. */
 async function pdfPageCount(rec) {
-  const at = path.join(rec.dir, 'pages.txt');
+  const at = path.join(rec.dir, PAGES_FILE);
   try { const n = Number(fs.readFileSync(at, 'utf8').trim()); if (Number.isInteger(n) && n >= 1 && n <= pdfpages.MAX_PAGES) return n; } catch { /* not counted yet */ }
   const n = await pdfpages.count(rec.file);
   if (n) { try { store.saveFlushed(at, String(n)); } catch { /* counted again next time */ } }   // #5434: flushed before it is the file
