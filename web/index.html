@@ -78048,6 +78048,17 @@ function pjPreviewCard(preview) {
     + '</a>';
 }
 
+/* kosmos#8636: a preview picture that still fails in the browser (the board's image cache let it go and the site no
+   longer answers, or Kosmos+ dropped it) takes its box away, so the card keeps its words and never shows a broken
+   picture. An error does not bubble, so this listens in the capture phase. */
+function lpvImageFailed(e) {
+  const t = e && e.target;
+  if (!t || t.tagName !== 'IMG' || !t.closest) return;
+  const box = t.closest('.lpv-img');
+  if (box && box.closest('.lpv')) box.remove();
+}
+document.addEventListener('error', lpvImageFailed, true);
+
 /* The attached document card (#358), drawn under a message's text when the
    row carries `attachment` from the upload route: {id, name, type, size, url,
    preview, kind}. Branches on kind: an image shows itself; a PDF shows its

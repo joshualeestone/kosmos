@@ -6045,9 +6045,17 @@ function withPreviews(rows, opts) {
     const hit = found.bare ? unfurl.peekBare(link) : unfurl.peek(link);
     if (hit === null) { unfurl.warm(link, { bare: found.bare }); continue; }
     if (!hit.ok) continue;
+    /* kosmos#8636: the picture only once it is known to load. Not yet fetched: the card waits for the next poll
+       (warm fetches it with the page), so it appears once, whole, never as an empty box that fills in or breaks. One
+       that could not be fetched: the card has no picture, its words kept, never a broken box. */
+    let image = '';
+    if (hit.image) {
+      const state = unfurl.imageState(hit.image);
+      if (state === null) { unfurl.warmImage(hit.image); continue; }
+      if (state === 'good') image = '/api/unfurl/image?url=' + encodeURIComponent(hit.image);
+    }
     r.preview = {
-      url: hit.url, title: hit.title, description: hit.description, site: hit.site, fetchedAt: hit.fetchedAt,
-      image: hit.image ? '/api/unfurl/image?url=' + encodeURIComponent(hit.image) : '',
+      url: hit.url, title: hit.title, description: hit.description, site: hit.site, fetchedAt: hit.fetchedAt, image,
     };
   }
   return rows;
@@ -22387,8 +22395,13 @@ const server = http.createServer(async (req, res) => {
     let target = '';
     try { target = new URL(req.url, ROUTING_BASE).searchParams.get('url') || ''; } catch { target = ''; }
     if (!target) { sendJson(res, 400, { error: 'say which link' }); return; }
-    unfurl.preview(target).then((got) => {
+    unfurl.preview(target).then(async (got) => {
       if (!got.ok) { sendJson(res, 200, { ok: false, because: got.because }); return; }
+      // kosmos#8636: a picture that cannot be fetched is left out, so the card keeps its words with no broken box.
+      if (got.image && unfurl.imageState(got.image) !== 'good') {
+        const pic = await unfurl.image(got.image).catch(() => null);
+        if (!pic || !pic.ok) got = { ...got, image: '' };
+      }
       sendJson(res, 200, {
         ok: true, url: got.url, title: got.title, description: got.description, site: got.site, fetchedAt: got.fetchedAt,
         /* The image is served back through this process, never as the site's

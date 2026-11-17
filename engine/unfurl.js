@@ -78,7 +78,7 @@ function remember(key, value) {
   cache.set(key, { at: Date.now(), value });
   return value;
 }
-function resetForTests() { cache.clear(); imageBytes = 0; fetcher = (url, opts) => fetch(url, opts); resolver = (host) => dns.lookup(host, { all: true }); }
+function resetForTests() { cache.clear(); knownImages.clear(); imageBytes = 0; fetcher = (url, opts) => fetch(url, opts); resolver = (host) => dns.lookup(host, { all: true }); }
 
 /** Is this address one that must never be fetched from here? */
 function privateAddress(ip) {
@@ -307,18 +307,20 @@ async function image(raw) {
   const hit = cached(key);
   if (hit) return hit;
   const got = await guardedFetch(raw, 'image/*');
-  if (!got.ok) return remember(key, got);
+  if (!got.ok) { known(raw, false); return remember(key, got); }
   try {
     const type = (got.res.headers.get('content-type') || '').toLowerCase().split(';')[0].trim();
     /* 🛑 NO SVG. An SVG carries script, and this proxy serves it on the
        board's own origin, where the write routes live with no login: "open
        image in new tab" on a hostile og:image would run that script as the
        board. Raster types only; the route adds a sandboxing CSP as well. */
-    if (!/^image\/(png|jpeg|gif|webp|avif)$/.test(type)) { discard(got.res); return remember(key, { ok: false, because: 'that is not an image this board will show' }); }
+    if (!/^image\/(png|jpeg|gif|webp|avif)$/.test(type)) { discard(got.res); known(raw, false); return remember(key, { ok: false, because: 'that is not an image this board will show' }); }
     const bytes = await readCapped(got.res, IMAGE_MAX, false);
     if (!bytes) return remember(key, { ok: false, because: 'that image is too large to show' });
+    known(raw, true);
     return remember(key, { ok: true, type, bytes });
   } catch {
+    known(raw, false);
     return remember(key, { ok: false, because: 'we could not read that image' });
   } finally {
     clearTimeout(got.timer);
@@ -482,6 +484,30 @@ function peekBare(httpsUrl) {
   return p && (p.ok || !unreached(p.because)) ? p : null;
 }
 
+/* kosmos#8636 (Josh 11-17: a link preview's picture "keeps not rendering", a broken "?" box 17 minutes on): whether a
+   preview's image could be fetched, kept apart from the bytes (which the image cache drops after ten minutes or
+   when over its budget) for a day, so the card a poll carries is decided by the last answer while a newer one is
+   fetched, and never flips between with-picture and without. At most KNOWN_MAX addresses, oldest dropped first. */
+const KNOWN_MS = 24 * 60 * 60 * 1000;
+const KNOWN_MAX = 1000;
+const knownImages = new Map();
+function known(raw, ok) {
+  const key = String(raw);
+  knownImages.delete(key);
+  knownImages.set(key, { ok, at: Date.now() });
+  while (knownImages.size > KNOWN_MAX) knownImages.delete(knownImages.keys().next().value);
+}
+/** kosmos#8636: 'good' or 'bad' from the last answer for this image address, or null when it was never fetched (or
+    not for a day). A last answer older than the image cache's own ten minutes starts a fresh fetch, never awaited. */
+function imageState(raw) {
+  const k = knownImages.get(String(raw));
+  if (!k) return null;
+  const age = Date.now() - k.at;
+  if (age > KNOWN_MS) { knownImages.delete(String(raw)); return null; }
+  if (age > CACHE_MS) warmImage(raw);
+  return k.ok ? 'good' : 'bad';
+}
+
 /* In flight, so a poll every five seconds does not start a second fetch for
    a link whose first is still running. */
 const inflight = new Set();
@@ -492,7 +518,18 @@ function warm(raw, opts) {
   const key = (bare ? 'b:' : 'p:') + String(raw);
   if ((bare ? peekBare(String(raw)) : cached(key)) || inflight.has(key)) return;
   inflight.add(key);
-  (bare ? previewBare(String(raw)) : preview(String(raw))).catch(() => {}).finally(() => inflight.delete(key));
+  /* kosmos#8636: the preview's picture is fetched in the same warm-up, so the card is ready with or without it by
+     the time a poll can carry it, instead of its picture being asked for only once the page draws an empty box. */
+  (bare ? previewBare(String(raw)) : preview(String(raw)))
+    .then((got) => (got && got.ok && got.image && imageState(got.image) === null ? image(got.image) : null))
+    .catch(() => {}).finally(() => inflight.delete(key));
+}
+/** kosmos#8636: start fetching a preview's picture if nothing is cached or running; never awaited. */
+function warmImage(raw) {
+  const key = 'i:' + String(raw);
+  if (cached(key) || inflight.has(key)) return;
+  inflight.add(key);
+  image(String(raw)).catch(() => {}).finally(() => inflight.delete(key));
 }
 
-module.exports = { firstLinkInfo, bareWeb, bareSplit, previewBare, peekBare, peek, warm, preview, image, pageText, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };
+module.exports = { firstLinkInfo, bareWeb, bareSplit, previewBare, peekBare, peek, warm, preview, image, imageState, warmImage, pageText, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };
