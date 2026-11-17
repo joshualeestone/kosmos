@@ -461,7 +461,7 @@ extension Board {
         let names = kept.map { accountName($0) }
         var seen: [String: Int] = [:]
         for n in names { seen[n.lowercased(), default: 0] += 1 }
-        return zip(kept, names).map { a, name in
+        let out: [SwitchAccount] = zip(kept, names).map { a, name in
             func text(_ k: String) -> String? { (a[k] as? String).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } }
             let dir = a["dir"] as! String
             var label = name
@@ -473,12 +473,20 @@ extension Board {
             if ((a["connection"] as? [String: Any])?["state"] as? String) == "unknown" { label += " (could not check just now)" }
             return SwitchAccount(dir: dir, label: label, isDefault: (a["isDefault"] as? Bool) == true)
         }
+        // Review 3: when even the qualifier clashes (one email, two folders named alike), the whole folder, which is unique.
+        var count: [String: Int] = [:]
+        for r in out { count[r.label.lowercased(), default: 0] += 1 }
+        return out.map { r in
+            guard (count[r.label.lowercased()] ?? 0) > 1 else { return r }
+            let name = zip(kept, names).first { ($0.0["dir"] as? String) == r.dir }?.1 ?? r.label
+            return SwitchAccount(dir: r.dir, label: name + " (" + r.dir + ")", isDefault: r.isDefault)
+        }
     }
     // Which providers the phone offers this agent: every one with an account it could land on, never its own (the
     // board refuses a no-op), and nothing at all for an agent the board would not let you switch.
-    static func switchTargets(_ d: AgentDetails, accounts rows: [[String: Any]]) -> [SwitchProvider] {
+    static func switchTargets(_ d: AgentDetails, accounts rows: [[String: Any]], landed: String? = nil) -> [SwitchProvider] {
         guard d.isNamedOurs, !d.neverRecorded else { return [] }
-        let current = providerOf(d)
+        let current = landed ?? providerOf(d)
         if current == "meta" { return [] }   // the board: moving an agent on Meta Muse is not offered yet
         return SwitchProvider.allCases.filter { p in
             guard p.rawValue != current else { return false }
@@ -546,14 +554,26 @@ extension Board {
     }
     // The route's own sentence, as the board shows it (msg.textContent = out.because): it says what came across and what
     // did not. `ok` only for outcome "changed"; a partial is saved but not running on the new provider yet.
+    // Review 3: no answer (or one that is not the route's) never says "nothing was switched": the request may have
+    // landed and the restart run. It says it cannot tell, and where to look.
+    static let switchUnknown = "We did not get an answer, so we cannot tell whether it switched. Pull down to see what it runs on now."
     static func providerSwitchResult(status: Int, body: Data?) -> (sentence: String, ok: Bool) {
         guard status != 0, let obj = body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) else {
-            return ("We could not reach Kosmos, so nothing was switched.", false)
+            return (switchUnknown, false)
         }
         let because = (obj["because"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
             ?? (obj["error"] as? String).map(sentence)
         if (200..<300).contains(status), (obj["outcome"] as? String) == "changed" { return (because ?? "Switched.", true) }
-        return (because ?? "That did not work, so nothing was switched.", false)
+        // A refusal (4xx, outcome refused) wrote nothing (server.js checks before any write); anything else may have.
+        let refused = (obj["outcome"] as? String) == "refused" || (400..<500).contains(status)
+        return (because ?? (refused ? "That did not work, so nothing was switched." : switchUnknown), false)
+    }
+    // The provider the route says it landed on (outcome changed or partial), for the page to use until /api/status
+    // catches up with the restart (the board patches CURRENT the same way).
+    static func providerSwitchLanded(status: Int, body: Data?) -> String? {
+        guard (200..<300).contains(status), let obj = body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
+              ["changed", "partial"].contains((obj["outcome"] as? String) ?? "") else { return nil }
+        return (obj["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     // What the person is told before the switch: the board's switchFamilyNote, word for word, for the providers the
