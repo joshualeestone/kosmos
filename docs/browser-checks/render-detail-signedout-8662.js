@@ -5,7 +5,12 @@
  * says "not signed in", #2023, but the agent page never did). Now, on the agent page, in both looks:
  *   - before the sign-out (control): no signed-out note, the Model section is not inert;
  *   - once every read is refused (403, the board's own body): the note shows and the Model section is inert;
- *   - once reads succeed again (signed back in): the note is gone and the Model section is live again.
+ *   - once reads succeed again (signed back in): the note is gone and the Model section is live again;
+ *   - a phone or computer whose relay sign-in lapsed (#718: 401 with {"signed_out":true}) gets the board's own
+ *     sentence and Sign in button, not this computer's tab wording;
+ *   - a genuine outage after a sign-out (nothing answers) is not a sign-out (#268): the note goes.
+ * Red on main: the two sign-out arms and the relay arm in each look (the note does not exist there); the control, the
+ * signed-in-again arm and the outage arm pass on main because the note is absent everywhere.
  * Reads are intercepted (as render-board-signin-403-2023.js does), so no enforcing board or token is needed.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
@@ -41,10 +46,13 @@ const state = (page) => page.evaluate(() => {
       const page = await ctx.newPage();
       page.on('pageerror', (e) => errors.push(look + ': ' + String(e && e.message || e)));
       if (look === 'new') await page.addInitScript(() => { try { localStorage.setItem('kosmos-look', 'new'); } catch { /* storage refused */ } });
-      let refuse = false;
-      await page.route('**/api/**', (r) => (refuse
-        ? r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify(AUTH_403) })
-        : r.fallback()));
+      let refuse = false;   // false | '403' | 'relay' | 'down'
+      await page.route('**/api/**', (r) => {
+        if (refuse === '403') return r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify(AUTH_403) });
+        if (refuse === 'relay') return r.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ signed_out: true }) });
+        if (refuse === 'down') return r.abort('connectionrefused');
+        return r.fallback();
+      });
       await page.goto(BASE + '/', { waitUntil: 'load' });
       if (await page.$('#firstrun:not([hidden])')) await page.keyboard.press('Escape');
       // The first agent, from the board's own status read (made by the page, so it carries the page's credentials).
@@ -61,7 +69,7 @@ const state = (page) => page.evaluate(() => {
       const before = await state(page);
       check(`${look}: control: signed in, no signed-out note and the Model section is live`, !before.note && !before.inert, JSON.stringify(before));
 
-      refuse = true;
+      refuse = '403';
       await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && !n.hidden; }, null, { timeout: 20000 }).catch(() => {});
       const out = await state(page);
       check(`${look}: signed out: the agent page says so`, out.note && /signed out/i.test(out.text) && /Sign this tab in again/.test(out.text), JSON.stringify(out));
@@ -71,6 +79,18 @@ const state = (page) => page.evaluate(() => {
       await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && n.hidden; }, null, { timeout: 20000 }).catch(() => {});
       const back = await state(page);
       check(`${look}: signed in again: the note is gone and the Model section is live`, !back.note && !back.inert, JSON.stringify(back));
+
+      refuse = 'relay';
+      await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && !n.hidden; }, null, { timeout: 20000 }).catch(() => {});
+      const relay = await state(page);
+      const button = await page.evaluate(() => !!document.querySelector('#d-signedout [data-device-signin]'));
+      check(`${look}: relay sign-out: the board's own sentence and Sign in button, the Model section inert`,
+        relay.note && /phone or computer was signed out/i.test(relay.text) && button && relay.inert, JSON.stringify({ ...relay, button }));
+
+      refuse = 'down';
+      await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && n.hidden; }, null, { timeout: 20000 }).catch(() => {});
+      const down = await state(page);
+      check(`${look}: an outage after a sign-out is not a sign-out: the note goes and the Model section is live`, !down.note && !down.inert, JSON.stringify(down));
       await ctx.close();
     }
     check('no page errors', errors.length === 0, JSON.stringify(errors.slice(0, 3)));

@@ -221,3 +221,8 @@ test('kosmos#8662: signed out, an unread model says so; signed in, the old lines
   // A model the board already read is still named while signed out (the page shows what it last read).
   assert.match(runModelLineSignedOut({ modelName: 'Claude Opus 5.5' }, { needs: true }), /Opus 5\.5/);
 });
+
+test('kosmos#8662: lifted without the sign-in flags (every older caller), modelLine keeps its old lines', () => {
+  assert.equal(runModelLine({}), 'Unknown Model');
+  assert.equal(runModelLine({ neverRecorded: true }), 'Made before Kosmos recorded this');
+});
