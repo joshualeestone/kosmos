@@ -149,3 +149,8 @@ an operational dependency, said on the card.
   - NITs fixed: the block route comment says the account part leaves only through the sender route; test count.
     Not acted on: removing the notification observer (the store lives as long as the app); Unblock clears every block's
     hidden ids (the board still hides the others); the privacy label (the mail is sent by the person's own app).
+- Round 8 (blind, sonnet): no BLOCKER, 4 WARNING, 3 NIT. Review stopped at the 8-round cap with no blocker open;
+  leftovers recorded on #8625 as follow-ups: remove the unblock observer in a deinit (the store lives as long as the app,
+  and the observer holds self weakly); re-read open rooms on Unblock (they come back on the next poll or reopen); tell
+  the person when the block list file is unreadable (it fails open on purpose, see the header); agent-side room
+  context (quiet-run and acknowledgement logic) still reads rows kept before a block (stated above).
