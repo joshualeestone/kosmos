@@ -27,12 +27,16 @@ Settings, Your Profile lists blocked people with Unblock; a room where a block h
 - **The room note needs the server to say so**: the room route's JSON answers carry `hiddenBlocked` (how many of the
   live room's rows a block hides; rows in the archived stretch are not counted), never sent as 0; the text view an agent reads is unchanged. Words: "N messages are hidden
   here because you blocked who sent them." (not "from people you blocked": one person can send them all).
-- After Block, the window's held rows of that person are dropped (the window merge only adds), then the room is read.
+- After Block or Unblock, the open room's window starts again on the newest page (held earlier pages would otherwise keep
+  rows, or paging cursors, the room no longer serves), and an open archive reads itself again keeping the reader's place.
 
 ## Weakest premise
 
-That a mailto from the board's page reaches a mail app on the person's computer. In the Kosmos Mac app's web view it may
-not; the copied report and the line under the composer are the fallback, not a guarantee. Not tested inside the Mac app.
+That the report's mail reaches a mail app inside the Kosmos Mac app. Measured 11-17 with a WKWebView harness: a mailto
+opened by a script-made link's click() arrives as navigationType .linkActivated, at once, after a timeout and after an
+awaited fetch, and the Mac app's connectLinkDecision opens a linkActivated mailto in Mail. Not run inside the app itself.
+A computer with no mail app set up still opens nothing, which is what the copied report and the line under the composer
+are for.
 
 ## Tests
 
@@ -40,7 +44,7 @@ not; the copied report and the line under the composer are the fallback, not a g
   page, CONTROL: the rows really left; the text view unchanged), gone after Unblock; a blocked person whose rows are all
   archived gives no count (CONTROL: the same block with the marker gone counts 2). CONTROL runs: with the field removed
   from the route, 1 fails; counting archived rows too, 1 fails.
-- docs/browser-checks/render-room-block-8631.js (72, light and dark): the buttons, 44px and drawn; never on sameAccount
+- docs/browser-checks/render-room-block-8631.js (74, light and dark): the buttons, 44px and drawn; never on sameAccount
   or a non-x id; the report body line for line; Block asks, posts, drops the held rows, closes; a refusal keeps the dialog
   with the reason; the note's two wordings and its CONTROL; the Blocked list's failed, empty and one-person states and
   Unblock. CONTROL run: with the Report markup renamed, 6 fail.

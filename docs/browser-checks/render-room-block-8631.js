@@ -117,10 +117,10 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
       await page.click('#xblock-go');
       await page.waitForFunction(() => document.getElementById('xblock-modal').hidden, null, { timeout: 3000 }).catch(() => {});
       const done = await page.evaluate(() => ({ hidden: document.getElementById('xblock-modal').hidden, posted: window.__posted,
-        older: PJ_WIN.older.map((r) => r.id) }));
+        older: PJ_WIN.older.map((r) => r.id), cursor: PJ_WIN.cursor }));
       ok(t + ' the block posts to the board\'s route for that message', done.posted.some((p) => p[0] === '/api/project/p-1/room/x-1234abcd-0000/block' && p[1] === 'POST'), JSON.stringify(done.posted));
       ok(t + ' the dialog closes on the board\'s yes', done.hidden);
-      ok(t + ' the person\'s held row leaves the window, and only theirs', JSON.stringify(done.older) === JSON.stringify(['x-other-0000']), JSON.stringify(done.older));
+      ok(t + ' the window starts again, so no held page keeps a row or a cursor the room no longer serves', JSON.stringify(done.older) === '[]' && done.cursor === null, JSON.stringify(done));
 
       // 3b. A refusal keeps the dialog open and says why.
       const refused = await page.evaluate(async (row) => {
@@ -242,12 +242,14 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
         for (let i = 0; i < 50 && !msg.textContent; i += 1) await new Promise((r) => setTimeout(r, 20));
         await new Promise((r) => setTimeout(r, 20));
         const out = { shown: !document.getElementById('you-blocked-box').hidden, msg: msg.textContent,
-          still: document.getElementById('you-blocked').textContent.includes('Cal'), focus: document.activeElement && document.activeElement.id };
+          still: document.getElementById('you-blocked').textContent.includes('Cal'), focus: document.activeElement && document.activeElement.id,
+          again: !!document.querySelector('#you-blocked [data-unblock]') && !document.querySelector('#you-blocked [data-unblock]').disabled };
         window.fetch = before;
         return out;
       });
       ok(t + ' a failed Unblock keeps the list and says so', failedUnblock.shown && failedUnblock.still && failedUnblock.msg === 'We could not unblock Cal. Try again in a moment.', JSON.stringify(failedUnblock));
       ok(t + ' after Unblock, focus is on the Blocked box', failedUnblock.focus === 'you-blocked-box', String(failedUnblock.focus));
+      ok(t + ' a failed Unblock can be tried again', failedUnblock.again === true, JSON.stringify(failedUnblock));
       // Round 2: a window reset for the SAME room (a gap read) keeps the note; another room clears it.
       const reset = await page.evaluate(() => {
         pjWinReset('p-1');

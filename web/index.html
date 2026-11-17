@@ -7268,7 +7268,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    since they are the only way to act on an outside sender from this computer. */
 .msg-ext-act { display: flex; align-items: center; gap: 14px; margin-top: 2px; }
 .msg-ext-act .msg-t { margin-left: auto; padding-left: 14px; }
-.msg-ext-act .linkish { font: .78rem var(--font-ui); color: var(--label-2); min-height: 44px; padding: 0; }
+.msg-ext-act .linkish { font: .78rem var(--font-ui); color: var(--label-2); min-height: 44px; min-width: 44px; padding: 0; }
 .msg-ext-act .linkish:hover { color: var(--k-ink); }
 /* #8631: the room's line when a block hides messages, in the room notice's quiet band. */
 .pj-blocked-note { font: .8rem var(--font-ui); color: var(--label-2); text-align: center; margin: 6px 16px 0; }
@@ -81084,7 +81084,7 @@ async function xReportSend(id) {
   a.href = 'mailto:' + XREPORT_TO + '?subject=' + encodeURIComponent(XREPORT_SUBJECT) + '&body=' + encodeURIComponent(body);
   a.rel = 'noopener'; a.style.display = 'none';
   document.body.appendChild(a); a.click(); a.remove();
-  if (say) say.textContent = 'Your mail app should open with the report to ' + XREPORT_TO + '.'
+  if (say && PJ_CURRENT === pid) say.textContent = 'Your mail app should open with the report to ' + XREPORT_TO + '.'
     + (copied ? ' If it did not, the report is copied: paste it into an email to that address.' : ' If it did not, send that address the message and who sent it.');
 }
 let XBLOCK = null;
@@ -81147,24 +81147,11 @@ document.getElementById('xblock-go').addEventListener('click', async () => {
       else if (back && back.offsetParent) back.focus({ preventScroll: true });
     }
     msgToast((out.name || d.name) + ' is blocked. Their messages are hidden; unblock them in Settings, Your Profile.');
-    /* The block route removes rows the room already holds (its read leaves them out), so the window's held rows go too:
-       the window merge only adds, and a row the room no longer serves would otherwise stay on screen. */
-    const gone = new Set(out.hidden && Array.isArray(out.hidden[d.project]) ? out.hidden[d.project] : [d.id]);
-    if (typeof PJ_WIN !== 'undefined') {
-      PJ_WIN.older = (PJ_WIN.older || []).filter((r) => !(r && r.kind === 'external' && gone.has(r.id)));
-      PJ_WIN.stamp = null;
-    }
-    if (typeof PJ_ARCH !== 'undefined' && Array.isArray(PJ_ARCH.rows)) {
-      PJ_ARCH.rows = PJ_ARCH.rows.filter((r) => !(r && r.kind === 'external' && gone.has(r.id)));
-      /* The live read does not repaint while the archive is showing, so the archive repaints its own rows, keeping the
-         reader's place as its refresh does. */
-      if (typeof pjArchShowing === 'function' && pjArchShowing()) {
-        const box = document.getElementById('pj-room');
-        const at = box ? threadAnchor(box) : null;
-        paintArch();
-        if (at) restoreThreadAnchor(box, at);
-      }
-    }
+    /* The room's read leaves the blocked rows out, but the window's held earlier pages and the archive keep what they read.
+       Filtering those by hand would leave their paging cursors naming rows the room no longer serves, so the window starts
+       again on the newest page, and an open archive reads itself again keeping the reader's place. */
+    if (typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT === d.project && typeof pjWinReset === 'function') pjWinReset(d.project);
+    if (typeof pjArchShowing === 'function' && pjArchShowing() && typeof pjArchOpen === 'function') { try { await pjArchOpen(true); } catch { /* the next poll */ } }
     if (typeof loadRoom === 'function') { try { await loadRoom(); } catch { /* the next poll repaints */ } }
   } catch {
     d.pending = false;
@@ -81250,10 +81237,12 @@ document.getElementById('you-blocked').addEventListener('click', async (e) => {
     ok = res.ok && !!out && out.unblocked === true;
   } catch { ok = false; }
   if (ok && b.closest('.setrow')) b.closest('.setrow').remove();   // gone from the list even if the re-read fails
+  if (!ok) b.disabled = false;   // so "Try again" can be done even when the list cannot be read again
   await blockedPaint(ok ? name + ' is unblocked. Their messages are back in your rooms.' : 'We could not unblock ' + name + '. Try again in a moment.');
   const boxU = document.getElementById('you-blocked-box');   // the pressed Unblock button was repainted away
   if (boxU && !boxU.hidden) boxU.focus({ preventScroll: true });
-  if (ok && typeof PJ_WIN !== 'undefined') PJ_WIN.stamp = null;   // the open room shows them again on its next read
+  // The window starts again, so its held earlier pages are read again with this person's messages in them.
+  if (ok && typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT && typeof pjWinReset === 'function') pjWinReset(PJ_CURRENT);
 });
 /* #6949: the room post's 🙋 claim ({by, at}, from the room read or a room route's answer) as the page shows it: the
    holder's name and how long ago, or null when there is no claim. Only a room post has one; a DM never passes it.
