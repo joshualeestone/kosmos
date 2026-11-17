@@ -29228,6 +29228,9 @@ function start(port = PORT) {
          (engine/runnerrestart.js says who and why; a restart starts the conversation over, so the safe case is left
          alone). Mac/Linux only (Windows stays on 0.149.1). Gated like the sweeps here; brake
          AGENT_WORKFORCE_RUNNER_RESTART_OFF=1. */
+      /* Both tables are read once per pass, then passOnce runs to the restart with no wait in between; the one gap left is
+         inside the restart itself, the same for every board restart. Tried and Said grow by one key per agent per pin,
+         for the board run (review 4). */
       const runnerRestartSeenIdle = new Set();
       const runnerRestartTried = new Map();
       let runnerRestartRunning = false;

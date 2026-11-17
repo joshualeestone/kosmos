@@ -283,3 +283,14 @@ test('isShell and parsePanes', () => {
   assert.equal(m.get('a b:0.0'), 66);
   assert.equal(m.get('a b'), 77, 'the session maps to its first pane listed');
 });
+
+test('a managed codex that starts another (a nested exec) is judged by the outer one, the pane\'s own', () => {
+  const t = new Map([
+    [10, { ppid: 1, ageSec: 3600, command: `${LINK} --x` }],
+    [11, { ppid: 10, ageSec: 30, command: `${LINK} exec --json` }],
+  ]);
+  const found = rr.codexUnderPane(10, t, rr.childrenOf(t), DIR, NOW);
+  assert.equal(found.pid, 10);
+  assert.equal(found.startedAt, NOW - 3600 * 1000);
+  assert.equal(found.job, false, 'a nested codex is not a shell job');
+});
