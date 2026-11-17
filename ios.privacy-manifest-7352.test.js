@@ -105,38 +105,75 @@ test('kosmos#7352: the detector flags each spelling on the list, and ordinary wo
 
 /* kosmos#8654: the data the app collects, declared in the manifest, must be exactly the App Privacy label's "Data types
    to declare" table (ios/store/privacy-label.md), each linked to the person, not used for tracking, for app
-   functionality, as that table says for every row. Read from the label itself, so the two cannot drift apart. */
+   functionality, as that table says for every row. Read from the label itself, so the two cannot drift apart.
+   Review 1: the manifest is PARSED as a plist (a duplicate key refuses, as it would hide a value from Apple's reader,
+   which keeps the last), every key is checked by its exact name, every row of the label's table must be read, and every
+   type must be one Apple defines (a misspelled constant is ignored at upload). */
 const LABEL = path.join(IOS, 'store', 'privacy-label.md');
-function labelTypes() {
+// Apple's NSPrivacyCollectedDataType constants (the "Describing data use in privacy manifests" list).
+const APPLE_TYPES = ['Name', 'EmailAddress', 'PhoneNumber', 'PhysicalAddress', 'OtherUserContactInfo', 'Health', 'Fitness',
+  'PaymentInfo', 'CreditInfo', 'OtherFinancialInfo', 'PreciseLocation', 'CoarseLocation', 'SensitiveInfo', 'Contacts',
+  'EmailsOrTextMessages', 'PhotosorVideos', 'AudioData', 'GameplayContent', 'CustomerSupport', 'OtherUserContent',
+  'BrowsingHistory', 'SearchHistory', 'UserID', 'DeviceID', 'PurchaseHistory', 'ProductInteraction', 'AdvertisingData',
+  'OtherUsageData', 'CrashData', 'PerformanceData', 'OtherDiagnosticData', 'EnvironmentScanning', 'Hands', 'Head',
+  'OtherDataTypes'].map((n) => 'NSPrivacyCollectedDataType' + n);
+function labelRows() {
   const md = fs.readFileSync(LABEL, 'utf8');
   const at = md.indexOf('## Data types to declare');
   const end = md.indexOf('\n## ', at + 1);
-  const section = md.slice(at, end < 0 ? undefined : end);
-  return [...section.matchAll(/^\| [^|>]+> \*\*([^*]+)\*\* \|/gm)].map((m) => 'NSPrivacyCollectedDataType' + m[1].replace(/\s+/g, ''));
+  const lines = md.slice(at, end < 0 ? undefined : end).split('\n').filter((l) => l.startsWith('|'));
+  const body = lines.slice(2);   // the header and the |---| line
+  const types = body.map((l) => (/^\| [^|>]+> \*\*([^*]+)\*\* \|/.exec(l) || [])[1]).filter(Boolean)
+    .map((n) => 'NSPrivacyCollectedDataType' + n.replace(/\s+/g, ''));
+  return { body: body.length, types };
 }
-function manifestCollected() {
-  const xml = manifestText();
-  const at = xml.indexOf('<key>NSPrivacyCollectedDataTypes</key>');
-  if (at < 0) return [];
-  const arr = xml.slice(at, xml.indexOf('</array>\n\t<key>', at) + 8);
-  return [...arr.matchAll(/<dict>([\s\S]*?)<\/dict>/g)].map((m) => {
-    const d = m[1];
-    const val = (k) => { const r = new RegExp('<key>' + k + '</key>\\s*<(true|false)/>').exec(d); return r ? r[1] === 'true' : null; };
-    const type = (/<key>NSPrivacyCollectedDataType<\/key>\s*<string>([^<]+)<\/string>/.exec(d) || [])[1] || null;
-    const purposes = [...d.matchAll(/<string>(NSPrivacyCollectedDataTypePurpose\w+)<\/string>/g)].map((x) => x[1]);
-    return { type, linked: val('NSPrivacyCollectedDataTypeLinked'), tracking: val('NSPrivacyCollectedDataTypeTracking'), purposes };
-  });
-}
-test('kosmos#8654: the manifest declares exactly the data types the App Privacy label declares, as the label says them', () => {
-  const want = labelTypes();
-  assert.ok(want.length >= 5, 'the label\'s data-type table was not read (' + want.length + ' rows): the test would pass on nothing');
-  assert.ok(md().includes('**linked to the person\'s identity: yes**, **used for tracking: no**'), 'the label no longer says every row is linked and not tracking; update this test with it');
-  const got = manifestCollected();
-  assert.deepEqual(got.map((g) => g.type).sort(), want.slice().sort(), 'the manifest and the label declare different data types');
-  for (const g of got) {
-    assert.equal(g.linked, true, g.type + ' is not marked linked to the person');
-    assert.equal(g.tracking, false, g.type + ' is not marked as not used for tracking');
-    assert.deepEqual(g.purposes, ['NSPrivacyCollectedDataTypePurposeAppFunctionality'], g.type + ' has other purposes than app functionality');
+// A minimal plist reader: dict, array, key, string, true, false. Comments are dropped first.
+function parsePlist(xml) {
+  const tokens = [...xml.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<(\/?)(dict|array|key|string|true|false)(\/?)>([^<]*)/g)];
+  let i = 0;
+  const skipToRoot = () => { while (i < tokens.length && !(tokens[i][1] === '' && tokens[i][2] === 'dict')) i += 1; };
+  function value() {
+    const [, close, tag, selfClose, text] = tokens[i++];
+    if (close) throw new Error('unexpected </' + tag + '>');
+    if (tag === 'true' || tag === 'false') { if (!selfClose) i += 1; return tag === 'true'; }
+    if (tag === 'string' || tag === 'key') { i += 1; return text; }
+    if (tag === 'array') { if (selfClose) return []; const out = []; while (!(tokens[i][1] && tokens[i][2] === 'array')) out.push(value()); i += 1; return out; }
+    if (tag === 'dict') {
+      if (selfClose) return {};
+      const out = {};
+      while (!(tokens[i][1] && tokens[i][2] === 'dict')) {
+        if (tokens[i][2] !== 'key') throw new Error('a dict value without a key');
+        const k = value();
+        if (Object.prototype.hasOwnProperty.call(out, k)) throw new Error('duplicate key ' + k);
+        out[k] = value();
+      }
+      i += 1;
+      return out;
+    }
+    throw new Error('unknown tag ' + tag);
   }
-  function md() { return fs.readFileSync(LABEL, 'utf8'); }
+  skipToRoot();
+  return value();
+}
+test('kosmos#8654: the plist reader this test relies on refuses a duplicate key and reads booleans and arrays', () => {
+  assert.throws(() => parsePlist('<plist><dict><key>a</key><true/><key>a</key><false/></dict></plist>'), /duplicate key a/);
+  assert.deepEqual(parsePlist('<plist><dict><key>a</key><array><string>x</string></array><key>b</key><false/><key>c</key><array/></dict></plist>'), { a: ['x'], b: false, c: [] });
+});
+test('kosmos#8654: the manifest declares exactly the data types the App Privacy label declares, as the label says them', () => {
+  const md = fs.readFileSync(LABEL, 'utf8');
+  const { body, types: want } = labelRows();
+  assert.ok(want.length >= 5, 'the label\'s data-type table was not read (' + want.length + ' rows)');
+  assert.equal(want.length, body, 'a row of the label\'s data-type table was not read as "Category > **Type**" (' + want.length + ' of ' + body + ')');
+  assert.ok(md.includes('**linked to the person\'s identity: yes**, **used for tracking: no**'), 'the label no longer says every row is linked and not tracking; update this test with it');
+  const plist = parsePlist(fs.readFileSync(MANIFEST, 'utf8'));
+  const got = plist.NSPrivacyCollectedDataTypes;
+  assert.ok(Array.isArray(got), 'the manifest has no NSPrivacyCollectedDataTypes array');
+  assert.deepEqual(got.map((g) => g.NSPrivacyCollectedDataType).sort(), want.slice().sort(), 'the manifest and the label declare different data types');
+  for (const g of got) {
+    assert.ok(APPLE_TYPES.includes(g.NSPrivacyCollectedDataType), g.NSPrivacyCollectedDataType + ' is not a data type Apple defines');
+    assert.deepEqual(Object.keys(g).sort(), ['NSPrivacyCollectedDataType', 'NSPrivacyCollectedDataTypeLinked', 'NSPrivacyCollectedDataTypePurposes', 'NSPrivacyCollectedDataTypeTracking'], g.NSPrivacyCollectedDataType + ' has a missing or misspelled key: ' + Object.keys(g).join(', '));
+    assert.equal(g.NSPrivacyCollectedDataTypeLinked, true, g.NSPrivacyCollectedDataType + ' is not marked linked to the person');
+    assert.equal(g.NSPrivacyCollectedDataTypeTracking, false, g.NSPrivacyCollectedDataType + ' is not marked as not used for tracking');
+    assert.deepEqual(g.NSPrivacyCollectedDataTypePurposes, ['NSPrivacyCollectedDataTypePurposeAppFunctionality'], g.NSPrivacyCollectedDataType + ' has other purposes than app functionality');
+  }
 });
