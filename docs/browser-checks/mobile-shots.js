@@ -3089,6 +3089,43 @@ const SCREENS = [
     await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
     await page.waitForSelector('#d-sec-talk', { state: 'visible', timeout: 5000 });
   } },
+  /* kosmos#8628 (Josh, 11-17): the memory rings round the pictures in My Agents (#8303), the list down the left of
+     the agent page, got fatter as they filled and were cut square at high fill. These shots show three rings, one
+     in each band (about 10, 50 and 95 percent), open and folded (the folded rail is the one in Josh's screenshot).
+     The readings are stubbed in this screen's own context: every card's context is rewritten on GET /api/status to
+     a measured reading at one of the three percents, in turn, so the shot never depends on what the fleet seeds.
+     Desktop only: My Agents shows from 1160px (MY_AGENTS_MIN_WIDTH). */
+  ...[false, true].map((folded) => ({ name: 'myagents-rings-8628' + (folded ? '-folded' : ''), owner: 'Ice Cream Kitty', desktopOnly: true, go: async (page, data) => {
+    const PCTS = [10, 50, 95];
+    await page.route('**/api/status*', async (r) => {
+      try {   // #6022: a late answer after close is caught, not a crash
+        if (r.request().method() !== 'GET') return await r.fallback();
+        let resp;
+        try { resp = await fetchBoard(r); } catch { return await r.fallback(); }
+        const j = await resp.json().catch(() => null);
+        if (!j) return await r.fulfill({ response: resp });
+        let n = 0;
+        const walk = (v) => {
+          if (Array.isArray(v)) { for (const x of v) walk(x); return; }
+          if (!v || typeof v !== 'object') return;
+          if ('sessionName' in v) {
+            const pct = PCTS[n++ % PCTS.length];
+            v.context = { tokens: pct * 10000, percent: pct, overCeiling: false, notYet: false, ceiling: 1000000,
+              ceilingAssumed: false, confidence: 'structured', because: 'measured, against a limit we have watched it hit' };
+            return;
+          }
+          for (const x of Object.values(v)) walk(x);
+        };
+        walk(j);
+        return await r.fulfill({ response: resp, json: j });
+      } catch { await r.abort().catch(() => {}); }
+    });
+    await page.addInitScript((f) => { try { localStorage.setItem('kosmos.fold.myagents', f ? '1' : '0'); } catch { /* storage refused */ } }, folded);
+    await newLook(page);
+    await at(page, '?agent=' + data.chatAgent);
+    await page.waitForSelector('#my-agents:not([hidden]) .lring', { state: 'visible', timeout: 8000 });
+    await page.waitForTimeout(600);
+  } })),
   /* #4470: Settings in the new look, for the side by side with 'settings'. */
   { name: 'nl-settings', owner: 'Mona Lisa', go: async (page) => {
     await newLook(page);

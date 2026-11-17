@@ -160,10 +160,10 @@ const PERCENT = { beatrix: 42, dora: 71 };
         const greenDot = !!z && /\bpjd\b/.test(z.dot) && !/pjd-(unk|off)/.test(z.dot);
         chk(!!z && !z.wash && !greenDot,
           `${engineName}: an untied pane (a stranger holding the name) does not get a green dot`, JSON.stringify(z));
-        /* A warn or high band keeps the thin ring here: the global .gf.warn/.high widths (5, 6) are for
-           the grid card's big gauge and would clip and spread over the photo at 42px. Read through the
-           computed style on a REAL member ring; the control is the same classes on a ring OUTSIDE the
-           members column, which must still read the global widths (so the instrument can see thick). */
+        /* A warn or high band keeps the thin ring here. kosmos#8628: the bands change colour only, everywhere,
+           so this reads the member ring AND a ring outside the members column (the probe): both must keep their
+           drawn 2.5 in every band. The probe's last circle sets 6 inline, so the instrument is shown able to
+           read a thick stroke (a broken reader would return 2.5 or NaN for it too). */
         const widths = await page.evaluate(() => {
           const gf = document.querySelector('#pj-one-agents .pj-member .lring .gf');
           const out = {};
@@ -175,14 +175,18 @@ const PERCENT = { beatrix: 42, dora: 71 };
           }
           gf.setAttribute('class', base);
           const probe = document.createElement('div');
-          probe.innerHTML = '<svg class="lring" viewBox="0 0 36 36"><circle class="gf high" r="15.5" stroke-width="2.5"/></svg>';
+          probe.innerHTML = '<svg class="lring" viewBox="0 0 34 34"><circle class="gf high" r="15.5" stroke-width="2.5"/><circle class="gf warn" r="15.5" stroke-width="2.5"/><circle class="gf" r="15.5" style="stroke-width:6"/></svg>';
           document.body.appendChild(probe);
-          out.controlHigh = parseFloat(getComputedStyle(probe.querySelector('.gf')).strokeWidth);
+          const c = probe.querySelectorAll('.gf');
+          out.outsideHigh = parseFloat(getComputedStyle(c[0]).strokeWidth);
+          out.outsideWarn = parseFloat(getComputedStyle(c[1]).strokeWidth);
+          out.controlThick = parseFloat(getComputedStyle(c[2]).strokeWidth);
           probe.remove();
           return out;
         });
-        chk(widths.controlHigh === 6, `${engineName}: control: outside the members column a high ring is thick (the instrument can see it)`, JSON.stringify(widths));
+        chk(widths.controlThick === 6, `${engineName}: control: the instrument reads a thick stroke when one is set`, JSON.stringify(widths));
         chk(widths.warn === 2.5 && widths.high === 2.5, `${engineName}: a member's ring stays thin in the warn and high bands`, JSON.stringify(widths));
+        chk(widths.outsideWarn === 2.5 && widths.outsideHigh === 2.5, `${engineName}: #8628: outside the members column too, warn and high keep the drawn width`, JSON.stringify(widths));
 
         /* The reading climbs: the arc must follow without the column being rebuilt. */
         const before = await page.evaluate(() => {
