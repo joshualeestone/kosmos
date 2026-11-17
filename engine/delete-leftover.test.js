@@ -791,6 +791,17 @@ test('#7819: a profile another agent shares (same stored name, other case) is ke
   assert.ok(r.steps.some((s) => s.step === 'its settings and picture' && /kept: Miles7819 uses the same stored name/.test(s.because || '')), JSON.stringify(r.steps));
 });
 
+test('kosmos#8644 item 3: a profile shared with an agent running under another session name (by its claim) is kept', () => {
+  const name = leftoverAgent('ann8644', { job: false });
+  store.writeProfile(name, { displayName: 'ann' });
+  // Ann8644 runs under a session its tooling named, carrying Kosmos's claim; the leftover is ann8644 (Linux: another name).
+  status.setPaneSource(() => fleet.line({ session: 'tooling-ann', claim: 'Ann8644', title: '✳ Claude Code' }));
+  const r = leftover.del(name, { unchecked: true, platform: 'linux' });
+  assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
+  assert.equal(fs.existsSync(store.profilePath(name)), true, 'the delete took a profile the running Ann8644 also reads');
+  assert.ok(r.steps.some((s) => s.step === 'its settings and picture' && /kept: Ann8644 uses the same stored name/.test(s.because || '')), JSON.stringify(r.steps));
+});
+
 test('#7819: settings that will not move after the files went: PARTIAL, and it says a new agent would start with them', { skip: skipOnWin32('it fails a read or a move with a POSIX file or folder mode (chmod), which Windows does not keep') || (typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false) }, () => {
   const name = leftoverAgent('stuck7819');
   store.writeProfile(name, { displayName: 'Stuck' });
@@ -1318,6 +1329,29 @@ test('kosmos#7825 PR 2: settingsLeftovers lists a profile with no folder and no 
     for (const n of [lone, live, gone, waiting, jobOnly]) fs.rmSync(store.profilePath(n), { force: true });
     fs.rmSync(create.plistPath(jobOnly), { force: true });
     try { remove.forget(gone); } catch { /* best effort */ }
+  }
+});
+
+test('kosmos#8644 item 3: settingsLeftovers leaves out an agent running under another session name by its claim, as plan() does', () => {
+  const run = strandedProfile('claims8644');
+  try {
+    // Running under a session of its own name: left out (unchanged).
+    status.setPaneSource(() => fleet.line({ session: 'claims8644', claim: 'claims8644', title: '✳ Claude Code' }));
+    assert.ok(!leftover.settingsLeftovers({ platform: 'darwin' }).names.some((x) => x.name === run), 'setup: a running agent was listed');
+    // Relaunched under another session name, still carrying Kosmos's claim: left out too (it was listed, and its delete refused).
+    status.setPaneSource(() => fleet.line({ session: 'tooling-8644', claim: 'claims8644', title: '✳ Claude Code' }));
+    assert.ok(!leftover.settingsLeftovers({ platform: 'darwin' }).names.some((x) => x.name === run), 'an agent running under another session name was listed as settings only');
+    const p = leftover.plan(run, { platform: 'darwin' });
+    assert.equal(p.ok, false, 'plan() would have refused it, so the list must not offer it');
+    // CONTROL: a claim for another world names nobody here, so the agent is listed.
+    status.setPaneSource(() => fleet.line({ session: 'tooling-8644', claim: 'claims8644+otherworld', title: '✳ Claude Code' }));
+    assert.ok(leftover.settingsLeftovers({ platform: 'darwin' }).names.some((x) => x.name === run), 'CONTROL: another world\'s claim hid this world\'s agent');
+    // CONTROL: stopped, it is listed.
+    quiet();
+    assert.ok(leftover.settingsLeftovers({ platform: 'darwin' }).names.some((x) => x.name === run), 'CONTROL: stopped, it is settings only');
+  } finally {
+    quiet();
+    fs.rmSync(store.profilePath(run), { force: true });
   }
 });
 
