@@ -112,6 +112,9 @@ const SENDS = [
   [['task', 'check', 'p5152', '3', '1', 'unmet', 'no Windows box', '--moved-to', '012'], '/api/project/p5152/task/3/check',
     (b, out) => { assert.deepEqual([b.check, b.met, b.how, b.movedTo], [1, false, 'no Windows box', 12]); assert.match(String(out), /moved to task 12\./); }],
   // #8668: 1000 characters of evidence reach the board whole (the board holds the limit).
+  // 15 digits, with leading zeros, is still sent (the board says whether the task exists).
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'x', '--moved-to', '00' + '9'.repeat(15)], '/api/project/p5152/task/3/check',
+    (b) => assert.equal(b.movedTo, 999999999999999)],
   [['task', 'check', 'p5152', '3', '1', 'met', 'e'.repeat(1000)], '/api/project/p5152/task/3/check',
     (b) => assert.equal(b.how, 'e'.repeat(1000))],
 ];
@@ -126,6 +129,8 @@ const REFUSED = [
   [['task', 'check', 'p5152', '3', '1', 'maybe', 'a', '--moved-to', '4'], /Say met or unmet/],
   [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '0'], /--moved-to needs the number/],
   [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '000'], /--moved-to needs the number/],
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '9'.repeat(16)], /--moved-to needs the number/],
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '9'.repeat(400)], /--moved-to needs the number/],
   [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '4', 'x'], /Usage: kosmos task check/],
   [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved', '4'], /Usage: kosmos task check/],
   [['task', 'check', 'p5152', 'three', '1', 'met', 'x'], /must be a number/],

@@ -6416,6 +6416,8 @@ cmd_task() {
         # Two cases: the first refuses only all zeros (0, 000), the second anything empty or not all digits.
         case "${7:-}" in ''|*[!0-9]*|*[!0]*) ;; *) say "--moved-to needs the number of the task the unmet part went to, from: kosmos task list <project-id>."; exit 2 ;; esac
         case "${7:-}" in ''|*[!0-9]*) say "--moved-to needs the number of the task the unmet part went to, from: kosmos task list <project-id>."; exit 2 ;; esac
+        # At most 15 digits after leading zeros, as the Windows CLI: a task number is a safe integer.
+        [ "$(printf '%s' "${7:-}" | sed 's/^0*//' | wc -c | tr -d ' ')" -le 15 ] || { say "--moved-to needs the number of the task the unmet part went to, from: kosmos task list <project-id>."; exit 2; }
         [ "${4:-}" = unmet ] || { say "Only an unmet check can be moved to another task; a met one is done here."; exit 2; }
       fi
       [ -n "$(printf '%s' "${5:-}" | tr -d '[:space:]\001-\037\177')" ] || { say "Say in a few words how you checked it. $_kusage"; exit 2; }
