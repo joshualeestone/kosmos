@@ -79,6 +79,8 @@ test('attachment: a HEAD answers the page count, read once and kept', async () =
   const h2 = await fetch(`${base()}/api/attachment/${rec.id}/preview`, { method: 'HEAD' });
   assert.equal(h2.headers.get('x-kosmos-pdf-pages'), '3');
   assert.equal(seam.counts.length, 1, 'the count was read again instead of kept');
+  // CONTROL for the unread-count test below: a good count IS kept, under this name.
+  assert.equal(fs.readFileSync(path.join(rec.dir, '.pdf-pages'), 'utf8'), '3');
 });
 
 test('attachment: ?page=2 and ?page=3 are those pages; 4, 0 and a word are 404', async () => {
@@ -109,7 +111,7 @@ test('attachment: a count that cannot be read gives no header and no later page 
   assert.equal(p2.status, 404);
   await p2.arrayBuffer();
   assert.equal(seam.renders.length, 0);
-  assert.equal(fs.existsSync(path.join(rec.dir, 'pages.txt')), false, 'an unread count was kept');
+  assert.equal(fs.existsSync(path.join(rec.dir, '.pdf-pages')), false, 'an unread count was kept');
 });
 
 test('attachment: an image says nothing about pages', async () => {

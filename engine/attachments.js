@@ -416,6 +416,7 @@ async function previewFile(rec, opts) {
   /* The count costs a subprocess the first time, so it is read only when asked for (the viewer's HEAD) or needed (a
      page past the first): showing page 1 does exactly what it did before. */
   const pages = page > 1 || (opts && opts.count === true) ? await pdfPageCount(rec) : undefined;
+  // The viewer's HEAD and GET both reach page 1 below at once; renderPdf shares one drawing per `out`, so Quick Look runs once.
   if (page > 1) {
     if (!pages || page > pages) return { ok: false, because: 'there is no such page' };
     const outN = path.join(rec.dir, pageFile(page));

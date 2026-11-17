@@ -107,7 +107,9 @@ test('pvPdfPager: three pages get arrows and "Page 1 of 3"; the arrows and pvFli
   assert.equal(prev.disabled, true);
   assert.equal(next.disabled, false);
   assert.equal(img.src, ATT, 'page 1 is still the first-page address');
+  img.style.visibility = 'hidden';   // as pvOpen's error handler leaves it after a later page failed
   next.fire('click');
+  assert.equal(img.style.visibility, '', 'the next page stayed hidden after a failed one');
   assert.equal(img.src, ATT + '?page=2');
   assert.equal(note.textContent, 'Page 2 of 3');
   assert.equal(img.alt, 'Page 2 of three.pdf');
@@ -174,7 +176,7 @@ test('pvPdfPager: one page, an unknown count, or a viewer closed before the answ
 test('the page wires it: pvOpen calls the pager for a PDF only, the keys call pvFlip, Tab reaches the arrows, and a later page that fails keeps the viewer', () => {
   const open = page.lift(SCRIPT, 'pvOpen');
   assert.match(open, /if \(a\.kind === 'pdf' && note\) pvPdfPager\(back, stage, img, note, a\);/);
-  assert.match(open, /img\.dataset\.pvPage !== '1' && note\) \{ note\.textContent = 'Kosmos could not draw page '/);
+  assert.match(open, /img\.dataset\.pvPage !== '1' && note\) \{ img\.style\.visibility = 'hidden'; note\.textContent = 'Kosmos could not draw page '/);
   assert.match(SCRIPT, /\(e\.key === 'ArrowLeft' \|\| e\.key === 'ArrowRight'\) && typeof back\.pvFlip === 'function'/);
   assert.match(SCRIPT, /back\.pvFlip\(e\.key === 'ArrowRight' \? 1 : -1\)/);
   assert.match(SCRIPT, /\.pv-pg:not\(:disabled\), \.pv-acts button/);

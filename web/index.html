@@ -78307,6 +78307,7 @@ function pvPdfPager(back, stage, img, note, a) {
       if (!Number.isInteger(n) || n < 1 || n > pages || n === at) return;
       at = n;
       img.dataset.pvPage = String(n);
+      img.style.visibility = '';   // a page that failed hid the picture; the next one shows it again
       img.alt = 'Page ' + n + ' of ' + a.name;
       img.src = pvPdfPageUrl(url, n);
       note.textContent = 'Page ' + n + ' of ' + pages;
@@ -78371,7 +78372,7 @@ function pvOpen(id, from) {
        type the server cannot preview) shows the file's card instead of a broken image on the whole screen.
        kosmos#8637: a later page that will not load says so under the arrows instead, so the others can still be flipped to. */
     img.addEventListener('error', () => {
-      if (img.dataset.pvPage && img.dataset.pvPage !== '1' && note) { note.textContent = 'Kosmos could not draw page ' + img.dataset.pvPage; return; }
+      if (img.dataset.pvPage && img.dataset.pvPage !== '1' && note) { img.style.visibility = 'hidden'; note.textContent = 'Kosmos could not draw page ' + img.dataset.pvPage; return; }
       stage.textContent = ''; stage.appendChild(fileCard());
       delete back.pvFlip;   // kosmos#8637: the card has no pages to flip
     });

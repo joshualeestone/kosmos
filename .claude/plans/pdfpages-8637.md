@@ -14,7 +14,9 @@
 - The preview routes take ?page=N. Each PDF answer carries x-kosmos-pdf-pages: M when the count is known; no header
   (count unknown, not a Mac) means the viewer shows one page, as today. A page past the end is a 404.
 - Files lists: page N cached in the same per-file folder as the first page, named by the same stamp hash plus -pN, so a
-  changed file is drawn afresh and pruning keeps a file's pages together. Attachments: preview-pN.png beside preview.png.
+  changed file is drawn afresh and pruning keeps a file's pages together. Attachments: .pdf-page-N.png and the count in .pdf-pages beside
+  preview.png (dot names, which safeName never gives an upload, so a PDF uploaded as "pages.txt" cannot be overwritten).
+  A Files-list HEAD counts without drawing page 1 (its GET draws it at the same moment).
 - The viewer asks the count with a HEAD of the preview address (both routes answer HEAD). Rejected: a JSON info route
   (one more route to gate); reading the count from the image (an img cannot see headers).
 
