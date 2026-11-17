@@ -531,7 +531,11 @@ function plan(name, opts) {
       if (homes.size) {
         /* Its own sentence: a line the listing could not read can be ANY pane on this computer (a folder whose name holds
            a newline), so "try again in a moment" would promise a remedy that does not exist until that pane closes. */
-        try { folders = status.paneFolders(); }
+        /* kosmos#8644 item 1: planAsync reads the folders off the board's thread first and hands them in (opts.folders,
+           the listing or the Error it threw), so a wedged tmux waits there; plan() alone still reads them itself. A
+           failed read refuses exactly as before. */
+        const handed = opts && Object.prototype.hasOwnProperty.call(opts, 'folders');
+        try { if (handed && opts.folders instanceof Error) throw opts.folders; folders = handed ? opts.folders : status.paneFolders(); }
         catch {
           return { ok: false, because: `Something open on this computer could not be read, so we could not check whether ${shown} is running and have not offered to delete anything. Closing windows you are not using may help.` };
         }
@@ -1757,7 +1761,12 @@ async function planAsync(name, opts) {
   // Asked again: a delete of the name can have started while the probe ran.
   if (win && deletingName(name)) return { ok: false, running: true, because: DELETING_BECAUSE };   // kosmos#7852: the page can say so
   if (warm && warm.first && !warm.probed) return warm.first;
-  return plan(name, opts);
+  // kosmos#8644 item 1: the folder listing (kosmos#8640's second tmux read) is read here, off the board's thread, and
+  // handed to plan(); a failure is handed in as itself, so plan() refuses as it would have.
+  let folders;
+  try { folders = await status.paneFoldersAsync(); } catch (e) { folders = e instanceof Error ? e : new Error(String(e)); }
+  if (!Array.isArray(folders) && !(folders instanceof Error)) folders = new Error('the folder listing was not a list');
+  return plan(name, { ...(opts || {}), folders });
 }
 /** del, with the Windows drive probe and Recycle Bin moves run without holding the board. One at a time per name: a
     second delete of the same agent while one runs is refused, since its steps would interleave. */
