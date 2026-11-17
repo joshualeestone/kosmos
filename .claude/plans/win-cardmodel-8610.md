@@ -2,7 +2,7 @@
 
 **Posture:** production
 
-Stacked on win-cardmodel-8605 (PR #8611), which touches the same lines; rebased onto main once that merges.
+Was stacked on win-cardmodel-8605 (PR #8611, same lines); rebased onto main after it merged (f96b469e6f).
 
 ## Finished means
 - readModel's own-session test (#8601 review 7) counts as the agent's own session: no session given, the bare name, or
