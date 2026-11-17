@@ -24,3 +24,12 @@ Card: #8629 (Josh 2026-11-17 09:02). Owner: Baron Draxum.
 That a failed poll is what Josh hit. The local and live runs never moved him; a failed poll is the only
 path found that does, and it fits "after a while" over a remote board. Not observed on his Mac. After merge
 and serving, ask nothing of Josh; watch for a repeat report.
+
+## Decided in review (challenge loop)
+- #d-qask stays where it is and goes inert (dimmed) over a failed read that keeps the rows; hiding it slid
+  the reader by its height. The nav attention dot for it therefore stays lit through a failure (it used to
+  go dark): the question is still there, so that is the right signal.
+- The kept rows' choice buttons are disabled while the read fails (DM_CHOICES is null, so a press did
+  nothing) and only those are re-enabled after. Reactions and "Answered, clear this" stay live: they send
+  their own requests and say their own failures.
+- Focus on a kept row's link or button is not moved; only focus that fell (composer, question box) is caught.

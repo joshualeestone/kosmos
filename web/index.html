@@ -7438,6 +7438,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dmchoice:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .dmchoice[disabled] { opacity: .5; cursor: not-allowed; }
 .dmchoice-n { color: var(--k-ink-2); font-variant-numeric: tabular-nums; }
+/* #8629: a failed read that kept the rows says so in one line at the thread's end, apart from the last message;
+   the question box above is frozen (inert) until the next good read, and looks it. */
+.dm-readfail { margin-top: 8px; }
+#d-qask[inert] { opacity: .6; }
 .dmchoices-msg { font-size: .8125rem; color: var(--k-ink-2); }
 /* #6172: a lasting choice pressed once, waiting for the second press that sends it. */
 .dmchoice.armed { border-color: var(--k-ink); box-shadow: inset 0 0 0 1px var(--k-ink); }
@@ -44953,11 +44957,19 @@ function paintTalkThread(body, name) {
 }
 /* #8629: the one line a failed poll adds UNDER the rows it keeps (null text removes it). At the thread's end,
    so neither adding nor removing it moves a reader above it; a reader at the floor is kept on the floor, so the
-   line is not left below the fold. Plain text (textContent), never markup: the detail is the server's words. */
+   line is not left below the fold. Plain text (textContent), never markup: the detail is the server's words.
+   While it shows, the kept rows' choice buttons are disabled, because with no read their press does nothing
+   (DM_CHOICES is null); removing the line enables only the ones this disabled. A repaint from the cached body
+   (a search keystroke) can rewrite the rows and drop the line while reads still fail; the next failed poll
+   puts it back. */
 function dmReadFailLine(th, text) {
   if (!th || typeof th.querySelector !== 'function') return;
   let line = th.querySelector(':scope > p.dm-readfail');
-  if (text === null) { if (line) line.remove(); return; }
+  if (text === null) {
+    if (line) line.remove();
+    for (const b of th.querySelectorAll('button.dmchoice[data-readfail-off]')) { b.disabled = false; b.removeAttribute('data-readfail-off'); }
+    return;
+  }
   const atFloor = threadAtBottom(th);
   if (!line) {
     line = document.createElement('p');
@@ -44966,6 +44978,7 @@ function dmReadFailLine(th, text) {
     th.appendChild(line);
   }
   line.textContent = text;
+  for (const b of th.querySelectorAll('button.dmchoice:not([disabled])')) { b.disabled = true; b.setAttribute('data-readfail-off', ''); }
   if (atFloor) pinToBottom(th);
 }
 async function paintTalk(sessionName, agentName) {
@@ -45128,7 +45141,7 @@ async function paintTalk(sessionName, agentName) {
         + '</p>', null);
     }
     /* #8629: #d-qask sits ABOVE the thread too, so when the rows stay it stays where it is and is made inert
-       (nothing in it can be pressed or focused over a read that failed); hiding it would slide the reader by
+       (nothing in it can be pressed or focused over a read that failed, and it is dimmed); hiding it would slide the reader by
        its height and showing it again on the next good read would slide them back. The next good read clears
        `inert`. With no rows to keep it is hidden, as before. */
     if (keepRows) document.getElementById('d-qask').inert = true;
@@ -45157,7 +45170,9 @@ async function paintTalk(sessionName, agentName) {
        success path's own rule, that a rescue must not hand focus to a
        control the same paint disables. `#d-talk-box` carries tabindex="-1"
        for this. */
-    if (stoodInside) box.focus();
+    /* #8629: with the rows kept, focus on a message's link or button is still on screen and stays; only focus
+       that fell (from the composer or the question box this arm just closed) is caught. */
+    if (stoodInside && (!keepRows || !document.activeElement || document.activeElement === document.body)) box.focus();
     return;
   }
   if (mine !== TALK_LOAD) return;
