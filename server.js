@@ -4488,9 +4488,11 @@ function knownAgent(name) {
    once, but `claude agents --json` lists it about 5 s later (win32create.js, awaitSession) and the roster read is
    cached (win32roster.cachedRun), so for a few seconds `knownAgent` says no while the agent is coming up. A first
    message in that window was refused 404 "no agent by that name", which is false. True only when no card holds the
-   name at all (a stranger's pane is never waited on), the agent's folder is here, it is not removed, and its record
-   row was written within START_GRACE_MS. Everything else answers false, so a missing name never waits. The record,
-   not the platform, is the gate. */
+   name at all (a stranger's pane is never waited on), the agent's folder is here, it is not removed, it has a record
+   row, and either that row was written within START_GRACE_MS or (kosmos#8658, a crash relaunch, which resumes the
+   same session and writes no new row) its supervisor's state file says the current run began within it
+   (win32streamstate.startedAt). Everything else answers false, so a missing name never waits. The record, not the
+   platform, is the gate. */
 const START_GRACE_MS = 60000;
 /* The iPhone gives a request 15 s (BoardClient+App.swift), a timed-out send reads there as "may have gone", and the
    delivery after this wait has its own timeout (win32channel.js SAY_TIMEOUT_MS), so the wait is kept short. */
@@ -4508,8 +4510,6 @@ function startingAgent(name) {
     const rows = Object.values(sessions.read()).filter((row) => sessions.rowIsUnder(row, name));
     if (!rows.length) return false;
     if (rows.some((row) => recent(Date.parse(row && row.at)))) return true;
-    /* kosmos#8658: a crash relaunch resumes the same session and writes no new row, but its supervisor's state file
-       records when the current run began. */
     let began = null;
     try { began = require('./engine/win32streamstate').startedAt(name); } catch { began = null; }
     return recent(began);
@@ -20463,14 +20463,14 @@ const server = http.createServer(async (req, res) => {
         }
         /* kosmos#8658: an agent's message to an agent that has only just started waits for it, as a person's does
            (#8652), then is refused as starting rather than as nobody of that name. Only for a sender its token
-           identified and words the send would take, so an unidentified caller learns nothing and a bad message keeps
-           its own refusal. The sender stays resolved against the first roster; only the recipient is read again. */
+           identified and words that pass messageProblem, so an unidentified caller learns nothing. The sender stays
+           resolved against the first roster; only the recipient is read again. */
         if (tokenSender && tokenSender.ok && typeof body.to === 'string' && typeof body.text === 'string'
           && !chat.messageProblem(body.text) && !knownAgent(body.to) && startingAgent(body.to)) {
           if (!(await awaitRosterRow(body.to))) {
             const because = `${body.to} is still starting, so nothing was sent. Try again in a moment.`;
             messages.logRefusedSend(tokenSender.card.sessionName, body.to, because);
-            sendJson(res, 200, { delivery: { state: 'could_not', because } });
+            sendJson(res, 200, { delivery: { state: 'could_not', because, id: null, at: new Date().toISOString() } });
             return;
           }
           roster = safeRoster();
