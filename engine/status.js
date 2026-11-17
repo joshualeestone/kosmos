@@ -8163,7 +8163,7 @@ async function paneRosterAsync() {
    session, as { claim, session }. The supervisor stamps the claim with the session's own name, so the claim differs
    from the session only after a session is renamed; that is the case this lets a caller see. The claims come from
    panes readPanes kept, so in a named world a session renamed without its `+world` suffix is not among them, and an
-   unreadable line is a missed claim. The folder read (paneFolders) refuses on one instead, and covers both gaps
+   unreadable line is a missed claim. The folder read (paneFolders) refuses on one it cannot attribute (kosmos#8644), and covers both gaps
    while the pane works in the agent's folder. It THROWS as paneRoster
    does when the listing could not be read. paneRoster's rows stay as they are: their shape is pinned in
    fixture-discipline.test.js. */
@@ -8176,15 +8176,15 @@ function paneLook() {
 /* kosmos#8640: every pane's session and the folder it is in now, as { session, folder }. The question it answers is
    "is anything running inside this agent's folder", which needs neither the session name nor a claim: an agent a
    person's own tooling relaunched carries neither, and was offered for deletion while running. A second listing (the
-   folder is not one of PANE_COLUMNS). THROWS when it could not be read, or when any line of it is unreadable, so a
+   folder is not one of PANE_COLUMNS). THROWS when it could not be read, or on a line it cannot attribute to a pane, so a
    delete check fails closed; [] when no tmux server is running. An injected folder source (tests) always wins;
    otherwise, with a pane source set it never asks tmux and answers [] (on Windows, whose roster is not tmux, so this
    check does nothing there). It asks the default tmux server only, as the roster does. */
 let paneFolderSource = null;
 function setPaneFolderSource(fn) { paneFolderSource = typeof fn === 'function' ? fn : null; }
 /* Each line is `%<pane id>\t<session>\t<folder>`. A line that does not start with a pane id is a fragment (a folder
-   whose name holds a newline splits its line), and one unreadable line refuses the whole answer: a guard that fails
-   closed cannot drop the pane it could not read, so until that pane closes every agent's delete is refused. An EMPTY
+   whose name holds a newline splits its line). Since kosmos#8644 such a fragment is the rest of the pane before it
+   (marked cut, below); only a line nothing can be attributed to refuses the whole answer. An EMPTY
    folder is well-formed: tmux prints none for a dead pane or one whose program it may not look into (a root
    process). Such a pane is taken to be in no agent's folder; that is a premise, not a measurement. */
 /* kosmos#8644 item 2: a folder whose name holds a newline splits its pane's line in two: a head that reads (the pane id,
@@ -8198,6 +8198,9 @@ function readPaneFolders(out) {
   let last = null;
   for (const line of lines) {
     const m = /^%\d+\t([^\t]*)\t(.*)$/.exec(line);
+    // Review 1: a folder that is not an absolute path is not one tmux printed (an older tmux's raw tab in a session
+    // name shifts the fields): unreadable, so every delete still fails closed rather than resolve it against the board.
+    if (m && m[2] && !m[2].startsWith('/')) throw new Error('we could not make sense of what came back');
     if (m) { last = { session: m[1], folder: m[2] }; rows.push(last); continue; }
     if (/^%\d+\t/.test(line) || !last) throw new Error('we could not make sense of what came back');
     last.cut = true;   // the rest of last's folder, after a newline in its name

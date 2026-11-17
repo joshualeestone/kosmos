@@ -529,8 +529,9 @@ function plan(name, opts) {
          it cannot name is exactly the one this check is for. */
       let folders = [];
       if (homes.size) {
-        /* Its own sentence: a line the listing could not read can be ANY pane on this computer (a folder whose name holds
-           a newline), so "try again in a moment" would promise a remedy that does not exist until that pane closes. */
+        /* Its own sentence: a line the listing could not attribute (kosmos#8644: a pane line that will not read, or a tail
+           with no pane before it) can be ANY pane on this computer, so "try again in a moment" would promise a remedy that
+           does not exist until that pane closes. */
         /* kosmos#8644 item 1: planAsync reads the folders off the board's thread first and hands them in (opts.folders,
            the listing or the Error it threw), so a wedged tmux waits there; plan() alone still reads them itself. A
            failed read refuses exactly as before. */
@@ -542,10 +543,13 @@ function plan(name, opts) {
       }
       const pane = folders.find((r) => inside(r.folder));
       if (pane) { live = { session: pane.session, sessionName: pane.session }; byFolder = true; }
-      /* kosmos#8644 item 2: a folder cut short by a newline in its name is only the START of the real one. It could be
-         inside this agent's folder only if this agent's folder begins with it (a head already inside is found above).
-         Then fail closed, as one unreadable line did for every agent before; otherwise it is someone else's pane. */
-      else if (folders.some((r) => r.cut && [...homes].some((h) => h.startsWith(fold(path.resolve(r.folder)))))) {
+      /* kosmos#8644 item 2: a folder cut short by a newline in its name is only the START of the real one: head, a newline,
+         the rest. A head already inside this agent's folder is found above. Otherwise the real folder can be inside it
+         only when this agent's own folder begins with the head and a newline (a folder with a newline in its name,
+         which cleanName allows). Then fail closed, as one unreadable line did for every agent before; otherwise it is
+         someone else's pane, and it no longer holds anybody's delete. (Review 1: a string prefix alone also refused
+         "age<newline>nt5", which is not inside agent5.) */
+      else if (folders.some((r) => r.cut && [...homes].some((h) => h.startsWith(fold(r.folder) + '\n')))) {
         return { ok: false, because: `Something open on this computer could not be read, so we could not check whether ${shown} is running and have not offered to delete anything. Closing windows you are not using may help.` };
       }
     }
