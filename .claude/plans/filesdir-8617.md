@@ -55,7 +55,7 @@ measured; the new test file runs on Windows (tools/windows-tests.js) but its lin
 
 ## Tests
 
-- New `engine/dmfiles.folder-8617.test.js` (7): made once and kept with its files; no parent made; a file, a link and a
+- New `engine/dmfiles.folder-8617.test.js` (8): made once and kept with its files; no parent made; a file, a link and a
   dangling link are never replaced or followed; the sweep makes it for an existing agent with the verdict unchanged;
   CONTROL: a refused tell makes none.
 - `engine/create.test.js`: a new agent has an empty Files from birth, beside its instructions file.
@@ -107,3 +107,5 @@ measured; the new test file runs on Windows (tools/windows-tests.js) but its lin
     the create test asserts a made folder adds no such step.
   - NITs fixed: the error code rides in the boot line; header wording; the About-you comment says it makes folders.
     Not acted on: a test of the boot line's text itself.
+- Round 8 (blind, sonnet): no BLOCKER, no WARNING, 3 NIT. Converged. Test count corrected (8); the stacked comments in
+  tellAgent and the boot line repeating for a deliberate file called Files are accepted.
