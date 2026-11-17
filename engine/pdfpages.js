@@ -122,6 +122,25 @@ function keepNewestPages(dir, pattern, keep = KEEP_PAGES) {
   for (const { n } of aged.slice(0, aged.length - keep)) { try { fs.rmSync(path.join(dir, n), { force: true }); } catch { /* next time */ } }
 }
 
+/* A count that failed is not asked again for a while (review 6): a PDF that PDFKit cannot read (or a sandbox that
+   refuses it) would otherwise cost a subprocess run of up to TIMEOUT_MS on every open of the preview. Kept in memory
+   (a restart tries again), keyed by the caller (an attachment's file, a Files-list file's stamp), at most FAILED_KEEP. */
+const FAILED_FOR_MS = 10 * 60 * 1000;
+const FAILED_KEEP = 500;
+const failedAt = new Map();
+function failedRecently(key, now = Date.now()) {
+  const t = failedAt.get(key);
+  if (t === undefined) return false;
+  if (now - t < FAILED_FOR_MS) return true;
+  failedAt.delete(key);
+  return false;
+}
+function noteFailed(key, now = Date.now()) {
+  failedAt.delete(key);
+  failedAt.set(key, now);
+  while (failedAt.size > FAILED_KEEP) failedAt.delete(failedAt.keys().next().value);
+}
+
 /** The page asked for in a preview address: 1 when none is given, the number for a whole number from 1 (written
     without a leading zero, at most five digits), null for anything else (the routes answer 404). */
 function pageOf(raw) {
@@ -129,4 +148,4 @@ function pageOf(raw) {
   return /^[1-9]\d{0,4}$/.test(s) ? Number(s) : (s === '' ? 1 : null);
 }
 
-module.exports = { count, render, available, pageOf, keepNewestPages, setImplForTest, MAX_PAGES };
+module.exports = { count, render, available, pageOf, keepNewestPages, failedRecently, noteFailed, setImplForTest, MAX_PAGES };

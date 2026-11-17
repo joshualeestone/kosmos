@@ -438,8 +438,10 @@ async function previewFile(rec, opts) {
 async function pdfPageCount(rec) {
   const at = path.join(rec.dir, PAGES_FILE);
   try { const n = Number(fs.readFileSync(at, 'utf8').trim()); if (Number.isInteger(n) && n >= 1 && n <= pdfpages.MAX_PAGES) return n; } catch { /* not counted yet */ }
+  if (pdfpages.failedRecently(rec.file)) return null;
   const n = await pdfpages.count(rec.file);
   if (n) { try { store.saveFlushed(at, String(n)); } catch { /* counted again next time */ } }   // #5434: flushed before it is the file
+  else pdfpages.noteFailed(rec.file);
   return n;
 }
 

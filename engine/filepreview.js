@@ -229,9 +229,9 @@ async function pageCount(got, dir, hash, owner) {
   const at = path.join(dir, hash + '.pages');
   const ok = (n) => Number.isInteger(n) && n >= 1 && n <= pdfpages.MAX_PAGES;
   try { const n = Number(fs.readFileSync(at, 'utf8').trim()); if (ok(n)) return n; } catch { /* not counted yet */ }
-  if (!pdfpages.available()) return null;
+  if (!pdfpages.available() || pdfpages.failedRecently(hash)) return null;
   const n = await withPrivateCopy(got, dir, (copy) => pdfpages.count(copy));
-  if (!ok(n)) { try { fs.rmdirSync(dir); } catch { /* not empty, or never made */ } return null; }
+  if (!ok(n)) { pdfpages.noteFailed(hash); try { fs.rmdirSync(dir); } catch { /* not empty, or never made */ } return null; }
   try {
     dropOtherStamps(dir, hash);
     // #5434: flushed before it becomes the file, 0600 like the source record beside it

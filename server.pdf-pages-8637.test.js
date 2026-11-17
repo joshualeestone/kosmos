@@ -112,6 +112,9 @@ test('attachment: a count that cannot be read gives no header and no later page 
   await p2.arrayBuffer();
   assert.equal(seam.renders.length, 0);
   assert.equal(fs.existsSync(path.join(rec.dir, '.pdf-pages')), false, 'an unread count was kept');
+  // Review 6: and it is not asked again at once (a PDF PDFKit cannot read would cost a run on every open).
+  await (await fetch(`${base()}/api/attachment/${rec.id}/preview`, { method: 'HEAD' })).arrayBuffer();
+  assert.equal(seam.counts.length, 1, 'a failed count was tried again at once');
 });
 
 test('attachment: an image says nothing about pages', async () => {
@@ -189,6 +192,7 @@ test('Files list: a count that cannot be read is no header and no page 2, and le
   const h = await fetch(filesUrl('nocount.pdf'), { method: 'HEAD' });
   assert.equal(h.status, 200, 'CONTROL: the first page');
   assert.equal(h.headers.get('x-kosmos-pdf-pages'), null);
+  assert.equal(seam.counts.length, 1, 'the failed count was tried again at once');
 });
 
 test('filepreview.preview refuses a page that is not a whole number from 1', async () => {

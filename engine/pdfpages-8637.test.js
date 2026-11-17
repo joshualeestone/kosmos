@@ -138,3 +138,13 @@ test('every PDFKit call runs under sandbox-exec with the PDF\'s folder and the o
     delete require.cache[id];
   }
 });
+
+test('a failed count is remembered for ten minutes per key, then tried again', () => {
+  const t = 1e12;
+  assert.equal(pdfpages.failedRecently('k-a', t), false);
+  pdfpages.noteFailed('k-a', t);
+  assert.equal(pdfpages.failedRecently('k-a', t + 60 * 1000), true);
+  assert.equal(pdfpages.failedRecently('k-b', t + 60 * 1000), false, 'another key was caught by it');
+  assert.equal(pdfpages.failedRecently('k-a', t + 10 * 60 * 1000), false, 'still remembered after ten minutes');
+  assert.equal(pdfpages.failedRecently('k-a', t + 60 * 1000), false, 'an expired entry was kept');
+});
