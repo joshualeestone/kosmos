@@ -96,3 +96,7 @@ measured; the new test file runs on Windows (tools/windows-tests.js) but its lin
   - WARNING fixed: the boot line said agents "can still make it themselves", false when a file is in the way; dropped.
   - NITs fixed: ensureFolder answers the same keys on every exit; the unknown branch says it covers only a module that
     fails to load; the no-folder arm asserts its reason; the test cleanup uses the Windows-safe removeTree.
+- Round 6 (blind, sonnet): no BLOCKER, 1 WARNING, 3 NIT.
+  - WARNING fixed: a test comment still said the file was not in the Windows run.
+  - NIT fixed: failure messages read as expectations. Not acted on: merging the stacked comments in tellAgent; the
+    About-you save not saying a missing folder (the boot line does).
