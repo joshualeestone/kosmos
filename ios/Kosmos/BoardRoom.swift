@@ -502,7 +502,9 @@ extension Board {
         let obj = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if let status, (200...299).contains(status), let obj, isTrue(obj["blocked"]) { return nil }
         let why = (obj?["error"] as? String).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
-        return "We could not block them" + (why.map { ": " + $0 } ?? "") + ". Try again in a moment."
+        // Only a fault worth retrying (no answer, or the board's 5xx) says to try again; a 4xx is the board's own answer.
+        let retry = status.map { $0 >= 500 } ?? true
+        return "We could not block them" + (why.map { ": " + $0 } ?? "") + (retry ? ". Try again in a moment." : ".")
     }
     static let blockAskTitle = "Block them?"
     static func blockAskBody(_ name: String) -> String {
@@ -540,7 +542,8 @@ extension Board {
             "Sent: " + (row.atRaw ?? ""),
             "",
             "The message:",
-            roomWords(row),
+            // Capped, so the mail link stays short enough for any mail app; the id lets support read the rest.
+            roomWords(row).count > 2000 ? String(roomWords(row).prefix(2000)) + " (cut)" : roomWords(row),
             "",
             "Why I am reporting it (optional):",
             "",

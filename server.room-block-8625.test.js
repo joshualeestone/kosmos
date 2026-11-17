@@ -85,6 +85,12 @@ test('#8625: the person\'s own post from another of their computers cannot be bl
   assert.equal((await post(`/api/project/${encodeURIComponent(pid)}/room/x-me/block`)).status, 409);
   assert.equal((await post(`/api/project/${encodeURIComponent(pid)}/room/x-me-old/block`)).status, 409, 'an older row of the same account, with no mark of its own');
   assert.equal((await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room/x-me/sender`)).status, 409);
+  assert.equal((await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room/x-me-old/sender`)).status, 409, 'the older row of the same account is not named either');
+  // The room tells the phone which outside rows are the person's own, so it never offers Report or Block on them.
+  const room = await (await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room`)).json();
+  const own = room.rows.filter((r) => r.kind === 'external' && r.sameAccount === true).map((r) => r.id).sort();
+  assert.deepEqual(own, ['x-me', 'x-me-old'], 'both own-account rows are marked, the older one through the account; nobody else is');
+  assert.equal(room.rows.some((r) => Object.prototype.hasOwnProperty.call(r, 'member')), false, 'the stamp itself still never leaves the board');
   assert.deepEqual(blocked.list(), [], 'the person did not block themselves');
 });
 
