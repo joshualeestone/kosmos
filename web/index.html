@@ -4752,7 +4752,10 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
 /* #4937: the Documents screen's In the project folder | From this conversation switch. Each segment shows
    only its own parts; the folder's count, pager and sentence go with the folder. */
 .docs-seg { margin: 0 0 var(--space-5); }
-#pj-docs-view[data-docseg="convo"] :is(#docs-count, #docs-list, #docs-pager, #docs-msg) { display: none; }
+#pj-docs-view[data-docseg="convo"] :is(#docs-count, #docs-list, #docs-pager, #docs-msg, #docs-sortrow) { display: none; }
+/* kosmos#8627: the folder list's sort, on its own line above the count. */
+#docs-sortrow { margin: 0 0 8px; }
+#docs-sortrow[hidden] { display: none; }
 #pj-docs-view:not([data-docseg="convo"]) #docs-convo { display: none; }
 /* A phone: both segments share the row (measured: 344px of words in a 296px view at 320px wide). */
 @media (max-width: 400px) {
@@ -6852,7 +6855,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    Touch screens and any coarse pointer: desktop is unchanged. */
 @media (hover: none), (pointer: coarse) {
   #d-term-say { font-size: 16px; min-height: 44px; }
-  :is(#d-open-terminal, #d-remove-start, #d-term-send, #d-trust-restart, #team-orgchart-open, #plus-site-link, #pj-sort) { min-height: 44px; }
+  :is(#d-open-terminal, #d-remove-start, #d-term-send, #d-trust-restart, #team-orgchart-open, #plus-site-link, #pj-sort, #d-files-sort, #docs-sort) { min-height: 44px; }
   #plus-site-link { display: inline-flex; align-items: center; }
   #tsk-back { position: relative; }
   #tsk-back::after { content: ""; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
@@ -14537,6 +14540,17 @@ window.kosmosMeasureScrollbarWidth();
     <div class="dfiles-head dfiles-screen-head">
       <h2 class="dfiles-title" id="d-filesall-h" tabindex="-1">Files</h2>
       <span class="dfiles-acts">
+        <!-- kosmos#8627 (Josh, 11-17): the files' order, newest first unless this browser chose another. Folders stay
+             above files; each group follows the order. The same four words as the project Files page. -->
+        <label class="sortctl" for="d-files-sort">
+          <select id="d-files-sort" aria-label="Sort files">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="az">A to Z</option>
+            <option value="za">Z to A</option>
+          </select>
+          <svg class="sortctl-i" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </label>
         <!-- #6724: the folder being shown, as one zip, to the device the person is on (Finder opens on the board's computer). -->
         <button class="btn" id="d-files-zip" type="button">Download folder</button>
         <button class="btn" id="d-files-finder" data-remote-hide type="button" data-win-copy="docsOpenFolder" data-linux-hide>Open in Finder</button>
@@ -18350,6 +18364,19 @@ window.kosmosMeasureScrollbarWidth();
       <button type="button" role="radio" data-docseg="convo" aria-checked="false" tabindex="-1" aria-controls="docs-convo">From this conversation</button>
     </div>
     <div id="docs-convo" class="pj-docs"></div>
+    <!-- kosmos#8627 (Josh, 11-17): the folder list's order, the same four words as an agent's Files page. Hidden
+         until the folder has a file, and with the folder's other parts when the conversation's files show. -->
+    <div id="docs-sortrow" hidden>
+      <label class="sortctl" for="docs-sort">
+        <select id="docs-sort" aria-label="Sort files">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="az">A to Z</option>
+          <option value="za">Z to A</option>
+        </select>
+        <svg class="sortctl-i" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </label>
+    </div>
     <p class="dhint" id="docs-count" style="margin:0 0 8px;" hidden></p>
     <div id="docs-list" class="pj-docs"></div>
     <div class="frow" id="docs-pager" hidden style="margin:10px 0 0; gap:8px;">
@@ -45941,6 +45968,40 @@ function refocusRow(box, key) {
 /* #6497 (Mona's 0.7.56 noise pass): `compact` is the agent page's narrow Files panel. A full date on every row cut the
    names to a few letters there, so it shows the size only, as the project page's Files panel does; the date is the
    row's hover text. The Files screen (View All) keeps the date on the row. */
+/* kosmos#8627 (Josh, 11-17: "I can't find it because I can't sort by the date"): the Files pages' four orders. Newest
+   first unless this browser chose another, remembered per page (an agent's Files, a project's Files) in localStorage,
+   which may be missing or refuse (a private window), so every read and write is guarded and the default stands.
+   A to Z is the server's own order (engine/projects.js byName), so choosing it shows exactly the old list.
+   Rows by `modified` (the date each row shows); a row without a readable date goes last in both date orders,
+   and equal dates fall back to A to Z, so an order never depends on how the server listed them. Pure. */
+const FILES_SORTS = ['newest', 'oldest', 'az', 'za'];
+function filesSortMode(v) { return FILES_SORTS.includes(v) ? v : 'newest'; }
+function filesSortRead(key) {
+  let v = null;
+  try { v = localStorage.getItem(key); } catch { v = null; }
+  return filesSortMode(v);
+}
+function filesSortSave(key, v) {
+  try { localStorage.setItem(key, v); } catch { /* a display preference only */ }
+}
+function filesSorted(rows, mode) {
+  const byName = (a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' });
+  const at = (r) => { const t = Date.parse(r && r.modified); return Number.isFinite(t) ? t : null; };
+  const m = filesSortMode(mode);
+  return (Array.isArray(rows) ? rows : []).slice().sort((a, b) => {
+    if (m === 'az') return byName(a, b);
+    if (m === 'za') return byName(b, a);
+    const x = at(a); const y = at(b);
+    if (x === null || y === null) return x === y ? byName(a, b) : x === null ? 1 : -1;
+    if (x !== y) return m === 'newest' ? y - x : x - y;
+    return byName(a, b);
+  });
+}
+const AGENT_FILES_SORT_KEY = 'kosmos.sort.files.agent';
+const DOCS_SORT_KEY = 'kosmos.sort.files.project';
+/* The choice in hand, so a browser that refuses to store it still sorts as chosen until the page reloads. */
+let AGENT_FILES_SORT = filesSortRead(AGENT_FILES_SORT_KEY);
+let DOCS_SORT = filesSortRead(DOCS_SORT_KEY);
 function agentFileRow(f, compact = false, label = null) {   // #6724: `label` (the browser shows a name, not its path)
   // A BUTTON: it opens a file, so it must be reachable from the keyboard.
   const b = document.createElement('button');
@@ -46223,8 +46284,9 @@ async function paintAgentFilesAll(sessionName) {
       : asSentence((body && body.because) || 'We could not read this agent’s files just now.');
     return;
   }
-  const dirs = Array.isArray(body.dirs) ? body.dirs : [];
-  const files = Array.isArray(body.files) ? body.files : [];
+  // kosmos#8627: folders first still, each group in the chosen order
+  const dirs = filesSorted(body.dirs, AGENT_FILES_SORT);
+  const files = filesSorted(body.files, AGENT_FILES_SORT);
   msg.textContent = dirs.length || files.length ? '' : (dir ? 'This folder is empty.' : 'This agent has no files yet.');
   for (const d of dirs) list.append(agentDirRow(d));
   const downloads = kplusRemote() || onLinux();   // kosmos#7952: where a file is saved to this device rather than opened
@@ -46248,6 +46310,18 @@ async function paintAgentFilesAll(sessionName) {
     if (to && typeof to.focus === 'function') to.focus();
   } else refocusRow(list, hadFocus);
 }
+(() => {   // kosmos#8627: the Files screen's order; a change repaints the folder shown, in place
+  const sel = document.getElementById('d-files-sort');
+  if (!sel) return;
+  sel.value = AGENT_FILES_SORT;
+  sel.addEventListener('change', () => {
+    AGENT_FILES_SORT = filesSortMode(sel.value);
+    sel.value = AGENT_FILES_SORT;
+    filesSortSave(AGENT_FILES_SORT_KEY, AGENT_FILES_SORT);
+    AGENT_FILES_ALL_STAMP = null;   // the answer is unchanged; the order is not
+    if (CURRENT) paintAgentFilesAll(CURRENT.sessionName);
+  });
+})();
 for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-list', 'd-filesall-msg']]) document.getElementById(listId) && document.getElementById(listId).addEventListener('click', async (e) => {
   const dlb = e.target.closest('.pj-doc-dl');
   if (dlb && CURRENT) {   // kosmos#7952: one file, to this device
@@ -76898,6 +76972,19 @@ function pjDocsPaintPage() {
   document.getElementById('docs-prev').disabled = PJ_DOCS_PAGE === 0;
   document.getElementById('docs-next').disabled = PJ_DOCS_PAGE >= pages - 1;
 }
+(() => {   // kosmos#8627: the folder list's order; a change re-sorts the list in hand and starts at its first page
+  const sel = document.getElementById('docs-sort');
+  if (!sel) return;
+  sel.value = DOCS_SORT;
+  sel.addEventListener('change', () => {
+    DOCS_SORT = filesSortMode(sel.value);
+    sel.value = DOCS_SORT;
+    filesSortSave(DOCS_SORT_KEY, DOCS_SORT);
+    PJ_DOCS_FILES = filesSorted(PJ_DOCS_FILES, DOCS_SORT);
+    PJ_DOCS_PAGE = 0;
+    if (PJ_DOCS_FILES.length) pjDocsPaintPage();
+  });
+})();
 document.getElementById('docs-prev').addEventListener('click', () => { PJ_DOCS_PAGE -= 1; pjDocsPaintPage(); document.getElementById('docs-list').scrollIntoView({ block: 'start' }); });
 document.getElementById('docs-next').addEventListener('click', () => { PJ_DOCS_PAGE += 1; pjDocsPaintPage(); document.getElementById('docs-list').scrollIntoView({ block: 'start' }); });
 
@@ -76947,6 +77034,7 @@ async function openDocsView() {
   const msg = document.getElementById('docs-msg');
   const count = document.getElementById('docs-count');
   box.textContent = ''; count.hidden = true; msg.textContent = 'Looking\u2026';
+  document.getElementById('docs-sortrow').hidden = true;        // kosmos#8627: until the folder has a file
   const convo = document.getElementById('docs-convo');
   convo.textContent = '';
   document.getElementById('docs-pager').hidden = true;          // the last project's pages; a listed folder shows it again
@@ -76996,9 +77084,10 @@ async function openDocsView() {
     /* Paginated (#535, Josh: 'a paginated list of project files'). Fifty a
        page: enough to scan, never a wall. The floor sentence survives at the
        END of the last page, because the route's 500 cap is still a cap. */
-    PJ_DOCS_FILES = files;
+    PJ_DOCS_FILES = filesSorted(files, DOCS_SORT);   // kosmos#8627: the route sends newest first; the choice decides
     PJ_DOCS_TOTAL = Number(body.total) || files.length;
     PJ_DOCS_PAGE = 0;
+    document.getElementById('docs-sortrow').hidden = false;
     pjDocsPaintPage();
     docsFingerprintFill(forProject, docsOpen, 0);   // #6761 iteration 1: this view reads once; its fingerprints come later
     /* #2245: the walk has a budget; a list it cut short says so rather than passing as complete. */
