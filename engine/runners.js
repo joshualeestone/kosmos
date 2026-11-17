@@ -429,6 +429,26 @@ function installedVersion(provider, platform = process.platform) {
   } catch { return null; }
 }
 
+/* kosmos#8598: the record a proved upgrade leaves beside the tree (see install). */
+const UPGRADE_STAMP = 'upgraded.json';
+function writeUpgradeStamp(destDir, rec) {
+  const file = path.join(destDir, UPGRADE_STAMP);
+  try {
+    if (!rec) { fs.rmSync(file, { force: true }); return; }
+    const tmp = `${file}.${process.pid}.tmp`;   // review 7: whole or absent, never half-written
+    fs.writeFileSync(tmp, JSON.stringify(rec) + '\n');
+    fs.renameSync(tmp, file);
+  } catch { /* best effort: a missing record restarts nobody */ }
+}
+/** { from, to, at } for the last proved upgrade of this provider's managed runner, or null. */
+function upgradeStamp(provider = 'openai') {
+  try {
+    const rec = JSON.parse(fs.readFileSync(path.join(managedRoot(), provider, UPGRADE_STAMP), 'utf8'));
+    if (!rec || typeof rec.to !== 'string' || !Number.isFinite(rec.at)) return null;
+    return { from: typeof rec.from === 'string' ? rec.from : null, to: rec.to, at: rec.at };
+  } catch { return null; }
+}
+
 function managedBin(m, platform = process.platform, provider = 'openai') {
   const flavour = platform === 'win32' ? path.win32 : path;
   /* #3713: each managed runner has its own folder under managedRoot(), named for its
@@ -1696,6 +1716,9 @@ function install(provider, opts) {
         if (upgrading) { try { const t = new Date(); fs.utimesSync(pkgOld, t, t); } catch { /* best effort */ } }
       }
       await renameRetrying(pkgNew, pkgDir, plat);
+      // kosmos#8598: the moment the new tree took the stable path (upgradeStamp below). Taken before the prove on purpose:
+      // an agent started from here on already runs the new tree.
+      const swappedAt = Date.now();
       pkgNewLive = null; // swapped in; nothing at the per-pid name any more
       // Best-effort, like the sweeps: a locked OLD tree (antivirus still reading
       // it) must not fail an install whose new tree is already in place. The
@@ -1786,6 +1809,15 @@ function install(provider, opts) {
         throw err;
       }
       if (upgrading) { try { fs.rmSync(pkgOld, { recursive: true, force: true }); } catch { /* the age-gated sweep gets it */ } }
+      /* kosmos#8598: an upgrade that proved itself records what it replaced and when, so the board's runner-restart sweep
+         (engine/runnerrestart.js) restarts only agents still running the replaced version. Any other install removes the
+         record unless it names the version installed now (a repair, below). Best effort: no record means no
+         restarts, the safe direction, and a write that fails leaves an older record that cannot fire (the sweep also
+         needs its `to` to be the version installed now). */
+      /* Review 3: a non-upgrade install of the version an earlier upgrade brought (a repair) keeps that record, since
+         agents on the replaced version may still be waiting for their restart. */
+      if (upgrading) writeUpgradeStamp(destDir, { from: existing.installedVersion || null, to: m.version, at: swappedAt });
+      else if ((upgradeStamp(provider) || {}).to !== m.version) writeUpgradeStamp(destDir, null);
       // Only now, after the binary itself answered, may anything vouch for it.
       if (plat === 'win32') fs.writeFileSync(verifiedMarker(plat, provider), verifiedStamp(m) + '\n');
 
@@ -2081,4 +2113,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, CODEX_WIN32, installedVersion, olderVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, CODEX_WIN32, installedVersion, upgradeStamp, UPGRADE_STAMP, olderVersion, GROK_DARWIN, GROK_WIN32, nodeLauncher, winNodeLauncher, spawnTarget, launcherHasNode, installing, manifestFor, managedBin, verifiedMarker, tarBin, fileIntegrity, plainFailure, managedRoot, resolveBin, agyRealName, isAgyName, installAntigravityWin32, agyWin32Bin, agyWin32Verified, agyCheckManifest, agySignedByGoogle, AGY_MANIFEST_BASE, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };

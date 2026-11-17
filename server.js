@@ -29273,6 +29273,29 @@ function start(port = PORT) {
       if (runnerUpgradeFirst && typeof runnerUpgradeFirst.unref === 'function') runnerUpgradeFirst.unref();
       const runnerUpgradeSweep = setInterval(runnerUpgradeTick, 30 * 60 * 1000);
       if (runnerUpgradeSweep && typeof runnerUpgradeSweep.unref === 'function') runnerUpgradeSweep.unref();
+      /* kosmos#8598: after that swap, a running older Codex that starts its code-mode host gets the NEW tree's host and
+         every code-mode call fails until it restarts (measured on the card). Once a minute, restart at its next idle
+         point a managed Codex agent whose process predates the swap and has no code-mode host from before it
+         (engine/runnerrestart.js says who and why; a restart starts the conversation over, so the safe case is left
+         alone). Mac/Linux only (Windows stays on 0.149.1). Gated like the sweeps here; brake
+         AGENT_WORKFORCE_RUNNER_RESTART_OFF=1. */
+      const runnerRestartTick = require('./engine/runnerrestart').makeTick({
+        run: (cmd, args) => new Promise((resolve) => {
+          require('node:child_process').execFile(cmd, args, { encoding: 'utf8', timeout: 5000, maxBuffer: 16 * 1024 * 1024 },
+            (err, out) => resolve(err ? null : String(out || '')));
+        }),
+        roster: () => safeRoster(),
+        isIdle: (c) => require('./engine/agentnudge').nudgeableCard(c),
+        runners,
+        removal,
+        allowed: () => liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_RUNNER_RESTART_OFF !== '1',
+        platform: process.platform,
+        tmuxBin: process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux',
+        write: (line) => process.stdout.write(line),
+        warn: (line) => console.warn(line),
+      });
+      const runnerRestartSweep = setInterval(() => { runnerRestartTick(); }, 60 * 1000);
+      if (runnerRestartSweep && typeof runnerRestartSweep.unref === 'function') runnerRestartSweep.unref();
       const class1Attempts = new Map();
       const class1Sweep = setInterval(() => {
         // 🛑 LOAD-BEARING, DO NOT REMOVE: this is the ONLY gate on create.trustAgentFolder's
