@@ -229,6 +229,7 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
       const failedUnblock = await page.evaluate(async () => {
         showTab('settings');   // the person is on Settings when they press Unblock
         settingsGo('you', { focus: false });
+        await blockedPaint();   // the read arriving on Settings started, before the list below exists
         window.__list = { ok: true, status: 200, json: async () => ({ blocked: [{ account: 'acctC', name: 'Cal', at: '2026-11-17T15:00:00Z' }] }) };
         await blockedPaint();
         const before = window.fetch;
@@ -263,11 +264,15 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
         document.getElementById('you-blocked-box').hidden = true;
         window.__list = { ok: true, status: 200, json: async () => ({ blocked: [{ account: 'acctB', name: 'Bea', at: '2026-11-17T15:00:00Z' }] }) };
         pjBlockedNoteSet({ hiddenBlocked: 1 });
+        await blockedPaint();   // nothing left running from earlier arms
+        window.__posted = [];
         document.querySelector('#pj-blocked-note [data-blocked-go]').click();
         for (let i = 0; i < 50 && document.activeElement && document.activeElement.id !== 'you-blocked-box'; i += 1) await new Promise((r) => setTimeout(r, 20));
-        return { focus: document.activeElement && document.activeElement.id, shown: !document.getElementById('you-blocked-box').hidden, settings: !document.getElementById('panel-settings').hidden };
+        return { focus: document.activeElement && document.activeElement.id, shown: !document.getElementById('you-blocked-box').hidden, settings: !document.getElementById('panel-settings').hidden,
+          reads: window.__posted.filter((q) => q[0] === '/api/blocked').length };
       });
       ok(t + ' the note\'s link opens Settings on the Blocked list', landed.settings && landed.shown && landed.focus === 'you-blocked-box', JSON.stringify(landed));
+      ok(t + ' the note\'s link reads the Blocked list once', landed.reads === 1, String(landed.reads));
       await page.close();
     }
   } finally {

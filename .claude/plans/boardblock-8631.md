@@ -24,8 +24,8 @@ Settings, Your Profile lists blocked people with Unblock; a room where a block h
 - **The Blocked list lives in Settings, Your Profile**, as its own box. Rejected: a new Settings tab (a nav pill for one
   list); Kosmos+ (that section is about the subscription). Hidden when GET /api/blocked fails, "No one is blocked." when
   empty (the phone's rule).
-- **The room note needs the server to say so**: the room route's JSON answers carry `hiddenBlocked` (how many of this
-  room's rows a block hides), never sent as 0; the text view an agent reads is unchanged. Words: "N messages are hidden
+- **The room note needs the server to say so**: the room route's JSON answers carry `hiddenBlocked` (how many of the
+  live room's rows a block hides; rows in the archived stretch are not counted), never sent as 0; the text view an agent reads is unchanged. Words: "N messages are hidden
   here because you blocked who sent them." (not "from people you blocked": one person can send them all).
 - After Block, the window's held rows of that person are dropped (the window merge only adds), then the room is read.
 
@@ -36,10 +36,11 @@ not; the copied report and the line under the composer are the fallback, not a g
 
 ## Tests
 
-- server.room-block-8631.test.js (3): no hiddenBlocked before a block (both arms), the count after (whole room and a
-  page, CONTROL: the rows really left; the text view unchanged), gone after Unblock. CONTROL run: with the field removed
-  from the route, 1 of 3 fails.
-- docs/browser-checks/render-room-block-8631.js (70, light and dark): the buttons, 44px and drawn; never on sameAccount
+- server.room-block-8631.test.js (4): no hiddenBlocked before a block (both arms), the count after (whole room and a
+  page, CONTROL: the rows really left; the text view unchanged), gone after Unblock; a blocked person whose rows are all
+  archived gives no count (CONTROL: the same block with the marker gone counts 2). CONTROL runs: with the field removed
+  from the route, 1 fails; counting archived rows too, 1 fails.
+- docs/browser-checks/render-room-block-8631.js (72, light and dark): the buttons, 44px and drawn; never on sameAccount
   or a non-x id; the report body line for line; Block asks, posts, drops the held rows, closes; a refusal keeps the dialog
   with the reason; the note's two wordings and its CONTROL; the Blocked list's failed, empty and one-person states and
   Unblock. CONTROL run: with the Report markup renamed, 6 fail.
@@ -47,3 +48,8 @@ not; the copied report and the line under the composer are the fallback, not a g
   messages and not another's, the note shows, its link opens Settings, Your Profile, Blocked with the person and Unblock.
   No page errors, light and dark.
 - server.room-block-8625.test.js still passes (9).
+
+## Review notes
+
+- Deferred (round 4): a failed room read leaves the hidden-messages line as it was. The room already says "What is shown
+  may be behind" under the composer on that path, which covers the line too.
