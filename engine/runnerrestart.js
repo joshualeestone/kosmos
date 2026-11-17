@@ -27,7 +27,9 @@
  * call comes after the swap still fails until that turn ends; only a folder per version would close it.
  *
  * NOT COVERED: a host that exits and starts again later (an idle timeout, a crash) was not measured; nothing here can
- * predict it. Windows upgrades only while no agent runs from the managed folder (runners.install, kosmos#8593), so a Windows agent is left on a swapped tree only if it started in the moment between that check and the swap, and this sweep is Mac/Linux only (the caller gates it).
+ * predict it. Windows upgrades only while no agent runs from the managed folder (runners.install, kosmos#8593), so a
+ * Windows agent is left on a swapped tree only if it started in the moment between that check and the swap, and this
+ * sweep is Mac/Linux only (the caller gates it).
  *
  * Everything it reads or does is injected (passOnce), so it is tested without a board, a process table or tmux.
  */

@@ -81,21 +81,36 @@ test('parseExePaths: the paths are an answer only with the sentinel; without it 
   }
 });
 
-test('exeUnder: a program inside the folder, in any spelling that resolves to it, counts; a sibling prefix does not', () => {
+test('exeUnder: a program inside the folder, in any spelling that resolves to it, counts; a sibling prefix does not', async () => {
   const root = 'C:\\Users\\Pat Doe\\Kosmos\\runners\\openai';
   // The seam stands in for realpath: the short and mixed spellings resolve to the long one.
   const real = (p) => ({
     'C:\\Users\\PATDOE~1\\Kosmos\\runners\\openai\\pkg\\codex.exe': `${root}\\pkg\\codex.exe`,
     'c:\\users\\pat doe\\KOSMOS\\RUNNE~1\\openai\\pkg\\codex.exe': `${root}\\pkg\\codex.exe`,
   })[p] || p;
-  assert.equal(runners.exeUnder([`${root}\\pkg\\codex.exe`], root, real), true, 'as given');
-  assert.equal(runners.exeUnder(['C:\\Users\\PATDOE~1\\Kosmos\\runners\\openai\\pkg\\codex.exe'], root, real), true, '8.3 form');
-  assert.equal(runners.exeUnder(['c:\\users\\pat doe\\KOSMOS\\RUNNE~1\\openai\\pkg\\codex.exe'], root, real), true, 'mixed, other case');
-  assert.equal(runners.exeUnder([`${root}-old\\pkg\\codex.exe`, 'C:\\Windows\\explorer.exe'], root, real), false, 'a sibling that shares the prefix');
-  assert.equal(runners.exeUnder([`${root}\\pkg\\codex.exe`], `${root}\\`, real), true, 'a root given with its trailing separator');
+  assert.equal(await runners.exeUnder([`${root}\\pkg\\codex.exe`], root, real), true, 'as given');
+  assert.equal(await runners.exeUnder(['C:\\Users\\PATDOE~1\\Kosmos\\runners\\openai\\pkg\\codex.exe'], root, real), true, '8.3 form');
+  assert.equal(await runners.exeUnder(['c:\\users\\pat doe\\KOSMOS\\RUNNE~1\\openai\\pkg\\codex.exe'], root, real), true, 'mixed, other case');
+  assert.equal(await runners.exeUnder([`${root}-old\\pkg\\codex.exe`, 'C:\\Windows\\explorer.exe'], root, real), false, 'a sibling that shares the prefix');
+  assert.equal(await runners.exeUnder([`${root}\\pkg\\codex.exe`], `${root}\\`, real), true, 'a root given with its trailing separator');
   const throws = () => { throw new Error('EPERM'); };
-  assert.equal(runners.exeUnder([`${root}\\pkg\\codex.exe`], root, throws), true, 'a path that cannot be resolved is compared as reported');
-  assert.equal(runners.exeUnder([], root, real), false);
+  assert.equal(await runners.exeUnder([`${root}\\pkg\\codex.exe`], root, throws), true, 'a path that cannot be resolved is compared as reported');
+  assert.equal(await runners.exeUnder(['C:\\Users\\PATDOE~1\\x.exe'], root, () => Promise.reject(new Error('EPERM'))), false, 'an async refusal too');
+  assert.equal(await runners.exeUnder([], root, real), false);
+  // Another spelling the caller already knows (the form Kosmos started Codex by) counts without resolving anything.
+  assert.equal(await runners.exeUnder(['C:\\Users\\PATDOE~1\\Kosmos\\runners\\openai\\codex.exe'], root, throws,
+    [root, 'C:\\Users\\PATDOE~1\\Kosmos\\runners\\openai']), true);
+});
+
+test('exeUnder resolves only paths on the managed folder\'s own drive: a gone network drive cannot stall it', async () => {
+  const root = 'C:\\Users\\Pat Doe\\Kosmos\\runners\\openai';
+  const asked = [];
+  const real = (p) => { asked.push(p); return p; };
+  const paths = ['Z:\\tools\\app.exe', '\\\\server\\share\\app.exe', 'D:\\Games\\x.exe', 'C:\\Windows\\explorer.exe'];
+  assert.equal(await runners.exeUnder(paths, root, real), false);
+  assert.deepEqual(asked, ['C:\\Windows\\explorer.exe'], 'the mapped drive, the UNC share and the other drive were never resolved');
+  // A resolver that never answers (a hung SMB) on another drive is never awaited.
+  assert.equal(await runners.exeUnder(['Z:\\gone\\app.exe'], root, () => new Promise(() => {})), false);
 });
 
 test('win32: a tree an older build vouched for is present but stale; its agents keep starting on it', { skip: WIN_ONLY }, () => {
@@ -269,6 +284,34 @@ test('win32: a kept tarball whose bytes no longer match is discarded by the chec
     assert.equal(fs.existsSync(stagingFile()), false, 'the wrong bytes are deleted, so the next look downloads fresh');
     assert.equal(marker(), before); assert.equal(isOldTree(), true);
   } finally { clear(); try { fs.rmSync(stagingFile(), { force: true }); } catch { /* gone */ } }
+});
+
+test('win32: a caller that just checked (agentsCheckedIdle) skips only the first look; the pre-swap look still runs', { skip: WIN_ONLY }, async () => {
+  plantOld();
+  const { tgz, integrity } = winFixture();
+  let asks = 0;
+  try {
+    const job = runners.install('openai', { legacyBin: LEGACY, download: downloadFrom(tgz), integrity, prove: ok, agentsCheckedIdle: true,
+      codexRunning: () => { asks += 1; return Promise.resolve(true); } });
+    await job.settled;
+    assert.equal(asks, 1, 'asked once, before the swap');
+    assert.equal(job.phase, 'failed'); assert.equal(job.waited, true, 'and that look still stops the swap');
+    assert.equal(isOldTree(), true);
+  } finally { clear(); try { fs.rmSync(stagingFile(), { force: true }); } catch { /* gone */ } }
+});
+
+test('win32: what the screen reads after a wait is the runner present and no failed job (a wait never shows as a failure)', { skip: WIN_ONLY }, async () => {
+  plantOld();
+  const { tgz, integrity } = winFixture();
+  try {
+    const job = runners.install('openai', { legacyBin: LEGACY, download: downloadFrom(tgz), integrity, prove: ok,
+      codexRunning: () => Promise.resolve(true) });
+    await job.settled;
+    assert.equal(job.phase, 'failed', 'PRECONDITION: the job ended as a wait');
+    const s = runners.status().openai;
+    assert.equal(s.present, true, 'the older Codex still reads present (the install button shows only for a missing one)');
+    assert.equal(s.job, null, 'a failed job beside a present runner is dropped, so no failure reaches the screen');
+  } finally { clear(); }
 });
 
 test('win32: a check that throws counts as running (the old version stays)', { skip: WIN_ONLY }, async () => {

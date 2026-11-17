@@ -778,14 +778,25 @@ function authenticodeOf(file) {
    both sides are resolved (fs.realpathSync.native gives the one long, real form, through 8.3 names and junctions) and
    compared case-insensitively with a trailing separator, so a sibling that merely shares the prefix (openai-old) does not
    count. A folder that cannot be resolved for any reason but its absence is no answer (null); a program path that cannot
-   be resolved is compared as reported. */
+   be resolved is compared as reported.
+   🛑 RESOLVING A PATH CAN HANG: a program started from a network drive that has since gone away holds realpath for the
+   whole SMB timeout. So only paths on the managed folder's own local drive are resolved (a program anywhere else
+   cannot be inside it, unless a subst drive points into it, which Kosmos never does), they are resolved OFF the event
+   loop (fs.realpath.native), and the whole answer has a deadline after which it is no answer (null, read as running). */
 const RUNNING_OK = 'KOSMOS-RUNNING-READ-OK';
+const RUNNING_DEADLINE_MS = 20000;
 function managedProcessRunning(dir) {
   let root;
   try { root = fs.realpathSync.native(dir); } catch (e) {
     if (!e || e.code !== 'ENOENT') return Promise.resolve(null);
     return Promise.resolve(false);   // no folder: nothing can run from it
   }
+  let timer = null;
+  const deadline = new Promise((resolve) => { timer = setTimeout(() => resolve(null), RUNNING_DEADLINE_MS); });
+  if (timer && typeof timer.unref === 'function') timer.unref();
+  return Promise.race([deadline, readRunning(root, [String(dir), root])]).finally(() => clearTimeout(timer));
+}
+function readRunning(root, forms) {
   return new Promise((resolve) => {
     const ps = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     // UTF-8 out, so a folder name outside the console's code page reaches node intact.
@@ -796,25 +807,37 @@ function managedProcessRunning(dir) {
       { windowsHide: true, timeout: 60000, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
       (err, stdout) => {
         const paths = err ? null : parseExePaths(stdout);
-        resolve(paths === null ? null : exeUnder(paths, root));
+        if (paths === null) { resolve(null); return; }
+        exeUnder(paths, root, undefined, forms).then(resolve, () => resolve(null));
       });
   });
 }
+const realpathNative = (p) => new Promise((res, rej) => fs.realpath.native(p, (e, r) => (e ? rej(e) : res(r))));
 /** What managedProcessRunning's PowerShell printed -> the program paths, or null without the sentinel. Pure. */
 function parseExePaths(out) {
   const lines = String(out == null ? '' : out).split(/\r?\n/).map((l) => l.trim());
   if (!lines.includes(RUNNING_OK)) return null;
   return lines.filter((l) => l && l !== RUNNING_OK);
 }
-/** Whether any of `paths` (as Windows reported them) lies inside `root` (already resolved). `real` is the seam. */
-function exeUnder(paths, root, real = (p) => fs.realpathSync.native(p)) {
-  const base = String(root).replace(/[\\/]+$/, '').toLowerCase() + '\\';
+/**
+ * Whether any of `paths` (as Windows reported them) lies inside `root` (already resolved): a Promise<boolean>.
+ * A path that already starts with the root, or with another spelling of it in `forms`, counts at once; otherwise only a
+ * path on one of those spellings' own drives is resolved (see managedProcessRunning on why). `real` is the seam
+ * (sync or async).
+ */
+async function exeUnder(paths, root, real = realpathNative, forms = [root]) {
+  const norm = (s) => String(s).replace(/[\\/]+$/, '').toLowerCase() + '\\';
+  const bases = [...new Set([root, ...forms].map(norm))];
+  const inside = (p) => bases.some((b) => String(p).toLowerCase().startsWith(b));
+  const drives = new Set(bases.map((b) => (/^[a-z]:\\/.test(b) ? b.slice(0, 2) : null)).filter(Boolean));
+  const toResolve = [];
   for (const p of paths) {
-    let r = p;
-    try { r = real(p); } catch { r = p; }
-    if (String(r).toLowerCase().startsWith(base)) return true;
+    if (inside(p)) return true;
+    const drive = /^[a-z]:\\/i.test(p) ? p.slice(0, 2).toLowerCase() : null;
+    if (drive && drives.has(drive)) toResolve.push(p);
   }
-  return false;
+  const resolved = await Promise.all(toResolve.map(async (p) => { try { return await real(p); } catch { return p; } }));
+  return resolved.some(inside);
 }
 /** Whether an Authenticode answer is Google's. Pure. */
 function agySignedByGoogle(sig) {
@@ -1674,11 +1697,15 @@ function install(provider, opts) {
         } catch { /* best effort */ }
       }
       /* Windows upgrade, first look: an agent already running means the swap could not happen, so nothing downloads. A
-         tarball an earlier look kept is kept again: nothing is unpacked yet, and the checksum still decides its use. */
-      if (await waitForAgents(true)) return;
+         tarball an earlier look kept is kept again: nothing is unpacked yet, and the checksum still decides its use.
+         o.agentsCheckedIdle: the caller asked a moment ago (engine/runnerupgrade.js), so this look is skipped; the one
+         before the swap is never skipped. */
+      if (o.agentsCheckedIdle !== true && await waitForAgents(true)) return;
       /* kosmos#8593 (Windows): a tarball this process downloaded for an upgrade that then had to wait for an agent is
          kept (waitForAgents), so the next look does not fetch ~187 MB again. It is only REUSED here, at its full
-         published size, and the checksum below still decides: wrong bytes are discarded as always. */
+         published size, and the checksum below still decides: wrong bytes are discarded as always. The cost: one copy of
+         the archive in .tmp per board process while agents keep it waiting (the stray sweep skips this process's own
+         name); a restarted board has a new name, so the age-gated sweep removes the old copy an hour later. */
       let kept = 0;
       if (upgrading && plat === 'win32') { try { kept = fs.statSync(staging).size; } catch { kept = 0; } }
       if (kept > 0 && kept === m.downloadBytes) {

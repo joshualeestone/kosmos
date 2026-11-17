@@ -61,7 +61,8 @@ function makeTick(d) {
         }
       }
       tries.set(pin, (tries.get(pin) || 0) + 1);
-      const job = run.install('openai');
+      // On Windows this tick just found no agent running, so install() skips its own first look (not the pre-swap one).
+      const job = run.install('openai', d.platform === 'win32' ? { agentsCheckedIdle: true } : undefined);
       say(`runner-upgrade: openai ${from} -> ${pin}: ${job && job.phase}\n`);
       if (job && job.settled && typeof job.settled.then === 'function') {
         job.settled.then(() => {

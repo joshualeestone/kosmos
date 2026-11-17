@@ -17,7 +17,7 @@ const PIN = '0.169.0';
    `waits` makes install() hand back a job that settles as a wait (what runners.install does when an agent started
    during the download). */
 function fake({ stale = true, installing = false, liveJob = null, busy = false, checkThrows = false, waits = false } = {}) {
-  const calls = { install: 0, asked: [] };
+  const calls = { install: 0, asked: [], opts: [] };
   const runners = {
     resolveBin: () => ({ present: true, managed: true, stale, installedVersion: stale ? '0.149.1' : undefined }),
     installing: () => installing,
@@ -25,8 +25,8 @@ function fake({ stale = true, installing = false, liveJob = null, busy = false, 
     manifestFor: () => ({ version: PIN }),
     managedRoot: () => 'C:\\runners',
     managedProcessRunning: (dir) => { calls.asked.push(dir); return checkThrows ? Promise.reject(new Error('CIM')) : Promise.resolve(busy); },
-    install: () => {
-      calls.install += 1;
+    install: (provider, opts) => {
+      calls.install += 1; calls.opts.push(opts);
       const job = { phase: 'downloading' };
       Object.defineProperty(job, 'settled', { value: Promise.resolve().then(() => {
         job.phase = 'failed';
@@ -80,6 +80,14 @@ test('Windows: no agent running starts the upgrade, asking about the managed ope
   assert.equal(calls.install, 1);
   assert.deepEqual(calls.asked, [require('node:path').join('C:\\runners', 'openai')]);
   assert.match(lines.join(''), /0\.149\.1 -> 0\.169\.0: downloading/);
+  assert.deepEqual(calls.opts, [{ agentsCheckedIdle: true }], 'install() is told this tick just checked, so it skips only its first look');
+});
+
+test('Mac and Linux: install() is not told anything was checked', async () => {
+  const { runners, calls } = fake({ busy: false });
+  const { tick } = tickFor(runners, { platform: 'darwin' });
+  await tick();
+  assert.deepEqual(calls.opts, [undefined]);
 });
 
 test('Windows: an agent running, no answer, or a check that throws is a wait, and waiting forever spends no try', async () => {

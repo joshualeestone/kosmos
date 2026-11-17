@@ -29390,8 +29390,8 @@ function start(port = PORT) {
          every code-mode call fails until it restarts (measured on the card). Once a minute, restart at its next idle
          point a managed Codex agent whose process predates the swap and has no code-mode host from before it
          (engine/runnerrestart.js says who and why; a restart starts the conversation over, so the safe case is left
-         alone). Mac/Linux only (a Windows upgrade waits until no agent runs on the old tree; see engine/runnerupgrade.js). Gated like the sweeps here; brake
-         AGENT_WORKFORCE_RUNNER_RESTART_OFF=1. */
+         alone). Mac/Linux only (a Windows upgrade waits until no agent runs on the old tree; see
+         engine/runnerupgrade.js). Gated like the sweeps here; brake AGENT_WORKFORCE_RUNNER_RESTART_OFF=1. */
       const runnerRestartTick = require('./engine/runnerrestart').makeTick({
         run: (cmd, args) => new Promise((resolve) => {
           require('node:child_process').execFile(cmd, args, { encoding: 'utf8', timeout: 5000, maxBuffer: 16 * 1024 * 1024 },
