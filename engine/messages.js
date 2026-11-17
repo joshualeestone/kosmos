@@ -130,8 +130,12 @@ function unreadAll() {
   const seen = seenRead();
   if (seen === null) return null;
   const out = {};
+  // #8625: a blocked person's rows kept before the block are not counted, as the room does not show them.
+  let blocked = new Set();
+  try { blocked = require('./blockedmembers').blockedSet(); } catch { blocked = new Set(); }
   for (const m of rec.rows) {
     if (!m || (m.kind !== 'post' && m.kind !== 'external') || !m.project || m.operator === true) continue;
+    if (blocked.size && require('./blockedmembers').hides(m, blocked)) continue;
     const since = seen[m.project] ? Date.parse(seen[m.project]) : -Infinity;
     const at = Date.parse(m.at);
     if (!Number.isFinite(at) || at <= since) continue;
@@ -763,7 +767,7 @@ const EXTERNAL_CONTROL = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/g;
 /* #4649 slice 3: a room member as the relay stamps it: an account id, or "<account>:<mac>" for an owner's computer.
    Anything else (absent, an older relay, a malformed value) is not stored. */
 const EXTERNAL_MEMBER = /^[A-Za-z0-9_-]{1,80}(?::[A-Za-z0-9_-]{1,80})?$/;
-function externalPost(projectId, { from, fromKind, text, member, unverified }) {
+function externalPost(projectId, { from, fromKind, text, member, unverified, sameAccount }) {
   const row = {
     kind: 'external',
     id: 'x-' + crypto.randomUUID(),
@@ -784,6 +788,9 @@ function externalPost(projectId, { from, fromKind, text, member, unverified }) {
   if (row.member && require('./blockedmembers').isBlocked(row.member)) return null;
   // kosmos#7129: the row arrived while this computer was waiting to be let in (a sealed room would have refused it). Kept for good.
   if (unverified === true) row.unverified = true;
+  /* #8625: the relay's same_account stamp (the person's own other computer), kept on the row so neither the phone nor the
+     block route offers to report or block the person themselves. */
+  if (sameAccount === true) row.sameAccount = true;
   if (!row.text.trim() || !rowShaped(row)) return null;
   appendLog(row);
   return row;

@@ -51,6 +51,7 @@ test.before(async () => {
     ext('x-a2', 'acctA:mac1', 'Ana', 2),   // the same person from another computer
     ext('x-b1', 'acctB', 'Bea', 3),        // CONTROL: someone else
     ext('x-old', null, 'Old', 4),          // an older relay's row, with no stamp
+    { ...ext('x-me', 'acctMe:mac2', 'Me', 5), sameAccount: true },   // the person's own other computer
   ];
   fs.mkdirSync(store.ROOT, { recursive: true });
   fs.appendFileSync(path.join(store.ROOT, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
@@ -69,19 +70,37 @@ async function outsideIds() {
 }
 
 test('#8625: before any block, every outside message is in the room (the precondition)', async () => {
-  assert.deepEqual(await outsideIds(), ['x-a1', 'x-a2', 'x-b1', 'x-old']);
+  assert.deepEqual(await outsideIds(), ['x-a1', 'x-a2', 'x-b1', 'x-me', 'x-old']);
 });
 
 test('#8625: a message with no stamp cannot be blocked (409), and nothing is hidden', async () => {
   const res = await post(`/api/project/${encodeURIComponent(pid)}/room/x-old/block`);
   assert.equal(res.status, 409);
   assert.deepEqual(blocked.list(), []);
-  assert.deepEqual(await outsideIds(), ['x-a1', 'x-a2', 'x-b1', 'x-old']);
+  assert.deepEqual(await outsideIds(), ['x-a1', 'x-a2', 'x-b1', 'x-me', 'x-old']);
+});
+
+test('#8625: the person\'s own post from another of their computers cannot be blocked or reported (409)', async () => {
+  assert.equal((await post(`/api/project/${encodeURIComponent(pid)}/room/x-me/block`)).status, 409);
+  assert.equal((await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room/x-me/sender`)).status, 409);
+  assert.deepEqual(blocked.list(), [], 'the person did not block themselves');
+});
+
+test('#8625: the sender route names the account behind an outside message, for the report', async () => {
+  const res = await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room/x-a2/sender`);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { account: 'acctA' }, 'the account, without the computer part');
+  assert.equal((await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room/x-old/sender`)).status, 409, 'no stamp, no account');
+  assert.equal((await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room/x-none/sender`)).status, 404);
+  assert.equal((await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room/x-a1/sender`, { headers: { 'x-kosmos-agent-token': 'agent-token-not-a-person' } })).status, 403);
 });
 
 test('#8625: an unknown message is 404; an agent token is refused (403)', async () => {
   assert.equal((await post(`/api/project/${encodeURIComponent(pid)}/room/x-none/block`)).status, 404);
   assert.equal((await post(`/api/project/${encodeURIComponent(pid)}/room/x-a1/block`, {}, { 'x-kosmos-agent-token': 'agent-token-not-a-person' })).status, 403);
+  assert.equal((await post(`/api/project/${encodeURIComponent(pid)}/room/x-a1/block`, { token: 'agent-token-not-a-person' })).status, 403, 'a token in the body too');
+  assert.equal((await fetch(`${base}/api/blocked`, { headers: { 'x-kosmos-agent-token': 'agent-token-not-a-person' } })).status, 403);
+  assert.equal((await post('/api/blocked/unblock', { account: 'acctA' }, { 'x-kosmos-agent-token': 'agent-token-not-a-person' })).status, 403);
   assert.deepEqual(blocked.list(), [], 'the refused calls blocked nobody');
 });
 
@@ -89,7 +108,9 @@ test('#8625: blocking one message hides that person on every computer, and only 
   const res = await post(`/api/project/${encodeURIComponent(pid)}/room/x-a1/block`);
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { blocked: true, name: 'Ana' });
-  assert.deepEqual(await outsideIds(), ['x-b1', 'x-old'], 'Ana from both computers is gone; Bea and the unstamped row stay');
+  assert.deepEqual(await outsideIds(), ['x-b1', 'x-me', 'x-old'], 'Ana from both computers is gone; Bea, the person\'s own and the unstamped row stay');
+  const unread = messages.unreadAll();
+  assert.equal(unread && unread[pid], 3, 'the unread count leaves the blocked person\'s two rows out (5 outside rows, 2 hidden)');
   const list = await (await fetch(`${base}/api/blocked`)).json();
   assert.deepEqual(list.blocked.map((b) => [b.account, b.name]), [['acctA', 'Ana']]);
   assert.equal(JSON.stringify(list).includes('words from'), false, 'the list holds no message text');

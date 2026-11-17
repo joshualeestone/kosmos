@@ -2083,6 +2083,20 @@ do {
               "the mail carries who, the words, the message id and the room")
     }
     if let post { check(Board.reportMail(row: post, project: "p-shared", projectName: "Catalogue") == nil, "CONTROL: a room post of this Kosmos is not reported") }
+    if let ext {
+        let withAcct = Board.reportBody(row: ext, project: "p-shared", projectName: "Catalogue", account: "acctA")
+        check(withAcct.contains("Sender account: acctA"), "the report names the sender's account when the board gave it")
+        check(Board.reportBody(row: ext, project: "p-shared", projectName: "Catalogue", account: nil).contains("Sender account: not known"), "and says so when it could not")
+        let s1 = Board.roomSenderRequest(mac: mac, project: "p-shared", message: ext.id)
+        check(s1?.httpMethod == "GET" && s1?.url?.path == "/api/project/p-shared/room/\(ext.id)/sender", "the sender is asked of the board for that message")
+        check(Board.roomSenderRequest(mac: mac, project: "p-shared", message: "m7") == nil, "never for a post id")
+    }
+    check(Board.senderAccount(status: 200, Data(#"{"account":"acctA"}"#.utf8)) == "acctA", "the account is read")
+    check(Board.senderAccount(status: 200, Data(#"{"account":"../x"}"#.utf8)) == nil && Board.senderAccount(status: 409, Data(#"{"account":"acctA"}"#.utf8)) == nil,
+          "a malformed account or a refusal is no account")
+    let own = Board.parseRoom(Data(#"{"ok":true,"rows":[{"kind":"external","id":"x-3f2a9c1e-77aa-4b1d-9c2e-0a1b2c3d4e60","from":"Me","fromKind":"person","sameAccount":true,"text":"from my laptop","at":"2026-11-17T08:02:00.000Z"}]}"#.utf8))?.rows.first
+    check(own?.ownAccount == true, "the person's own post from another computer is marked")
+    if let own { check(Board.reportMail(row: own, project: "p-shared", projectName: "Catalogue") == nil, "and is never reported") }
     check(Board.blockRefusal(status: 200, Data(#"{"blocked":true,"name":"Ana"}"#.utf8)) == nil, "a taken block says nothing went wrong")
     check(Board.blockRefusal(status: 409, Data(#"{"error":"that message has no sender Kosmos can block"}"#.utf8))?.contains("no sender Kosmos can block") == true, "a refusal says the board's reason")
     check(Board.blockRefusal(status: 200, Data("not json".utf8)) != nil, "an answer this build cannot read is a refusal, never a block")

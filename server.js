@@ -25256,11 +25256,33 @@ const server = http.createServer(async (req, res) => {
         let row = null;
         try { row = (messages.record().rows || []).find((m) => m && m.kind === 'external' && m.id === msgId && m.project === found.id) || null; } catch { row = null; }
         if (!row) { sendJson(res, 404, { error: 'there is no message from outside by that id in this room' }); return; }
+        if (row.sameAccount === true) { sendJson(res, 409, { error: 'that message is from your own account, on another of your computers' }); return; }
         const out = require('./engine/blockedmembers').block(row.member, row.from);
-        if (!out.ok) { sendJson(res, row.member ? 503 : 409, { error: out.because }); return; }
+        if (!out.ok) { sendJson(res, out.full || !row.member ? 409 : 503, { error: out.because }); return; }
         sendJson(res, 200, { blocked: true, name: row.from });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+  /* #8625: the account behind one message from outside, for the report the person sends Kosmos (the phone puts it in
+     the mail, so support can act on the account; a display name can change and the message id is this computer's own).
+     The person's only. Answers 200 { account }, 404 for no such message, 409 for one with no stamp or from the person's
+     own account. */
+  const roomSender = pathname.match(/^\/api\/project\/([^/]+)\/room\/([^/]+)\/sender$/);
+  if (roomSender && req.method === 'GET') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'reporting a message is the person\'s, not an agent\'s' }); return; }
+    const id = decodeSegment(roomSender[1]);
+    const msgId = decodeSegment(roomSender[2]);
+    if (id === null || msgId === null) { sendJson(res, 400, { error: 'that is not something we can read' }); return; }
+    let found = null;
+    try { found = projects.get(id, safeRoster() || []); } catch { found = null; }
+    if (!found) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+    let row = null;
+    try { row = (messages.record().rows || []).find((m) => m && m.kind === 'external' && m.id === msgId && m.project === found.id) || null; } catch { row = null; }
+    if (!row) { sendJson(res, 404, { error: 'there is no message from outside by that id in this room' }); return; }
+    const account = require('./engine/blockedmembers').accountOf(row.member);
+    if (!account || row.sameAccount === true) { sendJson(res, 409, { error: 'this message has no sender Kosmos can name' }); return; }
+    sendJson(res, 200, { account });
     return;
   }
   /* #8625: the blocked list for Settings, and unblocking one (by the account the list gave). The person's only. */
@@ -28527,6 +28549,7 @@ fedseats.configure({
     return row;
   },
   externalKeptOn: (projectId, day) => messages.externalKeptOn(projectId, day),
+  isBlocked: (member) => require('./engine/blockedmembers').isBlocked(member),   // #8625
   enrolled: () => remote.enrolled(),
   allowed: () => liveExecution.liveExecutionAllowed(),   // #5671
   projectExists: (projectId) => { try { return !!projects.get(projectId, []); } catch { return true; } },

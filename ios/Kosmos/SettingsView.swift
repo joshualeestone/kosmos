@@ -293,7 +293,7 @@ struct SettingsView: View {
             } header: {
                 Text("Blocked")
             } footer: {
-                Text(blockedNote ?? "People from outside your Kosmos you blocked in a shared room. Their messages are hidden on this phone and on your computer.")
+                Text(blockedNote ?? "People from outside your Kosmos you blocked in a shared room. Their messages, and those of anyone on the same Kosmos, are hidden on this phone and on the computer it shows.")
                     .font(.footnote).foregroundColor(Palette.secondary)
             }
         }

@@ -74,7 +74,7 @@ function block(member, name) {
   if (!acct) return { ok: false, because: 'that message has no sender Kosmos can block' };
   const accounts = read();
   if (!Object.prototype.hasOwnProperty.call(accounts, acct) && Object.keys(accounts).length >= MAX) {
-    return { ok: false, because: 'the block list is full' };
+    return { ok: false, full: true, because: 'the block list is full' };
   }
   accounts[acct] = { at: new Date().toISOString(), name: typeof name === 'string' ? name.slice(0, 80) : '' };
   const saved = write(accounts);

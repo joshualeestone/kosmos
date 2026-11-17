@@ -38,6 +38,8 @@ extension Board {
         // kosmos#7130: an outside row the board marks as shown while this computer was waiting to be let into the shared
         // project (the room route's `unverified`, exactly true), so it may not be from anyone in the project.
         var unverified = false
+        // #8625: an outside row from the person's own other computer (the board's sameAccount); never reported or blocked.
+        var ownAccount = false
         var replyTo: String? = nil
         var mentioned: [String] = []
         var reactions: [Reaction] = []
@@ -315,6 +317,7 @@ extension Board {
                                   from: r["from"] as? String, byPerson: false, text: text)
                 row.externalAgent = (r["fromKind"] as? String) == "agent"
                 row.unverified = isTrue(r["unverified"])
+                row.ownAccount = isTrue(r["sameAccount"])
                 rows.append(row)
             case "note":
                 guard let text = r["text"] as? String, !text.isEmpty else { continue }
@@ -501,24 +504,37 @@ extension Board {
         let why = (obj?["error"] as? String).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         return "We could not block them" + (why.map { ": " + $0 } ?? "") + ". Try again in a moment."
     }
-    static let blockAskTitle = "Block this person?"
+    static let blockAskTitle = "Block them?"
     static func blockAskBody(_ name: String) -> String {
-        "You will not see messages from \(name) in any shared room, on this phone or on your computer. They are not told. You can unblock them in Settings."
+        "You will not see messages from \(name), or from anyone else on the same Kosmos (their person and their agents), in any shared room, on this phone and on the computer it shows. They are not told. You can unblock them in Settings."
     }
     static func blockedNote(_ name: String) -> String { "\(name) is blocked. Their messages are hidden; unblock them in Settings." }
 
     // #8625: Report sends the message to Kosmos by email, from the person's own mail app, to the address published on the
-    // privacy page. The body carries what support needs to act: the words, who sent them, the room and the message id.
+    // privacy page. The body carries what support needs to act: the words, who sent them (the account the board names,
+    // when it can), the room and the message id. The subject starts with a fixed prefix the support inbox matches.
     static let reportAddress = "hello@installkosmos.com"
     static let reportSubjectPrefix = "Kosmos report:"
-    static func reportMail(row: RoomRow, project: String, projectName: String) -> URL? {
-        guard row.kind == .external else { return nil }
-        // A fixed prefix, so the support inbox can pick reports out of its other mail (Vivienne watches for it).
-        let subject = reportSubjectPrefix + " a message in a shared room"
-        let body = [
+    // GET /api/project/<id>/room/<message id>/sender: the account behind one outside message (server.js roomSender).
+    static func roomSenderRequest(mac: URL, project: String, message: String) -> URLRequest? {
+        guard isProjectId(project), message.range(of: #"^x-[0-9a-fA-F-]{8,64}$"#, options: .regularExpression) != nil else { return nil }
+        var r = URLRequest(url: URL(string: "/api/project/\(project)/room/\(message)/sender", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "GET"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        return r
+    }
+    static func senderAccount(status: Int?, _ data: Data?) -> String? {
+        guard let status, (200...299).contains(status),
+              let obj = data.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
+              let a = obj["account"] as? String, a.range(of: #"^[A-Za-z0-9_-]{1,80}$"#, options: .regularExpression) != nil else { return nil }
+        return a
+    }
+    static func reportBody(row: RoomRow, project: String, projectName: String, account: String?) -> String {
+        [
             "I am reporting this message from someone outside my Kosmos.",
             "",
             "From: " + (row.from ?? "someone outside"),
+            "Sender account: " + (account ?? "not known"),
             "Room: " + projectName + " (" + project + ")",
             "Message id: " + row.id,
             "Sent: " + (row.atRaw ?? ""),
@@ -529,12 +545,18 @@ extension Board {
             "Why I am reporting it (optional):",
             "",
         ].joined(separator: "\n")
+    }
+    static func reportMail(row: RoomRow, project: String, projectName: String, account: String? = nil) -> URL? {
+        guard row.kind == .external, !row.ownAccount else { return nil }
         var c = URLComponents()
         c.scheme = "mailto"
         c.path = reportAddress
-        c.queryItems = [URLQueryItem(name: "subject", value: subject), URLQueryItem(name: "body", value: body)]
+        c.queryItems = [URLQueryItem(name: "subject", value: reportSubjectPrefix + " a message in a shared room"),
+                        URLQueryItem(name: "body", value: reportBody(row: row, project: project, projectName: projectName, account: account))]
         return c.url
     }
+    // When no mail app takes the mail: the report is copied, and this says where to send it.
+    static let reportCopiedNote = "No mail app took the report, so it is copied. Paste it into an email to " + reportAddress + "."
 
     // The react route's answer ({ ok, of, reactions }, server.js roomReact): the post it toggled and its fresh pills,
     // in the room's own shape. Patching that row from it reaches a post above the newest page, which no re-read does.
