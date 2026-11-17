@@ -3953,6 +3953,17 @@ test('setModel rewrites the startup file and keeps everything else about the job
   assert.equal(create.plannedModelArg(name), 'claude-haiku-4-5-20251001',
     'a refused change still altered the file');
 
+  /* kosmos#8618: the refusal names what is accepted (every menu key, and that a full id works), and a model's full id
+     is accepted as well as its key, landing on the same row. */
+  for (const m of create.modelsFor('anthropic')) assert.ok(bad.because.includes(m.key), 'the refusal did not name ' + m.key + ': ' + bad.because);
+  assert.match(bad.because, /full id, such as claude-/);
+  const byId = create.setModel(name, 'claude-opus-5-5');
+  assert.equal(byId.outcome, create.OUTCOME.CREATED, byId.because);
+  assert.equal(byId.model.key, 'opus55', 'a full id did not land on its menu row');
+  assert.equal(create.plannedModelArg(name), 'claude-opus-5-5');
+  assert.equal(create.modelFor('anthropic', 'claude-sonnet-5').key, 'sonnet');
+  assert.equal(create.modelFor('anthropic', 'claude-opus-5-5x'), null, 'CONTROL: a near id is not a model');
+
   /* 🛑 AND AN AGENT KOSMOS DID NOT START IS REFUSED, not regenerated. We have no
      record of which binaries it was built against. */
   const nobody = create.setModel('neverexisted', 'opus');

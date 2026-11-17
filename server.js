@@ -11494,8 +11494,9 @@ const server = http.createServer(async (req, res) => {
         if (wantModel) {
           const target = body && body.provider;
           if (target === 'anthropic') {
-            const m = create.MODELS.find((x) => x.key === wantModel && x.provider === 'anthropic');
-            if (!m) { sendJson(res, 400, { outcome: 'refused', because: `${wantModel} is not a Claude model we can start, so nothing was changed` }); return; }
+            // kosmos#8618: the menu key or the full id (create.modelFor), and a refusal that names what is accepted.
+            const m = create.modelFor('anthropic', wantModel);
+            if (!m) { sendJson(res, 400, { outcome: 'refused', because: `${wantModel} is not a Claude model we can start, so nothing was changed; ${create.pickModelWords('anthropic')}` }); return; }
           } else if (target === 'openai') {
             const dir = (body && typeof body.account === 'string' && body.account) || openaiAccounts.defaultDir();
             try {
