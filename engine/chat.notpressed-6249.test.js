@@ -176,7 +176,10 @@ test('#6249 (the stated limit): a scrolled box showing only an end of a line tha
   assert.equal(c.enters(), 2);
   // The case: the same line, not pressed because other text was there. The box later shows the same end.
   chat.resetForTests();
-  quiet(() => { arm([EMPTY, box(OTHER + ' ' + LONG)]); chat.deliver('al', LONG, roster); });
+  const kept = quiet(() => { arm([EMPTY, box(OTHER + ' ' + LONG)]); return chat.deliver('al', LONG, roster); });
+  assert.equal(kept.confirm, 'not-pressed', 'PRECONDITION');
+  assert.ok(Number.isInteger(kept.unsentSeq), 'PRECONDITION: the line was kept, so a refusal below is the mixed rule, not an empty memory');
+  assert.equal(kept.keptMixed, true);
   const t = arm([scrolled]);
   assert.equal(chat.deliver('al', 'next', roster).inputHeld, true);
   assert.equal(t.enters(), 0, 'the rows above the visible end are where the other text was');
