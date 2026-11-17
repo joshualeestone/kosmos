@@ -503,7 +503,8 @@ test('#979: the already-present answer claims no version, nothing was downloaded
 test('#979: status reports the manifest facts and the honest null for an unmeasured size', () => {
   const s = runners.status();
   assert.ok(s.openai);
-  assert.equal(s.openai.pinnedVersion, runners.MANIFEST.openai.version);
+  // kosmos#8593: this platform's pin (manifestFor), not the base entry's: Windows keeps 0.149.1 while Mac and Linux moved on.
+  assert.equal(s.openai.pinnedVersion, runners.manifestFor('openai').version);
   assert.equal(s.openai.version, undefined, 'pinnedVersion, never a bare version claiming to describe the disk');
   // downloadBytes is either a measured number or null -- never undefined,
   // and never an invented value smuggled in as a default.
