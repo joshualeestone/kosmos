@@ -23413,7 +23413,8 @@ function lmodelCell(a) {
   const line = tileModelLine(a);
   // #7978: in this cell, never as its own: the row's grid has exactly seven children.
   const flag = typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : '';
-  return (line === modelLine({ neverRecorded: true }) ? '<span class="vh">' + esc(line) + '</span>' : esc(line)) + flag;
+  // kosmos#8662: by the words, not by asking modelLine, which says the sign-out (to be read) while the board is signed out.
+  return (line === 'Made before Kosmos recorded this' ? '<span class="vh">' + esc(line) + '</span>' : esc(line)) + flag;
 }
 /* #6716 (Josh: "I am not sure why it doesnt recognize Renet's model"): the TILE's and the list row's model line. Where
    modelLine has nothing to name (it would say "Made before Kosmos recorded this" or "Unknown Model"), the model the
@@ -23422,7 +23423,7 @@ function lmodelCell(a) {
 function tileModelLine(a) {
   const line = modelLine(a);
   if (!a || !a.earlierModelName || a.modelName || a.plannedModelName) return line;
-  if (line !== 'Made before Kosmos recorded this' && line !== 'Unknown Model') return line;
+  if (line !== 'Made before Kosmos recorded this' && line !== 'Unknown Model' && line !== 'Signed out: sign in to see its model') return line;   // kosmos#8662
   return /^claude/i.test(a.earlierModelName) ? a.earlierModelName : 'Claude ' + a.earlierModelName;
 }
 function modelLine(a) {
@@ -27554,6 +27555,7 @@ async function tick() {
     paintReconnecting(false);
     BOARD_NEEDS_SIGNIN = false; // #2023: a successful read means this browser is authed.
     BOARD_SIGNED_OUT = false;
+    if (typeof paintDetailSignedOut === 'function') paintDetailSignedOut();   // kosmos#8662
     BOARD_DEVICE_OFFLINE = false;
     // ⚠️ The picker is repainted here rather than only on open, because the
     // add-a-project flow suppresses the projects poll while it is up. Without
@@ -28121,6 +28123,7 @@ async function tick() {
        no-answer must clear it, or the board draws "not signed in" AND "not
        answering" at once -- the self-contradiction #268 exists to forbid. */
     if (!answered) { BOARD_NEEDS_SIGNIN = false; BOARD_SIGNED_OUT = false; }
+    if (typeof paintDetailSignedOut === 'function') paintDetailSignedOut();   // kosmos#8662: an outage is not a sign-out (#268)
     BOARD_DEVICE_OFFLINE = !answered && deviceOffline();   // #718 state 1
     /* 🔑 HERE, AND NOWHERE ELSE, WHICH IS THE WHOLE OF THE SECOND RULE. This
        branch runs only once a poll has RETURNED a failure; while the first one
@@ -42502,11 +42505,28 @@ let BOARD_SIGNED_OUT = false;
    note above the sections shows, and the Model section is inert (no click or keyboard focus reaches the picker). Run on
    every status poll, so a sign-in clears both on the next poll. */
 function paintDetailSignedOut() {
-  const out = BOARD_NEEDS_SIGNIN === true || BOARD_SIGNED_OUT === true;
+  const relay = BOARD_SIGNED_OUT === true;
+  const out = BOARD_NEEDS_SIGNIN === true || relay;
   const note = document.getElementById('d-signedout');
-  if (note && note.hidden === out) note.hidden = !out;
   const model = document.getElementById('d-sec-model');
-  if (model && model.inert !== out) model.inert = out;
+  if (note) {
+    /* #718: a phone or computer reaching the Mac through the relay signs in with the board's own button and sentence;
+       this computer's tab with the steps on the board. Rewritten only when the kind changes (a button under focus). */
+    const kind = out ? (relay ? 'relay' : 'tab') : '';
+    if (kind && note.dataset.kind !== kind) {
+      note.innerHTML = relay
+        ? esc(ORG_SIGNED_OUT_SENTENCE) + ' This page shows what it last read and cannot change anything, the model included. ' + DEVICE_SIGNIN_BUTTON
+        : 'This tab is signed out, so this page shows what it last read and cannot change anything, the model included. <a href="/">Sign this tab in again</a> to see and change models.';
+      note.dataset.kind = kind;
+    }
+    if (note.hidden === out) note.hidden = !out;
+  }
+  if (model && model.inert !== out) {
+    // Keyboard focus inside the section would fall to the page; it moves to the way out instead.
+    const had = out && document.activeElement && model.contains(document.activeElement);
+    model.inert = out;
+    if (had && note) { const go = note.querySelector('a, button'); if (go) go.focus(); }
+  }
 }
 function relaySignedOut(status, body) {
   return status === 401 && !!body && body.signed_out === true;
@@ -72111,6 +72131,7 @@ async function loadProjects() {
       // projectsUnreadable 500) must clear the flag, not leave a prior true.
       BOARD_NEEDS_SIGNIN = got403;
       BOARD_SIGNED_OUT = gotSignedOut;
+      if (typeof paintDetailSignedOut === 'function') paintDetailSignedOut();   // kosmos#8662
       throw new Error(body.error || 'we cannot read your projects right now');
     }
     PROJECTS = body.projects || [];
@@ -72149,6 +72170,7 @@ async function loadProjects() {
     PJ_AGENTS_UNREADABLE = body.agentsUnreadable === true;
     PJ_READ_FAILED = false;
     BOARD_NEEDS_SIGNIN = false; BOARD_SIGNED_OUT = false; BOARD_DEVICE_OFFLINE = false; // #2023 / #718 states 3 and 1: a readable projects response means this device is online and authed.
+    if (typeof paintDetailSignedOut === 'function') paintDetailSignedOut();   // kosmos#8662
     /* After the outcome is recorded, never before: the sentence's "no
        projects" verdict reads PJ_READ_FAILED, and a read that recovers on an
        empty board would otherwise paint one poll of the wrong sentence. */
@@ -72160,6 +72182,7 @@ async function loadProjects() {
     // (a sticky true drew the signin remedy over a genuine outage).
     BOARD_NEEDS_SIGNIN = got403;
     BOARD_SIGNED_OUT = gotSignedOut;
+    if (typeof paintDetailSignedOut === 'function') paintDetailSignedOut();   // kosmos#8662
     BOARD_DEVICE_OFFLINE = !reached && deviceOffline();   // #718 state 1
     /* #6537: the boxes below say only that the board tries again (OFFLINE_SENTENCE); "You are offline" is the top
        note's. A phone that goes offline and opens Projects before the next status poll reaches here first, so this
