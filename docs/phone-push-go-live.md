@@ -361,9 +361,10 @@ archive.sh uses).
   exported for distribution.
 
 **What to have settled before the first upload (decisions are named where they are someone's; the facts are checked):**
-- **Version.** The code says `0.1.0`, build `1` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`).
-  The version the store shows at submission is Josh's call. The build number must go up on every
-  upload.
+- **Version.** The version comes from `MARKETING_VERSION` in `ios/Kosmos.xcodeproj/project.pbxproj`
+  (1.0 since kosmos#7352, to match the App Store version prepared for submission), and the build number
+  from `ios/tools/archive.sh --build N`. Josh can change the version the store shows at submission; the
+  build must then carry the same one. The build number must go up on every upload.
 - **Export compliance (encryption).** Set in the code since #6262: `ITSAppUsesNonExemptEncryption
   = false` in `ios/Kosmos-Info.plist`, so a TestFlight upload does not stop at Apple's question. It
   is item 1 of "First buildable slice" in kosmos #6262's card body (Splinter's brief). It is a

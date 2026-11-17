@@ -17,8 +17,10 @@ app and extension keep one version (ios/tools/test-archive-config.sh checks that
   public page, and the listing copy already plans 1.0 then 1.0.1. Reversible either way until Josh submits.
 
 ## Weakest premise
-That nothing else in the app or its tools compares against "0.1.0". Searched: the only strings left are unrelated
-test fixtures (update version comparisons, a feedback payload's app field).
+That nothing in the app, the board or its tools gates on the iPhone app's version. Review 1 checked: the plists carry
+no version keys (generated from build settings), the board has no minimum-version or what's-new logic for the phone,
+and the chat-opens validator accepts "1.0 (65)". A doc line that stated 0.1.0 was missed by my first search and is
+fixed (docs/phone-push-go-live.md); the remaining "0.1.0" strings are test fixtures.
 
 ## Tests
 ios/tools/test-archive-config.sh: VERDICT PASS (one version across app and extension, four lines).
