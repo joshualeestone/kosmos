@@ -24428,7 +24428,11 @@ const server = http.createServer(async (req, res) => {
       /* #3769: the setup guide's room posts stored before the write-side filter are masked as read. */
       /* kosmos#7365 slice 3: the room's rows before the audience filter, the set the archive rule counts, so both arms
          agree on where the archive ends. */
+      /* #8625: rows from a person the person blocked, kept before the block, are left out as the room is read. */
+      let blockedNow = new Set();
+      try { blockedNow = require('./engine/blockedmembers').blockedSet(); } catch { blockedNow = new Set(); }
       const roomRows = guideMaskedRows(rec.rows, null)
+        .filter((m) => !require('./engine/blockedmembers').hides(m, blockedNow))
         /* Refused rows too (#315): the valve notice is deduped per room, so
            without these every agent blocked after the first vanishes silently
            and reads as unresponsive. The refusal contract already records
@@ -25227,6 +25231,58 @@ const server = http.createServer(async (req, res) => {
       /* As the DM route: a failure that is not a request error answers in a plain sentence, never its own message. */
       .catch((err) => sendJson(res, (err && err.status) || 503,
         { error: err && err.status ? String(err.message) : 'we could not delete it on this computer just now; try again in a moment' }));
+    return;
+  }
+
+  /* #8625 (App Store guideline 1.2): the person BLOCKS the person behind one message from outside this Kosmos, named by
+     the message (the page and the phone never see the member stamp; withoutStamp strips it). The block is kept by the
+     account the relay stamped, so it covers that person in every shared room (engine/blockedmembers.js). The person's
+     only: an agent's token is refused. Answers 200 { blocked, name }, 404 for no such outside message, 409 for one with
+     no stamp (an older relay), which cannot be blocked. */
+  const roomBlock = pathname.match(/^\/api\/project\/([^/]+)\/room\/([^/]+)\/block$/);
+  if (roomBlock && req.method === 'POST') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'blocking someone is the person\'s, not an agent\'s' }); return; }
+    const id = decodeSegment(roomBlock[1]);
+    const msgId = decodeSegment(roomBlock[2]);
+    if (id === null || msgId === null) { sendJson(res, 400, { error: 'that is not something we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (body && typeof body === 'object' && presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'blocking someone is the person\'s, not an agent\'s' }); return; }
+        let found = null;
+        try { found = projects.get(id, safeRoster() || []); } catch { found = null; }
+        if (!found) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+        let row = null;
+        try { row = (messages.record().rows || []).find((m) => m && m.kind === 'external' && m.id === msgId && m.project === found.id) || null; } catch { row = null; }
+        if (!row) { sendJson(res, 404, { error: 'there is no message from outside by that id in this room' }); return; }
+        const out = require('./engine/blockedmembers').block(row.member, row.from);
+        if (!out.ok) { sendJson(res, row.member ? 503 : 409, { error: out.because }); return; }
+        sendJson(res, 200, { blocked: true, name: row.from });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+  /* #8625: the blocked list for Settings, and unblocking one (by the account the list gave). The person's only. */
+  if (pathname === '/api/blocked' && req.method === 'GET') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'the blocked list is the person\'s, not an agent\'s' }); return; }
+    let blocked = [];
+    try { blocked = require('./engine/blockedmembers').list(); } catch { blocked = []; }
+    sendJson(res, 200, { blocked });
+    return;
+  }
+  if (pathname === '/api/blocked/unblock' && req.method === 'POST') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'unblocking someone is the person\'s, not an agent\'s' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object' || presentedAgentToken(req, body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const out = require('./engine/blockedmembers').unblock(body.account);
+        if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
+        sendJson(res, 200, { unblocked: true, changed: out.changed });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
