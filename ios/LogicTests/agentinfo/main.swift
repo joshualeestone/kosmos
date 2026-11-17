@@ -189,8 +189,21 @@ let rows = Board.parseSwitchAccounts(Data(accountsJSON.utf8))!
 check(Board.parseSwitchAccounts(Data("<html>sign in</html>".utf8)) == nil, "the gate's page is not a list (the board's unreadable state)")
 check(Board.switchAccounts(rows, for: .anthropic) == [Board.SwitchAccount(dir: "/c/main", label: "me@x", isDefault: true)], "Claude: only an account that shares the agents' history (#5091)")
 check(Board.switchAccounts(rows, for: .openai).map(\.label) == ["Work"], "OpenAI: a dead sign-in is left out; a keyed row is named by its name")
-check(Board.switchAccounts(rows, for: .google).isEmpty && Board.switchAccounts(rows, for: .xai).isEmpty, "unofferable and rejected rows are left out")
-check(Board.switchTargets(onClaude, accounts: rows) == [.openai, .alibaba], "Claude agent: the providers with a live account, never its own")
+check(Board.switchAccounts(rows, for: .google).isEmpty, "an unofferable row is left out")
+check(Board.switchAccounts(rows, for: .xai).map(\.dir) == ["/x/k"], "a rejected badge is still listed, as the board's list (review 1)")
+check(Board.switchTargets(onClaude, accounts: rows) == [.openai, .alibaba], "Claude agent: the providers with a live account, never its own; Grok's only row is rejected, so Grok is not offered")
+let badged = Board.parseSwitchAccounts(Data(#"{"accounts":[{"provider":"anthropic","dir":"/c/b","email":"b@x","memoryShared":true,"connection":{"badge":"rejected","state":"ok"}},{"provider":"openai","dir":"/o/b","email":"o@x","connection":{"badge":"signed_out","state":"ok"}},{"provider":"xai","dir":"/x/b","keyTail":"11","connection":{"badge":"signed_out","state":"ok"}}]}"#.utf8))!
+check(Board.switchTargets(onQwen, accounts: badged) == [.anthropic, .openai], "a badged Claude or OpenAI account is still a target, as the board's Move (review 1, finding 5)")
+check(!Board.switchTargets(onQwen, accounts: badged).contains(.xai), "CONTROL: a badged Grok row does not make Grok a target (acctOfferableTarget)")
+check(boardPage.contains("const has = known && (accounts || []).some((x) => x && acctProvider(x) === opt.value && acctOfferableTarget(x)"), "the board's keyed-provider gate still")
+func nameOf(_ j: String) -> String { Board.accountName(try! JSONSerialization.jsonObject(with: Data(j.utf8)) as! [String: Any]) }
+check(nameOf(#"{"provider":"alibaba","local":true,"dir":"/q/1"}"#) == "Qwen on this computer" && nameOf(#"{"provider":"alibaba","baseUrl":"https://dashscope.example.com/v1","dir":"/q/2"}"#) == "dashscope.example.com"
+      && nameOf(#"{"provider":"alibaba","dir":"/q/3"}"#) == "Qwen endpoint", "Qwen rows: the board's words, never a folder path (review 1)")
+check(nameOf(#"{"provider":"anthropic","name":"Studio","email":"s@x"}"#) == "Studio" && nameOf(#"{"provider":"anthropic","email":"s@x","label":"account-b"}"#) == "s@x", "a chosen name, then the email")
+check(Board.switchNothingLine(det(#""runner":"muse""#)) == "Moving an agent on Meta Muse to another provider is not offered yet." && boardPage.contains("'Moving an agent on Meta Muse to another provider is not offered yet.'"), "Meta Muse: the board's own sentence (review 1)")
+check(!Board.switchNothingLine(onClaude).contains("Meta") && Board.switchNothingLine(onClaude).hasPrefix("There is nothing to switch it to yet"), "otherwise: nothing to switch to, never a claim that nothing is connected")
+let oaReq = Board.openaiModelsRequest(mac: mac, dir: "/Users/x/.codex a&b")!
+check(oaReq.url?.path == "/api/accounts/openai/models" && URLComponents(url: oaReq.url!, resolvingAgainstBaseURL: false)?.queryItems?.first?.value == "/Users/x/.codex a&b", "the OpenAI models read carries the folder whole, an & included")
 check(Board.switchTargets(onCodex, accounts: rows) == [.anthropic, .alibaba], "OpenAI agent: back to Claude, or Qwen")
 check(Board.switchTargets(det(#""runner":"","isNamedOurs":false"#), accounts: rows).isEmpty, "an agent the board does not name as its own: nothing offered")
 check(Board.switchTargets(det(#""runner":"","isNamedOurs":true,"neverRecorded":true"#), accounts: rows).isEmpty, "a never-recorded agent: nothing offered")

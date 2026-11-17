@@ -66,6 +66,9 @@ const FLOOR = 10;
    names the routes it sends; pins are source text (comments excluded) that ties those routes to the code. method is
    what the request sets: a literal, none (GET), or 'variable', in which case callers lists every caller's method. */
 const SITES = [
+  // kosmos#8626: an OpenAI account's models, for the provider switch's model menu (the board's fillSwitchModel).
+  { file: 'ios/Kosmos/AgentInfoLogic.swift', text: 'var r = URLRequest(url: url)', method: 'GET',
+    routes: ['GET /api/accounts/openai/models'], pins: ['URLComponents(url: URL(string: "/api/accounts/openai/models"', 'URLQueryItem(name: "dir"'] },
   { file: 'ios/Kosmos/BoardRoom.swift', text: 'var r = URLRequest(url: url)', method: 'GET',
     routes: ['GET /api/project/x/room'], pins: ['URLComponents(url: URL(string: "/api/project/\\(project)/room"'] },
   // kosmos#7810: one agent's conversation, the whole window or (?tail=N) only its newest messages.

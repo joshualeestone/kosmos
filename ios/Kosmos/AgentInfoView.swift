@@ -286,23 +286,26 @@ struct AgentInfoView: View {
                         HStack { Spacer(); SweepDots(label: "Checking your providers", scales: false); Spacer() }
                     }
                 } else if switchTargets.isEmpty {
-                    Text("No other provider is connected on your computer yet. Add one on its board, in Settings, AI Models.").foregroundColor(Palette.secondary)
+                    Text(Board.switchNothingLine(details)).foregroundColor(Palette.secondary)
                 } else {
                     Picker("Switch to", selection: $switchTo) {
                         Text("Choose").tag(Board.SwitchProvider?.none)
                         ForEach(switchTargets) { Text($0.label).tag(Board.SwitchProvider?.some($0)) }
                     }
                     .disabled(switching)
-                    .onChange(of: switchTo) { _ in pickedProvider() }
+                    // Review 1: only a pick resets the rest. Clearing it after a switch must not wipe the result line.
+                    .onChange(of: switchTo) { v in if v != nil { pickedProvider() } }
                     if switchAccounts.count > 1 {
-                        Picker("Account", selection: $switchAccount) {
+                        // Review 1: "picked" is set by the person's own change only, never by the default this page
+                        // puts in when a provider is chosen (the board's SWITCH_ACCT_TOUCHED).
+                        Picker("Account", selection: Binding(get: { switchAccount }, set: { v in
+                            switchAccount = v
+                            switchAccountTouched = true
+                            if switchTo == .openai { Task { await loadOpenaiModels() } }
+                        })) {
                             ForEach(switchAccounts) { Text($0.label).tag(String?.some($0.dir)) }
                         }
                         .disabled(switching)
-                        .onChange(of: switchAccount) { _ in
-                            switchAccountTouched = true
-                            if switchTo == .openai { Task { await loadOpenaiModels() } }
-                        }
                     } else if let only = switchAccounts.first {
                         row("Account", only.label)
                     }
@@ -334,8 +337,21 @@ struct AgentInfoView: View {
                     Text(switchLine.text).font(.footnote).foregroundColor(switchLine.ok ? Palette.secondary : Palette.dangerWord)
                 }
             } header: { label("Switch AI provider") } footer: {
-                Text("Gemini on a Google subscription, Meta Muse and the providers that run on Claude Code are switched on your computer\u{2019}s board.")
+                Text("Gemini on a Google subscription and the providers that run on Claude Code are switched on your computer\u{2019}s board.")
             }
+        }
+    }
+    // Review 1: after any read, a pick the fresh lists no longer hold is dropped, so what is sent is always something
+    // on screen (a switch that landed partway, an account removed on the computer, a model no longer listed).
+    private func keepPicksValid() {
+        if let to = switchTo, !switchTargets.contains(to) { switchTo = nil; return }
+        guard switchTo != nil else { return }
+        if let dir = switchAccount, !switchAccounts.contains(where: { $0.dir == dir }) {
+            switchAccount = (switchAccounts.first(where: { $0.isDefault }) ?? switchAccounts.first)?.dir
+            switchAccountTouched = false
+        }
+        if !switchModels.isEmpty, !switchModels.contains(where: { $0.key == switchModel }) {
+            switchModel = (switchModels.first(where: { $0.isDefault }) ?? switchModels.first)?.key ?? ""
         }
     }
     private func pickedProvider() {
@@ -468,6 +484,8 @@ struct AgentInfoView: View {
         await filesDone
         // kosmos#8626: last, as it can take a while (one live check per account, as on the board); a list already
         // read is kept through a read that fails, as the other sections keep theirs.
+        // Review 1: only for an agent the section is shown for, as each read costs a live check per account.
+        guard let shown = details, shown.isNamedOurs, !shown.neverRecorded else { return }
         let ac = await client.throughMac { Board.accountsRequest(mac: $0) }
         if let rows = ac.flatMap({ $0.1.statusCode == 200 ? Board.parseSwitchAccounts($0.0) : nil }) {
             accountRows = rows
@@ -475,6 +493,7 @@ struct AgentInfoView: View {
         } else if accountRows == nil {
             accountsFailed = true
         }
+        keepPicksValid()
     }
 
     private func loadFiles(_ session: String) async {
