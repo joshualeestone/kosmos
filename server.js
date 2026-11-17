@@ -4484,6 +4484,44 @@ function knownAgent(name) {
   }
 }
 
+/* kosmos#8652: an agent of ours that has only just started on Windows. Its session is in the ownership record at
+   once, but `claude agents --json` lists it about 5 s later (win32create.js, awaitSession) and the roster read is
+   cached (win32roster.cachedRun), so for a few seconds `knownAgent` says no while the agent is coming up. A first
+   message in that window was refused 404 "no agent by that name", which is false. True only when no card holds the
+   name at all (a stranger's pane is never waited on), the agent's folder is here, it is not removed, and its record
+   row was written within START_GRACE_MS. Everything else answers false, so a missing name never waits. */
+const START_GRACE_MS = 60000;
+let startWait = { maxMs: 10000, stepMs: 1000 };
+function _setStartWaitForTest(w) { startWait = w ? { ...startWait, ...w } : { maxMs: 10000, stepMs: 1000 }; }
+function startingAgent(name) {
+  try {
+    if (claimantFor(name)) return false;
+    if (!fs.existsSync(create.workerDir(name)) || removal.isRemoved(name)) return false;
+    const sessions = require('./engine/win32sessions');
+    const now = Date.now();
+    return Object.values(sessions.read()).some((row) => {
+      if (!sessions.rowIsUnder(row, name)) return false;
+      const at = Date.parse(row && row.at);
+      return Number.isFinite(at) && at <= now + 5000 && now - at <= START_GRACE_MS;
+    });
+  } catch {
+    return false;
+  }
+}
+
+/* kosmos#8652: wait up to startWait.maxMs for a starting agent's roster row, asking the Windows roster for a fresh
+   read each step without blocking the board's thread. Resolves true once `knownAgent` says yes. */
+async function awaitRosterRow(name) {
+  const until = Date.now() + startWait.maxMs;
+  const roster = process.platform === 'win32' ? require('./engine/win32roster').cachedRun : null;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, Math.max(0, Math.min(startWait.stepMs, until - Date.now()))));
+    if (roster) await roster.refreshAsync();
+    if (knownAgent(name)) return true;
+  }
+  return knownAgent(name);
+}
+
 /**
  * #3492: a snapshot of an agent's handoff file, for the "write a handoff, then
  * restart" flow. The path is the SAME one the auto-handoff sweep writes to
@@ -21269,9 +21307,18 @@ const server = http.createServer(async (req, res) => {
         // (`chat.deliver` refuses on its own too — exact match to permit, tied,
         // and a pane with Claude in it. This one is about the NAME.)
         if (!knownAgent(name)) {
-          const missing = new Error('no agent by that name');
-          missing.status = 404;
-          throw missing;
+          /* kosmos#8652: a just-created or just-restored agent is waited for briefly, then refused as starting
+             (409, nothing typed, nothing kept), never as missing. A 4xx, not a 503: the page and the iPhone read a
+             5xx on a send as "it may have gone" (BoardLogic.swift sendResult), and this one certainly did not. */
+          const starting = startingAgent(name);
+          if (!(starting && await awaitRosterRow(name))) {
+            const missing = new Error(starting
+              ? `${name} is still starting, so nothing was sent. Try again in a moment.`
+              : 'no agent by that name');
+            missing.status = starting ? 409 : 404;
+            if (starting) missing.because = 'starting';
+            throw missing;
+          }
         }
         /* kosmos#6720: Try again on a message that did not go. `retry_of` names the person's own row (its `at`), and
            the send then takes every gate below exactly as the first press did, but its verdict REPLACES that row's
@@ -21972,7 +22019,8 @@ const server = http.createServer(async (req, res) => {
         });
       })
       .catch((err) => sendJson(res, (err && err.status) || ((err && err.code === 'UNREADABLE') ? 500 : 400),
-        { error: String((err && err.message) || 'we could not read that request') }))
+        { error: String((err && err.message) || 'we could not read that request'),
+          ...(err && err.because === 'starting' ? { because: 'starting' } : {}) }))   // kosmos#8652
       .finally(() => { if (retryKey) DM_RETRYING.delete(retryKey); });   // kosmos#6720: after the verdict is written
     return;
   }
@@ -30998,7 +31046,8 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 /* kosmos#8340: ages one agent's shown-counts record, so a test can show the block comes back after COUNTS_SHOWN_FOR_MS. */
 function _ageCountsShownForTest(agentKey, ms) { const e = COUNTS_SHOWN.get(String(agentKey)); if (e) e.at -= ms; return Boolean(e); }
-module.exports = { _setStartedProofPlatformForTest, _resetRoomRunSaidForTest, _ageRoomRunSaidForTest, _ageCountsShownForTest,
+module.exports = { _setStartedProofPlatformForTest, _setStartWaitForTest,   // kosmos#8652: the starting wait, for its test
+   _resetRoomRunSaidForTest, _ageRoomRunSaidForTest, _ageCountsShownForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it
   _autobalanceSweepDepsForTest: autobalanceSweepDeps, // kosmos#7152 slice 3: the sweep's wiring, for its test
