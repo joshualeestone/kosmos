@@ -123,9 +123,16 @@ function labelRows() {
   const end = md.indexOf('\n## ', at + 1);
   const lines = md.slice(at, end < 0 ? undefined : end).split('\n').filter((l) => l.startsWith('|'));
   const body = lines.slice(2);   // the header and the |---| line
-  const types = body.map((l) => (/^\| [^|>]+> \*\*([^*]+)\*\* \|/.exec(l) || [])[1]).filter(Boolean)
-    .map((n) => 'NSPrivacyCollectedDataType' + n.replace(/\s+/g, ''));
-  return { body: body.length, types };
+  /* Review 3: each row's purposes are read from its own "Purpose to tick" column (Apple's words, comma separated), and
+     the header is returned so a test can pin the columns: a per-row exception to "linked: yes, tracking: no" would need
+     a column of its own, and a new column fails the pin. */
+  const purposeOf = (w) => 'NSPrivacyCollectedDataTypePurpose' + w.trim().replace(/['\s]+/g, '');
+  const rows = body.map((l) => {
+    const cells = l.split('|').slice(1, -1).map((c) => c.trim());
+    const name = (/^[^>]+> \*\*([^*]+)\*\*$/.exec(cells[0] || '') || [])[1];
+    return name ? { type: 'NSPrivacyCollectedDataType' + name.replace(/\s+/g, ''), purposes: (cells[2] || '').split(',').filter((x) => x.trim()).map(purposeOf).sort() } : null;
+  }).filter(Boolean);
+  return { body: body.length, types: rows.map((r) => r.type), rows, header: lines[0] };
 }
 // A minimal plist reader: dict, array, key, string, true, false. Comments, the XML declaration and the DOCTYPE are
 // dropped first. Review 2: EVERY other tag refuses (an <integer> in an array was skipped, and a wrong manifest passed),
@@ -133,10 +140,18 @@ function labelRows() {
 function parsePlist(xml) {
   const src = xml.replace(/<!--[\s\S]*?-->/g, '').replace(/<\?xml[^>]*\?>/, '').replace(/<!DOCTYPE[^>]*>/, '');
   const tokens = [];
-  for (const m of src.matchAll(/<(\/?)([A-Za-z]+)\s*(\/?)>([^<]*)/g)) {
-    if (m[2] === 'plist') continue;
-    if (!['dict', 'array', 'key', 'string', 'true', 'false'].includes(m[2])) throw new Error('a tag this reader does not know: <' + m[2] + '>');
-    tokens.push(m);
+  // Review 3: text outside a <key> or <string> must be whitespace (stray text is a plist Apple's reader refuses), and
+  // a tag other than <plist> may carry no attributes (one that did was skipped).
+  const lead = src.slice(0, src.indexOf('<'));
+  if (lead.trim()) throw new Error('text before the first tag');
+  for (const m of src.matchAll(/<(\/?)([A-Za-z]+)([^>]*?)(\/?)>([^<]*)/g)) {
+    const [, close, tag, attrs, selfClose, text] = m;
+    if (tag !== 'plist' && !['dict', 'array', 'key', 'string', 'true', 'false'].includes(tag)) throw new Error('a tag this reader does not know: <' + tag + '>');
+    const opensText = !close && !selfClose && (tag === 'key' || tag === 'string');
+    if (!opensText && text.trim()) throw new Error('stray text after <' + close + tag + '>: ' + JSON.stringify(text.trim().slice(0, 20)));
+    if (tag === 'plist') continue;
+    if (attrs.trim()) throw new Error('<' + tag + '> carries attributes this reader does not read');
+    tokens.push([m[0], close, tag, selfClose, text]);
   }
   let i = 0;
   function value() {
@@ -174,6 +189,9 @@ test('kosmos#8654: the plist reader this test relies on refuses a duplicate key 
   assert.throws(() => parsePlist('<plist><dict><key>a</key><array><string>x</string><integer>2</integer></array></dict></plist>'), /does not know: <integer>/);
   assert.deepEqual(parsePlist('<plist><dict><key>a</key><string/><key>b</key><true /></dict></plist>'), { a: '', b: true });
   assert.throws(() => parsePlist('<plist><dict></dict><key>z</key><true/></plist>'), /after the root/);
+  // Review 3: stray text and attributes refuse.
+  assert.throws(() => parsePlist('<plist><dict><key>a</key><true/>garbage</dict></plist>'), /stray text/);
+  assert.throws(() => parsePlist('<plist><dict x="1"><key>a</key><true/></dict></plist>'), /attributes/);
 });
 test('kosmos#8654: the manifest declares exactly the data types the App Privacy label declares, as the label says them', () => {
   const md = fs.readFileSync(LABEL, 'utf8');
@@ -181,6 +199,12 @@ test('kosmos#8654: the manifest declares exactly the data types the App Privacy 
   assert.ok(want.length >= 5, 'the label\'s data-type table was not read (' + want.length + ' rows)');
   assert.equal(want.length, body, 'a row of the label\'s data-type table was not read as "Category > **Type**" (' + want.length + ' of ' + body + ')');
   assert.ok(md.includes('**linked to the person\'s identity: yes**, **used for tracking: no**'), 'the label no longer says every row is linked and not tracking; update this test with it');
+  // Review 3: the columns are pinned, so a row cannot carry its own linked or tracking answer unseen.
+  assert.equal(labelRows().header.replace(/\s+/g, ' '), '| Apple data type | What it is here | Purpose to tick | Where it is kept |', 'the label\'s data-type table changed its columns; read the new one here');
+  // A row that speaks of linking or tracking is an exception to the sentence above that this test cannot read.
+  const sec = md.slice(md.indexOf('## Data types to declare'), md.indexOf('\n## ', md.indexOf('## Data types to declare') + 1));
+  const odd = sec.split('\n').filter((l) => l.startsWith('|')).slice(2).filter((l) => /\b(linked|tracking|track)\b/i.test(l));
+  assert.deepEqual(odd, [], 'a row of the label speaks of linking or tracking; make it a column this test reads');
   const plist = parsePlist(fs.readFileSync(MANIFEST, 'utf8'));
   const got = plist.NSPrivacyCollectedDataTypes;
   assert.ok(Array.isArray(got), 'the manifest has no NSPrivacyCollectedDataTypes array');
@@ -190,6 +214,7 @@ test('kosmos#8654: the manifest declares exactly the data types the App Privacy 
     assert.deepEqual(Object.keys(g).sort(), ['NSPrivacyCollectedDataType', 'NSPrivacyCollectedDataTypeLinked', 'NSPrivacyCollectedDataTypePurposes', 'NSPrivacyCollectedDataTypeTracking'], g.NSPrivacyCollectedDataType + ' has a missing or misspelled key: ' + Object.keys(g).join(', '));
     assert.equal(g.NSPrivacyCollectedDataTypeLinked, true, g.NSPrivacyCollectedDataType + ' is not marked linked to the person');
     assert.equal(g.NSPrivacyCollectedDataTypeTracking, false, g.NSPrivacyCollectedDataType + ' is not marked as not used for tracking');
-    assert.deepEqual(g.NSPrivacyCollectedDataTypePurposes, ['NSPrivacyCollectedDataTypePurposeAppFunctionality'], g.NSPrivacyCollectedDataType + ' has other purposes than app functionality');
+    const row = labelRows().rows.find((r) => r.type === g.NSPrivacyCollectedDataType);
+    assert.deepEqual(g.NSPrivacyCollectedDataTypePurposes.slice().sort(), row.purposes, g.NSPrivacyCollectedDataType + '\'s purposes differ from the label\'s "Purpose to tick"');
   }
 });
