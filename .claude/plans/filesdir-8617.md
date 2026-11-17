@@ -75,3 +75,10 @@ measured; the new test file is not in the Windows run (symlinks there need eleva
     once the block is in place (already current, or just written). Test for the already-current exit.
   - NITs: confirmed only discover.js writes a profile `dir` (connected agents only); a test name narrowed to what it
     proves; the redundant try in create.js kept (it covers a module that fails to load).
+- Round 3 (blind, opus): no BLOCKER, 2 WARNING, 4 NIT.
+  - WARNING fixed: a folder that could not be made was silent; the tell result now carries `folder` (its reason, not
+    for a connected agent) and the boot sweep says it once. Tested both ways.
+  - WARNING fixed (words): the Reveal button makes Files in a connected agent's folder on the person's press; that
+    difference is now said on both sides.
+  - NITs fixed: the older header line, "never through a link" scoped to Files itself, an unknown connected check has its
+    own reason, the link test skips on Windows.
