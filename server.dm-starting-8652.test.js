@@ -163,12 +163,12 @@ test('#8652 a stranger\'s pane holding the name is refused as today and never wa
    `claude agents --json` reader (stubbed), filtered by the sandboxed ownership record, exactly as the Windows board
    wires it. The session is registered with the stub 300 ms after the send; until then the cache holds the list
    from before. Only the wait's fresh read (refreshAsync) can show it inside the 1.5 s bound, because the cache
-   serves its first answer unchanged for 2 s. */
+   serves its first answer unchanged for a minute here. */
 const win32roster = require('./engine/win32roster');
 function windowsRoster(name, sessionId) {
   let registered = false;
   const liveNow = () => (registered ? [{ pid: 4242, cwd: 'x', kind: 'interactive', startedAt: 1, sessionId, name, status: 'idle' }] : []);
-  const cached = win32roster.makeCachedRun({ run: liveNow, runAsync: (cb) => setTimeout(() => cb(liveNow()), 20), freshMs: 2000, staleMs: 30000 });
+  const cached = win32roster.makeCachedRun({ run: liveNow, runAsync: (cb) => setTimeout(() => cb(liveNow()), 20), freshMs: 60000, staleMs: 120000 });
   status.setPaneSource(win32roster.make({ run: cached, codexLive: () => [] }));
   setTimeout(() => { registered = true; }, 300);
   return cached;
@@ -201,4 +201,22 @@ test('#8652 a roster read slower than the time left does not stretch the wait', 
   const r = await send('slowread', 'hello');
   assert.equal(r.status, 409, JSON.stringify(r.json));
   assert.ok(r.ms < 2000, 'a slow roster read held the send past its bound: ' + r.ms + ' ms');
+});
+
+test('#8652 two quick sends to a starting agent pass the gate in the order they were sent', async () => {
+  worker('quick'); recordRow('quick', 1000);
+  app._setStartWaitForTest({ maxMs: 3000, stepMs: 1000, refresh: null });
+  const t0 = Date.now();
+  roster.name = 'quick'; roster.visibleAt = t0 + 1100;
+  /* First looks at 1000 ms (hidden) and 2000 ms; second, sent 150 ms later, would look at 1150 ms (shown) and pass
+     first if each waited on its own. */
+  const first = send('quick', 'line one');
+  await new Promise((r) => setTimeout(r, 150));
+  const second = send('quick', 'line two');
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(a.status, 200, JSON.stringify(a.json));
+  assert.equal(b.status, 200, JSON.stringify(b.json));
+  const res = await fetch(`${base}/api/agent/quick/thread`);
+  const msgs = ((await res.json()).messages || []).map((m) => m.text).filter((x) => /^line /.test(x));
+  assert.deepEqual(msgs, ['line one', 'line two'], 'the later line was kept ahead of the earlier one');
 });

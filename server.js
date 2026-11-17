@@ -4492,9 +4492,9 @@ function knownAgent(name) {
    row was written within START_GRACE_MS. Everything else answers false, so a missing name never waits. The record,
    not the platform, is the gate. */
 const START_GRACE_MS = 60000;
-/* 8 s, not more: the iPhone gives a request 15 s (BoardClient+App.swift) and the relay adds its own time, and a
-   send that times out reads there as "may have gone", the answer this wait exists to avoid. */
-const START_WAIT_DEFAULT = { maxMs: 8000, stepMs: 1000, refresh: () => (process.platform === 'win32'
+/* The iPhone gives a request 15 s (BoardClient+App.swift), a timed-out send reads there as "may have gone", and the
+   delivery after this wait has its own timeout (win32channel.js SAY_TIMEOUT_MS), so the wait is kept short. */
+const START_WAIT_DEFAULT = { maxMs: 6000, stepMs: 1000, refresh: () => (process.platform === 'win32'
   ? require('./engine/win32roster').cachedRun.refreshAsync() : Promise.resolve()) };
 let startWait = { ...START_WAIT_DEFAULT };
 function _setStartWaitForTest(w) { startWait = w ? { ...startWait, ...w } : { ...START_WAIT_DEFAULT }; }
@@ -4520,9 +4520,20 @@ function startingAgent(name) {
 function startWaitTimer(ms) {
   return new Promise((r) => { const t = setTimeout(r, Math.max(0, ms)); if (t.unref) t.unref(); });
 }
-async function awaitRosterRow(name) {
+/* name -> the latest waiter for it. A send waits behind the earlier sends to the same agent, so two lines typed
+   quickly to an agent that is starting pass the gate in the order they were sent. Each keeps its own deadline. */
+const STARTING_WAITS = new Map();
+function awaitRosterRow(name) {
   const until = Date.now() + startWait.maxMs;
+  const mine = (STARTING_WAITS.get(name) || Promise.resolve()).then(() => waitForRosterRow(name, until));
+  const tail = mine.catch(() => false);
+  STARTING_WAITS.set(name, tail);
+  tail.then(() => { if (STARTING_WAITS.get(name) === tail) STARTING_WAITS.delete(name); });
+  return mine;
+}
+async function waitForRosterRow(name, until) {
   const left = () => until - Date.now();
+  if (knownAgent(name)) return true;   // a send ahead of this one may have waited for the row already
   while (left() > 0) {
     await startWaitTimer(Math.min(startWait.stepMs, left()));
     if (left() <= 0) break;
@@ -7365,7 +7376,7 @@ function setupGuideFailing() {
    next "Your Mac is not answering" can be measured rather than inferred (on 10-20 the relay, the tunnel and the
    coordinator were all up and nothing on this computer said why one poll went unanswered for 10 s). The target goes
    through safeLogUrl (gateLog's redaction: tokens, and a webhook's secret path) and the query is dropped. No route
-   long-polls; downloads and pictures are piped, so a large one over a slow link logs as slow too, which is honest.
+   long-polls, though a DM to an agent that is still starting is held up to 6 s first (kosmos#8652); downloads and pictures are piped, so a large one over a slow link logs as slow too, which is honest.
    `now` and `write` are seams for the tests. */
 const SLOW_REQUEST_MS = (() => { const v = Number(process.env.KOSMOS_SLOW_REQUEST_MS); return Number.isFinite(v) && v > 0 ? v : 5000; })();
 function watchSlowRequest(req, res, pathname, opts) {
