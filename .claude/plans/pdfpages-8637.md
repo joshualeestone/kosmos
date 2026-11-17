@@ -23,3 +23,8 @@
 ## Weakest part
 - osascript under a launchd-started board: TCC or a missing GUI session could refuse PDFKit. Then the count is unknown and
   the viewer stays one page (fails closed to today). Must be checked on the real board.
+- PDFKit parses an untrusted PDF outside Quick Look's sandbox, so every osascript call runs under sandbox-exec: no
+  network, writes only in the output's folder, nothing read under the account's home but the PDF's and output's folders.
+  Measured on Mortals 11-17: a page draws inside it, a write elsewhere is refused, and reading ~/.zshrc is DENIED inside
+  it and READ outside (control). If a later macOS drops sandbox-exec, nothing is counted or drawn: one page, as before.
+- At most two PDFKit runs at once, and the viewer asks for a picture only once the flipping pauses (150 ms).

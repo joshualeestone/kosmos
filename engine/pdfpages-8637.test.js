@@ -100,3 +100,41 @@ test('keepNewestPages: keeps the newest matching files up to the limit, and touc
   assert.deepEqual(fs.readdirSync(d).sort(), ['.pdf-page-4.png', '.pdf-page-5.png', 'deck.pdf', 'preview.png']);
   pdfpages.keepNewestPages(path.join(d, 'missing'), /x/, 1);   // a folder that is gone is not an error
 });
+
+test('every PDFKit call runs under sandbox-exec with the PDF\'s folder and the output\'s, and at most two at once', { skip: !(process.platform === 'darwin' && fs.existsSync('/usr/bin/sandbox-exec')) && 'needs macOS sandbox-exec' }, async () => {
+  const cp = require('node:child_process');
+  const realExecFile = cp.execFile;
+  const calls = [];
+  let now = 0;
+  let most = 0;
+  cp.execFile = (bin, args, opts, cb) => {
+    calls.push([bin, args]);
+    now++; most = Math.max(most, now);
+    setTimeout(() => { now--; cb(null, 'pages 3\n'); }, 20);
+  };
+  const id = require.resolve('./pdfpages');
+  delete require.cache[id];
+  try {
+    const fresh = require('./pdfpages');
+    const pdf = path.join(SB, 'held.pdf');
+    fs.writeFileSync(pdf, '%PDF-1.4');
+    const got = await Promise.all([1, 2, 3, 4, 5, 6].map(() => fresh.count(pdf)));
+    assert.deepEqual(got, [3, 3, 3, 3, 3, 3]);
+    assert.equal(calls.length, 6);
+    assert.equal(most, 2, 'more than two ran at once');
+    for (const [bin, args] of calls) {
+      assert.equal(bin, '/usr/bin/sandbox-exec');
+      const profile = args[args.indexOf('-p') + 1];
+      assert.match(profile, /\(deny network\*\)/);
+      assert.match(profile, /\(deny file-write\*\)\(allow file-write\* \(subpath \(param "OUT"\)\)\)/);
+      assert.match(profile, /\(deny file-read\* \(subpath \(param "HOME"\)\)\)/);
+      assert.ok(args.includes('IN=' + fs.realpathSync(SB)), 'the PDF\'s folder is not the readable one');
+      assert.ok(args.includes('HOME=' + fs.realpathSync(require('node:os').userInfo().homedir)));
+      assert.equal(args[args.indexOf('/usr/bin/osascript') - 1].startsWith('OUT='), true, 'osascript is not the sandboxed command');
+      assert.ok(!profile.includes(SB), 'a path was spliced into the profile');
+    }
+  } finally {
+    cp.execFile = realExecFile;
+    delete require.cache[id];
+  }
+});

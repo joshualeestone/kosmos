@@ -90,6 +90,7 @@ function viewer() {
   return { back, stage, img, note };
 }
 const settle = () => new Promise((r) => setImmediate(r));
+const pause = () => new Promise((r) => setTimeout(r, 200));   // past the pager's 150 ms wait before it asks for a picture
 
 test('pvPdfPager: three pages get arrows and "Page 1 of 3"; the arrows and pvFlip flip within 1..3', async () => {
   const { pvPdfPager } = lift(answer(200, 3));
@@ -107,9 +108,12 @@ test('pvPdfPager: three pages get arrows and "Page 1 of 3"; the arrows and pvFli
   assert.equal(prev.disabled, true);
   assert.equal(next.disabled, false);
   assert.equal(img.src, ATT, 'page 1 is still the first-page address');
-  img.style.visibility = 'hidden';   // as pvOpen's error handler leaves it after a later page failed
+  img.style.opacity = '0';   // as pvOpen's error handler leaves it after a later page failed
   next.fire('click');
-  assert.equal(img.style.visibility, '', 'the next page stayed hidden after a failed one');
+  assert.equal(note.textContent, 'Page 2 of 3', 'the count waits for the picture');
+  assert.equal(img.src, ATT, 'the picture was asked for before the flipping paused');
+  await pause();
+  assert.equal(img.style.opacity, '', 'the next page stayed hidden after a failed one');
   assert.equal(img.src, ATT + '?page=2');
   assert.equal(note.textContent, 'Page 2 of 3');
   assert.equal(img.alt, 'Page 2 of three.pdf');
@@ -118,12 +122,15 @@ test('pvPdfPager: three pages get arrows and "Page 1 of 3"; the arrows and pvFli
   back.pvFlip(1);
   assert.equal(note.textContent, 'Page 3 of 3');
   assert.equal(next.disabled, true);
+  await pause();
+  assert.equal(img.src, ATT + '?page=3');
   back.pvFlip(1);
   assert.equal(note.textContent, 'Page 3 of 3', 'flipped past the last page');
   back.pvFlip(-5);
   assert.equal(note.textContent, 'Page 3 of 3', 'a jump past the first page was taken');
   prev.fire('click'); prev.fire('click');
   assert.equal(note.textContent, 'Page 1 of 3');
+  await pause();
   assert.equal(img.src, ATT, 'back on page 1 is the first-page address again');
 });
 
@@ -160,6 +167,20 @@ test('pvPdfPager: a sideways touch swipe flips; a short, a mostly-vertical and a
   assert.equal(img.style.touchAction, 'pan-y pinch-zoom');
 });
 
+test('pvPdfPager: a held arrow key flips the count through every page but asks for only the page it stops on', async () => {
+  const { pvPdfPager } = lift(answer(200, 5));
+  const { back, stage, img, note } = viewer();
+  const asked = [];
+  let src = img.src;
+  Object.defineProperty(img, 'src', { get: () => src, set: (v) => { src = v; asked.push(v); } });
+  pvPdfPager(back, stage, img, note, { preview: ATT, name: 'five.pdf' });
+  await settle();
+  for (let i = 0; i < 4; i++) back.pvFlip(1);
+  assert.equal(note.textContent, 'Page 5 of 5');
+  await pause();
+  assert.deepEqual(asked, [ATT + '?page=5'], 'pages passed on the way were asked for');
+});
+
 test('pvPdfPager: one page, an unknown count, or a viewer closed before the answer leaves it as it was', async () => {
   for (const [impl, closeFirst, why] of [[answer(200, 1), false, 'one page'], [answer(200), false, 'no count'], [answer(200, 3), true, 'closed']]) {
     const { pvPdfPager } = lift(impl);
@@ -176,7 +197,7 @@ test('pvPdfPager: one page, an unknown count, or a viewer closed before the answ
 test('the page wires it: pvOpen calls the pager for a PDF only, the keys call pvFlip, Tab reaches the arrows, and a later page that fails keeps the viewer', () => {
   const open = page.lift(SCRIPT, 'pvOpen');
   assert.match(open, /if \(a\.kind === 'pdf' && note\) pvPdfPager\(back, stage, img, note, a\);/);
-  assert.match(open, /img\.dataset\.pvPage !== '1' && note\) \{ img\.style\.visibility = 'hidden'; note\.textContent = 'Kosmos could not draw page '/);
+  assert.match(open, /img\.dataset\.pvPage !== '1' && note\) \{ img\.style\.opacity = '0'; note\.textContent = 'Kosmos could not draw page '/);
   assert.match(SCRIPT, /\(e\.key === 'ArrowLeft' \|\| e\.key === 'ArrowRight'\) && typeof back\.pvFlip === 'function'/);
   assert.match(SCRIPT, /back\.pvFlip\(e\.key === 'ArrowRight' \? 1 : -1\)/);
   assert.match(SCRIPT, /\.pv-pg:not\(:disabled\), \.pv-acts button/);

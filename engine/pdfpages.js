@@ -8,11 +8,18 @@
  * broken PDF never stalls the board. The script is passed with -e and the file, page and output as arguments, never
  * spliced into the script's text.
  *
+ * Review 5: the PDF is untrusted (a chat upload, a file any agent wrote), and Quick Look parses its first page in a
+ * sandboxed extension, where this osascript would otherwise run with the board's full rights. So every call runs under
+ * sandbox-exec (SANDBOX): no network, no writes but the output's folder, and nothing under the account's home read but
+ * the PDF's own folder and the output's. With no sandbox-exec, nothing is drawn or counted (one page, as before).
+ * At most MAX_AT_ONCE run at a time; the rest wait their turn, so a held arrow key cannot start dozens at once.
+ *
  * Not a Mac (and no test seam): count answers null and render false, so the viewer shows the first page alone, as
  * it did before this card.
  */
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const { execFile } = require('node:child_process');
 
 const TIMEOUT_MS = 10000;
@@ -32,7 +39,8 @@ const SCRIPT = [
   "  if (!img || img.isNil()) return 'ERR draw';",
   '  const rep = $.NSBitmapImageRep.imageRepWithData(img.TIFFRepresentation);',
   '  const png = rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $());',
-  "  if (!png || png.isNil() || !png.writeToFileAtomically(argv[2], true)) return 'ERR write';",
+  // Not atomically: an atomic write goes through a folder the sandbox refuses, and render() renames into place itself.
+  "  if (!png || png.isNil() || !png.writeToFileAtomically(argv[2], false)) return 'ERR write';",
   "  return 'ok ' + n;",
   '}',
 ].join('\n');
@@ -42,12 +50,33 @@ let seam = null;
 function setImplForTest(impl) { seam = impl && typeof impl === 'object' ? impl : null; }
 function available() { return seam !== null || process.platform === 'darwin'; }
 
-function runScript(args) {
-  return new Promise((resolve) => {
-    execFile('/usr/bin/osascript', ['-l', 'JavaScript', '-e', SCRIPT, ...args], { timeout: TIMEOUT_MS, maxBuffer: 64 * 1024 }, (err, stdout) => {
-      resolve(err ? '' : String(stdout || '').trim());
+const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
+/* Paths come in as -D parameters, never spliced into the profile's text. */
+const SANDBOX = '(version 1)(allow default)(deny network*)'
+  + '(deny file-write*)(allow file-write* (subpath (param "OUT")))'
+  + '(deny file-read* (subpath (param "HOME")))(allow file-read* (subpath (param "IN")) (subpath (param "OUT")))';
+/* The account's own home, from the user database rather than $HOME, which a board's environment can point elsewhere. */
+function realHome() { try { return os.userInfo().homedir; } catch { return os.homedir(); } }
+
+const MAX_AT_ONCE = 2;
+let running = 0;
+const waiting = [];
+function turn() { return running < MAX_AT_ONCE ? (running++, Promise.resolve()) : new Promise((r) => waiting.push(r)); }
+function done() { const next = waiting.shift(); if (next) next(); else running--; }
+
+/* The script's answer, or '' for any failure (no sandbox-exec, a timeout, a refusal). `inDir` holds the PDF; `outDir`
+   is the only folder it may write. */
+async function runScript(args, inDir, outDir) {
+  if (!fs.existsSync(SANDBOX_EXEC)) return '';
+  await turn();
+  try {
+    return await new Promise((resolve) => {
+      execFile(SANDBOX_EXEC, ['-p', SANDBOX, '-D', 'HOME=' + fs.realpathSync(realHome()), '-D', 'IN=' + fs.realpathSync(inDir), '-D', 'OUT=' + fs.realpathSync(outDir),
+        '/usr/bin/osascript', '-l', 'JavaScript', '-e', SCRIPT, ...args], { timeout: TIMEOUT_MS, maxBuffer: 64 * 1024 }, (err, stdout) => {
+        resolve(err ? '' : String(stdout || '').trim());
+      });
     });
-  });
+  } catch { return ''; } finally { done(); }
 }
 function believed(n) { return Number.isInteger(n) && n >= 1 && n <= MAX_PAGES ? n : null; }
 
@@ -55,7 +84,8 @@ function believed(n) { return Number.isInteger(n) && n >= 1 && n <= MAX_PAGES ? 
 async function count(file) {
   if (seam) { try { return believed(seam.count(file)); } catch { return null; } }
   if (process.platform !== 'darwin') return null;
-  const m = /^pages (\d+)$/.exec(await runScript([String(file)]));
+  const dir = path.dirname(String(file));
+  const m = /^pages (\d+)$/.exec(await runScript([String(file)], dir, dir));
   return m ? believed(Number(m[1])) : null;
 }
 
@@ -71,7 +101,7 @@ function render(file, index, out) {
     if (seam) { try { if (!seam.render(file, index, tmp)) return false; } catch { return false; } }
     else {
       if (process.platform !== 'darwin') return false;
-      if (!/^ok \d+$/.test(await runScript([String(file), String(index), tmp]))) { try { fs.rmSync(tmp, { force: true }); } catch { /* gone */ } return false; }
+      if (!/^ok \d+$/.test(await runScript([String(file), String(index), tmp], path.dirname(String(file)), path.dirname(out)))) { try { fs.rmSync(tmp, { force: true }); } catch { /* gone */ } return false; }
     }
     try { fs.renameSync(tmp, out); } catch { try { fs.rmSync(tmp, { force: true }); } catch { /* gone */ } }
     return fs.existsSync(out);
