@@ -126,11 +126,14 @@ function labelRows() {
   /* Review 3: each row's purposes are read from its own "Purpose to tick" column (Apple's words, comma separated), and
      the header is returned so a test can pin the columns: a per-row exception to "linked: yes, tracking: no" would need
      a column of its own, and a new column fails the pin. */
-  const purposeOf = (w) => 'NSPrivacyCollectedDataTypePurpose' + w.trim().replace(/['\s]+/g, '');
+  // Review 4: Apple's own spellings where its words do not collapse to its constant.
+  const PURPOSE_ODD = { "Developer's Advertising or Marketing": 'DevelopersAdvertising', 'Third-Party Advertising': 'ThirdPartyAdvertising', 'Other Purposes': 'Other' };
+  const purposeOf = (w) => 'NSPrivacyCollectedDataTypePurpose' + (PURPOSE_ODD[w.trim()] || w.trim().replace(/['\s-]+/g, ''));
+  const TYPE_ODD = { 'Photos or Videos': 'PhotosorVideos' };
   const rows = body.map((l) => {
     const cells = l.split('|').slice(1, -1).map((c) => c.trim());
     const name = (/^[^>]+> \*\*([^*]+)\*\*$/.exec(cells[0] || '') || [])[1];
-    return name ? { type: 'NSPrivacyCollectedDataType' + name.replace(/\s+/g, ''), purposes: (cells[2] || '').split(',').filter((x) => x.trim()).map(purposeOf).sort() } : null;
+    return name ? { type: 'NSPrivacyCollectedDataType' + (TYPE_ODD[name] || name.replace(/[\s-]+/g, '')), purposes: (cells[2] || '').split(',').filter((x) => x.trim()).map(purposeOf).sort() } : null;
   }).filter(Boolean);
   return { body: body.length, types: rows.map((r) => r.type), rows, header: lines[0] };
 }
