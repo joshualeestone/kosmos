@@ -52,6 +52,7 @@ test.before(async () => {
     ext('x-b1', 'acctB', 'Bea', 3),        // CONTROL: someone else
     ext('x-old', null, 'Old', 4),          // an older relay's row, with no stamp
     { ...ext('x-me', 'acctMe:mac2', 'Me', 5), sameAccount: true },   // the person's own other computer
+    ext('x-me-old', 'acctMe:mac3', 'Me', 6),   // the same account, kept before rows carried the same_account mark
   ];
   fs.mkdirSync(store.ROOT, { recursive: true });
   fs.appendFileSync(path.join(store.ROOT, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
@@ -70,18 +71,19 @@ async function outsideIds() {
 }
 
 test('#8625: before any block, every outside message is in the room (the precondition)', async () => {
-  assert.deepEqual(await outsideIds(), ['x-a1', 'x-a2', 'x-b1', 'x-me', 'x-old']);
+  assert.deepEqual(await outsideIds(), ['x-a1', 'x-a2', 'x-b1', 'x-me', 'x-me-old', 'x-old']);
 });
 
 test('#8625: a message with no stamp cannot be blocked (409), and nothing is hidden', async () => {
   const res = await post(`/api/project/${encodeURIComponent(pid)}/room/x-old/block`);
   assert.equal(res.status, 409);
   assert.deepEqual(blocked.list(), []);
-  assert.deepEqual(await outsideIds(), ['x-a1', 'x-a2', 'x-b1', 'x-me', 'x-old']);
+  assert.deepEqual(await outsideIds(), ['x-a1', 'x-a2', 'x-b1', 'x-me', 'x-me-old', 'x-old']);
 });
 
 test('#8625: the person\'s own post from another of their computers cannot be blocked or reported (409)', async () => {
   assert.equal((await post(`/api/project/${encodeURIComponent(pid)}/room/x-me/block`)).status, 409);
+  assert.equal((await post(`/api/project/${encodeURIComponent(pid)}/room/x-me-old/block`)).status, 409, 'an older row of the same account, with no mark of its own');
   assert.equal((await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room/x-me/sender`)).status, 409);
   assert.deepEqual(blocked.list(), [], 'the person did not block themselves');
 });
@@ -108,9 +110,9 @@ test('#8625: blocking one message hides that person on every computer, and only 
   const res = await post(`/api/project/${encodeURIComponent(pid)}/room/x-a1/block`);
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { blocked: true, name: 'Ana' });
-  assert.deepEqual(await outsideIds(), ['x-b1', 'x-me', 'x-old'], 'Ana from both computers is gone; Bea, the person\'s own and the unstamped row stay');
+  assert.deepEqual(await outsideIds(), ['x-b1', 'x-me', 'x-me-old', 'x-old'], 'Ana from both computers is gone; Bea, the person\'s own and the unstamped row stay');
   const unread = messages.unreadAll();
-  assert.equal(unread && unread[pid], 3, 'the unread count leaves the blocked person\'s two rows out (5 outside rows, 2 hidden)');
+  assert.equal(unread && unread[pid], 4, 'the unread count leaves the blocked person\'s two rows out (6 outside rows, 2 hidden)');
   const list = await (await fetch(`${base}/api/blocked`)).json();
   assert.deepEqual(list.blocked.map((b) => [b.account, b.name]), [['acctA', 'Ana']]);
   assert.equal(JSON.stringify(list).includes('words from'), false, 'the list holds no message text');

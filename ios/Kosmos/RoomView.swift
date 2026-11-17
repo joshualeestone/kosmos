@@ -1871,9 +1871,10 @@ struct RoomBubble: View {
                         reply: answerable ? reply : nil, text: Board.roomWords(row),   // review 2: the words shown
                         delete: answerable && mine ? delete : nil,   // kosmos#7614: never on an archived post
                         // #8625: Report and Block on a message from outside this Kosmos, never in the archive view.
-                        // Never on the person's own post from another of their computers (ownAccount).
-                        report: row.kind == .external && !row.ownAccount && !archived ? report : nil,
-                        block: row.kind == .external && !row.ownAccount && !archived ? block : nil, blockName: name)
+                        // Never on the person's own post from another of their computers (ownAccount). In the archive view
+                        // too: a message the person can read there can be reported (guideline 1.2).
+                        report: row.kind == .external && !row.ownAccount ? report : nil,
+                        block: row.kind == .external && !row.ownAccount ? block : nil, blockName: name)
         .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
     }
 

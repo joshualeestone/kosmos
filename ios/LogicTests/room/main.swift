@@ -2091,6 +2091,10 @@ do {
         check(s1?.httpMethod == "GET" && s1?.url?.path == "/api/project/p-shared/room/\(ext.id)/sender", "the sender is asked of the board for that message")
         check(Board.roomSenderRequest(mac: mac, project: "p-shared", message: "m7") == nil, "never for a post id")
     }
+    let tricky = Board.parseRoom(Data(#"{"ok":true,"rows":[{"kind":"external","id":"x-3f2a9c1e-77aa-4b1d-9c2e-0a1b2c3d4e61","from":"Ana","fromKind":"person","text":"a+b & c#d\nline two","at":"2026-11-17T08:00:00.000Z"}]}"#.utf8))?.rows.first
+    if let tricky, let raw = Board.reportMail(row: tricky, project: "p-shared", projectName: "Catalogue")?.absoluteString {
+        check(raw.contains("a%2Bb%20%26%20c%23d%0Aline%20two") && !raw.contains("+"), "the raw mail link encodes +, &, # and the line break, so the words reach support unchanged")
+    } else { check(false, "premise: the tricky message makes a mail link") }
     check(Board.senderAccount(status: 200, Data(#"{"account":"acctA"}"#.utf8)) == "acctA", "the account is read")
     check(Board.senderAccount(status: 200, Data(#"{"account":"../x"}"#.utf8)) == nil && Board.senderAccount(status: 409, Data(#"{"account":"acctA"}"#.utf8)) == nil,
           "a malformed account or a refusal is no account")

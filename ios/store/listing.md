@@ -168,8 +168,8 @@ in an in-app view; links to any other site open in Safari.
 Shared rooms (Guideline 1.2): a project can be shared with people the owner
 invites; nothing is public. Long-press a message from someone outside your
 Kosmos for Report message (a pre-filled email to hello@installkosmos.com, which
-we answer) and Block (their messages, and their Kosmos's, are hidden on the phone and
-the computer it shows, in every room). Settings, Blocked lists them, with Unblock.
+we answer) and Block (that person's account, with their agents, is hidden on the phone
+and the computer it shows, in every room). Settings, Blocked lists them, with Unblock.
 
 To review it you need two things we provide: the demo account below, and a
 computer running Kosmos on that account that we keep online for the whole

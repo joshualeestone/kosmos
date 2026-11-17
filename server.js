@@ -25256,8 +25256,14 @@ const server = http.createServer(async (req, res) => {
         let row = null;
         try { row = (messages.record().rows || []).find((m) => m && m.kind === 'external' && m.id === msgId && m.project === found.id) || null; } catch { row = null; }
         if (!row) { sendJson(res, 404, { error: 'there is no message from outside by that id in this room' }); return; }
-        if (row.sameAccount === true) { sendJson(res, 409, { error: 'that message is from your own account, on another of your computers' }); return; }
-        const out = require('./engine/blockedmembers').block(row.member, row.from);
+        /* The person's own account: this row, or any kept row from the same account, marked same_account by the relay (a
+           row kept before #8625 stored that mark carries none, so the others are asked too). */
+        const bm = require('./engine/blockedmembers');
+        const acct = bm.accountOf(row.member);
+        let own = row.sameAccount === true;
+        if (!own && acct) { try { own = (messages.record().rows || []).some((m) => m && m.kind === 'external' && m.sameAccount === true && bm.accountOf(m.member) === acct); } catch { own = false; } }
+        if (own) { sendJson(res, 409, { error: 'that message is from your own account, on another of your computers' }); return; }
+        const out = bm.block(row.member, row.from);
         if (!out.ok) { sendJson(res, out.full || !row.member ? 409 : 503, { error: out.because }); return; }
         sendJson(res, 200, { blocked: true, name: row.from });
       })

@@ -53,7 +53,7 @@ an operational dependency, said on the card.
 
 ## Tests
 
-- `server.room-block-8625.test.js` (6): precondition; an unstamped row cannot be blocked (409); unknown 404 and agent
+- `server.room-block-8625.test.js` (8): precondition; an unstamped row cannot be blocked (409); unknown 404 and agent
   token 403; blocking hides the person on both computers and not someone else, and the list holds no text; a blocked
   person's new message is not kept (CONTROL: another person's is); unblock brings them back and refuses a bad account.
 - Controls: removing the room-route filter fails the hiding test; removing the arrival drop fails the new-message test.
@@ -83,3 +83,11 @@ an operational dependency, said on the card.
   - CONVENTION fixed: the plan's "not covered" line was wrong about `kosmos room`.
   - NITs fixed: a full block list is 409, not 503; agent tokens refused on every new route (header and body), tested.
     Not acted on: isViaScreen on unblock (the routes follow the room delete route's guard).
+- Round 2 (blind, sonnet): no BLOCKER, 4 WARNING, 3 NIT.
+  - WARNING fixed: the mail link left "+" unencoded (many mail apps read it as a space); encoded with a strict set,
+    tested on the raw link with +, &, # and a line break.
+  - WARNING fixed: the archive view had no Report or Block; offered there too.
+  - WARNING fixed: an own-account row kept before the mark was stored could be blocked; the block route also refuses an
+    account any kept row marks as the person's own. Residual: an own account with no marked row at all; Unblock undoes it.
+  - WARNING recorded: quiet-run and acknowledgement logic still read a blocked person's stored rows (stated above).
+  - NITs fixed: wording says the person's account (their agents and other computers), not "their Kosmos"; test count.
