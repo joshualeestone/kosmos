@@ -179,8 +179,8 @@ function assertWords(words, { outcome, count, modelKey }) {
   if (account === 'folder') {
     // kosmos#8584: a folder is read again at Start at login, so "if", with the main account as the other way.
     assert.match(words, modelKey === 'offered'
-      ? /account and model it was set to before if that account is still signed in there at Start at login; otherwise on your main account\./
-      : /starts on the account it was set to if that account is still signed in there at Start at login, otherwise on your main account\./, label);
+      ? /It starts on the model it was set to, and on the account it was set to if that account is still signed in there at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\./
+      : /It starts on the account it was set to if that account is still signed in there at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\. It starts on the model it last ran/, label);
     assert.doesNotMatch(words, /because /, label);
   } else if (account === 'mainAsBefore') {
     assert.match(words, modelKey === 'offered' ? /account and model it was set to before/ : /starts on your main account, as before/, label);
@@ -426,6 +426,24 @@ test('kosmos#8510 round 6: a folder holding another account, the same account si
     startAtLogin(name);
     // The reason for "unless": the repair reads the account again and writes the task on that folder.
     assert.deepEqual(writtenTask(name), { configDir: ACCOUNT, model: SET_MODEL });
+  } finally {
+    signIn(ACCOUNT, OWNER);
+  }
+});
+
+/* kosmos#8584 review 1: the reverse of the test above. The words for a folder that is fine at the delete say "if it is
+   still signed in there at Start at login; otherwise your main account". Signed out in between, Start at login writes
+   the main account (and the model it was set to), as the words said, and is not offered again. */
+test('kosmos#8584: a folder fine at the delete, signed out before Start at login: the main account, as the words said', WINDOWS_ONLY, () => {
+  const name = agentOnAccount('signout8584', SET_MODEL);
+  try {
+    for (const words of taskOnlyDelete(name)) {
+      assert.match(words, /It starts on the model it was set to, and on the account it was set to if that account is still signed in there at Start at login\. Otherwise it starts on your main account; choose its account again if it should use another\./);
+    }
+    signIn(ACCOUNT, { emailAddress: 'someone-else@example.test', organizationUuid: 'org-other' });   // signed out, another in
+    startAtLogin(name);
+    assert.deepEqual(writtenTask(name), { configDir: null, model: SET_MODEL });
+    assert.equal(offered(name), false, 'Start at login is offered again, so the advice to choose its account would be wrong');
   } finally {
     signIn(ACCOUNT, OWNER);
   }

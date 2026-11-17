@@ -13,6 +13,12 @@
 - Every sentence stays at 30 words or fewer (the #8510 matrix caps it).
 
 ## Decisions
+- Review 1: the folder's main-account fallback is where it stays (Start at login is not offered again), so it gets
+  the advice every other main-account outcome has, as its own sentence: "It starts on the model it was set to, and on
+  the account it was set to if that account is still signed in there at Start at login. Otherwise it starts on your
+  main account; choose its account again if it should use another." (retired model: the account sentences, then the
+  model sentence and its advice). An end-to-end test signs the folder out before Start at login and checks the main
+  account is written and Start at login is not offered again.
 - Main-account accountOk keeps the flat sentence: nothing a person can do before Start at login removes the main
   account, and adding "if" there would be a hedge with no case behind it.
 - Rejected: a separate "if" sentence after the flat one. One sentence with "if ...; otherwise ..." keeps it under the cap
