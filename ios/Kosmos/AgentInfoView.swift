@@ -522,7 +522,7 @@ struct AgentInfoView: View {
 
     #if DEBUG
     // KOSMOS_SAMPLE_AGENTS=1 (a Debug build): the sample agent's page without a Mac, for the design shots.
-    // KOSMOS_SAMPLE_INFO=ai opens on AI Settings, =files on Files.
+    // KOSMOS_SAMPLE_INFO=ai opens on AI Settings, =files on Files; KOSMOS_SAMPLE_SWITCH=<provider> also picks a switch.
     static var sample: Bool { ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" }
     private func applySample() {
         let d = Board.AgentDetails(session: live.session, name: live.name, role: live.role, reportsTo: nil, runner: "",
@@ -536,6 +536,13 @@ struct AgentInfoView: View {
         instructions = "You look after the spring catalogue: the cover, the order of the pages, and getting proofs to the printer on time.\n\nAsk before you spend money or send anything outside the team."
         skills = [Board.Skill(key: "meeting-minutes", name: "Meeting minutes"), Board.Skill(key: "proof-checklist", name: "Proof checklist")]
         switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_INFO"] { case "ai": part = .ai; case "files": part = .files; default: break }
+        // kosmos#8626: KOSMOS_SAMPLE_SWITCH=openai (or google, xai) opens AI Settings with that provider picked, for the
+        // store screen that shows a switch.
+        if let s = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SWITCH"].flatMap(Board.SwitchProvider.init(rawValue:)) {
+            part = .ai
+            switchTo = s
+            pickedProvider()
+        }
     }
     #endif
 }
