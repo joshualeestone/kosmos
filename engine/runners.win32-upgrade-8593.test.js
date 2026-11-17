@@ -97,6 +97,7 @@ test('exeUnder: a program inside the folder, in any spelling that resolves to it
   assert.equal(await runners.exeUnder([`${root}\\pkg\\codex.exe`], root, throws), true, 'a path that cannot be resolved is compared as reported');
   assert.equal(await runners.exeUnder(['C:\\Users\\PATDOE~1\\x.exe'], root, () => Promise.reject(new Error('EPERM'))), false, 'an async refusal too');
   assert.equal(await runners.exeUnder([], root, real), false);
+  assert.equal(await runners.exeUnder([`\\\\?\\${root}\\pkg\\codex.exe`], root, throws), true, 'the \\\\?\\ long-path form');
   // Another spelling the caller already knows (the form Kosmos started Codex by) counts without resolving anything.
   assert.equal(await runners.exeUnder(['C:\\Users\\PATDOE~1\\Kosmos\\runners\\openai\\codex.exe'], root, throws,
     [root, 'C:\\Users\\PATDOE~1\\Kosmos\\runners\\openai']), true);
@@ -111,6 +112,61 @@ test('exeUnder resolves only paths on the managed folder\'s own drive: a gone ne
   assert.deepEqual(asked, ['C:\\Windows\\explorer.exe'], 'the mapped drive, the UNC share and the other drive were never resolved');
   // A resolver that never answers (a hung SMB) on another drive is never awaited.
   assert.equal(await runners.exeUnder(['Z:\\gone\\app.exe'], root, () => new Promise(() => {})), false);
+});
+
+test('waitForSwap: clear at once with no lock or for a codex outside the managed folder; waits while a fresh lock is up', { skip: WIN_ONLY }, async () => {
+  const root = fs.mkdtempSync(path.join(SANDBOX, 'swap-'));
+  const bin = path.win32.join(root, 'openai', 'pkg', 'codex.exe');
+  const lock = path.win32.join(root, 'openai', runners.SWAP_LOCK);
+  fs.mkdirSync(path.dirname(lock), { recursive: true });
+  assert.equal(await runners.waitForSwap(bin, { root, timeoutMs: 0 }), true, 'no lock');
+  fs.writeFileSync(lock, '{}');
+  assert.equal(await runners.waitForSwap('C:\\elsewhere\\codex.exe', { root, timeoutMs: 0 }), true, 'not the managed codex');
+  assert.equal(await runners.waitForSwap('codex', { root, timeoutMs: 0 }), true, 'a bare name is not the managed codex');
+  assert.equal(await runners.waitForSwap(bin, { root, timeoutMs: 30, pollMs: 5 }), false, 'a fresh lock held past the cap');
+  setTimeout(() => fs.rmSync(lock, { force: true }), 40);
+  assert.equal(await runners.waitForSwap(bin, { root, timeoutMs: 5000, pollMs: 5 }), true, 'clear once the lock comes down');
+  fs.writeFileSync(lock, 'half-writ');   // a crash mid-write: its age, not its text, decides
+  const old = new Date(Date.now() - 16 * 60 * 1000);
+  fs.utimesSync(lock, old, old);
+  assert.equal(await runners.waitForSwap(bin, { root, timeoutMs: 0 }), true, 'a lock a dead board left goes stale');
+  assert.equal(await runners.waitForSwap(bin.toUpperCase(), { root: root.toLowerCase(), timeoutMs: 0 }), true, 'case does not matter (stale still)');
+});
+
+test('win32: the swap lock is up from before the marker comes down until the new tree is proven, and down on every way out', { skip: WIN_ONLY }, async () => {
+  const lock = () => fs.existsSync(path.join(DEST(), runners.SWAP_LOCK));
+  const cases = [
+    { name: 'installed', prove: ok, phase: 'installed' },
+    { name: 'prove failed', prove: (bin, done) => done(new Error('exit code 1')), phase: 'failed' },
+  ];
+  for (const c of cases) {
+    plantOld();
+    const { tgz, integrity } = winFixture();
+    let lockAtProve = null;
+    let lockAtLastLook = null;
+    const answers = [false, false, false, false];
+    try {
+      const job = runners.install('openai', { legacyBin: LEGACY, download: downloadFrom(tgz), integrity,
+        codexRunning: () => { if (answers.length === 1) lockAtLastLook = lock(); return Promise.resolve(answers.shift()); },
+        prove: (bin, done) => { lockAtProve = lock(); c.prove(bin, done); } });
+      await job.settled;
+      assert.equal(job.phase, c.phase, c.name);
+      assert.equal(lockAtLastLook, true, `${c.name}: up before the last look`);
+      assert.equal(lockAtProve, true, `${c.name}: up while the new tree is unproven`);
+      assert.equal(lock(), false, `${c.name}: down afterwards`);
+    } finally { clear(); }
+  }
+  // A wait at the last look takes it down too.
+  plantOld();
+  const { tgz, integrity } = winFixture();
+  const answers = [false, false, false, true];   // first, pre-unpack, pre-swap idle; an agent at the last look
+  try {
+    const job = runners.install('openai', { legacyBin: LEGACY, download: downloadFrom(tgz), integrity, prove: ok,
+      codexRunning: () => Promise.resolve(answers.shift()) });
+    await job.settled;
+    assert.equal(job.waited, true);
+    assert.equal(lock(), false, 'a wait at the last look: down');
+  } finally { clear(); try { fs.rmSync(stagingFile(), { force: true }); } catch { /* gone */ } }
 });
 
 test('win32: a tree an older build vouched for is present but stale; its agents keep starting on it', { skip: WIN_ONLY }, () => {
@@ -230,8 +286,8 @@ test('win32: a kept tarball survives a later look that finds an agent running be
   plantOld();
   const { tgz, integrity } = winFixture();
   const download = counting(tgz);
-  // look 1: idle, then busy before the swap; look 2: busy at once; look 3: idle at all three (first, pre-swap, marker down)
-  const answers = [false, true, true, false, false, false];
+  // look 1: idle, then busy before the unpack; look 2: busy at once; look 3: idle at all four (first, pre-unpack, pre-swap, marker down)
+  const answers = [false, true, true, false, false, false, false];
   const go = () => runners.install('openai', { legacyBin: LEGACY, download, integrity, prove: ok, manifest: withSize(tgz),
     codexRunning: () => Promise.resolve(answers.shift()) });
   try {
@@ -295,7 +351,7 @@ test('win32: a caller that just checked (agentsCheckedIdle) skips only the first
     const job = runners.install('openai', { legacyBin: LEGACY, download: downloadFrom(tgz), integrity, prove: ok, agentsCheckedIdle: true,
       codexRunning: () => { asks += 1; return Promise.resolve(true); } });
     await job.settled;
-    assert.equal(asks, 1, 'asked once, before the swap');
+    assert.equal(asks, 1, 'asked once, before the unpack (its first look skipped)');
     assert.equal(job.phase, 'failed'); assert.equal(job.waited, true, 'and that look still stops the swap');
     assert.equal(isOldTree(), true);
   } finally { clear(); try { fs.rmSync(stagingFile(), { force: true }); } catch { /* gone */ } }
@@ -333,7 +389,7 @@ test('win32: an agent that starts while the marker comes down is caught by the l
   plantOld();
   const before = marker();
   const { tgz, integrity } = winFixture();
-  const answers = [false, true];   // (first look skipped) idle just before the swap, an agent by the time the marker is down
+  const answers = [false, false, true];   // (first look skipped) idle before the unpack and the swap, an agent by the time the marker is down
   let markerAtLastLook;
   const optsSeen = [];
   try {
@@ -341,7 +397,7 @@ test('win32: an agent that starts while the marker comes down is caught by the l
       codexRunning: (dir, opts) => { optsSeen.push(opts); if (answers.length === 1) markerAtLastLook = marker(); return Promise.resolve(answers.shift()); } });
     await job.settled;
     assert.equal(markerAtLastLook, null, 'PRECONDITION: the last look ran with the marker down');
-    assert.deepEqual(optsSeen, [undefined, { deadlineMs: 5000 }], 'the marker-down look, and only it, has the short deadline');
+    assert.deepEqual(optsSeen, [undefined, undefined, { deadlineMs: 5000 }], 'the marker-down look, and only it, has the short deadline');
     assert.equal(job.phase, 'failed'); assert.equal(job.waited, true);
     assert.equal(marker(), before, 'vouched for again');
     assert.equal(isOldTree(), true, 'nothing was set aside');

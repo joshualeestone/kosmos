@@ -59,6 +59,12 @@ function makeTick(d) {
           say(`runner-upgrade: openai ${from} -> ${pin}: waiting (${busy === true ? 'an agent is running on it' : 'could not check'})\n`);
           return 'waiting';
         }
+        /* That ask can take seconds; an install a person started meanwhile is joined by install(), and joining is not a
+           try, so the state is read again before one is counted. */
+        const now = run.resolveBin('openai');
+        const liveNow = (run.status().openai || {}).job;
+        if (!now || now.stale !== true || run.installing('openai')
+          || (liveNow && liveNow.phase !== 'installed' && liveNow.phase !== 'failed')) return 'idle';
       }
       tries.set(pin, (tries.get(pin) || 0) + 1);
       // On Windows this tick just found no agent running, so install() skips its own first look (not the pre-swap one).
@@ -66,7 +72,10 @@ function makeTick(d) {
       say(`runner-upgrade: openai ${from} -> ${pin}: ${job && job.phase}\n`);
       if (job && job.settled && typeof job.settled.then === 'function') {
         job.settled.then(() => {
-          if (job.waited === true) tries.set(pin, Math.max(0, (tries.get(pin) || 0) - 1));
+          if (job.waited !== true) return;
+          tries.set(pin, Math.max(0, (tries.get(pin) || 0) - 1));
+          // Said in the log, so a wait that keeps happening (a check that keeps running out) is visible there.
+          say(`runner-upgrade: openai ${from} -> ${pin}: waiting (${job.because || 'an agent started during the upgrade'})\n`);
         }, () => {});
       }
       return 'started';

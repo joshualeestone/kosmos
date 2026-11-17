@@ -118,6 +118,23 @@ test('Windows: an install that met a running agent at its own last check hands i
   assert.equal(calls.install, TRIES + 2, 'a wait inside install() did not count against the cap');
 });
 
+test('Windows: an install a person started during the tick\'s own ask is joined, and no try is counted for it', async () => {
+  const { runners, calls } = fake({ busy: false });
+  let installingNow = false;
+  runners.installing = () => installingNow;
+  runners.managedProcessRunning = async () => { installingNow = true; return false; };   // a person clicked meanwhile
+  const { tick } = tickFor(runners);
+  assert.equal(await tick(), 'idle');
+  assert.equal(calls.install, 0);
+});
+
+test('Windows: an install that ended as a wait says so in the log', async () => {
+  const { runners } = fake({ busy: false, waits: true });
+  const { tick, lines } = tickFor(runners);
+  await tick(); await settle();
+  assert.match(lines.join(''), /waiting \(/);
+});
+
 test('a throw inside the tick is warned, never thrown', async () => {
   const { runners } = fake();
   runners.resolveBin = () => { throw new Error('boom'); };
