@@ -81380,7 +81380,9 @@ async function xReportSend(id) {
   const copiedP = xReportCopy(bodyP.then((b) => 'To: ' + XREPORT_TO + '\nSubject: ' + XREPORT_SUBJECT + '\n\n' + b));
   const body = await bodyP;
   // A copy that never settles (a permission prompt left open) must not hold the mail and the line back.
-  const copied = await Promise.race([copiedP, new Promise((r) => setTimeout(() => r(false), 1500))]);
+  let giveUp = null;
+  const copied = await Promise.race([copiedP, new Promise((r) => { giveUp = setTimeout(() => r(false), 1500); })]);
+  clearTimeout(giveUp);
   const a = document.createElement('a');
   a.href = 'mailto:' + XREPORT_TO + '?subject=' + encodeURIComponent(XREPORT_SUBJECT) + '&body=' + encodeURIComponent(body);
   a.rel = 'noopener'; a.style.display = 'none';
@@ -81543,7 +81545,11 @@ document.getElementById('you-blocked').addEventListener('click', async (e) => {
   const boxU = document.getElementById('you-blocked-box');   // the pressed Unblock button was repainted away
   if (boxU && !boxU.hidden) boxU.focus({ preventScroll: true });
   // The window starts again, so its held earlier pages are read again with this person's messages in them.
-  if (ok && typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT && typeof pjWinReset === 'function') pjWinReset(PJ_CURRENT);
+  if (ok && typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT && typeof pjWinReset === 'function') {
+    pjWinReset(PJ_CURRENT);
+    if (typeof pjArchShowing === 'function' && pjArchShowing() && typeof pjArchOpen === 'function') { try { await pjArchOpen(true); } catch { /* the next poll */ } }
+    if (typeof loadRoom === 'function') { try { await loadRoom(); } catch { /* the next poll repaints */ } }
+  }
 });
 /* #6949: the room post's 🙋 claim ({by, at}, from the room read or a room route's answer) as the page shows it: the
    holder's name and how long ago, or null when there is no claim. Only a room post has one; a DM never passes it.
@@ -82722,8 +82728,8 @@ function pjRoomRow(m, p, hideHeader) {
          one shape the block and sender routes name an outside message by. Quiet text buttons, always shown: a hover-only
          control is one a person at the computer may never find, and these are the only way to act on an outside sender. */
       + (m.sameAccount !== true && /^x-[0-9a-fA-F-]{8,64}$/.test(String(m.id || ''))
-        ? '<div class="msg-ext-act"><button type="button" class="linkish" data-ext-report="' + esc(String(m.id)) + '">Report</button>'
-          + '<button type="button" class="linkish" data-ext-block="' + esc(String(m.id)) + '">Block</button>'
+        ? '<div class="msg-ext-act"><button type="button" class="linkish" data-ext-report="' + esc(String(m.id)) + '" aria-label="Report this message from ' + esc(whoX) + '">Report</button>'
+          + '<button type="button" class="linkish" data-ext-block="' + esc(String(m.id)) + '" aria-label="Block ' + esc(whoX) + '">Block</button>'
           + (whenX ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : '') + '</div>'
         : (whenX ? '<span class="msg-t">' + pjWhenLive(m.at) + '</span>' : ''))
       + '</div></div></div>';

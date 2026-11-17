@@ -24536,7 +24536,7 @@ const server = http.createServer(async (req, res) => {
       const archivedSrc = new Set(roomRows.slice(0, roomarchive.archivedCount(roomRows, archiveMarker, Date.now())));
       /* #8631: how many of the live room's rows a block hides (archived rows are not counted: the live room would not show
          them anyway), so the page can say in one line that messages are hidden here. JSON arm only; 0 is never sent. */
-      const hiddenBlocked = blockedNow.size ? roomRows.filter((m) => !archivedSrc.has(m) && bmRoom.hides(m, blockedNow)).length : 0;
+      const hiddenBlocked = !asText && blockedNow.size ? roomRows.filter((m) => !archivedSrc.has(m) && bmRoom.hides(m, blockedNow)).length : 0;
       const kept = roomRows
         /* #8625: a blocked person's rows leave the room here, after the archive split above, so blocking or unblocking
            someone never moves the archived stretch. */

@@ -73,6 +73,7 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
           report: box(btn(r[0], 'data-ext-report')),
           block: box(btn(r[0], 'data-ext-block')),
           ids: [btn(r[0], 'data-ext-report') && btn(r[0], 'data-ext-report').getAttribute('data-ext-report'), btn(r[0], 'data-ext-block') && btn(r[0], 'data-ext-block').getAttribute('data-ext-block')],
+          labels: [btn(r[0], 'data-ext-report') && btn(r[0], 'data-ext-report').getAttribute('aria-label'), btn(r[0], 'data-ext-block') && btn(r[0], 'data-ext-block').getAttribute('aria-label')],
           own: r[1] ? r[1].querySelectorAll('[data-ext-report],[data-ext-block]').length : -1,
           noX: r[2] ? r[2].querySelectorAll('[data-ext-report],[data-ext-block]').length : -1,
         };
@@ -82,6 +83,7 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
       ok(t + ' both are at least 44px tall and drawn', rows.report && rows.block && rows.report.h >= 44 && rows.block.h >= 44 && rows.report.w > 0
         && rows.report.color !== 'rgba(0, 0, 0, 0)', JSON.stringify([rows.report, rows.block]));
       ok(t + ' both name the message by its id', rows.ids[0] === ROW.id && rows.ids[1] === ROW.id, JSON.stringify(rows.ids));
+      ok(t + ' a screen reader hears whose message each acts on', rows.labels[0] === 'Report this message from Ana' && rows.labels[1] === 'Block Ana', JSON.stringify(rows.labels));
       ok(t + ' CONTROL: never on the person\'s own post from another computer', rows.own === 0, String(rows.own));
       ok(t + ' CONTROL: never on a row with no x- id', rows.noX === 0, String(rows.noX));
 
