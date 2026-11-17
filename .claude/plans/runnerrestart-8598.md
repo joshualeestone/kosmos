@@ -10,11 +10,11 @@ Follow-up to #8593 (PR #8606). Measurement and plan are on the card (issuecommen
 ### Decided: a narrow restart, not every Codex agent
 Because a restart loses context, the sweep restarts a managed Codex agent only when all of these hold:
 1. Its runner is the managed Codex (`job.claude` is the managed bin) and the managed tree is no longer stale (the new version is in place).
-2. Its running codex process started **before** the current tree was swapped in. The test is the process start time against the swap time (the `pkg` directory's change time), so it reads what the process actually is, not a memory of it.
-3. That process has **no live code-mode host child**. In my measurement (case D), an agent whose host was already running kept working. Only one that has yet to start a host fails.
+2. Its running codex process started **before** the upgrade's swap. The swap time comes from a record a proved upgrade writes beside the tree (`upgraded.json`: from, to, at; engine/runners.js). A same-version repair or a first install writes none, so it restarts nobody (review 1 replaced the `pkg` change time, which any reinstall moves).
+3. That process has **no code-mode host child that started before the swap**. In my measurement (case D), an agent whose host was already running kept working. A host started after the swap is the new tree's and fails, so that agent is restarted too (review 1).
 4. It reads idle on two sweeps in a row, and again just before the restart.
 
-Gated like the other sweeps: inert under test and before the live-execution opt-in, brake `AGENT_WORKFORCE_RUNNER_RESTART_OFF=1`, one try per agent per pin per board run. The cause is `'runner'`, so the board line says why.
+Gated like the other sweeps: inert under test and before the live-execution opt-in, brake `AGENT_WORKFORCE_RUNNER_RESTART_OFF=1`. One restart per agent per pin per board run; a refused restart is tried again, at most three times. An agent an account move holds is left to the move (`remove.heldByMove`, review 1: `restartAsync` does not refuse a held agent). The card shows a plain restart (`'restart'`, a word engine/disruption.js knows); the board log line `runner-restart:` says why.
 
 Rejected:
 - **Restart every old Codex agent.** It costs every agent its context, including those that are safe (case D).

@@ -44,7 +44,7 @@ function world(agents) {
     const lead = pid++;
     panes.set(a.session, lead);
     procs.set(lead, { ppid: 1, ageSec: a.ageSec, command: `${a.bin || LINK} --dangerously-bypass-approvals-and-sandbox` });
-    if (a.host) procs.set(pid++, { ppid: lead, ageSec: 5, command: `${HOST} --stdio` });
+    if (a.host) procs.set(pid++, { ppid: lead, ageSec: a.hostAgeSec === undefined ? 1800 : a.hostAgeSec, command: `${HOST} --stdio` });
     if (a.shell) procs.set(pid++, { ppid: lead, ageSec: 5, command: '/bin/zsh -c make test' });
   }
   return { panes, procs };
@@ -86,11 +86,28 @@ test('an old Codex with no code-mode host is restarted at its second idle pass, 
   assert.deepEqual(restarted, [ALPHA.sessionName]);
 });
 
-test('a code-mode host already running under it is the safe case: left alone', async () => {
-  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, ageSec: 3600, host: true }] });
+test('a code-mode host started BEFORE the swap is the old tree\'s, the safe case: left alone', async () => {
+  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, ageSec: 3600, host: true, hostAgeSec: 1800 }] });
   const out = await twice(o);
   assert.deepEqual(out.map((d) => d.act), ['has-host']);
   assert.deepEqual(restarted, []);
+});
+
+test('a code-mode host started AFTER the swap is the new tree\'s, the measured failure: restarted', async () => {
+  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, ageSec: 3600, host: true, hostAgeSec: 60 }] });
+  const out = await twice(o);
+  assert.deepEqual(out.map((d) => d.act), ['restarted']);
+  assert.deepEqual(restarted, [ALPHA.sessionName]);
+});
+
+test('an agent an account move holds is left to the move', async () => {
+  const { o, restarted } = opts({ heldByMove: (s) => s === ALPHA.sessionName });
+  const out = await twice(o);
+  assert.deepEqual(out.map((d) => d.act), ['held-by-move']);
+  assert.deepEqual(restarted, []);
+  const { o: o2, restarted: r2 } = opts({ heldByMove: () => { throw new Error('x'); } });
+  await twice(o2);
+  assert.deepEqual(r2, [], 'a hold check that throws counts as held');
 });
 
 test('a background shell job under an idle Codex holds the restart (it would kill the job)', async () => {
@@ -180,7 +197,7 @@ test('ps etime and the process table parse', () => {
   assert.deepEqual([...t.keys()], [101, 102]);
   assert.deepEqual(t.get(102), { ppid: 101, ageSec: 5, command: HOST });
   const found = rr.codexUnderPane(101, t, rr.childrenOf(t), DIR, NOW);
-  assert.deepEqual(found, { pid: 101, startedAt: NOW - 60000, host: true, job: false });
+  assert.deepEqual(found, { pid: 101, startedAt: NOW - 60000, host: true, hostStartedAt: NOW - 5000, job: false });
 });
 
 test('a recycled pid that points back into the walk does not loop', () => {
@@ -188,4 +205,31 @@ test('a recycled pid that points back into the walk does not loop', () => {
   const found = rr.codexUnderPane(10, t, rr.childrenOf(t), DIR, NOW);
   assert.equal(found.pid, 11);
   assert.equal(found.host, false);
+  assert.equal(found.job, true, 'the looped shell reads as a job under it: the safe direction, no restart');
+});
+
+test('managedState is ready only after a proved upgrade to a different version, with that version in place', () => {
+  const base = { from: '0.149.1', to: '0.169.0', at: SWAP };
+  const stub = (over) => Object.assign({
+    resolveBin: () => ({ managed: true, present: true }),
+    upgradeStamp: () => base,
+    installedVersion: () => '0.169.0',
+    managedRoot: () => path.join(path.sep, 'k', 'runners'),
+    installing: () => false,
+  }, over);
+  const good = rr.managedState(stub());
+  assert.deepEqual(good, { dir: DIR, ready: true, swappedAt: SWAP, pin: '0.169.0' });
+  for (const [why, over] of [
+    ['no record', { upgradeStamp: () => null }],
+    ['same version (a repair)', { upgradeStamp: () => ({ ...base, from: '0.169.0' }) }],
+    ['replaced version unknown', { upgradeStamp: () => ({ ...base, from: null }) }],
+    ['a different version is in place now', { installedVersion: () => '0.171.0' }],
+    ['stale again (put back)', { resolveBin: () => ({ managed: true, present: true, stale: true }) }],
+    ['installing', { installing: () => true }],
+    ['not the managed runner', { resolveBin: () => ({ managed: false, present: true }) }],
+    ['resolveBin throws', { resolveBin: () => { throw new Error('x'); } }],
+  ]) {
+    const st = rr.managedState(stub(over));
+    assert.ok(!st || st.ready !== true, why);
+  }
 });

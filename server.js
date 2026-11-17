@@ -29224,13 +29224,14 @@ function start(port = PORT) {
       if (runnerUpgradeSweep && typeof runnerUpgradeSweep.unref === 'function') runnerUpgradeSweep.unref();
       /* kosmos#8598: after that swap, a running older Codex that starts its code-mode host gets the NEW tree's host and
          every code-mode call fails until it restarts (measured on the card). Once a minute, restart at its next idle
-         point a managed Codex agent whose process predates the swap and has no code-mode host yet (engine/runnerrestart.js
-         says who and why; a restart starts the conversation over, so one with a host already, the safe case, is left
+         point a managed Codex agent whose process predates the swap and has no code-mode host from before it
+         (engine/runnerrestart.js says who and why; a restart starts the conversation over, so the safe case is left
          alone). Mac/Linux only (Windows stays on 0.149.1). Gated like the sweeps here; brake
          AGENT_WORKFORCE_RUNNER_RESTART_OFF=1. */
       const runnerRestartSeenIdle = new Set();
       const runnerRestartTried = new Map();
       let runnerRestartRunning = false;
+      let runnerRestartWarned = false;
       const runnerRestartTick = async () => {
         if (runnerRestartRunning || process.platform === 'win32') return;
         if (!liveExecution.liveExecutionAllowed()) return;
@@ -29241,14 +29242,19 @@ function start(port = PORT) {
           // No Codex card of ours, or no finished upgrade: nothing to read the process table for.
           const cards = safeRoster();
           if (!Array.isArray(cards) || !cards.some((c) => c && c.runner === 'codex' && c.isNamedOurs === true)) { runnerRestartSeenIdle.clear(); return; }
-          const rb = runners.resolveBin('openai');
-          if (!rb || rb.managed !== true || rb.stale === true) return;
+          // No proved upgrade to a different version (engine/runners.js upgradeStamp): nobody can be on the replaced one.
+          const ms = rr.managedState(runners);
+          if (!ms || ms.ready !== true) { runnerRestartSeenIdle.clear(); return; }
           const { execFile } = require('node:child_process');
           const run = (cmd, args) => new Promise((resolve) => {
             execFile(cmd, args, { encoding: 'utf8', timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, out) => resolve(err ? null : String(out || '')));
           });
           // Both tables are read once per pass, before passOnce, which reads them synchronously.
           const paneText = await run(process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux', ['list-panes', '-a', '-F', '#{session_name} #{pane_pid}']);
+          if (paneText === null && !runnerRestartWarned) {
+            runnerRestartWarned = true;   // once per board run, so a sweep that cannot look is told from one with nobody to restart
+            console.warn('[runner-restart] tmux list-panes failed, so no Codex agent can be checked');
+          }
           const psText = paneText === null ? null : await run('ps', ['-eo', 'pid=,ppid=,etime=,command=']);
           const panes = new Map();
           for (const line of String(paneText || '').split('\n')) {
@@ -29262,12 +29268,8 @@ function start(port = PORT) {
             seenIdle: runnerRestartSeenIdle,
             tried: runnerRestartTried,
             allowed: () => liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_RUNNER_RESTART_OFF !== '1',
-            managed: () => {
-              const r = runners.resolveBin('openai');
-              const dir = require('node:path').join(runners.managedRoot(), 'openai');
-              const ready = Boolean(r && r.managed === true && r.present === true && r.stale !== true && !runners.installing('openai'));
-              return { dir, ready, swappedAt: require('node:fs').statSync(require('node:path').join(dir, 'pkg')).ctimeMs, pin: runners.manifestFor('openai').version };
-            },
+            managed: () => rr.managedState(runners),
+            heldByMove: (session) => removal.heldByMove(session),
             panes: () => panes,
             procs: () => procs,
             // 'restart': the card's word for a plain restart (engine/disruption.js CAUSES); the board line below says why.

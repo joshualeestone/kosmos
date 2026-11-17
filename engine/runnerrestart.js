@@ -12,11 +12,14 @@
  *
  * WHO IS RESTARTED, and only them, because a restart starts the conversation over (remove.restart does not resume):
  *   1. the card is a Codex card of ours, and its pane's Codex process runs from the MANAGED runner folder;
- *   2. the managed tree is in place and not stale (the upgrade finished; a put-back leaves it stale, so nothing fires);
- *   3. that process STARTED BEFORE the tree now at pkg/ was swapped in (pkg/'s change time), read off the process
- *      table, not remembered: a process started after it already runs the new version;
- *   4. it has NO code-mode host under it: one already running is the measured safe case, and restarting it would cost
- *      its context for nothing;
+ *   2. the managed tree is in place, not stale, and an upgrade to a DIFFERENT version proved itself (runners.js
+ *      upgradeStamp: a same-version repair or a first install leaves no record, so nothing fires; a put-back leaves the
+ *      tree stale);
+ *   3. that process STARTED BEFORE that upgrade's swap (the record's time), read off the process table, not
+ *      remembered: a process started after it already runs the new version;
+ *   4. it has NO code-mode host under it that started before the swap: such a host is the old tree's, the measured
+ *      safe case, and restarting it would cost its context for nothing. A host started AFTER the swap is the new
+ *      tree's, the measured failure, so that agent is restarted too;
  *   5. nothing else runs under it (a background shell job reads idle, and a restart would kill it);
  *   6. it read idle at this pass and the previous one, and again on a fresh roster just before the restart.
  * An agent that has made any tool call on a code-mode model already has its host, so in practice this restarts agents
@@ -109,11 +112,13 @@ function codexUnderPane(panePid, procs, kids, managedDir, nowMs) {
     const p = procs.get(pid);
     if (!p || !isManagedCodex(p.command, managedDir)) continue;
     const under = descendants(pid, kids).filter((d) => d !== pid && procs.has(d));
-    const host = under.some((d) => isCodeModeHost(procs.get(d).command));
+    const hosts = under.filter((d) => isCodeModeHost(procs.get(d).command));
     /* Anything else still running under it (a background shell job) reads idle on the card, and a restart would kill
        it (the hazard engine/automove.js names), so it waits for a pass where nothing runs. */
     const job = under.some((d) => !isCodeModeHost(procs.get(d).command));
-    return { pid, startedAt: nowMs - p.ageSec * 1000, host, job };
+    // The newest host's start time: one started after the swap is the NEW tree's host, the measured failure.
+    const hostStartedAt = hosts.length ? Math.max(...hosts.map((d) => nowMs - procs.get(d).ageSec * 1000)) : null;
+    return { pid, startedAt: nowMs - p.ageSec * 1000, host: hosts.length > 0, hostStartedAt, job };
   }
   return null;
 }
@@ -124,16 +129,16 @@ function codexUnderPane(panePid, procs, kids, managedDir, nowMs) {
  *   isIdle(card)        agentnudge.nudgeableCard
  *   seenIdle            a Set kept by the caller: the sessions idle at the previous pass (refilled here)
  *   allowed()           live execution and the brake
- *   managed()           { dir, swappedAt, ready, pin }: the managed Codex folder, the change time (ms) of its pkg/ tree,
- *                       whether that tree is in place and not stale, and the pinned version; null skips the pass
+ *   managed()           managedState() below: { dir, ready, swappedAt, pin }; null or not ready skips the pass
+ *   heldByMove(s)       remove.heldByMove: true leaves the agent to the account move holding it
  *   panes()             Map session -> pane pid
  *   procs()             Map pid -> { ppid, ageSec, command } (parseProcs)
  *   restart(session)    async; resolves { outcome, because } (remove.restartAsync; the card shows it as a plain restart)
  *   RESTARTED           remove.OUTCOME.RESTARTED
- *   tried               a Map kept by the caller: `${pin}\t${session}` -> tries, at most MAX_TRIES per agent per pin per
- *                       board run (a refusal, e.g. an account move holding it, is tried again at a later pass)
+ *   tried               a Map kept by the caller: `${pin}\t${session}` -> tries. A restart that worked spends them all
+ *                       (one per agent per pin per board run); a refused one is tried again, up to MAX_TRIES
  *   now                 ms (tests)
- * Returns [{ session, act }]: 'restarted' | 'refused' | 'not-idle' | 'has-host' | 'has-job' | 'already-new' | 'tried'.
+ * Returns [{ session, act }]: 'restarted' | 'refused' | 'not-idle' | 'has-host' | 'has-job' | 'held-by-move' | 'already-new' | 'tried'.
  * Agents that are not managed Codex are not listed.
  */
 async function passOnce(o) {
@@ -170,9 +175,14 @@ async function passOnce(o) {
       /* Started after the swap: it runs the new version already. The 1 s slack is ps's etime resolution: a process a
          second either side of the swap is called old, which costs at most one restart, never a missed one. */
       if (found.startedAt > m.swappedAt + 1000) { out.push({ session, act: 'already-new' }); continue; }
-      if (found.host) { out.push({ session, act: 'has-host' }); continue; }
+      // A host from before the swap is the old tree's (the safe case); one started after it is the new tree's.
+      if (found.host && found.hostStartedAt <= m.swappedAt + 1000) { out.push({ session, act: 'has-host' }); continue; }
       if (found.job) { out.push({ session, act: 'has-job' }); continue; }
       const key = `${m.pin || ''}\t${session}`;
+      let held = false;
+      if (typeof o.heldByMove === 'function') { try { held = o.heldByMove(session) === true; } catch { held = true; } }
+      // An account move holding it restarts it itself; remove.restartAsync does not refuse a held agent (it is the move's path).
+      if (held) { out.push({ session, act: 'held-by-move' }); continue; }
       if ((tried.get(key) || 0) >= MAX_TRIES) { out.push({ session, act: 'tried' }); continue; }
       if (!idleNow.has(session) || !seen.has(session)) { out.push({ session, act: 'not-idle' }); continue; }
       if (used >= (Number.isInteger(o.max) ? o.max : MAX_PER_PASS)) break;
@@ -184,7 +194,7 @@ async function passOnce(o) {
       try { fresh = o.roster(); } catch { fresh = null; }
       const now2 = Array.isArray(fresh) ? fresh.find((c) => c && String(c.sessionName) === session) : null;
       if (!now2 || !isIdle(now2)) { out.push({ session, act: 'not-idle' }); continue; }
-      tried.set(key, (tried.get(key) || 0) + 1);   // a restart that worked is set to the cap below: one per agent per pin
+      tried.set(key, (tried.get(key) || 0) + 1);
       used += 1;
       let r = null;
       try { r = await o.restart(session); } catch (err) { r = { outcome: 'partial', because: String((err && err.message) || err) }; }
@@ -196,4 +206,21 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { passOnce, parseProcs, etimeSeconds, codexUnderPane, childrenOf, isManagedCodex, isCodeModeHost, MAX_PER_PASS, MAX_TRIES };
+/**
+ * The managed Codex as the sweep needs it, from engine/runners.js: { dir, ready, swappedAt, pin }. ready only when the
+ * tree in place is not stale, nothing is installing, and the last proved upgrade replaced a DIFFERENT version with the
+ * one now installed. Never throws: anything unreadable is not ready.
+ */
+function managedState(runners) {
+  try {
+    const r = runners.resolveBin('openai');
+    const stamp = runners.upgradeStamp('openai');
+    const installed = runners.installedVersion('openai');
+    const dir = path.join(runners.managedRoot(), 'openai');
+    const ready = Boolean(r && r.managed === true && r.present === true && r.stale !== true && !runners.installing('openai')
+      && stamp && stamp.from && stamp.from !== stamp.to && installed === stamp.to);
+    return { dir, ready, swappedAt: stamp ? stamp.at : NaN, pin: stamp ? stamp.to : null };
+  } catch { return null; }
+}
+
+module.exports = { managedState, passOnce, parseProcs, etimeSeconds, codexUnderPane, childrenOf, isManagedCodex, isCodeModeHost, MAX_PER_PASS, MAX_TRIES };
