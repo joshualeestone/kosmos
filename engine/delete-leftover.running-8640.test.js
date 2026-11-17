@@ -143,13 +143,29 @@ test('the claim must be THIS world\'s key: in the default world a name+world cla
   assert.equal(mac.plan('greed').ok, false);
 });
 
-test('a folder listing with a line it cannot read refuses the plan (a fragment of a folder whose name held a newline)', () => {
+test('kosmos#8644 item 2: a folder split by a newline refuses only the agents it could be inside (it used to refuse every one)', () => {
   const dir = leftoverAgent('agent5');
+  // Someone else's pane in "/somewhere/else<newline>...": its real folder is under /somewhere, never inside agent5.
   status.setPaneFolderSource(() => `%1\tw\t/somewhere/else\n${dir}/tail-of-a-split-path\n`);
+  assert.equal(mac.plan('agent5').ok, true, 'a split folder that cannot be agent5\'s refused agent5 (#8644: one pane refused every delete)');
+  // Its head is the start of agent5's own folder: the real folder could be inside it, so it fails closed.
+  const head = dir.slice(0, dir.length - 3);
+  status.setPaneFolderSource(() => `%1\tw\t${head}\n${dir.slice(-3)}/notes\n`);
   const p = mac.plan('agent5');
-  assert.equal(p.ok, false, 'an unreadable pane line was dropped and the plan offered the agent');
+  assert.equal(p.ok, false, 'a split folder that could be inside agent5 let the plan offer it');
   assert.match(p.because, /Something open on this computer could not be read/);
   assert.doesNotMatch(p.because, /Try again in a moment/);
+});
+
+test('kosmos#8644 item 2: a line that starts a pane and does not read, or a fragment with no pane before it, still refuses every agent', () => {
+  leftoverAgent('agent5b');
+  status.setPaneFolderSource(() => '%1\tses\nsion\t/somewhere/else\n');   // a newline in a session name
+  assert.equal(mac.plan('agent5b').ok, false, 'an unreadable pane line was dropped');
+  status.setPaneFolderSource(() => 'a stray tail\n%2\tw\t/somewhere/else\n');   // a tail with nothing before it
+  assert.equal(mac.plan('agent5b').ok, false, 'a fragment with no pane before it was dropped');
+  // CONTROL: the same listing with every line readable offers it.
+  status.setPaneFolderSource(() => '%2\tw\t/somewhere/else\n');
+  assert.equal(mac.plan('agent5b').ok, true, 'CONTROL: a readable listing of an unrelated pane refused');
 });
 
 test('the folder match is case-blind on a Mac, and matches the folder\'s real path (on a Mac /var is /private/var)', () => {
