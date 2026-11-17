@@ -4489,10 +4489,15 @@ function knownAgent(name) {
    cached (win32roster.cachedRun), so for a few seconds `knownAgent` says no while the agent is coming up. A first
    message in that window was refused 404 "no agent by that name", which is false. True only when no card holds the
    name at all (a stranger's pane is never waited on), the agent's folder is here, it is not removed, and its record
-   row was written within START_GRACE_MS. Everything else answers false, so a missing name never waits. */
+   row was written within START_GRACE_MS. Everything else answers false, so a missing name never waits. The record,
+   not the platform, is the gate: only the Windows supervisor writes it, so on a Mac this is false. */
 const START_GRACE_MS = 60000;
-let startWait = { maxMs: 10000, stepMs: 1000 };
-function _setStartWaitForTest(w) { startWait = w ? { ...startWait, ...w } : { maxMs: 10000, stepMs: 1000 }; }
+/* 8 s, not more: the iPhone gives a request 15 s (BoardClient+App.swift) and the relay adds its own time, and a
+   send that times out reads there as "may have gone", the answer this wait exists to avoid. */
+const START_WAIT_DEFAULT = { maxMs: 8000, stepMs: 1000, refresh: () => (process.platform === 'win32'
+  ? require('./engine/win32roster').cachedRun.refreshAsync() : Promise.resolve()) };
+let startWait = { ...START_WAIT_DEFAULT };
+function _setStartWaitForTest(w) { startWait = w ? { ...startWait, ...w } : { ...START_WAIT_DEFAULT }; }
 function startingAgent(name) {
   try {
     if (claimantFor(name)) return false;
@@ -4509,14 +4514,20 @@ function startingAgent(name) {
   }
 }
 
-/* kosmos#8652: wait up to startWait.maxMs for a starting agent's roster row, asking the Windows roster for a fresh
-   read each step without blocking the board's thread. Resolves true once `knownAgent` says yes. */
+/* kosmos#8652: wait up to startWait.maxMs for a starting agent's roster row, asking for a fresh roster read each step
+   without blocking the board's thread. A read slower than the time left is not waited for (it can take seconds on a
+   slow laptop), so the bound holds. Resolves true once `knownAgent` says yes. */
+function startWaitTimer(ms) {
+  return new Promise((r) => { const t = setTimeout(r, Math.max(0, ms)); if (t.unref) t.unref(); });
+}
 async function awaitRosterRow(name) {
   const until = Date.now() + startWait.maxMs;
-  const roster = process.platform === 'win32' ? require('./engine/win32roster').cachedRun : null;
-  while (Date.now() < until) {
-    await new Promise((r) => setTimeout(r, Math.max(0, Math.min(startWait.stepMs, until - Date.now()))));
-    if (roster) await roster.refreshAsync();
+  const left = () => until - Date.now();
+  while (left() > 0) {
+    await startWaitTimer(Math.min(startWait.stepMs, left()));
+    if (left() <= 0) break;
+    const refresh = typeof startWait.refresh === 'function' ? startWait.refresh : null;
+    if (refresh) await Promise.race([Promise.resolve().then(refresh).catch(() => {}), startWaitTimer(left())]);
     if (knownAgent(name)) return true;
   }
   return knownAgent(name);
