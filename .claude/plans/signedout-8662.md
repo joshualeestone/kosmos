@@ -25,8 +25,9 @@ Many agents read "unknown model" and the model picker did nothing; the tab had b
   Model" (typeof-guarded, so a lifted modelLine without the flags keeps the old lines).
 - docs/browser-checks/render-detail-signedout-8662.js: both looks; control before the sign-out; note + inert after;
   both cleared on sign-in; the relay sign-out's own wording and button; an outage after a sign-out clears the note
-  (#268); keyboard focus moves to the note when the section locks and back when it unlocks. Red against main's page on the sign-out
-  and relay arms (measured on the first version: 4 of 11 then; the check now has 23), and on the outage arms with that repaint removed (measured).
+  (#268, with a precondition that the page was signed out first); keyboard focus moves to the note when the section
+  locks and back when it unlocks; the note's link lands on the board's sign-in box and its steps. Red against main's page on the sign-out
+  and relay arms (measured on the first version: 4 of 11 then), and on the outage arms with that repaint removed (measured).
 - web.made-before.test.js: modelLine signed out, with signed-in controls.
 
 ## Split

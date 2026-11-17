@@ -226,3 +226,25 @@ test('kosmos#8662: lifted without the sign-in flags (every older caller), modelL
   assert.equal(runModelLine({}), 'Unknown Model');
   assert.equal(runModelLine({ neverRecorded: true }), 'Made before Kosmos recorded this');
 });
+
+/* kosmos#8662: tileModelLine names the model an earlier session ran when modelLine has nothing to name; signed out,
+   modelLine's sentence is "nothing to name" too, so the model read earlier still wins on a tile or a row. */
+function runTileSignedOut(agent, flags) {
+  const src = liftAll(SCRIPT, ['modelLine', 'tileModelLine']);
+  const run = new Function('a', 'f', `
+    const cardStOf = () => ({ pres: 'off' });
+    let BOARD_NEEDS_SIGNIN = f.needs === true;
+    let BOARD_SIGNED_OUT = false;
+    ${src}
+    return tileModelLine(a);
+  `);
+  return run(agent, flags);
+}
+
+test('kosmos#8662: signed out, a tile still names the model an earlier session ran', () => {
+  assert.match(runTileSignedOut({ earlierModelName: 'opus-5-5' }, { needs: true }), /opus-5-5/);
+  // CONTROL: with no earlier model, the tile says the sign-out.
+  assert.equal(runTileSignedOut({}, { needs: true }), 'Signed out: sign in to see its model');
+  // CONTROL: signed in, an earlier model is named as before.
+  assert.match(runTileSignedOut({ earlierModelName: 'opus-5-5' }, {}), /opus-5-5/);
+});
