@@ -78308,13 +78308,13 @@ function pvPdfPager(back, stage, img, note, a) {
       if (!Number.isInteger(n) || n < 1 || n > pages || n === at) return;
       at = n;
       note.textContent = 'Page ' + n + ' of ' + pages;
+      img.style.opacity = '.4';   // review 9: the picture on screen is not page n yet; dimmed until page n loads
       /* The picture is asked for once the flipping pauses (review 5): a held arrow key flips the count at once but
          asks the board for the page it stops on, not for every page it passed (each is a PDFKit run). */
       clearTimeout(load);
       load = setTimeout(() => {
         if (!document.contains(img)) return;
         img.dataset.pvPage = String(n);
-        img.style.opacity = '';   // a page that failed hid the picture (still there, so a swipe or a tap on it works); the next one shows it
         img.alt = 'Page ' + n + ' of ' + a.name;
         img.src = pvPdfPageUrl(url, n);
       }, 150);
@@ -78343,6 +78343,7 @@ function pvPdfPager(back, stage, img, note, a) {
     });
     img.addEventListener('pointercancel', () => { from = null; });
     img.style.touchAction = 'pan-y pinch-zoom';
+    img.addEventListener('load', () => { img.style.opacity = ''; });
   });
 }
 function pvRevealWord() { return onWindows() ? 'Show in File Explorer' : 'Open in Finder'; }

@@ -3819,8 +3819,9 @@ function seedFiles(roots) {
     fs.utimesSync(path.join(chatFiles, f), t, t);
   });
   /* kosmos#8637: a real three-page PDF for the pdf-pages screen, made by this Mac's own print filter from words only
-     (no name, path or date is drawn on the pages). Dated before every row above, so the agent-files screens, which show
-     the newest ten, look as they did; the screen opens it from View All. Not a Mac: no file, and that screen errors. */
+     (no name, path or date is drawn on the pages). Dated before every row above, so agent-files, which shows the newest
+     ten, looks as it did; agent-files-all (View All) lists it as a thirteenth row, at the bottom, and this screen opens it
+     from there. Not a Mac: no file, and that screen errors. */
   const words = path.join(chatFiles, '.three.txt');
   try {
     fs.writeFileSync(words, ['Spring lookbook, page one', 'Spring lookbook, page two', 'Spring lookbook, page three'].join('\n\f'));

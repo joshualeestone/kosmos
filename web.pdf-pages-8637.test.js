@@ -112,8 +112,10 @@ test('pvPdfPager: three pages get arrows and "Page 1 of 3"; the arrows and pvFli
   next.fire('click');
   assert.equal(note.textContent, 'Page 2 of 3', 'the count waits for the picture');
   assert.equal(img.src, ATT, 'the picture was asked for before the flipping paused');
+  assert.equal(img.style.opacity, '.4', 'the old picture is not dimmed while page 2 is asked for');
   await pause();
-  assert.equal(img.style.opacity, '', 'the next page stayed hidden after a failed one');
+  img.fire('load');
+  assert.equal(img.style.opacity, '', 'the next page stayed hidden after it loaded');
   assert.equal(img.src, ATT + '?page=2');
   assert.equal(note.textContent, 'Page 2 of 3');
   assert.equal(img.alt, 'Page 2 of three.pdf');

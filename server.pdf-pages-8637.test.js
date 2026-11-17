@@ -270,3 +270,42 @@ test('Files list: an image and a text file answer a HEAD and a page number as be
   assert.equal(got, 'hello words', 'CONTROL: the text itself');
   assert.equal(seam.counts.length, 0, 'a non-PDF was counted');
 });
+
+test('Files list: later pages are capped across the whole cache, oldest first; first pages and counts are never touched', async () => {
+  reset(3);
+  const store2 = require('./engine/store');
+  const root = path.join(store2.ROOT, 'filepreview');
+  // 50 folders (well under the 200-folder cap) with 9 later pages each: 450, over the 400 kept across the cache.
+  const laterPages = () => (fs.existsSync(root) ? fs.readdirSync(root) : []).reduce((n, d) => n + (fs.statSync(path.join(root, d)).isDirectory() ? fs.readdirSync(path.join(root, d)).filter((f) => /^[0-9a-f]{32}-p\d+\.png$/.test(f)).length : 0), 0);
+  const before = laterPages();   // earlier tests' pages, all newer than the ones made below
+  const made = [];
+  let age = 0;
+  for (let i = 0; i < 50; i++) {
+    const d = path.join(root, 'zz' + String(i).padStart(30, '0'));
+    fs.mkdirSync(d, { recursive: true });
+    const h = 'a'.repeat(31) + (i % 10);
+    for (let p = 2; p <= 10; p++) {
+      const page = path.join(d, h + '-p' + p + '.png');
+      fs.writeFileSync(page, 'p');
+      const t = new Date(Date.now() - (1000 - age++) * 1000);
+      fs.utimesSync(page, t, t);
+      made.push(page);
+    }
+    fs.writeFileSync(path.join(d, h + '.png'), 'first');
+    fs.writeFileSync(path.join(d, h + '.pages'), '10');
+  }
+  fs.writeFileSync(path.join(FILES, 'capped.pdf'), Buffer.from('%PDF-1.4 capped'));
+  const r = await fetch(filesUrl('capped.pdf', '&page=2'));
+  assert.equal(r.status, 200);
+  await r.arrayBuffer();
+  // before + 450 made + 1 drawn; 400 kept, and every one removed is from the oldest of those made here.
+  const gone = before + 450 + 1 - 400;
+  assert.equal(laterPages(), 400, 'the cache does not hold exactly 400 later pages');
+  assert.equal(made.slice(0, gone).filter((f) => fs.existsSync(f)).length, 0, 'an old later page stayed');
+  assert.equal(made.slice(gone).filter((f) => fs.existsSync(f)).length, 450 - gone, 'a newer later page went before an older one');
+  for (let i = 0; i < 50; i++) {
+    const d = path.join(root, 'zz' + String(i).padStart(30, '0'));
+    assert.equal(fs.readdirSync(d).filter((n) => /^a{31}\d\.(png|pages)$/.test(n)).length, 2, 'a first page or a count was removed in ' + d);
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});

@@ -11,8 +11,9 @@
  * Review 5: the PDF is untrusted (a chat upload, a file any agent wrote), and Quick Look parses its first page in a
  * sandboxed extension, where this osascript would otherwise run with the board's full rights. So every call runs under
  * sandbox-exec (SANDBOX): no network, no program started but osascript itself, no writes but a fresh empty folder made
- * for that one call (never the folder the PDF sits in, which for an attachment holds the person's upload), and nothing
- * under the account's home read but the PDF's folder and that one. It does NOT narrow mach-lookup or other IPC, which
+ * for that one call in the system's temporary folder (never the folder the PDF sits in, which for an attachment holds
+ * the person's upload), and no reads under the account's home but the PDF's folder and that one. Reads outside the
+ * home (other volumes, /Users/Shared, system folders) are not narrowed. It does NOT narrow mach-lookup or other IPC, which
  * AppKit needs to draw at all. With no sandbox-exec, nothing is drawn or counted (one page, as before).
  * At most MAX_AT_ONCE run at a time; the rest wait their turn, so a held arrow key cannot start dozens at once.
  *
@@ -107,6 +108,14 @@ async function count(file) {
   } catch { return null; } finally { if (empty) { try { fs.rmSync(empty, { recursive: true, force: true }); } catch { /* best effort */ } } }
 }
 
+/* Puts a drawn page at `out` whole: a rename, or, when the temporary folder is on another volume (EXDEV), a copy to a
+   name beside `out` renamed over it, so a reader never sees half a picture. */
+function moveInto(from, out) {
+  try { fs.renameSync(from, out); return; } catch (e) { if (!e || e.code !== 'EXDEV') throw e; }
+  const part = out + '.' + process.pid + '.part';
+  try { fs.copyFileSync(from, part); fs.renameSync(part, out); } catch (e) { try { fs.rmSync(part, { force: true }); } catch { /* gone */ } throw e; }
+}
+
 /* Two requests for one page share one drawing (as attachments.renderPdf does). */
 const drawing = new Map();
 /** Draws page `index` (0-based) of `file` to `out`, through a temporary name renamed into place whole, so a racing
@@ -115,18 +124,18 @@ function render(file, index, out) {
   if (drawing.has(out)) return drawing.get(out);
   const p = (async () => {
     if (!Number.isInteger(index) || index < 0) return false;
-    /* Drawn into a fresh folder beside `out` (r-<pid>-..., the name filepreview's sweep removes when its process is
-       gone), the only folder the sandbox lets PDFKit write, then renamed into place whole. */
+    /* Drawn into a fresh folder in the system's temporary folder (review 9: never beside `out`, where a crash would
+       leave it inside an attachment's folder for good), the only folder the sandbox lets PDFKit write, then moved in. */
     let work = null;
     try {
-      work = fs.mkdtempSync(path.join(path.dirname(out), 'r-' + process.pid + '-'));
+      work = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-pdfpage-'));
       const tmp = path.join(work, 'page.png');
       if (seam) { try { if (!seam.render(file, index, tmp)) return false; } catch { return false; } }
       else {
         if (process.platform !== 'darwin') return false;
         if (!/^ok \d+$/.test(await runScript([String(file), String(index), tmp], path.dirname(String(file)), work))) return false;
       }
-      fs.renameSync(tmp, out);
+      moveInto(tmp, out);
       return fs.existsSync(out);
     } catch { return false; } finally { if (work) { try { fs.rmSync(work, { recursive: true, force: true }); } catch { /* best effort */ } } }
   })().finally(() => drawing.delete(out));
