@@ -177,8 +177,11 @@ function assertWords(words, { outcome, count, modelKey }) {
     }
   }
   if (account === 'folder') {
-    assert.match(words, modelKey === 'offered' ? /account and model it was set to before/ : /starts on the account it was set to/, label);
-    assert.doesNotMatch(words, /main account/, label);
+    // kosmos#8584: a folder is read again at Start at login, so "if", with the main account as the other way.
+    assert.match(words, modelKey === 'offered'
+      ? /account and model it was set to before if that account is still signed in there at Start at login; otherwise on your main account\./
+      : /starts on the account it was set to if that account is still signed in there at Start at login, otherwise on your main account\./, label);
+    assert.doesNotMatch(words, /because /, label);
   } else if (account === 'mainAsBefore') {
     assert.match(words, modelKey === 'offered' ? /account and model it was set to before/ : /starts on your main account, as before/, label);
   } else if (account === 'main') {
@@ -186,6 +189,8 @@ function assertWords(words, { outcome, count, modelKey }) {
       /* Round 6/7: read again, live, at Start at login, so the main account is never said flatly ("only if"). */
       assert.match(words, /The account in the folder it used has signed out or changed\. It starts on that folder's account only if that same account is signed in there again before you use Start at login\. Otherwise it starts on your main account/, label);
       assert.doesNotMatch(words, /because /, label);
+      // kosmos#8584: with a retired model the advice is its own last sentence, true whichever account it lands on.
+      if (modelKey !== 'offered') assert.match(words, /if it should use another\. Choose its model again if it used another\.$/, label);
     } else {
       // Fixed in the record (unusable included: win32AccountThere's refusals do not change), so said flatly.
       assert.match(words, /on your main account, because /, label);

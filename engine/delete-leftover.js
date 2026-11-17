@@ -935,8 +935,18 @@ function startsAgainWords(name, preview = false) {
      runner that offers no model choice on Windows (create.win32ModelOffered), which were never offered at all. */
   const retired = 'the model it last ran, as the model it was set to is not offered now';
   if (rec.accountOk) {
-    if (rec.modelOk) return '. It starts on the account and model it was set to before.';
-    return `. It starts on ${rec.configDir ? 'the account it was set to' : 'your main account, as before'}, but on ${retired}. Choose its model again if it used another.`;
+    /* kosmos#8584: an account FOLDER is read again, live, when Start at login runs (register.repair calls
+       win32RecordedTask again): unplugged or signed out by then, the task goes on the main account. So for a folder the
+       words say "if"; the main account is always there and keeps the flat sentence. */
+    const stillThere = 'if that account is still signed in there at Start at login';
+    if (rec.modelOk) {
+      return rec.configDir
+        ? `. It starts on the account and model it was set to before ${stillThere}; otherwise on your main account.`
+        : '. It starts on the account and model it was set to before.';
+    }
+    return rec.configDir
+      ? `. It starts on the account it was set to ${stillThere}, otherwise on your main account. It starts on ${retired}. Choose its model again if it used another.`
+      : `. It starts on your main account, as before, but on ${retired}. Choose its model again if it used another.`;
   }
   /* The outcomes that keep no folder: the account cannot be put back, and the words say why. round 1: removed from
      Kosmos, so its folder name may now be someone else's; round 2: or not there when the startup job was removed
@@ -958,8 +968,9 @@ function startsAgainWords(name, preview = false) {
     const modelNow = rec.modelOk ? 'It starts on the model it was set to.' : `It starts on ${retired}.`;
     return `. ${modelNow} The account in the folder it used has signed out or changed.`
       + " It starts on that folder's account only if that same account is signed in there again before you use Start at login."
-      + (rec.modelOk ? ' Otherwise it starts on your main account; choose its account again if it should use another.'
-        : ' Otherwise it starts on your main account. Choose its account and model again if it used others.');
+      + ' Otherwise it starts on your main account; choose its account again if it should use another.'
+      // kosmos#8584: the model advice is its own sentence, true on both paths (the same account back, or the main one).
+      + (rec.modelOk ? '' : ' Choose its model again if it used another.');
   }
   if (because) {
     return rec.modelOk
