@@ -80116,7 +80116,7 @@ let PJ_ROOM_GEN = 0;
 const PJ_WIN_PAGE = 200;
 const PJ_WIN_HOLD_MAX = 1000;   // rows held because new posts ARRIVED, at most (reviews 6, 7); the live count Mona's design keeps
 const PJ_WIN = { pid: null, older: [], byReader: false, paintedAt: 0, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: 0, archivedCount: 0, archiveMarker: null };
-function pjWinReset(pid) { const roomChanged = PJ_WIN.pid !== pid; Object.assign(PJ_WIN, { pid, older: [], byReader: false, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1, archivedCount: 0, archiveMarker: null }); pjWinOlderLine(); if (roomChanged && typeof pjBlockedNoteSet === 'function') pjBlockedNoteSet(null); }   // #8631: another room's line goes
+function pjWinReset(pid) { const roomChanged = PJ_WIN.pid !== pid; Object.assign(PJ_WIN, { pid, older: [], byReader: false, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1, archivedCount: 0, archiveMarker: null }); pjWinOlderLine(); if (roomChanged) { PJ_WIN.hiddenLive = undefined; if (typeof pjBlockedNoteSet === 'function') pjBlockedNoteSet(null); } }   // #8631: another room's line goes
 /* The line over the room's top: "Loading earlier messages..." while a page is read; after a failed read, why, with Try
    again, which stays until the person presses it (a scroll event must not turn one failure into a stream of requests,
    as the Direct conversation's line learned, #6086). Nothing at all otherwise. */
@@ -81421,7 +81421,8 @@ function xBlockClose() {
   document.getElementById('xblock-modal').hidden = true;
   const back = XBLOCK && XBLOCK.back && XBLOCK.back.isConnected ? XBLOCK.back : null;
   XBLOCK = null;
-  if (back) back.focus({ preventScroll: true });
+  const post = document.getElementById('pj-post');   // a repaint replaced the pressed button: the message box instead
+  if (back) back.focus({ preventScroll: true }); else if (post && post.offsetParent) post.focus({ preventScroll: true });
 }
 document.getElementById('xblock-keep').addEventListener('click', xBlockClose);
 document.getElementById('xblock-modal').addEventListener('click', (e) => { if (e.target.id === 'xblock-modal') xBlockClose(); });
