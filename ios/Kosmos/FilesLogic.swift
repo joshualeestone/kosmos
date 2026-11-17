@@ -208,7 +208,7 @@ extension Board {
         }
     }
     static func filesSort(saved: String) -> FilesSort { FilesSort(rawValue: saved) ?? filesSortDefault }
-    // Remembered on this phone per screen: an agent's Files (every folder in it) and a project's Files each keep their own.
+    // Remembered on this phone per screen: one for every agent's Files (all its folders too), one for every project's Files.
     static func filesSortKey(_ owner: FilesOwner) -> String {
         switch owner {
         case .agent: return "kosmos.filesSort.agent"

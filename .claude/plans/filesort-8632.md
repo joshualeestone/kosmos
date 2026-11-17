@@ -36,7 +36,10 @@ the phone (pinned "en") would differ for those names.
 ## Tests
 ios/LogicTests/files: words, default, saved value, per-screen keys, byName parity vs the Node-measured order (with a
 control that can fail), Z to A ties, newest/oldest with missing and equal times, a real browse answer in all four
-orders, A to Z equal to arrival order. Mutants: dropping .numeric fails 1; flipping nils-last fails 2.
+orders, A to Z equal to arrival order, leading zeros and versions. Mutants: dropping .numeric fails 1; flipping
+nils-last fails 2. Of the runners, only run-files.sh compiles FilesLogic.swift (grep, 11-17); all 13 runners in
+ios/LogicTests were run on 11-17 and passed. The screen itself (menu, remembered key, toolbar) has no automated test:
+there is no UI test target, so it is the card's device check.
 
 ## Done when (card)
 On a phone against a real board: a file saved a minute ago is on top by default; all four orders sort both
