@@ -79,7 +79,9 @@ extension Board {
     static func filesMore(_ page: FilesPage, owner: FilesOwner) -> String? {
         guard page.truncated || page.total > page.files.count + page.dirs.count else { return nil }
         let shown = page.files.count + page.dirs.count
-        return "Showing the first \(shown). " + filesStillThere(owner, "The rest are")
+        // kosmos#8632: never "the first": the phone sorts only the rows it was sent (an agent's folder is cut before the
+        // server sorts it), so no order shown is the first of the whole list.
+        return "Showing \(shown), and the order covers only these. " + filesStillThere(owner, "The rest are")
     }
 
     // The read for a list. Agent: with no `dir`, the newest `limit` (the section); with one ("" is the top), that folder
@@ -194,7 +196,7 @@ extension Board {
        board's four-way sort, this is the phone's): an agent's and a project's Files in one of four orders, the board's
        words, Newest first by default. Folders stay above files, each group in the chosen order. A to Z is the server's
        byName (engine/projects.js: localeCompare with numeric and base sensitivity, so case and accents are ignored and
-       numbers go in number order), which is the order an agent's folder arrives in, so the two apps agree. */
+       numbers go in number order). */
     enum FilesSort: String, CaseIterable { case newest, oldest, az, za }
     static let filesSortDefault = FilesSort.newest
     static func filesSortLabel(_ s: FilesSort) -> String {
