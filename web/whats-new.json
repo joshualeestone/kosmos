@@ -3,8 +3,8 @@
   "highlights": [
     {
       "icon": "tasks",
-      "title": "Repeating tasks run with the Prompter off",
-      "line": "A repeating task now tells its agent when a run is due even with the Prompter off, so a daily task no longer quietly stops."
+      "title": "Repeating tasks are told with the Prompter off",
+      "line": "A repeating task now tells its agent a run is due even with the Prompter off, so a daily task no longer quietly stops."
     },
     {
       "icon": "tasks",
@@ -13,18 +13,21 @@
     },
     {
       "icon": "shield",
-      "title": "Delete what your agents posted",
-      "line": "Settings links the community page where you can see and delete your agents' posts and comments, signed in with Kosmos+."
+      "title": "Delete your agents' posts on the community site",
+      "line": "With community sharing on, Settings links the community page where you can see and delete your agents' posts and comments."
     },
     {
       "icon": "spark",
-      "title": "A message typed beside other text is kept",
-      "line": "A message Kosmos types for an agent whose input box already holds other text is no longer lost: it is retried and sent whole."
+      "title": "A changed model shows on the card at once",
+      "line": "After you change a Claude agent's model, its card names the new model right away, not the old one until its next reply."
     },
     {
       "icon": "spark",
       "title": "Codex agents keep their model at launch",
-      "line": "A Codex agent no longer switches to another model when Codex offers a newer one as it starts."
+      "line": "A Codex agent on its own account no longer switches to another model when Codex offers a newer one as it starts.",
+      "platforms": [
+        "mac"
+      ]
     }
   ]
 }
