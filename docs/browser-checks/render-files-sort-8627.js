@@ -14,6 +14,7 @@
  *   - CONTROL: A to Z is exactly the order the server lists (the order both screens showed before this card), read from
  *     the same route in the same page, so "A to Z" cannot pass by matching a list nothing reordered;
  *   - the choice is remembered per screen across a reload, and the two screens do not share it;
+ *   - the project sort row hides on the conversation segment and on an empty project opened after a full one;
  *   - a change of order on the agent screen re-sorts the rows on screen and reads nothing (the read fails meanwhile),
  *     and leaves the status line as it was;
  *   - a browser that refuses storage (a throwing localStorage) still shows Newest first and still sorts when asked;
@@ -87,6 +88,10 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   // file saved a minute ago is the one that should top the list, and the four orders stay the agent screen's plus it.
   const brief = path.join(pfolder, 'BRIEF.md');
   if (fs.existsSync(brief)) fs.utimesSync(brief, new Date(Date.UTC(2025, 11, 1)), new Date(Date.UTC(2025, 11, 1)));
+  // A second project whose folder holds nothing (its new BRIEF.md taken away), for the hidden-row arms.
+  const efolder = fs.mkdtempSync(path.join(process.env.AGENT_WORKFORCE_PROJECTS, 'empty-'));
+  const emptyProject = projects.create({ name: 'Empty Room', folder: efolder });
+  fs.rmSync(path.join(efolder, 'BRIEF.md'), { force: true });
   projects.setRevealPlatform('darwin');
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -119,7 +124,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     await page.click('#d-files-all');
     await page.waitForFunction(() => document.querySelectorAll('#d-filesall-list .pj-doc:not(.pj-dir)').length === 6, null, { timeout: 8000 });
   };
-  const openProjectFiles = async (page, pid) => {
+  const openProjectFiles = async (page, pid, rowsWanted = 7) => {
     // Through the board's own doors: the Projects tab (behind the menu on a phone), then the project's row.
     if (await page.isVisible('#burger')) {
       await page.click('#burger');
@@ -130,7 +135,11 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
     await page.click(`#pj-list .pj-row[data-project="${pid}"]`);
     await page.waitForSelector('#pj-docs-all:not([hidden])', { timeout: 8000 });
     await page.click('#pj-docs-all');
-    await page.waitForFunction(() => document.querySelectorAll('#docs-list .pj-doc').length === 7, null, { timeout: 8000 }).catch(async (e) => {
+    if (rowsWanted === 0) {   // an empty folder: wait for its sentence instead of rows
+      await page.waitForFunction(() => /Nothing here yet/.test(document.getElementById('docs-msg').textContent), null, { timeout: 8000 });
+      return;
+    }
+    await page.waitForFunction((n) => document.querySelectorAll('#docs-list .pj-doc').length === n, rowsWanted, { timeout: 8000 }).catch(async (e) => {
       // Say what the screen showed instead, so a red here names its cause.
       console.log('project Files screen: ' + JSON.stringify(await page.evaluate(() => ({ view: !document.getElementById('pj-docs-view').hidden,
         msg: document.getElementById('docs-msg').textContent, rows: [...document.querySelectorAll('#docs-list .pj-doc')].map((b) => b.dataset.doc) }))));
@@ -205,6 +214,13 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
         }
         // The project route sends newest first, so the old screen showed NEWEST; the control is that order, by the server.
         chk(same(pserved, P_EXPECT.newest), `${E} CONTROL: the project route lists newest first, the order its screen showed before`, JSON.stringify(pserved));
+        // The row goes with the folder's other parts on the conversation segment (the page's own switch), and comes back.
+        const rowShown = () => page.evaluate(() => { const r = document.getElementById('docs-sortrow'); return !!(r && r.getClientRects().length && getComputedStyle(r).display !== 'none'); });
+        chk(await rowShown(), `${E} CONTROL: the project sort row is on screen on the folder segment`);
+        await page.evaluate(() => docsSegShow('convo'));
+        chk(!(await rowShown()), `${E} the project sort row is hidden on the conversation segment`);
+        await page.evaluate(() => docsSegShow('folder'));
+        chk(await rowShown(), `${E} the project sort row is back on the folder segment`);
         await page.selectOption('#docs-sort', 'za');
 
         /* Remembered per screen across a reload. */
@@ -213,6 +229,11 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
         chk(await page.$eval('#d-files-sort', (s) => s.value) === 'oldest' && same((await agentRows(page)).files, EXPECT.oldest), `${E} after a reload the agent Files screen is still Oldest first`, JSON.stringify(await agentRows(page)));
         await openProjectFiles(page, project.id);
         chk(await page.$eval('#docs-sort', (s) => s.value) === 'za' && same(await docsRows(page), P_EXPECT.za), `${E} after a reload the project Files screen is still Z to A`, JSON.stringify(await docsRows(page)));
+        // Another project, empty: the row the last project showed is not carried over, and an empty folder has none.
+        await openProjectFiles(page, emptyProject.id, 0);
+        const empty = await page.evaluate(() => ({ rows: document.querySelectorAll('#docs-list .pj-doc').length,
+          row: (() => { const r = document.getElementById('docs-sortrow'); return !!(r && r.getClientRects().length); })() }));
+        chk(empty.rows === 0 && !empty.row, `${E} an empty project, opened after one with files, shows no sort row and no rows`, JSON.stringify(empty));
         chk(errs.length === 0, `${E} no page errors`, JSON.stringify(errs));
         await ctx.close();
 

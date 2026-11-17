@@ -47,5 +47,5 @@ matches the old order. Check the iPhone app's Files list; file a follow-up card 
 ## Status
 - [x] Built, unit tests and browser check green (54 PASS; 11 FAIL with the default mutated to A to Z).
 - [x] Surface gate GATE_RC=0 (trailer for render-room-msgbox-2806.js, which passes).
-- [ ] challenge-loop (iteration 1: 3 WARNINGs, 2 fixed, 1 deferred; iteration 2: the cap test and this premise)
+- [ ] challenge-loop (in progress; findings and fixes are in the commit messages)
 - [ ] PR, CI, merge, design shots, iPhone follow-up check

@@ -4761,7 +4761,7 @@ html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-cons
 /* kosmos#8627: the folder list's sort, on its own line above the count, and gone with the folder's other parts when
    the conversation's files show. */
 #docs-sortrow { margin: 0 0 8px; }
-#docs-sortrow[hidden], [data-docseg="convo"] #docs-sortrow { display: none; }
+#docs-sortrow[hidden], #pj-docs-view[data-docseg="convo"] #docs-sortrow { display: none; }
 #pj-docs-view:not([data-docseg="convo"]) #docs-convo { display: none; }
 /* A phone: both segments share the row (measured: 344px of words in a 296px view at 320px wide). */
 @media (max-width: 400px) {
