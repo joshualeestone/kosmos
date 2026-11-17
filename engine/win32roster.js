@@ -192,22 +192,27 @@ function makeCachedRun(opts) {
     : { value: null, why: typeof why === 'string' && why ? why : asked() });
   let cache = null;       // { at, value, why }
   let inFlight = false;
+  let waiters = [];       // kosmos#8652: refreshAsync callers waiting for the read in flight
+  const release = () => { const w = waiters; waiters = []; for (const fn of w) { try { fn(); } catch { /* a waiter's own fault */ } } };
+  function kick() {
+    if (inFlight) return;
+    inFlight = true;
+    const started = now();
+    try {
+      runAsync((value, why) => {
+        inFlight = false;
+        // A synchronous read that landed while this one ran is newer; keep it.
+        if (!cache || cache.at <= started) cache = { at: now(), ...entry(value, why) };
+        release();
+      });
+    } catch { inFlight = false; release(); }
+  }
   function cachedRun() {
     const t = now();
     const age = cache ? t - cache.at : Infinity;
     if (cache && age < freshMs) return cache.value;
     if (cache && age < staleMs) {
-      if (!inFlight) {
-        inFlight = true;
-        const started = t;
-        try {
-          runAsync((value, why) => {
-            inFlight = false;
-            // A synchronous read that landed while this one ran is newer; keep it.
-            if (!cache || cache.at <= started) cache = { at: now(), ...entry(value, why) };
-          });
-        } catch { inFlight = false; }
-      }
+      kick();
       return cache.value;
     }
     const r = readSync();
@@ -215,6 +220,10 @@ function makeCachedRun(opts) {
     return cache.value;
   }
   cachedRun.forget = () => { cache = null; };
+  /* kosmos#8652: a fresh read WITHOUT blocking the board's thread, for a caller that must see a session that has
+     only just started (the first message to a new or restored agent). Resolves once a background read has landed
+     (joining one already in flight); the next cachedRun() serves it. Never rejects. */
+  cachedRun.refreshAsync = () => new Promise((resolve) => { waiters.push(resolve); kick(); });
   /** #5949: why the answer being served is null, or null when it is a list (or nothing was read yet). */
   cachedRun.problem = () => (cache && cache.value === null ? cache.why : null);
   return cachedRun;

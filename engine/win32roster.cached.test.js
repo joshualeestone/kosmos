@@ -111,3 +111,39 @@ test('the roster source and the live-state source share ONE read by default', ()
 });
 
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+/* kosmos#8652: the DM send's wait for a just-started agent asks for a fresh read without blocking the board. */
+test('refreshAsync reads in the background, resolves when it lands, and the next ask is served it', async () => {
+  const clock = clockAt(1000);
+  let sync = 0;
+  const pending = [];
+  const read = win32roster.makeCachedRun({ run: () => { sync += 1; return []; }, runAsync: (cb) => { pending.push(cb); }, now: clock.now, freshMs: 2000, staleMs: 30000 });
+  assert.deepEqual(read(), [], 'premise: the cache holds the list from before the session registered');
+  let landed = false;
+  const a = read.refreshAsync().then(() => { landed = true; });
+  const b = read.refreshAsync();   // a second asker joins the read in flight
+  assert.equal(pending.length, 1, 'one background read, however many ask');
+  assert.equal(sync, 1, 'and never a synchronous read');
+  await Promise.resolve();
+  assert.equal(landed, false, 'it resolved before the read landed');
+  clock.t += 10;
+  pending[0](LIVE);
+  await Promise.all([a, b]);
+  assert.equal(landed, true);
+  assert.deepEqual(read(), LIVE, 'the fresh read is served, though the old one was still inside the fresh window');
+});
+
+test('refreshAsync: a failed read is kept as a failure, and a throwing reader still resolves', async () => {
+  const clock = clockAt(1000);
+  const pending = [];
+  const read = win32roster.makeCachedRun({ run: () => LIVE, runAsync: (cb) => { pending.push(cb); }, now: clock.now, freshMs: 2000, staleMs: 30000 });
+  read();
+  const p = read.refreshAsync();
+  pending[0](null, 'claude agents --json did not answer');
+  await p;
+  assert.equal(read(), null, 'a failed read is not replaced by the last good list');
+  const throwing = win32roster.makeCachedRun({ run: () => LIVE, runAsync: () => { throw new Error('spawn failed'); }, now: clock.now });
+  throwing();
+  await throwing.refreshAsync();   // must not hang or reject
+  assert.deepEqual(throwing(), LIVE, 'a reader that throws leaves the cache as it was');
+});
