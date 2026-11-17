@@ -123,7 +123,10 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   // kosmos#8378: the Grok expand refusal, the installing-while-proving read and the gone-node Gemini launcher, through
   // the real Windows pipeline (tar.exe, grok.exe.br, gemini.cmd, the verified marker); its macOS and Linux pipeline
   // arms skip with their reasons.
-  'runners.gemini-grok-3713.test.js'];
+  'runners.gemini-grok-3713.test.js',
+  // #8617: making an agent's Files folder (the one leaf, a file in the way, a connected agent, the sweep) on a real
+  // Windows disk; the link arm skips there (symlinks need elevation).
+  'dmfiles.folder-8617.test.js'];
 // test-support.remove-tree.test.js (#5074): the shared win32 cleanup retry's own tests, which ran here inside the
 // shims file before the helper moved.
 const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'report-hook-allowed-5495.test.js',
