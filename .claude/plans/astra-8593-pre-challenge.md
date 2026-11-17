@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: astra-8593
-diff_hash: 9eee9b58281a0912c9059abf13d6c4f7f3e9c1cb345f83648dd0a30ce316120b
-validation: passed (full suite r2 through queued-heavy on 5648f51227, 17:54 to 18:18 CST: node 28803 pass, 0 fail; test:shell 4 shards all green; END rc=0. r1 on 4bbbfa5ab0 had one red, the win32-host guard windows-tests-1777, fixed in 5648f51227. Then rebased onto main 97cc713df5 for #8604 (Ice Cream Kitty, same supervisor block and tools/windows-tests.js; the one conflict kept both exclusion entries); after the rebase: 2927 dependent node tests pass, 0 fail, and the 7 supervisor shell tests pass. The full suite itself ran before the rebase.)
+diff_hash: 1faddd8ebb0ea29b6d112cc60f252a405a0d15a6a9b133110a70eb5f6ce7bcde
+validation: passed (full suite r2 through queued-heavy on 5648f51227, 17:54 to 18:18 CST: node 28803 pass, 0 fail; test:shell 4 shards all green; END rc=0. r1 on 4bbbfa5ab0 had one red, the win32-host guard windows-tests-1777, fixed in 5648f51227. Then rebased onto main 97cc713df5 for #8604 (Ice Cream Kitty, same supervisor block and tools/windows-tests.js; the one conflict kept both exclusion entries); after the rebase: 2927 dependent node tests pass, 0 fail, and the 7 supervisor shell tests pass. The full suite itself ran before the rebase. PR CI on 8efc170e92: every job green except windows, where runners.test.js #979 compared status() to the base pin rather than the Windows pin (test-only, fixed after).)
 subdir_audit: passed (no CLAUDE.md changed)
 timestamp: 2026-11-17T00:18:27Z
 iterations: 5
