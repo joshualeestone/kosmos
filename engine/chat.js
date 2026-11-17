@@ -237,10 +237,10 @@ function loadUnsent() {
   for (const [target, e] of Object.entries(raw)) {
     /* A seq names a message row of the process that wrote it, so a loaded line carries none. */
     if (e && typeof e.wire === 'string' && e.wire && Date.now() - (Number(e.at) || 0) <= UNSENT_KEEP_MS) {
-      /* #6249: a board downgraded to a version from before `mixed` drops the mark, and would take such a line by a
-         visible end. */
       unsentIdNext += 1;
       unsentWires.set(target, { id: unsentIdNext, wire: e.wire, at: Number(e.at) || 0, seq: null, seen: typeof e.seen === 'string' ? e.seen : '',
+        /* #6249: a board downgraded to a version from before `mixed` drops this mark, and would take the line by a
+           visible end. */
         target, ...(e.mixed === true ? { mixed: true } : {}), ...(typeof e.chip === 'string' && e.chip ? { chip: e.chip, chipPid: typeof e.chipPid === 'string' ? e.chipPid : '' } : {}) });
     }
   }
@@ -1041,8 +1041,8 @@ function rememberedShows(text, kept, exact = false, rows = 0) {
       && !!kept.chipPid && !!kept.target && panePidOf(kept.target) === kept.chipPid;
   }
   /* #6249 (Angel, 11-16): a line left beside other text (rememberMixed) is ours only whole, and only in a box short
-     enough to show everything it holds (STUCK_ROWS_MAX): rows hidden above it are where that other text may be. A
-     caller that gives no rows gets no press. */
+     enough to show everything it holds (STUCK_ROWS_MAX; measured: the box scrolls at 7 rows at pane heights 15, 24,
+     40 and 60): rows hidden above it are where that other text may be. A caller that gives no rows gets no press. */
   if (kept.mixed) return rows > 0 && rows <= STUCK_ROWS_MAX && composerIsAll(text, kept.wire);
   if (composerIsAll(text, kept.wire)) return true;
   const t = squash(text);
@@ -1316,7 +1316,9 @@ function rememberMixed(target, wire, card) {
   unsentSeq += 1;
   const seq = unsentSeq;
   rememberUnsent(target, { wire, at: Date.now(), seq, seen: '', mixed: true });
-  scheduleUnsentRetries(target, card);
+  /* No 30 s retry: someone was typing in this box seconds ago, so the first press waits for the 2 min one. Any box
+     emptied since our paste was read empty first (`emptyBefore`), so a record this replaces was no longer there. */
+  scheduleUnsentRetries(target, card, UNSENT_RETRY_MS.slice(1));
   return seq;
 }
 /* kosmos#6717: text that has sat unsent in an idle Claude Code agent's input box for STUCK_INPUT_MS (the board's minute

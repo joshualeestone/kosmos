@@ -134,7 +134,7 @@ test('#6249: the retries press it only when the box shows exactly all of it', ()
   chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
   chat.setRosterSource(() => roster);
   quiet(() => { arm([EMPTY, box(OTHER + ' ' + MSG)]); chat.deliver('al', MSG, roster); });
-  assert.deepEqual(scheduled.map((s) => s.ms), [30000, 120000, 300000], 'the #6436 retries');
+  assert.deepEqual(scheduled.map((s) => s.ms), [120000, 300000], 'the #6436 retries without the 30 s one: someone was just typing there');
   const still = arm([box(OTHER + ' ' + MSG)]);
   scheduled[0].fn();
   await flush();
@@ -144,8 +144,10 @@ test('#6249: the retries press it only when the box shows exactly all of it', ()
   await flush();
   assert.equal(alone.enters(), 1, 'only ours left: pressed');
   assert.equal(alone.pasted(), 0, 'nothing typed again');
+  assert.equal(scheduled.length, 2, 'sent by the last retry: no ten-minute tail added');
   const after = arm([box(MSG)]);
-  scheduled[2].fn();
+  scheduled[0].fn();
+  scheduled[1].fn();
   await flush();
   assert.equal(after.enters(), 0, 'sent once, not again');
 }));
