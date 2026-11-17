@@ -410,3 +410,28 @@ test('#570 7c-5 stateFor refuses a file it was not written to read', () => {
   assert.equal(ss.stateFor('shapes', live), null, 'a pid that only looks equal');
   pub.stopped();
 });
+
+test('#8658 the state file says when the current run began, keeps it on later writes, and a new run moves it', () => {
+  let t = Date.parse('2026-11-17T20:00:00Z');
+  const r = recording({ now: () => t });
+  r.pub.started(4242, 'sid-1');
+  const began = r.wrote[0].startedAt;
+  assert.equal(began, '2026-11-17T20:00:00.000Z', 'the first write did not carry when the run began');
+  t += 120000;
+  for (const e of PLAIN_TURN) r.pub.event(e);
+  assert.ok(r.wrote.length >= 3, 'premise: the turn wrote the file again');
+  assert.ok(r.wrote.every((w) => w.startedAt === began), 'a later write moved the start time, so a busy agent would read as just started');
+  t += 60000;
+  r.pub.started(4243, 'sid-1');                       // a crash relaunch: same session, a new run
+  assert.equal(r.wrote[r.wrote.length - 1].startedAt, '2026-11-17T20:03:00.000Z', 'a relaunch did not record its own start');
+});
+
+test('#8658 startedAt reads the file the publisher writes, and is null for a file without it', () => {
+  const pub = ss.publisher('began-1');
+  pub.started(5151, 'sid-b');
+  const at = ss.startedAt('began-1');
+  assert.ok(Number.isFinite(at) && Math.abs(Date.now() - at) < 5000, 'startedAt did not read the start the publisher wrote: ' + at);
+  pub.stopped();
+  assert.equal(ss.startedAt('began-1'), null, 'a cleared file still reads as started');
+  assert.equal(ss.startedAt('never-ran'), null);
+});

@@ -44,6 +44,7 @@ const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
 
 const RECORD = path.join(store.ROOT, 'win32-sessions', 'record.json');
+const STATE_DIR = path.join(store.ROOT, 'win32-state');   // the supervisors' state files (engine/win32streamstate.js)
 const SENDER = 'writer';
 
 /* The roster: the sender is always there; `name`'s tied row is listed only from `visibleAt` on. */
@@ -90,6 +91,7 @@ test.beforeEach(() => {
   app._setStartWaitForTest(null);
   app._setStartWaitForTest({ maxMs: 2000, stepMs: 100, refresh: null });
   fs.rmSync(RECORD, { force: true });
+  fs.rmSync(STATE_DIR, { recursive: true, force: true });
   messagesEngine.resetForTests();
 });
 test.after(() => {
@@ -151,11 +153,11 @@ test('#8658 a message to a running agent is unchanged: placed at once', async ()
   assert.ok(r.ms < 1500, 'a running agent paid the wait: ' + r.ms + ' ms');
 });
 
-const STATE_DIR = path.join(store.ROOT, 'win32-state');
-function stateFile(name, agoMs) {
+/* A supervisor state file whose run began `startedAgoMs` ago and was last written `writtenAgoMs` ago. */
+function stateFile(name, startedAgoMs, writtenAgoMs = startedAgoMs) {
   fs.mkdirSync(STATE_DIR, { recursive: true });
-  fs.writeFileSync(path.join(STATE_DIR, store.safeKey(name) + '.json'),
-    JSON.stringify({ v: 1, state: 'idle', sessionId: 'x', pid: 1, at: new Date(Date.now() - agoMs).toISOString() }));
+  fs.writeFileSync(path.join(STATE_DIR, store.safeKey(name) + '.json'), JSON.stringify({ v: 1, state: 'idle', sessionId: 'x', pid: 1,
+    startedAt: new Date(Date.now() - startedAgoMs).toISOString(), at: new Date(Date.now() - writtenAgoMs).toISOString() }));
 }
 
 test('#8658 a crash relaunch (old ownership row, fresh supervisor state file) is waited for and placed', async () => {
@@ -172,6 +174,13 @@ test('#8658 CONTROL for the relaunch: an old row and an old state file is not st
   assert.equal(r.delivery.state, 'could_not', JSON.stringify(r.json));
   assert.doesNotMatch(String(r.delivery.because), /still starting/);
   assert.ok(r.ms < 1500, 'a stopped agent made the message wait: ' + r.ms + ' ms');
+});
+
+test('#8658 a long-running agent that just wrote its state file is not starting (the write is not the start)', async () => {
+  worker('busy'); recordRow('busy', 10 * 60 * 1000); stateFile('busy', 10 * 60 * 1000, 200);
+  const r = await msg('busy', 'hello');
+  assert.doesNotMatch(String(r.delivery.because), /still starting/, JSON.stringify(r.json));
+  assert.ok(r.ms < 1500, 'a recent write by a long-running agent made the message wait: ' + r.ms + ' ms');
 });
 
 test('#8658 a fresh state file with no ownership row at all is not ours, and does not wait', async () => {

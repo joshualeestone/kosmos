@@ -4508,11 +4508,11 @@ function startingAgent(name) {
     const rows = Object.values(sessions.read()).filter((row) => sessions.rowIsUnder(row, name));
     if (!rows.length) return false;
     if (rows.some((row) => recent(Date.parse(row && row.at)))) return true;
-    /* kosmos#8658: a crash relaunch resumes the same session and writes no new row, but its supervisor writes the
-       agent's state file the moment the run starts. */
-    let wrote = null;
-    try { wrote = require('./engine/win32streamstate').writtenAt(name); } catch { wrote = null; }
-    return recent(wrote);
+    /* kosmos#8658: a crash relaunch resumes the same session and writes no new row, but its supervisor's state file
+       records when the current run began. */
+    let began = null;
+    try { began = require('./engine/win32streamstate').startedAt(name); } catch { began = null; }
+    return recent(began);
   } catch {
     return false;
   }
