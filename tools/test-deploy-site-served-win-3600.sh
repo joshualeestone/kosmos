@@ -178,6 +178,8 @@ CURL
 chmod +x "$BIN/curl"
 cat > "$BIN/vercel" <<'VERCEL'
 #!/bin/bash
+# kosmos#8656: the deploy refreshes the sign-in with `vercel whoami` first (site_vercel_deploy): that publishes nothing.
+[ "${1:-}" = whoami ] && { echo "tester"; exit 0; }
 mkdir -p "$LIVE_DIR/dist"
 [ -d ./dist ] && cp -R ./dist/. "$LIVE_DIR/dist/" 2>/dev/null
 for f in setup index.html vercel.json; do [ -f "./$f" ] && cp "./$f" "$LIVE_DIR/$f"; done

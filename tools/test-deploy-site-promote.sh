@@ -114,6 +114,8 @@ if [ -n "${REFUSE_N:-}" ] && [ "$n" -le "$REFUSE_N" ]; then
   [ -n "${FREEZE_ON_REFUSE_CLONE:-}" ] && git -C "$FREEZE_ON_REFUSE_CLONE" push -q origin main && : > "$FREEZE_ON_REFUSE_CLONE.pushed"
   echo "Error: Not authorized" >&2; exit 1
 fi
+# OTHER_AFTER_REFUSE: once the refusals are used up, the next try fails some other way (rc 5).
+[ -n "${OTHER_AFTER_REFUSE:-}" ] && { echo "Error: The deployment exceeded the size limit" >&2; exit 5; }
 # `vercel deploy --prod --yes` runs with the EXPORT as cwd. Publish it into LIVE (additive copy;
 # a real deploy replaces the site, but additive is enough to run the served-verify honestly).
 mkdir -p "$LIVE_DIR/dist"
@@ -946,6 +948,15 @@ run_deploy "$S90" "$L90" --promote
 unset REFUSE_N KOSMOS_VERCEL_RETRY_S VERCEL_TOKEN
 [ "$RC" = 77 ] && [ "$(cat "$L90/.vercel-tries")" = 1 ] && [ "$(served_ver "$L90")" = "$OLD" ] \
   && pass "8656: with VERCEL_TOKEN a refusal is tried once: exit 77, live untouched" || bad "8656 token path (rc=$RC, tries=$(cat "$L90/.vercel-tries" 2>/dev/null), out=$out)"
+
+# R6) refused once, then a DIFFERENT failure on the retry: only the last try's output is classified, so it is exit 1
+# (rc 5), never 77 for a refusal the earlier try printed.
+read -r S91 L91 <<<"$(make_scenario)"
+export REFUSE_N=1 KOSMOS_VERCEL_RETRY_S=0 OTHER_AFTER_REFUSE=1
+run_deploy "$S91" "$L91" --promote
+unset REFUSE_N KOSMOS_VERCEL_RETRY_S OTHER_AFTER_REFUSE
+[ "$RC" = 1 ] && has "$out" "failed (rc 5)" && ! has "$out" "exiting 77" && [ "$(cat "$L91/.vercel-tries")" = 2 ] && [ "$(served_ver "$L91")" = "$OLD" ] \
+  && pass "8656: a refusal then another failure is exit 1 (rc 5), not 77: the last try is what is classified" || bad "8656 last-try classification (rc=$RC, tries=$(cat "$L91/.vercel-tries" 2>/dev/null), out=$out)"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

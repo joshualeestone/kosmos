@@ -52,6 +52,10 @@
 #                                     # (exit 77, kosmos#6771: Vercel refused this machine's authorization before
 #                                     # making a deployment; said in full only when output is not a terminal,
 #                                     # which is how the autodeploy runs it. At a terminal it is exit 1.)
+#                                     # kosmos#8656: not at a terminal and with no VERCEL_TOKEN, that refusal is
+#                                     # tried again up to 4 times, 60 s apart (KOSMOS_VERCEL_TRIES/_RETRY_S), unless
+#                                     # the try made a deployment; before each retry a freeze refuses (exit 1) and a
+#                                     # moved or unreadable live pointer refuses (exit 75), nothing deployed.
 #   tools/deploy-site.sh --promote    # PUBLISH a pointer-MOVE deploy (#2195): serve the COMMITTED
 #                                     # latest.json even though it differs from live (a staging->prod
 #                                     # promote, or a rollback to a prior pointer). Skips the
@@ -1059,7 +1063,7 @@ else
   _ds_vercel_once() {
     _ds_vercel_try 2>&1 | tee "$VLAST"
     _ds_r=$(cat "$VRC1" 2>/dev/null)
-    case "$_ds_r" in ''|*[!0-9]*) _ds_r=1 ;; esac
+    case "$_ds_r" in ''|*[!0-9]*) _ds_r=1 ;; 75|76|86) _ds_r=1 ;; esac   # never read as this script's own signals, below
     if [ "$_ds_r" != 0 ] && sed "s/$(printf '\033')\[[0-9;]*m//g" "$VLAST" | grep -qiE '(inspect|production|preview):[[:space:]]*https://'; then return 86; fi
     return "$_ds_r"
   }
@@ -1070,12 +1074,15 @@ else
     [ "$_ds_ptrs" = "$LIVE_PTRS_BEFORE" ] || { echo "deploy-site: a live pointer changed while waiting to retry the deploy (#5589, kosmos#8656)"; echo "  before: $LIVE_PTRS_BEFORE"; echo "  now:    $_ds_ptrs"; exit 75; }
   }
   # In its own subshell, so the hook's exit ends only the retry and comes back as its code. Not piped: each try tees.
-  # With an explicit VERCEL_TOKEN (the autodeploy) ONE try, as before: the retry's refresh (`vercel whoami`) renews the
-  # CLI's own sign-in, which a given token does not use, so a refused token would only wait 3 min to say the same.
-  _ds_tries=${KOSMOS_VERCEL_TRIES:-4}
-  [ -z "$_vercel_token" ] || _ds_tries=1
+  # With an explicit VERCEL_TOKEN (the autodeploy) ONE try, the old path exactly: the retry's refresh (`vercel whoami`)
+  # renews the CLI's own sign-in, which a given token does not use, so a refused token would only wait 3 min to say the
+  # same. On the CLI's sign-in, a refusal on every try spends about 3 min (of the autodeploy's DEPLOY_MAX_S, too).
   _ds_vrc=0
-  ( KOSMOS_VERCEL_TRIES=$_ds_tries KOSMOS_VERCEL_BEFORE_RETRY=_ds_before_retry site_vercel_deploy "$EXPORT" _ds_vercel_once ) || _ds_vrc=$?
+  if [ -n "$_vercel_token" ]; then
+    ( _ds_vercel_once ) || _ds_vrc=$?
+  else
+    ( KOSMOS_VERCEL_BEFORE_RETRY=_ds_before_retry site_vercel_deploy "$EXPORT" _ds_vercel_once ) || _ds_vrc=$?
+  fi
   _ds_last_rc=$(cat "$VRC1" 2>/dev/null)
   cp "$VLAST" "$VOUT" 2>/dev/null; rm -f "$VLAST" "$VRC1"
   # 75, 76 and 86 are this script's own signals (the hook's two refusals, and a try that had made a deployment);
