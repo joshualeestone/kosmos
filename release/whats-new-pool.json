@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.02",
+  "lastProd": "0.8.06",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -1753,7 +1753,8 @@
       "icon": "spark",
       "rank": 9,
       "since": "0.8.05",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.06"
     },
     {
       "title": "A suggested answer beside the question",
@@ -1761,7 +1762,8 @@
       "icon": "tasks",
       "rank": 9.5,
       "since": "0.8.05",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.06"
     },
     {
       "title": "Restarting agents on Windows read as running",
@@ -1772,8 +1774,9 @@
       ],
       "rank": 10.05,
       "since": "0.8.05",
-      "status": "pending",
-      "restart": "agents"
+      "status": "shown",
+      "restart": "agents",
+      "shownIn": "0.8.06"
     },
     {
       "title": "The board log names automatic updates",
@@ -1922,7 +1925,8 @@
       "icon": "spark",
       "rank": 9.3,
       "since": "0.8.06",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.06"
     },
     {
       "title": "See what your agents found on Connections",
@@ -1930,7 +1934,8 @@
       "icon": "list",
       "rank": 9.7,
       "since": "0.8.06",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.8.06"
     },
     {
       "title": "A closed task says how it closed",
@@ -2039,6 +2044,85 @@
       "rank": 119,
       "since": "0.8.06",
       "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "since": "0.8.07",
+      "status": "pending",
+      "title": "Repeating tasks run with the Prompter off",
+      "line": "A repeating task now tells its agent when a run is due even with the Prompter off, so a daily task no longer quietly stops.",
+      "icon": "tasks",
+      "rank": 9.4
+    },
+    {
+      "since": "0.8.07",
+      "status": "pending",
+      "title": "The Issue tile opens what needs you",
+      "line": "On Projects, the Issue tile opens the project that needs you, or shows only those projects when several do.",
+      "icon": "tasks",
+      "rank": 9.6
+    },
+    {
+      "since": "0.8.07",
+      "status": "pending",
+      "title": "Delete what your agents posted",
+      "line": "Settings links the community page where you can see and delete your agents' posts and comments, signed in with Kosmos+.",
+      "icon": "shield",
+      "rank": 9.8
+    },
+    {
+      "since": "0.8.07",
+      "status": "pending",
+      "title": "A message typed beside other text is kept",
+      "line": "A message Kosmos types for an agent whose input box already holds other text is no longer lost: it is retried and sent whole.",
+      "icon": "spark",
+      "rank": 10.1
+    },
+    {
+      "since": "0.8.07",
+      "status": "pending",
+      "title": "Codex agents keep their model at launch",
+      "line": "A Codex agent no longer switches to another model when Codex offers a newer one as it starts.",
+      "icon": "spark",
+      "rank": 10.2
+    },
+    {
+      "since": "0.8.07",
+      "status": "pending",
+      "title": "A changed model shows on the card at once",
+      "line": "After you change a Claude agent's model, its card names the new model right away, not the old one until its next reply.",
+      "icon": "spark",
+      "rank": 10.65,
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "since": "0.8.07",
+      "status": "pending",
+      "title": "Start at login says what it does with an account",
+      "line": "On Windows, removing an agent's startup job says plainly what Start at login will do with its account folder.",
+      "icon": "shield",
+      "rank": 11.7,
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "since": "0.8.07",
+      "status": "pending",
+      "title": "A stalled repeat shows one row",
+      "line": "A repeat whose agent cannot be reached shows one row for the stall, not one for every missed run.",
+      "icon": "tasks",
+      "rank": 12.2
+    },
+    {
+      "since": "0.8.07",
+      "status": "pending",
+      "title": "Preview a leftover delete",
+      "line": "kosmos agent delete-leftovers --list shows what a delete would remove and what each agent loses, and deletes nothing.",
+      "icon": "shield",
+      "rank": 120,
       "notesOnly": true
     }
   ]
