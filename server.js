@@ -29267,6 +29267,7 @@ function start(port = PORT) {
             isIdle: (c) => require('./engine/agentnudge').nudgeableCard(c),
             seenIdle: runnerRestartSeenIdle,
             tried: runnerRestartTried,
+            // Read again just before each restart (the checks above are from the start of the pass).
             allowed: () => liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_RUNNER_RESTART_OFF !== '1',
             managed: () => rr.managedState(runners),
             heldByMove: (session) => removal.heldByMove(session),

@@ -233,3 +233,20 @@ test('managedState is ready only after a proved upgrade to a different version, 
     assert.ok(!st || st.ready !== true, why);
   }
 });
+
+test('the managed folder may sit under a path with a space; a person\'s own codex or a lookalike name never matches', () => {
+  const d = path.join(path.sep, 'Users', 'a b', 'runners', 'openai');
+  assert.equal(rr.isManagedCodex(`${d}${path.sep}codex --dangerously-bypass-approvals-and-sandbox`, d), true);
+  assert.equal(rr.isManagedCodex(`${d}${path.sep}codex exec --json`, d), true);
+  assert.equal(rr.isManagedCodex(path.join(d, 'pkg', 'vendor', 'x', 'bin', 'codex'), d), true);
+  assert.equal(rr.isManagedCodex(`${d}${path.sep}codexfoo --x`, d), false);
+  assert.equal(rr.isManagedCodex('/opt/homebrew/bin/codex --x', d), false);
+  assert.equal(rr.isCodeModeHost(`${path.join(d, 'pkg', 'vendor', 'x', 'bin', 'codex-code-mode-host')} --stdio`, d), true);
+  assert.equal(rr.isCodeModeHost('/elsewhere/codex-code-mode-host', d), false, 'a host from another tree is not this one');
+});
+
+test('a host started within a second of the swap cannot be told apart, so it counts as the new tree\'s: restarted', async () => {
+  const { o, restarted } = opts({ agents: [{ session: ALPHA.sessionName, ageSec: 3600, host: true, hostAgeSec: 600 }] });   // SWAP is 600 s ago
+  await twice(o);
+  assert.deepEqual(restarted, [ALPHA.sessionName]);
+});

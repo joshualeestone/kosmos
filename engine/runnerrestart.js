@@ -59,9 +59,14 @@ function parseProcs(text) {
   return map;
 }
 
-/** The program a command line runs: its first word (the managed path has no spaces in the cases measured). */
-function argv0(command) {
-  return String(command || '').trim().split(/\s+/)[0] || '';
+/* The program a command line runs is read against a KNOWN prefix, not as its first word: the managed folder can sit
+   under a path with a space in it, which a split on whitespace would cut (review 2). */
+function runsProgram(command, prefix, name) {
+  const c = String(command || '').trim();
+  if (!prefix || !c.startsWith(prefix)) return false;
+  // Below the folder the path is Kosmos's own layout (codex, pkg/vendor/<triple>/bin/...), with no space in it.
+  const prog = c.slice(prefix.length).split(/\s/)[0];
+  return prog.split(/[\\/]/).pop() === name;
 }
 
 /**
@@ -91,14 +96,16 @@ function descendants(root, kids) {
 
 /** True when this command runs a program from the managed Codex folder (the stable link or the tree behind it). */
 function isManagedCodex(command, managedDir) {
-  const prog = argv0(command);
-  if (!prog || !managedDir) return false;
+  if (!managedDir) return false;
   const dir = managedDir.endsWith(path.sep) ? managedDir : managedDir + path.sep;
-  return prog.startsWith(dir) && path.basename(prog) === 'codex';
+  return runsProgram(command, dir, 'codex');
 }
 
-function isCodeModeHost(command) {
-  return path.basename(argv0(command)) === 'codex-code-mode-host';
+/** The host is started by absolute path from the same folder; matched by its name after the folder (managedDir). */
+function isCodeModeHost(command, managedDir) {
+  if (!managedDir) return false;
+  const dir = managedDir.endsWith(path.sep) ? managedDir : managedDir + path.sep;
+  return runsProgram(command, dir, 'codex-code-mode-host');
 }
 
 /**
@@ -112,10 +119,10 @@ function codexUnderPane(panePid, procs, kids, managedDir, nowMs) {
     const p = procs.get(pid);
     if (!p || !isManagedCodex(p.command, managedDir)) continue;
     const under = descendants(pid, kids).filter((d) => d !== pid && procs.has(d));
-    const hosts = under.filter((d) => isCodeModeHost(procs.get(d).command));
+    const hosts = under.filter((d) => isCodeModeHost(procs.get(d).command, managedDir));
     /* Anything else still running under it (a background shell job) reads idle on the card, and a restart would kill
        it (the hazard engine/automove.js names), so it waits for a pass where nothing runs. */
-    const job = under.some((d) => !isCodeModeHost(procs.get(d).command));
+    const job = under.some((d) => !isCodeModeHost(procs.get(d).command, managedDir));
     // The newest host's start time: one started after the swap is the NEW tree's host, the measured failure.
     const hostStartedAt = hosts.length ? Math.max(...hosts.map((d) => nowMs - procs.get(d).ageSec * 1000)) : null;
     return { pid, startedAt: nowMs - p.ageSec * 1000, host: hosts.length > 0, hostStartedAt, job };
@@ -136,7 +143,8 @@ function codexUnderPane(panePid, procs, kids, managedDir, nowMs) {
  *   restart(session)    async; resolves { outcome, because } (remove.restartAsync; the card shows it as a plain restart)
  *   RESTARTED           remove.OUTCOME.RESTARTED
  *   tried               a Map kept by the caller: `${pin}\t${session}` -> tries. A restart that worked spends them all
- *                       (one per agent per pin per board run); a refused one is tried again, up to MAX_TRIES
+ *                       (one per agent per pin per board run); a refused one is tried again, up to MAX_TRIES. A board
+ *                       restart empties it; a restarted agent then reads 'already-new', so it is not restarted again
  *   now                 ms (tests)
  * Returns [{ session, act }]: 'restarted' | 'refused' | 'not-idle' | 'has-host' | 'has-job' | 'held-by-move' | 'already-new' | 'tried'.
  * Agents that are not managed Codex are not listed.
@@ -175,8 +183,10 @@ async function passOnce(o) {
       /* Started after the swap: it runs the new version already. The 1 s slack is ps's etime resolution: a process a
          second either side of the swap is called old, which costs at most one restart, never a missed one. */
       if (found.startedAt > m.swappedAt + 1000) { out.push({ session, act: 'already-new' }); continue; }
-      // A host from before the swap is the old tree's (the safe case); one started after it is the new tree's.
-      if (found.host && found.hostStartedAt <= m.swappedAt + 1000) { out.push({ session, act: 'has-host' }); continue; }
+      /* A host from before the swap is the old tree's (the safe case); one started after it is the new tree's. Within a
+         second of the swap (ps etime's resolution) it cannot be told, so it counts as the new tree's: a restart, never a
+         missed one (review 2). */
+      if (found.host && found.hostStartedAt < m.swappedAt - 1000) { out.push({ session, act: 'has-host' }); continue; }
       if (found.job) { out.push({ session, act: 'has-job' }); continue; }
       const key = `${m.pin || ''}\t${session}`;
       let held = false;

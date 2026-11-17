@@ -1808,7 +1808,8 @@ function install(provider, opts) {
       /* kosmos#8598: an upgrade that proved itself records what it replaced and when, so the board's runner-restart sweep
          (engine/runnerrestart.js) restarts only agents still running the replaced version. Any other install removes the
          record: a same-version repair or a first install replaced no running version. Best effort: no record means no
-         restarts, the safe direction. */
+         restarts, the safe direction, and a write that fails leaves an older record that cannot fire (the sweep also
+         needs its `to` to be the version installed now). */
       writeUpgradeStamp(destDir, upgrading ? { from: existing.installedVersion || null, to: m.version, at: swappedAt } : null);
       // Only now, after the binary itself answered, may anything vouch for it.
       if (plat === 'win32') fs.writeFileSync(verifiedMarker(plat, provider), verifiedStamp(m) + '\n');
