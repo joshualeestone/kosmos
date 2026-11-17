@@ -938,5 +938,14 @@ unset REFUSE_N KOSMOS_VERCEL_RETRY_S FREEZE_ON_REFUSE_CLONE
 { [ "$RC" = 1 ] && [ -e "$S89.other.pushed" ] && has "$out" "refusing before the retry" && [ "$(cat "$L89/.vercel-tries")" = 1 ] && [ "$(cat "$L89/dist/latest.json")" = "$LIVE89" ]; } \
   && pass "8656: a freeze pushed while it waits to retry stops the retry: exit 1, one try, live untouched" || bad "8656 freeze during the retry wait (rc=$RC, pushed=$([ -e "$S89.other.pushed" ] && echo y || echo n), tries=$(cat "$L89/.vercel-tries" 2>/dev/null)) out=$out"
 
+# R5) with an explicit VERCEL_TOKEN (the autodeploy) a refusal is NOT retried: one try, 77 (the retry's refresh renews
+# only the CLI's own sign-in). CONTROL: R2 above, without a token, tries 4 times.
+read -r S90 L90 <<<"$(make_scenario)"
+export REFUSE_N=99 KOSMOS_VERCEL_RETRY_S=0 VERCEL_TOKEN=tok-8656
+run_deploy "$S90" "$L90" --promote
+unset REFUSE_N KOSMOS_VERCEL_RETRY_S VERCEL_TOKEN
+[ "$RC" = 77 ] && [ "$(cat "$L90/.vercel-tries")" = 1 ] && [ "$(served_ver "$L90")" = "$OLD" ] \
+  && pass "8656: with VERCEL_TOKEN a refusal is tried once: exit 77, live untouched" || bad "8656 token path (rc=$RC, tries=$(cat "$L90/.vercel-tries" 2>/dev/null), out=$out)"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

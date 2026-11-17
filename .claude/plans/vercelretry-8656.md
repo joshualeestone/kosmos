@@ -28,8 +28,13 @@ Card: #8656 (Splinter 15:3x 11-17). Owner: Baron Draxum.
   deployed"; a deploy over the freeze). exit0-2791 sets KOSMOS_VERCEL_RETRY_S=0 (its refused arms would wait 3 min).
 
 ## Cost, decided
-A box whose token is truly refused (#6771) now spends about 3 min retrying before it exits 77, as a cut does. The
-autodeploy neither counts nor parks a 77 (red once a day, site-autodeploy.sh), so it spends those minutes per tick.
+- With an explicit VERCEL_TOKEN (the autodeploy's normal path) there is ONE try, as before: the retry's refresh
+  (`vercel whoami`) renews the CLI's own sign-in, which a given token does not use, so retrying a refused token would
+  only wait 3 min to say the same 77 (review 2). Test R5; red against ecfdb47f5e (4 tries).
+- Without a token (the CLI's sign-in: both 11-17 promotes said "no VERCEL_TOKEN was given"), a box whose sign-in is
+  truly refused now spends about 3 min retrying before 77, as a cut does.
+- Weakest premise of the token rule: that a refusal of an explicit token is never transient on Vercel's side. If one
+  is, the autodeploy shows a red tick and retries on its next one; no release is held by it.
 
 ## Weakest premise
 That the refusal is the token-refresh race #7711 describes. Why Vercel refuses is still unknown; each try prints the
