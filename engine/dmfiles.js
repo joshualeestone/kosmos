@@ -28,9 +28,18 @@
  * unless the person asks for one.
  *
  * Same guards as reports.js / connections.js, deliberately: an ambiguous file is
- * refused rather than spliced into, an unreadable one is reported, nothing is ever
- * created, and it never throws.
+ * refused rather than spliced into, an unreadable one is reported, no instructions
+ * file is ever created, and it never throws.
+ *
+ * #8617 (feedback, two installs): the Files folder itself is made when the agent is
+ * made (create.js) and, for an agent made before this, when this block is written
+ * (tellAgent, which the boot sweep runs for every agent), so the page shows an empty
+ * Files list rather than none and the agent has a folder to attach from. ensureFolder
+ * makes only that one folder, inside a folder that is already there, and never
+ * through a link.
  */
+
+const fs = require('node:fs');
 
 const path = require('node:path');
 const projects = require('./projects');
@@ -102,6 +111,30 @@ function ownDir(sessionName, folder) {
      and write lines of its own into the agent's instructions (a recorded folder is only
      checked for being an absolute, real, non-link directory). */
   return /[\u0000\r\n`]/.test(dir) ? null : dir;
+}
+
+/**
+ * #8617: make the agent's Files folder if it is not there. Answers { ok, created, because }
+ * and never throws. Only the one folder is made (never its parents, so an agent with no
+ * folder of its own gets none), and a name already there is left alone: a folder is fine,
+ * and anything else (a file, or a link, even one to a folder) is not ours to replace.
+ */
+function ensureFolder(sessionName) {
+  const dir = filesDir(sessionName);
+  if (!dir) return { ok: false, created: false, because: 'it has no folder of its own on this computer' };
+  try {
+    if (!fs.statSync(path.dirname(dir)).isDirectory()) return { ok: false, created: false, because: 'its own folder is not a folder' };
+  } catch { return { ok: false, created: false, because: 'it has no folder of its own on this computer' }; }
+  try {
+    fs.mkdirSync(dir);
+    return { ok: true, created: true, because: null };
+  } catch (err) {
+    if (!err || err.code !== 'EEXIST') return { ok: false, created: false, because: String((err && err.message) || 'it could not be made') };
+  }
+  let st = null;
+  try { st = fs.lstatSync(dir); } catch { st = null; }
+  if (st && st.isDirectory()) return { ok: true, created: false, because: null };
+  return { ok: false, created: false, because: st && st.isSymbolicLink() ? 'its Files is a link to somewhere else' : 'something that is not a folder is already called Files' };
 }
 
 /**
@@ -290,6 +323,9 @@ function tellAgent(sessionName, roster, opts) {
     }
     const next = applyTo(current.text || '', sessionName);   // #4420: the block, and the pointer
     if (next === null) return { state: projects.TOLD.COULD_NOT, because: 'it has no folder of its own on this computer to name' };
+    /* #8617: the folder the block names, for an agent made before Kosmos made it at birth. Its answer does not
+       change this verdict: the block still tells the agent to create it if it is missing. */
+    ensureFolder(sessionName);
     /* Unchanged is TOLD, not a failure: the block already says this. */
     if (next === current.text) return { state: projects.TOLD.TOLD, because: null, changed: false };
     instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: WROTE_WHY });
@@ -318,4 +354,4 @@ function syncEveryone(roster) {
   return told;
 }
 
-module.exports = { START, END, TOP_START, TOP_END, FOLDER, filesDir, ownDir, blockBody, bodyFor, topLine, spliceTop, applyTo, tellAgent, syncEveryone };
+module.exports = { START, END, TOP_START, TOP_END, FOLDER, filesDir, ownDir, ensureFolder, blockBody, bodyFor, topLine, spliceTop, applyTo, tellAgent, syncEveryone };

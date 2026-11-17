@@ -7273,3 +7273,17 @@ test('#5977: a Qwen agent moves between Qwen accounts with setAccount, refuses a
   assert.equal(m.outcome, create.OUTCOME.REFUSED);
   assert.match(m.because, /change the model on the account instead/);
 });
+
+test('#8617: a new agent has its Files folder from birth, beside its instructions file, empty', () => {
+  recorder();
+  create.setDryRun(false);
+  const dmfiles = require('./dmfiles');
+  const dir = dmfiles.filesDir('files-born');
+  assert.equal(fs.existsSync(dir), false, 'PRECONDITION: no Files folder before the agent is made');
+  const made = create.createAgent({ ...BINS, name: 'files-born', role: 'pm' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  const path = require('node:path');
+  assert.equal(path.dirname(dir), path.dirname(create.instructionFile('files-born')), 'the folder sits beside the instructions file');
+  assert.ok(fs.lstatSync(dir).isDirectory(), 'the agent was made with no Files folder');
+  assert.deepEqual(fs.readdirSync(dir), [], 'the new Files folder is empty');
+});

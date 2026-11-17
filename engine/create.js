@@ -7179,6 +7179,9 @@ function createAgentInner(opts) {
     // birth brief must be routed to AGENTS.md (codex) or CLAUDE.md (claude) by
     // the runner we are creating with, not by reading it back.
     fs.writeFileSync(instructionFile(name, runner), text, 'utf8');
+    /* #8617: its Files folder from birth, so the page lists an empty Files and the agent has a folder to save and
+       attach from. Not gating: the files section still tells the agent to create it if it is missing. */
+    try { require('./dmfiles').ensureFolder(name); } catch { /* the block covers a folder that is not there */ }
   });
 
   /* #3769: the setup guide's folder is guarded BEFORE anything can start it: its marker (which the
