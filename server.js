@@ -19245,6 +19245,11 @@ const server = http.createServer(async (req, res) => {
       // The Windows hook (as=hook without at=startup) asks right after its own `started`, which the default tail holds.
       const hist = startup || as === 'hook' ? selfreport.history(name) : selfreport.history(name, selfreport.HISTORY_MAX_BYTES);
       const win = away.windowFrom(hist, { startup, nowMs: now });
+      /* kosmos#8634: a wait the agent reported before it went down, which its restart's own reports replaced on the board.
+         A wait can be a day old under a busy agent's automatic reports, past the short read, so it is looked for in the
+         long one (once per startup). */
+      let wait = null;
+      try { wait = away.lastWait(startup || as === 'hook' ? selfreport.history(name, selfreport.HISTORY_MAX_BYTES) : hist, { nowMs: now }); } catch { wait = null; }
       let digest = away.build({ name, sinceMs: NaN, untilMs: NaN });
       let unread = false;   // a record that could not be read: "nothing arrived" would then be a guess
       if (win) {
@@ -19254,17 +19259,17 @@ const server = http.createServer(async (req, res) => {
         if (!log || log.ok === false) unread = true;
         digest = away.build({ name, sinceMs: win.sinceMs, untilMs: win.untilMs, rows: log && log.ok !== false ? log.rows : [], direct, namedIn: messages.namedIn });
       }
-      if (as === 'hook') { sendText(res, 200, away.hookJson(digest)); return; }
+      if (as === 'hook') { sendText(res, 200, away.hookJson(digest, wait)); return; }
       if (as === 'text') {
         const cannot = 'Kosmos could not read every record just now, so this may not be everything; try again in a minute.';
-        const said = away.contextText(digest);
+        const said = away.contextText(digest, wait);
         if (unread) { sendText(res, 200, (said ? said + '\n' : '') + cannot + '\n'); return; }
         sendText(res, 200, (said || (win ? 'Nothing arrived for you while you were not running.'
           : hist && hist.truncated ? 'Kosmos cannot tell when you were last running: your report record is longer than it reads back.'
             : 'Kosmos has no earlier report from you, so it cannot tell when you were last running.')) + '\n');
         return;
       }
-      sendJson(res, 200, { ok: true, window: win, counts: digest.counts, lines: digest.lines, clamped: digest.clamped, ...(unread ? { unread: true } : {}) });
+      sendJson(res, 200, { ok: true, window: win, counts: digest.counts, lines: digest.lines, clamped: digest.clamped, wait, ...(unread ? { unread: true } : {}) });
     } catch { fail(500, 'we could not put together what arrived while you were away just now'); }
     return;
   }

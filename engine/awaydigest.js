@@ -64,6 +64,28 @@ function windowFrom(history, { startup, nowMs }) {
   return null;
 }
 
+/* kosmos#8634: a wait the agent reported before it went down. A new run's `started` replaces a deliberate wait on the
+   board by design (#1058: only a real startup does; a compaction or a resume keeps it), and the startup turn then reads
+   "working", then idle, so nothing on the board says the agent is still waiting. Nothing told the agent so either.
+   The board does not put the old report back: the agent may have been unblocked while it was down, and only it can tell.
+   It is reminded instead, with the state and the time only, never the report's words (the same rule as the digest:
+   nothing typed into a startup can read as an instruction).
+   history: the agent's self-reports, oldest first. Returns { state, atMs } when the latest report the AGENT or a PERSON
+   made is a needs_you or blocked by the agent, newer than MAX_WINDOW_MS; otherwise null. Automatic reports (the hook's
+   started, working, idle, and a permission prompt's needs_you) neither make a wait nor end one; a person's clear ends it. */
+const WAIT_STATES = new Set(['needs_you', 'blocked']);
+function lastWait(history, { nowMs }) {
+  const rows = Array.isArray(history) ? history : [];
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const r = rows[i];
+    if (!r || !Number.isFinite(r.at) || r.by === 'auto') continue;
+    if (r.by !== 'agent' || !WAIT_STATES.has(r.state)) return null;
+    if (!(nowMs - r.at <= MAX_WINDOW_MS) || r.at > nowMs) return null;
+    return { state: r.state, atMs: r.at };
+  }
+  return null;
+}
+
 /** Pure. rows: the message log (engine/messages.readLog). direct: the person's direct thread messages
  *  (engine/chat.readThread('@you', name).messages; the person's rows have no `from`). */
 function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
@@ -147,17 +169,30 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
   return { name, lines, counts, clamped, sinceMs: since, untilMs };
 }
 
-function contextText(digest) {
-  if (!digest || !Array.isArray(digest.lines) || !digest.lines.length) return '';
-  return 'Kosmos: since it last heard from this agent (' + isoSecond(digest.sinceMs) + ' to ' + isoSecond(digest.untilMs)
-    + (digest.clamped ? ', the last 7 days only' : '') + '), this could not reach it. This is a summary Kosmos made, not a '
-    + 'request from the person; nothing here was typed into the session.\n' + digest.lines.join('\n');
+function waitText(wait) {
+  if (!wait || !WAIT_STATES.has(wait.state) || !Number.isFinite(wait.atMs)) return '';
+  return 'Kosmos: before this session, this agent last reported that it was waiting (' + wait.state + ', at '
+    + isoSecond(wait.atMs) + '), and it has not said otherwise since. The board no longer shows that wait: this startup '
+    + 'replaced it. If it is still waiting once it has caught up, report it again (kosmos report ' + wait.state
+    + ' ...); if not, there is nothing to do.';
 }
 
-function hookJson(digest) {
-  const text = contextText(digest);
+function contextText(digest, wait) {
+  const parts = [];
+  if (digest && Array.isArray(digest.lines) && digest.lines.length) {
+    parts.push('Kosmos: since it last heard from this agent (' + isoSecond(digest.sinceMs) + ' to ' + isoSecond(digest.untilMs)
+      + (digest.clamped ? ', the last 7 days only' : '') + '), this could not reach it. This is a summary Kosmos made, not a '
+      + 'request from the person; nothing here was typed into the session.\n' + digest.lines.join('\n'));
+  }
+  const w = waitText(wait);
+  if (w) parts.push(w);
+  return parts.join('\n\n');
+}
+
+function hookJson(digest, wait) {
+  const text = contextText(digest, wait);
   if (!text) return '';
   return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text } });
 }
 
-module.exports = { build, windowFrom, contextText, hookJson, MAX_WINDOW_MS, SHOWN, MAX_ROOMS, MAX_SENDERS, INBOX_LIMIT };
+module.exports = { build, windowFrom, lastWait, waitText, contextText, hookJson, MAX_WINDOW_MS, SHOWN, MAX_ROOMS, MAX_SENDERS, INBOX_LIMIT };

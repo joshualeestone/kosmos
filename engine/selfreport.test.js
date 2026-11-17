@@ -487,9 +487,17 @@ test('#5297 history: every state and time in the tail, oldest first; a bad line 
   assert.ok(h.every((r) => Number.isFinite(r.at)));
   assert.ok(h[0].at <= h[1].at && h[1].at <= h[2].at);
   assert.equal(h.truncated, false, 'a short record read as cut');
-  // #5635 F2: an operator's clear carries its mark; the agent's own rows carry none.
+  // #5635 F2: an operator's clear carries its mark. kosmos#8634: so do the agent's own rows and the hook's automatic ones,
+  // so a reader can tell an agent's own wait from an automatic one (engine/awaydigest.lastWait).
   selfreport.record('hist-5297', { state: 'idle', because: 'cleared', by: 'operator' });
   const h2 = selfreport.history('hist-5297');
   assert.equal(h2[h2.length - 1].by, 'operator', 'an operator clear lost its mark');
-  assert.ok(h2.slice(0, -1).every((r) => r.by === undefined), 'an agent row carries a by');
+  assert.ok(h2.slice(0, -1).every((r) => r.by === 'agent'), 'an agent row lost its mark');
+  // On its own session (an automatic report may not replace the standing needs_you above, by design):
+  selfreport.record('hist-8634', { state: 'working', because: 'answering a prompt', auto: true });
+  fs.appendFileSync(selfreport.fileFor('hist-8634'), JSON.stringify({ state: 'blocked', at: new Date().toISOString() }) + '\n');
+  const h3 = selfreport.history('hist-8634');
+  assert.equal(h3[0].by, 'auto', 'an automatic row lost its mark');
+  // A line with no author (written before authors were recorded) carries none, never a guess.
+  assert.equal(h3[1].by, undefined, 'an authorless row was given an author');
 });
