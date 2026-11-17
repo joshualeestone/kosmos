@@ -89,3 +89,14 @@ test('on a Mac: past the end, a missing file and a file that is not a PDF are nu
   assert.equal(await pdfpages.render(notPdf, 1, path.join(SB, 'words.png')), false);
   assert.deepEqual(fs.readdirSync(SB).filter((n) => /^(past|words)\.png|tmp/.test(n)), []);
 });
+
+test('keepNewestPages: keeps the newest matching files up to the limit, and touches nothing else', () => {
+  const d = fs.mkdtempSync(path.join(SB, 'keep-'));
+  const t0 = Date.now() - 100000;
+  for (let i = 1; i <= 5; i++) { const f = path.join(d, '.pdf-page-' + i + '.png'); fs.writeFileSync(f, String(i)); fs.utimesSync(f, new Date(t0 + i * 1000), new Date(t0 + i * 1000)); }
+  fs.writeFileSync(path.join(d, 'preview.png'), 'first');
+  fs.writeFileSync(path.join(d, 'deck.pdf'), 'the upload');
+  pdfpages.keepNewestPages(d, /^\.pdf-page-\d+\.png$/, 2);
+  assert.deepEqual(fs.readdirSync(d).sort(), ['.pdf-page-4.png', '.pdf-page-5.png', 'deck.pdf', 'preview.png']);
+  pdfpages.keepNewestPages(path.join(d, 'missing'), /x/, 1);   // a folder that is gone is not an error
+});

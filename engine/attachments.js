@@ -420,7 +420,10 @@ async function previewFile(rec, opts) {
   if (page > 1) {
     if (!pages || page > pages) return { ok: false, because: 'there is no such page' };
     const outN = path.join(rec.dir, pageFile(page));
-    if (!fs.existsSync(outN) && !(await pdfpages.render(rec.file, page - 1, outN))) return { ok: false, because: 'this computer could not draw that page' };
+    if (!fs.existsSync(outN)) {
+      if (!(await pdfpages.render(rec.file, page - 1, outN))) return { ok: false, because: 'this computer could not draw that page' };
+      pdfpages.keepNewestPages(rec.dir, /^\.pdf-page-\d+\.png$/);
+    }
     return { ok: true, type: 'image/png', file: outN, unread: 'this computer could not draw that page', pages };
   }
   const out = path.join(rec.dir, 'preview.png');

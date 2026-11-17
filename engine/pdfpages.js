@@ -12,6 +12,7 @@
  * it did before this card.
  */
 const fs = require('node:fs');
+const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const TIMEOUT_MS = 10000;
@@ -79,6 +80,18 @@ function render(file, index, out) {
   return p;
 }
 
+/* At most this many later pages are kept per PDF (review 4): flipping through a long PDF must not leave hundreds of
+   pictures beside it. The oldest drawn go first; one asked for again is simply drawn again. */
+const KEEP_PAGES = 40;
+/** Removes the oldest of the files in `dir` whose names match `pattern` until at most `keep` remain. Best effort. */
+function keepNewestPages(dir, pattern, keep = KEEP_PAGES) {
+  let found = [];
+  try { found = fs.readdirSync(dir).filter((n) => pattern.test(n)); } catch { return; }
+  if (found.length <= keep) return;
+  const aged = found.map((n) => { let t = 0; try { t = fs.statSync(path.join(dir, n)).mtimeMs; } catch { t = 0; } return { n, t }; }).sort((a, b) => a.t - b.t);
+  for (const { n } of aged.slice(0, aged.length - keep)) { try { fs.rmSync(path.join(dir, n), { force: true }); } catch { /* next time */ } }
+}
+
 /** The page asked for in a preview address: 1 when none is given, the number for a whole number from 1 (written
     without a leading zero, at most five digits), null for anything else (the routes answer 404). */
 function pageOf(raw) {
@@ -86,4 +99,4 @@ function pageOf(raw) {
   return /^[1-9]\d{0,4}$/.test(s) ? Number(s) : (s === '' ? 1 : null);
 }
 
-module.exports = { count, render, available, pageOf, setImplForTest, MAX_PAGES };
+module.exports = { count, render, available, pageOf, keepNewestPages, setImplForTest, MAX_PAGES };

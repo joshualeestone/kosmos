@@ -248,3 +248,21 @@ test('Files list: flipping a PDF whose first page was never drawn counts once, n
   }
   assert.equal(seam.counts.length, 1);
 });
+
+test('Files list: an image and a text file answer a HEAD and a page number as before (the page logic is a PDF\'s only)', async () => {
+  reset(3);
+  fs.writeFileSync(path.join(FILES, 'pic.png'), PNG);
+  fs.writeFileSync(path.join(FILES, 'words.txt'), 'hello words');
+  for (const [name, type] of [['pic.png', /^image\/png/], ['words.txt', /^text\/plain/]]) {
+    for (const [method, q] of [['HEAD', ''], ['GET', '&page=abc'], ['GET', '&page=2']]) {
+      const r = await fetch(filesUrl(name, q), { method });
+      assert.equal(r.status, 200, name + ' ' + method + q);
+      assert.match(r.headers.get('content-type') || '', type);
+      assert.equal(r.headers.get('x-kosmos-pdf-pages'), null);
+      await r.arrayBuffer();
+    }
+  }
+  const got = await (await fetch(filesUrl('words.txt'))).text();
+  assert.equal(got, 'hello words', 'CONTROL: the text itself');
+  assert.equal(seam.counts.length, 0, 'a non-PDF was counted');
+});

@@ -257,6 +257,7 @@ async function laterPage(got, dir, hash, page, owner) {
       // pdfpages.render draws to a temporary name beside `out` and renames it into place whole (a picture that can
       // always be drawn again, so a move, like the first page's, not a flushed save).
       if (!(await pdfpages.render(copy, page - 1, out))) return false;
+      pdfpages.keepNewestPages(dir, new RegExp('^' + hash + '-p\\d+\\.png$'));
       noteSource(dir, got.target, owner);   // #5254: so sweep can tell when the PDF goes
       return true;
     });
