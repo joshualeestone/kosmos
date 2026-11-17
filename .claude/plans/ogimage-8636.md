@@ -32,6 +32,11 @@
   nobody scrolls to, not only when the page draws the card: one extra fetch per previewed link, capped at IMAGE_MAX
   and held in the existing 32 MB image cache.
 
+- Pictures and page previews share one cache; only pictures are evicted for the 32 MB byte budget, so picture
+  bytes can never push a card's page preview out. At most four picture fetches run at once.
+- A card first fetched moments ago waits (up to 10 s) for its picture's verdict; an older card whose verdict is not
+  known (a board just started, a verdict dropped) is carried with its words while its picture is fetched.
+
 ## Weakest part
 - "Takes forever" was not reproduced: every fetch measured was under half a second. The likely cause is the picture
   being fetched only on draw, which this removes; a real-board check with Josh's sites is still owed.

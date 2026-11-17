@@ -6024,6 +6024,7 @@ const FORM_TYPES = new Set([
    for the internet. A refusal or "nothing to show" attaches nothing: absence
    is how the page draws a link that stays a link. The image is this board's
    own path, never the site's. `opts.bare === false` (kosmos#7861) previews only links typed with http(s). */
+const PREVIEW_PICTURE_WAIT_MS = 10 * 1000;   // kosmos#8636: how long a new card waits for its picture's verdict
 function withPreviews(rows, opts) {
   const bareAllowed = !(opts && opts.bare === false);
   if (!Array.isArray(rows)) return rows;
@@ -6051,7 +6052,13 @@ function withPreviews(rows, opts) {
     let image = '';
     if (hit.image) {
       const state = unfurl.imageState(hit.image);
-      if (state === null) { unfurl.warmImage(hit.image); continue; }
+      if (state === null) {
+        unfurl.warmImage(hit.image);
+        // A card first seen moments ago waits for its picture; an older one (a board just started, a verdict dropped)
+        // keeps its words meanwhile, so a card already on screen does not vanish for a poll.
+        const age = Date.now() - Date.parse(hit.fetchedAt || '');
+        if (!(age > PREVIEW_PICTURE_WAIT_MS)) continue;
+      }
       if (state === 'good') image = '/api/unfurl/image?url=' + encodeURIComponent(hit.image);
     }
     r.preview = {

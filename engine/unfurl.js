@@ -69,16 +69,19 @@ function remember(key, value) {
   while (cache.size >= CACHE_MAX) drop(cache.keys().next().value);
   imageBytes += sizeOf(value);
   /* Images are bytes: evict oldest until the budget holds, so two hundred
-     five-megabyte images cannot sit in memory for ten minutes. */
-  while (imageBytes > IMAGE_CACHE_BYTES && cache.size) {
-    const oldest = cache.keys().next().value;
-    if (oldest === key) break;
+     five-megabyte images cannot sit in memory for ten minutes. kosmos#8636: only
+     images (with bytes) go for the byte budget, never a page preview, which frees
+     no bytes and whose loss would take a whole card off the room. */
+  while (imageBytes > IMAGE_CACHE_BYTES) {
+    let oldest = null;
+    for (const [k, v] of cache) { if (k !== key && sizeOf(v.value) > 0) { oldest = k; break; } }
+    if (oldest === null) break;
     drop(oldest);
   }
   cache.set(key, { at: Date.now(), value });
   return value;
 }
-function resetForTests() { cache.clear(); knownImages.clear(); imageFlights.clear(); imageBytes = 0; fetcher = (url, opts) => fetch(url, opts); resolver = (host) => dns.lookup(host, { all: true }); }
+function resetForTests() { cache.clear(); knownImages.clear(); imageFlights.clear(); imagesRunning = 0; imagesWaiting.length = 0; imageBytes = 0; fetcher = (url, opts) => fetch(url, opts); resolver = (host) => dns.lookup(host, { all: true }); }
 
 /** Is this address one that must never be fetched from here? */
 function privateAddress(ip) {
@@ -484,16 +487,16 @@ function peekBare(httpsUrl) {
   return p && (p.ok || !unreached(p.because)) ? p : null;
 }
 
+/* kosmos#8636: the one test of whether a picture's failed fetch may be a passing one: unreached() (not reached, too
+   slow, a 5xx), or a name that did not resolve, which may be a moment's DNS trouble. Only for a picture's verdict:
+   unreached() also decides a bare address's http fallback, where a name that does not resolve must not count. */
+function passingForPicture(because) { return unreached(because) || because === 'that site could not be found'; }
 /* kosmos#8636 (Josh 11-17: a link preview's picture "keeps not rendering", a broken "?" box 17 minutes on): whether a
    preview's image could be fetched, kept apart from the bytes (which the image cache drops after ten minutes or
    when over its budget) for a day, so dropped bytes never decide whether a card has its picture, and the last answer
    decides while a newer one is fetched. At most KNOWN_MAX addresses, oldest dropped first. A verdict that ages out or
    is dropped is fetched again, and the card waits for it as it did the first time. `passing` (the site not reached,
    too slow, a 5xx, a read that broke off) never turns a picture that loaded into one that did not. */
-/* kosmos#8636: the one test of whether a picture's failed fetch may be a passing one: unreached() (not reached, too
-   slow, a 5xx), or a name that did not resolve, which may be a moment's DNS trouble. Only for a picture's verdict:
-   unreached() also decides a bare address's http fallback, where a name that does not resolve must not count. */
-function passingForPicture(because) { return unreached(because) || because === 'that site could not be found'; }
 const KNOWN_MS = 24 * 60 * 60 * 1000;
 const KNOWN_MAX = 1000;
 const knownImages = new Map();
@@ -552,11 +555,18 @@ function warm(raw, opts) {
     already running, if any; it resolves to image()'s answer, or undefined if it threw), or null when the answer is
     already cached. */
 const imageFlights = new Map();
+/* At most IMAGE_AT_ONCE picture fetches run together (each may hold IMAGE_MAX in memory before the cache budget
+   applies); the rest wait their turn. */
+const IMAGE_AT_ONCE = 4;
+let imagesRunning = 0;
+const imagesWaiting = [];
+function imageTurn() { return imagesRunning < IMAGE_AT_ONCE ? (imagesRunning++, Promise.resolve()) : new Promise((r) => imagesWaiting.push(r)); }
+function imageDone() { const next = imagesWaiting.shift(); if (next) next(); else imagesRunning--; }
 function warmImage(raw) {
   const key = String(raw);
   if (imageFlights.has(key)) return imageFlights.get(key);
   if (cached('i:' + key)) return null;
-  const p = image(key).catch(() => undefined).finally(() => imageFlights.delete(key));
+  const p = imageTurn().then(() => image(key).finally(imageDone)).catch(() => undefined).finally(() => imageFlights.delete(key));
   imageFlights.set(key, p);
   return p;
 }

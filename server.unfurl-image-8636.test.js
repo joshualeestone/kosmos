@@ -134,3 +134,23 @@ test('the picture route shares a fetch of that picture already running, instead 
   assert.equal((await res.arrayBuffer()).byteLength, PNG.length);
   assert.equal(pics, 1, 'the route fetched the picture a second time');
 });
+
+test('a new card waits for its picture, but one older than the wait keeps its words while the picture is fetched', async () => {
+  unfurl.setFetcher(async (url) => {
+    calls.push(String(url));
+    if (url === 'https://hang8636.com/') return pageWith('Hanging picture', '/og.png');
+    if (url === 'https://hang8636.com/og.png') return new Promise(() => {});   // never answers
+    throw new Error('no such page in the fixture: ' + url);
+  });
+  const realNow = Date.now;
+  try {
+    const reads = await postAndReadAll('see https://hang8636.com/ now', 0);
+    assert.ok(reads.every((r) => !r || !r.preview), 'a new card came before its picture was known');
+    assert.ok(calls.includes('https://hang8636.com/og.png'), 'CONTROL: the picture is being fetched');
+    Date.now = () => realNow() + 11 * 1000;
+    const later = (await (await fetch(base() + '/api/agent/' + encodeURIComponent(AGENT) + '/thread')).json()).messages.find((x) => x.text === 'see https://hang8636.com/ now');
+    assert.ok(later && later.preview, 'an older card still waits for its picture, so it would vanish from the room');
+    assert.equal(later.preview.title, 'Hanging picture');
+    assert.equal(later.preview.image, '', 'a picture not known to load was put on the card');
+  } finally { Date.now = realNow; }
+});

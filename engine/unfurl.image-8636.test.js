@@ -205,3 +205,34 @@ test('warm releases the page\'s in-flight entry without waiting for its picture'
   assert.ok(calls.slice(before).filter((u) => u === 'https://site8636.com/').length >= 2, 'the page stayed in flight while its picture hung');
   release();
 });
+
+test('pictures over the byte budget push out older pictures only, never a page preview', async () => {
+  const pages = [];
+  unfurl.setFetcher(async (url) => {
+    calls.push(String(url));
+    if (/\/page\d+$/.test(url)) return answer(200, 'text/html', Buffer.from('<head><meta property="og:title" content="P"></head>'));
+    return answer(200, 'image/png', Buffer.alloc(unfurl.IMAGE_MAX));   // 5 MB each
+  });
+  for (let i = 0; i < 5; i++) { const u = 'https://pages8636.com/page' + i; await unfurl.preview(u); pages.push(u); }
+  for (let i = 0; i < 8; i++) await unfurl.image('https://pics8636.com/' + i + '.png');   // 40 MB, over the 32 MB budget
+  for (const u of pages) assert.ok(unfurl.peek(u) && unfurl.peek(u).ok, 'a page preview was evicted for picture bytes: ' + u);
+  assert.equal(await unfurl.image('https://pics8636.com/7.png').then((r) => r.ok), true, 'CONTROL: the newest picture is still cached');
+  const before = calls.length;
+  await unfurl.image('https://pics8636.com/0.png');
+  assert.equal(calls.length, before + 1, 'CONTROL: the oldest picture was the one evicted (fetched again)');
+});
+
+test('at most four picture fetches run at once; the rest wait their turn', async () => {
+  const releases = [];
+  unfurl.setFetcher(async (url) => { calls.push(String(url)); return new Promise((r) => releases.push(() => r(answer(200, 'image/png', PNG)))); });
+  const all = [];
+  for (let i = 0; i < 7; i++) all.push(unfurl.warmImage('https://many8636.com/' + i + '.png'));
+  await settle();
+  assert.equal(calls.length, 4, 'more than four ran at once');
+  releases.splice(0, 4).forEach((f) => f());
+  await settle();
+  assert.equal(calls.length, 7, 'the waiting fetches never ran');
+  releases.forEach((f) => f());
+  const got = await Promise.all(all);
+  assert.ok(got.every((g) => g && g.ok), 'a queued fetch did not resolve to its picture');
+});
