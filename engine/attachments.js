@@ -430,7 +430,7 @@ async function pdfPageCount(rec) {
   const at = path.join(rec.dir, 'pages.txt');
   try { const n = Number(fs.readFileSync(at, 'utf8').trim()); if (Number.isInteger(n) && n >= 1 && n <= pdfpages.MAX_PAGES) return n; } catch { /* not counted yet */ }
   const n = await pdfpages.count(rec.file);
-  if (n) { try { fs.writeFileSync(at + '.' + process.pid + '.tmp', String(n)); fs.renameSync(at + '.' + process.pid + '.tmp', at); } catch { /* counted again next time */ } }
+  if (n) { try { store.saveFlushed(at, String(n)); } catch { /* counted again next time */ } }   // #5434: flushed before it is the file
   return n;
 }
 

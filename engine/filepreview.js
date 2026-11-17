@@ -227,8 +227,8 @@ async function pageCount(got, dir, hash) {
   const n = await withPrivateCopy(got, dir, (copy) => pdfpages.count(copy));
   if (!ok(n)) return null;
   if (fs.existsSync(path.join(dir, hash + '.png'))) {
-    const tmp = at + '.' + process.pid + '.tmp';
-    try { fs.writeFileSync(tmp, String(n)); fs.renameSync(tmp, at); } catch { try { fs.rmSync(tmp, { force: true }); } catch { /* gone */ } }
+    // #5434: flushed before it becomes the file, 0600 like the source record beside it
+    try { require('./securewrite').writeSecret(at, String(n), 0o600, { atomicOnly: true }); } catch { /* counted again next time */ }
   }
   return n;
 }
@@ -243,11 +243,11 @@ async function laterPage(got, dir, hash, page, owner) {
   }
   const out = path.join(dir, hash + '-p' + page + '.png');
   if (!fs.existsSync(out)) {
-    const made = await withPrivateCopy(got, dir, async (copy, work) => {
-      const drawn = path.join(work, 'page.png');
-      if (!(await pdfpages.render(copy, page - 1, drawn))) return false;
+    const made = await withPrivateCopy(got, dir, async (copy) => {
       dropOtherStamps(dir, hash);
-      fs.renameSync(drawn, out);
+      // pdfpages.render draws to a temporary name beside `out` and renames it into place whole (a picture that can
+      // always be drawn again, so a move, like the first page's, not a flushed save).
+      if (!(await pdfpages.render(copy, page - 1, out))) return false;
       noteSource(dir, got.target, owner);   // #5254: so sweep can tell when the PDF goes
       return true;
     });

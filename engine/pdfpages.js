@@ -85,4 +85,4 @@ function pageOf(raw) {
   return /^[1-9]\d{0,4}$/.test(s) ? Number(s) : (s === '' ? 1 : null);
 }
 
-module.exports = { count, render, available, pageOf, setImplForTest, SCRIPT, MAX_PAGES };
+module.exports = { count, render, available, pageOf, setImplForTest, MAX_PAGES };
