@@ -116,7 +116,6 @@ function descendants(root, kids) {
   return out;
 }
 
-/** True when this command runs a program from the managed Codex folder (the stable link or the tree behind it). */
 /* The folder as Kosmos names it and, when they differ, as the filesystem resolves it: Codex finds its vendored host
    through its own resolved path, so a symlink anywhere above the managed folder puts the real path on the host's
    command line (review 7). managedDir may be one path or a list of them. */
@@ -124,6 +123,7 @@ function prefixes(managedDir) {
   return (Array.isArray(managedDir) ? managedDir : [managedDir]).filter(Boolean)
     .map((d) => (d.endsWith(path.sep) ? d : d + path.sep));
 }
+/** True when this command runs a program from the managed Codex folder (the stable link or the tree behind it). */
 function isManagedCodex(command, managedDir) {
   return prefixes(managedDir).some((dir) => runsProgram(command, dir, 'codex'));
 }
