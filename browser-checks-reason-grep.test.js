@@ -520,6 +520,7 @@ const SITE_COUNTS = {
   'render-swarm-ui-3564.js': [2, 0],
   'render-switch-claude-5091.js': [1, 1],
   'render-talk-anchor-1926.js': [1, 1],
+  'render-talk-readfail-8629.js': [1, 1],
   'render-talk.js': [1, 0],
   'render-task-receipt-prs-6842.js': [2, 1],
   'render-taskhover-4880.js': [1, 0],

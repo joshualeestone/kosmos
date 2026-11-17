@@ -44922,6 +44922,23 @@ function paintTalkThread(body, name) {
     else if (filtering) convPause();   // #5624 review 1: a search shows a subset; after it, re-mark rather than read late
   }
 }
+/* #8629: the one line a failed poll adds UNDER the rows it keeps (null text removes it). At the thread's end,
+   so neither adding nor removing it moves a reader above it; a reader at the floor is kept on the floor, so the
+   line is not left below the fold. Plain text (textContent), never markup: the detail is the server's words. */
+function dmReadFailLine(th, text) {
+  if (!th || typeof th.querySelector !== 'function') return;
+  let line = th.querySelector(':scope > p.dm-readfail');
+  if (text === null) { if (line) line.remove(); return; }
+  const atFloor = threadAtBottom(th);
+  if (!line) {
+    line = document.createElement('p');
+    line.className = 'dmnone dm-readfail';
+    line.setAttribute('role', 'status');
+    th.appendChild(line);
+  }
+  line.textContent = text;
+  if (atFloor) pinToBottom(th);
+}
 async function paintTalk(sessionName, agentName) {
   const box = document.getElementById('d-talk-box');
   if (!box) return;
@@ -45055,18 +45072,42 @@ async function paintTalk(sessionName, agentName) {
        this box at y=454; and before the fix rook's panel read "We cannot show
        this conversation. No agent by that name." over a visible card named
        rook. */
-    setThread(document.getElementById('d-dmthread'), '<p class="dmnone">'
-      + (standing
-        ? 'We cannot show a conversation for this name.'
-        : 'We could not read this conversation just now. ('
-          + esc((err && err.message) || 'no detail') + ')')
-      + '</p>', null);
+    /* 🛑 #8629 (Josh, 2026-11-17 09:02: "it jumps around and tries to jump down to the bottom or somewhere
+       different"). ONE FAILED POLL WHILE MESSAGES ARE ON SCREEN KEEPS THEM ON SCREEN. This arm used to replace
+       the whole thread with the sentence below, which collapsed the box, threw a scrolled-up reader's place
+       away, and on the next good poll put them back by a PIXEL offset (a note carries no anchor, setThread's
+       #1037 rule). Measured in WebKit and Chromium on a real 200-message DM, the reader in the middle of a
+       long message 6 from the end: one failed read = the conversation gone for a poll and back; one failed
+       read with a message arriving meanwhile = back 534 px off, on different words. On this computer a
+       poll almost never fails, so every local check held still; a board reached over the network fails
+       a poll now and then, which is where Josh reads. So a TRANSIENT failure over a list leaves the rows
+       alone and says so in one line at the thread's END, below the reader, where adding or removing it
+       moves nothing they are reading. The standing refusal, and a box with no list yet, still paint the
+       sentence alone, as before: there is nothing on screen to keep. */
+    const failTh = document.getElementById('d-dmthread');
+    const keepRows = !standing && failTh && failTh.__lastCount !== null && failTh.__lastCount !== undefined
+      && !!failTh.querySelector('[data-mid]');
+    if (keepRows) {
+      dmReadFailLine(failTh, 'We could not read this conversation just now, so this may not be the newest. ('
+        + ((err && err.message) || 'no detail') + ')');
+    } else {
+      setThread(failTh, '<p class="dmnone">'
+        + (standing
+          ? 'We cannot show a conversation for this name.'
+          : 'We could not read this conversation just now. ('
+            + esc((err && err.message) || 'no detail') + ')')
+        + '</p>', null);
+    }
     document.getElementById('d-qask').hidden = true;
     /* ⚠️ AND THE TWO SENTENCES FROM THE LAST GOOD PAINT. "5 older messages are
        still kept" standing over "we could not read this conversation" is the
        screen asserting a count it just said it could not see. */
-    document.getElementById('d-dmoff').hidden = true;
-    document.getElementById('d-talk-older').hidden = true;
+    /* #8629: only when the rows went. Kept rows are still what these two lines describe, and
+       #d-talk-older sits ABOVE the thread, so hiding it would slide the reader up by its height. */
+    if (!keepRows) {
+      document.getElementById('d-dmoff').hidden = true;
+      document.getElementById('d-talk-older').hidden = true;
+    }
     /* ⚠️ AND THE REPLY-LOCATION LINE, WHICH IS THE SAME CONTRADICTION AGAIN,
        reintroduced two elements above the comment that records fixing it. "Dan
        will see this in their own window" is a promise about an agent, printed
@@ -45386,6 +45427,7 @@ async function paintTalk(sessionName, agentName) {
   const thread = document.getElementById('d-dmthread');
   thread.__lastBody = body; thread.__lastName = name; thread.__lastSession = sessionName;
   thread.__readFailed = false;   // kosmos#5841
+  dmReadFailLine(thread, null);   // #8629: the read worked, so the line saying it did not goes
   /* kosmos#5841: a thread that SHRANK below the earlier rows' end (a file set aside) would duplicate them: close. */
   if (earlierOn(sessionName) && Array.isArray(body.messages) && (Number(body.olderCount) || 0) < EARLIER.end) earlierReset(sessionName);   // a FAILED read reports olderCount 0: not a shrink
   paintTalkThread(body, name);
