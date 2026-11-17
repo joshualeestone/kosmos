@@ -7,7 +7,7 @@ Many agents read "unknown model" and the model picker did nothing; the tab had b
 - A tab that LOADS signed out says "This board is not signed in" on every view (#2023/#6358): no "unknown model".
 - A tab already on an agent's page when it is signed out (a restart or an update does that) said nothing: it kept its
   last reading, "Can't tell", and the Model section's Switch & Restart and Move, which the board then refuses. That is
-  the report's path. Screenshots in the session's scratch (before/after).
+  the report's path.
 
 ## Change
 - web/index.html: `#d-signedout`, one note above the agent page's sections (its words live once, in paintDetailSignedOut:
@@ -49,6 +49,10 @@ any surface drawn from what the page last read; it is pinned by the unit test, n
   a projects read fails another way, modelLine's wording can read "Unknown Model" until the next status poll while the
   note stays up. Cosmetic, and it self-heals on the next poll.
 - After a sign-in the note and the lock clear on the next status poll, at most 5 s later (setInterval(tick, 5000)).
+- Focus never falls to the page on the lock and unlock transitions. A change of kind while the note is shown (this
+  computer's page to a relay sign-out, or back) rewrites it, and a focused Sign in button there then loses focus. Rare.
+- For an agent whose model was never read, the Model section's "Runs on" line and the model menu's selected option read
+  "Signed out: sign in to see its model" (modelLine's sentence). The menu's value stays empty, so its switch stays off.
 
 ## Not done
 Only the Model section is made inert. Other sections' writes (Instructions, Remove, Memory's Compact/Clear) are also
