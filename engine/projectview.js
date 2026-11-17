@@ -444,6 +444,7 @@ function overviewOf(p, roster, o) {
     : ((name) => { try { return require('./selfreport').history(name); } catch { return null; } }));
   const folderOf = opts.folderOf || ((name) => { try { return require('./create').workerDir(name); } catch { return null; } });
   const readBrief = opts.readBrief || require('./brief').readBrief;
+  const BRIEF_LIMIT = require('./brief').MAX_BYTES;
   // Read once, and only when a member reaches busyElsewhere (review 3).
   let allRead = false; let all = null;
   const allProjects = () => {
@@ -494,6 +495,11 @@ function overviewOf(p, roster, o) {
     done: brief.done,
     doneSection: brief.doneSection !== false,   // #4583: a brief with no Done section says so; unknown (absent) keeps the old words
     briefFound: brief.found === true,
+    /* kosmos#8663: why nothing was read ('missing', 'symlink', 'not_a_file', 'too_large', 'unreadable'), and for a
+       brief too large to read its size and the limit, so `project show` can say which instead of "no readable brief". */
+    briefWhy: brief.found === true ? null : (typeof brief.why === 'string' ? brief.why : null),
+    briefBytes: brief.found !== true && brief.why === 'too_large' && Number.isFinite(brief.size) ? brief.size : null,
+    briefLimit: BRIEF_LIMIT,
     members,
     tasks: openTasks(p.tasks),
     records: recordsSummary(p.id),
@@ -663,8 +669,18 @@ function renderShow(payload) {
   if (p.testOnly === true) out.push('Test project: its agents do only what they are asked, and Kosmos asks none of them to add tasks for it. Turn it off: kosmos project test ' + one(p.id) + ' off');
   /* The brief is a file anyone on the project can edit, so its words are quoted as written there, never
      presented as an instruction (the Assigner quotes the goal the same way, engine/assigner.js). */
+  /* kosmos#8663: say WHY no brief was read. An older board sends no briefWhy and keeps the old sentence. */
+  const kb = (n) => Math.ceil(n / 1024) + ' KB';
   if (!p.briefFound) {
-    out.push('Brief: there is no readable BRIEF.md in the folder, so no goal or "done" is written down.');
+    out.push(p.briefWhy === 'symlink'
+      ? 'Brief: BRIEF.md in the folder is a link to another file, and Kosmos reads only a file kept in the folder itself, so no goal or "done" is read.'
+      : p.briefWhy === 'not_a_file'
+        ? 'Brief: BRIEF.md in the folder is not a file (a folder or something else), so no goal or "done" is read.'
+        : p.briefWhy === 'too_large' && Number.isFinite(p.briefBytes) && Number.isFinite(p.briefLimit)
+          ? 'Brief: BRIEF.md is ' + kb(p.briefBytes) + ', over the ' + kb(p.briefLimit) + ' Kosmos reads, so no goal or "done" is read. Shorten it, or move notes out of it into another file.'
+          : p.briefWhy === 'unreadable'
+            ? 'Brief: Kosmos could not read BRIEF.md just now, so no goal or "done" is read. Check that you can open it.'
+            : 'Brief: there is no readable BRIEF.md in the folder, so no goal or "done" is written down.');
   } else {
     /* Double quotes inside become single (round 1), so the brief's words cannot close the quotation early and read
        as Kosmos's own; the same rule as a webhook task's words (install/kosmos task list). */
