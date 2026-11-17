@@ -96,13 +96,14 @@ function stateDir() { return path.join(store.ROOT, 'win32-state'); }
    profile can never be filed under two spellings of one name. */
 function statePath(name) { return path.join(stateDir(), store.safeKey(name) + '.json'); }
 
-/* kosmos#8658: when the agent's supervisor last wrote its state file (it writes one the moment a run starts, a crash
-   relaunch included), in ms, or null when there is none it can read. The board's starting check reads it. */
-function writtenAt(name) {
+/* kosmos#8658: when the agent's current run began (the supervisor sets it the moment a run starts, a crash relaunch
+   included, and keeps it on every later write), in ms, or null when the file has none it can read. The board's
+   starting check reads it. */
+function startedAt(name) {
   let rec;
   try { rec = JSON.parse(fs.readFileSync(statePath(name), 'utf8')); } catch { return null; }
   if (!rec || typeof rec !== 'object' || rec.v !== STATE_FILE_VERSION) return null;
-  const at = Date.parse(rec.at);
+  const at = Date.parse(rec.startedAt);
   return Number.isFinite(at) ? at : null;
 }
 
@@ -712,7 +713,7 @@ function publisher(name, opts) {
   }
   function flush() {
     if (!current || written === keyOf(current)) { retrying = false; return; }
-    const rec = { v: STATE_FILE_VERSION, state: current.state, sessionId: current.sessionId, pid: current.pid, at: new Date().toISOString() };
+    const rec = { v: STATE_FILE_VERSION, state: current.state, sessionId: current.sessionId, pid: current.pid, startedAt: current.startedAt, at: new Date().toISOString() };   // kosmos#8658: startedAt, when this run began
     if (current.limit) rec.limit = current.limit;
     /* kosmos#7368: while busy, when the agent last showed any activity and the step it is on; and, busy or not, how many
        messages were written into it while it was busy and are not yet taken (they survive a board restart here). */
@@ -751,7 +752,7 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map() };
+      current = { pid, sessionId, startedAt: new Date(nowMs()).toISOString(), state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map() };
       flush();
     },
     /** One parsed stream event. */
@@ -873,4 +874,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { writtenAt, STEP_CLOCK_MS, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
+module.exports = { startedAt, STEP_CLOCK_MS, BUSY, IDLE, STREAM_IDLE, STATE_FILE_VERSION, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, liveNames, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };
