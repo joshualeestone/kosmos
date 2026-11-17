@@ -826,10 +826,6 @@ function superviseStreaming(spec, opts) {
     onEvent(Object.assign({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId },
       r.tokenBecause ? { because: 'it has no reporting token: ' + r.tokenBecause } : {}));
     if (!r.resumed) pruneEndedRows(r.sessionId);   // a resume adds no row, so it has nothing to prune
-    /* kosmos#8658: a resume re-stamps its OWN row (same id, so no second row), so the board knows the agent has only
-       just started and waits for it rather than refusing a message as sent to nobody (server.js startingAgent). Best
-       effort: the run is already up, and the old row still names it. */
-    else { try { sessions.record(r.sessionId, { name: s.name, runner: s.runner }); } catch { /* best effort */ } }
     /* #2281: a fresh start AND a resume can both land on an untrusted folder (the
        trust write can be dropped by a live Claude Code save, or revoked while the
        agent was down), so both are checked. */

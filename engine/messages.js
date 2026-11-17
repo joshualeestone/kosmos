@@ -5080,7 +5080,7 @@ async function deletePostAsync({ projectId, id, roster } = {}) {
   return { ok: true, code: 200, told };
 }
 
-module.exports = {
+module.exports = { logRefusedSend,
   tellHeldStill,   // kosmos#7936
   namedIn,   // #4926: server.js asks it who a room post asked by name
   laterOwnPost,   // kosmos#4926

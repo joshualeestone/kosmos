@@ -150,3 +150,63 @@ test('#8658 a message to a running agent is unchanged: placed at once', async ()
   assert.equal(r.delivery.state, 'placed', JSON.stringify(r.json));
   assert.ok(r.ms < 1500, 'a running agent paid the wait: ' + r.ms + ' ms');
 });
+
+const STATE_DIR = path.join(store.ROOT, 'win32-state');
+function stateFile(name, agoMs) {
+  fs.mkdirSync(STATE_DIR, { recursive: true });
+  fs.writeFileSync(path.join(STATE_DIR, store.safeKey(name) + '.json'),
+    JSON.stringify({ v: 1, state: 'idle', sessionId: 'x', pid: 1, at: new Date(Date.now() - agoMs).toISOString() }));
+}
+
+test('#8658 a crash relaunch (old ownership row, fresh supervisor state file) is waited for and placed', async () => {
+  worker('relaunched'); recordRow('relaunched', 10 * 60 * 1000); stateFile('relaunched', 500);
+  roster.name = 'relaunched'; roster.visibleAt = Date.now() + 300;
+  const r = await msg('relaunched', 'are you back?');
+  assert.equal(r.delivery.state, 'placed', 'a message during a relaunch was not waited for: ' + JSON.stringify(r.json));
+  assert.ok(r.ms >= 250, 'premise: the row was not there when the message arrived: ' + r.ms + ' ms');
+});
+
+test('#8658 CONTROL for the relaunch: an old row and an old state file is not starting, and does not wait', async () => {
+  worker('stopped'); recordRow('stopped', 10 * 60 * 1000); stateFile('stopped', 10 * 60 * 1000);
+  const r = await msg('stopped', 'hello');
+  assert.equal(r.delivery.state, 'could_not', JSON.stringify(r.json));
+  assert.doesNotMatch(String(r.delivery.because), /still starting/);
+  assert.ok(r.ms < 1500, 'a stopped agent made the message wait: ' + r.ms + ' ms');
+});
+
+test('#8658 a fresh state file with no ownership row at all is not ours, and does not wait', async () => {
+  worker('unowned'); stateFile('unowned', 500);
+  const r = await msg('unowned', 'hello');
+  assert.doesNotMatch(String(r.delivery.because), /still starting/, JSON.stringify(r.json));
+  assert.ok(r.ms < 1500, 'an agent with no ownership row made the message wait: ' + r.ms + ' ms');
+});
+
+test('#8658 a sender with no token is never made to wait, and is not told the agent is starting', async () => {
+  worker('fresh3'); recordRow('fresh3', 1000);
+  const t0 = Date.now();
+  const res = await fetch(`${base}/api/msg`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ to: 'fresh3', text: 'hi' }),
+  });
+  const json = await res.json().catch(() => null);
+  const ms = Date.now() - t0;
+  assert.doesNotMatch(JSON.stringify(json), /still starting/, 'an unidentified caller learned the agent is starting');
+  assert.ok(ms < 1500, 'an unidentified caller was held for the wait: ' + ms + ' ms');
+});
+
+test('#8658 words the send would refuse keep their own refusal and do not wait', async () => {
+  worker('fresh4'); recordRow('fresh4', 1000);
+  const r = await msg('fresh4', '');
+  assert.doesNotMatch(String(r.delivery.because || (r.json && r.json.error)), /still starting/, JSON.stringify(r.json));
+  assert.ok(r.ms < 1500, 'an empty message waited: ' + r.ms + ' ms');
+});
+
+test('#8658 the still-starting refusal is kept as a refused send, like every other attributed refusal', async () => {
+  worker('slow2'); recordRow('slow2', 1000);
+  app._setStartWaitForTest({ maxMs: 300, stepMs: 100, refresh: null });
+  const r = await msg('slow2', 'welcome aboard');
+  assert.match(String(r.delivery.because), /still starting/);
+  const res = await fetch(`${base}/api/messages?agent=${SENDER}`);
+  const all = JSON.stringify(await res.json());
+  assert.match(all, /"refused"/, 'no refused event was kept for the sender');
+  assert.match(all, /slow2 is still starting/, 'the refused event does not carry the starting sentence');
+});

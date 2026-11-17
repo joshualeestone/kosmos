@@ -4504,11 +4504,15 @@ function startingAgent(name) {
     if (!fs.existsSync(create.workerDir(name)) || removal.isRemoved(name)) return false;
     const sessions = require('./engine/win32sessions');
     const now = Date.now();
-    return Object.values(sessions.read()).some((row) => {
-      if (!sessions.rowIsUnder(row, name)) return false;
-      const at = Date.parse(row && row.at);
-      return Number.isFinite(at) && at <= now + 5000 && now - at <= START_GRACE_MS;
-    });
+    const recent = (at) => Number.isFinite(at) && at <= now + 5000 && now - at <= START_GRACE_MS;
+    const rows = Object.values(sessions.read()).filter((row) => sessions.rowIsUnder(row, name));
+    if (!rows.length) return false;
+    if (rows.some((row) => recent(Date.parse(row && row.at)))) return true;
+    /* kosmos#8658: a crash relaunch resumes the same session and writes no new row, but its supervisor writes the
+       agent's state file the moment the run starts. */
+    let wrote = null;
+    try { wrote = require('./engine/win32streamstate').writtenAt(name); } catch { wrote = null; }
+    return recent(wrote);
   } catch {
     return false;
   }
@@ -20458,10 +20462,15 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         /* kosmos#8658: an agent's message to an agent that has only just started waits for it, as a person's does
-           (#8652), then is refused as starting rather than as nobody of that name. */
-        if (typeof body.to === 'string' && !knownAgent(body.to) && startingAgent(body.to)) {
+           (#8652), then is refused as starting rather than as nobody of that name. Only for a sender its token
+           identified and words the send would take, so an unidentified caller learns nothing and a bad message keeps
+           its own refusal. The sender stays resolved against the first roster; only the recipient is read again. */
+        if (tokenSender && tokenSender.ok && typeof body.to === 'string' && typeof body.text === 'string'
+          && !chat.messageProblem(body.text) && !knownAgent(body.to) && startingAgent(body.to)) {
           if (!(await awaitRosterRow(body.to))) {
-            sendJson(res, 200, { delivery: { state: 'could_not', because: `${body.to} is still starting, so nothing was sent. Try again in a moment.` } });
+            const because = `${body.to} is still starting, so nothing was sent. Try again in a moment.`;
+            messages.logRefusedSend(tokenSender.card.sessionName, body.to, because);
+            sendJson(res, 200, { delivery: { state: 'could_not', because } });
             return;
           }
           roster = safeRoster();
