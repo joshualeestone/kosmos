@@ -6046,8 +6046,9 @@ function withPreviews(rows, opts) {
     if (hit === null) { unfurl.warm(link, { bare: found.bare }); continue; }
     if (!hit.ok) continue;
     /* kosmos#8636: the picture only once it is known to load. Not yet known: the card waits for a later poll (warm
-       fetches the picture with the page), so it does not first appear as an empty box that fills in or breaks. One that
-       could not be fetched: the card has no picture, its words kept. */
+       fetches the picture with the page), so it does not first appear as an empty box that fills in or breaks. The
+       wait ends with the picture fetch's own timeout (unfurl TIMEOUT_MS), after which a slow picture is a failure and
+       the card comes with its words. One that could not be fetched: the card has no picture, its words kept. */
     let image = '';
     if (hit.image) {
       const state = unfurl.imageState(hit.image);

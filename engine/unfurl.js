@@ -520,6 +520,8 @@ function imageState(raw) {
   }
   const age = Date.now() - k.at;
   if (age > KNOWN_MS) { knownImages.delete(String(raw)); return null; }
+  // The verdict's age, not the bytes cache, decides when a picture is asked again: a 404 whose cached refusal has
+  // expired after a minute is not fetched again until its verdict is ten minutes old.
   if (age > (k.passing ? REFUSAL_MS : CACHE_MS)) warmImage(raw);
   return k.ok ? 'good' : 'bad';
 }
