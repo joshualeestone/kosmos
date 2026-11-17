@@ -859,7 +859,7 @@ test('#5865: after a folder move on Linux the keyboard lands on the sentence, no
 });
 
 test('#5865 + #6724: the Files screen\'s overflow line names no button on any platform (the browser lists the folder itself)', () => {
-  const line = page.lift(SCRIPT, 'paintAgentFilesAll');
+  const line = page.lift(SCRIPT, 'agentFilesAllRows');   // kosmos#8627: the Files screen's rows (and this line) moved here
   const at = line.indexOf('more.textContent = ');
   assert.ok(at > -1, 'premise: the overflow line was found');
   const said = line.slice(at, line.indexOf(';', at));

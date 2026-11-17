@@ -89,11 +89,11 @@ function harness(respond, remote = false) {   // kosmos#7952: `remote`, the page
   };
   const calls = [];
   const env = { CURRENT: BOARD.agents.find((c) => c.sessionName === 'ana') };
-  const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'fileFingerprint', 'rowKey', 'focusedRowKey', 'refocusRow', 'folderIcon', 'agentDirRow', 'agentFilesPath', 'agentFilesGo', 'paintAgentFilesAll', 'agentFileWithDownload', 'filesSortMode', 'filesSorted']);
+  const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'fileFingerprint', 'rowKey', 'focusedRowKey', 'refocusRow', 'folderIcon', 'agentDirRow', 'agentFilesPath', 'agentFilesGo', 'paintAgentFilesAll', 'agentFileWithDownload', 'filesSortMode', 'filesSorted', 'agentFilesAllRows']);
   let gate = null;
   const api = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'asSentence', 'env', 'kplusRemote', 'onLinux',
     'let AGENT_FILES_ALL_EPOCH = 0; let AGENT_FILES_DIR = ""; let AGENT_FILES_ALL_STAMP = null; let AGENT_FILES_FOCUS = false; let AGENT_FILES_ALL_FAIL = null;\n'
-    + 'const FILES_SORTS = ["newest", "oldest", "az", "za"]; let AGENT_FILES_SORT = "az";\n'   // kosmos#8627: these rows are pinned A to Z; the sort itself is web.files-sort-8627.test.js
+    + /const FILES_SORTS = \[[^\]]*\];/.exec(SCRIPT)[0] + ' let AGENT_FILES_SORT = "az"; let AGENT_FILES_ALL_SHOWN = null;\n'   // kosmos#8627: the page's own list; these rows are pinned A to Z, the sort itself is web.files-sort-8627.test.js
     + FNS.replace(/\bCURRENT\b/g, 'env.CURRENT')
     + '\nreturn { paintAgentFilesAll, agentFilesGo, dir: () => AGENT_FILES_DIR, focusPending: () => AGENT_FILES_FOCUS };')(document, async (url) => {
     calls.push(url);

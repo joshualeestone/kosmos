@@ -14,6 +14,7 @@
  *   - CONTROL: A to Z is exactly the order the server lists (the order both screens showed before this card), read from
  *     the same route in the same page, so "A to Z" cannot pass by matching a list nothing reordered;
  *   - the choice is remembered per screen across a reload, and the two screens do not share it;
+ *   - a change of order on the agent screen re-sorts the rows on screen and reads nothing (the read fails meanwhile);
  *   - a browser that refuses storage (a throwing localStorage) still shows Newest first and still sorts when asked;
  *   - at 412px wide the control is at least 44px tall and the page does not scroll sideways.
  *
@@ -53,7 +54,7 @@ function chk(ok, label, extra) {
 const DAY = (d) => new Date(Date.UTC(2026, 0, d));
 const FILES = [['alpha.md', DAY(5)], ['Bravo.md', DAY(1)], ['charlie.md', DAY(3)], ['file10.txt', DAY(2)], ['file2.txt', DAY(4)]];
 const JUST = 'just-saved.txt';
-const DIRS = [['archive', DAY(6)], ['Drafts', DAY(2)]];
+const DIRS = [['archive', DAY(2)], ['Drafts', DAY(6)]];   // date order is not name order, so the folder asserts can tell them apart
 function fill(dir, withDirs) {
   fs.mkdirSync(dir, { recursive: true });
   for (const [n, t] of FILES) { fs.writeFileSync(path.join(dir, n), n); fs.utimesSync(path.join(dir, n), t, t); }
@@ -66,7 +67,7 @@ const ALL = [...FILES.map((f) => f[0]), JUST];
 const AZ = ['alpha.md', 'Bravo.md', 'charlie.md', 'file2.txt', 'file10.txt', JUST];
 const NEWEST = [JUST, 'alpha.md', 'file2.txt', 'charlie.md', 'file10.txt', 'Bravo.md'];
 const EXPECT = { newest: NEWEST, oldest: NEWEST.slice().reverse(), az: AZ, za: AZ.slice().reverse() };
-const DIR_EXPECT = { newest: ['archive', 'Drafts'], oldest: ['Drafts', 'archive'], az: ['archive', 'Drafts'], za: ['Drafts', 'archive'] };
+const DIR_EXPECT = { newest: ['Drafts', 'archive'], oldest: ['archive', 'Drafts'], az: ['archive', 'Drafts'], za: ['Drafts', 'archive'] };
 // The project folder also holds BRIEF.md (dated oldest, above): A to Z puts it after Bravo (bra before bri).
 const P_AZ = ['alpha.md', 'Bravo.md', 'BRIEF.md', 'charlie.md', 'file2.txt', 'file10.txt', JUST];
 const P_NEWEST = [...NEWEST, 'BRIEF.md'];
@@ -169,8 +170,19 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
           chk(same(rows.files, EXPECT[mode]) && same(rows.dirs, DIR_EXPECT[mode]), `${E} agent Files, ${mode}: folders first, then files, each in that order`, JSON.stringify(rows));
           if (mode === 'az') chk(same(rows.files, served.files) && same(rows.dirs, served.dirs), `${E} agent Files, A to Z is exactly the server's order`, JSON.stringify({ rows, served }));
         }
+        // A change of order re-sorts the rows on screen and reads nothing, so a failing read cannot empty the list.
+        const browses = [];
+        const onReq = (r) => { if (r.url().includes('/files/browse')) browses.push(r.url()); };
+        page.on('request', onReq);
+        await page.route('**/files/browse**', (r) => r.abort());
         await page.selectOption('#d-files-sort', 'oldest');
         await settle(page, async () => (await agentRows(page)).files, EXPECT.oldest);
+        const kept = await agentRows(page);
+        const said = await page.$eval('#d-filesall-msg', (m) => m.textContent);
+        chk(same(kept.files, EXPECT.oldest) && same(kept.dirs, DIR_EXPECT.oldest) && said === '' && browses.length === 0,
+          `${E} a change of order re-sorts the rows on screen with no read (the read is failing, and the list stays)`, JSON.stringify({ kept, said, browses }));
+        await page.unroute('**/files/browse**');
+        page.off('request', onReq);
 
         /* The project's Files screen: its own choice, untouched by the agent screen's. */
         await openProjectFiles(page, project.id);
