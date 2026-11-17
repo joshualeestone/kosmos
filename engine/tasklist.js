@@ -359,6 +359,12 @@ function showLines(body, num, project) {
     for (const m of here) lines.push('    check ' + m.check + ' of task ' + m.from + ', reported not met there' + (m.words ? ': "' + m.words + '"' : ''));   // another task's words: quoted, as q() quotes them
   }
   if (!x.isClosed && x.repeatWords) field('Repeats', one(x.repeatWords) + (x.repeatNextWords ? ', next ' + one(x.repeatNextWords) : ''));
+  /* kosmos#8669: what the task waits for (kosmos task wake), or what it woke on and who was told, in the board's words. */
+  if (!x.isClosed && x.wakeWords) field('Wake', one(x.wakeWords) + (x.wakeProblem ? ' (not checked just now: ' + one(x.wakeProblem) + ')' : ''));
+  if (!x.isClosed && x.wakeMetWords) {
+    field('Woke', one(x.wakeMetWords) + (whenWords(x.wakeMetAt) ? ', ' + whenWords(x.wakeMetAt) : '')
+      + (x.wakeToldAt ? (x.wakeReached === true ? '; ' + (x.wakeToldWho ? q(x.wakeToldWho) : 'its holder') + ' was told' : '; its holder could not be reached') : '; its holder is still to be told'));
+  }
   // Review 6: a repeating task's last run (what `task ran` records), so its latest delivery is part of the task whole.
   if (typeof x.lastRunAt === 'string' && whenWords(x.lastRunAt)) {
     const by = x.lastRunByPerson === true ? 'the person' : (x.lastRunBy ? q(x.lastRunBy) : null);

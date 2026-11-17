@@ -1923,9 +1923,20 @@ const fedseal = require('./engine/fedseal');
 const { externalName } = require('./engine/externalname');
 const tasks = require('./engine/tasks');
 const taskrepeat = require('./engine/taskrepeat');   // kosmos#4787
+const taskwake = require('./engine/taskwake');   // kosmos#8669
 /* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), added to a task row so neither
    the page nor an agent's CLI computes the rule again. A task that does not repeat is returned as it is. */
 function repeatFields(t) { return taskrepeat.fieldsOf(t); }   // slice 1b: one derivation, shared with the projects list
+/* kosmos#8669: gh, found the way the GitHub door finds it, for a task's wake (engine/taskwake.js): a runner in
+   devicedoor.runBounded's shape, or null when gh is not on this computer. Never prompts (GH_PROMPT_DISABLED). */
+function wakeGh() {
+  let bin = null;
+  try { bin = github.ghBin(); } catch { bin = null; }
+  if (!bin) return null;
+  const env = { ...process.env, GH_PROMPT_DISABLED: '1', NO_COLOR: '1' };
+  if (process.env.AGENT_WORKFORCE_GH_CONFIG_DIR) env.GH_CONFIG_DIR = process.env.AGENT_WORKFORCE_GH_CONFIG_DIR;
+  return (args, done) => require('./engine/devicedoor').runBounded(bin, args, { env, timeoutMs: taskwake.GH_TIMEOUT_MS }, done);
+}
 function withRepeatWords(t) {
   if (!t || !t.repeat) return t;
   return Object.assign({}, t, repeatFields(t));
@@ -23658,6 +23669,8 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), worked out here so
            the page never computes the rule again. */
         ...repeatFields(t),   // review 1: only the added fields, never the task again over the computed ones
+        // kosmos#8669: what it waits for, or what it woke on, in the board's words (an open task only).
+        ...(tasks.progressOf(t).closed ? {} : taskwake.fieldsOf(t, Date.now(), taskwake.problemFor(t.projectId, t))),
       });
     });
     /* kosmos#7508: a row that names a commit is checked in its repository now (engine/landedcheck.js, asynchronous, at
@@ -27360,6 +27373,73 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#8669: POST .../wake { pr | branch | file | at | clear } gives a task one wake condition, replaces it, or takes it
+     off. The callers and their checks are the repeat route's (the screen, or an agent on the project named by its token,
+     else its pane). The condition is read once now (taskwake.prepare: the pull request is open, the branch's commit, the
+     file's fingerprint, a time ahead), so it starts from what is true; a refusal is a 400 with the sentence. The board
+     then looks once a minute (wakeCheckTick) and tells a holder once when it happens (wakeTellTick). */
+  const taskWake = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/wake$/);
+  if (taskWake && req.method === 'POST') {
+    const id = decodeSegment(taskWake[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then(async (raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || '{}'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      const viaScreen = isViaScreen(req, body);
+      const roster = safeRoster();
+      const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
+      if (roster === null && !viaScreen && (presentedAgentToken(req, body) || fromPane)) {
+        sendJson(res, 503, { error: 'we could not check which agents are running, so the task was not changed' });
+        return;
+      }
+      const tokenSender = senderFromAgentToken(req, body, roster);
+      if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
+      const byPane = !tokenSender && fromPane ? messages.resolveSender(fromPane, roster) : null;
+      const card = tokenSender ? tokenSender.card : (byPane && byPane.ok ? byPane.card : null);
+      let proj = null;
+      try { proj = projects.readAll().find((x) => x && x.id === id) || null; }
+      catch { sendJson(res, 503, { error: 'we could not read the projects, so the task was not changed' }); return; }
+      if (!viaScreen && card && proj && !projectHasAgent(proj, card.sessionName, panelessCaller(tokenSender))) {
+        logNotOnProject(card.sessionName, id, 'that agent is not on this project, so it cannot change its tasks', 'set what a task waits for', !!(tokenSender && tokenSender.ok));
+        sendJson(res, 403, { error: 'that agent is not on this project, so it cannot change its tasks' + NOT_ON_PROJECT_FIX });
+        return;
+      }
+      if (!viaScreen && !card) { sendJson(res, 403, { error: 'Kosmos could not tell which agent sent that, so the task was not changed' }); return; }
+      if (!proj) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+      const cur = tasks.byNumber(proj, taskWake[2]);
+      if (!cur) { sendJson(res, 404, { error: 'there is no task by that number on this project' }); return; }
+      let wake = null;
+      if (body.clear !== true) {
+        const ask = {};
+        for (const k of ['pr', 'branch', 'file', 'at']) {
+          if (body[k] === undefined) continue;
+          if (typeof body[k] !== 'string') { sendJson(res, 400, { error: 'say what to wake on as text' }); return; }
+          ask[k] = body[k];
+        }
+        // Refused before GitHub or the disk is read: a closed task, or the person's own wake changed by a process.
+        if (tasks.progressOf(cur).closed) { sendJson(res, 409, { error: 'that task is closed; reopen it to give it a wake' }); return; }
+        if (!viaScreen && cur.wake && cur.wake.byPerson === true) { sendJson(res, 403, { error: 'the person set what this task waits for, so only they can change it' }); return; }
+        const got = await taskwake.prepare(ask, { gh: wakeGh(), now: Date.now() });
+        if (got.problem) { sendJson(res, 400, { error: got.problem }); return; }
+        wake = got.wake;
+      }
+      let out;
+      try {
+        out = tasks.setWake(id, taskWake[2], wake, { person: viaScreen, by: viaScreen ? null : card.sessionName });
+      } catch (err) {
+        const msg = String((err && err.message) || 'we could not change that task');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : /closed/.test(msg) ? 409 : /only they can change it/.test(msg) ? 403 : 400, { error: msg });
+        return;
+      }
+      const task = out.task;
+      sendJson(res, 200, { task: taskForCaller(req, body, tasks.withoutLocalPaths(task)), changed: out.changed, words: task.wake ? taskwake.waitWords(task.wake) : '' });
+    }).catch((err) => {
+      sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
+    });
+    return;
+  }
+
   const taskBuilt = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/built$/);
   if (taskBuilt && req.method === 'POST') {
     const id = decodeSegment(taskBuilt[1]);
@@ -30338,6 +30418,42 @@ function start(port = PORT) {
         } catch { /* best-effort, like the missed-run tell */ }
       }, 60000);
       if (repeatDueTick && typeof repeatDueTick.unref === 'function') repeatDueTick.unref();
+      /* kosmos#8669: a task's wake (engine/taskwake.js). Once a minute the board looks at every wake not yet met (a pull
+         request or branch through gh, at most taskwake.NET_PER_TICK GitHub reads a minute; a file on this disk; a time)
+         and stores what it found on the task; then a holder of an open part is told once, with the repeat-due tell's
+         gates. The look runs one at a time: a tick that is still looking is not started again. */
+      const WAKE_BOOK = new Map();
+      const WAKE_IDLE = new Map();
+      let wakeLooking = false;
+      const wakeTick = setInterval(() => {
+        if (wakeLooking) return;
+        let projs;
+        try { projs = projects.readAll(); } catch { return; }
+        if (!taskwake.pending(projs).length && !taskwake.owed(projs).length) return;
+        wakeLooking = true;
+        taskwake.checkTick({ projects: projs, now: Date.now(), gh: wakeGh(), save: tasks.saveWakeMet })
+          .then((done) => {
+            for (const x of done) if (x.act === 'met') process.stdout.write(`task wake: task #${x.n} (${x.projectId}) ${x.wake.kind} happened, saved=${x.saved}\n`);
+            const now = Date.now();
+            const after = projects.readAll();
+            const owedWake = taskwake.owed(after);
+            if (!owedWake.length) return;
+            const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
+            const r = allowed && owedWake.some((x) => x.holders.some((h) => x.members.includes(h))) ? safeRoster() : null;
+            taskwake.sweep({
+              projects: after, items: owedWake, roster: r, now, recentTyped: TELL_TYPED, allowed,
+              limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
+              sent: AGENT_NUDGE_SENT, book: WAKE_BOOK, idleSeen: WAKE_IDLE,
+              idleSince: (session) => { const sr = selfreport.read(session); const t = sr && sr.found && sr.state === 'idle' ? Date.parse(sr.at) : NaN; return Number.isFinite(t) ? t : null; },
+              deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),
+              DELIVERY: chat.DELIVERY,
+              log: (x) => { TELL_TYPED.set(x.holder, Date.now()); process.stdout.write(`task wake tell: task #${x.task} (${x.project}) to ${x.holder} reached=${x.reached} delivery=${x.delivery} try ${x.tries}\n`); },
+            });
+          })
+          .catch(() => { /* best effort, like the repeat-due tell */ })
+          .finally(() => { wakeLooking = false; });
+      }, Number(process.env.AGENT_WORKFORCE_TASK_WAKE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_TASK_WAKE_MS) : 60000); // the env is the test seam only
+      if (wakeTick && typeof wakeTick.unref === 'function') wakeTick.unref();
       /* kosmos#7416 slice 3: keep this computer awake while agents are working (keepAwakeTick, above). */
       const keepAwakeSweep = setInterval(keepAwakeTick, keepAwake.TICK_MS);
       setImmediate(() => { try { keepAwakeTick(); } catch { /* the sweep takes it */ } });   // a board started with the switch on holds now
