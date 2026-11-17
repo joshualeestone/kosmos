@@ -2,8 +2,9 @@
 
 ## Finished looks like
 On Windows, `kosmos msg` from one agent to an agent that was just created or restored is delivered after a short
-wait, or answered "still starting, nothing was sent"; a message sent while a crashed agent is being relaunched is
-waited for the same way; a name that is really missing answers exactly as before, at once.
+wait, or answered "still starting, nothing was sent"; a message sent once a crashed agent's relaunch has begun is
+waited for the same way (not in the short back-off before it begins, when the supervisor has cleared its state file);
+a name that is really missing answers exactly as before, at once.
 
 ## Change
 1. server.js `POST /api/msg`: for a sender its agent token identified, with words the send would take, if the
@@ -45,3 +46,5 @@ Time budget: 6 s wait plus the Windows delivery's own 8 s timeout is near the Wi
   state file from an older supervisor (no startedAt) is pinned as not starting. Not changed: sendAsync's own
   refusals (rate limits, blocks) come after the wait, so such a sender to a starting agent hears "still starting"
   first; rare, and the next send gets the real reason.
+- Iteration 4: nothing new (its warnings repeated earlier ones); converged. The back-off gap before a relaunch begins
+  is now stated in "Finished looks like".
