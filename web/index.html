@@ -42512,6 +42512,8 @@ function paintDetailSignedOut() {
   const model = document.getElementById('d-sec-model');
   if (note) {
     const kind = out ? (relay ? 'relay' : 'here') : '';
+    /* A change of kind while shown (this computer's page to the relay's, or back) rewrites it: rare, and a focused button
+       there then loses focus to the page. */
     if (kind && (note.hidden || note.dataset.kind !== kind)) {
       /* Shown first, then written: a live region's text written inside a hidden subtree is not reliably announced, and
          a second sign-out of the same kind must be announced too. Not rewritten while it stays shown (a focused
@@ -42531,6 +42533,7 @@ function paintDetailSignedOut() {
       const held = note.contains(document.activeElement);
       note.hidden = true;
       note.dataset.kind = '';
+      note.removeAttribute('tabindex');
       if (model) model.inert = false;
       if (held && model) model.focus();
     }

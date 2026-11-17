@@ -9,8 +9,9 @@
  *   - a phone or computer whose relay sign-in lapsed (#718: 401 with {"signed_out":true}) gets the board's own
  *     sentence and Sign in button, not this computer's tab wording;
  *   - a genuine outage after a sign-out (nothing answers) is not a sign-out (#268): the note goes.
- * Red on main: the two sign-out arms and the relay arm in each look (the note does not exist there); the control, the
- * signed-in-again arm and the outage arm pass on main because the note is absent everywhere.
+ * Red on main: every arm that needs the note (sign-out, inert, focus moved to the note, focus back on sign-in, second
+ * sign-out, relay) in each look; the control, the signed-in-again arm and the outage arm pass on main because the note
+ * is absent everywhere.
  * Reads are intercepted (as render-board-signin-403-2023.js does), so no enforcing board or token is needed.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
