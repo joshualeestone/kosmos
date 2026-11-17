@@ -120,7 +120,7 @@ final class RoomStore: ObservableObject {
     private var unblockWatch: NSObjectProtocol?
     // #8625: the outside message ids a block hid, per room, kept apart from deletedPosts so an Unblock can let them back.
     private var blockHidden: [String: Set<String>] = [:]
-    private func hiddenIn(_ project: String) -> Set<String> { (hiddenIn(project)).union(blockHidden[project] ?? []) }
+    private func hiddenIn(_ project: String) -> Set<String> { (deletedPosts[project] ?? []).union(blockHidden[project] ?? []) }
 
     // Sign-out, another account or another Mac (the client's chatEpoch): nothing of the one before is kept, and a read
     // that was in the air when it moved is dropped (each read checks `same`).
@@ -131,6 +131,7 @@ final class RoomStore: ObservableObject {
         returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]; ownSeq = [:]; ownAsk = [:]
         held = [:]; roomReads = [:]; roomLanded = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
         deletedPosts = [:]; deleteNotes = [:]   // kosmos#7614 review 4: post ids repeat across computers
+        blockHidden = [:]   // #8625: likewise a block's hidden ids
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
     private var listReads = 0

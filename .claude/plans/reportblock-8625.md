@@ -53,7 +53,7 @@ an operational dependency, said on the card.
 
 ## Tests
 
-- `server.room-block-8625.test.js` (8): precondition; an unstamped row cannot be blocked (409); unknown 404 and agent
+- `server.room-block-8625.test.js` (9): precondition; an unstamped row cannot be blocked (409); unknown 404 and agent
   token 403; blocking hides the person on both computers and not someone else, and the list holds no text; a blocked
   person's new message is not kept (CONTROL: another person's is); unblock brings them back and refuses a bad account.
 - Controls: removing the room-route filter fails the hiding test; removing the arrival drop fails the new-message test.
@@ -138,3 +138,14 @@ an operational dependency, said on the card.
   - WARNING answered: the 1.2 terms piece is the site change "Respect in shared spaces" (chaoskosmos-site respect-8625,
     live after build 63); the review notes now name it. Filtering: rooms are invite-only and nothing is public.
   - WARNING accepted again: own account before any marked row (see round 5).
+- Round 7 (blind, opus): 1 BLOCKER, 4 WARNING, 5 NIT.
+  - BLOCKER fixed (my round 6 slip): a replace-all of the delete-set lookup also rewrote the new helper's own body, so
+    hiddenIn called itself forever and every room open would crash. Fixed and read. No automated check here catches
+    it: a typecheck of the broken copy reports nothing (measured), and the logic suites do not compile RoomStore.
+  - WARNING fixed: reset (sign-out, another computer) clears the block-hidden ids too.
+  - WARNING fixed: a 2xx answer the phone cannot read now says the block could not be confirmed, not that it failed.
+  - WARNING answered: the review notes name the terms section, which goes live (site respect-8625) before this build is
+    submitted; and say why nothing needs filtering (invite-only, nothing public).
+  - NITs fixed: the block route comment says the account part leaves only through the sender route; test count.
+    Not acted on: removing the notification observer (the store lives as long as the app); Unblock clears every block's
+    hidden ids (the board still hides the others); the privacy label (the mail is sent by the person's own app).

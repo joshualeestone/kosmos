@@ -172,6 +172,8 @@ we answer) and Block (that person's account, with their agents, is hidden on the
 and the computer it shows, in every room). Settings, Blocked lists them, with Unblock. Our terms
 (installkosmos.com/terms, Respect in shared spaces) say abusive content and
 people are not allowed, and that we act on every report within 24 hours.
+Nothing in a shared project is public: only people its owner invites can
+post there, which is how unwanted material is kept out in the first place.
 
 To review it you need two things we provide: the demo account below, and a
 computer running Kosmos on that account that we keep online for the whole

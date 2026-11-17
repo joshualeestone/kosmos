@@ -510,6 +510,8 @@ extension Board {
     static func blockRefusal(status: Int?, _ data: Data?) -> String? {
         let obj = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if let status, (200...299).contains(status), let obj, isTrue(obj["blocked"]) { return nil }
+        // A 2xx this build cannot read may still have been a block: say only what is known.
+        if let status, (200...299).contains(status) { return "We could not confirm the block. If their messages are still shown, try again." }
         let why = (obj?["error"] as? String).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
         // Only a fault worth retrying (no answer, or the board's 5xx) says to try again; a 4xx is the board's own answer.
         let retry = status.map { $0 >= 500 } ?? true
