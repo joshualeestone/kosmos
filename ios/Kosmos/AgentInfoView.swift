@@ -301,7 +301,11 @@ struct AgentInfoView: View {
                 } else {
                     Picker("Switch to", selection: $switchTo) {
                         Text("Choose").tag(Board.SwitchProvider?.none)
-                        ForEach(switchTargets) { Text($0.label).tag(Board.SwitchProvider?.some($0)) }
+                        // kosmos#8635: each with its logo (a Label's image shows in the iOS 16+ menu; template images take
+                        // the menu's own colour, so they read in light and dark).
+                        ForEach(switchTargets) { p in
+                            Label { Text(p.label) } icon: { menuMark(p.mark) }.tag(Board.SwitchProvider?.some(p))
+                        }
                     }
                     .disabled(switching)
                     // Review 1: only a pick resets the rest. Clearing it after a switch must not wipe the result line.
@@ -384,6 +388,46 @@ struct AgentInfoView: View {
             switchModel = (switchModels.first(where: { $0.isDefault }) ?? switchModels.first)?.key ?? ""
         }
     }
+    /* kosmos#8635: a system menu ignores SwiftUI's size modifiers and draws each vector logo at its own size, and the
+       files frame their drawings differently (OpenAI's fills about half its viewBox, Gemini's and Grok's nearly all of it;
+       measured, the menu showed OpenAI at half the others' size). So each logo is trimmed to its drawn pixels, fitted
+       into one box with its aspect kept, and stays a template image, so it takes the menu's own colour in light and dark. */
+    private func menuMark(_ name: String) -> Image {
+        guard let src = UIImage(named: name) else { return Image(systemName: "circle") }
+        let box = CGSize(width: 22, height: 22)
+        let crop = Self.drawnRect(src)
+        let scale = min(box.width / max(crop.width, 1), box.height / max(crop.height, 1))
+        let fitted = CGSize(width: crop.width * scale, height: crop.height * scale)
+        let drawn = UIGraphicsImageRenderer(size: box).image { _ in
+            // The whole source, scaled and shifted so its drawn part lands centred in the box.
+            src.draw(in: CGRect(x: (box.width - fitted.width) / 2 - crop.minX * scale, y: (box.height - fitted.height) / 2 - crop.minY * scale,
+                                width: src.size.width * scale, height: src.size.height * scale))
+        }
+        return Image(uiImage: drawn.withRenderingMode(.alwaysTemplate))
+    }
+    // The part of an image that has any ink, in its own points (the whole image when it cannot be read). Drawn into a
+    // bitmap made here with a known layout (RGBA, alpha the 4th byte): a renderer's own bitmap may be 64-bit or
+    // little-endian alpha-first, and reading the wrong byte finds no ink (measured: every logo came back whole).
+    private static func drawnRect(_ img: UIImage) -> CGRect {
+        let whole = CGRect(origin: .zero, size: img.size)
+        let px = 128
+        guard let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: px * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let cgSrc = img.cgImage ?? UIGraphicsImageRenderer(size: img.size).image(actions: { _ in img.draw(at: .zero) }).cgImage
+        else { return whole }
+        ctx.draw(cgSrc, in: CGRect(x: 0, y: 0, width: px, height: px))
+        guard let raw = ctx.data else { return whole }
+        let bytes = raw.bindMemory(to: UInt8.self, capacity: px * px * 4)
+        var minX = px, minY = px, maxX = -1, maxY = -1
+        for y in 0..<px { for x in 0..<px where bytes[(y * px + x) * 4 + 3] > 8 {
+            minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+        } }
+        guard maxX >= minX, maxY >= minY else { return whole }
+        // Row 0 of the buffer is the top of the image (CGContext.draw puts the image upright in a bitmap's memory order).
+        let sx = img.size.width / CGFloat(px), sy = img.size.height / CGFloat(px)
+        return CGRect(x: CGFloat(minX) * sx, y: CGFloat(minY) * sy, width: CGFloat(maxX - minX + 1) * sx, height: CGFloat(maxY - minY + 1) * sy)
+    }
+
     private func pickedProvider() {
         switchLine = nil
         confirmSwitch = false
