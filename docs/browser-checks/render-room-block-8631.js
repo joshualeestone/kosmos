@@ -225,6 +225,39 @@ const ROW = { kind: 'external', id: 'x-1234abcd-0000', from: 'Ana', fromKind: 'p
       ok(t + ' a blocked person is listed with Unblock', list.one.text.includes('Ana') && list.one.btn === 'Unblock' && list.one.label === 'Unblock Ana', JSON.stringify(list.one));
       ok(t + ' Unblock posts that account', list.unblock.posted.some((p) => p[0] === '/api/blocked/unblock' && p[1] === 'POST' && p[2] === JSON.stringify({ account: 'acctA' })), JSON.stringify(list.unblock.posted));
       ok(t + ' and says so', list.unblock.msg === 'Ana is unblocked. Their messages are back in your rooms.', list.unblock.msg);
+      // Round 2: an Unblock that fails, whose re-read fails too, keeps the list on screen and says so; focus stays in the box.
+      const failedUnblock = await page.evaluate(async () => {
+        showTab('settings');   // the person is on Settings when they press Unblock
+        settingsGo('you', { focus: false });
+        window.__list = { ok: true, status: 200, json: async () => ({ blocked: [{ account: 'acctC', name: 'Cal', at: '2026-11-17T15:00:00Z' }] }) };
+        await blockedPaint();
+        const before = window.fetch;
+        window.fetch = async (url) => (String(url) === '/api/blocked'
+          ? { ok: false, status: 503, json: async () => ({ error: 'no' }) }
+          : { ok: false, status: 500, json: async () => ({ error: 'no' }) });
+        const msg = document.getElementById('you-blocked-msg');
+        msg.textContent = '';
+        document.querySelector('#you-blocked [data-unblock]').click();
+        for (let i = 0; i < 50 && !msg.textContent; i += 1) await new Promise((r) => setTimeout(r, 20));
+        await new Promise((r) => setTimeout(r, 20));
+        const out = { shown: !document.getElementById('you-blocked-box').hidden, msg: msg.textContent,
+          still: document.getElementById('you-blocked').textContent.includes('Cal'), focus: document.activeElement && document.activeElement.id };
+        window.fetch = before;
+        return out;
+      });
+      ok(t + ' a failed Unblock keeps the list and says so', failedUnblock.shown && failedUnblock.still && failedUnblock.msg === 'We could not unblock Cal. Try again in a moment.', JSON.stringify(failedUnblock));
+      ok(t + ' after Unblock, focus is on the Blocked box', failedUnblock.focus === 'you-blocked-box', String(failedUnblock.focus));
+      // Round 2: a window reset for the SAME room (a gap read) keeps the note; another room clears it.
+      const reset = await page.evaluate(() => {
+        pjWinReset('p-1');
+        pjBlockedNoteSet({ hiddenBlocked: 3 });
+        pjWinReset('p-1');
+        const same = !document.getElementById('pj-blocked-note').hidden;
+        pjWinReset('p-2');
+        return { same, other: document.getElementById('pj-blocked-note').hidden };
+      });
+      ok(t + ' a reset of the same room keeps the note', reset.same === true, JSON.stringify(reset));
+      ok(t + ' CONTROL: another room clears it', reset.other === true, JSON.stringify(reset));
       // The note's link lands on the list once it has been read (round 1: it focused a box that was still hidden).
       const landed = await page.evaluate(async () => {
         document.getElementById('you-blocked-box').hidden = true;

@@ -39,7 +39,7 @@ not; the copied report and the line under the composer are the fallback, not a g
 - server.room-block-8631.test.js (3): no hiddenBlocked before a block (both arms), the count after (whole room and a
   page, CONTROL: the rows really left; the text view unchanged), gone after Unblock. CONTROL run: with the field removed
   from the route, 1 of 3 fails.
-- docs/browser-checks/render-room-block-8631.js (50, light and dark): the buttons, 44px and drawn; never on sameAccount
+- docs/browser-checks/render-room-block-8631.js (70, light and dark): the buttons, 44px and drawn; never on sameAccount
   or a non-x id; the report body line for line; Block asks, posts, drops the held rows, closes; a refusal keeps the dialog
   with the reason; the note's two wordings and its CONTROL; the Blocked list's failed, empty and one-person states and
   Unblock. CONTROL run: with the Report markup renamed, 6 fail.
