@@ -230,7 +230,8 @@ test('win32: a kept tarball survives a later look that finds an agent running be
   plantOld();
   const { tgz, integrity } = winFixture();
   const download = counting(tgz);
-  const answers = [false, true, true, false, false];   // look 1: idle then busy; look 2: busy; look 3: idle twice
+  // look 1: idle, then busy before the swap; look 2: busy at once; look 3: idle at all three (first, pre-swap, marker down)
+  const answers = [false, true, true, false, false, false];
   const go = () => runners.install('openai', { legacyBin: LEGACY, download, integrity, prove: ok, manifest: withSize(tgz),
     codexRunning: () => Promise.resolve(answers.shift()) });
   try {
@@ -322,9 +323,30 @@ test('win32: a check that throws counts as running (the old version stays)', { s
       codexRunning: () => Promise.reject(new Error('CIM unavailable')) });
     await job.settled;
     assert.equal(job.phase, 'failed');
+    assert.equal(job.waited, true, 'a wait, not a spent try');
     assert.equal(isOldTree(), true);
     assert.equal(runners.resolveBin('openai', { legacyBin: LEGACY }).present, true);
   } finally { clear(); }
+});
+
+test('win32: an agent that starts while the marker comes down is caught by the last look; the marker goes back', { skip: WIN_ONLY }, async () => {
+  plantOld();
+  const before = marker();
+  const { tgz, integrity } = winFixture();
+  const answers = [false, true];   // (first look skipped) idle just before the swap, an agent by the time the marker is down
+  let markerAtLastLook;
+  try {
+    const job = runners.install('openai', { legacyBin: LEGACY, download: downloadFrom(tgz), integrity, prove: ok, agentsCheckedIdle: true,
+      codexRunning: () => { if (answers.length === 1) markerAtLastLook = marker(); return Promise.resolve(answers.shift()); } });
+    await job.settled;
+    assert.equal(markerAtLastLook, null, 'PRECONDITION: the last look ran with the marker down');
+    assert.equal(job.phase, 'failed'); assert.equal(job.waited, true);
+    assert.equal(marker(), before, 'vouched for again');
+    assert.equal(isOldTree(), true, 'nothing was set aside');
+    const r = runners.resolveBin('openai', { legacyBin: LEGACY });
+    assert.equal(r.present, true); assert.equal(r.stale, true);
+    assert.equal(runners.installing('openai'), false, 'a wait is not an install in progress');
+  } finally { clear(); try { fs.rmSync(stagingFile(), { force: true }); } catch { /* gone */ } }
 });
 
 test('win32: an upgrade whose new Codex does not run puts the previous tree AND its marker back', { skip: WIN_ONLY }, async () => {

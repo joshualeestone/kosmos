@@ -782,19 +782,20 @@ function authenticodeOf(file) {
    🛑 RESOLVING A PATH CAN HANG: a program started from a network drive that has since gone away holds realpath for the
    whole SMB timeout. So only paths on the managed folder's own local drive are resolved (a program anywhere else
    cannot be inside it, unless a subst drive points into it, which Kosmos never does), they are resolved OFF the event
-   loop (fs.realpath.native), and the whole answer has a deadline after which it is no answer (null, read as running). */
+   loop (fs.realpath.native), and the whole answer has a deadline after which it is no answer (null, read as running).
+   NOT COVERED: a process whose image path Windows will not tell this (non-elevated) board, an elevated or another
+   user's process, is dropped and so cannot count. Kosmos starts its Codex agents as this user, unelevated, so they are
+   always readable; a Codex someone started elevated by hand from the managed folder is not seen. */
 const RUNNING_OK = 'KOSMOS-RUNNING-READ-OK';
 const RUNNING_DEADLINE_MS = 20000;
 function managedProcessRunning(dir) {
-  let root;
-  try { root = fs.realpathSync.native(dir); } catch (e) {
-    if (!e || e.code !== 'ENOENT') return Promise.resolve(null);
-    return Promise.resolve(false);   // no folder: nothing can run from it
-  }
   let timer = null;
   const deadline = new Promise((resolve) => { timer = setTimeout(() => resolve(null), RUNNING_DEADLINE_MS); });
   if (timer && typeof timer.unref === 'function') timer.unref();
-  return Promise.race([deadline, readRunning(root, [String(dir), root])]).finally(() => clearTimeout(timer));
+  const answer = realpathNative(dir).then(
+    (root) => readRunning(root, [String(dir), root]),
+    (e) => (e && e.code === 'ENOENT' ? false : null));   // no folder: nothing can run from it; any other refusal: no answer
+  return Promise.race([deadline, answer]).finally(() => clearTimeout(timer));
 }
 function readRunning(root, forms) {
   return new Promise((resolve) => {
@@ -804,7 +805,7 @@ function readRunning(root, forms) {
       + 'Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object { $_.ExecutablePath } | Where-Object { $_ } | Sort-Object -Unique | ForEach-Object { [Console]::Out.WriteLine($_) }; '
       + `[Console]::Out.WriteLine('${RUNNING_OK}')`;
     execFile(ps, ['-NoProfile', '-NonInteractive', '-Command', script],
-      { windowsHide: true, timeout: 60000, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+      { windowsHide: true, timeout: RUNNING_DEADLINE_MS, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },   // ends with the deadline
       (err, stdout) => {
         const paths = err ? null : parseExePaths(stdout);
         if (paths === null) { resolve(null); return; }
@@ -1670,11 +1671,14 @@ function install(provider, opts) {
      runs from the managed folder, or that cannot be read (see codexRunning). Asked before the download and again just
      before the swap; `keepStaging` keeps a tarball already downloaded and verified, for the next look to reuse. A wait,
      not a failed try: engine/runnerupgrade.js hands the try back when it sees `waited`. */
-  const waitForAgents = async (keepStaging) => {
+  const waitForAgents = async (keepStaging, beforeWait) => {
     if (!upgrading || plat !== 'win32') return false;
     let busy = null;
     try { busy = await codexRunning(destDir); } catch { busy = null; }
     if (busy === false) return false;
+    if (beforeWait) {
+      try { beforeWait(); } catch (e) { console.warn(`[runners] ${provider} could not vouch for the version already here again: ${e && e.code}`); }
+    }
     Object.defineProperty(job, 'waited', { value: true, enumerable: false });
     fail(`${m.name || 'the runner'} has a newer version, but ${busy === true ? 'an agent is running on the version already here' : 'we could not check whether an agent is running on the version already here'}, so that version is kept; it updates by itself once none is`, keepStaging);
     return true;
@@ -1864,6 +1868,13 @@ function install(provider, opts) {
       if (plat === 'win32' && !(await rmRetrying(verifiedMarker(plat, provider), plat))) {
         throw Object.assign(new Error('the verified marker could not be removed'), { code: 'EPERM' });
       }
+      /* kosmos#8593 (Windows): with the marker down, nothing new can start on the old tree (resolveBin reads it absent,
+         and installing() is true from job.swapping), so one more look HERE closes the window the marker removal's
+         retries opened (seconds, under antivirus): only the rename itself is left uncovered. An agent found now puts
+         the marker back and the swap waits. The look above stays so the common wait never takes the marker down. */
+      if (await waitForAgents(true, () => {
+        if (previousStamp) fs.writeFileSync(verifiedMarker(plat, provider), previousStamp + '\n');
+      })) return;
       if (fs.existsSync(pkgDir)) {
         await renameRetrying(pkgDir, pkgOld, plat);
         setAside = true;
