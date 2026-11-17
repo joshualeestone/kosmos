@@ -28,7 +28,7 @@ Settings, Your Profile lists blocked people with Unblock; a room where a block h
   live room's rows a block hides; rows in the archived stretch are not counted), never sent as 0; the text view an agent reads is unchanged. Words: "N messages are hidden
   here because you blocked who sent them." (not "from people you blocked": one person can send them all).
 - After Block or Unblock, the open room's window starts again on the newest page (held earlier pages would otherwise keep
-  rows, or paging cursors, the room no longer serves), and an open archive reads itself again keeping the reader's place.
+  rows, or paging cursors, the room no longer serves), and an open archive reads itself again keeping the reader's place; then the room is read at once.
 
 ## Weakest premise
 
@@ -44,7 +44,7 @@ are for.
   page, CONTROL: the rows really left; the text view unchanged), gone after Unblock; a blocked person whose rows are all
   archived gives no count (CONTROL: the same block with the marker gone counts 2). CONTROL runs: with the field removed
   from the route, 1 fails; counting archived rows too, 1 fails.
-- docs/browser-checks/render-room-block-8631.js (74, light and dark): the buttons, 44px and drawn; never on sameAccount
+- docs/browser-checks/render-room-block-8631.js (76, light and dark): the buttons, 44px and drawn; never on sameAccount
   or a non-x id; the report body line for line; Block asks, posts, drops the held rows, closes; a refusal keeps the dialog
   with the reason; the note's two wordings and its CONTROL; the Blocked list's failed, empty and one-person states and
   Unblock. CONTROL run: with the Report markup renamed, 6 fail.
