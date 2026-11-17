@@ -148,6 +148,32 @@ test('kosmos#8601 review 6: a <synthetic> row after the change is not a reply', 
   assert.equal(status.readModel('synth').earlierSession, true);
 });
 
+/* Review 7: the job is filed under the board name; a different session read under that name (foo / foo-discord) is not
+   the session the job starts, so its reading stands. The agent's own session (no session given, or the same name in
+   any case) still gets the rule. */
+test('kosmos#8601 review 7: another session sharing the board name is never judged against that name\'s job', () => {
+  session('shared', 'old.jsonl', replied('claude-fable-5'), 600);
+  job('shared', 5, 'claude-opus-5');
+  assert.deepEqual(status.readModel('shared', 'shared-discord'), current('claude-fable-5'));
+  // The agent's own session: the rule applies, whether the session is given or not, in any case.
+  assert.equal(status.readModel('shared').earlierSession, true);
+  assert.equal(status.readModel('shared', 'shared').earlierSession, true);
+  assert.equal(status.readModel('shared', 'SHARED').earlierSession, true);
+});
+
+/* Review 7: an API-error row carrying a real model is not a reply (hasReplied's own test), so it does not end the
+   window. */
+test('kosmos#8601 review 7: an API error row is not a reply', () => {
+  session('apierr', 'old.jsonl', [
+    { type: 'assistant', message: { model: 'claude-opus-4-8' }, timestamp: at(900) },
+    // A failed request after the change, carrying a real model other than the job's: the model read is this row's
+    // (modelInText does not skip it), so without the exclusion its time would count as a reply after the job.
+    { type: 'assistant', message: { model: 'claude-sonnet-5' }, isApiErrorMessage: true, timestamp: at(10) },
+  ], 10);
+  job('apierr', 300, 'claude-haiku-5-5');
+  assert.equal(status.readModel('apierr').earlierSession, true);
+});
+
 /* Review 5 (flipped from review 3's "accepted"): a model the name table does not know yet still matches its own dated
    form, either way round, so a routine rewrite (an account move) does not hide its reading. A different model still
    reads as another. */

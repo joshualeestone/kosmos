@@ -20,13 +20,16 @@ the same way.
    before the job) is applied ONLY to Codex readings (readCodexSession). The Claude reading never passes through it.
 
 ## Change
-- engine/status.js readModel: the transcript's model is read as an EARLIER reading (`earlierSession: true`, the #6716
-  shape) when BOTH hold: the agent's job file was written after that transcript (`writtenBeforeJob`, two stats), AND
-  the job names a different Claude model (`jobNamesAnotherModel`, via create.plannedModelOf, read only after a
-  rewrite). Then `model` is null and the old name travels only as `earlierModelName`; server.js plannedFor reads the
+- engine/status.js readModel: for the agent's OWN session (no session given, or the board name; review 7), the
+  transcript's model is read as an EARLIER reading (`earlierSession: true`, the #6716 shape) when BOTH hold: the agent
+  has not replied since its job file was written (`readBeforeJob`: a stat that the job exists, then the newest real
+  reply's own timestamp in the tail, `newestReplyAt`, else the transcript file's time; reviews 4 and 6), AND the job
+  names a different Claude model (`jobNamesAnotherModel`, via create.plannedModelOf, read only after a rewrite with no
+  reply since). Then `model` is null and the old name travels only as `earlierModelName`; server.js plannedFor reads the
   job whenever modelName is null, and the card's existing precedence (modelName, then plannedModelName, earlierModelName
   last) shows the new model.
-- The job-file lookup is one helper (`writtenBeforeJob`) shared with the Codex rule (`withoutModelFromBeforeJob`).
+- One job-file lookup (`jobWrittenAfter`, under `writtenBeforeJob` and `jobExists`) shared with the Codex rule
+  (`withoutModelFromBeforeJob`, which stays on the file time alone).
 
 ## Decisions
 - Review 1: NOT the file time alone. An account move or provider switch rewrites the job on every platform, and on
@@ -42,10 +45,10 @@ the same way.
   whose plist is rewritten by a model change has the same stale-reading window. Rejected: a win32-only branch, which
   would leave the same window on Mac and a second rule to keep in step.
 - Rejected: reading the job's model for every running agent on every poll (the server comment at plannedFor explains
-  the per-poll cost). The two stats come first, so the job is read only once it is newer than the transcript: after a
-  rewrite, until the next reply (on Windows that read is cached, #2717).
+  the per-poll cost). The age check comes first, so the job is read only after a rewrite with no reply since (on
+  Windows that read is cached, #2717).
 
-- Review 4: the reading's age is the TIMESTAMP of the reply that named the model (readBeforeJob / modelRowAt), not the
+- Review 4: the reading's age is the TIMESTAMP of a reply (readBeforeJob; review 6 made it the newest reply), not the
   transcript file's time. Claude Code writes the person's prompt row as soon as it is sent, so with the file's time the
   first message after a change made the transcript newer than the job and the old model read as current again until
   the first reply. No readable timestamp in the tail: the file's time, as before. The Codex rule keeps the file time.
@@ -57,6 +60,11 @@ the same way.
   file is stat'd before the tail is scanned, so an agent with no job (fleet, untied) pays one stat.
 - Accepted (review 6): while a reading is earlier, the job is read twice per poll for that agent (jobNamesAnotherModel
   here, plannedFor in server.js; cached on Windows, a small file read on Mac and Linux), until the next reply.
+
+- Review 7: only the agent's own session. The job is filed under the board name; a session read by exactSession that
+  is not that name (the foo / foo-discord collision server.js documents) is not the session the job starts, so its
+  reading is never judged against that job. A reply is hasReplied's own test (isReplyLine: real model, not an API
+  error), so an error row carrying a real model does not end the window early.
 
 ## Weakest premise
 That a job naming a different model than the last reply means the agent runs the job's model. Two narrow cases where it

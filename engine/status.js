@@ -6957,10 +6957,13 @@ function jobWrittenAfter(at, agentName) {
    `text` (the transcript tail), else by `file`'s own time. Review 6: the agent with no job file (a fleet agent, an
    untied pane) is answered by one stat, before the tail is scanned. */
 function readBeforeJob(file, text, agentName) {
-  if (!jobWrittenAfter(0, agentName)) return false;   // no job file to compare with
+  if (!jobExists(agentName)) return false;   // nothing to compare with
   const at = newestReplyAt(text);
   return at !== null ? jobWrittenAfter(at, agentName) : writtenBeforeJob(file, agentName);
 }
+
+/* Whether the agent has a job file at all (one stat; any real file time is after 0). */
+const jobExists = (agentName) => jobWrittenAfter(0, agentName);
 
 /* kosmos#8601: when the agent last replied, read from the newest assistant row's own `timestamp` in the transcript tail.
    Review 4: not the file's own time, because Claude Code appends the person's prompt row as soon as it is sent (and tool
@@ -6969,7 +6972,8 @@ function readBeforeJob(file, text, agentName) {
    read: modelInText prefers an id the name table knows over a newer one it does not, so after a change to a model not
    yet in the table the read model stays the old one, and timing that old row kept the reading "earlier" through every
    reply on the new model. A reply after the job means the agent has answered since the change, whatever its id; then
-   the reading stands, as modelInText chose it. A `<synthetic>` row (Claude Code's own, not a model's) does not count.
+   the reading stands, as modelInText chose it. What counts as a reply is hasReplied's own test (isReplyLine: an
+   assistant row with a real model, not an API error), so the two cannot disagree; a `<synthetic>` row is not one.
    null when no such row with a readable timestamp is in the tail (the caller then uses the file's time). */
 function newestReplyAt(text) {
   const s = String(text || '');
@@ -6978,7 +6982,7 @@ function newestReplyAt(text) {
     const start = s.lastIndexOf('\n', end - 1) + 1;
     const line = s.slice(start, end);
     end = start - 1;
-    if (!line || line.indexOf('"assistant"') === -1) continue;
+    if (!line || !isReplyLine(line)) continue;
     let row;
     try { row = JSON.parse(line); } catch { continue; }   // the tail's first line can be cut
     if (!row || row.type !== 'assistant' || !row.message || typeof row.message.model !== 'string') continue;
@@ -7471,8 +7475,13 @@ function readModel(agentName, exactSession) {
      Review 2: while the reading is earlier (a real model change, until the next reply), `model` is null on purpose for
      every consumer: the context ring's ceiling is unknown (the new model's may differ) and whoami answers from the
      process's own --model where it can read one, or with no model. That is not a regression to "fix" by passing the
-     old model through. */
-  if (now && readBeforeJob(file, text, agentName) && jobNamesAnotherModel(agentName, now)) {
+     old model through.
+     Review 7: only for the agent's OWN session. The job is filed under the board name, and a session read by
+     `exactSession` that is not that name (the foo / foo-discord collision server.js documents: one name, two sessions,
+     two models) is not the session the job starts, so its reading is never judged against that job. */
+  const ownSession = exactSession === undefined || exactSession === null
+    || String(exactSession).toLowerCase() === String(agentName).toLowerCase();
+  if (now && ownSession && readBeforeJob(file, text, agentName) && jobNamesAnotherModel(agentName, now)) {
     return { model: now, confidence: CONFIDENCE.STRUCTURED, earlierSession: true };
   }
   if (now) return { model: now, confidence: CONFIDENCE.STRUCTURED };
