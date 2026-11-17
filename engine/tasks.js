@@ -117,7 +117,7 @@ function doneWhenWords(list) {
 }
 
 /* #8464 item 2: how each check went, as the agent reports it (`kosmos task check <p> <n> <i> met|unmet "<how>"`).
-   doneWhenResults is index-aligned with doneWhen: entry i is null (not reported) or { met, how, by, at }. A separate
+   doneWhenResults is index-aligned with doneWhen: entry i is null (not reported) or { met, how, by, at, movedTo? }. A separate
    field, so doneWhen stays a list of strings and none of its readers change. It is an agent's REPORT, never a
    verification: every reader says the agent "says" or "reported" it, never that it is met. Nothing parses the built note (#5705). The results go when what
    they describe goes: a changed check drops its own result, a new list drops them all, and taking the built mark off,

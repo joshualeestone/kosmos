@@ -110,7 +110,7 @@ const SENDS = [
     (b) => assert.deepEqual([b.check, b.met, b.how, 'movedTo' in b], [1, false, 'fails on Linux', false], 'a newline becomes a space; unmet is false; no link unless asked')],
   // #8668: an unmet check's part moved to another task; leading zeros still send a JSON number.
   [['task', 'check', 'p5152', '3', '1', 'unmet', 'no Windows box', '--moved-to', '012'], '/api/project/p5152/task/3/check',
-    (b, out) => { assert.deepEqual([b.check, b.met, b.how, b.movedTo], [1, false, 'no Windows box', 12]); if (out !== undefined) assert.match(out, /moved to task 12\./); }],
+    (b, out) => { assert.deepEqual([b.check, b.met, b.how, b.movedTo], [1, false, 'no Windows box', 12]); assert.match(String(out), /moved to task 12\./); }],
   // #8668: 1000 characters of evidence reach the board whole (the board holds the limit).
   [['task', 'check', 'p5152', '3', '1', 'met', 'e'.repeat(1000)], '/api/project/p5152/task/3/check',
     (b) => assert.equal(b.how, 'e'.repeat(1000))],

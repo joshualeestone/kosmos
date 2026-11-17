@@ -11,7 +11,7 @@
  *  - the Tasks row of a task with reports says "1 of 3 checks reported met, 1 reported not met"; a task with checks
  *    and no reports says nothing about them,
  *  - #8668: a 400-character report shows whole; an unmet check moved to another task says "Moved to task 5" with a
- *    link that opens it, and task 5 (which has no checks of its own) lists "Check 1 of task 4, not met there: ..."
+ *    link that opens it, and task 5 (which has no checks of its own) lists "Check 1 of task 4, reported not met there: ..."
  *    with a link back,
  *  - light and dark, 1400 and 390 wide, with no sideways scroll and no page errors.
  *
