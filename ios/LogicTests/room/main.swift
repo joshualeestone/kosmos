@@ -2076,6 +2076,8 @@ do {
         let mail = Board.reportMail(row: ext, project: "p-shared", projectName: "Catalogue")
         let parts = mail.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         check(mail?.scheme == "mailto" && parts?.path == Board.reportAddress, "Report opens a mail to the published address")
+        let subject = parts?.queryItems?.first { $0.name == "subject" }?.value ?? ""
+        check(subject.hasPrefix("Kosmos report:"), "the subject starts with the fixed prefix the support inbox matches")
         let body = parts?.queryItems?.first { $0.name == "body" }?.value ?? ""
         check(body.contains("From: Ana") && body.contains("something rude") && body.contains("Message id: \(ext.id)") && body.contains("Room: Catalogue (p-shared)"),
               "the mail carries who, the words, the message id and the room")
