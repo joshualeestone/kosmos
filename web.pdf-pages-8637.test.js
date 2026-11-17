@@ -8,6 +8,7 @@
  *
  *   node --test web.pdf-pages-8637.test.js
  */
+require('./test-support/tmpscope'); // the temp data root below, removed when this file exits
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -178,4 +179,33 @@ test('the page wires it: pvOpen calls the pager for a PDF only, the keys call pv
   assert.match(SCRIPT, /back\.pvFlip\(e\.key === 'ArrowRight' \? 1 : -1\)/);
   assert.match(SCRIPT, /\.pv-pg:not\(:disabled\), \.pv-acts button/);
   assert.match(open, /\.pv-tabs, \.pv-pager, #pv-x/, 'a click on the arrows closes the viewer');
+});
+
+/* Review 2: pvPdfPageCount asks only addresses of the three exact shapes, so a record whose preview address drifted
+   (a parameter added, a route renamed) would lose the arrows with nothing failing. These build the addresses the way
+   the page and the board really do (filesPvOpen's record; attachments.rowField's preview) and require that each is
+   one the count is asked for. */
+function filesRecord(where, name) {
+  const PV_ATTS = new Map();
+  // eslint-disable-next-line no-new-func
+  const filesPvOpen = new Function('PV_ATTS', 'pvOpen', 'fetch', 'document', 'asSentence', 'onWindows', 'kplusDownload', 'kplusSayer',
+    "'use strict';\nconst FILES_PV_ID = 'files-preview';\nlet FILES_PV_AT = null;\n" + page.lift(SCRIPT, 'filesPvOpen') + '\nreturn filesPvOpen;')(
+    PV_ATTS, () => true, async () => ({ ok: false }), { getElementById: () => null }, (s) => s, () => false, () => {}, () => () => {});
+  const row = { dataset: { doc: name }, closest: () => ({ id: 'd-files-list' }), querySelector: (sel) => (sel === '.pj-doc-w' ? { textContent: '12 KB' } : null) };
+  assert.equal(filesPvOpen(row, where, { button: 0 }), true);
+  return PV_ATTS.get('files-preview');
+}
+
+test('the preview addresses the page and board really build for a PDF are ones the count is asked for', async () => {
+  const urls = [filesRecord({ agent: 'ava b' }, 'Spring lookbook.pdf').preview, filesRecord({ project: 'p-1' }, 'reports/Q3 deck.pdf').preview];
+  const os = require('node:os');
+  process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'pdfpages-web-'));
+  const attachments = require('./engine/attachments');
+  urls.push(attachments.rowField({ id: 'e'.repeat(24), name: 'deck.pdf', type: 'application/pdf', kind: 'pdf', size: 1024, file: '/nonexistent/deck.pdf' }).preview);
+  for (const url of urls) {
+    assert.equal(typeof url, 'string', 'no preview address was built');
+    const { pvPdfPageCount, fetches } = lift(answer(200, 3));
+    assert.equal(await pvPdfPageCount(url), 3, url + ' is not asked for its count, so its PDF gets no arrows');
+    assert.deepEqual(fetches, [[url, 'HEAD']]);
+  }
 });

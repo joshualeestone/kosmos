@@ -119,6 +119,12 @@ test('attachment: an image says nothing about pages', async () => {
   assert.equal(h.status, 200);
   assert.equal(h.headers.get('x-kosmos-pdf-pages'), null);
   assert.equal(seam.counts.length, 0);
+  // Review 2: a page number that is not one is refused for a PDF only; an image ignores it, as it did before.
+  for (const q of ['?page=abc', '?page=0', '?page=2']) {
+    const r = await fetch(`${base()}/api/attachment/${rec.id}/preview${q}`);
+    assert.equal(r.status, 200, 'an image refused ' + q);
+    await r.arrayBuffer();
+  }
 });
 
 const filesUrl = (name, q) => `${base()}/api/agent/ava/files/preview?name=${encodeURIComponent(name)}${q || ''}`;

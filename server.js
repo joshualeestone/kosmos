@@ -6439,8 +6439,7 @@ function listedFileVerb(req, res, verb, folder, where, opts) {
      page 1 does what it always did. */
   let pageRaw = null;
   try { pageRaw = new URL(req.url, ROUTING_BASE).searchParams.get('page'); } catch { pageRaw = ''; }
-  const page = pdfpages.pageOf(pageRaw);
-  if (page === null) { sendJson(res, 404, { ok: false, because: 'there is no such page' }); return true; }
+  const page = pdfpages.pageOf(pageRaw);   // null (not a page) is refused by a PDF's preview only; other kinds ignore it
   filepreview.preview(folder, named, where, { ...(opts || {}), page, count: req.method === 'HEAD', countOnly: req.method === 'HEAD' && page === 1 }).then((pv) => {
     if (!pv.ok) { sendJson(res, 404, { ok: false, because: pv.because }); return; }
     // #6724: a text preview is the START of the file; the page says so when it was cut.
@@ -22377,8 +22376,7 @@ const server = http.createServer(async (req, res) => {
          how the viewer learns whether to show arrows. A GET of page 1 does what it always did. */
       let pageRaw = null;
       try { pageRaw = new URL(req.url, ROUTING_BASE).searchParams.get('page'); } catch { pageRaw = ''; }
-      const page = pdfpages.pageOf(pageRaw);
-      if (page === null) { sendJson(res, 404, { error: 'there is no such page' }); return; }
+      const page = pdfpages.pageOf(pageRaw);   // null (not a page) is refused by a PDF's preview only; an image ignores it
       attachments.previewFile(rec, { page, count: req.method === 'HEAD' }).then((pv) => {
         if (!pv.ok) { sendJson(res, 404, { error: pv.because }); return; }
         sendFileStream(req, res, pv.file, pv.unread, { 'content-type': pv.type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", ...(pv.pages ? { 'x-kosmos-pdf-pages': String(pv.pages) } : {}) });
