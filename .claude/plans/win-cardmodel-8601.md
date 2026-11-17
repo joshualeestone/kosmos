@@ -50,6 +50,14 @@ the same way.
   first message after a change made the transcript newer than the job and the old model read as current again until
   the first reply. No readable timestamp in the tail: the file's time, as before. The Codex rule keeps the file time.
 
+- Review 6: the age is the NEWEST reply on any real model (newestReplyAt; a `<synthetic>` row does not count), not the
+  row naming the model read. modelInText prefers an id the name table knows over a newer one it does not, so after a
+  change to a model not in the table yet, timing the old model's row kept the reading "earlier" through every reply on
+  the new model (model null for the ring and whoami for many turns). Any reply after the job ends the window. The job
+  file is stat'd before the tail is scanned, so an agent with no job (fleet, untied) pays one stat.
+- Accepted (review 6): while a reading is earlier, the job is read twice per poll for that agent (jobNamesAnotherModel
+  here, plannedFor in server.js; cached on Windows, a small file read on Mac and Linux), until the next reply.
+
 ## Weakest premise
 That a job naming a different model than the last reply means the agent runs the job's model. Two narrow cases where it
 does not: a model change whose restart failed with the old process still alive (setModel's partial outcome), and a
@@ -58,7 +66,8 @@ the job's model until the next reply. Before, the first was right and the second
 Review 2: a transcript that names the SAME model in another spelling (a bare "opus" row, a provider-shaped id such as
 us.anthropic.claude-..., a "@date" suffix) reads as "another model" against the job's full id. After a rewrite and before
 the next reply the card then shows the job's model (the same model, so what the person sees is right), but `model` is
-null for the context ring and whoami until that reply. Bounded by the next reply; accepted.
+null for the context ring and whoami until that reply. Bounded by the next reply; accepted. On Windows a stop and start also moves
+the task file's time, so for such an agent this repeats after every stop and start, not only after a model change.
 Review 3: a narrow window where the card still names the old model: the agent is mid-reply when the change rewrites the
 job, and the old process appends a row before the restart stops it. The transcript is then newer than the job and the
 old model reads as current until the next reply. The original symptom in a small window, not a regression.

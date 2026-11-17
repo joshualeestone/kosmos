@@ -6953,26 +6953,36 @@ function jobWrittenAfter(at, agentName) {
   } catch { return false; }
 }
 
-/* kosmos#8601 review 4: whether the reading of `model` from `file` (whose tail is `text`) is older than the agent's job:
-   timed by the reply that named it, else by the file. */
-function readBeforeJob(file, text, model, agentName) {
-  const at = modelRowAt(text, model);
+/* kosmos#8601 review 4: whether the agent has replied at all since its job was written: timed by the newest reply in
+   `text` (the transcript tail), else by `file`'s own time. Review 6: the agent with no job file (a fleet agent, an
+   untied pane) is answered by one stat, before the tail is scanned. */
+function readBeforeJob(file, text, agentName) {
+  if (!jobWrittenAfter(0, agentName)) return false;   // no job file to compare with
+  const at = newestReplyAt(text);
   return at !== null ? jobWrittenAfter(at, agentName) : writtenBeforeJob(file, agentName);
 }
 
-/* kosmos#8601 review 4: when the reply that named `model` was written, read from that row's own `timestamp` in the
-   transcript tail (the newest assistant row naming it). The file's own time is not that moment: Claude Code appends
-   the person's prompt row as soon as it is sent, and tool rows during the turn, so after a model change the first
-   message to the agent made the file newer than the job and the OLD model read as current again until the first reply.
+/* kosmos#8601: when the agent last replied, read from the newest assistant row's own `timestamp` in the transcript tail.
+   Review 4: not the file's own time, because Claude Code appends the person's prompt row as soon as it is sent (and tool
+   rows during the turn), so after a model change the first message made the file newer than the job and the OLD model
+   read as current again before any reply. Review 6: the newest reply on ANY model, not the row that named the model
+   read: modelInText prefers an id the name table knows over a newer one it does not, so after a change to a model not
+   yet in the table the read model stays the old one, and timing that old row kept the reading "earlier" through every
+   reply on the new model. A reply after the job means the agent has answered since the change, whatever its id; then
+   the reading stands, as modelInText chose it. A `<synthetic>` row (Claude Code's own, not a model's) does not count.
    null when no such row with a readable timestamp is in the tail (the caller then uses the file's time). */
-function modelRowAt(text, model) {
-  const lines = String(text || '').split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (!line || line.indexOf(model) === -1) continue;
+function newestReplyAt(text) {
+  const s = String(text || '');
+  let end = s.length;
+  while (end > 0) {
+    const start = s.lastIndexOf('\n', end - 1) + 1;
+    const line = s.slice(start, end);
+    end = start - 1;
+    if (!line || line.indexOf('"assistant"') === -1) continue;
     let row;
     try { row = JSON.parse(line); } catch { continue; }   // the tail's first line can be cut
-    if (!row || row.type !== 'assistant' || !row.message || row.message.model !== model) continue;
+    if (!row || row.type !== 'assistant' || !row.message || typeof row.message.model !== 'string') continue;
+    if (row.message.model === '<synthetic>') continue;
     const at = Date.parse(row.timestamp);
     return Number.isFinite(at) ? at : null;
   }
@@ -7449,20 +7459,20 @@ function readModel(agentName, exactSession) {
   const now = text ? modelInText(text) : null;
   /* kosmos#8601: a model change rewrites the job and restarts the agent, and until its next reply the newest transcript
      still names the OLD model (on Windows the supervisor resumes the same conversation). So the reading is from before
-     the change when BOTH hold: the reply that named it was written before the job (readBeforeJob: that row's own
-     timestamp, review 4, since a prompt sent to the agent writes to the file before any reply does), AND the job names a
-     different model. Then it travels as an earlier reading (the #6716 shape), `model` stays null, and the card shows the
+     the change when BOTH hold: the agent has not replied since the job was written (readBeforeJob: the newest reply
+     row's own timestamp, reviews 4 and 6, since a prompt sent to the agent writes to the file before any reply does),
+     AND the job names a different model. Then it travels as an earlier reading (the #6716 shape), `model` stays null, and the card shows the
      job's model (server.js plannedFor reads the job whenever modelName is null).
      Review 1: the file time alone is not a model change (see writtenBeforeJob: an account move or a provider switch
      rewrites the job on every platform, and on Windows a stop and start moves the task file's time), all while the
      conversation and its model go on; blanking the model then also blanked the context ring and the agent's own "which
-     model am I". The age check runs first (readBeforeJob: finding the naming reply's timestamp in the tail already read,
-     then a stat of the job), so the job itself is read only after a rewrite.
+     model am I". The age check runs first (readBeforeJob: a stat of the job, then the newest reply's timestamp in the
+     tail already read), so the job itself is read only after a rewrite with no reply since.
      Review 2: while the reading is earlier (a real model change, until the next reply), `model` is null on purpose for
      every consumer: the context ring's ceiling is unknown (the new model's may differ) and whoami answers from the
      process's own --model where it can read one, or with no model. That is not a regression to "fix" by passing the
      old model through. */
-  if (now && readBeforeJob(file, text, now, agentName) && jobNamesAnotherModel(agentName, now)) {
+  if (now && readBeforeJob(file, text, agentName) && jobNamesAnotherModel(agentName, now)) {
     return { model: now, confidence: CONFIDENCE.STRUCTURED, earlierSession: true };
   }
   if (now) return { model: now, confidence: CONFIDENCE.STRUCTURED };

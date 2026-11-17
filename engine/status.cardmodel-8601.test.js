@@ -126,6 +126,28 @@ test('kosmos#8601 review 4 CONTROL: a reply timestamped after the job is the cur
   assert.deepEqual(status.readModel('repliedafter'), current('claude-opus-4-8'));
 });
 
+/* Review 6: modelInText prefers an id the name table knows over a newer one it does not, so after a change to a model
+   not in the table yet the READ model stays the old one. Any reply after the job means the agent has answered since
+   the change, so the reading is not "earlier", however many replies follow. */
+test('kosmos#8601 review 6: replies on a model not in the name table yet end the earlier reading', () => {
+  session('newfamily', 'old.jsonl', [
+    { type: 'assistant', message: { model: 'claude-opus-4-8' }, timestamp: at(900) },
+    { type: 'assistant', message: { model: 'claude-opus-9' }, timestamp: at(60) },
+    { type: 'assistant', message: { model: 'claude-opus-9' }, timestamp: at(10) },
+  ], 10);
+  job('newfamily', 300, 'claude-opus-9');
+  assert.notEqual(status.readModel('newfamily').earlierSession, true, 'the agent replied after the change and still read as earlier');
+});
+
+test('kosmos#8601 review 6: a <synthetic> row after the change is not a reply', () => {
+  session('synth', 'old.jsonl', [
+    { type: 'assistant', message: { model: 'claude-opus-4-8' }, timestamp: at(900) },
+    { type: 'assistant', message: { model: '<synthetic>' }, timestamp: at(10) },
+  ], 10);
+  job('synth', 300, 'claude-haiku-5-5');
+  assert.equal(status.readModel('synth').earlierSession, true);
+});
+
 /* Review 5 (flipped from review 3's "accepted"): a model the name table does not know yet still matches its own dated
    form, either way round, so a routine rewrite (an account move) does not hide its reading. A different model still
    reads as another. */
