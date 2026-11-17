@@ -18,6 +18,11 @@ the agent found the value by trial.
 - Changing only the refusal: the card's first ask is to accept the full id, which is unambiguous (one row per id).
 - Accepting display labels ("Claude Opus 5.5"): not asked for, and labels change wording more often than ids.
 
+- Filtering the refusal's list through the company model policy: a listed key can still be refused by a policy in
+  force, but the card asked for the menu's keys, and the policy's own refusal names what it allows.
+- The "is not a model <provider> runs" branches (setModel, createAgent) stay key-only and are dead code today: MODELS
+  holds only Claude rows and both branches are reached only for Claude. Widening them changes nothing; left as they were.
+
 ## Weakest premise
 That nothing depends on modelFor answering null for a full id. Its callers (setModel, createAgent, the provider route)
 all want the row; create.test.js's modelFor tests still pass (a key, another vendor's key, a missing key).

@@ -3946,6 +3946,13 @@ test('setModel rewrites the startup file and keeps everything else about the job
     assert.equal(bad.outcome, create.OUTCOME.REFUSED);
     assert.match(bad.because, /pick a model/);
     assert.equal(plannedModel(name), 'claude-haiku-4-5-20251001', 'a refused change still altered the file');
+    // kosmos#8618, as the launchd half below: the refusal lists every key, and a full id (padded too) is accepted.
+    const listedL = create.modelsFor('anthropic').map((m) => m.key + ' (' + m.label + ')').join(', ');
+    assert.ok(bad.because.includes('pick a model from the list: ' + listedL + '.'), bad.because);
+    const byIdL = create.setModel(name, ' claude-opus-5-5 ');
+    assert.equal(byIdL.outcome, create.OUTCOME.CREATED, byIdL.because);
+    assert.equal(byIdL.model.key, 'opus55');
+    assert.equal(plannedModel(name), 'claude-opus-5-5', 'a full id was not written into ExecStart');
     // An agent with no unit is refused in Linux's words (create.noJobRefusal), not regenerated.
     const nobody = create.setModel('neverexisted', 'opus');
     assert.equal(nobody.outcome, create.OUTCOME.REFUSED);
