@@ -6946,10 +6946,8 @@ function fileBefore(file, jobAt) {
 /* The agent's job file's time (ms), or null when it has none or it cannot be read: the one job-file lookup the Codex
    rule (writtenBeforeJob) and the Claude rule (readBeforeJob) share, one stat per call.
    kosmos#8605: no worldId is passed, so each lookup (plistPath, unitPath, taskFilePath) falls back to THIS process's
-   world (launchidentity.currentWorldId), never another world's job. Known gap (kosmos#8610), from #8601 review 7's
-   own-session test: on a board running in a named world (#1704) its agents' sessions are `name+world` (`ava+qa`),
-   which readModel does not count as the agent's own, so the Claude rule never applies on the CARD there and such a card
-   keeps the old model until the next reply. (No-session callers, whoami and repair, still count as own.) */
+   world (launchidentity.currentWorldId), never another world's job; readModel's own-session test uses the same world
+   (kosmos#8610: the launch key, `name+world` on a named-world board), so the session and the job always agree. */
 function jobMtime(agentName) {
   try {
     // #4918 review 11: on Linux the job file is the agent's systemd unit, not a plist (which never exists there).
@@ -7504,10 +7502,14 @@ function readModel(agentName, exactSession) {
      (so readBeforeJob is "no"), and for whoami without a card (or with a card that has no session) a rule that fires
      drops the reading in favour of the process's own --model (server.js skips an earlierSession record), never the
      job's model. A new caller that reads a running agent with no session should pass the session.
-     Known gap (kosmos#8610): a board in a named world has sessions `name+world`, which this test does not count as
-     own, so its cards never get the rule (see jobMtime). */
+     kosmos#8610: "the agent's own session" is its LAUNCH KEY in this process's world (launchidentity.launchKey): the
+     bare name in the default world, `name+world` (`ava+qa`) on a board running in a named world, which is the session
+     that board's own agents run in and the world whose job jobMtime reads. A session from another world (a bare `ava`
+     read by a named-world board, or `ava+qa` by the default board) is not the one that job starts, so it never gets
+     the rule. */
+  const ownKey = launchidentity.launchKey(agentName, launchidentity.currentWorldId()).toLowerCase();
   const ownSession = exactSession === undefined || exactSession === null
-    || String(exactSession).toLowerCase() === String(agentName).toLowerCase();
+    || String(exactSession).toLowerCase() === ownKey;
   if (now && ownSession && readBeforeJob(file, text, agentName) && jobNamesAnotherModel(agentName, now)) {
     return { model: now, confidence: CONFIDENCE.STRUCTURED, earlierSession: true };
   }
