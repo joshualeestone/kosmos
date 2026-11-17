@@ -15,7 +15,9 @@
  *      that pushes the oldest row out (the board sends only the newest 200).
  *      The message must not move on screen at any step, its rows must stay during the failure, and the
  *      failure must still be SAID (one line at the thread's end) and be gone once a read works.
+ *   Q. the same with the question box (#d-qask) showing above the thread: it stays put and goes inert.
  *   B. CONTROL, a reader at the floor: the failure line is in view, and a new message still brings them down.
+ *   D. a box with no rows yet ("Opening...") still paints the failure sentence alone.
  *   C. the standing refusal (`because: 'borrowed'`) still paints its sentence alone, as before.
  * Red-capable: with the #8629 change reverted, arm A fails (rows gone during the failure, then on different
  * words). Run both ways before this landed.
@@ -106,6 +108,28 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     out.aYBack = rowY('m25');
     out.aLineBack = failLine();
 
+    // Q. the same, with the question box (#d-qask) showing ABOVE the thread: a failed poll must not hide it
+    //    (that slides the reader by its height) and the next good poll must not show it again under them.
+    window.__fx = { ...window.__fx, asking: true, answerNote: 'Trust this folder to continue.' };
+    await paint('ok');
+    const qask = document.getElementById('d-qask');
+    const qrow = th.querySelector('[data-mid="m25"]');
+    th.scrollTop = qrow.offsetTop - th.offsetTop + Math.round(qrow.offsetHeight / 2);
+    th.dispatchEvent(new Event('scroll'));
+    await settle();
+    await paint('ok');
+    out.qShown = !qask.hidden;
+    out.qY0 = rowY('m25');
+    await paint('fail');
+    out.qYFail = rowY('m25');
+    out.qShownFail = !qask.hidden;
+    out.qInertFail = qask.inert === true;
+    await paint('ok');
+    out.qYBack = rowY('m25');
+    out.qInertBack = qask.inert === true;
+    window.__fx = { ...window.__fx, asking: false, answerNote: null };
+    await paint('ok');
+
     // B. CONTROL: at the floor.
     th.scrollTop = th.scrollHeight;
     th.dispatchEvent(new Event('scroll'));
@@ -120,7 +144,16 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     out.bNewestY = rowY('m31');
     out.boxBottom = Math.round(th.getBoundingClientRect().bottom);
 
+    // D. a box with no rows yet (an agent just opened, its "Opening..." note up) still paints the failure alone:
+    //    nothing is kept, so no earlier agent's rows can stand under this one's name.
+    setThread(th, '<p class="dmnone">Opening&hellip;</p>', null);
+    await paint('fail');
+    out.dRows = th.querySelectorAll('[data-mid]').length;
+    out.dText = th.textContent.trim().slice(0, 80);
+    out.dLine = failLine();
+
     // C. the standing refusal replaces the rows with its sentence, as before.
+    await paint('ok');
     await paint('borrowed');
     out.cRows = th.querySelectorAll('[data-mid]').length;
     out.cText = th.textContent.trim().slice(0, 80);
@@ -143,6 +176,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!(r.bGapFail <= 4)) problems.push('B (control): a reader at the floor was left ' + r.bGapFail + 'px above it, with the failure line below the fold');
     if (!/could not read/.test(String(r.bLineFail))) problems.push('B (control): no failure line for a reader at the floor');
     if (!(r.bGapBack <= 4) || !(typeof r.bNewestY === 'number' && r.bNewestY < r.boxBottom)) problems.push('B (control): a new message did not bring a reader at the floor down (gap ' + r.bGapBack + 'px, newest at ' + r.bNewestY + ' vs box bottom ' + r.boxBottom + ')');
+    if (r.qShown !== true) problems.push('setup Q: the question box was not showing above the thread, so arm Q tested nothing');
+    if (!near(r.qYFail, r.qY0)) problems.push('Q: with the question box up, the failed poll moved the reader: m25 at ' + r.qY0 + 'px, then ' + r.qYFail + 'px');
+    if (r.qShownFail !== true || r.qInertFail !== true) problems.push('Q: during the failed poll the question box should stay where it is and be inert (shown ' + r.qShownFail + ', inert ' + r.qInertFail + ')');
+    if (!near(r.qYBack, r.qY0)) problems.push('Q: the next good poll moved the reader: m25 at ' + r.qY0 + 'px, back at ' + r.qYBack + 'px');
+    if (r.qInertBack !== false) problems.push('Q: the question box stayed inert after a read worked');
+    if (r.dRows !== 0 || !/could not read this conversation just now/.test(String(r.dText)) || r.dLine !== null) problems.push('D: a failure on a box with no rows yet should paint the sentence alone (rows ' + r.dRows + ', text ' + JSON.stringify(r.dText) + ', line ' + JSON.stringify(r.dLine) + ')');
     if (r.cRows !== 0 || !/cannot show a conversation for this name/.test(String(r.cText))) problems.push('C: the standing refusal changed (rows ' + r.cRows + ', text ' + JSON.stringify(r.cText) + ')');
   }
 

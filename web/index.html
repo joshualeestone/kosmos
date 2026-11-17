@@ -45127,7 +45127,12 @@ async function paintTalk(sessionName, agentName) {
             + esc((err && err.message) || 'no detail') + ')')
         + '</p>', null);
     }
-    document.getElementById('d-qask').hidden = true;
+    /* #8629: #d-qask sits ABOVE the thread too, so when the rows stay it stays where it is and is made inert
+       (nothing in it can be pressed or focused over a read that failed); hiding it would slide the reader by
+       its height and showing it again on the next good read would slide them back. The next good read clears
+       `inert`. With no rows to keep it is hidden, as before. */
+    if (keepRows) document.getElementById('d-qask').inert = true;
+    else document.getElementById('d-qask').hidden = true;
     /* ⚠️ AND THE TWO SENTENCES FROM THE LAST GOOD PAINT. "5 older messages are
        still kept" standing over "we could not read this conversation" is the
        screen asserting a count it just said it could not see. */
@@ -45456,10 +45461,13 @@ async function paintTalk(sessionName, agentName) {
   const thread = document.getElementById('d-dmthread');
   thread.__lastBody = body; thread.__lastName = name; thread.__lastSession = sessionName;
   thread.__readFailed = false;   // kosmos#5841
-  dmReadFailLine(thread, null);   // #8629: the read worked, so the line saying it did not goes
+  document.getElementById('d-qask').inert = false;   // #8629: made inert by a failed read that kept the rows
   /* kosmos#5841: a thread that SHRANK below the earlier rows' end (a file set aside) would duplicate them: close. */
   if (earlierOn(sessionName) && Array.isArray(body.messages) && (Number(body.olderCount) || 0) < EARLIER.end) earlierReset(sessionName);   // a FAILED read reports olderCount 0: not a shrink
   paintTalkThread(body, name);
+  /* #8629: AFTER the paint, so setThread measures the reader with the line still there and does not take a
+     reader who stopped within a line of the floor for one at it. */
+  dmReadFailLine(thread, null);
 
   paintOlderLine(body, sessionName);
   earlierNearTop();   // kosmos#6086: a thread too short to scroll has no scroll to wait for
