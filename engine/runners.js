@@ -1029,9 +1029,12 @@ function resolveBin(provider, opts) {
   if (plat === 'win32' && isRunnable(managed) && !isVerified(mf, plat)) {
     /* kosmos#8593 (Windows): a tree an OLDER build's marker vouches for ran its --version when that build installed it,
        so it is still a runner (agents keep starting on it) but STALE, and the board's upgrade sweep replaces it. Only
-       older counts, as on the Mac: a newer marker (another board with a later pin) is not downgraded. */
+       older counts, as on the Mac. A NEWER build's marker (another board with a later pin sharing this root) reads
+       present and not stale, as a newer Mac tree does: read as absent, the screen would offer an install that puts this
+       board's older pin over it. */
     const was = verifiedVersion(mf, plat);
     if (was && olderVersion(was, mf.version)) return { bin: managed, present: true, managed: true, overridden: false, stale: true, installedVersion: was };
+    if (was && olderVersion(mf.version, was)) return { bin: managed, present: true, managed: true, overridden: false };
     const legacy = (opts && opts.legacyBin) || '/opt/homebrew/bin/codex';
     if (isRunnable(legacy)) return { bin: legacy, present: true, managed: false, overridden: false };
     return { bin: managed, present: false, managed: true, overridden: false };
@@ -1670,8 +1673,9 @@ function install(provider, opts) {
           }
         } catch { /* best effort */ }
       }
-      // Windows upgrade, first look: an agent already running means the swap could not happen, so nothing downloads.
-      if (await waitForAgents(false)) return;
+      /* Windows upgrade, first look: an agent already running means the swap could not happen, so nothing downloads. A
+         tarball an earlier look kept is kept again: nothing is unpacked yet, and the checksum still decides its use. */
+      if (await waitForAgents(true)) return;
       /* kosmos#8593 (Windows): a tarball this process downloaded for an upgrade that then had to wait for an agent is
          kept (waitForAgents), so the next look does not fetch ~187 MB again. It is only REUSED here, at its full
          published size, and the checksum below still decides: wrong bytes are discarded as always. */

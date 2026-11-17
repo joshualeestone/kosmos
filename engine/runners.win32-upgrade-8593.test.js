@@ -117,7 +117,13 @@ test('win32 CONTROLS: a marker at the pin, a newer one, another path, or a garbl
     plantOld(`${m.version} ${m.binInPackage}`);
     const atPin = runners.resolveBin('openai', { legacyBin: LEGACY });
     assert.equal(atPin.present, true); assert.ok(!atPin.stale, 'at the pin');
-    for (const text of [`${ma}.${mi}.${pa + 1} ${m.binInPackage}`, `${OLD} vendor/other/codex.exe`, `${OLD}`, `x.y.z ${m.binInPackage}`, '']) {
+    // A newer build's tree (another board with a later pin) reads present and not stale, as on the Mac.
+    plantOld(`${ma}.${mi}.${pa + 1} ${m.binInPackage}`);
+    const newer = runners.resolveBin('openai', { legacyBin: LEGACY });
+    assert.equal(newer.present, true, 'present: read as absent, the screen would offer an install over it');
+    assert.ok(!newer.stale, 'never stale: a newer tree is not downgraded');
+    assert.equal(newer.managed, true);
+    for (const text of [`${OLD} vendor/other/codex.exe`, `${OLD}`, `x.y.z ${m.binInPackage}`, '']) {
       plantOld(text);
       const r = runners.resolveBin('openai', { legacyBin: LEGACY });
       assert.equal(r.present, false, `${JSON.stringify(text)} vouches for nothing at managedBin, as before`);
@@ -188,6 +194,38 @@ test('win32: an agent already running at the first look downloads nothing', { sk
     assert.equal(download.calls, 0, 'no 187 MB fetched for a swap that cannot happen');
     assert.equal(isOldTree(), true);
   } finally { clear(); }
+});
+
+test('win32: a newer build tree is never installed over (no downgrade): install() answers installed and fetches nothing', { skip: WIN_ONLY }, async () => {
+  const m = pin();
+  const [ma, mi, pa] = m.version.split('.').map(Number);
+  plantOld(`${ma}.${mi}.${pa + 1} ${m.binInPackage}`);
+  const { tgz, integrity } = winFixture();
+  const download = counting(tgz);
+  try {
+    const job = runners.install('openai', { legacyBin: LEGACY, download, integrity, prove: ok, codexRunning: () => Promise.resolve(false) });
+    await job.settled;
+    assert.equal(job.phase, 'installed');
+    assert.equal(download.calls, 0);
+    assert.equal(isOldTree(), true, 'the newer tree stays');
+  } finally { clear(); }
+});
+
+test('win32: a kept tarball survives a later look that finds an agent running before it downloads', { skip: WIN_ONLY }, async () => {
+  plantOld();
+  const { tgz, integrity } = winFixture();
+  const download = counting(tgz);
+  const answers = [false, true, true, false, false];   // look 1: idle then busy; look 2: busy; look 3: idle twice
+  const go = () => runners.install('openai', { legacyBin: LEGACY, download, integrity, prove: ok, manifest: withSize(tgz),
+    codexRunning: () => Promise.resolve(answers.shift()) });
+  try {
+    const a = go(); await a.settled; assert.equal(a.waited, true);
+    const b = go(); await b.settled; assert.equal(b.waited, true);
+    assert.equal(fs.existsSync(stagingFile()), true, 'still kept after a look that waited before downloading');
+    const c = go(); await c.settled;
+    assert.equal(c.phase, 'installed', c.because || '');
+    assert.equal(download.calls, 1, 'fetched once across three looks');
+  } finally { clear(); try { fs.rmSync(stagingFile(), { force: true }); } catch { /* gone */ } }
 });
 
 test('win32: a tarball downloaded before an agent started is kept, and the next look reuses it instead of fetching again', { skip: WIN_ONLY }, async () => {
@@ -323,8 +361,6 @@ test('win32: the real process check sees a program running from a folder, and no
   assert.equal(await runners.managedProcessRunning(path.dirname(process.execPath)), true, 'this node runs from its own folder');
   const idle = fs.mkdtempSync(path.join(SANDBOX, 'idle-'));
   assert.equal(await runners.managedProcessRunning(idle), false);
-  // A sibling that only shares the prefix is not the folder.
-  assert.equal(await runners.managedProcessRunning(path.dirname(process.execPath).slice(0, -1)), false);
   // A folder that is not there runs nothing: false, not "no answer".
   assert.equal(await runners.managedProcessRunning(path.join(SANDBOX, 'never-made')), false);
 });
@@ -339,10 +375,27 @@ test('win32: the check sees a running program when the folder is given by its 8.
     '[Console]::Out.Write((New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:KOSMOS_LONG_DIR).ShortPath)'],
   { encoding: 'utf8', env: { ...process.env, KOSMOS_LONG_DIR: long } }).trim();
   if (!short || short.toLowerCase() === long.toLowerCase()) { t.skip('8.3 names are off on this volume'); return; }
-  const child = spawn(exe, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+  const hold = (file) => spawn(file, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+  const settle = () => new Promise((r) => setTimeout(r, 500));
+  let child = hold(exe);
   try {
-    await new Promise((r) => setTimeout(r, 500));
+    await settle();
     assert.equal(await runners.managedProcessRunning(short), true, `started by its long name, asked by ${short}`);
     assert.equal(await runners.managedProcessRunning(long), true);
-  } finally { child.kill(); await new Promise((r) => setTimeout(r, 500)); }
+    child.kill(); await settle();
+    // The other way round, the case the code comment names: started by the short name, asked by the long one.
+    child = hold(path.join(short, 'codex.exe'));
+    await settle();
+    assert.equal(await runners.managedProcessRunning(long), true, `started by ${short}, asked by its long name`);
+    assert.equal(await runners.managedProcessRunning(short), true);
+    child.kill(); await settle();
+    // A REAL sibling that shares the prefix, with a program running in it, is not the folder.
+    const sibling = `${long}-old`;
+    fs.mkdirSync(sibling, { recursive: true });
+    fs.copyFileSync(process.execPath, path.join(sibling, 'codex.exe'));
+    child = hold(path.join(sibling, 'codex.exe'));
+    await settle();
+    assert.equal(await runners.managedProcessRunning(sibling), true, 'PRECONDITION: the sibling program is seen');
+    assert.equal(await runners.managedProcessRunning(long), false, 'a running sibling is not the folder');
+  } finally { child.kill(); await settle(); }
 });
