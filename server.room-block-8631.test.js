@@ -29,6 +29,7 @@ const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const projects = require('./engine/projects');
 const store = require('./engine/store');
+const roomarchive = require('./engine/roomarchive');
 
 let base;
 let pid;
@@ -82,4 +83,16 @@ test('#8631: after Unblock the count goes', async () => {
   const room = await read('');
   assert.equal(Object.prototype.hasOwnProperty.call(room, 'hiddenBlocked'), false);
   assert.equal(room.rows.filter((r) => r.kind === 'external').length, 3);
+});
+
+test('#8631: rows of a blocked person in the archived stretch are not counted for the live room', async () => {
+  // Ana's two rows (seconds 1 and 2) archived by the person's marker; Bea's (second 3) stays live.
+  assert.equal(roomarchive.setMarker(pid, '2024-01-01T00:00:02.500Z').ok, true);
+  assert.equal((await post(`/api/project/${encodeURIComponent(pid)}/room/x-a1/block`)).status, 200);
+  const live = await read('?n=50&archive=0');
+  assert.equal(Object.prototype.hasOwnProperty.call(live, 'hiddenBlocked'), false, 'nothing the live room would show is hidden');
+  // CONTROL: with the marker gone, the same block hides two live rows again.
+  roomarchive.clearMarker(pid);
+  assert.equal((await read('?n=50&archive=0')).hiddenBlocked, 2);
+  assert.equal((await post('/api/blocked/unblock', { account: 'acctA' })).status, 200);
 });

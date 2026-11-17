@@ -28371,7 +28371,7 @@ function showTab(tab) {
     if (rr) rr.innerHTML = '';
   } else { paintRemoved(); paintSurvival(); }
   PANELS.forEach((p) => { document.getElementById('panel-' + p).hidden = (p !== tab); });
-  if (tab === 'settings') { centreSettingsPill(); refreshSurvivalHidden(); if (SETTINGS_SEC === 'you' && typeof blockedPaint === 'function') blockedPaint(); }   // #8631: arriving without settingsGo
+  if (tab === 'settings') { centreSettingsPill(); refreshSurvivalHidden(); if (SETTINGS_SEC === 'you' && typeof blockedPaint === 'function') blockedPaint(); }   // #8631: the Blocked list, read on arrival
   /* #1615: un-blue + tear down the Plus canvases when leaving Settings (or when
      the Settings section is not Plus); re-blue + re-mount on return. The Settings
      section persists across tab switches, so this must run on every tab change,
@@ -81379,7 +81379,8 @@ async function xReportSend(id) {
      composer always says where the report is (the phone's reportCopiedNote, for the case it cannot see). */
   const copiedP = xReportCopy(bodyP.then((b) => 'To: ' + XREPORT_TO + '\nSubject: ' + XREPORT_SUBJECT + '\n\n' + b));
   const body = await bodyP;
-  const copied = await copiedP;
+  // A copy that never settles (a permission prompt left open) must not hold the mail and the line back.
+  const copied = await Promise.race([copiedP, new Promise((r) => setTimeout(() => r(false), 1500))]);
   const a = document.createElement('a');
   a.href = 'mailto:' + XREPORT_TO + '?subject=' + encodeURIComponent(XREPORT_SUBJECT) + '&body=' + encodeURIComponent(body);
   a.rel = 'noopener'; a.style.display = 'none';
@@ -81504,7 +81505,14 @@ function pjBlockedNoteSet(body) {
 /* #8631: Settings, Your Profile, Blocked: the list with Unblock. A failed read hides the box, never an empty list that
    reads as "no one" (the phone's rule). */
 let BLOCKED_GEN = 0;
-async function blockedPaint(note) {
+let BLOCKED_READING = null;   // the read already running, shared by callers that bring no line of their own
+function blockedPaint(note) {
+  if (!note && BLOCKED_READING) return BLOCKED_READING;
+  const run = blockedPaintNow(note);
+  if (!note) { BLOCKED_READING = run; run.finally(() => { if (BLOCKED_READING === run) BLOCKED_READING = null; }); }
+  return run;
+}
+async function blockedPaintNow(note) {
   const box = document.getElementById('you-blocked-box');
   const list = document.getElementById('you-blocked');
   const msg = document.getElementById('you-blocked-msg');
