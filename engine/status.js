@@ -8173,25 +8173,27 @@ function paneLook() {
 /* kosmos#8640: every pane's session and the folder it is in now, as { session, folder }. The question it answers is
    "is anything running inside this agent's folder", which needs neither the session name nor a claim: an agent a
    person's own tooling relaunched carries neither, and was offered for deletion while running. A second listing (the
-   folder is not one of PANE_COLUMNS). THROWS when it could not be read, or when every line of it is unreadable, so a
+   folder is not one of PANE_COLUMNS). THROWS when it could not be read, or when any line of it is unreadable, so a
    delete check fails closed; [] when no tmux server is running. With a pane source set it never asks tmux: in a test
    it reads the injected folder source ([] when none), and on Windows, whose roster is not tmux, it answers [], so
    this check does nothing there. */
 let paneFolderSource = null;
 function setPaneFolderSource(fn) { paneFolderSource = typeof fn === 'function' ? fn : null; }
+/* Each line is `%<pane id>\t<session>\t<folder>`. A line that does not start with a pane id is a fragment (a folder
+   whose name holds a newline splits its line), and one unreadable line refuses the whole answer: a guard that fails
+   closed cannot drop the pane it could not read. */
 function readPaneFolders(out) {
   const lines = String(out || '').split('\n').filter(Boolean);
-  const rows = lines.map((line) => {
-    const tab = line.indexOf('\t');
-    return tab < 0 ? null : { session: line.slice(0, tab), folder: line.slice(tab + 1) };
-  }).filter((r) => r && r.folder);
-  if (lines.length && !rows.length) throw new Error('we could not make sense of what came back');
-  return rows;
+  return lines.map((line) => {
+    const m = /^%\d+\t([^\t]*)\t(.+)$/.exec(line);
+    if (!m) throw new Error('we could not make sense of what came back');
+    return { session: m[1], folder: m[2] };
+  });
 }
 function paneFolders() {
   if (paneFolderSource) return readPaneFolders(paneFolderSource());
   if (paneSource) return [];
-  const got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', '#{session_name}\t#{pane_current_path}']);
+  const got = shDetail(tmuxBin(), ['list-panes', '-a', '-F', '#{pane_id}\t#{session_name}\t#{pane_current_path}']);
   if (got.ran && got.status === 0) return readPaneFolders(got.out);
   if (tmuxSaidNoServer(got)) return [];
   throw new Error('we could not see what is running on this computer');

@@ -16,9 +16,13 @@
   [] with no tmux server. With a pane source set it never asks tmux: tests inject setPaneFolderSource,
   and on WINDOWS (roster not tmux) it answers [] so the folder check does nothing there (follow-up).
 - delete-leftover plan(): running if the session names the agent, OR a claim does (the part before `+`,
-  for a named world), OR a pane works in the agent's folder (real paths, case-blind on Mac/Windows, a
-  folder boundary, not a prefix). The folder refusal says "something is working in X's folder"; neither
-  names tmux.
+  for a named world), OR a pane works in the agent's folder or in a folder its profile records elsewhere
+  (resolved once, as written and as a real path; pane folders compared as tmux gives them, so nothing
+  per pane touches the disk on the board thread; case-blind on Mac/Windows; a folder boundary, not a
+  prefix). Each listing line carries its pane id, and any line without one refuses the plan (a folder
+  name holding a newline). The folder refusal says "something is working in X's folder"; neither
+  refusal names tmux.
+- Cost: a plan whose session and claim do not match makes a second tmux call (one list-panes).
 - Rejected: adding `claim` or the folder to roster rows/PANE_COLUMNS (pinned shape, hand-built fixtures).
 
 ## Weakest premise

@@ -105,7 +105,7 @@ test('negative control: with nothing running the leftover is still offered, and 
 test('a pane whose session and claim match nothing, but which works in the agent\'s folder, is running', () => {
   const dir = leftoverAgent('agent1');
   status.setPaneSource(() => fleet.line({ session: 'orchestrator', claim: '', title: '✳ Claude Code' }));
-  status.setPaneFolderSource(() => `orchestrator\t${dir}\n`);
+  status.setPaneFolderSource(() => `%1\torchestrator\t${dir}\n`);
   const p = mac.plan('agent1');
   assert.equal(p.ok, false, 'a live pane in agent1\'s own folder was offered for deletion');
   assert.match(p.because, /working in agent1's folder/);
@@ -117,11 +117,11 @@ test('a pane whose session and claim match nothing, but which works in the agent
 
 test('a pane working in a subfolder of the agent\'s folder holds it too; a sibling sharing the prefix does not', () => {
   const dir = leftoverAgent('agent2');
-  status.setPaneFolderSource(() => `w\t${nodePath.join(dir, 'notes')}\n`);
+  status.setPaneFolderSource(() => `%2\tw\t${nodePath.join(dir, 'notes')}\n`);
   assert.equal(mac.plan('agent2').ok, false, 'a pane in agent2/notes did not hold agent2');
   leftoverAgent('agent3');
   const sibling = leftoverAgent('agent30');
-  status.setPaneFolderSource(() => `w\t${sibling}\n`);
+  status.setPaneFolderSource(() => `%3\tw\t${sibling}\n`);
   assert.equal(mac.plan('agent3').ok, true, 'a pane in agent30 held agent3 (a prefix match, not a folder match)');
 });
 
@@ -137,4 +137,32 @@ test('a named world\'s claim (name+world) holds the agent too', () => {
   leftoverAgent('greed');
   status.setPaneSource(() => fleet.line({ session: 'renamed', claim: 'greed+work', title: '✳ Claude Code' }));
   assert.equal(mac.plan('greed').ok, false);
+});
+
+test('a folder listing with a line it cannot read refuses the plan (a fragment of a folder whose name held a newline)', () => {
+  const dir = leftoverAgent('agent5');
+  status.setPaneFolderSource(() => `%1\tw\t/somewhere/else\n${dir}/tail-of-a-split-path\n`);
+  const p = mac.plan('agent5');
+  assert.equal(p.ok, false, 'an unreadable pane line was dropped and the plan offered the agent');
+  assert.match(p.because, /could not check whether .* is running/);
+});
+
+test('the folder match is case-blind on a Mac, and sees through a symlinked workers folder', () => {
+  const dir = leftoverAgent('agent6');
+  status.setPaneFolderSource(() => `%1\tw\t${dir.replace(/agent6$/, 'AGENT6')}\n`);
+  assert.equal(mac.plan('agent6').ok, false, 'AGENT6 did not hold agent6 on a case-blind disk');
+  const link = nodePath.join(SANDBOX, 'workers-link');
+  try { fs.symlinkSync(process.env.AGENT_WORKFORCE_WORKERS, link); } catch { /* already there */ }
+  const real = fs.realpathSync(dir);
+  status.setPaneFolderSource(() => `%1\tw\t${real}\n`);
+  assert.equal(mac.plan('agent6').ok, false, 'the real path of agent6 did not hold it');
+});
+
+test('a folder the profile records outside the workers folder holds the agent too', () => {
+  leftoverAgent('agent7');
+  const elsewhere = nodePath.join(SANDBOX, 'projects', 'agent7-home');
+  fs.mkdirSync(elsewhere, { recursive: true });
+  require('./store').writeProfile('agent7', { displayName: 'Agent 7', dir: elsewhere });
+  status.setPaneFolderSource(() => `%1\tw\t${elsewhere}\n`);
+  assert.equal(mac.plan('agent7').ok, false, 'a pane in agent7\'s recorded folder did not hold it');
 });
