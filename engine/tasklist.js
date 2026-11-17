@@ -350,12 +350,12 @@ function showLines(body, num, project) {
   const here = [];
   for (const o of tasks) {
     if (!o || o.number === n || !Array.isArray(o.doneWhen) || !Array.isArray(o.doneWhenResults)) continue;
-    o.doneWhen.forEach((c, i) => { const r = o.doneWhenResults[i]; if (r && r.met === false && r.movedTo === n && Number.isSafeInteger(o.number)) here.push({ from: o.number, check: i + 1, words: typeof c === 'string' ? one(scrub(c)) : null }); });
+    o.doneWhen.forEach((c, i) => { const r = o.doneWhenResults[i]; if (r && r.met === false && r.movedTo === n && Number.isSafeInteger(o.number)) here.push({ from: o.number, check: i + 1, words: typeof c === 'string' ? q(scrub(c)) : null }); });
   }
   if (here.length) {
     here.sort((a, b) => a.from - b.from || a.check - b.check);
     lines.push('Moved here from other tasks:');
-    for (const m of here) lines.push('    check ' + m.check + ' of task ' + m.from + ', reported not met there' + (m.words ? ': ' + m.words : ''));
+    for (const m of here) lines.push('    check ' + m.check + ' of task ' + m.from + ', reported not met there' + (m.words ? ': "' + m.words + '"' : ''));   // another task's words: quoted, as q() quotes them
   }
   if (!x.isClosed && x.repeatWords) field('Repeats', one(x.repeatWords) + (x.repeatNextWords ? ', next ' + one(x.repeatNextWords) : ''));
   // Review 6: a repeating task's last run (what `task ran` records), so its latest delivery is part of the task whole.

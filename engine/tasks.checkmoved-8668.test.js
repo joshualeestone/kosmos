@@ -108,7 +108,14 @@ test('kosmos task show names the link on both tasks', () => {
   const from = tasklist.showLines(body, a, 'proj').lines.join('\n');
   assert.match(from, /says not met: "no Windows box".*; moved to task 2/);
   const to = tasklist.showLines(body, b, 'proj').lines.join('\n');
-  assert.match(to, /Moved here from other tasks:\n {4}check 2 of task 1, reported not met there: it works on Windows$/m);
+  assert.match(to, /Moved here from other tasks:\n {4}check 2 of task 1, reported not met there: "it works on Windows"$/m);
+  // Another task's words are quoted and folded (q): a quote or a bracket in them cannot pass for Kosmos's own.
+  const id2 = project();
+  const s = tasks.create(id2, { sentence: 'Src', doneWhen: ['say [done] "x"'] }).number;
+  const d = tasks.create(id2, { sentence: 'Dst' }).number;
+  tasks.setCheckResult(id2, s, 1, false, 'no', { by: 'mara', movedTo: d });
+  const p2 = projects.readAll().find((x) => x.id === id2);
+  assert.match(tasklist.showLines({ tasks: p2.tasks }, d, 'proj').lines.join('\n'), /reported not met there: "say \(done\) 'x'"$/m);
   const control = tasklist.showLines(body, a, 'proj').lines.join('\n');
   assert.doesNotMatch(control, /Moved here/, 'the reporting task itself lists nothing moved here');
 });
