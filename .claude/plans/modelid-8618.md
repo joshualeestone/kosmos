@@ -8,11 +8,11 @@ the agent found the value by trial.
 - engine/create.js modelFor resolves a Claude model by its menu key OR its full id (`arg`). It is the one resolution
   setModel (the model route) and createAgent use, so both accept either; the row found is the same, so the job is written
   with the same id and the company policy (policyAllows already takes either name) is asked about the same model.
-- pickModelWords(provider): the refusal for an unknown Claude model lists every menu key of that provider and says a full
-  id works too ("pick a model from the list: fable52, ..., haiku (or a model's full id, such as claude-fable-5-2)").
+- pickModelWords(provider): the refusal for an unknown Claude model lists every menu key with its label, in menu order,
+  and says a full id works too, with the default model's id as the example ("pick a model from the list: fable52 (Claude
+  Fable 5.2), ..., haiku (Claude Haiku 4.5). A model's full id works too, such as claude-sonnet-5").
 - server.js's provider switch (POST /api/agent/<name>/provider with a model) checked create.MODELS by key alone in its own
   code; it now resolves through create.modelFor and its refusal carries the same list.
-- The "is not a model <provider> runs" refusal also recognises a full id from the other vendor's list.
 
 ## Rejected
 - Changing only the refusal: the card's first ask is to accept the full id, which is unambiguous (one row per id).

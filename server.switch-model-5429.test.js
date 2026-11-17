@@ -308,6 +308,7 @@ test('kosmos#8618 route: a switch to Claude takes a model\'s full id as well as 
   await switchTo(other, { provider: 'google' });
   r = await switchTo(other, { provider: 'anthropic', model: 'claude-opus-5-5x' });
   assert.equal(r.status, 400, 'CONTROL: a near id is still refused');
-  assert.match(r.body.because, /pick a model from the list: fable52, .*opus55.*, haiku \(or a model's full id, such as claude-/, r.body.because);
+  const listed = create.modelsFor('anthropic').map((m) => m.key + ' (' + m.label + ')').join(', ');
+  assert.ok(r.body.because.endsWith('pick a model from the list: ' + listed + '. A model\'s full id works too, such as claude-sonnet-5'), r.body.because);
   assert.equal(store.readProfile(other).provider, 'google', 'a refused switch changed the provider');
 });
