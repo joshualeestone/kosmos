@@ -6920,17 +6920,94 @@ function readCodexSession(agentName) {
    drops the reading of a session still running. */
 function withoutModelFromBeforeJob(sess, agentName) {
   if (!sess || !sess.found || !sess.model || !sess.file) return sess;
+  if (writtenBeforeJob(sess.file, agentName)) return { ...sess, model: null };
+  return sess;
+}
+
+/* Whether `file` (a session record) was last written before the agent's job file was: only that the job was rewritten
+   after the record, NOT that its model changed. A model change rewrites the job, but so do an account move and a
+   provider switch, and on Windows /Change /DISABLE and /ENABLE (a stop and start, a world switch, a removal that cannot
+   stop it) move the task file's time; a plain Kosmos restart does not (measured 11-16 on the Windows box: the task file
+   kept its time through POST /restart). Each caller decides what a rewrite means: the Codex rule
+   (withoutModelFromBeforeJob) stays on the time alone, on purpose, since its cost is the job's model until the next
+   turn; the Claude rule (readModel, kosmos#8601) also needs the job to name another model, because there `model` feeds
+   the context ring and whoami as well. One job-file lookup for both, so the platforms cannot drift. Any stat that
+   fails (no job: a fleet agent, an untied pane) is "no", which changes nothing. */
+function writtenBeforeJob(file, agentName) {
+  let fileAt;
+  try { fileAt = fs.statSync(file).mtimeMs; } catch { return false; }
+  return jobWrittenAfter(fileAt, agentName);
+}
+
+/* Whether the agent's job file was last written after `at` (ms). The one job-file lookup writtenBeforeJob and readModel
+   share. A stat that fails, or an `at` that is not a number, is "no". */
+function jobWrittenAfter(at, agentName) {
+  if (!Number.isFinite(at)) return false;
   try {
     // #4918 review 11: on Linux the job file is the agent's systemd unit, not a plist (which never exists there).
     // kosmos#8466: on Windows it is the Scheduled Task's own file, not a plist (which never exists there either).
     const jobFile = process.platform === 'linux' ? require('./linuxjob').unitPath(agentName)
       : process.platform === 'win32' ? require('./win32job').taskFilePath(agentName)
         : require('./create').plistPath(agentName);
-    const jobAt = fs.statSync(jobFile).mtimeMs;
-    const rolloutAt = fs.statSync(sess.file).mtimeMs;
-    if (jobAt > rolloutAt) return { ...sess, model: null };
-  } catch { /* a stat that fails changes nothing */ }
-  return sess;
+    return fs.statSync(jobFile).mtimeMs > at;
+  } catch { return false; }
+}
+
+/* kosmos#8601 review 4: whether the agent has replied at all since its job was written: timed by the newest reply in
+   `text` (the transcript tail), else by `file`'s own time. Review 6: the agent with no job file (a fleet agent, an
+   untied pane) is answered by one stat, before the tail is scanned. */
+function readBeforeJob(file, text, agentName) {
+  if (!jobExists(agentName)) return false;   // nothing to compare with
+  const at = newestReplyAt(text);
+  return at !== null ? jobWrittenAfter(at, agentName) : writtenBeforeJob(file, agentName);
+}
+
+/* Whether the agent has a job file at all (one stat; any real file time is after 0). */
+const jobExists = (agentName) => jobWrittenAfter(0, agentName);
+
+/* kosmos#8601: when the agent last replied, read from the newest assistant row's own `timestamp` in the transcript tail.
+   Review 4: not the file's own time, because Claude Code appends the person's prompt row as soon as it is sent (and tool
+   rows during the turn), so after a model change the first message made the file newer than the job and the OLD model
+   read as current again before any reply. Review 6: the newest reply on ANY model, not the row that named the model
+   read: modelInText prefers an id the name table knows over a newer one it does not, so after a change to a model not
+   yet in the table the read model stays the old one, and timing that old row kept the reading "earlier" through every
+   reply on the new model. A reply after the job means the agent has answered since the change, whatever its id; then
+   the reading stands, as modelInText chose it. What counts as a reply is hasReplied's own test (isReplyLine: an
+   assistant row with a real model, not an API error), so the two cannot disagree; a `<synthetic>` row is not one.
+   null when no such row with a readable timestamp is in the tail (the caller then uses the file's time). */
+function newestReplyAt(text) {
+  const s = String(text || '');
+  let end = s.length;
+  while (end > 0) {
+    const start = s.lastIndexOf('\n', end - 1) + 1;
+    const line = s.slice(start, end);
+    end = start - 1;
+    if (!line || !isReplyLine(line)) continue;
+    let row;
+    try { row = JSON.parse(line); } catch { continue; }   // the tail's first line can be cut
+    if (!row || row.type !== 'assistant' || !row.message || typeof row.message.model !== 'string') continue;
+    if (row.message.model === '<synthetic>') continue;
+    const at = Date.parse(row.timestamp);
+    return Number.isFinite(at) ? at : null;
+  }
+  return null;
+}
+
+/* kosmos#8601 review 1: whether the agent's job names a Claude model other than `readId` (the transcript's). Only a
+   full id the job names itself counts (`claude-...`, which is what the model picker writes): a job with no model, or a
+   short name like "opus", cannot be compared with a transcript's full id, so it is "no" and the reading stands, as
+   before. Two ids are the same model when they match once a "[1m]"-style suffix and a snapshot date ("-20251001", or
+   "@20251001") are set aside (review 5: a model the name table does not know yet still matches its dated form), or
+   when they are shown under the same name. A job that cannot be read is "no". */
+function jobNamesAnotherModel(agentName, readId) {
+  let planned = null;
+  try { planned = require('./create').plannedModelOf(agentName); } catch { planned = null; }
+  if (!planned || planned.isDefault || typeof planned.id !== 'string') return false;
+  const norm = (id) => String(id).trim().toLowerCase().replace(/\[[^\]]*\]$/, '').replace(/[-@]\d{8}$/, '');
+  const job = norm(planned.id);
+  const read = norm(readId);
+  if (!/^claude-/.test(job)) return false;
+  return job !== read && modelDisplayName(job) !== modelDisplayName(read);
 }
 
 function readCodexContext(agentName, sess) {
@@ -7384,6 +7461,29 @@ function readModel(agentName, exactSession) {
   if (!file) return { model: null, confidence: CONFIDENCE.NONE };
   const { text, whole } = tailBytes(file, 65536);
   const now = text ? modelInText(text) : null;
+  /* kosmos#8601: a model change rewrites the job and restarts the agent, and until its next reply the newest transcript
+     still names the OLD model (on Windows the supervisor resumes the same conversation). So the reading is from before
+     the change when BOTH hold: the agent has not replied since the job was written (readBeforeJob: the newest reply
+     row's own timestamp, reviews 4 and 6, since a prompt sent to the agent writes to the file before any reply does),
+     AND the job names a different model. Then it travels as an earlier reading (the #6716 shape), `model` stays null, and the card shows the
+     job's model (server.js plannedFor reads the job whenever modelName is null).
+     Review 1: the file time alone is not a model change (see writtenBeforeJob: an account move or a provider switch
+     rewrites the job on every platform, and on Windows a stop and start moves the task file's time), all while the
+     conversation and its model go on; blanking the model then also blanked the context ring and the agent's own "which
+     model am I". The age check runs first (readBeforeJob: a stat of the job, then the newest reply's timestamp in the
+     tail already read), so the job itself is read only after a rewrite with no reply since.
+     Review 2: while the reading is earlier (a real model change, until the next reply), `model` is null on purpose for
+     every consumer: the context ring's ceiling is unknown (the new model's may differ) and whoami answers from the
+     process's own --model where it can read one, or with no model. That is not a regression to "fix" by passing the
+     old model through.
+     Review 7: only for the agent's OWN session. The job is filed under the board name, and a session read by
+     `exactSession` that is not that name (the foo / foo-discord collision server.js documents: one name, two sessions,
+     two models) is not the session the job starts, so its reading is never judged against that job. */
+  const ownSession = exactSession === undefined || exactSession === null
+    || String(exactSession).toLowerCase() === String(agentName).toLowerCase();
+  if (now && ownSession && readBeforeJob(file, text, agentName) && jobNamesAnotherModel(agentName, now)) {
+    return { model: now, confidence: CONFIDENCE.STRUCTURED, earlierSession: true };
+  }
   if (now) return { model: now, confidence: CONFIDENCE.STRUCTURED };
   // Review 10: only a session that has had NO reply borrows. One that replied but whose last 64 KB is a large paste or
   // tool result names no model in the tail, and must stay "Unknown Model" rather than take another session's.
