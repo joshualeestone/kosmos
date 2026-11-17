@@ -31,7 +31,14 @@ function accountOf(member) {
 /* The record, or null when it exists but could not be read (a read error, or not JSON). Missing is an empty record. A
    reader treats null as no blocks (nothing is hidden by a fault); a writer refuses on null, so a failed read can never
    be saved over the person's whole list. */
+/* The last good parse, kept by the file's modified time and size, so a flood of arriving messages (each asks isBlocked)
+   costs a stat, not a read and a parse, while the file is unchanged. A copy is returned, so a caller's change never
+   reaches the cache. */
+let cached = null;   // { key, value }
 function readOrNull() {
+  let key = null;
+  try { const st = fs.statSync(FILE()); key = st.mtimeMs + ':' + st.size; } catch (err) { if (err && err.code === 'ENOENT') { cached = null; return {}; } }
+  if (key && cached && cached.key === key) return Object.assign({}, cached.value);
   let text;
   try { text = fs.readFileSync(FILE(), 'utf8'); } catch (err) { return err && err.code === 'ENOENT' ? {} : null; }
   let raw;
@@ -42,7 +49,8 @@ function readOrNull() {
     if (!ACCOUNT.test(acct)) continue;
     out[acct] = { at: e && typeof e.at === 'string' ? e.at : null, name: e && typeof e.name === 'string' ? e.name.slice(0, 80) : '' };
   }
-  return out;
+  if (key) cached = { key, value: out };
+  return Object.assign({}, out);
 }
 function read() { return readOrNull() || {}; }
 

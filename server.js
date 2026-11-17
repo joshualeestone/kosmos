@@ -25270,7 +25270,16 @@ const server = http.createServer(async (req, res) => {
         if (own) { sendJson(res, 409, { error: 'that message is from your own account, on another of your computers' }); return; }
         const out = bm.block(row.member, row.from);
         if (!out.ok) { sendJson(res, out.full || !row.member ? 409 : 503, { error: out.because }); return; }
-        sendJson(res, 200, { blocked: true, name: row.from });
+        /* The ids of the outside rows this block now hides, per room, so a phone that already shows them removes them (its
+           room merge only ever adds rows). */
+        const hidden = {};
+        try {
+          const set = new Set([out.account]);
+          for (const m of messages.record().rows || []) {
+            if (bm.hides(m, set) && typeof m.id === 'string' && typeof m.project === 'string') (hidden[m.project] = hidden[m.project] || []).push(m.id);
+          }
+        } catch { /* the phone re-reads the room either way */ }
+        sendJson(res, 200, { blocked: true, name: row.from, hidden });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;

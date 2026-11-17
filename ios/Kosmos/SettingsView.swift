@@ -358,6 +358,9 @@ struct SettingsView: View {
     private func send(_ request: URLRequest?) async -> (Int, Data) {
         guard let request else { return (0, Data()) }
         if Self.sample {
+            // #8625: the Blocked list's own sample, so a sample build's Settings shows the section.
+            if request.url?.lastPathComponent == "blocked" { return (200, Data(#"{"blocked":[{"account":"sample-a","name":"Rowan Hale","at":"2026-11-17T08:00:00.000Z"}]}"#.utf8)) }
+            if request.url?.lastPathComponent == "unblock" { return (200, Data(#"{"unblocked":true,"changed":true}"#.utf8)) }
             let s = #"{"available":true,"on":true,"connected":true,"kinds":{"needsYou":true,"replied":true,"postedMention":true,"ready":true,"postedRoom":false},"offByChoice":false,"defaultBecause":null}"#
             return (200, Data(s.utf8))
         }
@@ -386,7 +389,8 @@ struct SettingsView: View {
         } else {
             load = .failed(Settings.refusal(status: status, data: data, writing: false))
         }
-        await readBlocked()   // #8625
+        blockedNote = nil   // #8625: the last Unblock's line goes when Settings is read again
+        await readBlocked()
     }
 
     @MainActor private func write(kind: Settings.Kind?, on: Bool) async {

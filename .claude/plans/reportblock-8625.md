@@ -113,3 +113,18 @@ an operational dependency, said on the card.
     sentence; Unblock is never needed for it.
   - NITs not acted on: the Settings footer note stays until the view is rebuilt; status mapping for a malformed stored
     member (cannot happen today); code comments say "read by an agent" of new rows, which is true.
+- Round 5 (blind, opus): 1 BLOCKER, 3 WARNING, 3 NIT.
+  - BLOCKER fixed: after a block the phone kept showing the person's messages on a real board (its room merge only adds
+    rows; only the sample path removed them). The block route now returns the ids it hides per room; the phone drops
+    them from the live rows and an open archive and keeps them out of later reads (Delete's own set). Logic test: the
+    merge alone keeps the row (premise), the ids remove it, someone else's stays. Route test: the ids returned.
+  - WARNING accepted: on the day this ships no stored row carries the own-account mark, so the phone offers Block on the
+    person's own posts from their other computers until one of them posts again. The board does not know its own
+    account id. Reversible (the Blocked list names them, Unblock undoes it), and the phone shows the person's own name.
+  - WARNING fixed: a blocked flood re-read the block list per message; it is cached by the file's time and size.
+  - WARNING carded: the desktop room has no Blocked list, Unblock or notice: #8631.
+  - NITs fixed: the Unblock line clears on the next Settings read; the sample build has a Blocked list (matched by the
+    path's last part, so the phone-routes test reads no new route). Not acted on: the privacy text about a report
+    carrying the sender's account id (the site change for the terms handles the privacy page).
+  - Known: after Unblock, the phone keeps that person's rows hidden until the app reloads its rooms (account switch or
+    restart), since the hidden ids stay in Delete's set for the session.
