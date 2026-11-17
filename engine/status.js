@@ -6935,10 +6935,12 @@ function withoutModelFromBeforeJob(sess, agentName) {
    fails (no job: a fleet agent, an untied pane) is "no", which changes nothing. */
 function writtenBeforeJob(file, agentName) {
   const jobAt = jobMtime(agentName);
-  if (jobAt === null) return false;
-  let fileAt;
-  try { fileAt = fs.statSync(file).mtimeMs; } catch { return false; }
-  return jobAt > fileAt;
+  return jobAt !== null && fileBefore(file, jobAt);
+}
+
+/* Whether `file` was last written before `jobAt` (ms). A stat that fails is "no", in one place for both rules. */
+function fileBefore(file, jobAt) {
+  try { return jobAt > fs.statSync(file).mtimeMs; } catch { return false; }
 }
 
 /* The agent's job file's time (ms), or null when it has none or it cannot be read: the one job-file lookup the Codex
@@ -6970,10 +6972,7 @@ function readBeforeJob(file, text, agentName) {
   const jobAt = jobMtime(agentName);
   if (jobAt === null) return false;   // nothing to compare with
   const at = newestReplyAt(text);
-  if (at !== null) return jobAt > at;
-  let fileAt;
-  try { fileAt = fs.statSync(file).mtimeMs; } catch { return false; }
-  return jobAt > fileAt;
+  return at !== null ? jobAt > at : fileBefore(file, jobAt);
 }
 
 /* kosmos#8601: when the agent last replied, read from the newest assistant row's own `timestamp` in the transcript tail.
@@ -7504,7 +7503,9 @@ function readModel(agentName, exactSession) {
      on foo-discord. That is safe only for today's no-session callers: repair's modelFor acts only on agents with no job
      (so readBeforeJob is "no"), and for whoami without a card (or with a card that has no session) a rule that fires
      drops the reading in favour of the process's own --model (server.js skips an earlierSession record), never the
-     job's model. A new caller that reads a running agent with no session should pass the session. */
+     job's model. A new caller that reads a running agent with no session should pass the session.
+     Known gap (kosmos#8610): a board in a named world has sessions `name+world`, which this test does not count as
+     own, so its cards never get the rule (see jobMtime). */
   const ownSession = exactSession === undefined || exactSession === null
     || String(exactSession).toLowerCase() === String(agentName).toLowerCase();
   if (now && ownSession && readBeforeJob(file, text, agentName) && jobNamesAnotherModel(agentName, now)) {

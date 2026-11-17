@@ -215,38 +215,41 @@ test('kosmos#8601: after the first reply on the new model, that reply is the cur
   assert.deepEqual(status.readModel('replies'), current('claude-haiku-5-5'));
 });
 
+/* kosmos#8605: how many times `fn` stats the job file. The real statSync is put back before the count is read. */
+function countJobStats(jobFile, fn) {
+  const realStat = fs.statSync;
+  let n = 0;
+  fs.statSync = function (p, ...rest) {
+    if (path.resolve(String(p)) === path.resolve(jobFile)) n++;
+    return realStat.call(this, p, ...rest);
+  };
+  try { fn(); } finally { fs.statSync = realStat; }
+  return n;
+}
+
 /* kosmos#8605: the job file is stat'd once per reading (it was twice: an existence check, then the comparison). */
 test('kosmos#8605: one stat of the job file per reading', () => {
   session('onestat', 'old.jsonl', [{ type: 'assistant', message: { model: 'claude-opus-4-8' }, timestamp: at(900) }], 600);
   const jobFile = job('onestat', 5, 'claude-haiku-5-5');
-  const realStat = fs.statSync;
-  let jobStats = 0;
-  fs.statSync = function (p, ...rest) {
-    if (path.resolve(String(p)) === path.resolve(jobFile)) jobStats++;
-    return realStat.call(this, p, ...rest);
-  };
-  try {
-    assert.equal(status.readModel('onestat').earlierSession, true);
-  } finally {
-    fs.statSync = realStat;
-  }
-  assert.equal(jobStats, 1, `the job file was stat'd ${jobStats} times for one reading`);
+  const n = countJobStats(jobFile, () => assert.equal(status.readModel('onestat').earlierSession, true));
+  assert.equal(n, 1, `the job file was stat'd ${n} times for one reading`);
 });
 
 /* kosmos#8605: with no readable reply timestamp the transcript's file time decides, and the job is still stat'd once. */
 test('kosmos#8605: one stat of the job file when the file time decides', () => {
   session('onestatfile', 'old.jsonl', replied('claude-opus-4-8'), 600);   // no timestamp on the reply
   const jobFile = job('onestatfile', 5, 'claude-haiku-5-5');
-  const realStat = fs.statSync;
-  let jobStats = 0;
-  fs.statSync = function (p, ...rest) {
-    if (path.resolve(String(p)) === path.resolve(jobFile)) jobStats++;
-    return realStat.call(this, p, ...rest);
-  };
-  try {
-    assert.equal(status.readModel('onestatfile').earlierSession, true);
-  } finally {
-    fs.statSync = realStat;
-  }
-  assert.equal(jobStats, 1, `the job file was stat'd ${jobStats} times for one reading`);
+  const n = countJobStats(jobFile, () => assert.equal(status.readModel('onestatfile').earlierSession, true));
+  assert.equal(n, 1, `the job file was stat'd ${n} times for one reading`);
+});
+
+/* kosmos#8605 review 4: isReplyLine passes a line if ANY "model" value on it is real, so a `<synthetic>` row that also
+   carries a real model elsewhere on the line must still not count as a reply: the row's own model is checked too. */
+test('kosmos#8605 review 4: a <synthetic> row with a real model elsewhere on its line is not a reply', () => {
+  session('synthplus', 'old.jsonl', [
+    { type: 'assistant', message: { model: 'claude-opus-4-8' }, timestamp: at(900) },
+    { type: 'assistant', model: 'claude-opus-4-8', message: { model: '<synthetic>' }, timestamp: at(10) },
+  ], 10);
+  job('synthplus', 300, 'claude-haiku-5-5');
+  assert.equal(status.readModel('synthplus').earlierSession, true, 'a <synthetic> row ended the window as if it were a reply');
 });
