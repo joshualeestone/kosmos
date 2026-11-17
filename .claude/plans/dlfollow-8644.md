@@ -10,8 +10,9 @@
   body with two drivers (paneFolders, paneFoldersAsync); planAsync reads the listing off-thread and hands it to plan()
   (opts.folders: the listing or the Error). Fail closed unchanged (Baron's ask).
 - Item 2: one unreadable line refused every delete. A pane line split by a newline in its folder keeps its head with
-  cut: true; plan() fails closed only when the agent's folder begins with that head (could be inside). Still refused for
-  every agent: an unreadable line that starts a pane (newline in a session name) and a tail with no pane before it.
+  cut: true; plan() fails closed only when the agent's own folder begins with that head plus a newline (a folder named
+  with a newline; a head already inside is the running case). Still refused for every agent: an unreadable line that
+  starts a pane, a tail with no pane before it, and (review 1) a folder that is not an absolute path.
 
 ## Not done, with reasons
 - Item 4 (Windows has no folder check): no Windows box here, and Windows engine work is not this fleet's build lane now.
