@@ -24534,9 +24534,17 @@ const server = http.createServer(async (req, res) => {
       // Sorted in place with the comparator `rows` uses below, so that later sort finds them already in order.
       roomRows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
       const archivedSrc = new Set(roomRows.slice(0, roomarchive.archivedCount(roomRows, archiveMarker, Date.now())));
-      /* #8631: how many of the live room's rows a block hides (archived rows are not counted: the live room would not show
-         them anyway), so the page can say in one line that messages are hidden here. JSON arm only; 0 is never sent. */
-      const hiddenBlocked = !asText && blockedNow.size ? roomRows.filter((m) => !archivedSrc.has(m) && bmRoom.hides(m, blockedNow)).length : 0;
+      /* #8631: how many rows a block hides in the part of the room this read is for (the live part, the archive, or the
+         whole room for a search), so the page can say in one line that messages are hidden there. JSON arm only; 0 is
+         never sent. */
+      let hiddenBlocked = 0;
+      if (!asText && blockedNow.size) {
+        for (const m of roomRows) {
+          if (!bmRoom.hides(m, blockedNow)) continue;
+          const archived = archivedSrc.has(m);
+          if (archiveView === null || (archiveView === 'archive') === archived) hiddenBlocked += 1;
+        }
+      }
       const kept = roomRows
         /* #8625: a blocked person's rows leave the room here, after the archive split above, so blocking or unblocking
            someone never moves the archived stretch. */

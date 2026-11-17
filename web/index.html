@@ -80369,6 +80369,7 @@ async function pjArchOpen(again) {
   try { page = await pjWinRead(pid, PJ_WIN_PAGE, null, true); } catch { page = null; }
   if (gen !== PJ_ARCH.gen || !pjArchShowing() || PJ_ARCH.pid !== pid) return;
   PJ_ARCH.loading = false; PJ_ARCH.opening = false;
+  if (page && typeof pjBlockedNoteSet === 'function') pjBlockedNoteSet(page);   // #8631: what a block hides in the archive
   if (!page && refreshing) {
     /* A re-read that fails keeps the view as it is and says so on the line; the next poll tries again, since the archive is
        still recorded as read under the old count (review 8: a blip closed an archive the reader never touched). */
@@ -80461,6 +80462,7 @@ function pjArchClose(quiet, hadFocusIn, forSearch, cutBefore) {
      pins nor restores a pixel offset and the anchor puts the reader back; with none, it lands on the newest post. */
   if (box) { box.__roomHadRows = false; box.__roomHeldTop = undefined; box.__roomHeldAtBottom = anchor ? false : true; }
   if (box && box.__lastBody) { box.__lastRoom = undefined; paintRoom(box.__lastBody); }
+  if (typeof pjBlockedNoteSet === 'function') pjBlockedNoteSet({ hiddenBlocked: PJ_WIN.hiddenLive });   // #8631: the room's own line again
   if (box && anchor) restoreThreadAnchor(box, anchor);
   if (hadFocus) { const post = document.getElementById('pj-post'); if (post) post.focus({ preventScroll: true }); }
   if (!quiet) pjRoomAnnounce('Back in the room.');
@@ -81327,12 +81329,19 @@ function xReportBody(row, projectId, projectName, account) {
     'Sent: ' + ((row && row.at) || ''),
     '',
     'The message:',
-    // Cut by character, as the phone's prefix(2000) does: a cut inside an emoji leaves half of it, which encodeURIComponent refuses.
-    Array.from(words).length > 2000 ? Array.from(words).slice(0, 2000).join('') + ' (cut)' : words,
+    xReportCut(words),
     '',
     'Why I am reporting it (optional):',
     '',
   ].join('\n');
+}
+/* The words, at most 2000 characters as the phone's prefix(2000) counts them (whole emoji, flags and accents together,
+   where this browser can tell them apart; code points otherwise). Never half of one: encodeURIComponent refuses that. */
+function xReportCut(words) {
+  let parts;
+  try { parts = typeof Intl !== 'undefined' && Intl.Segmenter ? Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(words), (x) => x.segment) : Array.from(words); }
+  catch { parts = Array.from(words); }
+  return parts.length > 2000 ? parts.slice(0, 2000).join('') + ' (cut)' : words;
 }
 /* The outside row a button names, from whatever the room painted it from: the window (PJ_WIN), a search's whole-room
    read (#pj-room's __lastBody), or the archive (PJ_ARCH). The report carries its words and time. */
@@ -81434,7 +81443,9 @@ document.getElementById('xblock-go').addEventListener('click', async () => {
       d.pending = false;
       if (mine) {
         const why = out && typeof out.error === 'string' && out.error.trim() ? ': ' + out.error.trim() : '';
-        say.textContent = 'We could not block them' + why + (res.status >= 500 ? '. Try again in a moment.' : '.');
+        // A 2xx this page cannot read may still have been a block: say only what is known (the phone's blockRefusal).
+        say.textContent = res.ok ? 'We could not confirm the block. If their messages are still shown, try again.'
+          : 'We could not block them' + why + (res.status >= 500 ? '. Try again in a moment.' : '.');
         btn.disabled = false;
       }
       return;
@@ -81515,7 +81526,7 @@ async function blockedPaintNow(note) {
   } catch { people = null; }
   if (mine !== BLOCKED_GEN) return;
   if (!people) {
-    // After an Unblock the list on screen stays, with the line; only a first read that fails hides the box.
+    // A failed read after an Unblock keeps the list on screen, with the line; any other failed read hides the box.
     if (note && !box.hidden) { if (msg) msg.textContent = note; return; }
     box.hidden = true;
     return;
@@ -83350,7 +83361,7 @@ function pjFitRoomPhone() {
   if (!comp.__pjFitWatched && window.ResizeObserver) {
     comp.__pjFitWatched = true;
     const ro = new ResizeObserver(() => pjFitRoomPhone());
-    for (const el of [comp, document.getElementById('pj-busy'), document.getElementById('pj-reply'), document.getElementById('pj-fed-own-phone')]) if (el) ro.observe(el);
+    for (const el of [comp, document.getElementById('pj-busy'), document.getElementById('pj-reply'), document.getElementById('pj-fed-own-phone'), document.getElementById('pj-blocked-note')]) if (el) ro.observe(el);
   }
   const compH = comp.getBoundingClientRect().height + (parseFloat(getComputedStyle(comp).marginTop) || 0);
   // Review 4: what is shown between the thread and the composer takes room under the thread too.
@@ -83484,7 +83495,10 @@ async function loadRoom() {
       const win = PJ_WIN.gen;
       body = await pjWinRead(PJ_CURRENT, PJ_WIN_PAGE, null);
       if (mine !== PJ_ROOM_GEN || win !== PJ_WIN.gen) return;
-      pjBlockedNoteSet(body);   // #8631: before the window decides whether to repaint
+      // #8631: the live part's line, set before the window decides whether to repaint; while the archive is showing, the
+      // archive's own read sets it, and this one is kept for when the reader goes back to the room.
+      PJ_WIN.hiddenLive = body.hiddenBlocked;
+      if (!(typeof pjArchShowing === 'function' && pjArchShowing())) pjBlockedNoteSet(body);
       /* The read worked: a "could not read" line from an earlier poll goes now, before the returns below that paint
          nothing (no change, or a reader past the cap), or it would stay up on a quiet room (review 8). */
       const failMsg = document.getElementById('pj-room-msg');
