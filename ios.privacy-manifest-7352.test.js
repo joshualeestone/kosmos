@@ -102,3 +102,41 @@ test('kosmos#7352: the detector flags each spelling on the list, and ordinary wo
     assert.deepEqual(flagged(s), [], `${s} is flagged but is not a required-reason API`);
   }
 });
+
+/* kosmos#8654: the data the app collects, declared in the manifest, must be exactly the App Privacy label's "Data types
+   to declare" table (ios/store/privacy-label.md), each linked to the person, not used for tracking, for app
+   functionality, as that table says for every row. Read from the label itself, so the two cannot drift apart. */
+const LABEL = path.join(IOS, 'store', 'privacy-label.md');
+function labelTypes() {
+  const md = fs.readFileSync(LABEL, 'utf8');
+  const at = md.indexOf('## Data types to declare');
+  const end = md.indexOf('\n## ', at + 1);
+  const section = md.slice(at, end < 0 ? undefined : end);
+  return [...section.matchAll(/^\| [^|>]+> \*\*([^*]+)\*\* \|/gm)].map((m) => 'NSPrivacyCollectedDataType' + m[1].replace(/\s+/g, ''));
+}
+function manifestCollected() {
+  const xml = manifestText();
+  const at = xml.indexOf('<key>NSPrivacyCollectedDataTypes</key>');
+  if (at < 0) return [];
+  const arr = xml.slice(at, xml.indexOf('</array>\n\t<key>', at) + 8);
+  return [...arr.matchAll(/<dict>([\s\S]*?)<\/dict>/g)].map((m) => {
+    const d = m[1];
+    const val = (k) => { const r = new RegExp('<key>' + k + '</key>\\s*<(true|false)/>').exec(d); return r ? r[1] === 'true' : null; };
+    const type = (/<key>NSPrivacyCollectedDataType<\/key>\s*<string>([^<]+)<\/string>/.exec(d) || [])[1] || null;
+    const purposes = [...d.matchAll(/<string>(NSPrivacyCollectedDataTypePurpose\w+)<\/string>/g)].map((x) => x[1]);
+    return { type, linked: val('NSPrivacyCollectedDataTypeLinked'), tracking: val('NSPrivacyCollectedDataTypeTracking'), purposes };
+  });
+}
+test('kosmos#8654: the manifest declares exactly the data types the App Privacy label declares, as the label says them', () => {
+  const want = labelTypes();
+  assert.ok(want.length >= 5, 'the label\'s data-type table was not read (' + want.length + ' rows): the test would pass on nothing');
+  assert.ok(md().includes('**linked to the person\'s identity: yes**, **used for tracking: no**'), 'the label no longer says every row is linked and not tracking; update this test with it');
+  const got = manifestCollected();
+  assert.deepEqual(got.map((g) => g.type).sort(), want.slice().sort(), 'the manifest and the label declare different data types');
+  for (const g of got) {
+    assert.equal(g.linked, true, g.type + ' is not marked linked to the person');
+    assert.equal(g.tracking, false, g.type + ' is not marked as not used for tracking');
+    assert.deepEqual(g.purposes, ['NSPrivacyCollectedDataTypePurposeAppFunctionality'], g.type + ' has other purposes than app functionality');
+  }
+  function md() { return fs.readFileSync(LABEL, 'utf8'); }
+});
