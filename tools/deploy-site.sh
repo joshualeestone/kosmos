@@ -1051,7 +1051,7 @@ else
   #   - only the LAST try's output is classified below, so an earlier refusal cannot name a later, other failure.
   # Each try's output is still shown as it runs (tee) and kept in $VLAST; its code goes through a file, not a pipe.
   VLAST=$(mktemp "${TMPDIR:-/tmp}/deploy-site-vercel-last.XXXXXX") && VRC1=$(mktemp "${TMPDIR:-/tmp}/deploy-site-vercel-rc1.XXXXXX") \
-    || { echo "deploy-site: could not make temp files for the deploy's output"; rm -f "$VRC" "$VOUT"; rm -rf "$EXPORT"; exit 1; }
+    || { echo "deploy-site: could not make temp files for the deploy's output"; rm -f "$VRC" "$VOUT" "${VLAST:-}"; rm -rf "$EXPORT"; exit 1; }
   _ds_vercel_try() {
     ( cd "$EXPORT" && if [ -n "$_vercel_token" ]; then VERCEL_TOKEN="$_vercel_token" vercel deploy --prod --yes; else vercel deploy --prod --yes; fi ) \
       && echo 0 > "$VRC1" || echo $? > "$VRC1"
@@ -1070,13 +1070,20 @@ else
     [ "$_ds_ptrs" = "$LIVE_PTRS_BEFORE" ] || { echo "deploy-site: a live pointer changed while waiting to retry the deploy (#5589, kosmos#8656)"; echo "  before: $LIVE_PTRS_BEFORE"; echo "  now:    $_ds_ptrs"; exit 75; }
   }
   # In its own subshell, so the hook's exit ends only the retry and comes back as its code. Not piped: each try tees.
+  # With an explicit VERCEL_TOKEN (the autodeploy) ONE try, as before: the retry's refresh (`vercel whoami`) renews the
+  # CLI's own sign-in, which a given token does not use, so a refused token would only wait 3 min to say the same.
+  _ds_tries=${KOSMOS_VERCEL_TRIES:-4}
+  [ -z "$_vercel_token" ] || _ds_tries=1
   _ds_vrc=0
-  ( KOSMOS_VERCEL_BEFORE_RETRY=_ds_before_retry site_vercel_deploy "$EXPORT" _ds_vercel_once ) || _ds_vrc=$?
+  ( KOSMOS_VERCEL_TRIES=$_ds_tries KOSMOS_VERCEL_BEFORE_RETRY=_ds_before_retry site_vercel_deploy "$EXPORT" _ds_vercel_once ) || _ds_vrc=$?
+  _ds_last_rc=$(cat "$VRC1" 2>/dev/null)
   cp "$VLAST" "$VOUT" 2>/dev/null; rm -f "$VLAST" "$VRC1"
+  # 75, 76 and 86 are this script's own signals (the hook's two refusals, and a try that had made a deployment);
+  # the vercel CLI exits 0, 1, 2 or a signal's code, so they do not collide with its own.
   case "$_ds_vrc" in
     75) rm -f "$VRC" "$VOUT"; echo "deploy-site: refusing; nothing has been deployed. Update the site checkout to origin/main and run again (#5589)."; rm -rf "$EXPORT"; exit 75 ;;
     76) rm -f "$VRC" "$VOUT"; echo "deploy-site: refusing before the retry; nothing has been deployed (kosmos#6620, #8656)."; rm -rf "$EXPORT"; exit 1 ;;
-    86) rm -f "$VRC" "$VOUT"; echo "deploy-site: vercel deploy --prod failed (rc 1) after it had made a deployment, so it was not tried again (kosmos#8656)"; rm -rf "$EXPORT"; exit 1 ;;
+    86) rm -f "$VRC" "$VOUT"; echo "deploy-site: vercel deploy --prod failed (rc ${_ds_last_rc:-unknown}) after it had made a deployment, so it was not tried again (kosmos#8656)"; rm -rf "$EXPORT"; exit 1 ;;
   esac
   echo "$_ds_vrc" > "$VRC"
 fi
