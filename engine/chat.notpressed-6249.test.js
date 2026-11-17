@@ -245,3 +245,34 @@ test('#6249: a line under 20 characters (spaces not counted) is never counted as
   const c = quiet(() => { arm([EMPTY, box('please ' + TWENTY)]); return chat.deliver('al', TWENTY, roster); });
   assert.ok(Number.isInteger(c.unsentSeq), JSON.stringify(c));
 }));
+
+test('#6249: a box that could not be read before our paste keeps nothing, and the sentence promises nothing', () => withAgent((roster) => {
+  // The read before the paste fails (no box drawn), the Enter goes, then the box shows other text with ours.
+  const t = arm(['', box(MSG), box(OTHER + ' ' + MSG)]);
+  const v = chat.deliver('al', MSG, roster);
+  assert.equal(t.enters(), 1);
+  assert.equal(v.confirm, 'other', 'PRECONDITION: the after-Enter other branch');
+  assert.equal(v.unsentSeq, undefined, 'not kept: an older line may be in that box too');
+  assert.doesNotMatch(v.because, /sends it later/);
+  // CONTROL: the same, with the box read empty first, is kept and says so.
+  chat.resetForTests();
+  arm([EMPTY, box(MSG), box(OTHER + ' ' + MSG)]);
+  const c = chat.deliver('al', MSG, roster);
+  assert.ok(Number.isInteger(c.unsentSeq));
+  assert.match(c.because, /sends it later/);
+}));
+
+test('#6249: a kept line that fills seven rows is not pressed even whole (rows above may be hidden); CONTROL: a plain one is', () => withAgent((roster) => {
+  const SEVEN = LONG.slice(0, 7 * 76 - 10);   // seven rows at 80 columns, unscrolled
+  const kept = quiet(() => { arm([EMPTY, box(OTHER + ' ' + SEVEN)]); return chat.deliver('al', SEVEN, roster); });
+  assert.ok(Number.isInteger(kept.unsentSeq), 'PRECONDITION: kept');
+  const t = arm([box(SEVEN)]);
+  assert.equal(chat.deliver('al', 'next', roster).inputHeld, true);
+  assert.equal(t.enters(), 0);
+  chat.resetForTests();
+  arm([EMPTY, box(SEVEN)]);
+  assert.equal(chat.deliver('al', SEVEN, roster).confirm, 'unsent', 'PRECONDITION: a plain line');
+  const c = arm([box(SEVEN), EMPTY, EMPTY, box('next'), EMPTY]);
+  assert.equal(chat.deliver('al', 'next', roster).earlierSubmitted, true, 'CONTROL: a plain line in the same box is pressed');
+  assert.equal(c.enters(), 2);
+}));

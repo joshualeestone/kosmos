@@ -141,7 +141,7 @@ function communityFor(session, now = Date.now()) {
 /* kosmos#8021 (a real seat's 85% prompt sat unsent and nothing said what the board thought had happened): one board-log
    line per prompt delivered, saying what the delivery read, so the next stuck box can be read against it. The words
    come from chat.js's own verdict: `confirm` (what the check after the Enter read), `unsubmitted`, an unsentSeq (kept
-   as a numbered unsent line, which the stuck-input sweep can press later), and a hold by text already in the box. */
+   as a numbered unsent line, pressed later; one kept beside other text, `keptMixed`, only once it shows whole), and a hold by text already in the box. */
 const CONFIRM_WORDS = {
   sent: 'sent (its box no longer held the prompt after the Enter)',
   unread: 'probably sent, but its box could not be read after the Enter, so this is not confirmed',
