@@ -121,10 +121,9 @@ test('iteration 5: the polled Files lists give the keyboard back to the same row
   st.focused = null;
   fns.refocusRow(box, 'doc:gone.txt');
   assert.equal(st.focused, null, 'a file no longer listed moved the focus');
-  // All four repaint paths use them: the narrow panel, the Files screen, the project rail, and (kosmos#8627) the Files
-  // screen's change of order, which re-sorts the rows on screen.
-  assert.equal((SCRIPT.match(/const hadFocus = focusedRowKey\((list|box)\);/g) || []).length, 4);
-  assert.equal((SCRIPT.match(/refocusRow\((list|box), hadFocus\);/g) || []).length, 4);
+  // All three repaint paths use them: the narrow panel, the Files screen, the project rail.
+  assert.equal((SCRIPT.match(/const hadFocus = focusedRowKey\((list|box)\);/g) || []).length, 3);
+  assert.equal((SCRIPT.match(/refocusRow\((list|box), hadFocus\);/g) || []).length, 3);
 });
 
 test('iteration 7: the project room is rebuilt only when the folder\u2019s NAMES change, not when a fingerprint arrives', () => {

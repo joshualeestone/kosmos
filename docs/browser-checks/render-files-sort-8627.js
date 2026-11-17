@@ -14,7 +14,8 @@
  *   - CONTROL: A to Z is exactly the order the server lists (the order both screens showed before this card), read from
  *     the same route in the same page, so "A to Z" cannot pass by matching a list nothing reordered;
  *   - the choice is remembered per screen across a reload, and the two screens do not share it;
- *   - a change of order on the agent screen re-sorts the rows on screen and reads nothing (the read fails meanwhile);
+ *   - a change of order on the agent screen re-sorts the rows on screen and reads nothing (the read fails meanwhile),
+ *     and leaves the status line as it was;
  *   - a browser that refuses storage (a throwing localStorage) still shows Newest first and still sorts when asked;
  *   - at 412px wide the control is at least 44px tall and the page does not scroll sideways.
  *
@@ -175,12 +176,16 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
         const onReq = (r) => { if (r.url().includes('/files/browse')) browses.push(r.url()); };
         page.on('request', onReq);
         await page.route('**/files/browse**', (r) => r.abort());
+        // A sentence a row click left on the status line: a change of order must not rewrite it (or say it again).
+        await page.$eval('#d-filesall-msg', (m) => { m.textContent = 'A sentence already on the status line.'; });
         await page.selectOption('#d-files-sort', 'oldest');
         await settle(page, async () => (await agentRows(page)).files, EXPECT.oldest);
         const kept = await agentRows(page);
         const said = await page.$eval('#d-filesall-msg', (m) => m.textContent);
-        chk(same(kept.files, EXPECT.oldest) && same(kept.dirs, DIR_EXPECT.oldest) && said === '' && browses.length === 0,
-          `${E} a change of order re-sorts the rows on screen with no read (the read is failing, and the list stays)`, JSON.stringify({ kept, said, browses }));
+        chk(same(kept.files, EXPECT.oldest) && same(kept.dirs, DIR_EXPECT.oldest) && browses.length === 0,
+          `${E} a change of order re-sorts the rows on screen with no read (the read is failing, and the list stays)`, JSON.stringify({ kept, browses }));
+        chk(said === 'A sentence already on the status line.', `${E} a change of order leaves the status line as it was`, JSON.stringify(said));
+        await page.$eval('#d-filesall-msg', (m) => { m.textContent = ''; });
         await page.unroute('**/files/browse**');
         page.off('request', onReq);
 
