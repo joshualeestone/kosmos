@@ -101,7 +101,8 @@ For every row: **linked to the person's identity: yes**, **used for tracking: no
    #8654 the six data types in the table above, each linked, not tracking, for app functionality.
    `ios.privacy-manifest-7352.test.js` fails when a new required-reason API is used undeclared, or when the manifest and
    this table differ. Checked on a Release build on 11-17: the binary links none of the file-timestamp, boot-time or
-   disk-space calls, and its one `creationDate` is a photo's date from the Photos library, not a file's. Xcode's
+   disk-space calls (`CACurrentMediaTime`, which the chat list uses, is not one of Apple's), and its one
+   `creationDate` is a photo's date from the Photos library, not a file's. Xcode's
    privacy report itself was not run (it is a window in Xcode with no command-line form).
 
 ## What is not on this label: the computer's own reports (Josh, 09-14)
