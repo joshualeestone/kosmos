@@ -17,7 +17,8 @@
 #   AGENT_WORKFORCE_FAKE_SCREEN    file of `capture-pane` text (default: empty)
 case "$1" in
   list-panes)
-    # kosmos#8640: status.js's folder read (`#{pane_id}<TAB>#{session_name}<TAB>#{pane_current_path}`) gets its own file.
+    # kosmos#8640: a read asking for pane_current_path gets its own file: status.js's folder read
+    # (`#{pane_id}<TAB>#{session_name}<TAB>#{pane_current_path}`), and machinecost.js's PANE_LIST lands here too.
     case "$*" in
       *pane_current_path*) [ -n "$AGENT_WORKFORCE_FAKE_PANE_FOLDERS" ] && [ -f "$AGENT_WORKFORCE_FAKE_PANE_FOLDERS" ] && cat "$AGENT_WORKFORCE_FAKE_PANE_FOLDERS"; exit 0 ;;
     esac
