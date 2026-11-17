@@ -1756,8 +1756,8 @@ function install(provider, opts) {
       try { beforeWait(); } catch (e) { console.error(`[runners] ${provider} could not vouch for the version already here again, so it reads absent until the next install: ${e && e.code}`); }
     }
     Object.defineProperty(job, 'waited', { value: true, enumerable: false });
-    /* kosmos#8659: a look that used up the deadline it was given says so, so a slow machine that keeps waiting at the
-       last step shows as that in the board log. A look that failed sooner (no answer, quickly) is a "could not check". */
+    /* kosmos#8659: the last look (the only one given a deadline here) says so when it used it up, so a slow machine
+       that keeps waiting at that step shows as that in the board log. A sooner failure is a "could not check". */
     const ranOut = busy === null && deadlineMs && tookMs >= deadlineMs - 50;
     const why = busy === true ? 'an agent is running on the version already here'
       : ranOut ? `the last check for an agent on the version already here did not answer within ${Number((deadlineMs / 1000).toFixed(1))} s`
