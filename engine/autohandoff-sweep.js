@@ -91,10 +91,12 @@ function sweepOnce({ setting, roster, lastBand, deliver, pathFor, autohandoff, D
     if (advanced) bands.set(key, autohandoff.fillBand(fill));
     /* kosmos#8021: what the delivery said beyond its state, so the board log can say it (promptLogLine). `unsubmitted`:
        the line was pasted and its Enter did not take; `remembered`: chat kept it as an unsent line of its own (its
-       unsentSeq), which is what lets the stuck-input sweep press a long box later. */
+       unsentSeq), which is what lets a retry, the next delivery or the stuck-input sweep press it later; `keptMixed`:
+       it was kept beside other text in the box, so it is pressed only once the whole line shows alone (#6249). */
     prompted.push({ session: key, fill, verdict: state || null, advanced,
       unsubmitted: !!(verdict && verdict.unsubmitted === true),
       remembered: !!(verdict && Number.isInteger(verdict.unsentSeq)),
+      keptMixed: !!(verdict && verdict.keptMixed === true),
       confirm: verdict && typeof verdict.confirm === 'string' ? verdict.confirm : null,   // chat.js confirmedVerdict
       heldByInput: !!(verdict && (verdict.inputHeld === true || verdict.heldBy === 'input')),
       heldBy: verdict && typeof verdict.heldBy === 'string' ? verdict.heldBy : null,
@@ -164,7 +166,7 @@ function promptLogLine(p) {
   else if (p.verdict === 'unconfirmed') said = 'not confirmed as sent' + why;
   else said = 'verdict ' + (p.verdict || 'none');
   return 'autohandoff: ' + p.session + ' at ' + Math.round(Number(p.fill)) + '%: handoff prompt ' + said
-    + (p.remembered ? '; kept as a numbered unsent line, to be pressed later' : '')
+    + (p.remembered ? (p.keptMixed ? '; kept as a numbered unsent line, pressed later only if the other text goes and the whole line shows' : '; kept as a numbered unsent line, to be pressed later') : '')
     + (p.advanced ? '' : '; asked again on the next sweep while it stays over the threshold') + '\n';
 }
 

@@ -194,4 +194,51 @@ test('#6249: the mark survives a board restart', () => withAgent((roster) => {
   const whole = arm([box(MID), EMPTY, EMPTY, box('next'), EMPTY]);
   assert.equal(chat.deliver('al', 'next', roster).earlierSubmitted, true, 'CONTROL: whole, it is pressed');
   assert.equal(whole.enters(), 2);
+  // CONTROL: a plain line, the same restart and the same four-row end: pressed, so the arm above can fail.
+  chat.resetForTests();
+  arm([EMPTY, box(MID)]);
+  assert.equal(chat.deliver('al', MID, roster).confirm, 'unsent', 'PRECONDITION');
+  chat.restartUnsentForTests();
+  const plain = arm([box(MID.slice(-300)), EMPTY, EMPTY, box('next'), EMPTY]);
+  assert.equal(chat.deliver('al', 'next', roster).earlierSubmitted, true);
+  assert.equal(plain.enters(), 2);
+}));
+
+test('#6249: the async path keeps the line when someone types beside it just before the one retry', () => withAgent(async (roster) => {
+  const looks = Math.ceil(chat.SUBMIT_SETTLE_MS / chat.SUBMIT_LOOK_MS);
+  const calls = [];
+  let reads = 0;   // box reads after the first Enter: ours alone through the settle, then other text beside it
+  chat.setRunner((args) => {
+    calls.push(args);
+    if (args[0] === 'display-message') return ok('2.1.302\t\t0\n');
+    if (args[0] === 'capture-pane' && args.includes('-e')) {
+      const entered = calls.some((a) => a[0] === 'send-keys' && a[a.length - 1] === 'Enter');
+      if (!entered) return ok(calls.filter((a) => a[0] === 'paste-buffer').length ? box(MSG) : EMPTY);
+      reads += 1;
+      return ok(reads <= looks + 1 ? box(MSG) : box(OTHER + ' ' + MSG));
+    }
+    return ok();
+  });
+  chat.setDryRun(false);
+  chat.setPauser(() => {});
+  const v = await chat.deliverAsync('al', MSG, roster);
+  assert.equal(calls.filter((a) => a[0] === 'send-keys' && a[a.length - 1] === 'Enter').length, 1, 'no retry Enter over the other text');
+  assert.equal(v.confirm, 'other', 'PRECONDITION: the re-read before the retry found other text');
+  assert.ok(Number.isInteger(v.unsentSeq), 'kept, with its number');
+  assert.equal(v.keptMixed, true);
+  const t = arm([box(MSG), EMPTY, EMPTY, box('next'), EMPTY]);
+  assert.equal(chat.deliver('al', 'next', roster).earlierSubmitted, true, 'pressed once the other text went');
+  assert.equal(t.enters(), 2);
+}));
+
+test('#6249: a line under 20 characters (spaces not counted) is never counted as seen beside other text', () => withAgent((roster) => {
+  const SHORT = 'go ahead';
+  const v = quiet(() => { arm([EMPTY, box('please ' + SHORT + ' with it')]); return chat.deliver('al', SHORT, roster); });
+  assert.equal(v.confirm, 'not-pressed', 'PRECONDITION');
+  assert.equal(v.unsentSeq, undefined, 'not kept: all of it could sit inside someone else\'s words');
+  // CONTROL: a line of 20 or more characters in the same shape is kept.
+  chat.resetForTests();
+  const TWENTY = 'go ahead with it right now';
+  const c = quiet(() => { arm([EMPTY, box('please ' + TWENTY)]); return chat.deliver('al', TWENTY, roster); });
+  assert.ok(Number.isInteger(c.unsentSeq), JSON.stringify(c));
 }));
