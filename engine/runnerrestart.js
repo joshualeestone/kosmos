@@ -117,17 +117,20 @@ function descendants(root, kids) {
 }
 
 /** True when this command runs a program from the managed Codex folder (the stable link or the tree behind it). */
+/* The folder as Kosmos names it and, when they differ, as the filesystem resolves it: Codex finds its vendored host
+   through its own resolved path, so a symlink anywhere above the managed folder puts the real path on the host's
+   command line (review 7). managedDir may be one path or a list of them. */
+function prefixes(managedDir) {
+  return (Array.isArray(managedDir) ? managedDir : [managedDir]).filter(Boolean)
+    .map((d) => (d.endsWith(path.sep) ? d : d + path.sep));
+}
 function isManagedCodex(command, managedDir) {
-  if (!managedDir) return false;
-  const dir = managedDir.endsWith(path.sep) ? managedDir : managedDir + path.sep;
-  return runsProgram(command, dir, 'codex');
+  return prefixes(managedDir).some((dir) => runsProgram(command, dir, 'codex'));
 }
 
 /** The host is started by absolute path from the same folder; matched by its name after the folder (managedDir). */
 function isCodeModeHost(command, managedDir) {
-  if (!managedDir) return false;
-  const dir = managedDir.endsWith(path.sep) ? managedDir : managedDir + path.sep;
-  return runsProgram(command, dir, 'codex-code-mode-host');
+  return prefixes(managedDir).some((dir) => runsProgram(command, dir, 'codex-code-mode-host'));
 }
 
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'fish', 'ksh', 'tcsh', 'csh']);
@@ -196,7 +199,7 @@ async function passOnce(o) {
 
     let m = null;
     try { m = o.managed(); } catch { m = null; }
-    if (!m || m.ready !== true || !m.dir || !Number.isFinite(m.swappedAt)) return out;
+    if (!m || m.ready !== true || !m.dir || (Array.isArray(m.dir) && !m.dir.length) || !Number.isFinite(m.swappedAt)) return out;
 
     const codexCards = roster.filter((c) => c && c.sessionName && c.isNamedOurs === true && c.runner === 'codex');
     if (!codexCards.length) return out;
@@ -266,7 +269,8 @@ async function passOnce(o) {
 }
 
 /**
- * The managed Codex as the sweep needs it, from engine/runners.js: { dir, ready, swappedAt, pin }. ready only when the
+ * The managed Codex as the sweep needs it, from engine/runners.js: { dir, ready, swappedAt, pin } (dir is the folder, or
+ * the folder and its resolved path when a symlink makes them differ). ready only when the
  * tree in place is not stale, nothing is installing, and the last proved upgrade replaced a DIFFERENT version with the
  * one now installed. Never throws: anything unreadable is not ready.
  */
@@ -275,11 +279,84 @@ function managedState(runners) {
     const r = runners.resolveBin('openai');
     const stamp = runners.upgradeStamp('openai');
     const installed = runners.installedVersion('openai');
-    const dir = path.join(runners.managedRoot(), 'openai');
+    const named = path.join(runners.managedRoot(), 'openai');
+    let real = named;
+    try { real = require('node:fs').realpathSync(named); } catch { real = named; }
+    const dir = real === named ? named : [named, real];
     const ready = Boolean(r && r.managed === true && r.present === true && r.stale !== true && !runners.installing('openai')
       && stamp && stamp.from && stamp.from !== stamp.to && installed === stamp.to);
     return { dir, ready, swappedAt: stamp ? stamp.at : NaN, pin: stamp ? stamp.to : null };
   } catch { return null; }
 }
 
-module.exports = { PANE_FORMAT, PS_ARGS, managedState, passOnce, parsePanes, parseProcs, etimeSeconds, codexUnderPane, childrenOf, isManagedCodex, isCodeModeHost, isShell, MAX_PER_PASS, MAX_TRIES };
+/**
+ * The board's once-a-minute tick (server.js calls makeTick once and runs what it returns). Everything it touches is
+ * passed in, so it is tested without a board:
+ *   run(cmd, args)  async; stdout, or null when the command failed
+ *   roster()        safeRoster        isIdle(card)  agentnudge.nudgeableCard
+ *   runners         engine/runners    removal       engine/remove (restartAsync, heldByMove, OUTCOME)
+ *   allowed()       live execution and the brake, read at the start and again just before a restart
+ *   platform        process.platform  tmuxBin       the tmux to run
+ *   write(line)     the board log     warn(line)    the board's warnings
+ * Returns the pass's acts (for tests); never throws.
+ */
+function makeTick(d) {
+  const seenIdle = new Set();
+  const tried = new Map();
+  const said = new Map();   // one key per agent per pin per act, for the board run
+  const warned = { tmux: false, ps: false };   // review 7: one per source, so an early tmux miss cannot hide a ps one
+  let running = false;
+  return async function tick() {
+    if (running || d.platform === 'win32') return [];
+    let ok = false;
+    try { ok = d.allowed() === true; } catch { ok = false; }
+    if (!ok) return [];
+    running = true;
+    try {
+      // No Codex card of ours, or no proved upgrade to a different version: nothing to read the process table for.
+      let cards = null;
+      try { cards = d.roster(); } catch { cards = null; }
+      if (!Array.isArray(cards) || !cards.some((c) => c && c.runner === 'codex' && c.isNamedOurs === true)) { seenIdle.clear(); return []; }
+      const ms = managedState(d.runners);
+      if (!ms || ms.ready !== true) { seenIdle.clear(); return []; }
+      const readTables = async () => {
+        const now = Date.now();   // before ps, so a process's start time (now minus its age) is never read late
+        const pt = await d.run(d.tmuxBin, ['list-panes', '-a', '-F', PANE_FORMAT]);
+        const ps = pt === null ? null : await d.run('ps', PS_ARGS);
+        return { pt, ps, panes: parsePanes(pt), procs: parseProcs(ps), now };
+      };
+      const first = await readTables();
+      if (first.pt === null && !warned.tmux) { warned.tmux = true; d.warn('[runner-restart] tmux list-panes failed, so no Codex agent can be checked'); }
+      if (first.pt !== null && first.ps === null && !warned.ps) { warned.ps = true; d.warn('[runner-restart] ps failed, so no Codex agent can be checked'); }
+      const done = await passOnce({
+        roster: d.roster, isIdle: d.isIdle, seenIdle, tried,
+        allowed: d.allowed,
+        managed: () => managedState(d.runners),
+        heldByMove: (session) => d.removal.heldByMove(session),
+        panes: () => first.panes, procs: () => first.procs, now: first.now,
+        reread: readTables,
+        // 'restart': the card's word for a plain restart (engine/disruption.js CAUSES); the board line below says why.
+        restart: (session) => d.removal.restartAsync(session, 'restart'),
+        RESTARTED: d.removal.OUTCOME.RESTARTED,
+      });
+      for (const a of done) {
+        /* A restart or refusal is said each time. An agent held back by a running job, or a Codex card with no managed
+           Codex under it, is said the first time and then once an hour while it lasts (60 passes), so a sweep that
+           never acts is told from one with nobody to restart (reviews 3 and 5). */
+        if (a.act === 'has-job' || a.act === 'no-managed-codex') {
+          const key = `${ms.pin}\t${a.session}\t${a.act}`;
+          const n = (said.get(key) || 0) + 1;
+          said.set(key, n);
+          if (n % 60 !== 1) continue;
+        } else if (a.act !== 'restarted' && a.act !== 'refused') continue;
+        d.write(`runner-restart: ${a.session} ${a.act}${a.because ? ' (' + a.because + ')' : ''}\n`);
+      }
+      return done;
+    } catch (err) {
+      try { d.warn(`[runner-restart] ${String((err && err.message) || err)}`); } catch { /* never fatal */ }
+      return [];
+    } finally { running = false; }
+  };
+}
+
+module.exports = { makeTick, PANE_FORMAT, PS_ARGS, managedState, passOnce, parsePanes, parseProcs, etimeSeconds, codexUnderPane, childrenOf, isManagedCodex, isCodeModeHost, isShell, MAX_PER_PASS, MAX_TRIES };

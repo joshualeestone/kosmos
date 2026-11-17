@@ -10,7 +10,14 @@
  * and per-pin caps each hold the restart; ps etime and the process table parse.
  */
 
+const fs = require('node:fs');
+const os = require('node:os');
+/* Sandbox every root before any require (CLAUDE.md rule 2): fleet and agentnudge reach store-using modules. */
+const SANDBOX = fs.mkdtempSync(require('node:path').join(os.tmpdir(), 'aw-runnerrestart-8598-'));
+process.env.AGENT_WORKFORCE_DATA = require('node:path').join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_RUNNERS_DIR = require('node:path').join(SANDBOX, 'runners');
 const test = require('node:test');
+test.after(() => { require('../test-support/remove-tree').removeTree(SANDBOX); });
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const rr = require('./runnerrestart');
@@ -325,4 +332,53 @@ test('the tables are read again just before the restart, and a changed answer ho
   const { o: o3, restarted: r3 } = opts({ reread: async () => { throw new Error('x'); } });
   await twice(o3);
   assert.deepEqual(r3, [], 'a re-read that fails holds the restart');
+});
+
+test('the board tick: gates, one restart through remove, the hourly log throttle, and per-source warnings', async () => {
+  const stamp = { from: '0.149.1', to: '0.169.0', at: Date.now() - 600 * 1000 };
+  const runnersStub = {
+    resolveBin: () => ({ managed: true, present: true }), upgradeStamp: () => stamp, installedVersion: () => '0.169.0',
+    managedRoot: () => path.join(path.sep, 'k', 'runners'), installing: () => false,
+  };
+  const calls = []; const lines = []; const warns = [];
+  const procsFor = (shell) => [
+    `  1000     1   01:00:00 ${LINK} --dangerously-bypass-approvals-and-sandbox`,
+    shell ? `  1001  1000      00:05 /bin/zsh -c make test` : '',
+  ].join('\n');
+  let shell = false; let failPs = false; let allowed = true;
+  const d = {
+    run: async (cmd) => (cmd === 'ps' ? (failPs ? null : procsFor(shell)) : paneLine(ALPHA.session, '0.0', 1000)),
+    roster: () => [ALPHA], isIdle: idle, runners: runnersStub,
+    removal: { heldByMove: () => false, restartAsync: async (s, cause) => { calls.push([s, cause]); return { outcome: 'restarted' }; }, OUTCOME: { RESTARTED: 'restarted' } },
+    allowed: () => allowed, platform: 'darwin', tmuxBin: 'tmux',
+    write: (l) => lines.push(l), warn: (l) => warns.push(l),
+  };
+  // Windows and a closed gate: nothing at all
+  assert.deepEqual(await rr.makeTick({ ...d, platform: 'win32' })(), []);
+  allowed = false; assert.deepEqual(await rr.makeTick(d)(), []); allowed = true;
+  // A job under it: held, said once, not again on the next pass
+  shell = true;
+  const tickJob = rr.makeTick(d);
+  for (let i = 0; i < 3; i += 1) await tickJob();
+  assert.equal(lines.filter((l) => / has-job/.test(l)).length, 1, 'said once, not every pass');
+  assert.deepEqual(calls, []);
+  // No job: restarted at the second pass, through restartAsync with the card's plain cause
+  shell = false;
+  const tick = rr.makeTick(d);
+  await tick(); await tick();
+  assert.deepEqual(calls, [[ALPHA.sessionName, 'restart']]);
+  assert.ok(lines.some((l) => l === `runner-restart: ${ALPHA.sessionName} restarted\n`), lines.join(''));
+  // ps failing warns about ps, once, even after a tmux warning would have been used
+  failPs = true;
+  const tickPs = rr.makeTick(d);
+  await tickPs(); await tickPs();
+  assert.equal(warns.filter((w) => /ps failed/.test(w)).length, 1);
+});
+
+test('a host started through the resolved path of a symlinked managed folder is still the host', () => {
+  const real = path.join(path.sep, 'private', 'k', 'runners', 'openai');
+  const host = `${path.join(real, 'pkg', 'vendor', 'x', 'bin', 'codex-code-mode-host')} --stdio`;
+  assert.equal(rr.isCodeModeHost(host, DIR), false, 'CONTROL: the named folder alone misses it');
+  assert.equal(rr.isCodeModeHost(host, [DIR, real]), true);
+  assert.equal(rr.isManagedCodex(`${LINK} --x`, [DIR, real]), true, 'the leader as launched still matches');
 });

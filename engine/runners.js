@@ -435,7 +435,9 @@ function writeUpgradeStamp(destDir, rec) {
   const file = path.join(destDir, UPGRADE_STAMP);
   try {
     if (!rec) { fs.rmSync(file, { force: true }); return; }
-    fs.writeFileSync(file, JSON.stringify(rec) + '\n');
+    const tmp = `${file}.${process.pid}.tmp`;   // review 7: whole or absent, never half-written
+    fs.writeFileSync(tmp, JSON.stringify(rec) + '\n');
+    fs.renameSync(tmp, file);
   } catch { /* best effort: a missing record restarts nobody */ }
 }
 /** { from, to, at } for the last proved upgrade of this provider's managed runner, or null. */

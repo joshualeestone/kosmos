@@ -28,10 +28,11 @@ Whether real agents use code mode at all. 0.149.1's feature flag is off, but its
 What would change my mind: a models_cache.json from a real account showing no model with a code-mode `tool_mode`. Then I would add a check for that and skip the restart.
 
 ### Not covered
+A wall-clock step between the swap and a later pass (an NTP correction after sleep) shifts the comparison of a process's start time with the recorded swap time by the size of the step. Not handled: at worst one extra restart, or one missed, per board run (review 7).
 Not measured on a live Codex pane: whether Codex keeps a long-lived SHELL child for the whole session (a tool server started through a shell, a persistent exec session). If it does, that agent reads as busy with a job on every pass and is never restarted. The board logs `runner-restart: <agent> has-job` at the first pass and then hourly, so this shows up in the log rather than staying silent (review 5).
 A host that exits and starts again later (idle timeout, crash). That was not measured, and the sweep cannot predict it. Windows: Homer's lane, and Windows stays on 0.149.1.
 
 ### Added while building
-- A background job (any non-host child of the Codex process) also holds the restart: an idle card with a running shell job would lose that job (engine/automove.js names the hazard).
+- A background job holds the restart: an idle card with a running shell job would lose that job (engine/automove.js names the hazard). Only a SHELL that is a direct child of Codex counts (review 3); a long-lived child that is not a shell, such as a tool server, does not hold it.
 - Code mode is in real use: a live models_cache.json carries tool_mode code_mode_only on 5 of 6 models (Liu Kang m7607).
 - Validation: targeted tests locally (the local full suite is held on Mortals); the full suite runs in CI.

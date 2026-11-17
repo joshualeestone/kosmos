@@ -29228,80 +29228,21 @@ function start(port = PORT) {
          (engine/runnerrestart.js says who and why; a restart starts the conversation over, so the safe case is left
          alone). Mac/Linux only (Windows stays on 0.149.1). Gated like the sweeps here; brake
          AGENT_WORKFORCE_RUNNER_RESTART_OFF=1. */
-      /* Tried and Said grow by one key per agent per pin, for the board run (review 4). */
-      const runnerRestartSeenIdle = new Set();
-      const runnerRestartTried = new Map();
-      let runnerRestartRunning = false;
-      let runnerRestartWarned = false;
-      const runnerRestartSaid = new Map();
-      const runnerRestartTick = async () => {
-        if (runnerRestartRunning || process.platform === 'win32') return;
-        if (!liveExecution.liveExecutionAllowed()) return;
-        if (process.env.AGENT_WORKFORCE_RUNNER_RESTART_OFF === '1') return;
-        runnerRestartRunning = true;
-        try {
-          const rr = require('./engine/runnerrestart');
-          // No Codex card of ours, or no finished upgrade: nothing to read the process table for.
-          const cards = safeRoster();
-          if (!Array.isArray(cards) || !cards.some((c) => c && c.runner === 'codex' && c.isNamedOurs === true)) { runnerRestartSeenIdle.clear(); return; }
-          // No proved upgrade to a different version (engine/runners.js upgradeStamp): nobody can be on the replaced one.
-          const ms = rr.managedState(runners);
-          if (!ms || ms.ready !== true) { runnerRestartSeenIdle.clear(); return; }
-          const { execFile } = require('node:child_process');
-          const run = (cmd, args) => new Promise((resolve) => {
-            execFile(cmd, args, { encoding: 'utf8', timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, out) => resolve(err ? null : String(out || '')));
-          });
-          // Both tables are read once per pass, before passOnce; it reads them again just before a restart (reread below).
-          const readTables = async () => {
-            const at = Date.now();   // before ps, so a process's start time (now minus its age) is never read late
-            const pt = await run(process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux', ['list-panes', '-a', '-F', rr.PANE_FORMAT]);
-            const ps = pt === null ? null : await run('ps', rr.PS_ARGS);
-            return { pt, ps, at, panes: rr.parsePanes(pt), procs: rr.parseProcs(ps), now: at };
-          };
-          const first = await readTables();
-          const paneText = first.pt;
-          if (paneText === null && !runnerRestartWarned) {
-            runnerRestartWarned = true;   // once per board run, so a sweep that cannot look is told from one with nobody to restart
-            console.warn('[runner-restart] tmux list-panes failed, so no Codex agent can be checked');
-          }
-          const psText = first.ps;
-          if (paneText !== null && psText === null && !runnerRestartWarned) {
-            runnerRestartWarned = true;
-            console.warn('[runner-restart] ps failed, so no Codex agent can be checked');
-          }
-          const { panes, procs } = first;
-          const done = await rr.passOnce({
-            roster: () => safeRoster(),
-            isIdle: (c) => require('./engine/agentnudge').nudgeableCard(c),
-            seenIdle: runnerRestartSeenIdle,
-            tried: runnerRestartTried,
-            // Read again just before each restart (the checks above are from the start of the pass).
-            allowed: () => liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_RUNNER_RESTART_OFF !== '1',
-            managed: () => rr.managedState(runners),
-            heldByMove: (session) => removal.heldByMove(session),
-            panes: () => panes,
-            procs: () => procs,
-            // 'restart': the card's word for a plain restart (engine/disruption.js CAUSES); the board line below says why.
-            restart: (session) => removal.restartAsync(session, 'restart'),
-            RESTARTED: removal.OUTCOME.RESTARTED,
-            now: first.now,
-            reread: readTables,
-          });
-          for (const d of done) {
-            /* A restart or refusal is said each time. An agent held back by a running job, or a Codex card with no managed
-               Codex under it, is said the first time and then once an hour while it lasts (60 passes), so a sweep that
-               never acts is told from one with nobody to restart (reviews 3 and 5). */
-            if (d.act === 'has-job' || d.act === 'no-managed-codex') {
-              const key = `${ms.pin}\t${d.session}\t${d.act}`;
-              const n = (runnerRestartSaid.get(key) || 0) + 1;
-              runnerRestartSaid.set(key, n);
-              if (n % 60 !== 1) continue;
-            } else if (d.act !== 'restarted' && d.act !== 'refused') continue;
-            process.stdout.write(`runner-restart: ${d.session} ${d.act}${d.because ? ' (' + d.because + ')' : ''}\n`);
-          }
-        } catch (err) { console.warn(`[runner-restart] ${String((err && err.message) || err)}`); }
-        finally { runnerRestartRunning = false; }
-      };
+      const runnerRestartTick = require('./engine/runnerrestart').makeTick({
+        run: (cmd, args) => new Promise((resolve) => {
+          require('node:child_process').execFile(cmd, args, { encoding: 'utf8', timeout: 5000, maxBuffer: 16 * 1024 * 1024 },
+            (err, out) => resolve(err ? null : String(out || '')));
+        }),
+        roster: () => safeRoster(),
+        isIdle: (c) => require('./engine/agentnudge').nudgeableCard(c),
+        runners,
+        removal,
+        allowed: () => liveExecution.liveExecutionAllowed() && process.env.AGENT_WORKFORCE_RUNNER_RESTART_OFF !== '1',
+        platform: process.platform,
+        tmuxBin: process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux',
+        write: (line) => process.stdout.write(line),
+        warn: (line) => console.warn(line),
+      });
       const runnerRestartSweep = setInterval(() => { runnerRestartTick(); }, 60 * 1000);
       if (runnerRestartSweep && typeof runnerRestartSweep.unref === 'function') runnerRestartSweep.unref();
       const class1Attempts = new Map();
