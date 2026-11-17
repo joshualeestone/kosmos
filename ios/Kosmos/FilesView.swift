@@ -19,6 +19,34 @@ struct FilesView: View {
     @StateObject private var opener = FileOpener()
     // Review 3: the account this list was read for, so coming Back to it keeps the page and only another account clears it.
     @State private var readFor: Int?
+    // kosmos#8632: the order, kept on this phone per screen (an agent's Files, a project's Files).
+    @AppStorage private var sortSaved: String
+    private var sortChoice: Board.FilesSort { Board.filesSort(saved: sortSaved) }
+
+    init(client: BoardClient, owner: Board.FilesOwner, dir: String = "", openOnBoard: @escaping () -> Void, titled: Bool = true) {
+        self.client = client
+        self.owner = owner
+        self.dir = dir
+        self.openOnBoard = openOnBoard
+        self.titled = titled
+        _sortSaved = AppStorage(wrappedValue: Board.filesSortDefault.rawValue, Board.filesSortKey(owner))
+    }
+
+    private var hasRows: Bool {
+        if case .page(let p)? = read { return !(p.dirs.isEmpty && p.files.isEmpty) }
+        return false
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort files", selection: Binding(get: { sortChoice.rawValue }, set: { sortSaved = $0 })) {
+                ForEach(Board.FilesSort.allCases, id: \.rawValue) { s in Text(Board.filesSortLabel(s)).tag(s.rawValue) }
+            }
+        } label: { SortButtonLabel(pressed: sortChoice != Board.filesSortDefault) }
+        .accessibilityLabel(Board.sortButtonLabel(Board.filesSortLabel(sortChoice)))
+        .accessibilityAddTraits(sortChoice != Board.filesSortDefault ? .isSelected : [])
+        .accessibilityIdentifier("files-sort")
+    }
 
     var body: some View {
         List {
@@ -32,7 +60,8 @@ struct FilesView: View {
                 Section { Text(Board.filesCannotRead).foregroundColor(Palette.secondary) }
             case .refused(let why)?:
                 Section { Text(why).foregroundColor(Palette.secondary) }
-            case .page(let page)?:
+            case .page(let unsorted)?:
+                let page = Board.filesSorted(unsorted, by: sortChoice)
                 if page.dirs.isEmpty && page.files.isEmpty {
                     Section { Text(Board.filesEmpty(owner: owner, dir: dir)).foregroundColor(Palette.secondary) }
                 } else {
@@ -68,6 +97,9 @@ struct FilesView: View {
         .modifier(FilesTitle(title: !titled ? nil : dir.isEmpty ? Board.filesTitle : (dir.split(separator: "/").last.map(String.init) ?? Board.filesTitle)))
         .navigationBarTitleDisplayMode(.inline)
         .kosmosSolidTopBar()
+        // kosmos#8632: in the top bar whenever there is something to order (on the project page too, while its Files
+        // segment shows: that page has no top-bar button of its own).
+        .toolbar { ToolbarItem(placement: .navigationBarTrailing) { if hasRows { sortMenu } } }
         .dotsRefresh { await load() }
         // Review 2: keyed on the account, so a sign-out, another account or another Mac cancels the old read and starts
         // a new one; load() also drops an answer that lands for the account before.

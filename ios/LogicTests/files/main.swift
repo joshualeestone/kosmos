@@ -163,5 +163,39 @@ check(Board.filesSection(status: 200, body: unmarked) == .forNow("That folder is
 check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 200, body: lasting), loaded: true) == .message("That folder is not there any more, or it was moved."), "the agent page: a lasting refusal replaces its rows")
 check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 200, body: passingOne), loaded: true) == rowsBefore, "the agent page: a passing refusal keeps its rows")
 check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 200, body: unmarked), loaded: true) == rowsBefore, "the agent page: an older board's refusal keeps its rows, as before")
+section("the order (kosmos#8632)")
+func projectsByNameSource() -> String { (try? String(contentsOf: repo.appendingPathComponent("engine/projects.js"), encoding: .utf8)) ?? "" }
+check(Board.FilesSort.allCases.map(Board.filesSortLabel) == ["Newest first", "Oldest first", "A to Z", "Z to A"], "the four orders, the board's words")
+check(Board.filesSortDefault == .newest && Board.filesSort(saved: "") == .newest && Board.filesSort(saved: "nonsense") == .newest, "Newest first by default, and for a saved value this build does not know")
+check(Board.filesSort(saved: "za") == .za, "a saved order is kept")
+check(Board.filesSortKey(.agent("a")) == Board.filesSortKey(.agent("b")) && Board.filesSortKey(.agent("a")) != Board.filesSortKey(.project("p")), "remembered per screen: every agent's Files share one, a project's Files its own")
+check(projectsByNameSource().contains("localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })"), "premise: the server's byName is still the rule mirrored here")
+// Measured 11-17 with Node v26 (en-US): these 29 names through the server's byName (engine/projects.js), in this order.
+let byNameInput = ["file10.txt","File2.txt","file1.txt","Été notes.md","ete Notes.md","_draft.md","-dash.md","zeta.pdf","Zeta 2.pdf","Zeta 10.pdf","a b.txt","a_b.txt","a-b.txt","a.b.txt","ab.txt","Ångström.txt","angle.txt","2026-11-17 report.pdf","2026-11-9 report.pdf","résumé.docx","resume.docx","Resume.docx","x (1).png","x (10).png","x (2).png","émoji 😀.txt","Covers/front.png","Covers 2/a.png","covers/b.png"]
+let byNameNode = ["_draft.md","-dash.md","2026-11-9 report.pdf","2026-11-17 report.pdf","a b.txt","a_b.txt","a-b.txt","a.b.txt","ab.txt","angle.txt","Ångström.txt","Covers 2/a.png","covers/b.png","Covers/front.png","émoji 😀.txt","Été notes.md","ete Notes.md","file1.txt","File2.txt","file10.txt","résumé.docx","resume.docx","Resume.docx","x (1).png","x (2).png","x (10).png","Zeta 2.pdf","Zeta 10.pdf","zeta.pdf"]
+func lf(_ n: String, _ secondsAgo: Double? = nil) -> Board.ListedFile {
+    Board.ListedFile(name: n, size: 1, modified: secondsAgo.map { Date(timeIntervalSince1970: 1_800_000_000 - $0) }, changedBy: nil)
+}
+func names(_ fs: [Board.ListedFile], _ s: Board.FilesSort) -> [String] { Board.filesOrdered(fs, by: s, name: \.name, modified: \.modified).map(\.name) }
+check(names(byNameInput.map { lf($0) }, .az) == byNameNode, "A to Z is the server's byName: case and accents ignored, numbers in number order, ties kept as they came")
+check(names(byNameNode.reversed().map { lf($0) }, .az) != byNameNode, "CONTROL: a tie (Été notes / ete Notes) arriving the other way round stays the other way round, so the check above can fail")
+check(names(byNameInput.map { lf($0) }, .za).first == "zeta.pdf" && names(byNameInput.map { lf($0) }, .za).last == "_draft.md", "Z to A turns it around")
+check(names(byNameInput.map { lf($0) }, .za).filter { ["résumé.docx", "resume.docx", "Resume.docx"].contains($0) } == ["résumé.docx", "resume.docx", "Resume.docx"], "Z to A keeps a tie by name in the order it came")
+let timed = [lf("b old.txt", 86_400), lf("a new.txt", 60), lf("c none.txt"), lf("d mid.txt", 3600), lf("e mid.txt", 3600)]
+check(names(timed, .newest) == ["a new.txt", "d mid.txt", "e mid.txt", "b old.txt", "c none.txt"], "Newest first: a file saved a minute ago on top; the same time by name; no time last")
+check(names(timed, .oldest) == ["b old.txt", "d mid.txt", "e mid.txt", "a new.txt", "c none.txt"], "Oldest first: the other way; the same time still by name; no time still last")
+check(names(timed, .az) == ["a new.txt", "b old.txt", "c none.txt", "d mid.txt", "e mid.txt"], "CONTROL: A to Z ignores the times")
+// The agent browse answer, as the route sends it (A to Z), read and put in each order: folders stay above files.
+let twoGroups = page(#"{"ok":true,"dir":"","dirs":[{"name":"Archive","modified":"2026-01-01T00:00:00.000Z"},{"name":"Covers","modified":"2026-11-16T00:00:00.000Z"}],"files":[{"name":"alpha.txt","size":1,"modified":"2026-11-01T00:00:00.000Z"},{"name":"report.pdf","size":1,"modified":"2026-11-17T15:30:00.000Z"},{"name":"zed.md","size":1,"modified":"2026-10-01T00:00:00.000Z"}],"stamp":"s"}"#)
+if case .page(let p) = twoGroups {
+    check(p.dirs.map { $0.modified != nil } == [true, true], "a folder's time is read from the browse answer")
+    let newest = Board.filesSorted(p, by: .newest), oldest = Board.filesSorted(p, by: .oldest), az = Board.filesSorted(p, by: .az), za = Board.filesSorted(p, by: .za)
+    check(newest.dirs.map(\.name) == ["Covers", "Archive"] && newest.files.map(\.name) == ["report.pdf", "alpha.txt", "zed.md"], "Newest first: the newest file on top of the files, folders above in their own newest-first order")
+    check(oldest.dirs.map(\.name) == ["Archive", "Covers"] && oldest.files.map(\.name) == ["zed.md", "alpha.txt", "report.pdf"], "Oldest first")
+    check(az.dirs == p.dirs && az.files == p.files, "CONTROL: A to Z is exactly the order the agent's list arrives in today")
+    check(za.dirs.map(\.name) == ["Covers", "Archive"] && za.files.map(\.name) == ["zed.md", "report.pdf", "alpha.txt"], "Z to A")
+    check(newest.total == p.total && newest.truncated == p.truncated && newest.dir == p.dir, "sorting changes only the order")
+} else { check(false, "the browse answer is a page") }
+
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
