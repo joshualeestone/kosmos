@@ -79,7 +79,7 @@ test('#6249: a line not pressed (other text in the box) carries its number, and 
   assert.equal(v1.confirm, 'not-pressed', 'PRECONDITION: the not-pressed branch');
   assert.equal(t1.enters(), 0, 'never an Enter over the other text');
   assert.ok(Number.isInteger(v1.unsentSeq), 'a number, so the message row can be told when it goes');
-  assert.match(v1.because, /only if the other text goes and the box shows just this line/);
+  assert.match(v1.because, /sends it later only if the other text goes and the box shows just this line/);
   // The other text is still there: refused as before, nothing pressed.
   const t2 = arm([box(OTHER + ' ' + MSG)]);
   assert.equal(chat.deliver('al', 'a later line', roster).inputHeld, true);
@@ -92,14 +92,31 @@ test('#6249: a line not pressed (other text in the box) carries its number, and 
   assert.equal(t3.enters(), 2);
 }));
 
-test('#6249 CONTROL: the same box before this change was forgotten; a plain unsent line and a not-pressed one are now both remembered', () => withAgent((roster) => {
-  quiet(() => { arm([EMPTY, box(OTHER + ' ' + MSG)]); chat.deliver('al', MSG, roster); });
+test('#6249: a not-pressed line is kept on disk marked mixed; a plain unsent line is kept unmarked', () => withAgent((roster) => {
   const file = path.join(store.ROOT, 'unsent-lines.json');
-  const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const entries = Object.values(kept);
-  assert.equal(entries.length, 1);
-  assert.equal(entries[0].wire.endsWith(MSG), true);
-  assert.equal(entries[0].mixed, true, 'marked: it met other text');
+  quiet(() => { arm([EMPTY, box(OTHER + ' ' + MSG)]); chat.deliver('al', MSG, roster); });
+  const mixed = Object.values(JSON.parse(fs.readFileSync(file, 'utf8')));
+  assert.equal(mixed.length, 1);
+  assert.equal(mixed[0].wire.endsWith(MSG), true);
+  assert.equal(mixed[0].mixed, true, 'marked: it met other text');
+  chat.resetForTests();
+  arm([EMPTY, box(MSG)]);
+  assert.equal(chat.deliver('al', MSG, roster).confirm, 'unsent', 'PRECONDITION: a plain unsent line');
+  const plain = Object.values(JSON.parse(fs.readFileSync(file, 'utf8')));
+  assert.equal(plain.length, 1);
+  assert.equal(plain[0].mixed, undefined, 'a plain line carries no mark');
+}));
+
+test('#6249: other text that never showed our words (a fold) is not kept, and the sentence promises nothing', () => withAgent((roster) => {
+  const t = arm([EMPTY, box('[Pasted text #1 +3 lines]')]);
+  const v = quiet(() => chat.deliver('al', MSG, roster));
+  assert.equal(v.confirm, 'not-pressed', 'PRECONDITION');
+  assert.equal(t.enters(), 0);
+  assert.equal(v.unsentSeq, undefined, 'nothing kept, so no number');
+  assert.doesNotMatch(v.because, /sends it later/);
+  const later = arm([box(MSG)]);
+  assert.equal(chat.deliver('al', 'next', roster).inputHeld, true, 'not ours to press: never kept');
+  assert.equal(later.enters(), 0);
 }));
 
 test('#6249: after the Enter, ours still there with other text is remembered too (it was forgotten)', () => withAgent((roster) => {

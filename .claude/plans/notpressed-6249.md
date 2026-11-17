@@ -41,7 +41,9 @@ sweep later moves the whole box into a draft for the person, so the agent never 
 
 A person who deletes their own words and leaves exactly our line may have been about to edit ours too. A retry 30 s
 later sends it. The same is already true of any plain unsent line today, so this adds no new kind of risk. It does add
-one more case where it can happen.
+one more case where it can happen. And in the not-pressed case someone was typing in that box under 2 seconds
+earlier, so a person is likelier to be at it than for a plain unsent line, and the 30 s first retry is the one most
+likely to land mid-edit. Still bounded by the whole-line match.
 
 ## What would change my mind
 
@@ -51,7 +53,7 @@ in composerHolds, not here.
 
 ## Tests
 
-- engine/chat.notpressed-6249.test.js (new, 7 tests): the number on the verdict; the next delivery presses only after
+- engine/chat.notpressed-6249.test.js (new, 8 tests): the number on the verdict; the next delivery presses only after
   the other text goes; after-Enter `other` too; retries press only an exact box; an emptied box forgets it; a scrolled
   end of a mixed line is never pressed (CONTROL: a plain one is); the mark survives a restart.
 - engine/chat.composer-6249.test.js: the round 2 test now pins the part that still holds (never pressed while the
@@ -64,3 +66,15 @@ in composerHolds, not here.
 ## Review
 
 Challenge loop, capped at 8 rounds unless a BLOCKER is open.
+
+- Round 1 (blind, opus): no BLOCKER, 3 WARNING, 3 NIT.
+  - WARNING fixed: every after-Enter `other` was kept, including answers that never saw our words (a lone chip, a box
+    of chips, the re-read before the retry). Now only the arm that saw our end (`ours: true`) is kept; the
+    not-pressed branch likewise keeps the line only when stillHoldsOurEnd reads our end in the box. The rest are
+    forgotten as before.
+  - WARNING fixed: the CONTROL test's title claimed a plain-line arm it did not have; it now has one, and a new test
+    pins that a fold that never showed our words is not kept.
+  - WARNING fixed: the sentences promised a later send even where nothing was kept; the old sentences stand, and the
+    promise ("sends it later only if...", no longer "on its own") is added only when the line was kept.
+  - NITs fixed: comments no longer claim the next delivery's look is exact, and drop the "emptied box forgets it"
+    claim; weakest premise extended (someone was at that box under 2 s earlier).

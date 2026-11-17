@@ -1084,7 +1084,10 @@ const OTHER_LOG_LOOKS = 5;
 const SUBMIT_LOOK_MS = 60;   // round 4, measured on 2.1.300: the box reads empty 25 to 93 ms after the Enter
 /* #6256 item 3: says what happens next, so nobody types it again by hand (the retries are UNSENT_RETRY_MS). */
 const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there, and Kosmos presses Enter on it again on its own over the next few minutes, then every ten minutes while it sits there, and before the next thing it types to this agent, while the box shows only that line';
-const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent, and Kosmos presses Enter on it on its own only if the other text goes and the box shows just this line';
+const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
+/* #6249 (Angel, 11-16): said only when the box was seen holding our words (rememberMixed kept the line). */
+const KEPT_LATER = ', and Kosmos sends it later only if the other text goes and the box shows just this line';
+const UNSENT_OTHER_KEPT_BECAUSE = UNSENT_OTHER_BECAUSE + KEPT_LATER;
 const NOT_OURS_BECAUSE = 'its input box already holds text that was not sent, so this was not typed behind it';
 /* kosmos#8333: what the delivery log may say about a box that was not pressed. Everything but the marks a fold is made of
    is masked, spaces too: its length and any chips, never the words or their lengths. */
@@ -1094,7 +1097,7 @@ function notPressedLine(wire, seen, later, looked) {
   return '[delivery] not pressed, box read as other: wire ' + String(wire || '').length + ' chars, box ' + text.length
     + ', starts "' + boxShape(text.slice(0, 40)) + '", ends "' + boxShape(text.slice(-40)) + '"; after ' + looked + ' more looks it read ' + later;
 }
-const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then held other text too, so Enter was not pressed; it is sitting there unsent, and Kosmos presses Enter on it on its own only if the other text goes and the box shows just this line';
+const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then held other text too, so Enter was not pressed; it is sitting there unsent';
 /**
  * #6249: after the Enter, watch the box. `mayRetry` (the async path only, round 2): the synchronous path holds the
  * board while it waits, so it only watches; a line it leaves unsent is remembered and sent by the next delivery.
@@ -1129,7 +1132,7 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
       const shownChips = new Set(shown.match(ANY_CHIP) || []);
       const couldBeOurFold = !pin && !shown.replace(ANY_CHIP, '') && String(wire).length >= CHIP_MIN_CHARS;   // the tie's own test
       if (isLoneChip(box.text) || couldBeOurFold || pinned.some((c) => shownChips.has(c))) return { outcome: 'other', retried };
-      return { outcome: stillHoldsOurEnd(box.text, wire) ? 'other' : 'sent', retried };
+      return stillHoldsOurEnd(box.text, wire) ? { outcome: 'other', retried, ours: true } : { outcome: 'sent', retried };
     }
     if (waited < settleMs) {
       yield { wait: SUBMIT_LOOK_MS };
@@ -1157,7 +1160,7 @@ function confirmedVerdict(placed, result) {
   }
   return {
     ...placed, state: DELIVERY.UNCONFIRMED, queued: false, unsubmitted: true, confirm: result.outcome,
-    because: result.outcome === 'other' ? UNSENT_OTHER_BECAUSE : UNSENT_BECAUSE,
+    because: result.outcome === 'other' ? (result.ours ? UNSENT_OTHER_KEPT_BECAUSE : UNSENT_OTHER_BECAUSE) : UNSENT_BECAUSE,
   };
 }
 
@@ -1297,10 +1300,9 @@ function scheduleUnsentTail(target, card, id, chain, since, schedule) {
   });
 }
 
-/* #6249 (Angel, 11-16): a line of ours left in a box that also holds other text: remembered with its number and given
-   the #6436 retries. Every press of a remembered line needs the box to show exactly all of it (rememberedShows with
-   `mixed`, so never a visible end of it), so the other text is never sent with it, and a box that empties (someone sent or cleared it) forgets
-   it. Answers the line's number, for the verdict's unsentSeq. */
+/* #6249 (Angel, 11-16): a line of ours seen in a box that also holds other text: remembered with its number and given
+   the #6436 retries. `mixed` makes rememberedShows take it only whole, never by a visible end. Answers the line's
+   number, for the verdict's unsentSeq. */
 function rememberMixed(target, wire, card) {
   unsentSeq += 1;
   const seq = unsentSeq;
@@ -2816,10 +2818,11 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
         laterHolds = composerHolds(again.text, wire, ourChip || chipTie);
       }
       console.warn(notPressedLine(wire, box.text, laterHolds, looked));
-      /* #6249 (Angel, 11-16): remembered, as after an Enter that met other text (settle), so the line is not lost: it is
-         pressed when the box shows exactly all of it and nothing else (measured 11-14: box 448 chars, ours 292, steady). */
-      const seq = rememberMixed(target, wire, allowed.card);
-      return { state: DELIVERY.UNCONFIRMED, unsubmitted: true, confirm: 'not-pressed', because: UNSENT_NOT_PRESSED_BECAUSE, unsentSeq: seq, at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };   // kosmos#8021: Enter never pressed
+      /* #6249 (Angel, 11-16): kept only when our end was seen in the box (measured 11-14: box 448 chars, ours 292,
+         steady), as settle keeps an after-Enter 'other'. A box that never showed our words (a fold) is not kept. */
+      const sawOurs = stillHoldsOurEnd(box.text, wire);
+      const seq = sawOurs ? rememberMixed(target, wire, allowed.card) : null;
+      return { state: DELIVERY.UNCONFIRMED, unsubmitted: true, confirm: 'not-pressed', because: sawOurs ? UNSENT_NOT_PRESSED_BECAUSE + KEPT_LATER : UNSENT_NOT_PRESSED_BECAUSE, ...(sawOurs ? { unsentSeq: seq } : {}), at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };   // kosmos#8021: Enter never pressed
     }
   }
   const entered = tmux(['send-keys', '-t', target, 'Enter']);
@@ -2867,11 +2870,9 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       rememberUnsent(target, { wire, at: Date.now(), seq, seen: chipSeen ? '' : endSeen(result.text),
         ...(chipSeen ? { chip: chipSeen, chipPid: panePidOf(target) } : {}) });
       scheduleUnsentRetries(target, allowed.card);
-    } else if (result && result.outcome === 'other') {
-      /* #6249 (Angel, 11-16): ours is still in the box with other text. Remembered as any unsent line, so it is pressed
-         once the other text goes and the box shows exactly all of our line (rememberedShows, exact for the retries and
-         for the next delivery's look), and never while anything else is there. Before this it was forgotten, and the
-         agent never heard it. No `seen`: what the box showed was not only ours. */
+    } else if (result && result.outcome === 'other' && result.ours) {
+      /* #6249 (Angel, 11-16): our end was seen in the box with other text. Before this it was forgotten. Other 'other'
+         answers (a chip, a re-read before the retry) never saw our words, so they are forgotten as before. */
       seq = rememberMixed(target, wire, allowed.card);
     } else if (result && result.outcome === 'unread') {
       /* kosmos#6436: no box to read after the Enter (the turn's screen, or a dialog drawn over it). Usually the line
