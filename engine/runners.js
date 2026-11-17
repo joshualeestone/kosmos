@@ -1714,7 +1714,9 @@ function install(provider, opts) {
         if (upgrading) { try { const t = new Date(); fs.utimesSync(pkgOld, t, t); } catch { /* best effort */ } }
       }
       await renameRetrying(pkgNew, pkgDir, plat);
-      const swappedAt = Date.now();   // kosmos#8598: the moment the new tree took the stable path (upgradeStamp below)
+      // kosmos#8598: the moment the new tree took the stable path (upgradeStamp below). Taken before the prove on purpose:
+      // an agent started from here on already runs the new tree.
+      const swappedAt = Date.now();
       pkgNewLive = null; // swapped in; nothing at the per-pid name any more
       // Best-effort, like the sweeps: a locked OLD tree (antivirus still reading
       // it) must not fail an install whose new tree is already in place. The

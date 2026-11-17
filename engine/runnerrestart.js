@@ -172,12 +172,13 @@ function codexUnderPane(panePid, procs, kids, managedDir, nowMs) {
  *   panes()             Map -> pane pid, keyed by pane target (`session:window.pane`) and by tmux session name
  *   procs()             Map pid -> { ppid, ageSec, command } (parseProcs)
  *   restart(session)    async; resolves { outcome, because } (remove.restartAsync; the card shows it as a plain restart)
+ *   reread()            async; { panes, procs, now } read again just before a restart (optional); a changed answer holds it
  *   RESTARTED           remove.OUTCOME.RESTARTED
  *   tried               a Map kept by the caller: `${pin}\t${session}` -> tries. A restart that worked spends them all
  *                       (one per agent per pin per board run); a refused one is tried again, up to MAX_TRIES. A board
  *                       restart empties it; a restarted agent then reads 'already-new', so it is not restarted again
  *   now                 ms (tests)
- * Returns [{ session, act }]: 'restarted' | 'refused' | 'not-idle' | 'has-host' | 'has-job' | 'held-by-move' | 'no-managed-codex' | 'already-new' | 'tried'.
+ * Returns [{ session, act }]: 'restarted' | 'refused' | 'not-idle' | 'has-host' | 'has-job' | 'held-by-move' | 'no-managed-codex' | 'changed' | 'already-new' | 'tried'.
  * A Codex card with no managed Codex under its pane is listed as 'no-managed-codex'.
  */
 async function passOnce(o) {
@@ -241,6 +242,17 @@ async function passOnce(o) {
       try { fresh = o.roster(); } catch { fresh = null; }
       const now2 = Array.isArray(fresh) ? fresh.find((c) => c && String(c.sessionName) === session) : null;
       if (!now2 || !isIdle(now2)) { out.push({ session, act: 'not-idle' }); continue; }
+      /* Review 6: the tables are a few seconds old by now. Read them again for this one agent and act only if the same
+         Codex process is still there, still from before the swap, with no shell job and no pre-swap host. */
+      if (typeof o.reread === 'function') {
+        let again = null;
+        try { again = await o.reread(); } catch { again = null; }
+        const ap = again && again.panes instanceof Map && again.procs instanceof Map ? again : null;
+        const pid2 = ap ? [card.target, card.session].map((k) => (k ? ap.panes.get(String(k)) : undefined)).find((v) => v !== undefined) : undefined;
+        const f2 = ap ? codexUnderPane(pid2, ap.procs, childrenOf(ap.procs), m.dir, Number.isFinite(ap.now) ? ap.now : now) : null;
+        const same = f2 && f2.pid === found.pid && f2.startedAt <= m.swappedAt + 1000 && !f2.job && !(f2.host && f2.hostStartedAt < m.swappedAt - 1000);
+        if (!same) { out.push({ session, act: 'changed' }); continue; }
+      }
       tried.set(key, (tried.get(key) || 0) + 1);
       used += 1;
       let r = null;

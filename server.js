@@ -29228,9 +29228,7 @@ function start(port = PORT) {
          (engine/runnerrestart.js says who and why; a restart starts the conversation over, so the safe case is left
          alone). Mac/Linux only (Windows stays on 0.149.1). Gated like the sweeps here; brake
          AGENT_WORKFORCE_RUNNER_RESTART_OFF=1. */
-      /* Both tables are read once per pass, then passOnce runs to the restart with no wait in between; the one gap left is
-         inside the restart itself, the same for every board restart. Tried and Said grow by one key per agent per pin,
-         for the board run (review 4). */
+      /* Tried and Said grow by one key per agent per pin, for the board run (review 4). */
       const runnerRestartSeenIdle = new Set();
       const runnerRestartTried = new Map();
       let runnerRestartRunning = false;
@@ -29253,20 +29251,25 @@ function start(port = PORT) {
           const run = (cmd, args) => new Promise((resolve) => {
             execFile(cmd, args, { encoding: 'utf8', timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, out) => resolve(err ? null : String(out || '')));
           });
-          // Both tables are read once per pass, before passOnce, which reads them synchronously.
-          const paneText = await run(process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux', ['list-panes', '-a', '-F', rr.PANE_FORMAT]);
+          // Both tables are read once per pass, before passOnce; it reads them again just before a restart (reread below).
+          const readTables = async () => {
+            const at = Date.now();   // before ps, so a process's start time (now minus its age) is never read late
+            const pt = await run(process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux', ['list-panes', '-a', '-F', rr.PANE_FORMAT]);
+            const ps = pt === null ? null : await run('ps', rr.PS_ARGS);
+            return { pt, ps, at, panes: rr.parsePanes(pt), procs: rr.parseProcs(ps), now: at };
+          };
+          const first = await readTables();
+          const paneText = first.pt;
           if (paneText === null && !runnerRestartWarned) {
             runnerRestartWarned = true;   // once per board run, so a sweep that cannot look is told from one with nobody to restart
             console.warn('[runner-restart] tmux list-panes failed, so no Codex agent can be checked');
           }
-          const readAt = Date.now();   // before ps, so a process's start time (now minus its age) is never read late
-          const psText = paneText === null ? null : await run('ps', rr.PS_ARGS);
+          const psText = first.ps;
           if (paneText !== null && psText === null && !runnerRestartWarned) {
             runnerRestartWarned = true;
             console.warn('[runner-restart] ps failed, so no Codex agent can be checked');
           }
-          const panes = rr.parsePanes(paneText);
-          const procs = rr.parseProcs(psText);
+          const { panes, procs } = first;
           const done = await rr.passOnce({
             roster: () => safeRoster(),
             isIdle: (c) => require('./engine/agentnudge').nudgeableCard(c),
@@ -29281,7 +29284,8 @@ function start(port = PORT) {
             // 'restart': the card's word for a plain restart (engine/disruption.js CAUSES); the board line below says why.
             restart: (session) => removal.restartAsync(session, 'restart'),
             RESTARTED: removal.OUTCOME.RESTARTED,
-            now: readAt,
+            now: first.now,
+            reread: readTables,
           });
           for (const d of done) {
             /* A restart or refusal is said each time. An agent held back by a running job, or a Codex card with no managed

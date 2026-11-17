@@ -305,3 +305,24 @@ test('the real ps, run with the sweep\'s own arguments, parses: this process is 
   assert.ok(Number.isFinite(me.ageSec) && me.ageSec >= 0);
   assert.ok(me.command.includes(process.execPath) || /node/.test(me.command), me.command);
 });
+
+test('the tables are read again just before the restart, and a changed answer holds it', async () => {
+  const same = world([{ session: ALPHA.sessionName, target: ALPHA.target, ageSec: 3600 }]);
+  const { o, restarted } = opts({ reread: async () => ({ panes: same.panes, procs: same.procs, now: NOW }) });
+  await twice(o);
+  assert.deepEqual(restarted, [ALPHA.sessionName], 'the same answer: restarted');
+  for (const [why, agents] of [
+    ['a shell job started', [{ session: ALPHA.sessionName, target: ALPHA.target, ageSec: 3600, shell: true }]],
+    ['the agent restarted meanwhile (new process)', [{ session: ALPHA.sessionName, target: ALPHA.target, ageSec: 5 }]],
+    ['the pane is gone', []],
+  ]) {
+    const w = world(agents);
+    const { o: o2, restarted: r2 } = opts({ reread: async () => ({ panes: w.panes, procs: w.procs, now: NOW }) });
+    const out = await twice(o2);
+    assert.deepEqual(r2, [], why);
+    assert.deepEqual(out.map((d) => d.act), ['changed'], why);
+  }
+  const { o: o3, restarted: r3 } = opts({ reread: async () => { throw new Error('x'); } });
+  await twice(o3);
+  assert.deepEqual(r3, [], 'a re-read that fails holds the restart');
+});
