@@ -69,11 +69,23 @@ const state = (page) => page.evaluate(() => {
       const before = await state(page);
       check(`${look}: control: signed in, no signed-out note and the Model section is live`, !before.note && !before.inert, JSON.stringify(before));
 
+      // Keyboard focus inside the Model section when it locks must move to the note's way out, not fall to the page.
+      if (look === 'new') {
+        await page.evaluate(() => { const b = document.querySelector('#d-sec-model [data-sec], #d-nav button[data-go="model"]'); if (b) b.click(); });
+        await page.waitForTimeout(800);
+        await page.evaluate(() => { const f = document.querySelector('#d-sec-model select, #d-sec-model button'); if (f) f.focus(); });
+      }
+      const focusedIn = await page.evaluate(() => !!document.activeElement && !!document.getElementById('d-sec-model').contains(document.activeElement));
       refuse = '403';
       await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && !n.hidden; }, null, { timeout: 20000 }).catch(() => {});
       const out = await state(page);
-      check(`${look}: signed out: the agent page says so`, out.note && /signed out/i.test(out.text) && /Sign this tab in again/.test(out.text), JSON.stringify(out));
+      check(`${look}: signed out: the agent page says so`, out.note && /This tab is signed out/.test(out.text) && /Sign this tab in again/.test(out.text), JSON.stringify(out));
       check(`${look}: signed out: the Model section (the picker) is inert`, out.inert, JSON.stringify(out));
+      if (look === 'new') {
+        const where = await page.evaluate(() => { const n = document.getElementById('d-signedout'); return !!n && n.contains(document.activeElement); });
+        check(`${look}: precondition: focus was inside the Model section before the sign-out`, focusedIn, String(focusedIn));
+        check(`${look}: focus inside the Model section moved to the note's way out when it locked`, where, String(where));
+      }
 
       refuse = false;
       await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && n.hidden; }, null, { timeout: 20000 }).catch(() => {});

@@ -10,22 +10,30 @@ Many agents read "unknown model" and the model picker did nothing; the tab had b
   the report's path. Screenshots in the session's scratch (before/after).
 
 ## Change
-- web/index.html: `#d-signedout`, one note above the agent page's sections ("This tab is signed out, so this page shows
-  what it last read and cannot change anything, the model included. Sign this tab in again to see and change models",
-  linking the board, where the sign-in steps are). `paintDetailSignedOut()` shows it and makes `#d-sec-model` inert while
+- web/index.html: `#d-signedout`, one note above the agent page's sections (its words live once, in paintDetailSignedOut:
+  the page shows what it last read, nothing on it can be saved until a sign-in, its model controls are paused, and
+  "Sign this tab in again" links the board, where the sign-in steps are; a relay sign-out gets the board's own sentence
+  and Sign in button). `paintDetailSignedOut()` shows it and makes `#d-sec-model` inert while
   `BOARD_NEEDS_SIGNIN` (403, this computer's tab) or `BOARD_SIGNED_OUT` (#718 relay) holds; run from the status poll's
   refusal path and its success path, so a sign-in clears both on the next poll.
 - `modelLine`: with no model read and the board signed out, "Signed out: sign in to see its model", not "Unknown
   Model" (typeof-guarded, so a lifted modelLine without the flags keeps the old lines).
 - docs/browser-checks/render-detail-signedout-8662.js: both looks; control before the sign-out; note + inert after;
-  both cleared on sign-in. Red against main's page (4 of 11 fail, measured).
+  both cleared on sign-in; the relay sign-out's own wording and button; an outage after a sign-out clears the note
+  (#268); keyboard focus moves to the note when the section locks (new look). Red against main's page on the sign-out
+  and relay arms (measured at round 0: 4 of 11), and on the outage arms with that repaint removed (measured).
 - web.made-before.test.js: modelLine signed out, with signed-in controls.
 
 ## Split
 Asks 2-4 filed as #8665 (model in `kosmos agent list`), #8666 (view/set a model from the CLI), #8667 ("no model recorded",
 linking AI Settings).
 
+## Cards
+A mid-session sign-out replaces the grid and the list with the board's own "not signed in" box (#2023), and a tab that
+loads signed out draws no cards, so a card does not keep its old text there. The modelLine wording is the fallback for
+any surface drawn from what the page last read; it is pinned by the unit test, not by a browser arm.
+
 ## Not done
 Only the Model section is made inert. Other sections' writes (Instructions, Remove, Memory's Compact/Clear) are also
-refused while signed out; the note says the page "cannot change anything", and the board refuses them with its own
-sentence. Making every section inert is a wider change than the card's ask.
+refused by the board while signed out; the note says nothing on the page can be saved until a sign-in, which is true
+of all of them, and that its model controls are paused, which is the part this page enforces. Making every section inert is a wider change than the card's ask.
