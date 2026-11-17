@@ -90,7 +90,9 @@ struct AgentInfoView: View {
         .navigationTitle(live.name)
         .toolbar(.hidden, for: .tabBar)
         .task { await load() }
-        .dotsRefresh { switchLine = nil; await load() }
+        // Review 6: a refresh clears a success or a "cannot tell" line (the refresh answers it); a refusal or a switch
+        // saved but not started stays, as it is still true.
+        .dotsRefresh { if let l = switchLine, l.ok || l.text == Board.switchUnknown { switchLine = nil }; await load() }
         .filesQuickLook(filesOpener, client: client)   // kosmos#7679: once, here, never on a Section's rows
         .confirmationDialog(asking.map { Board.freshConfirm($0, name: live.name).title } ?? "",
                             isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),
@@ -363,6 +365,8 @@ struct AgentInfoView: View {
     // Review 1: after any read, a pick the fresh lists no longer hold is dropped, so what is sent is always something
     // on screen (a switch that landed partway, an account removed on the computer, a model no longer listed).
     private func keepPicksValid() {
+        // Review 6: with one row or none there is no menu, so nothing was picked from one (the board refills and resets).
+        if switchAccounts.count <= 1 { switchAccountTouched = false }
         // Review 3: status has caught up (or moved on), so the landed provider is no longer needed.
         if let l = landed, let d = details, Board.providerOf(d) != l.from || Board.providerOf(d) == l.to { landed = nil }
         if let to = switchTo, !switchTargets.contains(to) { switchTo = nil; confirmSwitch = false; return }
@@ -371,7 +375,10 @@ struct AgentInfoView: View {
             confirmSwitch = false   // review 3: a dialog never confirms an account that is not the one on screen
             switchAccount = (switchAccounts.first(where: { $0.isDefault }) ?? switchAccounts.first)?.dir
             switchAccountTouched = false
-            if switchTo == .openai { Task { await loadOpenaiModels() } }   // review 2: the new account's own list
+            if switchTo == .openai {   // review 2: the new account's own list; review 6: the old one goes in this frame
+                openaiModels = []; switchModel = ""; openaiModelsLoading = true
+                Task { await loadOpenaiModels() }
+            }
         }
         if !switchModels.isEmpty, !switchModels.contains(where: { $0.key == switchModel }) {
             switchModel = (switchModels.first(where: { $0.isDefault }) ?? switchModels.first)?.key ?? ""

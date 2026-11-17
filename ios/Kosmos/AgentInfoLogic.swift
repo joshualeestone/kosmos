@@ -479,7 +479,8 @@ extension Board {
         return out.map { r in
             guard (count[r.label.lowercased()] ?? 0) > 1 else { return r }
             let name = zip(kept, names).first { ($0.0["dir"] as? String) == r.dir }?.1 ?? r.label
-            return SwitchAccount(dir: r.dir, label: name + " (" + r.dir + ")", isDefault: r.isDefault)
+            let unknown = r.label.hasSuffix(" (could not check just now)") ? " (could not check just now)" : ""
+            return SwitchAccount(dir: r.dir, label: name + " (" + r.dir + ")" + unknown, isDefault: r.isDefault)
         }
     }
     // Which providers the phone offers this agent: every one with an account it could land on, never its own (the
@@ -568,11 +569,13 @@ extension Board {
         let refused = (obj["outcome"] as? String) == "refused" || (400..<500).contains(status)
         return (because ?? (refused ? "That did not work, so nothing was switched." : switchUnknown), false)
     }
-    // The provider the route says it landed on (outcome changed or partial), for the page to use until /api/status
-    // catches up with the restart (the board patches CURRENT the same way).
+    // The provider the route says it is now starting on, for the page to use until /api/status catches up with the
+    // restart (the board patches CURRENT the same way). Review 6: only when it did restart: outcome changed, or the
+    // #5091 partial with restarted true. A switch saved but not started is not moving anywhere until someone starts it.
     static func providerSwitchLanded(status: Int, body: Data?) -> String? {
-        guard (200..<300).contains(status), let obj = body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }),
-              ["changed", "partial"].contains((obj["outcome"] as? String) ?? "") else { return nil }
+        guard (200..<300).contains(status), let obj = body.flatMap({ try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }) else { return nil }
+        let outcome = (obj["outcome"] as? String) ?? ""
+        guard outcome == "changed" || (outcome == "partial" && (obj["restarted"] as? Bool) == true) else { return nil }
         return (obj["provider"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 
