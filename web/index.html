@@ -44978,7 +44978,7 @@ function dmReadFailLine(th, text) {
     line.setAttribute('role', 'status');
     th.appendChild(line);
   }
-  line.textContent = text;
+  if (line.textContent !== text) line.textContent = text;   // a live region: unchanged words are not said again each poll
   for (const b of th.querySelectorAll('button.dmchoice:not([disabled])')) { b.disabled = true; b.setAttribute('data-readfail-off', ''); }
   if (atFloor) pinToBottom(th);
 }
@@ -45146,7 +45146,10 @@ async function paintTalk(sessionName, agentName) {
        (nothing in it can be pressed or focused over a read that failed, and it is dimmed); hiding it would slide the reader by
        its height and showing it again on the next good read would slide them back. The next good read clears
        `inert`. With no rows to keep it is hidden, as before. */
-    if (keepRows) { const q = document.getElementById('d-qask'); if (!q.hidden) q.inert = true; }
+    /* Whether focus was IN the box is read before it goes inert: Chromium moves focus off an inert subtree only at
+       its next rendering step, so asking afterwards still sees the button and the rescue below would skip it. */
+    let qaskHadFocus = false;
+    if (keepRows) { const q = document.getElementById('d-qask'); qaskHadFocus = q.contains(document.activeElement); if (!q.hidden) q.inert = true; }
     else document.getElementById('d-qask').hidden = true;
     /* ⚠️ AND THE TWO SENTENCES FROM THE LAST GOOD PAINT. "5 older messages are
        still kept" standing over "we could not read this conversation" is the
@@ -45174,7 +45177,7 @@ async function paintTalk(sessionName, agentName) {
        for this. */
     /* #8629: with the rows kept, focus on a message's link or button is still on screen and stays; only focus
        that fell (from the composer or the question box this arm just closed) is caught. */
-    if (stoodInside && (!keepRows || !document.activeElement || document.activeElement === document.body)) box.focus();
+    if (stoodInside && (!keepRows || qaskHadFocus || !document.activeElement || document.activeElement === document.body)) box.focus();
     return;
   }
   if (mine !== TALK_LOAD) return;
@@ -45481,6 +45484,7 @@ async function paintTalk(sessionName, agentName) {
   const thread = document.getElementById('d-dmthread');
   thread.__lastBody = body; thread.__lastName = name; thread.__lastSession = sessionName;
   thread.__readFailed = false;   // kosmos#5841
+  thread.__readFailText = null;   // #8629
   /* kosmos#5841: a thread that SHRANK below the earlier rows' end (a file set aside) would duplicate them: close. */
   if (earlierOn(sessionName) && Array.isArray(body.messages) && (Number(body.olderCount) || 0) < EARLIER.end) earlierReset(sessionName);   // a FAILED read reports olderCount 0: not a shrink
   paintTalkThread(body, name);

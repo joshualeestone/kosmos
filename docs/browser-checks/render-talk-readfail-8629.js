@@ -17,7 +17,8 @@
  *      failure must still be SAID (one line at the thread's end) and be gone once a read works.
  *   Q. the same with the question box (#d-qask) showing above the thread: it stays put and goes inert.
  *   B. CONTROL, a reader at the floor: the failure line is in view, and a new message still brings them down.
- *   F. keyboard focus on a link in a kept row stays on it.
+ *   F. keyboard focus on a link in a kept row stays on it; focus in the composer or the question box, which the
+ *      failure closes, is caught on the conversation box.
  *   K. a question's choice buttons are disabled while the read fails and given back after.
  *   D. a box with no rows yet ("Opening...") still paints the failure sentence alone.
  *   C. the standing refusal (`because: 'borrowed'`) still paints its sentence alone, as before.
@@ -138,6 +139,17 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     out.qShownFail = !qask.hidden;
     out.qInertFail = qask.inert === true;
     await paint('ok');
+    // focus ON the question box's button falls when the box goes inert, and is caught on the conversation box
+    const qbtn = document.getElementById('d-qask-trust-restart');
+    out.qBtnShown = !!qbtn && !qbtn.hidden;
+    if (out.qBtnShown) {
+      qbtn.focus(); out.qBtnFocused = document.activeElement === qbtn;
+      await paint('fail'); await settle(); await new Promise((res) => setTimeout(res, 50));
+      out.qFocusAfter = document.activeElement && (document.activeElement.id || document.activeElement.tagName);
+      await paint('ok');
+    }
+    await paint('fail');
+    await paint('ok');
     out.qYBack = rowY('m25');
     out.qInertBack = qask.inert === true;
     window.__fx = { ...window.__fx, asking: false, answerNote: null };
@@ -161,6 +173,13 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const link = th.querySelector('[data-mid="m24"] a');
     out.fHasLink = !!link;
     if (link) { link.focus(); out.fWas = document.activeElement === link; await paint('fail'); out.fFocusKept = document.activeElement === link; await paint('ok'); }
+
+    // F2. focus in the composer falls when the failure disables it, and is caught on the conversation box
+    const say = document.getElementById('d-say');
+    say.disabled = false; say.focus(); out.sayFocused = document.activeElement === say;
+    await paint('fail'); await settle();
+    out.sayFocusAfter = document.activeElement && (document.activeElement.id || document.activeElement.tagName);
+    await paint('ok');
 
     // K. the agent asks a question with choices: while a read fails its buttons are disabled (a press would do
     //    nothing), and the next good read gives back exactly the ones the failure disabled.
@@ -224,6 +243,10 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (r.qShown !== true) problems.push('setup Q: the question box was not showing above the thread, so arm Q tested nothing');
     if (!near(r.qYFail, r.qY0)) problems.push('Q: with the question box up, the failed poll moved the reader: m25 at ' + r.qY0 + 'px, then ' + r.qYFail + 'px');
     if (r.qShownFail !== true || r.qInertFail !== true) problems.push('Q: during the failed poll the question box should stay where it is and be inert (shown ' + r.qShownFail + ', inert ' + r.qInertFail + ')');
+    if (r.qBtnShown !== true || r.qBtnFocused !== true) problems.push('setup Q: Trust & Restart was not showing and focused (shown ' + r.qBtnShown + ', focused ' + r.qBtnFocused + '), so the focus step tested nothing');
+    else if (r.qFocusAfter !== 'd-talk-box') problems.push('Q: focus on the question box fell to ' + r.qFocusAfter + ' when it went inert, not to the conversation box');
+    if (r.sayFocused !== true) problems.push('setup F2: the composer did not take focus');
+    else if (r.sayFocusAfter !== 'd-talk-box') problems.push('F2: focus in the composer fell to ' + r.sayFocusAfter + ' when the failure disabled it, not to the conversation box');
     if (!near(r.qYBack, r.qY0)) problems.push('Q: the next good poll moved the reader: m25 at ' + r.qY0 + 'px, back at ' + r.qYBack + 'px');
     if (r.qInertBack !== false) problems.push('Q: the question box stayed inert after a read worked');
     if (r.dRows !== 0 || !/could not read this conversation just now/.test(String(r.dText)) || r.dLine !== null) problems.push('D: a failure on a box with no rows yet should paint the sentence alone (rows ' + r.dRows + ', text ' + JSON.stringify(r.dText) + ', line ' + JSON.stringify(r.dLine) + ')');
