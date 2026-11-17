@@ -1161,6 +1161,20 @@ function strandedRefusal(name, shown) {
    folder that is not this leftover's own folder, has a name that maps to the same key (Miles and miles share one
    profile). Not seen: a stopped agent connected to a folder outside the workers folder under a colliding spelling.
    { records, kept } with kept a sentence about who holds them, or null. `folderPath` is the plan's folder, or null. */
+/* kosmos#8644 item 3: the names of what is running here, as plan() reads them: every session's own name, and the agent a
+   pane's launch claim names in this world (an agent a person's tooling relaunched under another session name still
+   carries Kosmos's claim when Kosmos started it). The list and namedRecords used session names only, so the removed list
+   could name an agent that was running under another name, and its delete then refused. THROWS when the panes cannot be
+   read, as paneRoster does, so each caller keeps its own fail-closed answer. The folder check (paneFolders) is not here:
+   the list only names agents with no folder, and namedRecords asks about another agent's stored name, not a folder. */
+function runningNames() {
+  const identity = require('./launchidentity');
+  const world = identity.currentWorldId();
+  const look = status.paneLook();
+  const names = look.roster.map((c) => c.sessionName);
+  for (const c of look.claims) { const n = identity.nameInWorld(c.claim, world); if (n) names.push(n); }
+  return names;
+}
 function namedRecords(name, folderPath) {
   const store = require('./store');
   let key;
@@ -1173,7 +1187,7 @@ function namedRecords(name, folderPath) {
     if (dir && own && real(dir) === own) return;   // this leftover's own folder, under its own spelling
     try { if (store.safeKey(n) === key) kept = `${n} uses the same stored name`; } catch { /* not a name */ }
   };
-  for (const c of status.paneRoster()) note(c.sessionName, null);
+  for (const n of runningNames()) note(n, null);   // kosmos#8644: claims too, as plan() reads them
   // A workers folder that cannot be read throws (plan() refuses): read as empty it would hide a folder sharing the key.
   let entries = [];
   try { entries = fs.readdirSync(create.WORKERS_DIR, { withFileTypes: true }); } catch (e) { if (!(e && e.code === 'ENOENT')) throw e; }
@@ -1655,7 +1669,9 @@ function settingsLeftovers(opts) {
   const caseBlind = platform === 'darwin' || platform === 'win32';
   const fold = (n) => (caseBlind ? String(n).toLowerCase() : String(n));
   let running;
-  try { running = new Set(status.paneRoster().map((c) => fold(c.sessionName))); } catch { return { ok: false, names: [] }; }
+  // kosmos#8644 item 3: a session's name or a pane's claim, as plan() reads them, so the list never names an agent that
+  // is running under another session name (its delete refused).
+  try { running = new Set(runningNames().map(fold)); } catch { return { ok: false, names: [] }; }
   /* Both spellings of the workers folder (review 3: /var is /private/var on a Mac); the workers folder exists, so
      resolving it cannot block on a share that is gone. The recorded folder itself is never looked at. One rule with the
      task-only delete's words (kosmos#8475): recordedOutsideWorkers. */
