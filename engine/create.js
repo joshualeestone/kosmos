@@ -3178,12 +3178,15 @@ function switchLaterWords(losesConversation) {
 }
 
 
-function setModel(name, modelKey, opts) {
-  const platform = opts && opts.platform;
+/* kosmos#8666: who a model change is for, and whether one can be made at all, ONCE: setModel acts on it and
+   modelChoices (kosmos agent model "<name>") lists from it, so the command that lists what an agent can switch to
+   and the route that switches it cannot refuse for different reasons. Answers { refused } (setModel's own refusal),
+   or { clean, spoken, job, agentProvider }. */
+function modelTarget(name, platform) {
   const clean = cleanName(name);
   const spoken = spokenName(clean);
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
-    return { outcome: OUTCOME.REFUSED, because: REFUSE_NAME };
+    return { refused: { outcome: OUTCOME.REFUSED, because: REFUSE_NAME } };
   }
   /* ⚠️ RESOLVED AFTER the job is read, because which models are valid depends
      on which provider THIS agent runs on (#1026). Resolving first, against the
@@ -3196,7 +3199,7 @@ function setModel(name, modelKey, opts) {
   const verdict = readJobVerdict(clean, undefined, platform);
   const job = verdict.job;
   if (!job) {
-    return noJobRefusal(clean, spoken, verdict, `${spoken} was not started by Kosmos, so we cannot change what it runs on.`);
+    return { refused: noJobRefusal(clean, spoken, verdict, `${spoken} was not started by Kosmos, so we cannot change what it runs on.`) };
   }
   /* The agent's PROVIDER, from the runner its job actually launches. One
      derivation, the same direction `createAgent` goes in reverse (#3296 adds the
@@ -3205,12 +3208,39 @@ function setModel(name, modelKey, opts) {
   // #5977: a Qwen agent runs the model its account names (the supervisor ignores the job's model for it).
   /* #7206: a vendor agent the same: the supervisor runs the model its vendor account names. */
   { const v = require('./anthropiccompat').vendorOf(jobProvider(job));
-    if (v) return { outcome: OUTCOME.REFUSED, because: `${spoken} is on ${v.name}, which runs the model its ${v.name} account names; change the model on the account instead` }; }
+    if (v) return { refused: { outcome: OUTCOME.REFUSED, because: `${spoken} is on ${v.name}, which runs the model its ${v.name} account names; change the model on the account instead` } }; }
   if (jobProvider(job) === 'alibaba') {
-    return { outcome: OUTCOME.REFUSED, because: `${spoken} is on Qwen, which runs the model its Qwen account names; change the model on the account instead` };
+    return { refused: { outcome: OUTCOME.REFUSED, because: `${spoken} is on Qwen, which runs the model its Qwen account names; change the model on the account instead` } };
   }
-  // #3939: before the Claude arm below, which would otherwise write a Claude model into a Muse job.
-  if (agentProvider === 'meta') return { outcome: OUTCOME.REFUSED, because: REFUSE_MUSE_MODEL };
+  // #3939: before the Claude arm in setModel, which would otherwise write a Claude model into a Muse job.
+  if (agentProvider === 'meta') return { refused: { outcome: OUTCOME.REFUSED, because: REFUSE_MUSE_MODEL } };
+  return { clean, spoken, job, agentProvider };
+}
+
+/* kosmos#8666: what `kosmos agent model "<name>"` lists. { ok: false, because } when no model can be chosen (setModel's
+   own refusal). Otherwise { ok: true, provider, set, kind, models?, vendorLabel?, accountDir? }: `set` is the model its
+   job starts it on ('' for the runner's own default); kind 'menu' is Claude's list, less any model the company policy
+   does not allow; 'account' is OpenAI's, which the route reads from the agent's own account (accountDir), as the board's
+   picker does; 'free' is Gemini's and Grok's, which take any model id (Kosmos has no list of theirs). */
+function modelChoices(name, opts) {
+  const t = modelTarget(name, opts && opts.platform);
+  if (t.refused) return { ok: false, because: t.refused.because };
+  const { job, agentProvider } = t;
+  const set = typeof job.model === 'string' ? job.model : '';
+  if (agentProvider === 'openai') return { ok: true, provider: 'openai', set, kind: 'account', accountDir: job.configDir || null };
+  if (agentProvider === 'google' || agentProvider === 'xai' || agentProvider === 'antigravity') {
+    return { ok: true, provider: agentProvider, set, kind: 'free', vendorLabel: agentProvider === 'xai' ? 'Grok' : 'Gemini' };
+  }
+  const models = modelsFor('anthropic').filter((m) => policyAllows('anthropic', m.key).ok)
+    .map((m) => ({ key: m.key, label: m.label, arg: m.arg }));
+  return { ok: true, provider: 'anthropic', set, kind: 'menu', models };
+}
+
+function setModel(name, modelKey, opts) {
+  const platform = opts && opts.platform;
+  const t = modelTarget(name, platform);
+  if (t.refused) return t.refused;
+  const { clean, spoken, job, agentProvider } = t;
   let m;
   if (agentProvider === 'openai' || agentProvider === 'google' || agentProvider === 'xai' || agentProvider === 'antigravity') {
     /* #2140/#3296/#3391: OpenAI, Gemini and Grok models are FREE-FORM ids, not
@@ -7971,6 +8001,8 @@ module.exports = {
   // same rule the board writes it with (the world's label), never by a second copy of that rule.
   plistPath,
   setModel,
+  modelChoices,
+  REFUSE_NAME,   // kosmos#8666 review 6: the model route tells a name it could not resolve from a refused agent
   installJob,
   // kosmos#8478: register.repair and delete-leftover read the recorded Windows account and model through one reader.
   win32RecordedTask, recordWin32TaskFromTask, forgetWin32TaskAccount, afterAccountGone,

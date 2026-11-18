@@ -103,7 +103,7 @@ test('#7748 the agent list carries a stopped agent, which only /api/status deriv
     assert.equal(list.partial, undefined, 'a board that read everything does not say it may be partial');
     assert.equal(by.mara.role, 'Chosen on the board', 'the role on the card is the one chosen on the board');
     assert.equal(list.agents.length, 2, 'the guide was listed: ' + JSON.stringify(list.agents));
-    for (const a of list.agents) assert.deepEqual(Object.keys(a).sort(), ['name', 'role', 'state']);
+    for (const a of list.agents) assert.deepEqual(Object.keys(a).sort(), ['model', 'name', 'role', 'state']);
   } finally {
     board.restore();
     for (const n of [stopped, 'mara']) fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, n), { recursive: true, force: true });
@@ -143,4 +143,25 @@ test('#3739 an unreadable removed list still marks the seeded guide, so it does 
     assert.equal((s.agents.find((a) => a.sessionName === GUIDE) || {}).isGuide, true, 'an unchecked read unmarked the guide');
     assert.equal(s.counts.total, 1);
   } finally { board.restore(); removal.removedNames = was; }
+});
+
+/* kosmos#8666 review 7: GET /api/agent/<name>/model?resolve=1 on real cards (cardsForResolve over the snapshot and the
+   survey, remove.resolve), not a stubbed resolver: the name an agent's card shows reaches that agent's own name, the
+   answer carries the shown name the list prints, and a name no card answers to is found:false. */
+test('kosmos#8666: the model read resolves a name as its card shows it, on real cards', async () => {
+  const board = fleet.install([fleet.agent('ada-folder', { state: 'idle', displayName: 'Ada Lovelace' }), fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const list = await (await fetch(base + '/api/agents/list')).json();
+    assert.ok(list.agents.some((a) => a.name === 'Ada Lovelace'), 'CONTROL: the list prints the display name: ' + JSON.stringify(list.agents.map((a) => a.name)));
+    const get = async (n) => (await fetch(base + '/api/agent/' + encodeURIComponent(n) + '/model?resolve=1')).json();
+    for (const typed of ['Ada Lovelace', 'ada lovelace', 'ada-folder']) {
+      const r = await get(typed);
+      assert.equal(r.name, 'ada-folder', typed + ': ' + JSON.stringify(r));
+      assert.equal(r.shown, 'Ada Lovelace', typed + ': ' + JSON.stringify(r));
+      assert.notEqual(r.found, false, typed + ' read as no such agent');
+    }
+    const none = await get('Nobody Here');
+    assert.equal(none.found, false, JSON.stringify(none));
+    assert.equal(none.ok, false);
+  } finally { board.restore(); }
 });

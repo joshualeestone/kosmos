@@ -11802,6 +11802,69 @@ const server = http.createServer(async (req, res) => {
   }
 
   const mdl = pathname.match(/^\/api\/agent\/([^/]+)\/model$/);
+  /* kosmos#8666: what `kosmos agent model "<name>"` lists: the model the agent's job starts it on and the models it can
+     switch to, from create.modelChoices, which refuses for exactly the reasons setModel (POST below) does. Claude's list
+     is the board's menu less what the company policy does not allow; OpenAI's is read from the agent's own account, as
+     the board's picker reads it (the same accountModels call, so the same "cannot list" sentences); Gemini and Grok take
+     any model id. A READ behind the board token, like the switch, so it is not on the agent-token list: a token-only
+     agent sees every model through kosmos agent list (#8665). No model ids beyond the account's own menu travel
+     (runnableKeys stays server-side, as on /api/accounts/openai/models). */
+  if (mdl && req.method === 'GET') {   // review 3: not HEAD, which would ask OpenAI for a list nobody reads
+    // Review 8: refused to a page on another website and to another computer's page, as GET /api/agents/list is.
+    const refusedRead = crossSiteRead(req) || (isSiblingRead(req) ? 'only an agent or the person on this computer can read this' : null);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    const asked = decodeSegment(mdl[1]);
+    if (asked === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    /* Review 5: `?resolve=1` (both CLIs send it) takes a name as `kosmos agent list` prints it ("Baron Draxum") to the
+       one agent it names (baron-draxum), by kosmos#8109's remove.resolve over the same cards, so the command works with
+       the name the list shows. The answer carries that `name` (what the CLI then switches and checks itself against)
+       and the card's `shown` name (how the list prints it); the POST below is not resolved again, as remove's DELETE is
+       not. `found: false` only when the board read every card and none answers to the name. */
+    let name = asked; let shownAs = null; let cards = null;
+    if (/[?&]resolve=1(?:&|$)/.test(req.url || '')) {
+      cards = await cardsForResolve();
+      let r = { name: asked, ambiguous: [], shown: {} };
+      try { r = removal.resolve(asked, process.platform, cards); } catch { /* as given */ }
+      if (r.ambiguous && r.ambiguous.length) {
+        const seen = (f) => (r.shown && r.shown[f] && r.shown[f] !== f ? `${f}, shown as ${r.shown[f]}` : f);
+        sendJson(res, 200, { ok: false, ambiguous: true, because: `more than one agent is called ${asked} (${r.ambiguous.map(seen).join('; ')}); name it by one of those names` });
+        return;
+      }
+      name = r.name;
+      const card = Array.isArray(cards) ? cards.find((c) => c && c.name === name) : null;
+      shownAs = card && card.shown ? String(card.shown) : null;
+    }
+    const who = { name, ...(shownAs ? { shown: shownAs } : {}) };
+    let got;
+    // Review 3: a read that threw is said as that (readFailed), so a CLI exits 1 rather than reading it as a refusal.
+    try { got = create.modelChoices(name); } catch { sendJson(res, 200, { ok: false, readFailed: true, because: 'we could not read what it runs on just now', ...who }); return; }
+    /* Review 6: the cards could not be read, so a name as the list prints it was not resolved and reads as no agent's
+       name at all. That is a read that failed (exit 1 in both CLIs), never "its model cannot be changed". */
+    if (!got.ok && /[?&]resolve=1(?:&|$)/.test(req.url || '') && cards === null && got.because === create.REFUSE_NAME) {
+      sendJson(res, 200, { ok: false, readFailed: true, because: 'we could not read the agents just now, so we could not tell which agent that name is', ...who });
+      return;
+    }
+    if (!got.ok) {
+      const lower = String(asked).trim().toLowerCase();
+      const onACard = Array.isArray(cards) && cards.some((c) => c && (c.name === name || String(c.name).toLowerCase() === lower || (c.shown != null && String(c.shown).trim().toLowerCase() === lower)));
+      sendJson(res, 200, { ok: false, because: got.because, ...who, ...(Array.isArray(cards) && !onACard ? { found: false } : {}) });
+      return;
+    }
+    const { accountDir, ...shown } = got;
+    Object.assign(shown, who);
+    if (got.kind !== 'account') { sendJson(res, 200, shown); return; }
+    let listed;
+    try { listed = await openaiAccounts.accountModels(accountDir || openaiAccounts.defaultDir()); }
+    catch { listed = { ok: false, because: 'we could not read this account\'s models just now' }; }
+    const models = listed && listed.ok === true && Array.isArray(listed.models)
+      /* Review 1: less what the company policy does not allow, as Claude's menu is, by the check setModel applies. */
+      ? listed.models.filter((m) => m && typeof m.key === 'string' && m.key)
+        .filter((m) => { try { return create.policyAllows('openai', m.key, accountDir).ok; } catch { return true; } })
+        .map((m) => ({ key: m.key, label: typeof m.label === 'string' && m.label ? m.label : m.key }))
+      : null;
+    sendJson(res, 200, models ? { ...shown, models } : { ...shown, listed: false, because: (listed && listed.because) || 'it did not say why' });
+    return;
+  }
   if (mdl && req.method === 'POST') {
     const name = decodeSegment(mdl[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }

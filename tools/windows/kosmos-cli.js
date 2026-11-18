@@ -164,8 +164,8 @@ const USAGE = {
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
-    'Usage: kosmos agent <list|create|roles|role-draft|instructions-add|move|restart|remove|delete-leftovers>',
-    '  kosmos agent list                               every agent on this board, its role, whether it is running, and any unsent text or long tool call (Claude agents only), stalled delivery or restart loop Kosmos has seen, and, for one whose state Kosmos cannot tell, why',
+    'Usage: kosmos agent <list|create|roles|role-draft|instructions-add|move|restart|model|remove|delete-leftovers>',
+    '  kosmos agent list                               every agent on this board, its role, whether it is running, its model as its card shows it, and any unsent text or long tool call (Claude agents only), stalled delivery or restart loop Kosmos has seen, and, for one whose state Kosmos cannot tell, why',
     '  kosmos agent create "<name>" <role> ["<why>"]   make an agent for the person, after they confirm',
     '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
     '                                                  make one with a role you wrote, when none fits',
@@ -183,6 +183,10 @@ const USAGE = {
     '  kosmos agent restart "<name>" [--yes]           restart one agent, after a confirm (it picks up new settings, skills and hooks;',
     '                                                  any agent can be restarted this way, as from its page; never yourself;',
     '                                                  it needs the board token, which a Windows agent may not hold)',
+    '  kosmos agent model "<name>"                    its model, as its card shows it, and the models it can switch to',
+    '  kosmos agent model "<name>" "<model>" [--yes]  switch it to that model, after a confirm (as AI Settings\' Switch & Restart',
+    '                                                  does: it restarts; <model> as the list shows it, or the model\'s full id; never yourself;',
+    '                                                  both need the board token, which a Windows agent may not hold)',
     '  kosmos agent remove "<name>" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)',
     '  kosmos agent delete-leftovers [--yes]           delete what is left of every removed agent (their startup jobs, and folders to the',
     '                                                  Recycle Bin), each as the board\'s Delete does it, after one confirm; an agent whose',
@@ -2859,18 +2863,10 @@ async function agentDeleteLeftovers(ctx, args) {
   ctx.out(done + ' of ' + go.length + ' deleted.' + (failed.length ? ' Not done: ' + failed.length + ' (above).' : ''));
   return failed.length || leftAny ? 1 : 0;
 }
-/* kosmos#8071: install/kosmos's `agent restart`, through the agent page's own Restart (POST /api/agent/<name>/restart),
-   so the engine decides and words everything; a confirm, or --yes; the outcome read back. */
-const AGENT_RESTART_USAGE = 'Usage: kosmos agent restart "<name>" [--yes]   (--yes: do not ask first, for scripts)';
-async function agentRestart(ctx, args) {
-  const yes = args.includes('--yes');
-  const words = args.filter((a) => a !== '--yes');
-  const name = typeof words[0] === 'string' ? words[0].trim() : words[0];
-  if (!name) { ctx.err(AGENT_RESTART_USAGE); return 2; }
-  if (/^--[A-Za-z]/.test(name)) { refuseOption(ctx, 'agent restart', AGENT_RESTART_USAGE, name, 'target'); return 2; }
-  if (name === '.' || name === '..') { ctx.err('There is no agent called ' + name + '.'); return 2; }
-  if (tooManyWords(ctx, 'agent restart', 1, AGENT_RESTART_USAGE, words)) return 2;
-  if (!yes && !ctx.canAsk()) { ctx.err('Nothing was restarted: there is no terminal here to confirm on. To restart ' + name + ' without being asked, add --yes.'); return 2; }
+/* kosmos#8666: kosmos#8071's "never yourself" check, once, for every agent verb that restarts the agent it names (agent
+   restart, and agent model's switch), as install/kosmos's _refuse_if_self. `done` is the past tense for "Nothing was ..."
+   (restarted, changed); `selfSentence` follows it when the name is the caller. True when it refused (and said why). */
+async function refuseIfSelf(ctx, name, done, selfSentence) {
   /* Review 1: never yourself (it ends this session before the answer comes back, with no handoff). */
   const me = await ctx.call('POST', '/api/whoami', { from_pane: '' });
   const meName = me.reached && me.json && me.json.ok === true && typeof me.json.agent === 'string' ? me.json.agent : '';
@@ -2883,20 +2879,35 @@ async function agentRestart(ctx, args) {
      that. No answer, or a refusal that is not "not an agent", from a caller with a token cannot rule itself out. A
      caller with no token (a person) goes on. */
   if (hasToken && notAnAgent) {   // review 5: the board's token refusal is NO_MATCH, the "not an agent" words
-    ctx.err('Nothing was restarted: Kosmos does not recognise this agent\'s own token, so it cannot rule out that ' + name + ' is you.');
+    ctx.err('Nothing was ' + done + ': Kosmos does not recognise this agent\'s own token, so it cannot rule out that ' + name + ' is you.');
     tokenRefusedHint(ctx, me);
-    return 2;
+    return true;
   }
   if (hasToken && !meName && !notAnAgent) {
-    ctx.err('Nothing was restarted: Kosmos could not say who is asking, so it cannot rule out that ' + name + ' is you. Try again in a minute.');
-    return 2;
+    ctx.err('Nothing was ' + done + ': Kosmos could not say who is asking, so it cannot rule out that ' + name + ' is you. Try again in a minute.');
+    return true;
   }
   /* Review 5: by the board's key rule (store.safeKey), as whoami answers a token-found agent; this command's own check. */
   const key = (x) => String(x).toLowerCase().replace(/[^a-z0-9_-]/g, '');
   if (meName && key(meName) && key(meName) === key(name)) {
-    ctx.err('Nothing was restarted: ' + name + ' is you, and restarting yourself ends this session before you see the answer. Use "Write a handoff, then restart" on your page instead.');
-    return 2;
+    ctx.err('Nothing was ' + done + ': ' + selfSentence);
+    return true;
   }
+  return false;
+}
+/* kosmos#8071: install/kosmos's `agent restart`, through the agent page's own Restart (POST /api/agent/<name>/restart),
+   so the engine decides and words everything; a confirm, or --yes; the outcome read back. */
+const AGENT_RESTART_USAGE = 'Usage: kosmos agent restart "<name>" [--yes]   (--yes: do not ask first, for scripts)';
+async function agentRestart(ctx, args) {
+  const yes = args.includes('--yes');
+  const words = args.filter((a) => a !== '--yes');
+  const name = typeof words[0] === 'string' ? words[0].trim() : words[0];
+  if (!name) { ctx.err(AGENT_RESTART_USAGE); return 2; }
+  if (/^--[A-Za-z]/.test(name)) { refuseOption(ctx, 'agent restart', AGENT_RESTART_USAGE, name, 'target'); return 2; }
+  if (name === '.' || name === '..') { ctx.err('There is no agent called ' + name + '.'); return 2; }
+  if (tooManyWords(ctx, 'agent restart', 1, AGENT_RESTART_USAGE, words)) return 2;
+  if (!yes && !ctx.canAsk()) { ctx.err('Nothing was restarted: there is no terminal here to confirm on. To restart ' + name + ' without being asked, add --yes.'); return 2; }
+  if (await refuseIfSelf(ctx, name, 'restarted', name + ' is you, and restarting yourself ends this session before you see the answer. Use "Write a handoff, then restart" on your page instead.')) return 2;
   ctx.out('Restarting ' + name + ' stops what it is doing now, if it is running, and starts it with its current settings, skills and hooks.');
   if (!yes) {
     const answer = await ctx.ask('Restart ' + name + '? [y/N] ');
@@ -2912,6 +2923,105 @@ async function agentRestart(ctx, args) {
   if (!j.outcome && j.detail !== undefined) return maybe(ctx.err, name + ' may be partly restarted: ' + (because || 'Kosmos did not say how far it got') + end + ' Look at its page before trying again.');   // review 1: the route threw
   if (because) { ctx.err('Kosmos did not restart ' + name + ': ' + because + end); return 1; }
   return maybe(ctx.err, 'Kosmos gave an answer we could not read after it was asked to restart ' + name + ', so it may have restarted. Look at its page.');   // review 2: sent, so "may"
+}
+
+/* kosmos#8666: install/kosmos's `agent model`. No model: the card's model line (from the agent list, #8665) and what it
+   can switch to (GET /api/agent/<name>/model, create.modelChoices). A model: a confirm (or --yes), never yourself, and
+   AI Settings' own route (POST /api/agent/<name>/model), whose words say how it went. A model not on a listed menu is
+   refused with the list before anything is sent. */
+const AGENT_MODEL_USAGE = 'Usage: kosmos agent model "<name>" ["<model>"] [--yes]   (no model: show its model and what it can switch to; a model: switch to it, which restarts it; --yes: do not ask first, for scripts)';
+async function agentModel(ctx, args) {
+  const yes = args.includes('--yes');
+  const words = args.filter((a) => a !== '--yes');
+  const name = typeof words[0] === 'string' ? words[0].trim() : words[0];
+  if (!name) { ctx.err(AGENT_MODEL_USAGE); return 2; }
+  if (words.length >= 2 && !String(words[1]).trim()) { ctx.err(AGENT_MODEL_USAGE); return 2; }
+  // Review 3: the words as they are used (trimmed), as the Mac and agentRestart test them.
+  for (const w of [name].concat(words.length >= 2 ? [String(words[1]).trim()] : [])) if (/^--[A-Za-z]/.test(w)) { refuseOption(ctx, 'agent model', AGENT_MODEL_USAGE, w, 'target'); return 2; }
+  if (name === '.' || name === '..') { ctx.err('There is no agent called ' + name + '.'); return 2; }
+  if (tooManyWords(ctx, 'agent model', 2, AGENT_MODEL_USAGE, words)) return 2;
+  const want = words.length >= 2 ? String(words[1]).trim() : '';
+  if (want && !yes && !ctx.canAsk()) { ctx.err('Nothing was changed: there is no terminal here to confirm on. To switch ' + name + ' to ' + want + ' without being asked, add --yes.'); return 2; }
+  // An OpenAI account's list is asked of OpenAI, as the board's picker asks it, so this can take a little while.
+  // Review 5: ?resolve=1, so a name as kosmos agent list prints it ("Baron Draxum") reaches the agent it names.
+  const c = await ctx.call('GET', '/api/agent/' + encodeURIComponent(name) + '/model?resolve=1', undefined, { timeoutMs: 60000, person: true });
+  if (!c.reached) return ctx.unreachable('read what ' + name + ' can run on');
+  if (!c.json) { ctx.err('Kosmos gave an answer we could not read when asked what ' + name + ' can run on.'); return 1; }
+  const got = c.json;
+  // Review 7: every field the board sends is printed with no control character, not only the menu's keys and labels.
+  const flat = (v) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]+/g, ' ');
+  const why = clause(flat(got.because || got.error || ''));
+  const set = typeof got.set === 'string' ? flat(got.set) : '';
+  const models = Array.isArray(got.models) ? got.models.filter((m) => m && typeof m.key === 'string' && m.key)
+    .map((m) => ({ key: flat(m.key), label: m.label == null ? m.label : flat(m.label), arg: m.arg == null ? m.arg : flat(m.arg) })) : [];
+  const vend = got.vendorLabel || 'its provider';
+  const isSet = (m) => !!set && (m.key === set || m.arg === set);
+  // Review 5: said before anything else, on both paths, exit 1: no agent answers to the name, or several do.
+  if (got.found === false) { ctx.err('There is no agent called ' + name + ' on this board. kosmos agent list shows them all.'); return 1; }
+  if (got.ambiguous === true) { ctx.err('Kosmos cannot tell which agent you mean: ' + (why || 'more than one agent has that name') + '.'); return 1; }
+  // The agent's own name, as the board resolved it, is what is switched and what the self-check compares (review 5).
+  const agent = typeof got.name === 'string' && got.name ? flat(got.name) : name;
+  const cardName = typeof got.shown === 'string' && got.shown ? flat(got.shown) : name;
+  // Review 7: named by its card AND its own name whenever those differ, as install/kosmos says it.
+  const who = typeof got.shown === 'string' && got.shown && cardName !== agent ? cardName + ' (' + agent + ')' : (agent !== name ? agent : name);
+  if (!want) {
+    const l = await ctx.call('GET', '/api/agents/list', undefined, { timeoutMs: 25000 });
+    const as = l.reached && l.json && Array.isArray(l.json.agents) ? l.json.agents : [];
+    // Matched exactly, then without case (the Windows disk ignores it), as install/kosmos matches on a Mac.
+    // Matched by the name its card shows (the board says it, review 5), else as typed.
+    const hit = as.find((a) => a && a.name === cardName) || as.find((a) => a && typeof a.name === 'string' && a.name.toLowerCase() === cardName.toLowerCase());
+    const card = hit && typeof hit.model === 'string' ? flat(hit.model) : '';
+    // An agent the list hides (the setup guide) gets no card line at all when the list was read whole.
+    const wholeList = l.reached && l.json && Array.isArray(l.json.agents) && l.json.partial !== true;
+    if (hit || !wholeList) ctx.out(card ? who + '\'s model: ' + card : 'Kosmos could not read ' + who + '\'s model from its card just now.');
+    // Review 2: an answer with no ok at all (a refusal of the request itself) is "could not ask", never "cannot be changed".
+    if (typeof got.ok !== 'boolean' || got.readFailed === true) { ctx.err('Kosmos could not say what ' + name + ' can switch to: ' + (why || 'it did not say why') + '.'); return 1; }
+    if (got.ok !== true) { ctx.out('Its model cannot be changed here: ' + (why || 'Kosmos did not say why') + '.'); return 0; }
+    if (got.kind === 'free') {
+      ctx.out(set ? 'Its startup job starts it on ' + set + '.' : 'Its startup job leaves the choice to ' + vend + '.');
+      ctx.out('Kosmos has no list of ' + vend + '\'s models. To switch it, give the model\'s id as ' + vend + ' names it: kosmos agent model "' + name + '" "<model id>"');
+    } else if (got.kind === 'menu' || got.kind === 'account') {
+      if (!models.length && got.kind === 'account' && got.listed === false) {
+        ctx.out('Kosmos could not list the models its OpenAI account can run: ' + (why || 'it did not say why') + '.');
+        ctx.out('To switch it, give the model\'s id as OpenAI names it: kosmos agent model "' + name + '" "<model id>"');
+      } else if (!models.length) {
+        // Review 1: a menu the company policy empties (Claude), or an account that listed nothing it allows.
+        ctx.out('None of the models Kosmos offers for ' + name + ' is allowed by your company\'s policy, so it cannot be switched here.');
+      } else {
+        ctx.out('It can switch to (kosmos agent model "' + name + '" "<model>"):');
+        for (const m of models) ctx.out('  ' + m.key + '  ' + (m.label || m.key) + (isSet(m) ? '  (its startup job starts it on this one)' : ''));
+      }
+    } else ctx.out('Kosmos did not say which models ' + name + ' can switch to.');
+    return 0;
+  }
+  if (got.ok !== true) { ctx.err('Kosmos did not change ' + name + '\'s model: ' + (why || 'it did not say why') + '.'); return 1; }
+  let label = flat(want); let already = !models.length && want === set;   // review 5: the typed word on one line wherever it is said
+  if (models.length) {
+    const m = models.find((x) => want === x.key || (x.arg && want === x.arg));
+    // Review 2: only Claude's menu is the whole list; an OpenAI account's folds dated snapshots, so a miss goes to the route.
+    if (!m && got.kind === 'menu') { ctx.err(flat(want) + ' is not a model ' + name + ' can switch to. Nothing was changed. Pick one of: ' + models.map((x) => x.key + ' (' + (x.label || x.key) + ')').join(', ') + '.'); return 1; }
+    if (m) { label = m.label || m.key; already = isSet(m); }
+  }
+  // Review 2: judged from its startup job, which is what a switch writes; what is running can differ until it restarts.
+  if (already) { ctx.out(name + '\'s startup job already names ' + label + ', so nothing was changed. To start it again on that model, use kosmos agent restart "' + name + '".'); return 0; }
+  if (await refuseIfSelf(ctx, agent, 'changed', name + ' is you, and switching your own model restarts you, which ends this session before you see the answer. Ask your person to switch it on your page in Kosmos instead.')) return 2;
+  // Reviews 6 and 7: the confirm names the agent that will restart as `who` (set above).
+  ctx.out('Switching ' + who + ' to ' + label + ' restarts it: it stops what it is doing now, if it is running, and starts on ' + label + '.');
+  if (!yes) {
+    const answer = await ctx.ask('Switch ' + who + ' to ' + label + '? [y/N] ');
+    if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was changed.'); return 1; }
+  }
+  // The route a Switch & Restart press sends, as the person. A slow but healthy restart can take minutes.
+  const r = await ctx.call('POST', '/api/agent/' + encodeURIComponent(agent) + '/model', { model: want }, { timeoutMs: 300000, person: true });
+  if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + name + ' may be switching; look at its page before trying again.') : ctx.unreachable('switch ' + name + '\'s model');
+  const j = r.json || {};
+  const because = clause(flat(j.because || j.error || ''));
+  const end = /[?!)]$/.test(because) ? '' : '.';
+  const pick = models.length ? ' Pick one of: ' + models.map((x) => x.key + ' (' + (x.label || x.key) + ')').join(', ') + '.' : '';   // review 7: the list it had
+  if (j.outcome === 'changed') { ctx.out((because || name + ' is on ' + label + ' and starting again') + end); return 0; }
+  if (j.outcome === 'partial') { ctx.err((because || 'Kosmos saved ' + label + ' but could not start ' + name + ' again') + end); return 1; }
+  if (because) { ctx.err('Kosmos did not change ' + name + '\'s model: ' + because + end + (j.outcome === 'refused' ? pick : '')); return 1; }
+  return maybe(ctx.err, 'Kosmos gave an answer we could not read after it was asked to switch ' + name + ', so it may have switched. Look at its page.');
 }
 
 /* kosmos#8048 item 3: install/kosmos's `agent move`, through the board's own move: the plan (which account, by the name
@@ -3946,7 +4056,7 @@ const SUBCOMMAND_HANDLERS = {
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, show: taskShow, files: taskFiles, built: taskBuilt, 'done-when': taskDoneWhen, check: taskCheck, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, test: projectTest, role: projectRole, 'remove-member': projectRemoveMember },
-  agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, move: agentMove, restart: agentRestart, remove: agentRemove, 'delete-leftovers': agentDeleteLeftovers },
+  agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, move: agentMove, restart: agentRestart, model: agentModel, remove: agentRemove, 'delete-leftovers': agentDeleteLeftovers },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
