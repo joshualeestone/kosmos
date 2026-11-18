@@ -437,7 +437,7 @@ let clientSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos
 check(agentsSrc.contains("static let starFill = pair(0xe3b341, 0xe3b341)") && agentsSrc.contains("Image(systemName: \"star.fill\").foregroundColor(Palette.starFill)")
       && agentsSrc.contains("if contrast == .increased { Image(systemName: \"star\").foregroundColor(Palette.starGold) }")
       && agentsSrc.components(separatedBy: "Image(systemName: \"star\").foregroundColor(Palette.starGold)").count == 2
-      && agentsSrc.contains("if starred { StarredStar(burst: starBurst).font(.caption2)"),
+      && agentsSrc.contains("if starred { StarredStar(burst: starBurst, reach: 0.6).font(.caption2)"),
       "kosmos#8706: the starred star is the bright gold with no outline (the deep gold edge only under Increase Contrast), in the header and beside a name")
 check(agentsSrc.contains("guard let b, b.id != played, !reduceMotion, b.fresh() else { return }") && agentsSrc.contains("starBurst: client.burst(for: agent.session)")
       && agentsSrc.contains("toggleStar(agent.session, burstDelay: swiped ? 0 : 0.35)"),

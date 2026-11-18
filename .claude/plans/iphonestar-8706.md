@@ -29,6 +29,10 @@ light and dark simulator shots; served build checked once it ships.
 - Tests: LogicTests main.swift (burst set for the starred agent only, gone after the window, on unstar, and on a failed
   save); room/main.swift's source checks updated from the outline to the new shape.
 
+- Deliberate difference from the board: the Agents row's sparks fly 0.6 of the board's 16 pt (the row's star is caption2
+  near the top of a list cell; Sonnet review 4: full reach may clip or land on the text). The chat header keeps full reach.
+  Not yet seen on a device.
+
 ## Weakest premise
 That the row's and header's star views are first drawn within 0.3 s of the press. Reasoned from showStars, which
 re-sorts in the same call as the press; not yet seen on a device. A view rebuilt inside that 0.3 s replays the burst from

@@ -685,7 +685,7 @@ struct AgentRow: View {
     private var name: some View {
         HStack(spacing: 4) {
             Text(agent.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(large ? nil : 1)
-            if starred { StarredStar(burst: starBurst).font(.caption2).accessibilityHidden(true) }
+            if starred { StarredStar(burst: starBurst, reach: 0.6).font(.caption2).accessibilityHidden(true) }
         }
     }
 
@@ -1047,6 +1047,9 @@ struct StatusPill: View {
 // and close to its timings, and never under Reduce Motion (the star just fills).
 struct StarredStar: View {
     var burst: BoardClient.StarBurst? = nil
+    // How far the sparks fly, as a share of the board's 16 points: the Agents row's star is caption2 on a name line near
+    // the top of its cell, so its sparks stay short of the cell's edge and the text beside it.
+    var reach: CGFloat = 1
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var played: Int?
@@ -1066,7 +1069,7 @@ struct StarredStar: View {
 
     // A new StarSparks for each press (.id), so it is drawn at the centre first and its own onAppear sends it out.
     @ViewBuilder private var sparks: some View {
-        if sparking, let played { StarSparks().id(played) }
+        if sparking, let played { StarSparks(reach: reach).id(played) }
     }
 
     // Close to the board's: its pop is one .42 s overshooting curve peaking at 40% (1.3x), here a .17 s rise and a spring
@@ -1094,6 +1097,7 @@ struct StarredStar: View {
 // kosmos#8706: the burst's six gold sparks, at the board's end points (@keyframes astar-spark), in points. They start at
 // the centre and fly out once this view is on screen: a view inserted already "flown" would never be seen moving.
 private struct StarSparks: View {
+    var reach: CGFloat = 1
     @State private var flown = false
     private static let ends: [CGSize] = [CGSize(width: 0, height: -16), CGSize(width: 14, height: -8), CGSize(width: 14, height: 8),
                                          CGSize(width: 0, height: 16), CGSize(width: -14, height: 8), CGSize(width: -14, height: -8)]
@@ -1102,7 +1106,7 @@ private struct StarSparks: View {
             ForEach(0..<Self.ends.count, id: \.self) { i in
                 // 4 at the centre, 2 at the end, as the board's (4px, spread -1 by the end).
                 Circle().fill(Palette.starFill).frame(width: flown ? 2 : 4, height: flown ? 2 : 4)
-                    .offset(flown ? Self.ends[i] : .zero)
+                    .offset(flown ? CGSize(width: Self.ends[i].width * reach, height: Self.ends[i].height * reach) : .zero)
                     .opacity(flown ? 0 : 1)
             }
         }

@@ -2324,7 +2324,7 @@ section("starring from the phone (kosmos#7034)")
         await c.toggleStar("wes")
         check(c.isStarred("wes") && c.agents.map(\.session) == ["wes", "dana"] && c.starNote?.hasPrefix("Stars cannot be changed right now") == true,
               "an unstar that did not save goes back, with the board's words why")
-        check(c.starBurst == nil, "kosmos#8706: an unstar press clears the burst its star had from the press before")
+        check(c.starBurst == nil, "kosmos#8706: an unstar press (this one fails) clears the burst its star had from the press before")
         w.starWriteAnswer = (200, #"{"names":[],"ok":true}"#)
         await c.toggleStar("wes")
         check(!c.isStarred("wes") && c.agents.map(\.session) == ["dana", "wes"] && c.starNote == nil, "an unstar that saves takes the agent back to its place, and the note goes")
