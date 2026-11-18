@@ -20,7 +20,7 @@
  *      #pj-invite-msg), the code, "It works once, until Sunday, October 11." from expires_at; Copy copies
  *      it; Done closes and returns focus to the "+". The label input stops at 80 characters (typed, not
  *      set). Errors: a 409 not-owner shows pjFedMessage's sentence, a 502 shows the board's sentence as
- *      given, and the label is kept. Main: no sheet.
+ *      given, and the label is kept; a remote step-up 403 shows its sentence, a 403 without one the catch-all (#8700). Main: no sheet.
  *  A6  393 wide (a phone): the menu and both states of the sheet fit, with no sideways scroll.
  *  A7  the review's guards: Enter while a Make is answered sends nothing more, Enter while composing sends nothing;
  *      a scroll keeps the menu, Tab returns to its +; a passing signup reading closes nothing (the code step stays,
@@ -440,9 +440,21 @@ const closeAll = (page) => page.evaluate(() => {
     await page.waitForFunction((t) => document.getElementById('fedinv-msg').textContent === t, 'The connection service said no just now.', { timeout: 4000 }).catch(waitNote());   // #5373
     err = await page.evaluate(() => ({ msg: document.getElementById('fedinv-msg').textContent, label: document.getElementById('fedinv-label').value }));
     check('A5 a 502 shows the board\'s sentence as given', err.msg === 'The connection service said no just now.' && err.label === 'Dana Ruiz', JSON.stringify(err));
+    // kosmos#8700: a remote session's step-up 403 shows the board's sentence (Josh, 11-18: it showed the catch-all). Control:
+    // a 403 with no step-up code (not from this screen) keeps the catch-all, so the arm can tell the two apart.
+    await page.evaluate(() => { window.__invite = { status: 403, body: { code: 'remote_step_up', error: 'From a remote session this needs a fresh sign-in.' } }; });
+    await page.click('#fedinv-make');
+    await page.waitForFunction((t) => document.getElementById('fedinv-msg').textContent === t, 'From a remote session this needs a fresh sign-in.', { timeout: 4000 }).catch(waitNote());   // #5373
+    err = await page.evaluate(() => ({ msg: document.getElementById('fedinv-msg').textContent, label: document.getElementById('fedinv-label').value }));
+    check('8700 a remote step-up 403 shows the board\'s sentence and keeps the label', err.msg === 'From a remote session this needs a fresh sign-in.' && err.label === 'Dana Ruiz', JSON.stringify(err));
+    await page.evaluate(() => { window.__invite = { status: 403, body: { error: 'Only a person at the Kosmos screen can invite or join an external project.' } }; });
+    await page.click('#fedinv-make');
+    await page.waitForFunction((t) => document.getElementById('fedinv-msg').textContent === t, 'Kosmos could not make a code just now. Try again in a moment.', { timeout: 4000 }).catch(waitNote());   // #5373
+    err = await page.evaluate(() => ({ msg: document.getElementById('fedinv-msg').textContent }));
+    check('8700 control: a 403 with no step-up code keeps the catch-all', err.msg === 'Kosmos could not make a code just now. Try again in a moment.', JSON.stringify(err));
 
     // kosmos#6681 (S-11-fed): the optional address. Empty on open, an email field marked optional, and an empty one
-    // sends no `email` at all (the two requests above were made with it empty).
+    // sends no `email` at all (the requests above were made with it empty).
     const em = await page.evaluate(() => {
       const i = document.getElementById('fedinv-email');
       const l = i && document.querySelector('label[for="fedinv-email"]');
