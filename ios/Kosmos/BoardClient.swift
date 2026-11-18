@@ -187,7 +187,9 @@ final class BoardClient: ObservableObject {
         // Whether a star view may still start this burst, asked by the view as it would play, not when its parent last
         // drew. Short on purpose: the star is drawn at the press (the list re-sorts in the same call), and a star view
         // built again later in the save, a toolbar or row rebuilt, must not replay the burst from its start.
-        func fresh(now: Date = Date()) -> Bool { now.timeIntervalSince(at) < BoardClient.starBurstWindow }
+        // kosmos#8708: counted from when the burst is due (the press plus its wait), so a view rebuilt during the wait may
+        // still take it over.
+        func fresh(now: Date = Date()) -> Bool { now.timeIntervalSince(at) < delay + BoardClient.starBurstWindow }
     }
     @Published private(set) var starBurst: StarBurst?
     static let starBurstWindow: TimeInterval = 0.3
@@ -2291,5 +2293,30 @@ extension BoardClient.Phase {
         case .starting, .signedOut, .noMac, .kosmosPlusDown, .kosmosPlusRefused:
             return nil
         }
+    }
+}
+
+// kosmos#8706, #8708: the presses whose burst has started, by place, and which view will start each one that has not, so
+// a rebuilt StarredStar neither plays a press again nor loses one it was waiting for. Main thread only (view updates);
+// kept small, since a press is never asked about again once it is past its window.
+@MainActor enum StarBurstsPlayed {
+    private static var started: [String] = []
+    private static var owner: [String: UUID] = [:]
+    private static func key(_ id: Int, _ place: String) -> String { "\(id) \(place)" }
+    // A view that will play this press, unless it has started already. The latest view to ask owns it.
+    static func schedule(_ id: Int, _ place: String, by view: UUID) -> Bool {
+        let k = key(id, place)
+        if started.contains(k) { return false }
+        owner[k] = view
+        return true
+    }
+    // At the end of the wait: only the press's owner starts it, once.
+    static func start(_ id: Int, _ place: String, by view: UUID) -> Bool {
+        let k = key(id, place)
+        guard owner[k] == view, !started.contains(k) else { return false }
+        started.append(k)
+        owner[k] = nil
+        if started.count > 16 { started.removeFirst(started.count - 16) }
+        return true
     }
 }
