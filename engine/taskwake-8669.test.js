@@ -162,7 +162,19 @@ test('#8669: a file wakes on a changed fingerprint, not on a touch, and on being
   fs.writeFileSync(f, 'version 2');
   assert.deepEqual(await taskwake.probe(w, IN_HOME, 'k', seen), { met: true, words: 'it changed' });
   fs.rmSync(f);
-  assert.deepEqual(await taskwake.probe(w, IN_HOME, 'k', seen), { met: true, words: 'it was removed' });
+  assert.deepEqual(await taskwake.probe(w, IN_HOME, 'k', seen), { met: false, problem: 'the file is not there just now' }, 'one miss is not a removal');
+  assert.deepEqual(await taskwake.probe(w, IN_HOME, 'k', seen), { met: true, words: 'it was removed' }, 'two in a row are');
+  // A miss followed by the file being back forgets the miss.
+  const back = nodePath.join(FILES, 'back.txt');
+  fs.writeFileSync(back, 'here');
+  const bk = (await taskwake.prepare({ file: back }, IN_HOME)).wake;
+  const bseen = new Map();
+  fs.renameSync(back, back + '.away');
+  assert.equal((await taskwake.probe(bk, IN_HOME, 'b', bseen)).met, false);
+  fs.renameSync(back + '.away', back);
+  assert.equal((await taskwake.probe(bk, IN_HOME, 'b', bseen)).met, false, 'there again');
+  fs.renameSync(back, back + '.away');
+  assert.equal((await taskwake.probe(bk, IN_HOME, 'b', bseen)).met, false, 'a new first miss, not the second');
   // A path made into a link after the wake was set is checked again on every look, and never read.
   const watched = nodePath.join(FILES, 'swap.txt');
   fs.writeFileSync(watched, 'one');
@@ -469,4 +481,11 @@ test('#8669: a wake nobody can be told about says so', () => {
   const a = tasks.create(p.id, { sentence: 'Set by an agent' });
   tasks.setWake(p.id, a.number, { kind: 'at', at: Date.now() + 3600e3 }, { by: 'ann' });
   assert.equal(taskwake.fieldsOf(stored(p.id, a.number)).wakeNobody, undefined);
+});
+
+test('#8669: the board forgets a gone wake\'s memory even when nothing is left to look at', async () => {
+  const state = new Map([['gone#1@x', { at: 1, problem: 'old' }]]);
+  const seen = new Map([['gone#1@x#missing', true]]);
+  await taskwake.checkTick({ projects: [], state, seen, save: () => false });
+  assert.equal(state.size + seen.size, 0);
 });
