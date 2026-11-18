@@ -33,6 +33,10 @@ Done when: a 400-character evidence line is accepted and shows whole on the task
   unchanged." (review 9: "stands" was false when the refusal covers the whole task, such as not on the project) and the usage line says one check per command, one line, up to 1000 characters. Rejected: a multi-check
   form validated as a whole (new surface for a problem the message solves).
 
+- **The CLI says "moved to task N" only when the board's answer carries the link** (review 10). A CLI newer than the
+  board (an agent's install updated before its board) would otherwise claim a link an older board dropped; it now
+  says "this Kosmos did not record the link to task N: update Kosmos for --moved-to". The report itself still lands.
+
 ## Weakest premise
 That the moved-here list belongs in the checks row. On a task with no checks of its own the row's label becomes
 "Moved here from other tasks" (review 2), so it never reads as an empty "Done when".

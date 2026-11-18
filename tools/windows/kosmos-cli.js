@@ -2151,11 +2151,15 @@ async function taskCheck(ctx, args) {
   if (r.json && r.json.task) {
     const word = met ? 'met' : 'not met';
     ctx.out(r.json.changed === false ? 'Check ' + which + ' on task ' + num + ' was already reported ' + word + ', in those words.'
-      : 'Reported check ' + which + ' on task ' + num + ' on ' + project + ' as ' + word + (movedTo !== null ? ', moved to task ' + movedTo : '') + '. It reads as your word, not a verification. See them with: kosmos task show ' + project + ' ' + num);
+      : 'Reported check ' + which + ' on task ' + num + ' on ' + project + ' as ' + word + (movedTo === null ? '' : (() => {   // #8668 review 10: said only when the board's answer carries the link
+        const rs = r.json.task && Array.isArray(r.json.task.doneWhenResults) ? r.json.task.doneWhenResults : [];
+        const got = rs[Number(which) - 1];
+        return got && got.movedTo === movedTo ? ', moved to task ' + movedTo : ' (this Kosmos did not record the link to task ' + movedTo + ': update Kosmos for --moved-to)';
+      })()) + '. It reads as your word, not a verification. See them with: kosmos task show ' + project + ' ' + num);
     return 0;
   }
   // #8668, as install/kosmos: name the check, and say what was not recorded.
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos did not report check ' + which + ' on task ' + num + ': ' + ctx.refusedBy(r) + '. Nothing was recorded for check ' + which + '; a check Kosmos already accepted is unchanged. Fix this one and run it again.'); return 1; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos did not report check ' + which + ' on task ' + num + ': ' + String(ctx.refusedBy(r)).replace(/\.$/, '') + '. Nothing was recorded for check ' + which + '; a check Kosmos already accepted is unchanged. Fix this one and run it again.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when reporting that check.');
   return 1;
 }

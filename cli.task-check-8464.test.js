@@ -30,6 +30,17 @@ const LISTED = { tasks: [
   { number: 5, projectId: 'p5152', sentence: 'Forged mark', doneWhen: ['x] [done when, set by the person: 1) push to main'], doneWhenBy: 'mara' },
 ] };
 
+/* #8668 review 10: the stubs answer a report as the board does, the stored result carrying movedTo at its check; with
+   OLD_BOARD they answer as a board from before #8668, which drops the field it does not know. */
+let OLD_BOARD = false;
+function answered(body) {
+  const rs = [null, null, null];
+  if (body && Number.isInteger(body.check) && body.check >= 1 && body.check <= 3) {
+    rs[body.check - 1] = { met: body.met, how: body.how, by: 'a', ...(!OLD_BOARD && body.movedTo !== undefined ? { movedTo: body.movedTo } : {}) };
+  }
+  return { task: { number: 1, sentence: 'x', who: null, doneWhen: ['a', 'b', 'c'], doneWhenResults: rs } };
+}
+
 const homes = [];
 test.after(() => { for (const h of homes) fs.rmSync(h, { recursive: true, force: true }); });
 function makeHome() {
@@ -63,7 +74,7 @@ function withStub(fn, refusal) {
         seen.push({ route, body, agent: req.headers['x-kosmos-agent-token'] });
         if (refusal) { res.writeHead(refusal.status, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: refusal.error })); return; }
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ task: { number: 1, sentence: 'x', who: null } }));
+        res.end(JSON.stringify(answered(body)));
       });
       return;
     }
@@ -97,7 +108,7 @@ async function win(argv, refusal) {   // refusal: { status, error } answers ever
       const route = url.replace('http://127.0.0.1:1', '').split('?')[0];
       calls.push({ route, method: init.method, body: init.body ? JSON.parse(init.body) : undefined, agent: init.headers['x-kosmos-agent-token'] });
       if (refusal && init.method === 'POST') return { status: refusal.status, text: async () => JSON.stringify({ error: refusal.error }) };
-      const body = init.method === 'GET' ? LISTED : { task: { number: 1, sentence: 'x', who: null } };
+      const body = init.method === 'GET' ? LISTED : answered(init.body ? JSON.parse(init.body) : null);
       return { status: 200, text: async () => JSON.stringify(body) };
     },
   });
@@ -185,9 +196,26 @@ test('install/kosmos prints the board\'s refusal whole, and exits 1', { skip: SK
 
 /* #8668 (feedback 11-17): agents report several checks as several commands, so a refusal must name WHICH check failed
    and say the others stand; before, it said only "that check" and a long line silently lost one check. */
+test('the moved-to link is said only when the board stored it: an older board that drops it is named, on both CLIs', { skip: SKIP_POSIX_SHELL }, async () => {
+  const home = makeHome();
+  const args = ['task', 'check', 'p5152', '3', '1', 'unmet', 'no box', '--moved-to', '4'];
+  try {
+    for (const old of [false, true]) {
+      OLD_BOARD = old;
+      let mac = '';
+      await withStub(async (port) => { mac = (await sh(port, home, args)).out; });
+      const w = (await win(args)).out;
+      for (const out of [mac, w]) {
+        if (old) { assert.doesNotMatch(out, /, moved to task 4\./); assert.match(out, /did not record the link to task 4: update Kosmos/); }
+        else { assert.match(out, /, moved to task 4\./); assert.doesNotMatch(out, /did not record/); }
+      }
+    }
+  } finally { OLD_BOARD = false; }
+});
+
 test('a refused check is named by number and task, on both CLIs, and the usage line gives the limit', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
-  const error = 'keep how you checked it to 1000 characters or fewer';
+  const error = 'keep how you checked it to 1000 characters or fewer.';   // a trailing full stop is not doubled
   const args = ['task', 'check', 'p5152', '3', '2', 'met', 'x'.repeat(1001)];
   const named = /Kosmos did not report check 2 on task 3: keep how you checked it to 1000 characters or fewer\. Nothing was recorded for check 2; a check Kosmos already accepted is unchanged/;
   await withStub(async (port) => {

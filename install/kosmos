@@ -7278,11 +7278,16 @@ cmd_task() {
         '{"task":'*)
           local _kword="met"; [ "$_kmet" = true ] || _kword="not met"
           case "$body" in *'"changed":false'*) say "Check $_kn on task $num was already reported $_kword, in those words." ;;
-            *) say "Reported check $_kn on task $num on ${project:-the project} as $_kword${_kto:+, moved to task $_kto}. It reads as your word, not a verification. See them with: kosmos task show ${project:-<project-id>} $num" ;; esac ;;
+            *)
+              # #8668 review 10: the link is said only when the board's answer carries it (an older board drops the field).
+              local _kmv=""
+              if [ -n "$_kto" ]; then case "$body" in *"\"movedTo\":$_kto"[,}]*) _kmv=", moved to task $_kto" ;; *) _kmv=" (this Kosmos did not record the link to task $_kto: update Kosmos for --moved-to)" ;; esac; fi
+              say "Reported check $_kn on task $num on ${project:-the project} as $_kword$_kmv. It reads as your word, not a verification. See them with: kosmos task show ${project:-<project-id>} $num" ;; esac ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           # #8668: name the check. Agents report several checks as several commands, so a refusal that says only "that
           # check" reads as the whole set failing, or is missed while the others go through.
+          because="${because%.}"
           say "Kosmos did not report check $_kn on task $num: ${because:-it did not say why}. Nothing was recorded for check $_kn; a check Kosmos already accepted is unchanged. Fix this one and run it again."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when reporting that check."; exit 1 ;;
       esac
