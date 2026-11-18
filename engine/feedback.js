@@ -463,6 +463,15 @@ function listNote(from, days = list()) {
   const mine = daysOf(from).filter((d) => days.includes(d));   // only days the printed list has (review 1)
   const whose = 'These are the days with a report on this computer, from every agent here.';
   if (!mine.length) return whose + ' None of them holds one of yours yet, so `kosmos feedback write --unchanged` has nothing to point back to: write a full report first.';
-  return whose + ' ' + (mine.length === 1 ? '1 of them holds yours: ' + mine[0] : mine.length + ' of them hold yours, the newest ' + mine[0]) + '.';
+  // kosmos#8698: when other agents' days are in the list too, name the flag that lists only yours.
+  const only = mine.length < days.length ? ' To list only yours: kosmos feedback list --mine' : '';
+  return whose + ' ' + (mine.length === 1 ? '1 of them holds yours: ' + mine[0] : mine.length + ' of them hold yours, the newest ' + mine[0]) + '.' + only;
 }
-module.exports = { noReportsWords, daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
+/** kosmos#8698: what `feedback list --mine` prints (both CLIs, on stdout): the days holding a section by `from`, newest
+ *  first, one a line, by the same rule as listNote's count (daysOf); none is said in a sentence. */
+function noneOfYoursWords() { return 'None of the days on this computer holds a report of yours yet, so `kosmos feedback write --unchanged` has nothing to point back to: write a full report first.'; }
+function mineLines(from) {
+  const mine = daysOf(from);
+  return mine.length ? mine : [noneOfYoursWords()];
+}
+module.exports = { noReportsWords, noneOfYoursWords, mineLines, daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };

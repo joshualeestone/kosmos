@@ -6126,8 +6126,16 @@ cmd_feedback() {
       exit $?
       ;;
     list)
-      "$NODE" -e '
+      # kosmos#8698: --mine lists only the days holding the asking agent's own report.
+      KOSMOS_FEEDBACK_MINE=""
+      if [ $# -eq 1 ] && [ "$1" = "--mine" ]; then KOSMOS_FEEDBACK_MINE=1
+      elif [ $# -ne 0 ]; then say "Usage: kosmos feedback list [--mine]"; exit 2; fi
+      KOSMOS_FEEDBACK_MINE="$KOSMOS_FEEDBACK_MINE" "$NODE" -e '
         const fb = require(process.argv[1] + "/engine/feedback");
+        if (process.env.KOSMOS_FEEDBACK_MINE === "1") {
+          for (const l of fb.mineLines(fb.writer(process.env))) process.stdout.write(l + "\n");
+          process.exit(0);
+        }
         const days = fb.list();
         /* kosmos#8462: every answer on stdout (PowerShell shows the stderr of a native command as a red error record).
            The dates first, one a line; then a blank line and the kosmos#8340 note on whose reports these are, so a
@@ -6209,7 +6217,7 @@ cmd_feedback() {
       say "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin)"
       say "       kosmos feedback write --unchanged [text]  (nothing new since your last report; any text is added to it)"
       say "       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)"
-      say "       kosmos feedback list"
+      say "       kosmos feedback list [--mine]     (--mine: only the days holding your own report)"
       say "       kosmos feedback day                (your own day on this computer, for writing the report)"
       say "       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)"
       say "       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]"
