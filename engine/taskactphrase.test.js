@@ -33,6 +33,9 @@ const EVENTS = [
   { kind: 'done-when-set', person: true, doneWhen: 'it builds' }, { kind: 'done-when-set', by: 'mara-discord' }, { kind: 'done-when-set' },
   { kind: 'done-when-set', person: true, changedCheck: 2, was: 'old words', doneWhen: '1) a 2) b' }, { kind: 'done-when-set', by: 'mara-discord', changedCheck: 1, doneWhen: '1) a' },   // #7990
   { kind: 'done-when-cleared', person: true }, { kind: 'done-when-cleared', by: 'leo-discord' }, { kind: 'done-when-cleared' },
+  // kosmos#8664: a title, a detail, both, a cleared detail; by the person, an agent, and nobody named.
+  { kind: 'edited', person: true, fromTitle: 'Fix login', title: 'Fix login on iPhone' }, { kind: 'edited', by: 'mara-discord', detail: 'new words' },
+  { kind: 'edited', by: 'leo-discord', fromTitle: 'a', title: 'b', fromDetail: 'x', detail: null, detailCleared: true }, { kind: 'edited', fromTitle: 'a', title: 'b' }, { kind: 'edited' },
   { kind: 'check-reported', by: 'mara-discord', check: 2, met: true, how: 'node --test, 40 of 40' }, { kind: 'check-reported', check: 1, met: false },   // #8464
   { kind: 'check-reported', by: 'mara-discord', check: 2, met: false, how: 'no box', movedTo: 5 }, { kind: 'check-reported', check: 1, met: false, how: 'no box.', movedTo: 7 },   // #8668: both joins
   { kind: 'hold-set', via: 'agent' }, { kind: 'hold-set' },
