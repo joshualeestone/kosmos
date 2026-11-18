@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: astar grid alist starBtn repaintAgentOrder toggleStar
+// Browser-check-surface: astar grid alist starBtn repaintAgentOrder toggleStar starBurst
 /* #6719 (Josh, 2026-10-20): "lets add a small star functionality to the top right of these tiles so like if I starred
  * you it would basically pin you to the top". Drives the real tiles, list rows and click handler on the shipped page,
  * file://, with /api/agent-stars stubbed in the page (an in-memory store that records every PUT), on chromium and
@@ -19,10 +19,13 @@
  *     the title line under the name; on a touch screen its tap area is 44 x 44, inside its own row, and clear of the
  *     title's visible end and the unread badge;
  *   - a filled star is at least 3:1 on every tile and row ground in both themes (CONTROL: the brand gold is not).
- *   - #7339: a starred star is filled with --gold-bright; its edge is drawn (the path's own stroke) and is --gold-bright
- *     in both dark paths; every grid and rail star, at rest and hovered, at 1x/1.5x/2x, has a drawn 3:1 edge on 80%
- *     of its outline (CONTROLS: no edge, and a 1-unit icon-space edge at 1x, both fail); 2x draws the thin .75px
- *     edge; forced colors fill it with the system colour.
+ *   - #7339: a starred star is filled with --gold-bright. #8705: it has no edge (no stroke) in every theme, grid and
+ *     rail; with more contrast asked for (prefers-contrast: more) the edge comes back: drawn, --gold-bright in both
+ *     dark paths, and every grid and rail star, at rest and hovered, at 1x/1.5x/2x, has a drawn 3:1 edge on 80% of
+ *     its outline (CONTROLS: no edge, and a 1-unit icon-space edge at 1x, both fail); 2x draws the thin .75px edge;
+ *     forced colors fill it with the system colour.
+ *   - #8705: a press that stars an agent plays a burst on its star (an animation runs on it in the grid and the list);
+ *     unstarring plays none (CONTROL); under reduced motion starring plays none and the star still fills.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-star-6719.js [shots-dir]
  */
@@ -272,9 +275,11 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
     // #7339: the star is FILLED with --gold-bright (Josh: "the brightest gold that we have") and its EDGE is the button's
     // colour. The 3:1 is the edge's job, so `edge` below is what is measured; the fill is checked to be --gold-bright.
     // #7339 review 1: 'in-app-dark' is the in-app Dark setting (data-theme="dark" on a light system), which has its own rule.
-    for (const theme of ['light', 'dark', 'in-app-dark']) {
-      const t = `[${eng} ${theme} filled-star contrast]`;
+    // #8705: by default the star has no edge at all; the 3:1 edge is drawn only when more contrast is asked for.
+    for (const theme of ['light', 'dark', 'in-app-dark']) for (const contrast of ['no-preference', 'more']) {
+      const t = `[${eng} ${theme} ${contrast === 'more' ? 'more contrast ' : ''}filled-star contrast]`;
       const { ctx, page, errs } = await open(browser, eng, 1280, 900, theme === 'in-app-dark' ? 'light' : theme);
+      await page.emulateMedia({ contrast });
       if (theme === 'in-app-dark') await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
       const c = await page.evaluate(() => {
         const st = document.querySelector('#grid .astar');
@@ -295,16 +300,19 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
         // The edge is what is DRAWN: the path's own stroke, which must be the button's colour and actually painted.
         const stroke = rgb(ps.stroke); const strokeW = parseFloat(ps.strokeWidth);
         const drawn = !!stroke && stroke.slice(0, 3).join() === edge.slice(0, 3).join() && strokeW > 0;
-        const out = { star: true, edge, stroke, strokeW, drawn, fill, brightFill: !!fill && !!bright && fill.slice(0, 3).join() === bright.slice(0, 3).join(), min: Infinity, brandMin: Infinity, by: {} };
+        const out = { star: true, more: matchMedia('(prefers-contrast: more)').matches, edge, stroke: ps.stroke, strokeW, drawn, fill, brightFill: !!fill && !!bright && fill.slice(0, 3).join() === bright.slice(0, 3).join(), min: Infinity, brandMin: Infinity, by: {} };
         for (const [k, g] of Object.entries(grounds)) { const r = ratio(edge, g); out.by[k] = +r.toFixed(2); out.min = Math.min(out.min, r); out.brandMin = Math.min(out.brandMin, ratio(brand, g)); }
         out.min = +out.min.toFixed(2); out.brandMin = +out.brandMin.toFixed(2);
         probe.remove(); st.classList.remove('on');
         return out;
       });
       chk(c.star && c.brightFill, `${t} #7339: the filled star is filled with --gold-bright, the brightest gold`, JSON.stringify(c));
-      chk(c.star && c.drawn, `${t} #7339: the edge is drawn, the path's stroke in the button's colour`, JSON.stringify(c));
-      chk(c.star && c.min >= 3, `${t} the filled star's edge is at least 3:1 on every tile and row ground`, JSON.stringify(c));
-      if (theme === 'light') chk(c.star && c.brandMin < 3, `${t} CONTROL: the brand gold measured the same way is under 3:1 here`, JSON.stringify(c));
+      chk(c.star && c.more === (contrast === 'more'), `${t} CONTROL: the page sees the contrast preference this arm asked for`, JSON.stringify(c));
+      if (contrast === 'more') {
+        chk(c.star && c.drawn, `${t} #7339: the edge is drawn, the path's stroke in the button's colour`, JSON.stringify(c));
+        chk(c.star && c.min >= 3, `${t} the filled star's edge is at least 3:1 on every tile and row ground`, JSON.stringify(c));
+        if (theme === 'light') chk(c.star && c.brandMin < 3, `${t} CONTROL: the brand gold measured the same way is under 3:1 here`, JSON.stringify(c));
+      } else chk(c.star && c.stroke === 'none', `${t} #8705: the starred star has no stroke`, JSON.stringify(c));
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await ctx.close();
     }
@@ -341,7 +349,7 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
     };
     for (const dsf of [1, 1.5, 2]) {
       for (const where of ['grid', 'rail']) {
-        const t = `[${eng} light ${dsf}x ${where} drawn edge]`;
+        const t = `[${eng} light ${dsf}x ${where} drawn edge, more contrast]`;
         const { ctx, page, errs } = await open(browser, eng, 1280, 900, 'light', false, dsf);
         const sel = await page.evaluate((where) => {
           if (where === 'rail') { document.documentElement.setAttribute('data-layout', 'consolidated'); showTab('projects'); repaintAgentOrder(); }
@@ -349,6 +357,10 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
           stars.forEach((s, k) => { s.classList.add('on'); s.setAttribute('data-px', String(k)); });
           return stars.map((s, k) => ({ k, ground: (s.closest('.acard, .lrow') || {}).className || '' }));
         }, where);
+        // #8705: with no contrast preference, every one of these starred stars has no stroke.
+        const bare0 = await page.evaluate(() => [...document.querySelectorAll('[data-px] svg path')].map((p) => getComputedStyle(p).stroke));
+        chk(bare0.length >= 3 && bare0.every((v) => v === 'none'), `[${eng} light ${dsf}x ${where}] #8705: every starred star has no stroke`, JSON.stringify(bare0));
+        await page.emulateMedia({ contrast: 'more' });
         chk(sel.length >= 3, `${t} CONTROL: at least three stars to measure`, JSON.stringify(sel.length));
         const fails = []; let measured = 0;
         for (const { k, ground } of sel) {
@@ -388,6 +400,7 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
     for (const theme of ['dark', 'in-app-dark']) {
       const t = `[${eng} ${theme} edge colour]`;
       const { ctx, page, errs } = await open(browser, eng, 1280, 900, theme === 'in-app-dark' ? 'light' : theme);
+      await page.emulateMedia({ contrast: 'more' });   // #8705: the edge is drawn only then
       const r = await page.evaluate((theme) => {
         if (theme === 'in-app-dark') document.documentElement.setAttribute('data-theme', 'dark');
         const st = document.querySelector('#grid .astar'); if (!st) return null; st.classList.add('on');
@@ -407,6 +420,34 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       const r = await page.evaluate(() => { const st = document.querySelector('#grid .astar'); if (!st) return null; st.classList.add('on');
         return { fill: getComputedStyle(st.querySelector('svg path')).fill, color: getComputedStyle(st).color }; });
       chk(!!r && r.fill === r.color, `${t} the starred star is filled with the system colour`, JSON.stringify(r));
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await ctx.close();
+    }
+    // #8705: a press that stars plays a burst on that agent's star in every view; unstar plays none; reduced motion none.
+    for (const motion of ['no-preference', 'reduce']) {
+      const t = `[${eng} ${motion === 'reduce' ? 'reduced motion ' : ''}burst]`;
+      const { ctx, page, errs } = await open(browser, eng, 1280, 900, 'light');
+      await page.emulateMedia({ reducedMotion: motion });
+      const look = () => page.evaluate(() => [...document.querySelectorAll('[data-star="cam"]')].map((b) => ({
+        on: b.classList.contains('on'), burst: b.classList.contains('burst'), shown: b.getClientRects().length > 0,
+        anims: b.querySelector('svg').getAnimations().length + b.getAnimations({ subtree: true }).filter((a) => a.effect && a.effect.pseudoElement === '::before').length,
+        fill: getComputedStyle(b.querySelector('svg path')).fill })));
+      await page.locator('#grid [data-star="cam"]').click();
+      await page.waitForFunction(() => window.STAR_PUTS.length === 1);
+      const starred = await look();
+      chk(starred.length >= 2 && starred.every((b) => b.on && !/none/.test(b.fill)), `${t} CONTROL: the star is starred and filled in the grid and the list`, JSON.stringify(starred));
+      if (motion === 'reduce') chk(starred.every((b) => !b.burst && b.anims === 0), `${t} starring plays no burst`, JSON.stringify(starred));
+      else {
+        // A hidden view (the list, while the grid is shown) runs no animation, so the animations are asked of the shown star.
+        chk(starred.some((b) => b.shown) && starred.every((b) => b.burst && (!b.shown || b.anims >= 2)), `${t} starring plays the burst (the pop and the sparks) on the shown star; the hidden view's star carries it too`, JSON.stringify(starred));
+        await page.waitForTimeout(800);
+        const after = await look();
+        chk(after.every((b) => !b.burst), `${t} the burst plays once and is gone`, JSON.stringify(after));
+        await page.locator('#grid [data-star="cam"]').click();
+        await page.waitForFunction(() => window.STAR_PUTS.length === 2);
+        const unstarred = await look();
+        chk(unstarred.every((b) => !b.on && !b.burst && b.anims === 0), `${t} CONTROL: unstarring plays none`, JSON.stringify(unstarred));
+      }
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await ctx.close();
     }

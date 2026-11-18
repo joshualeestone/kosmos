@@ -3047,17 +3047,28 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 .astar svg path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
 .astar:hover { color: var(--k-ink); background: rgba(120,120,128,.12); }
 /* #7339 (Josh, 2026-10-27: "the brightest gold that we have", the old one read "dingy"): the starred star is FILLED
-   with --gold-bright in both themes. Its EDGE is currentColor, and it is what keeps the shape at 3:1 where the fill
-   alone is not (--gold-bright is about 1.9:1 on white). On light the edge is #9c741b (3.7 to 4.3:1 on the tile and
-   row grounds), darker on hover so the hover tint costs no contrast; on dark it is --gold-bright, which clears 3:1
-   by itself. The edge is drawn in SCREEN pixels (non-scaling-stroke), so the 15px rail star gets the same line as
-   the 18px tile star: 1.5px, and .75px (1.5 device pixels) on a 2x screen, where the thin line holds and the fill
-   reads brighter. A line in the icon's own units was too thin on the rail and at 1x (#7339 reviews 1 and 2). */
+   with --gold-bright in both themes. #8705 (Josh, 2026-11-18: "drop the stroke"): it has NO edge. The darker edge
+   #7339 kept for 3:1 on light grounds (--gold-bright alone is about 1.9:1 on white) is what still read dingy. The
+   edge comes back only for a person who asked their system for more contrast, drawn in screen pixels
+   (non-scaling-stroke) so the 15px rail star gets the same line as the 18px tile star (#7339 reviews 1 and 2). The
+   button's colour is that edge's colour: #9c741b on light (3.7 to 4.3:1 on the tile and row grounds), darker on
+   hover, --gold-bright on dark. */
 .astar.on { color: #9c741b; }
 .astar.on:hover { color: #7d5c13; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .astar.on, :root:not([data-theme="light"]) .astar.on:hover { color: var(--gold-bright); } }
-.astar.on svg path { fill: var(--gold-bright); vector-effect: non-scaling-stroke; stroke-width: 1.5px; }
-@media (min-resolution: 2dppx) { .astar.on svg path { stroke-width: .75px; } }
+.astar.on svg path { fill: var(--gold-bright); stroke: none; }
+@media (prefers-contrast: more) { .astar.on svg path { stroke: currentColor; vector-effect: non-scaling-stroke; stroke-width: 1.5px; } }
+@media (prefers-contrast: more) and (min-resolution: 2dppx) { .astar.on svg path { stroke-width: .75px; } }
+/* #8705: a small burst when a press stars an agent (toggleStar adds .burst for one play, never under reduced motion):
+   the star pops and six gold sparks fly out. ::before, because the rail uses ::after for its touch area. */
+.astar.burst svg { animation: astar-pop .42s cubic-bezier(.3, 1.6, .5, 1) var(--burst-at, 0ms) both; }
+.astar.burst::before { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px;
+  border-radius: 50%; pointer-events: none; animation: astar-spark .55s ease-out var(--burst-at, 0ms) both; }
+@keyframes astar-pop { 0% { transform: scale(1); } 40% { transform: scale(1.3); } 100% { transform: scale(1); } }
+@keyframes astar-spark {
+  0% { opacity: 1; box-shadow: 0 0 0 0 var(--gold-bright), 0 0 0 0 var(--gold-bright), 0 0 0 0 var(--gold-bright), 0 0 0 0 var(--gold-bright), 0 0 0 0 var(--gold-bright), 0 0 0 0 var(--gold-bright); }
+  100% { opacity: 0; box-shadow: 0 -16px 0 -1px var(--gold-bright), 14px -8px 0 -1px var(--gold-bright), 14px 8px 0 -1px var(--gold-bright), 0 16px 0 -1px var(--gold-bright), -14px 8px 0 -1px var(--gold-bright), -14px -8px 0 -1px var(--gold-bright); } }
+@media (prefers-reduced-motion: reduce) { .astar.burst svg, .astar.burst::before { animation: none; } .astar.burst::before { content: none; } }
 /* High contrast: a literal fill is not overridden by the system, so the starred star takes the system colour, as before. */
 @media (forced-colors: active) { .astar.on svg path { fill: currentColor; } }
 .astar:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
@@ -41902,12 +41913,19 @@ const STAR_MSG = {
   refused: 'That agent cannot be starred.',
 };
 let STARS_WRITING = 0;   // writes in flight: a reload waits for them, or it could read the set from before the write
+/* #8705: a burst in progress, by session name: when it started (Date.now()). The save's answer and the 5 s poll both
+   repaint the stars, so starBtn draws a star mid-burst with a negative delay and the burst carries on, not restarts. */
+const STAR_BURST = new Map();
+const STAR_BURST_MS = 550;   // the longest of the two animations (.astar.burst in the CSS)
 const STAR_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M12 3.6l2.5 5.2 5.7.7-4.2 3.9 1.1 5.6L12 16.3 6.9 19l1.1-5.6-4.2-3.9 5.7-.7z"/></svg>';
 function starBtn(a) {
   if (!a.sessionName) return '';   // nothing to save it under, so no star to press
   const on = AGENT_STARS.has(a.sessionName);
   const say = (on ? 'Unstar ' : 'Star ') + (a.name || a.sessionName || '');
-  return `<button class="astar${on ? ' on' : ''}" type="button" data-star="${esc(a.sessionName)}" aria-label="${esc(say)}" title="${esc(say)}">${STAR_SVG}</button>`;
+  const began = on && typeof STAR_BURST !== 'undefined' ? STAR_BURST.get(a.sessionName) : undefined;
+  const into = began === undefined ? -1 : Date.now() - began;
+  const burst = into >= 0 && into < STAR_BURST_MS ? ` burst" style="--burst-at:-${Math.round(into)}ms` : '';
+  return `<button class="astar${on ? ' on' : ''}${burst}" type="button" data-star="${esc(a.sessionName)}" aria-label="${esc(say)}" title="${esc(say)}">${STAR_SVG}</button>`;
 }
 /* A repaint rebuilds the star buttons, which drops a keyboard user's focus. Every repaint of the grid or the list goes
    through this, so a focused star is focused again afterwards (the toggle, the sort control and the 5 s poll alike). */
@@ -41958,6 +41976,24 @@ async function loadStars() {
 /* Review 3: one save at a time per agent. Two quick presses sent as two concurrent PUTs could reach the board in
    either order, leaving the file with the first press's answer while the page showed the second's. */
 const STAR_CHAIN = new Map();
+/* #8705 (Josh, 2026-11-18): starring is a moment, so a press that stars an agent plays a small burst on its star in
+   every view (the CSS .burst rule), once. Never under reduced motion (the star just fills). Best-effort: a page that
+   cannot say whether motion is reduced, or has no star drawn, plays nothing. */
+function starBurst(name) {
+  try {
+    if (!window.matchMedia || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const began = Date.now();
+    STAR_BURST.set(name, began);
+    const each = (fn) => { for (const b of document.querySelectorAll('[data-star]')) if (b.dataset.star === name) fn(b); };
+    each((b) => { b.style.setProperty('--burst-at', '0ms'); b.classList.add('burst'); });
+    // Ended: forget it, and take the class off whichever buttons are drawn now (a repaint may have replaced them).
+    setTimeout(() => {
+      if (STAR_BURST.get(name) !== began) return;   // a newer press started its own burst
+      STAR_BURST.delete(name);
+      each((b) => { b.classList.remove('burst'); b.style.removeProperty('--burst-at'); });
+    }, STAR_BURST_MS + 100);
+  } catch { /* a missing burst is only a missing flourish */ }
+}
 const STAR_LAST = new Map();   // review 4: the newest press per agent, so an answer is applied only to its own star
 function toggleStar(name, follow) {
   const on = !AGENT_STARS.has(name);
@@ -41966,6 +42002,7 @@ function toggleStar(name, follow) {
   if (on) AGENT_STARS.add(name); else AGENT_STARS.delete(name);
   // Review 11: a repaint that throws must not stop the save going out (the page would show a star the board never got).
   try { repaintAgentOrder(follow); } catch { /* the save below still runs, and its answer repaints */ }
+  if (on) starBurst(name);   // #8705: after the repaint, so it plays on the star now drawn
   STARS_WRITING += 1;
   /* Review 4: a save that threw (a repaint failing, say) must not stop the presses queued after it, so the chain goes
      on past a rejection; and the in-flight count is settled here, whatever the save did, or reloads stop for good. */
