@@ -155,8 +155,24 @@ test('#8652 a stranger\'s pane holding the name is refused as today and never wa
   worker('zeta'); recordRow('zeta', 1000);
   roster.stranger = 'zeta';
   const r = await send('zeta', 'hello');
-  assert.equal(r.status, 404, JSON.stringify(r.json));
+  /* kosmos#8719: still refused and still without a wait, but now as what it is, a window under the name that Kosmos did
+     not start (409 'untied', with the reason), where it was a 404 "no agent by that name". */
+  assert.equal(r.status, 409, JSON.stringify(r.json));
+  assert.equal(r.json.because, 'untied');
   assert.ok(r.ms < 1500, 'a borrowed name made the send wait: ' + r.ms + ' ms');
+});
+
+test('#8719 an agent on the board whose window Kosmos did not start is refused with why (409), not as missing', async () => {
+  worker('omega');   // no ownership-record row: not starting
+  roster.stranger = 'omega';
+  const r = await send('omega', 'hello');
+  assert.equal(r.status, 409, JSON.stringify(r.json));
+  assert.equal(r.json.because, 'untied');
+  assert.match(r.json.error, /^Not sent: omega was started outside Kosmos, so Kosmos cannot confirm its window is this agent and did not type into it\./);
+  assert.ok(r.ms < 1500, 'an untied agent made the send wait: ' + r.ms + ' ms');
+  roster.stranger = null;
+  const gone = await send('omega', 'hello');
+  assert.equal(gone.status, 404, 'CONTROL: with no window under the name it is missing again: ' + JSON.stringify(gone.json));
 });
 
 /* The Windows path end to end, on any platform: the board's roster is win32roster.make() over a cached

@@ -4486,6 +4486,13 @@ function clearLeftovers(name, projectId, why) {
 // removes it is a single `claimantFor` whose card both the gate and the session
 // come from, and that is a change to how every name-keyed route resolves.
 
+/* kosmos#8719: what a person is told when a message to an agent Kosmos did not start is refused: the reason, and what
+   they can do about it. */
+function UNTIED_SEND_WORDS(name) {
+  return `Not sent: ${name} was started outside Kosmos, so Kosmos cannot confirm its window is this agent and did not type `
+    + 'into it. Kosmos can message it once it is started from Kosmos.';
+}
+
 function knownAgent(name) {
   try {
     const card = claimantFor(name);
@@ -21453,6 +21460,18 @@ const server = http.createServer(async (req, res) => {
              (409, nothing typed, nothing kept), never as missing. A 4xx, not a 503: the page and the iPhone read a
              5xx on a send as "it may have gone" (BoardLogic.swift sendResult), and this one certainly did not. */
           const starting = startingAgent(name);
+          /* kosmos#8719: an agent that IS on the board but whose window Kosmos did not start (no @kosmos_agent claim, so
+             isNamedOurs is false) is not missing: say why nothing was typed, as a 409, never "no agent by that name". */
+          if (!starting) {
+            let card = null;
+            try { card = claimantFor(name); } catch { card = null; }
+            if (card && card.isNamedOurs === false) {
+              const untied = new Error(UNTIED_SEND_WORDS(name));
+              untied.status = 409;
+              untied.because = 'untied';
+              throw untied;
+            }
+          }
           if (!(starting && await awaitRosterRow(name))) {
             const missing = new Error(starting
               ? `${name} is still starting, so nothing was sent. Try again in a moment.`
@@ -22162,7 +22181,7 @@ const server = http.createServer(async (req, res) => {
       })
       .catch((err) => sendJson(res, (err && err.status) || ((err && err.code === 'UNREADABLE') ? 500 : 400),
         { error: String((err && err.message) || 'we could not read that request'),
-          ...(err && err.because === 'starting' ? { because: 'starting' } : {}) }))   // kosmos#8652
+          ...(err && (err.because === 'starting' || err.because === 'untied') ? { because: err.because } : {}) }))   // kosmos#8652, #8719
       .finally(() => { if (retryKey) DM_RETRYING.delete(retryKey); });   // kosmos#6720: after the verdict is written
     return;
   }

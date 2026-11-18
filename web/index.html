@@ -3358,6 +3358,7 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 .acard .ameta { font-weight: 600; color: var(--k-ink); font-size: .8125rem; margin-top: 1px; }
 /* #7978: inside the model line, so the card's grid gains no row; on a line of its own, and only when out of the ordinary. */
 .acard .amachine { display: block; font-weight: 600; color: var(--k-ink); margin-top: 2px; }
+.acard .auntied, .lrow .auntied { display: block; font-weight: 600; color: var(--k-ink); margin-top: 2px; }   /* kosmos#8719 */
 /* In a cell, never as its own: the row's grid has exactly seven children, and an eighth lands in the avatar's column. */
 .lrow .amachine { display: block; font-weight: 600; color: var(--k-ink); }
 /* Josh, 2026-08-19: "a tiny bit more. Not crazy." One pixel is not a gap, it is
@@ -23241,6 +23242,10 @@ function stateReason(a, opts) {
      page, which calls this without `card`. (#6398 did this for a rate limit alone.) The tile keeps its .atask slot,
      empty, so every tile stays one height. */
   if (opts && opts.card === true) return '';
+  /* kosmos#8719: a window Kosmos did not start (no launch claim, isNamedOurs false). First, because every message to it
+     is refused, which matters more than what its screen shows. The tile carries the short label (untiedFlagHtml). */
+  /* A literal, not a shared constant: tests lift stateReason alone. */
+  if (a && a.isNamedOurs === false) return 'Started outside Kosmos, so Kosmos cannot confirm this window is the agent and will not type messages into it. Kosmos can message it once it is started from Kosmos.';
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
   /* #5154 slice A: Kosmos keeps restarting this agent and it keeps stopping within minutes (engine/crashloop.js).
@@ -23461,7 +23466,7 @@ function asSentence(s) {
 function lmodelCell(a) {
   const line = tileModelLine(a);
   // #7978: in this cell, never as its own: the row's grid has exactly seven children.
-  const flag = typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : '';
+  const flag = (typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : '') + (typeof untiedFlagHtml === 'function' ? untiedFlagHtml(a) : '');
   /* kosmos#8662: by the words, not by asking modelLine, which says the sign-out (to be read) while the board is signed out.
      Literals, not shared constants: tests lift these functions alone; web.made-before.test.js pins modelLine's words. */
   return (line === 'Made before Kosmos recorded this' ? '<span class="vh">' + esc(line) + '</span>' : modelLineHtml(a, line, true)) + flag;
@@ -24470,7 +24475,7 @@ function card(a) {
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}${twinNote(a)}</div>
     <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, say) : pillTitle(say)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${pillVh(say)}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
-    <div class="amodel">${modelLineHtml(a, tileModelLine(a))}${typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : ''}</div>
+    <div class="amodel">${modelLineHtml(a, tileModelLine(a))}${typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : ''}${typeof untiedFlagHtml === 'function' ? untiedFlagHtml(a) : ''}</div>
     <div class="atask">${esc(taskLine(a, { card: true }))}</div>
   </div>`;
 }
@@ -26762,6 +26767,12 @@ function machineFlag(a) {
   if (Number(m.memMb) >= MACHINE_BIG_MB) return 'Using ' + machineSize(m.memMb);
   if (Number(m.cpuPct) >= MACHINE_BUSY_CPU) return 'Using ' + machineCpuWords(m.cpuPct);
   return '';
+}
+/* kosmos#8719: managed vs not. A window Kosmos did not start says so on its tile and list row, in words, so an agent
+   that reads idle there is not taken for one Kosmos can message. The reason is stateReason's (the pill's hover and
+   screen-reader text, as every other reason is, #6716). */
+function untiedFlagHtml(a) {
+  return a && a.isNamedOurs === false ? '<span class="auntied">Not started by Kosmos</span>' : '';
 }
 function machineFlagHtml(a) {
   const f = machineFlag(a);
@@ -50152,10 +50163,12 @@ function setWritesOffered(a, tied) {
     // but not the one research's own session runs in", a tautology, and it is
     // the ONLY message the legitimate non-Discord agent this branch most
     // affects ever sees.
-    why.textContent = tied ? '' : `This session is called ${a.sessionName}, but it is `
-      + `not the one an agent named ${a.sessionName} would run in. We expect that to be `
-      + `${a.sessionName}-discord. So we cannot say this pane belongs to that agent, and `
-      + 'we will not change its picture, role or instructions from here.';
+    /* kosmos#8719: the real test is Kosmos's own launch mark on the session, which a window started outside Kosmos
+       lacks; the old sentence named only the "-discord" spelling, which is one way to pass it. */
+    why.textContent = tied ? '' : `The window called ${a.sessionName} was started outside Kosmos, so Kosmos cannot `
+      + `confirm it is this agent (an agent Kosmos starts runs in a session Kosmos marks, or one called ${a.sessionName}-discord). `
+      + 'Kosmos will not type messages into it, and will not change its picture, role or instructions from here. '
+      + 'Kosmos can do both once it is started from Kosmos.';
   }
 }
 
