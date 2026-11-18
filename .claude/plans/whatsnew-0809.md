@@ -56,3 +56,6 @@ A person-facing change I missed in the merge list, or a reviewer showing a line 
 - WARNING fixed: the Files folder line said every agent; a connected agent (a folder you brought in) gets none (engine/dmfiles.js ensureFolder). Now "A new agent gets a Files folder", with a place to save a file for you the first time you ask.
 - NITs fixed: the kosmos msg notes line says it may answer still starting; the restart-wait notes line says recent (7 days).
 - NITs left: GPT-6's update timing (the plan's weakest premise); a Kosmos+ remote browser may still see one PDF page (the #8637 relay deferral, a fallback, not a false claim); the leftover-delete notes line does not name the pane-folder arm.
+### Review 3 (opus): converged, no BLOCKER/WARNING/CONVENTION, 2 NITs (1 fixed, 1 left)
+- NIT fixed: GPT-6 says Kosmos updates the Codex it installed (resolveBin flags only the managed copy; a hand-installed Codex or AGENT_WORKFORCE_CODEX_BIN is never upgraded).
+- NIT left: the restart-wait notes line says "an agent" though only Claude agents get the SessionStart reminder; it matches the #8548 line's wording (rank 114).
