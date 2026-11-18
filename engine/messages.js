@@ -2653,21 +2653,23 @@ function isPersonWord(word, personKeys) {
   return k.length >= 2 && personKeys instanceof Set && personKeys.has(k);
 }
 /* One header target's word for the person, by the rule personNamed describes, or null. unmatchedNote uses it too, so
-   a target is never both the person and a name no member has. */
+   a target is never both the person and a name no member has (unmatchedNote reads only the poster's own arrow header,
+   a subset of the headers personNamed reads). The first-word try is for a name, so it never takes `operator`
+   ("-> operator notes:" is not the person). */
 function personInTarget(part, personKeys) {
   const words = String(part || '').replace(/^@/, '').trim().split(/\s+/).filter(Boolean);
   if (!words.length) return null;
   const tries = [words.join(' '), words.slice(0, 2).join(' ')];
-  if (words.length === 1 || /^[a-z]/.test(words[1])) tries.push(words[0]);
+  if ((words.length === 1 || /^[a-z]/.test(words[1])) && require('./agentnames').nameKey(words[0]) !== 'operator') tries.push(words[0]);
   for (const w of tries) if (isPersonWord(w, personKeys)) return w.replace(/'s$/i, '');
   return null;
 }
-/* The word in an agent's post that names the person (one of personKeysNow's keys), or null. A target of the poster's
-   header (an arrow header, or a to/for header by the poster, as addressedMembers reads it) counts when the whole target is the name ("Dana", "Dana Reyes"), or when the name is its first word and
-   the next word is lower case ("Dana re the lease"): "Josh Smith" is someone else, not the person Josh Stone. An
-   @-word counts as a whole token. Text in backticks is skipped, as outsidersNote skips it; mentionedMembers does not
-   skip it for members, so `@kano` in code still wakes kano while `@Dana` in code does not buzz the person's phone.
-   Never throws. */
+/* The word in an agent's post that names the person (one of personKeysNow's keys), or null. A target of a header
+   (an arrow header, or a to/for header by the poster, as addressedMembers reads it) counts when the whole target is
+   the name ("Dana", "Dana Reyes"), or when the name is its first word and the next word is lower case ("Dana re the
+   lease"): "Josh Smith" is someone else, not the person Josh Stone. An @-word counts as a whole token. Text in
+   backticks is skipped, as outsidersNote skips it; mentionedMembers does not skip it for members, so `@kano` in code
+   still wakes kano while `@Dana` in code does not buzz the person's phone. Never throws. */
 function personNamed(cleaned, roster, from, raw, personKeys) {
   try {
     const isPerson = (word) => isPersonWord(word, personKeys);
@@ -3761,7 +3763,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     return { state, because: loopPausedHere ? require('./roomloop').senderNote(projectId, Date.now(), quietCtx || {}) : null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
       ...(closing ? { closing: true } : {}),   // #6920: landed as this member's one post through a held room
       /* #6254: whether this post answers one the PERSON wrote (operator), the one signal the phone-notify
-         `posted` seam needs from here (the route has no other way to know; kosmos#8699: a post that names them is namesPerson below).
+         `posted` seam needs from here (the route has no other way
+         to know; kosmos#8699: a post that names them is namesPerson, below).
          A boolean, never the posts' words. Only present on a reply, so an ordinary post's answer is unchanged. */
       ...(answered ? { repliesToPerson: answered.operator === true } : {}),
       /* kosmos#8699: whether this post names the person (an @-name or its own header), which the route turns into the

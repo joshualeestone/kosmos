@@ -16,7 +16,7 @@ enum Settings {
             switch self {
             case .needsYou: return "When an agent needs me"
             case .replied: return "When an agent answers me"
-            case .postedMention: return "When an agent replies to a post of mine"
+            case .postedMention: return "When an agent replies to me or names me in a room"
             case .ready: return "When work is ready for my check"
             case .postedRoom: return "When anyone posts in a project room I am on"
             }

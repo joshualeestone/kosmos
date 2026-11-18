@@ -106,7 +106,9 @@ test('an arrow header with no sender names the person, as it addresses a member'
 
 test('a room shared with another computer and the person\'s own post never name the person', () => {
   saveName('Dana Reyes');
-  assert.equal(send('@Dana shared room', FLEET(), { federated: true }).namesPerson, undefined);
+  const shared = send('@Dana shared room', FLEET(), { federated: true });
+  assert.equal(shared.namesPerson, undefined);
+  assert.doesNotMatch(String(shared.ambiguousNote || ''), /the person who runs this computer/);
   assert.equal(send('@Dana this room only', FLEET(), { federated: false }).namesPerson, true, 'CONTROL: unshared it does');
   const board = fleet.install(FLEET());
   try {
@@ -129,6 +131,7 @@ test('a reply that also names the person still says so', () => {
     const reply = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@Dana checked, it is fine', replyTo: askedId }, board.agents, MEMBERS);
     assert.equal(reply.repliesToPerson, false, 'PRE-CONTROL: it answers an agent, not the person');
     assert.equal(reply.namesPerson, true);
+    assert.equal(reply.ambiguousNote, undefined, 'a reply gets no sender note (kosmos#8566 gives replies none)');
   } finally { board.restore(); }
 });
 
@@ -136,6 +139,8 @@ test('the whole name and the room\'s own word for the person name them too; case
   saveName('Dana Reyes');
   assert.equal(send('@DanaReyes please look').namesPerson, true);
   assert.equal(send('@operator please look').namesPerson, true);
+  assert.equal(send('Leo -> operator notes: please look').namesPerson, undefined, 'operator as a noun in a header is not the person');
+  assert.equal(send('Leo -> operator: please look').namesPerson, true, 'CONTROL: operator as the whole target is');
   assert.equal(send('@dana please look').namesPerson, true);
 });
 
