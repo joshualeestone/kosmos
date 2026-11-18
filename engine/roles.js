@@ -303,7 +303,7 @@ const ROLES = [
       ]),
       'run `kosmos feedback day` first to see what you and your person said today',
       'and which tasks you changed. (If nothing has changed since your own last report,',
-      'which `kosmos feedback list` names, not another agent\'s,',
+      'which `kosmos feedback list --mine` lists, not another agent\'s,',
       'run `kosmos feedback write --unchanged` instead of repeating it.) The questions:',
       '',
       '1. What bugs did you hit today, or what did your user ask for that is not',

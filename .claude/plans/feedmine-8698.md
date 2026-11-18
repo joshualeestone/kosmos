@@ -12,8 +12,11 @@ shows the flag.
 - "Yours" is daysOf(writer(env)), the same rule listNote already counts with and `write` writes under, so the two
   never disagree. Rejected: refusing --mine when no agent is identified (as `feedback day` does), because then the
   unnamed writer's write and --mine would disagree.
-- Weakest premise: agents discover the flag through the note and help only; no agent instruction names
-  `feedback list` today, so there is nothing else to update.
+- The two agent instruction texts that named `feedback list` for finding your own days (engine/feedbacknudge.js
+  and engine/roles.js) now name `--mine`.
+- Weakest premise: an agent that already learned the plain `list` keeps reading the whole list until its
+  instructions are refreshed; the note's hint covers that gap.
+- No whats-new entry: this is an agent-facing flag, and the existing pool entry is about the person-facing note.
 
 ## Status
 - [x] engine mineLines/noneOfYoursWords + listNote hint
