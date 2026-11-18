@@ -93,6 +93,13 @@ function chk(ok, label, extra) {
         `${tag} the form opens with the task's words, the title focused`, JSON.stringify(opened));
       const inside = await page.evaluate(() => { const r = document.getElementById('tk-editform').getBoundingClientRect(); return r.right <= window.innerWidth + 1 && r.left >= -1; });
       chk(inside, `${tag} the form is inside the window`);
+      const head = await page.evaluate(() => ({ title: document.getElementById('tk-title').getClientRects().length > 0, detail: document.getElementById('tk-detail').getClientRects().length > 0 }));
+      chk(!head.title && !head.detail, `${tag} while the form is open the head's title and detail are hidden (the words show once)`, JSON.stringify(head));
+      const pair = await page.evaluate(() => { const s = document.getElementById('tk-edit-save').getBoundingClientRect(); const c = document.getElementById('tk-edit-cancel').getBoundingClientRect();
+        const done = document.getElementById('tk-done').getBoundingClientRect(); return { s: Math.round(s.height), c: Math.round(c.height), done: Math.round(done.height) }; });
+      chk(Math.abs(pair.s - pair.c) <= 1 && pair.s < pair.done, `${tag} Save and Cancel are one matched pair, smaller than Mark as done`, JSON.stringify(pair));
+      const between = await page.evaluate(() => getComputedStyle(document.querySelectorAll('#tk-editform .field')[1]).borderTopWidth);
+      chk(between === '0px', `${tag} no line between the two fields`, between);
       if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, `taskedit-form-${theme}-${width}.png`), fullPage: true }); }
 
       /* The five-second repaint does not wipe what is being typed. */
@@ -117,6 +124,8 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.getElementById('tk-title').textContent === 'Write the 0.8.10 notes', null, { timeout: 8000 }).catch(() => {});
       const saved = await page.evaluate(() => ({ title: document.getElementById('tk-title').textContent, detail: document.getElementById('tk-detail').innerText,
         form: document.getElementById('tk-editform').hidden, focus: document.activeElement && document.activeElement.id, msg: document.getElementById('tk-msg').textContent }));
+      const back = await page.evaluate(() => document.getElementById('tk-title').getClientRects().length > 0);
+      chk(back, `${tag} after Save the head's title shows again`);
       chk(saved.title === 'Write the 0.8.10 notes' && saved.form === true && saved.focus === 'tk-edit' && saved.msg === '',
         `${tag} Save changes the title, closes the form and gives focus back to the button`, JSON.stringify(saved));
       chk(/For the 0\.8\.10 release\.\s*\n\s*List the Windows fixes first\./.test(saved.detail) && stored(a).detail === 'For the 0.8.10 release.\nList the Windows fixes first.',
