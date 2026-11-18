@@ -6894,7 +6894,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    Done; Done to its right. Touch screens, and any coarse pointer (a touch laptop that reports hover). */
 #tk-subadd { margin-top: 10px; }
 @media (hover: none), (pointer: coarse) {
-  #pj-task-view :is(#tk-newpart, #tk-newpart-go, #tk-say, #tk-say-go, #tk-chats-reveal, #tk-due, #tk-hold, #tk-hold-choose, #tk-edit-save, #tk-edit-cancel) { min-height: 44px; }
+  #pj-task-view :is(#tk-newpart, #tk-newpart-go, #tk-say, #tk-say-go, #tk-chats-reveal, #tk-due, #tk-hold, #tk-hold-choose, #tk-edit-save, #tk-edit-cancel, #tk-edit) { min-height: 44px; }
   #pj-task-view .tkwho-pick { padding: 14px 0 14px 19px; margin: -14px 0 -14px -19px; min-width: 44px; box-sizing: border-box;
                               border-bottom: 1px solid transparent; text-decoration: underline dashed transparent; text-underline-offset: 3px; }   /* the base's 1px border kept, invisible, so the row keeps its height */
   #pj-task-view .tkwho-pick:is(:hover, :focus-visible) { text-decoration-color: var(--label-2); }
@@ -7002,10 +7002,10 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkedit { margin: 4px 0 16px; max-width: 640px; }
 .tkedit .tk-inp { width: 100%; box-sizing: border-box; }
 .tkedit .field { margin-bottom: 12px; }
-.tkedit .field + .field { border-top: 0; padding-top: 0; }   /* one line above the form, none between its fields (Mona Lisa) */
+.tkedit .field + .field { border-top: 0; padding-top: 0; }   /* one line above the form, none between its fields */
 .tkedit-acts { display: flex; gap: 8px; flex-wrap: wrap; }
-/* Save and Cancel as one matched pair at the task page's ordinary size (Send's and Add's); Mark as done stays the only
-   large button (Mona Lisa's review). */
+/* Save and Cancel as one matched pair at the task page's ordinary size (Send's and Add's): Mark as done stays the page's
+   only large button. */
 .tkedit-acts :is(.btn-quiet, .btn) { font-size: .875rem; padding: calc(.5em - 1px) calc(1.05em - 1px); }
 /* While the form is open the head's title and detail are hidden, so the words show once. A class on the page, which
    paintTaskPage never touches, so the five-second repaint cannot bring them back. */
@@ -74933,30 +74933,36 @@ function tkEditClose(focusBack) {
   const open = document.getElementById('tk-edit');
   if (!form || !open) return;
   form.hidden = true;
+  form.dataset.gen = String(Number(form.dataset.gen || 0) + 1);   // a save still on its way belongs to a form now gone
   open.hidden = false;
   document.getElementById('pj-task-view').classList.remove('tk-editing');
+  document.getElementById('tk-msg').textContent = '';   // a refusal shown for the form leaves with it
   if (focusBack) open.focus();
 }
 document.getElementById('tk-edit').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   const t = p && (p.tasks || []).find((x) => x.number === TK_OPEN);
   if (!t) { leaveTaskPage(); return; }
-  /* What the form opened with, kept on the form: Save compares against THIS, not the polled task, so a change an agent
-     made meanwhile is never sent back over (review 1). Line ends as a textarea gives them back. */
+  /* What the form opened with, kept on the form: Save compares against THIS, not the polled task, so a change made
+     elsewhere while the form is open is never sent back over. Line ends as a textarea gives them back. */
   const form = document.getElementById('tk-editform');
-  form.dataset.task = String(t.number);
   form.dataset.title = t.sentence || '';
   form.dataset.detail = (t.detail || '').replace(/\r\n?/g, '\n');
+  form.dataset.gen = String(Number(form.dataset.gen || 0) + 1);
   document.getElementById('tk-edit-title').value = form.dataset.title;
   document.getElementById('tk-edit-detail').value = form.dataset.detail;
   document.getElementById('tk-msg').textContent = '';
-  document.getElementById('tk-editform').hidden = false;
+  form.hidden = false;
   document.getElementById('tk-edit').hidden = true;
   document.getElementById('pj-task-view').classList.add('tk-editing');
   document.getElementById('tk-edit-title').focus();
 });
 document.getElementById('tk-edit-cancel').addEventListener('click', () => tkEditClose(true));
-document.getElementById('tk-editform').addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); tkEditClose(true); } });
+document.getElementById('tk-editform').addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Escape' || ev.isComposing || ev.keyCode === 229) return;   // an Escape that only ends an IME conversion
+  ev.preventDefault();
+  tkEditClose(true);
+});
 document.getElementById('tk-editform').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const p = pjById(PJ_CURRENT);
@@ -74972,24 +74978,31 @@ document.getElementById('tk-editform').addEventListener('submit', async (ev) => 
   if (title !== form.dataset.title.trim()) body.sentence = title;
   if (detail !== form.dataset.detail.trim()) body.detail = detail ? detail : null;
   if (!Object.keys(body).length) { tkEditClose(true); return; }
+  /* This save speaks only for the form it was sent from: not after another task opened, not after Cancel (each bumps
+     data-gen). The form is locked while it is on its way, so nothing typed is lost to a late answer. */
   const num = t.number;
-  const still = () => TK_OPEN === num;   // another task opened while this save was on its way: leave its page alone
-  const save = document.getElementById('tk-edit-save');
-  save.disabled = true;
+  const gen = form.dataset.gen;
+  const still = () => TK_OPEN === num && form.dataset.gen === gen && !form.hidden;
+  const lock = (on) => { for (const el of form.querySelectorAll('input, textarea, button')) el.disabled = on; };
+  lock(true);
+  let res; let out;
   try {
-    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + num + '/text', {
+    res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + num + '/text', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
-    const out = await res.json().catch(() => null);
-    if (!res.ok) { if (still()) { msg.textContent = (out && out.error) || 'we could not change that task'; titleIn.focus(); } return; }
-    if (still()) { msg.textContent = ''; tkEditClose(true); }
-    await pjReload();
-    if (still()) paintTaskActivity(num);   // the edit is in the task's activity
+    out = await res.json().catch(() => null);
   } catch {
+    lock(false);
     if (still()) { msg.textContent = 'we could not change that task'; titleIn.focus(); }
-  } finally {
-    save.disabled = false;
+    return;
   }
+  lock(false);
+  if (!res.ok) { if (still()) { msg.textContent = (out && out.error) || 'we could not change that task'; titleIn.focus(); } return; }
+  /* Saved. A failed reload is not a failed save: the next poll repaints. The form closes after the reload, so the head
+     never shows the old words for a moment. */
+  try { await pjReload(); } catch { /* the poll catches up */ }
+  if (still()) tkEditClose(true);
+  if (TK_OPEN === num) paintTaskActivity(num);   // the edit is in the task's activity
 });
 
 /* #768: set or clear the task's due date. Saves on `change` (a native date input
