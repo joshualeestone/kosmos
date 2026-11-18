@@ -232,6 +232,18 @@ test('once the person rewords an agent\'s task, its words are the person\'s: the
   assert.equal(after.status, 403, JSON.stringify(after.json));
 });
 
+test('an edit from the person\'s terminal (no agent token) marks the words as the person\'s: an agent cannot rewrite it after', async (t) => {
+  const pr = projects.create({ name: 'Edit terminal ' + Math.random().toString(36).slice(2) });
+  projects.mutate(pr.id, (p) => ({ ...p, agents: ['mara'] }));
+  const id = pr.id;
+  const n = tasks.create(id, { sentence: 'mara added this', made: { via: 'process', by: 'mara' } }).number;
+  const tok = agents(t);
+  assert.equal((await edit(id, n, { sentence: 'The person corrected it' }, { 'x-kosmos-board-token': BOARD })).status, 200);
+  const after = await edit(id, n, { sentence: 'mara puts it back' }, { 'x-kosmos-agent-token': tok.mara });
+  assert.equal(after.status, 403, 'an agent rewrote the person\'s terminal correction: ' + JSON.stringify(after.json));
+  assert.equal(tasks.byNumber(projects.readAll().find((x) => x.id === id), n).sentence, 'The person corrected it');
+});
+
 test('the answer says whether anything changed', async () => {
   const { id, n } = freshTask();
   assert.equal((await edit(id, n, { sentence: 'Fix login' })).json.changed, false, 'an edit to the same words said it changed');

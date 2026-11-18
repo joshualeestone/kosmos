@@ -108,6 +108,8 @@ const REFUSED = [
   [['--colour', 'red'], /--colour is not an option of kosmos task edit/],
   [['--title', '--clear-detail'], /--title needs a value, and --clear-detail is an option/],   // never a title of "--clear-detail"
   [['--detail', '--title', 'x'], /--detail needs a value, and --title is an option/],
+  [['--detail', ''], /--detail needs some words; to take the detail off, use --clear-detail/],   // never a silent clear
+  [['--detail', '\u0001\u0002'], /--detail needs some words/],
 ];
 const withoutPane = (b) => { const c = { ...b }; delete c.from_pane; return c; };
 

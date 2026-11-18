@@ -2097,6 +2097,8 @@ async function taskEdit(ctx, args) {
       if (i + 1 >= args.length) { ctx.err('--detail needs the new detail after it (or use --clear-detail). ' + TASK_EDIT_USAGE); return 2; }
       if (optValueRefused(ctx, '--detail', args[i + 1], TASK_EDIT_USAGE)) return 2;
       body.detail = String(args[i + 1]).replace(/[\t\r]/g, ' ').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
+      // As install/kosmos: an empty detail would clear it, so that takes --clear-detail.
+      if (!body.detail.trim()) { ctx.err('--detail needs some words; to take the detail off, use --clear-detail. ' + TASK_EDIT_USAGE); return 2; }
       hasDetail = true; i += 1;
     } else if (a === '--clear-detail') {
       if (clearDetail) { ctx.err('Say --clear-detail once. ' + TASK_EDIT_USAGE); return 2; }

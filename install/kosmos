@@ -6422,6 +6422,8 @@ cmd_task() {
             [ "$_ed" = 0 ] || { say "Say --detail once. $_eusage"; exit 2; }
             [ "$_ei" -lt "$#" ] || { say "--detail needs the new detail after it (or use --clear-detail). $_eusage"; exit 2; }
             _opt_value "task edit" --detail "$_ev" "$_eusage"
+            # An empty detail would clear it: say --clear-detail for that, so a detail is never cleared by accident.
+            [ -n "$(printf '%s' "$_ev" | LC_ALL=C tr -d '[:space:]\001-\037\177')" ] || { say "--detail needs some words; to take the detail off, use --clear-detail. $_eusage"; exit 2; }
             _ed=1; _ei=$((_ei + 2)) ;;
           --clear-detail) [ "$_ec" = 0 ] || { say "Say --clear-detail once. $_eusage"; exit 2; }; _ec=1; _ei=$((_ei + 1)) ;;
           --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task edit" "$_eusage" "$_ew" target ;;   # no -- escape here
@@ -7292,7 +7294,7 @@ cmd_task() {
       local _ebody=""
       [ "$_ehas_t" = 0 ] || _ebody="\"sentence\":\"$(_task_check_json "$_etitle")\""
       if [ "$_ehas_d" = 1 ]; then
-        local esc_edetail; esc_edetail=$(printf '%s' "$_edetail" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
+        local esc_edetail; esc_edetail=$(printf '%s' "$_edetail" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r' '  ' | LC_ALL=C sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
         _ebody="${_ebody:+$_ebody,}\"detail\":\"$esc_edetail\""
       elif [ "$_eclear" = 1 ]; then _ebody="${_ebody:+$_ebody,}\"detail\":null"; fi
       local esc_pane; esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
@@ -7306,7 +7308,7 @@ cmd_task() {
       case "$body" in
         '{"task":'*)
           case "$body" in
-            *'"changed":false}') say "Task $num on ${project:-the project} already reads that way, so nothing changed." ;;
+            *'"changed":false'*) say "Task $num on ${project:-the project} already reads that way, so nothing changed." ;;
             *) say "Changed task $num on ${project:-the project}. See it with: kosmos task show ${project:-<project-id>} $num" ;;
           esac ;;
         '{"error":'*)

@@ -1714,7 +1714,9 @@ function setText(projectId, n, { sentence, detail } = {}, { by = null, person = 
       ...(nextDetail !== undefined ? { detail: nextDetail } : {}),
     };
     const reworded = (nextSentence !== undefined && nextSentence !== before.sentence) || (nextDetail !== undefined && nextDetail !== before.detail);
-    if (person && reworded) changed.textByPerson = true;
+    // The screen's edit, or an unnamed caller's (the person's terminal is one, which is why it is let through above), marks
+    // the words as the person's, so an identified agent cannot then rewrite the correction.
+    if ((person || !doneWhenSetter(by)) && reworded) changed.textByPerson = true;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   const titleChanged = nextSentence !== undefined && nextSentence !== before.sentence;
