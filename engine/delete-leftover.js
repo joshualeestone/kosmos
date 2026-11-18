@@ -1813,11 +1813,15 @@ async function foldersOffThread(fresh = false) {
     before, so plan() never reads tmux on the board's thread (kosmos#8644 item 1). */
 async function foldersIfNeeded(name, opts, fresh = false) {
   let there = true;
-  if (((opts && opts.platform) || process.platform) === 'win32') {
+  const win = ((opts && opts.platform) || process.platform) === 'win32';
+  if (win) {
     // The same folder plan() resolves (realCaseName, as there), so the two checks cannot disagree on the name.
     try { there = fs.existsSync(create.workerDir(realCaseName(create.cleanName(name), 'win32'))); } catch { there = true; }   // unsure: read
   }
-  return there ? { folders: await foldersOffThread(fresh) } : {};
+  if (there) return { folders: await foldersOffThread(fresh) };
+  /* Windows, no folder: a refusal is handed in, not nothing. plan() reads it only if the folder appeared in between, and
+     then refuses ("try again") rather than run the 15 s process listing on the board's thread. */
+  return win ? { folders: new Error('the agent\'s folder appeared while the plan was being made') } : {};
 }
 /** del, with the Windows drive probe and Recycle Bin moves run without holding the board. One at a time per name: a
     second delete of the same agent while one runs is refused, since its steps would interleave. */
