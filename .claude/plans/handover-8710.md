@@ -99,6 +99,12 @@ fingerprint of the hand-over key, for the admin to compare by eye. Not compared,
 - Keys built by the coordinator from the AUTHENTICATED Mac and the hand-over id: `handover/<org>/<handover id>/...`,
   never from the request. A's Mac gets PUTs only while its hand-over is `packing`; B's Mac gets GETs only while
   `packed` or `receiving`, and only for its own hand-over.
+- **No object lock (decided 16:0x CST 11-18).** backup.rs's `presign_put` locks every object COMPLIANCE until a date,
+  which needs a bucket made with Object Lock and makes the pack undeletable. A pack is transient, so hand-over PUTs are
+  signed without the lock headers (still `If-None-Match: *`, write-once), the coordinator deletes the pack when B
+  confirms, and a 7-day lifecycle rule is the backstop. So the bucket asked of Josh is a plain private one. Rejected:
+  the locked backup bucket (a company's backups and a hand-over's pack in one place, and a pack kept for 30 days).
+  Weakest premise: that the delete credential on the coordinator is acceptable; backups deliberately hold PutObject only.
 - The bucket is NOT needed to build or test this: backup.rs's tests run against a loopback store (`dev_endpoint`).
   Only switching it on in prod waits on the Kosmos-owned bucket (asked of Josh 11-18 12:56 via Splinter).
 - Board side (slice 3) drives `engine/backuprun.js` `runBackup` with: the member key = B's one-time public key, the
