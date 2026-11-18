@@ -88,13 +88,55 @@ test('CONTROL: the same header with no name saved keeps the kosmos#8566 sentence
   assert.match(String(sent.ambiguousNote), /^Dana is not the name of any member of this project, so this post woke no one by it/);
 });
 
+test('one header target is never both the person and a name no member has', () => {
+  saveName('Dana Reyes');
+  for (const text of ["Leo -> Dana's desk: please look", 'Leo -> Dana re the lease: please look', 'Leo -> Dana Reyes: please look']) {
+    const sent = send(text);
+    assert.equal(sent.namesPerson, true, text);
+    assert.match(String(sent.ambiguousNote), /^This post names Dana( Reyes)?, the person who runs this computer, who sees every post here; it woke no agent\.$/, text);
+    assert.doesNotMatch(String(sent.ambiguousNote), /is not the name of any member/, text);
+  }
+});
+
+test('an arrow header with no sender names the person, as it addresses a member', () => {
+  saveName('Dana Reyes');
+  assert.equal(send('-> Dana: please look').namesPerson, true);
+  assert.equal(send('-> kano: please look').namesPerson, undefined, 'CONTROL: to a member it does not');
+});
+
+test('a room shared with another computer and the person\'s own post never name the person', () => {
+  saveName('Dana Reyes');
+  assert.equal(send('@Dana shared room', FLEET(), { federated: true }).namesPerson, undefined);
+  assert.equal(send('@Dana this room only', FLEET(), { federated: false }).namesPerson, true, 'CONTROL: unshared it does');
+  const board = fleet.install(FLEET());
+  try {
+    messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    arm();
+    assert.equal(messages.sendPost({ operator: true, project: PROJECT, text: '@Dana note to self' }, board.agents, MEMBERS).namesPerson, undefined);
+  } finally { board.restore(); }
+});
+
+test('a reply that also names the person still says so', () => {
+  saveName('Dana Reyes');
+  const board = fleet.install(FLEET());
+  try {
+    messages.setRunner(() => ({ ok: true, session: 'kano-discord' }));
+    arm();
+    const asked = messages.sendPost({ fromPane: '%8', project: PROJECT, text: 'Kano -> Leo: can you check?' }, board.agents, MEMBERS);
+    assert.equal(asked.state, chat.DELIVERY.PLACED, asked.because || '');
+    const askedId = messages.readLog().filter((m) => m && m.kind === 'post').pop().id;
+    messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    const reply = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@Dana checked, it is fine', replyTo: askedId }, board.agents, MEMBERS);
+    assert.equal(reply.repliesToPerson, false, 'PRE-CONTROL: it answers an agent, not the person');
+    assert.equal(reply.namesPerson, true);
+  } finally { board.restore(); }
+});
+
 test('the whole name and the room\'s own word for the person name them too; case and a possessive do not matter', () => {
   saveName('Dana Reyes');
   assert.equal(send('@DanaReyes please look').namesPerson, true);
   assert.equal(send('@operator please look').namesPerson, true);
   assert.equal(send('@dana please look').namesPerson, true);
-  assert.equal(send("Leo -> Dana's desk: please look").namesPerson, true);
-  assert.equal(send('Leo -> Dana re the lease: please look').namesPerson, true);
 });
 
 test('CONTROL: a header to a different person who shares the first name does not name the person', () => {

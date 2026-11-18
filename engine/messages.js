@@ -2594,7 +2594,7 @@ function unmatchedNote(cleaned, recipients, roster, from, raw, personKeys) {
       const bare = part.replace(/^@/, '').trim();
       if (!/^[A-Za-z][A-Za-z.'-]*(?: [A-Za-z][A-Za-z.'-]*){0,2}$/.test(bare) || bare.split(' ').some(mayMean)) continue;
       if (outsiderNamed(nameKey(bare.replace(/'s$/i, '')), outside, roster)) continue;   // the outsider lookup outsidersNote makes
-      if (personKeys instanceof Set && personKeys.has(nameKey(bare.replace(/'s$/i, '')))) continue;   // kosmos#8699: the person, said by personNote
+      if (personInTarget(bare, personKeys)) continue;   // kosmos#8699: the person, said by personNote
       // kosmos#8569: said as a name, so a trailing possessive goes ("Josh's" is Josh), and one name in two spellings once.
       const shown = bare.replace(/'s$/i, '').slice(0, 60);
       const key = nameKey(shown);
@@ -2649,23 +2649,34 @@ function personKeysNow(roster) {
 }
 
 /* The word in an agent's post that names the person (one of personKeysNow's keys), or null. A target of the poster's
-   own header counts when the whole target is the name ("Dana", "Dana Reyes"), or when the name is its first word and
+   header (an arrow header, or a to/for header by the poster, as addressedMembers reads it) counts when the whole target is the name ("Dana", "Dana Reyes"), or when the name is its first word and
    the next word is lower case ("Dana re the lease"): "Josh Smith" is someone else, not the person Josh Stone. An
    @-word counts as a whole token. Text in backticks is skipped, as outsidersNote skips it; mentionedMembers does not
    skip it for members, so `@kano` in code still wakes kano while `@Dana` in code does not buzz the person's phone.
    Never throws. */
+function isPersonWord(word, personKeys) {
+  const k = require('./agentnames').nameKey(String(word || '').replace(/'s$/i, ''));
+  return k.length >= 2 && personKeys instanceof Set && personKeys.has(k);
+}
+/* One header target's word for the person, by the rule personNamed describes, or null. unmatchedNote uses it too, so
+   a target is never both the person and a name no member has. */
+function personInTarget(part, personKeys) {
+  const words = String(part || '').replace(/^@/, '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  const tries = [words.join(' '), words.slice(0, 2).join(' ')];
+  if (words.length === 1 || /^[a-z]/.test(words[1])) tries.push(words[0]);
+  for (const w of tries) if (isPersonWord(w, personKeys)) return w.replace(/'s$/i, '');
+  return null;
+}
 function personNamed(cleaned, roster, from, raw, personKeys) {
   try {
-    const nameKey = require('./agentnames').nameKey;
-    const isPerson = (word) => { const k = nameKey(String(word || '').replace(/'s$/i, '')); return k.length >= 2 && personKeys.has(k); };
+    const isPerson = (word) => isPersonWord(word, personKeys);
     const poster = from === undefined || from === null ? [] : [String(from)];
-    const head = postHeader(typeof raw === 'string' ? raw : String(cleaned || '')).find((h) => nameResolves(h.sender, poster, roster).length);
+    // The header addressedMembers reads: an arrow header, with or without a sender, or a to/for header by the poster.
+    const head = postHeader(typeof raw === 'string' ? raw : String(cleaned || '')).find((h) => !h.word || nameResolves(h.sender, poster, roster).length);
     for (const part of head ? head.targets : []) {
-      const words = part.replace(/^@/, '').trim().split(/\s+/).filter(Boolean);
-      if (!words.length) continue;
-      const tries = [words.join(' '), words.slice(0, 2).join(' ')];
-      if (words.length === 1 || /^[a-z]/.test(words[1])) tries.push(words[0]);
-      for (const w of tries) if (isPerson(w)) return w.replace(/'s$/i, '');
+      const w = personInTarget(part, personKeys);
+      if (w) return w;
     }
     for (const m of String(cleaned || '').replace(/`[^`]*`/g, ' ').matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
       const word = m[2].replace(/[._-]+$/, '');

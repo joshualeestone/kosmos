@@ -16,7 +16,7 @@ Card: kosmos#8699 (agent feedback 11-17). Night shift, PigeonPete.
 - A word naming ANY agent card on this computer is the agent's, never the person's (member or not).
 - Not for the person's own post, not in a federated room (the name may be the other computer's person).
 - For a post that woke no member, the #8566 note skips the person's name and personNote says it named the
-  person, and only what is true either way (they see every post; the phone is told when notices are on).
+  person (see review iteration 1: it says nothing about the phone).
 
 ## Rejected
 - Waking the person through needs_you: a room post is not a blocked agent, and needs_you has its own
@@ -39,3 +39,9 @@ Card: kosmos#8699 (agent feedback 11-17). Night shift, PigeonPete.
   postedMention off and postedRoom on gets nothing for it (replies to the person already work this way, #6254).
 - Known and kept: the outbox drain sends no phone notice for a post that names the person, as it sends none for
   a reply to them; only the live /api/post route notifies.
+
+## Review iteration 3
+- One rule (personInTarget) decides a header target for both personNamed and unmatchedNote.
+- The header read is addressedMembers' (an arrow header with or without a sender, or a to/for header by the poster).
+- Known and kept: the /api/post wiring is pinned by source (server.phonenotify-718), the tradeoff #6254 records for
+  that route; the posted -> postedMention gating itself is proven behaviourally in that file.
