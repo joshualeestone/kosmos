@@ -126,7 +126,7 @@ function stubScheduler(dir) {
        such as an /End that fails); one that returns nothing leaves the call to the stand-in. */
     for (const w of [...watchers]) {
       const said = w(a.slice());
-      if (said && typeof said === 'object') return { ok: Boolean(said.ok), out: String(said.out || '') };
+      if (said && typeof said === 'object') return { ok: Boolean(said.ok), code: said.code, out: String(said.out || '') };
     }
     try { return answer(a); } catch (e) { return { ok: false, out: `ERROR: ${(e && e.message) || 'the stand-in Task Scheduler could not read the task'}` }; }
   };
