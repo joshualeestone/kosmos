@@ -26,6 +26,13 @@ Done when: a 400-character evidence line is accepted and shows whole on the task
   `kosmos task show` (engine/tasklist.js, both CLIs), the activity row (taskactphrase.js and its page twin), both
   CLIs' `--moved-to` (seven words exactly, unmet only, digits only), and the agents' rules (doctrine 51).
 
+- **A refused check is named** (feedback 11-17 18:07, via Splinter): `kosmos task check` reports ONE check per command,
+  so "all-or-nothing" across an agent's several commands is not something the CLI can hold. What failed was that the
+  refusal said only "that check", so a long line lost one check while the others went through unnoticed. Both CLIs now
+  say "Kosmos did not report check N on task T: <why>. Nothing was recorded for check N; any other check you reported
+  stands." and the usage line says one check per command, one line, up to 1000 characters. Rejected: a multi-check
+  form validated as a whole (new surface for a problem the message solves).
+
 ## Weakest premise
 That the moved-here list belongs in the checks row. On a task with no checks of its own the row's label becomes
 "Moved here from other tasks" (review 2), so it never reads as an empty "Done when".

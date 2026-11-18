@@ -2126,7 +2126,7 @@ async function taskDoneWhen(ctx, args) {
 
 /* #8464 item 2, as install/kosmos cmd_task check: how one done-when check went, in the agent's own words. The agent
    token names who reported it; the board refuses a caller it cannot name. */
-const CHECK_USAGE = 'Usage: kosmos task check <project-id> <task-number> <check-number> met|unmet "<how you checked it>" [--moved-to <task-number>]';
+const CHECK_USAGE = 'Usage: kosmos task check <project-id> <task-number> <check-number> met|unmet "<how you checked it>" [--moved-to <task-number>]   (one check per command; how you checked it is one line, up to 1000 characters)';
 async function taskCheck(ctx, args) {
   // #8668, as install/kosmos: five words, or seven ending --moved-to <task-number> on an unmet check.
   if (!(args.length === 5 || (args.length === 7 && args[5] === '--moved-to')) || !args[0]) { ctx.err(CHECK_USAGE); return 2; }
@@ -2154,7 +2154,8 @@ async function taskCheck(ctx, args) {
       : 'Reported check ' + which + ' on task ' + num + ' on ' + project + ' as ' + word + (movedTo !== null ? ', moved to task ' + movedTo : '') + '. It reads as your word, not a verification. See them with: kosmos task show ' + project + ' ' + num);
     return 0;
   }
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not report that check: ' + ctx.refusedBy(r) + '.'); return 1; }
+  // #8668, as install/kosmos: name the check, and say the others stand.
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos did not report check ' + which + ' on task ' + num + ': ' + ctx.refusedBy(r) + '. Nothing was recorded for check ' + which + '; any other check you reported stands. Fix this one and run it again.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when reporting that check.');
   return 1;
 }

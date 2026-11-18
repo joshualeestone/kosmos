@@ -6404,7 +6404,7 @@ cmd_task() {
     check)
       # #8464 item 2: <project> <task-number> <check-number> met|unmet "<how>", exactly five, checked before the board.
       # #8668: or seven, ending --moved-to <task-number>, on an unmet check only (the board refuses the rest too).
-      local _kusage="Usage: kosmos task check <project-id> <task-number> <check-number> met|unmet \"<how you checked it>\" [--moved-to <task-number>]"
+      local _kusage="Usage: kosmos task check <project-id> <task-number> <check-number> met|unmet \"<how you checked it>\" [--moved-to <task-number>]   (one check per command; how you checked it is one line, up to 1000 characters)"
       { [ "$#" = 5 ] || { [ "$#" = 7 ] && [ "${6:-}" = "--moved-to" ]; }; } || { say "$_kusage"; exit 2; }
       [ -n "${1:-}" ] || { say "$_kusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
@@ -7281,7 +7281,9 @@ cmd_task() {
             *) say "Reported check $_kn on task $num on ${project:-the project} as $_kword${_kto:+, moved to task $_kto}. It reads as your word, not a verification. See them with: kosmos task show ${project:-<project-id>} $num" ;; esac ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
-          say "Kosmos could not report that check: ${because:-it did not say why}."; exit 1 ;;
+          # #8668: name the check. Agents report several checks as several commands, so a refusal that says only "that
+          # check" reads as the whole set failing, or is missed while the others go through.
+          say "Kosmos did not report check $_kn on task $num: ${because:-it did not say why}. Nothing was recorded for check $_kn; any other check you reported stands. Fix this one and run it again."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when reporting that check."; exit 1 ;;
       esac
       ;;

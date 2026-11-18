@@ -87,7 +87,7 @@ function sh(port, home, args) {
   }));
 }
 
-async function win(argv) {
+async function win(argv, refusal) {   // refusal: { status, error } answers every POST, as the board refuses
   const calls = []; const out = []; const err = [];
   const code = await wincli.main(argv, {
     env: { KOSMOS_AGENT_TOKEN: TOKEN },
@@ -96,6 +96,7 @@ async function win(argv) {
     fetch: async (url, init) => {
       const route = url.replace('http://127.0.0.1:1', '').split('?')[0];
       calls.push({ route, method: init.method, body: init.body ? JSON.parse(init.body) : undefined, agent: init.headers['x-kosmos-agent-token'] });
+      if (refusal && init.method === 'POST') return { status: refusal.status, text: async () => JSON.stringify({ error: refusal.error }) };
       const body = init.method === 'GET' ? LISTED : { task: { number: 1, sentence: 'x', who: null } };
       return { status: 200, text: async () => JSON.stringify(body) };
     },
@@ -178,8 +179,28 @@ test('install/kosmos prints the board\'s refusal whole, and exits 1', { skip: SK
   await withStub(async (port) => {
     const r = await sh(port, home, ['task', 'check', 'p5152', '3', '3', 'met', 'x']);
     assert.equal(r.code, 1);
-    assert.match(r.out, new RegExp('Kosmos could not report that check: ' + error));
+    assert.match(r.out, new RegExp('Kosmos did not report check 3 on task 3: ' + error));
   }, { status: 409, error });
+});
+
+/* #8668 (feedback 11-17): agents report several checks as several commands, so a refusal must name WHICH check failed
+   and say the others stand; before, it said only "that check" and a long line silently lost one check. */
+test('a refused check is named by number and task, on both CLIs, and the usage line gives the limit', { skip: SKIP_POSIX_SHELL }, async () => {
+  const home = makeHome();
+  const error = 'keep how you checked it to 1000 characters or fewer';
+  const args = ['task', 'check', 'p5152', '3', '2', 'met', 'x'.repeat(1001)];
+  const named = /Kosmos did not report check 2 on task 3: keep how you checked it to 1000 characters or fewer\. Nothing was recorded for check 2; any other check you reported stands/;
+  await withStub(async (port) => {
+    const r = await sh(port, home, args);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, named);
+  }, { status: 400, error });
+  const w = await win(args, { status: 400, error });
+  assert.equal(w.code, 1, w.out);
+  assert.match(w.out, named);
+  for (const out of [(await sh(0, home, ['task', 'check', 'p5152'])).out, (await win(['task', 'check', 'p5152'])).out]) {
+    assert.match(out, /one check per command; how you checked it is one line, up to 1000 characters/);
+  }
 });
 
 test('Windows CLI: task check sends the same bodies, and refuses the same arguments before any request', async () => {
