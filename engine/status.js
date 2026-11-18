@@ -8189,7 +8189,9 @@ function setPaneFolderSource(fn) { paneFolderSource = typeof fn === 'function' ?
    started with the agent's folder in its arguments, or from a program inside it, counts as working there.
    NOT COVERED: a process whose only tie to the folder is its WORKING folder. Windows does not let one process read
    another's working folder without native code, so a tool started from inside the folder with no path in its arguments
-   is not seen. A process this board may not read (an elevated or another user's) has no path to compare. */
+   is not seen. A process this board may not read (an elevated or another user's) has no path to compare. A path named
+   in its UNC spelling (a share's \\server\share form) is not read as one, so a workers folder on a mapped drive named that way is
+   not matched. */
 let win32FolderSource = null;
 function setWin32FolderSource(src) { win32FolderSource = src === true || typeof src === 'function' ? src : null; }
 const WIN32_FOLDERS_OK = 'KOSMOS-FOLDERS-READ-OK';
@@ -8208,23 +8210,37 @@ function win32Powershell() {
    not a real path only fails to match; extra candidates can only make the check refuse more, the safe side. */
 function win32PathsIn(cmd) {
   const out = [];
-  for (const piece of String(cmd || '').split(/(?=[A-Za-z]:[\\/])/)) {
-    if (!/^[A-Za-z]:[\\/]/.test(piece)) continue;
+  const s = String(cmd || '');
+  const starts = [...s.matchAll(/[A-Za-z]:[\\/]/g)].map((m) => m.index);
+  starts.forEach((at, k) => {
+    const piece = s.slice(at, k + 1 < starts.length ? starts[k + 1] : s.length);
     const p = piece.split('"')[0].replace(/\s+$/, '');
-    if (p.length <= 3) continue;
-    // Bounded: cuts only within the first 1024 characters (a real folder path is far shorter), so a command line of
-    // thousands of characters cannot make the candidates grow with its square.
-    for (let i = 3, cuts = 0; i < Math.min(p.length, 1024) && cuts < 64; i++) {
-      if (/[\s;,']/.test(p[i])) { const cut = p.slice(0, i).replace(/[\s;,']+$/, ''); if (cut.length > 3) { out.push(cut); cuts += 1; } }
+    if (p.length <= 3) return;
+    /* A QUOTED path ("C:\...") ends at its closing quote, which is known: no cuts. Only an unquoted one is cut.
+       Bounded: cuts only within the first 1024 characters (a real folder path is far shorter), 64 at most, so a command
+       line of thousands of characters cannot make the candidates grow with its square. */
+    if (s[at - 1] !== '"') {
+      for (let i = 3, cuts = 0; i < Math.min(p.length, 1024) && cuts < 64; i++) {
+        if (/[\s;,']/.test(p[i])) { const cut = p.slice(0, i).replace(/[\s;,']+$/, ''); if (cut.length > 3) { out.push(cut); cuts += 1; } }
+      }
     }
     out.push(p);
-  }
+  });
   return [...new Set(out)];
 }
 /* An 8.3 short spelling (JOSHU~1) never matches a folder compared by its long name; resolved by its longest part that
-   exists, so a tool started through the short name still counts. */
+   exists, so a tool started through the short name still counts. ONLY on the drive Kosmos keeps its agents on (the
+   workers folder's, else the home folder's): a disk look runs on the board's thread, and a path on a network drive that
+   has gone away would hold it for the whole SMB timeout (kosmos#7835 fixed that stall for the drive probe). A short
+   spelling on any other drive cannot be inside the agent's folder anyway. */
+function win32HomeDrive() {
+  const d = String(process.env.AGENT_WORKFORCE_WORKERS || require('node:os').homedir() || '');
+  return /^[A-Za-z]:/.test(d) ? d.slice(0, 2).toLowerCase() : null;
+}
 function win32LongForm(p, cache) {
   if (!p.includes('~')) return null;
+  const drive = win32HomeDrive();
+  if (!drive || String(p).slice(0, 2).toLowerCase() !== drive) return null;
   let head = p, tail = '';
   for (let i = 0; i < 12 && head.length > 3; i++) {
     let real;

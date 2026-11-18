@@ -63,6 +63,12 @@ test('win32PathsIn: every Windows path a command line names, quoted or not, with
   assert.deepEqual(status.win32PathsIn(''), []);
 });
 
+test('win32PathsIn: a QUOTED path ends at its quote, so a folder with a space is not cut to a sibling\'s name', () => {
+  const got = status.win32PathsIn('tool.exe "C:\\w\\agent1 copy\\x" -v');
+  assert.ok(got.includes('C:\\w\\agent1 copy\\x'));
+  assert.equal(got.includes('C:\\w\\agent1'), false, 'a quoted "agent1 copy" was cut to agent1');
+});
+
 test('win32PathsIn: an UNQUOTED path with more arguments after it still gives the bare path (the usual shape)', () => {
   for (const cmd of ['tool.exe --dir C:\\w\\agent1 --verbose', 'x C:\\w\\agent1;D:\\other', 'x C:\\w\\agent1, y', "x 'C:\\w\\agent1' y"]) {
     const got = status.win32PathsIn(cmd);

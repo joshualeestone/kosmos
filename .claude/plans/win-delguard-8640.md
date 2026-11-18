@@ -32,6 +32,10 @@
   a delete reads again after the drive probe so its re-plan sees the processes of its own moment. A living agent with a
   folder still costs one shared off-thread read (only the plan knows it is living). Candidates per path are capped
   (64 cuts within 1024 characters).
+- Review 3: an 8.3 lookup runs only on the drive Kosmos keeps its agents on (a gone network drive cannot stall the
+  board); the folder-exists gate applies on Windows only, so the Mac and Linux read is unchanged; a quoted path is not
+  cut; the delete's last read never joins a page's earlier one. CI: every test file with "win32" in its name runs in
+  the Windows job (tools/windows-tests.js), so this file's Windows arms run there; the Mac job runs its parser arms.
 - Unquoted paths (review 1): where an unquoted path ends cannot be known, so each candidate is also cut at every space,
   `;`, `,` and `'`; an extra candidate can only make the check refuse more (the safe side).
 - Weakest part: the working-folder gap above. A Kosmos-started agent is already caught by the roster (by name), so the
@@ -39,7 +43,7 @@
 - Would change my mind: a cheap, safe way to read another process's working folder on Windows.
 
 ## Validation
-- `engine/delete-leftover.win32folders-8640.test.js` (14 tests, including a live process that names the folder, sync
+- `engine/delete-leftover.win32folders-8640.test.js` (15 tests, including a live process that names the folder, sync
   and async).
 - The delete-leftover and status suites plus the policy tests. On a Windows host, 17 tests in
   delete-leftover.offthread-7835, delete-leftover.running-8640, status.config-dir-1523, status.heldq-7915, status.snapshotunheld-7693 and status.tmux-bin fail with
