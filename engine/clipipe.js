@@ -8,8 +8,8 @@
  *
  * install() gives stdout and stderr one listener: a closed reader exits with 141 (128 + SIGPIPE, what a shell reports
  * for a program a closed pipe stopped); any other stream error is thrown again, so it still fails as loudly as before.
- * A closed reader is CLOSED_READER_CODES: EPIPE on a pipe, and ENOTCONN or ECONNRESET when stdio is a socket (Node's
- * own child stdio on macOS is; kosmos#8714 saw `write ENOTCONN` there, macOS CI run 44377549059).
+ * A closed reader is CLOSED_READER_CODES: EPIPE, and ENOTCONN or ECONNRESET, which a socket-backed stdout can raise
+ * instead (kosmos#8714: `write ENOTCONN` in macOS CI run 44377549059, from a child Node spawned).
  * Every node install/kosmos runs is guarded this way except the board (below), not only one-shot verbs; no engine
  * file has its own stdout/stderr 'error' handler for this listener to pre-empt. The exit is immediate (no async
  * cleanup, no flush): when stderr's reader is the one that closed, a note the verb was about to write is lost with
