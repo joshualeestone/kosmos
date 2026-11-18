@@ -374,7 +374,7 @@ struct ChatView: View {
                     }
                 } label: {
                     Group {
-                        if starred { StarredStar() } else { Image(systemName: "star").foregroundColor(Palette.secondary) }
+                        if starred { StarredStar(burst: client.burst(for: agent.session)) } else { Image(systemName: "star").foregroundColor(Palette.secondary) }
                     }
                     .font(.system(size: 20))
                     .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())

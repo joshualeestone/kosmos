@@ -433,7 +433,7 @@ struct AgentsView: View {
                     } label: {
                         // A picture the agent no longer has is not shown, whatever was fetched before.
                         AgentRow(agent: agent, picture: agent.hasAvatar ? client.pictures[agent.session].flatMap(UIImage.init(data:)) : nil, stale: stale,
-                                 starred: client.isStarred(agent.session))
+                                 starred: client.isStarred(agent.session), starBurst: client.burst(for: agent.session))
                     }
                     .buttonStyle(.plain)
                     // kosmos#7034: star or unstar from the row: a swipe to the right (VoiceOver offers it as an action), or a long press.
@@ -637,6 +637,8 @@ struct AgentRow: View {
     let stale: Bool
     // kosmos#7034: starred on this computer (the board's star), shown as a small filled star after the name.
     var starred = false
+    // kosmos#8706: the press that just starred this agent, so its star plays the burst as the row shows it.
+    var starBurst: Int? = nil
     @Environment(\.dynamicTypeSize) private var typeSize
 
     // kosmos#7342: the pill's word (Issue on a red pill that would say Idle or Working); a list not updating keeps the plain
@@ -682,7 +684,7 @@ struct AgentRow: View {
     private var name: some View {
         HStack(spacing: 4) {
             Text(agent.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(large ? nil : 1)
-            if starred { StarredStar().font(.caption2).accessibilityHidden(true) }
+            if starred { StarredStar(burst: starBurst).font(.caption2).accessibilityHidden(true) }
         }
     }
 
@@ -836,8 +838,8 @@ enum Palette {
     // kosmos#7034: the board's star (.astar.on): its deep gold in light (#9c741b, which holds 3:1 on the card where the
     // bright gold does not), its bright gold in dark (--gold-bright).
     static let starGold = pair(0x9c741b, 0xe3b341)
-    // kosmos#7529 (Josh 10-28: "still a dingy brown"; Mona Lisa's spec): a starred star is the bright gold filled, under a
-    // thin starGold outline, as the board's .astar.on draws it. In dark both are the bright gold, so it looks as before.
+    // kosmos#7529 (Josh 10-28: "still a dingy brown"): a starred star is the bright gold filled. kosmos#8706: with no
+    // outline, as the board's .astar.on after #8705; starGold is its edge only under Increase Contrast (StarredStar).
     static let starFill = pair(0xe3b341, 0xe3b341)
     // kosmos#7419: a reaction already the person's, in the long-press sheet: a warm fill under the gold ring (Mona Lisa).
     static let mineReaction = pair(0xfbf1d9, 0x3a2f12)
@@ -1037,12 +1039,62 @@ struct StatusPill: View {
 }
 
 // kosmos#7529: the starred star, everywhere one is drawn filled (the chat's header, beside a name on the Agents list).
-// The font comes from where it is used, so the fill and its outline are one symbol size.
+// The font comes from where it is used, so the fill and any outline are one symbol size.
+// kosmos#8706 (Josh 11-18, matching the board's #8705): the brightest gold with no outline. The darker edge comes back
+// only under Increase Contrast, as the board's does under prefers-contrast: more. `burst` is the press that just starred
+// this agent (BoardClient.burst(for:)): the star pops and six gold sparks fly out once, with the board's timings and
+// spark positions, and never under Reduce Motion (the star just fills).
 struct StarredStar: View {
+    var burst: Int? = nil
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var played: Int?
+    @State private var popped = false
+    @State private var sparking = false
+    @State private var flown = false
+    // The board's six sparks (@keyframes astar-spark), in points.
+    private static let sparkEnds: [CGSize] = [CGSize(width: 0, height: -16), CGSize(width: 14, height: -8), CGSize(width: 14, height: 8),
+                                              CGSize(width: 0, height: 16), CGSize(width: -14, height: 8), CGSize(width: -14, height: -8)]
+
     var body: some View {
         ZStack {
             Image(systemName: "star.fill").foregroundColor(Palette.starFill)
-            Image(systemName: "star").foregroundColor(Palette.starGold)
+            if contrast == .increased { Image(systemName: "star").foregroundColor(Palette.starGold) }
+        }
+        .scaleEffect(popped ? 1.3 : 1)
+        .overlay(sparks.accessibilityHidden(true))
+        .onAppear { play(burst) }
+        .onChange(of: burst) { play($0) }
+    }
+
+    @ViewBuilder private var sparks: some View {
+        if sparking {
+            ZStack {
+                ForEach(0..<Self.sparkEnds.count, id: \.self) { i in
+                    Circle().fill(Palette.starFill).frame(width: 3, height: 3)
+                        .offset(flown ? Self.sparkEnds[i] : .zero)
+                        .opacity(flown ? 0 : 1)
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    // The board: the pop is .42 s, peaking at 40% (1.3x); the sparks fly for .55 s, easing out.
+    private func play(_ id: Int?) {
+        guard let id, id != played, !reduceMotion else { return }
+        played = id
+        flown = false
+        sparking = true
+        withAnimation(.easeOut(duration: 0.17)) { popped = true }
+        withAnimation(.easeOut(duration: 0.55)) { flown = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.6)) { popped = false }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            guard played == id else { return }
+            sparking = false
+            flown = false
         }
     }
 }

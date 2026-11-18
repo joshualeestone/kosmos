@@ -178,6 +178,18 @@ final class BoardClient: ObservableObject {
     // build 11 review 2: the agent the note is about, so a chat says it only for that agent.
     @Published private(set) var starNoteAgent: String?
     @Published private(set) var starring: Set<String> = []
+    // kosmos#8706 (Josh 11-18, the board's #8705): a press that stars an agent plays a small burst on its star, once. This
+    // is which agent and which press, set as the press starts (the star shows at once, as the board's does) and cleared if
+    // that star did not save. Only a press on this phone sets it: a star read from the board never bursts.
+    struct StarBurst: Equatable { let session: String; let id: Int; let at: Date }
+    @Published private(set) var starBurst: StarBurst?
+    // The press's id while it is fresh enough to play: a starred row is drawn again after the list re-sorts, a moment after
+    // the press, so the window is a little longer than the burst. Nil for any other agent, an unstar, or a press long past.
+    static let starBurstWindow: TimeInterval = 1.0
+    func burst(for session: String, now: Date = Date()) -> Int? {
+        guard let b = starBurst, b.session == session, now.timeIntervalSince(b.at) < Self.starBurstWindow else { return nil }
+        return b.id
+    }
     // Review 1: every star press is numbered. A re-sort's own stars read that began before a press (or lands while one is
     // out) is not taken, or it would put back the list from before the press; and an answer older than the newest
     // press changes only its own agent, never the whole list.
@@ -220,6 +232,7 @@ final class BoardClient: ObservableObject {
         defer { if epoch == chatEpoch { starring.remove(session); starEvents += 1 } }
         starNote = nil
         starNoteAgent = nil
+        starBurst = on ? StarBurst(session: session, id: mine, at: Date()) : (starBurst?.session == session ? nil : starBurst)
         showStars(setting: session, on: on, mac: mac.address)
         let answer = await throughMac { Board.starWriteRequest(mac: $0, name: session, on: on) }
         guard epoch == chatEpoch, shownMac?.address == mac.address else { return }   // another computer or account now
@@ -230,6 +243,7 @@ final class BoardClient: ObservableObject {
         } else {
             // Only this agent goes back; every other star stays as the phone now shows it (review 1).
             showStars(setting: session, on: !on, mac: mac.address)
+            if starBurst?.id == mine { starBurst = nil }
             starNote = Board.starFailure(on: on, status: answer?.1.statusCode ?? 0, data: answer?.0)
             starNoteAgent = session
         }
@@ -1424,6 +1438,7 @@ final class BoardClient: ObservableObject {
         chatsForgottenWhy = why
         chatsForgottenByPerson = byPerson
         starNote = nil   // kosmos#7034: a star note was about the other computer's list
+        starBurst = nil   // kosmos#8706: and so was a burst
         starring = []   // kosmos#7034 review 3: a save still out was for the other computer; its answer is dropped
         pending = [:]
         sortProjects = [:]   // kosmos#7421: By project's names were the other computer's or account's
