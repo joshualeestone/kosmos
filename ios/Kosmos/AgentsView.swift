@@ -313,8 +313,9 @@ struct AgentsView: View {
     // press menu's same button stays silent (Josh's pick 5 is the swipe).
     private func starButton(_ agent: Board.Agent, swiped: Bool) -> some View {
         let on = client.isStarred(agent.session)
-        // kosmos#8706: from the long-press menu the row is behind the menu's closing animation, so its burst waits for it.
-        return Button { if swiped { Haptics.snapped() }; Task { await client.toggleStar(agent.session, burstDelay: swiped ? 0 : 0.35) } } label: {
+        // kosmos#8706: the row is still moving when either action fires (sliding back from a swipe, behind the long-press
+        // menu as it closes), so its burst waits for that. Both waits are estimates; plan iphonestar-8706.
+        return Button { if swiped { Haptics.snapped() }; Task { await client.toggleStar(agent.session, burstDelay: swiped ? 0.25 : 0.35) } } label: {
             Label(on ? "Unstar" : "Star", systemImage: on ? "star.slash" : "star.fill")
         }
         .tint(Palette.starGold)

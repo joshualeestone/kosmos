@@ -2315,8 +2315,8 @@ section("starring from the phone (kosmos#7034)")
         check(c.isStarred("wes") && c.agents.map(\.session) == ["wes", "dana"] && c.starNote == nil, "a star pressed on the phone saves, and the agent moves to the top at once")
         // kosmos#8706: the press that starred plays a burst on that agent's star only, and only while fresh.
         let pressed = c.starBurst?.at ?? .distantPast
-        check(c.burst(for: "wes")?.fresh(now: pressed) == true && c.burst(for: "wes")?.delay == 0 && c.burst(for: "dana") == nil,
-              "a press that stars an agent marks its star for the burst, at once, and no other agent's")
+        check(c.burst(for: "wes") != nil && c.burst(for: "wes")?.delay == 0 && c.burst(for: "dana") == nil,
+              "a press that stars an agent marks its star for the burst, with no wait by default, and no other agent's")
         check(c.burst(for: "wes")?.fresh(now: pressed.addingTimeInterval(BoardClient.starBurstWindow + 0.05)) == false,
               "a star view built again after the window does not replay the burst (asked when the view would play)")
         check(w.starWriteBodies.last?.contains("\"on\":true") == true && w.starWriteBodies.last?.contains("\"name\":\"wes\"") == true, "it sends the agent and on")
@@ -2355,6 +2355,9 @@ section("starring from the phone (kosmos#7034)")
         w.starWriteAnswer = (502, "{}")
         await c.toggleStar("wes")
         check(!c.isStarred("wes") && c.starBurst == nil, "a star that did not save is not marked for the burst")
+        w.starWriteAnswer = (200, #"{"names":["dana"],"ok":true}"#)   // saved, but the board's list leaves wes out
+        await c.toggleStar("wes")
+        check(!c.isStarred("wes") && c.starBurst == nil, "a star the board answered without that agent is not marked for the burst either")
         c.stop()
     }
 

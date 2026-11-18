@@ -243,6 +243,7 @@ final class BoardClient: ObservableObject {
             // The newest press's answer is the board's whole list; an older one settles only its own agent.
             if mine == starWrites && starring.count == 1 { showStars(names, mac: mac.address) }
             else { showStars(setting: session, on: names.contains(session), mac: mac.address) }
+            if on && !names.contains(session) && starBurst?.id == mine { starBurst = nil }   // kosmos#8706: saved, but not starred
         } else {
             // Only this agent goes back; every other star stays as the phone now shows it (review 1).
             showStars(setting: session, on: !on, mac: mac.address)
