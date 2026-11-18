@@ -440,7 +440,7 @@ check(agentsSrc.contains("static let starFill = pair(0xe3b341, 0xe3b341)") && ag
       && agentsSrc.contains("if starred { StarredStar(burst: starBurst, reach: 0.6).font(.caption2)"),
       "kosmos#8706: the starred star is the bright gold with no outline (the deep gold edge only under Increase Contrast), in the header and beside a name")
 check(agentsSrc.contains("guard let b, b.id != played, b.fresh(), StarBurstsPlayed.schedule(b.id, place, by: token) else { return }")
-      && (agentsSrc.range(of: "played = id").map { agentsSrc[$0.upperBound...].prefix(260).contains("if reduceMotion { return }") } ?? false)
+      && (agentsSrc.range(of: "played = id").map { agentsSrc[$0.upperBound...].prefix(600).contains("if reduceMotion { _ = StarBurstsPlayed.start(id, place, by: token); return }") } ?? false)
       && agentsSrc.contains("let wait = b.remaining()")
       && agentsSrc.contains("guard played == id, StarBurstsPlayed.start(id, place, by: token) else { return }") && agentsSrc.contains("starBurst: client.burst(for: agent.session)")
       && agentsSrc.contains("toggleStar(agent.session, burstDelay: swiped ? 0.25 : 0.35)"),

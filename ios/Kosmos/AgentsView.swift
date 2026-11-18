@@ -1089,8 +1089,9 @@ struct StarredStar: View {
         guard let b, b.id != played, b.fresh(), StarBurstsPlayed.schedule(b.id, place, by: token) else { return }
         let id = b.id
         played = id
-        // Under Reduce Motion this view still takes the press over, so a view it replaced cannot start it, and plays nothing.
-        if reduceMotion { return }
+        // Under Reduce Motion this view still takes the press over and marks it started, so neither a view it replaced
+        // nor one rebuilt later can play it, and plays nothing.
+        if reduceMotion { _ = StarBurstsPlayed.start(id, place, by: token); return }
         let wait = b.remaining()
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
             guard played == id, StarBurstsPlayed.start(id, place, by: token) else { return }
