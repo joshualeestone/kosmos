@@ -1044,8 +1044,9 @@ struct StatusPill: View {
 // The font comes from where it is used, so the fill and any outline are one symbol size.
 // kosmos#8706 (Josh 11-18, matching the board's #8705): the brightest gold with no outline. The darker edge comes back
 // only under Increase Contrast, as the board's does under prefers-contrast: more. `burst` is the press that just starred
-// this agent (BoardClient.burst(for:)), played only if fresh when this view would start it: the star pops and six gold sparks fly out once, at the board's spark positions
-// and close to its timings, and never under Reduce Motion (the star just fills).
+// this agent (BoardClient.burst(for:)), played only if fresh when this view would start it: the star pops and six gold
+// sparks fly out once, at the board's spark positions and close to its timings, and never under Reduce Motion (the star
+// just fills).
 struct StarredStar: View {
     var burst: BoardClient.StarBurst? = nil
     // How far the sparks fly, as a share of the board's 16 points: the Agents row's star is caption2 on a name line near

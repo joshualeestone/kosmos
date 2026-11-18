@@ -2317,6 +2317,8 @@ section("starring from the phone (kosmos#7034)")
         let pressed = c.starBurst?.at ?? .distantPast
         check(c.burst(for: "wes") != nil && c.burst(for: "wes")?.delay == 0 && c.burst(for: "dana") == nil,
               "a press that stars an agent marks its star for the burst, with no wait by default, and no other agent's")
+        check(c.burst(for: "wes")?.fresh(now: pressed.addingTimeInterval(0.05)) == true,
+              "a star view drawn just after the press may still start the burst (the control for the check below)")
         check(c.burst(for: "wes")?.fresh(now: pressed.addingTimeInterval(BoardClient.starBurstWindow + 0.05)) == false,
               "a star view built again after the window does not replay the burst (asked when the view would play)")
         check(w.starWriteBodies.last?.contains("\"on\":true") == true && w.starWriteBodies.last?.contains("\"name\":\"wes\"") == true, "it sends the agent and on")
