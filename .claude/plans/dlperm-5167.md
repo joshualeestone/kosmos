@@ -49,14 +49,16 @@ reach in a protected folder.
 The restart is a second place the app starts a download itself (kosmos#7952's guard allowed one). It is reached only from
 the failure of a GET download the page's own main frame began, that had already been given a Downloads path (so had
 passed every check), while that page still shows. It sends that request's address and headers again as a new download
-from the app (not from the frame that made it), and its answer is checked again. It is not one of kosmos#7952's marked
-starts (downloadsStartedHere), so its answer is judged as the original's was. Pinned in native-app.download-5167.test.js.
+from the app (not from the frame that made it), and its answer is checked again. On a Kosmos+ computer's page it goes
+out marked same-origin, as kosmos#7952's starts do (the tunnel refuses an unmarked download), and is then one of
+downloadsStartedHere, judged as those are; on this computer's own board it is unmarked and judged as WebKit's own.
+The live selftest measures the marked case with a refused attachment (WebKit's own, unmarked) on a Kosmos+ page. Pinned in native-app.download-5167.test.js.
 
 ## Tests
 - Mode selftest: +7 rows (EPERM, EACCES, nested, controls: full disk, taken name, no system reason; the words).
 - Live download selftest: the 11-06 read-only-folder arm now answers the question through a seam with a file in a second
   folder; a new row checks the question was asked once with its title and Files and Folders, and the file landed there
-  with this app's quarantine mark. The failure count and the title row moved with it; a second arm voids a restart whose page changed (72 rows).
+  with this app's quarantine mark. The failure count and the title row moved with it; a second arm voids a restart whose page changed, a third checks a Kosmos+ restart is marked (73 rows).
 - Source pins: the failure path routes a refusal by macOS to the question, the restart's delegate and chosen place, the
   chosen place after the response checks, never over a file, and the two startDownload places.
 
