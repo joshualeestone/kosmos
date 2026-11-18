@@ -1,29 +1,29 @@
 # tornstores-8718: crash-safe stores (kosmos#8718)
 
 ## Goal
-A store a crash left empty or all zero bytes must not hold a feature off. A new raw in-place store write must not slip in unseen.
+A store a crash left empty or all zero bytes must not hold a feature off SILENTLY. A new raw in-place store write must not slip in unseen.
 
-## Decided (on the card, comment 6994673956)
-- A start-up check in the board (engine/tornstores.js, called from server.js in onListening, after the bind (a second launch that loses the port never scans), only when server.js is the board) scans the data root for torn stores: `.json` empty or all zero bytes, `.jsonl` all zero bytes. Each moves into `torn/<time>/<same path>`, one board.log line each, a `reset.json` record. Nothing deleted.
-- Left alone: damaged-but-real content (keeps failing closed), files changed in the last 5 s (a live writer), symlinks, files over 8 MiB, top-level folders a person fills (attachments, downloads, filepreview), worlds/ (other Kosmoses' data roots and their people's project and agent folders), bin/runtime/torn, anything deeper than 3 folders.
-- Key and token paths are named louder in the log line; nothing regenerates them here.
-- A ratchet test (engine/rawwrites-8718.test.js) on the per-file count of raw `writeFileSync(` in server.js and engine/*.js: outside comments, exact match to a baseline (135 in 79 files on 11-18); it sees only that one form.
+## Decided (revised at review round 5)
+- A start-up check (engine/tornstores.js `check`, called from server.js in onListening, after the bind, only when server.js is the board) scans the data root for torn stores: `.json` empty or all zero bytes, `.jsonl` all zero bytes. It REPORTS each one, a board.log line and a record at `tornstores/last-check.json` (removed when nothing is torn), and changes NO store.
+- Not looked at: damaged-but-real content, files changed in the last 5 s, non-regular files by lstat (symlinks), files over 8 MiB, deeper than 3 folders, top-level attachments/downloads/filepreview/worlds/bin/runtime and its own folder.
+- A ratchet test (engine/rawwrites-8718.test.js) on the per-file count of `writeFileSync(` outside comments in server.js and engine/*.js: exact match to a baseline (135 in 79 files on 11-18). It converts no write; the atomic-write half of the card is #5434's work plus this guard against regrowth.
+
+## Why report-only (the reversal)
+The first design MOVED torn stores aside so readers take the absent default. Round 5 measured that this overrides deliberate fail-closed rules: phone-notify-choice.json (its existence IS the person's off, #6488; moved, phone notices went off -> unset, which default-on turns on), autobalance.json (unreadable reads off), remote.json (#4308: unreadable stays visible until the person repairs it); heartbeat.json says the same (Josh 2026-09-03). "Unreadable reads off" is a rule, so only the store's owner or the person can decide a reset. The check makes the torn state visible instead.
 
 ## Rejected
-- Editing each of ~273 readers that fail closed.
-- Deleting torn files (destroys evidence, irreversible).
-- Treating any unparseable file as torn.
-- A board UI notice in this PR: the log line + record ship now; the on-screen notice needs design shots and goes to a follow-up card.
+- Moving or resetting torn stores automatically (above).
+- An allowlist of resettable stores now: no store was found where unreadable differs from absent AND absent is safe (liveness, activity, disruption read both as found:false already). An owner can add one later with its reader's case.
+- Editing each of ~273 readers.
+- A board UI notice in this PR: lastCheck() and the record exist for it; the notice, with a person-pressed reset per file, is the follow-up card.
 
 ## Weakest premise
-That a store's absent default is safe. A person's "off" zeroed by a crash comes back as the default; unrecoverable from zeros, so the log names the file.
+That the log line and record are enough until the board notice lands: a person does not read board.log. The follow-up is what makes it visible to them.
 
 ## Tests
-- engine/tornstores-8718.test.js: shapes moved/kept, log lines, record, idempotent second run, clean root, missing root, a real fail-closed reader (phonenotify.masterChoice off -> unset), server.js wiring, SIGKILL mid saveFlushed leaves a whole file.
-- engine/rawwrites-8718.test.js: ratchet + control.
-- Mutations run: no-zeros, no-skip-dirs, no-recent, no-wiring each red; ratchet red on an added raw write.
-- tools/windows-tests.js ALSO gains the test (windows-tests-1777 guard).
-
+- engine/tornstores-8718.test.js: shapes found, every byte of every store unchanged (snapshot), record, stale record removed, missing root, symlinks (POSIX), a zeroed phone-notice choice still reads off after the check, wiring inside onListening, SIGKILL mid saveFlushed leaves a whole file.
+- Mutations red: move-instead-of-report, no stale removal, no worlds skip, no lstat isFile, depth 2, call outside onListening; ratchet red on a real raw write, green on a comment.
+- tools/windows-tests.js ALSO lists the test.
 ## Review round 1 (opus): fixed
 - BLOCKER worlds/ walked on the default world: added to SKIP_DIRS, MAX_DEPTH 6 -> 3 (measured real depth), test arms for worlds/ projects and data root.
 - WARNING a second launch scanned before losing the bind: moved into onListening.
@@ -47,3 +47,9 @@ That a store's absent default is safe. A person's "off" zeroed by a crash comes 
 - WARNING depth limit had no positive control at the edge: a torn a/b/c/x.json now must be moved; MAX_DEPTH 2 turns it red.
 - WARNING lstat-to-rename gap: DEFERRED, milliseconds wide behind the 5 s recency rule and the re-check; a post-move check could only race again.
 - WARNING containment filter detail (drive-root data root fails closed; only injected test answers reach it): DEFERRED, informational, fails safe.
+
+## Review round 5 (opus, code only)
+- BLOCKER moving a torn store reverses deliberate fail-closed rulings (measured: phone choice, autobalance, remote): FIXED by the report-only redesign above.
+- WARNING the atomic-write half is not converted here: stated in Decided and in the PR body.
+- NIT wiring test now bounded by the end of onListening. NIT codeOnly claim: the ratchet header says "crude"; the round-1 comment sentence about hiding writes stays limited to comment rewording.
+- Rounds 2-4's move-related fixes (re-check before move, ENOENT, path containment) went with the move code.

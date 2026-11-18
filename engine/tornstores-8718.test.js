@@ -1,8 +1,8 @@
 'use strict';
 /**
- * kosmos#8718: a store a crash left empty or all zero bytes is moved aside at start-up (engine/tornstores.js), logged
- * one line per file, and then reads as absent, so its reader takes its default. This test process's store is a
- * throwaway (#5418 ask 1).
+ * kosmos#8718: at start-up the board reports each store a crash left empty or all zero bytes (engine/tornstores.js),
+ * one log line each and a record, and changes none of them, because "unreadable reads off" is a deliberate rule in
+ * many readers. This test process's store is a throwaway (#5418 ask 1).
  *
  *   node --test engine/tornstores-8718.test.js
  */
@@ -32,139 +32,124 @@ function freshRoot(name) {
   fs.mkdirSync(r, { recursive: true });
   return r;
 }
+/* Every file under `dir` with its bytes, so a check can be shown to have changed none of them. */
+function snapshot(dir) {
+  const out = {};
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.isFile()) out[path.relative(dir, p)] = fs.readFileSync(p).toString('base64');
+    }
+  };
+  walk(dir);
+  return out;
+}
 
-test('each torn shape is moved aside, logged once, and recorded; everything else stays', () => {
+test('each torn shape is reported once, nothing else is, and no store is changed', () => {
   const root = freshRoot('shapes');
-  const good = put(root, 'settings.json', '{"a":1}\n');
-  const damaged = put(root, 'projects.json', '{"half":');            // real but damaged: not a crash artifact
-  const emptyLog = put(root, 'created.jsonl', '');                   // an empty log is an ordinary empty log
+  put(root, 'settings.json', '{"a":1}\n');
+  put(root, 'projects.json', '{"half":');                            // real but damaged: not a crash artifact
+  put(root, 'created.jsonl', '');                                    // an empty log is an ordinary empty log
   put(root, 'phone-chat-opens.json', '');                            // empty .json
   put(root, 'liveness/ava.json', Buffer.alloc(300));                 // all zeros, nested
   put(root, 'messages.jsonl', Buffer.alloc(4096 * 20));              // all zeros .jsonl, past one read chunk
   put(root, 'sendertokens/ava.json', Buffer.alloc(64));              // a token file: named louder
-  const partZero = put(root, 'heartbeat.json', Buffer.concat([Buffer.alloc(70000), Buffer.from('{}')]));   // zeros, then content
-  const recent = put(root, 'board-alive.json', '', Date.now());      // a live writer's moment: left alone
-  const personal = put(root, 'attachments/x/record.json', '');       // a person's folder: never scanned
-  const download = put(root, 'downloads/a.json', '');
-  const otherWorld = put(root, 'worlds/w1/projects/p/a.json', '');    // another Kosmos's project folder
-  const otherStore = put(root, 'worlds/w1/Kosmos/settings.json', Buffer.alloc(40));   // and its own data root
-  const deep = put(root, 'a/b/c/d/e.json', '');                      // past MAX_DEPTH
-  put(root, 'a/b/c/x.json', '');                                     // control: at the limit, three folders down, IS moved
-  const notStore = put(root, 'victim.txt', Buffer.alloc(10));        // not a store
+  put(root, 'heartbeat.json', Buffer.concat([Buffer.alloc(70000), Buffer.from('{}')]));   // zeros, then content
+  put(root, 'board-alive.json', '', Date.now());                     // a live writer's moment: not looked at
+  put(root, 'attachments/x/record.json', '');                        // a person's folder: never scanned
+  put(root, 'downloads/a.json', '');
+  put(root, 'worlds/w1/projects/p/a.json', '');                      // another Kosmos's project folder
+  put(root, 'worlds/w1/Kosmos/settings.json', Buffer.alloc(40));     // and its own data root
+  put(root, 'a/b/c/d/e.json', '');                                   // past MAX_DEPTH
+  put(root, 'a/b/c/x.json', '');                                     // control: at the limit, three folders down, IS found
+  put(root, 'victim.txt', Buffer.alloc(10));                         // not a store
+  const before = snapshot(root);
 
   const lines = [];
-  const out = torn.run(root, { log: (l) => lines.push(l) });
+  const out = torn.check(root, { log: (l) => lines.push(l) });
 
-  const moved = out.moved.map((m) => m.rel).sort();
-  assert.deepEqual(moved, ['a/b/c/x.json', 'liveness/ava.json', 'messages.jsonl', 'phone-chat-opens.json', 'sendertokens/ava.json']);
-  assert.deepEqual(out.failed, []);
-  assert.equal(lines.length, 5, 'one line per moved file');
-  for (const m of out.moved) {
-    assert.equal(fs.existsSync(path.join(root, ...m.rel.split('/'))), false, m.rel + ' is gone from its place');
-    const kept = path.join(root, ...m.movedTo.split('/'));
-    assert.equal(fs.existsSync(kept), true, m.rel + ' is kept under torn/');
-    assert.ok(lines.some((l) => l.includes(m.rel) && l.includes(m.movedTo)), 'the log names ' + m.rel + ' and where it went');
-  }
-  assert.ok(lines.find((l) => l.includes('sendertokens/ava.json')).includes('key or token'), 'a token file is named louder');
+  const found = out.found.map((m) => m.rel).sort();
+  assert.deepEqual(found, ['a/b/c/x.json', 'liveness/ava.json', 'messages.jsonl', 'phone-chat-opens.json', 'sendertokens/ava.json']);
+  assert.equal(lines.length, 5, 'one line per torn file');
+  for (const rel of found) assert.ok(lines.some((l) => l.includes(rel)), 'the log names ' + rel);
+  assert.ok(lines.find((l) => l.includes('sendertokens/ava.json')).includes('key or token'), 'a token path is named louder');
   assert.ok(!lines.find((l) => l.includes('liveness/ava.json')).includes('key or token'));
-  // the kept bytes are the torn bytes, untouched
-  assert.equal(fs.readFileSync(path.join(root, ...out.moved.find((m) => m.rel === 'messages.jsonl').movedTo.split('/'))).length, 4096 * 20);
 
-  const rec = JSON.parse(fs.readFileSync(path.join(root, ...out.folder.split('/'), 'reset.json'), 'utf8'));
-  assert.deepEqual(rec.moved.map((m) => m.rel).sort(), moved);
-  assert.equal(torn.lastRun(), out);
-
-  for (const f of [good, damaged, emptyLog, partZero, recent, personal, download, otherWorld, otherStore, deep]) assert.equal(fs.existsSync(f), true, f + ' stays');
-  assert.equal(fs.readFileSync(good, 'utf8'), '{"a":1}\n');
-
-  // a second start finds nothing more and makes no folder
-  const again = torn.run(root, { log: (l) => lines.push(l) });
-  assert.deepEqual(again.moved, []);
-  assert.equal(again.folder, null);
-  assert.equal(lines.length, 5);
+  const after = snapshot(root);
+  const recRel = path.join(torn.REPORT_DIR, torn.LAST_FILE);
+  const rec = JSON.parse(Buffer.from(after[recRel], 'base64').toString('utf8'));
+  assert.deepEqual(rec.found.map((m) => m.rel).sort(), found, 'the record names the same files');
+  delete after[recRel];
+  assert.deepEqual(after, before, 'every store is byte for byte as it was, and nothing was added beside them');
+  assert.equal(torn.lastCheck(), out);
 });
 
 /* Making a symlink needs elevation on Windows (as dmfiles.folder-8617.test.js says), so these arms are POSIX only. */
-test('a symlink to a torn store, and a symlinked folder, are never followed or moved', { skip: process.platform === 'win32' && 'symlinks need elevation on Windows' }, () => {
+test('a symlink to a torn store, and a symlinked folder, are never followed', { skip: process.platform === 'win32' && 'symlinks need elevation on Windows' }, () => {
   const root = freshRoot('links');
   const outside = freshRoot('links-outside');
   const target = put(outside, 'target.json', Buffer.alloc(4096));    // torn (zeros longer than the link), reachable only through a link
   const link = path.join(root, 'link.json');
   fs.symlinkSync(target, link);
   fs.lutimesSync(link, OLD / 1000, OLD / 1000);                      // the link itself old too, so only lstat refuses it
-  const inLinked = put(outside, 'dir/inside.json', Buffer.alloc(20));
+  put(outside, 'dir/inside.json', Buffer.alloc(20));
   fs.symlinkSync(path.join(outside, 'dir'), path.join(root, 'linkdir'));
-  const control = put(root, 'real.json', '');                        // control: a real torn file beside them IS moved
-  const out = torn.run(root, { log: () => {} });
-  assert.deepEqual(out.moved.map((m) => m.rel), ['real.json']);
-  assert.equal(fs.existsSync(control), false);
-  for (const f of [target, link, inLinked]) assert.equal(fs.existsSync(f), true, f + ' stays');
+  put(root, 'real.json', '');                                        // control: a real torn file beside them IS found
+  const out = torn.check(root, { log: () => {} });
+  assert.deepEqual(out.found.map((m) => m.rel), ['real.json']);
 });
 
-test('a scan answer naming a path outside the root moves nothing there', () => {
-  const root = freshRoot('escape');
-  const victim = put(SB, 'victim.json', '');
-  const out = torn.run(root, { found: [{ rel: '../victim.json', shape: 'empty', size: 0, secret: false }], log: () => {} });
-  assert.deepEqual(out.moved, []);
-  assert.equal(fs.existsSync(victim), true);
-});
-
-test('a clean data folder: nothing moved, no torn folder, no log line', () => {
-  const root = freshRoot('clean');
-  put(root, 'settings.json', '{}');
-  put(root, 'created.jsonl', '{"a":1}\n');
-  const lines = [];
-  const out = torn.run(root, { log: (l) => lines.push(l) });
-  assert.deepEqual(out.moved, []);
-  assert.equal(lines.length, 0);
-  assert.equal(fs.existsSync(path.join(root, torn.TORN_DIR)), false);
-});
-
-test('a file made whole between the scan and the move is left where it is', () => {
+test('the record goes once nothing is torn, so a stale one never outlives the fix', () => {
   const root = freshRoot('stale');
-  put(root, 'a.json', Buffer.alloc(30));
-  put(root, 'b.json', '');
-  const found = torn.scan(root);
-  assert.equal(found.length, 2, 'control: both read as torn at scan time');
-  const a = put(root, 'a.json', '{"whole":true}');                  // a writer lands its save after the scan
+  const f = put(root, 'a.json', '');
+  torn.check(root, { log: () => {} });
+  const rec = path.join(root, torn.REPORT_DIR, torn.LAST_FILE);
+  assert.equal(fs.existsSync(rec), true, 'control: written while a.json is torn');
+  if (process.platform !== 'win32') assert.equal(fs.statSync(rec).mode & 0o777, 0o600);
+  fs.writeFileSync(f, '{}');
   const lines = [];
-  const out = torn.run(root, { found, log: (l) => lines.push(l) });
-  assert.deepEqual(out.moved.map((m) => m.rel), ['b.json']);
-  assert.equal(fs.readFileSync(a, 'utf8'), '{"whole":true}', 'the whole file stays, untouched');
-  assert.equal(lines.length, 1);
+  const out = torn.check(root, { log: (l) => lines.push(l) });
+  assert.deepEqual(out.found, []);
+  assert.equal(lines.length, 0);
+  assert.equal(fs.existsSync(rec), false);
 });
 
 test('a missing data folder does not throw', () => {
-  const out = torn.run(path.join(SB, 'nope'), { log: () => {} });
-  assert.deepEqual(out.moved, []);
+  const out = torn.check(path.join(SB, 'nope'), { log: () => {} });
+  assert.deepEqual(out.found, []);
 });
 
-/* The harm the card names: a reader that fails CLOSED on an unparseable store holds its feature off. Phone notices are
-   one: a zero-filled phone-notify.json reads as 'off' forever. After the start-up check it reads as 'unset', which is
-   the state the default-on path acts on. Run in the real store root of this (throwaway) process. */
-test('a real reader that failed closed on the torn store takes its default afterwards', () => {
+/* The reason this only reports. phone-notify-choice.json holds only { off: true }: its existing at all is the person's
+   off (#6488), and phonenotify reads an unreadable one as off on purpose. A zeroed copy must still read as off after
+   the start-up check; moving it aside (this module's first design) turned it back to 'unset', which the default-on
+   path then turns on. Run in the real store root of this (throwaway) process. */
+test('a person\'s zeroed phone-notice off still reads as off after the check', () => {
   const remote = require('./remote');
   const pn = require('./phonenotify');
-  const f = path.join(remote.stateDir(), 'phone-notify.json');
-  fs.mkdirSync(path.dirname(f), { recursive: true });
-  fs.writeFileSync(f, Buffer.alloc(512));
-  fs.utimesSync(f, OLD / 1000, OLD / 1000);
-  assert.equal(pn.masterChoice(), 'off', 'control: the zeroed file holds phone notices off');
-  const out = torn.run(store.ROOT, { log: () => {} });
-  assert.ok(out.moved.some((m) => m.rel.endsWith('phone-notify.json')), 'the zeroed file was moved');
-  assert.equal(pn.masterChoice(), 'unset', 'and the reader now takes its default');
+  const choice = path.join(path.dirname(remote.FILE), 'phone-notify-choice.json');
+  fs.mkdirSync(path.dirname(choice), { recursive: true });
+  fs.writeFileSync(choice, Buffer.alloc(16));
+  fs.utimesSync(choice, OLD / 1000, OLD / 1000);
+  assert.equal(pn.masterChoice(), 'off', 'control: the zeroed choice file reads as the person\'s off');
+  const out = torn.check(store.ROOT, { log: () => {} });
+  assert.ok(out.found.some((m) => m.rel.endsWith('phone-notify-choice.json')), 'it is reported as torn');
+  assert.equal(pn.masterChoice(), 'off', 'and still reads as off');
+  assert.equal(fs.readFileSync(choice).length, 16, 'the file is where it was, as it was');
 });
 
-/* Wiring: the board runs the check once it holds its port, so a second launch that loses the port to a running board
-   (onError) never moves that board's files. A real `node server.js` would start a board, so this reads the source. */
+/* Wiring: the board runs the check once it holds its port, so a second launch that loses the port (onError) never
+   scans. A real `node server.js` would start a board, so this reads the source. */
 test('server.js runs the check on the store root, in onListening, only when it is the board', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const call = "require('./engine/tornstores').run(store.ROOT)";
-  assert.equal(src.split(call).length, 2, 'server.js calls tornstores.run on store.ROOT exactly once');
+  const call = "require('./engine/tornstores').check(store.ROOT)";
+  assert.equal(src.split(call).length, 2, 'server.js calls tornstores.check on store.ROOT exactly once');
   const at = src.indexOf(call);
   const listening = src.lastIndexOf('const onListening = () => {', at);
   const onError = src.lastIndexOf('const onError = (err) => {', at);
-  assert.ok(listening > 0 && onError > 0 && onError < listening, 'inside onListening, not onError');
+  assert.ok(listening > 0 && onError > 0 && onError < listening, 'after onError starts and inside onListening');
+  const end = src.indexOf('\n    };', listening);
+  assert.ok(end > at, 'before onListening ends');
   const gate = src.lastIndexOf('if (require.main === module) {', at);
   assert.ok(gate > listening, 'behind the board-only gate inside onListening');
 });

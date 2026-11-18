@@ -1,45 +1,45 @@
 'use strict';
 /**
- * kosmos#8718: a store that a crash left torn is moved aside at start-up, so it reads as absent and takes its default.
+ * kosmos#8718: at start-up the board finds the stores a crash left torn, and says so. It changes none of them.
  *
  * What a crash leaves: a file written in place (or renamed into place before its bytes were flushed, #5431) can come
- * back at full length and all zero bytes, or empty. Such a file is unparseable, and many of the board's readers fail
- * CLOSED on a store they cannot parse ("unknown, change nothing"), which is right for damaged content and wrong for a
- * crash artifact: the feature stays off until somebody deletes the file by hand. Agent feedback 11-18 described exactly
- * that, a per-agent state file of zeros, and an earlier one that paused a feature for days.
+ * back at full length and all zero bytes, or empty. Such a file is unparseable, and many of the board's readers then
+ * fail closed. Agent feedback 11-18 described a per-agent state file of zeros, and an earlier one that paused a
+ * feature for days while nobody knew why.
  *
- * So, once at start-up, as soon as the board holds its port, this scans the data folder for:
+ * WHY THIS ONLY REPORTS. Moving a torn store aside, so its reader takes the absent default, was the first design here
+ * and it is wrong: across the board, "unreadable reads off" is a deliberate, stated rule, not an accident. Four of
+ * them, from their own modules (the first, third and fourth also measured on 11-18: zeroed, moved aside, read again):
+ *   - phone-notify-choice.json holds only { off: true }; its existing at all is the person's off (#6488).
+ *     Moving it turned phone notices from off back to unset, which the default-on path then turns on.
+ *   - heartbeat.json: "an unreadable or corrupt one still falls to off" (Josh, 2026-09-03, engine/heartbeat-setting.js).
+ *   - autobalance.json: "a corrupt or unreadable one reads off" (engine/autobalance-setting.js).
+ *   - remote.json: an unreadable settings file stays visible until the person repairs it (#4308).
+ * A reset can only be decided by the store's owner or the person, so this check never makes it. It makes the torn
+ * state VISIBLE instead, which is the half of "silently paused for days" that a start-up check can fix: one board.log
+ * line per file and a record the board can show (lastCheck(), and REPORT_DIR/LAST_FILE on disk).
+ *
+ * Torn means exactly:
  *   - a `.json` that is empty, or all zero bytes
- *   - a `.jsonl` that is all zero bytes (an EMPTY `.jsonl` is an ordinary empty log, so it is left alone)
- * and MOVES each one into `torn/<time>/` under the data folder, keeping its path, with one board.log line per file and
- * a `reset.json` in that folder naming them. Nothing is deleted: the bytes are evidence, and a move can be undone.
+ *   - a `.jsonl` that is all zero bytes (an EMPTY `.jsonl` is an ordinary empty log)
+ * A file with real but damaged content is not reported: that is not a crash artifact.
  *
- * What it deliberately leaves alone, and why:
- *   - a file with real but damaged content. That is not a crash artifact and its owner may need it, so it keeps
- *     failing closed as today. Only the two shapes above are torn.
- *   - a file changed in the last RECENT_MS: a writer that is alive right now (a CLI, an agent's hook) can hold an
- *     empty file for a moment between open and write. A crash's file is older than the restart that follows it.
- *   - symlinks, files over MAX_BYTES, anything past MAX_DEPTH, and the folders in SKIP_DIRS.
+ * Not looked at: a file changed in the last RECENT_MS (a live writer can hold an empty file for a moment), anything
+ * that is not a regular file by lstat (so a symlink is never followed), files over MAX_BYTES, anything past MAX_DEPTH,
+ * and the top-level folders in SKIP_DIRS.
  *
- * A file whose path names a key or token is moved like any other (a zeroed key is no key either way), and the log
- * line and the record mark it `secret` so it reads louder. The mark is from the name alone. Nothing here makes a
- * new key.
- *
- * The weakest premise, stated so nobody has to rediscover it: that a store's ABSENT default is safe. One case is not
- * fully: a person turned something off, a crash zeroed that file, and the default turns it back on. The bytes are
- * zeros, so the choice cannot be recovered; the log line and the record name the file so it can be set again.
- *
- * Never throws: a scan that fails leaves every file where it was, and the board starts as it did before this existed.
+ * Never throws, and never writes outside REPORT_DIR.
  */
 const fs = require('node:fs');
 const path = require('node:path');
 
-const TORN_DIR = 'torn';
+const REPORT_DIR = 'tornstores';
+const LAST_FILE = 'last-check.json';
 /* Top-level folders of the data root that are not scanned: this module's own; folders holding files a person
    brought (an attachment or a download may be any JSON at all, empty included, and is theirs, not a store); and
    worlds/, where each other Kosmos keeps its own data root AND its people's project and agent folders
    (engine/worlds.js envOverridesFor), none of which this board's start-up owns. */
-const SKIP_DIRS = new Set([TORN_DIR, 'attachments', 'downloads', 'filepreview', 'bin', 'runtime', 'worlds']);
+const SKIP_DIRS = new Set([REPORT_DIR, 'attachments', 'downloads', 'filepreview', 'bin', 'runtime', 'worlds']);
 /* Folders below the data root that are walked. Stores outside attachments sit at most two folders down (measured on
    this fleet's data root, 11-18); three leaves room without reaching deep into anything else kept there. */
 const MAX_DEPTH = 3;
@@ -85,7 +85,7 @@ function tornShape(file, st, now) {
 
 /**
  * The torn stores under `root`, as [{ rel, shape, size, secret }], `rel` with forward slashes. Reads only.
- * opts.now: the clock (tests).
+ * `secret` is from the path's words alone. opts.now: the clock (tests).
  */
 function scan(root, opts = {}) {
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
@@ -104,7 +104,7 @@ function scan(root, opts = {}) {
         if (depth < MAX_DEPTH) walk(abs, r, depth + 1);
         continue;
       }
-      if (!storeKind(e.name)) continue;   // a link or other non-file is refused by lstat in tornShape
+      if (!storeKind(e.name)) continue;
       let st;
       try { st = fs.lstatSync(abs); } catch { continue; }
       const shape = tornShape(abs, st, now);
@@ -115,65 +115,42 @@ function scan(root, opts = {}) {
   return out;
 }
 
-function stampOf(now) { return new Date(now).toISOString().replace(/[:.]/g, '-'); }
-
-/* One board.log line for one moved file, in words a person reading the log can act on. */
-function logLine(item, dest) {
-  const what = item.shape === 'empty' ? 'was empty' : 'was all zero bytes (' + item.size + ')';
+/* One board.log line for one torn file, in words a person reading the log can act on. */
+function logLine(item) {
+  const what = item.shape === 'empty' ? 'is empty' : 'is all zero bytes (' + item.size + ')';
   const loud = item.secret ? ' Its name says it may have held a key or token.' : '';
-  return 'tornstores: ' + item.rel + ' ' + what + ', most likely from a crash while it was written. Moved to '
-    + dest + ' and reset to its default.' + loud;
+  return 'tornstores: ' + item.rel + ' ' + what + ', most likely from a crash while it was written. Left as it is:'
+    + ' whatever reads it treats it as unreadable.' + loud;
 }
 
 let LAST = null;
 
 /**
- * Scan `root` and move every torn store aside. Answers { at, folder, moved: [...], failed: [...] } (folder null when
- * nothing was torn) and keeps it for lastRun(). opts.log: a line writer (console.error by default); opts.now: clock.
+ * Scan `root` and report every torn store: one log line each, and the record at REPORT_DIR/LAST_FILE (removed when
+ * nothing is torn, so a stale one never outlives the fix). Answers { at, found: [...] } and keeps it for lastCheck().
+ * opts.log: a line writer (console.error by default); opts.now: the clock.
  */
-function run(root, opts = {}) {
+function check(root, opts = {}) {
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   const log = typeof opts.log === 'function' ? opts.log : (line) => console.error(line);
-  const result = { at: new Date(now).toISOString(), folder: null, moved: [], failed: [] };
   let found;
-  /* opts.found: a scan's answer handed in, so a test can make it stale (a file rewritten between scan and move). */
-  try { found = Array.isArray(opts.found) ? opts.found : scan(root, { now }); } catch { found = []; }
-  const inside = (rel) => { const p = path.resolve(root, ...rel.split('/')); return p.startsWith(path.resolve(root) + path.sep); };
-  found = found.filter((item) => item && typeof item.rel === 'string' && inside(item.rel));
-  if (found.length) {
-    const rel = TORN_DIR + '/' + stampOf(now);
-    const folder = path.join(root, ...rel.split('/'));
-    for (const item of found) {
-      const dest = rel + '/' + item.rel;
-      /* Look again just before the move: a writer that replaced the file since the scan (a flushed save landing, the
-         CLI) has made it whole, and a whole file is never moved. */
-      let st;
-      try { st = fs.lstatSync(path.join(root, ...item.rel.split('/'))); } catch { continue; }   // gone already: nothing to move
-      if (tornShape(path.join(root, ...item.rel.split('/')), st, now) !== item.shape) continue;
-      try {
-        fs.mkdirSync(path.dirname(path.join(root, ...dest.split('/'))), { recursive: true, mode: 0o700 });
-        fs.renameSync(path.join(root, ...item.rel.split('/')), path.join(root, ...dest.split('/')));
-        result.moved.push({ ...item, movedTo: dest });
-        try { log(logLine(item, dest)); } catch { /* a log that cannot write does not undo the move */ }
-      } catch (e) {
-        if (e && e.code === 'ENOENT' && !fs.existsSync(path.join(root, ...item.rel.split('/')))) continue;   // moved by another run
-        result.failed.push({ ...item, because: (e && e.code) || 'error' });
-        try { log('tornstores: ' + item.rel + ' was ' + (item.shape === 'empty' ? 'empty' : 'all zero bytes') + ' but could not be moved aside: ' + ((e && e.code) || 'error') + '. Left where it is.'); } catch { /* as above */ }
-      }
+  try { found = scan(root, { now }); } catch { found = []; }
+  const result = { at: new Date(now).toISOString(), found };
+  for (const item of found) { try { log(logLine(item)); } catch { /* a log that cannot write changes nothing */ } }
+  const last = path.join(root, REPORT_DIR, LAST_FILE);
+  try {
+    if (found.length) {
+      fs.mkdirSync(path.dirname(last), { recursive: true, mode: 0o700 });
+      require('./securewrite').writeSecret(last, JSON.stringify(result, null, 2) + '\n', 0o600, { atomicOnly: true });
+    } else {
+      fs.rmSync(last, { force: true });
     }
-    if (result.moved.length) {
-      result.folder = rel;
-      try {
-        const rec = JSON.stringify({ at: result.at, moved: result.moved, failed: result.failed }, null, 2) + '\n';
-        require('./securewrite').writeSecret(path.join(folder, 'reset.json'), rec, 0o600, { atomicOnly: true });
-      } catch { /* the log lines already say it */ }
-    }
-  }
+  } catch { /* the log lines already say it */ }
   LAST = result;
   return result;
 }
 
-/* What the last run() in this process did, or null before it ran. */
-function lastRun() { return LAST; }
+/* What the last check() in this process found, or null before it ran: for the board to show (kosmos#8718 follow-up). */
+function lastCheck() { return LAST; }
 
-module.exports = { run, scan, lastRun, TORN_DIR, SKIP_DIRS, RECENT_MS };
+module.exports = { check, scan, lastCheck, REPORT_DIR, LAST_FILE, SKIP_DIRS, RECENT_MS };

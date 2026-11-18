@@ -29422,11 +29422,11 @@ function start(port = PORT) {
     };
     const onListening = () => {
       server.removeListener('error', onError);
-      /* #8718: a store a crash left empty or all zero bytes is moved aside into torn/, one board.log line each, so it
-         reads as absent and takes its default (engine/tornstores.js). After the bind, so a launch that loses the port
-         (onError) never scans. Only when this file IS the board. Never throws. */
+      /* #8718: report each store a crash left empty or all zero bytes, one board.log line each, changing none of them
+         (engine/tornstores.js says why). After the bind, so a launch that loses the port (onError) never scans. Only
+         when this file IS the board. Never throws. */
       if (require.main === module) {
-        try { require('./engine/tornstores').run(store.ROOT); } catch (e) { console.error('tornstores: not run: ' + (e && e.message)); }
+        try { require('./engine/tornstores').check(store.ROOT); } catch (e) { console.error('tornstores: not run: ' + (e && e.message)); }
       }
       // #4230: an existing setup guide still wearing a retired bundled photo gets the current one.
       setImmediate(() => { try { setupAssistant.refreshGuideAvatar(); } catch { /* best-effort */ } });
