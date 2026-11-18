@@ -116,6 +116,9 @@ test('a word that names an agent on this computer is the agent, never the person
   const withDana = FLEET([fleet.agent('dana', { state: 'idle' })]);
   assert.equal(send('@Dana please look', withDana).namesPerson, undefined, 'an off-project agent named dana keeps the name');
   assert.equal(send('Leo -> Dana: please look', withDana).namesPerson, undefined);
+  const withDanaBot = FLEET([fleet.agent('danabot', { state: 'idle', displayName: 'Dana Bot' })]);
+  assert.equal(send('Leo -> Dana: please look', withDanaBot).namesPerson, undefined, 'one word of an agent name is the agent');
+  assert.equal(send('@DanaReyes please look', withDanaBot).namesPerson, true, 'CONTROL: the whole name still names the person');
 });
 
 test('a post that wakes a member and names the person reports it, without the woke-no-one sentence', () => {

@@ -2625,7 +2625,9 @@ function unmatchedNote(cleaned, recipients, roster, from, raw, personKeys) {
 
 /* The words that name the person, as nameKey: the first word and the whole of the About-you name ("Josh Stone" is
    josh and joshstone, said as @JoshStone), and `operator`, the word the room's text view uses for them (#6952). A word
-   that names any agent card on this computer is left out, so an agent named Josh keeps @Josh. Always a Set. */
+   that names any agent card on this computer, or is one word of an agent's name, is left out, so an agent named Josh
+   keeps @Josh, and an agent named Dana Bot keeps the word Dana (a header resolves an agent by one word of its name,
+   as -> Renet: is Renet Tilley). The person then loses that word to the agent, the quiet side. Always a Set. */
 function personKeysNow(roster) {
   const nameKey = require('./agentnames').nameKey;
   const keys = new Set(['operator']);
@@ -3022,9 +3024,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       projectId, recipients).length === 0;
   /* kosmos#8699: an agent's post that names the person. Not in a room shared with another computer, where the name may
      be the other side's person; and a person's own post never names themself. */
-  const personKeys = operator === true || federated === true ? null : personKeysNow(roster);
+  const personOff = operator === true || federated === true;
+  // Read the About-you name only for a post that has an @ or a header to look at.
+  const personMayBeNamed = !personOff && (/@/.test(String(cleaned || '')) || postHeader(typeof text === 'string' ? text : String(cleaned || '')).length > 0);
+  const personKeys = personMayBeNamed ? personKeysNow(roster) : null;
   const personWord = personKeys ? personNamed(cleaned, roster, from, text, personKeys) : null;
-  const quietRoom = operator === true || federated === true || mentioned.size > 0 || answered || !recipients.some((m) => m !== from);
+  const quietRoom = personOff || mentioned.size > 0 || answered || !recipients.some((m) => m !== from);
   /* kosmos#8270: an agent's post that addressed someone off the project is told so, in the same sentence slot. */
   const note4653 = [ambiguous.size ? ambiguousNote(ambiguous, atNamed.mentioned, shown) : '',
     operator === true ? '' : outsidersNote(cleaned, recipients, roster, from, text),
