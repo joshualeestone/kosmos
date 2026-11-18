@@ -30425,30 +30425,34 @@ function start(port = PORT) {
       const WAKE_BOOK = new Map();
       const WAKE_IDLE = new Map();
       let wakeLooking = false;
+      /* The tell runs before the look as well as after it, so a wake already met is told even while a slow look runs. */
+      const wakeTell = () => {
+        const after = projects.readAll();
+        const owedWake = taskwake.owed(after);
+        if (!owedWake.length) return;
+        const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
+        const r = allowed && owedWake.some((x) => x.holders.some((h) => x.members.includes(h))) ? safeRoster() : null;
+        taskwake.sweep({
+          projects: after, items: owedWake, roster: r, now: Date.now(), recentTyped: TELL_TYPED, allowed,
+          limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
+          sent: AGENT_NUDGE_SENT, book: WAKE_BOOK, idleSeen: WAKE_IDLE,
+          idleSince: (session) => { const sr = selfreport.read(session); const t = sr && sr.found && sr.state === 'idle' ? Date.parse(sr.at) : NaN; return Number.isFinite(t) ? t : null; },
+          deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),
+          DELIVERY: chat.DELIVERY,
+          log: (x) => { TELL_TYPED.set(x.holder, Date.now()); process.stdout.write(`task wake tell: task #${x.task} (${x.project}) to ${x.holder} reached=${x.reached} delivery=${x.delivery} try ${x.tries}\n`); },
+        });
+      };
       const wakeTick = setInterval(() => {
+        try { wakeTell(); } catch { /* best effort, like the repeat-due tell */ }
         if (wakeLooking) return;
         let projs;
         try { projs = projects.readAll(); } catch { return; }
-        if (!taskwake.pending(projs).length && !taskwake.owed(projs).length) return;
+        if (!taskwake.pending(projs).length) return;
         wakeLooking = true;
         taskwake.checkTick({ projects: projs, now: Date.now(), gh: wakeGh(), save: tasks.saveWakeMet, every: Number(process.env.AGENT_WORKFORCE_TASK_WAKE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_TASK_WAKE_MS) : undefined })
           .then((done) => {
             for (const x of done) if (x.act === 'met') process.stdout.write(`task wake: task #${x.n} (${x.projectId}) ${x.wake.kind} happened, saved=${x.saved}\n`);
-            const now = Date.now();
-            const after = projects.readAll();
-            const owedWake = taskwake.owed(after);
-            if (!owedWake.length) return;
-            const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
-            const r = allowed && owedWake.some((x) => x.holders.some((h) => x.members.includes(h))) ? safeRoster() : null;
-            taskwake.sweep({
-              projects: after, items: owedWake, roster: r, now, recentTyped: TELL_TYPED, allowed,
-              limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
-              sent: AGENT_NUDGE_SENT, book: WAKE_BOOK, idleSeen: WAKE_IDLE,
-              idleSince: (session) => { const sr = selfreport.read(session); const t = sr && sr.found && sr.state === 'idle' ? Date.parse(sr.at) : NaN; return Number.isFinite(t) ? t : null; },
-              deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),
-              DELIVERY: chat.DELIVERY,
-              log: (x) => { TELL_TYPED.set(x.holder, Date.now()); process.stdout.write(`task wake tell: task #${x.task} (${x.project}) to ${x.holder} reached=${x.reached} delivery=${x.delivery} try ${x.tries}\n`); },
-            });
+            if (done.some((x) => x.act === 'met')) wakeTell();
           })
           .catch(() => { /* best effort, like the repeat-due tell */ })
           .finally(() => { wakeLooking = false; });

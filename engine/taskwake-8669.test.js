@@ -150,26 +150,39 @@ test('#8669: a file wakes on a changed fingerprint, not on a touch, and on being
   fs.writeFileSync(f, 'version 1');
   const w = (await taskwake.prepare({ file: f }, IN_HOME)).wake;
   const seen = new Map();
-  assert.deepEqual(await taskwake.probe(w, {}, 'k', seen), { met: false }, 'unchanged');
+  assert.deepEqual(await taskwake.probe(w, IN_HOME, 'k', seen), { met: false }, 'unchanged');
   const later = new Date(Date.now() + 5000);
   fs.utimesSync(f, later, later);
-  assert.deepEqual(await taskwake.probe(w, {}, 'k', seen), { met: false }, 'touched, same bytes: not a change');
+  assert.deepEqual(await taskwake.probe(w, IN_HOME, 'k', seen), { met: false }, 'touched, same bytes: not a change');
   assert.ok(seen.has('k'), 'the touch is remembered, so the file is not read again each minute');
   let reads = 0;
   const counting = { plain: (p) => { reads += 1; return require('./fileprint').plain(p); } };
-  assert.deepEqual(await taskwake.probe(w, { fileprint: counting }, 'k', seen), { met: false });
+  assert.deepEqual(await taskwake.probe(w, { ...IN_HOME, fileprint: counting }, 'k', seen), { met: false });
   assert.equal(reads, 0, 'same size and time: not fingerprinted again');
   fs.writeFileSync(f, 'version 2');
-  assert.deepEqual(await taskwake.probe(w, {}, 'k', seen), { met: true, words: 'it changed' });
+  assert.deepEqual(await taskwake.probe(w, IN_HOME, 'k', seen), { met: true, words: 'it changed' });
   fs.rmSync(f);
-  assert.deepEqual(await taskwake.probe(w, {}, 'k', seen), { met: true, words: 'it was removed' });
+  assert.deepEqual(await taskwake.probe(w, IN_HOME, 'k', seen), { met: true, words: 'it was removed' });
+  // A path made into a link after the wake was set is checked again on every look, and never read.
+  const watched = nodePath.join(FILES, 'swap.txt');
+  fs.writeFileSync(watched, 'one');
+  const sw = (await taskwake.prepare({ file: watched }, IN_HOME)).wake;
+  const hidden = nodePath.join(FILES, '.private', 'key.txt');
+  fs.mkdirSync(nodePath.dirname(hidden), { recursive: true });
+  fs.writeFileSync(hidden, 'secret');
+  fs.rmSync(watched);
+  fs.symlinkSync(hidden, watched);
+  let readAgain = 0;
+  const spy = { plain: (q) => { readAgain += 1; return require('./fileprint').plain(q); } };
+  assert.deepEqual(await taskwake.probe(sw, { ...IN_HOME, fileprint: spy }, 's', new Map()), { met: false, problem: 'Kosmos cannot watch that file any more' });
+  assert.equal(readAgain, 0, 'the linked file was not read');
   // A file too big to fingerprint here is watched by its size and time.
   const big = { statSync: () => ({ isFile: () => true, size: taskwake.FILE_HASH_MAX + 1, mtimeMs: 5 }) };
   const bw = (await taskwake.prepare({ file: '/big/file.bin' }, { fs: big, home: '/big' })).wake;
   assert.equal(bw.from, 'stat:' + (taskwake.FILE_HASH_MAX + 1) + ':5');
-  assert.deepEqual(await taskwake.probe(bw, { fs: big }, 'b', new Map()), { met: false });
+  assert.deepEqual(await taskwake.probe(bw, { fs: big, home: '/big' }, 'b', new Map()), { met: false });
   const bigger = { statSync: () => ({ isFile: () => true, size: taskwake.FILE_HASH_MAX + 1, mtimeMs: 6 }) };
-  assert.deepEqual(await taskwake.probe(bw, { fs: bigger }, 'b', new Map()), { met: true, words: 'it changed' });
+  assert.deepEqual(await taskwake.probe(bw, { fs: bigger, home: '/big' }, 'b', new Map()), { met: true, words: 'it changed' });
 });
 
 function setupProject(name, agents = ['ann', 'bo']) {
@@ -368,4 +381,21 @@ test('#8669: the history says the wake in words, and the board\'s own wake rows 
   tasks.saveWakeMet(p.id, t.number, stored(p.id, t.number).wake.setAt, { at: new Date(Date.now() + 60e3).toISOString(), words: 'the time came' });
   taskchat.record(p.id, t.number, { kind: 'wake-told', told: 'ann', reached: true });
   assert.equal(tasks.lastActivityOf(p.id, stored(p.id, t.number)), before, 'unchanged by the wake-met and wake-told rows');
+});
+
+test('#8669: a woken branch says it plainly, and a holder off the project is told once they are back, not spent', () => {
+  const f = taskwake.fieldsOf({ wake: { kind: 'branch', repo: 'octo/hello', branch: 'main', from: SHA_A, setAt: 'x' }, wakeMet: { at: 'x', words: 'it has a new commit (bbbbbbbbbb)' } });
+  assert.equal(f.wakeMetWords, 'main in octo/hello: it has a new commit (bbbbbbbbbb)');
+  const p = setupProject('Away', ['ann']);
+  const t = tasks.create(p.id, { sentence: 'Away one', who: 'ann' });
+  tasks.setWake(p.id, t.number, { kind: 'at', at: Date.now() + 1000 }, { by: 'ann' });
+  tasks.saveWakeMet(p.id, t.number, stored(p.id, t.number).wake.setAt, { at: new Date().toISOString(), words: 'the time came' });
+  projects.removeAgent(p.id, 'ann');
+  const w = world(['ann']);
+  const r = taskwake.sweep(w.o(only(p)));
+  assert.equal(r.results[0].because, 'no holder is on the project');
+  assert.equal(stored(p.id, t.number).wakeToldAt, undefined, 'the wake is not spent');
+  projects.addAgent(p.id, 'ann');
+  taskwake.sweep(w.o(only(p)));
+  assert.equal(w.typed.length, 1, 'told once back on the project');
 });

@@ -7449,6 +7449,8 @@ cmd_task() {
       done
       # A file is sent as its full path: the board does not share this command's folder.
       if [ "$_wkind" = file ]; then case "$_wval" in /*) ;; *) _wval="$PWD/$_wval" ;; esac; fi
+      # A tab or line break would be sent as a space, which names another file; refuse it instead.
+      case "$_wval" in *$'\t'*|*$'\n'*|*$'\r'*) say "Kosmos cannot watch a file whose name holds a tab or a line break."; exit 2 ;; esac
       local _jesc; _jesc() { printf '%s' "$1" | LC_ALL=C tr -d '\001-\010\013\014\016-\037\177' | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g' | LC_ALL=C tr '\t\r\n' '   '; }
       local esc_pane; esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
       local _tok=""
@@ -7463,7 +7465,10 @@ cmd_task() {
       _code=$(printf '%s' "$body" | tail -n 1); body=$(printf '%s' "$body" | sed '$d')
       case "$body" in
         '{"task":'*)
-          local words; words=$(printf '%s' "$body" | sed -n 's/.*"words":"\([^"]*\)".*/\1/p')
+          # The board's words are JSON (a file name can hold a quote), so node reads them, not sed.
+          local words; words=$(printf '%s' "$body" | "$NODE" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{try{const j=JSON.parse(s);process.stdout.write(typeof j.words==="string"?j.words.replace(/[\u0000-\u001f\u007f]/g," "):"")}catch{}})' 2>/dev/null) || words=""
+          # No node to hand (a bare checkout): the plain words, as other answers here are read.
+          [ -n "$words" ] || words=$(printf '%s' "$body" | sed -n 's/.*"words":"\([^"\\]*\)".*/\1/p')
           if [ "$clear" = true ]; then
             case "$body" in *'"changed":false'*) say "Task $num on ${project:-the project} was not waiting for anything." ;;
               *) say "Task $num on ${project:-the project} no longer waits for anything." ;; esac
