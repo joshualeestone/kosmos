@@ -20,3 +20,10 @@ Weakest premise: that every remote-session refusal the board sends carries a rem
 matching the prefix could not leak: fedRemoteSays returns `error`, never `code`, and callers ask it only on failure.
 
 Round 1 (review): the sheet is now tested by running fedInviteMake on a 403, not by a text pin.
+
+Round 2 (review):
+- Wider effect, intended: pjFedMessage serves the create screen's mint, verify and join. Join is also a step-up
+  route (server.js gated list), so Join now shows the sign-in-again sentence too; verify is not gated, no change.
+- Deferred: Remove and Withdraw keep `403 ? fallback`. Neither is a step-up route (the gated list names join,
+  invite, own-code, own-allow, own-confirm; "Removing and withdrawing take away"), so no remote refusal reaches
+  them today. Would change my mind: either route joining the gated list.
