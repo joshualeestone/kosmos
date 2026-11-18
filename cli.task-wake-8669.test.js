@@ -106,6 +106,9 @@ test('#8669 Mac CLI: two conditions, none, a missing value and an unknown option
       assert.equal(r.code, 2, args.join(' ') + ': ' + r.stdout + r.stderr);
       assert.match(r.stdout + r.stderr, re, args.join(' '));
     }
+    const tab = await runCli(['task', 'wake', 'p1', '3', '--file', '/tmp/a\tb.md'], env);
+    assert.equal(tab.code, 2, 'a tab in a file name would name another file');
+    assert.match(tab.stdout + tab.stderr, /Kosmos cannot watch a file whose name holds a tab or a line break/);
     const nan = await runCli(['task', 'wake', 'p1', 'three', '--at', '2h'], env);
     assert.equal(nan.code, 2);
     assert.equal(hits.filter((h) => h.url.includes('/wake')).length, 0, 'the board was never asked');
@@ -139,3 +142,12 @@ test('#8669 Windows CLI: the same fields and refusals, and a relative file sent 
   assert.equal(r.code, 1);
   assert.match(r.err, /Kosmos could not change that task: that pull request is already merged\./);
 });
+
+test('#8669 Mac CLI: words holding a quote are said whole', { skip: SKIP_POSIX_SHELL }, () =>
+  withBoard(() => [200, { task: { number: 3 }, changed: true, words: 'waits for say "hi".md to change' }], async (env) => {
+    const r = await runCli(['task', 'wake', 'p1', '3', '--file', '/tmp/x.md'], env);
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    // With the bundled node the words are read as JSON; a bare checkout has none and falls back to the plain form.
+    assert.match(r.stdout + r.stderr, /Task 3 on p1 now (waits for say "hi"\.md to change|waits for that)\./);
+    assert.doesNotMatch(r.stdout + r.stderr, /\\"/, 'never the raw escape');
+  }));

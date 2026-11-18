@@ -37,9 +37,10 @@ const CHECK_EVERY_MS = 55 * 1000;
    GitHub's hourly limit for a signed-in user, so a board with many watched pull requests checks each less often
    rather than spending the person's whole allowance. */
 const NET_PER_TICK = 20;
-/* A file bigger than this is never fingerprinted on the board's thread: its size or modified time changing is the
-   change. 64 MB hashes in well under a second. */
-const FILE_HASH_MAX = 64 * 1024 * 1024;
+const NET_AT_ONCE = 4;
+/* A file bigger than this is never fingerprinted: its size or modified time changing is the change. The hash runs on the
+   board's thread, so the cap is small. */
+const FILE_HASH_MAX = 8 * 1024 * 1024;
 const AT_MAX_MS = 366 * DAY_MS;
 const GH_TIMEOUT_MS = 10 * 1000;
 const MAX_TRIES = 3;
@@ -306,6 +307,12 @@ async function probe(w, deps = {}, key = '', seen = new Map()) {
     }
     if (w.kind === 'file') {
       const fs = deps.fs || require('node:fs');
+      // The path is checked again on every look: a link set up after the wake must not point the board elsewhere.
+      if (!fileAllowed(w.path, deps)) {
+        let gone = false;
+        try { fs.lstatSync(w.path); } catch (e) { gone = !!(e && e.code === 'ENOENT'); }
+        return gone ? { met: true, words: 'it was removed' } : { met: false, problem: 'Kosmos cannot watch that file any more' };
+      }
       let st;
       try { st = fs.statSync(w.path); } catch (e) {
         if (e && e.code === 'ENOENT') return { met: true, words: 'it was removed' };
@@ -367,16 +374,19 @@ async function checkTick(o) {
       .sort((a, b) => ((state.get(a.projectId + '#' + a.n + '@' + a.setAt) || { at: 0 }).at) - ((state.get(b.projectId + '#' + b.n + '@' + b.setAt) || { at: 0 }).at))
       .slice(0, NET_PER_TICK);
     const local = due.filter((x) => x.wake.kind === 'at' || x.wake.kind === 'file');
-    for (const x of [...local, ...net]) {
+    const look = async (x) => {
       const key = x.projectId + '#' + x.n + '@' + x.setAt;
-      const r = await probe(x.wake, { gh: o.gh || null, now, fs: o.fs, fileprint: o.fileprint }, key, seen);
+      const r = await probe(x.wake, { gh: o.gh || null, now, fs: o.fs, fileprint: o.fileprint, home: o.home }, key, seen);
       state.set(key, { at: now, problem: r.problem || null });
       if (r.met) {
         let saved = false;
         try { saved = o.save(x.projectId, x.n, x.setAt, { at: new Date(now).toISOString(), words: r.words }) === true; } catch { saved = false; }
         out.push({ ...x, act: 'met', words: r.words, saved });
       } else out.push({ ...x, act: r.problem ? 'unknown' : 'waiting', problem: r.problem || null });
-    }
+    };
+    for (const x of local) await look(x);
+    // GitHub reads NET_AT_ONCE at a time, so one slow gh does not hold the rest for its whole time limit.
+    for (let i = 0; i < net.length; i += NET_AT_ONCE) await Promise.all(net.slice(i, i + NET_AT_ONCE).map(look));
   } catch { /* best effort */ }
   return out;
 }
@@ -398,7 +408,8 @@ function fieldsOf(t, now = Date.now(), problem = null) {
   if (!t || !t.wake || typeof t.wake !== 'object' || !KINDS.includes(t.wake.kind) || !describe(t.wake, now)) return {};
   const out = {};
   if (t.wakeMet && typeof t.wakeMet === 'object') {
-    out.wakeMetWords = (t.wake.kind === 'at' ? 'the wake time came' : describe(t.wake, now).replace(/ to (merge|change)$/, '') + ': ' + plain(t.wakeMet.words, 120));
+    const subject = t.wake.kind === 'branch' ? t.wake.branch + ' in ' + t.wake.repo : describe(t.wake, now).replace(/ to (merge|change)$/, '');
+    out.wakeMetWords = (t.wake.kind === 'at' ? 'the wake time came' : subject + ': ' + plain(t.wakeMet.words, 120));
     out.wakeMetAt = t.wakeMet.at || null;
     out.wakeToldAt = t.wakeToldAt || null;
     if (t.wakeTold && typeof t.wakeTold === 'object') { out.wakeToldWho = t.wakeTold.who || null; out.wakeReached = t.wakeTold.reached === true; }
@@ -492,7 +503,8 @@ function sweep(o) {
         const key = item.projectId + '#' + item.n + '@' + item.setAt;
         if (book.get(key) === 'told') { results.push({ ...item, act: 'held', because: 'already told; its mark could not be saved' }); continue; }
         const onProject = item.holders.filter((h) => item.members.includes(h));
-        if (!onProject.length) { book.set(key, 'told'); mark(item, item.holders[0], 'unreachable', now); results.push({ ...item, act: 'unreachable', because: 'no holder is on the project' }); continue; }
+        // Not spent: a holder put back on the project is still told.
+        if (!onProject.length) { results.push({ ...item, act: 'held', because: 'no holder is on the project' }); continue; }
         if (o.allowed !== true) { results.push({ ...item, act: 'held', because: 'Kosmos does not type into agents yet' }); continue; }
         let picked = null;
         let because = 'no holder is running';
