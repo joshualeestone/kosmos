@@ -20651,7 +20651,8 @@ const server = http.createServer(async (req, res) => {
            POSTs anything off the Mac. */
         sendJson(res, 200, { delivery });
         // #6254: an agent's room post -> a `posted` phone notification (best-effort, after the response, like
-        // the attribution below). A reply to the PERSON's own post is a names-you buzz (postedMention, on by
+        // the attribution below). A reply to the PERSON's own post, or (kosmos#8699) a post that names them by @-name or
+        // header, is a names-you buzz (postedMention, on by
         // default); any other room post is postedRoom (off by default, one buzz per room per 10 min). Never the
         // post's words. Only a post actually recorded in the room (delivery.id), by a known agent (operator
         // posts come from the screen, not this token route). The tap target is the app's call (the room for
@@ -20659,7 +20660,7 @@ const server = http.createServer(async (req, res) => {
         try {
           if (postSender && postSender.ok && delivery && delivery.id) {
             const pj = projects.get(body.project, roster);
-            phonenotify.happened({ kind: 'posted', namesPerson: delivery.repliesToPerson === true,
+            phonenotify.happened({ kind: 'posted', namesPerson: delivery.repliesToPerson === true || delivery.namesPerson === true,
               id: 'post:' + delivery.id, agent: (postSender.card && postSender.card.name) || null,
               session: (postSender.card && postSender.card.sessionName) || null,
               // #6254: the room's project id (not just its name) so a posted tap opens the room.

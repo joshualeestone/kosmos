@@ -423,12 +423,14 @@ test('#6254 posted wiring: /api/post fires posted after the response from delive
   assert.ok(route, 'the /api/post route moved; this pin reads nothing');
   // The notification comes from the token-resolved sender and the delivery's own id/flag, after sendJson.
   assert.match(route, /sendJson\(res, 200, \{ delivery \}\);/);
-  assert.match(route, /phonenotify\.happened\(\{ kind: 'posted', namesPerson: delivery\.repliesToPerson === true,/);
+  // kosmos#8699: and a post that names the person (an @-name or its own header), set by messages.js as namesPerson.
+  assert.match(route, /phonenotify\.happened\(\{ kind: 'posted', namesPerson: delivery\.repliesToPerson === true \|\| delivery\.namesPerson === true,/);
   assert.match(route, /id: 'post:' \+ delivery\.id/);
   assert.match(route, /catch \{ \/\* a notification is never a reason to fail the post/);
   // The names-you signal is derived in messages.js from whether the answered post carried operator:true.
   const msrc = fs.readFileSync(path.join(__dirname, 'engine', 'messages.js'), 'utf8');
   assert.match(msrc, /repliesToPerson: answered\.operator === true/, 'messages.js no longer derives repliesToPerson from the answered post being the person\'s');
+  assert.match(msrc, /\.\.\.\(personWord \? \{ namesPerson: true \} : \{\}\)/, 'kosmos#8699: messages.js no longer reports a post that names the person');
 });
 
 test('turning on always mints a fresh token, one turn-on at a time', async () => {
