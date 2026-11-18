@@ -92,6 +92,18 @@ key and where the grants come from.
 could substitute keys and read or forge a pack. Mitigation in slice 5: the console and both boards show a short
 fingerprint of the hand-over key, for the admin to compare by eye. Not compared, not claimed.
 
+## Slice 2 design (read from relay main 11-18 15:5x CST, not built yet)
+- Reuse coordinator/src/backup.rs whole: `presign_put` / `presign_get` against a `BackupStore`, its own store config
+  (`KOSMOS_HANDOVER_STORE_*`, the same fields as the backup store's), so a hand-over never writes into a company's
+  own backup destination (`org_backup_destinations`) or ours by accident.
+- Keys built by the coordinator from the AUTHENTICATED Mac and the hand-over id: `handover/<org>/<handover id>/...`,
+  never from the request. A's Mac gets PUTs only while its hand-over is `packing`; B's Mac gets GETs only while
+  `packed` or `receiving`, and only for its own hand-over.
+- The bucket is NOT needed to build or test this: backup.rs's tests run against a loopback store (`dev_endpoint`).
+  Only switching it on in prod waits on the Kosmos-owned bucket (asked of Josh 11-18 12:56 via Splinter).
+- Board side (slice 3) drives `engine/backuprun.js` `runBackup` with: the member key = B's one-time public key, the
+  hand-over's grant routes in place of the backup grant routes, and roots = only the named agents' folders.
+
 ## Order of work and dates
 - 11-18/19: slice 1 and the plan's review. 11-20/21: slices 2 and 3. 11-22/23: slice 4. 11-24: slice 5.
 - 11-25: end-to-end on staging builds. Release cut and coordinator deploy by 11-27, measured, then switched on.
