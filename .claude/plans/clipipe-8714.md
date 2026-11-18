@@ -34,3 +34,5 @@ A real case where ENOTCONN on stdout means a failure the person needs to see.
 - WARNING deferred: the unguarded control arms (bare, board) could miss a trace on timing. Not seen: the flake was the guarded arm's exit code, and an unguarded writer of 1 MB to a closed reader always errors; widening those arms to the three codes already removes the code-shape half of the risk.
 - NITs fixed: the doc comment says which code was measured where (EPIPE shell pipe, ENOTCONN CI) instead of a reasoned mechanism; the long doc line rewrapped; tools/test-cli-epipe-8599.sh's guarded arm now refuses an ENOTCONN or ECONNRESET trace too.
 - NIT left: the exact-contents assertion (review 1's left NIT).
+### Review 3 (opus): no BLOCKER/WARNING/CONVENTION, 5 NITs fixed
+- The ECONNRESET comment says it is included by reasoning, not seen; guardStream's doc says "a closed reader included"; the test header no longer says EPIPE only; the shell test's header and arm 5 refuse all three codes (arm 2 stays EPIPE: a shell pipe).

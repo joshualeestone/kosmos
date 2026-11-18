@@ -1,6 +1,6 @@
 'use strict';
 require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits
-// kosmos#8599: a reader that stops early ends a CLI node process quietly (exit 141), not with an EPIPE stack trace.
+// kosmos#8599: a reader that stops early ends a CLI node process quietly (exit 141), not with a stack trace.
 // The whole-CLI path (install/kosmos preloading this through NODE_OPTIONS) is tools/test-cli-epipe-8599.sh.
 const test = require('node:test');
 const assert = require('node:assert');

@@ -3,7 +3,7 @@
 #
 # Runs the REAL install/kosmos and the REAL engine/clipipe.js against a fake app whose triage engine prints about
 # 1 MB, far more than a pipe holds, so the reader (head -1) closes while node is still writing. Five arms:
-#   1. guarded: no EPIPE and no "Unhandled 'error'" on stderr, and the reader got its line
+#   1. guarded: no EPIPE, ENOTCONN or ECONNRESET and no "Unhandled 'error'" on stderr, and the reader got its line
 #   2. CONTROL, guard off (KOSMOS_CLIPIPE_SET=1 before the wrapper, so it adds nothing): the trace IS there, which
 #      proves this test can see the defect at all
 #   3. CONTROL, full output: nothing closes early, every byte arrives and the verb exits 0
@@ -73,6 +73,6 @@ cp -R "$HOME_DIR/app" "$SPACED/app"   # a real folder (not a link), so the path 
 ln -s "$NODE_BIN" "$SPACED/runtime/bin/node"
 KOSMOS_HOME="$SPACED" bash "$REPO/install/kosmos" feedback triage --dir "$HOME_DIR/reports" 2>"$ERR" | head -1 > "$LINE"
 grep -q '^digest line 0 ' "$LINE" || fail "with a space in the home folder the reader got: $(cat "$LINE") / $(head -3 "$ERR")"
-if grep -qE "EPIPE|Unhandled 'error'|Cannot find module" "$ERR"; then fail "a home folder with a space: $(head -3 "$ERR")"; fi
+if grep -qE "EPIPE|ENOTCONN|ECONNRESET|Unhandled 'error'|Cannot find module" "$ERR"; then fail "a home folder with a space: $(head -3 "$ERR")"; fi
 
 echo "PASS: test-cli-epipe-8599 (a closed reader is quiet; the guard-off control shows the trace; full output intact; children see only the person's NODE_OPTIONS)"
