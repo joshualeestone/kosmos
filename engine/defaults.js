@@ -521,6 +521,12 @@ const LINES = [
   '',
   '`kosmos task done-when <project-id> <task-number> "<check 1>" "<check 2>"`',
   '',
+  "**If a task's title or detail stops matching the work, fix it:**",
+  '`kosmos task edit <project-id> <task-number> --title "<new title>"` (or `--detail',
+  '"<new detail>"`, or `--clear-detail`). A task the person wrote, or whose words they',
+  'changed, is theirs and the edit is refused: say what changed in its conversation',
+  'instead, with `kosmos task message <project-id> <task-number> "<what changed>"`.',
+  '',
   '**To see what is still open across every project,** run `kosmos task list --all`',
   '(one line each, the project first). `kosmos task list --all --stale` keeps the open',
   'tasks with no activity for a week, quietest first (`--stale 14` for two weeks; or',
@@ -1348,8 +1354,12 @@ function block() {
  *     new heading; the Windows block lacks one heading the Mac block has, so missingFrom never offers it there.
  *     WEAKEST PREMISE, NAMED: that the board writes an agent's instructions on the agent's own platform (true while
  *     agents run on the computer whose board writes them).
+ *  51. kosmos#8680: the tasks section names `kosmos task edit` (#8664) for a task whose title or detail stopped matching
+ *     the work, and `kosmos task message` for a task the person wrote, whose words an agent may not change (the board
+ *     refuses that edit). No new heading, so as in 32 an agent's EDITED copy is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that an agent notices a wrong title at all; the line gives it the tool, not the habit.
  */
-const DOCTRINE_VERSION = 50;
+const DOCTRINE_VERSION = 51;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

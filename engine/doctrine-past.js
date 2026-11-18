@@ -5,6 +5,12 @@
    first line, and the sha256 of exactly those characters. doctrine.planFor uses it to tell an unedited copy from one
    a person changed. `sections` holds the sha256 of every section of every one of them, for a span holding some. */
 const blocks = [
+  { version: 51, length: 34041, sha256: '4d0b9d401bc36b585cd6922cd3829551b3d7601084ff2d64e75abdf800afb897' },
+  { version: 51, length: 33866, sha256: 'd3227e5a84e90c1b8c37c6361362c23d9c285aadb035d579866e659b6e2fecd4' },
+  { version: 51, length: 33041, sha256: 'eea52f850612f1987e9494251b468e43fcb3367d38cf901a61adf85155f790a1' },
+  { version: 51, length: 32866, sha256: '329c5140dc069164af5e53837d67839cb2baf2ed4d36053021301cba03b37af2' },
+  { version: 51, length: 32554, sha256: '30d884bd919a700a455e3a63234c078756e5098d7fdd6fa34a92ab9dfe1d5719' },
+  { version: 51, length: 32379, sha256: '59cbbca192babc459379ce63df53010ee81f9178049171176c58671373f4d6b5' },
   { version: 50, length: 33647, sha256: 'c12d49b5a7b1330602552ae9f1a2d7caa1de06c5d26732a7f0db00e516545f5f' },
   { version: 50, length: 32647, sha256: 'ce21a502d452adf12ba6851fb90e07e77671a01573689c4b5d71f744ef3e5dc4' },
   { version: 50, length: 32160, sha256: 'e9d2a81d9ac959df0c47f50d09904bb28934c7f4af6dcf75a470f94d1f1cf83d' },
@@ -140,6 +146,7 @@ blocks.sections = [
   '804f5150638a435944c55b914c1c32987a710246e21a461c74af1da5f9872b19',
   '8203c578711b205ef16137950803cbf0d645a13c501c9179ee00c03b3b47c81b',
   '8389ebe130b211deafcf5cab3af91782a2c7657301e877f4be0da495dfe15c0b',
+  '84ca88f1a4cf599da446577431b985da1e47f3dd05df6f8abb6524c384c7ff8f',
   '850accd6f1a0f3c06bc7ef1e07bd94ffff0b6c31466e1e331e4a555d3ab15b1a',
   '88e446b477b04c752f732f80adb334759b969fb425097a9bc1e1c42932cf7f7e',
   '8ce2fa0d27021979ea956f9fd6ad227a3f223154a948e621592ca35fa43ca2c5',
@@ -161,6 +168,7 @@ blocks.sections = [
   'c0863a501e68a8e2fc18c9953e065c598caddb89226264a9839d4a6d3065c7df',
   'c3aac55ebfd14ee0c5454e939e115ded9cce240a6512eb1748949e205b8b57cb',
   'c52f93295076b20fde7dfcf5d53609e9b486732b78df94e0f46344b115e3ed10',
+  'c72e3164047ef8e476afbccfdc3907a3a30529a44332b9e542683b212681196c',
   'c99d16d097c49aee511e0b75a0e25830c69a9082e2dba8f4a395e12510093092',
   'cbc142e16af7b3efbe4980e4fb8a05a0ee50e2b02b9feae6d9e91fcf2ad3628e',
   'cc9c0bb7fc814d37ad9294eb17dde9cb598cbd857e4aa9493267eff5534ad327',
