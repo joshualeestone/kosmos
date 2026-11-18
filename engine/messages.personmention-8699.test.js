@@ -59,7 +59,7 @@ const forget = () => { try { fs.rmSync(you.FILE, { force: true }); } catch { /* 
 test.beforeEach(() => { chat.resetForTests(); messages.resetForTests(); roomloop.resetForTests(); forget(); try { fs.rmSync(messages.LOG, { force: true }); } catch { /* fresh */ } });
 test.after(() => { chat.setRunner(null); chat.setDryRun(true); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
-const NAMED = /^This post names Dana, the person who runs this computer: they see every post here, and their phone is told of this one when its notices are on\.$/;
+const NAMED = /^This post names Dana, the person who runs this computer, who sees every post here; it woke no agent\.$/;
 
 test('an @-name of the person by their first name is reported as naming them, and the sender is told', () => {
   saveName('Dana Reyes');
@@ -95,6 +95,12 @@ test('the whole name and the room\'s own word for the person name them too; case
   assert.equal(send('@dana please look').namesPerson, true);
   assert.equal(send("Leo -> Dana's desk: please look").namesPerson, true);
   assert.equal(send('Leo -> Dana re the lease: please look').namesPerson, true);
+});
+
+test('CONTROL: a header to a different person who shares the first name does not name the person', () => {
+  saveName('Dana Reyes');
+  assert.equal(send('Leo -> Dana Smith: please look').namesPerson, undefined, 'Dana Smith is not Dana Reyes');
+  assert.equal(send('Leo -> Dana Reyes: please look').namesPerson, true, 'CONTROL: the whole name does');
 });
 
 test('CONTROL: a word that is not the person, in code, or a mere mention of their name without @ does not name them', () => {

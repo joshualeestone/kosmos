@@ -2619,14 +2619,14 @@ function unmatchedNote(cleaned, recipients, roster, from, raw, personKeys) {
   } catch { return ''; }
 }
 
-/* kosmos#8699 (agent feedback 11-17): an agent's room post that names the PERSON, by @-name ("@Josh") or in its own
+/* kosmos#8699 (agent feedback 11-17): an agent's room post that named the PERSON, by @-name ("@Josh") or in its own
    header ("Leo -> Josh:"), reached nobody: the phone's names-you notice fired only for a reply to the person's own post
-   (#6254), so a direct question to them in a room could go unseen and the sender never learned it. The words that name
-   the person: the first word and the whole of the About-you name (as nameKey, so "Josh Stone" is joshstone, said as
-   @JoshStone), and `operator`, the word the room's text view uses for them (#6952). A word that names ANY agent on this
-   computer is that agent's, never the person's (an agent named Josh keeps @Josh), the side the @ rule already takes.
-   Returns the person's keys and the word the post used, or null. Never throws. */
-function personKeysNow() {
+   (#6254), so a direct question to them in a room could go unseen and the sender never learned it. */
+
+/* The words that name the person, as nameKey: the first word and the whole of the About-you name ("Josh Stone" is
+   josh and joshstone, said as @JoshStone), and `operator`, the word the room's text view uses for them (#6952). A word
+   that names any agent card on this computer is left out, so an agent named Josh keeps @Josh. Always a Set. */
+function personKeysNow(roster) {
   const nameKey = require('./agentnames').nameKey;
   const keys = new Set(['operator']);
   try {
@@ -2637,21 +2637,33 @@ function personKeysNow() {
       const first = nameKey(name.split(/\s+/)[0]); if (first.length >= 2) keys.add(first);
     }
   } catch { /* the name unread: operator alone */ }
+  for (const c of Array.isArray(roster) ? roster : []) {
+    if (!c) continue;
+    for (const v of [c.sessionName, c.name]) {
+      if (typeof v === 'string' && v) { keys.delete(nameKey(v)); v.split(/\s+/).forEach((w) => keys.delete(nameKey(w))); }
+    }
+  }
   return keys;
 }
+
+/* The word in an agent's post that names the person (one of personKeysNow's keys), or null. A target of the poster's
+   own header counts when the whole target is the name ("Dana", "Dana Reyes"), or when the name is its first word and
+   the next word is lower case ("Dana re the lease"): "Josh Smith" is someone else, not the person Josh Stone. An
+   @-word counts as a whole token. Text in backticks is skipped, as outsidersNote skips it; mentionedMembers does not
+   skip it for members, so `@kano` in code still wakes kano while `@Dana` in code does not buzz the person's phone.
+   Never throws. */
 function personNamed(cleaned, roster, from, raw, personKeys) {
   try {
     const nameKey = require('./agentnames').nameKey;
-    const agentKeys = new Set();
-    const addKeys = (v) => { if (typeof v === 'string' && v) { agentKeys.add(nameKey(v)); v.split(/\s+/).forEach((w) => agentKeys.add(nameKey(w))); } };
-    for (const c of Array.isArray(roster) ? roster : []) if (c) { addKeys(c.sessionName); addKeys(c.name); }
-    const isPerson = (word) => { const k = nameKey(String(word || '').replace(/'s$/i, '')); return k.length >= 2 && personKeys.has(k) && !agentKeys.has(k); };
+    const isPerson = (word) => { const k = nameKey(String(word || '').replace(/'s$/i, '')); return k.length >= 2 && personKeys.has(k); };
     const poster = from === undefined || from === null ? [] : [String(from)];
     const head = postHeader(typeof raw === 'string' ? raw : String(cleaned || '')).find((h) => nameResolves(h.sender, poster, roster).length);
     for (const part of head ? head.targets : []) {
       const words = part.replace(/^@/, '').trim().split(/\s+/).filter(Boolean);
-      // The whole part, then its first one or two words ("Josh re the cut", "Josh Stone about it").
-      for (const w of [words.join(' '), words.slice(0, 2).join(' '), words[0]]) if (w && isPerson(w)) return w.replace(/'s$/i, '');
+      if (!words.length) continue;
+      const tries = [words.join(' '), words.slice(0, 2).join(' ')];
+      if (words.length === 1 || /^[a-z]/.test(words[1])) tries.push(words[0]);
+      for (const w of tries) if (isPerson(w)) return w.replace(/'s$/i, '');
     }
     for (const m of String(cleaned || '').replace(/`[^`]*`/g, ' ').matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
       const word = m[2].replace(/[._-]+$/, '');
@@ -2660,12 +2672,13 @@ function personNamed(cleaned, roster, from, raw, personKeys) {
     return null;
   } catch { return null; }
 }
-/* kosmos#8699: what the sender of a post that woke no member, but named the person, is told. Only what is true either
-   way: the person sees every post in the room, and the phone is told only when its notices are on. No double quote:
-   kosmos post reads the note out of the JSON with sed up to the first one. */
+
+/* What the sender of a post that woke no member, but named the person, is told. It claims nothing about the phone:
+   whether a notice goes depends on the route, the person's settings and a cooldown, none of which this sees. No double
+   quote: kosmos post reads the note out of the JSON with sed up to the first one. */
 function personNote(word) {
   const w = printableName(String(word || '').slice(0, 40)) || 'the person';
-  return 'This post names ' + w + ', the person who runs this computer: they see every post here, and their phone is told of this one when its notices are on.';
+  return 'This post names ' + w + ', the person who runs this computer, who sees every post here; it woke no agent.';
 }
 
 function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery, deliverAutomaticToPane) {
@@ -3009,7 +3022,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       projectId, recipients).length === 0;
   /* kosmos#8699: an agent's post that names the person. Not in a room shared with another computer, where the name may
      be the other side's person; and a person's own post never names themself. */
-  const personKeys = operator === true || federated === true ? null : personKeysNow();
+  const personKeys = operator === true || federated === true ? null : personKeysNow(roster);
   const personWord = personKeys ? personNamed(cleaned, roster, from, text, personKeys) : null;
   const quietRoom = operator === true || federated === true || mentioned.size > 0 || answered || !recipients.some((m) => m !== from);
   /* kosmos#8270: an agent's post that addressed someone off the project is told so, in the same sentence slot. */

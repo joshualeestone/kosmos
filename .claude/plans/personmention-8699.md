@@ -30,3 +30,12 @@ Card: kosmos#8699 (agent feedback 11-17). Night shift, PigeonPete.
 
 ## Validation order
 - Blind review first, then one full local `tools/run-tests.sh` run (Mortals is held for the 0.8.10 cut).
+
+## Review iteration 1 (and what stays as it is)
+- The sender note no longer mentions the phone: only the token route (/api/post) sends a notice, a pane-claim
+  post and the outbox drain do not, and the cooldown and settings are invisible to messages.js.
+- A header names the person only by the whole name, or by the first word when the next word is lower case.
+- Known and kept: a post that names the person now goes through postedMention, not postedRoom, so someone with
+  postedMention off and postedRoom on gets nothing for it (replies to the person already work this way, #6254).
+- Known and kept: the outbox drain sends no phone notice for a post that names the person, as it sends none for
+  a reply to them; only the live /api/post route notifies.
