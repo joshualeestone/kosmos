@@ -43,7 +43,7 @@
 - Would change my mind: a cheap, safe way to read another process's working folder on Windows.
 
 ## Validation
-- `engine/delete-leftover.win32folders-8640.test.js` (15 tests, including a live process that names the folder, sync
+- `engine/delete-leftover.win32folders-8640.test.js` (17 tests, including a live process that names the folder, sync
   and async).
 - The delete-leftover and status suites plus the policy tests. On a Windows host, 17 tests in
   delete-leftover.offthread-7835, delete-leftover.running-8640, status.config-dir-1523, status.heldq-7915, status.snapshotunheld-7693 and status.tmux-bin fail with

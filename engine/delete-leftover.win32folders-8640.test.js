@@ -63,6 +63,23 @@ test('win32PathsIn: every Windows path a command line names, quoted or not, with
   assert.deepEqual(status.win32PathsIn(''), []);
 });
 
+test('win32PathsIn: the "p:/" inside a web address is not a drive', () => {
+  assert.deepEqual(status.win32PathsIn('chrome.exe --url https://example.com/a http://x/y'), []);
+  assert.deepEqual(status.win32PathsIn('x --log=C:\\logs\\a.txt'), ['C:\\logs\\a.txt'], 'a path right after "=" still is');
+});
+
+test('Mac and Linux: the page\'s plan hands the listing in even for a leftover with no folder (no tmux read on the board\'s thread)', async () => {
+  const realSync = status.paneFolders;
+  const realAsync = status.paneFoldersAsync;
+  let syncReads = 0;
+  status.paneFolders = () => { syncReads += 1; return []; };
+  status.paneFoldersAsync = async () => [];
+  try {
+    for (const platform of ['darwin', 'linux']) await leftover.planAsync('nofolder8640', { platform });
+    assert.equal(syncReads, 0, 'a Mac or Linux plan read the listing on the board\'s thread');
+  } finally { status.paneFolders = realSync; status.paneFoldersAsync = realAsync; }
+});
+
 test('win32PathsIn: a QUOTED path ends at its quote, so a folder with a space is not cut to a sibling\'s name', () => {
   const got = status.win32PathsIn('tool.exe "C:\\w\\agent1 copy\\x" -v');
   assert.ok(got.includes('C:\\w\\agent1 copy\\x'));

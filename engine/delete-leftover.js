@@ -1777,7 +1777,7 @@ async function planAsync(name, opts) {
      so plan() refuses as it would have. kosmos#8640 (Windows): read before warmFor too, whose own plan would otherwise
      read it on the board's thread (the Windows read is a PowerShell process, ~0.5 s, up to its 15 s limit), and only
      when the agent's folder is there (foldersIfNeeded). */
-  const had = await foldersIfNeeded(name);
+  const had = await foldersIfNeeded(name, opts);
   const warm = win ? await warmFor(name, { ...(opts || {}), ...had }) : null;
   // Asked again: a delete of the name can have started while the probe ran.
   if (win && deletingName(name)) return { ok: false, running: true, because: DELETING_BECAUSE };   // kosmos#7852: the page can say so
@@ -1802,10 +1802,14 @@ async function foldersOffThread(fresh = false) {
 /** { folders } (the listing) when the agent's folder is there; else {} (plan() reads no listing for a folder that is
     not there, and should one appear before the real plan, it reads the listing itself rather than trust an unread one).
     A check of the folder only, not a plan: a second plan would read the roster a second time (kosmos#7835). A living
-    agent with a folder is still read for (one shared off-thread read), since only the plan knows it is living. */
-async function foldersIfNeeded(name, fresh = false) {
-  let there = false;
-  try { there = fs.existsSync(create.workerDir(create.cleanName(name))); } catch { there = true; }   // unsure: read
+    agent with a folder is still read for (one shared off-thread read), since only the plan knows it is living. The
+    folder test is WINDOWS ONLY, the same condition as plan()'s: on a Mac or Linux the listing is always handed in, as
+    before, so plan() never reads tmux on the board's thread (kosmos#8644 item 1). */
+async function foldersIfNeeded(name, opts, fresh = false) {
+  let there = true;
+  if (((opts && opts.platform) || process.platform) === 'win32') {
+    try { there = fs.existsSync(create.workerDir(create.cleanName(name))); } catch { there = true; }   // unsure: read
+  }
   return there ? { folders: await foldersOffThread(fresh) } : {};
 }
 /** del, with the Windows drive probe and Recycle Bin moves run without holding the board. One at a time per name: a
@@ -1818,8 +1822,10 @@ async function delAsync(name, opts) {
   try {
     // kosmos#8640 (Windows): the folder listing off the board's thread, for the warm plan; and READ AGAIN after the drive
     // probe (up to 20 s), so the re-plan that guards the delete sees the processes of the moment it runs.
-    const { roots } = await warmFor(name, { ...(opts || {}), ...(await foldersIfNeeded(name)) });
-    const steps = delSteps(name, { ...(opts || {}), pinned: roots, ...(await foldersIfNeeded(name, true)) });
+    // Always read again: a warm plan refused BY the folder check re-plans into that same check, which must not read the
+    // listing on the board's thread (a test holds this).
+    const warm = await warmFor(name, { ...(opts || {}), ...(await foldersIfNeeded(name, opts)) });
+    const steps = delSteps(name, { ...(opts || {}), pinned: warm.roots, ...(await foldersIfNeeded(name, opts, true)) });
     let r = steps.next();
     while (!r.done) {
       let got;

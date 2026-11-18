@@ -331,7 +331,7 @@ function sh(cmd, args) {
  */
 function shDetail(cmd, args, timeoutMs) {
   try {
-    return { ran: true, status: 0, out: execFileSync(cmd, args, { encoding: 'utf8', timeout: timeoutMs || 5000, windowsHide: true }), err: '' };
+    return { ran: true, status: 0, out: execFileSync(cmd, args, { encoding: 'utf8', timeout: timeoutMs || 5000, windowsHide: true, maxBuffer: 32 * 1024 * 1024 }), err: '' };
   } catch (e) {
     const status = e && typeof e.status === 'number' ? e.status : null;
     return {
@@ -352,7 +352,7 @@ function shDetailAsync(cmd, args, timeoutMs) {
     const answer = (v) => { if (answered) return; answered = true; clearTimeout(hard); resolve(v); };
     let child;
     try {
-      child = execFile(cmd, args, { encoding: 'utf8', timeout: limit, killSignal: 'SIGKILL', windowsHide: true }, (e, stdout, stderr) => {
+      child = execFile(cmd, args, { encoding: 'utf8', timeout: limit, killSignal: 'SIGKILL', windowsHide: true, maxBuffer: 32 * 1024 * 1024 }, (e, stdout, stderr) => {
         if (!e) { answer({ ran: true, status: 0, out: stdout, err: '' }); return; }
         const status = !e.killed && typeof e.code === 'number' ? e.code : null;   // killed at its limit: no code, on every platform
         answer({ ran: status !== null, status, out: stdout ? String(stdout) : '', err: stderr ? String(stderr) : '' });
@@ -8195,10 +8195,14 @@ function setPaneFolderSource(fn) { paneFolderSource = typeof fn === 'function' ?
 let win32FolderSource = null;
 function setWin32FolderSource(src) { win32FolderSource = src === true || typeof src === 'function' ? src : null; }
 const WIN32_FOLDERS_OK = 'KOSMOS-FOLDERS-READ-OK';
+/* Each command line is kept to its first 2048 characters (the path cuts look only within the first 1024 of a path),
+   so a box full of long Chrome or Electron command lines stays far under the drivers' 32 MiB output limit; a read past
+   that limit would refuse every delete with a sentence nobody can act on. */
 const WIN32_FOLDER_SCRIPT = '[Console]::OutputEncoding = [Text.Encoding]::UTF8; '
   + 'Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object { '
+  + '$c = [string]$_.CommandLine; if ($c.Length -gt 2048) { $c = $c.Substring(0, 2048) }; '
   + '[Console]::Out.WriteLine(([string]$_.ProcessId) + "`t" + ([string]$_.Name -replace "[\\r\\n\\t]", " ") + "`t" '
-  + '+ ([string]$_.ExecutablePath -replace "[\\r\\n\\t]", " ") + "`t" + ([string]$_.CommandLine -replace "[\\r\\n\\t]", " ")) }; '
+  + '+ ([string]$_.ExecutablePath -replace "[\\r\\n\\t]", " ") + "`t" + ($c -replace "[\\r\\n\\t]", " ")) }; '
   + `[Console]::Out.WriteLine('${WIN32_FOLDERS_OK}')`;
 function win32Powershell() {
   return path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
@@ -8211,7 +8215,8 @@ function win32Powershell() {
 function win32PathsIn(cmd) {
   const out = [];
   const s = String(cmd || '');
-  const starts = [...s.matchAll(/[A-Za-z]:[\\/]/g)].map((m) => m.index);
+  // Not after a letter: the "p:/" inside http:// or https:// is not a drive.
+  const starts = [...s.matchAll(/(?<![A-Za-z])[A-Za-z]:[\\/]/g)].map((m) => m.index);
   starts.forEach((at, k) => {
     const piece = s.slice(at, k + 1 < starts.length ? starts[k + 1] : s.length);
     const p = piece.split('"')[0].replace(/\s+$/, '');
@@ -8234,7 +8239,10 @@ function win32PathsIn(cmd) {
    has gone away would hold it for the whole SMB timeout (kosmos#7835 fixed that stall for the drive probe). A short
    spelling on any other drive cannot be inside the agent's folder anyway. */
 function win32HomeDrive() {
-  const d = String(process.env.AGENT_WORKFORCE_WORKERS || require('node:os').homedir() || '');
+  // The workers folder as create.js keeps it (one rule, there), lazily: create.js is a peer module of this one.
+  let d = '';
+  try { d = String(require('./create').WORKERS_DIR || ''); } catch { d = ''; }
+  if (!d) d = String(process.env.AGENT_WORKFORCE_WORKERS || require('node:os').homedir() || '');
   return /^[A-Za-z]:/.test(d) ? d.slice(0, 2).toLowerCase() : null;
 }
 function win32LongForm(p, cache) {
