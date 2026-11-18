@@ -65,11 +65,15 @@ from them. Weakest point: (b) leaves the project on A's Mac, which is going away
    own action on the member row; progress and failure in words; the audit rows.
 6. **Measured on served builds** on a test company (two of our Macs), then switched on for McKinney's company only.
 
-## Open in slice 1 (not yet checked)
-- **The key to seal to.** A Mac's coordinator key is an Ed25519 SIGNING key; sealing needs an encryption key. Either
-  reuse the federation sealing keys (engine/fedseal.js) or have B's board publish an X25519 public key, signed by its
-  Mac key, when the hand-over names it. Decide by reading fedseal.js and the backup sealing before writing slice 1;
-  whichever is chosen must be one sealing, not a third.
+## Decided in slice 1: the key to seal to (13:3x CST 11-18)
+B's board's existing X25519 sealing key (engine/fedseal.js `sealingKey`, the federation rooms' key), sent by B's
+Mac in a Mac-signed request when its part of the hand-over starts. One sealing, not a third.
+Rejected: a new key just for hand-overs (a second key file to lose and back up), and the backup member key (it is
+the company's escrowed key, so sealing to it would let escrow open a hand-over, which is not its purpose).
+**Residual, stated like fedseal's NOT CLAIMED:** the coordinator relays B's key, so a coordinator that is itself
+compromised could substitute its own and read the pack. Federation closes this with a person-to-person secret; a
+hand-over has no such channel by default. Mitigation in slice 5: the console and B's board both show a short
+fingerprint of the key, for the admin to compare by eye before pressing Hand over. Not compared, not claimed.
 
 ## Order of work and dates
 - 11-18/19: slice 1 and the plan's review. 11-20/21: slices 2 and 3. 11-22/23: slice 4. 11-24: slice 5.
