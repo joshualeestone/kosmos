@@ -1051,10 +1051,6 @@ struct StarredStar: View {
     @State private var played: Int?
     @State private var popped = false
     @State private var sparking = false
-    @State private var flown = false
-    // The board's six sparks (@keyframes astar-spark), where each one ends, in points.
-    private static let sparkEnds: [CGSize] = [CGSize(width: 0, height: -16), CGSize(width: 14, height: -8), CGSize(width: 14, height: 8),
-                                              CGSize(width: 0, height: 16), CGSize(width: -14, height: 8), CGSize(width: -14, height: -8)]
 
     var body: some View {
         ZStack {
@@ -1067,18 +1063,9 @@ struct StarredStar: View {
         .onChange(of: burst) { play($0) }
     }
 
+    // A new StarSparks for each press (.id), so it is drawn at the centre first and its own onAppear sends it out.
     @ViewBuilder private var sparks: some View {
-        if sparking {
-            ZStack {
-                ForEach(0..<Self.sparkEnds.count, id: \.self) { i in
-                    // 4 at the centre, 2 at the end, as the board's (4px, spread -1 by the end).
-                    Circle().fill(Palette.starFill).frame(width: flown ? 2 : 4, height: flown ? 2 : 4)
-                        .offset(flown ? Self.sparkEnds[i] : .zero)
-                        .opacity(flown ? 0 : 1)
-                }
-            }
-            .allowsHitTesting(false)
-        }
+        if sparking, let played { StarSparks().id(played) }
     }
 
     // Close to the board's: its pop is one .42 s overshooting curve peaking at 40% (1.3x), here a .17 s rise and a spring
@@ -1086,17 +1073,34 @@ struct StarredStar: View {
     private func play(_ id: Int?) {
         guard let id, id != played, !reduceMotion else { return }
         played = id
-        flown = false
         sparking = true
         withAnimation(.easeOut(duration: 0.17)) { popped = true }
-        withAnimation(.easeOut(duration: 0.55)) { flown = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.6)) { popped = false }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             guard played == id else { return }
             sparking = false
-            flown = false
         }
+    }
+}
+
+// kosmos#8706: the burst's six gold sparks, at the board's end points (@keyframes astar-spark), in points. They start at
+// the centre and fly out once this view is on screen: a view inserted already "flown" would never be seen moving.
+private struct StarSparks: View {
+    @State private var flown = false
+    private static let ends: [CGSize] = [CGSize(width: 0, height: -16), CGSize(width: 14, height: -8), CGSize(width: 14, height: 8),
+                                         CGSize(width: 0, height: 16), CGSize(width: -14, height: 8), CGSize(width: -14, height: -8)]
+    var body: some View {
+        ZStack {
+            ForEach(0..<Self.ends.count, id: \.self) { i in
+                // 4 at the centre, 2 at the end, as the board's (4px, spread -1 by the end).
+                Circle().fill(Palette.starFill).frame(width: flown ? 2 : 4, height: flown ? 2 : 4)
+                    .offset(flown ? Self.ends[i] : .zero)
+                    .opacity(flown ? 0 : 1)
+            }
+        }
+        .allowsHitTesting(false)
+        .onAppear { withAnimation(.easeOut(duration: 0.55)) { flown = true } }
     }
 }
