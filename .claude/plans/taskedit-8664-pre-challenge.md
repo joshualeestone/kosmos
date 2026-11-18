@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: taskedit-8664
-diff_hash: ac9902627c2a0e77f06b7a2dacf8eafc09f0d184f24681a3cb384cdbab6d6209
+diff_hash: 85282473f5052694c8d567a212f0e76978c6a8a52e51feb5cd3ef40813daea63
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-18T03:57:50Z
-iterations: 8
+timestamp: 2026-11-18T05:24:47Z
+iterations: 9
 converged: false
 ---
 
@@ -17,7 +17,7 @@ converged: false
 **Total findings:** 21 BLOCKER/WARNING/CONVENTION (0 BLOCKERs from reviewers, 17 WARNINGs, 4 CONVENTIONs), plus NITs
 **Fixed:** 15 | **Deferred:** 6 | **Asked (awaiting user):** 0
 
-Final validation (6j), after two failed runs whose causes were mine and fixed (synthetic findings 22 and 23): the full suite on f5c60c000c, 29,660 node tests 0 failed, all 4 shell shards green, the subdir CLAUDE.md audit clean; validation-log hash ac9902627c2a.
+Final validation (6j), after two failed runs whose causes were mine and fixed (synthetic findings 22 and 23): the full suite on f5c60c000c passed (29,660 node tests 0 failed). Then main gained #8669 (the `wake` verb) and PR #8688 conflicted in the task verb lists; resolved by /resolve-merge-conflicts (squashed, rebased once, both verbs kept), reviewed once more (iteration 9 below), and validated again: the full suite on 67ba748b93, 29,774 node tests 0 failed, all 4 shell shards green, the subdir audit clean; validation-log hash 85282473f505.
 
 ### Per-Iteration Breakdown
 
@@ -87,6 +87,14 @@ Final validation (6j), after two failed runs whose causes were mine and fixed (s
 - [WARNING] engine/tasks.js:1728 — the edited row keeps the old and new detail text --> DEFERRED: the card asks for it ("recorded in the task's activity (old text, new text, who, when)"); FIELD_MAX 4000 exceeds DETAIL_MAX 2000, so nothing is cut
 Stopped here under the usage rule (no BLOCKER open).
 
+#### Iteration 9 (after the rebase onto #8669, /resolve-merge-conflicts Step 9)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 5 NITs
+**Self-generated:** 2 of the above
+- Confirmed: `edit` and `wake` coexist in every verb list, dispatch table and pinned test; the escape-site guard reads 9 on main and 10 here.
+- [WARNING] engine/tasks.js:1736 — an agent naming itself by pane while the roster cannot be read passed the person gate unnamed --> FIXED (67ba748b93): 503, as the wake route does; tested, mutation red
+- [WARNING] engine/tasks.js:1740 — the comment and plan said the row keeps the words; line breaks become spaces --> FIXED (67ba748b93): the claim says so
+
 #### Final validation (6j) findings
 - [BLOCKER] final-validation: engine/windows-tests-1777 (cli.task-edit-8664.test.js branches on win32, unlisted) and web.open-sentence-1199 (a ninth inline capitaliser) --> FIXED (693435097a)
 - [BLOCKER] final-validation: tools/test-msg-newlines-1927.sh (a tenth multi-line escape site) --> FIXED (f5c60c000c), with the note each earlier site added
@@ -118,6 +126,8 @@ Stopped here under the usage rule (no BLOCKER open).
 | 21 | 8 | WARNING | engine/tasks.js:1728 | BRANCH | Detail text kept in the row | DEFERRED | the card asks for it |
 | 22 | 6j | BLOCKER | final-validation | BRANCH | Windows list, ninth capitaliser | FIXED | 693435097a |
 | 23 | 6j | BLOCKER | final-validation | BRANCH | Tenth escape site | FIXED | f5c60c000c |
+| 24 | 9 | WARNING | engine/tasks.js:1736 | SELF | Unreadable roster lets a pane through unnamed | FIXED | 67ba748b93 |
+| 25 | 9 | WARNING | engine/tasks.js:1740 | SELF | Row flattens line breaks, claim overstated | FIXED | 67ba748b93 |
 
 ### NITs (non-blocking, across all iterations)
 - projects.mutate writes even when nothing changed (as setDue) (1, 3)
