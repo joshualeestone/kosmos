@@ -415,6 +415,21 @@ extension Board {
         case "done-when-cleared":
             let who = person ? "You" : nameOf("by")
             return (who.map { $0 + " took" } ?? "Took") + " off what done means"
+        // kosmos#8679: the page's check-reported and edited (kosmos#8664) words; before, both showed their bare kind.
+        case "check-reported":
+            let who = nameOf("by") ?? "An agent"
+            let check = integer(ev["check"]).flatMap { $0 >= 1 ? "\($0)" : nil } ?? "?"
+            return who + " says done-when check " + check + (ev["met"] as? Bool == true ? " is met" : " is not met")
+                + (s("how").map { ": " + $0 } ?? "")
+        case "edited":
+            let who = person ? "You" : nameOf("by")
+            var bits: [String] = []
+            if let title = ev["title"] as? String { bits.append("the title from " + ((ev["fromTitle"] as? String) ?? "") + " to " + title) }
+            if ev["detailCleared"] as? Bool == true { bits.append("cleared the detail") }
+            else if ev["detail"] is String { bits.append("changed the detail") }
+            var what = bits.isEmpty ? "changed the task" : bits.joined(separator: " and ")
+            if what.hasPrefix("the title") { what = "changed " + what }
+            return who.map { $0 + " " + what } ?? (what.prefix(1).uppercased() + what.dropFirst())
         case "hold-set": return s("via") == "agent" ? "Put on hold by an agent" : "Put on hold"
         case "hold-cleared":
             return s("via") == "agent" ? "Taken off hold by an agent" : s("via") == "close" ? "Taken off hold, as it was closed" : "Taken off hold"
