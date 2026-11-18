@@ -615,10 +615,14 @@ function forgetFolder(dir, displaced, madeEntry, also) {
 /* kosmos#8322: take back ONLY a second key (an 8.3 or subst spelling) that trustFolder wrote while the main key was
    already true, from the also-record or a failed start's answer. The main key is never touched: it was the person's,
    or an earlier write this caller did not make. Same lock, file, guards and answer shape as forgetFolder; anything
-   ownedAlso refuses (another account's config, a malformed entry) is "nothing of ours", ok and already. */
-function forgetAlso(also) {
+   ownedAlso refuses (another account's config, a malformed entry) is "nothing of ours", ok and already.
+   `config`: the file the record was made against (CONFIG() in the process that launched, which on Windows is the
+   agent's own task, not the board). When this process's CONFIG() is another file, the line is not in the file this
+   would edit, and a same-spelled key there could be another account's or the person's: left, ok and already. */
+function forgetAlso(also, config) {
   const owned = ownedAlso(also);
   if (!owned) return { ok: true, already: true };
+  if (config !== undefined && (typeof config !== 'string' || !sameFile(config, CONFIG()))) return { ok: true, already: true };
   const r = withWriteLock(CONFIG(), () => forgetFolderInner(owned.key, undefined, false, owned, true));
   return r.ok ? r.value : { ok: false, because: r.because };
 }
@@ -645,9 +649,15 @@ function forgetFolderInner(dir, displaced, madeEntry, also, alsoOnly) {
   try {
     const st = fs.statSync(target);
     prevMode = st.mode & 0o7777;
-    if (st.size === 0) return { ok: false, because: 'their config file is empty' };
+    /* kosmos#8322: for a second key alone, a config that is gone or empty holds no line of ours, so there is nothing
+       to take back: ok, so a removal drops its record rather than keep a red step forever. The main key's undo keeps
+       its refusal, as before. */
+    if (st.size === 0) return alsoOnly ? { ok: true, already: true } : { ok: false, because: 'their config file is empty' };
     data = JSON.parse(fs.readFileSync(target, 'utf8'));
-  } catch { return { ok: false, because: 'we could not read their config file' }; }
+  } catch (err) {
+    if (alsoOnly && err && err.code === 'ENOENT') return { ok: true, already: true };
+    return { ok: false, because: 'we could not read their config file' };
+  }
 
   if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, because: 'their config file is not shaped the way we expect' };
   // ⚠️ A SHAPE WE WOULD REFUSE TO WRITE IS REFUSED HERE TOO. An earlier version
@@ -870,7 +880,7 @@ function recordAlsoWriteInner(name, owned) {
      the person's original one. A different key (the parent's spelling changed: a new subst letter) replaces it. */
   const prev = data[name];
   if (prev && typeof prev === 'object' && prev.also && prev.also.key === owned.key) return true;
-  data[name] = { also: owned, at: new Date().toISOString() };
+  data[name] = { also: owned, config: CONFIG(), at: new Date().toISOString() };
   try { writeAlsoRecordFile(data); return true; } catch { return false; }
 }
 function recordedAlsoWrite(name) {

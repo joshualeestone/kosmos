@@ -181,8 +181,9 @@ test('#4260 #8322 a second key added when the main one was ALREADY true goes on 
   assert.equal('also' in rec, false, 'and it does not gain the line: an older engine reads that record as the main key ours');
   const also = trust.recordedAlsoWrite('residual-8322');
   assert.deepEqual(also.also, { key: fwd(f.short), madeEntry: true }, 'the line is on the also-record, in its undo shape');
+  assert.equal(also.config, cfg, 'and names the config file it went into');
 
-  const got = trust.forgetAlso(also.also);
+  const got = trust.forgetAlso(also.also, also.config);
   assert.deepEqual(got, { ok: true, already: false });
   assert.deepEqual(readCfg(cfg).projects, { [fwd(f.long)]: { hasTrustDialogAccepted: true, allowedTools: ['x'] } },
     'the short line we made is gone, and the person\'s main line is exactly as they left it');
@@ -226,7 +227,15 @@ test('#8322 the first write of a key is kept, a new key replaces it, and a line 
   assert.deepEqual(readCfg(cfg).projects, { [fwd(f.short)]: { hasTrustDialogAccepted: false } }, 'a line that no longer says yes is the person\'s now');
   fs.writeFileSync(cfg, JSON.stringify({ projects: { [fwd(f.short)]: 'not an object' } }));
   assert.deepEqual(trust.forgetAlso({ key: fwd(f.short), madeEntry: true }), { ok: true, already: true }, 'an entry we cannot read is left, and never a red step forever');
+  fs.writeFileSync(cfg, JSON.stringify({ projects: { [fwd(f.short)]: { hasTrustDialogAccepted: true } } }));
   assert.deepEqual(trust.forgetAlso({ key: fwd(f.short), madeEntry: true, forgettable: false }), { ok: true, already: true }, 'not ours to take back');
+  assert.deepEqual(readCfg(cfg).projects, { [fwd(f.short)]: { hasTrustDialogAccepted: true } }, 'and a line it could have taken is still there');
+  assert.deepEqual(trust.forgetAlso({ key: fwd(f.short), madeEntry: true }, nodePath.join(f.cfgDir, 'another.claude.json')), { ok: true, already: true },
+    'recorded against another config file than this process edits: left');
+  assert.deepEqual(readCfg(cfg).projects, { [fwd(f.short)]: { hasTrustDialogAccepted: true } }, 'still there');
+  assert.deepEqual(trust.forgetAlso({ key: fwd(f.short), madeEntry: true }, cfg), { ok: true, already: false }, 'CONTROL: the same call against this file takes it');
+  fs.rmSync(cfg);
+  assert.deepEqual(trust.forgetAlso({ key: fwd(f.short), madeEntry: true }), { ok: true, already: true }, 'no config at all: nothing of ours, never a red step forever');
 });
 
 test('#4260 a second-key entry we cannot read is left alone: the launch still trusts the main key, and an undo still takes it back', { skip: WIN }, (t) => {
@@ -258,9 +267,12 @@ test('#4260 the callers carry the second key: creation records it and rolls it b
      rolls a failed start's back, a removal takes it back and drops it only after. */
   const w32 = fs.readFileSync(nodePath.join(__dirname, 'win32launch.js'), 'utf8');
   assert.equal((w32.match(/recordShortTrust\(s, trusted\);/g) || []).length, 2, 'both the Windows launch and resume record it');
-  assert.match(create, /dropAlsoRecord\(name\);\s*require\('\.\/trust'\)\.recordAlsoWrite\(name, trusted\)/, 'creation replaces the also-record');
+  const drop = create.search(/if \(!DRY_RUN\) \{\s*try \{ require\('\.\/trust'\)\.dropAlsoRecord\(name\); \}/);
+  const start = create.indexOf('win32Launched = win32StartViaJob(name');
+  const rec = create.indexOf("require('./trust').recordAlsoWrite(name, trusted)");
+  assert.ok(drop > 0 && start > drop && rec > start, 'creation drops a previous incarnation\'s entry before the agent starts, and records its own after');
   assert.match(create, /forgetAlso\(trusted\.also\)/, 'a failed start takes back only the second key');
-  assert.match(remove, /forgetAlso\(alsoRec\.also\)[\s\S]*?if \(gaveBackAlso && !\(DRY_RUN && !runner\)\)[\s\S]*?dropAlsoRecord\(clean\)/, 'a removal takes it back, then drops the record');
+  assert.match(remove, /forgetAlso\(alsoRec\.also, alsoRec\.config\)[\s\S]*?if \(gaveBackAlso && !\(DRY_RUN && !runner\)\)[\s\S]*?dropAlsoRecord\(clean\)/, 'a removal takes it back, then drops the record');
 });
 
 test('#4260 a second key marked NOT forgettable (another account\'s config) is never undone or recorded here', () => {

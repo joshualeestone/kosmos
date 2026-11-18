@@ -11,3 +11,10 @@
 - The first write of a key is kept (it holds what was there before Kosmos); a different key replaces it.
 - forgetAlso never touches the main key; a malformed or no-longer-true second entry is left, ok, so a removal step never stays red forever.
 - Weakest part: two agents sharing one working folder each record the same short key; the first removal takes it back while the other is still running. Running sessions are unaffected and the other agent's next launch writes and records it again. Would change my mind: evidence that agents commonly share a cwd on Windows.
+
+## Review round 1 (blind, 0 BLOCKER, 5 WARNING, 3 NIT)
+Fixed: W1 (record names the config it was made against; forgetAlso leaves a line in another file), W3 (a gone or empty config is nothing of ours: ok, no red-forever step), W5 (behavioural remove.test.js arms: real, dry run, no record; mutation-checked), N1 (the forgettable:false arm now runs against a line it could take), N2 (creation drops a previous incarnation's entry BEFORE the agent starts, so the first launch's record survives).
+Deferred to the card:
+- W2: after a rollback to an engine older than this, a removal there leaves the also-record and a recreate there does not drop it; rolling forward and removing could then take back a line that is no longer ours. Needs an incarnation marker (birth id) on the entry.
+- W4: the other trustFolder callers (create.js trust-and-restart sweep, setAccount; worldstarts.js) can still write a second key and record nothing. Same leftover as before this change, inert.
+- N3: first-write-kept erases a later false (inert); dropAlsoRecord drops by name, not key; a re-aliased subst letter.

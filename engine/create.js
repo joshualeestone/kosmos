@@ -7485,6 +7485,12 @@ function createAgentInner(opts) {
       try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir, createIfAbsent: provider !== 'openai', agentDefaultAccount: provider !== 'openai' && !configDir }); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
     }
+    /* kosmos#8322: a NEW INCARNATION drops the also-record a previous agent of this name left (a removal that could
+       not take its line back keeps it), BEFORE this one is started, so the first launch's own record is never the one
+       dropped. Not in a dry run, which leaves every artifact as found. */
+    if (!DRY_RUN) {
+      try { require('./trust').dropAlsoRecord(name); } catch { /* a stale entry stays; the next removal is guarded */ }
+    }
     /* 🛑 #1919, THE SAME CREATE MOMENT. The supervisor launches with
        --dangerously-skip-permissions, and Claude Code shows a one-time Bypass-Permissions
        consent (default `No, exit`) the FIRST time that flag runs in a config dir -- which
@@ -7678,13 +7684,10 @@ function createAgentInner(opts) {
         require('./trust').dropRecord(name);
       }
     } catch { /* the record is a courtesy to a future removal, never a gate */ }
-    /* kosmos#8322: the same new-incarnation rule for the also-record (a second key written while the main one was
-       already true): a previous agent's entry under this name goes, and this creation's goes in its place when it wrote
-       one. Its own try, so a failed main record never keeps a stale also-record alive. */
-    try {
-      require('./trust').dropAlsoRecord(name);
-      require('./trust').recordAlsoWrite(name, trusted);
-    } catch { /* a courtesy to a future removal, never a gate */ }
+    /* kosmos#8322: this creation's own second key, written while the main one was already true, on the also-record.
+       A previous incarnation's entry was dropped before the agent started (at the trust write), so a record the
+       first launch made is kept. Its own try, so a failed main record never stops this one. */
+    try { require('./trust').recordAlsoWrite(name, trusted); } catch { /* a courtesy to a future removal, never a gate */ }
   }
 
   if (!started) {

@@ -1993,7 +1993,7 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
       const gaveBackAlso = step('took back the folder trust for its short path', () => {
         if (DRY_RUN && !runner) return true;
         let got = null;
-        try { got = require('./trust').forgetAlso(alsoRec.also); }
+        try { got = require('./trust').forgetAlso(alsoRec.also, alsoRec.config); }
         catch { return false; }
         return Boolean(got && got.ok === true);
       });
