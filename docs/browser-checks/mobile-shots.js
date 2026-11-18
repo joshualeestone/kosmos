@@ -797,6 +797,36 @@ async function importsAskGo(page, data) {
 
 /* kosmos#7430: the two unhold screens share one body: a task nobody is on (the line ends in Choose who), or one the chat
    agent is on (it stays with them). */
+/* kosmos#8664: the task page's edit link (openForm false) or its open form (openForm true). */
+function taskEdit8664(openForm) {
+  return { go: async (page, data) => {
+    const made = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/tasks', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sentence: 'Write the release notes', detail: 'For the next release.\nList the Windows fixes first.' }) })
+      .then(async (r) => ({ status: r.status, json: await r.json().catch(() => ({})) })), data.projectId);
+    const n = made.status === 200 ? ((made.json.task && made.json.task.number) || made.json.number) : null;
+    if (typeof n !== 'number') throw new Error('could not add the task (' + made.status + ')');
+    data.editTask = n;
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.evaluate(async (num) => { await pjReload(); openTaskPage(num); }, n);
+    await page.waitForSelector('#tk-edit:not([hidden])', { timeout: 8000 });
+    if (openForm) {
+      await page.click('#tk-edit');
+      await page.waitForSelector('#tk-editform:not([hidden])', { timeout: 8000 });
+    }
+  }, verify: async (page) => {
+    const v = await page.evaluate(() => ({ link: !document.getElementById('tk-edit').hidden, form: !document.getElementById('tk-editform').hidden,
+      title: (document.getElementById('tk-edit-title') || {}).value }));
+    if (openForm ? !(v.form && v.title === 'Write the release notes') : !(v.link && !v.form)) throw new Error('the task page shows: ' + JSON.stringify(v));
+  }, after: async (page, data) => {
+    if (typeof data.editTask !== 'number') return;
+    const st = await page.evaluate(([id, num]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + num + '/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then((r) => r.status), [data.projectId, data.editTask]);
+    if (st !== 200) throw new Error('could not close the task after the shot (' + st + ')');
+    data.editTask = null;
+  } };
+}
 function unholdNext7430(withAgent) {
   return { go: async (page, data) => {
     const post = (path, body) => page.evaluate(([pth, b]) => fetch(pth, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })
@@ -2928,6 +2958,10 @@ const SCREENS = [
      own task (nobody on it, or the chat agent on it), holds it, presses Take off hold, and closes the task after. */
   { name: 'task-unholdnext-7430', owner: 'Baron Draxum', ...unholdNext7430(false) },
   { name: 'task-unholdkeep-7430', owner: 'Baron Draxum', ...unholdNext7430(true) },
+  /* kosmos#8664: a task's page with its "Edit title or detail" link, and with the edit form open. Each adds its own task
+     (with a detail) and closes it after. */
+  { name: 'task-edit-8664', owner: 'Renet Tilley', ...taskEdit8664(false) },
+  { name: 'task-editform-8664', owner: 'Renet Tilley', ...taskEdit8664(true) },
   { name: 'tasks-holdforyou-7788', owner: 'Mona Lisa', ...holdForYou7788('list') },
   { name: 'task-holdforyou-7788', owner: 'Mona Lisa', ...holdForYou7788('page') },
   /* kosmos#7797 item 1: an agent's question that no task carries, listed first in Needs Your Decision with Answer, one card
