@@ -2264,6 +2264,86 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "since": "0.8.10",
+      "status": "pending",
+      "title": "Edit a task after it is made",
+      "line": "On a task page, Edit title or detail changes its words, and the task's activity records what changed and who changed it.",
+      "icon": "tasks",
+      "rank": 9
+    },
+    {
+      "since": "0.8.10",
+      "status": "pending",
+      "title": "A task can wait for a merge or a time",
+      "line": "An agent can set a task to wait for a pull request, branch, file or time. The task shows what it waits for and tells its agent once.",
+      "icon": "tasks",
+      "rank": 9.2
+    },
+    {
+      "since": "0.8.10",
+      "status": "pending",
+      "title": "A signed-out agent page says so",
+      "line": "An agent page left open while Kosmos restarts or updates says it needs a sign-in, links the steps, and offers no model switch until then.",
+      "icon": "shield",
+      "rank": 9.4
+    },
+    {
+      "since": "0.8.10",
+      "status": "pending",
+      "title": "No model recorded says where to set it",
+      "line": "An agent with no model recorded says so, not Unknown Model, and links its AI Settings when Kosmos started it.",
+      "icon": "spark",
+      "rank": 9.6
+    },
+    {
+      "since": "0.8.10",
+      "status": "pending",
+      "title": "kosmos task edit",
+      "line": "kosmos task edit <project-id> <task-number> --title or --detail changes a task after it is made; an agent cannot reword the person's words.",
+      "icon": "list",
+      "rank": 126,
+      "notesOnly": true
+    },
+    {
+      "since": "0.8.10",
+      "status": "pending",
+      "title": "kosmos task wake",
+      "line": "kosmos task wake <project-id> <task-number> --pr, --branch, --file or --at sets what a task waits for; --clear drops it.",
+      "icon": "list",
+      "rank": 127,
+      "notesOnly": true
+    },
+    {
+      "since": "0.8.10",
+      "status": "pending",
+      "title": "kosmos agent model",
+      "line": "kosmos agent list names each agent's model, and kosmos agent model <name> shows it and the models it can switch to, or switches it.",
+      "icon": "spark",
+      "rank": 128,
+      "notesOnly": true
+    },
+    {
+      "since": "0.8.10",
+      "status": "pending",
+      "title": "A task check can say where its part went",
+      "line": "kosmos task check ... unmet --moved-to <task> links an unmet check to the task its part moved to; a check's report holds 1000 characters.",
+      "icon": "list",
+      "rank": 129,
+      "notesOnly": true
+    },
+    {
+      "since": "0.8.10",
+      "status": "pending",
+      "title": "A Windows leftover delete checks the folder",
+      "line": "On Windows, a leftover delete also refuses while a running program works from the agent's folder, not only while its name is in use.",
+      "icon": "shield",
+      "rank": 130,
+      "notesOnly": true,
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

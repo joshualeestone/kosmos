@@ -2,35 +2,29 @@
   "version": "0.8.10",
   "highlights": [
     {
+      "icon": "tasks",
+      "title": "Edit a task after it is made",
+      "line": "On a task page, Edit title or detail changes its words, and the task's activity records what changed and who changed it."
+    },
+    {
+      "icon": "tasks",
+      "title": "A task can wait for a merge or a time",
+      "line": "An agent can set a task to wait for a pull request, branch, file or time. The task shows what it waits for and tells its agent once."
+    },
+    {
+      "icon": "shield",
+      "title": "A signed-out agent page says so",
+      "line": "An agent page left open while Kosmos restarts or updates says it needs a sign-in, links the steps, and offers no model switch until then."
+    },
+    {
+      "icon": "spark",
+      "title": "No model recorded says where to set it",
+      "line": "An agent with no model recorded says so, not Unknown Model, and links its AI Settings when Kosmos started it."
+    },
+    {
       "icon": "list",
       "title": "A new agent gets a Files folder",
       "line": "A new agent gets its own Files folder from the start, so it has a place to save a file for you the first time you ask."
-    },
-    {
-      "icon": "chat",
-      "title": "A long conversation keeps your place",
-      "line": "Reading back through a long conversation, a moment's failed read no longer moves you; one line at the end says so."
-    },
-    {
-      "icon": "chat",
-      "title": "A little more room between chat lines",
-      "line": "Messages in an agent conversation on the computer now have a little more space between lines."
-    },
-    {
-      "icon": "shield",
-      "title": "The restart note says what was checked",
-      "line": "After this computer restarts, the note says how many agents came back, names any that did not, and whether Kosmos's main records read fine.",
-      "platforms": [
-        "mac"
-      ]
-    },
-    {
-      "icon": "shield",
-      "title": "Windows Settings stops a false warning",
-      "line": "Settings, Computer no longer says it could not tell which user Kosmos runs as, from a check that never applied here.",
-      "platforms": [
-        "windows"
-      ]
     }
   ]
 }
