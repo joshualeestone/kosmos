@@ -2269,7 +2269,7 @@
       "since": "0.8.10",
       "status": "pending",
       "title": "Edit a task after it is made",
-      "line": "On a task page, Edit title or detail changes its words, and the task's activity records what changed and who changed it.",
+      "line": "On a task page, Edit title or detail changes its words. The task's activity says who changed it, with the old and new title.",
       "icon": "tasks",
       "rank": 9
     },
