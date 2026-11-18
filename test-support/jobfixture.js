@@ -293,8 +293,9 @@ function win32Task(name, worldId) {
 
 /** kosmos#8456: watch the stand-in Task Scheduler. `fn(args)` sees every schtasks call (its arguments, `/Run`, `/TN`,
     the task name...) before the stand-in answers it, whether win32job made it through its own runner or a test passed it
-    on with win32Step. Returning `{ ok, out }` (and `code`, kept as given, so a refusal's should be non-zero; win32Step reads a missing one as 1) answers the call instead of the stand-in (`{ ok: false, out: 'ERROR: Access
-    is denied.' }` for an /End that fails, say); returning nothing leaves it to the stand-in. Reading a file from inside
+    on with win32Step. Returning `{ ok, out }` answers the call instead of the stand-in (`{ ok: false, out: 'ERROR: Access
+    is denied.' }` for an /End that fails, say); returning nothing leaves it to the stand-in. An optional `code` is passed
+    on as given (give a refusal a non-zero one); without it win32Step reports a refusal as exit 1. Reading a file from inside
     `fn` reads it at the moment of the call, which is how a test proves something was written BEFORE an agent was started.
     Returns the function that stops watching: call it in the test's finally, since watchers outlive a fresh jobPath. */
 function watchScheduler(fn) {

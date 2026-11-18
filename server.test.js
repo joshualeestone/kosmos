@@ -4811,9 +4811,10 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
       'the control failed: nothing produces a step list, so hiding it from the question proves nothing');
     assert.equal(body.steps, undefined,
       'the route is back to reciting launchd steps at a person who does not want them');
+    const askedLower = (String(body.question) + ' ' + String(body.reassurance)).toLowerCase();
     for (const s of acted.steps) {
-      assert.doesNotMatch(String(body.question) + String(body.reassurance), new RegExp(s.label, "i"),
-        'the confirmation recites what the removal will do, which Josh cut for describing our implementation');
+      assert.ok(!askedLower.includes(String(s.label).toLowerCase()),
+        `the confirmation recites "${s.label}", what the removal will do, which Josh cut for describing our implementation`);
     }
 
     /**
@@ -4913,9 +4914,8 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
       for (const want of ['closed its window', 'took it off the board']) {
         assert.ok(realLabels.includes(want), `the real removal has no "${want}" step, so the check below cannot see it recited: ${realLabels.join(' | ')}`);
       }
-      const asked8508 = (String(body.question) + ' ' + String(body.reassurance)).toLowerCase();
       for (const label of realLabels) {
-        assert.ok(!asked8508.includes(label.toLowerCase()),
+        assert.ok(!askedLower.includes(label.toLowerCase()),
           `the confirmation recites "${label}", a step of the removal, which Josh cut for describing our implementation`);
       }
       if (procs) assertWin32AgentGone(procs, 'route-removable');
