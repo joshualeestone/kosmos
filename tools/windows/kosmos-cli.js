@@ -1391,7 +1391,7 @@ async function taskList(ctx, args) {
     /* kosmos#8669, as install/kosmos: what it waits for (kosmos task wake), or what it woke on. Its brackets are dropped
        (a file's name is in it), so it cannot print a mark of its own. */
     const wf = (v) => one(v).replace(/[[\]]/g, '');
-    const wk = !x.isClosed && x.wakeWords ? ' [' + wf(x.wakeWords) + ']' : !x.isClosed && x.wakeMetWords ? ' [woke: ' + wf(x.wakeMetWords) + ']' : '';
+    const wk = !x.isClosed && x.wakeWords ? ' [' + wf(x.wakeWords) + ']' : !x.isClosed && x.wakeMetWords && !x.wakeToldAt ? ' [woke: ' + wf(x.wakeMetWords) + ']' : '';
     /* #5152, as install/kosmos: what finished means for it, so an agent can read its checks back, and who set them
        (review 2): the person, or the agent named, as [added by] names who added the task. */
     const setBy = x.doneWhenByPerson === true ? ', set by the person' : (x.doneWhenBy ? ', set by ' + q(x.doneWhenBy) : '');
