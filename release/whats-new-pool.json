@@ -2180,8 +2180,8 @@
     {
       "since": "0.8.08",
       "status": "pending",
-      "title": "Every agent has a Files folder",
-      "line": "Every agent Kosmos makes has a Files folder from the start, so it can hand you a file before it has saved one.",
+      "title": "A new agent gets a Files folder",
+      "line": "A new agent gets its own Files folder from the start, so it has a place to save a file for you the first time you ask.",
       "icon": "list",
       "rank": 10.1
     },
@@ -2234,7 +2234,7 @@
       "since": "0.8.09",
       "status": "pending",
       "title": "A restarted agent is reminded of its wait",
-      "line": "After a restart, an agent whose last report was a wait nothing has ended is reminded of it, with the command to say it again.",
+      "line": "After a restart, an agent whose recent report was a wait nothing has ended is reminded of it, with the command to say it again.",
       "icon": "tasks",
       "rank": 123,
       "notesOnly": true
@@ -2252,7 +2252,7 @@
       "since": "0.8.09",
       "status": "pending",
       "title": "Messages wait for a just-started agent",
-      "line": "On Windows, kosmos msg to an agent started in the last minute, or one relaunching after a crash, waits for it instead of reaching nobody.",
+      "line": "On Windows, kosmos msg to an agent started in the last minute, or relaunching after a crash, waits for it or says it is still starting.",
       "icon": "chat",
       "rank": 125,
       "notesOnly": true,
