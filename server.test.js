@@ -9375,7 +9375,7 @@ test('the Runs on line says which tense it is in, and a live model always wins',
 
   // ⚠️ NO LEAD, not "Right now". Nothing is running in this case either, so a
   // present tense is exactly as false here as it was on a planned model.
-  assert.deepEqual(runsOnLine({ state: 'unknown' }), { lead: '', name: 'Unknown Model' },
+  assert.deepEqual(runsOnLine({ state: 'unknown' }), { lead: '', name: 'No model recorded' },
     'an unknowable model asserted a present tense about an agent that may '
     + 'never have started');
 
@@ -9505,7 +9505,7 @@ test('a card names a planned model plainly, while the detail panel keeps its ten
     'a card said "Unknown Model" about an agent whose model is in its own job file');
   assert.equal(modelLine({ modelName: 'Claude Opus 5', plannedModelName: 'Claude Haiku 4.5' }),
     'Claude Opus 5', 'a job file overruled the model the agent is running');
-  assert.equal(modelLine({}), 'Unknown Model',
+  assert.equal(modelLine({}), 'No model recorded',
     'a genuinely unknown model stopped saying so');
   assert.equal(modelLine({ plannedModelName: 'Opus 5' }), 'Claude Opus 5',
     'the provider prefix did not reach the planned name');

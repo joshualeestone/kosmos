@@ -43,7 +43,7 @@ const RUNNERS = [
   { runner: 'grok' }, { runner: 'grok', modelName: 'Grok 4.6' }, { runner: 'antigravity' }, { runner: 'muse' },
 ];
 const EXTRAS = [{}, { disruption: { failed: true } }, { crashLoop: { looping: true } }, { deliveryStall: { since: 'x' } },
-  { reconnect: { phase: 'gave_up' } }, { stateReportedBy: 'agent' }];
+  { reconnect: { phase: 'gave_up' } }, { stateReportedBy: 'agent' }, { isNamedOurs: true }, { isNamedOurs: false }];
 
 test('the list names every card\'s model in the card\'s own words', () => {
   const page = pageModelWords().tileModelLine;
@@ -55,7 +55,7 @@ test('the list names every card\'s model in the card\'s own words', () => {
     seen.add(want); n += 1;
   }
   // The matrix reaches the branches it is meant to: the job's model for a stopped agent and the live one otherwise.
-  for (const w of ['Claude Haiku 4.5', 'Claude Opus 5', 'Made before Kosmos recorded this', 'Unknown Model', 'Claude Opus 4.8',
+  for (const w of ['Claude Haiku 4.5', 'Claude Opus 5', 'Made before Kosmos recorded this', 'No model recorded: set it in AI Settings', 'No model recorded', 'Claude Opus 4.8',
     'OpenAI o3', 'Qwen', 'Qwen coder-30b', 'DeepSeek v4', 'Z.ai GLM 4.6', 'Gemini 3.8 Flash (set to Gemini 3.8 Pro)', 'Meta Muse']) {
     assert.ok(seen.has(w), 'no card in the matrix reads ' + w);
   }

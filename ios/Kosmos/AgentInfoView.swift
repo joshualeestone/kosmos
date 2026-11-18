@@ -235,7 +235,7 @@ struct AgentInfoView: View {
                         Image(mark).resizable().scaledToFit().frame(width: markSize, height: markSize).foregroundColor(Palette.primary)
                             .accessibilityHidden(true)
                     }
-                    Text(Board.modelLine(details)).foregroundColor(Palette.primary)
+                    Text(Board.aiSettingsModelLine(details)).foregroundColor(Palette.primary)
                 }
                 if let account = details.accountLabel { row("Account", account) }
                 if let landed, Board.providerOf(details) == landed.from {

@@ -1061,10 +1061,10 @@ enum Board {
         else if runner == "antigravity" { line = name ?? "Gemini (Google subscription)" }
         else if runner == "muse" { line = name ?? "Meta Muse" }
         else if let n = name { line = has(n, "^claude") ? n : "Claude " + n }
-        else { line = (row["neverRecorded"] as? Bool) == true ? "Made before Kosmos recorded this" : "Unknown Model" }
+        else { line = (row["neverRecorded"] as? Bool) == true ? "Made before Kosmos recorded this" : (row["isNamedOurs"] as? Bool) == true ? "No model recorded: set it in AI Settings" : "No model recorded" }
         // tileModelLine: an agent with only an earlier session's model is named by it.
         if let e = earlier, text("modelName") == nil, text("plannedModelName") == nil,
-           line == "Made before Kosmos recorded this" || line == "Unknown Model" { return has(e, "^claude") ? e : "Claude " + e }
+           line == "Made before Kosmos recorded this" || line.hasPrefix("No model recorded") { return has(e, "^claude") ? e : "Claude " + e }
         return line
     }
 

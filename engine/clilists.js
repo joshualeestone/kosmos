@@ -37,7 +37,8 @@ function cardModelLine(a) {
   if (a.runner === 'gemini' || a.runner === 'grok') return name || (a.runner === 'gemini' ? 'Gemini' : 'Grok');
   if (a.runner === 'antigravity') return name || 'Gemini (Google subscription)';
   if (a.runner === 'muse') return name || 'Meta Muse';
-  if (!name) return a.neverRecorded === true ? 'Made before Kosmos recorded this' : 'Unknown Model';
+  // kosmos#8667: the card's words: the full line only for an agent Kosmos started (isNamedOurs).
+  if (!name) return a.neverRecorded === true ? 'Made before Kosmos recorded this' : a.isNamedOurs === true ? 'No model recorded: set it in AI Settings' : 'No model recorded';
   return /^claude/i.test(name) ? name : 'Claude ' + name;
 }
 /* tileModelLine: an agent with no model of its own yet names the model its earlier session ran. */
@@ -45,7 +46,7 @@ function modelWordsOf(a) {
   if (!a || typeof a !== 'object') return null;
   const line = cardModelLine(a);
   if (!a.earlierModelName || a.modelName || a.plannedModelName) return line;
-  if (line !== 'Made before Kosmos recorded this' && line !== 'Unknown Model') return line;
+  if (line !== 'Made before Kosmos recorded this' && line !== 'No model recorded: set it in AI Settings' && line !== 'No model recorded') return line;
   return /^claude/i.test(a.earlierModelName) ? a.earlierModelName : 'Claude ' + a.earlierModelName;
 }
 

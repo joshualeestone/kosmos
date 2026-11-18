@@ -1,7 +1,7 @@
 'use strict';
 /**
  * #3739 (Josh, 2026-09-25): the setup guide is titled "Kosmos Guide", hidden from every list and count (bubble
- * only; ruled 09:22), and never reads "Unknown Model". /api/status marks its row `isGuide` (every row says
+ * only; ruled 09:22), and never reads "Unknown Model" (since #8667, "No model recorded"). /api/status marks its row `isGuide` (every row says
  * whether it is), gives it the title, names its runner's default model when nothing else is known, and leaves
  * it out of the counts.
  */

@@ -76,8 +76,14 @@ extension Board {
         if d.runner == "gemini" || d.runner == "grok" { return name ?? (d.runner == "gemini" ? "Gemini" : "Grok") }
         if d.runner == "antigravity" { return name ?? "Gemini (Google subscription)" }
         if d.runner == "muse" { return name ?? "Meta Muse" }
-        guard let name else { return d.neverRecorded ? "Made before Kosmos recorded this" : "Unknown Model" }
+        guard let name else { return d.neverRecorded ? "Made before Kosmos recorded this" : d.isNamedOurs ? "No model recorded: set it in AI Settings" : "No model recorded" }
         return starts(name, "^claude") ? name : "Claude " + name
+    }
+    // kosmos#8667 review 3: the line as the AI Settings segment shows it, as the board's Runs on box (runsOnLine) does:
+    // inside AI Settings, the no-model line drops its "set it in AI Settings".
+    static func aiSettingsModelLine(_ d: AgentDetails) -> String {
+        let line = modelLine(d)
+        return line == "No model recorded: set it in AI Settings" ? "No model recorded" : line
     }
 
     // The board's roleLine: a chosen role as written; a role parsed from the instruction file is matched against the
