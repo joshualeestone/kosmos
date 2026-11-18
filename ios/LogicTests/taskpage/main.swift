@@ -183,6 +183,16 @@ check(folded.map(\.text) == ["2 runs found nothing new or repeated the same note
       "two quiet runs fold into one row; a late run never folds")
 check(folded.first?.at == Tasks.parseISO("2026-10-21T10:00:00Z"), "a folded row is dated by its last run")
 check(Board.activityPhrase(["kind": "something-new"], name: { $0 }) == "something-new", "an unknown kind shows its own name")
+// kosmos#8679: edited (kosmos#8664) and check-reported read as the page reads them (engine/taskactphrase.test.js's fixtures).
+let named: (String) -> String = { $0 == "mara" ? "Mara" : $0 == "leo" ? "Leo" : $0 }
+check(Board.activityPhrase(["kind": "edited", "person": true, "fromTitle": "Fix login", "title": "Fix login on iPhone"], name: named) == "You changed the title from Fix login to Fix login on iPhone", "edited: the person's new title")
+check(Board.activityPhrase(["kind": "edited", "by": "mara", "detail": "new words"], name: named) == "Mara changed the detail", "edited: an agent's new detail")
+check(Board.activityPhrase(["kind": "edited", "by": "leo", "fromTitle": "a", "title": "b", "fromDetail": "x", "detailCleared": true], name: named) == "Leo changed the title from a to b and cleared the detail", "edited: both, the detail cleared")
+check(Board.activityPhrase(["kind": "edited", "fromTitle": "a", "title": "b"], name: named) == "Changed the title from a to b", "edited: nobody named")
+check(Board.activityPhrase(["kind": "edited"], name: named) == "Changed the task", "edited: no fields")
+check(Board.activityPhrase(["kind": "check-reported", "by": "mara", "check": 2, "met": true, "how": "node --test, 40 of 40"], name: named) == "Mara says done-when check 2 is met: node --test, 40 of 40", "check-reported: met, with how")
+check(Board.activityPhrase(["kind": "check-reported", "check": 1, "met": false], name: named) == "An agent says done-when check 1 is not met", "check-reported: unmet, nobody named")
+check(Board.activityPhrase(["kind": "edited"], name: named) != "edited", "CONTROL: edited no longer shows its bare kind")
 check(Board.activityPhrase(["kind": "run", "missedBefore": 1e300], name: { $0 }) == "Ran, after 1000000000 missed runs"
       && Board.activityPhrase(["kind": "undone", "files": 1e300], name: { $0 }) == "File changes undone (1000000000 files)",
       "a count far too large is clamped, never a crash")
