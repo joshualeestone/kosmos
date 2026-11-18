@@ -331,7 +331,7 @@ function sh(cmd, args) {
  */
 function shDetail(cmd, args, timeoutMs) {
   try {
-    return { ran: true, status: 0, out: execFileSync(cmd, args, { encoding: 'utf8', timeout: timeoutMs || 5000 }), err: '' };
+    return { ran: true, status: 0, out: execFileSync(cmd, args, { encoding: 'utf8', timeout: timeoutMs || 5000, windowsHide: true }), err: '' };
   } catch (e) {
     const status = e && typeof e.status === 'number' ? e.status : null;
     return {
@@ -352,7 +352,7 @@ function shDetailAsync(cmd, args, timeoutMs) {
     const answer = (v) => { if (answered) return; answered = true; clearTimeout(hard); resolve(v); };
     let child;
     try {
-      child = execFile(cmd, args, { encoding: 'utf8', timeout: limit, killSignal: 'SIGKILL' }, (e, stdout, stderr) => {
+      child = execFile(cmd, args, { encoding: 'utf8', timeout: limit, killSignal: 'SIGKILL', windowsHide: true }, (e, stdout, stderr) => {
         if (!e) { answer({ ran: true, status: 0, out: stdout, err: '' }); return; }
         const status = !e.killed && typeof e.code === 'number' ? e.code : null;   // killed at its limit: no code, on every platform
         answer({ ran: status !== null, status, out: stdout ? String(stdout) : '', err: stderr ? String(stderr) : '' });
@@ -494,12 +494,12 @@ function tmuxPanes() { return driveShSync(tmuxPanesSteps()); }
 function tmuxPanesAsync() { return driveShAsync(tmuxPanesSteps()); }
 function driveShSync(gen) {
   let r = gen.next();
-  while (!r.done) r = gen.next(shDetail(r.value[0], r.value[1]));
+  while (!r.done) r = gen.next(shDetail(r.value[0], r.value[1], r.value[2]));
   return r.value;
 }
 async function driveShAsync(gen) {
   let r = gen.next();
-  while (!r.done) r = gen.next(await shDetailAsync(r.value[0], r.value[1]));
+  while (!r.done) r = gen.next(await shDetailAsync(r.value[0], r.value[1], r.value[2]));
   return r.value;
 }
 function* tmuxPanesSteps() {
@@ -8182,6 +8182,73 @@ function paneLook() {
    check does nothing there). It asks the default tmux server only, as the roster does. */
 let paneFolderSource = null;
 function setPaneFolderSource(fn) { paneFolderSource = typeof fn === 'function' ? fn : null; }
+/* kosmos#8640 (Windows): the folder check's source on Windows. `true` reads the live process list (server.js turns it
+   on beside the Windows roster); a function returns that read's text (tests); null is off (the default, so a suite
+   never reads this computer's processes).
+   WHAT IT SEES: every process's program folder, and every Windows path its command line names, so an agent or a tool
+   started with the agent's folder in its arguments, or from a program inside it, counts as working there.
+   NOT COVERED: a process whose only tie to the folder is its WORKING folder. Windows does not let one process read
+   another's working folder without native code, so a tool started from inside the folder with no path in its arguments
+   is not seen. A process this board may not read (an elevated or another user's) has no path to compare. */
+let win32FolderSource = null;
+function setWin32FolderSource(src) { win32FolderSource = src === true || typeof src === 'function' ? src : null; }
+const WIN32_FOLDERS_OK = 'KOSMOS-FOLDERS-READ-OK';
+const WIN32_FOLDER_SCRIPT = '[Console]::OutputEncoding = [Text.Encoding]::UTF8; '
+  + 'Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object { '
+  + '[Console]::Out.WriteLine(([string]$_.ProcessId) + "`t" + ([string]$_.Name -replace "[\\r\\n\\t]", " ") + "`t" '
+  + '+ ([string]$_.ExecutablePath -replace "[\\r\\n\\t]", " ") + "`t" + ([string]$_.CommandLine -replace "[\\r\\n\\t]", " ")) }; '
+  + `[Console]::Out.WriteLine('${WIN32_FOLDERS_OK}')`;
+function win32Powershell() {
+  return path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+}
+/* Every Windows path a command line names: each piece that starts at a drive letter, up to a quote (a path with spaces
+   runs on to the next path or the end; running long only adds characters after the real path, which a folder test by
+   prefix still matches). */
+function win32PathsIn(cmd) {
+  const out = [];
+  for (const piece of String(cmd || '').split(/(?=[A-Za-z]:[\\/])/)) {
+    if (!/^[A-Za-z]:[\\/]/.test(piece)) continue;
+    const p = piece.split('"')[0].replace(/\s+$/, '');
+    if (p.length > 3) out.push(p);
+  }
+  return out;
+}
+/* An 8.3 short spelling (JOSHU~1) never matches a folder compared by its long name; resolved by its longest part that
+   exists, so a tool started through the short name still counts. */
+function win32LongForm(p) {
+  if (!p.includes('~')) return null;
+  let head = p, tail = '';
+  for (let i = 0; i < 12 && head.length > 3; i++) {
+    try { const real = fs.realpathSync.native(head); return tail ? path.win32.join(real, tail) : real; } catch { /* shorter */ }
+    const cut = Math.max(head.lastIndexOf('\\'), head.lastIndexOf('/'));
+    if (cut < 3) break;
+    tail = tail ? path.win32.join(head.slice(cut + 1), tail) : head.slice(cut + 1);
+    head = head.slice(0, cut);
+  }
+  return null;
+}
+/** The Windows read -> rows { session, folder } as readPaneFolders gives, or null with no sentinel (fails closed). */
+function readWin32ProcessFolders(out) {
+  if (typeof out !== 'string') return null;
+  const lines = out.split(/\r?\n/);
+  if (!lines.some((l) => l.trim() === WIN32_FOLDERS_OK)) return null;
+  const rows = [];
+  for (const line of lines) {
+    const f = line.split('\t');
+    if (f.length < 4) continue;
+    const [pid, name, exe] = f;
+    const session = `${name || 'a program'} (process ${pid})`;
+    const folders = [];
+    if (/^[A-Za-z]:[\\/]/.test(exe)) folders.push(path.win32.dirname(exe));
+    folders.push(...win32PathsIn(f.slice(3).join(' ')));
+    for (const folder of folders) {
+      rows.push({ session, folder });
+      const long = win32LongForm(folder);
+      if (long) rows.push({ session, folder: long });
+    }
+  }
+  return rows;
+}
 /* Each line is `%<pane id>\t<session>\t<folder>`. A line that does not start with a pane id is a fragment (a folder
    whose name holds a newline splits its line). Since kosmos#8644 such a fragment is the rest of the pane before it
    (marked cut, below); only a line nothing can be attributed to refuses the whole answer. An EMPTY
@@ -8211,6 +8278,17 @@ function readPaneFolders(out) {
    async one can never read the folders differently, and both fail closed the same way. */
 function* paneFoldersSteps() {
   if (paneFolderSource) return readPaneFolders(paneFolderSource());
+  /* kosmos#8640 (Windows): Windows has no panes; the folder check reads what PROCESSES are working in (see
+     WIN32_FOLDER_SCRIPT). On before the roster's `return []` below, which on Windows (paneSource is win32roster) used
+     to leave the delete guard checking names only. */
+  if (win32FolderSource) {
+    const out = typeof win32FolderSource === 'function' ? win32FolderSource()
+      : (yield [win32Powershell(), ['-NoProfile', '-NonInteractive', '-Command', WIN32_FOLDER_SCRIPT], 15000]);
+    const text = typeof out === 'string' ? out : (out && out.ran && out.status === 0 ? out.out : null);
+    const rows = readWin32ProcessFolders(text);
+    if (!rows) throw new Error('we could not see what is running on this computer');
+    return rows;
+  }
   if (paneSource) return [];
   // The tmux that last LISTED panes (tmuxPanesSteps sets it, after any re-pick past a version wall), else the default.
   // `-u`: without a UTF-8 locale tmux writes the tabs as `_`, every line would be unreadable, and every delete refused.
@@ -10560,7 +10638,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)

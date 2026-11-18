@@ -30617,6 +30617,9 @@ if (require.main === module) {
      itself is platform-agnostic and unit-tested with injected inputs. */
   if (process.platform === 'win32') {
     require('./engine/status').setPaneSource(require('./engine/win32roster').make());
+    /* kosmos#8640 (Windows): and the delete guard's folder check, which on Windows reads what processes work in
+       (status.setWin32FolderSource says what it sees and what it cannot). */
+    require('./engine/status').setWin32FolderSource(true);
     /* #570: and the win32 live-STATE source (the `capture-pane` analog). A win32
        pane has no screen; win32capture supplies `claude agents --json`'s per-session
        status, or for a streaming session (which lists none) the state its supervisor
