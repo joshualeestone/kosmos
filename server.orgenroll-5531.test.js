@@ -76,7 +76,7 @@ test('#5531: from the screen, a decline sends nothing and records nothing; a pre
 
 test('#5531: GET /api/org reports this world\'s own record, and only one that names this world', async () => {
   const none = await call('/api/org', { method: 'GET', headers: SCREEN });
-  assert.deepEqual(none.json, { enrolled: false, reporting: false, reportingWait: null, wordsNeeded: false, reportingRequired: false, stoppedFor: null, leaveRefused: null, leaveRefusedUndo: false, org: null, role: null, enrolledAt: null });
+  assert.deepEqual(none.json, { enrolled: false, reporting: false, reportingWait: null, wordsNeeded: false, reportingRequired: false, backupLate: null, stoppedFor: null, leaveRefused: null, leaveRefusedUndo: false, org: null, role: null, enrolledAt: null });
   const world = oe.worldId();
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', world, enrolledAt: '2026-10-07T00:00:00.000Z' }));
   const yes = await call('/api/org', { method: 'GET', headers: SCREEN });
@@ -103,6 +103,31 @@ test('#6367: /api/org says reportingRequired from the applied policy, for this w
   assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reportingRequired, false, 'CONTROL: required false');
   enroll('f'.repeat(32)); policy(true);
   assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reportingRequired, false, 'not the enrolled Kosmos here: nothing is said');
+});
+
+test('#7586: /api/org says backupLate from the record\'s backup time and the applied policy, for this world only', async (t) => {
+  const applied = path.join(store.ROOT, 'org-policy-applied.json');
+  t.after(() => { fs.rmSync(enrollmentFile(), { force: true }); fs.rmSync(applied, { force: true }); });
+  const world = oe.worldId();
+  const enroll = (w, extra) => fs.writeFileSync(enrollmentFile(), JSON.stringify(Object.assign({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', world: w, enrolledAt: '2026-10-07T00:00:00.000Z' }, extra)));
+  const policy = (backup) => fs.writeFileSync(applied, JSON.stringify({ version: 1, policy: { backup } }));
+  const late = async () => (await call('/api/org', { method: 'GET', headers: SCREEN })).json.backupLate;
+  const old = Math.floor(Date.now() / 1000) - 3 * 86400;
+  policy({ required: true, max_age_hours: 24 });
+  enroll(world, { backupOn: true, backupAt: null });
+  assert.equal(await late(), 'never', 'no backup on record');
+  enroll(world, { backupOn: true, backupAt: old });
+  assert.equal(await late(), 'late', 'three days against 24 hours');
+  enroll(world, { backupOn: true, backupAt: Math.floor(Date.now() / 1000) - 60 });
+  assert.equal(await late(), null, 'CONTROL: a minute ago meets it');
+  enroll(world, { backupOn: false, backupAt: null });
+  assert.equal(await late(), null, 'company backup off: nothing could be met');
+  enroll(world, {});
+  assert.equal(await late(), null, 'an older coordinator sent nothing');
+  enroll(world, { backupOn: true, backupAt: old }); policy({ required: false });
+  assert.equal(await late(), null, 'not required');
+  enroll('f'.repeat(32), { backupOn: true, backupAt: old }); policy({ required: true, max_age_hours: 24 });
+  assert.equal(await late(), null, 'not the enrolled Kosmos here: nothing is said');
 });
 
 test('#5531 review 3: an accepted join needs the ticket a screen got from a preview; without it nothing is sent', async () => {

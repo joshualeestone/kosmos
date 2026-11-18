@@ -272,6 +272,28 @@ function reportingRequired(policy) {
   return !!(p && typeof p === 'object' && p.telemetry && typeof p.telemetry === 'object' && p.telemetry.required === true);
 }
 
+/** kosmos#7586: whether the company requires this computer to be backed up (`backup: { required: true }`), by the same
+ *  rule as reportingRequired: only exactly true requires it. */
+function backupRequired(policy) {
+  let p = policy;
+  if (p === undefined) { try { p = current(); } catch { return false; } }
+  return !!(p && typeof p === 'object' && p.backup && typeof p.backup === 'object' && p.backup.required === true);
+}
+
+/** kosmos#7586: whether this computer misses the policy's backup requirement, from the coordinator's own record of its
+ *  last backup (`seen`: { backupOn, backupAt } off the status answer, backupAt in unix seconds or null). 'never' (no
+ *  backup on record), 'late' (older than `max_age_hours`), or null: met, not required, company backup off (`backupOn`
+ *  not exactly true: nothing could be met), or nothing on record from the coordinator. With no age set, any backup
+ *  meets it, as the console reads it. */
+function backupLate(seen, policy, nowMs = Date.now()) {
+  if (!seen || typeof seen !== 'object' || seen.backupOn !== true || !backupRequired(policy)) return null;
+  const at = seen.backupAt;
+  if (!Number.isFinite(at)) return 'never';
+  const p = policy === undefined ? (() => { try { return current(); } catch { return null; } })() : policy;
+  const hrs = p && p.backup && Number.isFinite(p.backup.max_age_hours) && p.backup.max_age_hours > 0 ? p.backup.max_age_hours : null;
+  return hrs !== null && nowMs / 1000 - at > hrs * 3600 ? 'late' : null;
+}
+
 const CONTACT_STOPS = `${POLICY_SETTER} keeps agents out of the Kosmos+ community and out of projects shared with other computers`;
 /** kosmos#6239: whether agents may reach anyone outside this computer (the Kosmos community, federation, rooms shared
  *  with another computer). Stopped by `outside_contact: { enabled: false }`. kosmos#6859: on a computer joined to a
@@ -459,4 +481,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, communityAllows, communitySpace, PUBLIC_COMMUNITY_STOPS, FAMILY_COMMUNITY_STOPS, FAMILY_CONTACT_STOPS, CONTACT_STOPS, reportingRequired, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, capSentence, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, communityAllows, communitySpace, PUBLIC_COMMUNITY_STOPS, FAMILY_COMMUNITY_STOPS, FAMILY_CONTACT_STOPS, CONTACT_STOPS, reportingRequired, backupRequired, backupLate, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, capSentence, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };

@@ -1211,6 +1211,14 @@ async function refreshNow(opts) {
     rec.recoveriesAt = before.recoveriesAt;
     if (before.recoveriesMore === true) rec.recoveriesMore = true;
   }
+  /* kosmos#7586: whether company backup is on at the coordinator, and this member's last backup there (unix seconds,
+     null for none), so the page can say the policy's backup requirement is not met from the record the console reads.
+     Only an answer that says (backupOn a boolean) sets them; an older coordinator's answer leaves them out, and the page
+     then says nothing about backup. Read from THIS answer, never carried: a stale "backed up" must not outlive it. */
+  if (typeof d.backupOn === 'boolean') {
+    rec.backupOn = d.backupOn;
+    rec.backupAt = d.backupOn && Number.isFinite(d.backupAt) ? d.backupAt : null;
+  }
   // The consent belongs to the world it was shown for: never carried onto a record for another world (review 28).
   if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;
   // #5532: the salt belongs to the company its print was pinned for; a different company on the answer drops it (review 11).
