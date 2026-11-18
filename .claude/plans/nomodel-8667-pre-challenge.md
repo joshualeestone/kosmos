@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: nomodel-8667
-diff_hash: 3bd63313c76a562d8a8e1e16fd6dacce3887a357965691cf0be0d3a7a03d9eea
+diff_hash: 8e6c06f6bae2e428648e5a7b2d7be5878c2902e4a56ee051bc16a0b397392001
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-18T04:56:48Z
+timestamp: 2026-11-18T05:58:47Z
 iterations: 8
 converged: false
 ---
@@ -26,6 +26,15 @@ iteration 1. Reviewer model alternated opus / sonnet.
 an arm whose premise was wrong) and four fixes the full suite found in this branch's own new files (README row,
 $B8 list, fixture-discipline real cards, a source pin). The final browser check and the final full validation ran on
 the result (validation hash 3bd63313c76a).
+
+**Rebase (after round 8):** #8662 (signed-out line) and #8665 (engine/clilists.js copy of modelLine) merged first
+and touched the same lines. The branch was squashed to one commit and rebased; the conflict in web/index.html was
+resolved by keeping #8662's literal comparisons and signed-out guard and adding this branch's two no-model forms, and
+the CLI copy and its parity matrix (now varying isNamedOurs) were moved to the new words. One blind review of the
+rebased branch (opus) found no BLOCKER; its one WARNING (the short form inside AI Settings was untested on an owned
+agent, for runsOnLine and the iPhone) was fixed, with a mutant that drops runsOnLine's ternary going red, and its
+CONVENTION (stale plan sentences) fixed. Final browser checks and full validation ran on the result
+(validation hash 8e6c06f6bae2).
 
 ### Per-Iteration Breakdown
 
@@ -111,6 +120,8 @@ the result (validation hash 3bd63313c76a).
 | 16 | 6 | WARNING | BoardLogic.swift:1059 | BRANCH | undrawn iPhone tile copy | DEFERRED | no caller |
 | 17 | 7 | WARNING | web/index.html:23490 | BRANCH | not-ours agent told to use AI Settings | FIXED | bd278690 |
 | 18 | 8 | WARNING | plan | BRANCH | stopped agents show no line | FIXED | 6d0be43e |
+| 19 | rebase | WARNING | web/index.html:23659, agentinfo/main.swift:57 | BRANCH | short form untested on an owned agent | FIXED | 8fb4c425 |
+| 20 | rebase | CONVENTION | plan:29-34 | SELF | stale sentences after #8662/#8665 | FIXED | 8fb4c425 |
 
 ### NITs (non-blocking, across all iterations)
 - Repaint flake risk in the browser check (2; fixed by redrawing before each arm)
