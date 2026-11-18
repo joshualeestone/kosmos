@@ -799,19 +799,24 @@ func downloadFailureWords(_ error: Error) -> String {
 /// system's reason under WebKit's error (found the way downloadFailureWords finds it) is EPERM ("Operation not
 /// permitted", what the operator's laptop said on 11-18) or EACCES ("Permission denied"). Such a refusal is about
 /// writing to that folder, not about the file, so a place the person picks in a Save panel can still take it.
-func downloadRefusedByMacOS(_ error: Error) -> Bool {
+func downloadRefusedByMacOS(_ error: Error) -> Bool { downloadRefusedCode(error) != nil }
+/// #5167 review 7: the refusal's POSIX code (EPERM or EACCES), or nil when it is not a refusal by macOS.
+func downloadRefusedCode(_ error: Error) -> Int32? {
     let ns = error as NSError
     var under = ns.userInfo[NSUnderlyingErrorKey] as? NSError
     var depth = 0
     while let u = under, u.domain != NSPOSIXErrorDomain, depth < 2 { under = u.userInfo[NSUnderlyingErrorKey] as? NSError; depth += 1 }
-    guard let u = under, u.domain == NSPOSIXErrorDomain else { return false }
-    return u.code == Int(EPERM) || u.code == Int(EACCES)
+    guard let u = under, u.domain == NSPOSIXErrorDomain, u.code == Int(EPERM) || u.code == Int(EACCES) else { return nil }
+    return Int32(u.code)
 }
 /// #5167 (11-18): the words of the question asked when macOS refused a download (downloadRefusedByMacOS).
 let downloadRefusedTitle = "macOS did not let Kosmos save to Downloads"
+/// Review 7: the System Settings sentence is for EPERM only (macOS privacy refused it); EACCES is the folder's own
+/// permissions, which that pane does not change.
 func downloadRefusedWords(_ error: Error) -> String {
-    "The file could not be saved to Downloads (\(downloadFailureWords(error))). You can choose another place to save it. "
-        + "To let Kosmos save to Downloads again, allow it in System Settings, Privacy & Security, Files and Folders; "
+    let first = "The file could not be saved to Downloads (\(downloadFailureWords(error))). You can choose another place to save it."
+    guard downloadRefusedCode(error) == EPERM else { return first }
+    return first + " To let Kosmos save to Downloads again, allow it in System Settings, Privacy & Security, Files & Folders; "
         + "if Kosmos was updated while it was open, quitting and reopening it may be enough."
 }
 
@@ -7742,7 +7747,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("denied.txt") && !saved("denied2.txt") && !saved("denied3.txt") && denied.count == 3, "#5167 (11-06): A FILE WEBKIT COULD NOT CREATE SAYS WHY, in the system's words (\(denied.count))")
             /* #5167 (11-18): macOS refusing Downloads asks where else to save (one question, with where to allow it), and a
                place chosen there gets the file, marked as downloaded. CONTROL: nothing landed in the refused folder (row above). */
-            let refusedAsk = denied.filter { $0.hasPrefix(downloadRefusedTitle + ": ") && $0.contains("Files and Folders") }
+            let refusedAsk = denied.filter { $0.hasPrefix(downloadRefusedTitle + ": ") && !$0.contains("System Settings") }
             let there = elsewhere.appendingPathComponent("denied.txt")
             var tmark = [UInt8](repeating: 0, count: 256)
             let tn = getxattr(there.path, "com.apple.quarantine", &tmark, tmark.count, 0, 0)
@@ -7820,7 +7825,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(own && !other && !unknown && revealed.map { $0.lastPathComponent } == ["same.txt"],
                 "kosmos#8120: SHOW IN FINDER SELECTS A FILE THIS APP SAVED, ONLY FOR THE ORIGIN THAT SAVED IT, and nothing for an unknown id (\(own)/\(other)/\(unknown))")
             try? FileManager.default.removeItem(at: dl); try? FileManager.default.removeItem(at: elsewhere)
-            let expected = 74   // kosmos#5167 (11-18): +4 (and the unmarked control) (refused Downloads asks where else; a page change voids it; a Kosmos+ restart is marked); kosmos#8121 (re-land, five reviews): +21 (Always Allow kept and checked against the account: on it, moved, unread, joined, page change, Forget, the hour, the wall clock, the offer, Don't Allow forgets); kosmos#8120: +10 (what the page is told, that it runs there, and Show in Finder); #5167 (11-06): +1 (the uncreatable file says why); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
+            let expected = 74   // kosmos#5167 (11-18): +4 (incl. the unmarked control) (refused Downloads asks where else; a page change voids it; a Kosmos+ restart is marked); kosmos#8121 (re-land, five reviews): +21 (Always Allow kept and checked against the account: on it, moved, unread, joined, page change, Forget, the hour, the wall clock, the offer, Don't Allow forgets); kosmos#8120: +10 (what the page is told, that it runs there, and Show in Finder); #5167 (11-06): +1 (the uncreatable file says why); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
@@ -9102,8 +9107,10 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         fr(!downloadRefusedByMacOS(fail(NSError(domain: NSPOSIXErrorDomain, code: 28))), downloadFailureWords(fail(NSError(domain: NSPOSIXErrorDomain, code: 28))), "#5167: CONTROL: a full disk is not (another place would not help)")
         fr(!downloadRefusedByMacOS(fail(NSError(domain: NSPOSIXErrorDomain, code: 17))), "File exists", "#5167: CONTROL: nor a taken name")
         fr(!downloadRefusedByMacOS(fail(nil)) && !downloadRefusedByMacOS(fail(NSError(domain: "SomeOtherDomain", code: 1))), "no POSIX reason", "#5167: CONTROL: nor a failure with no system reason, or a 1 that is not the system's")
-        fr(downloadRefusedWords(eperm).contains("(Cannot create file: Operation not permitted)") && downloadRefusedWords(eperm).contains("Files and Folders")
+        fr(downloadRefusedWords(eperm).contains("(Cannot create file: Operation not permitted)") && downloadRefusedWords(eperm).contains("Privacy & Security, Files & Folders")
            && !downloadRefusedWords(eperm).contains("SECRET"), downloadRefusedWords(eperm), "#5167: the question names the reason and where to allow it, and no address")
+        fr(downloadRefusedWords(eacces).contains("(Cannot create file: Permission denied)") && !downloadRefusedWords(eacces).contains("System Settings"),
+           downloadRefusedWords(eacces), "#5167 review 7: CONTROL: Permission denied (the folder's own permissions) does not send the person to System Settings")
         fr(!downloadFailureCodes(eacces).contains("SECRET") && !downloadFailureWords(eacces).contains("SECRET") && !downloadFailureWords(eacces).contains("127.0.0.1"), downloadFailureCodes(eacces), "#5167: and neither carries the download's address or its token")
         // kosmos#8121 re-land: accountVerdict, the list an Always Allow is checked against.
         let mine: [String: Any] = ["ok": true, "domain": "kosmosplus.com", "computers": [["address": "nadia.kosmosplus.com", "this": true], ["address": "Omar.kosmosplus.com"]]]
@@ -9247,7 +9254,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         }
     }
     while certRows < 1 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
-    let expected = 319   // kosmos#5167 (11-18): +7 (downloadRefusedByMacOS and its question); kosmos#8121 re-land: +10 (accountVerdict rows), +4 (downloadAnswer rows); kosmos#8125: +3 (quitMissesAfter rows); kosmos#8118: +61 (7 computerToRemember rows, 7 rememberableHost rows, 15 reopenAnswerKeeps rows, 3 reopenMissesForget rows, 5 reopenMissesAfter rows, 3 reopenRetryAllowed rows, 6 quitKeeps rows, 15 reopenStep rows); kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 320   // kosmos#5167 (11-18): +8 (downloadRefusedByMacOS and its question, incl. the EACCES control); kosmos#8121 re-land: +10 (accountVerdict rows), +4 (downloadAnswer rows); kosmos#8125: +3 (quitMissesAfter rows); kosmos#8118: +61 (7 computerToRemember rows, 7 rememberableHost rows, 15 reopenAnswerKeeps rows, 3 reopenMissesForget rows, 5 reopenMissesAfter rows, 3 reopenRetryAllowed rows, 6 quitKeeps rows, 15 reopenStep rows); kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
