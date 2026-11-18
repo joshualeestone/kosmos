@@ -104,7 +104,7 @@ function scan(root, opts = {}) {
         if (depth < MAX_DEPTH) walk(abs, r, depth + 1);
         continue;
       }
-      if (!e.isFile() || !storeKind(e.name)) continue;
+      if (!storeKind(e.name)) continue;   // a link or other non-file is refused by lstat in tornShape
       let st;
       try { st = fs.lstatSync(abs); } catch { continue; }
       const shape = tornShape(abs, st, now);
@@ -138,6 +138,8 @@ function run(root, opts = {}) {
   let found;
   /* opts.found: a scan's answer handed in, so a test can make it stale (a file rewritten between scan and move). */
   try { found = Array.isArray(opts.found) ? opts.found : scan(root, { now }); } catch { found = []; }
+  const inside = (rel) => { const p = path.resolve(root, ...rel.split('/')); return p.startsWith(path.resolve(root) + path.sep); };
+  found = found.filter((item) => item && typeof item.rel === 'string' && inside(item.rel));
   if (found.length) {
     const rel = TORN_DIR + '/' + stampOf(now);
     const folder = path.join(root, ...rel.split('/'));
@@ -146,7 +148,7 @@ function run(root, opts = {}) {
       /* Look again just before the move: a writer that replaced the file since the scan (a flushed save landing, the
          CLI) has made it whole, and a whole file is never moved. */
       let st;
-      try { st = fs.lstatSync(path.join(root, ...item.rel.split('/'))); } catch { continue; }
+      try { st = fs.lstatSync(path.join(root, ...item.rel.split('/'))); } catch { continue; }   // gone already: nothing to move
       if (tornShape(path.join(root, ...item.rel.split('/')), st, now) !== item.shape) continue;
       try {
         fs.mkdirSync(path.dirname(path.join(root, ...dest.split('/'))), { recursive: true, mode: 0o700 });
@@ -154,6 +156,7 @@ function run(root, opts = {}) {
         result.moved.push({ ...item, movedTo: dest });
         try { log(logLine(item, dest)); } catch { /* a log that cannot write does not undo the move */ }
       } catch (e) {
+        if (e && e.code === 'ENOENT' && !fs.existsSync(path.join(root, ...item.rel.split('/')))) continue;   // moved by another run
         result.failed.push({ ...item, because: (e && e.code) || 'error' });
         try { log('tornstores: ' + item.rel + ' was ' + (item.shape === 'empty' ? 'empty' : 'all zero bytes') + ' but could not be moved aside: ' + ((e && e.code) || 'error') + '. Left where it is.'); } catch { /* as above */ }
       }

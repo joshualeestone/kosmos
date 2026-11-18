@@ -29423,9 +29423,8 @@ function start(port = PORT) {
     const onListening = () => {
       server.removeListener('error', onError);
       /* #8718: a store a crash left empty or all zero bytes is moved aside into torn/, one board.log line each, so it
-         reads as absent and takes its default (engine/tornstores.js). HERE, after the bind, for the reason #1946 gives
-         below: a second launch that loses the port to a running board rejects in onError and never reaches this, so it
-         cannot move a file out from under the board that is serving. Only when this file IS the board. Never throws. */
+         reads as absent and takes its default (engine/tornstores.js). After the bind, so a launch that loses the port
+         (onError) never scans. Only when this file IS the board. Never throws. */
       if (require.main === module) {
         try { require('./engine/tornstores').run(store.ROOT); } catch (e) { console.error('tornstores: not run: ' + (e && e.message)); }
       }

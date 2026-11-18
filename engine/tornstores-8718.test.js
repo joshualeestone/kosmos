@@ -49,12 +49,6 @@ test('each torn shape is moved aside, logged once, and recorded; everything else
   const otherWorld = put(root, 'worlds/w1/projects/p/a.json', '');    // another Kosmos's project folder
   const otherStore = put(root, 'worlds/w1/Kosmos/settings.json', Buffer.alloc(40));   // and its own data root
   const deep = put(root, 'a/b/c/d/e.json', '');                      // past MAX_DEPTH
-  const target = put(root, 'linked-target.txt', '');
-  const link = path.join(root, 'link.json');
-  fs.symlinkSync(target, link);                                      // a symlink is never followed or moved
-  const linkedDir = freshRoot('linked-dir');
-  const inLinked = put(linkedDir, 'inside.json', '');
-  fs.symlinkSync(linkedDir, path.join(root, 'linkdir'));            // nor is a symlinked folder walked
   const notStore = put(root, 'victim.txt', Buffer.alloc(10));        // not a store
 
   const lines = [];
@@ -79,7 +73,7 @@ test('each torn shape is moved aside, logged once, and recorded; everything else
   assert.deepEqual(rec.moved.map((m) => m.rel).sort(), moved);
   assert.equal(torn.lastRun(), out);
 
-  for (const f of [good, damaged, emptyLog, partZero, recent, personal, download, otherWorld, otherStore, deep, target, link, inLinked]) assert.equal(fs.existsSync(f), true, f + ' stays');
+  for (const f of [good, damaged, emptyLog, partZero, recent, personal, download, otherWorld, otherStore, deep]) assert.equal(fs.existsSync(f), true, f + ' stays');
   assert.equal(fs.readFileSync(good, 'utf8'), '{"a":1}\n');
 
   // a second start finds nothing more and makes no folder
@@ -87,6 +81,31 @@ test('each torn shape is moved aside, logged once, and recorded; everything else
   assert.deepEqual(again.moved, []);
   assert.equal(again.folder, null);
   assert.equal(lines.length, 4);
+});
+
+/* Making a symlink needs elevation on Windows (as dmfiles.folder-8617.test.js says), so these arms are POSIX only. */
+test('a symlink to a torn store, and a symlinked folder, are never followed or moved', { skip: process.platform === 'win32' && 'symlinks need elevation on Windows' }, () => {
+  const root = freshRoot('links');
+  const outside = freshRoot('links-outside');
+  const target = put(outside, 'target.json', Buffer.alloc(4096));    // torn (zeros longer than the link), reachable only through a link
+  const link = path.join(root, 'link.json');
+  fs.symlinkSync(target, link);
+  fs.lutimesSync(link, OLD / 1000, OLD / 1000);                      // the link itself old too, so only lstat refuses it
+  const inLinked = put(outside, 'dir/inside.json', Buffer.alloc(20));
+  fs.symlinkSync(path.join(outside, 'dir'), path.join(root, 'linkdir'));
+  const control = put(root, 'real.json', '');                        // control: a real torn file beside them IS moved
+  const out = torn.run(root, { log: () => {} });
+  assert.deepEqual(out.moved.map((m) => m.rel), ['real.json']);
+  assert.equal(fs.existsSync(control), false);
+  for (const f of [target, link, inLinked]) assert.equal(fs.existsSync(f), true, f + ' stays');
+});
+
+test('a scan answer naming a path outside the root moves nothing there', () => {
+  const root = freshRoot('escape');
+  const victim = put(SB, 'victim.json', '');
+  const out = torn.run(root, { found: [{ rel: '../victim.json', shape: 'empty', size: 0, secret: false }], log: () => {} });
+  assert.deepEqual(out.moved, []);
+  assert.equal(fs.existsSync(victim), true);
 });
 
 test('a clean data folder: nothing moved, no torn folder, no log line', () => {

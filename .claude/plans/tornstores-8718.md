@@ -36,3 +36,9 @@ That a store's absent default is safe. A person's "off" zeroed by a crash comes 
 - WARNING scan-to-move gap: fixed, each file is looked at again just before its move; test hands in a stale scan.
 - WARNING any future empty .json marker under the root would be moved: DEFERRED. Grepped engine and server.js: no code writes an empty .json or .jsonl today (the empty markers are .reauth-seeded, ct-watch-off, an -ack file). An empty .json already fails JSON.parse for any reader, so the only behaviour change is for an existsSync marker, and the module header names the two shapes so a future author can see it.
 - NIT failed-line wording matched to the moved-line wording.
+
+## Review round 3 (opus)
+- WARNING symlink arms would throw EPERM on a Windows runner and sink the shapes test: moved to their own test, skipped on win32 with the reason; windows-tests.js comment says so.
+- WARNING server.js comment overclaimed (a different-port double start still scans): cut to the guarded claim, a launch that loses the port never scans.
+- NITs taken: ENOENT from another run's move is not reported as "left where it is"; a scan answer naming a path outside the root moves nothing (test); the symlink arm now points at a zero-filled target with an OLD link mtime, so it fails when lstat's isFile check is removed (it passed vacuously before: the link was new and its target empty); the duplicate dirent isFile check removed.
+- NITs left: RECENT_MS vs Linux RestartSec=5 (node boot covers it; a skipped file is looked at next start), torn/ never pruned (each folder is evidence; small), 64 KiB first read (files are small; measured about 2,100 files).
