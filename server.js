@@ -30362,7 +30362,8 @@ function start(port = PORT) {
         if (wakeLooking) return;
         let projs;
         try { projs = projects.readAll(); } catch { return; }
-        if (!taskwake.pending(projs).length) return;
+        // Nothing to look at: the look still runs, so the board forgets what it knew about wakes that are gone.
+        if (!taskwake.pending(projs).length) { taskwake.checkTick({ projects: projs, save: () => false }).catch(() => {}); return; }
         wakeLooking = true;
         taskwake.checkTick({ projects: projs, now: Date.now(), gh: wakeGh(), save: tasks.saveWakeMet, every: Number(process.env.AGENT_WORKFORCE_TASK_WAKE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_TASK_WAKE_MS) : undefined })
           .then((done) => {

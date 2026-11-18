@@ -322,6 +322,13 @@ async function probe(w, deps = {}, key = '', seen = new Map()) {
     }
     if (w.kind === 'file') {
       const fs = deps.fs || require('node:fs');
+      /* A missing file is taken as removed only on a second look in a row: a drive unplugged or a folder renamed for a
+         moment must not spend the wake. Any look that finds the file again forgets the first miss. */
+      const removed = () => {
+        if (seen.get(key + '#missing') === true) return { met: true, words: 'it was removed' };
+        seen.set(key + '#missing', true);
+        return { met: false, problem: 'the file is not there just now' };
+      };
       // The path is checked again on every look: a link set up after the wake must not point the board elsewhere.
       const where = fileAllowed(w.path, deps);
       if (where.denied) return { met: false, problem: 'this Mac has not let Kosmos read that file' };
@@ -329,20 +336,21 @@ async function probe(w, deps = {}, key = '', seen = new Map()) {
       if (!real) {
         let gone = false;
         try { fs.lstatSync(w.path); } catch (e) { gone = !!(e && e.code === 'ENOENT'); }
-        return gone ? { met: true, words: 'it was removed' } : { met: false, problem: 'Kosmos cannot watch that file any more' };
+        return gone ? removed() : { met: false, problem: 'Kosmos cannot watch that file any more' };
       }
       let st;
       try { st = fs.statSync(real); } catch (e) {
-        if (e && e.code === 'ENOENT') return { met: true, words: 'it was removed' };
+        if (e && e.code === 'ENOENT') return removed();
         return { met: false, problem: 'the file cannot be read' };
       }
+      seen.delete(key + '#missing');   // there again
       const last = seen.get(key) || { size: w.size, mtimeMs: w.mtimeMs };
       if (st.size === last.size && st.mtimeMs === last.mtimeMs) return { met: false };
       // Out of this tick's fingerprints: not looked at now, and nothing remembered, so the next tick looks again.
       if (deps.hashes && deps.hashes.left <= 0) return { met: false, later: true };
       if (deps.hashes) deps.hashes.left -= 1;
       const r = readFile(real, deps);
-      if (r.missing) return { met: true, words: 'it was removed' };
+      if (r.missing) return removed();
       if (r.denied) return { met: false, problem: 'this Mac has not let Kosmos read that file' };
       if (r.problem) return { met: false, problem: r.problem };
       if (r.print === w.from) { seen.set(key, { size: r.size, mtimeMs: r.mtimeMs }); return { met: false }; }   // touched, not changed
@@ -389,7 +397,7 @@ async function checkTick(o) {
     const items = pending(o.projects);
     const live = new Set(items.map((x) => x.projectId + '#' + x.n + '@' + x.setAt));
     for (const k of [...state.keys()]) if (!live.has(k)) state.delete(k);
-    for (const k of [...seen.keys()]) if (!live.has(k)) seen.delete(k);
+    for (const k of [...seen.keys()]) if (!live.has(k.replace(/#missing$/, ''))) seen.delete(k);
     const every = Number.isFinite(o.every) && o.every > 0 ? o.every : CHECK_EVERY_MS;   // a test's faster tick
     const due = items.filter((x) => { const s = state.get(x.projectId + '#' + x.n + '@' + x.setAt); return !s || now - s.at >= every; });
     const net = due.filter((x) => x.wake.kind === 'pr' || x.wake.kind === 'branch')
@@ -477,7 +485,7 @@ function owed(projects) {
 
 function tellText(item) {
   const id = /^[A-Za-z0-9._-]{1,80}$/.test(item.projectId) && /[^.]/.test(item.projectId) ? item.projectId : '<project-id>';
-  const what = item.wake.kind === 'at' ? 'was set to wake you ' + describe(item.wake, Date.now()) : 'was waiting for ' + describe(item.wake);
+  const what = item.wake.kind === 'at' ? 'was set to wake you ' + plain(describe(item.wake, Date.now()), 120) : 'was waiting for ' + plain(describe(item.wake), 200);
   return 'Kosmos: your task #' + item.n + ' in ' + plain(item.project, 80) + ', "' + plain(item.sentence, 160) + '", ' + what
     + (item.wake.kind === 'at' ? ', and that time has come.' : ', and ' + plain(item.met && item.met.words, 120) + '.')
     + ' Pick it up now. Kosmos tells you this once; to wait for something else, set a new wake with kosmos task wake ' + id + ' ' + item.n + '.';
