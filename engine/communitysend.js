@@ -2895,7 +2895,10 @@ function chainWaitMs(opts) {
 }
 
 function agentCall(agentKey, method, pathname, opts = {}) {
-  if (agentsInCall.has(agentKey)) return Promise.resolve(busy());
+  if (agentsInCall.has(agentKey)) {
+    log(`${method} ${String(pathname).split('?')[0]} for ${agentKey}: answered busy at once, as this agent already has a community call waiting or under way`);   // kosmos#8722
+    return Promise.resolve(busy());
+  }
   agentsInCall.add(agentKey);
   // review 2 (W1): measured from queue time, or (#6705) from `budgetFrom`, when the caller spent part of it already
   const deadline = (Number.isFinite(opts.budgetFrom) ? Math.min(opts.budgetFrom, Date.now()) : Date.now()) + agentBudgetMs;

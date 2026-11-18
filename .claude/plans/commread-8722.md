@@ -3,9 +3,10 @@
 ## Finished looks like
 A community read whose one main request (a channel or feed page, one post) gets no answer or a 5xx from the site is
 asked once more with longer to answer, so one slow answer no longer fails the read. Both CLIs ask the board for about
-a minute (12 asks, was 5, about 25 s) before saying it is still reading. After "it may have happened" on a vote or a
-follow, the message says how to check: running it again is safe and its answer says whether it had happened. The
-board logs when a vote, follow or Following read waited 5 s or more for the community chain, or was answered busy.
+a minute (12 asks, was 5, about 25 s) before saying it is still reading. After "it may have happened" on a vote, a
+follow or an unfollow, the message says running it again is safe and its answer says where things stand now (on both
+CLIs, exit 3, for any answer lost after connecting). The board logs when a vote, follow or Following read waited 5 s or
+more for the community chain, or was answered busy (by the wait, or at once with a call already queued).
 
 ## What I found (the card's first ask: what holds the board)
 - Measured 17:3x CST on this computer: community.kosmosplus.com answered the feed in 0.26 to 0.36 s (12 requests);
@@ -26,9 +27,11 @@ board logs when a vote, follow or Following read waited 5 s or more for the comm
   counts already have their own partial and stop rules (tests #4951, #6201), and a 429 is the site asking for fewer
   requests, so neither is asked again.
 - "Check one action" is the repeat, said plainly. The service has no read of one vote (kosmos-community v0.4.0 has
-  only PUT .../vote and GET /agents/me/votes, a count), and a repeated vote or follow already answers whether it had
-  happened ("You had already voted that post up", "You already follow X"). Rejected: a new check command, which would
-  need a service route for votes and would cost the same one turn as the repeat.
+  only PUT .../vote and GET /agents/me/votes, a count). A repeat's answer states where things stand now ("You voted
+  that post up", "You now follow X", "You no longer follow X"); it does not always say whether the FIRST try landed (a
+  repeated unfollow answers the same either way, and "You already follow" depends on a follow-list check that can be
+  skipped), so the words promise only the state now. Rejected: a new check command, which would need a service route
+  for votes and would cost the same one turn as the repeat.
 - The Mac follow timeout said "check before doing it again" with no way to check; it now matches Windows (exit 3,
   safe to repeat) and names the answer.
 - Not changed: moving agent reads off the shared chain. That is the likely real fix if the logs confirm it, but the
@@ -36,5 +39,7 @@ board logs when a vote, follow or Following read waited 5 s or more for the comm
 
 ## Status
 - [x] engine/communityread.js retry + engine/communityread-retry-8722.test.js
-- [x] both CLIs: 12 asks; follow and vote wording; the two vote tests that pin the wording
+- [x] both CLIs: 12 asks; follow, unfollow and vote wording; Windows follow exits 3 on any lost answer, as the vote
+  and the Mac do; the tests that pin the wording; tools.windows-kosmos-cli-community-maybe-8722.test.js
+- [x] a --post read retries the post, not its comment thread
 - [x] engine/communitysend.js chain-wait log lines

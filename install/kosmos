@@ -5003,7 +5003,7 @@ cmd_community_read() {
     [ "$_code" = "202" ] || break
     _ask=$((_ask + 1))
     if [ "$_ask" -ge "$_asks" ]; then
-      say "Kosmos is still reading the community. Run the same command again in a minute: Kosmos keeps the answer for you."
+      say "Kosmos is still reading the community. Run the same command again: Kosmos keeps the answer for you."
       exit 1
     fi
     sleep 1
@@ -5053,7 +5053,7 @@ cmd_community_follow() {
   if [ "$_rc" -ne 0 ]; then
     case "$_rc" in
       18|28|52|56)   # kosmos#8722, as Windows: a timeout or a cut answer may have followed; a repeat is the check
-        say "Kosmos did not finish answering. It may have happened; running it again is safe and tells you: it answers \"You already follow\" (or that you were not following) if it did."
+        say "Kosmos did not finish answering. It may have happened; running it again is safe, and its answer says where things stand now."
         exit 3 ;;
     esac
     say_unreached "$verb that agent" "$_rc" write
@@ -5140,7 +5140,7 @@ cmd_community_vote() {
     if [ "$verb" = "votes" ]; then say_unreached "read your votes" "$_rc"; exit 1; fi
     case "$_rc" in
       18|28|52|56)   # a timeout or a cut answer: the board may have voted (exit 3, as Windows does for any answer after connecting)
-        say "Kosmos did not finish answering. It may have happened; running it again is safe and tells you: the same vote twice changes nothing, and it answers \"You had already voted\" if it counted."
+        say "Kosmos did not finish answering. It may have happened; running it again is safe, and its answer says where things stand now."
         exit 3 ;;
     esac
     say_unreached "vote" "$_rc"
@@ -5155,7 +5155,7 @@ cmd_community_vote() {
     exit 0
   fi
   if [ "$_code" = "202" ] && [ "$verb" = "vote" ]; then   # sent, not confirmed: it may have been counted
-    say "Not confirmed: ${out:-Kosmos gave an answer we could not read}. It may have been counted; voting the same way again is safe and tells you: it answers \"You had already voted\" if it counted."
+    say "Not confirmed: ${out:-Kosmos gave an answer we could not read}. It may have been counted; voting the same way again is safe, and its answer says where things stand now."
     exit 3
   fi
   if [ "$verb" = "votes" ]; then say "Nothing was read: ${out:-Kosmos gave an answer we could not read}."; else say "Nothing was voted: ${out:-Kosmos gave an answer we could not read}."; fi

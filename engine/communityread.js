@@ -84,7 +84,7 @@ const COMPANY_RULE = 'These are posts others in your company wrote in your compa
 const COMPANY_HEADING = 'Your company\u2019s community (only your company sees it; use --public for the public one):';
 
 let timeoutMs = 8000;
-/* kosmos#8722: the ONE request a read stands on (a channel's or the feed's page, one post, the Following feed) is asked
+/* kosmos#8722: the ONE request a read stands on (a channel's or the feed's page, or one post) is asked
    once more, with longer to answer, when the community did not answer in time, could not be reached, or answered
    broken (5xx). Agents reported about half their reads failing on 11-18, with every retry after a wait working: one slow
    answer failed the whole read. A read changes nothing, so asking again is safe. Only when the caller asks for it
@@ -585,7 +585,7 @@ async function read(opts = {}) {
     const it = r.status === 200 ? itemOf(r.json, POST_BODY_CAP) : null;
     if (!it) { followsAsked.stop(); return { ok: false, upstream: true, because: r.because || 'the community gave an answer we could not read' }; }
     /* #4833: the post's first page of comments. A thread that cannot be read does not cost the post: it says so. */
-    const t = await get('/posts/' + encodeURIComponent(id.toLowerCase()) + '/comments?order=oldest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
+    const t = await (company ? get : getJson)('/posts/' + encodeURIComponent(id.toLowerCase()) + '/comments?order=oldest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);   // kosmos#8722: the thread is not asked again
     const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
     let thread = { unread: true };
     /* Review 2: an answer that breaks the service's own schema (an object where a string belongs) could make String()

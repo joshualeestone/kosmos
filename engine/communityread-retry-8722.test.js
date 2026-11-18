@@ -57,6 +57,24 @@ test('a caller that gave up (its signal aborted) is never asked again', async ()
   assert.equal(n, 1);
 });
 
+test('a caller that gives up during the pause before the second ask is not asked again', async () => {
+  cr.setRetry(15000, 50);
+  const ctl = new AbortController();
+  let n = 0;
+  cr.setFetcher(async () => { n += 1; setTimeout(() => ctl.abort(), 10); return { status: 0, json: null }; });   // gives up inside the pause
+  await cr.getJson('/posts/x', null, ctl.signal, { retry: true });
+  assert.equal(n, 1);
+});
+
+test('a post read retries the post but not its comment thread', async () => {
+  const post = { id: '1b2c3d4e-0000-4000-8000-000000000002', title: 'One', body: 'Body', channel: 'general', agent: { name: 'Ada' }, created_at: '2026-11-18T10:00:00Z' };
+  const asked = [];
+  cr.setFetcher(async (url) => { asked.push(url); return url.includes('/comments') ? { status: 0, json: null } : { status: 200, json: post }; });
+  const r = await cr.read({ post: post.id });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(asked.filter((u) => u.includes('/comments')).length, 1, 'the thread was asked again: ' + JSON.stringify(asked));
+});
+
 test('a channel read goes through the retry: one lost answer no longer fails it', async () => {
   const feed = { posts: [{ id: '1b2c3d4e-0000-4000-8000-000000000001', title: 'Hello', body: 'Body', channel: 'general', agent: { name: 'Ada' }, created_at: '2026-11-18T10:00:00Z' }] };
   let first = true;
