@@ -19,7 +19,7 @@ light and dark simulator shots; served build checked once it ships.
 - Rejected: a haptic with the burst. The swipe already clicks (Haptics.snapped), and Josh asked for a visual moment.
 
 ## Changes
-- BoardClient: StarBurst { session, id, at }, set in toggleStar on a star, cleared on a failed save and on a computer
+- BoardClient: StarBurst { session, id, at, delay } (fresh(now:) for the view), set in toggleStar on a star, cleared on a failed save and on a computer
   switch (forgetChats); burst(for:) answers that press; the star view plays it only if StarBurst.fresh() (within 0.3 s of the press) when it would start, so a view rebuilt later in the save does not replay it. A star from the Agents row waits before it plays, because the row is still moving: 0.25 s after a swipe (the row slides back, Opus review 5) and 0.35 s after the long-press menu (it closes over the row, Opus review 3). The chat header plays at once. A save that answers 200 without the agent clears the burst too.
 - AgentsView: StarredStar draws star.fill in starFill only; the starGold outline only when colorSchemeContrast is
   .increased; the burst (scale + six sparks) when burst changes to a new id and Reduce Motion is off. AgentRow passes
@@ -35,6 +35,7 @@ light and dark simulator shots; served build checked once it ships.
 
 ## Weakest premise
 That the row's and header's star views are first drawn within 0.3 s of the press. Reasoned from showStars, which
-re-sorts in the same call as the press; not yet seen on a device. A view rebuilt inside that 0.3 s replays the burst from
-its start (bounded, not prevented). The 0.25 s swipe and 0.35 s menu waits are readings of iOS's animations, not measured on a device; if the menu's
-action runs only after the menu has closed, its wait is lag. Owed: watch both on a device build (the card's served check).
+re-sorts in the same call as the press; not yet seen on a device. A rebuilt view never replays a press it has played in that place (StarBurstsPlayed, Opus review 7); a rebuild during the
+burst can cut it short (the board instead resumes it mid-way; iOS 16 has no clean way to start an animation part-way). The 0.25 s swipe and 0.35 s menu waits are readings of iOS's animations, not measured on a device; if the menu's
+action runs only after the menu has closed, its wait is lag. A FULL swipe carries the row the whole cell width, which may outlast 0.25 s. Owed: watch a short swipe, a full swipe and the
+menu on a device build (the card's served check).

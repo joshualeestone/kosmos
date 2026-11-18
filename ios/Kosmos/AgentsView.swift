@@ -1048,6 +1048,8 @@ struct StatusPill: View {
 // sparks fly out once, at the board's spark positions and close to its timings, and never under Reduce Motion (the star
 // just fills).
 struct StarredStar: View {
+    // Which place draws this star ("row", "header"): a press plays once per place, however often the view is rebuilt.
+    var place = "row"
     var burst: BoardClient.StarBurst? = nil
     // How far the sparks fly, as a share of the board's 16 points: the Agents row's star is caption2 on a name line near
     // the top of its cell, so its sparks stay short of the cell's edge and the text beside it.
@@ -1076,12 +1078,15 @@ struct StarredStar: View {
 
     // Close to the board's: its pop is one .42 s overshooting curve peaking at 40% (1.3x), here a .17 s rise and a spring
     // back (iOS 16 has no keyframes); the sparks fly for .55 s, easing out, as there.
+    // A rebuilt view (a toolbar item re-hosted when the save ends, a row re-made after the re-sort) starts with fresh
+    // @State, so whether a press has played here is kept outside the view, by press and place. A rebuild during the
+    // burst can cut it short; it never starts it again.
     private func play(_ b: BoardClient.StarBurst?) {
-        guard let b, b.id != played, !reduceMotion, b.fresh() else { return }
+        guard let b, b.id != played, !reduceMotion, b.fresh(), StarBurstsPlayed.claim(b.id, place) else { return }
         let id = b.id
         played = id
         DispatchQueue.main.asyncAfter(deadline: .now() + b.delay) {
-            guard played == id else { return }
+            guard played == id, !reduceMotion else { return }
             sparking = true
             withAnimation(.easeOut(duration: 0.17)) { popped = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
@@ -1093,6 +1098,19 @@ struct StarredStar: View {
                 sparking = false
             }
         }
+    }
+}
+
+// kosmos#8706: the presses whose burst has started, by place, so a rebuilt StarredStar does not play one again. Main
+// thread only (view updates); kept small, since a press is never asked about again once it is past its window.
+@MainActor enum StarBurstsPlayed {
+    private static var seen: [String] = []
+    static func claim(_ id: Int, _ place: String) -> Bool {
+        let key = "\(id) \(place)"
+        if seen.contains(key) { return false }
+        seen.append(key)
+        if seen.count > 16 { seen.removeFirst(seen.count - 16) }
+        return true
     }
 }
 

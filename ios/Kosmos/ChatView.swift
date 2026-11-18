@@ -374,14 +374,14 @@ struct ChatView: View {
                     }
                 } label: {
                     Group {
-                        if starred { StarredStar(burst: client.burst(for: agent.session)) } else { Image(systemName: "star").foregroundColor(Palette.secondary) }
+                        if starred { StarredStar(place: "header", burst: client.burst(for: agent.session)) } else { Image(systemName: "star").foregroundColor(Palette.secondary) }
                     }
                     .font(.system(size: 20))
                     .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
-                // kosmos#8706: a second tap while the save is out is blocked here, not with .disabled, which dims the
-                // toolbar star during exactly the burst that tap plays. A VoiceOver activation skips hit testing, so for
-                // it toggleStar's own guard (one save at a time per agent) is what ignores a second press.
+                // kosmos#8706: not .disabled, which dims the toolbar star during exactly the burst its tap plays. What
+                // keeps one save at a time is toggleStar's own guard, which drops a second press however it arrives
+                // (a tap, VoiceOver); this hit-test block is best effort and is not proven to reach a toolbar item.
                 .allowsHitTesting(!client.starring.contains(agent.session))
                 // What .disabled told VoiceOver ("dimmed") while the save is out, said in words instead.
                 .accessibilityValue(client.starring.contains(agent.session) ? "Saving" : "")
