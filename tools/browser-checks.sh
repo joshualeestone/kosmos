@@ -1753,12 +1753,15 @@ if boot_board_rich "$sbr" "$P11"; then
   # kosmos#8694: first run completed HERE, as the P5, P6, P8, P10 and P18 boards do, and as the checks below say they
   # expect ("same first-run-complete board"). Before this, its screen stayed up until some check closed it, so a
   # check selection changed what the rest saw: #8691 went red that way. Not inside boot_board_rich, because P12's
-  # click-first-run needs first run open.
-  # ⚠️ Completing it does more than close the screen: the board seeds its welcome project and arms the setup guide
-  # (which creates an agent only once a model is connected, never on this sandbox). render-org-chart passes only with
-  # 4 or 5 agents (write_fleet_rich), so an agent made here would turn it red as if the layout had regressed.
+  # click-first-run walks first run from a clean start, and completing it leaves a welcome project and a setup-guide
+  # arm file behind that its fresh() does not clear.
+  # ⚠️ Completing it does more than close the screen: the board seeds its welcome project and arms the setup guide.
+  # No agent is made only because boot_board_rich sets AGENT_WORKFORCE_DRY_RUN=1, which switches the guide off
+  # (engine/setup-assistant.js ensureGuide), not because no model is connected. render-org-chart passes only with
+  # 4 or 5 agents (write_fleet_rich), so dropping dry run, or AGENT_WORKFORCE_SETUP_GUIDE=on, on this board would turn
+  # it red as if the layout had regressed.
   # A refused POST is a failure of the run, not a silent return to the order-dependent board.
-  if ! curl -sf -X POST "http://127.0.0.1:$P11/api/first-run/complete" >/dev/null; then
+  if ! curl -sf --max-time 30 -X POST "http://127.0.0.1:$P11/api/first-run/complete" >/dev/null; then
     FAILED+=("rich board: POST /api/first-run/complete failed, so its checks ran with first run open (#8694)")
   fi
   run_one "render-org-chart"   env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-org-chart.js
