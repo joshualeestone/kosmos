@@ -554,3 +554,33 @@ test('#8685 planAsync (Windows): an agent recorded outside the workers folder co
     assert.equal(listings, 0, 'a folder the plan refuses (not where Kosmos keeps agents) still started a listing');
   } finally { status.paneFoldersAsync = realAsync; fs.rmSync(outside, { recursive: true, force: true }); try { fs.rmSync(store.profilePath('ot8685d'), { force: true }); } catch { /* gone */ } }
 });
+
+test('#8685 the delete\'s own last read starts its own, never joining a read another page began meanwhile', async () => {
+  /* The order that matters: page 1's listing (A) is in flight and the delete's warm read joins it (it is only for the
+     warm plan). A is let through. While the delete probes its drive, a page for ANOTHER agent starts listing C, held.
+     The delete's last read must start its own (D); joining C would make it trust a read that began before it asked. */
+  leftoverFolder('ot8685e');
+  leftoverFolder('ot8685f');
+  leftover.setRunner(later(100));   // the delete's drive probe takes a moment, so page 2 opens during it
+  const realAsync = status.paneFoldersAsync;
+  const held = [];
+  let reads = 0;
+  status.paneFoldersAsync = () => { reads += 1; return new Promise((r) => held.push(() => r([]))); };
+  const until = async (ok) => { for (let i = 0; i < 200 && !ok(); i += 1) await new Promise((r) => setTimeout(r, 10)); return ok(); };
+  try {
+    const page1 = asyncWin.plan('ot8685e');
+    assert.ok(await until(() => reads === 1), 'PRECONDITION: page 1 started listing A');
+    const del = asyncWin.del('ot8685e');
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(reads, 1, 'PRECONDITION: the delete\'s warm read joined A rather than starting its own');
+    held.shift()();                                        // A lands
+    await new Promise((r) => setTimeout(r, 0));             // its shared slot clears
+    const page2 = asyncWin.plan('ot8685f');
+    assert.ok(await until(() => reads >= 2), 'PRECONDITION: page 2 started listing C');
+    const sawOwn = await until(() => reads >= 3);           // C is still held here
+    while (held.length) held.shift()();
+    for (let i = 0; i < 20; i += 1) { while (held.length) held.shift()(); await new Promise((r) => setTimeout(r, 10)); }
+    await Promise.all([page1, del, page2]);
+    assert.ok(sawOwn, 'the delete\'s last read joined page 2\'s listing in flight instead of starting its own');
+  } finally { status.paneFoldersAsync = realAsync; }
+});

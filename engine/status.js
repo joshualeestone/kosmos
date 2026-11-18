@@ -8192,6 +8192,8 @@ function setPaneFolderSource(fn) { paneFolderSource = typeof fn === 'function' ?
    is not seen. A process this board may not read (an elevated or another user's) has no path to compare. A path named
    in its UNC spelling (a share's \\server\share form) is not read as one, so a workers folder on a mapped drive named that way is
    not matched. A path glued straight after a letter (a short option such as -o followed by the path) is not read as one.
+   kosmos#8685: nor a path a command line names through an environment variable (%USERPROFILE%\...) or as a relative
+   path: only an absolute drive path is compared.
    And "off the board's thread" means the process listing: its parse, and the 8.3 lookups (kept to the agents' drive,
    cached per prefix), run on the thread that resumes the read. */
 let win32FolderSource = null;
