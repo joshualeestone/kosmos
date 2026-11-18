@@ -72654,7 +72654,7 @@ const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
 function tskWakeSentence(t) {
   if (!t) return '';
   if (typeof t.wakeWords === 'string' && t.wakeWords) {
-    return t.wakeWords.charAt(0).toUpperCase() + t.wakeWords.slice(1) + '.' + (t.wakeProblem ? ' Not checked just now: ' + t.wakeProblem + '.' : '')
+    return asSentence(t.wakeWords) + (t.wakeProblem ? ' Not checked just now: ' + t.wakeProblem + '.' : '')
       + (t.wakeNobody === true ? ' Nobody holds this task, so nobody will be told until someone does.' : '');
   }
   if (typeof t.wakeMetWords === 'string' && t.wakeMetWords) {

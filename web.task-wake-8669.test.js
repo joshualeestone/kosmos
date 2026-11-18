@@ -12,9 +12,9 @@ const taskwake = require('./engine/taskwake');
 const HTML = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(HTML);
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const sentence = new Function(page.liftAll(SCRIPT, ['tskWakeSentence']) + '\nreturn tskWakeSentence;')();
+const sentence = new Function(page.liftAll(SCRIPT, ['asSentence', 'tskWakeSentence']) + '\nreturn tskWakeSentence;')();
 const rowWith = (withSentence) => (t) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', 'claimNotReported', 'tskAgentName', 'tskRepeatSentence', 'tskRepeatMissed', 'TSK_GROUPS',
-  page.liftAll(SCRIPT, ['pjChainText', 'pjChainSpoken', 'tskChainOf', 'tskRow', ...(withSentence ? ['tskWakeSentence'] : [])]) + '\nreturn tskRow;')({ sel: new Set(), by: 'status', fold: new Set() }, [],
+  page.liftAll(SCRIPT, ['pjChainText', 'pjChainSpoken', 'tskChainOf', 'tskRow', ...(withSentence ? ['asSentence', 'tskWakeSentence'] : [])]) + '\nreturn tskRow;')({ sel: new Set(), by: 'status', fold: new Set() }, [],
   esc, () => 'just now', (x) => x.projectId + '#' + x.number, () => '', (s) => s, () => '', () => false, [])(t, { depth: 0, crumb: false, kids: 0 });
 const row = rowWith(true);
 const base = { number: 7, sentence: 'Re-check after the refresh', projectId: 'p1', projectName: 'Alpha', createdAt: new Date().toISOString(), state: 'assigned', who: 'ada' };
