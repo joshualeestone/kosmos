@@ -4637,6 +4637,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// (downloadDestination). No Downloads folder: the download is cancelled rather than put elsewhere.
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
                   suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+        // #5167 (11-18) review 1: taken first, so a restarted download that stops below never leaves its place behind.
+        let chosenPlace = saveElsewhereChoices.object(forKey: download) as URL?
+        saveElsewhereChoices.removeObject(forKey: download)
         guard let dir = AppDelegate.downloadsDirOverride
                 ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else {
             logLine("#5167: no Downloads folder, so a download was not saved")
@@ -4712,7 +4715,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let taken = Set(downloadsInFlight.values.map { $0.standardizedFileURL.path.lowercased() })   // Downloads is case-insensitive
         /* #5167 (11-18): a download restarted after macOS refused Downloads goes where the person chose. Never over a file:
            WebKit will not write over one, so a name taken there (a Replace in the panel included) gets " (2)" as here. */
-        if let chosen = saveElsewhereChoices.removeValue(forKey: ObjectIdentifier(download)) {
+        if let chosen = chosenPlace {
             let there = downloadDestination(dir: chosen.deletingLastPathComponent(), suggested: chosen.lastPathComponent) {
                 (try? FileManager.default.attributesOfItem(atPath: $0.path)) != nil || taken.contains($0.standardizedFileURL.path.lowercased())
             }
@@ -4756,7 +4759,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // WebKit marks what it downloads too; the person is told only if the file carries no mark at all.
             if getxattr(dest.path, "com.apple.quarantine", nil, 0, 0, 0) <= 0 {
                 // Brought to the front (`always`): it is the one warning about a file that WAS saved.
-                tellDownloadFailed("\(dest.lastPathComponent) was saved to Downloads, but could not be marked as downloaded, so macOS will not check it when it is opened. Open it only if you expected it.",
+                tellDownloadFailed("\(dest.lastPathComponent) was saved \(downloadsRestarted.contains(download) ? "where you chose" : "to Downloads"), but could not be marked as downloaded, so macOS will not check it when it is opened. Open it only if you expected it.",
                                    title: "Kosmos saved that file without its download mark", always: true)
             }
         }
@@ -4767,7 +4770,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /// #5167 (11-18): where the person chose to save a download that macOS refused in Downloads, by the restarted download.
-    private var saveElsewhereChoices: [ObjectIdentifier: URL] = [:]
+    /// Weak keys (review 1): an entry goes with its download, so a later download at the same address never inherits it.
+    private let saveElsewhereChoices = NSMapTable<WKDownload, NSURL>.weakToStrongObjects()
+    /// #5167 (11-18): the restarted downloads, so a failure of one is not asked about again and is not said as Downloads'.
+    private let downloadsRestarted = NSHashTable<WKDownload>.weakObjects()
     /// Only --kosmos-app-download-selftest sets this: it stands in for the question and the Save panel, answering
     /// the file (nil: Cancel) for the words asked and the name offered.
     static var saveElsewhereForSelftest: ((_ asked: String, _ name: String) -> URL?)?
@@ -4777,11 +4783,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// The same request is then downloaded again, so it passes decideDestination's checks again before anything is saved.
     private func offerSaveElsewhere(_ error: Error, request: URLRequest, webView: WKWebView, name: String) {
         logLine("#5167: macOS refused a save to Downloads, so the person is asked where to save it instead")
+        // Review 1: the page as it was when the save failed; a page that changed while the person chose (another
+        // computer, say) voids the restart, as kosmos#7952 voids an allowed start, so no request goes out for a page gone.
+        let commits = pageCommits, page = committedPageURL
         let restart: (URL) -> Void = { [weak self, weak webView] chosen in
             guard let self, let webView else { return }
+            guard self.pageCommits == commits, self.committedPageURL == page else {
+                logLine("#5167: the page changed while the person chose where to save, so the file was not saved")
+                self.tellDownloadFailed("The page changed while you chose where to save it, so the file was not saved. Try again.")
+                return
+            }
             webView.startDownload(using: request) { dl in
-                self.saveElsewhereChoices[ObjectIdentifier(dl)] = chosen
-                self.downloadsStartedHere.add(dl); dl.delegate = self; self.noteDownload(dl, fresh: true, mainFrame: true)
+                self.saveElsewhereChoices.setObject(chosen as NSURL, forKey: dl)
+                self.downloadsRestarted.add(dl)
+                /* Not the page's main frame (review 1): the page was told this save failed, and its words for a saved file
+                   say Downloads, so the restart answers no click; this app's question and panel carry it. */
+                self.downloadsStartedHere.add(dl); dl.delegate = self; self.noteDownload(dl, fresh: true, mainFrame: false)
             }
         }
         if let seam = AppDelegate.saveElsewhereForSelftest {
@@ -4826,6 +4843,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 // WebKit stopped it before it had anywhere to go (measured for a redirect to another origin, where
                 // the window may then show the file: #5169). Said as a refusal, through its guard, so one click cannot put up two alerts.
                 tellDownloadFailed("The download stopped before it began, so nothing was saved.", refusal: true)
+            } else if downloadsRestarted.contains(download) {
+                // Review 1: the place the person chose failed too: said as that place's, and not asked about again.
+                tellDownloadFailed("The file could not be saved where you chose (\(downloadFailureWords(error))).")
             } else if let dest, downloadRefusedByMacOS(error), let request = download.originalRequest, let webView = download.webView {
                 // 11-18: macOS refused the write to Downloads ("Operation not permitted"); another place can still take it.
                 offerSaveElsewhere(error, request: request, webView: webView, name: dest.lastPathComponent)

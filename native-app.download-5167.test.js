@@ -347,7 +347,11 @@ test('kosmos#7952 review 1: only a download the board page itself asked for is m
   const offerAt = SRC.indexOf('private func offerSaveElsewhere(');
   const secondAt = SRC.indexOf('startDownload(using:', SRC.indexOf('startDownload(using:') + 1);
   assert.ok(secondAt > offerAt && secondAt < SRC.indexOf('\n    }\n', offerAt), 'the second start is not the chosen-place restart');
-  assert.equal((SRC.match(/offerSaveElsewhere\(/g) || []).length, 2, 'the chosen-place restart is reached from somewhere new');
+  assert.equal((SRC.match(/offerSaveElsewhere\(error,/g) || []).length, 1, 'the chosen-place restart is reached from somewhere new');
+  // Review 1: a restarted download's own failure is never asked about again (its place is not Downloads).
+  const fail = SRC.slice(SRC.indexOf('@objc(download:didFailWithError:resumeData:)'));
+  assert.ok(fail.indexOf('} else if downloadsRestarted.contains(download) {') < fail.indexOf('downloadRefusedByMacOS(error)'),
+    'a restarted download that fails is asked about again, as if it were Downloads');
   assert.match(SRC, /\} else if let dest, downloadRefusedByMacOS\(error\), let request = download\.originalRequest, let webView = download\.webView \{/,
     'the restart is no longer limited to a download that was already given a Downloads path');
   const start = branch.indexOf('startDownload(using: request)');
@@ -381,10 +385,18 @@ test('#5167 (11-18): a download macOS refused in Downloads asks where else to sa
 
 test('#5167 (11-18): the restarted download is this app\'s, has this delegate, and goes where the person chose', () => {
   const offer = body('private func offerSaveElsewhere(');
-  assert.match(offer, /webView\.startDownload\(using: request\) \{ dl in\s*\n\s*self\.saveElsewhereChoices\[ObjectIdentifier\(dl\)\] = chosen\s*\n\s*self\.downloadsStartedHere\.add\(dl\); dl\.delegate = self/);
+  assert.match(offer, /webView\.startDownload\(using: request\) \{ dl in\s*\n\s*self\.saveElsewhereChoices\.setObject\(chosen as NSURL, forKey: dl\)\s*\n\s*self\.downloadsRestarted\.add\(dl\)/);
+  assert.match(offer, /dl\.delegate = self; self\.noteDownload\(dl, fresh: true, mainFrame: false\)/, 'the restart answers the page\'s click, whose words say Downloads');
+  // Review 1: a page that changed while the person chose voids the restart (as kosmos#7952 voids an allowed start).
+  assert.match(offer, /let commits = pageCommits, page = committedPageURL[\s\S]*guard self\.pageCommits == commits, self\.committedPageURL == page else/);
+  // Review 1: weak keys, so a later download at the same address never inherits a chosen place.
+  assert.match(SRC, /private let saveElsewhereChoices = NSMapTable<WKDownload, NSURL>\.weakToStrongObjects\(\)/);
   assert.match(offer, /NSSavePanel\(\)/, 'no Save panel: the person has no way to pick a place macOS lets the app write to');
   const decide = SRC.slice(SRC.indexOf('decideDestinationUsing response: URLResponse'), SRC.indexOf('func downloadDidFinish'));
-  const chosen = decide.indexOf('saveElsewhereChoices.removeValue');
+  // Review 1: taken before any check, so a restarted download that stops at one leaves nothing behind.
+  const taken = decide.indexOf('saveElsewhereChoices.removeObject(forKey: download)');
+  assert.ok(taken > 0 && taken < decide.indexOf('guard let dir'), 'the chosen place is not taken before the checks that can stop the download');
+  const chosen = decide.indexOf('if let chosen = chosenPlace');
   assert.ok(chosen > decide.indexOf('!(200..<300).contains(http.statusCode)') && chosen > decide.indexOf('"text/html"'),
     'the chosen place is used before the response checks, so an error page or a sign-in page could be saved there');
   assert.match(decide.slice(chosen), /downloadDestination\(dir: chosen\.deletingLastPathComponent\(\)/, 'a chosen name already taken would be written over');
