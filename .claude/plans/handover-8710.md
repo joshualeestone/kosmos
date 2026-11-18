@@ -61,9 +61,9 @@ from them. Weakest point: (b) leaves the project on A's Mac, which is going away
    coordinator env, 11-18). It needs a bucket we own and a key limited to that bucket. Which provider account is
    Kosmos's, and not another company's, is the question to settle first (our existing storage keys on this Mac may
    belong to Stuff.io, a separate company). Raised 11-18 13:4x.
-3. **Board on A's Mac** (kosmos): on its org status tick, pack the named agents with the backup snapshot code
-   (engine/backupsnapshot.js roots, engine/backupsessions.js with the cap), seal to B's sealing public key, upload,
-   report packed. A sees a notice that their company is moving these
+3. **Board on A's Mac** (kosmos): on its org status tick, pack the named agents with `takeSnapshot`
+   (engine/backupsnapshot.js; sessions through engine/backupsessions.js with the cap), sealed to B's one-time
+   public key, uploaded with the hand-over's grants, report packed. A sees a notice that their company is moving these
    agents to a colleague (not a request for consent: it is the company's work Kosmos, matching #5536's "shown to the
    affected employee unless offboarded").
    New Mac paths need the tunnel's allowlist (crates/tunnel/src/coordinator.rs, near line 696) and so a new tunnel
@@ -75,15 +75,22 @@ from them. Weakest point: (b) leaves the project on A's Mac, which is going away
    own action on the member row; progress and failure in words; the audit rows.
 6. **Measured on served builds** on a test company (two of our Macs), then switched on for McKinney's company only.
 
-## Decided in slice 1: the key to seal to (13:3x CST 11-18)
-B's board's existing X25519 sealing key (engine/fedseal.js `sealingKey`, the federation rooms' key), sent by B's
-Mac in a Mac-signed request when its part of the hand-over starts. One sealing, not a third.
-Rejected: a new key just for hand-overs (a second key file to lose and back up), and the backup member key (it is
-the company's escrowed key, so sealing to it would let escrow open a hand-over, which is not its purpose).
-**Residual, stated like fedseal's NOT CLAIMED:** the coordinator relays B's key, so a coordinator that is itself
-compromised could substitute its own and read the pack. Federation closes this with a person-to-person secret; a
-hand-over has no such channel by default. Mitigation in slice 5: the console and B's board both show a short
-fingerprint of the key, for the admin to compare by eye before pressing Hand over. Not compared, not claimed.
+## Decided: the pack IS a backup snapshot, sealed to a one-time key of B's (revised 13:4x CST 11-18)
+The first version of this section chose B's federation sealing key. Retracted: engine/backupsnapshot.js
+`takeSnapshot` seals to a backup-format member public key and engine/backuprestore.js `restoreSnapshot` opens with
+its secret half (`memberSk`), so sealing to a federation key would mean a second pack format and a second opener.
+Instead:
+- B's board makes a ONE-TIME key pair of the backup format's own type for this hand-over, keeps the secret half on
+  B's Mac only, and sends the public half in a Mac-signed request. One key per hand-over, discarded after B opens.
+- A's board runs `takeSnapshot` over the handed agents' roots (backupscan's deny-list and content scan apply as for
+  a backup), sealed to that public key, the manifest signed with A's device key as a backup's is.
+- B's board runs `restoreSnapshot` with the secret half and A's device public key (from the coordinator) into a
+  staging folder, then makes the agents from it.
+So the hand-over reuses the reviewed walker, sealer, uploader and restorer whole; what is new is only who holds the
+key and where the grants come from.
+**Residual (unchanged):** the coordinator relays B's public key and A's device key, so a compromised coordinator
+could substitute keys and read or forge a pack. Mitigation in slice 5: the console and both boards show a short
+fingerprint of the hand-over key, for the admin to compare by eye. Not compared, not claimed.
 
 ## Order of work and dates
 - 11-18/19: slice 1 and the plan's review. 11-20/21: slices 2 and 3. 11-22/23: slice 4. 11-24: slice 5.
