@@ -50,14 +50,24 @@ from them. Weakest point: (b) leaves the project on A's Mac, which is going away
 1. **Coordinator: the hand-over record and its audit** (relay). `POST /v1/org/members/handover` {from, to, agents}
    by an admin; states requested -> packed -> received -> done | failed | cancelled; each change is an org_audit row.
    B must be a current member with an enrolled computer. `GET /v1/mac/org/handover` tells A's and B's Macs their part.
-2. **Coordinator: the sealed pack in transit.** Chunked upload by A's Mac, download by B's, ciphertext only, size cap
-   per hand-over (start 500 MB), deleted on B's confirm or after 7 days, counted against a disk floor so a full
-   disk refuses rather than fills.
+2. **The sealed pack in transit: presigned object storage, not the coordinator's disk and not the tunnel.**
+   Measured 11-18: the tunnel caps a Mac request body at 64 KB (crates/tunnel/src/coordinator.rs
+   MAC_REQUEST_MAX_BODY), so a 50 MB pack would be about a thousand signed requests per agent. The coordinator
+   already presigns S3 PUTs and GETs for backups (coordinator/src/backup.rs), and the board already uploads
+   presigned chunks (engine/backupupload.js). Reuse both: the coordinator hands A's Mac presigned PUTs and B's Mac
+   presigned GETs for keys it builds from the hand-over id; ciphertext only; a per-hand-over size cap (start
+   500 MB); objects deleted on B's confirm, with a 7-day bucket lifecycle as the backstop.
+   **DEPENDENCY, needs an operator:** prod has no object store configured (no backup store variable in the
+   coordinator env, 11-18). It needs a bucket we own and a key limited to that bucket. Which provider account is
+   Kosmos's, and not another company's, is the question to settle first (our existing storage keys on this Mac may
+   belong to Stuff.io, a separate company). Raised 11-18 13:4x.
 3. **Board on A's Mac** (kosmos): on its org status tick, pack the named agents with the backup snapshot code
    (engine/backupsnapshot.js roots, engine/backupsessions.js with the cap), seal to B's sealing public key, upload,
    report packed. A sees a notice that their company is moving these
    agents to a colleague (not a request for consent: it is the company's work Kosmos, matching #5536's "shown to the
    affected employee unless offboarded").
+   New Mac paths need the tunnel's allowlist (crates/tunnel/src/coordinator.rs, near line 696) and so a new tunnel
+   build in the kosmos release; slices 3-4 ride that release anyway.
 4. **Board on B's Mac** (kosmos): download, open, make each agent through engine/create.js (a fresh id, as import
    does), restore memory, files, sessions and assignments, start it, confirm received. A's board then stops and
    archives its copies (kept on disk, not deleted) and reports done.
