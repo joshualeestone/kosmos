@@ -313,7 +313,9 @@ struct AgentsView: View {
     // press menu's same button stays silent (Josh's pick 5 is the swipe).
     private func starButton(_ agent: Board.Agent, swiped: Bool) -> some View {
         let on = client.isStarred(agent.session)
-        return Button { if swiped { Haptics.snapped() }; Task { await client.toggleStar(agent.session) } } label: {
+        // kosmos#8706: the row is still moving when either action fires (sliding back from a swipe, behind the long-press
+        // menu as it closes), so its burst waits for that. Both waits are estimates; plan iphonestar-8706.
+        return Button { if swiped { Haptics.snapped() }; Task { await client.toggleStar(agent.session, burstDelay: swiped ? 0.25 : 0.35) } } label: {
             Label(on ? "Unstar" : "Star", systemImage: on ? "star.slash" : "star.fill")
         }
         .tint(Palette.starGold)
@@ -433,7 +435,7 @@ struct AgentsView: View {
                     } label: {
                         // A picture the agent no longer has is not shown, whatever was fetched before.
                         AgentRow(agent: agent, picture: agent.hasAvatar ? client.pictures[agent.session].flatMap(UIImage.init(data:)) : nil, stale: stale,
-                                 starred: client.isStarred(agent.session))
+                                 starred: client.isStarred(agent.session), starBurst: client.burst(for: agent.session))
                     }
                     .buttonStyle(.plain)
                     // kosmos#7034: star or unstar from the row: a swipe to the right (VoiceOver offers it as an action), or a long press.
@@ -637,6 +639,8 @@ struct AgentRow: View {
     let stale: Bool
     // kosmos#7034: starred on this computer (the board's star), shown as a small filled star after the name.
     var starred = false
+    // kosmos#8706: the press that just starred this agent, so its star plays the burst as the row shows it.
+    var starBurst: BoardClient.StarBurst? = nil
     @Environment(\.dynamicTypeSize) private var typeSize
 
     // kosmos#7342: the pill's word (Issue on a red pill that would say Idle or Working); a list not updating keeps the plain
@@ -682,7 +686,7 @@ struct AgentRow: View {
     private var name: some View {
         HStack(spacing: 4) {
             Text(agent.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(large ? nil : 1)
-            if starred { StarredStar().font(.caption2).accessibilityHidden(true) }
+            if starred { StarredStar(burst: starBurst, reach: 0.6).font(.caption2).accessibilityHidden(true) }
         }
     }
 
@@ -833,11 +837,11 @@ enum Palette {
         switch band { case .ok: return ringOk; case .warn: return ringWarn; case .high: return ringHigh }
     }
     static let banner = pair(0xf3efe6, 0x1c1f23)
-    // kosmos#7034: the board's star (.astar.on): its deep gold in light (#9c741b, which holds 3:1 on the card where the
-    // bright gold does not), its bright gold in dark (--gold-bright).
+    // kosmos#7034: the board's deep star gold in light (#9c741b, 3:1 on the card where the bright gold is not), the bright
+    // gold in dark. kosmos#8706: a starred star's edge only under Increase Contrast, and tints elsewhere.
     static let starGold = pair(0x9c741b, 0xe3b341)
-    // kosmos#7529 (Josh 10-28: "still a dingy brown"; Mona Lisa's spec): a starred star is the bright gold filled, under a
-    // thin starGold outline, as the board's .astar.on draws it. In dark both are the bright gold, so it looks as before.
+    // kosmos#7529 (Josh 10-28: "still a dingy brown"): a starred star is the bright gold filled. kosmos#8706: with no
+    // outline, as the board's .astar.on after #8705; starGold is its edge only under Increase Contrast (StarredStar).
     static let starFill = pair(0xe3b341, 0xe3b341)
     // kosmos#7419: a reaction already the person's, in the long-press sheet: a warm fill under the gold ring (Mona Lisa).
     static let mineReaction = pair(0xfbf1d9, 0x3a2f12)
@@ -1037,12 +1041,96 @@ struct StatusPill: View {
 }
 
 // kosmos#7529: the starred star, everywhere one is drawn filled (the chat's header, beside a name on the Agents list).
-// The font comes from where it is used, so the fill and its outline are one symbol size.
+// The font comes from where it is used, so the fill and any outline are one symbol size.
+// kosmos#8706 (Josh 11-18, matching the board's #8705): the brightest gold with no outline. The darker edge comes back
+// only under Increase Contrast, as the board's does under prefers-contrast: more. `burst` is the press that just starred
+// this agent (BoardClient.burst(for:)), played only if fresh when this view would start it: the star pops and six gold
+// sparks fly out once, at the board's spark positions and close to its timings, and never under Reduce Motion (the star
+// just fills).
 struct StarredStar: View {
+    // Which place draws this star ("row", "header"): a press plays once per place, however often the view is rebuilt.
+    var place = "row"
+    var burst: BoardClient.StarBurst? = nil
+    // How far the sparks fly, as a share of the board's 16 points: the Agents row's star is caption2 on a name line near
+    // the top of its cell, so its sparks stay short of the cell's edge and the text beside it.
+    var reach: CGFloat = 1
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var played: Int?
+    @State private var popped = false
+    @State private var sparking = false
+
     var body: some View {
         ZStack {
             Image(systemName: "star.fill").foregroundColor(Palette.starFill)
-            Image(systemName: "star").foregroundColor(Palette.starGold)
+            if contrast == .increased { Image(systemName: "star").foregroundColor(Palette.starGold) }
         }
+        .scaleEffect(popped ? 1.3 : 1)
+        .overlay(sparks.accessibilityHidden(true))
+        .onAppear { play(burst) }
+        .onChange(of: burst) { play($0) }
+    }
+
+    // A new StarSparks for each press (.id), so it is drawn at the centre first and its own onAppear sends it out.
+    @ViewBuilder private var sparks: some View {
+        if sparking, let played { StarSparks(reach: reach).id(played) }
+    }
+
+    // Close to the board's: its pop is one .42 s overshooting curve peaking at 40% (1.3x), here a .17 s rise and a spring
+    // back (iOS 16 has no keyframes); the sparks fly for .55 s, easing out, as there.
+    // A rebuilt view (a toolbar item re-hosted when the save ends, a row re-made after the re-sort) starts with fresh
+    // @State, so whether a press has played here is kept outside the view, by press and place. A rebuild during the
+    // burst can cut it short; it never starts it again.
+    private func play(_ b: BoardClient.StarBurst?) {
+        guard let b, b.id != played, !reduceMotion, b.fresh(), StarBurstsPlayed.claim(b.id, place) else { return }
+        let id = b.id
+        played = id
+        DispatchQueue.main.asyncAfter(deadline: .now() + b.delay) {
+            guard played == id, !reduceMotion else { return }
+            sparking = true
+            withAnimation(.easeOut(duration: 0.17)) { popped = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
+                guard played == id else { return }
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.6)) { popped = false }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                guard played == id else { return }
+                sparking = false
+            }
+        }
+    }
+}
+
+// kosmos#8706: the presses whose burst has started, by place, so a rebuilt StarredStar does not play one again. Main
+// thread only (view updates); kept small, since a press is never asked about again once it is past its window.
+@MainActor enum StarBurstsPlayed {
+    private static var seen: [String] = []
+    static func claim(_ id: Int, _ place: String) -> Bool {
+        let key = "\(id) \(place)"
+        if seen.contains(key) { return false }
+        seen.append(key)
+        if seen.count > 16 { seen.removeFirst(seen.count - 16) }
+        return true
+    }
+}
+
+// kosmos#8706: the burst's six gold sparks, at the board's end points (@keyframes astar-spark), in points. They start at
+// the centre and fly out once this view is on screen: a view inserted already "flown" would never be seen moving.
+private struct StarSparks: View {
+    var reach: CGFloat = 1
+    @State private var flown = false
+    private static let ends: [CGSize] = [CGSize(width: 0, height: -16), CGSize(width: 14, height: -8), CGSize(width: 14, height: 8),
+                                         CGSize(width: 0, height: 16), CGSize(width: -14, height: 8), CGSize(width: -14, height: -8)]
+    var body: some View {
+        ZStack {
+            ForEach(0..<Self.ends.count, id: \.self) { i in
+                // 4 at the centre, 2 at the end, as the board's (4px, spread -1 by the end).
+                Circle().fill(Palette.starFill).frame(width: flown ? 2 : 4, height: flown ? 2 : 4)
+                    .offset(flown ? CGSize(width: Self.ends[i].width * reach, height: Self.ends[i].height * reach) : .zero)
+                    .opacity(flown ? 0 : 1)
+            }
+        }
+        .allowsHitTesting(false)
+        .onAppear { withAnimation(.easeOut(duration: 0.55)) { flown = true } }
     }
 }

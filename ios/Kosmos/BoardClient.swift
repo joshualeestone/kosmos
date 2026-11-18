@@ -178,6 +178,21 @@ final class BoardClient: ObservableObject {
     // build 11 review 2: the agent the note is about, so a chat says it only for that agent.
     @Published private(set) var starNoteAgent: String?
     @Published private(set) var starring: Set<String> = []
+    // kosmos#8706 (Josh 11-18, the board's #8705): a press that stars an agent plays a small burst on its star, once. This
+    // is which agent and which press, set as the press starts (the star shows at once, as the board's does) and cleared if
+    // that star did not save. Only a press on this phone sets it: a star read from the board never bursts.
+    // `delay`: a star chosen from the long-press menu waits for the menu to close over the row before it plays.
+    struct StarBurst: Equatable {
+        let session: String; let id: Int; let at: Date; var delay: TimeInterval = 0
+        // Whether a star view may still start this burst, asked by the view as it would play, not when its parent last
+        // drew. Short on purpose: the star is drawn at the press (the list re-sorts in the same call), and a star view
+        // built again later in the save, a toolbar or row rebuilt, must not replay the burst from its start.
+        func fresh(now: Date = Date()) -> Bool { now.timeIntervalSince(at) < BoardClient.starBurstWindow }
+    }
+    @Published private(set) var starBurst: StarBurst?
+    static let starBurstWindow: TimeInterval = 0.3
+    // The press that just starred this agent, or nil for any other agent and after an unstar or a failed save.
+    func burst(for session: String) -> StarBurst? { starBurst?.session == session ? starBurst : nil }
     // Review 1: every star press is numbered. A re-sort's own stars read that began before a press (or lands while one is
     // out) is not taken, or it would put back the list from before the press; and an answer older than the newest
     // press changes only its own agent, never the whole list.
@@ -208,7 +223,7 @@ final class BoardClient: ObservableObject {
               let answer, (200...299).contains(answer.1.statusCode), let names = Board.parseStars(answer.0) else { return }
         showStars(names, mac: mac.address)
     }
-    func toggleStar(_ session: String) async {
+    func toggleStar(_ session: String, burstDelay: TimeInterval = 0) async {
         guard canStar, let mac = shownMac, !starring.contains(session) else { return }   // review 2: the swipe too
         let on = !isStarred(session)
         let epoch = chatEpoch
@@ -220,6 +235,7 @@ final class BoardClient: ObservableObject {
         defer { if epoch == chatEpoch { starring.remove(session); starEvents += 1 } }
         starNote = nil
         starNoteAgent = nil
+        starBurst = on ? StarBurst(session: session, id: mine, at: Date(), delay: burstDelay) : (starBurst?.session == session ? nil : starBurst)
         showStars(setting: session, on: on, mac: mac.address)
         let answer = await throughMac { Board.starWriteRequest(mac: $0, name: session, on: on) }
         guard epoch == chatEpoch, shownMac?.address == mac.address else { return }   // another computer or account now
@@ -227,9 +243,11 @@ final class BoardClient: ObservableObject {
             // The newest press's answer is the board's whole list; an older one settles only its own agent.
             if mine == starWrites && starring.count == 1 { showStars(names, mac: mac.address) }
             else { showStars(setting: session, on: names.contains(session), mac: mac.address) }
+            if on && !names.contains(session) && starBurst?.id == mine { starBurst = nil }   // kosmos#8706: saved, but not starred
         } else {
             // Only this agent goes back; every other star stays as the phone now shows it (review 1).
             showStars(setting: session, on: !on, mac: mac.address)
+            if starBurst?.id == mine { starBurst = nil }
             starNote = Board.starFailure(on: on, status: answer?.1.statusCode ?? 0, data: answer?.0)
             starNoteAgent = session
         }
@@ -1424,6 +1442,7 @@ final class BoardClient: ObservableObject {
         chatsForgottenWhy = why
         chatsForgottenByPerson = byPerson
         starNote = nil   // kosmos#7034: a star note was about the other computer's list
+        starBurst = nil   // kosmos#8706: and so was a burst
         starring = []   // kosmos#7034 review 3: a save still out was for the other computer; its answer is dropped
         pending = [:]
         sortProjects = [:]   // kosmos#7421: By project's names were the other computer's or account's
