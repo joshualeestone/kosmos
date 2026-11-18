@@ -76,7 +76,7 @@ test('#8669: what a person writes is read whole, and anything else is refused wi
 
 test('#8669: prepare reads the condition once, so a wake starts from what is true now', async () => {
   const gh = fakeGh({ 'repos/octo/hello/pulls/5': prOpen, 'repos/octo/hello/pulls/6': prMerged, 'repos/octo/hello/pulls/8': prClosed,
-    'repos/octo/hello/git/ref/heads/main': { code: 0, out: SHA_A + '\n' } });
+    'repos/octo/hello/branches/main': { code: 0, out: SHA_A + '\n' } });
   assert.deepEqual(await taskwake.prepare({ pr: 'octo/hello#5' }, { gh }), { wake: { kind: 'pr', repo: 'octo/hello', number: 5 } });
   assert.deepEqual(gh.calls[0], ['api', 'repos/octo/hello/pulls/5', '--jq', '[.state, (.merged|tostring)] | @tsv'], 'one read, its arguments as an array (no shell)');
   assert.equal((await taskwake.prepare({ pr: 'octo/hello#6' }, { gh })).problem, 'that pull request is already merged');
@@ -113,7 +113,7 @@ test('#8669: prepare reads the condition once, so a wake starts from what is tru
 });
 
 test('#8669: the look says met only once the thing happened, and says why it could not look', async () => {
-  const answers = { 'repos/octo/hello/pulls/5': prOpen, 'repos/octo/hello/git/ref/heads/main': { code: 0, out: SHA_A } };
+  const answers = { 'repos/octo/hello/pulls/5': prOpen, 'repos/octo/hello/branches/main': { code: 0, out: SHA_A } };
   const gh = fakeGh(answers);
   const pr = { kind: 'pr', repo: 'octo/hello', number: 5 };
   assert.deepEqual(await taskwake.probe(pr, { gh }), { met: false }, 'an open pull request has not merged');
@@ -129,9 +129,9 @@ test('#8669: the look says met only once the thing happened, and says why it cou
 
   const br = { kind: 'branch', repo: 'octo/hello', branch: 'main', from: SHA_A };
   assert.deepEqual(await taskwake.probe(br, { gh }), { met: false });
-  answers['repos/octo/hello/git/ref/heads/main'] = { code: 0, out: SHA_B };
+  answers['repos/octo/hello/branches/main'] = { code: 0, out: SHA_B };
   assert.deepEqual(await taskwake.probe(br, { gh }), { met: true, words: 'it has a new commit (' + SHA_B.slice(0, 10) + ')' });
-  delete answers['repos/octo/hello/git/ref/heads/main'];
+  delete answers['repos/octo/hello/branches/main'];
   // A 404 for the branch is also what a repository this sign-in can no longer see answers: not met.
   assert.deepEqual(await taskwake.probe(br, { gh }), { met: false, problem: 'GitHub does not show octo/hello to this computer\'s GitHub sign-in just now' });
   answers['repos/octo/hello'] = { code: 0, out: 'octo/hello\n' };
@@ -398,4 +398,20 @@ test('#8669: a woken branch says it plainly, and a holder off the project is tol
   projects.addAgent(p.id, 'ann');
   taskwake.sweep(w.o(only(p)));
   assert.equal(w.typed.length, 1, 'told once back on the project');
+});
+
+test('#8669: a wake on a task nobody holds tells the agent that set it', () => {
+  const p = setupProject('Nobody', ['ann']);
+  const t = tasks.create(p.id, { sentence: 'Unassigned one' });
+  tasks.setWake(p.id, t.number, { kind: 'at', at: Date.now() + 1000 }, { by: 'ann' });
+  tasks.saveWakeMet(p.id, t.number, stored(p.id, t.number).wake.setAt, { at: new Date().toISOString(), words: 'the time came' });
+  const w = world(['ann']);
+  taskwake.sweep(w.o(only(p)));
+  assert.equal(w.typed.length, 1);
+  assert.equal(w.typed[0].s, 'ann');
+  // CONTROL: set by the person, nobody holds it: there is no agent to tell.
+  const t2 = tasks.create(p.id, { sentence: 'Unassigned, the person\'s' });
+  tasks.setWake(p.id, t2.number, { kind: 'at', at: Date.now() + 1000 }, { person: true });
+  tasks.saveWakeMet(p.id, t2.number, stored(p.id, t2.number).wake.setAt, { at: new Date().toISOString(), words: 'the time came' });
+  assert.equal(taskwake.owed(only(p)).filter((x) => x.n === t2.number).length, 0);
 });

@@ -146,7 +146,7 @@ test('#8669: the person\'s wake is theirs; a branch wake starts from its commit;
   assert.equal(r.status, 200);
   assert.equal(stored(n).wake, undefined);
 
-  ghSays('repos/octo/hello/git/ref/heads/main', 'a'.repeat(40) + '\n');
+  ghSays('repos/octo/hello/branches/main', 'a'.repeat(40) + '\n');
   const b = newTask('Branch');
   r = await post(`/api/project/${projectId}/task/${b}/wake`, { branch: 'octo/hello:main' }, { 'x-kosmos-agent-token': mona.token });
   assert.equal(r.status, 200, JSON.stringify(r.json));
