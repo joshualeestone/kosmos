@@ -1712,7 +1712,7 @@ function setText(projectId, n, { sentence, detail } = {}, { by = null, person = 
     if (!t) throw new Error('there is no task by that number on this project');
     /* A task the person wrote, or whose words they have since changed, is not an AGENT's to reword: an agent does not
        rewrite what it was asked to do. Checked inside the write. An unnamed caller is let through: the person's own
-       terminal is one (`kosmos task edit` with no agent token), and the page has no edit control yet. */
+       terminal is one (`kosmos task edit` with no agent token). */
     if (!person && doneWhenSetter(by) && (t.addedVia === 'screen' || t.textByPerson === true)) {
       const e = new Error('the person wrote this task\'s words, so an agent does not change them; say what changed in the task\'s conversation instead');
       e.status = 403;

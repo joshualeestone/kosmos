@@ -298,6 +298,7 @@ render-talk-search
 render-task-receipt-prs-6842
 render-task-taps-5200
 render-task-wake-8669
+render-taskedit-8664
 render-taskhover-4880
 render-tasks
 render-tasks-view-3559

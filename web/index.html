@@ -18229,10 +18229,10 @@ window.kosmosMeasureScrollbarWidth();
     </div>
     <!-- kosmos#8664: the edit form, a full-width row under the head (inside the title column it was a 180px strip). Its
          own inputs, which paintTaskPage never touches, so the five-second repaint cannot wipe what is being typed. -->
-    <form class="tkedit" id="tk-editform" hidden>
+    <form class="tkedit" id="tk-editform" aria-label="Edit this task" hidden>
       <div class="field">
         <label class="flabel tk-lab" for="tk-edit-title">What needs doing?</label>
-        <input class="tk-inp" id="tk-edit-title" type="text" maxlength="200" required>
+        <input class="tk-inp" id="tk-edit-title" type="text" maxlength="200">
       </div>
       <div class="field">
         <label class="flabel tk-lab" for="tk-edit-detail">Anything they should know</label>
@@ -74941,8 +74941,14 @@ document.getElementById('tk-edit').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   const t = p && (p.tasks || []).find((x) => x.number === TK_OPEN);
   if (!t) { leaveTaskPage(); return; }
-  document.getElementById('tk-edit-title').value = t.sentence || '';
-  document.getElementById('tk-edit-detail').value = t.detail || '';
+  /* What the form opened with, kept on the form: Save compares against THIS, not the polled task, so a change an agent
+     made meanwhile is never sent back over (review 1). Line ends as a textarea gives them back. */
+  const form = document.getElementById('tk-editform');
+  form.dataset.task = String(t.number);
+  form.dataset.title = t.sentence || '';
+  form.dataset.detail = (t.detail || '').replace(/\r\n?/g, '\n');
+  document.getElementById('tk-edit-title').value = form.dataset.title;
+  document.getElementById('tk-edit-detail').value = form.dataset.detail;
   document.getElementById('tk-msg').textContent = '';
   document.getElementById('tk-editform').hidden = false;
   document.getElementById('tk-edit').hidden = true;
@@ -74950,33 +74956,37 @@ document.getElementById('tk-edit').addEventListener('click', () => {
   document.getElementById('tk-edit-title').focus();
 });
 document.getElementById('tk-edit-cancel').addEventListener('click', () => tkEditClose(true));
+document.getElementById('tk-editform').addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { ev.preventDefault(); tkEditClose(true); } });
 document.getElementById('tk-editform').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const p = pjById(PJ_CURRENT);
   const t = p && (p.tasks || []).find((x) => x.number === TK_OPEN);
   if (!t) { leaveTaskPage(); return; }
-  const title = document.getElementById('tk-edit-title').value.trim();
+  const form = document.getElementById('tk-editform');
+  const titleIn = document.getElementById('tk-edit-title');
+  const title = titleIn.value.trim();
   const detail = document.getElementById('tk-edit-detail').value.trim();
   const msg = document.getElementById('tk-msg');
-  if (!title) { msg.textContent = 'A task needs a title: say what needs doing.'; document.getElementById('tk-edit-title').focus(); return; }
+  if (!title) { msg.textContent = 'A task needs a title: say what needs doing.'; titleIn.focus(); return; }
   const body = {};
-  if (title !== (t.sentence || '')) body.sentence = title;
-  if (detail !== (t.detail || '')) body.detail = detail ? detail : null;
+  if (title !== form.dataset.title.trim()) body.sentence = title;
+  if (detail !== form.dataset.detail.trim()) body.detail = detail ? detail : null;
   if (!Object.keys(body).length) { tkEditClose(true); return; }
+  const num = t.number;
+  const still = () => TK_OPEN === num;   // another task opened while this save was on its way: leave its page alone
   const save = document.getElementById('tk-edit-save');
   save.disabled = true;
   try {
-    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + t.number + '/text', {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + num + '/text', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) { msg.textContent = (out && out.error) || 'we could not change that task'; return; }
-    msg.textContent = '';
-    tkEditClose(true);
+    if (!res.ok) { if (still()) { msg.textContent = (out && out.error) || 'we could not change that task'; titleIn.focus(); } return; }
+    if (still()) { msg.textContent = ''; tkEditClose(true); }
     await pjReload();
-    paintTaskActivity(TK_OPEN);   // the edit is in the task's activity
+    if (still()) paintTaskActivity(num);   // the edit is in the task's activity
   } catch {
-    msg.textContent = 'we could not change that task';
+    if (still()) { msg.textContent = 'we could not change that task'; titleIn.focus(); }
   } finally {
     save.disabled = false;
   }
