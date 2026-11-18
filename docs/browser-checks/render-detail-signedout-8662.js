@@ -14,12 +14,12 @@
  * and while signed out the open page keeps its last Runs on reading, while an agent page opened then (from what the
  * board last read) says "Signed out: sign in to see its model" for an agent with no model read (red with modelLine's
  * signed-out line removed).
- * Measured against main's page (the first version of this check): the sign-out arms were red there.
+ * kosmos#8662's arms were measured against the page before #8662 (the first version of this check): red there.
  * Reads are intercepted (as render-board-signin-403-2023.js does), so no enforcing board or token is needed.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
  *     node docs/browser-checks/render-detail-signedout-8662.js http://127.0.0.1:PORT
- * against a sandboxed board (first run completed or not: the check closes its screen) with at least two Claude
+ * against a sandboxed board (first run completed or not: the check closes it, completing it) with at least two Claude
  * agents with no model read (the driver's fleet fixture); the first one /api/status lists is the one whose page is
  * opened.
  */
@@ -33,9 +33,11 @@ const AUTH_403 = { error: 'this board belongs to the account that started it; op
 
 /* The rich board's first run is not completed (the runner never completes it), and its screen covers keyboard focus
    and the sign-in box. It opens after the page's /api/first-run read, so testing for it at load misses it: wait for
-   the boot cover to lift (revealBoot runs after that read is decided), then close it with Escape, which completes it
-   on the board. Without this the check passed only when an earlier check on the same board had closed it
-   (kosmos#8672). Returns whether the screen is hidden afterwards, for the caller's precondition. */
+   the boot cover to lift (revealBoot runs after that read is decided), then close it with Escape. Closing it marks
+   first run complete ON THE BOARD, so every later check on the same board sees it complete. Without this the check
+   passed only when an earlier check on the same board had closed it (kosmos#8672). The waits swallow their timeouts
+   on purpose: a slow cover then shows as the caller's precondition failing (the screen still up), never as a pass.
+   Returns whether the screen is hidden afterwards, for that precondition. */
 async function dismissFirstRun(page) {
   await page.waitForFunction(() => { const c = document.getElementById('boot-cover'); return !c || c.hidden; }, null, { timeout: 15000 }).catch(() => {});
   for (let i = 0; i < 2 && !(await page.$('#firstrun[hidden]')); i++) {
