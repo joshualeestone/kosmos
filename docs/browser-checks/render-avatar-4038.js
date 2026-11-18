@@ -113,7 +113,7 @@ function solidPng(r, g, b) {
   await page.waitForTimeout(1200);
   const untied = await page.evaluate(() => ({ btn: document.getElementById('d-file-btn').disabled, why: !document.getElementById('d-untied').hidden && document.getElementById('d-untied').textContent }));
   chk(untied.btn === true, 'on an untied agent Change picture is disabled, not a silent no-op', JSON.stringify(untied));
-  chk(!!untied.why && /will not change its picture/.test(untied.why), 'and the page says why', JSON.stringify(untied.why));
+  chk(!!untied.why && /not change its picture/.test(untied.why), 'and the page says why', JSON.stringify(untied.why));
   let opened = false;
   await Promise.all([page.waitForEvent('filechooser', { timeout: 1500 }).then(() => { opened = true; }).catch(() => {}),
     page.click('#d-file-btn', { force: true, timeout: 1500 }).catch(() => {})]);

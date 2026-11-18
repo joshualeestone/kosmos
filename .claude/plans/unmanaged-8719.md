@@ -37,6 +37,10 @@ screen-read state with no reason, the direct-chat route 404s via knownAgent.
 - Review 4-5: the untied reason leads; only an agent-side reason (auth_failed, rate_limited) follows it. Reasons that
   promise a Kosmos action (reconnect retry, restart, waiting delivery) are left out for this window.
 
+- Review 6: no sentence promises a route ("until Kosmos starts it" was raised three times: the hand-started window
+  blocks Look for agents and Connect). The words state only the fact; the remedy is part 2's reclaim action. The send's
+  409 uses nameRefusal's own test (isNamedOurs !== true), so read and send agree.
+
 ## Decided / rejected
 - The tile carries a short label, not the sentence: Josh ruled sentences off tiles (#6716). The sentence is the pill's
   hover, screen-reader text and the agent page, where every other reason lives.
@@ -45,6 +49,5 @@ screen-read state with no reason, the direct-chat route 404s via knownAgent.
 - Not touched: what Kosmos will type into (the guard stays exactly as it is).
 
 ## Weakest premise
-"Kosmos can message it once it is started from Kosmos" assumes a person can start it from Kosmos (Look for agents /
-Connect, which refuse while a window holds the name, so they must stop it first). Part 2's reclaim replaces this with
-a one-step action and will change the sentence.
+Until part 2 ships, the board says why and offers no one-step remedy: the person still has to stop the window and start
+the agent from Kosmos themselves. Part 1 is honest about that rather than promising a route.

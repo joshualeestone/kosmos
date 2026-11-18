@@ -14,12 +14,12 @@ const flagOf = (a) => new Function('a', `${page.lift(SCRIPT, 'untiedFlagHtml')}\
 
 test('#8719: an agent Kosmos did not start says why it cannot be messaged; CONTROL: one of ours says nothing new', () => {
   const untied = { state: 'idle', isNamedOurs: false };
-  assert.equal(reasonOf(untied), 'Kosmos cannot confirm it started this window, so it will not type messages into it until Kosmos starts it.');
+  assert.equal(reasonOf(untied), 'Kosmos cannot confirm it started this window, so it does not type messages into it.');
   assert.equal(reasonOf({ state: 'idle', isNamedOurs: true }), '', 'CONTROL: a tied idle agent has no reason sentence');
   assert.equal(reasonOf({ state: 'idle' }), '', 'CONTROL: a card without the field (paneless, older) is not called untied');
   const waiting = { state: 'working', waiting: { n: 3 } };
   assert.equal(reasonOf(waiting), '3 messages waiting', 'premise: a tied working agent with messages waiting says so');
-  assert.equal(reasonOf({ ...waiting, isNamedOurs: false }), 'Kosmos cannot confirm it started this window, so it will not type messages into it until Kosmos starts it.',
+  assert.equal(reasonOf({ ...waiting, isNamedOurs: false }), 'Kosmos cannot confirm it started this window, so it does not type messages into it.',
     'the waiting line is left out: Kosmos will not deliver those messages to this window');
   assert.equal(reasonOf(untied, { card: true }), '', 'the tile carries no sentence (#6716); the label says it there');
   for (const state of ['needs_you', 'auth_failed', 'rate_limited']) {
@@ -29,10 +29,10 @@ test('#8719: an agent Kosmos did not start says why it cannot be messaged; CONTR
   const stuck = { state: 'auth_failed', stuckError: { stuck: true, state: 'auth_failed', forMs: 600000 } };
   const ownWords = reasonOf(stuck);
   assert.ok(ownWords.length > 0, 'premise: a stuck sign-in has its own reason');
-  assert.equal(reasonOf({ ...stuck, isNamedOurs: false }), 'Kosmos cannot confirm it started this window, so it will not type messages into it until Kosmos starts it. ' + ownWords);
+  assert.equal(reasonOf({ ...stuck, isNamedOurs: false }), 'Kosmos cannot confirm it started this window, so it does not type messages into it. ' + ownWords);
   // A reason that promises Kosmos will act (a lost connection it retries) is left out for this window.
   assert.equal(reasonOf({ state: 'connection_lost', isNamedOurs: false, reconnect: { phase: 'waiting' } }),
-    'Kosmos cannot confirm it started this window, so it will not type messages into it until Kosmos starts it.');
+    'Kosmos cannot confirm it started this window, so it does not type messages into it.');
 });
 
 test('#8719: the tile and list row say "Not linked to Kosmos"; CONTROL: a tied agent shows no label', () => {
@@ -45,6 +45,6 @@ test('#8719: the tile and list row say "Not linked to Kosmos"; CONTROL: a tied a
 });
 
 test('#8719: the detail page line stands alone (the button reads it alone, and #d-task hides on a question)', () => {
-  assert.ok(SCRIPT.includes("why.textContent = tied ? '' : 'Kosmos cannot confirm it started this window, so it will not change its picture, role or instructions from here.';"),
+  assert.ok(SCRIPT.includes("why.textContent = tied ? '' : 'Kosmos cannot confirm it started this window, so it does not change its picture, role or instructions from here.';"),
     'the detail sentence names its reason itself');
 });

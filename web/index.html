@@ -23252,7 +23252,7 @@ function stateReason(a, opts) {
      shared constants: tests lift stateReason alone. */
   if (a && a.isNamedOurs === false) {
     const own = (a.state === 'auth_failed' || a.state === 'rate_limited') ? stateReason(Object.assign({}, a, { isNamedOurs: true }), opts) : '';
-    return 'Kosmos cannot confirm it started this window, so it will not type messages into it until Kosmos starts it.' + (own ? ' ' + own : '');
+    return 'Kosmos cannot confirm it started this window, so it does not type messages into it.' + (own ? ' ' + own : '');
   }
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
@@ -50175,7 +50175,7 @@ function setWritesOffered(a, tied) {
        lacks; the old sentence named only the "-discord" spelling, which is one way to pass it. */
     /* Self-contained: #d-task (the full reason) is hidden while the agent asks a question, and the picture button reads
        this line alone as its description. */
-    why.textContent = tied ? '' : 'Kosmos cannot confirm it started this window, so it will not change its picture, role or instructions from here.';
+    why.textContent = tied ? '' : 'Kosmos cannot confirm it started this window, so it does not change its picture, role or instructions from here.';
   }
 }
 

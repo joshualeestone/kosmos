@@ -4489,12 +4489,12 @@ function clearLeftovers(name, projectId, why) {
 // come from, and that is a change to how every name-keyed route resolves.
 
 /* kosmos#8719: what a person is told when a message to, or a read of, an agent whose window Kosmos cannot tie to it is
-   refused: the reason, and what makes it reachable. */
+   refused: the reason. (The remedy is an action, reclaiming the window, which part 2 of #8719 adds; no sentence here
+   promises a route the window itself blocks.) */
 /* Worded as what is checked (the window lacks Kosmos's own launch mark), not as where it came from: a session Kosmos
    started and was then renamed fails the same check. */
 function untiedSendWords(name) {
-  return `Not sent: Kosmos cannot confirm it started the window running as ${name}, so it did not type into it. `
-    + `Kosmos cannot message ${name} until Kosmos starts it.`;
+  return `Not sent: Kosmos cannot confirm it started the window running as ${name}, so it did not type into it.`;
 }
 function untiedReadWords(name) {
   const who = name || 'this agent';
@@ -21476,7 +21476,7 @@ const server = http.createServer(async (req, res) => {
             try { card = claimantFor(name); } catch { card = null; }
             /* 409 'untied' for a send; the reads (thread, older, react, delete) keep 404 'borrowed' through nameRefusal,
                which the board's standing arm keys on. Different answers to one condition on purpose; do not unify. */
-            if (card && card.isNamedOurs === false) {
+            if (card && card.isNamedOurs !== true) {   // the same test as nameRefusal's 'borrowed', so read and send agree
               const untied = new Error(untiedSendWords(card.sessionName || name));
               untied.status = 409;
               untied.because = 'untied';

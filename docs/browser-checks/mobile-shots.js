@@ -1451,7 +1451,7 @@ const SCREENS = [
   }, verify: async (page) => {
     if (name === 'untied-page-8719') {
       const t = await page.locator('#d-task').innerText();
-      if (!/^Kosmos cannot confirm it started this window, so it will not type messages into it/.test(t)) throw new Error('the page said: ' + t);
+      if (!/^Kosmos cannot confirm it started this window, so it does not type messages into it/.test(t)) throw new Error('the page said: ' + t);
       return;
     }
     const sel = name === 'untied-list-8719' ? '.lrow .auntied' : '.acard .auntied';
