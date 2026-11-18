@@ -36,3 +36,5 @@ A real case where ENOTCONN on stdout means a failure the person needs to see.
 - NIT left: the exact-contents assertion (review 1's left NIT).
 ### Review 3 (opus): no BLOCKER/WARNING/CONVENTION, 5 NITs fixed
 - The ECONNRESET comment says it is included by reasoning, not seen; guardStream's doc says "a closed reader included"; the test header no longer says EPIPE only; the shell test's header and arm 5 refuse all three codes (arm 2 stays EPIPE: a shell pipe).
+### Review 4 (sonnet): converged; its WARNING is review 2's deferred control-arm timing (duplicate), 5 NITs left
+- NITs left: the test comment could mark ECONNRESET as reasoned (clipipe.js says so); the exact-contents assertion and the regex copies are hand-kept; install/kosmos:50 says EPIPE trace (true for a shell pipe); arm 2 stays EPIPE by design; the tty-EIO aside in the weakest premise is reasoned, not measured.
