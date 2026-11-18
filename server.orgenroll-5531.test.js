@@ -114,19 +114,19 @@ test('#7586: /api/org says backupLate from the record\'s backup time and the app
   const late = async () => (await call('/api/org', { method: 'GET', headers: SCREEN })).json.backupLate;
   const old = Math.floor(Date.now() / 1000) - 3 * 86400;
   policy({ required: true, max_age_hours: 24 });
-  enroll(world, { backupOn: true, backupAt: null });
+  enroll(world, { backupOn: true, backupAt: null, backupSeenAt: Date.now() });
   assert.equal(await late(), 'never', 'no backup on record');
-  enroll(world, { backupOn: true, backupAt: old });
+  enroll(world, { backupOn: true, backupAt: old, backupSeenAt: Date.now() });
   assert.equal(await late(), 'late', 'three days against 24 hours');
-  enroll(world, { backupOn: true, backupAt: Math.floor(Date.now() / 1000) - 60 });
+  enroll(world, { backupOn: true, backupAt: Math.floor(Date.now() / 1000) - 60, backupSeenAt: Date.now() });
   assert.equal(await late(), null, 'CONTROL: a minute ago meets it');
-  enroll(world, { backupOn: false, backupAt: null });
+  enroll(world, { backupOn: false, backupAt: null, backupSeenAt: Date.now() });
   assert.equal(await late(), null, 'company backup off: nothing could be met');
   enroll(world, {});
   assert.equal(await late(), null, 'an older coordinator sent nothing');
-  enroll(world, { backupOn: true, backupAt: old }); policy({ required: false });
+  enroll(world, { backupOn: true, backupAt: old, backupSeenAt: Date.now() }); policy({ required: false });
   assert.equal(await late(), null, 'not required');
-  enroll('f'.repeat(32), { backupOn: true, backupAt: old }); policy({ required: true, max_age_hours: 24 });
+  enroll('f'.repeat(32), { backupOn: true, backupAt: old, backupSeenAt: Date.now() }); policy({ required: true, max_age_hours: 24 });
   assert.equal(await late(), null, 'not the enrolled Kosmos here: nothing is said');
 });
 

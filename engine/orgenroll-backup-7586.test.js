@@ -51,6 +51,7 @@ test('#7586: the refresh keeps backupOn and this member\'s backupAt from the ans
   await org.refresh({ root, remote });
   rec = org.readEnrollment({ root });
   assert.deepStrictEqual([rec.backupOn, rec.backupAt], [true, 1_790_000_000]);
+  assert.ok(Number.isFinite(rec.backupSeenAt) && Math.abs(rec.backupSeenAt - Date.now()) < 60_000, 'when the answer came: ' + rec.backupSeenAt);
   state.backupAt = null;
   await org.refresh({ root, remote });
   assert.deepStrictEqual([org.readEnrollment({ root }).backupOn, org.readEnrollment({ root }).backupAt], [true, null], 'none on record');
@@ -64,7 +65,7 @@ test('#7586: never carried: an answer without the field drops the last one, and 
   delete state.backupOn; delete state.backupAt;
   await org.refresh({ root, remote });
   let rec = org.readEnrollment({ root });
-  assert.equal('backupOn' in rec || 'backupAt' in rec, false, 'a stale backup time outlived the answer');
+  assert.equal('backupOn' in rec || 'backupAt' in rec || 'backupSeenAt' in rec, false, 'a stale backup time outlived the answer');
   state.backupOn = false; state.backupAt = 1_790_000_000;
   await org.refresh({ root, remote });
   rec = org.readEnrollment({ root });
