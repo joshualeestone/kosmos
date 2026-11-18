@@ -50,3 +50,7 @@ A person-facing merge since 7c2d1f1376 missing from these tables, or a reviewer 
 - NIT fixed: the edit line no longer implies old and new detail text: "for a title the old and new words".
 - NIT fixed: the agent model line says it lists choices when it can (some vendors have no list).
 - NIT fixed: the plan says #8685 is folded into the Windows folder-check line.
+### Review 4 (sonnet): converged, no BLOCKER/WARNING/CONVENTION, 3 NITs left
+- NIT left: "the gh tool" is technical for a person; it is the honest condition until the wake reads Kosmos's own GitHub sign-in (#8669 comment 6981820850).
+- NIT left: the signed-out note's link goes to the sign-in screen ("Sign this tab in again"), and it also shows for a lapsed relay sign-in; "restarts or updates" is the common cause, not the only one.
+- NIT left: the task edit notes line's agent limit applies to an identified agent; the person's own terminal is let through, which is the person.
