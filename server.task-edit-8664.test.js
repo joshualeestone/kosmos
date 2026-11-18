@@ -174,6 +174,12 @@ test('a new title is told to the task\'s assignee (its instruction block lists t
   assert.match(tasks.forAgent(tasks.byNumber(projects.readAll().find((p) => p.id === id), n)), /A new title for mara/);
 });
 
+test('a title sent with line breaks is stored as one line (a title is one line wherever it is shown)', async () => {
+  const { id, n } = freshTask();
+  assert.equal((await edit(id, n, { sentence: 'Fix\nlogin\r\non\tiPhone' })).status, 200);
+  assert.equal((await listed(id, n)).sentence, 'Fix login on iPhone');
+});
+
 test('the answer says whether anything changed', async () => {
   const { id, n } = freshTask();
   assert.equal((await edit(id, n, { sentence: 'Fix login' })).json.changed, false, 'an edit to the same words said it changed');

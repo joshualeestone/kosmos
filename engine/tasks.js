@@ -1690,7 +1690,8 @@ function setText(projectId, n, { sentence, detail } = {}, { by = null, person = 
     const problem = detailProblem(detail);
     if (problem) throw new Error(problem);
   }
-  const nextSentence = sentence === undefined ? undefined : sentence.trim();
+  // A title is one line wherever it is shown, so line breaks and control characters become spaces (the CLIs already do).
+  const nextSentence = sentence === undefined ? undefined : sentence.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
   const nextDetail = detail === undefined ? undefined : ((typeof detail === 'string' && detail.trim()) ? detail.trim() : null);
   let changed;
   let before;
