@@ -27555,8 +27555,8 @@ async function tick() {
     paintReconnecting(false);
     BOARD_NEEDS_SIGNIN = false; // #2023: a successful read means this browser is authed.
     BOARD_SIGNED_OUT = false;
-    if (typeof paintDetailSignedOut === 'function') paintDetailSignedOut();   // kosmos#8662
     BOARD_DEVICE_OFFLINE = false;
+    if (typeof paintDetailSignedOut === 'function') paintDetailSignedOut();   // kosmos#8662
     // ⚠️ The picker is repainted here rather than only on open, because the
     // add-a-project flow suppresses the projects poll while it is up. Without
     // this, a person who opened it before the first status landed kept an empty
