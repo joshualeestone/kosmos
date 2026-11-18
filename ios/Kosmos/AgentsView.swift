@@ -1046,8 +1046,7 @@ struct StatusPill: View {
 // only under Increase Contrast, as the board's does under prefers-contrast: more. `burst` is the press that just starred
 // this agent (BoardClient.burst(for:)), played only if fresh when this view would start it: the star pops and six gold
 // sparks fly out once, at the board's spark positions and close to its timings, and not when Reduce Motion is on as the
-// press is scheduled (the star
-// just fills).
+// press is scheduled (the star just fills).
 struct StarredStar: View {
     // Which place draws this star ("row", "header"): a press plays once per place, however often the view is rebuilt.
     var place = "row"
@@ -1087,9 +1086,11 @@ struct StarredStar: View {
     // kosmos#8708: a view rebuilt during the wait takes the press over (the old view's block finds it is no longer the
     // owner), and waits only what is left of it; a press that has started never starts again.
     private func play(_ b: BoardClient.StarBurst?) {
-        guard let b, b.id != played, !reduceMotion, b.fresh(), StarBurstsPlayed.schedule(b.id, place, by: token) else { return }
+        guard let b, b.id != played, b.fresh(), StarBurstsPlayed.schedule(b.id, place, by: token) else { return }
         let id = b.id
         played = id
+        // Under Reduce Motion this view still takes the press over, so a view it replaced cannot start it, and plays nothing.
+        if reduceMotion { return }
         let wait = b.remaining()
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
             guard played == id, StarBurstsPlayed.start(id, place, by: token) else { return }

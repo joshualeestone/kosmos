@@ -11,7 +11,8 @@ tests that run the shared ledger, each shown able to fail.
 - StarBurstsPlayed moves to BoardClient.swift (UIKit-free, so LogicTests compile and run it). schedule(id, place, by:)
   lets the latest view own a press that has not started; start(id, place, by:) starts it only for its owner, once.
 - StarredStar.play schedules with its own token, waits only what is left of the press's wait, and starts through the
-  ledger. The late `!reduceMotion` read from a copied view is gone (item 2).
+  ledger. The late `!reduceMotion` read from a copied view is gone (item 2). Under Reduce Motion a view still schedules (takes
+  the press over) and then plays nothing, so a view rebuilt with Reduce Motion on stops the one it replaced (Sonnet review 2).
 - StarBurst.remaining(now:) is the wait left for a view that schedules late (tested, clamped to 0).
 - The owner list keeps the newest 16, as the started list does: a press re-starred during its wait is never started and
   its owner would otherwise stay.
