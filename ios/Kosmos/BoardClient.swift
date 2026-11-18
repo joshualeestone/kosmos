@@ -184,12 +184,13 @@ final class BoardClient: ObservableObject {
     // `delay`: a star chosen from the long-press menu waits for the menu to close over the row before it plays.
     struct StarBurst: Equatable {
         let session: String; let id: Int; let at: Date; var delay: TimeInterval = 0
-        // Whether a star view may still start this burst, asked by the view as it would play, not when its parent last
-        // drew. Short on purpose: the star is drawn at the press (the list re-sorts in the same call), and a star view
-        // built again later in the save, a toolbar or row rebuilt, must not replay the burst from its start.
+        // Whether a star view may still start this burst, asked by the view as it would play. It bounds how late a FIRST
+        // play may begin (a view drawn long after the press plays nothing); StarBurstsPlayed is what stops a replay.
         // kosmos#8708: counted from when the burst is due (the press plus its wait), so a view rebuilt during the wait may
         // still take it over.
         func fresh(now: Date = Date()) -> Bool { now.timeIntervalSince(at) < delay + BoardClient.starBurstWindow }
+        // What is left of the wait for a view that schedules it now: all of it at the press, none once it is due.
+        func remaining(now: Date = Date()) -> TimeInterval { max(0, delay - now.timeIntervalSince(at)) }
     }
     @Published private(set) var starBurst: StarBurst?
     static let starBurstWindow: TimeInterval = 0.3
@@ -2297,17 +2298,21 @@ extension BoardClient.Phase {
 }
 
 // kosmos#8706, #8708: the presses whose burst has started, by place, and which view will start each one that has not, so
-// a rebuilt StarredStar neither plays a press again nor loses one it was waiting for. Main thread only (view updates);
-// kept small, since a press is never asked about again once it is past its window.
+// a rebuilt StarredStar neither plays a press again nor loses one it was waiting for. Main thread only (view updates).
+// Both lists keep the newest 16 presses: a press is never asked about again once it is past its window.
 @MainActor enum StarBurstsPlayed {
     private static var started: [String] = []
     private static var owner: [String: UUID] = [:]
+    private static var ownerOrder: [String] = []   // oldest first, so an abandoned press's owner is dropped in time
     private static func key(_ id: Int, _ place: String) -> String { "\(id) \(place)" }
     // A view that will play this press, unless it has started already. The latest view to ask owns it.
     static func schedule(_ id: Int, _ place: String, by view: UUID) -> Bool {
         let k = key(id, place)
         if started.contains(k) { return false }
+        if owner[k] == nil { ownerOrder.append(k) }
         owner[k] = view
+        // A press that is never started (re-starred during its wait) leaves its owner; keep only the newest 16.
+        while ownerOrder.count > 16 { owner[ownerOrder.removeFirst()] = nil }
         return true
     }
     // At the end of the wait: only the press's owner starts it, once.
@@ -2316,6 +2321,7 @@ extension BoardClient.Phase {
         guard owner[k] == view, !started.contains(k) else { return false }
         started.append(k)
         owner[k] = nil
+        ownerOrder.removeAll { $0 == k }
         if started.count > 16 { started.removeFirst(started.count - 16) }
         return true
     }

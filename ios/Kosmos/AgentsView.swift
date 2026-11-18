@@ -1045,7 +1045,8 @@ struct StatusPill: View {
 // kosmos#8706 (Josh 11-18, matching the board's #8705): the brightest gold with no outline. The darker edge comes back
 // only under Increase Contrast, as the board's does under prefers-contrast: more. `burst` is the press that just starred
 // this agent (BoardClient.burst(for:)), played only if fresh when this view would start it: the star pops and six gold
-// sparks fly out once, at the board's spark positions and close to its timings, and never under Reduce Motion (the star
+// sparks fly out once, at the board's spark positions and close to its timings, and not when Reduce Motion is on as the
+// press is scheduled (the star
 // just fills).
 struct StarredStar: View {
     // Which place draws this star ("row", "header"): a press plays once per place, however often the view is rebuilt.
@@ -1089,7 +1090,7 @@ struct StarredStar: View {
         guard let b, b.id != played, !reduceMotion, b.fresh(), StarBurstsPlayed.schedule(b.id, place, by: token) else { return }
         let id = b.id
         played = id
-        let wait = max(0, b.delay - Date().timeIntervalSince(b.at))
+        let wait = b.remaining()
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
             guard played == id, StarBurstsPlayed.start(id, place, by: token) else { return }
             sparking = true

@@ -12,6 +12,9 @@ tests that run the shared ledger, each shown able to fail.
   lets the latest view own a press that has not started; start(id, place, by:) starts it only for its owner, once.
 - StarredStar.play schedules with its own token, waits only what is left of the press's wait, and starts through the
   ledger. The late `!reduceMotion` read from a copied view is gone (item 2).
+- StarBurst.remaining(now:) is the wait left for a view that schedules late (tested, clamped to 0).
+- The owner list keeps the newest 16, as the started list does: a press re-starred during its wait is never started and
+  its owner would otherwise stay.
 - StarBurst.fresh counts from when the burst is due (at + delay), so a view rebuilt during the wait can still take it.
 - Tests: five ledger checks (rebuild takes over, the replaced view does not start, once only, places independent) and
   a freshness check with a wait. Removing the owner check fails two of them (measured).
@@ -24,6 +27,9 @@ tests that run the shared ledger, each shown able to fail.
 ## Weakest premise
 That a rebuilt StarredStar gets a new `token` (fresh @State) while the old view's pending block still holds the old one.
 That is how SwiftUI identity works for a re-created view; not seen on a device.
+Second, and not handled: two copies alive at once (iOS 16 can build a toolbar item more than once, a measured or
+overflow copy beside the shown one). If a hidden copy appears after the shown one, it owns the press and the header
+plays nothing visible. Owed on #8708's device check: the header burst seen on a device (Opus review 1).
 
 ## Not in this change (still on #8708)
 Items 3 to 7: device checks of the waits, resuming a burst part-way, the toolbar hit test, the row's reach, the 1.9:1 note.
