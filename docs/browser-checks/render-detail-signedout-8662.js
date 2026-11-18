@@ -19,8 +19,9 @@
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
  *     node docs/browser-checks/render-detail-signedout-8662.js http://127.0.0.1:PORT
- * against a sandboxed board with first-run completed and at least two Claude agents with no model read (the driver's
- * fleet fixture); the first one /api/status lists is the one whose page is opened.
+ * against a sandboxed board (first run completed or not: the check closes its screen) with at least two Claude
+ * agents with no model read (the driver's fleet fixture); the first one /api/status lists is the one whose page is
+ * opened.
  */
 'use strict';
 
@@ -30,13 +31,18 @@ const BASE = process.argv[2] || 'http://127.0.0.1:4399';
 const HEADED = process.env.HEADED !== '0';
 const AUTH_403 = { error: 'this board belongs to the account that started it; open it with `kosmos open`' };
 
-/* The rich board's first run is not completed, and its screen covers the board (keyboard focus and the sign-in box
-   below it). It appears only once the page has read the board, so testing for it at load misses it: wait, then dismiss
-   it unless it is explicitly hidden (render-list-row's way). Without this the check passed only when an earlier check
-   on the same board had dismissed it (kosmos#8672). */
+/* The rich board's first run is not completed (the runner never completes it), and its screen covers keyboard focus
+   and the sign-in box. It opens after the page's /api/first-run read, so testing for it at load misses it: wait for
+   the boot cover to lift (revealBoot runs after that read is decided), then close it with Escape, which completes it
+   on the board. Without this the check passed only when an earlier check on the same board had closed it
+   (kosmos#8672). Returns whether the screen is hidden afterwards, for the caller's precondition. */
 async function dismissFirstRun(page) {
-  await page.waitForTimeout(600);
-  if (!(await page.$('#firstrun[hidden]'))) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+  await page.waitForFunction(() => { const c = document.getElementById('boot-cover'); return !c || c.hidden; }, null, { timeout: 15000 }).catch(() => {});
+  for (let i = 0; i < 2 && !(await page.$('#firstrun[hidden]')); i++) {
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => { const f = document.getElementById('firstrun'); return !f || f.hidden; }, null, { timeout: 5000 }).catch(() => {});
+  }
+  return page.evaluate(() => { const f = document.getElementById('firstrun'); return !f || f.hidden === true; });
 }
 
 const results = [];
@@ -79,7 +85,7 @@ const runsOn = (page) => page.evaluate(() => {
         return r.fallback();
       });
       await page.goto(BASE + '/', { waitUntil: 'load' });
-      await dismissFirstRun(page);
+      check(`${look}: precondition: the first-run screen is closed`, await dismissFirstRun(page));
       // The first agent, from the board's own status read (made by the page, so it carries the page's credentials).
       const first = await page.evaluate(async () => {
         const r = await fetch('/api/status');
@@ -89,7 +95,7 @@ const runsOn = (page) => page.evaluate(() => {
       });
       check(`${look}: precondition: the board has an agent to open`, !!first, String(first));
       await page.goto(BASE + '/?agent=' + encodeURIComponent(first || ''), { waitUntil: 'load' });
-      await dismissFirstRun(page);
+      check(`${look}: precondition: the first-run screen is closed on the agent page`, await dismissFirstRun(page));
       await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 15000 });
       await page.waitForTimeout(1500);
       const before = await state(page);
@@ -189,7 +195,7 @@ const runsOn = (page) => page.evaluate(() => {
       // The note's link leads to the sign-in steps: following it while signed out lands on the board's not-signed-in box.
       await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && !n.hidden && n.querySelector('a'); }, null, { timeout: 20000 }).catch(() => {});
       await Promise.all([page.waitForNavigation({ waitUntil: 'load' }).catch(() => {}), page.click('#d-signedout a').catch(() => {})]);
-      await dismissFirstRun(page);
+      check(`${look}: precondition: the first-run screen is closed on the board`, await dismissFirstRun(page));
       await page.waitForFunction(() => /not signed in/i.test(document.body.innerText) && /Sign this tab in again/.test(document.body.innerText), null, { timeout: 20000 }).catch(() => {});
       const landed = await page.evaluate(() => ({ box: /This board is not signed in/i.test(document.body.innerText), steps: /Sign this tab in again/.test(document.body.innerText) }));
       check(`${look}: the note's link lands on the board's sign-in box and its steps`, landed.box && landed.steps, JSON.stringify(landed));
