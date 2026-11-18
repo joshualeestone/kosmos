@@ -49,15 +49,16 @@ test('each torn shape is moved aside, logged once, and recorded; everything else
   const otherWorld = put(root, 'worlds/w1/projects/p/a.json', '');    // another Kosmos's project folder
   const otherStore = put(root, 'worlds/w1/Kosmos/settings.json', Buffer.alloc(40));   // and its own data root
   const deep = put(root, 'a/b/c/d/e.json', '');                      // past MAX_DEPTH
+  put(root, 'a/b/c/x.json', '');                                     // control: at the limit, three folders down, IS moved
   const notStore = put(root, 'victim.txt', Buffer.alloc(10));        // not a store
 
   const lines = [];
   const out = torn.run(root, { log: (l) => lines.push(l) });
 
   const moved = out.moved.map((m) => m.rel).sort();
-  assert.deepEqual(moved, ['liveness/ava.json', 'messages.jsonl', 'phone-chat-opens.json', 'sendertokens/ava.json']);
+  assert.deepEqual(moved, ['a/b/c/x.json', 'liveness/ava.json', 'messages.jsonl', 'phone-chat-opens.json', 'sendertokens/ava.json']);
   assert.deepEqual(out.failed, []);
-  assert.equal(lines.length, 4, 'one line per moved file');
+  assert.equal(lines.length, 5, 'one line per moved file');
   for (const m of out.moved) {
     assert.equal(fs.existsSync(path.join(root, ...m.rel.split('/'))), false, m.rel + ' is gone from its place');
     const kept = path.join(root, ...m.movedTo.split('/'));
@@ -80,7 +81,7 @@ test('each torn shape is moved aside, logged once, and recorded; everything else
   const again = torn.run(root, { log: (l) => lines.push(l) });
   assert.deepEqual(again.moved, []);
   assert.equal(again.folder, null);
-  assert.equal(lines.length, 4);
+  assert.equal(lines.length, 5);
 });
 
 /* Making a symlink needs elevation on Windows (as dmfiles.folder-8617.test.js says), so these arms are POSIX only. */

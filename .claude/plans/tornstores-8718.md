@@ -42,3 +42,8 @@ That a store's absent default is safe. A person's "off" zeroed by a crash comes 
 - WARNING server.js comment overclaimed (a different-port double start still scans): cut to the guarded claim, a launch that loses the port never scans.
 - NITs taken: ENOENT from another run's move is not reported as "left where it is"; a scan answer naming a path outside the root moves nothing (test); the symlink arm now points at a zero-filled target with an OLD link mtime, so it fails when lstat's isFile check is removed (it passed vacuously before: the link was new and its target empty); the duplicate dirent isFile check removed.
 - NITs left: RECENT_MS vs Linux RestartSec=5 (node boot covers it; a skipped file is looked at next start), torn/ never pruned (each folder is evidence; small), 64 KiB first read (files are small; measured about 2,100 files).
+
+## Review round 4 (sonnet)
+- WARNING depth limit had no positive control at the edge: a torn a/b/c/x.json now must be moved; MAX_DEPTH 2 turns it red.
+- WARNING lstat-to-rename gap: DEFERRED, milliseconds wide behind the 5 s recency rule and the re-check; a post-move check could only race again.
+- WARNING containment filter detail (drive-root data root fails closed; only injected test answers reach it): DEFERRED, informational, fails safe.
