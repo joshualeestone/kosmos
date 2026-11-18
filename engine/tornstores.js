@@ -8,7 +8,7 @@
  * crash artifact: the feature stays off until somebody deletes the file by hand. Agent feedback 11-18 described exactly
  * that, a per-agent state file of zeros, and an earlier one that paused a feature for days.
  *
- * So, once, before the board reads its stores, this scans the data folder for:
+ * So, once at start-up, as soon as the board holds its port, this scans the data folder for:
  *   - a `.json` that is empty, or all zero bytes
  *   - a `.jsonl` that is all zero bytes (an EMPTY `.jsonl` is an ordinary empty log, so it is left alone)
  * and MOVES each one into `torn/<time>/` under the data folder, keeping its path, with one board.log line per file and
@@ -19,11 +19,11 @@
  *     failing closed as today. Only the two shapes above are torn.
  *   - a file changed in the last RECENT_MS: a writer that is alive right now (a CLI, an agent's hook) can hold an
  *     empty file for a moment between open and write. A crash's file is older than the restart that follows it.
- *   - symlinks, files over MAX_BYTES, and the folders in SKIP_DIRS (files a person put there, and this module's own).
+ *   - symlinks, files over MAX_BYTES, anything past MAX_DEPTH, and the folders in SKIP_DIRS.
  *
- * Key and token files are moved like any other (a zeroed key is no key either way), and the log line and the record
- * mark them `secret`, so they can be named louder: their owner regenerates or re-asks for them as it already does
- * for an absent one; nothing here makes a new one.
+ * A file whose path names a key or token is moved like any other (a zeroed key is no key either way), and the log
+ * line and the record mark it `secret` so it reads louder. The mark is from the name alone. Nothing here makes a
+ * new key.
  *
  * The weakest premise, stated so nobody has to rediscover it: that a store's ABSENT default is safe. One case is not
  * fully: a person turned something off, a crash zeroed that file, and the default turns it back on. The bytes are
@@ -35,12 +35,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const TORN_DIR = 'torn';
-/* Top-level folders of the data root that are not scanned: this module's own, and folders holding files a person
-   brought (an attachment or a download may be any JSON at all, empty included, and is theirs, not a store). */
-const SKIP_DIRS = new Set([TORN_DIR, 'attachments', 'downloads', 'filepreview', 'bin', 'runtime']);
-const MAX_DEPTH = 6;
+/* Top-level folders of the data root that are not scanned: this module's own; folders holding files a person
+   brought (an attachment or a download may be any JSON at all, empty included, and is theirs, not a store); and
+   worlds/, where each other Kosmos keeps its own data root AND its people's project and agent folders
+   (engine/worlds.js envOverridesFor), none of which this board's start-up owns. */
+const SKIP_DIRS = new Set([TORN_DIR, 'attachments', 'downloads', 'filepreview', 'bin', 'runtime', 'worlds']);
+/* Folders below the data root that are walked. Stores outside attachments sit at most two folders down (measured on
+   this fleet's data root, 11-18); three leaves room without reaching deep into anything else kept there. */
+const MAX_DEPTH = 3;
 const MAX_BYTES = 8 * 1024 * 1024;
-const MAX_FILES = 20000;   // a bound on the walk, far above a real data folder (about 1,000 stores measured 11-18)
+const MAX_ENTRIES = 50000;   // a bound on the walk, far above a real data folder (about 2,100 files measured 11-18)
 const RECENT_MS = 5000;
 const CHUNK = 64 * 1024;
 const SECRET_RE = /(token|key|secret|cred|signin|password)/i;
@@ -88,20 +92,19 @@ function scan(root, opts = {}) {
   const out = [];
   let seen = 0;
   const walk = (dir, rel, depth) => {
+    if (seen > MAX_ENTRIES) return;
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
-      if (seen >= MAX_FILES) return;
+      if (++seen > MAX_ENTRIES) return;
       const r = rel ? rel + '/' + e.name : e.name;
       const abs = path.join(dir, e.name);
-      if (e.isSymbolicLink()) continue;
       if (e.isDirectory()) {
         if (depth === 0 && SKIP_DIRS.has(e.name)) continue;
         if (depth < MAX_DEPTH) walk(abs, r, depth + 1);
         continue;
       }
       if (!e.isFile() || !storeKind(e.name)) continue;
-      seen++;
       let st;
       try { st = fs.lstatSync(abs); } catch { continue; }
       const shape = tornShape(abs, st, now);
@@ -117,7 +120,7 @@ function stampOf(now) { return new Date(now).toISOString().replace(/[:.]/g, '-')
 /* One board.log line for one moved file, in words a person reading the log can act on. */
 function logLine(item, dest) {
   const what = item.shape === 'empty' ? 'was empty' : 'was all zero bytes (' + item.size + ')';
-  const loud = item.secret ? ' It held a key or token: whatever uses it will ask for or make a new one.' : '';
+  const loud = item.secret ? ' Its name says it may have held a key or token.' : '';
   return 'tornstores: ' + item.rel + ' ' + what + ', most likely from a crash while it was written. Moved to '
     + dest + ' and reset to its default.' + loud;
 }

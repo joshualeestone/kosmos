@@ -45,6 +45,16 @@ test('each torn shape is moved aside, logged once, and recorded; everything else
   const partZero = put(root, 'heartbeat.json', Buffer.concat([Buffer.alloc(70000), Buffer.from('{}')]));   // zeros, then content
   const recent = put(root, 'board-alive.json', '', Date.now());      // a live writer's moment: left alone
   const personal = put(root, 'attachments/x/record.json', '');       // a person's folder: never scanned
+  const download = put(root, 'downloads/a.json', '');
+  const otherWorld = put(root, 'worlds/w1/projects/p/a.json', '');    // another Kosmos's project folder
+  const otherStore = put(root, 'worlds/w1/Kosmos/settings.json', Buffer.alloc(40));   // and its own data root
+  const deep = put(root, 'a/b/c/d/e.json', '');                      // past MAX_DEPTH
+  const target = put(root, 'linked-target.txt', '');
+  const link = path.join(root, 'link.json');
+  fs.symlinkSync(target, link);                                      // a symlink is never followed or moved
+  const linkedDir = freshRoot('linked-dir');
+  const inLinked = put(linkedDir, 'inside.json', '');
+  fs.symlinkSync(linkedDir, path.join(root, 'linkdir'));            // nor is a symlinked folder walked
   const notStore = put(root, 'victim.txt', Buffer.alloc(10));        // not a store
 
   const lines = [];
@@ -69,7 +79,7 @@ test('each torn shape is moved aside, logged once, and recorded; everything else
   assert.deepEqual(rec.moved.map((m) => m.rel).sort(), moved);
   assert.equal(torn.lastRun(), out);
 
-  for (const f of [good, damaged, emptyLog, partZero, recent, personal, notStore]) assert.equal(fs.existsSync(f), true, f + ' stays');
+  for (const f of [good, damaged, emptyLog, partZero, recent, personal, download, otherWorld, otherStore, deep, target, link, inLinked]) assert.equal(fs.existsSync(f), true, f + ' stays');
   assert.equal(fs.readFileSync(good, 'utf8'), '{"a":1}\n');
 
   // a second start finds nothing more and makes no folder
@@ -111,16 +121,18 @@ test('a real reader that failed closed on the torn store takes its default after
   assert.equal(pn.masterChoice(), 'unset', 'and the reader now takes its default');
 });
 
-/* Wiring: the board itself runs the check at start-up, before it serves. A real `node server.js` would start a
-   board, so this reads the source for the call, and runs the module the way the call does. */
-test('server.js runs the check at start-up, on the store root, inside the board-only block', () => {
+/* Wiring: the board runs the check once it holds its port, so a second launch that loses the port to a running board
+   (onError) never moves that board's files. A real `node server.js` would start a board, so this reads the source. */
+test('server.js runs the check on the store root, in onListening, only when it is the board', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const at = src.indexOf("require('./engine/tornstores').run(require('./engine/store').ROOT)");
-  assert.ok(at > 0, 'server.js calls tornstores.run on store.ROOT');
-  const block = src.lastIndexOf('if (require.main === module) {', at);
-  assert.ok(block > 0 && src.indexOf('logring.board.tap(process.stderr', block) < at, 'after the log stamp and ring, in the board-only block');
-  assert.ok(src.indexOf('\n}', block) > at, 'inside that block');
-  assert.ok(at < src.indexOf("require('./engine/slowspawn')"), 'before the other engine modules start');
+  const call = "require('./engine/tornstores').run(store.ROOT)";
+  assert.equal(src.split(call).length, 2, 'server.js calls tornstores.run on store.ROOT exactly once');
+  const at = src.indexOf(call);
+  const listening = src.lastIndexOf('const onListening = () => {', at);
+  const onError = src.lastIndexOf('const onError = (err) => {', at);
+  assert.ok(listening > 0 && onError > 0 && onError < listening, 'inside onListening, not onError');
+  const gate = src.lastIndexOf('if (require.main === module) {', at);
+  assert.ok(gate > listening, 'behind the board-only gate inside onListening');
 });
 
 /* A writer killed mid-save leaves the old file or the new one, never a torn one: store.saveFlushed (#5434) writes a
@@ -138,10 +150,13 @@ test('a kill during a flushed save leaves a whole file', { skip: process.platfor
     const f = ${JSON.stringify(f)};
     for (let n = 1; ; n++) store.saveFlushed(f, JSON.stringify({ n, pad: 'x'.repeat(20000 + (n % 997)) }));
   `;
+  let saved = 0;
   for (let i = 0; i < 5; i++) {
-    const r = spawnSync(process.execPath, ['-e', child], { timeout: 150 + i * 37, killSignal: 'SIGKILL' });
+    const r = spawnSync(process.execPath, ['-e', child], { timeout: 600 + i * 97, killSignal: 'SIGKILL' });
     assert.equal(r.signal, 'SIGKILL', 'the writer was killed mid-loop, not finished');
     const parsed = JSON.parse(fs.readFileSync(f, 'utf8'));
     assert.equal(typeof parsed.n, 'number');
+    if (parsed.n > 0) saved++;
   }
+  assert.ok(saved > 0, 'at least one round saved before its kill, so the kill landed while saves were happening');
 });

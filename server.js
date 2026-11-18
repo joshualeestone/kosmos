@@ -63,10 +63,6 @@ if (require.main === module) {
   const logring = require('./engine/logring');
   logring.board.tap(process.stdout, 'stdout');
   logring.board.tap(process.stderr, 'stderr');
-  /* #8718: before any module reads a store, a store a crash left empty or all zero bytes is moved aside into torn/,
-     one board.log line each, so it reads as absent and takes its default (engine/tornstores.js). After the log stamp,
-     so those lines carry a time. Never throws. */
-  try { require('./engine/tornstores').run(require('./engine/store').ROOT); } catch (e) { console.error('tornstores: not run: ' + (e && e.message)); }
 }
 /* #7693: after the log stamp and before the engine modules copy these functions: a blocking child process
    over a second writes its caller to board.log. See engine/slowspawn.js. Only when this file IS the board. */
@@ -29426,6 +29422,13 @@ function start(port = PORT) {
     };
     const onListening = () => {
       server.removeListener('error', onError);
+      /* #8718: a store a crash left empty or all zero bytes is moved aside into torn/, one board.log line each, so it
+         reads as absent and takes its default (engine/tornstores.js). HERE, after the bind, for the reason #1946 gives
+         below: a second launch that loses the port to a running board rejects in onError and never reaches this, so it
+         cannot move a file out from under the board that is serving. Only when this file IS the board. Never throws. */
+      if (require.main === module) {
+        try { require('./engine/tornstores').run(store.ROOT); } catch (e) { console.error('tornstores: not run: ' + (e && e.message)); }
+      }
       // #4230: an existing setup guide still wearing a retired bundled photo gets the current one.
       setImmediate(() => { try { setupAssistant.refreshGuideAvatar(); } catch { /* best-effort */ } });
       // #2528: the board reached `listening`, so the world it booted into serves --

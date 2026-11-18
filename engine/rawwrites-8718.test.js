@@ -4,8 +4,10 @@
  *
  * A raw fs.writeFileSync onto a store is the write a crash can leave empty or all zero bytes (#5431). #5434 moved about
  * 80 stores to a flushed temp-then-rename save (store.saveFlushed, securewrite.writeSecret). What was missing is a
- * guard that notices a NEW one, so the class cannot grow back. This counts the raw writeFileSync( calls in server.js and
- * each engine/*.js (tests aside) and compares each file to the number below.
+ * guard that notices a NEW one, so the class cannot grow back. This counts writeFileSync( outside comments in server.js
+ * and each engine/*.js (tests aside) and compares each file to the number below. It does not see fs.writeFile,
+ * fs.promises.writeFile, writeSync or a write stream, nor files outside engine/ and server.js: it is a ratchet on the
+ * one form the census of #5434 worked through, not a proof that no other raw write exists.
  *
  * A count that went UP: a new raw write. Save it with store.saveFlushed (or securewrite.writeSecret) instead. If it
  * truly must be raw (a pid file, a marker whose bytes do not matter, a temp that is flushed by hand before its rename),
@@ -13,7 +15,7 @@
  * A count that went DOWN: thank you; lower the number to match, so the ratchet holds there.
  *
  * Not every counted write is a hazard: many already write a temp and rename it, or write a file nobody parses. The
- * ratchet does not judge them one by one (141 calls in 79 files on 11-18); it stops the number growing unseen. The
+ * ratchet does not judge them one by one (135 in 79 files on 11-18); it stops the number growing unseen. The
  * start-up check (engine/tornstores.js) covers what a crash does to the ones still here.
  *
  *   node --test engine/rawwrites-8718.test.js
@@ -78,7 +80,7 @@ const BASELINE = {
   "engine/restoresink.js": 1,
   "engine/restoreworld.js": 5,
   "engine/runners.js": 8,
-  "engine/securewrite.js": 7,
+  "engine/securewrite.js": 1,
   "engine/sendertoken.js": 3,
   "engine/setup-assistant.js": 7,
   "engine/skills.js": 1,
@@ -108,11 +110,18 @@ const BASELINE = {
   "engine/you.js": 1,
 };
 
+/* The source with its comments taken out, so rewording a comment can neither trip the ratchet nor hide a real write
+   at the same count. Block comments, then line comments not preceded by a colon or a quote (a URL in a string keeps
+   its text). Crude by design and the same on every run, which is all a ratchet needs. */
+function codeOnly(text) {
+  return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:\\'"`])\/\/.*$/gm, "$1");
+}
+
 function census() {
   const files = ["server.js", ...fs.readdirSync(path.join(ROOT, "engine")).filter((f) => f.endsWith(".js") && !f.endsWith(".test.js")).map((f) => "engine/" + f)];
   const out = {};
   for (const f of files) {
-    const n = (fs.readFileSync(path.join(ROOT, f), "utf8").match(PATTERN) || []).length;
+    const n = (codeOnly(fs.readFileSync(path.join(ROOT, f), "utf8")).match(PATTERN) || []).length;
     if (n) out[f] = n;
   }
   return out;
@@ -134,5 +143,6 @@ test("no file gained a raw writeFileSync, and every fall is recorded", () => {
 
 test("control: the census sees a raw write when one is there", () => {
   assert.ok(census()["engine/activity.js"] >= 1, "engine/activity.js writes raw today; a census that cannot see it is blind");
-  assert.equal(("x fs.writeFileSync(a, b); fs.writeFileSync(c, d)".match(PATTERN) || []).length, 2);
+  assert.equal((codeOnly("x fs.writeFileSync(a, b); fs.writeFileSync(c, d)").match(PATTERN) || []).length, 2);
+  assert.equal((codeOnly("// fs.writeFileSync(a)\n/* fs.writeFileSync(b) */ fs.writeFileSync(c) // writeFileSync(d)").match(PATTERN) || []).length, 1, "comments are not counted");
 });

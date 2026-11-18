@@ -4,10 +4,10 @@
 A store a crash left empty or all zero bytes must not hold a feature off. A new raw in-place store write must not slip in unseen.
 
 ## Decided (on the card, comment 6994673956)
-- A start-up check in the board (engine/tornstores.js, called from server.js in the board-only block, after the log stamp, before other engine modules start) scans the data root for torn stores: `.json` empty or all zero bytes, `.jsonl` all zero bytes. Each moves into `torn/<time>/<same path>`, one board.log line each, a `reset.json` record. Nothing deleted.
-- Left alone: damaged-but-real content (keeps failing closed), files changed in the last 5 s (a live writer), symlinks, files over 8 MiB, top-level folders a person fills (attachments, downloads, filepreview) and bin/runtime/torn.
+- A start-up check in the board (engine/tornstores.js, called from server.js in onListening, after the bind (a second launch that loses the port never scans), only when server.js is the board) scans the data root for torn stores: `.json` empty or all zero bytes, `.jsonl` all zero bytes. Each moves into `torn/<time>/<same path>`, one board.log line each, a `reset.json` record. Nothing deleted.
+- Left alone: damaged-but-real content (keeps failing closed), files changed in the last 5 s (a live writer), symlinks, files over 8 MiB, top-level folders a person fills (attachments, downloads, filepreview), worlds/ (other Kosmoses' data roots and their people's project and agent folders), bin/runtime/torn, anything deeper than 3 folders.
 - Key and token paths are named louder in the log line; nothing regenerates them here.
-- A ratchet test (engine/rawwrites-8718.test.js) on the per-file count of raw `writeFileSync(` in server.js and engine/*.js: exact match to a baseline (141 calls, 79 files on 11-18).
+- A ratchet test (engine/rawwrites-8718.test.js) on the per-file count of raw `writeFileSync(` in server.js and engine/*.js: outside comments, exact match to a baseline (135 in 79 files on 11-18); it sees only that one form.
 
 ## Rejected
 - Editing each of ~273 readers that fail closed.
@@ -23,3 +23,11 @@ That a store's absent default is safe. A person's "off" zeroed by a crash comes 
 - engine/rawwrites-8718.test.js: ratchet + control.
 - Mutations run: no-zeros, no-skip-dirs, no-recent, no-wiring each red; ratchet red on an added raw write.
 - tools/windows-tests.js ALSO gains the test (windows-tests-1777 guard).
+
+## Review round 1 (opus): fixed
+- BLOCKER worlds/ walked on the default world: added to SKIP_DIRS, MAX_DEPTH 6 -> 3 (measured real depth), test arms for worlds/ projects and data root.
+- WARNING a second launch scanned before losing the bind: moved into onListening.
+- WARNING census counted comments: comments stripped, rebaselined, control for comments.
+- WARNING kill test could pass with no save: asserts at least one round saved, longer timeouts.
+- NITs: dead symlink line removed (dirent never isFile for a link), symlinked file and folder arms, MAX_ENTRIES counts every entry and the walk stops at the cap, token wording now names only what the path says.
+- Known limit: a module that read a torn store BEFORE the bind keeps that reading until it reads again; most read per call.
