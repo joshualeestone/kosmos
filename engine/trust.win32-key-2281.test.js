@@ -230,9 +230,13 @@ test('#8322 the first write of a key is kept, a new key replaces it, and a line 
   fs.writeFileSync(cfg, JSON.stringify({ projects: { [fwd(f.short)]: { hasTrustDialogAccepted: true } } }));
   assert.deepEqual(trust.forgetAlso({ key: fwd(f.short), madeEntry: true, forgettable: false }), { ok: true, already: true }, 'not ours to take back');
   assert.deepEqual(readCfg(cfg).projects, { [fwd(f.short)]: { hasTrustDialogAccepted: true } }, 'and a line it could have taken is still there');
-  assert.deepEqual(trust.forgetAlso({ key: fwd(f.short), madeEntry: true }, nodePath.join(f.cfgDir, 'another.claude.json')), { ok: true, already: true },
-    'recorded against another config file than this process edits: left');
-  assert.deepEqual(readCfg(cfg).projects, { [fwd(f.short)]: { hasTrustDialogAccepted: true } }, 'still there');
+  const other = nodePath.join(f.cfgDir, 'another.claude.json');
+  fs.writeFileSync(other, JSON.stringify({ projects: { [fwd(f.short)]: { hasTrustDialogAccepted: true }, keep: { a: 1 } } }));
+  assert.deepEqual(trust.forgetAlso({ key: fwd(f.short), madeEntry: true }, other), { ok: true, already: false },
+    'recorded against another config file than this process\'s CONFIG(): the take-back edits the recorded file');
+  assert.deepEqual(readCfg(other).projects, { keep: { a: 1 } }, 'the line is gone from the file the record names, the rest kept');
+  assert.deepEqual(readCfg(cfg).projects, { [fwd(f.short)]: { hasTrustDialogAccepted: true } }, 'and this process\'s CONFIG() is untouched');
+  assert.deepEqual(trust.forgetAlso({ key: fwd(f.short), madeEntry: true }, 'relative.json'), { ok: true, already: true }, 'a recorded file that is not absolute is left');
   assert.deepEqual(trust.forgetAlso({ key: fwd(f.short), madeEntry: true }, cfg), { ok: true, already: false }, 'CONTROL: the same call against this file takes it');
   fs.rmSync(cfg);
   assert.deepEqual(trust.forgetAlso({ key: fwd(f.short), madeEntry: true }), { ok: true, already: true }, 'no config at all: nothing of ours, never a red step forever');

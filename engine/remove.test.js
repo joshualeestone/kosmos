@@ -2585,6 +2585,37 @@ test('kosmos#8322 a removal takes back the recorded second key, and only then dr
   assert.equal(trust.recordedAlsoWrite(name), null, 'the record outlived the line it described');
 });
 
+test('kosmos#8322 a second key recorded against ANOTHER config file (the launch task\'s) is taken back there, never in the board\'s', () => {
+  /* On Windows the record is written by the agent's own task, whose CONFIG() can be another file than the board's (a
+     board that inherited CLAUDE_CONFIG_DIR). The removal edits the file the record names. */
+  seedClaudeConfig();
+  const name = madeAgent('trusted-also-file');
+  trust.dropRecord(name);
+  const other = nodePath.join(nodePath.dirname(CLAUDE_CONFIG), 'task-own.claude.json');
+  fs.writeFileSync(other, JSON.stringify({ projects: { [alsoKey(name)]: { [trust.KEY]: true } } }));
+  const board = JSON.parse(fs.readFileSync(CLAUDE_CONFIG, 'utf8'));
+  board.projects[alsoKey(name)] = { [trust.KEY]: true };   // a same-spelled line in the board's file: not ours
+  fs.writeFileSync(CLAUDE_CONFIG, JSON.stringify(board));
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = other;   // the task's view, while it records
+  try {
+    trust.dropAlsoRecord(name);
+    assert.equal(trust.recordAlsoWrite(name, { ok: true, already: true, also: { key: alsoKey(name), madeEntry: true, forgettable: true } }), true);
+  } finally { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prev; }
+  assert.equal(trust.recordedAlsoWrite(name).config, other);
+  boardShows(name, name);
+  world();
+  remove.setDryRun(false);
+  const r = mac.remove(name);
+  assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
+  assert.ok(r.steps.some((s) => s.label === 'took back the folder trust for its short path' && s.ok === true));
+  assert.equal(alsoKey(name) in JSON.parse(fs.readFileSync(other, 'utf8')).projects, false, 'the line in the recorded file outlived its removal');
+  assert.equal(JSON.parse(fs.readFileSync(CLAUDE_CONFIG, 'utf8')).projects[alsoKey(name)][trust.KEY], true,
+    'the same-spelled line in the board\'s own config was taken: that file was never written by this launch');
+  assert.equal(trust.recordedAlsoWrite(name), null);
+  fs.rmSync(other, { force: true });
+});
+
 test('kosmos#8322 a dry-run removal leaves the second key AND its record exactly as found; no record, no step', () => {
   seedClaudeConfig();
   const name = madeAgent('trusted-also-dry');

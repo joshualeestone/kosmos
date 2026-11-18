@@ -617,21 +617,25 @@ function forgetFolder(dir, displaced, madeEntry, also) {
    or an earlier write this caller did not make. Same lock, file, guards and answer shape as forgetFolder; anything
    ownedAlso refuses (another account's config, a malformed entry) is "nothing of ours", ok and already.
    `config`: the file the record was made against (CONFIG() in the process that launched, which on Windows is the
-   agent's own task, not the board). When this process's CONFIG() is another file, the line is not in the file this
-   would edit, and a same-spelled key there could be another account's or the person's: left, ok and already. */
+   agent's own task, not the board, and the two can differ: a board that inherited CLAUDE_CONFIG_DIR). The take-back
+   edits THAT file, under its own lock: the record proves Kosmos wrote this key there, and the still-says-yes and
+   displaced guards cover a value changed since. Editing this process's CONFIG() instead would either miss the line
+   (and a removal would drop the record over a line still there) or reach a same-spelled key that is someone else's.
+   Absent (a failed start's own answer, same process), it is CONFIG(); anything else not an absolute path is left. */
 function forgetAlso(also, config) {
   const owned = ownedAlso(also);
   if (!owned) return { ok: true, already: true };
-  if (config !== undefined && (typeof config !== 'string' || !sameFile(config, CONFIG()))) return { ok: true, already: true };
-  const r = withWriteLock(CONFIG(), () => forgetFolderInner(owned.key, undefined, false, owned, true));
+  if (config !== undefined && (typeof config !== 'string' || !path.isAbsolute(config))) return { ok: true, already: true };
+  const file = config === undefined ? CONFIG() : config;
+  const r = withWriteLock(file, () => forgetFolderInner(owned.key, undefined, false, owned, true, file));
   return r.ok ? r.value : { ok: false, because: r.because };
 }
 
 /* kosmos#4260: `also` is trustFolder's (or the record's) `{ key, displaced?, madeEntry }` for the second key it wrote,
    taken back in the same save and under the same guards. Anything not shaped like one is ignored, so a record from
    before this change (none) or a damaged one undoes the main key exactly as before. */
-function forgetFolderInner(dir, displaced, madeEntry, also, alsoOnly) {
-  const target = CONFIG();
+function forgetFolderInner(dir, displaced, madeEntry, also, alsoOnly, file) {
+  const target = file || CONFIG();   // kosmos#8322: forgetAlso hands over the file its record names
   if (!dir || !path.isAbsolute(dir)) return { ok: false, because: 'that is not an absolute folder path' };
 
   // ⚠️ NOT realpath, because THE CALLER HANDS BACK THE KEY `trustFolder`
@@ -887,7 +891,9 @@ function recordedAlsoWrite(name) {
   const data = readAlsoRecord();
   if (data === null) return null;
   const e = data[String(name)];
-  return e && typeof e === 'object' && ownedAlso(e.also) ? e : null;
+  /* A record names the file it was made against; one that does not (damaged, hand-edited) answers null, the line
+     stays: an undo of an unknown file never falls back to whatever this process's CONFIG() is. */
+  return e && typeof e === 'object' && ownedAlso(e.also) && typeof e.config === 'string' && path.isAbsolute(e.config) ? e : null;
 }
 function dropAlsoRecord(name) {
   try { fs.mkdirSync(path.dirname(ALSO_RECORD()), { recursive: true }); } catch { /* nothing to drop */ }

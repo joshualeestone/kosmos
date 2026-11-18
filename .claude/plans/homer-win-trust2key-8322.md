@@ -18,3 +18,8 @@ Deferred to the card:
 - W2: after a rollback to an engine older than this, a removal there leaves the also-record and a recreate there does not drop it; rolling forward and removing could then take back a line that is no longer ours. Needs an incarnation marker (birth id) on the entry.
 - W4: the other trustFolder callers (create.js trust-and-restart sweep, setAccount; worldstarts.js) can still write a second key and record nothing. Same leftover as before this change, inert.
 - N3: first-write-kept erases a later false (inert); dropAlsoRecord drops by name, not key; a re-aliased subst letter.
+
+## Review round 2 (blind, 0 BLOCKER, 1 WARNING, 2 NIT): all fixed
+- W-a: forgetAlso now edits the file the record names (the launch task's CONFIG()), under that file's lock, never the board's CONFIG(); a mismatch used to report ok and drop the record over a line still there.
+- N-a: a record entry with no absolute `config` reads as null (the line stays).
+- N-b: remove.test.js arm with the record against another file; mutation-checked (taking back in the board's CONFIG() fails it).
