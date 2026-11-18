@@ -123,7 +123,8 @@ function stubScheduler(dir) {
   const run = (args) => {
     const a = Array.isArray(args) ? args.map(String) : [];
     /* A watcher sees each call before the stand-in answers it, and may answer it itself (a refusal the test needs,
-       such as an /End that fails); one that returns nothing leaves the call to the stand-in. */
+       such as an /End that fails) with { ok, out } and an optional code; one that returns nothing leaves the call to
+       the stand-in. */
     for (const w of [...watchers]) {
       const said = w(a.slice());
       if (said && typeof said === 'object') return { ok: Boolean(said.ok), code: said.code, out: String(said.out || '') };
@@ -292,7 +293,7 @@ function win32Task(name, worldId) {
 
 /** kosmos#8456: watch the stand-in Task Scheduler. `fn(args)` sees every schtasks call (its arguments, `/Run`, `/TN`,
     the task name...) before the stand-in answers it, whether win32job made it through its own runner or a test passed it
-    on with win32Step. Returning `{ ok, out }` (and `code`, kept as given; win32Step reads a missing one as 1) answers the call instead of the stand-in (`{ ok: false, out: 'ERROR: Access
+    on with win32Step. Returning `{ ok, out }` (and `code`, kept as given, so a refusal's should be non-zero; win32Step reads a missing one as 1) answers the call instead of the stand-in (`{ ok: false, out: 'ERROR: Access
     is denied.' }` for an /End that fails, say); returning nothing leaves it to the stand-in. Reading a file from inside
     `fn` reads it at the moment of the call, which is how a test proves something was written BEFORE an agent was started.
     Returns the function that stops watching: call it in the test's finally, since watchers outlive a fresh jobPath. */

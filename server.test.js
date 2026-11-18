@@ -4812,7 +4812,7 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
     assert.equal(body.steps, undefined,
       'the route is back to reciting launchd steps at a person who does not want them');
     for (const s of acted.steps) {
-      assert.doesNotMatch(String(body.question) + String(body.reassurance), new RegExp(s.label),
+      assert.doesNotMatch(String(body.question) + String(body.reassurance), new RegExp(s.label, "i"),
         'the confirmation recites what the removal will do, which Josh cut for describing our implementation');
     }
 
@@ -4913,8 +4913,9 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
       for (const want of ['closed its window', 'took it off the board']) {
         assert.ok(realLabels.includes(want), `the real removal has no "${want}" step, so the check below cannot see it recited: ${realLabels.join(' | ')}`);
       }
+      const asked8508 = (String(body.question) + ' ' + String(body.reassurance)).toLowerCase();
       for (const label of realLabels) {
-        assert.ok(!(String(body.question) + String(body.reassurance)).includes(label),
+        assert.ok(!asked8508.includes(label.toLowerCase()),
           `the confirmation recites "${label}", a step of the removal, which Josh cut for describing our implementation`);
       }
       if (procs) assertWin32AgentGone(procs, 'route-removable');
