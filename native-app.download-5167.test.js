@@ -127,7 +127,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 71[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 72[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -352,8 +352,11 @@ test('kosmos#7952 review 1: only a download the board page itself asked for is m
   const fail = SRC.slice(SRC.indexOf('@objc(download:didFailWithError:resumeData:)'));
   assert.ok(fail.indexOf('} else if downloadsRestarted.contains(download) {') < fail.indexOf('downloadRefusedByMacOS(error)'),
     'a restarted download that fails is asked about again, as if it were Downloads');
-  assert.match(SRC, /\} else if let dest, downloadRefusedByMacOS\(error\), let request = download\.originalRequest, let webView = download\.webView,\n\s+\(request\.httpMethod \?\? "GET"\) == "GET", begunOn == nil \|\| begunOn == pageCommits \{/,
-    'the restart is no longer limited to a GET of a download that was already given a Downloads path, on the page it began on');
+  assert.match(SRC, /\} else if let dest, downloadRefusedByMacOS\(error\), let request = download\.originalRequest, let webView = download\.webView,\n\s+\(request\.httpMethod \?\? "GET"\) == "GET", begunOn == pageCommits, downloadsFromMainFrame\.contains\(download\) \{/,
+    'the restart is no longer limited to a GET the page\'s main frame began, already given a Downloads path, on the page it began on');
+  // Review 3: the restart is not one of kosmos#7952's marked starts, whose set changes how the answer is judged.
+  assert.doesNotMatch(SRC.slice(SRC.indexOf('private func offerSaveElsewhere('), SRC.indexOf('@objc(download:didFailWithError:resumeData:)')),
+    /downloadsStartedHere\.add/, 'the restart joins downloadsStartedHere, so its answer is judged as a marked start\'s');
   const start = branch.indexOf('startDownload(using: request)');
   const mark = branch.indexOf('sameOriginDownloadRequest(asked)');
   assert.ok(start > guard && mark > guard, 'the request is marked or started before the page check');
