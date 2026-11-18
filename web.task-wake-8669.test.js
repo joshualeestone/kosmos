@@ -51,4 +51,6 @@ test('#8669: the task page has a place for the line, painted from the same sente
   assert.match(SCRIPT, /getElementById\('tk-wake-line'\)[^\n]*tskWakeSentence\(t\)/);
   assert.equal(sentence({ wakeWords: 'waits until today at 3pm' }), 'Waits until today at 3pm.');
   assert.equal(sentence({}), '');
+  assert.equal(sentence({ wakeWords: 'waits until today at 3pm', wakeNobody: true }), 'Waits until today at 3pm. Nobody holds this task, so nobody will be told until someone does.');
+  assert.equal(sentence({ wakeMetWords: 'the wake time came', wakeNobody: true }), 'Woke: the wake time came. Nobody holds this task, so nobody has been told.');
 });

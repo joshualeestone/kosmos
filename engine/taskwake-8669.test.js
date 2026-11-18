@@ -456,3 +456,17 @@ test('#8669: one tick fingerprints at most HASH_PER_TICK files; the rest are loo
   assert.equal(done.filter((x) => x.act === 'met').length, 2, 'the two left over are looked at on the next tick, not a minute later');
   assert.ok(nums.every((n) => stored(p.id, n).wakeMet), 'all six woke');
 });
+
+test('#8669: a wake nobody can be told about says so', () => {
+  const p = setupProject('Nobody holds', ['ann']);
+  const t = tasks.create(p.id, { sentence: 'Unheld' });
+  tasks.setWake(p.id, t.number, { kind: 'at', at: Date.now() + 3600e3 }, { person: true });
+  assert.equal(taskwake.fieldsOf(stored(p.id, t.number)).wakeNobody, true);
+  // CONTROLS: a held task, and one an agent set, have someone to tell.
+  const h = tasks.create(p.id, { sentence: 'Held', who: 'ann' });
+  tasks.setWake(p.id, h.number, { kind: 'at', at: Date.now() + 3600e3 }, { person: true });
+  assert.equal(taskwake.fieldsOf(stored(p.id, h.number)).wakeNobody, undefined);
+  const a = tasks.create(p.id, { sentence: 'Set by an agent' });
+  tasks.setWake(p.id, a.number, { kind: 'at', at: Date.now() + 3600e3 }, { by: 'ann' });
+  assert.equal(taskwake.fieldsOf(stored(p.id, a.number)).wakeNobody, undefined);
+});

@@ -149,7 +149,7 @@ const USAGE = {
     '      --unchanged                                              it found nothing new (the task\'s page rolls such runs up)',
     '      --value "<reading>"                                      what it found, checked against what the person was last told',
     '  kosmos task told <project-id> <task-number> [--value "<what you said>"]  record what you just told the person (default: the last --value)',
-    '  kosmos task wake <project-id> <task-number> --pr <owner/name#123>  tell you once when it merges (also --branch owner/name:main, --file <path>, --at 2h|HH:MM; --clear)',
+    '  kosmos task wake <project-id> <task-number> --pr <owner/name#123>  tell you once when it merges or closes (also --branch owner/name:main, --file <path>, --at 2h|HH:MM; --clear)',
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
@@ -2329,7 +2329,7 @@ async function taskWake(ctx, args) {
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; check the task (kosmos task show ' + project + ' ' + num + ') before doing it again.') : ctx.unreachable('change that task');
   if (r.json && r.json.task) {
     ctx.out(clear ? (r.json.changed === false ? 'Task ' + num + ' on ' + project + ' was not waiting for anything.' : 'Task ' + num + ' on ' + project + ' no longer waits for anything.')
-      : 'Task ' + num + ' on ' + project + ' now ' + (r.json.words || 'waits for that') + '. Kosmos looks once a minute and tells its holder once when it happens.');
+      : 'Task ' + num + ' on ' + project + ' now ' + (r.json.words || 'waits for that') + '. Kosmos tells its holder once when it happens.');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }
