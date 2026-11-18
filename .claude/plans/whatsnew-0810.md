@@ -22,7 +22,7 @@ Pool PR before the 0.8.10 staging cut (11-18, #1050). Data only: `release/whats-
 | 8fde6a5aff, ab0c2a540c | #8686/#8685: the #8640 folder check on Windows (windows) | 130 |
 
 ## No line
-#8632, #8679 (iPhone app, not in this build); #8055 (iPhone warm return); #8680 (agents' instructions name task edit, covered by the notes line); #8681 (a test's Ctrl+C timing); #8659 (Windows Codex upgrade's last-look deadline, internal); #8672, #8694 (test pins, browser-check board); plan/proof commits.
+#8632, #8679 (iPhone app, not in this build); #8055 (iPhone warm return); #8680 (agents' instructions name task edit, covered by the notes line); #8681 (a test's Ctrl+C timing); #8659 (Windows Codex upgrade's last-look deadline: a slow box's upgrade now lands, but it completes the 0.8.09 GPT-6 line's promise rather than adding one, so no line of its own); #8672, #8694 (test pins, browser-check board); plan/proof commits.
 
 ## Decided
 - The wake line says "An agent can set": slice 1 has no page control to set one (plan taskwake-8669, Not in slice 1); the person sees it on the Tasks row and the task page.
@@ -41,3 +41,7 @@ A person-facing merge since 7c2d1f1376 missing from these tables, or a reviewer 
 - WARNING fixed: the Windows leftover line said "works from" the folder, which reads as the working folder, the one case #8686 does not cover; now "runs from the agent's folder or names it".
 - NIT fixed: the #8668 notes line says the task page shows both ends of a move.
 - NIT fixed: the weakest premise names the no-holder case.
+### Review 2 (sonnet): 1 WARNING fixed, 3 NITs (1 fixed, 2 left)
+- WARNING fixed: the edit line said the activity records what changed; for a detail it records only that it changed (engine/taskactphrase.js). Now: who changed it, with the old and new title.
+- NIT fixed: the plan says why #8659 has no line.
+- NITs left: the wake title says "a merge" though a PR closed unmerged also wakes (the line says "a pull request"); the no-model line simplifies where the link shows (the condition is named).
