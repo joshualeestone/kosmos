@@ -113,27 +113,37 @@ test('CI has both PowerShells to test with', { skip: process.platform !== 'win32
 if (!RUNTIMES.length) test('Invoke-ChildBounded', { skip: 'pwsh is not installed here, so it did not run on this computer' }, () => {});
 
 // A real Ctrl+C reaches a console, not a signal, so this arm is off Windows; the waits it pins are the same code.
+// #8681: "held off" means pwsh acts on Ctrl+C only when the node limit runs out, so the limit is set far above the time
+// allowed to stop (CTRLC_LIMIT_S against STOP_ALLOWED_MS). A fixed 15 s against a 40 s limit was tuned on an idle Mac
+// and went red three times on 11-17 under load (15.9 s to stop); the gap between the two numbers is what proves the
+// point, not how fast a busy Mac stops pwsh.
+const CTRLC_LIMIT_S = 600;
+const STOP_ALLOWED_MS = 120000;
+const START_ALLOWED_MS = 120000;   // a pwsh start alone took 17 s on CI's loaded Mac (#7998)
 test('Ctrl+C is not held off by the limit, and takes node with it', { skip: process.platform === 'win32' || !RUNTIMES.includes('pwsh') }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-7951-'));
   try {
     const harness = path.join(dir, 'int.ps1');
     const pidFile = path.join(dir, 'node.pid');
     fs.writeFileSync(harness, HARNESS.slice(0, HARNESS.indexOf('$res = @{}')) + String.raw`
-$NodeTimeoutSec = 40
+$NodeTimeoutSec = ${CTRLC_LIMIT_S}
 [void] (Invoke-ChildBounded $node @('-e', "require('fs').writeFileSync(process.argv[1],String(process.pid));setInterval(()=>{},1000)", $args[2]))
 `);
     const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', harness, SCRIPT, process.execPath, pidFile], { env: PS_ENV, stdio: 'ignore' });
     const gone = new Promise((resolve) => child.on('exit', resolve));
-    const until = Date.now() + 20000;
+    const until = Date.now() + START_ALLOWED_MS;
     while (!fs.existsSync(pidFile) && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
     assert.ok(fs.existsSync(pidFile), 'node never started');
     await new Promise((r) => setTimeout(r, 300));
     const sent = Date.now();
     child.kill('SIGINT');
-    const timer = setTimeout(() => child.kill('SIGKILL'), 25000);
+    let killed = false;
+    const timer = setTimeout(() => { killed = true; child.kill('SIGKILL'); }, STOP_ALLOWED_MS);
     await gone;
     clearTimeout(timer);
-    assert.ok(Date.now() - sent < 15000, `pwsh took ${Date.now() - sent} ms to stop after SIGINT, under a 40 s limit`);
+    const took = Date.now() - sent;
+    assert.ok(!killed && took < STOP_ALLOWED_MS, `pwsh took ${took} ms to stop after SIGINT (allowed ${STOP_ALLOWED_MS} ms, under a ${CTRLC_LIMIT_S} s limit)${killed ? ': it was still running and was killed, so Ctrl+C was held off' : ''}`);
+    console.log(`MEASURED: pwsh stopped ${took} ms after SIGINT (limit ${CTRLC_LIMIT_S} s)`);
     const nodePid = Number(fs.readFileSync(pidFile, 'utf8'));
     await new Promise((r) => setTimeout(r, 300));
     assert.throws(() => process.kill(nodePid, 0), /ESRCH/, 'the node it started is gone');
