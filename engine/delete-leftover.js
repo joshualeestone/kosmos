@@ -452,11 +452,6 @@ function realCaseName(asked, platform) {
   } catch { return asked; }
 }
 
-/**
- * What deleting would do, in the engine's words. `ok: false` with a `because`
- * when it must not be offered. The confirmation paints THESE words, never its
- * own, so the description of the act cannot drift from the act.
- */
 /* kosmos#8685: the agent's own session in a roster read (status.paneLook), by its session name or by its claim (this
    world's launch key: `name`, or `name+world` in a named world), case-blind where the disk is. { live, byClaim }, live
    null when neither is there. One rule for plan() and for planAsync's question "is it running, so no listing is needed". */
@@ -471,6 +466,11 @@ function liveIn(look, clean, platform) {
   return c ? { live: { session: c.session, sessionName: c.session }, byClaim: true } : { live: null, byClaim: false };
 }
 
+/**
+ * What deleting would do, in the engine's words. `ok: false` with a `because`
+ * when it must not be offered. The confirmation paints THESE words, never its
+ * own, so the description of the act cannot drift from the act.
+ */
 function plan(name, opts) {
   const now = (opts && opts.now) || Date.now();
   /* ⚠️ INJECTED, NOT READ (#570). This module decides whether a NAME IS FREE,
@@ -1832,9 +1832,9 @@ async function foldersOffThread(fresh = false) {
     not there, and should one appear before the real plan, it reads the listing itself rather than trust an unread one).
     A check of the folder only, not a plan: a second plan would read the roster a second time (kosmos#7835). The delete
     reads for a living agent too (one shared off-thread read), since only its plan decides; the page skips this for an
-    agent its own roster read shows running (planAsync, #8685). The
-    folder test is WINDOWS ONLY, the same condition as plan()'s: on a Mac or Linux the listing is always handed in, as
-    before, so plan() never reads tmux on the board's thread (kosmos#8644 item 1). */
+    agent its own roster read shows running (planAsync, #8685). The folder test is WINDOWS ONLY, the same condition as
+    plan()'s: on a Mac or Linux the listing is always handed in, as before, so plan() never reads tmux on the board's
+    thread (kosmos#8644 item 1). */
 async function foldersIfNeeded(name, opts, fresh = false) {
   let there = true;
   const win = ((opts && opts.platform) || process.platform) === 'win32';
