@@ -17,6 +17,12 @@ const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-task-wake-'));
 const HERE = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-task-wake-cwd-'));
 test.after(() => { for (const d of [DATA, HERE]) fs.rmSync(d, { recursive: true, force: true }); });
 const AGENT = 'cd'.repeat(16);
+/* A Kosmos home whose bundled node is this test's own, so the Mac CLI's node-printed answers (task list, a reply's
+   words read as JSON) run as installed (as cli.agent-token-verbs-4491.test.js makes one). */
+const NODE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-task-wake-home-'));
+fs.mkdirSync(path.join(NODE_HOME, 'runtime', 'bin'), { recursive: true });
+fs.symlinkSync(process.execPath, path.join(NODE_HOME, 'runtime', 'bin', 'node'));
+test.after(() => fs.rmSync(NODE_HOME, { recursive: true, force: true }));
 
 function runCli(args, env, cwd) {
   return new Promise((resolve, reject) => {
@@ -145,9 +151,37 @@ test('#8669 Windows CLI: the same fields and refusals, and a relative file sent 
 
 test('#8669 Mac CLI: words holding a quote are said whole', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(() => [200, { task: { number: 3 }, changed: true, words: 'waits for say "hi".md to change' }], async (env) => {
-    const r = await runCli(['task', 'wake', 'p1', '3', '--file', '/tmp/x.md'], env);
+    const r = await runCli(['task', 'wake', 'p1', '3', '--file', '/tmp/x.md'], { ...env, KOSMOS_HOME: NODE_HOME });
     assert.equal(r.code, 0, r.stdout + r.stderr);
-    // With the bundled node the words are read as JSON; a bare checkout has none and falls back to the plain form.
-    assert.match(r.stdout + r.stderr, /Task 3 on p1 now (waits for say "hi"\.md to change|waits for that)\./);
+    assert.match(r.stdout + r.stderr, /Task 3 on p1 now waits for say "hi"\.md to change\./, 'read as JSON with the bundled node');
+    // A bare checkout has no bundled node: the plain form is used, which cannot hold the quote, so it says less.
+    const bare = await runCli(['task', 'wake', 'p1', '3', '--file', '/tmp/x.md'], env);
+    assert.match(bare.stdout + bare.stderr, /Task 3 on p1 now (waits for that|waits for say "hi"\.md to change)\./);
     assert.doesNotMatch(r.stdout + r.stderr, /\\"/, 'never the raw escape');
   }));
+
+/* The list line says what a task waits for, and that it woke only until its holder has been told. */
+const LIST = { tasks: [
+  { number: 1, sentence: 'Waiting one', whoNames: ['ada'], wakeWords: 'waits for PR #12 in octo/hello to merge' },
+  { number: 2, sentence: 'Woke, not told', whoNames: ['ada'], wakeMetWords: 'PR #13 in octo/hello: it was merged' },
+  { number: 3, sentence: 'Woke and told', whoNames: ['ada'], wakeMetWords: 'PR #14 in octo/hello: it was merged', wakeToldAt: '2026-11-17T10:00:00Z' },
+  { number: 4, sentence: 'Odd [name]', whoNames: ['ada'], wakeWords: 'waits for a] [done.md to change' },
+], count: 4 };
+const lineOf = (text, n) => text.split('\n').find((l) => l.startsWith('[' + n + '] ')) || '';
+test('#8669 Mac CLI: task list shows the wake, and the woke mark only until the holder is told', { skip: SKIP_POSIX_SHELL }, () =>
+  withBoard(() => [200, LIST], async (env) => {
+    const r = await runCli(['task', 'list', 'p1'], { ...env, KOSMOS_HOME: NODE_HOME });
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    assert.match(lineOf(r.stdout, 1), /\[waits for PR #12 in octo\/hello to merge\]$/);
+    assert.match(lineOf(r.stdout, 2), /\[woke: PR #13 in octo\/hello: it was merged\]$/);
+    assert.doesNotMatch(lineOf(r.stdout, 3), /woke|waits/, 'told: no mark any more');
+    assert.match(lineOf(r.stdout, 4), /\[waits for a done\.md to change\]$/, 'a name\'s own brackets are dropped');
+  }));
+test('#8669 Windows CLI: task list says the same', async () => {
+  const r = await runWin(['task', 'list', 'p1'], () => ({ body: JSON.stringify(LIST) }));
+  assert.equal(r.code, 0, r.err);
+  assert.match(lineOf(r.out, 1), /\[waits for PR #12 in octo\/hello to merge\]$/);
+  assert.match(lineOf(r.out, 2), /\[woke: PR #13 in octo\/hello: it was merged\]$/);
+  assert.doesNotMatch(lineOf(r.out, 3), /woke|waits/);
+  assert.match(lineOf(r.out, 4), /\[waits for a done\.md to change\]$/);
+});

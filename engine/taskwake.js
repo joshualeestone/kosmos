@@ -33,9 +33,9 @@ const DAY_MS = 24 * HOUR_MS;
 /* How often one task's condition is looked at. Under a minute so the done-when ("within a minute of the merge") holds
    for an idle holder, with the tick itself once a minute. */
 const CHECK_EVERY_MS = 55 * 1000;
-/* GitHub reads one tick may start, across the board, oldest-checked first. 20 a minute is 1200 an hour, a quarter of
-   GitHub's hourly limit for a signed-in user, so a board with many watched pull requests checks each less often
-   rather than spending the person's whole allowance. */
+/* Wakes one tick may look at on GitHub, across the board, oldest-checked first: one read each, two for a branch that
+   has gone (its repository is asked too). So a board with more than this many watched pull requests and branches
+   looks at each less often than once a minute, rather than spending the person's GitHub allowance. */
 const NET_PER_TICK = 20;
 const NET_AT_ONCE = 4;
 /* A file bigger than this is never fingerprinted: its size or modified time changing is the change. The hash runs on the
@@ -213,20 +213,21 @@ function readFile(p, deps = {}) {
   return { print, size: st.size, mtimeMs: st.mtimeMs };
 }
 
-/* Is `p` a path the board may watch: after following links, inside the home folder, in no folder whose name starts
-   with a dot, and not under ~/Library. `deps.home` and `deps.fs` are test seams. */
+/* The real path of `p` (links followed) when the board may watch it: inside the home folder, in no folder whose name
+   starts with a dot, and not under ~/Library. null otherwise. The caller reads the path this returns, so a link swapped
+   after the check cannot point the read elsewhere. `deps.home` and `deps.fs` are test seams. */
 function fileAllowed(p, deps = {}) {
   const fs = deps.fs || require('node:fs');
   const nodePath = require('node:path');
   let home;
   let real;
-  try { home = fs.realpathSync ? fs.realpathSync(deps.home || require('node:os').homedir()) : (deps.home || require('node:os').homedir()); } catch { return false; }
-  try { real = fs.realpathSync ? fs.realpathSync(p) : p; } catch { return false; }
+  try { home = fs.realpathSync ? fs.realpathSync(deps.home || require('node:os').homedir()) : (deps.home || require('node:os').homedir()); } catch { return null; }
+  try { real = fs.realpathSync ? fs.realpathSync(p) : p; } catch { return null; }
   const rel = nodePath.relative(home, real);
-  if (!rel || rel.startsWith('..') || nodePath.isAbsolute(rel)) return false;
+  if (!rel || rel.startsWith('..') || nodePath.isAbsolute(rel)) return null;
   const parts = rel.split(nodePath.sep);
-  if (parts[0] === 'Library') return false;
-  return !parts.some((x) => x.startsWith('.'));
+  if (parts[0] === 'Library') return null;
+  return parts.some((x) => x.startsWith('.')) ? null : real;
 }
 
 /**
@@ -268,8 +269,9 @@ async function prepare(ask, deps = {}) {
          outside hidden folders and Library. Every other answer is the same sentence, so a refusal does not say whether
          some other path exists. */
       const cannot = { problem: 'Kosmos can watch an ordinary file in your home folder, outside hidden folders and Library; it cannot watch that one' };
-      if (!fileAllowed(p, deps)) return cannot;
-      const r = readFile(p, deps);
+      const real = fileAllowed(p, deps);
+      if (!real) return cannot;
+      const r = readFile(real, deps);
       if (r.missing || r.problem) return cannot;
       return { wake: { kind: 'file', path: p, name: baseName(p).slice(0, 255), from: r.print, size: r.size, mtimeMs: r.mtimeMs } };
     }
@@ -308,19 +310,20 @@ async function probe(w, deps = {}, key = '', seen = new Map()) {
     if (w.kind === 'file') {
       const fs = deps.fs || require('node:fs');
       // The path is checked again on every look: a link set up after the wake must not point the board elsewhere.
-      if (!fileAllowed(w.path, deps)) {
+      const real = fileAllowed(w.path, deps);
+      if (!real) {
         let gone = false;
         try { fs.lstatSync(w.path); } catch (e) { gone = !!(e && e.code === 'ENOENT'); }
         return gone ? { met: true, words: 'it was removed' } : { met: false, problem: 'Kosmos cannot watch that file any more' };
       }
       let st;
-      try { st = fs.statSync(w.path); } catch (e) {
+      try { st = fs.statSync(real); } catch (e) {
         if (e && e.code === 'ENOENT') return { met: true, words: 'it was removed' };
         return { met: false, problem: 'the file cannot be read' };
       }
       const last = seen.get(key) || { size: w.size, mtimeMs: w.mtimeMs };
       if (st.size === last.size && st.mtimeMs === last.mtimeMs) return { met: false };
-      const r = readFile(w.path, deps);
+      const r = readFile(real, deps);
       if (r.missing) return { met: true, words: 'it was removed' };
       if (r.problem) return { met: false, problem: r.problem };
       if (r.print === w.from) { seen.set(key, { size: r.size, mtimeMs: r.mtimeMs }); return { met: false }; }   // touched, not changed

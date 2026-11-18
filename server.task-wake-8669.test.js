@@ -169,3 +169,44 @@ test('#8669: the person\'s wake is theirs; a branch wake starts from its commit;
   assert.ok(met, 'the change was found');
   assert.equal(met.words, 'it changed');
 });
+
+/* Last in the file: it switches on live execution for this process. The board's own tick then tells the holder through
+   its real wiring (owed, the roster, the Agent Communication gates, markTold); only the typing into a pane is stood in
+   for, by chat.deliverAutomatic, which the tick calls by name at the time it tells. */
+test('#8669: through the board\'s own tick, the holder is told once after the merge, and the task records it', async () => {
+  const chat = require('./engine/chat');
+  const selfreport = require('./engine/selfreport');
+  const liveExecution = require('./engine/live-execution');
+  const typed = [];
+  const realDeliver = chat.deliverAutomatic;
+  const realRead = selfreport.read;
+  chat.deliverAutomatic = (session, text) => { typed.push({ session, text }); return { state: chat.DELIVERY.PLACED }; };
+  selfreport.read = (session) => (session === 'zed' ? { found: true, state: 'idle', at: new Date(Date.now() - 120e3).toISOString() } : realRead(session));
+  try {
+    ghSays('repos/octo/hello/pulls/21', 'open\tfalse\n');
+    /* zed's own task: earlier tests leave woken tasks for mona, and an agent hears one line a minute. */
+    projects.addAgent(projectId, 'zed');
+    const n = tasks.create(projectId, { sentence: 'Ship once the fix lands', who: 'zed' }).number;
+    const zed = sendertoken.mint('zed');
+    const r = await post(`/api/project/${projectId}/task/${n}/wake`, { pr: 'octo/hello#21' }, { 'x-kosmos-agent-token': zed.token });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    liveExecution.allowLiveExecution();
+    await new Promise((res) => setTimeout(res, 800));
+    assert.equal(typed.filter((x) => x.text.includes('#' + n + ' ')).length, 0, 'nobody is told while it is open');
+    ghSays('repos/octo/hello/pulls/21', 'closed\ttrue\n');
+    const told = await until(() => stored(n).wakeToldAt, 6000);
+    assert.ok(told, 'the holder was told: ' + JSON.stringify(stored(n)));
+    assert.deepEqual(stored(n).wakeTold, { who: 'zed', reached: true });
+    const mine = typed.filter((x) => x.text.includes('task #' + n + ' '));
+    assert.equal(mine.length, 1);
+    assert.equal(mine[0].session, 'zed');
+    assert.match(mine[0].text, /was waiting for PR #21 in octo\/hello to merge, and it was merged\. Pick it up now\./);
+    await new Promise((res) => setTimeout(res, 800));
+    assert.equal(typed.filter((x) => x.text.includes('task #' + n + ' ')).length, 1, 'once');
+    const kinds = require('./engine/taskchat').read(projectId, n).map((e) => e.kind);
+    assert.ok(kinds.includes('wake-met') && kinds.includes('wake-told'), kinds.join(','));
+  } finally {
+    chat.deliverAutomatic = realDeliver;
+    selfreport.read = realRead;
+  }
+});
