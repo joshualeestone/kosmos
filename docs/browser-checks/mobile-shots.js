@@ -795,8 +795,6 @@ async function importsAskGo(page, data) {
   await page.evaluate(() => document.getElementById('d-qask').scrollIntoView({ block: 'center' }));
 }
 
-/* kosmos#7430: the two unhold screens share one body: a task nobody is on (the line ends in Choose who), or one the chat
-   agent is on (it stays with them). */
 /* kosmos#8664: the task page's edit link (openForm false) or its open form (openForm true). */
 function taskEdit8664(openForm) {
   return { go: async (page, data) => {
@@ -827,6 +825,8 @@ function taskEdit8664(openForm) {
     data.editTask = null;
   } };
 }
+/* kosmos#7430: the two unhold screens share one body: a task nobody is on (the line ends in Choose who), or one the chat
+   agent is on (it stays with them). */
 function unholdNext7430(withAgent) {
   return { go: async (page, data) => {
     const post = (path, body) => page.evaluate(([pth, b]) => fetch(pth, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })

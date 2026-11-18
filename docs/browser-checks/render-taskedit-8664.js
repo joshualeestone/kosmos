@@ -108,13 +108,16 @@ function chk(ok, label, extra) {
       chk(await page.inputValue('#tk-edit-title') === 'Typed, not saved yet' && !(await page.evaluate(() => document.getElementById('tk-editform').hidden)),
         `${tag} a repaint keeps the form and what is typed in it`);
 
-      /* An emptied title is refused on the page, with nothing sent. */
-      await page.fill('#tk-edit-title', '   ');
-      const before = posts.length;
-      await page.evaluate(() => document.getElementById('tk-editform').requestSubmit());
-      await page.waitForTimeout(300);
-      chk(posts.length === before && /A task needs a title/.test(await page.textContent('#tk-msg')) && stored(a).sentence === 'Write the notes',
-        `${tag} an empty title is refused on the page and nothing is sent`, JSON.stringify([posts.length - before, await page.textContent('#tk-msg')]));
+      /* An emptied title (truly empty, and only spaces) is refused by the page's own words, with nothing sent. */
+      for (const empty of ['', '   ']) {
+        await page.fill('#tk-edit-title', empty);
+        const before = posts.length;
+        await page.click('#tk-edit-save');
+        await page.waitForTimeout(300);
+        chk(posts.length === before && /A task needs a title/.test(await page.textContent('#tk-msg')) && stored(a).sentence === 'Write the notes'
+          && await page.evaluate(() => document.activeElement.id) === 'tk-edit-title',
+          `${tag} a title of ${JSON.stringify(empty)} is refused on the page, nothing is sent, focus is on the title`, JSON.stringify([posts.length - before, await page.textContent('#tk-msg')]));
+      }
 
       /* Saving a new title and a two-line detail. */
       await page.fill('#tk-edit-title', 'Write the 0.8.10 notes');
@@ -122,6 +125,8 @@ function chk(ok, label, extra) {
       await page.click('#tk-edit-save');
       await page.waitForFunction(() => document.getElementById('tk-editform').hidden, null, { timeout: 8000 }).catch(() => {});
       await page.waitForFunction(() => document.getElementById('tk-title').textContent === 'Write the 0.8.10 notes', null, { timeout: 8000 }).catch(() => {});
+      chk(JSON.stringify(JSON.parse(posts[posts.length - 1] || '{}')) === JSON.stringify({ sentence: 'Write the 0.8.10 notes', detail: 'For the 0.8.10 release.\nList the Windows fixes first.' }),
+        `${tag} Save sent the new title and the two-line detail`, posts[posts.length - 1]);
       const saved = await page.evaluate(() => ({ title: document.getElementById('tk-title').textContent, detail: document.getElementById('tk-detail').innerText,
         form: document.getElementById('tk-editform').hidden, focus: document.activeElement && document.activeElement.id, msg: document.getElementById('tk-msg').textContent }));
       const back = await page.evaluate(() => document.getElementById('tk-title').getClientRects().length > 0);
@@ -136,19 +141,40 @@ function chk(ok, label, extra) {
         `${tag} the activity says what changed, as the person`, act.slice(-160));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `taskedit-saved-${theme}-${width}.png`), fullPage: true });
 
-      /* Emptying the detail clears it; Cancel sends nothing. */
+      /* A change made elsewhere while the form is open (an agent's, through the engine) is not sent back over: changing only
+         the title sends only the title. */
+      await page.click('#tk-edit');
+      tasks.setText(proj.id, a, { detail: 'An agent added this while the form was open.' }, { by: 'ada' });
+      await page.evaluate(async () => { await pjReload(); });   // the poll brings the agent's detail into PROJECTS
+      await page.fill('#tk-edit-title', 'Write the 0.8.10 notes, please');
+      await page.click('#tk-edit-save');
+      await page.waitForFunction(() => document.getElementById('tk-editform').hidden, null, { timeout: 8000 }).catch(() => {});
+      chk(JSON.stringify(JSON.parse(posts[posts.length - 1] || '{}')) === JSON.stringify({ sentence: 'Write the 0.8.10 notes, please' })
+        && stored(a).detail === 'An agent added this while the form was open.',
+        `${tag} a title-only save sends only the title, and an agent's detail written meanwhile survives`, JSON.stringify([posts[posts.length - 1], stored(a).detail]));
+
+      /* Emptying the detail clears it (sent as null); Cancel sends nothing. */
       await page.click('#tk-edit');
       await page.fill('#tk-edit-detail', '');
       await page.click('#tk-edit-save');
       await page.waitForFunction(() => document.getElementById('tk-detail').hidden, null, { timeout: 8000 }).catch(() => {});
-      chk(await page.evaluate(() => document.getElementById('tk-detail').hidden) && !stored(a).detail, `${tag} emptying the detail clears it`, JSON.stringify(stored(a).detail));
+      chk(await page.evaluate(() => document.getElementById('tk-detail').hidden) && !stored(a).detail
+        && JSON.stringify(JSON.parse(posts[posts.length - 1] || '{}')) === JSON.stringify({ detail: null }),
+        `${tag} emptying the detail sends null and clears it`, JSON.stringify([posts[posts.length - 1], stored(a).detail]));
       await page.click('#tk-edit');
       await page.fill('#tk-edit-title', 'Not this');
       const before2 = posts.length;
       await page.click('#tk-edit-cancel');
       await page.waitForTimeout(300);
-      chk(posts.length === before2 && stored(a).sentence === 'Write the 0.8.10 notes' && await page.evaluate(() => document.getElementById('tk-editform').hidden && document.activeElement.id === 'tk-edit'),
+      chk(posts.length === before2 && stored(a).sentence === 'Write the 0.8.10 notes, please' && await page.evaluate(() => document.getElementById('tk-editform').hidden && document.activeElement.id === 'tk-edit'),
         `${tag} Cancel closes the form, sends nothing, and gives focus back`);
+
+      /* Escape closes the form too, with nothing sent. */
+      await page.click('#tk-edit');
+      const before3 = posts.length;
+      await page.keyboard.press('Escape');
+      chk(await page.evaluate(() => document.getElementById('tk-editform').hidden && document.activeElement.id === 'tk-edit') && posts.length === before3,
+        `${tag} Escape closes the form, sends nothing, gives focus back`);
 
       /* Opening another task closes an open form. */
       await page.click('#tk-edit');

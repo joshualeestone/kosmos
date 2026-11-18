@@ -17,6 +17,12 @@ Renet Tilley.
 Rejected: editing the title in place (contenteditable on #tk-title): the repaint rewrites #tk-title every five seconds.
 Rejected: a modal dialog: the task's other fields stay visible while the person rewords it.
 
+Decided: the link shows on a closed task too, as the route allows (correcting what a task was called changes no work;
+done-when refuses a closed task because a check is what the work was judged against, which a title is not).
+Save compares against the words the form opened with (kept on the form), not the polled task, so an agent's change
+made while the form is open is never sent back over; a save that returns after another task opened leaves that page
+alone.
+
 ## Weakest premise
 That no other task-page script writes to #tk-msg while the form is open; a message from elsewhere would replace a
 refusal shown there.
