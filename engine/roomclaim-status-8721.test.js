@@ -89,3 +89,21 @@ test('a refused check from an agent not on the project never names the holder', 
   assert.equal(z.claimedBy, undefined);
   assert.doesNotMatch(JSON.stringify(z), /ann/);
 });
+
+test('status agrees with a claim once the asked hold opens: the asked member gave it back, or the window has passed', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const asked = (id, at) => fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id, project: 'p', from: 'cy', to: [], mentioned: ['ann'], text: '@ann can you take this?', outcomes: {}, at }) + '\n', 'utf8');
+  // Given back: ann claimed it and released it herself, so it is open to bob.
+  asked('m6', new Date().toISOString());
+  assert.equal(ask('ann', 'claim', 'm6').op, 'add');
+  assert.equal(ask('ann', 'release', 'm6').op, 'remove');
+  const freed = ask('bob', 'status', 'm6');
+  assert.equal(freed.askedOf, undefined, 'status still says the post asks ann after she gave it back');
+  assert.equal(freed.claimedBy, undefined);
+  assert.equal(ask('bob', 'claim', 'm6').op, 'add', 'CONTROL: bob\'s claim now lands, so the status line is true');
+  // Aged: posted an hour ago, past the 30 minute window, nobody claimed it.
+  asked('m7', new Date(Date.now() - 60 * 60000).toISOString());
+  const aged = ask('bob', 'status', 'm7');
+  assert.equal(aged.askedOf, undefined, 'status still says the post asks ann after the window passed');
+  assert.equal(ask('bob', 'claim', 'm7').op, 'add', 'CONTROL: bob\'s claim lands after the window');
+});

@@ -4226,3 +4226,35 @@ test('#4583 round 3 CONTROL: neither goal nor done: one note asks for both', asy
   assert.equal(notes.length, 1);
   assert.equal(notes[0].text, projects.BRIEF_AND_DONE_PENDING_NOTE);
 });
+
+test('kosmos#8721: kosmos claim --status through the real /api/react route says who holds a post and writes nothing', async () => {
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    const posted = await post(`/api/project/${project.id}/room`, { text: 'can someone take the release notes' });
+    assert.equal(posted.status, 200, posted.body);
+    const id = JSON.parse((await req(`/api/project/${project.id}/room`)).body).rows.filter((r) => r.kind === 'post').slice(-1)[0].id;
+    const tok = require('./engine/sendertoken').mint('zeta').token;
+    const asZeta = (body) => fetch(base + '/api/react', { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+      body: JSON.stringify({ project: project.id, of: id, from_pane: '', ...body }) }).then((r) => r.json());
+    const LOG = require('./engine/messages').LOG;
+    const logNow = () => fs.readFileSync(LOG, 'utf8');
+    const roomNow = async () => (await req(`/api/project/${project.id}/room?as=text`)).body;
+
+    let before = logNow(); let room = await roomNow();
+    const free = await asZeta({ claim: 'status' });
+    assert.deepEqual(free, { ok: true, op: 'status', of: id, mine: false });
+    assert.equal(logNow(), before, 'a status check wrote to the message log');
+    assert.equal(await roomNow(), room, 'a status check changed the room');
+
+    assert.equal((await asZeta({ claim: 'claim' })).op, 'add', 'CONTROL: a claim through the same route does write');
+    assert.notEqual(logNow(), before);
+    before = logNow(); room = await roomNow();
+    const held = await asZeta({ claim: 'status' });
+    assert.equal(held.op, 'status');
+    assert.equal(held.mine, true);
+    assert.equal(held.claimedBy, 'zeta');
+    assert.equal(logNow(), before, 'a status check of a held post wrote to the message log');
+    assert.equal(await roomNow(), room, 'a status check of a held post changed the room');
+  });
+});
