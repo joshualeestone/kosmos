@@ -6997,6 +6997,12 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkwho-b b { display: block; font-size: .9375rem; }
 .tkwho-b small { color: var(--label-2); }
 .tkdetail { white-space: pre-wrap; margin: 0; }
+/* kosmos#8664: the task page's edit form, under the title it edits. */
+.tkedit-open { margin-top: 8px; align-self: flex-start; }
+.tkedit { margin: 4px 0 16px; max-width: 640px; }
+.tkedit .tk-inp { width: 100%; box-sizing: border-box; }
+.tkedit .field { margin-bottom: 12px; }
+.tkedit-acts { display: flex; gap: 8px; flex-wrap: wrap; }
 .pjmid { display: flex; flex-direction: column; min-width: 0; }
 .pjmidhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 /* #761 (Josh, 2026-08-25 10:12 CDT): the piece-nine merged header (the
@@ -18202,6 +18208,9 @@ window.kosmosMeasureScrollbarWidth();
              description follows: an empty grey line under every task without
              detail would read as something missing. -->
         <p class="pj-desc tkdetail" id="tk-detail" hidden></p>
+        <!-- kosmos#8664: fix a task's title or detail after it is made (kosmos task edit's route). A quiet link, as
+             "+ Add subtask" is: the page's one strong action stays Mark as done. -->
+        <button class="linkish tkedit-open" id="tk-edit" type="button">Edit title or detail</button>
       </div>
       <!-- ⚠️ THE ONLY STATE A PERSON OWNS IS "DONE". Working and Waiting are
            DERIVED from what each agent reported holding; letting a person
@@ -18211,6 +18220,22 @@ window.kosmosMeasureScrollbarWidth();
         <button class="btn-quiet" id="tk-done" type="button"></button>
       </div>
     </div>
+    <!-- kosmos#8664: the edit form, a full-width row under the head (inside the title column it was a 180px strip). Its
+         own inputs, which paintTaskPage never touches, so the five-second repaint cannot wipe what is being typed. -->
+    <form class="tkedit" id="tk-editform" hidden>
+      <div class="field">
+        <label class="flabel tk-lab" for="tk-edit-title">What needs doing?</label>
+        <input class="tk-inp" id="tk-edit-title" type="text" maxlength="200" required>
+      </div>
+      <div class="field">
+        <label class="flabel tk-lab" for="tk-edit-detail">Anything they should know</label>
+        <textarea class="tk-inp" id="tk-edit-detail" rows="4" maxlength="2000"></textarea>
+      </div>
+      <div class="tkedit-acts">
+        <button class="btn-quiet" id="tk-edit-save" type="submit">Save</button>
+        <button class="btn" id="tk-edit-cancel" type="button">Cancel</button>
+      </div>
+    </form>
     <p class="dhint tkclosenote" id="tk-note" hidden></p>
     <div class="fmsg" id="tk-msg" role="alert" aria-live="assertive"></div>
 
@@ -74549,6 +74574,7 @@ function openTaskPage(n) {
   if (!t) return;
   TK_OPEN = n;
   document.getElementById('tk-msg').textContent = '';
+  tkEditClose(false);   // kosmos#8664: an edit begun on one task never carries to another
   /* #768: clear the composer for the new task. #tk-say / #tk-say-msg are STATIC
      markup (unlike #tk-newpart, which paintTaskPage rebuilds via innerHTML), so an
      unsent draft or a stale refusal band from the last task would otherwise carry
@@ -74889,6 +74915,61 @@ document.getElementById('tk-done').addEventListener('click', async () => {
     document.getElementById('tk-msg').textContent = 'we could not change that task';
   } finally {
     btn.disabled = false;
+  }
+});
+
+/* kosmos#8664: edit the task's title or detail (POST .../task/<n>/text, the route kosmos task edit uses). From the page
+   the edit is the person's, so it is recorded as theirs and an agent cannot later reword it. Only what changed is sent;
+   an emptied detail is sent as null (cleared). The board's words are shown in #tk-msg when it refuses. */
+function tkEditClose(focusBack) {
+  const form = document.getElementById('tk-editform');
+  const open = document.getElementById('tk-edit');
+  if (!form || !open) return;
+  form.hidden = true;
+  open.hidden = false;
+  if (focusBack) open.focus();
+}
+document.getElementById('tk-edit').addEventListener('click', () => {
+  const p = pjById(PJ_CURRENT);
+  const t = p && (p.tasks || []).find((x) => x.number === TK_OPEN);
+  if (!t) { leaveTaskPage(); return; }
+  document.getElementById('tk-edit-title').value = t.sentence || '';
+  document.getElementById('tk-edit-detail').value = t.detail || '';
+  document.getElementById('tk-msg').textContent = '';
+  document.getElementById('tk-editform').hidden = false;
+  document.getElementById('tk-edit').hidden = true;
+  document.getElementById('tk-edit-title').focus();
+});
+document.getElementById('tk-edit-cancel').addEventListener('click', () => tkEditClose(true));
+document.getElementById('tk-editform').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const p = pjById(PJ_CURRENT);
+  const t = p && (p.tasks || []).find((x) => x.number === TK_OPEN);
+  if (!t) { leaveTaskPage(); return; }
+  const title = document.getElementById('tk-edit-title').value.trim();
+  const detail = document.getElementById('tk-edit-detail').value.trim();
+  const msg = document.getElementById('tk-msg');
+  if (!title) { msg.textContent = 'A task needs a title: say what needs doing.'; document.getElementById('tk-edit-title').focus(); return; }
+  const body = {};
+  if (title !== (t.sentence || '')) body.sentence = title;
+  if (detail !== (t.detail || '')) body.detail = detail ? detail : null;
+  if (!Object.keys(body).length) { tkEditClose(true); return; }
+  const save = document.getElementById('tk-edit-save');
+  save.disabled = true;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + t.number + '/text', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) { msg.textContent = (out && out.error) || 'we could not change that task'; return; }
+    msg.textContent = '';
+    tkEditClose(true);
+    await pjReload();
+    paintTaskActivity(TK_OPEN);   // the edit is in the task's activity
+  } catch {
+    msg.textContent = 'we could not change that task';
+  } finally {
+    save.disabled = false;
   }
 });
 
