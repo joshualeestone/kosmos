@@ -5,16 +5,16 @@
  * `goalFrom(text)` is pure. `readGoal(folder)` reads the file safely: lstat first and refuse
  * anything that is not a regular file (so a symlink is refused), refuse a file over MAX_BYTES,
  * and read through the same descriptor it checked. Every failure is "no goal" (null), never a
- * throw: a goal Kosmos could not read is a goal it must not act on.
+ * throw: a goal Kosmos could not read is a goal it must not act on. `readBrief(folder)` reads the same way and
+ * also says why nothing was read, and the file's size.
  */
 
 const fs = require('node:fs');
 const path = require('node:path');
 const projects = require('./projects');
 
-/* A real brief is a page or two; anything far larger is not a brief, and reading it whole every
-   minute would be waste. */
-const MAX_BYTES = 64 * 1024;
+/* kosmos#8663: 256 KB (it was 64 KB, which refused real briefs). projects.readBriefSafely reads this limit too. */
+const MAX_BYTES = 256 * 1024;
 /* The goal is quoted into an agent's pane, so keep it to a paragraph. */
 const GOAL_MAX = 500;
 
@@ -57,28 +57,37 @@ function goalFrom(text) {
  * @returns {string|null}
  */
 function readGoal(folder) {
-  const text = readBriefText(folder);
+  const text = readBriefFile(folder).text;
   return text === null ? null : goalFrom(text);
 }
-/* The brief's text, read safely, or null (missing, not a regular file, too large, unreadable). Shared by
-   readGoal and readBrief so the two cannot check the file differently. */
-function readBriefText(folder) {
+/* The brief's text, read safely: { text, why, size }. Shared by readGoal and readBrief so the two cannot check the
+   file differently.
+   - text: the words, or null when nothing was read;
+   - why (text null only): 'missing', 'symlink', 'not_a_file', 'too_large' or 'unreadable', so a reader can say WHICH
+     (kosmos#8663: every one of them used to read as a missing brief);
+   - size: the file's size in bytes when it was a regular file, else null. */
+function readBriefFile(folder) {
+  const none = (why, size = null) => ({ text: null, why, size });
   // Absolute only, as projects.briefIsPending / seedBriefStub: a relative path would resolve against
   // the server's working directory.
-  if (typeof folder !== 'string' || !folder || !path.isAbsolute(folder)) return null;
+  if (typeof folder !== 'string' || !folder || !path.isAbsolute(folder)) return none('missing');
   const file = path.join(folder, projects.BRIEF_STUB_FILENAME);
   let fd;
   try {
-    const st = fs.lstatSync(file);
-    if (!st.isFile() || st.size > MAX_BYTES) return null;
+    let st;
+    try { st = fs.lstatSync(file); } catch (e) { return none(e && e.code === 'ENOENT' ? 'missing' : 'unreadable'); }
+    if (st.isSymbolicLink()) return none('symlink');
+    if (!st.isFile()) return none('not_a_file');
+    if (st.size > MAX_BYTES) return none('too_large', st.size);
     fd = fs.openSync(file, fs.constants.O_RDONLY | (NOFOLLOW || 0) | (NONBLOCK || 0));
     const fst = fs.fstatSync(fd);
-    if (!fst.isFile() || fst.size > MAX_BYTES) return null;
+    if (!fst.isFile()) return none('not_a_file');
+    if (fst.size > MAX_BYTES) return none('too_large', fst.size);
     const buf = Buffer.alloc(fst.size);
     const n = fs.readSync(fd, buf, 0, fst.size, 0);
-    return buf.subarray(0, n).toString('utf8');
+    return { text: buf.subarray(0, n).toString('utf8'), why: null, size: fst.size };
   } catch {
-    return null;
+    return none('unreadable');
   } finally {
     if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* already closed */ } }
   }
@@ -141,11 +150,11 @@ function doneSetFrom(text) {
   if (doneSectionIn(text)) return doneFrom(text) !== null;
   return !projects.BRIEF_DONE_PLACEHOLDERS.some((ph) => lines.includes(ph));
 }
-/* Goal and done in one read: { goal, done, found } where `found` says whether a readable brief was there at all
-   (so "no brief" and "a brief with both left blank" are said apart). */
+/* Goal and done in one read: { goal, done, found, doneSection, why, size }. `found` says whether a readable brief was
+   there at all (so "no brief" and "a brief with both left blank" are said apart); why and size are readBriefFile's. */
 function readBrief(folder) {
-  const text = readBriefText(folder);
-  if (text === null) return { goal: null, done: null, found: false, doneSection: false };
-  return { goal: goalFrom(text), done: doneFrom(text), found: true, doneSection: doneSectionIn(text) };
+  const f = readBriefFile(folder);
+  if (f.text === null) return { goal: null, done: null, found: false, doneSection: false, why: f.why, size: f.size };
+  return { goal: goalFrom(f.text), done: doneFrom(f.text), found: true, doneSection: doneSectionIn(f.text), why: null, size: f.size };
 }
 module.exports = { goalFrom, readGoal, doneFrom, doneSetFrom, doneSectionIn, doneSectionRange, readBrief, DONE_HEADING, MAX_BYTES, GOAL_MAX };

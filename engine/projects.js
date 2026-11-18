@@ -3071,8 +3071,8 @@ function doneIsPending(folder) {
 /* Review round 2: BRIEF.md is read on every project read and written by fillDone, so it must be a REGULAR file (a
    symlink out of the folder, a FIFO that blocks the synchronous read) of a sane size. {missing} when there is none,
    {text: null} when it is there but not one Kosmos will read. */
-const BRIEF_MAX_BYTES = 256 * 1024;
 function readBriefSafely(folder) {
+  const BRIEF_MAX_BYTES = require('./brief').MAX_BYTES;   // kosmos#8663 (required here: brief.js requires this file)
   const file = path.join(folder, BRIEF_STUB_FILENAME);
   let st;
   try { st = fs.lstatSync(file); } catch (err) { return (err && err.code === 'ENOENT') ? { missing: true, text: null } : { text: null }; }
