@@ -8191,7 +8191,9 @@ function setPaneFolderSource(fn) { paneFolderSource = typeof fn === 'function' ?
    another's working folder without native code, so a tool started from inside the folder with no path in its arguments
    is not seen. A process this board may not read (an elevated or another user's) has no path to compare. A path named
    in its UNC spelling (a share's \\server\share form) is not read as one, so a workers folder on a mapped drive named that way is
-   not matched. */
+   not matched. A path glued straight after a letter (a short option such as -o followed by the path) is not read as one.
+   And "off the board's thread" means the process listing: its parse, and the 8.3 lookups (kept to the agents' drive,
+   cached per prefix), run on the thread that resumes the read. */
 let win32FolderSource = null;
 function setWin32FolderSource(src) { win32FolderSource = src === true || typeof src === 'function' ? src : null; }
 const WIN32_FOLDERS_OK = 'KOSMOS-FOLDERS-READ-OK';
@@ -8221,7 +8223,8 @@ function win32Powershell() {
 function win32PathsIn(cmd) {
   const out = [];
   const s = String(cmd || '');
-  // Not after a letter: the "p:/" inside http:// or https:// is not a drive.
+  // Not after a letter: the "p:/" inside http:// or https:// is not a drive (so a path glued to a short option, -oC:\x,
+  // is not read either; named under NOT COVERED).
   const starts = [...s.matchAll(/(?<![A-Za-z])[A-Za-z]:[\\/]/g)].map((m) => m.index);
   starts.forEach((at, k) => {
     const piece = s.slice(at, k + 1 < starts.length ? starts[k + 1] : s.length);

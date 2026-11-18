@@ -41,9 +41,9 @@
   50 s and its delete limit 240 s, to cover the listing before the drive probe; failed driver answers (not run,
   killed, non-zero exit) and the 8.3 lookup have tests; one copy of the PowerShell path.
 - Changes beyond Windows, named: `shDetail`/`shDetailAsync` now hide windows (`windowsHide`, nothing on a Mac) and
-  take 32 MiB of output for every caller (output that used to fail with ENOBUFS now reads). On a Mac and Linux,
-  delAsync's re-plan now gets the tmux listing read off the board's thread (before, plan() read it synchronously); the
-  read itself is unchanged.
+  take 32 MiB of output for every caller (output that used to fail with ENOBUFS now reads). On a Mac and Linux
+  the delete is unchanged (delAsync hands it to the synchronous del(), as before); only planAsync's listing goes through
+  the shared off-thread read there.
 - Review 6: a failed Windows read says what is true there (Windows would not give its list of running programs; try
   again, or restart), not the tmux remedy; the agent's folder is also compared in its native long form. Known way the
   guard can be unavailable for good: a box in PowerShell Constrained Language Mode (AppLocker/WDAC) cannot run the
