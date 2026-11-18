@@ -50167,8 +50167,9 @@ function setWritesOffered(a, tied) {
     // affects ever sees.
     /* kosmos#8719: the real test is Kosmos's own launch mark on the session, which a window started outside Kosmos
        lacks; the old sentence named only the "-discord" spelling, which is one way to pass it. */
-    /* The reason itself is #d-task's (stateReason), on this same page, so this says only what it adds. */
-    why.textContent = tied ? '' : 'For the same reason, Kosmos will not change its picture, role or instructions from here.';
+    /* Self-contained: #d-task (the full reason) is hidden while the agent asks a question, and the picture button reads
+       this line alone as its description. */
+    why.textContent = tied ? '' : 'Started outside Kosmos, so Kosmos will not change its picture, role or instructions from here.';
   }
 }
 

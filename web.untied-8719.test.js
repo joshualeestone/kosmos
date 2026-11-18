@@ -20,6 +20,9 @@ test('#8719: an agent Kosmos did not start says why it cannot be messaged; CONTR
   assert.match(reasonOf({ state: 'working', isNamedOurs: false, waiting: { kind: 'x' } }), /^Started outside Kosmos/,
     'it outranks the working-while-waiting line: every message to it is refused');
   assert.equal(reasonOf(untied, { card: true }), '', 'the tile carries no sentence (#6716); the label says it there');
+  for (const state of ['needs_you', 'auth_failed', 'rate_limited']) {
+    assert.match(reasonOf({ state, isNamedOurs: false }), /^Started outside Kosmos/, `it outranks the ${state} reason on purpose (Kosmos cannot act on it)`);
+  }
 });
 
 test('#8719: the tile and list row say "Not started by Kosmos"; CONTROL: a tied agent shows no label', () => {
@@ -31,7 +34,7 @@ test('#8719: the tile and list row say "Not started by Kosmos"; CONTROL: a tied 
   assert.ok(/\.acard \.auntied \{[^}]*display: block/.test(HTML) && /\.lrow \.auntied \{[^}]*display: block/.test(HTML), 'the label has its style on the tile and the row');
 });
 
-test('#8719: the detail page does not repeat the reason #d-task already shows; it says only what it adds', () => {
-  assert.ok(SCRIPT.includes("why.textContent = tied ? '' : 'For the same reason, Kosmos will not change its picture, role or instructions from here.';"),
-    'the detail sentence is the short one');
+test('#8719: the detail page line stands alone (the button reads it alone, and #d-task hides on a question)', () => {
+  assert.ok(SCRIPT.includes("why.textContent = tied ? '' : 'Started outside Kosmos, so Kosmos will not change its picture, role or instructions from here.';"),
+    'the detail sentence names its reason itself');
 });
