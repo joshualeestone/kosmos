@@ -25,11 +25,13 @@ test('#8719: an agent Kosmos did not start says why it cannot be messaged; CONTR
   for (const state of ['needs_you', 'auth_failed', 'rate_limited']) {
     assert.match(reasonOf({ state, isNamedOurs: false }), /^Kosmos cannot confirm it started this window/, `it leads the ${state} reason on purpose (Kosmos will not type into it)`);
   }
-  // The agent's own reason still follows, so the person can read what the window waits on.
+  // What its screen shows still follows, in words that promise no Kosmos action (the ordinary stuck sentence does).
   const stuck = { state: 'auth_failed', stuckError: { stuck: true, state: 'auth_failed', forMs: 600000 } };
-  const ownWords = reasonOf(stuck);
-  assert.ok(ownWords.length > 0, 'premise: a stuck sign-in has its own reason');
-  assert.equal(reasonOf({ ...stuck, isNamedOurs: false }), 'Kosmos cannot confirm it started this window, so it does not type messages into it. ' + ownWords);
+  assert.match(reasonOf(stuck), /Open Settings to reconnect it/, 'premise: the ordinary stuck sign-in sentence names a Kosmos step');
+  assert.equal(reasonOf({ ...stuck, isNamedOurs: false }), 'Kosmos cannot confirm it started this window, so it does not type messages into it. Its screen shows it is signed out.');
+  assert.equal(reasonOf({ state: 'rate_limited', isNamedOurs: false, crashLoop: { looping: true, count: 4 } }),
+    'Kosmos cannot confirm it started this window, so it does not type messages into it. Its screen shows it is paused by a usage limit.',
+    'a crash loop\'s "Kosmos will keep trying" is not borrowed');
   // A reason that promises Kosmos will act (a lost connection it retries) is left out for this window.
   assert.equal(reasonOf({ state: 'connection_lost', isNamedOurs: false, reconnect: { phase: 'waiting' } }),
     'Kosmos cannot confirm it started this window, so it does not type messages into it.');

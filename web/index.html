@@ -23245,14 +23245,14 @@ function stateReason(a, opts) {
      empty, so every tile stays one height. */
   if (opts && opts.card === true) return '';
   /* kosmos#8719: a window Kosmos cannot tie to the agent (no launch mark, isNamedOurs false). It leads, ahead of every
-     other reason, since Kosmos will not type into this window whatever it shows. Only a reason about the agent itself (a
-     sign-in, a rate limit) follows it, so the person can still read what the window waits on. Every other reason is
-     left out, because several promise something Kosmos will do (retry a lost connection, restart, deliver a waiting
-     message) that it will not do for this window. The tile carries the short label (untiedFlagHtml). Literals, not
-     shared constants: tests lift stateReason alone. */
+     other reason, since Kosmos will not type into this window whatever it shows. For a sign-in or a limit, one plain
+     clause says what its screen shows, so the person can still read what it waits on. No other reason is borrowed: the
+     ordinary sentences promise things Kosmos does (retry, restart, deliver a message) that it does not do for this
+     window. The tile carries the short label (untiedFlagHtml). Literals: tests lift stateReason alone. */
   if (a && a.isNamedOurs === false) {
-    const own = (a.state === 'auth_failed' || a.state === 'rate_limited') ? stateReason(Object.assign({}, a, { isNamedOurs: true }), opts) : '';
-    return 'Kosmos cannot confirm it started this window, so it does not type messages into it.' + (own ? ' ' + own : '');
+    const shows = a.state === 'auth_failed' ? ' Its screen shows it is signed out.'
+      : a.state === 'rate_limited' ? ' Its screen shows it is paused by a usage limit.' : '';
+    return 'Kosmos cannot confirm it started this window, so it does not type messages into it.' + shows;
   }
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }

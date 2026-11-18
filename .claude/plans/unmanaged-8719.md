@@ -5,8 +5,7 @@ card. This branch is part 1 (asks 1, 4, 5). Part 2 (asks 2, 3: reclaim from the 
 
 ## Finished means (part 1)
 An agent whose window Kosmos cannot tie to it (card isNamedOurs false: no Kosmos launch mark) carries a visible "Not
-linked to Kosmos" label on its tile and list row; its pill's hover and screen-reader text, and its own page, say why Kosmos will not message it
-and what makes that possible; a message the person sends to it is refused 409 with that reason (the iPhone and API callers
+linked to Kosmos" label on its tile and list row; its pill's hover and screen-reader text, and its own page, say why Kosmos does not message it; a message the person sends to it is refused 409 with that reason (the iPhone and API callers
 show the error text; the board's composer is already closed for such a name), not 404 "no agent by that name".
 
 ## Cause (from code, see the card)
@@ -18,15 +17,14 @@ screen-read state with no reason, the direct-chat route 404s via knownAgent.
 - web/index.html: stateReason's first branch for isNamedOurs === false (a literal, since tests lift it alone);
   untiedFlagHtml on the tile's model row and the list row's model cell (.auntied; it wraps in the list cell, which is
   one ellipsed line at desktop and clipped it); the detail panel's #d-untied line is self-contained ("Kosmos cannot
-  confirm it started this window, so it will not change its picture, role or instructions from here").
+  confirm it started this window, so it does not change its picture, role or instructions from here").
 - server.js: the agent thread route answers 409 { because: 'untied' } with untiedSendWords when the name's card is
   on the board but not ours (and the agent is not starting); a name with no card still 404s.
 - Tests: web.untied-8719.test.js (reason, label, detail sentence, each with a control); server.dm-starting-8652's
   stranger case now expects 409 untied (still refused, still no wait), plus a new case with a 404 control.
 
 - Review 1: the chat-open refusal ('borrowed', still 404 and still keyed by `because` on the board) now carries
-  untiedReadWords, since the iPhone shows its text; the sentence states the condition ("until Kosmos starts it"), not a
-  route that the hand-started window blocks today.
+  untiedReadWords, since the iPhone shows its text. (Its remedy clause was later removed, review 6.)
 - Review 2: #d-untied stands alone (#d-task hides on a question; the picture button reads it as its description).
 - Review 3: every sentence says what is checked ("Kosmos cannot confirm it started this window"), never where the window
   came from: a session Kosmos started and then renamed fails the same check (delete-leftover.js, #8640). Label "Not
@@ -34,8 +32,8 @@ screen-read state with no reason, the direct-chat route 404s via knownAgent.
 - Known, not changed: between the supervisor's new-session and its set-option @kosmos_agent (milliseconds), a poll could
   read a Kosmos agent as untied; the card was anonymous in that gap before this change too.
 
-- Review 4-5: the untied reason leads; only an agent-side reason (auth_failed, rate_limited) follows it. Reasons that
-  promise a Kosmos action (reconnect retry, restart, waiting delivery) are left out for this window.
+- Review 4-7: the untied reason leads; for auth_failed or rate_limited one plain clause says what the screen shows. No
+  ordinary reason is borrowed (review 7: they promise Kosmos actions, a retry, a restart, a delivery).
 
 - Review 6: no sentence promises a route ("until Kosmos starts it" was raised three times: the hand-started window
   blocks Look for agents and Connect). The words state only the fact; the remedy is part 2's reclaim action. The send's
