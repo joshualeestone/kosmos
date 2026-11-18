@@ -13,6 +13,8 @@ const clipipe = require('./clipipe');
 
 const GUARD = path.join(__dirname, 'clipipe.js');
 // About 1 MB, far more than a pipe holds, so the write is still going when the reader closes.
+// kosmos#8714: on macOS the child's stdio is a socket, so the same closed reader can read as ENOTCONN or ECONNRESET.
+const CLOSED = /EPIPE|ENOTCONN|ECONNRESET/;
 const WRITER = "process.stdout.write(Array.from({ length: 20000 }, (_, i) => 'line ' + i + ' ' + 'x'.repeat(40)).join('\\n') + '\\n');";
 
 /** Run node with `args`, read stdout until the first newline, then close the read end. */
@@ -34,10 +36,10 @@ test('guarded: a closed reader is a quiet exit 141 (CONTROL: unguarded, the same
   const guarded = await runAndCloseEarly(['-e', "require(process.argv[1]).install(process); " + WRITER, GUARD]);
   assert.strictEqual(guarded.first, 'line 0 ' + 'x'.repeat(40));
   assert.strictEqual(guarded.code, 141, guarded.err);
-  assert.doesNotMatch(guarded.err, /EPIPE|Unhandled 'error'/);
+  assert.doesNotMatch(guarded.err, /EPIPE|ENOTCONN|ECONNRESET|Unhandled 'error'/);
 
   const bare = await runAndCloseEarly(['-e', WRITER]);
-  assert.match(bare.err, /EPIPE/, 'CONTROL: without the guard the trace must show, or the guarded arm proves nothing');
+  assert.match(bare.err, CLOSED, 'CONTROL: without the guard the trace must show, or the guarded arm proves nothing');
   assert.notStrictEqual(bare.code, 141);
 });
 
@@ -59,10 +61,10 @@ test('the board (an entry named server.js) restores the env but is not guarded (
     KOSMOS_USER_NODE_OPTIONS: '', KOSMOS_USER_NODE_OPTIONS_SET: '' };
   const board = await runAndCloseEarly([path.join(dir, 'server.js')], env);
   assert.match(board.err, /^\[null\]/, 'the board still restores NODE_OPTIONS');
-  assert.match(board.err, /EPIPE/, 'the board keeps its own closed-stdout behaviour (no guard)');
+  assert.match(board.err, CLOSED, 'the board keeps its own closed-stdout behaviour (no guard)');
   const other = await runAndCloseEarly([path.join(dir, 'other.js')], env);
   assert.strictEqual(other.code, 141, other.err);
-  assert.doesNotMatch(other.err, /EPIPE/);
+  assert.doesNotMatch(other.err, CLOSED);
 });
 
 test('restoreNodeOptions: back to the person\'s value, or unset when they had none; untouched without the marker', () => {
@@ -84,7 +86,20 @@ test('restoreNodeOptions: back to the person\'s value, or unset when they had no
   assert.deepStrictEqual(notOurs, { NODE_OPTIONS: '--require y' });
 });
 
-test('any other stream error is thrown again (only EPIPE is quiet)', () => {
+test('kosmos#8714: each closed-reader code is a quiet exit on either stream (EPIPE, ENOTCONN, ECONNRESET)', () => {
+  for (const code of ['EPIPE', 'ENOTCONN', 'ECONNRESET']) {
+    for (const which of ['stdout', 'stderr']) {
+      const exits = [];
+      const proc = { stdout: new EventEmitter(), stderr: new EventEmitter(), exit: (c) => exits.push(c) };
+      clipipe.install(proc);
+      proc[which].emit('error', Object.assign(new Error('write ' + code), { code, syscall: 'write' }));
+      assert.deepStrictEqual(exits, [clipipe.QUIT_ON_CLOSED_READER], code + ' on ' + which);
+    }
+  }
+  assert.deepStrictEqual([...clipipe.CLOSED_READER_CODES].sort(), ['ECONNRESET', 'ENOTCONN', 'EPIPE']);
+});
+
+test('any other stream error is thrown again (only a closed reader is quiet)', () => {
   const exits = [];
   const proc = { stdout: new EventEmitter(), stderr: new EventEmitter(), exit: (c) => exits.push(c) };
   clipipe.install(proc);
