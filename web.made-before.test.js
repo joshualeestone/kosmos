@@ -248,3 +248,20 @@ test('kosmos#8662: signed out, a tile still names the model an earlier session r
   // CONTROL: signed in, an earlier model is named as before.
   assert.match(runTileSignedOut({ earlierModelName: 'opus-5-5' }, {}), /opus-5-5/);
 });
+
+/* kosmos#8672 (from #8662's review): the signed-out line is Claude's only. Every other runner returns its provider line
+   before it, so a later reorder that put the signed-out guard above those branches turns this red. */
+test('kosmos#8672: signed out, an agent on another runner with no model still names its provider', () => {
+  const cases = [
+    [{ runner: 'codex' }, 'OpenAI Codex'],
+    [{ runner: 'gemini' }, 'Gemini'],
+    [{ runner: 'grok' }, 'Grok'],
+    [{ runner: 'muse' }, 'Meta Muse'],
+  ];
+  for (const [agent, want] of cases) {
+    assert.equal(runModelLineSignedOut(agent, { needs: true }), want, agent.runner + ' lost its provider line while signed out');
+    assert.equal(runModelLineSignedOut(agent, { relay: true }), want, agent.runner + ' lost its provider line under a relay sign-out');
+  }
+  // CONTROL: a Claude agent with no model says the sign-out, so the case above can tell the two apart.
+  assert.equal(runModelLineSignedOut({ runner: 'claude' }, { needs: true }), 'Signed out: sign in to see its model');
+});
