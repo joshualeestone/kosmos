@@ -499,3 +499,130 @@ test('#7470 review 4: the restart marks a job Kosmos did not start as one a star
   assert.match(stopped.because, /is not running/, JSON.stringify(stopped));
   assert.notEqual(stopped.cannotStart, true);
 });
+
+/* kosmos#8666: GET /api/agent/<name>/model, what `kosmos agent model "<name>"` lists. Each provider's shape, and the
+   refusals, which are setModel's own (create.modelTarget), so the list and the switch cannot disagree about whether a
+   model can be chosen. */
+function bornOn(name, runner, model, configDir) {
+  fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, runner === 'codex' ? CODEX_BIN : CLAUDE_BIN, TMUX_BIN, model, configDir, runner), 'utf8');
+  return name;
+}
+async function choices(name) {
+  const res = await fetch(base + '/api/agent/' + encodeURIComponent(name) + '/model');
+  return { status: res.status, body: await res.json() };
+}
+
+test('kosmos#8666: a Claude agent lists the board\'s Claude menu and the model its job starts it on', async () => {
+  const name = bornOn('choices-8666-claude', 'claude', 'claude-haiku-4-5-20251001', null);
+  const r = await choices(name);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.kind, 'menu');
+  assert.equal(r.body.provider, 'anthropic');
+  assert.equal(r.body.set, 'claude-haiku-4-5-20251001', 'the model its job names');
+  assert.deepEqual(r.body.models.map((m) => m.key), create.modelsFor('anthropic').map((m) => m.key), 'the menu is the board\'s list, in its order');
+  assert.ok(r.body.models.every((m) => m.label && m.arg), JSON.stringify(r.body.models));
+  assert.equal(r.body.accountDir, undefined, 'a folder path does not travel');
+});
+
+test('kosmos#8666: an OpenAI agent\'s list comes from its own account, and an account that cannot list says why', async () => {
+  const name = bornOn('choices-8666-codex', 'codex', null, GAMMA_SIGNIN);
+  const r = await choices(name);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.kind, 'account');
+  assert.equal(r.body.listed, false, JSON.stringify(r.body));
+  // The account's own sentence (openaiaccounts.accountModels): a ChatGPT sign-in has no key to list models with.
+  assert.equal(r.body.because, (await openai.accountModels(GAMMA_SIGNIN)).because);
+  assert.match(r.body.because, /cannot list models/);
+  assert.equal(r.body.models, undefined, 'no menu is invented for an account that could not list one');
+  assert.doesNotMatch(JSON.stringify(r.body), /\.codex-gamma/, 'the account folder does not travel');
+});
+
+test('kosmos#8666: Gemini takes any model id; Muse, an account-named vendor and an agent Kosmos did not start refuse as setModel does', async () => {
+  const g = await choices(bornOn('choices-8666-gemini', 'gemini', 'gemini-2.5-flash', null));
+  assert.equal(g.body.ok, true, JSON.stringify(g.body));
+  assert.equal(g.body.kind, 'free');
+  assert.equal(g.body.vendorLabel, 'Gemini');
+  assert.equal(g.body.set, 'gemini-2.5-flash');
+  const muse = bornOn('choices-8666-muse', 'muse', null, null);
+  const m = await choices(muse);
+  assert.deepEqual({ ok: m.body.ok, because: m.body.because }, { ok: false, because: create.setModel(muse, 'sonnet').because }, 'the list and the switch refuse in one sentence');
+  assert.equal(m.body.name, muse, 'the name it was read as');
+  assert.match(m.body.because, /Meta Muse picks its own model/);
+  const none = await choices('choices-8666-nobody');
+  assert.equal(none.body.ok, false);
+  assert.equal(none.body.because, create.setModel('choices-8666-nobody', 'sonnet').because);
+  assert.match(none.body.because, /was not started by Kosmos/);
+});
+
+test('kosmos#8666 review 1: an OpenAI account\'s list leaves out what the company policy does not allow, as Claude\'s does', async () => {
+  const name = bornOn('choices-8666-policy', 'codex', 'gpt-5', ALPHA);
+  const realModels = openai.accountModels; const realAllows = create.policyAllows;
+  openai.accountModels = async () => ({ ok: true, models: [{ key: 'gpt-5', label: 'GPT 5' }, { key: 'o3', label: 'o3' }], runnableKeys: ['gpt-5', 'o3', 'o3-2025'] });
+  const asked = [];
+  create.policyAllows = (provider, key) => { asked.push(provider + ':' + key); return key === 'o3' ? { ok: false, because: 'not allowed' } : { ok: true }; };
+  let r;
+  try { r = await choices(name); } finally { openai.accountModels = realModels; create.policyAllows = realAllows; }
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.models, [{ key: 'gpt-5', label: 'GPT 5' }], 'a model the policy refuses was listed');
+  assert.deepEqual(asked, ['openai:gpt-5', 'openai:o3'], 'the policy was not asked about each listed model');
+  assert.equal(r.body.runnableKeys, undefined, 'the full runnable list travelled');
+  assert.equal(r.body.set, 'gpt-5');
+});
+
+test('kosmos#8666 review 3: Claude\'s menu leaves out a model the company policy does not allow, through setModel\'s own policy check', async () => {
+  const name = bornOn('choices-8666-claudepolicy', 'claude', 'claude-sonnet-5', null);
+  const orgpolicy = require('./engine/orgpolicy');
+  const realAllows = orgpolicy.allows;
+  orgpolicy.allows = ({ model } = {}) => (Array.isArray(model) && model.includes('opus55') ? { ok: false, because: 'Claude Opus 5.5 is not allowed by your company' } : { ok: true });
+  let r; let refusal;
+  try { r = await choices(name); refusal = create.setModel(name, 'opus55').because; } finally { orgpolicy.allows = realAllows; }
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const keys = r.body.models.map((m) => m.key);
+  assert.ok(!keys.includes('opus55'), 'a model the policy refuses was listed: ' + keys.join(','));
+  assert.deepEqual(keys, create.modelsFor('anthropic').map((m) => m.key).filter((k) => k !== 'opus55'), 'more than the refused model was left out');
+  assert.match(String(refusal), /not allowed by your company/, 'CONTROL: setModel refuses the same model under the same policy');
+});
+
+test('kosmos#8666 review 5: ?resolve=1 takes a name as the list prints it to the agent it names; without it, nothing is resolved', async () => {
+  const name = bornOn('choices-8666-resolve', 'claude', 'claude-sonnet-5', null);
+  const removal = require('./engine/remove');
+  const real = removal.resolve;
+  const asked = [];
+  removal.resolve = (n) => {
+    asked.push(n);
+    if (n === 'Resolve Me') return { name, ambiguous: [], shown: {} };
+    if (n === 'Twice') return { name: n, ambiguous: ['twice-a', 'twice-b'], shown: { 'twice-a': 'Twice' } };
+    return { name: n, ambiguous: [], shown: {} };
+  };
+  let hit; let plain; let many;
+  try {
+    const get = async (n, q) => (await fetch(base + '/api/agent/' + encodeURIComponent(n) + '/model' + q)).json();
+    hit = await get('Resolve Me', '?resolve=1');
+    plain = await get('Resolve Me', '');
+    many = await get('Twice', '?resolve=1');
+  } finally { removal.resolve = real; }
+  assert.equal(hit.ok, true, JSON.stringify(hit));
+  assert.equal(hit.name, name, 'the agent\'s own name, which the CLI then switches');
+  assert.equal(hit.kind, 'menu');
+  assert.deepEqual(asked, ['Resolve Me', 'Twice'], 'a read without ?resolve=1 was resolved');
+  assert.equal(plain.ok, false, 'CONTROL: the name as the list prints it is not an agent\'s own name');
+  assert.equal(plain.because, 'that is not a name we can act on');
+  assert.equal(many.ok, false);
+  assert.equal(many.ambiguous, true);
+  assert.match(many.because, /more than one agent is called Twice \(twice-a, shown as Twice; twice-b\); name it by one of those names/);
+});
+
+test('kosmos#8666 review 6: a name as the list prints it never comes back as a bare "cannot be changed" refusal', async () => {
+  // The board here has no such agent: the answer is "no agent called" (found:false) when it read the cards, or a read
+  // that failed when it could not. Either way a CLI exits 1; neither is the name rule's refusal on its own.
+  const r = await (await fetch(base + '/api/agent/' + encodeURIComponent('Nobody Here') + '/model?resolve=1')).json();
+  assert.equal(r.ok, false, JSON.stringify(r));
+  assert.ok(r.found === false || r.readFailed === true, 'a bare refusal: ' + JSON.stringify(r));
+  const plain = await (await fetch(base + '/api/agent/' + encodeURIComponent('Nobody Here') + '/model')).json();
+  assert.deepEqual({ ok: plain.ok, because: plain.because, found: plain.found, readFailed: plain.readFailed },
+    { ok: false, because: create.REFUSE_NAME, found: undefined, readFailed: undefined }, 'CONTROL: without ?resolve=1 the name rule answers alone');
+});

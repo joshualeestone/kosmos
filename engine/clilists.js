@@ -14,6 +14,41 @@ const { localStamp } = require('./localstamp');
 /* kosmos#8304: a tool's name travels only in this shape; checked where the row is made and again where it is printed. */
 const PLAIN_TOOL = /^[A-Za-z0-9_.-]{1,64}$/;
 
+/* kosmos#8665: the model line on an agent's card (web/index.html tileModelLine over modelLine), in the same words, for
+   `kosmos agent list`: a helping agent can then see each agent's model without the board's page, which is the path
+   that breaks when a tab is signed out (#8662). It reads the same status card the page reads. Written out here, not
+   required from the page or from cardlabel, for the same reason as CANT_TELL below: the CLIs carry this file alone.
+   clilists.modelline-8665.test.js runs the page's own functions on the same cards and asserts the same words. */
+/* The page asks cardStOf(a).pres === 'off': a stopped agent, or a restart that did not come back (CARD_ST_FAILED_RESTART).
+   Every other card (a crash loop, a delivery stall, a gave-up reconnect included) keeps a presence that is not off. */
+function notRunningOf(a) {
+  return a.state === 'stopped' || (a.state === 'needs_you' && !!a.disruption && a.disruption.failed === true);
+}
+function cardModelLine(a) {
+  const notRunning = notRunningOf(a);
+  const name = (notRunning && a.plannedModelName) || a.modelName || a.plannedModelName;
+  const prov = a.account && a.account.provider;
+  if (a.runner === 'codex' && prov === 'alibaba') return name ? (/qwen/i.test(name) ? name : 'Qwen ' + name) : 'Qwen';
+  if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';
+  if (prov === 'deepseek') return name ? (/deepseek/i.test(name) ? name : 'DeepSeek ' + name) : 'DeepSeek';
+  if (prov === 'glm') return name ? (/glm/i.test(name) ? name : 'Z.ai GLM ' + name) : 'Z.ai GLM';
+  if (prov === 'minimax') return name ? (/minimax/i.test(name) ? name : 'MiniMax ' + name) : 'MiniMax';
+  if (a.runner === 'gemini' && name && !notRunning && a.settingModelName) return name + ' (set to ' + a.settingModelName + ')';
+  if (a.runner === 'gemini' || a.runner === 'grok') return name || (a.runner === 'gemini' ? 'Gemini' : 'Grok');
+  if (a.runner === 'antigravity') return name || 'Gemini (Google subscription)';
+  if (a.runner === 'muse') return name || 'Meta Muse';
+  if (!name) return a.neverRecorded === true ? 'Made before Kosmos recorded this' : 'Unknown Model';
+  return /^claude/i.test(name) ? name : 'Claude ' + name;
+}
+/* tileModelLine: an agent with no model of its own yet names the model its earlier session ran. */
+function modelWordsOf(a) {
+  if (!a || typeof a !== 'object') return null;
+  const line = cardModelLine(a);
+  if (!a.earlierModelName || a.modelName || a.plannedModelName) return line;
+  if (line !== 'Made before Kosmos recorded this' && line !== 'Unknown Model') return line;
+  return /^claude/i.test(a.earlierModelName) ? a.earlierModelName : 'Claude ' + a.earlierModelName;
+}
+
 /* kosmos#7977: the word a "Can't tell" card carries, and the three shapes behind it, read from the card itself: no
    window on this computer (a paneless agent known only by its token and reports), a job running where this board cannot
    see it (#668), or an agent this board does reach (a Mac pane, a Windows supervisor's stream, a Muse pane) that tells
@@ -35,6 +70,7 @@ function cantTellOf(a) {
    1), else null. Its state and time travel, never its words. */
 function rosterRow(a, lastReport) {
   const row = { name: a.name, role: (a.profile && a.profile.role) || a.role || null, state: a.cardWord || null };
+  row.model = modelWordsOf(a);   // kosmos#8665: the card's model line, in its words
   if (row.state === CANT_TELL && a.isNamedOurs === true) {
     row.cantTell = cantTellOf(a);
     const r = lastReport && typeof lastReport === 'object' ? lastReport : null;
@@ -88,8 +124,13 @@ function stateLines(a) {
 /* One agent on `kosmos agent list`. `state` is the word on the agent's card, sent by the board. */
 function agentLine(a) {
   const role = typeof a.role === 'string' && a.role.trim() ? a.role.trim() : 'no role recorded';
-  return a.name + '  ' + role + '  ' + (typeof a.state === 'string' && a.state ? a.state : 'state not known');
+  /* kosmos#8665: the card's model line last, so a reader that splits the first three columns is unchanged. A row from a
+     board too old to send it says nothing rather than a guess. */
+  const model = typeof a.model === 'string' && a.model.trim() ? '  ' + oneLine(a.model) : '';
+  return a.name + '  ' + role + '  ' + (typeof a.state === 'string' && a.state ? a.state : 'state not known') + model;
 }
+/* A model name comes from a transcript or a job file; it is printed on one line, never as a line break it carries. */
+function oneLine(s) { return String(s).replace(/[\u0000-\u001f\u007f]+/g, ' ').trim(); }
 
 /* `partial`: the board could not read every agent, so a stopped one may be missing and an empty list proves nothing. */
 function agentLines(agents, partial) {
@@ -126,4 +167,4 @@ function roleLines(roles, word) {
   return { lines, code: 0 };
 }
 
-module.exports = { agentLines, roleLines, rosterRow };
+module.exports = { agentLines, roleLines, rosterRow, modelWordsOf };

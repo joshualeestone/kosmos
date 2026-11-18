@@ -67,12 +67,12 @@ test('kosmos#8288: a time that cannot be read says so rather than printing NaN',
 test('kosmos#8288: the roster row carries when, and never the words in the box', () => {
   const secret = 'my private note in the box';
   const row = rosterRow({ name: 'Ada', state: 'idle', cardWord: 'Idle', role: 'R', unsentInput: { since: T, text: secret }, composerText: secret });
-  assert.deepEqual(row, { name: 'Ada', role: 'R', state: 'Idle', unsentSince: T });
+  assert.deepEqual(row, { name: 'Ada', role: 'R', state: 'Idle', model: 'Unknown Model', unsentSince: T });
   assert.doesNotMatch(JSON.stringify(row), /private note/);
 });
 
 test('kosmos#8288: the roster row follows the card: which stall, a crash loop, and nothing for a healthy agent', () => {
-  assert.deepEqual(rosterRow({ name: 'H', cardWord: 'Idle', unsentInput: null, deliveryStall: null, crashLoop: null }), { name: 'H', role: null, state: 'Idle' });
+  assert.deepEqual(rosterRow({ name: 'H', cardWord: 'Idle', unsentInput: null, deliveryStall: null, crashLoop: null }), { name: 'H', role: null, state: 'Idle', model: 'Unknown Model' });
   assert.equal(rosterRow({ name: 'A', deliveryStall: { since: T, lastWhy: 'turn', count: 2 } }).oneStepSince, T);
   const words = rosterRow({ name: 'B', deliveryStall: { since: T, words: 'it may be busy' } });
   assert.equal(words.noMessageSince, T);
@@ -129,10 +129,10 @@ test('#7748: a word that matches nothing says so and exits 1', () => {
 
 test('kosmos#8304: a working agent on one tool call for minutes (#8286) gets its own line, with the time and the tool', () => {
   const row = rosterRow({ name: 'Ada', state: 'working', cardWord: 'Working', role: 'R', oneStep: { tool: 'Bash', since: T } });
-  assert.deepEqual(row, { name: 'Ada', role: 'R', state: 'Working', longStepSince: T, longStepTool: 'Bash' });
+  assert.deepEqual(row, { name: 'Ada', role: 'R', state: 'Working', model: 'Unknown Model', longStepSince: T, longStepTool: 'Bash' });
   process.env.TZ = 'America/Chicago';
   try {
-    assert.deepEqual(agentLines([row]).lines, ['Ada  R  Working', '  on one step since 2026-11-09 02:12: Bash']);
+    assert.deepEqual(agentLines([row]).lines, ['Ada  R  Working  Unknown Model', '  on one step since 2026-11-09 02:12: Bash']);
   } finally { process.env.TZ = 'UTC'; }
 });
 
@@ -168,11 +168,11 @@ test('kosmos#7977: a "Can\'t tell" row says which of the three shapes it is, fro
   assert.equal(rosterRow({ name: 'C', cardWord: ct, isNamedOurs: true, state: 'unknown' }).cantTell, 'unread');
   // CONTROL: any other word carries none of it, even on a paneless card with a report.
   const idle = rosterRow({ name: 'D', cardWord: 'Idle', isNamedOurs: true, paneless: true }, { state: 'idle', at: T });
-  assert.deepEqual(Object.keys(idle).sort(), ['name', 'role', 'state']);
+  assert.deepEqual(Object.keys(idle).sort(), ['model', 'name', 'role', 'state']);
   // Review 1: a stranger's session that shares a name is not the agent: no shape, no report.
   const stranger = rosterRow({ name: 'E', cardWord: ct, isNamedOurs: false, state: 'unknown' }, { state: 'working', at: T });
-  assert.deepEqual(Object.keys(stranger).sort(), ['name', 'role', 'state']);
-  assert.deepEqual(Object.keys(rosterRow({ name: 'F', cardWord: ct, state: 'unknown' }, { state: 'working', at: T })).sort(), ['name', 'role', 'state'], 'a card that does not say it is ours got a shape');
+  assert.deepEqual(Object.keys(stranger).sort(), ['model', 'name', 'role', 'state']);
+  assert.deepEqual(Object.keys(rosterRow({ name: 'F', cardWord: ct, state: 'unknown' }, { state: 'working', at: T })).sort(), ['model', 'name', 'role', 'state'], 'a card that does not say it is ours got a shape');
 });
 
 test('kosmos#7977: the word is the board\'s own, and every self-report state travels while no other does', () => {
@@ -193,9 +193,9 @@ test('kosmos#7977: the last report travels as a state and a time only, and "neve
   const ct = "Can't tell";
   const ours = { name: 'A', cardWord: ct, isNamedOurs: true, paneless: true };
   const r = rosterRow(ours, { state: 'working', at: T, final: 'SECRET words', because: 'x' });
-  assert.deepEqual(r, { name: 'A', role: null, state: ct, cantTell: 'no-window', lastReportState: 'working', lastReportAt: T });
-  assert.deepEqual(Object.keys(rosterRow(ours, { state: 'nonsense', at: T })).sort(), ['cantTell', 'name', 'role', 'state'], 'an unknown state travelled');
-  assert.deepEqual(Object.keys(rosterRow(ours, { state: 'idle', at: 'not a time' })).sort(), ['cantTell', 'name', 'role', 'state'], 'an unreadable time travelled');
+  assert.deepEqual(r, { name: 'A', role: null, state: ct, model: 'Unknown Model', cantTell: 'no-window', lastReportState: 'working', lastReportAt: T });
+  assert.deepEqual(Object.keys(rosterRow(ours, { state: 'nonsense', at: T })).sort(), ['cantTell', 'model', 'name', 'role', 'state'], 'an unknown state travelled');
+  assert.deepEqual(Object.keys(rosterRow(ours, { state: 'idle', at: 'not a time' })).sort(), ['cantTell', 'model', 'name', 'role', 'state'], 'an unreadable time travelled');
   assert.equal(rosterRow(ours, { never: true }).neverReported, true);
   assert.equal(rosterRow(ours, null).neverReported, undefined, 'no record read is not "never reported"');
   assert.equal(rosterRow(ours, { found: false }).neverReported, undefined, 'a raw unread record is not "never reported"');

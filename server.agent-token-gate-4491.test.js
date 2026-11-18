@@ -78,7 +78,7 @@ test('an agent route passes the gate with only a valid agent token (no board tok
   }
 });
 
-test('#7748: the agent list passes on an agent token alone, and a healthy agent has three fields', async (t) => {
+test('#7748: the agent list passes on an agent token alone, and a healthy agent has four fields (kosmos#8665: its model too)', async (t) => {
   const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
   t.after(() => board.restore && board.restore());
   const r = await call('GET', '/api/agents/list', { headers: { 'x-kosmos-agent-token': agentToken } });
@@ -86,7 +86,9 @@ test('#7748: the agent list passes on an agent token alone, and a healthy agent 
   assert.equal(r.code, 200, r.text.slice(0, 120));
   const j = JSON.parse(r.text);
   assert.ok(j.agents.length > 0, 'an empty list proves nothing about its fields');
-  for (const a of j.agents) assert.deepEqual(Object.keys(a).sort(), ['name', 'role', 'state']);
+  for (const a of j.agents) assert.deepEqual(Object.keys(a).sort(), ['model', 'name', 'role', 'state']);
+  // kosmos#8665: the card's model line, in words (a fixture agent has no model recorded, so the card's own admission).
+  for (const a of j.agents) assert.ok(typeof a.model === 'string' && a.model.length > 0, 'no model line: ' + JSON.stringify(a));
 });
 
 test('kosmos#8288: a stuck card reaches the list through the real route, as a time and no more', async (t) => {
@@ -101,7 +103,7 @@ test('kosmos#8288: a stuck card reaches the list through the real route, as a ti
   const mara = JSON.parse(r.text).agents.find((a) => a.name === 'mara');
   assert.ok(mara, r.text.slice(0, 200));
   assert.equal(mara.noMessageSince, since, 'the stall did not reach the list: ' + JSON.stringify(mara));
-  assert.deepEqual(Object.keys(mara).sort(), ['name', 'noMessageSince', 'role', 'state']);
+  assert.deepEqual(Object.keys(mara).sort(), ['model', 'name', 'noMessageSince', 'role', 'state']);
   assert.doesNotMatch(r.text, /SECRET-/, 'content of the stall reached the list');
 });
 
@@ -128,14 +130,14 @@ test('kosmos#7977: a "Can\'t tell" card reaches the list with its shape and last
   const mara = agents.find((a) => a.name === 'mara');
   assert.ok(mara, r.text.slice(0, 200));
   assert.equal(mara.state, "Can't tell", 'the fixture did not make a Can\'t tell card: ' + JSON.stringify(mara));
-  assert.deepEqual(mara, { name: 'mara', role: mara.role, state: "Can't tell", cantTell: 'unread', lastReportState: 'working', lastReportAt: at });
+  assert.deepEqual(mara, { name: 'mara', role: mara.role, state: "Can't tell", model: mara.model, cantTell: 'unread', lastReportState: 'working', lastReportAt: at });
   assert.doesNotMatch(r.text, /SECRET-/, 'a report\'s words reached the list');
   // Review 1 and 2: "never reported" only when there is no record file; one this build cannot read says nothing.
   assert.equal(agents.find((a) => a.name === 'nova').neverReported, true, JSON.stringify(agents));
   const odin = agents.find((a) => a.name === 'odin');
-  assert.deepEqual(Object.keys(odin).sort(), ['cantTell', 'name', 'role', 'state'], 'an unreadable record was said: ' + JSON.stringify(odin));
+  assert.deepEqual(Object.keys(odin).sort(), ['cantTell', 'model', 'name', 'role', 'state'], 'an unreadable record was said: ' + JSON.stringify(odin));
   const poc = agents.find((a) => a.name === 'poc-agent');
-  assert.deepEqual(Object.keys(poc).sort(), ['name', 'role', 'state'], 'CONTROL: an idle card gained fields');
+  assert.deepEqual(Object.keys(poc).sort(), ['model', 'name', 'role', 'state'], 'CONTROL: an idle card gained fields');
 });
 
 test('kosmos#8304: a long tool call reaches the list through the real route, as a time and a plain name, no more', async (t) => {
@@ -155,11 +157,11 @@ test('kosmos#8304: a long tool call reaches the list through the real route, as 
   const plain = await list();
   assert.ok(plain.mara, plain.r.text.slice(0, 200));
   assert.equal(plain.mara.longStepSince, since, 'the step did not reach the list: ' + JSON.stringify(plain.mara));
-  assert.deepEqual(Object.keys(plain.mara).sort(), ['longStepSince', 'longStepTool', 'name', 'role', 'state']);
+  assert.deepEqual(Object.keys(plain.mara).sort(), ['longStepSince', 'longStepTool', 'model', 'name', 'role', 'state']);
   assert.equal(plain.mara.longStepTool, 'Bash');
   tool = 'cat SECRET-FILE; echo';
   const odd = await list();
-  assert.deepEqual(Object.keys(odd.mara).sort(), ['longStepSince', 'name', 'role', 'state'], 'a name that is not plain is dropped');
+  assert.deepEqual(Object.keys(odd.mara).sort(), ['longStepSince', 'model', 'name', 'role', 'state'], 'a name that is not plain is dropped');
   assert.doesNotMatch(odd.r.text, /SECRET-/, 'content reached the list');
 });
 
