@@ -21,7 +21,7 @@ Pool PR before the 0.8.09 staging cut (~21:00 CST 11-17, #1050). Data only: `rel
 | c5bd75cd08 | #8627: Files sort, four orders, remembered per screen | 0.8.08 | rank 9.4, window |
 | c0f48c5675 | #8637 (PR #8642): PDF preview pages (macOS's PDF tools; elsewhere the first page alone) | 0.8.09 | rank 9.6, window, mac |
 | 5e041898db | #8636 (PR #8646): link preview pictures | 0.8.09 | rank 9.8, window |
-| bedabc10e2 | #8617: a Files folder at agent creation (and the boot sweep) | 0.8.08 | rank 10.1 |
+| bedabc10e2 | #8617: a Files folder at agent creation (and the boot sweep; not for a connected agent, ensureFolder) | 0.8.08 | rank 10.1 |
 | 667a47157c (+ reviews) | #8629: a failed DM read keeps a scrolled-back reader's place | 0.8.08 | rank 10.12 |
 | bbf68c4b3b | #8652: a first DM to a just-started Windows agent waits for its roster row | 0.8.09 | rank 10.7, windows |
 | d80bd74fe1 | #8628: memory rings one thin stroke, never clipped | 0.8.08 | rank 12.3 |
@@ -52,3 +52,7 @@ A person-facing change I missed in the merge list, or a reviewer showing a line 
 - WARNINGs fixed: GPT-6 names the account condition, since 0.8.09, restart agents; the link preview line no longer says "appears once" (a briefly failing picture is added after a minute).
 - NITs fixed: the Windows first-message line says it may answer still starting; the plan's No line list names #8644 item 3.
 - NIT left: the leftover-delete notes line is untagged; on Windows it is not false (no tmux pane to claim) and the pool has no Mac-and-Linux tag.
+### Review 2 (sonnet): 1 WARNING fixed, 5 NITs (2 fixed, 3 left)
+- WARNING fixed: the Files folder line said every agent; a connected agent (a folder you brought in) gets none (engine/dmfiles.js ensureFolder). Now "A new agent gets a Files folder", with a place to save a file for you the first time you ask.
+- NITs fixed: the kosmos msg notes line says it may answer still starting; the restart-wait notes line says recent (7 days).
+- NITs left: GPT-6's update timing (the plan's weakest premise); a Kosmos+ remote browser may still see one PDF page (the #8637 relay deferral, a fallback, not a false claim); the leftover-delete notes line does not name the pane-folder arm.
