@@ -13,7 +13,9 @@ is a usage error. The usage line on both CLIs says plainly that plain claim TAKE
 - A status check that times out or cannot reach the board exits 1 and says nothing was claimed (a read changes
   nothing, so it is never a "may have happened" 3). A refused one says "Could not check".
 - "Nobody holds that post" does not add "kosmos claim ... takes it": a post that asks particular members refuses
-  another agent's claim, so that promise would sometimes be false (review 1).
+  another agent's claim, so that promise would sometimes be false (review 1). Instead (review 2) the answer says when
+  that is so: "but it asks ann for 12 more minutes, so anyone else's claim is refused until then". The #6952 rule is
+  now one helper (askedHold) that the claim refuses with and the status check reports, so the two cannot disagree.
 - The agent instructions (engine/defaults.js) are NOT changed. Adding a --status line there changes the doctrine
   block, which needs a version bump that banners every agent, and the card asked only for the command and its help.
   Recommend it for the next doctrine change; noted on the card.

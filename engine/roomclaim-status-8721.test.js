@@ -65,3 +65,27 @@ test('status is refused as a claim would be: not on the project, no such post, a
   assert.equal(asPerson.ok, false, 'the person\'s branch, which writes, was reached by a status check');
   assert.equal(messages.record().rows.filter((m) => m.kind === 'reaction').length, before);
 });
+
+test('a post that asks someone else first: status says so (who, and the minutes left) while nobody holds it', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm5', project: 'p', from: 'cy', to: [], mentioned: ['ann'], text: '@ann can you take the login bug?', outcomes: {}, at: new Date().toISOString() }) + '\n', 'utf8');
+  const bob = ask('bob', 'status', 'm5');
+  assert.equal(bob.ok, true);
+  assert.deepEqual(bob.askedOf, ['ann']);
+  assert.equal(bob.askedWho, 'ann');
+  assert.ok(bob.askedMinutes >= 29 && bob.askedMinutes <= 30, String(bob.askedMinutes));
+  const c = ask('bob', 'claim', 'm5');
+  assert.equal(c.ok, false, 'CONTROL: bob\'s claim is refused, so the status line above is true');
+  assert.deepEqual(c.askedOf, ['ann']);
+  const ann = ask('ann', 'status', 'm5');
+  assert.equal(ann.askedOf, undefined, 'the asked member is not told the post asks someone else first');
+});
+
+test('a refused check from an agent not on the project never names the holder', () => {
+  seedPost('m1');
+  ask('ann', 'claim');
+  const z = ask('zed', 'status');
+  assert.equal(z.ok, false);
+  assert.equal(z.claimedBy, undefined);
+  assert.doesNotMatch(JSON.stringify(z), /ann/);
+});

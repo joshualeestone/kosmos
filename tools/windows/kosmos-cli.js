@@ -4045,6 +4045,8 @@ async function verbClaim(ctx, args) {
     const by = clause(r.json.claimedBy); const age = clause(r.json.claimedAge) || 'earlier';
     if (r.json.mine === true) ctx.out('That post is yours (claimed ' + age + '). Nothing was changed.');
     else if (by) ctx.out(by + ' holds that post (claimed ' + age + '). Nothing was claimed.');
+    else if (clause(r.json.askedWho)) { const m = Number.isInteger(r.json.askedMinutes) ? r.json.askedMinutes : null;
+      ctx.out('Nobody holds that post, but it asks ' + clause(r.json.askedWho) + ' for ' + (m == null ? 'a few' : m) + ' more minute' + (m === 1 ? '' : 's') + ', so anyone else\'s claim is refused until then. Nothing was claimed.'); }
     else ctx.out('Nobody holds that post. Nothing was claimed.');
     return 0;
   }

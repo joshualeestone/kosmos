@@ -4511,7 +4511,8 @@ const NOT_ON_PROJECT_FIX = "; ask the person to add this agent with the + beside
    #6946: a 🙋 from an agent is a CLAIM (see the claim rule below): `claim` 'claim' never toggles and can answer op
    'already', 'release' can answer op 'none', and a refusal or a no-op also carries `claimedBy` (and `claimedAt`).
    kosmos#8721: 'status' writes nothing and answers op 'status' with `mine`, and `claimedBy`, `claimedAt` and
-   `claimedAge` when somebody holds the post; it is an agent's read only (never with `operator`). */
+   `claimedAge` when somebody holds the post, or `askedOf`, `askedWho` and `askedMinutes` when nobody does but it asks
+   other members first (#6952); it is an agent's read only (never with `operator`). */
 function react({ project, of, emoji, from, operator, members, claim }) {
   const projectId = String(project == null ? '' : project).trim();
   const postId = messageIdOf(of);   // #4631: '530' and 'message 530' name m530 too
@@ -4613,11 +4614,47 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   const holder = claimOf(postId, rows, roomNow);
   const holds = !!(claimants.get(reactor) && holder && holder.by === reactor);
   const pills = pillsOf(reactor).length > 0;   // a 🙋 of this agent's, whether or not it is the claim
+  /* kosmos#8721: the asked-members hold (#6952) as a value, so a claim refuses with it and a status check reports it. */
+  const askedHold = (who) => {
+    const asked = claimAskedMembers(post, rows, projectId, roomNow);
+    /* The asked members have first call, for CLAIM_ASKED_MINUTES from the post (review 7). After that, with none of them
+       holding it, anyone may claim it: a request the pattern misread, or one its asked member never got to, is not held
+       forever. */
+    /* A post dated ahead of this clock (a clock stepped back) is open: its age cannot be read, and holding it until the
+       clock catches up could be hours (#6957 review 1). Fails open, as a post before #6952 did. */
+    const windowMs = CLAIM_ASKED_MINUTES * 60000;
+    // Up to a minute ahead is a small clock adjustment, read as just posted; more than that cannot be read (review 3).
+    const age = Date.now() - Date.parse(post.at);   // NaN for an unreadable time, which then fails open below
+    const leftMs = age < -60000 ? 0 : windowMs - Math.max(0, age);
+    /* #6957: an asked member who claimed the post and then gave it back has let it go ("out of usage, someone else
+       please"), so once every asked member still here has done that, the post is open. */
+    /* Gave back: n's 🙋 rows replayed in log order end in a remove n made THEMSELVES (no takenBy) after a marked claim.
+       Order matters (review 2): react() itself removes an old unmarked pill just before a claim, and a claim later ended
+       for n by a newer one is not n letting go. */
+    const gaveBack = (n) => {
+      let claimed = false; let released = false;
+      for (const m of rows) {
+        if (!m || m.kind !== 'reaction' || String(m.of) !== postId || m.from !== n || !isClaimEmoji(m.emoji)) continue;
+        if (m.op === 'add') { if (m.claim === true) claimed = true; continue; }
+        released = claimed && !m.takenBy;
+      }
+      return released;
+    };
+    const released = asked.length > 0 && asked.every(gaveBack);
+    /* No author exemption (#6957 review 4): an author holding its own request ("@bob can you take the login bug?") would
+       lock bob out of it with no time limit, since a claim, unlike the asked window, does not end on its own. An author
+       who means to do the work says so in its post, and the window lets it claim after 30 minutes at most. */
+    if (!(asked.length && !asked.includes(who) && !released && leftMs > 0)) return null;
+    return { asked, mins: Math.max(1, Math.ceil(leftMs / 60000)) };
+  };
   /* kosmos#8721: a read. Answered after the same room and post checks as a claim, before anything is written, so a
      check from an agent not on the project, or of a post that is not there, is refused exactly as a claim would be. */
   if (claim === 'status') {
+    const askedNow = holder ? null : askedHold(reactor);   // nobody holds it, but it may be someone else's to take first
     return { ok: true, op: 'status', of: postId, mine: holds,
-      ...(holder ? { claimedBy: holder.by, claimedAt: holder.at, claimedAge: claimAge(holder.at) } : {}) };
+      ...(holder ? { claimedBy: holder.by, claimedAt: holder.at, claimedAge: claimAge(holder.at) } : {}),
+      ...(askedNow ? { askedOf: askedNow.asked, askedMinutes: askedNow.mins,
+        askedWho: askedNow.asked.length === 1 ? askedNow.asked[0] : askedNow.asked.slice(0, -1).join(', ') + ' or ' + askedNow.asked[askedNow.asked.length - 1] } : {}) };
   }
   const refuse = () => ({ ok: false, claimedBy: holder.by, claimedAt: holder.at,
     because: holder.by + ' claimed that post ' + claimAge(holder.at)
@@ -4654,37 +4691,10 @@ function react({ project, of, emoji, from, operator, members, claim }) {
      read as the start of a clause either. "Need someone
      to..." is no room ask at all: said to bob, or in a reply to his post, it is bob's (review 2), and a post naming
      nobody is open anyway. */
-  const asked = claimAskedMembers(post, rows, projectId, roomNow);
-  /* The asked members have first call, for CLAIM_ASKED_MINUTES from the post (review 7). After that, with none of them
-     holding it, anyone may claim it: a request the pattern misread, or one its asked member never got to, is not held
-     forever. */
-  /* A post dated ahead of this clock (a clock stepped back) is open: its age cannot be read, and holding it until the
-     clock catches up could be hours (#6957 review 1). Fails open, as a post before #6952 did. */
-  const windowMs = CLAIM_ASKED_MINUTES * 60000;
-  // Up to a minute ahead is a small clock adjustment, read as just posted; more than that cannot be read (review 3).
-  const age = Date.now() - Date.parse(post.at);   // NaN for an unreadable time, which then fails open below
-  const leftMs = age < -60000 ? 0 : windowMs - Math.max(0, age);
-  /* #6957: an asked member who claimed the post and then gave it back has let it go ("out of usage, someone else
-     please"), so once every asked member still here has done that, the post is open. */
-  /* Gave back: n's 🙋 rows replayed in log order end in a remove n made THEMSELVES (no takenBy) after a marked claim.
-     Order matters (review 2): react() itself removes an old unmarked pill just before a claim, and a claim later ended
-     for n by a newer one is not n letting go. */
-  const gaveBack = (n) => {
-    let claimed = false; let released = false;
-    for (const m of rows) {
-      if (!m || m.kind !== 'reaction' || String(m.of) !== postId || m.from !== n || !isClaimEmoji(m.emoji)) continue;
-      if (m.op === 'add') { if (m.claim === true) claimed = true; continue; }
-      released = claimed && !m.takenBy;
-    }
-    return released;
-  };
-  const released = asked.length > 0 && asked.every(gaveBack);
-  /* No author exemption (#6957 review 4): an author holding its own request ("@bob can you take the login bug?") would
-     lock bob out of it with no time limit, since a claim, unlike the asked window, does not end on its own. An author
-     who means to do the work says so in its post, and the window lets it claim after 30 minutes at most. */
-  if (asked.length && !asked.includes(reactor) && !released && leftMs > 0) {
+  const hold = askedHold(reactor);
+  if (hold) {
+    const asked = hold.asked; const mins = hold.mins;
     const who = asked.length === 1 ? asked[0] : asked.slice(0, -1).join(', ') + ' or ' + asked[asked.length - 1];
-    const mins = Math.max(1, Math.ceil(leftMs / 60000));
     return { ok: false, askedOf: asked,
       because: 'that post asks ' + who + ', so it is theirs to take for ' + mins + ' more minute' + (mins === 1 ? '' : 's')
         + ': read the room, and ask them if you can help (if they hand it to you, claim the post where they do)' };
