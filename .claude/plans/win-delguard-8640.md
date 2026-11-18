@@ -27,6 +27,11 @@
   (the warm plan, the final plan, and delSteps' re-plan), so no plan in them reads synchronously (a test fails if one
   does). Only the synchronous plan()/del() still read on the caller's thread, as the tmux read always did. The read is
   ~0.5 s measured, bounded at 15 s; a timeout refuses the delete. An 8.3 lookup is done once per prefix per read.
+- Cost and freshness (review 2): the list is read only when the agent's folder exists (a file check, not a second
+  plan, which would read the roster again, kosmos#7835); reads already running are shared, finished ones never reused;
+  a delete reads again after the drive probe so its re-plan sees the processes of its own moment. A living agent with a
+  folder still costs one shared off-thread read (only the plan knows it is living). Candidates per path are capped
+  (64 cuts within 1024 characters).
 - Unquoted paths (review 1): where an unquoted path ends cannot be known, so each candidate is also cut at every space,
   `;`, `,` and `'`; an extra candidate can only make the check refuse more (the safe side).
 - Weakest part: the working-folder gap above. A Kosmos-started agent is already caught by the roster (by name), so the
@@ -34,7 +39,7 @@
 - Would change my mind: a cheap, safe way to read another process's working folder on Windows.
 
 ## Validation
-- `engine/delete-leftover.win32folders-8640.test.js` (8 tests, including a live process that names the folder, sync
+- `engine/delete-leftover.win32folders-8640.test.js` (14 tests, including a live process that names the folder, sync
   and async).
 - The delete-leftover and status suites plus the policy tests. On a Windows host, 17 tests in
   delete-leftover.offthread-7835, delete-leftover.running-8640, status.config-dir-1523, status.heldq-7915, status.snapshotunheld-7693 and status.tmux-bin fail with

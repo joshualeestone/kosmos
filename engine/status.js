@@ -8212,8 +8212,10 @@ function win32PathsIn(cmd) {
     if (!/^[A-Za-z]:[\\/]/.test(piece)) continue;
     const p = piece.split('"')[0].replace(/\s+$/, '');
     if (p.length <= 3) continue;
-    for (let i = 3; i < p.length; i++) {
-      if (/[\s;,']/.test(p[i])) { const cut = p.slice(0, i).replace(/[\s;,']+$/, ''); if (cut.length > 3) out.push(cut); }
+    // Bounded: cuts only within the first 1024 characters (a real folder path is far shorter), so a command line of
+    // thousands of characters cannot make the candidates grow with its square.
+    for (let i = 3, cuts = 0; i < Math.min(p.length, 1024) && cuts < 64; i++) {
+      if (/[\s;,']/.test(p[i])) { const cut = p.slice(0, i).replace(/[\s;,']+$/, ''); if (cut.length > 3) { out.push(cut); cuts += 1; } }
     }
     out.push(p);
   }

@@ -528,7 +528,9 @@ function plan(name, opts) {
       /* Read even when the roster is empty: the roster keeps only sessions it can name as agents, and a pane in a session
          it cannot name is exactly the one this check is for. */
       let folders = [];
-      if (homes.size) {
+      /* kosmos#8640: and only for a folder that is there: nothing can be working in one that is not, and on Windows
+         the read is a whole process listing. */
+      if (homes.size && fs.existsSync(dir)) {
         /* Its own sentence: a line the listing could not attribute (kosmos#8644: a pane line that will not read, or a tail
            with no pane before it) can be ANY pane on this computer, so "try again in a moment" would promise a remedy that
            does not exist until that pane closes. */
@@ -1773,20 +1775,38 @@ async function planAsync(name, opts) {
   /* kosmos#8644 item 1: the folder listing (kosmos#8640's second read: tmux on a Mac, the process list on Windows) is
      read here, off the board's thread, and handed to EVERY plan this request makes; a failure is handed in as itself,
      so plan() refuses as it would have. kosmos#8640 (Windows): read before warmFor too, whose own plan would otherwise
-     read it on the board's thread (the Windows read is a PowerShell process, ~0.5 s, up to its 15 s limit). */
-  const folders = await foldersOffThread();
-  const warm = win ? await warmFor(name, { ...(opts || {}), folders }) : null;
+     read it on the board's thread (the Windows read is a PowerShell process, ~0.5 s, up to its 15 s limit), and only
+     when the agent's folder is there (foldersIfNeeded). */
+  const had = await foldersIfNeeded(name);
+  const warm = win ? await warmFor(name, { ...(opts || {}), ...had }) : null;
   // Asked again: a delete of the name can have started while the probe ran.
   if (win && deletingName(name)) return { ok: false, running: true, because: DELETING_BECAUSE };   // kosmos#7852: the page can say so
   if (warm && warm.first && !warm.probed) return warm.first;
-  return plan(name, { ...(opts || {}), folders });
+  return plan(name, { ...(opts || {}), ...had });
 }
-/** The folder listing, read off the board's thread: the list, or the Error the read gave (plan() refuses on it). */
+/** The folder listing, read off the board's thread: the list, or the Error the read gave (plan() refuses on it). Reads
+    already running are shared (two pages opening together start one Windows read, not two); a finished one is never
+    reused, so each delete still sees the processes of its own moment. */
+let foldersReading = null;
 async function foldersOffThread() {
-  let folders;
-  try { folders = await status.paneFoldersAsync(); } catch (e) { folders = e instanceof Error ? e : new Error(String(e)); }
-  if (!Array.isArray(folders) && !(folders instanceof Error)) folders = new Error('the folder listing was not a list');
-  return folders;
+  if (!foldersReading) {
+    foldersReading = (async () => {
+      let folders;
+      try { folders = await status.paneFoldersAsync(); } catch (e) { folders = e instanceof Error ? e : new Error(String(e)); }
+      if (!Array.isArray(folders) && !(folders instanceof Error)) folders = new Error('the folder listing was not a list');
+      return folders;
+    })().finally(() => { foldersReading = null; });
+  }
+  return foldersReading;
+}
+/** { folders } (the listing) when the agent's folder is there; else {} (plan() reads no listing for a folder that is
+    not there, and should one appear before the real plan, it reads the listing itself rather than trust an unread one).
+    A check of the folder only, not a plan: a second plan would read the roster a second time (kosmos#7835). A living
+    agent with a folder is still read for (one shared off-thread read), since only the plan knows it is living. */
+async function foldersIfNeeded(name) {
+  let there = false;
+  try { there = fs.existsSync(create.workerDir(create.cleanName(name))); } catch { there = true; }   // unsure: read
+  return there ? { folders: await foldersOffThread() } : {};
 }
 /** del, with the Windows drive probe and Recycle Bin moves run without holding the board. One at a time per name: a
     second delete of the same agent while one runs is refused, since its steps would interleave. */
@@ -1796,10 +1816,10 @@ async function delAsync(name, opts) {
   if (deleting.has(key)) return { outcome: OUTCOME.REFUSED, because: DELETING_BECAUSE };
   deleting.add(key);
   try {
-    // kosmos#8640 (Windows): the folder listing off the board's thread, for the warm plan and the re-plan both.
-    const folders = await foldersOffThread();
-    const { roots } = await warmFor(name, { ...(opts || {}), folders });
-    const steps = delSteps(name, { ...(opts || {}), pinned: roots, folders });
+    // kosmos#8640 (Windows): the folder listing off the board's thread, for the warm plan; and READ AGAIN after the drive
+    // probe (up to 20 s), so the re-plan that guards the delete sees the processes of the moment it runs.
+    const { roots } = await warmFor(name, { ...(opts || {}), ...(await foldersIfNeeded(name)) });
+    const steps = delSteps(name, { ...(opts || {}), pinned: roots, ...(await foldersIfNeeded(name)) });
     let r = steps.next();
     while (!r.done) {
       let got;

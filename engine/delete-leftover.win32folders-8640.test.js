@@ -66,7 +66,7 @@ test('win32PathsIn: every Windows path a command line names, quoted or not, with
 test('win32PathsIn: an UNQUOTED path with more arguments after it still gives the bare path (the usual shape)', () => {
   for (const cmd of ['tool.exe --dir C:\\w\\agent1 --verbose', 'x C:\\w\\agent1;D:\\other', 'x C:\\w\\agent1, y', "x 'C:\\w\\agent1' y"]) {
     const got = status.win32PathsIn(cmd);
-    assert.ok(got.includes('C:\\w\\agent1') || got.some((p) => p === "C:\\w\\agent1"), `${cmd} -> ${JSON.stringify(got)}`);
+    assert.ok(got.includes('C:\\w\\agent1'), `${cmd} -> ${JSON.stringify(got)}`);
   }
 });
 
@@ -111,6 +111,39 @@ test('win32: the page\'s plan and the delete read the folder list off the board\
     assert.notEqual(d.outcome, leftover.OUTCOME.DELETED);
     assert.equal(syncReads, 0, 'a synchronous read on the board\'s thread');
   } finally { status.paneFolders = realSync; }
+});
+
+test('win32: the listing is read only when the plan would use it: not for a name with nothing left over', { skip: WIN_ONLY }, async () => {
+  let reads = 0;
+  status.setWin32FolderSource(() => { reads += 1; return read(); });
+  const p = await leftover.planAsync('nobody-here', { platform: 'win32' });
+  assert.equal(p.ok, false, 'PRECONDITION: nothing is left of that name');
+  assert.equal(reads, 0, 'a page for a name with nothing to delete started a process read');
+  leftoverFolder('agent9');
+  await leftover.planAsync('agent9', { platform: 'win32' });
+  assert.ok(reads >= 1, 'and a real leftover is read');
+});
+
+test('win32: two pages opening together share one read', { skip: WIN_ONLY }, async () => {
+  leftoverFolder('agent10');
+  let reads = 0;
+  const realAsync = status.paneFoldersAsync;
+  status.paneFoldersAsync = async () => { reads += 1; await new Promise((r) => setTimeout(r, 50)); return []; };
+  try {
+    await Promise.all([leftover.planAsync('agent10', { platform: 'win32' }), leftover.planAsync('agent10', { platform: 'win32' })]);
+    assert.equal(reads, 1, 'two overlapping reads were started');
+  } finally { status.paneFoldersAsync = realAsync; }
+});
+
+test('win32: the delete re-reads the listing after the drive probe, so a tool started meanwhile is seen', { skip: WIN_ONLY }, async () => {
+  const dir = leftoverFolder('agent11');
+  let reads = 0;
+  // The first read (before the probe) sees nothing; a tool starts in the folder before the delete's own re-plan.
+  status.setWin32FolderSource(() => { reads += 1; return reads === 1 ? read() : read(line(13, 'tool.exe', 'C:\\t\\tool.exe', `tool.exe "${dir}"`)); });
+  const d = await leftover.delAsync('agent11', { platform: 'win32', unchecked: true });
+  assert.ok(reads >= 2, 'PRECONDITION: read again before the delete');
+  assert.notEqual(d.outcome, leftover.OUTCOME.DELETED, 'the delete went ahead over a tool started after the first read');
+  assert.ok(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')));
 });
 
 test('win32: a program running from inside the agent\'s folder, or a subfolder, holds it', { skip: WIN_ONLY }, () => {
