@@ -6,20 +6,20 @@ Pool PR before the 0.8.09 staging cut (~21:00 CST 11-17, #1050). Data only: `rel
 1. `shown 0.8.07 --promoted --from-history --ref=e3ab7762f5`: the pool had lastProd 0.8.06, so 0.8.07's window was never recorded; its five highlights are now shown in 0.8.07.
 2. `shown 0.8.08 --promoted --none`: 0.8.08 reached prod with no What's New. Running this before step 1 would have re-offered 0.8.07's five (caught at the build output, reverted, redone in order).
 
-## The window (5; Mac 5, Linux 5, Windows 5: all untagged)
-1. GPT-6 is in the model list (#8593, rank 9.0)
+## The window (5; Mac 5, Linux 4, Windows 4: the PDF line is mac)
+1. GPT-6 runs when your account offers it (#8593 + #8660, rank 9.0, restart agents)
 2. Report or block someone outside your Kosmos (#8625 + #8631, rank 9.2)
 3. Sort your Files (#8627, rank 9.4)
-4. Flip through every page of a PDF (#8637, PR #8642, rank 9.6)
+4. Flip through every page of a PDF (#8637, PR #8642, rank 9.6, mac)
 5. Link previews show their picture (#8636, PR #8646, rank 9.8)
 
 ## Changes to announce, by merge (since the 0.8.07 freeze e3ab7762f5; 0.8.08 freeze 9a712a0da7)
 | merge | change | since | pool |
 |---|---|---|---|
-| 99dcf9026e, 6e1dd44b0e | #8593: Codex 0.169.0 and gpt-6 (Mac/Linux in 0.8.08, Windows half #8660 in 0.8.09) | 0.8.08 | rank 9.0, window, untagged |
+| 99dcf9026e, 6e1dd44b0e | #8593: Codex 0.169.0 and gpt-6 (Mac/Linux in 0.8.08, Windows half #8660 in 0.8.09) | 0.8.09 | rank 9.0, window, untagged, restart agents |
 | 1d11abb648, 3e0861e441, adfffd7a2d | #8625 board route (0.8.08) + #8631 desktop Report/Block and Blocked list (0.8.09) | 0.8.09 | rank 9.2, window |
 | c5bd75cd08 | #8627: Files sort, four orders, remembered per screen | 0.8.08 | rank 9.4, window |
-| c0f48c5675 | #8637 (PR #8642): PDF preview pages | 0.8.09 | rank 9.6, window |
+| c0f48c5675 | #8637 (PR #8642): PDF preview pages (macOS's PDF tools; elsewhere the first page alone) | 0.8.09 | rank 9.6, window, mac |
 | 5e041898db | #8636 (PR #8646): link preview pictures | 0.8.09 | rank 9.8, window |
 | bedabc10e2 | #8617: a Files folder at agent creation (and the boot sweep) | 0.8.08 | rank 10.1 |
 | 667a47157c (+ reviews) | #8629: a failed DM read keeps a scrolled-back reader's place | 0.8.08 | rank 10.12 |
@@ -31,10 +31,10 @@ Pool PR before the 0.8.09 staging cut (~21:00 CST 11-17, #1050). Data only: `rel
 | 45f767551f, 3517995ff2 | #8640: delete-leftovers never offers a claimed pane's agent | 0.8.08 | notesOnly 124 |
 | a70e51fc20 | #8658: kosmos msg and a crash relaunch get #8652's wait (Windows) | 0.8.09 | notesOnly 125, windows |
 
-No line: #8626, #8635, #8654 (iPhone app, not in this build); #8620 (an internal restart after the Codex runner swap, covered by the GPT-6 line's update); #8605, #8610 (Windows card-model rule internals: stat once, named worlds); #8584 (rewords the 0.8.07 Windows startup-job line, still pending); #8644 (delete-plan follow-ups: a thread move, a newline rule); the plan/proof commits.
+No line: #8626, #8635, #8654 (iPhone app, not in this build); #8620 (an internal restart after the Codex runner swap, covered by the GPT-6 line's update); #8605, #8610 (Windows card-model rule internals: stat once, named worlds); #8584 (rewords the 0.8.07 Windows startup-job line, still pending); #8644 (delete-plan follow-ups: a thread move, a newline rule, and item 3, the removed list seeing a running agent by its claim, covered by the #8640 notes line); the plan/proof commits.
 
 ## Decided
-- The GPT-6 line is untagged with since 0.8.08: Mac/Linux had it in 0.8.08, and Windows gets the Codex 0.169.0 pin in this build (#8660), so every platform reading 0.8.09's window has it.
+- The GPT-6 line is untagged with since 0.8.09 (review 1): Windows 0.8.08 shipped Codex 0.149.1, which refuses GPT-6, and the notes date each line by since; Mac/Linux notes date it one build late, the smaller error. It names its condition (the account must offer GPT-6; the list comes from the account) and carries restart agents (a running Codex keeps the old Codex until it restarts; #8598 restarts some at idle, Mac/Linux only).
 - The Report/Block line is since 0.8.09: the board route shipped in 0.8.08 but nothing a person could press did until #8631.
 - The two Windows-only 0.8.03 items ("Windows Settings stops a false warning", "Removing Kosmos takes out its agent hooks", the 0.8.07 review 3 deferral) are NOT retired by hand and NOT in the window: five new untagged items rank above them. Whether Windows prod ever served 0.8.03 to 0.8.05 is not recorded by any instrument I hold (the pool records Mac promotes; the pointer lives in R2 with no history; the rooms keep 200 rows). Windows prod is 0.8.08 now (latest-win.json re-read 18:36 CST 11-17, c25c6ac4). The question returns only when they could enter a window again.
 - #8652's line is tagged windows: the wait is in the shared route, but the race it closes (record row before roster row) is the Windows roster's.
@@ -46,3 +46,9 @@ Rank is judgement. The GPT-6 line says Kosmos updates Codex for every platform; 
 A person-facing change I missed in the merge list, or a reviewer showing a line claims more than its change does.
 
 ## Review log
+### Review 1 (opus): 2 BLOCKERs fixed, 3 WARNINGs fixed, 3 NITs (2 fixed, 1 left)
+- BLOCKER fixed: the PDF pages need macOS's PDF tools (engine/pdfpages.js available() is darwin only); tagged mac, the line says On a Mac.
+- BLOCKER fixed: the Files folder line claimed the page lists an empty Files (it hides an empty folder, #3757); now says the agent can hand you a file before it has saved one.
+- WARNINGs fixed: GPT-6 names the account condition, since 0.8.09, restart agents; the link preview line no longer says "appears once" (a briefly failing picture is added after a minute).
+- NITs fixed: the Windows first-message line says it may answer still starting; the plan's No line list names #8644 item 3.
+- NIT left: the leftover-delete notes line is untagged; on Windows it is not false (no tmux pane to claim) and the pool has no Mac-and-Linux tag.

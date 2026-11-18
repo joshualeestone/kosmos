@@ -3,8 +3,8 @@
   "highlights": [
     {
       "icon": "spark",
-      "title": "GPT-6 is in the model list",
-      "line": "OpenAI agents can run GPT-6: it is in the model list, and Kosmos updates the Codex it runs so the newest ChatGPT models start."
+      "title": "GPT-6 runs when your account offers it",
+      "line": "When your OpenAI account offers GPT-6, its agents can run it: Kosmos updates the Codex it runs, which older versions refused."
     },
     {
       "icon": "shield",
@@ -19,12 +19,15 @@
     {
       "icon": "list",
       "title": "Flip through every page of a PDF",
-      "line": "Previewing a PDF with several pages lets you flip through all of them, not only the first."
+      "line": "On a Mac, previewing a PDF with several pages lets you flip through all of them, not only the first.",
+      "platforms": [
+        "mac"
+      ]
     },
     {
       "icon": "chat",
       "title": "Link previews show their picture",
-      "line": "A link preview appears once, with its picture or with words only, never with an empty picture box."
+      "line": "A link preview shows its picture with its words, or words only when the picture cannot be fetched, never an empty picture box."
     }
   ]
 }
