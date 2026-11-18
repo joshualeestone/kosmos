@@ -65,7 +65,7 @@ async function runWin(argv, answer, cwd = HERE) {
   });
   return { code, calls, out: out.join('\n'), err: err.join('\n') };
 }
-const OK = { task: { number: 3 }, changed: true, words: 'waits for PR #12 in octo/hello to merge' };
+const OK = { task: { number: 3 }, changed: true, words: 'waits for PR #12 in octo/hello to merge or close' };
 
 test('#8669 Mac CLI: each condition goes to the board as its own field, with the agent token', { skip: SKIP_POSIX_SHELL }, () =>
   withBoard(() => [200, OK], async (env, hits) => {
@@ -81,7 +81,7 @@ test('#8669 Mac CLI: each condition goes to the board as its own field, with the
       assert.deepEqual(Object.keys(sent).sort(), [field, 'from_pane'].sort(), 'only that field: ' + h.body);
     }
     const said = await runCli(['task', 'wake', 'p1', '3', '--pr', 'octo/hello#12'], env);
-    assert.match(said.stdout + said.stderr, /Task 3 on p1 now waits for PR #12 in octo\/hello to merge\. Kosmos looks once a minute and tells its holder once when it happens\./);
+    assert.match(said.stdout + said.stderr, /Task 3 on p1 now waits for PR #12 in octo\/hello to merge or close\. Kosmos looks once a minute and tells its holder once when it happens\./);
     const clear = await runCli(['task', 'wake', 'p1', '3', '--clear'], env);
     assert.equal(clear.code, 0);
     assert.deepEqual(JSON.parse(hits[hits.length - 1].body), { clear: true, from_pane: '%42' });
@@ -133,7 +133,7 @@ test('#8669 Windows CLI: the same fields and refusals, and a relative file sent 
   assert.equal(r.code, 0, r.err);
   assert.equal(r.calls.at(-1).route, '/api/project/p1/task/3/wake');
   assert.deepEqual(JSON.parse(r.calls.at(-1).body), { pr: 'octo/hello#12', from_pane: '' });
-  assert.match(r.out, /Task 3 on p1 now waits for PR #12 in octo\/hello to merge\./);
+  assert.match(r.out, /Task 3 on p1 now waits for PR #12 in octo\/hello to merge or close\./);
   r = await runWin(['task', 'wake', 'p1', '3', '--file', 'notes.md'], ok);
   assert.equal(r.code, 0, r.err);
   assert.equal(JSON.parse(r.calls.at(-1).body).file, path.resolve(HERE, 'notes.md'));
@@ -162,7 +162,7 @@ test('#8669 Mac CLI: words holding a quote are said whole', { skip: SKIP_POSIX_S
 
 /* The list line says what a task waits for, and that it woke only until its holder has been told. */
 const LIST = { tasks: [
-  { number: 1, sentence: 'Waiting one', whoNames: ['ada'], wakeWords: 'waits for PR #12 in octo/hello to merge' },
+  { number: 1, sentence: 'Waiting one', whoNames: ['ada'], wakeWords: 'waits for PR #12 in octo/hello to merge or close' },
   { number: 2, sentence: 'Woke, not told', whoNames: ['ada'], wakeMetWords: 'PR #13 in octo/hello: it was merged' },
   { number: 3, sentence: 'Woke and told', whoNames: ['ada'], wakeMetWords: 'PR #14 in octo/hello: it was merged', wakeToldAt: '2026-11-17T10:00:00Z' },
   { number: 4, sentence: 'Odd [name]', whoNames: ['ada'], wakeWords: 'waits for a] [done.md to change' },
@@ -172,7 +172,7 @@ test('#8669 Mac CLI: task list shows the wake, and the woke mark only until the 
   withBoard(() => [200, LIST], async (env) => {
     const r = await runCli(['task', 'list', 'p1'], { ...env, KOSMOS_HOME: NODE_HOME });
     assert.equal(r.code, 0, r.stdout + r.stderr);
-    assert.match(lineOf(r.stdout, 1), /\[waits for PR #12 in octo\/hello to merge\]$/);
+    assert.match(lineOf(r.stdout, 1), /\[waits for PR #12 in octo\/hello to merge or close\]$/);
     assert.match(lineOf(r.stdout, 2), /\[woke: PR #13 in octo\/hello: it was merged\]$/);
     assert.doesNotMatch(lineOf(r.stdout, 3), /woke|waits/, 'told: no mark any more');
     assert.match(lineOf(r.stdout, 4), /\[waits for a done\.md to change\]$/, 'a name\'s own brackets are dropped');
@@ -180,7 +180,7 @@ test('#8669 Mac CLI: task list shows the wake, and the woke mark only until the 
 test('#8669 Windows CLI: task list says the same', async () => {
   const r = await runWin(['task', 'list', 'p1'], () => ({ body: JSON.stringify(LIST) }));
   assert.equal(r.code, 0, r.err);
-  assert.match(lineOf(r.out, 1), /\[waits for PR #12 in octo\/hello to merge\]$/);
+  assert.match(lineOf(r.out, 1), /\[waits for PR #12 in octo\/hello to merge or close\]$/);
   assert.match(lineOf(r.out, 2), /\[woke: PR #13 in octo\/hello: it was merged\]$/);
   assert.doesNotMatch(lineOf(r.out, 3), /woke|waits/);
   assert.match(lineOf(r.out, 4), /\[waits for a done\.md to change\]$/);

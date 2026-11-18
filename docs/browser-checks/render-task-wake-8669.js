@@ -5,7 +5,7 @@
  * row and on its own page, in the board's words; one that woke says on what and whether its holder was told.
  *
  * What this pins, and why each line can fail:
- *  - a pull request wake's row says "Waits for PR #12 in octo/hello to merge." (the board's words, capitalised),
+ *  - a pull request wake's row says "Waits for PR #12 in octo/hello to merge or close." (the board's words, capitalised),
  *  - a time wake's row says "Waits until ..." and a file wake's row names only the file, never its folder,
  *  - a wake that happened says "Woke: ... Its holder is still to be told.",
  *  - CONTROLS: a task with no wake, and a closed task that had one, draw no wake line,
@@ -93,7 +93,7 @@ function chk(ok, label, extra) {
           const w = r.querySelector('.tsk-wake');
           return [Number(r.querySelector('.n').textContent.slice(1)), w ? w.textContent : null];
         })));
-        chk(/^Waits for PR #12 in octo\/hello to merge\.( Not checked just now: .+\.)?$/.test(rows[1] || ''), `${tag} the PR wake's row says what it waits for`, JSON.stringify(rows[1]));
+        chk(/^Waits for PR #12 in octo\/hello to merge or close\.( Not checked just now: .+\.)?$/.test(rows[1] || ''), `${tag} the PR wake's row says what it waits for`, JSON.stringify(rows[1]));
         chk(/^Waits until (today|tomorrow) at \d{1,2}(:\d\d)?(am|pm)\.$/.test(rows[2] || ''), `${tag} the time wake's row says when`, JSON.stringify(rows[2]));
         chk(rows[3] === 'Waits for brief.md to change.', `${tag} the file wake's row names the file`, JSON.stringify(rows[3]));
         const html = await page.evaluate(() => document.getElementById('tsk-groups').innerHTML);
@@ -109,7 +109,7 @@ function chk(ok, label, extra) {
         await page.evaluate(() => openTaskPage(1));
         await page.waitForFunction(() => { const l = document.getElementById('tk-wake-line'); return l && !l.hidden; }, null, { timeout: 8000 }).catch(() => {});
         const line = await page.evaluate(() => { const l = document.getElementById('tk-wake-line'); return l ? { hidden: l.hidden, text: l.textContent, shown: l.offsetHeight > 0 } : null; });
-        chk(line && !line.hidden && line.shown && /^Waits for PR #12 in octo\/hello to merge\./.test(line.text), `${tag} the task's page shows what it waits for`, JSON.stringify(line));
+        chk(line && !line.hidden && line.shown && /^Waits for PR #12 in octo\/hello to merge or close\./.test(line.text), `${tag} the task's page shows what it waits for`, JSON.stringify(line));
         await page.evaluate(() => openTaskPage(5));
         await page.waitForTimeout(400);
         const none = await page.evaluate(() => { const l = document.getElementById('tk-wake-line'); return l ? { hidden: l.hidden, text: l.textContent } : null; });

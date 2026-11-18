@@ -24,9 +24,9 @@ const prWake = { kind: 'pr', repo: 'octo/hello', number: 12, setAt: '2026-11-17T
 
 test('#8669: an open row says what it waits for, in the board\'s words', () => {
   const t = { ...base, ...fields({ ...base, wake: prWake }) };
-  assert.match(row(t), /<div class="why tsk-wake">Waits for PR #12 in octo\/hello to merge\.<\/div>/);
+  assert.match(row(t), /<div class="why tsk-wake">Waits for PR #12 in octo\/hello to merge or close\.<\/div>/);
   const problem = { ...base, ...taskwake.fieldsOf({ ...base, wake: prWake }, Date.now(), 'GitHub could not be reached just now') };
-  assert.match(row(problem), /Waits for PR #12 in octo\/hello to merge\. Not checked just now: GitHub could not be reached just now\.<\/div>/);
+  assert.match(row(problem), /Waits for PR #12 in octo\/hello to merge or close\. Not checked just now: GitHub could not be reached just now\.<\/div>/);
 });
 
 test('#8669: a row that woke says on what, and whether its holder was told', () => {
@@ -41,9 +41,9 @@ test('#8669: a file wake names the file, escaped; a closed row and a row with no
   assert.match(row(t), /Waits for &lt;b&gt;plan&lt;\/b&gt;\.md to change\./);
   assert.doesNotMatch(row(t), /<b>plan/, 'a file name was drawn as markup');
   assert.doesNotMatch(row(base), /tsk-wake/);
-  assert.doesNotMatch(row({ ...base, state: 'closed', wakeWords: 'waits for PR #12 in octo/hello to merge' }), /tsk-wake/);
+  assert.doesNotMatch(row({ ...base, state: 'closed', wakeWords: 'waits for PR #12 in octo/hello to merge or close' }), /tsk-wake/);
   // CONTROL: without the sentence lifted (the old tests' shape), the row still draws, with no wake line.
-  assert.doesNotMatch(rowWith(false)({ ...base, wakeWords: 'waits for PR #12 in octo/hello to merge' }), /tsk-wake/);
+  assert.doesNotMatch(rowWith(false)({ ...base, wakeWords: 'waits for PR #12 in octo/hello to merge or close' }), /tsk-wake/);
 });
 
 test('#8669: the task page has a place for the line, painted from the same sentence', () => {

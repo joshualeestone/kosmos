@@ -76,11 +76,11 @@ test('#8669: an agent sets a PR wake; the board looks each tick, never says met 
   const mona = sendertoken.mint('mona');
   const r = await post(`/api/project/${projectId}/task/${n}/wake`, { pr: 'octo/hello#12' }, { 'x-kosmos-agent-token': mona.token });
   assert.equal(r.status, 200, JSON.stringify(r.json));
-  assert.equal(r.json.words, 'waits for PR #12 in octo/hello to merge');
+  assert.equal(r.json.words, 'waits for PR #12 in octo/hello to merge or close');
   const w = stored(n).wake;
   assert.equal(w.kind, 'pr');
   assert.equal(w.setBy, 'mona');
-  assert.equal((await rowOf(n)).wakeWords, 'waits for PR #12 in octo/hello to merge', 'the Tasks view says what it waits for');
+  assert.equal((await rowOf(n)).wakeWords, 'waits for PR #12 in octo/hello to merge or close', 'the Tasks view says what it waits for');
   // Open for several ticks: looked at, never met.
   const calls0 = ghCalls().length;
   await until(() => ghCalls().length >= calls0 + 2, 3000);
@@ -200,7 +200,7 @@ test('#8669: through the board\'s own tick, the holder is told once after the me
     const mine = typed.filter((x) => x.text.includes('task #' + n + ' '));
     assert.equal(mine.length, 1);
     assert.equal(mine[0].session, 'zed');
-    assert.match(mine[0].text, /was waiting for PR #21 in octo\/hello to merge, and it was merged\. Pick it up now\./);
+    assert.match(mine[0].text, /was waiting for PR #21 in octo\/hello to merge or close, and it was merged\. Pick it up now\./);
     await new Promise((res) => setTimeout(res, 800));
     assert.equal(typed.filter((x) => x.text.includes('task #' + n + ' ')).length, 1, 'once');
     const kinds = require('./engine/taskchat').read(projectId, n).map((e) => e.kind);

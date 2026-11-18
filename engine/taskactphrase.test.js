@@ -50,7 +50,7 @@ const EVENTS = [
   { kind: 'missed', count: 3, more: true, person: true }, { kind: 'missed', count: 2, told: 'mara-discord' },
   { kind: 'missed', count: 1, told: 'leo-discord', reached: false }, { kind: 'missed', count: 1 },
   { kind: 'due-told', told: 'mara-discord', reached: true }, { kind: 'due-told', told: 'leo-discord', reached: false }, { kind: 'due-told' },   // #8581
-  { kind: 'wake-set', words: 'waits for PR #12 in octo/hello to merge' }, { kind: 'wake-set' }, { kind: 'wake-cleared' },   // kosmos#8669
+  { kind: 'wake-set', words: 'waits for PR #12 in octo/hello to merge or close' }, { kind: 'wake-set' }, { kind: 'wake-cleared' },   // kosmos#8669
   { kind: 'wake-met', words: 'it was merged' }, { kind: 'wake-met' }, { kind: 'wake-told', told: 'mara-discord', reached: true }, { kind: 'wake-told', told: 'leo-discord', reached: false },
   { kind: 'hold-stale', told: 'mara-discord', reached: true }, { kind: 'hold-stale', told: 'leo-discord', reached: false },
   { kind: 'said', who: 'mara-discord', text: 'on it' }, { kind: 'said', text: 'from the board' }, { kind: 'said' },

@@ -31,13 +31,15 @@ const KINDS = ['pr', 'branch', 'file', 'at'];
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
-/* How often one task's condition is looked at. Under a minute so the done-when ("within a minute of the merge") holds
-   for an idle holder, with the tick itself once a minute. */
-const CHECK_EVERY_MS = 55 * 1000;
+/* The board ticks every TICK_MS; one task's condition is looked at no more often than CHECK_EVERY_MS. */
+const TICK_MS = 30 * 1000;
+const CHECK_EVERY_MS = 25 * 1000;
 /* Wakes one tick may look at on GitHub, across the board, oldest-checked first: one read each, two for a branch that
-   has gone (its repository is asked too). So a board with more than this many watched pull requests and branches
-   looks at each less often than once a minute, rather than spending the person's GitHub allowance. */
-const NET_PER_TICK = 20;
+   has gone (its repository is asked too). With more watched pull requests and branches than this, each is looked at
+   less often, rather than spending the person's GitHub allowance. */
+const NET_PER_TICK = 10;
+/* Files one tick may fingerprint, the rest waiting for the next tick: the hash runs on the board's thread. */
+const HASH_PER_TICK = 4;
 const NET_AT_ONCE = 4;
 /* A file bigger than this is never fingerprinted: its size or modified time changing is the change. The hash runs on the
    board's thread, so the cap is small. */
@@ -133,7 +135,7 @@ function baseName(p) { const s = String(p || ''); const i = Math.max(s.lastIndex
 /** What the task waits for, in words, from a stored wake: "PR #123 in octo/hello to merge". '' for none. */
 function describe(w, now = Date.now()) {
   if (!w || typeof w !== 'object') return '';
-  if (w.kind === 'pr') return 'PR #' + w.number + ' in ' + w.repo + ' to merge';
+  if (w.kind === 'pr') return 'PR #' + w.number + ' in ' + w.repo + ' to merge or close';
   if (w.kind === 'branch') return 'a new commit on ' + w.branch + ' in ' + w.repo;
   if (w.kind === 'file') return plain(typeof w.name === 'string' && w.name ? w.name : baseName(w.path), 120) + ' to change';
   if (w.kind === 'at') return taskrepeat.whenWords(w.at, now);
@@ -336,6 +338,9 @@ async function probe(w, deps = {}, key = '', seen = new Map()) {
       }
       const last = seen.get(key) || { size: w.size, mtimeMs: w.mtimeMs };
       if (st.size === last.size && st.mtimeMs === last.mtimeMs) return { met: false };
+      // Out of this tick's fingerprints: not looked at now, and nothing remembered, so the next tick looks again.
+      if (deps.hashes && deps.hashes.left <= 0) return { met: false, later: true };
+      if (deps.hashes) deps.hashes.left -= 1;
       const r = readFile(real, deps);
       if (r.missing) return { met: true, words: 'it was removed' };
       if (r.denied) return { met: false, problem: 'this Mac has not let Kosmos read that file' };
@@ -391,9 +396,11 @@ async function checkTick(o) {
       .sort((a, b) => ((state.get(a.projectId + '#' + a.n + '@' + a.setAt) || { at: 0 }).at) - ((state.get(b.projectId + '#' + b.n + '@' + b.setAt) || { at: 0 }).at))
       .slice(0, NET_PER_TICK);
     const local = due.filter((x) => x.wake.kind === 'at' || x.wake.kind === 'file');
+    const hashes = { left: Number.isInteger(o.hashPerTick) ? o.hashPerTick : HASH_PER_TICK };
     const look = async (x) => {
       const key = x.projectId + '#' + x.n + '@' + x.setAt;
-      const r = await probe(x.wake, { gh: o.gh || null, now, fs: o.fs, fileprint: o.fileprint, home: o.home }, key, seen);
+      const r = await probe(x.wake, { gh: o.gh || null, now, fs: o.fs, fileprint: o.fileprint, home: o.home, hashes }, key, seen);
+      if (r.later) { out.push({ ...x, act: 'later' }); return; }
       state.set(key, { at: now, problem: r.problem || null });
       if (r.met) {
         let saved = false;
@@ -425,7 +432,9 @@ function fieldsOf(t, now = Date.now(), problem = null) {
   if (!t || !t.wake || typeof t.wake !== 'object' || !KINDS.includes(t.wake.kind) || !describe(t.wake, now)) return {};
   const out = {};
   if (t.wakeMet && typeof t.wakeMet === 'object') {
-    const subject = t.wake.kind === 'branch' ? t.wake.branch + ' in ' + t.wake.repo : describe(t.wake, now).replace(/ to (merge|change)$/, '');
+    const w = t.wake;
+    const subject = w.kind === 'branch' ? w.branch + ' in ' + w.repo : w.kind === 'pr' ? 'PR #' + w.number + ' in ' + w.repo
+      : plain(typeof w.name === 'string' && w.name ? w.name : baseName(w.path), 120);
     out.wakeMetWords = (t.wake.kind === 'at' ? 'the wake time came' : subject + ': ' + plain(t.wakeMet.words, 120));
     out.wakeMetAt = t.wakeMet.at || null;
     out.wakeToldAt = t.wakeToldAt || null;
@@ -565,7 +574,7 @@ function sweep(o) {
 }
 
 module.exports = {
-  KINDS, CHECK_EVERY_MS, NET_PER_TICK, FILE_HASH_MAX, GH_TIMEOUT_MS, MAX_TRIES,
+  KINDS, TICK_MS, CHECK_EVERY_MS, NET_PER_TICK, HASH_PER_TICK, FILE_HASH_MAX, GH_TIMEOUT_MS, MAX_TRIES,
   parsePr, parseBranch, parseAt, repoProblem, branchProblem, wakeProblem, describe, waitWords,
   prepare, probe, pending, checkTick, problemFor, fieldsOf, owed, tellText, markTold, sweep,
 };
