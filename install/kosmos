@@ -6289,7 +6289,7 @@ cmd_task() {
       say "      --unchanged                                              it found nothing new (the task's page rolls such runs up)"
       say "      --value \"<reading>\"                                      what it found, checked against what the person was last told"
       say "  kosmos task told <project-id> <task-number> [--value \"<what you said>\"]  record what you just told the person (default: the last --value)"
-      say "  kosmos task wake <project-id> <task-number> --pr <owner/name#123>  tell you once when it merges (also --branch owner/name:main, --file <path>, --at 2h|HH:MM; --clear)"
+      say "  kosmos task wake <project-id> <task-number> --pr <owner/name#123>  tell you once when it merges or closes (also --branch owner/name:main, --file <path>, --at 2h|HH:MM; --clear)"
       say "  (project ids are in your instructions' Your projects section.)"
       exit 2 ;;
     # Validate the subcommand AND its required args BEFORE the health check, the same order
@@ -7472,7 +7472,7 @@ cmd_task() {
           if [ "$clear" = true ]; then
             case "$body" in *'"changed":false'*) say "Task $num on ${project:-the project} was not waiting for anything." ;;
               *) say "Task $num on ${project:-the project} no longer waits for anything." ;; esac
-          else say "Task $num on ${project:-the project} now ${words:-waits for that}. Kosmos looks once a minute and tells its holder once when it happens."; fi ;;
+          else say "Task $num on ${project:-the project} now ${words:-waits for that}. Kosmos tells its holder once when it happens."; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not change that task: ${because:-it did not say why}."; exit 1 ;;

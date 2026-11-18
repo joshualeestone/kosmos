@@ -27377,7 +27377,7 @@ const server = http.createServer(async (req, res) => {
      off. The callers and their checks are the repeat route's (the screen, or an agent on the project named by its token,
      else its pane). The condition is read once now (taskwake.prepare: the pull request is open, the branch's commit, the
      file's fingerprint, a time ahead), so it starts from what is true; a refusal is a 400 with the sentence. The board
-     then looks once a minute (wakeCheckTick) and tells a holder once when it happens (wakeTellTick). */
+     then looks (wakeTick) and tells a holder once when it happens (wakeTell). */
   const taskWake = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/wake$/);
   if (taskWake && req.method === 'POST') {
     const id = decodeSegment(taskWake[1]);
@@ -27410,6 +27410,7 @@ const server = http.createServer(async (req, res) => {
       const cur = tasks.byNumber(proj, taskWake[2]);
       if (!cur) { sendJson(res, 404, { error: 'there is no task by that number on this project' }); return; }
       let wake = null;
+      if (body.clear === true && ['pr', 'branch', 'file', 'at'].some((k) => body[k] !== undefined)) { sendJson(res, 400, { error: 'say one thing: a wake to set, or clear' }); return; }
       if (body.clear !== true) {
         const ask = {};
         for (const k of ['pr', 'branch', 'file', 'at']) {
@@ -30418,10 +30419,9 @@ function start(port = PORT) {
         } catch { /* best-effort, like the missed-run tell */ }
       }, 60000);
       if (repeatDueTick && typeof repeatDueTick.unref === 'function') repeatDueTick.unref();
-      /* kosmos#8669: a task's wake (engine/taskwake.js). Once a minute the board looks at every wake not yet met (a pull
-         request or branch through gh, at most taskwake.NET_PER_TICK GitHub reads a minute; a file on this disk; a time)
-         and stores what it found on the task; then a holder of an open part is told once, with the repeat-due tell's
-         gates. The look runs one at a time: a tick that is still looking is not started again. */
+      /* kosmos#8669: a task's wake (engine/taskwake.js). Every taskwake.TICK_MS the board looks at the wakes not yet met
+         (taskwake.checkTick holds the limits) and stores what it found on the task; a holder of an open part is told
+         once, with the repeat-due tell's gates. A tick that is still looking is not started again. */
       const WAKE_BOOK = new Map();
       const WAKE_IDLE = new Map();
       let wakeLooking = false;

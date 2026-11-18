@@ -14,7 +14,7 @@
  * plus setAt (ISO), setBy (an agent's session name) or byPerson (true).
  *
  * Two halves, kept apart so a board restart loses neither:
- *  - checkTick() looks, at most once a minute per task, and stores what it found on the task (`wakeMet`: when and in
+ *  - checkTick() looks (each wake no more often than CHECK_EVERY_MS) and stores what it found on the task (`wakeMet`: when and in
  *    words). A pull request or branch is read from GitHub through the gh tool the GitHub connection uses; a file is
  *    read from this computer; a time needs nothing.
  *  - sweep() tells ONE holder of an open part, once, the way a due repeating task is told (repeatdue.js): an idle and
@@ -443,6 +443,8 @@ function fieldsOf(t, now = Date.now(), problem = null) {
     out.wakeWords = waitWords(t.wake, now);
     if (problem) out.wakeProblem = plain(problem, 200);
   }
+  // Nobody to tell: no open part has a holder and no agent set it (owed() tells the agent that set it).
+  if (!out.wakeToldAt && !t.wake.setBy && !require('./tasks').partsOf(t).some((x) => x && x.who && !x.closedAt)) out.wakeNobody = true;
   return out;
 }
 
@@ -486,16 +488,18 @@ function tellText(item) {
 function markTold(item, who, outcome, now = Date.now()) {
   const projects = require('./projects');
   const taskchat = require('./taskchat');
-  let wrote = false;
-  projects.mutate(item.projectId, (p) => ({
-    ...p,
-    tasks: (p.tasks || []).map((x) => {
-      if (!x || x.number !== item.n || !x.wake || (x.wake.setAt || '') !== item.setAt || x.wakeToldAt) return x;
-      wrote = true;
-      return { ...x, wakeToldAt: new Date(now).toISOString(), wakeTold: { who, reached: outcome === 'reached' } };
-    }),
-  }));
-  if (wrote) taskchat.record(item.projectId, item.n, { kind: 'wake-told', told: who, reached: outcome === 'reached' });
+  const NONE = Symbol('no write');
+  try {
+    projects.mutate(item.projectId, (p) => {
+      const x = (p.tasks || []).find((t) => t && t.number === item.n);
+      if (!x || !x.wake || (x.wake.setAt || '') !== item.setAt || x.wakeToldAt) throw NONE;   // nothing to write back
+      return { ...p, tasks: p.tasks.map((t) => (t === x ? { ...x, wakeToldAt: new Date(now).toISOString(), wakeTold: { who, reached: outcome === 'reached' } } : t)) };
+    });
+  } catch (err) {
+    if (err === NONE) return;
+    throw err;
+  }
+  taskchat.record(item.projectId, item.n, { kind: 'wake-told', told: who, reached: outcome === 'reached' });
 }
 
 /**

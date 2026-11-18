@@ -81,7 +81,7 @@ test('#8669 Mac CLI: each condition goes to the board as its own field, with the
       assert.deepEqual(Object.keys(sent).sort(), [field, 'from_pane'].sort(), 'only that field: ' + h.body);
     }
     const said = await runCli(['task', 'wake', 'p1', '3', '--pr', 'octo/hello#12'], env);
-    assert.match(said.stdout + said.stderr, /Task 3 on p1 now waits for PR #12 in octo\/hello to merge or close\. Kosmos looks once a minute and tells its holder once when it happens\./);
+    assert.match(said.stdout + said.stderr, /Task 3 on p1 now waits for PR #12 in octo\/hello to merge or close\. Kosmos tells its holder once when it happens\./);
     const clear = await runCli(['task', 'wake', 'p1', '3', '--clear'], env);
     assert.equal(clear.code, 0);
     assert.deepEqual(JSON.parse(hits[hits.length - 1].body), { clear: true, from_pane: '%42' });

@@ -113,6 +113,9 @@ test('#8669: refusals: a merged PR, no gh, a bad target, a non-member, an uniden
   assert.match(r.json.error, /say one thing to wake on/);
   r = await post(`/api/project/${projectId}/task/${n}/wake`, { pr: 12 }, screen);
   assert.equal(r.status, 400);
+  r = await post(`/api/project/${projectId}/task/${n}/wake`, { clear: true, at: '2h' }, screen);
+  assert.equal(r.status, 400, 'a clear with a condition is refused, as both CLIs refuse it');
+  assert.equal(r.json.error, 'say one thing: a wake to set, or clear');
   process.env.AGENT_WORKFORCE_GH_BIN = path.join(SANDBOX, 'no-such-gh');
   try {
     r = await post(`/api/project/${projectId}/task/${n}/wake`, { branch: 'octo/hello:main' }, screen);

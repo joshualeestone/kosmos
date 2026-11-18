@@ -6,7 +6,7 @@ Card: kosmos#8669. Scope posted on the card (issuecomment-6964342997).
 - A task set to wake on a PR merge tells one holder once after the merge, never before.
 - The pending condition shows in `kosmos task show`, `kosmos task list` (both CLIs) and on the Tasks row and task page.
 - Branch, file and time wakes work the same way.
-- The card's own done-when (woken within a minute of the merge, on a real board) is measured at QA on a real board, not by these tests: the tests use a fake gh. By design the board ticks every 30 s and looks at a wake at most every 25 s, so the merge is found within about 30 s plus gh's answer; a board watching more than 10 pull requests and branches looks at each less often (20 GitHub reads a minute at most), and a holder is told only once idle and settled (50 s after going idle).
+- The card's own done-when (woken within a minute of the merge, on a real board) is measured at QA on a real board, not by these tests: the tests use a fake gh. By design the board ticks every 30 s and looks at a wake at most every 25 s, so the merge is found within about 30 s plus gh's answer; a board watching more than 10 pull requests and branches looks at each less often (20 wakes a minute at most, a gone branch costing a second read), and a holder is told only once idle and settled (50 s after going idle).
 
 ## What was built
 - `engine/taskwake.js`: parse what a person writes (`owner/name#123`, `owner/name:branch`, a full path, `30m|2h|1d|HH:MM|YYYY-MM-DD HH:MM`), `prepare` (reads GitHub or the file once when set), `probe`, `checkTick` (once a minute per task, at most 20 GitHub reads a tick, oldest first), `fieldsOf` (the words every route shows), `owed` + `sweep` (one holder told once, repeatdue's delivery gates, copied).

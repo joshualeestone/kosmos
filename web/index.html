@@ -72718,10 +72718,11 @@ const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
 function tskWakeSentence(t) {
   if (!t) return '';
   if (typeof t.wakeWords === 'string' && t.wakeWords) {
-    return t.wakeWords.charAt(0).toUpperCase() + t.wakeWords.slice(1) + '.' + (t.wakeProblem ? ' Not checked just now: ' + t.wakeProblem + '.' : '');
+    return t.wakeWords.charAt(0).toUpperCase() + t.wakeWords.slice(1) + '.' + (t.wakeProblem ? ' Not checked just now: ' + t.wakeProblem + '.' : '')
+      + (t.wakeNobody === true ? ' Nobody holds this task, so nobody will be told until someone does.' : '');
   }
   if (typeof t.wakeMetWords === 'string' && t.wakeMetWords) {
-    return 'Woke: ' + t.wakeMetWords + '.' + (!t.wakeToldAt ? ' Its holder is still to be told.' : t.wakeReached === true ? ' Its holder was told.' : ' Its holder could not be reached.');
+    return 'Woke: ' + t.wakeMetWords + '.' + (t.wakeNobody === true ? ' Nobody holds this task, so nobody has been told.' : !t.wakeToldAt ? ' Its holder is still to be told.' : t.wakeReached === true ? ' Its holder was told.' : ' Its holder could not be reached.');
   }
   return '';
 }
