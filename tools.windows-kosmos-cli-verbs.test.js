@@ -227,6 +227,33 @@ test('kosmos#8462: feedback list with no report at all says so on stdout, exit 0
   assert.equal(String(r.stderr), '', 'PowerShell would show this as a red error record');
 });
 
+test('kosmos#8698: feedback list --mine prints only the asking agent\'s own days, on stdout; anything else is refused', () => {
+  const root = fs.mkdtempSync(path.join(SANDBOX, 'feedback-mine-'));
+  const env = Object.assign({}, process.env, { AGENT_WORKFORCE_DATA: root, AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback' });
+  delete env.KOSMOS_WORLD;
+  const cli = (args) => cp.spawnSync(process.execPath, [CLI_FILE, ...args], { env, input: '', encoding: 'utf8', timeout: 60000 });
+  const plant = cp.spawnSync(process.execPath, ['-e', 'require(process.argv[1]).write("someone else saw a bug", { from: "other-agent-8698", date: "2001-01-02" })', path.join(__dirname, 'engine', 'feedback')], { env, encoding: 'utf8' });
+  assert.equal(plant.status, 0, plant.stderr);
+  const none = cli(['feedback', 'list', '--mine']);
+  assert.equal(none.status, 0, none.stderr);
+  assert.equal(String(none.stderr), '');
+  assert.equal(String(none.stdout).trim(), require('./engine/feedback').noneOfYoursWords());
+  assert.equal(cli(['feedback', 'write', 'my note']).status, 0, 'the write saved (its send to the dead loopback fails, which is not a failed save)');
+  assert.match(String(cli(['feedback', 'list']).stdout), /^2001-01-02\r?$/m, 'CONTROL: the plain list shows the other agent\'s day');
+  const mine = String(cli(['feedback', 'list', '--mine']).stdout).trim().split(/\r?\n/);
+  assert.equal(mine.length, 1, JSON.stringify(mine));
+  assert.match(mine[0], /^\d{4}-\d{2}-\d{2}$/);
+  assert.notEqual(mine[0], '2001-01-02');
+  const bad = cli(['feedback', 'list', '--all']);
+  assert.equal(bad.status, 2);
+  assert.match(String(bad.stderr), /Usage: kosmos feedback list \[--mine\]/);
+  assert.equal(String(bad.stdout), '');
+  fs.mkdirSync(path.join(root, fs.readdirSync(root)[0], 'feedback', '2001-01-03.md'));   // read() throws on a directory
+  const broken = cli(['feedback', 'list', '--mine']);
+  assert.equal(broken.status, 1, String(broken.stderr));
+  assert.equal(String(broken.stderr).trim(), require('./engine/feedback').unreadableWords());
+});
+
 test('#5294 feedback write SENDS the report now to the collector (a loopback stub) and says so', async () => {
   const http = require('node:http');
   const posts = [];

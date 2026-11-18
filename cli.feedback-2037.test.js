@@ -262,3 +262,38 @@ test('#5294 review 3: a node that cannot run prints "could not save", never "Sav
   assert.match(w.both, /We could not save that report\./);
   assert.doesNotMatch(w.both, /Saved/, 'a run that never saved said Saved');
 });
+
+/* kosmos#8698: plant a day by ANOTHER named agent in the same store, through the real engine in its own process. */
+function plantOther(h, date) {
+  const r = require('node:child_process').spawnSync(process.execPath, ['-e', 'require(process.argv[1]).write("someone else saw a bug", { from: "other-agent-8698", date: process.argv[2] })', path.join(__dirname, 'engine', 'feedback'), date], { env: { ...process.env, AGENT_WORKFORCE_DATA: h.data }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+}
+
+test('kosmos#8698: feedback list --mine prints only the asking agent\'s own days; the plain list names the flag', async () => {
+  const h = makeHome();
+  plantOther(h, '2001-01-02');
+  const none = await run(['feedback', 'list', '--mine'], h);
+  assert.equal(none.code, 0, none.both);
+  assert.equal(none.err, '', 'kosmos#8462: nothing on stderr');
+  assert.match(none.out.trim(), /^None of the days on this computer holds a report of yours yet/, 'another agent\'s day is not yours');
+  await run(['feedback', 'write', 'todays note'], h);
+  const all = await run(['feedback', 'list'], h);
+  assert.match(all.out, /^2001-01-02$/m, 'CONTROL: the plain list shows the other agent\'s day');
+  assert.match(all.out, /To list only yours: kosmos feedback list --mine$/m);
+  const mine = await run(['feedback', 'list', '--mine'], h);
+  assert.equal(mine.code, 0, mine.both);
+  const lines = mine.out.trim().split('\n');
+  assert.equal(lines.length, 1, 'only my day: ' + JSON.stringify(mine.out));
+  assert.match(lines[0], /^\d{4}-\d{2}-\d{2}$/);
+  assert.notEqual(lines[0], '2001-01-02');
+  const bad = await run(['feedback', 'list', '--all'], h);
+  assert.equal(bad.code, 2);
+  assert.match(bad.err, /Usage: kosmos feedback list \[--mine\]/, 'the usage line goes to stderr, as the Windows CLI sends it');
+  assert.equal(bad.out, '');
+  /* An unreadable report: a directory named like a day makes read() throw. --mine says so in a sentence, exit 1. */
+  fs.mkdirSync(path.join(h.data, fs.readdirSync(h.data)[0], 'feedback', '2001-01-03.md'));
+  const broken = await run(['feedback', 'list', '--mine'], h);
+  assert.equal(broken.code, 1, broken.both);
+  assert.equal(broken.err.trim(), 'Kosmos could not read the product-feedback reports on this computer, so it cannot tell which days are yours.');
+  assert.doesNotMatch(broken.both, /at .*\.js:\d+/, 'no stack trace');
+});

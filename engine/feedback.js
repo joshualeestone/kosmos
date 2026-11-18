@@ -456,13 +456,27 @@ function daysOf(from) {
     return raw != null && sections(stripFrontmatter(raw)).some((x) => x.key.toLowerCase() === key && x.text.trim());
   });
 }
+/* kosmos#8698: what follows "yours yet," in both the note and --mine's answer, kept in one place. */
+const NONE_OF_YOURS_TAIL = 'so `kosmos feedback write --unchanged` has nothing to point back to: write a full report first.';
 /** kosmos#8340: what `feedback list` prints after the dates (kosmos#8462: on stdout, after a blank line, so a reader
  *  taking the dates stops there): whose reports they are, and which hold the asking agent's own. null when there are none. */
 function listNote(from, days = list()) {
   if (!days.length) return null;
   const mine = daysOf(from).filter((d) => days.includes(d));   // only days the printed list has (review 1)
   const whose = 'These are the days with a report on this computer, from every agent here.';
-  if (!mine.length) return whose + ' None of them holds one of yours yet, so `kosmos feedback write --unchanged` has nothing to point back to: write a full report first.';
-  return whose + ' ' + (mine.length === 1 ? '1 of them holds yours: ' + mine[0] : mine.length + ' of them hold yours, the newest ' + mine[0]) + '.';
+  if (!mine.length) return whose + ' None of them holds one of yours yet, ' + NONE_OF_YOURS_TAIL;
+  // kosmos#8698: when other agents' days are in the list too, name the flag that lists only yours. No full stop after
+  // the command, so it copies as typed.
+  const only = mine.length < days.length ? ' To list only yours: kosmos feedback list --mine' : '';
+  return whose + ' ' + (mine.length === 1 ? '1 of them holds yours: ' + mine[0] : mine.length + ' of them hold yours, the newest ' + mine[0]) + '.' + only;
 }
-module.exports = { noReportsWords, daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
+function noneOfYoursWords() { return 'None of the days on this computer holds a report of yours yet, ' + NONE_OF_YOURS_TAIL; }
+/* kosmos#8698: --mine's answer when the reports cannot be read (both CLIs, on stderr, exit 1). */
+function unreadableWords() { return 'Kosmos could not read the product-feedback reports on this computer, so it cannot tell which days are yours.'; }
+/** kosmos#8698: what `feedback list --mine` prints (both CLIs, on stdout): the days holding a section by `from`, newest
+ *  first, one a line, by the same rule as listNote's count (daysOf); none is said in a sentence. */
+function mineLines(from) {
+  const mine = daysOf(from);
+  return mine.length ? mine : [noneOfYoursWords()];
+}
+module.exports = { noReportsWords, noneOfYoursWords, unreadableWords, mineLines, daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
