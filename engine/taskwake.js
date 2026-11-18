@@ -55,7 +55,7 @@ const BOARD_SEEN = new Map();
 
 const OWNER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 const NAME_RE = /^[A-Za-z0-9._-]{1,100}$/;
-const SHA_RE = /^[0-9a-f]{40}$/;
+const SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;   // SHA-1 or SHA-256 object ids
 const PRINT_RE = /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/;
 
 function plain(s, max) { return require('./agentnudge').plainWords(s, max); }
@@ -207,7 +207,10 @@ function readFile(p, deps = {}) {
   const fs = deps.fs || require('node:fs');
   const fileprint = deps.fileprint || require('./fileprint');
   let st;
-  try { st = fs.statSync(p); } catch (e) { return e && e.code === 'ENOENT' ? { missing: true } : { problem: 'the file cannot be read' }; }
+  try { st = fs.statSync(p); } catch (e) {
+    if (e && e.code === 'ENOENT') return { missing: true };
+    return e && (e.code === 'EPERM' || e.code === 'EACCES') ? { denied: true, problem: 'the file cannot be read' } : { problem: 'the file cannot be read' };
+  }
   if (!st.isFile()) return { problem: 'that is not a file' };
   if (st.size > FILE_HASH_MAX) return { print: 'stat:' + st.size + ':' + st.mtimeMs, size: st.size, mtimeMs: st.mtimeMs };
   const print = fileprint.plain(p);
@@ -215,21 +218,25 @@ function readFile(p, deps = {}) {
   return { print, size: st.size, mtimeMs: st.mtimeMs };
 }
 
-/* The real path of `p` (links followed) when the board may watch it: inside the home folder, in no folder whose name
-   starts with a dot, and not under ~/Library. null otherwise. The caller reads the path this returns, so a link swapped
-   after the check cannot point the read elsewhere. `deps.home` and `deps.fs` are test seams. */
+/* Where `p` really is (links followed), when the board may watch it: inside the home folder, in no folder whose name
+   starts with a dot, and not under ~/Library. Answers { real }, or { denied: true } when this Mac refused the board the
+   read (a privacy-protected folder), or {} for every other no. The caller reads the path this returns, so a link swapped
+   after the check cannot point the read elsewhere. The real path comes from realpathSync.native, which gives each
+   folder's own spelling: macOS folders ignore case, so ~/library must be read as ~/Library. `deps.home` and `deps.fs`
+   are test seams. */
 function fileAllowed(p, deps = {}) {
   const fs = deps.fs || require('node:fs');
   const nodePath = require('node:path');
+  const resolve = (x) => (fs.realpathSync ? (fs.realpathSync.native || fs.realpathSync)(x) : x);
   let home;
   let real;
-  try { home = fs.realpathSync ? fs.realpathSync(deps.home || require('node:os').homedir()) : (deps.home || require('node:os').homedir()); } catch { return null; }
-  try { real = fs.realpathSync ? fs.realpathSync(p) : p; } catch { return null; }
+  try { home = resolve(deps.home || require('node:os').homedir()); } catch { return {}; }
+  try { real = resolve(p); } catch (e) { return e && (e.code === 'EPERM' || e.code === 'EACCES') ? { denied: true } : {}; }
   const rel = nodePath.relative(home, real);
-  if (!rel || rel.startsWith('..') || nodePath.isAbsolute(rel)) return null;
+  if (!rel || rel.startsWith('..') || nodePath.isAbsolute(rel)) return {};
   const parts = rel.split(nodePath.sep);
-  if (parts[0] === 'Library') return null;
-  return parts.some((x) => x.startsWith('.')) ? null : real;
+  if (parts[0].toLowerCase() === 'library') return {};
+  return parts.some((x) => x.startsWith('.')) ? {} : { real };
 }
 
 /**
@@ -271,9 +278,11 @@ async function prepare(ask, deps = {}) {
          outside hidden folders and Library. Every other answer is the same sentence, so a refusal does not say whether
          some other path exists. */
       const cannot = { problem: 'Kosmos can watch an ordinary file in your home folder, outside hidden folders and Library; it cannot watch that one' };
-      const real = fileAllowed(p, deps);
-      if (!real) return cannot;
-      const r = readFile(real, deps);
+      const where = fileAllowed(p, deps);
+      if (where.denied) return { problem: 'this Mac has not let Kosmos read that file: allow it under System Settings, Privacy & Security, Files and Folders, then set the wake again' };
+      if (!where.real) return cannot;
+      const r = readFile(where.real, deps);
+      if (r.denied) return { problem: 'this Mac has not let Kosmos read that file: allow it under System Settings, Privacy & Security, Files and Folders, then set the wake again' };
       if (r.missing || r.problem) return cannot;
       return { wake: { kind: 'file', path: p, name: baseName(p).slice(0, 255), from: r.print, size: r.size, mtimeMs: r.mtimeMs } };
     }
@@ -312,7 +321,9 @@ async function probe(w, deps = {}, key = '', seen = new Map()) {
     if (w.kind === 'file') {
       const fs = deps.fs || require('node:fs');
       // The path is checked again on every look: a link set up after the wake must not point the board elsewhere.
-      const real = fileAllowed(w.path, deps);
+      const where = fileAllowed(w.path, deps);
+      if (where.denied) return { met: false, problem: 'this Mac has not let Kosmos read that file' };
+      const real = where.real;
       if (!real) {
         let gone = false;
         try { fs.lstatSync(w.path); } catch (e) { gone = !!(e && e.code === 'ENOENT'); }
@@ -327,6 +338,7 @@ async function probe(w, deps = {}, key = '', seen = new Map()) {
       if (st.size === last.size && st.mtimeMs === last.mtimeMs) return { met: false };
       const r = readFile(real, deps);
       if (r.missing) return { met: true, words: 'it was removed' };
+      if (r.denied) return { met: false, problem: 'this Mac has not let Kosmos read that file' };
       if (r.problem) return { met: false, problem: r.problem };
       if (r.print === w.from) { seen.set(key, { size: r.size, mtimeMs: r.mtimeMs }); return { met: false }; }   // touched, not changed
       return { met: true, words: 'it changed' };
