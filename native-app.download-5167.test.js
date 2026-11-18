@@ -94,8 +94,8 @@ test('#5167: both ways a navigation becomes a download hand it to this delegate 
 test('#5167: the destination is Downloads through downloadDestination, never replacing a file', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
   assert.match(b, /FileManager\.default\.urls\(for: \.downloadsDirectory, in: \.userDomainMask\)/);
-  // kosmos#7952: 9 with the refused (401/403) answer, said even on a Files list, and the busy (429) one.
-  assert.equal((b.match(/completionHandler\(/g) || []).length, 9, 'a destination path that never answers WebKit leaves the download hanging');
+  // kosmos#7952: 9 with the refused (401/403) answer, said even on a Files list, and the busy (429) one; #5167 (11-18): 10 with the chosen place.
+  assert.equal((b.match(/completionHandler\(/g) || []).length, 10, 'a destination path that never answers WebKit leaves the download hanging');
   assert.doesNotMatch(b, /logLine\([^\n]*dest\.path/, 'the log line carries the full path, home folder and user name included');
 });
 
@@ -111,7 +111,7 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
   assert.equal(dl + dest, 29, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 312\b/);   // kosmos#8125: +3 (quitMissesAfter); kosmos#8118: +61 (computerToRemember, rememberableHost, reopenAnswerKeeps, reopenMissesForget, reopenMissesAfter, reopenRetryAllowed, quitKeeps, reopenStep); kosmos#5167 (11-06): +6 (the failure reason rows); kosmos#7952: +12 (download-folder says rows, isFolderDownload rows, downloadAskedByPage rows, the marked request)
+  assert.match(st, /let expected = 319\b/);   // kosmos#8125: +3 (quitMissesAfter); kosmos#8118: +61 (computerToRemember, rememberableHost, reopenAnswerKeeps, reopenMissesForget, reopenMissesAfter, reopenRetryAllowed, quitKeeps, reopenStep); kosmos#5167 (11-06): +6 (the failure reason rows); kosmos#7952: +12 (download-folder says rows, isFolderDownload rows, downloadAskedByPage rows, the marked request)
   // kosmos#5167 (2026-10-27): +9 refusalShouldShow rows; kosmos#6589: +14 tls-pin rows; #6585: +10 switchGoesHome rows; #5896: +14 config rows; #6411: +42 own-board, own-settings, address, board-start retry and advice-origin rows; #6358: +27 (sign-in-again, log redaction, sign-in-again page, decision)
 });
 
@@ -127,7 +127,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 70[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 71[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -340,7 +340,16 @@ test('kosmos#7952 review 1: only a download the board page itself asked for is m
   const guard = branch.indexOf('guard byPage else');
   assert.ok(guard > 0, 'the marked download is no longer behind the page check');
   const starts = SRC.split('startDownload(using:').length - 1;
-  assert.equal(starts, 1, 'a second place starts a download itself, outside the page check');
+  /* #5167 (11-18): the second is the save to a place the person chose after macOS refused Downloads. It asks again for
+     the request of a download that already passed every check: it is reached only from the failure of one that had
+     been given a Downloads path (decideDestination's last step), and decideDestination checks its answer again. */
+  assert.equal(starts, 2, 'a third place starts a download itself, outside the page check');
+  const offerAt = SRC.indexOf('private func offerSaveElsewhere(');
+  const secondAt = SRC.indexOf('startDownload(using:', SRC.indexOf('startDownload(using:') + 1);
+  assert.ok(secondAt > offerAt && secondAt < SRC.indexOf('\n    }\n', offerAt), 'the second start is not the chosen-place restart');
+  assert.equal((SRC.match(/offerSaveElsewhere\(/g) || []).length, 2, 'the chosen-place restart is reached from somewhere new');
+  assert.match(SRC, /\} else if let dest, downloadRefusedByMacOS\(error\), let request = download\.originalRequest, let webView = download\.webView \{/,
+    'the restart is no longer limited to a download that was already given a Downloads path');
   const start = branch.indexOf('startDownload(using: request)');
   const mark = branch.indexOf('sameOriginDownloadRequest(asked)');
   assert.ok(start > guard && mark > guard, 'the request is marked or started before the page check');
@@ -356,4 +365,27 @@ test('kosmos#8121 review 5: only a Don\'t Allow the person pressed forgets an al
   assert.equal((b.match(/answerKept\([^)]*, true\)/g) || []).length, 2, 'an answerKept call that is not the person\'s answer, or one missing');
   // The void path still goes through answer(false), never through answerKept with the person's flag.
   assert.match(b, /if asked, committedPageURL\?\.host\?\.lowercased\(\) != host \|\| pageCommits != commitsBefore \{\n[^\n]*\n\s+answer\(false\)/);
+});
+
+/* #5167 (11-18): the operator's laptop said "Cannot create file: Operation not permitted": macOS refused the write to
+   Downloads. The live selftest measures the question and the save to a chosen place (a read-only folder gives EACCES);
+   these pin the wiring a selftest seam stands in for. */
+test('#5167 (11-18): a download macOS refused in Downloads asks where else to save, not only says it failed', () => {
+  const fail = body('@objc(download:didFailWithError:resumeData:)');
+  const at = fail.indexOf('downloadRefusedByMacOS(error)');
+  assert.ok(at > 0, 'the failure path no longer tells a refusal by macOS apart');
+  assert.ok(at < fail.lastIndexOf('tellDownloadFailed("The file could not be saved to Downloads'),
+    'the refusal by macOS is checked after the plain failure alert, so it is never reached');
+  assert.match(fail, /offerSaveElsewhere\(error, request: request, webView: webView, name: dest\.lastPathComponent\)/);
+});
+
+test('#5167 (11-18): the restarted download is this app\'s, has this delegate, and goes where the person chose', () => {
+  const offer = body('private func offerSaveElsewhere(');
+  assert.match(offer, /webView\.startDownload\(using: request\) \{ dl in\s*\n\s*self\.saveElsewhereChoices\[ObjectIdentifier\(dl\)\] = chosen\s*\n\s*self\.downloadsStartedHere\.add\(dl\); dl\.delegate = self/);
+  assert.match(offer, /NSSavePanel\(\)/, 'no Save panel: the person has no way to pick a place macOS lets the app write to');
+  const decide = SRC.slice(SRC.indexOf('decideDestinationUsing response: URLResponse'), SRC.indexOf('func downloadDidFinish'));
+  const chosen = decide.indexOf('saveElsewhereChoices.removeValue');
+  assert.ok(chosen > decide.indexOf('!(200..<300).contains(http.statusCode)') && chosen > decide.indexOf('"text/html"'),
+    'the chosen place is used before the response checks, so an error page or a sign-in page could be saved there');
+  assert.match(decide.slice(chosen), /downloadDestination\(dir: chosen\.deletingLastPathComponent\(\)/, 'a chosen name already taken would be written over');
 });
