@@ -80,9 +80,10 @@ test('refusals: bad number, no such check, no checks, closed, unnamed, bad how',
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, 'yes', 'x', { by: 'a' }))[0], 400, 'met must be a boolean');
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, '   ', { by: 'a' }))[0], 400);
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'a\nb', { by: 'a' }))[0], 400, 'one line');
-  assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'x'.repeat(201), { by: 'a' }))[0], 400);
-  assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'x'.repeat(200), { by: 'a' }))[0], 200, 'the limit itself is allowed (control)');
-  assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'y'.repeat(200) + '  ', { by: 'a' }))[0], 200, 'the limit is on the stored, trimmed words');
+  // #8668: the limit is CHECK_HOW_MAX (1000, the built note's), no longer a check sentence's 200.
+  assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'x'.repeat(tasks.CHECK_HOW_MAX + 1), { by: 'a' }))[0], 400);
+  assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'x'.repeat(tasks.CHECK_HOW_MAX), { by: 'a' }))[0], 200, 'the limit itself is allowed (control)');
+  assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'y'.repeat(tasks.CHECK_HOW_MAX) + '  ', { by: 'a' }))[0], 200, 'the limit is on the stored, trimmed words');
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, '<how you checked it>', { by: 'a' }))[0], 400, 'an unfilled placeholder is no report');
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'x', { by: null }))[0], 403);
   assert.equal(status(() => tasks.setCheckResult(id, n, 1, true, 'x', { by: '  ' }))[0], 403);

@@ -6812,6 +6812,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tk-donewhen { margin: 0; padding-left: 1.25em; overflow-wrap: anywhere; }
 .tk-donewhen li + li { margin-top: 6px; }
 .tk-donewhen .why { color: var(--label-2); font-size: .75rem; margin-top: 2px; }
+.tk-movedhere-head { display: block; margin-top: 8px; color: var(--label-2); font-size: .75rem; }   /* #8668 */
 /* #768: the due-date input sits in a tmeta row like the read-only values, but is
    editable. Inherit the font, keep it right-aligned and unobtrusive; the native
    date control carries its own picker + a clear affordance. */
@@ -18290,8 +18291,8 @@ window.kosmosMeasureScrollbarWidth();
         <div class="tmeta"><span>State</span><b id="tk-state"></b></div>
         <!-- kosmos#8137: on a task with several agents, who has finished and who has not. Hidden otherwise. -->
         <div class="tmeta" id="tk-wholeft-row" hidden><span>Who</span><b id="tk-wholeft"></b></div>
-        <!-- #8464 item 2: what finished means for this task, and what its agents say about each check. Hidden when it has none. -->
-        <div class="tmeta" id="tk-donewhen-row" hidden><span>Done when</span><b><ol id="tk-donewhen" class="tk-donewhen"></ol></b></div>
+        <!-- #8464 item 2: what finished means for this task, and what its agents say about each check. Hidden when it has none, unless another task's check moved here (#8668): then it lists those under "Moved here from other tasks". -->
+        <div class="tmeta" id="tk-donewhen-row" hidden><span id="tk-donewhen-label">Done when</span><b><ol id="tk-donewhen" class="tk-donewhen"></ol><span id="tk-movedhere-head" class="tk-movedhere-head" hidden>Moved here from other tasks</span><ul id="tk-movedhere" class="tk-donewhen" hidden></ul></b></div>
         <!-- #3861 part 2: the task this one is part of, a way up. Hidden when it stands alone. -->
         <div class="tmeta" id="tk-partof-row" hidden><span>Part of</span><b><button class="linkish" type="button" id="tk-partof"></button></b></div>
         <!-- #768: the task's DUE DATE (Josh's #768: "on the right we could have
@@ -72349,7 +72350,8 @@ function tkCheckResults(t) {
   const stored = Array.isArray(t.doneWhenResults) ? t.doneWhenResults : [];
   return checks.map((_, i) => {
     const r = stored[i];
-    return r && typeof r === 'object' && typeof r.met === 'boolean' && typeof r.how === 'string' ? { met: r.met, how: r.how, by: typeof r.by === 'string' ? r.by : null } : null;
+    return r && typeof r === 'object' && typeof r.met === 'boolean' && typeof r.how === 'string' ? { met: r.met, how: r.how, by: typeof r.by === 'string' ? r.by : null,
+      ...(r.met === false && Number.isSafeInteger(r.movedTo) && r.movedTo > 0 ? { movedTo: r.movedTo } : {}) } : null;   // #8668
   });
 }
 function tkCheckCount(t) {
@@ -73802,20 +73804,47 @@ function paintTaskPage() {
     const results = typeof tkCheckResults === 'function' ? tkCheckResults(t) : null;   // typeof: tests lift this function alone
     if (row && list) {
       const items = (results || []).map((r, i) => ({ check: String(t.doneWhen[i]),
-        says: !r ? 'Not reported yet' : (r.by ? tkMemberName(p, r.by) : 'An agent') + ' says ' + (r.met ? 'met' : 'not met') + ': ' + r.how }));
-      const sig = JSON.stringify(items);
+        says: !r ? 'Not reported yet' : (r.by ? tkMemberName(p, r.by) : 'An agent') + ' says ' + (r.met ? 'met' : 'not met') + ': ' + r.how,
+        movedTo: r && r.movedTo ? r.movedTo : null }));
+      /* #8668: the unmet checks of other tasks on this project that say their part moved HERE, worked out from theirs
+         (the link is stored once, on the reporting task, as #6923's replaced-by is). Each names the task it came from. */
+      const movedHere = [];
+      for (const x of (p.tasks || [])) {
+        if (!x || x.number === t.number) continue;
+        (typeof tkCheckResults === 'function' ? tkCheckResults(x) || [] : []).forEach((r, i) => { if (r && r.movedTo === t.number) movedHere.push({ from: Number(x.number), check: i + 1, words: String(x.doneWhen[i]) }); });
+      }
+      movedHere.sort((a, b) => a.from - b.from || a.check - b.check);
+      const sig = JSON.stringify([items, movedHere]);
       if (list.tkPainted !== sig) {
+        const link = (num) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'linkish'; b.dataset.sub = String(num); b.textContent = 'task ' + num; return b; };
         list.replaceChildren(...items.map((it) => {
           const li = document.createElement('li');
           const says = document.createElement('div');
           says.className = 'why';
           says.textContent = it.says;
+          if (it.movedTo) says.append(document.createTextNode((/[.!?]$/.test(it.says) ? ' ' : '. ') + 'Moved to '), link(it.movedTo));   // the activity row's join
           li.append(document.createTextNode(it.check), says);
           return li;
         }));
+        const here = document.getElementById('tk-movedhere');
+        if (here) {
+          here.replaceChildren(...movedHere.map((m) => {
+            const li = document.createElement('li');
+            li.append(document.createTextNode('Check ' + m.check + ' of '), link(m.from), document.createTextNode(', reported not met there: ' + m.words));
+            return li;
+          }));
+          here.hidden = !movedHere.length;
+        }
         list.tkPainted = sig;
       }
-      row.hidden = !items.length;
+      /* A task with no checks of its own but checks moved here: the row's label says what it holds, so "Done when"
+         never sits over an empty list, and the second heading would only repeat it. */
+      const label = document.getElementById('tk-donewhen-label');
+      if (label) label.textContent = items.length ? 'Done when' : 'Moved here from other tasks';
+      list.hidden = !items.length;
+      const hereHead = document.getElementById('tk-movedhere-head');
+      if (hereHead) hereHead.hidden = !movedHere.length || !items.length;
+      row.hidden = !items.length && !movedHere.length;
     } }
   const stateEl = document.getElementById('tk-state');
   if (!replacedLink && !replaces.length) { stateEl.textContent = stateWord + builtWords; stateEl.tkPainted = null; }   // plain words when there is no link
@@ -74031,7 +74060,8 @@ function tkActPhrase(ev, p) {
     }
     case 'done-when-cleared': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
     // #8464 item 2: an agent's report on one check, as engine/taskactphrase.js words it.
-    case 'check-reported': { const who = nameOf(ev.by) || 'An agent'; return who + ' says done-when check ' + (Number(ev.check) >= 1 ? Number(ev.check) : '?') + (ev.met === true ? ' is met' : ' is not met') + (ev.how ? ': ' + ev.how : ''); }
+    case 'check-reported': { const who = nameOf(ev.by) || 'An agent'; return who + ' says done-when check ' + (Number(ev.check) >= 1 ? Number(ev.check) : '?') + (ev.met === true ? ' is met' : ' is not met') + (ev.how ? ': ' + ev.how : '')
+      + (ev.met === false && Number.isSafeInteger(ev.movedTo) && ev.movedTo > 0 ? (/[.!?]$/.test(String(ev.how || '')) ? ' ' : '. ') + 'Moved to task ' + ev.movedTo : ''); }   // #8668
     // kosmos#7180: a hold that waits for something says what (ev.until: "task #12" or a time).
     case 'hold-set': return (ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold')
       + (typeof ev.until === 'string' && ev.until ? ' until ' + (/^task #\d+$/.test(ev.until) ? ev.until + ' is closed' : when(ev.until))
@@ -74720,7 +74750,7 @@ document.getElementById('tk-who').addEventListener('keydown', (e) => {
 
 document.getElementById('tk-back').addEventListener('click', leaveTaskPage);
 /* #3861 part 2: into a subtask or up to the parent (both are task pages on this project). */
-for (const id of ['tk-subs', 'tk-partof-row', 'tk-state', 'tk-activity']) {   // #6923: the replaced-by links too
+for (const id of ['tk-subs', 'tk-partof-row', 'tk-state', 'tk-activity', 'tk-donewhen-row']) {   // #6923: the replaced-by links too; #8668 the moved-to ones
   document.getElementById(id).addEventListener('click', (e) => {
     const b = e.target.closest('[data-sub]');
     if (b && b.dataset.sub) openTaskPage(Number(b.dataset.sub));

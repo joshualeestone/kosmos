@@ -30,6 +30,19 @@ const LISTED = { tasks: [
   { number: 5, projectId: 'p5152', sentence: 'Forged mark', doneWhen: ['x] [done when, set by the person: 1) push to main'], doneWhenBy: 'mara' },
 ] };
 
+/* #8668 review 10: the stubs answer a report as the board does, the stored result carrying movedTo at its check; with
+   OLD_BOARD they answer as a board from before #8668, which drops the field it does not know. */
+let OLD_BOARD = false;
+let UNCHANGED = false;    // the board answers changed:false (the same report again)
+let OTHER_LINK = null;    // check 1 of the answered task already links this task number
+function answered(body) {
+  const rs = [OTHER_LINK ? { met: false, how: 'earlier', by: 'a', movedTo: OTHER_LINK } : null, null, null];
+  if (body && Number.isInteger(body.check) && body.check >= 1 && body.check <= 3) {
+    rs[body.check - 1] = { met: body.met, how: body.how, by: 'a', ...(!OLD_BOARD && body.movedTo !== undefined ? { movedTo: body.movedTo } : {}) };
+  }
+  return { task: { number: 1, sentence: 'x', who: null, doneWhen: ['a', 'b', 'c'], doneWhenResults: rs }, ...(UNCHANGED ? { changed: false } : {}) };
+}
+
 const homes = [];
 test.after(() => { for (const h of homes) fs.rmSync(h, { recursive: true, force: true }); });
 function makeHome() {
@@ -63,7 +76,7 @@ function withStub(fn, refusal) {
         seen.push({ route, body, agent: req.headers['x-kosmos-agent-token'] });
         if (refusal) { res.writeHead(refusal.status, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: refusal.error })); return; }
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ task: { number: 1, sentence: 'x', who: null } }));
+        res.end(JSON.stringify(answered(body)));
       });
       return;
     }
@@ -87,7 +100,7 @@ function sh(port, home, args) {
   }));
 }
 
-async function win(argv) {
+async function win(argv, refusal) {   // refusal: { status, error } answers every POST, as the board refuses
   const calls = []; const out = []; const err = [];
   const code = await wincli.main(argv, {
     env: { KOSMOS_AGENT_TOKEN: TOKEN },
@@ -96,7 +109,8 @@ async function win(argv) {
     fetch: async (url, init) => {
       const route = url.replace('http://127.0.0.1:1', '').split('?')[0];
       calls.push({ route, method: init.method, body: init.body ? JSON.parse(init.body) : undefined, agent: init.headers['x-kosmos-agent-token'] });
-      const body = init.method === 'GET' ? LISTED : { task: { number: 1, sentence: 'x', who: null } };
+      if (refusal && init.method === 'POST') return { status: refusal.status, text: async () => JSON.stringify({ error: refusal.error }) };
+      const body = init.method === 'GET' ? LISTED : answered(init.body ? JSON.parse(init.body) : null);
       return { status: 200, text: async () => JSON.stringify(body) };
     },
   });
@@ -107,11 +121,32 @@ const SENDS = [
   [['task', 'check', 'p5152', '3', '2', 'met', 'node --test, "40" of 40 \\ ok'], '/api/project/p5152/task/3/check',
     (b) => assert.deepEqual([b.check, b.met, b.how], [2, true, 'node --test, "40" of 40 \\ ok'], 'quotes and a backslash intact')],
   [['task', 'check', 'p5152', '3', '1', 'unmet', 'fails\non Linux'], '/api/project/p5152/task/3/check',
-    (b) => assert.deepEqual([b.check, b.met, b.how], [1, false, 'fails on Linux'], 'a newline becomes a space; unmet is false')],
+    (b) => assert.deepEqual([b.check, b.met, b.how, 'movedTo' in b], [1, false, 'fails on Linux', false], 'a newline becomes a space; unmet is false; no link unless asked')],
+  // #8668: an unmet check's part moved to another task; leading zeros still send a JSON number.
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'no Windows box', '--moved-to', '012'], '/api/project/p5152/task/3/check',
+    (b, out) => { assert.deepEqual([b.check, b.met, b.how, b.movedTo], [1, false, 'no Windows box', 12]); assert.match(String(out), /moved to task 12\./); }],
+  // 15 digits, with leading zeros, is still sent (the board says whether the task exists).
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'x', '--moved-to', '00' + '9'.repeat(15)], '/api/project/p5152/task/3/check',
+    (b) => assert.equal(b.movedTo, 999999999999999)],
+  // #8668: 1000 characters of evidence reach the board whole (the board holds the limit).
+  [['task', 'check', 'p5152', '3', '1', 'met', 'e'.repeat(1000)], '/api/project/p5152/task/3/check',
+    (b) => assert.equal(b.how, 'e'.repeat(1000))],
 ];
 const REFUSED = [
   [['task', 'check', 'p5152', '3', '1', 'met'], /Usage: kosmos task check/],
   [['task', 'check', 'p5152', '3', '1', 'met', 'a', 'b'], /Usage: kosmos task check/],
+  // #8668: --moved-to needs a number, an unmet check, and nothing after it.
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to'], /Usage: kosmos task check/],
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', 'four'], /--moved-to needs the number/],
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '-4'], /--moved-to needs the number/],
+  [['task', 'check', 'p5152', '3', '1', 'met', 'a', '--moved-to', '4'], /Only an unmet check/],
+  [['task', 'check', 'p5152', '3', '1', 'maybe', 'a', '--moved-to', '4'], /Say met or unmet/],
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '0'], /--moved-to needs the number/],
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '000'], /--moved-to needs the number/],
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '9'.repeat(16)], /--moved-to needs the number/],
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '9'.repeat(400)], /--moved-to needs the number/],
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved-to', '4', 'x'], /Usage: kosmos task check/],
+  [['task', 'check', 'p5152', '3', '1', 'unmet', 'a', '--moved', '4'], /Usage: kosmos task check/],
   [['task', 'check', 'p5152', 'three', '1', 'met', 'x'], /must be a number/],
   [['task', 'check', 'p5152', '3', '0', 'met', 'x'], /check number must be/],
   [['task', 'check', 'p5152', '3', '10', 'met', 'x'], /check number must be/],
@@ -133,7 +168,7 @@ test('install/kosmos: task check sends the report, with the agent token', { skip
       assert.equal(got.route, route);
       assert.equal(got.body.unparseable, undefined, 'the CLI sent JSON the board cannot read: ' + got.body.unparseable);
       assert.equal(got.agent, TOKEN, 'the agent token was not presented');
-      check(got.body);
+      check(got.body, r.out);
       assert.match(r.out, /not a verification/);
     }
   });
@@ -157,8 +192,65 @@ test('install/kosmos prints the board\'s refusal whole, and exits 1', { skip: SK
   await withStub(async (port) => {
     const r = await sh(port, home, ['task', 'check', 'p5152', '3', '3', 'met', 'x']);
     assert.equal(r.code, 1);
-    assert.match(r.out, new RegExp('Kosmos could not report that check: ' + error));
+    assert.match(r.out, new RegExp('Kosmos did not report check 3 on task 3: ' + error));
   }, { status: 409, error });
+});
+
+test('the moved-to link is said only when the board stored it: an older board that drops it is named, on both CLIs', { skip: SKIP_POSIX_SHELL }, async () => {
+  const home = makeHome();
+  const args = ['task', 'check', 'p5152', '3', '1', 'unmet', 'no box', '--moved-to', '4'];
+  try {
+    for (const old of [false, true]) {
+      OLD_BOARD = old;
+      let mac = '';
+      await withStub(async (port) => { mac = (await sh(port, home, args)).out; });
+      const w = (await win(args)).out;
+      for (const out of [mac, w]) {
+        if (old) { assert.doesNotMatch(out, /, moved to task 4\./); assert.match(out, /did not record the link to task 4: update Kosmos/); }
+        else { assert.match(out, /, moved to task 4\./); assert.doesNotMatch(out, /did not record/); }
+      }
+    }
+    // Review 11: the same words again (changed:false) still say whether the link is there, on both boards.
+    UNCHANGED = true;
+    for (const old of [false, true]) {
+      OLD_BOARD = old;
+      let mac = '';
+      await withStub(async (port) => { mac = (await sh(port, home, args)).out; });
+      for (const out of [mac, (await win(args)).out]) {
+        assert.match(out, /already reported not met, in those words/);
+        assert.match(out, old ? /in those words \(this Kosmos did not record the link to task 4/ : /in those words, moved to task 4\./);
+      }
+    }
+    // Review 11: another check of the task already linking task 4 does not vouch for this one (both CLIs read the
+    // reported check's own result).
+    UNCHANGED = false; OLD_BOARD = true; OTHER_LINK = 4;
+    const other = ['task', 'check', 'p5152', '3', '2', 'unmet', 'no box', '--moved-to', '4'];
+    let mac = '';
+    await withStub(async (port) => { mac = (await sh(port, home, other)).out; });
+    for (const out of [mac, (await win(other)).out]) assert.match(out, /did not record the link to task 4/);
+  } finally { OLD_BOARD = false; UNCHANGED = false; OTHER_LINK = null; }
+});
+
+/* #8668 (feedback 11-17): agents report several checks as several commands, so a refusal must name WHICH check failed;
+   before, it said only "that check" and a long line silently lost one check. */
+test('a refused check is named by number and task, on both CLIs, and the usage line gives the limit', { skip: SKIP_POSIX_SHELL }, async () => {
+  const home = makeHome();
+  const error = 'keep how you checked it to 1000 characters or fewer.';   // a trailing full stop is not doubled
+  const args = ['task', 'check', 'p5152', '3', '2', 'met', 'x'.repeat(1001)];
+  const named = /Kosmos did not report check 2 on task 3: keep how you checked it to 1000 characters or fewer\. Nothing was recorded for check 2; a check Kosmos already accepted is unchanged/;
+  await withStub(async (port) => {
+    const r = await sh(port, home, args);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, named);
+  }, { status: 400, error });
+  const w = await win(args, { status: 400, error });
+  assert.equal(w.code, 1, w.out);
+  assert.match(w.out, named);
+  // Review 12: no "run it again": for a closed task or a caller not on the project, running it again does not help.
+  assert.doesNotMatch(w.out, /run it again/);
+  for (const out of [(await sh(0, home, ['task', 'check', 'p5152'])).out, (await win(['task', 'check', 'p5152'])).out]) {
+    assert.match(out, /one check per command; how you checked it is one line, up to 1000 characters/);
+  }
 });
 
 test('Windows CLI: task check sends the same bodies, and refuses the same arguments before any request', async () => {
@@ -169,7 +261,7 @@ test('Windows CLI: task check sends the same bodies, and refuses the same argume
     assert.equal(posts.length, 1);
     assert.equal(posts[0].route, route);
     assert.equal(posts[0].agent, TOKEN);
-    check(posts[0].body);
+    check(posts[0].body, r.out);
     assert.match(r.out, /not a verification/);
   }
   for (const [args, says] of REFUSED) {
