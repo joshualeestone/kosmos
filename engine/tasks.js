@@ -1004,7 +1004,8 @@ function withoutLocalPaths(t) {
   if (r && typeof r === 'object' && r !== t) {
     delete r.landedRepo;
     // kosmos#8669: a file wake keeps the file's name in its words; its path stays on this computer.
-    if (r.wake && typeof r.wake === 'object' && 'path' in r.wake) { const { path: _p, ...w } = r.wake; r.wake = w; }   // eslint-disable-line no-unused-vars
+    // The fingerprint goes with it: it says nothing the page needs, and it could confirm a guess at the file's contents.
+    if (r.wake && typeof r.wake === 'object' && r.wake.kind === 'file') { const { path: _p, from: _f, ...w } = r.wake; r.wake = w; }   // eslint-disable-line no-unused-vars
   }
   return r;
 }
@@ -2847,7 +2848,7 @@ function lastActivityOf(projectId, task) {
          happened for a day); one sent is, since work went out to an agent (confirmed or not). #6209: nor is its note that
          an owner was asked about a held task's hold (the task did not move). #8581: nor is its note that a holder was told
          a run is due (a stopped repeat must keep reading as stopped). */
-      for (const e of events) if (!(e && (e.kind === 'missed' || e.kind === 'kept-dropped' || e.kind === 'hold-stale' || e.kind === 'due-told'))) consider(e && e.at);
+      for (const e of events) if (!(e && (e.kind === 'missed' || e.kind === 'kept-dropped' || e.kind === 'hold-stale' || e.kind === 'due-told' || e.kind === 'wake-met' || e.kind === 'wake-told'))) consider(e && e.at);   // kosmos#8669: the board's own wake rows
     }
   }
   return newest;

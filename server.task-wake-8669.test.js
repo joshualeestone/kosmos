@@ -153,7 +153,7 @@ test('#8669: the person\'s wake is theirs; a branch wake starts from its commit;
   assert.equal(stored(b).wake.from, 'a'.repeat(40));
   assert.equal(r.json.words, 'waits for a new commit on main in octo/hello');
 
-  const dir = path.join(SANDBOX, 'private-folder');
+  const dir = path.join(HOME, 'private-folder');   // inside the home folder, which is where a file wake may watch
   fs.mkdirSync(dir);
   const file = path.join(dir, 'brief.md');
   fs.writeFileSync(file, 'one');

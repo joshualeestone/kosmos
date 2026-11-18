@@ -146,10 +146,10 @@ const USAGE = {
     '      --at <HH:MM>  (several a day: --at 09:00,21:00; hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating',
     '  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed',
     '  kosmos task ran <project-id> <task-number> ["what this run found"]  record that a repeating task\'s job just ran',
-    '  kosmos task wake <project-id> <task-number> --pr <owner/name#123>  tell you once when it merges (also --branch owner/name:main, --file <path>, --at 2h|HH:MM; --clear)',
     '      --unchanged                                              it found nothing new (the task\'s page rolls such runs up)',
     '      --value "<reading>"                                      what it found, checked against what the person was last told',
     '  kosmos task told <project-id> <task-number> [--value "<what you said>"]  record what you just told the person (default: the last --value)',
+    '  kosmos task wake <project-id> <task-number> --pr <owner/name#123>  tell you once when it merges (also --branch owner/name:main, --file <path>, --at 2h|HH:MM; --clear)',
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [

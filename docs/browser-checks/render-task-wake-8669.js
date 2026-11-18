@@ -62,7 +62,7 @@ function chk(ok, label, extra) {
   fs.mkdirSync(folder);
   fs.writeFileSync(path.join(folder, 'brief.md'), 'first');
   tasks.create(p.id, { sentence: 'Read the brief when it changes', who: 'ada' });   // 3 file wake
-  tasks.setWake(p.id, 3, (await taskwake.prepare({ file: path.join(folder, 'brief.md') })).wake, { by: 'ada' });
+  tasks.setWake(p.id, 3, (await taskwake.prepare({ file: path.join(folder, 'brief.md') }, { home: FILES })).wake, { by: 'ada' });
   tasks.create(p.id, { sentence: 'Ship once the fix lands', who: 'ada' });          // 4 woke
   tasks.setWake(p.id, 4, { kind: 'pr', repo: 'octo/hello', number: 13 }, { by: 'ada' });
   tasks.saveWakeMet(p.id, 4, tasks.byNumber(projects.readAll().find((x) => x.id === p.id), 4).wake.setAt, { at: new Date().toISOString(), words: 'it was merged' });
