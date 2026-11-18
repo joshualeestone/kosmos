@@ -1,6 +1,6 @@
 'use strict';
 /**
- * #6946: `kosmos claim <project> <postId> [--release]` posts to /api/react with `claim` set, as THIS agent, and says in
+ * #6946: `kosmos claim <project> <postId> [--release | --status]` posts to /api/react with `claim` set, as THIS agent, and says in
  * words whether the post is now yours, already yours, given back, or held by somebody else (exit 1, naming them). The
  * claim rule itself is pinned in engine/roomclaim-6946.test.js; this is the CLI half meeting it. Harness copied from
  * cli.react-2255.test.js.

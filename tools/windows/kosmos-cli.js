@@ -4033,7 +4033,7 @@ async function verbClaim(ctx, args) {
   const [project, of] = words;
   if (!project || !of || (release && status)) { ctx.err(USAGE.claim); return 2; }
   if (tooManyWords(ctx, 'claim', 2, USAGE.claim, words)) return 2;
-  const r = await ctx.call('POST', '/api/react', { project, of, claim: status ? 'status' : release ? 'release' : 'claim', from_pane: '' });
+  const r = await ctx.call('POST', '/api/react', { project, of, claim: status ? 'status' : release ? 'release' : 'claim', from_pane: '' }, status ? { read: true } : undefined);
   if (!r.reached && status) { if (r.timedOut) { ctx.err('Kosmos was slow to answer and we stopped waiting, so we could not tell who holds that post. Nothing was claimed; run the same command again.'); return 1; } return ctx.unreachable('read that claim'); }
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Run the same command again: it is safe, and it says whether the claim is yours.') : ctx.unreachable('claim');
   if (ctx.wrongWorld(r)) { ctx.err(ctx.outbox().WRONG_WORLD_SENTENCES.notOpen); return 1; }
@@ -4341,7 +4341,7 @@ async function main(argv, io) {
     const c = opts || {};
     lastTimedOut = false;
     lastNotProven = '';
-    lastWasRead = String(method).toUpperCase() === 'GET';
+    lastWasRead = String(method).toUpperCase() === 'GET' || c.read === true;   // kosmos#8721: a POST that only reads (claim --status)
     const headers = headersFor(c.agent !== false, c.person === true);
     const bound = c.timeoutMs || REQUEST_TIMEOUT_MS;
     const started = Date.now();
