@@ -2134,12 +2134,13 @@
       "notesOnly": true
     },
     {
-      "since": "0.8.08",
+      "since": "0.8.09",
       "status": "pending",
-      "title": "GPT-6 is in the model list",
-      "line": "OpenAI agents can run GPT-6: it is in the model list, and Kosmos updates the Codex it runs so the newest ChatGPT models start.",
+      "title": "GPT-6 runs when your account offers it",
+      "line": "When your OpenAI account offers GPT-6, its agents can run it: Kosmos updates the Codex it runs, which older versions refused.",
       "icon": "spark",
-      "rank": 9.0
+      "rank": 9.0,
+      "restart": "agents"
     },
     {
       "since": "0.8.09",
@@ -2161,15 +2162,18 @@
       "since": "0.8.09",
       "status": "pending",
       "title": "Flip through every page of a PDF",
-      "line": "Previewing a PDF with several pages lets you flip through all of them, not only the first.",
+      "line": "On a Mac, previewing a PDF with several pages lets you flip through all of them, not only the first.",
       "icon": "list",
-      "rank": 9.6
+      "rank": 9.6,
+      "platforms": [
+        "mac"
+      ]
     },
     {
       "since": "0.8.09",
       "status": "pending",
       "title": "Link previews show their picture",
-      "line": "A link preview appears once, with its picture or with words only, never with an empty picture box.",
+      "line": "A link preview shows its picture with its words, or words only when the picture cannot be fetched, never an empty picture box.",
       "icon": "chat",
       "rank": 9.8
     },
@@ -2177,7 +2181,7 @@
       "since": "0.8.08",
       "status": "pending",
       "title": "Every agent has a Files folder",
-      "line": "Every agent has a Files folder from the moment it is made, so its page lists Files before it has saved anything.",
+      "line": "Every agent Kosmos makes has a Files folder from the start, so it can hand you a file before it has saved one.",
       "icon": "list",
       "rank": 10.1
     },
@@ -2193,7 +2197,7 @@
       "since": "0.8.09",
       "status": "pending",
       "title": "A just-started agent gets your first message",
-      "line": "On Windows, a message to an agent that has only just started waits a few seconds for it, instead of saying there is no agent by that name.",
+      "line": "On Windows, a message to an agent that has only just started waits a few seconds for it, or says it is still starting.",
       "icon": "chat",
       "rank": 10.7,
       "platforms": [
