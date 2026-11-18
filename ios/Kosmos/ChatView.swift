@@ -379,7 +379,9 @@ struct ChatView: View {
                     .font(.system(size: 20))
                     .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
-                .disabled(client.starring.contains(agent.session))
+                // kosmos#8706: a second tap while the save is out is blocked here, not with .disabled, which dims the
+                // toolbar star during exactly the burst that tap plays. toggleStar ignores a second press as well.
+                .allowsHitTesting(!client.starring.contains(agent.session))
                 .accessibilityLabel(starred ? "Unstar \(shown.name)" : "Star \(shown.name)")
             }
             }

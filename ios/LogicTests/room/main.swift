@@ -436,7 +436,7 @@ let clientSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos
 // that starred, never under Reduce Motion.
 check(agentsSrc.contains("static let starFill = pair(0xe3b341, 0xe3b341)") && agentsSrc.contains("Image(systemName: \"star.fill\").foregroundColor(Palette.starFill)")
       && agentsSrc.contains("if contrast == .increased { Image(systemName: \"star\").foregroundColor(Palette.starGold) }")
-      && !agentsSrc.contains("            Image(systemName: \"star\").foregroundColor(Palette.starGold)\n")
+      && agentsSrc.components(separatedBy: "Image(systemName: \"star\").foregroundColor(Palette.starGold)").count == 2
       && agentsSrc.contains("if starred { StarredStar(burst: starBurst).font(.caption2)"),
       "kosmos#8706: the starred star is the bright gold with no outline (the deep gold edge only under Increase Contrast), in the header and beside a name")
 check(agentsSrc.contains("guard let id, id != played, !reduceMotion else { return }") && agentsSrc.contains("starBurst: client.burst(for: agent.session)"),
@@ -493,7 +493,8 @@ let composerLogicSrc = (try? String(contentsOf: repo.appendingPathComponent("ios
 check(!composerLogicSrc.isEmpty && Board.quickReactions.allSatisfy { composerLogicSrc.contains("\"\($0)\"") }, "kosmos#7419: each quick reaction is one of the board's 80 (More offers the same list)")
 let sheetChat = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatView.swift"), encoding: .utf8)) ?? ""
 // kosmos#7034 build 11 (Mona Lisa): a visible star in the chat header, outline or gold, the same save as the row swipe.
-check(sheetChat.contains("if starred { StarredStar(burst: client.burst(for: agent.session)) } else { Image(systemName: \"star\")") && sheetChat.contains("await client.toggleStar(agent.session)") && sheetChat.contains("await client.readStarsIfUnknown()") && sheetChat.contains("starred ? \"Unstar \\(shown.name)\" : \"Star \\(shown.name)\""),
+check(sheetChat.contains("if starred { StarredStar(burst: client.burst(for: agent.session)) } else { Image(systemName: \"star\")")
+      && sheetChat.contains(".allowsHitTesting(!client.starring.contains(agent.session))") && !sheetChat.contains(".disabled(client.starring.contains(agent.session))") && sheetChat.contains("await client.toggleStar(agent.session)") && sheetChat.contains("await client.readStarsIfUnknown()") && sheetChat.contains("starred ? \"Unstar \\(shown.name)\" : \"Star \\(shown.name)\""),
       "kosmos#7034: the chat header has a star, gold when starred, saved as the row swipe saves it")
 let sheetRoom = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
 let sheetSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ComposerExtras.swift"), encoding: .utf8)) ?? ""

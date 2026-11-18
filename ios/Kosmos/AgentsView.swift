@@ -835,8 +835,8 @@ enum Palette {
         switch band { case .ok: return ringOk; case .warn: return ringWarn; case .high: return ringHigh }
     }
     static let banner = pair(0xf3efe6, 0x1c1f23)
-    // kosmos#7034: the board's star (.astar.on): its deep gold in light (#9c741b, which holds 3:1 on the card where the
-    // bright gold does not), its bright gold in dark (--gold-bright).
+    // kosmos#7034: the board's deep star gold in light (#9c741b, 3:1 on the card where the bright gold is not), the bright
+    // gold in dark. kosmos#8706: a starred star's edge only under Increase Contrast, and tints elsewhere.
     static let starGold = pair(0x9c741b, 0xe3b341)
     // kosmos#7529 (Josh 10-28: "still a dingy brown"): a starred star is the bright gold filled. kosmos#8706: with no
     // outline, as the board's .astar.on after #8705; starGold is its edge only under Increase Contrast (StarredStar).
@@ -1042,8 +1042,8 @@ struct StatusPill: View {
 // The font comes from where it is used, so the fill and any outline are one symbol size.
 // kosmos#8706 (Josh 11-18, matching the board's #8705): the brightest gold with no outline. The darker edge comes back
 // only under Increase Contrast, as the board's does under prefers-contrast: more. `burst` is the press that just starred
-// this agent (BoardClient.burst(for:)): the star pops and six gold sparks fly out once, with the board's timings and
-// spark positions, and never under Reduce Motion (the star just fills).
+// this agent (BoardClient.burst(for:)): the star pops and six gold sparks fly out once, at the board's spark positions
+// and close to its timings, and never under Reduce Motion (the star just fills).
 struct StarredStar: View {
     var burst: Int? = nil
     @Environment(\.colorSchemeContrast) private var contrast
@@ -1052,7 +1052,7 @@ struct StarredStar: View {
     @State private var popped = false
     @State private var sparking = false
     @State private var flown = false
-    // The board's six sparks (@keyframes astar-spark), in points.
+    // The board's six sparks (@keyframes astar-spark), where each one ends, in points.
     private static let sparkEnds: [CGSize] = [CGSize(width: 0, height: -16), CGSize(width: 14, height: -8), CGSize(width: 14, height: 8),
                                               CGSize(width: 0, height: 16), CGSize(width: -14, height: 8), CGSize(width: -14, height: -8)]
 
@@ -1071,7 +1071,8 @@ struct StarredStar: View {
         if sparking {
             ZStack {
                 ForEach(0..<Self.sparkEnds.count, id: \.self) { i in
-                    Circle().fill(Palette.starFill).frame(width: 3, height: 3)
+                    // 4 at the centre, 2 at the end, as the board's (4px, spread -1 by the end).
+                    Circle().fill(Palette.starFill).frame(width: flown ? 2 : 4, height: flown ? 2 : 4)
                         .offset(flown ? Self.sparkEnds[i] : .zero)
                         .opacity(flown ? 0 : 1)
                 }
@@ -1080,7 +1081,8 @@ struct StarredStar: View {
         }
     }
 
-    // The board: the pop is .42 s, peaking at 40% (1.3x); the sparks fly for .55 s, easing out.
+    // Close to the board's: its pop is one .42 s overshooting curve peaking at 40% (1.3x), here a .17 s rise and a spring
+    // back (iOS 16 has no keyframes); the sparks fly for .55 s, easing out, as there.
     private func play(_ id: Int?) {
         guard let id, id != played, !reduceMotion else { return }
         played = id

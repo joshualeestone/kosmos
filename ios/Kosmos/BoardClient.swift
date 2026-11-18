@@ -183,9 +183,10 @@ final class BoardClient: ObservableObject {
     // that star did not save. Only a press on this phone sets it: a star read from the board never bursts.
     struct StarBurst: Equatable { let session: String; let id: Int; let at: Date }
     @Published private(set) var starBurst: StarBurst?
-    // The press's id while it is fresh enough to play: a starred row is drawn again after the list re-sorts, a moment after
-    // the press, so the window is a little longer than the burst. Nil for any other agent, an unstar, or a press long past.
-    static let starBurstWindow: TimeInterval = 1.0
+    // The press's id while it is fresh enough to play. Short on purpose: the star is drawn at the press (the list re-sorts
+    // in the same call), and a star view built again later in the save, a toolbar or row rebuilt, must not replay the
+    // burst from its start. Nil for any other agent, an unstar, or a press past the window.
+    static let starBurstWindow: TimeInterval = 0.3
     func burst(for session: String, now: Date = Date()) -> Int? {
         guard let b = starBurst, b.session == session, now.timeIntervalSince(b.at) < Self.starBurstWindow else { return nil }
         return b.id
