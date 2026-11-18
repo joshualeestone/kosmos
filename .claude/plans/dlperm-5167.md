@@ -39,13 +39,18 @@ The panel says up front that a taken name gets a number (WebKit never writes ove
 honoured).
 
 ## Weakest premise
-That a Save panel choice is writable when Downloads is refused. True for TCC's user-intent rule and measured here for a
-read-only folder (EACCES), but the EPERM case itself was not reproduced on this Mac.
+That a Save panel choice is writable when Downloads is refused. Reasoned from macOS's rule that a place the person
+picks in a panel is the app's to write, NOT measured: the live selftest answers the panel with a second, writable folder
+(it measures that the restart lands there, not that a panel choice gets past a refusal), and the EPERM refusal itself
+was not reproduced on this Mac. A taken name saved as " (2)" is a path the person did not pick, where that rule may not
+reach in a protected folder.
 
 ## Safety
 The restart is a second place the app starts a download itself (kosmos#7952's guard allowed one). It is reached only from
-the failure of a download that had already been given a Downloads path, i.e. had passed every check, and asks again for
-that same request; its answer is checked again. Pinned in native-app.download-5167.test.js.
+the failure of a GET download the page's own main frame began, that had already been given a Downloads path (so had
+passed every check), while that page still shows. It sends that request's address and headers again as a new download
+from the app (not from the frame that made it), and its answer is checked again. It is not one of kosmos#7952's marked
+starts (downloadsStartedHere), so its answer is judged as the original's was. Pinned in native-app.download-5167.test.js.
 
 ## Tests
 - Mode selftest: +7 rows (EPERM, EACCES, nested, controls: full disk, taken name, no system reason; the words).

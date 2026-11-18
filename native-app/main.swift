@@ -4572,6 +4572,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let k = ObjectIdentifier(download)
         // A download beginning (fresh) is always noted anew: an entry left by an earlier one at the same address is not its.
         guard fresh || downloadInfo[k] == nil else { return }
+        if fresh && mainFrame { downloadsFromMainFrame.add(download) }   // #5167 (11-18): only these are ever restarted
         downloadInfo[k] = (downloadNext, mainFrame ? downloadKey(download.originalRequest?.url) : nil, pageCommits, pageOrigin(of: committedPageURL))
         downloadNext += 1
     }
@@ -4775,12 +4776,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private let saveElsewhereChoices = NSMapTable<WKDownload, NSURL>.weakToStrongObjects()
     /// #5167 (11-18): the restarted downloads, so a failure of one is not asked about again and is not said as Downloads'.
     private let downloadsRestarted = NSHashTable<WKDownload>.weakObjects()
+    /// #5167 (11-18) review 3: downloads the page's own main frame began; only these are restarted, so a frame inside the
+    /// page never has its request sent again as the page's.
+    private let downloadsFromMainFrame = NSHashTable<WKDownload>.weakObjects()
     /// Only --kosmos-app-download-selftest sets this: it stands in for the question and the Save panel, answering
     /// the file (nil: Cancel) for the words asked and the name offered.
     static var saveElsewhereForSelftest: ((_ asked: String, _ name: String) -> URL?)?
 
     /// #5167 (11-18): macOS refused the save to Downloads (downloadRefusedByMacOS). Asks once, says why and what to do, and
-    /// on "Choose Where to Save..." asks where with a Save panel; a place picked there is one macOS lets the app write to.
+    /// on "Choose Where to Save..." asks where with a Save panel. A file picked there is expected to be writable (macOS lets
+    /// an app write where the person chose in a panel); reasoned from macOS's rules, not measured on a refused Downloads.
     /// The same request is then downloaded again, so it passes decideDestination's checks again before anything is saved.
     private func offerSaveElsewhere(_ error: Error, request: URLRequest, webView: WKWebView, name: String) {
         logLine("#5167: macOS refused a save to Downloads, so the person is asked where to save it instead")
@@ -4799,7 +4804,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 self.downloadsRestarted.add(dl)
                 /* Not the page's main frame (review 1): the page was told this save failed, and its words for a saved file
                    say Downloads, so the restart answers no click; this app's question and panel carry it. */
-                self.downloadsStartedHere.add(dl); dl.delegate = self; self.noteDownload(dl, fresh: true, mainFrame: false)
+                /* Not in downloadsStartedHere (review 3): that set is kosmos#7952's marked requests, and it changes how the
+                   answer is judged (a web page, a 401 or 403), which must stay as it was for the original download. */
+                dl.delegate = self; self.noteDownload(dl, fresh: true, mainFrame: false)
             }
         }
         if let seam = AppDelegate.saveElsewhereForSelftest {
@@ -4814,6 +4821,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Choose Where to Save\u{2026}")
             alert.addButton(withTitle: "Cancel")
+            /* Review 3: the page decides when this appears (a failing download), so Return is the safe answer, as in the
+               Allow question: Return cancels, and choosing takes a click. */
+            alert.buttons[0].keyEquivalent = ""
+            alert.buttons[1].keyEquivalent = "\r"
             let choose = alert.runModal() == .alertFirstButtonReturn
             var chosen: URL?
             if choose {
@@ -4852,9 +4863,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 // Review 1: the place the person chose failed too: said as that place's, and not asked about again.
                 tellDownloadFailed("The file could not be saved where you chose (\(downloadFailureWords(error))).")
             } else if let dest, downloadRefusedByMacOS(error), let request = download.originalRequest, let webView = download.webView,
-                      (request.httpMethod ?? "GET") == "GET", begunOn == nil || begunOn == pageCommits {
+                      (request.httpMethod ?? "GET") == "GET", begunOn == pageCommits, downloadsFromMainFrame.contains(download) {
                 /* Review 2: only a GET is asked for again (a POST would be sent twice), and only while the page it began on
-                   still shows; otherwise the plain failure below. */
+                   still shows; review 3: and only one the page's own main frame began. Otherwise the plain failure below. */
                 // 11-18: macOS refused the write to Downloads ("Operation not permitted"); another place can still take it.
                 offerSaveElsewhere(error, request: request, webView: webView, name: dest.lastPathComponent)
             } else {
@@ -7184,8 +7195,11 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        answered with a file in a second folder, as a person choosing another place would. */
     let elsewhere = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-elsewhere-\(getpid())")
     try? FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
-    var elsewhereName: String?
-    AppDelegate.saveElsewhereForSelftest = { asked, name in told.append(asked); elsewhereName = name; return elsewhere.appendingPathComponent(name) }
+    var elsewhereNames: [String] = []
+    var onChosen: (String) -> Void = { _ in }   // review 3: set once the app delegate exists (the page-change arm)
+    AppDelegate.saveElsewhereForSelftest = { asked, name in
+        told.append(asked); elsewhereNames.append(name); onChosen(name); return elsewhere.appendingPathComponent(name)
+    }
     // kosmos#8120: what the page would be told about each download, in order.
     var pageEvents: [[String: Any]] = []
     AppDelegate.downloadEventRecorder = { json in
@@ -7212,6 +7226,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             let page = "<!doctype html><meta charset=utf-8>"
                 + "<a id=same href=/same.txt?kdl=s1 download>a</a>"
                 + "<a id=denied href=/denied.txt download>z</a>"
+                + "<a id=denied2 href=/denied2.txt download>z2</a>"
                 + "<a id=att href=/att>b</a>"
                 + "<a id=redir href=/redir download>c</a>"
                 + "<a id=redir2 href=/redir2 download>g</a>"
@@ -7451,11 +7466,20 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         chmod(dl.path, 0o500)
         /* Review 1: restored once the failure is said (up to 5s), not after click's fixed wait, so a slow answer is
            still refused by the read-only folder rather than landing after it is writable again. */
+        func whenAsked(_ n: Int, _ tries: Int, _ then: @escaping () -> Void) {
+            if tries == 0 || told.filter({ $0.contains("Cannot create file") }).count >= n { then(); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenAsked(n, tries - 1, then) }
+        }
         func whenDenied(_ tries: Int, _ then: @escaping () -> Void) {
-            if tries == 0 || told.contains(where: { $0.contains("Cannot create file") }) { chmod(dl.path, 0o700); then(); return }
+            if tries == 0 || told.filter({ $0.contains("Cannot create file") }).count >= 2 { chmod(dl.path, 0o700); then(); return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenDenied(tries - 1, then) }
         }
-        load { web.evaluateJavaScript("document.getElementById('denied').click()") { _, _ in }; whenDenied(50) {
+        /* #5167 (11-18) review 3: a second refused file whose page changes while the person chooses (onChosen, as the
+           start-void arm does for kosmos#7952) must not be saved: the restart's page guard can fail live. */
+        onChosen = { name in if name == "denied2.txt" { d.pageCommits += 1 } }
+        // One click at a time: two download clicks in one turn leave WebKit only the second (measured).
+        load { web.evaluateJavaScript("document.getElementById('denied').click()") { _, _ in }; whenAsked(1, 50) {
+               web.evaluateJavaScript("document.getElementById('denied2').click()") { _, _ in }; whenDenied(50) {
         mark(true) { click("same", expect: "same.txt") { mark(false) { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { mark(true) { click("frames") { mark(false) { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { mark(true) { click("startvoid") { click("refused") { click("htmlpage") { mark(false) { click("busyzip") { mark(true) { askArm { mark(false) { modalArm { settled {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
@@ -7696,19 +7720,22 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
             row(all.sorted() == ["asked-yes.txt", "att.txt", "framed.txt", "last.txt", "modal-yes.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
             let denied = told.filter { $0.contains("(Cannot create file: Permission denied)") }
-            row(!saved("denied.txt") && denied.count == 1, "#5167 (11-06): A FILE WEBKIT COULD NOT CREATE SAYS WHY, in the system's words (\(denied.count))")
+            row(!saved("denied.txt") && !saved("denied2.txt") && denied.count == 2, "#5167 (11-06): A FILE WEBKIT COULD NOT CREATE SAYS WHY, in the system's words (\(denied.count))")
             /* #5167 (11-18): macOS refusing Downloads asks where else to save (one question, with where to allow it), and a
                place chosen there gets the file, marked as downloaded. CONTROL: nothing landed in the refused folder (row above). */
             let refusedAsk = denied.filter { $0.hasPrefix(downloadRefusedTitle + ": ") && $0.contains("Files and Folders") }
             let there = elsewhere.appendingPathComponent("denied.txt")
             var tmark = [UInt8](repeating: 0, count: 256)
             let tn = getxattr(there.path, "com.apple.quarantine", &tmark, tmark.count, 0, 0)
-            row(refusedAsk.count == 1 && elsewhereName == "denied.txt" && (try? String(contentsOf: there, encoding: .utf8)) == "kosmos /denied.txt"
+            row(refusedAsk.count == 2 && elsewhereNames.sorted() == ["denied.txt", "denied2.txt"] && (try? String(contentsOf: there, encoding: .utf8)) == "kosmos /denied.txt"
                 && tn > 0 && String(decoding: tmark[0..<tn], as: UTF8.self).contains(";Kosmos;"),
-                "#5167 (11-18): REFUSED DOWNLOADS ASKS WHERE ELSE TO SAVE, and the place chosen gets the file, marked (asked \(refusedAsk.count), offered \(elsewhereName ?? "nothing"))")
+                "#5167 (11-18): REFUSED DOWNLOADS ASKS WHERE ELSE TO SAVE, and the place chosen gets the file, marked (asked \(refusedAsk.count), offered \(elsewhereNames.joined(separator: ", ")))")
+            let voidedChoice = failures().filter { $0.contains("The page changed while you chose where to save it") }
+            row(voidedChoice.count == 1 && !FileManager.default.fileExists(atPath: elsewhere.appendingPathComponent("denied2.txt").path),
+                "#5167 (11-18) review 3: A PAGE THAT CHANGED WHILE THE PERSON CHOSE SAVES NOTHING THERE, and says so (\(voidedChoice.count))")
             let fails = failures()   // #5167 (11-06): +1, the uncreatable file; kosmos#7952: +3 (the voided start, the refused 403, the busy folder) and the web page
             let checkVoid = fails.filter { $0.contains("changed while Kosmos checked this computer") }   // kosmos#8121 reviews 3 and 7: their own rows say it
-            row(fails.count == 10 && checkVoid.count == 3 && denied.count == 1 && voided.count == 1 && notStarted.count == 1 && refusedSaid.count == 1 && busySaid.count == 1 && fails.contains { $0.contains("answer was 404") } && fails.contains { $0.contains("a web page, not the file") },
+            row(fails.count == 11 && checkVoid.count == 3 && denied.count == 2 && voided.count == 1 && notStarted.count == 1 && refusedSaid.count == 1 && busySaid.count == 1 && fails.contains { $0.contains("answer was 404") } && fails.contains { $0.contains("a web page, not the file") },
                 "EVERY REAL FAILURE IS SAID, ONE ALERT EACH (the 404, two web pages answered for a file, the voided Allow, the voided start, the refused download, the busy folder) (failures \(fails.count): \(fails.joined(separator: " | ")))")
             let refused = refusals()
             let heard = " (asked \(requested.count): \(requested.joined(separator: " | ")))"
@@ -7768,11 +7795,11 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(own && !other && !unknown && revealed.map { $0.lastPathComponent } == ["same.txt"],
                 "kosmos#8120: SHOW IN FINDER SELECTS A FILE THIS APP SAVED, ONLY FOR THE ORIGIN THAT SAVED IT, and nothing for an unknown id (\(own)/\(other)/\(unknown))")
             try? FileManager.default.removeItem(at: dl); try? FileManager.default.removeItem(at: elsewhere)
-            let expected = 71   // kosmos#5167 (11-18): +1 (refused Downloads asks where else); kosmos#8121 (re-land, five reviews): +21 (Always Allow kept and checked against the account: on it, moved, unread, joined, page change, Forget, the hour, the wall clock, the offer, Don't Allow forgets); kosmos#8120: +10 (what the page is told, that it runs there, and Show in Finder); #5167 (11-06): +1 (the uncreatable file says why); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
+            let expected = 72   // kosmos#5167 (11-18): +2 (refused Downloads asks where else; a page change voids it); kosmos#8121 (re-land, five reviews): +21 (Always Allow kept and checked against the account: on it, moved, unread, joined, page change, Forget, the hour, the wall clock, the offer, Don't Allow forgets); kosmos#8120: +10 (what the page is told, that it runs there, and Show in Finder); #5167 (11-06): +1 (the uncreatable file says why); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
-        } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } }
+        } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } }
     }
     listener.start(queue: .main)
     withExtendedLifetime((d, listener, win)) { app.run() }
