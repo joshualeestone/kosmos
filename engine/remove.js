@@ -1984,6 +1984,23 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
         try { require('./trust').dropRecord(clean); } catch { /* retried next time */ }
       }
     }
+    /* kosmos#8322: the second key (an 8.3 or subst spelling) a launch wrote while the main key was already true, kept
+       in its own record so this never reaches the main key. Same rules as above: only a recorded line, never in a dry
+       run, the record dropped only once the take-back succeeded, and a step only when there is a record. */
+    let alsoRec = null;
+    try { alsoRec = require('./trust').recordedAlsoWrite(clean); } catch { alsoRec = null; }
+    if (alsoRec) {
+      const gaveBackAlso = step('took back the folder trust for its short path', () => {
+        if (DRY_RUN && !runner) return true;
+        let got = null;
+        try { got = require('./trust').forgetAlso(alsoRec.also); }
+        catch { return false; }
+        return Boolean(got && got.ok === true);
+      });
+      if (gaveBackAlso && !(DRY_RUN && !runner)) {
+        try { require('./trust').dropAlsoRecord(clean); } catch { /* retried next time */ }
+      }
+    }
   }
 
   /* 🛑 THE CODEX TRUST IS ITS OWN STEP, AND THAT IS THE POINT OF #1414, NOT A

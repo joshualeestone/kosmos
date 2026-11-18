@@ -502,12 +502,9 @@ function trustFolderInner(dir, opts) {
      there. Reported apart from the main key's fields (`also`), and only when written: callers record and roll back
      the main key on `already: false`, and a main key the person had trusted themselves must never be recorded as ours.
      So when ONLY this key was new (the main one already true: the person trusted it, or an agent made before this
-     change is relaunching), the answer stays `already: true` and that line is not recorded, so no removal takes it
-     back. Accepted, and tracked on a card rather than solved with more record bookkeeping (three attempts at that each
-     grew edges of their own): Kosmos hands over the agent's own long folder name, so this key differs from the main
-     one only in a PARENT folder's spelling (a short user folder, a subst letter). For the leftover line to trust a
-     different folder, that parent would have to be deleted and a like-named one take its alias, after which the line
-     still names this agent's folder name inside it. */
+     change is relaunching), the answer stays `already: true`, the main record is not written, and kosmos#8322's
+     also-record (recordAlsoWrite, below) holds the line instead, under the agent's name, for its removal to take back
+     with forgetAlso. */
   let alsoWrote = null;
   if (also && !alsoDone) {
     /* `forgettable`: whether this key went into CONFIG(), the file forgetFolder (every undo: a failed start's, a
@@ -615,10 +612,21 @@ function forgetFolder(dir, displaced, madeEntry, also) {
   return r.ok ? r.value : { ok: false, because: r.because };
 }
 
+/* kosmos#8322: take back ONLY a second key (an 8.3 or subst spelling) that trustFolder wrote while the main key was
+   already true, from the also-record or a failed start's answer. The main key is never touched: it was the person's,
+   or an earlier write this caller did not make. Same lock, file, guards and answer shape as forgetFolder; anything
+   ownedAlso refuses (another account's config, a malformed entry) is "nothing of ours", ok and already. */
+function forgetAlso(also) {
+  const owned = ownedAlso(also);
+  if (!owned) return { ok: true, already: true };
+  const r = withWriteLock(CONFIG(), () => forgetFolderInner(owned.key, undefined, false, owned, true));
+  return r.ok ? r.value : { ok: false, because: r.because };
+}
+
 /* kosmos#4260: `also` is trustFolder's (or the record's) `{ key, displaced?, madeEntry }` for the second key it wrote,
    taken back in the same save and under the same guards. Anything not shaped like one is ignored, so a record from
    before this change (none) or a damaged one undoes the main key exactly as before. */
-function forgetFolderInner(dir, displaced, madeEntry, also) {
+function forgetFolderInner(dir, displaced, madeEntry, also, alsoOnly) {
   const target = CONFIG();
   if (!dir || !path.isAbsolute(dir)) return { ok: false, because: 'that is not an absolute folder path' };
 
@@ -650,9 +658,13 @@ function forgetFolderInner(dir, displaced, madeEntry, also) {
       && (data.projects === null || typeof data.projects !== 'object' || Array.isArray(data.projects))) {
     return { ok: false, because: 'their config file is not shaped the way we expect' };
   }
-  const undo = [[key, displaced, madeEntry]];
+  /* kosmos#8322: `alsoOnly` (forgetAlso) takes back the second key and NEVER the main one, which was the person's own
+     or an earlier write this caller did not make. A malformed second-key entry is left alone here too (not ours to
+     read): refusing would keep the record and turn every later removal's step red over a line nobody can fix. */
+  const undo = alsoOnly ? [] : [[key, displaced, madeEntry]];
   const owned = ownedAlso(also);   // kosmos#4260: the one rule (above trustFolderInner)
-  if (owned && owned.key !== key) undo.push([owned.key, owned.displaced, owned.madeEntry]);
+  if (owned && (alsoOnly || owned.key !== key)) undo.push([owned.key, owned.displaced, owned.madeEntry]);
+  if (alsoOnly && !undo.length) return { ok: true, already: true };
   let changed = false;
   for (const [i, [k, disp, made]] of undo.entries()) {
     const entry = data.projects && data.projects[k];
@@ -663,7 +675,7 @@ function forgetFolderInner(dir, displaced, madeEntry, also) {
     // kosmos#4260: for the MAIN key, as before. A malformed second-key entry is left alone (not ours to read), so it
     // cannot block taking back the main key, which is what this undo promised before the second key existed.
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      if (i > 0) continue;
+      if (i > 0 || alsoOnly) continue;
       return { ok: false, because: 'their config file is not shaped the way we expect' };
     }
     if (!(KEY in entry)) continue;
@@ -803,6 +815,78 @@ function dropRecordInner(name) {
   if (data === null || !(String(name) in data)) return;
   delete data[String(name)];
   try { writeRecordFile(data); } catch { /* the record stays; a later removal retries */ }
+}
+
+/**
+ * kosmos#8322: the record of a SECOND key (an 8.3 or subst spelling of the folder) Kosmos wrote while the MAIN key was
+ * already true: the person had trusted the folder, or an agent made before #4260 relaunched. trustFolder answers
+ * `already: true` then, so the main record (above) is rightly never written, and before this nothing recorded the
+ * line, so no removal took it back.
+ *
+ * 🔑 ITS OWN FILE, NOT A FIELD ON THE MAIN RECORD. An entry here names no main key to take back, and an engine from
+ * before this change reads trust-writes.json entries as "the main key is ours": a rollback to such a build followed
+ * by a removal would then delete the person's own main line. A separate file is one an older engine never opens.
+ *
+ * 🔑 KEYED BY THE AGENT'S NAME, written only by a caller that knows it (creation, the Windows launch and resume),
+ * never found by searching records for a key. The earlier attempts (#4260 review) that matched by key grew records
+ * owning another agent's line. Same failure directions as the main record: best-effort, unreadable answers null and
+ * the line stays (the inert direction), and only a removal whose take-back succeeded drops the entry.
+ */
+const ALSO_RECORD = () => path.join(require('./store').ROOT, 'trust-also-writes.json');
+function readAlsoRecord() {
+  try {
+    const data = JSON.parse(fs.readFileSync(ALSO_RECORD(), 'utf8'));
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+  } catch (err) {
+    return err && err.code === 'ENOENT' ? {} : null;
+  }
+}
+function writeAlsoRecordFile(data) {
+  fs.mkdirSync(path.dirname(ALSO_RECORD()), { recursive: true });
+  let mode = null;
+  if (process.platform !== 'win32') { try { mode = fs.statSync(ALSO_RECORD()).mode & 0o777; } catch { mode = null; } }
+  securewrite.writeSecret(ALSO_RECORD(), JSON.stringify(data, null, 2), mode, { atomicOnly: true, umaskDefault: true });
+}
+/* Records `trusted.also` for `name` only when trustFolder's answer says the main key was already true and a second
+   key was written into CONFIG() (ownedAlso). An answer with `already: false` carries the second key on the main record
+   instead (create.js), so it is never recorded twice. Returns true when an entry was written or one for that key was
+   already there. */
+function recordAlsoWrite(name, trusted) {
+  if (!name || !trusted || trusted.ok !== true || trusted.already !== true) return false;
+  const owned = ownedAlso(trusted.also);
+  if (!owned) return false;
+  try { fs.mkdirSync(path.dirname(ALSO_RECORD()), { recursive: true }); } catch { /* the inner reports a real write failure */ }
+  const r = withFileLock(ALSO_RECORD(), () => recordAlsoWriteInner(String(name), owned));
+  return r.ok ? r.value : false;
+}
+function recordAlsoWriteInner(name, owned) {
+  let data = readAlsoRecord();
+  if (data === null) {
+    try { fs.renameSync(ALSO_RECORD(), ALSO_RECORD() + '.corrupt-' + Date.now()); } catch { return false; }
+    data = {};
+  }
+  /* The FIRST write for a key is kept: it holds what was there before Kosmos ever wrote that line. A later launch
+     writes the key again only after something took it away, and its "displaced" is then that something's value, not
+     the person's original one. A different key (the parent's spelling changed: a new subst letter) replaces it. */
+  const prev = data[name];
+  if (prev && typeof prev === 'object' && prev.also && prev.also.key === owned.key) return true;
+  data[name] = { also: owned, at: new Date().toISOString() };
+  try { writeAlsoRecordFile(data); return true; } catch { return false; }
+}
+function recordedAlsoWrite(name) {
+  const data = readAlsoRecord();
+  if (data === null) return null;
+  const e = data[String(name)];
+  return e && typeof e === 'object' && ownedAlso(e.also) ? e : null;
+}
+function dropAlsoRecord(name) {
+  try { fs.mkdirSync(path.dirname(ALSO_RECORD()), { recursive: true }); } catch { /* nothing to drop */ }
+  withFileLock(ALSO_RECORD(), () => {
+    const data = readAlsoRecord();
+    if (data === null || !(String(name) in data)) return;
+    delete data[String(name)];
+    try { writeAlsoRecordFile(data); } catch { /* the record stays; a later removal retries */ }
+  });
 }
 
 /**
@@ -1226,4 +1310,4 @@ function declineExternalImports(dir, opts) {
   return r.ok ? r.value : { ok: false, because: r.because };
 }
 
-module.exports = { trustFolder, forgetFolder, folderTrusted, preacceptBypass, preacceptOnboarding, carryExternalImports, declineExternalImports, importsAnswerKey, IMPORTS_KEY, IMPORTS_SHOWN_KEY, KEY, BYPASS_KEY, SWITCH_KEY, ONBOARDING_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };
+module.exports = { trustFolder, forgetFolder, folderTrusted, preacceptBypass, preacceptOnboarding, carryExternalImports, declineExternalImports, importsAnswerKey, IMPORTS_KEY, IMPORTS_SHOWN_KEY, KEY, BYPASS_KEY, SWITCH_KEY, ONBOARDING_KEY, recordWrite, recordedWrite, dropRecord, forgetAlso, recordAlsoWrite, recordedAlsoWrite, dropAlsoRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };

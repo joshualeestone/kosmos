@@ -7678,6 +7678,13 @@ function createAgentInner(opts) {
         require('./trust').dropRecord(name);
       }
     } catch { /* the record is a courtesy to a future removal, never a gate */ }
+    /* kosmos#8322: the same new-incarnation rule for the also-record (a second key written while the main one was
+       already true): a previous agent's entry under this name goes, and this creation's goes in its place when it wrote
+       one. Its own try, so a failed main record never keeps a stale also-record alive. */
+    try {
+      require('./trust').dropAlsoRecord(name);
+      require('./trust').recordAlsoWrite(name, trusted);
+    } catch { /* a courtesy to a future removal, never a gate */ }
   }
 
   if (!started) {
@@ -7705,6 +7712,13 @@ function createAgentInner(opts) {
       // absent before, and it usually was not: nineteen of twenty-two entries
       // on this machine hold `false`.
       try { undone = require('./trust').forgetFolder(trusted.key, trusted.displaced, trusted.madeEntry, trusted.also).ok === true; }
+      catch { undone = false; }
+      if (!undone) steps.push({ label: 'took back the folder trust', ok: false });
+    } else if (trusted && trusted.ok === true && trusted.already === true && trusted.also) {
+      /* kosmos#8322: the main key was already true (the person's), so it stays; only the second key this creation
+         wrote goes. forgetAlso never touches the main key, and answers ok for a key it may not take back. */
+      let undone = false;
+      try { undone = require('./trust').forgetAlso(trusted.also).ok === true; }
       catch { undone = false; }
       if (!undone) steps.push({ label: 'took back the folder trust', ok: false });
     }

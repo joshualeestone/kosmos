@@ -448,6 +448,13 @@ function spawner() { return spawnFn || spawn; }
  * @param {{name:string, runner?:string, cwd:string, claudeBin?:string, configDir?:string,
  *          model?:string, platform?:string}} spec
  */
+/* kosmos#8322: a launch whose trust write added only the second key (an 8.3 or subst spelling; the main key was
+   already true) records that line under the agent's name, so its removal takes it back. Best-effort and never a gate:
+   the agent is trusted either way, and a missing record leaves the line, the inert direction it was before. */
+function recordShortTrust(s, trusted) {
+  try { if (s && s.name) trust.recordAlsoWrite(s.name, trusted); } catch { /* a courtesy to a future removal */ }
+}
+
 function launch(spec) {
   const s = spec || {};
   const plat = s.platform || process.platform;
@@ -473,6 +480,7 @@ function launch(spec) {
   if (!trusted.ok) {
     return { ok: false, because: 'we did not start it, because we could not vouch for its folder first: ' + trusted.because };
   }
+  recordShortTrust(s, trusted);   // kosmos#8322
   /* #3383: also pre-accept Claude Code's own first-run onboarding (the v2.1.278 theme
      picker), the same missing gate the Mac create path seeds -- a fresh Anthropic agent on
      Windows parks on it exactly as it does on macOS, after clearing the trust prompt above.
@@ -623,6 +631,7 @@ function launchStreaming(spec) {
   try { trusted = trust.trustFolder(s.cwd, { configDir: s.configDir || null, createIfAbsent: true, agentDefaultAccount: !s.configDir }); }
   catch (e) { trusted = { ok: false, because: 'we could not write the trust entry (' + ((e && e.code) || 'unknown') + ')' }; }
   if (!trusted.ok) return { ok: false, because: 'we did not start it, because we could not vouch for its folder first: ' + trusted.because };
+  recordShortTrust(s, trusted);   // kosmos#8322
   /* #3383: pre-accept first-run onboarding on resume too, best-effort, as in launch() -- the
      picker can reappear for an agent whose config was reset while it was down. */
   preacceptClaudeFirstRun(s);   // #3383 + #5039: best-effort, as in launch()
