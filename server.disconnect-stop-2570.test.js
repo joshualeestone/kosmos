@@ -149,15 +149,15 @@ function installRunner() {
 function readRemoved() {
   try { return JSON.parse(fs.readFileSync(REMOVED_JSON, 'utf8')); } catch { return []; }
 }
-/* The acts a stop of `name` is made of, as `calls` records them on this platform: switch the job off, end it, end the
-   agent's session, and look again. On a Mac launchctl and tmux; on Linux systemctl and tmux; kosmos#8456: on Windows the
-   Scheduled Task's /Change /DISABLE and /End, `taskkill /PID <pid> /T /F` on the agent's process, and the look at
-   whether that pid is still there (`pid` is the one agentOn gave it). */
 /* One line of `calls` (`<program> <args...>`, as the stand-ins log it) as the program and its arguments. */
 function act(line, program, want) {
   const [first, ...args] = String(line).split(' ');
   return first === program && jobfix.argsMatch(args, want);
 }
+/* The acts a stop of `name` is made of, as `calls` records them on this platform: switch the job off, end it, end the
+   agent's session, and look again. On a Mac launchctl and tmux; on Linux systemctl and tmux; kosmos#8456: on Windows the
+   Scheduled Task's /Change /DISABLE and /End, `taskkill /PID <pid> /T /F` on the agent's process, and the look at
+   whether that pid is still there (`pid` is the one agentOn gave it). */
 function stopActs(name, pid) {
   if (process.platform === 'win32') {
     const tn = require('./engine/win32job').taskName(name);

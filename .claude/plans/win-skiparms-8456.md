@@ -17,7 +17,7 @@ the Windows CI job runs them with no list change.
   win32stop.endSteps): `schtasks.exe` from the stand-in, `taskkill.exe` from the process table; null otherwise.
 - `win32Processes()`: a stand-in process table behind win32stop's three seams (setLive through the real
   win32live.byName join, setRunner for taskkill, setAlive for the look-again). `start(name)`, a stand-in `/Run` while
-  installed, `taskkill`, `survive(name)` (a kill that answers SUCCESS and does not take), `clearSurvivors()`, `pidOf`,
+  installed, `taskkill`, `survive(name)` (a kill that answers SUCCESS and does not take; returns its undo, and `reset()` clears them all), `pidOf`,
   `calls`, `stop()`. A per-turn agent (codex, gemini, grok, antigravity) is answered from the codex live list in
   win32codexlive's row shape, never from the `claude agents --json` stand-in (review round 1).
 

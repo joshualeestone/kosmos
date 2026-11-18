@@ -81,22 +81,22 @@ const plannedModel = (name) => {
 };
 /* A command that STARTS the job (launchd's bootstrap, systemd's start), and one that re-enables it. */
 const startsJob = (file, a) => Array.isArray(a) && (a[0] === 'bootstrap' || (/systemctl$/.test(String(file)) && a[1] === 'start'));
-/* kosmos#8456: what a Windows removal leaves of the agent's startup task, read at the stand-in Task Scheduler
-   (test-support/jobfixture): switched off, so it does not start at the next login, and ended, so its supervisor is not
-   still going. The Mac arms check launchctl disable and bootout in their runner's calls instead. */
+const enablesJob = (file, a) => Array.isArray(a) && (linuxHost() ? (/systemctl$/.test(String(file)) && a[1] === 'enable') : a[0] === 'enable');
 /* kosmos#8456: a stopped Windows agent's process is gone from the stand-in table AND its ownership row is
    forgotten (win32stop forgets the session it ended; a row left behind is the duplicate-name case win32live warns of). */
 function assertWin32AgentGone(procs, name) {
   assert.equal(procs.pidOf(name), null, "the agent's process is still running after its removal was reported done");
   assert.deepEqual(procs.rowsOf(name), [], "the stopped agent's ownership row was never forgotten");
 }
+/* kosmos#8456: what a Windows removal leaves of the agent's startup task, read at the stand-in Task Scheduler
+   (test-support/jobfixture): switched off, so it does not start at the next login, and ended, so its supervisor is not
+   still going. The Mac arms check launchctl disable and bootout in their runner's calls instead. */
 function assertWin32TaskStopped(name) {
   const t = jobfix.win32Task(name);
   assert.ok(t.exists, 'the startup task is gone, so nothing below says how it was stopped');
   assert.equal(t.enabled, false, 'the startup task was not switched off, so it starts again at the next login');
   assert.equal(t.running, false, 'the startup task was never ended, so its supervisor is still going');
 }
-const enablesJob = (file, a) => Array.isArray(a) && (linuxHost() ? (/systemctl$/.test(String(file)) && a[1] === 'enable') : a[0] === 'enable');
 const fs = require('node:fs');
 const nodePath = require('node:path');
 const { mkTemp } = require('./test-support/tmpdir.js');
@@ -4811,9 +4811,10 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
       'the control failed: nothing produces a step list, so hiding it from the question proves nothing');
     assert.equal(body.steps, undefined,
       'the route is back to reciting launchd steps at a person who does not want them');
+    const askedLower = (String(body.question) + ' ' + String(body.reassurance)).toLowerCase();
     for (const s of acted.steps) {
-      assert.doesNotMatch(String(body.question) + String(body.reassurance), new RegExp(s.label),
-        'the confirmation recites what the removal will do, which Josh cut for describing our implementation');
+      assert.ok(!askedLower.includes(String(s.label).toLowerCase()),
+        `the confirmation recites "${s.label}", what the removal will do, which Josh cut for describing our implementation`);
     }
 
     /**
@@ -4904,7 +4905,19 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
         method: 'DELETE', headers: { 'content-type': 'application/json' },
       });
       assert.equal(gone.status, 200, 'a legitimate removal was refused: ' + gone.body);
-      assert.equal(JSON.parse(gone.body).outcome, 'removed');
+      const goneBody = JSON.parse(gone.body);
+      assert.equal(goneBody.outcome, 'removed');
+      /* kosmos#8508: the dry run above is not the same removal on every platform, so its step list alone is not the
+         same control everywhere. This real removal must end 'removed' on every platform (asserted above), so its full
+         list is: the question asked before it must recite none of these steps. */
+      const realLabels = (goneBody.steps || []).map((s) => String(s.label));
+      for (const want of ['closed its window', 'took it off the board']) {
+        assert.ok(realLabels.includes(want), `the real removal has no "${want}" step, so the check below cannot see it recited: ${realLabels.join(' | ')}`);
+      }
+      for (const label of realLabels) {
+        assert.ok(!askedLower.includes(label.toLowerCase()),
+          `the confirmation recites "${label}", a step of the removal, which Josh cut for describing our implementation`);
+      }
       if (procs) assertWin32AgentGone(procs, 'route-removable');
       if (procs) assertWin32TaskStopped('route-removable');
 
