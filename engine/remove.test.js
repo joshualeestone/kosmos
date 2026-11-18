@@ -2553,6 +2553,92 @@ test('a dry-run removal leaves the line AND the record exactly as found (#169)',
   remove.setDryRun(false);
 });
 
+/* kosmos#8322: the second trust key a launch wrote while the main key was already true (an 8.3 or subst spelling on
+   Windows) is on its own record, and a removal takes back only it. The key here is any other absolute path: the
+   removal acts on what the record names, so these arms hold on every host, not only one that makes short names. */
+const alsoKey = (name) => nodePath.resolve(process.env.AGENT_WORKFORCE_WORKERS, '..', 'SHORT~1', name).split(nodePath.sep).join('/');
+function seedAlsoLine(name) {
+  const data = JSON.parse(fs.readFileSync(CLAUDE_CONFIG, 'utf8'));
+  data.projects[alsoKey(name)] = { [trust.KEY]: true };
+  fs.writeFileSync(CLAUDE_CONFIG, JSON.stringify(data));
+  trust.dropAlsoRecord(name);
+  assert.equal(trust.recordAlsoWrite(name, { ok: true, already: true, also: { key: alsoKey(name), madeEntry: true, forgettable: true } }), true,
+    'the fixture also-record did not take');
+}
+
+test('kosmos#8322 a removal takes back the recorded second key, and only then drops its record', () => {
+  seedClaudeConfig();
+  const name = madeAgent('trusted-also');
+  trust.dropRecord(name);   // the main key is the person's: no main record, so the main line must survive
+  seedAlsoLine(name);
+  boardShows(name, name);
+  world();
+  remove.setDryRun(false);
+  const r = mac.remove(name);
+  assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
+  assert.ok(r.steps.some((s) => s.label === 'took back the folder trust for its short path' && s.ok === true),
+    'the take-back is not in the steps: ' + r.steps.map((s) => s.label).join(' | '));
+  assert.ok(!r.steps.some((s) => s.label === 'took back the folder trust'), 'no main record, so no main take-back');
+  const projects = JSON.parse(fs.readFileSync(CLAUDE_CONFIG, 'utf8')).projects;
+  assert.equal(alsoKey(name) in projects, false, 'the short line we made outlived its removal');
+  assert.equal(readTrustValue(name), true, 'the main line, the person\'s, was taken');
+  assert.equal(trust.recordedAlsoWrite(name), null, 'the record outlived the line it described');
+});
+
+test('kosmos#8322 a second key recorded against ANOTHER config file (the launch task\'s) is taken back there, never in the board\'s', () => {
+  /* On Windows the record is written by the agent's own task, whose CONFIG() can be another file than the board's (a
+     board that inherited CLAUDE_CONFIG_DIR). The removal edits the file the record names. */
+  seedClaudeConfig();
+  const name = madeAgent('trusted-also-file');
+  trust.dropRecord(name);
+  const other = nodePath.join(nodePath.dirname(CLAUDE_CONFIG), 'task-own.claude.json');
+  fs.writeFileSync(other, JSON.stringify({ projects: { [alsoKey(name)]: { [trust.KEY]: true } } }));
+  const board = JSON.parse(fs.readFileSync(CLAUDE_CONFIG, 'utf8'));
+  board.projects[alsoKey(name)] = { [trust.KEY]: true };   // a same-spelled line in the board's file: not ours
+  fs.writeFileSync(CLAUDE_CONFIG, JSON.stringify(board));
+  const prev = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = other;   // the task's view, while it records
+  try {
+    trust.dropAlsoRecord(name);
+    assert.equal(trust.recordAlsoWrite(name, { ok: true, already: true, also: { key: alsoKey(name), madeEntry: true, forgettable: true } }), true);
+  } finally { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = prev; }
+  assert.equal(trust.recordedAlsoWrite(name).config, other);
+  boardShows(name, name);
+  world();
+  remove.setDryRun(false);
+  const r = mac.remove(name);
+  assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
+  assert.ok(r.steps.some((s) => s.label === 'took back the folder trust for its short path' && s.ok === true));
+  assert.equal(alsoKey(name) in JSON.parse(fs.readFileSync(other, 'utf8')).projects, false, 'the line in the recorded file outlived its removal');
+  assert.equal(JSON.parse(fs.readFileSync(CLAUDE_CONFIG, 'utf8')).projects[alsoKey(name)][trust.KEY], true,
+    'the same-spelled line in the board\'s own config was taken: that file was never written by this launch');
+  assert.equal(trust.recordedAlsoWrite(name), null);
+  fs.rmSync(other, { force: true });
+});
+
+test('kosmos#8322 a dry-run removal leaves the second key AND its record exactly as found; no record, no step', () => {
+  seedClaudeConfig();
+  const name = madeAgent('trusted-also-dry');
+  seedAlsoLine(name);
+  boardShows(name, name);
+  remove.setRunner(null);
+  remove.setDryRun(true);
+  const before = fs.readFileSync(CLAUDE_CONFIG, 'utf8');
+  const r = mac.remove(name);
+  assert.equal(r.dryRun, true, 'the fixture did not actually dry-run');
+  assert.equal(fs.readFileSync(CLAUDE_CONFIG, 'utf8'), before, 'a dry-run removal edited another tool\u2019s config for real');
+  assert.ok(trust.recordedAlsoWrite(name), 'a dry-run removal burned the also-record for real');
+  world();
+  remove.setDryRun(false);
+
+  trust.dropAlsoRecord(name);
+  const r2 = mac.remove(name);
+  assert.equal(r2.outcome, remove.OUTCOME.REMOVED, r2.because);
+  assert.ok(!r2.steps.some((s) => s.label === 'took back the folder trust for its short path'), 'a removal with no also-record showed the step');
+  assert.equal(JSON.parse(fs.readFileSync(CLAUDE_CONFIG, 'utf8')).projects[alsoKey(name)][trust.KEY], true,
+    'a line nothing recorded as ours was deleted');
+});
+
 test('a creation that did not record drops a stale record for its name (#169)', () => {
   /* The stale-record exposure: a record from a previous incarnation, plus
      a fresh creation whose trust write records nothing because the person

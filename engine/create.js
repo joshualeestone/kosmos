@@ -7485,6 +7485,12 @@ function createAgentInner(opts) {
       try { trusted = require('./trust').trustFolder(workerDir(name), { configDir: provider === 'openai' ? null : configDir, createIfAbsent: provider !== 'openai', agentDefaultAccount: provider !== 'openai' && !configDir }); }
       catch { /* another tool's file; an agent that asks once is not a failed creation */ }
     }
+    /* kosmos#8322: a NEW INCARNATION drops the also-record a previous agent of this name left (a removal that could
+       not take its line back keeps it), BEFORE this one is started, so the first launch's own record is never the one
+       dropped. Not in a dry run, which leaves every artifact as found. */
+    if (!DRY_RUN) {
+      try { require('./trust').dropAlsoRecord(name); } catch { /* a stale entry stays; the next removal is guarded */ }
+    }
     /* 🛑 #1919, THE SAME CREATE MOMENT. The supervisor launches with
        --dangerously-skip-permissions, and Claude Code shows a one-time Bypass-Permissions
        consent (default `No, exit`) the FIRST time that flag runs in a config dir -- which
@@ -7678,6 +7684,10 @@ function createAgentInner(opts) {
         require('./trust').dropRecord(name);
       }
     } catch { /* the record is a courtesy to a future removal, never a gate */ }
+    /* kosmos#8322: this creation's own second key, written while the main one was already true, on the also-record.
+       A previous incarnation's entry was dropped before the agent started (at the trust write), so a record the
+       first launch made is kept. Its own try, so a failed main record never stops this one. */
+    try { require('./trust').recordAlsoWrite(name, trusted); } catch { /* a courtesy to a future removal, never a gate */ }
   }
 
   if (!started) {
@@ -7705,6 +7715,13 @@ function createAgentInner(opts) {
       // absent before, and it usually was not: nineteen of twenty-two entries
       // on this machine hold `false`.
       try { undone = require('./trust').forgetFolder(trusted.key, trusted.displaced, trusted.madeEntry, trusted.also).ok === true; }
+      catch { undone = false; }
+      if (!undone) steps.push({ label: 'took back the folder trust', ok: false });
+    } else if (trusted && trusted.ok === true && trusted.already === true && trusted.also) {
+      /* kosmos#8322: the main key was already true (the person's), so it stays; only the second key this creation
+         wrote goes. forgetAlso never touches the main key, and answers ok for a key it may not take back. */
+      let undone = false;
+      try { undone = require('./trust').forgetAlso(trusted.also).ok === true; }
       catch { undone = false; }
       if (!undone) steps.push({ label: 'took back the folder trust', ok: false });
     }
