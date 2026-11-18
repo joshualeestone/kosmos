@@ -6,8 +6,8 @@ card. This branch is part 1 (asks 1, 4, 5). Part 2 (asks 2, 3: reclaim from the 
 ## Finished means (part 1)
 An agent whose window Kosmos cannot tie to it (card isNamedOurs false: no Kosmos launch mark) carries a visible "Not
 linked to Kosmos" label on its tile and list row; its pill's hover and screen-reader text, and its own page, say why Kosmos will not message it
-and what makes that possible; a message the person sends to it is refused 409 with that reason (board and iPhone show
-the error text), not 404 "no agent by that name".
+and what makes that possible; a message the person sends to it is refused 409 with that reason (the iPhone and API callers
+show the error text; the board's composer is already closed for such a name), not 404 "no agent by that name".
 
 ## Cause (from code, see the card)
 Kosmos ties a window to an agent by a tmux session option set at launch (@kosmos_agent == session name,
@@ -33,6 +33,9 @@ screen-read state with no reason, the direct-chat route 404s via knownAgent.
   linked to Kosmos", not "Not started by Kosmos", for the same reason.
 - Known, not changed: between the supervisor's new-session and its set-option @kosmos_agent (milliseconds), a poll could
   read a Kosmos agent as untied; the card was anonymous in that gap before this change too.
+
+- Review 4-5: the untied reason leads; only an agent-side reason (auth_failed, rate_limited) follows it. Reasons that
+  promise a Kosmos action (reconnect retry, restart, waiting delivery) are left out for this window.
 
 ## Decided / rejected
 - The tile carries a short label, not the sentence: Josh ruled sentences off tiles (#6716). The sentence is the pill's

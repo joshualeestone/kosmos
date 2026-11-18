@@ -79,7 +79,7 @@ const row = (i) => (i % 2 ? { from: 'April', at: at(i), text: 'msg-' + i + '!' +
           const start = Math.max(0, before - 2);
           return enc({ messages: all.slice(start, before), olderCount: start });
         }
-        if (who && window.__failThread === who) return enc({ error: 'no agent by that name', because: 'borrowed' }, 404);
+        if (who && window.__failThread === who) return enc({ error: "Kosmos cannot confirm it started the window running as this agent, so it does not show or change this agent's conversation here.", because: 'borrowed' }, 404);
         if (who && window.__nullThread === who) {
           return enc({ messages: null, olderCount: 0, historyBecause: 'we cannot read what you have sent this agent', historyUnfilable: false,
             presence: 'on', presenceBecause: null, asking: false, question: null, questionBecause: null, options: null });

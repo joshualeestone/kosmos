@@ -17,8 +17,10 @@ test('#8719: an agent Kosmos did not start says why it cannot be messaged; CONTR
   assert.equal(reasonOf(untied), 'Kosmos cannot confirm it started this window, so it will not type messages into it until Kosmos starts it.');
   assert.equal(reasonOf({ state: 'idle', isNamedOurs: true }), '', 'CONTROL: a tied idle agent has no reason sentence');
   assert.equal(reasonOf({ state: 'idle' }), '', 'CONTROL: a card without the field (paneless, older) is not called untied');
-  assert.match(reasonOf({ state: 'working', isNamedOurs: false, waiting: { kind: 'x' } }), /^Kosmos cannot confirm it started this window/,
-    'it outranks the working-while-waiting line: every message to it is refused');
+  const waiting = { state: 'working', waiting: { n: 3 } };
+  assert.equal(reasonOf(waiting), '3 messages waiting', 'premise: a tied working agent with messages waiting says so');
+  assert.equal(reasonOf({ ...waiting, isNamedOurs: false }), 'Kosmos cannot confirm it started this window, so it will not type messages into it until Kosmos starts it.',
+    'the waiting line is left out: Kosmos will not deliver those messages to this window');
   assert.equal(reasonOf(untied, { card: true }), '', 'the tile carries no sentence (#6716); the label says it there');
   for (const state of ['needs_you', 'auth_failed', 'rate_limited']) {
     assert.match(reasonOf({ state, isNamedOurs: false }), /^Kosmos cannot confirm it started this window/, `it leads the ${state} reason on purpose (Kosmos will not type into it)`);
@@ -28,6 +30,9 @@ test('#8719: an agent Kosmos did not start says why it cannot be messaged; CONTR
   const ownWords = reasonOf(stuck);
   assert.ok(ownWords.length > 0, 'premise: a stuck sign-in has its own reason');
   assert.equal(reasonOf({ ...stuck, isNamedOurs: false }), 'Kosmos cannot confirm it started this window, so it will not type messages into it until Kosmos starts it. ' + ownWords);
+  // A reason that promises Kosmos will act (a lost connection it retries) is left out for this window.
+  assert.equal(reasonOf({ state: 'connection_lost', isNamedOurs: false, reconnect: { phase: 'waiting' } }),
+    'Kosmos cannot confirm it started this window, so it will not type messages into it until Kosmos starts it.');
 });
 
 test('#8719: the tile and list row say "Not linked to Kosmos"; CONTROL: a tied agent shows no label', () => {

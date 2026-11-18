@@ -617,7 +617,7 @@ async function main() {
     check(!!rookTalk.text && rookTalk.text.includes('We cannot show a conversation for this name.'),
       'the borrowed-name panel says it cannot show a conversation for this name',
       JSON.stringify(rookTalk.text));
-    check(!/no agent by that name/i.test(rookTalk.text || ''),
+    check(!/no agent by that name|does not show or change/i.test(rookTalk.text || ''),
       'and it does not paint the route\u2019s own "no agent by that name" beside a card carrying it',
       JSON.stringify(rookTalk.text));
     check(rookTalk.sayDisabled === true && rookTalk.sendDisabled === true,
@@ -633,7 +633,7 @@ async function main() {
       const el = document.getElementById('d-files-msg');
       return sec ? { hidden: sec.hidden, h: Math.round(sec.getBoundingClientRect().height), text: el ? el.innerText : null } : null;
     });
-    check(!!rookFiles && rookFiles.hidden && rookFiles.h === 0 && !/no agent by that name/i.test(rookFiles.text || ''),
+    check(!!rookFiles && rookFiles.hidden && rookFiles.h === 0 && !/no agent by that name|does not show or change/i.test(rookFiles.text || ''),
       'the borrowed name has no Files section (its /files 404 is no files), and no "no agent by that name"',
       JSON.stringify(rookFiles));
     await page.$eval('#detail-back', (b) => b.click());
