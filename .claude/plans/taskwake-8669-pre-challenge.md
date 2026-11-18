@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: taskwake-8669
-diff_hash: 906098bae125c80a9551e0f3c840b7bda5b624e16317bf4a1e815eb8fc7223c2
+diff_hash: 8e572b8c0db0e0fc7b478f8da61bdaa197352a07c1ddfc601102d6166f16aaf4
 validation: targeted lists only (175 files, 2310 tests, 0 fail, on the branch merged onto origin/main); full suite not run locally under the Mortals hold, CI runs it
 subdir_audit: not run (no subdir CLAUDE.md changed)
-timestamp: 2026-11-18T00:37:46Z
+timestamp: 2026-11-18T01:06:29Z
 iterations: 8
 converged: false
 ---
@@ -116,6 +116,10 @@ Validation note: the canonical validation helper runs the full suite, which Liu 
 - [NIT] engine/taskwake.js:178 — SSO words read as not signed in --> DEFERRED: display only
 - [NIT] engine/taskwake.js:411 — local looks one at a time --> DEFERRED: bounded by HASH_PER_TICK and the 8 MB cap
 - [NIT] engine/taskwake.js:482 — tell words not passed through plain --> FIXED
+
+### Post-loop change (CI)
+
+CI's node suite went red on two source-scan guards that the local targeted list did not include: engine/windows-tests-1777 (cli.task-wake-8669.test.js skips on win32 and was neither run on Windows nor excluded) and web.open-sentence-1199 (a ninth inline capitalizer in tskWakeSentence). Fixed in 8775b30de1: tskWakeSentence uses the page's asSentence (same words, now pinned by the lifted test), and the CLI test is in HOST_BRANCH_EXCLUDED with its skip reason. Both guards, the page tests that lift the row, and the browser check (48 of 48) pass. The page change goes to Raiden as a product-code delta before merge.
 
 ### Final Ledger
 
