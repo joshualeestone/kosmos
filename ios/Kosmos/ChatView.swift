@@ -380,7 +380,8 @@ struct ChatView: View {
                     .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
                 // kosmos#8706: a second tap while the save is out is blocked here, not with .disabled, which dims the
-                // toolbar star during exactly the burst that tap plays. toggleStar ignores a second press as well.
+                // toolbar star during exactly the burst that tap plays. A VoiceOver activation skips hit testing, so for
+                // it toggleStar's own guard (one save at a time per agent) is what ignores a second press.
                 .allowsHitTesting(!client.starring.contains(agent.session))
                 // What .disabled told VoiceOver ("dimmed") while the save is out, said in words instead.
                 .accessibilityValue(client.starring.contains(agent.session) ? "Saving" : "")

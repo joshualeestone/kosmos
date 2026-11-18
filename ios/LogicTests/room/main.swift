@@ -439,8 +439,9 @@ check(agentsSrc.contains("static let starFill = pair(0xe3b341, 0xe3b341)") && ag
       && agentsSrc.components(separatedBy: "Image(systemName: \"star\").foregroundColor(Palette.starGold)").count == 2
       && agentsSrc.contains("if starred { StarredStar(burst: starBurst).font(.caption2)"),
       "kosmos#8706: the starred star is the bright gold with no outline (the deep gold edge only under Increase Contrast), in the header and beside a name")
-check(agentsSrc.contains("guard let id, id != played, !reduceMotion else { return }") && agentsSrc.contains("starBurst: client.burst(for: agent.session)"),
-      "kosmos#8706: the row's star plays the burst for the press that starred it, never under Reduce Motion")
+check(agentsSrc.contains("guard let b, b.id != played, !reduceMotion, b.fresh() else { return }") && agentsSrc.contains("starBurst: client.burst(for: agent.session)")
+      && agentsSrc.contains("toggleStar(agent.session, burstDelay: swiped ? 0 : 0.35)"),
+      "kosmos#8706: the row's star is wired to the press that starred it, gated on Reduce Motion and freshness in the view, and a long-press star waits for the menu (source check)")
 check(!agentsSrc.contains("Section(footer:") && !agentsSrc.contains("set up on your computer"), "kosmos#7528: the Agents list has no footer line (Josh 10-28)")
 // Wiring guards (source checks, not behaviour): the order reaches the list with the person's stars, re-sorted only where
 // the list re-sorts, so starred agents stay on top and rows never move under a thumb (review 1 blocker).

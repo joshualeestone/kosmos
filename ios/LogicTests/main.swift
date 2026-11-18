@@ -2315,10 +2315,10 @@ section("starring from the phone (kosmos#7034)")
         check(c.isStarred("wes") && c.agents.map(\.session) == ["wes", "dana"] && c.starNote == nil, "a star pressed on the phone saves, and the agent moves to the top at once")
         // kosmos#8706: the press that starred plays a burst on that agent's star only, and only while fresh.
         let pressed = c.starBurst?.at ?? .distantPast
-        check(c.starBurst?.session == "wes" && c.burst(for: "wes", now: pressed) != nil && c.burst(for: "dana", now: pressed) == nil,
-              "a press that stars an agent marks its star for the burst, and no other agent's")
-        check(c.burst(for: "wes", now: pressed.addingTimeInterval(BoardClient.starBurstWindow + 0.05)) == nil,
-              "a star view built again after the window does not replay the burst")
+        check(c.burst(for: "wes")?.fresh(now: pressed) == true && c.burst(for: "wes")?.delay == 0 && c.burst(for: "dana") == nil,
+              "a press that stars an agent marks its star for the burst, at once, and no other agent's")
+        check(c.burst(for: "wes")?.fresh(now: pressed.addingTimeInterval(BoardClient.starBurstWindow + 0.05)) == false,
+              "a star view built again after the window does not replay the burst (asked when the view would play)")
         check(w.starWriteBodies.last?.contains("\"on\":true") == true && w.starWriteBodies.last?.contains("\"name\":\"wes\"") == true, "it sends the agent and on")
         w.starWriteAnswer = (500, #"{"error":"we could not save that star"}"#)
         await c.toggleStar("wes")
@@ -2330,8 +2330,10 @@ section("starring from the phone (kosmos#7034)")
         check(!c.isStarred("wes") && c.agents.map(\.session) == ["dana", "wes"] && c.starNote == nil, "an unstar that saves takes the agent back to its place, and the note goes")
         check(c.starBurst == nil, "kosmos#8706: an unstar plays no burst, and clears the one its star had")
         w.starWriteAnswer = (200, #"{"names":["dana","wes"],"ok":true}"#)
-        await c.toggleStar("dana")
+        await c.toggleStar("dana", burstDelay: 0.35)
         check(c.isStarred("wes") && c.isStarred("dana"), "the board's answer decides: a star set elsewhere meanwhile shows too")
+        check(c.burst(for: "dana")?.delay == 0.35 && c.burst(for: "wes") == nil,
+              "kosmos#8706: a star from the long-press menu carries its wait, and wes, starred by the board's answer, has no burst")
         // Review 1: a pull whose stars read began before a press never undoes the press.
         w.starsAnswer = (200, #"{"names":["dana","wes"],"ok":true}"#)   // the stars as they were when the pull began
         w.starsYields = [400]

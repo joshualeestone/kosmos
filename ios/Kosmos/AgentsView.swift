@@ -313,7 +313,8 @@ struct AgentsView: View {
     // press menu's same button stays silent (Josh's pick 5 is the swipe).
     private func starButton(_ agent: Board.Agent, swiped: Bool) -> some View {
         let on = client.isStarred(agent.session)
-        return Button { if swiped { Haptics.snapped() }; Task { await client.toggleStar(agent.session) } } label: {
+        // kosmos#8706: from the long-press menu the row is behind the menu's closing animation, so its burst waits for it.
+        return Button { if swiped { Haptics.snapped() }; Task { await client.toggleStar(agent.session, burstDelay: swiped ? 0 : 0.35) } } label: {
             Label(on ? "Unstar" : "Star", systemImage: on ? "star.slash" : "star.fill")
         }
         .tint(Palette.starGold)
@@ -638,7 +639,7 @@ struct AgentRow: View {
     // kosmos#7034: starred on this computer (the board's star), shown as a small filled star after the name.
     var starred = false
     // kosmos#8706: the press that just starred this agent, so its star plays the burst as the row shows it.
-    var starBurst: Int? = nil
+    var starBurst: BoardClient.StarBurst? = nil
     @Environment(\.dynamicTypeSize) private var typeSize
 
     // kosmos#7342: the pill's word (Issue on a red pill that would say Idle or Working); a list not updating keeps the plain
@@ -1042,10 +1043,10 @@ struct StatusPill: View {
 // The font comes from where it is used, so the fill and any outline are one symbol size.
 // kosmos#8706 (Josh 11-18, matching the board's #8705): the brightest gold with no outline. The darker edge comes back
 // only under Increase Contrast, as the board's does under prefers-contrast: more. `burst` is the press that just starred
-// this agent (BoardClient.burst(for:)): the star pops and six gold sparks fly out once, at the board's spark positions
+// this agent (BoardClient.burst(for:)), played only if fresh when this view would start it: the star pops and six gold sparks fly out once, at the board's spark positions
 // and close to its timings, and never under Reduce Motion (the star just fills).
 struct StarredStar: View {
-    var burst: Int? = nil
+    var burst: BoardClient.StarBurst? = nil
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var played: Int?
@@ -1070,17 +1071,22 @@ struct StarredStar: View {
 
     // Close to the board's: its pop is one .42 s overshooting curve peaking at 40% (1.3x), here a .17 s rise and a spring
     // back (iOS 16 has no keyframes); the sparks fly for .55 s, easing out, as there.
-    private func play(_ id: Int?) {
-        guard let id, id != played, !reduceMotion else { return }
+    private func play(_ b: BoardClient.StarBurst?) {
+        guard let b, b.id != played, !reduceMotion, b.fresh() else { return }
+        let id = b.id
         played = id
-        sparking = true
-        withAnimation(.easeOut(duration: 0.17)) { popped = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.6)) { popped = false }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + b.delay) {
             guard played == id else { return }
-            sparking = false
+            sparking = true
+            withAnimation(.easeOut(duration: 0.17)) { popped = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
+                guard played == id else { return }
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.6)) { popped = false }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                guard played == id else { return }
+                sparking = false
+            }
         }
     }
 }
