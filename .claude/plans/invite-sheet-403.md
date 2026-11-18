@@ -15,5 +15,8 @@ sentence, which is not for a person. Noted on the card.
 
 Decided: match on the code prefix, not the status, because `code` is the invite secret on success and every
 caller reaches pjFedMessage only on a failure; the prefix keeps a real code from ever reading as a refusal.
-Weakest premise: that no coordinator invite secret can start with "remote_". Codes are base32-like with dashes,
-so they cannot, but nothing enforces that here.
+Weakest premise: that every remote-session refusal the board sends carries a remote_* code. server.js does today
+(REMOTE_STEP_UP*, REMOTE_NOT_ALLOWED); a new refusal without one would still show the catch-all. An invite secret
+matching the prefix could not leak: fedRemoteSays returns `error`, never `code`, and callers ask it only on failure.
+
+Round 1 (review): the sheet is now tested by running fedInviteMake on a 403, not by a text pin.

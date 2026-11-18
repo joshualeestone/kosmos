@@ -86954,20 +86954,18 @@ function pjResetFederation() {
   const jm = document.getElementById('pj-join-msg'); if (jm) jm.textContent = '';
 }
 
-// A federation error response carries a distinct reason (already-used / expired / revoked /
-// not-found / self-join / double-join); name what the person can DO, never leak internals.
 /* A refusal the board gives a remote session (kosmos#6595: remote_step_up*, remote_not_allowed): its sentence says what to
-   do (sign in again, or do it at the computer), so it is shown as given, else ''. Asked only of a refusal: `code` is
-   the invite secret on a mint success, so only a code with this prefix counts. */
+   do (sign in again, or do it at the computer), so it is shown as given, else ''. Only `error` is ever returned. */
 function fedRemoteSays(body) {
   return body && /^remote_(step_up|not_allowed)/.test(String(body.code || '')) && typeof body.error === 'string' && body.error
     ? body.error : '';
 }
+// A federation error response carries a distinct reason (already-used / expired / revoked /
+// not-found / self-join / double-join); name what the person can DO, never leak internals.
 function pjFedMessage(body, fallback, opts) {
-  // A remote-session refusal says its own way forward (the Make an invite code sheet hid it behind the fallback).
   { const remote = fedRemoteSays(body); if (remote) return remote; }
-  // reason || error only -- NOT body.code: `code` is the invite SECRET field on a mint success,
-  // and overloading it as an error key here is a needless ambiguity. Unknown reasons fall through
+  // The map below keys on reason || error, never on body.code: `code` is the invite SECRET field on a mint
+  // success (fedRemoteSays reads it only for its prefix and returns `error`). Unknown reasons fall through
   // to the caller's safe fallback.
   const reason = body && (body.reason || body.error);
   // kosmos#4699: "could not check" has several causes with different ways forward (not allowed yet, a

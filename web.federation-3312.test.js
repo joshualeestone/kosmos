@@ -413,13 +413,35 @@ test('kosmos#6595: a remote-session refusal is shown as the board says it, on bo
   const s = build();
   const stepUp = { code: 'remote_step_up', error: 'From a remote session this needs a fresh sign-in.' };
   assert.equal(s.pjFedMessage(stepUp, 'FALLBACK'), stepUp.error, 'the create screen door shows the step-up sentence');
-  assert.equal(s.pjFedMessage({ code: 'remote_step_up_signin', error: 'Sign in again.' }, 'FALLBACK'), 'Sign in again.');
+  assert.equal(s.pjFedMessage({ code: 'remote_step_up_clock', error: 'Set the clock.' }, 'FALLBACK'), 'Set the clock.');
   assert.equal(s.pjFedMessage({ code: 'remote_not_allowed', error: 'Do it at the computer.' }, 'FALLBACK'), 'Do it at the computer.');
   // Controls: a code that is not a remote refusal (an invite secret) and a step-up with no sentence keep the fallback.
   assert.equal(s.pjFedMessage({ code: 'AB12-CD34', error: 'x' }, 'FALLBACK'), 'FALLBACK', 'an invite secret in code is never read as a refusal');
   assert.equal(s.pjFedMessage({ code: 'remote_step_up' }, 'FALLBACK'), 'FALLBACK');
-  // The sheet's own 403 branch (fedInviteMake) asks the same helper before falling back.
-  const start = SCRIPT.indexOf('async function fedInviteMake');
-  const body = SCRIPT.slice(start, SCRIPT.indexOf('\n}', start));
-  assert.match(body, /res\.status === 403 \? \(fedRemoteSays\(body\) \|\| fallback\)/, 'the invite sheet shows a remote refusal on a 403');
+});
+
+// The project page's Make an invite code sheet (fedInviteMake), run on a 403 answer from the board.
+async function sheetSays(status, answer) {
+  const src = [lift('fedRemoteSays'), lift('pjFedMessage'), lift('fedInviteMake')].join('\n');
+  // eslint-disable-next-line no-new-func
+  const factory = new Function('document', 'fetch', 'fedShow', 'pjFieldBad', 'pjFieldOk', 'fedMembersLoad',
+    'var FEDINV_PROJECT = "p1"; var PJ_CURRENT = "p1"; var FEDINV_SEQ = 0; var FEDINV_INFLIGHT = false;'
+    + ' var FEDINV_MAKE_LIMIT_MS = 60000; var FEDINV_TIMED_OUT = "timed out"; var FED_UNREACHABLE = "unreachable";\n'
+    + src + '\nreturn fedInviteMake;');
+  const doc = makeDoc();
+  doc.getElementById('fedinv-label').value = 'Dana';
+  const calls = [];
+  const make = factory(doc, (url, init) => { calls.push(url); return Promise.resolve({ ok: false, status, json: () => Promise.resolve(answer) }); },
+    () => true, () => {}, () => {}, () => {});
+  await make();
+  assert.deepEqual(calls, ['/api/federation/invite'], 'the sheet asked the board once');
+  return doc.getElementById('fedinv-msg').textContent;
+}
+test('kosmos#6595: the Make an invite code sheet shows a remote-session refusal, and keeps its fallback for any other 403', async () => {
+  const fallback = 'Kosmos could not make a code just now. Try again in a moment.';
+  assert.equal(await sheetSays(403, { code: 'remote_step_up', error: 'From a remote session this needs a fresh sign-in.' }),
+    'From a remote session this needs a fresh sign-in.');
+  assert.equal(await sheetSays(403, { code: 'remote_not_allowed', error: 'Do it at the computer.' }), 'Do it at the computer.');
+  // Control: the not-from-this-screen 403 carries no remote code, so its sentence stays hidden behind the fallback.
+  assert.equal(await sheetSays(403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }), fallback);
 });
