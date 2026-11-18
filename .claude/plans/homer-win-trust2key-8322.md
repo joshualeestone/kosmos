@@ -23,3 +23,11 @@ Deferred to the card:
 - W-a: forgetAlso now edits the file the record names (the launch task's CONFIG()), under that file's lock, never the board's CONFIG(); a mismatch used to report ok and drop the record over a line still there.
 - N-a: a record entry with no absolute `config` reads as null (the line stays).
 - N-b: remove.test.js arm with the record against another file; mutation-checked (taking back in the board's CONFIG() fails it).
+
+## Review round 3 (blind, 0 BLOCKER, 2 WARNING, 3 NIT): converged, rest to the card
+All five leave at most an inert leftover line or record, or harden against a record only the user's own account can write:
+- W1: first-write-kept compares the key, not the file; with creation (board) and launch (task) on different configs, one file's line can be left. Fix later: one entry per (name, config).
+- W2: a failed start takes back the in-memory short key but does not drop an also-record the first launch already wrote (harmless: the take-back finds nothing; dropped on name reuse).
+- N1: a recorded config path is any absolute path; harden by requiring a .claude.json name and refusing UNC.
+- N2: a corrupt also-record is moved aside silently (same as the main record).
+- N3: the dry-run removal arm could also assert the step is reported.
