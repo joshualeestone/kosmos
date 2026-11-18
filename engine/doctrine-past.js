@@ -5,9 +5,9 @@
    first line, and the sha256 of exactly those characters. doctrine.planFor uses it to tell an unedited copy from one
    a person changed. `sections` holds the sha256 of every section of every one of them, for a span holding some. */
 const blocks = [
-  { version: 52, length: 34260, sha256: '49d9f7ef2f8054573b86af7f66ee13801c66bb427e6b3496588c3ece10e510aa' },
-  { version: 52, length: 33260, sha256: '92880574fde44953eb896c64d14f69a3e211ff9064274942a586a382d1b61226' },
-  { version: 52, length: 32773, sha256: 'ed028b58b81823e636e23bd20357d4a12b4139c7fab948355a86ad11a24a4101' },
+  { version: 52, length: 34260, sha256: '0a5890bcd8fcbf2ff65cb0f657b3dbb9e20ee431861009e05464d8f4fc6e80b9' },
+  { version: 52, length: 33260, sha256: 'd88d4bb3657fa4f4f796f9075fe0748f8e99eb61ac76e2873bdf823355bb557d' },
+  { version: 52, length: 32773, sha256: '0b42fe59e587b1f7c05454f7455f24c3f32b5c7cfa62099dd72f4308e6218042' },
   { version: 51, length: 33866, sha256: 'd3227e5a84e90c1b8c37c6361362c23d9c285aadb035d579866e659b6e2fecd4' },
   { version: 51, length: 32866, sha256: '329c5140dc069164af5e53837d67839cb2baf2ed4d36053021301cba03b37af2' },
   { version: 51, length: 32379, sha256: '59cbbca192babc459379ce63df53010ee81f9178049171176c58671373f4d6b5' },
@@ -119,6 +119,7 @@ blocks.sections = [
   '2cc9929fe2eadcee78a1f40d634bcd0cf66c1f415d5d80e67cd203f7f08ecadb',
   '2fafb745956d54a44a8c94a4e7b8958689dccbdebb5e5e8bbfbd08632e3549f2',
   '300fa1d1be6530139a09ebd46f7f4d9427c7d84830471b766bb9fc1d0be60ef1',
+  '304309f915839e687e0d123a1ce8ec0dc3ef473bbf53d387af9094069acaad49',
   '32cfdfe445ba958f937c1fedd18c0b14621b1043c0f6e7eefe7296fe600e5c83',
   '38bdb036f20b939637ed41e4f3a96e3c8dbd0783f05fd241cfb39c19db38464f',
   '44effa1e361a9cbfe70ac16d2cf4921840513dc0627dfdf4f396f7e2540e5a17',
@@ -178,7 +179,6 @@ blocks.sections = [
   'd80f0fb3e012e5f6337fcee336d03db1a927abe40a5bdaf147f8e56bb3e629ca',
   'dd5a2db581810c02f98f8dcc6e54f76eb75f934e9895808e4a3eecf5b6b21220',
   'e2ee3e07cc1f000975515d0b0048ef0b40407736a288b427f15de7a7faece4f0',
-  'e466755e2336cdaa9a71fc4c11cb9cadba38c04619b37da69213583faa031a75',
   'ec18433f76a55e066677735b6758a6cf1e4fcfe40727ef2e1656250d207a491f',
   'ec3452b6a1b9e979734f6f1aaba451859d7c9b7872d8ddd1b727e04bf80dda31',
   'ef92f1a1649a3a3e6378440ea5e72302ca21cea33fe79adb07d677e744cf6a3a',
