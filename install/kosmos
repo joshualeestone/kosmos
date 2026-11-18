@@ -6129,11 +6129,13 @@ cmd_feedback() {
       # kosmos#8698: --mine lists only the days holding the asking agent's own report.
       KOSMOS_FEEDBACK_MINE=""
       if [ $# -eq 1 ] && [ "$1" = "--mine" ]; then KOSMOS_FEEDBACK_MINE=1
-      elif [ $# -ne 0 ]; then say "Usage: kosmos feedback list [--mine]"; exit 2; fi
+      elif [ $# -ne 0 ]; then say "Usage: kosmos feedback list [--mine]" >&2; exit 2; fi
       KOSMOS_FEEDBACK_MINE="$KOSMOS_FEEDBACK_MINE" "$NODE" -e '
         const fb = require(process.argv[1] + "/engine/feedback");
         if (process.env.KOSMOS_FEEDBACK_MINE === "1") {
-          for (const l of fb.mineLines(fb.writer(process.env))) process.stdout.write(l + "\n");
+          let lines;
+          try { lines = fb.mineLines(fb.writer(process.env)); } catch { console.error(fb.unreadableWords()); process.exit(1); }
+          for (const l of lines) process.stdout.write(l + "\n");
           process.exit(0);
         }
         const days = fb.list();

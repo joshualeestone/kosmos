@@ -288,5 +288,12 @@ test('kosmos#8698: feedback list --mine prints only the asking agent\'s own days
   assert.notEqual(lines[0], '2001-01-02');
   const bad = await run(['feedback', 'list', '--all'], h);
   assert.equal(bad.code, 2);
-  assert.match(bad.both, /Usage: kosmos feedback list \[--mine\]/);
+  assert.match(bad.err, /Usage: kosmos feedback list \[--mine\]/, 'the usage line goes to stderr, as the Windows CLI sends it');
+  assert.equal(bad.out, '');
+  /* An unreadable report: a directory named like a day makes read() throw. --mine says so in a sentence, exit 1. */
+  fs.mkdirSync(path.join(h.data, fs.readdirSync(h.data)[0], 'feedback', '2001-01-03.md'));
+  const broken = await run(['feedback', 'list', '--mine'], h);
+  assert.equal(broken.code, 1, broken.both);
+  assert.equal(broken.err.trim(), 'Kosmos could not read the product-feedback reports on this computer, so it cannot tell which days are yours.');
+  assert.doesNotMatch(broken.both, /at .*\.js:\d+/, 'no stack trace');
 });

@@ -3311,7 +3311,12 @@ async function feedbackList(ctx, args) {
   // kosmos#8698, as install/kosmos: --mine lists only the days holding the asking agent's own report.
   const a = args || [];
   if (a.length > 1 || (a.length === 1 && a[0] !== '--mine')) { ctx.err('Usage: kosmos feedback list [--mine]'); return 2; }
-  if (a.length === 1) { for (const l of fb.mineLines(fb.writer(ctx.env))) ctx.out(l); return 0; }
+  if (a.length === 1) {
+    let lines;
+    try { lines = fb.mineLines(fb.writer(ctx.env)); } catch { ctx.err(fb.unreadableWords()); return 1; }
+    for (const l of lines) ctx.out(l);
+    return 0;
+  }
   const days = fb.list();
   // kosmos#8462, as install/kosmos: every answer on stdout (PowerShell shows stderr as a red error record): the dates,
   // then a blank line and the kosmos#8340 note on whose reports these are; no day at all is said in a sentence.

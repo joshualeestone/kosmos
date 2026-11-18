@@ -238,7 +238,7 @@ test('kosmos#8698: feedback list --mine prints only the asking agent\'s own days
   assert.equal(none.status, 0, none.stderr);
   assert.equal(String(none.stderr), '');
   assert.equal(String(none.stdout).trim(), require('./engine/feedback').noneOfYoursWords());
-  assert.equal(cli(['feedback', 'write', 'my note']).status !== null, true);
+  assert.equal(cli(['feedback', 'write', 'my note']).status, 0, 'the write saved (its send to the dead loopback fails, which is not a failed save)');
   assert.match(String(cli(['feedback', 'list']).stdout), /^2001-01-02\r?$/m, 'CONTROL: the plain list shows the other agent\'s day');
   const mine = String(cli(['feedback', 'list', '--mine']).stdout).trim().split(/\r?\n/);
   assert.equal(mine.length, 1, JSON.stringify(mine));
@@ -247,6 +247,11 @@ test('kosmos#8698: feedback list --mine prints only the asking agent\'s own days
   const bad = cli(['feedback', 'list', '--all']);
   assert.equal(bad.status, 2);
   assert.match(String(bad.stderr), /Usage: kosmos feedback list \[--mine\]/);
+  assert.equal(String(bad.stdout), '');
+  fs.mkdirSync(path.join(root, fs.readdirSync(root)[0], 'feedback', '2001-01-03.md'));   // read() throws on a directory
+  const broken = cli(['feedback', 'list', '--mine']);
+  assert.equal(broken.status, 1, String(broken.stderr));
+  assert.equal(String(broken.stderr).trim(), require('./engine/feedback').unreadableWords());
 });
 
 test('#5294 feedback write SENDS the report now to the collector (a loopback stub) and says so', async () => {
