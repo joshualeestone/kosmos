@@ -280,18 +280,23 @@ function backupRequired(policy) {
   return !!(p && typeof p === 'object' && p.backup && typeof p.backup === 'object' && p.backup.required === true);
 }
 
-/** kosmos#7586: whether this computer misses the policy's backup requirement, from the coordinator's own record of its
- *  last backup (`seen`: { backupOn, backupAt } off the status answer, backupAt in unix seconds or null). 'never' (no
- *  backup on record), 'late' (older than `max_age_hours`), or null: met, not required, company backup off (`backupOn`
- *  not exactly true: nothing could be met), or nothing on record from the coordinator. With no age set, any backup
- *  meets it, as the console reads it. */
+/** kosmos#7586: whether this computer misses the policy's backup requirement, from the coordinator's record of its last
+ *  backup as the last full status answer gave it (`seen`: { backupOn, backupAt, backupSeenAt } off the enrollment record;
+ *  backupAt in unix seconds or null, backupSeenAt in epoch ms when that answer arrived). Judged AT backupSeenAt, not
+ *  now, so the line describes the console as of the board's last check rather than a later moment it has not seen.
+ *  'never', 'late', or null: met, not required, company backup off (backupOn not exactly true), no answer on record, or
+ *  an answer older than BACKUP_SEEN_STALE_MS (refreshes have been failing, so nothing current is known). With no age
+ *  set, any backup meets it. */
+const BACKUP_SEEN_STALE_MS = 3 * 60 * 60 * 1000;
 function backupLate(seen, policy, nowMs = Date.now()) {
   if (!seen || typeof seen !== 'object' || seen.backupOn !== true || !backupRequired(policy)) return null;
+  const seenAt = seen.backupSeenAt;
+  if (!Number.isFinite(seenAt) || nowMs - seenAt > BACKUP_SEEN_STALE_MS) return null;
   const at = seen.backupAt;
   if (!Number.isFinite(at)) return 'never';
   const p = policy === undefined ? (() => { try { return current(); } catch { return null; } })() : policy;
   const hrs = p && p.backup && Number.isFinite(p.backup.max_age_hours) && p.backup.max_age_hours > 0 ? p.backup.max_age_hours : null;
-  return hrs !== null && nowMs / 1000 - at > hrs * 3600 ? 'late' : null;
+  return hrs !== null && seenAt / 1000 - at > hrs * 3600 ? 'late' : null;
 }
 
 const CONTACT_STOPS = `${POLICY_SETTER} keeps agents out of the Kosmos+ community and out of projects shared with other computers`;
@@ -481,4 +486,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, communityAllows, communitySpace, PUBLIC_COMMUNITY_STOPS, FAMILY_COMMUNITY_STOPS, FAMILY_CONTACT_STOPS, CONTACT_STOPS, reportingRequired, backupRequired, backupLate, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, capSentence, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, communityAllows, communitySpace, PUBLIC_COMMUNITY_STOPS, FAMILY_COMMUNITY_STOPS, FAMILY_CONTACT_STOPS, CONTACT_STOPS, reportingRequired, backupRequired, backupLate, BACKUP_SEEN_STALE_MS, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, capSentence, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };

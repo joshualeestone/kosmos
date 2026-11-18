@@ -1211,13 +1211,13 @@ async function refreshNow(opts) {
     rec.recoveriesAt = before.recoveriesAt;
     if (before.recoveriesMore === true) rec.recoveriesMore = true;
   }
-  /* kosmos#7586: whether company backup is on at the coordinator, and this member's last backup there (unix seconds,
-     null for none), so the page can say the policy's backup requirement is not met from the record the console reads.
-     Only an answer that says (backupOn a boolean) sets them; an older coordinator's answer leaves them out, and the page
-     then says nothing about backup. Read from THIS answer, never carried: a stale "backed up" must not outlive it. */
+  /* kosmos#7586: whether company backup is on at the coordinator, this member's last backup there (unix seconds, null
+     for none), and when this answer arrived (backupSeenAt, epoch ms), for orgpolicy.backupLate. Set only from an answer
+     that carries backupOn, and not copied from the previous record when a later answer lacks it. */
   if (typeof d.backupOn === 'boolean') {
     rec.backupOn = d.backupOn;
     rec.backupAt = d.backupOn && Number.isFinite(d.backupAt) ? d.backupAt : null;
+    rec.backupSeenAt = Date.now();
   }
   // The consent belongs to the world it was shown for: never carried onto a record for another world (review 28).
   if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;
