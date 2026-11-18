@@ -56,7 +56,7 @@ starts (downloadsStartedHere), so its answer is judged as the original's was. Pi
 - Mode selftest: +7 rows (EPERM, EACCES, nested, controls: full disk, taken name, no system reason; the words).
 - Live download selftest: the 11-06 read-only-folder arm now answers the question through a seam with a file in a second
   folder; a new row checks the question was asked once with its title and Files and Folders, and the file landed there
-  with this app's quarantine mark. The failure count and the title row moved with it (71 rows).
+  with this app's quarantine mark. The failure count and the title row moved with it; a second arm voids a restart whose page changed (72 rows).
 - Source pins: the failure path routes a refusal by macOS to the question, the restart's delegate and chosen place, the
   chosen place after the response checks, never over a file, and the two startDownload places.
 
