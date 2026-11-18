@@ -28,11 +28,16 @@ failure looks like "stopped at the limit", and the success looks like "stopped s
 - A pwsh that dies at start is named at once ("exited before node started"), and a pwsh already gone at SIGINT
   fails instead of reading as an instant stop (review 1).
 
+- The check that node is gone polls for up to the stop allowance instead of one 300 ms wait (review 2): a node being
+  stopped or not yet reaped still answers kill(pid, 0), longer under load, which is this card's own class.
+
 ## Measured
 - Alone on this Mac: pwsh stopped 459 ms after SIGINT; the whole file passes (4 pass, 1 skipped as win32-only).
 - Perturbed: replacing the 250 ms slices with one wait for the whole remaining limit (Ctrl+C held off) turns the case
   red at 121 s with "it was still running and was killed, so Ctrl+C was held off". Restored afterwards.
 - Perturbed again after the cleanup: red the same way, and no node left running (before it, one was).
+- Perturbed the other half (the script's finally no longer kills node): red, "the node it started is gone", and the
+  test's cleanup stopped the surviving node (0 left).
 - Worst passing case is 240 s (start plus stop), under run-tests.sh's 600 s per-test timeout.
 
 ## Weakest premise

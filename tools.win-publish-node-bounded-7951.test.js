@@ -135,11 +135,11 @@ $NodeTimeoutSec = ${CTRLC_LIMIT_S}
     let exitWords = '';
     const gone = new Promise((resolve) => child.on('exit', (code, signal) => { exited = true; exitWords = signal || String(code); resolve(); }));
     const until = Date.now() + START_ALLOWED_MS;
-    // Review 1: a pwsh that dies at start is named at once, not after the whole start allowance as "node never started".
+    // A pwsh that dies at start is named at once, not after the whole start allowance as "node never started".
     while (!fs.existsSync(pidFile) && !exited && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
     assert.ok(fs.existsSync(pidFile), exited ? `pwsh exited (${exitWords}) before node started` : 'node never started');
     await new Promise((r) => setTimeout(r, 300));
-    // Review 1: a pwsh already gone would read as an instant stop and pass without measuring anything.
+    // A pwsh already gone would read as an instant stop and pass without measuring anything.
     assert.ok(!exited, `pwsh exited (${exitWords}) before SIGINT was sent, so nothing was measured`);
     const sent = Date.now();
     child.kill('SIGINT');
@@ -151,10 +151,14 @@ $NodeTimeoutSec = ${CTRLC_LIMIT_S}
     assert.ok(!killed && took < STOP_ALLOWED_MS, `pwsh took ${took} ms to stop after SIGINT (allowed ${STOP_ALLOWED_MS} ms, under a ${CTRLC_LIMIT_S} s limit)${killed ? ': it was still running and was killed, so Ctrl+C was held off' : ''}`);
     console.log(`MEASURED: pwsh stopped ${took} ms after SIGINT (limit ${CTRLC_LIMIT_S} s)`);
     const nodePid = Number(fs.readFileSync(pidFile, 'utf8'));
-    await new Promise((r) => setTimeout(r, 300));
+    // Polled, not one fixed wait: a node being stopped, or not yet reaped, still answers kill(pid, 0) for a moment, and
+    // longer on a loaded Mac. A node that stays (the limit kept it) is still there at the end of the allowance.
+    const goneBy = Date.now() + STOP_ALLOWED_MS;
+    const alive = () => { try { process.kill(nodePid, 0); return true; } catch { return false; } };
+    while (alive() && Date.now() < goneBy) await new Promise((r) => setTimeout(r, 200));
     assert.throws(() => process.kill(nodePid, 0), /ESRCH/, 'the node it started is gone');
   } finally {
-    /* Review 1: after the assertions, never instead of them. A failed run must not leave pwsh running to its 600 s limit,
+    /* After the assertions, never instead of them. A failed run must not leave pwsh running to its 600 s limit,
        or the node it started running for ever (a SIGKILLed pwsh never reaches its own finally, which kills node). */
     if (child && !exited) { try { child.kill('SIGKILL'); } catch { /* already gone */ } }
     // Only a process whose command line still names this run's own pid file: a pid can be reused once node is gone.
