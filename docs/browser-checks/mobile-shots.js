@@ -1425,6 +1425,41 @@ const SCREENS = [
     const t = await page.locator('#d-machine').innerText();
     if (!/Still running after what started it ended: bash, 6\.5 GB, for 14 days \(process 4242\)/.test(t)) throw new Error('the page said: ' + t);
   }, after: async (page) => { await page.unroute('**/api/status*'); } },
+  /* kosmos#8719: an agent whose window Kosmos did not start (isNamedOurs false): its tile and list row say "Not started
+     by Kosmos", and its page says why. The status read is stubbed for this screen only (a throwaway board starts its own
+     agents, all marked). */
+  ...['untied-tile-8719', 'untied-list-8719', 'untied-page-8719'].map((name) => ({ name, owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    await page.route('**/api/status*', async (r) => {
+      try {
+        if (r.request().method() !== 'GET') { await r.continue(); return; }
+        const res = await r.fetch();
+        let body = null;
+        try { body = await res.json(); } catch { body = null; }
+        if (!body || !Array.isArray(body.agents)) { await r.fulfill({ response: res }); return; }
+        for (const c of body.agents) if (c.sessionName === data.chatAgent) c.isNamedOurs = false;
+        await r.fulfill({ response: res, body: JSON.stringify(body) });
+      } catch { /* the page closed at teardown (#6022) */ }
+    });
+    if (name === 'untied-page-8719') {
+      await at(page, '?agent=' + data.chatAgent);
+      await page.waitForSelector('#d-task', { state: 'visible', timeout: 15000 });
+      return;
+    }
+    await page.reload();
+    if (name === 'untied-list-8719') await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
+    await page.waitForSelector(name === 'untied-list-8719' ? '.lrow .auntied' : '.acard .auntied', { state: 'visible', timeout: 15000 });
+  }, verify: async (page) => {
+    if (name === 'untied-page-8719') {
+      const t = await page.locator('#d-task').innerText();
+      if (!/^Started outside Kosmos, so Kosmos cannot confirm this window is the agent/.test(t)) throw new Error('the page said: ' + t);
+      return;
+    }
+    const sel = name === 'untied-list-8719' ? '.lrow .auntied' : '.acard .auntied';
+    const n = await page.locator(sel).count();
+    if (n !== 1) throw new Error('expected one agent labelled, saw ' + n);
+    const got = await page.locator(sel).first().evaluate((el) => ({ text: el.innerText, clipped: el.scrollWidth > el.clientWidth + 1 }));
+    if (got.text !== 'Not started by Kosmos' || got.clipped) throw new Error('the label: ' + JSON.stringify(got));
+  }, after: async (page) => { await page.unroute('**/api/status*'); } })),
   { name: 'agent-page', owner: 'Raiden', go: async (page, data) => {
     await at(page, '?agent=' + data.chatAgent);
     await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
