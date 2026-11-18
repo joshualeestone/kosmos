@@ -6,15 +6,16 @@
  * program: it raises EPIPE on the stream, and with no 'error' listener that is an unhandled 'error' event and a stack
  * trace on stderr. The output the person wanted was already printed; the trace reads as a failure.
  *
- * install() gives stdout and stderr one listener: EPIPE exits with 141 (128 + SIGPIPE, what a shell reports for a
- * program a closed pipe stopped); any other stream error is thrown again, so it still fails as loudly as before.
+ * install() gives stdout and stderr one listener: a closed reader exits with 141 (128 + SIGPIPE, what a shell reports
+ * for a program a closed pipe stopped); any other stream error is thrown again, so it still fails as loudly as before.
+ * A closed reader is CLOSED_READER_CODES: EPIPE on a pipe, and ENOTCONN or ECONNRESET when stdio is a socket (Node's
+ * own child stdio on macOS is; kosmos#8714 saw `write ENOTCONN` there, macOS CI run 44377549059).
  * Every node install/kosmos runs is guarded this way except the board (below), not only one-shot verbs; no engine
  * file has its own stdout/stderr 'error' handler for this listener to pre-empt. The exit is immediate (no async
  * cleanup, no flush): when stderr's reader is the one that closed, a note the verb was about to write is lost with
  * it. For a closed reader that is the point. Reading process.stdout and process.stderr here creates both streams
  * at startup (Node makes them lazily otherwise); deliberate, since the guard has to be on them before the first write.
- * Only the installed layout is preloaded (install/kosmos looks in app/engine; a source checkout runs unguarded). Only EPIPE was measured as the closed-pipe
- * error (macOS, Linux CI, Windows Git Bash `head -1`); another code still throws, as before.
+ * Only the installed layout is preloaded (install/kosmos looks in app/engine; a source checkout runs unguarded).
  *
  * How it reaches the CLI:
  * - Mac and Linux: install/kosmos runs many separate node children. It adds `--require <this file>` to NODE_OPTIONS
@@ -28,15 +29,16 @@
  */
 
 const QUIT_ON_CLOSED_READER = 141;
+const CLOSED_READER_CODES = new Set(['EPIPE', 'ENOTCONN', 'ECONNRESET']);
 
-/** One stream: EPIPE is a quiet exit, anything else is thrown again. Only when this is the stream's ONLY 'error'
+/** One stream: a closed reader is a quiet exit, anything else is thrown again. Only when this is the stream's ONLY 'error'
  *  listener, which is exactly when Node itself would have crashed: a program with its own handler (a node-based git
  *  hook the wrapper runs, say) handles its errors as before, EPIPE included. */
 function guardStream(stream, proc) {
   if (!stream || typeof stream.on !== 'function') return;
   stream.on('error', (e) => {
     if (typeof stream.listenerCount === 'function' && stream.listenerCount('error') > 1) return;
-    if (e && e.code === 'EPIPE') { proc.exit(QUIT_ON_CLOSED_READER); return; }
+    if (e && CLOSED_READER_CODES.has(e.code)) { proc.exit(QUIT_ON_CLOSED_READER); return; }
     throw e;
   });
 }
@@ -61,7 +63,7 @@ function restoreNodeOptions(env) {
   return true;
 }
 
-module.exports = { install, restoreNodeOptions, QUIT_ON_CLOSED_READER };
+module.exports = { install, restoreNodeOptions, QUIT_ON_CLOSED_READER, CLOSED_READER_CODES };
 
 /** The node is the board (server.js), which keeps its own closed-stdout behaviour. */
 function isBoard(argv) {
