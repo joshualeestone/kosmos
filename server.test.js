@@ -4907,9 +4907,9 @@ test('the removal routes ask, remove, and put back, over the wire', async () => 
       assert.equal(gone.status, 200, 'a legitimate removal was refused: ' + gone.body);
       const goneBody = JSON.parse(gone.body);
       assert.equal(goneBody.outcome, 'removed');
-      /* kosmos#8508: the dry run above is shorter on Windows (it ends partial, its kill made not to take), so its step
-         list alone is a weaker control there than on a Mac. This real removal ends 'removed' on every platform, so its
-         full list is the same control everywhere: the question asked before it must recite none of these steps. */
+      /* kosmos#8508: the dry run above is not the same removal on every platform, so its step list alone is not the
+         same control everywhere. This real removal must end 'removed' on every platform (asserted above), so its full
+         list is: the question asked before it must recite none of these steps. */
       const realLabels = (goneBody.steps || []).map((s) => String(s.label));
       for (const want of ['closed its window', 'took it off the board']) {
         assert.ok(realLabels.includes(want), `the real removal has no "${want}" step, so the check below cannot see it recited: ${realLabels.join(' | ')}`);
