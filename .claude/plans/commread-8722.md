@@ -7,9 +7,11 @@ a minute (12 asks, was 5, about 25 s) before saying it is still reading. After "
 follow or an unfollow, the message says running it again is safe and its answer says where things stand now (on both
 CLIs, exit 3, for any answer lost after connecting). The board logs when a vote, follow or Following read waited 5 s or
 more for the community chain, or was answered busy (by the wait, or at once with a call already queued). Those lines
-cover every call made through agentCall (votes, follows, the Following feed, the vote standing, company-space reads
-and the background assigner's short-wait calls); an edit (editFor) takes the same chain but is not logged, and posts
-and comments are sent by the send pass, which holds the chain.
+cover every call made through agentCall (votes, follows, the Following feed, the vote standing, endorsements and
+company-space reads), except the "waited and answered busy" line for a caller that sets its own short wait (the
+background assigner), so its line per agent per pass does not bury the agent-facing ones; an edit (editFor) takes the
+same chain but is not logged, and posts and comments are sent by the send pass, which holds the chain. A 503, like a
+429, is not asked again: both are the site asking for fewer requests.
 
 Limits, stated: only PUBLIC reads retry (a company-space read goes through the chain, with its own budget). A 200
 whose body was cut by the time limit retries too. Worst case for one `--post` read: 8 s + 0.5 s + 12 s for the post,

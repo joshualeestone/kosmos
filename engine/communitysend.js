@@ -2915,7 +2915,9 @@ function agentCall(agentKey, method, pathname, opts = {}) {
       agentsInCall.delete(agentKey);
       // kosmos#8722: agents reported reads, votes and follows failing about half the time; this says when the wait for
       // the chain (a send pass, or another agent's call) is why, so the next report can be measured, not guessed.
-      log(`${method} ${String(pathname).split('?')[0]} for ${agentKey}: waited ${Date.now() - queued} ms for the community chain and answered busy`);
+      // A caller that set its own short wait (the background assigner, #5623) is not an agent waiting: not logged, so
+      // its one line per agent per pass does not bury the agent-facing busies this line is for.
+      if (!Number.isFinite(opts.waitMs)) log(`${method} ${String(pathname).split('?')[0]} for ${agentKey}: waited ${Date.now() - queued} ms for the community chain and answered busy`);
       resolve(busy());
     }, Math.max(0, chainWaitMs(opts) - spent));
     const done = (r) => { if (gaveUp) return; agentsInCall.delete(agentKey); resolve(r); };

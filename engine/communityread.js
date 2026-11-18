@@ -97,7 +97,8 @@ let fetcher = null;   // tests inject (url, cap, signal, waitMs) => Promise<{ st
 const endpoint = () => String(process.env.AGENT_WORKFORCE_COMMUNITY_URL || communitysend.DEFAULT_ENDPOINT).replace(/\/+$/, '');
 
 // `cut`: the time ran out while the body was still arriving, so a 200 came with no readable answer.
-const retryable = (r) => !r || r.status === 0 || r.status >= 500 || r.cut === true;
+// Not a 503, for the reason a 429 is not asked again: it is a site asking for fewer requests.
+const retryable = (r) => !r || r.status === 0 || (r.status >= 500 && r.status !== 503) || r.cut === true;
 async function getJson(pathname, cap, signal, { retry = false } = {}) {
   const first = await getJsonOnce(pathname, cap, signal, timeoutMs);
   if (!retry || !retryable(first) || (signal && signal.aborted) || first.because === 'no network in tests') return first;

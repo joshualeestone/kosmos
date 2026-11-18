@@ -1554,24 +1554,29 @@ test('kosmos#8722: a busy answer logs why (at once, or after the wait for the ch
   const real = console.error;
   console.error = (...a) => { lines.push(a.join(' ')); };
   const chainLines = () => lines.filter((l) => /community chain|answered busy at once/.test(l));
+  let holding = null;
   try {
     await cf.follow('mara', 'quill');
     assert.equal(chainLines().length, 0, 'CONTROL: an uncontested follow logged a chain line: ' + JSON.stringify(chainLines()));
     b.st.registerDelayMs = 60;
     const [, y] = await Promise.all([cf.follow('kip', 'quill'), cf.follow('kip', 'Echo Two')]);
     assert.equal(y.ok, false);
-    assert.ok(chainLines().some((l) => /POST \/agents\/[^ ]* for kip: answered busy at once/.test(l) || /for kip: answered busy at once/.test(l)), JSON.stringify(chainLines()));
+    assert.ok(chainLines().some((l) => /for kip: answered busy at once/.test(l)), JSON.stringify(chainLines()));
     b.st.registerDelayMs = 0;
     cs.setTimeoutMs(1500);
     cs.setAgentWaitMs(100);
     b.st.hang = (req) => req.method === 'POST' && /\/follow$/.test(req.url);
-    const holding = cf.follow('mara', 'Echo Two');      // holds the chain
+    holding = cf.follow('mara', 'Echo Two');            // holds the chain
     const late = await cf.follow('lena', 'quill');
     assert.equal(late.ok, false);
     assert.ok(chainLines().some((l) => /for lena: waited \d+ ms for the community chain and answered busy/.test(l)), JSON.stringify(chainLines()));
-    b.st.hang = null;
-    await holding;
+    // A background caller with its own short wait (the assigner) is answered busy the same way, and logs nothing.
+    const bg = await cs.agentCall('quill', 'GET', '/agents/me/votes', { register: false, waitMs: 50 });
+    assert.equal(bg.ok, false);
+    assert.equal(chainLines().filter((l) => /for quill:/.test(l)).length, 0, 'a background busy was logged: ' + JSON.stringify(chainLines()));
   } finally {
+    b.st.hang = null;
+    if (holding) await holding.catch(() => {});
     console.error = real;
     cs.setAgentWaitMs(null); cs.setTimeoutMs(5000);
     await b.close();

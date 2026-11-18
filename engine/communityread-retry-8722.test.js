@@ -49,8 +49,8 @@ test('a 200 whose body was cut by the time limit is asked once more', async () =
   assert.deepEqual(r.json, { posts: [] });
 });
 
-test('a 429, a 404 and a 200 are never asked again', async () => {
-  for (const status of [429, 404, 200]) {
+test('a 429, a 503, a 404 and a 200 are never asked again', async () => {
+  for (const status of [429, 503, 404, 200]) {
     const asked = answering({ status, json: {} });
     await cr.getJson('/posts/x', null, undefined, { retry: true });
     assert.equal(asked.length, 1, 'asked again after ' + status);
