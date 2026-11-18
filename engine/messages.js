@@ -4509,13 +4509,16 @@ const NOT_ON_PROJECT_FIX = "; ask the person to add this agent with the + beside
    exempt, being in every room they own). Returns {ok, op, emoji, of} or
    {ok:false, because}.
    #6946: a 🙋 from an agent is a CLAIM (see the claim rule below): `claim` 'claim' never toggles and can answer op
-   'already', 'release' can answer op 'none', and a refusal or a no-op also carries `claimedBy` (and `claimedAt`). */
+   'already', 'release' can answer op 'none', and a refusal or a no-op also carries `claimedBy` (and `claimedAt`).
+   kosmos#8721: 'status' writes nothing and answers op 'status' with `mine`, and `claimedBy`, `claimedAt` and
+   `claimedAge` when somebody holds the post; it is an agent's read only (never with `operator`). */
 function react({ project, of, emoji, from, operator, members, claim }) {
   const projectId = String(project == null ? '' : project).trim();
   const postId = messageIdOf(of);   // #4631: '530' and 'message 530' name m530 too
   // #6946: `claim` is 'claim' (never takes it back) or 'release' (only takes it back); either one means 🙋.
   // kosmos#8721: 'status' only says who holds it and changes nothing, so checking never takes a claim.
   if (claim !== undefined && claim !== 'claim' && claim !== 'release' && claim !== 'status') return { ok: false, because: 'we could not tell whether to claim that post or give it back' };
+  if (claim === 'status' && operator === true) return { ok: false, because: 'only an agent can ask who holds a post this way' };   // the person's branch below writes
   const typed = claim ? CLAIM_EMOJI : normalizeReactionEmoji(emoji);
   const e = isClaimEmoji(typed) ? CLAIM_EMOJI : typed;   // #6946: every 🙋 form is stored as the plain one
   if (!projectId) return { ok: false, because: 'we could not tell which project this post is in' };

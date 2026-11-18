@@ -5499,6 +5499,9 @@ cmd_claim() {
   elif [ "$rc" -eq 28 ]; then
     say "Kosmos was slow to answer and we stopped waiting. Run the same command again: it is safe, and it says whether the claim is yours."
     exit 3
+  elif [ "$rc" -ne 0 ] && [ "$status" = 1 ]; then
+    say_unreached "read that claim" "$rc"   # kosmos#8721: a read, so never "it may still have happened"
+    exit 1
   elif [ "$rc" -ne 0 ]; then
     say_unreached "keep that claim" "$rc" write
     exit 1
@@ -5518,7 +5521,7 @@ cmd_claim() {
       case "$body" in
         *'"mine":true'*) say "That post is yours (claimed ${age:-earlier}). Nothing was changed." ;;
         *) if [ -n "$holder" ]; then say "$holder holds that post (claimed ${age:-earlier}). Nothing was claimed."
-           else say "Nobody holds that post. Nothing was claimed; kosmos claim $project $post takes it."; fi ;;
+           else say "Nobody holds that post. Nothing was claimed."; fi ;;
       esac ;;
     '{"ok":true,"op":"remove"'*)  say "Gave that post back: it is no longer claimed by you." ;;
     '{"ok":true,"op":"none"'*)
@@ -5526,7 +5529,8 @@ cmd_claim() {
       say "That post is not claimed by you, so there was nothing to give back.${holder:+ $holder holds it.}" ;;
     '{"ok":false'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
-      if [ "$release" = 1 ]; then say "Not given back: ${because:-we could not tell why}."; else say "Not claimed: ${because:-we could not tell why}."; fi
+      if [ "$status" = 1 ]; then say "Could not check: ${because:-we could not tell why}."
+      elif [ "$release" = 1 ]; then say "Not given back: ${because:-we could not tell why}."; else say "Not claimed: ${because:-we could not tell why}."; fi
       exit 1 ;;
     *)
       say "Kosmos gave an answer we could not read, so we cannot tell whether the claim changed. Run kosmos room to see."

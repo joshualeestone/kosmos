@@ -4045,13 +4045,13 @@ async function verbClaim(ctx, args) {
     const by = clause(r.json.claimedBy); const age = clause(r.json.claimedAge) || 'earlier';
     if (r.json.mine === true) ctx.out('That post is yours (claimed ' + age + '). Nothing was changed.');
     else if (by) ctx.out(by + ' holds that post (claimed ' + age + '). Nothing was claimed.');
-    else ctx.out('Nobody holds that post. Nothing was claimed; kosmos claim ' + project + ' ' + of + ' takes it.');
+    else ctx.out('Nobody holds that post. Nothing was claimed.');
     return 0;
   }
   if (op === 'remove') { ctx.out('Gave that post back: it is no longer claimed by you.'); return 0; }
   if (op === 'none') { const by = clause(r.json.claimedBy); ctx.out('That post is not claimed by you, so there was nothing to give back.' + (by ? ' ' + by + ' holds it.' : '')); return 0; }
   if (!(r.json && r.json.ok === false)) { ctx.err('Kosmos gave an answer we could not read, so we cannot tell whether the claim changed. Run kosmos room to see.'); return 1; }
-  ctx.err((release ? 'Not given back: ' : 'Not claimed: ') + (clause(r.json.because) || 'we could not tell why') + '.');
+  ctx.err((status ? 'Could not check: ' : release ? 'Not given back: ' : 'Not claimed: ') + (clause(r.json.because) || 'we could not tell why') + '.');
   return 1;
 }
 

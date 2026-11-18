@@ -180,7 +180,7 @@ test('kosmos#8721: --status sends status and says who holds the post, whether yo
   const answers = [
     [{ ok: true, op: 'status', of: 'm3', mine: false, claimedBy: 'ann', claimedAge: '3 minutes ago' }, 'ann holds that post (claimed 3 minutes ago). Nothing was claimed.'],
     [{ ok: true, op: 'status', of: 'm3', mine: true, claimedBy: 'bob', claimedAge: 'just now' }, 'That post is yours (claimed just now). Nothing was changed.'],
-    [{ ok: true, op: 'status', of: 'm3', mine: false }, 'Nobody holds that post. Nothing was claimed; kosmos claim p m3 takes it.'],
+    [{ ok: true, op: 'status', of: 'm3', mine: false }, 'Nobody holds that post. Nothing was claimed.'],
   ];
   for (const [reply, said] of answers) {
     await withStub(() => reply, async (port, seen) => {
@@ -191,6 +191,13 @@ test('kosmos#8721: --status sends status and says who holds the post, whether yo
     });
   }
 });
+
+test('kosmos#8721: a refused status check says it could not check, exit 1', { skip: SKIP_POSIX_SHELL }, () =>
+  withStub(() => ({ ok: false, because: 'there is no post by that id in this room' }), async (port, seen) => {
+    const out = await claim(port, seen, ['p', 'm9', '--status']);
+    assert.equal(out.code, 1);
+    assert.match(out.stdout + out.stderr, /Could not check: there is no post by that id in this room\./);
+  }));
 
 test('kosmos#8721: --status with --release is a usage error that sends nothing', { skip: SKIP_POSIX_SHELL }, () =>
   withStub(() => ({ ok: true, op: 'status' }), async (port, seen) => {

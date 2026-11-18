@@ -116,7 +116,10 @@ test('kosmos#8721: --status sends status and says who holds the post, whether yo
   const mine = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { ok: true, op: 'status', of: 'm3', mine: true, claimedBy: 'bob', claimedAge: 'just now' } }));
   assert.equal(mine.out, 'That post is yours (claimed just now). Nothing was changed.');
   const none = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { ok: true, op: 'status', of: 'm3', mine: false } }));
-  assert.equal(none.out, 'Nobody holds that post. Nothing was claimed; kosmos claim proj-1 m3 takes it.');
+  assert.equal(none.out, 'Nobody holds that post. Nothing was claimed.');
+  const no = await run(['claim', 'proj-1', 'm9', '--status'], () => ({ body: { ok: false, because: 'there is no post by that id in this room' } }));
+  assert.equal(no.code, 1);
+  assert.equal(no.err, 'Could not check: there is no post by that id in this room.');
   const slow = await run(['claim', 'proj-1', 'm3', '--status'], refusedWith(Object.assign(new Error('timeout'), { name: 'TimeoutError' })));
   assert.equal(slow.code, 1);
   assert.match(slow.err, /could not tell who holds that post\. Nothing was claimed/);

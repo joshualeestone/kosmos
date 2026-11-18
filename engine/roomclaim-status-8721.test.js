@@ -60,4 +60,8 @@ test('status is refused as a claim would be: not on the project, no such post, a
   assert.equal(ask('zed', 'status').ok, false, 'an agent not on the project read the claim');
   assert.equal(ask('bob', 'status', 'm9').ok, false, 'a post that is not there answered');
   assert.equal(ask('bob', 'peek').ok, false);
+  const before = messages.record().rows.filter((m) => m.kind === 'reaction').length;
+  const asPerson = messages.react({ project: 'p', of: 'm1', operator: true, claim: 'status' });
+  assert.equal(asPerson.ok, false, 'the person\'s branch, which writes, was reached by a status check');
+  assert.equal(messages.record().rows.filter((m) => m.kind === 'reaction').length, before);
 });
