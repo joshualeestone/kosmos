@@ -6809,10 +6809,12 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
    `?force`. Planning a removal (GET), restore, and every other agent route stay behind the board token. */
 /* #5874: `kosmos task activity` (GET .../task/<n>/activity) joins as a READ: its handler names a token-only caller and
    refuses one that is not on the project, as GET /api/tasks does. */
+/* kosmos#8664: `kosmos task edit` (POST .../task/<n>/text) joins on done-when's terms: its handler names the caller
+   (processCaller) and refuses an agent that is not on the project (notOnProjectRefusal). */
 /* #6994: `kosmos records` joins: the read (GET .../records) answers the same for every caller, as .../overview does;
    the writes (POST .../records, .../records/remove, .../records/label) name the caller (processCaller) and refuse an
    agent that is not on the project (notOnProjectRefusal). */
-const AGENT_TOKEN_ROUTE_PATTERNS = [/^GET \/api\/project\/[^/]+\/records$/, /^POST \/api\/project\/[^/]+\/records(?:\/(?:remove|label))?$/, /^GET \/api\/project\/[^/]+\/task\/\d+\/activity$/, /^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|told|done-when|check)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
+const AGENT_TOKEN_ROUTE_PATTERNS = [/^GET \/api\/project\/[^/]+\/records$/, /^POST \/api\/project\/[^/]+\/records(?:\/(?:remove|label))?$/, /^GET \/api\/project\/[^/]+\/task\/\d+\/activity$/, /^POST \/api\/agent\/[^/]+\/instruction-add$/, /^POST \/api\/project\/[^/]+\/role$/, /^POST \/api\/project\/[^/]+\/task\/\d+\/(?:message|built|close|assign|repeat|ran|told|done-when|check|text)$/, /^POST \/api\/project\/[^/]+\/tasks$/, /^GET \/api\/project\/[^/]+\/overview$/, /^GET \/api\/project\/[^/]+\/room$/, /^DELETE \/api\/agent\/[^/]+\/removal$/];
 const agentTokenRoute = (key) => AGENT_TOKEN_ROUTES.has(key) || AGENT_TOKEN_ROUTE_PATTERNS.some((re) => re.test(key));
 /* #4491 slice 3: do two agent names mean the same agent? Exactly, as the stored record and the roster spell them.
    `byKey` is only for a caller whose token resolved without a pane row (`paneless`, on the result or its card): the
@@ -26892,6 +26894,52 @@ const server = http.createServer(async (req, res) => {
         const t = 'check' in body ? tasks.setDoneWhenCheck(id, taskDoneWhen[2], body.check, body.text, whoSet)
           : tasks.setDoneWhen(id, taskDoneWhen[2], body.doneWhen, whoSet);
         sendJson(res, 200, { task: taskForCaller(req, body, t) });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,
+          { error: msg || 'we could not change that task' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* kosmos#8664: change a task's title or detail after it is made (`kosmos task edit`). Body { sentence?, detail? }:
+     each one left out stays as it is; a detail of null or "" clears it. The caller is named as done-when names it, and an
+     identified agent changes only a task on a project it is on. tasks.setText validates (400) and records the old and new
+     words in the task's activity. */
+  const taskText = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/text$/);
+  if (taskText && req.method === 'POST') {
+    const id = decodeSegment(taskText[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object' || Array.isArray(body) || (!('sentence' in body) && !('detail' in body))) {
+        sendJson(res, 400, { error: 'say the new title, the new detail, or both' }); return;
+      }
+      const viaScreen = isViaScreen(req, body);
+      /* As the wake route (#8669): a caller that names itself (a token or a pane) while the roster cannot be read is
+         refused, not let through unnamed: an unnamed edit may reword the person's task and marks the words as theirs. */
+      const roster = safeRoster();
+      const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
+      if (roster === null && !viaScreen && (presentedAgentToken(req, body) || fromPane)) {
+        sendJson(res, 503, { error: 'we could not check which agents are running, so the task was not changed' }); return;
+      }
+      const who = processCaller(req, body, roster, viaScreen, 'the task was not changed');
+      const refusal = who.refusal || notOnProjectRefusal(who, id, 'change its tasks', 'the task was not changed', 'change a task');
+      if (refusal) { sendJson(res, refusal[0], { error: refusal[1] }); return; }
+      try {
+        const out = tasks.setText(id, taskText[2], { sentence: body.sentence, detail: body.detail },
+          { by: who.card ? who.card.sessionName : null, person: viaScreen });
+        /* Each assignee's instruction block lists its tasks by title (projects.syncAgent), as create and close keep it;
+           a new title is told there too. The edit stands whatever the sync does. */
+        if (out.titleChanged) {
+          const roster = safeRoster();
+          for (const one of tasks.whoOf(out.task)) {
+            try { projects.syncAgent(one, roster); } catch { /* the edit stands; the next sync catches up */ }
+          }
+        }
+        sendJson(res, 200, { task: taskForCaller(req, body, out.task), changed: out.changed });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,

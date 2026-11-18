@@ -1681,6 +1681,70 @@ function setDue(projectId, n, dueDate) {
 }
 
 /**
+ * kosmos#8664: change a task's title, its detail, or both, after it is made (`kosmos task edit`). `sentence` and
+ * `detail` are each left as they are when undefined; a detail of null or blank text clears it. Checked as create checks
+ * them (a title is required and at most SENTENCE_MAX; a detail at most DETAIL_MAX), except that an over-long title is
+ * refused here rather than moved into the detail: an edit says exactly what it changes. A closed task can be edited too,
+ * since correcting what a task was called changes no work. The change is recorded in the task's activity with the old and
+ * new words (line breaks become spaces in the record) and who made it (`by`, an agent's session name, or `person` for the screen). Changing nothing records
+ * nothing. Returns { task, changed, titleChanged }: the task as stored, whether anything changed, and whether the title
+ * did (the assignees' instruction blocks list the title, so the route updates them then). Throws with a sentence (a 404
+ * for no such task, else a 400).
+ */
+function setText(projectId, n, { sentence, detail } = {}, { by = null, person = false } = {}) {
+  if (sentence === undefined && detail === undefined) throw new Error('say the new title, the new detail, or both');
+  // A title is one line wherever it is shown, so line breaks and control characters become spaces (the CLIs already do),
+  // and the title is checked AFTER that, so one made only of control characters is refused as empty.
+  const nextSentence = sentence === undefined ? undefined : (typeof sentence === 'string' ? sentence.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim() : null);
+  if (sentence !== undefined) {
+    if (!nextSentence) throw new Error('a task needs a title: say what needs doing');
+    if (nextSentence.length > SENTENCE_MAX) throw new Error(`say what needs doing in ${SENTENCE_MAX} characters or fewer; the detail has the room`);
+  }
+  if (detail !== undefined) {
+    const problem = detailProblem(detail);
+    if (problem) throw new Error(problem);
+  }
+  const nextDetail = detail === undefined ? undefined : ((typeof detail === 'string' && detail.trim()) ? detail.trim() : null);
+  let changed;
+  let before;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    /* A task the person wrote, or whose words they have since changed, is not an AGENT's to reword: an agent does not
+       rewrite what it was asked to do. Checked inside the write. An unnamed caller is let through: the person's own
+       terminal is one (`kosmos task edit` with no agent token), and the page has no edit control yet. */
+    if (!person && doneWhenSetter(by) && (t.addedVia === 'screen' || t.textByPerson === true)) {
+      const e = new Error('the person wrote this task\'s words, so an agent does not change them; say what changed in the task\'s conversation instead');
+      e.status = 403;
+      throw e;
+    }
+    before = { sentence: t.sentence, detail: t.detail || null };
+    changed = {
+      ...t,
+      ...(nextSentence !== undefined ? { sentence: nextSentence } : {}),
+      ...(nextDetail !== undefined ? { detail: nextDetail } : {}),
+    };
+    const reworded = (nextSentence !== undefined && nextSentence !== before.sentence) || (nextDetail !== undefined && nextDetail !== before.detail);
+    // The screen's edit, or an unnamed caller's (the person's terminal is one, which is why it is let through above), marks
+    // the words as the person's, so an identified agent cannot then rewrite the correction.
+    if ((person || !doneWhenSetter(by)) && reworded) changed.textByPerson = true;
+    return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
+  });
+  const titleChanged = nextSentence !== undefined && nextSentence !== before.sentence;
+  const detailChanged = nextDetail !== undefined && nextDetail !== before.detail;
+  if (titleChanged || detailChanged) {
+    const who = person ? { person: true } : doneWhenSetter(by) ? { by: doneWhenSetter(by) } : {};
+    taskchat.record(projectId, changed.number, {
+      kind: 'edited',
+      ...(titleChanged ? { fromTitle: before.sentence, title: nextSentence } : {}),
+      ...(detailChanged ? { fromDetail: before.detail, detail: nextDetail, detailCleared: nextDetail === null } : {}),
+      ...who,
+    });
+  }
+  return { task: changed, changed: titleChanged || detailChanged, titleChanged };
+}
+
+/**
  * #5152 slice 1: set, change or clear (`doneWhen` null or []) what finished means for a task. Checked whole before
  * the write. A CLOSED task is refused: closing is the end of the work, and changing what done meant after it would
  * rewrite what was checked. Setting the list it already has records nothing, as setDue does. `by` is the agent that
@@ -2590,6 +2654,9 @@ const AGENT_ROW = {
   built: (e) => typeof e.by === 'string' && e.by.trim() !== '' && e.person !== true,
   unbuilt: (e) => typeof e.by === 'string' && e.by.trim() !== '' && e.person !== true,
   run: (e) => typeof e.by === 'string' && e.by.trim() !== '' && e.person !== true,
+  // kosmos#8664: an agent renaming its own task keeps the task its own; an unnamed edit (the person's terminal can be
+  // one) or the person's does not.
+  edited: (e) => typeof e.by === 'string' && e.by.trim() !== '' && e.person !== true,
   // Not hold-set / hold-cleared (review 3): their `via: 'agent'` means "not the screen", which includes the person's
   // own terminal, and the row names nobody.
 };
@@ -3143,7 +3210,7 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
   return out.slice(0, 3);
 }
 
-module.exports = { HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
+module.exports = { HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, setText /* kosmos#8664 */, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
