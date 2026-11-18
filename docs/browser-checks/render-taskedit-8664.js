@@ -176,6 +176,38 @@ function chk(ok, label, extra) {
       chk(await page.evaluate(() => document.getElementById('tk-editform').hidden && document.activeElement.id === 'tk-edit') && posts.length === before3,
         `${tag} Escape closes the form, sends nothing, gives focus back`);
 
+      /* The board's refusal: its words show, the form stays open with focus on the title; Cancel then clears them. */
+      await page.route('**/task/*/text', (r) => r.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the board said no to this one' }) }));
+      await page.click('#tk-edit');
+      await page.fill('#tk-edit-title', 'Refused by the board');
+      await page.click('#tk-edit-save');
+      await page.waitForFunction(() => /the board said no/.test(document.getElementById('tk-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+      const ref = await page.evaluate(() => ({ msg: document.getElementById('tk-msg').textContent, open: !document.getElementById('tk-editform').hidden,
+        focus: document.activeElement && document.activeElement.id, enabled: !document.getElementById('tk-edit-save').disabled }));
+      chk(ref.msg === 'the board said no to this one' && ref.open && ref.focus === 'tk-edit-title' && ref.enabled,
+        `${tag} a board refusal shows its words, keeps the form open and focuses the title`, JSON.stringify(ref));
+      await page.click('#tk-edit-cancel');
+      chk(await page.textContent('#tk-msg') === '', `${tag} Cancel clears the refusal with the form`);
+      await page.unroute('**/task/*/text');
+
+      /* A refusal that arrives after another task opened lands nowhere. */
+      await page.route('**/task/*/text', async (r) => { await new Promise((ok) => setTimeout(ok, 800));
+        await r.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'a late refusal' }) }); });
+      await page.click('#tk-edit');
+      await page.fill('#tk-edit-title', 'Sent, then left');
+      await page.click('#tk-edit-save');
+      await openTask(page, b);
+      await page.waitForTimeout(1200);
+      chk(!/a late refusal/.test(await page.textContent('#tk-msg')), `${tag} a late answer for task ${a} does not reach task ${b}'s page`);
+      await page.unroute('**/task/*/text');
+
+      /* A closed task keeps its link: renaming it changes no work. */
+      tasks.close(proj.id, a);
+      await openTask(page, a);
+      await page.evaluate(async () => { await pjReload(); });
+      chk(await page.evaluate(() => !document.getElementById('tk-edit').hidden && document.getElementById('tk-edit').getClientRects().length > 0),
+        `${tag} a closed task still offers Edit title or detail`);
+
       /* Opening another task closes an open form. */
       await page.click('#tk-edit');
       await openTask(page, b);
