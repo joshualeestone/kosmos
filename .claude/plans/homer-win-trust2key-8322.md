@@ -1,5 +1,7 @@
 # #8322: record the second trust key written while the main key was already true
 
+**Posture:** production
+
 ## Done when
 1. The ALREADY-true arm in engine/trust.win32-key-2281.test.js records the second key under the agent's name and a removal takes back only that key.
 2. Another agent's entry, another account's config, and the person's main key are never touched (tests).
