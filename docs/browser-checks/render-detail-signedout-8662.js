@@ -9,6 +9,11 @@
  *   - a phone or computer whose relay sign-in lapsed (#718: 401 with {"signed_out":true}) gets the board's own
  *     sentence and Sign in button, not this computer's tab wording;
  *   - a genuine outage after a sign-out (nothing answers) is not a sign-out (#268): the note goes.
+ * kosmos#8672 added: keyboard focus is on the note at the moment it shows, before its words are written (read in a
+ * microtask; measured red with the focus moved into the frame that writes the words, which the earlier arm passed);
+ * and while signed out the open page keeps its last Runs on reading, while an agent page opened then (from what the
+ * board last read) says "Signed out: sign in to see its model" for an agent with no model read (red with modelLine's
+ * signed-out line removed).
  * Measured against main's page (the first version of this check): the sign-out arms were red there.
  * Reads are intercepted (as render-board-signin-403-2023.js does), so no enforcing board or token is needed.
  *
@@ -34,6 +39,14 @@ const state = (page) => page.evaluate(() => {
   const note = document.getElementById('d-signedout');
   const model = document.getElementById('d-sec-model');
   return { note: !!note && !note.hidden && note.offsetParent !== null, text: note ? note.textContent : '', inert: !!model && model.inert === true };
+});
+// kosmos#8672 pin 1: what the Model section says the agent runs on (the Runs on line, and the model menu's selected option).
+const SIGNED_OUT_MODEL = 'Signed out: sign in to see its model';
+const runsOn = (page) => page.evaluate(() => {
+  const line = document.getElementById('d-runson');
+  const sel = document.getElementById('d-model');
+  const opt = sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null;
+  return { line: line ? line.textContent.trim() : null, option: opt ? opt.textContent.trim() : null };
 });
 
 (async () => {
@@ -67,21 +80,36 @@ const state = (page) => page.evaluate(() => {
       await page.waitForTimeout(1500);
       const before = await state(page);
       check(`${look}: control: signed in, no signed-out note and the Model section is live`, !before.note && !before.inert, JSON.stringify(before));
+      const runsBefore = await runsOn(page);
+      check(`${look}: control: signed in, the Model section does not say signed out`,
+        !String(runsBefore.line).includes(SIGNED_OUT_MODEL) && !String(runsBefore.option).includes(SIGNED_OUT_MODEL), JSON.stringify(runsBefore));
 
       // Keyboard focus inside the Model section when it locks must move to the note's way out, not fall to the page.
       await page.evaluate(() => { const b = document.querySelector('#d-nav button[data-go="model"]'); if (b) b.click(); });
       await page.waitForTimeout(800);
       await page.evaluate(() => { const f = document.querySelector('#d-sec-model select, #d-sec-model button'); if (f) f.focus(); });
       const focusedIn = await page.evaluate(() => !!document.activeElement && !!document.getElementById('d-sec-model').contains(document.activeElement));
+      /* kosmos#8672 pin 3: where focus is at the moment the note shows, read in a microtask (before the next frame writes
+         its words), so a focus that only arrives with the words cannot pass. */
+      await page.evaluate(() => {
+        const n = document.getElementById('d-signedout');
+        window.__atShow = null;
+        const mo = new MutationObserver(() => {
+          if (n.hidden || window.__atShow) return;
+          window.__atShow = { inNote: n.contains(document.activeElement), words: n.textContent.length };
+          mo.disconnect();
+        });
+        mo.observe(n, { attributes: true, attributeFilter: ['hidden'] });
+      });
       refuse = '403';
       await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && !n.hidden; }, null, { timeout: 20000 }).catch(() => {});
       const out = await state(page);
       check(`${look}: signed out: the agent page says so`, out.note && /This page is signed out/.test(out.text) && /See how to sign in/.test(out.text), JSON.stringify(out));
+      const atShow = await page.evaluate(() => window.__atShow);
+      const where = !!atShow && atShow.inNote === true && atShow.words === 0;
       check(`${look}: signed out: the Model section (the picker) is inert`, out.inert, JSON.stringify(out));
-      await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && n.querySelector('a, button'); }, null, { timeout: 5000 }).catch(() => {});
-      const where = await page.evaluate(() => { const n = document.getElementById('d-signedout'); return !!n && n.contains(document.activeElement); });
       check(`${look}: precondition: focus was inside the Model section before the sign-out`, focusedIn, String(focusedIn));
-      check(`${look}: focus inside the Model section moved to the note when it locked`, where, String(where));
+      check(`${look}: focus inside the Model section moved to the note when it locked, before its words arrived`, where, JSON.stringify(atShow));
 
       refuse = false;
       await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && n.hidden; }, null, { timeout: 20000 }).catch(() => {});
@@ -94,6 +122,23 @@ const state = (page) => page.evaluate(() => {
       await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && !n.hidden && /See how to sign in/.test(n.textContent); }, null, { timeout: 20000 }).catch(() => {});
       const again = await state(page);
       check(`${look}: a second sign-out shows the note with its words again`, again.note && /This page is signed out/.test(again.text), JSON.stringify(again));
+      /* kosmos#8672 pin 1. The open page keeps its last reading (the note says so), so the signed-out line reaches Runs
+         on when an agent page is painted while signed out: opening another agent in-page, from what the board last read. */
+      const runsKept = await runsOn(page);
+      check(`${look}: signed out: the open page keeps its last Runs on reading`, runsKept.line === runsBefore.line && !String(runsKept.line).includes(SIGNED_OUT_MODEL), JSON.stringify(runsKept));
+      const other = await page.evaluate((cur) => {
+        const b = (typeof LAST !== 'undefined' && Array.isArray(LAST)) ? LAST.find((x) => x.sessionName !== cur && !x.modelName && !x.plannedModelName && (!x.runner || x.runner === 'claude')) : null;
+        if (b && typeof openDetail === 'function') openDetail(b.sessionName);
+        return b ? b.sessionName : null;
+      }, await page.evaluate(() => CURRENT && CURRENT.sessionName));
+      check(`${look}: precondition: another Claude agent with no model read to open`, !!other, String(other));
+      await page.waitForFunction((want) => { const l = document.getElementById('d-runson'); return l && l.textContent.includes(want); }, SIGNED_OUT_MODEL, { timeout: 5000 }).catch(() => {});
+      const runsOut = await runsOn(page);
+      /* Runs on only: the sandbox's Claude agents have no model menu options (no account), so its selected option is not
+         reachable here; modelLine is that menu's source too, and web.made-before.test.js pins modelLine itself. */
+      check(`${look}: signed out: an agent with no model read, opened, says so on Runs on`, String(runsOut.line).includes(SIGNED_OUT_MODEL), JSON.stringify(runsOut));
+      // Back to the first agent for the arms below (the open page, as before).
+      await page.evaluate((n) => openDetail(n), first);
       refuse = false;
       await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && n.hidden; }, null, { timeout: 20000 }).catch(() => {});
 
