@@ -287,14 +287,15 @@ function backupRequired(policy) {
  *  'never', 'late', or null: met, not required, company backup off (backupOn not exactly true), no answer on record, or
  *  an answer older than BACKUP_SEEN_STALE_MS (refreshes have been failing, so nothing current is known). With no age
  *  set, any backup meets it. */
-const BACKUP_SEEN_STALE_MS = 3 * 60 * 60 * 1000;
+const BACKUP_SEEN_STALE_MS = 3 * 60 * 60 * 1000;   // three of server.js ORG_REFRESH_MS; orgpolicy-backup-7586.test.js holds the two together
 function backupLate(seen, policy, nowMs = Date.now()) {
-  if (!seen || typeof seen !== 'object' || seen.backupOn !== true || !backupRequired(policy)) return null;
+  let p = policy;
+  if (p === undefined) { try { p = current(); } catch { return null; } }
+  if (!seen || typeof seen !== 'object' || seen.backupOn !== true || !backupRequired(p)) return null;
   const seenAt = seen.backupSeenAt;
   if (!Number.isFinite(seenAt) || nowMs - seenAt > BACKUP_SEEN_STALE_MS) return null;
   const at = seen.backupAt;
   if (!Number.isFinite(at)) return 'never';
-  const p = policy === undefined ? (() => { try { return current(); } catch { return null; } })() : policy;
   const hrs = p && p.backup && Number.isFinite(p.backup.max_age_hours) && p.backup.max_age_hours > 0 ? p.backup.max_age_hours : null;
   return hrs !== null && seenAt / 1000 - at > hrs * 3600 ? 'late' : null;
 }

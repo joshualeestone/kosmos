@@ -67,3 +67,18 @@ test('#7586: nothing is said when backup is not required, company backup is off,
   // CONTROL: the same inputs with backup on do speak, so each null above is the condition, not a dead function.
   assert.equal(op.backupLate({ backupOn: true, backupAt: null, backupSeenAt: now }, pol, now), 'never');
 });
+
+test('#7586: the stale limit is three of the board\'s full status refreshes (server.js ORG_REFRESH_MS)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const m = src.match(/^const ORG_REFRESH_MS = ([0-9* ]+);$/m);
+  assert.ok(m, 'ORG_REFRESH_MS is gone or no longer a plain product of numbers');
+  const refreshMs = m[1].split('*').map((x) => Number(x.trim())).reduce((a, b) => a * b, 1);
+  assert.ok(Number.isFinite(refreshMs) && refreshMs > 0, m[1]);
+  assert.equal(op.BACKUP_SEEN_STALE_MS, 3 * refreshMs);
+});
+
+test('#7586: a backup time ahead of the answer (coordinator clock skew) counts as met, never as late', () => {
+  const seenAt = Date.UTC(2026, 10, 18, 12);
+  const pol = { backup: { required: true, max_age_hours: 1 } };
+  assert.equal(op.backupLate({ backupOn: true, backupAt: seenAt / 1000 + 600, backupSeenAt: seenAt }, pol, seenAt), null);
+});
