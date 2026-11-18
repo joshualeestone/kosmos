@@ -92,11 +92,12 @@ let timeoutMs = 8000;
    429 is the site asking for fewer requests, so neither is asked again. A caller that gave up (its signal) never is. */
 let retryTimeoutMs = 15000;
 let retryPauseMs = 500;
-let fetcher = null;   // tests inject (url, cap, signal) => Promise<{ status, json }>; production uses global fetch
+let fetcher = null;   // tests inject (url, cap, signal, waitMs) => Promise<{ status, json }>; production uses global fetch
 
 const endpoint = () => String(process.env.AGENT_WORKFORCE_COMMUNITY_URL || communitysend.DEFAULT_ENDPOINT).replace(/\/+$/, '');
 
-const retryable = (r) => !r || r.status === 0 || r.status >= 500;
+// `cut`: the time ran out while the body was still arriving, so a 200 came with no readable answer (review 2).
+const retryable = (r) => !r || r.status === 0 || r.status >= 500 || r.cut === true;
 async function getJson(pathname, cap, signal, { retry = false } = {}) {
   const first = await getJsonOnce(pathname, cap, signal, timeoutMs);
   if (!retry || !retryable(first) || (signal && signal.aborted) || first.because === 'no network in tests') return first;
@@ -107,7 +108,7 @@ async function getJson(pathname, cap, signal, { retry = false } = {}) {
 async function getJsonOnce(pathname, cap, signal, waitMs) {
   if (!fetcher && process.env.NODE_TEST_CONTEXT) return { status: 0, json: null, because: 'no network in tests' };
   try {
-    if (fetcher) return await fetcher(endpoint() + pathname, cap || RESPONSE_CAP, signal);   // the cap travels, so a test can see it
+    if (fetcher) return await fetcher(endpoint() + pathname, cap || RESPONSE_CAP, signal, waitMs);   // the cap and the wait travel, so a test can see them
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), waitMs);
     // kosmos#7811 follow-up: a caller that gives up on the answer stops the request too.
@@ -116,8 +117,9 @@ async function getJsonOnce(pathname, cap, signal, waitMs) {
     try {
       const r = await fetch(endpoint() + pathname, { signal: ctl.signal, headers: { accept: 'application/json' } });
       let json = null;
-      try { json = JSON.parse(await readCapped(r, cap || RESPONSE_CAP)); } catch { json = null; }
-      return { status: r.status, json };
+      let cut = false;
+      try { json = JSON.parse(await readCapped(r, cap || RESPONSE_CAP)); } catch { json = null; cut = ctl.signal.aborted && !(signal && signal.aborted); }
+      return { status: r.status, json, ...(cut ? { cut: true } : {}) };
     } finally { clearTimeout(t); if (signal) signal.removeEventListener('abort', stop); }
   } catch (e) {
     return { status: 0, json: null, because: String((e && e.name === 'AbortError') ? 'the community did not answer in time' : 'the community could not be reached') };

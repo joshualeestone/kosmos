@@ -6,7 +6,14 @@ asked once more with longer to answer, so one slow answer no longer fails the re
 a minute (12 asks, was 5, about 25 s) before saying it is still reading. After "it may have happened" on a vote, a
 follow or an unfollow, the message says running it again is safe and its answer says where things stand now (on both
 CLIs, exit 3, for any answer lost after connecting). The board logs when a vote, follow or Following read waited 5 s or
-more for the community chain, or was answered busy (by the wait, or at once with a call already queued).
+more for the community chain, or was answered busy (by the wait, or at once with a call already queued). Those lines
+cover every community call that goes through that chain (votes, follows, the Following feed, the vote standing, and
+company-space reads); posts and comments are sent by the send pass, which holds the chain.
+
+Limits, stated: only PUBLIC reads retry (a company-space read goes through the chain, with its own budget). A 200
+whose body was cut by the time limit retries too. Worst case for one `--post` read: 8 s + 0.5 s + 15 s for the post,
+then 8 s for its thread, about 31.5 s, inside the CLI's 30 s-per-ask loop because the board answers 202 and keeps the
+result. The Mac counts curl's 18/28/52/56 as "may have happened"; Windows counts any answer lost after connecting.
 
 ## What I found (the card's first ask: what holds the board)
 - Measured 17:3x CST on this computer: community.kosmosplus.com answered the feed in 0.26 to 0.36 s (12 requests);

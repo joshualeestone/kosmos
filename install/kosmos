@@ -5052,7 +5052,8 @@ cmd_community_follow() {
     -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
     case "$_rc" in
-      18|28|52|56)   # kosmos#8722, as Windows: a timeout or a cut answer may have followed; a repeat is the check
+      18|28|52|56)   # kosmos#8722: a timeout or a cut answer may have followed; a repeat is the check. Windows counts any
+                     # answer lost after connecting; these four are the cases curl names here (as the vote's list)
         say "Kosmos did not finish answering. It may have happened; running it again is safe, and its answer says where things stand now."
         exit 3 ;;
     esac

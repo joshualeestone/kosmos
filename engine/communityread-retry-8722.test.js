@@ -35,6 +35,20 @@ test('a 5xx is asked once more; a second failure is returned as it is, with no t
   assert.equal(r.status, 502);
 });
 
+test('the second ask gets the longer wait (15 s), the first the usual one', async () => {
+  const waits = [];
+  cr.setFetcher(async (url, cap, signal, waitMs) => { waits.push(waitMs); return { status: 0, json: null }; });
+  await cr.getJson('/posts/x', null, undefined, { retry: true });
+  assert.deepEqual(waits, [8000, 15000]);
+});
+
+test('a 200 whose body was cut by the time limit is asked once more', async () => {
+  const asked = answering({ status: 200, json: null, cut: true }, { status: 200, json: { posts: [] } });
+  const r = await cr.getJson('/posts/feed', null, undefined, { retry: true });
+  assert.equal(asked.length, 2);
+  assert.deepEqual(r.json, { posts: [] });
+});
+
 test('a 429, a 404 and a 200 are never asked again', async () => {
   for (const status of [429, 404, 200]) {
     const asked = answering({ status, json: {} });
