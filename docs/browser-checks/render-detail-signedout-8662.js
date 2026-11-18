@@ -59,7 +59,9 @@ const runsOn = (page) => page.evaluate(() => {
       page.on('pageerror', (e) => errors.push(look + ': ' + String(e && e.message || e)));
       if (look === 'new') await page.addInitScript(() => { try { localStorage.setItem('kosmos-look', 'new'); } catch { /* storage refused */ } });
       let refuse = false;   // false | '403' | 'relay' | 'down'
+      let statusReads = 0;  // every status read the page makes, answered or refused
       await page.route('**/api/**', (r) => {
+        if (new URL(r.request().url()).pathname === '/api/status') statusReads += 1;
         if (refuse === '403') return r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify(AUTH_403) });
         if (refuse === 'relay') return r.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ signed_out: true }) });
         if (refuse === 'down') return r.abort('connectionrefused');
@@ -108,7 +110,8 @@ const runsOn = (page) => page.evaluate(() => {
       check(`${look}: signed out: the agent page says so`, out.note && /This page is signed out/.test(out.text) && /See how to sign in/.test(out.text), JSON.stringify(out));
       const atShow = await page.evaluate(() => window.__atShow);
       /* On screen, the words come a frame after the note shows, so "no words yet" proves focus did not wait for them. A
-         page the browser reports hidden writes them at once and this arm cannot tell the two orders apart: it fails. */
+         page the browser reports hidden writes them at once and this arm cannot tell the two orders apart,
+         so the precondition below fails there. */
       check(`${look}: precondition: the page was on screen when the note showed`, !!atShow && atShow.pageHidden === false, JSON.stringify(atShow));
       const where = !!atShow && atShow.inNote === true && atShow.words === 0;
       check(`${look}: signed out: the Model section (the picker) is inert`, out.inert, JSON.stringify(out));
@@ -128,6 +131,10 @@ const runsOn = (page) => page.evaluate(() => {
       check(`${look}: a second sign-out shows the note with its words again`, again.note && /This page is signed out/.test(again.text), JSON.stringify(again));
       /* kosmos#8672 pin 1. The open page keeps its last reading (the note says so), so the signed-out line reaches Runs
          on when an agent page is painted while signed out: opening another agent in-page, from what the board last read. */
+      // Two more status polls first, so a repaint driven by a refused poll would have landed before the read.
+      const readsAt = statusReads;
+      for (let i = 0; i < 100 && statusReads < readsAt + 2; i++) await page.waitForTimeout(200);
+      check(`${look}: precondition: two more status polls ran while signed out`, statusReads >= readsAt + 2, String(statusReads - readsAt));
       const runsKept = await runsOn(page);
       check(`${look}: signed out: the open page keeps its last Runs on reading`, runsKept.line === runsBefore.line && !String(runsKept.line).includes(SIGNED_OUT_MODEL), JSON.stringify(runsKept));
       const other = await page.evaluate((cur) => {
