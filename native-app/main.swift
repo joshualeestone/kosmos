@@ -4635,6 +4635,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     /// #5167: into the person's Downloads folder, under a safe name that never replaces a file
     /// (downloadDestination). No Downloads folder: the download is cancelled rather than put elsewhere.
+    /// #5167 (11-18): a download restarted after macOS refused Downloads goes to the place the person chose instead.
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
                   suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
         // #5167 (11-18) review 1: taken first, so a restarted download that stops below never leaves its place behind.
@@ -4818,6 +4819,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             if choose {
                 let panel = NSSavePanel()
                 panel.nameFieldStringValue = name
+                // Review 2: a name already there is never replaced (WebKit will not write over a file), so it says so first.
+                panel.message = "If a file with this name is already there, Kosmos saves the new one beside it with a number."
                 panel.canCreateDirectories = true
                 if panel.runModal() == .OK { chosen = panel.url }
             }
@@ -4829,6 +4832,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc(download:didFailWithError:resumeData:)
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download))
+        // #5167 (11-18) review 2: the page the download began on, read before tellPageDownload forgets it.
+        let begunOn = downloadInfo[ObjectIdentifier(download)]?.commits
         tellPageDownload(download, "failed", name: dest?.lastPathComponent)
         logLine("#5167: a download failed (\(dest?.lastPathComponent ?? "no destination yet")): \(error.localizedDescription)")
         // 11-06: kept on a person's Mac too (logLine's file is the test harness's only), in codes alone.
@@ -4846,7 +4851,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             } else if downloadsRestarted.contains(download) {
                 // Review 1: the place the person chose failed too: said as that place's, and not asked about again.
                 tellDownloadFailed("The file could not be saved where you chose (\(downloadFailureWords(error))).")
-            } else if let dest, downloadRefusedByMacOS(error), let request = download.originalRequest, let webView = download.webView {
+            } else if let dest, downloadRefusedByMacOS(error), let request = download.originalRequest, let webView = download.webView,
+                      (request.httpMethod ?? "GET") == "GET", begunOn == nil || begunOn == pageCommits {
+                /* Review 2: only a GET is asked for again (a POST would be sent twice), and only while the page it began on
+                   still shows; otherwise the plain failure below. */
                 // 11-18: macOS refused the write to Downloads ("Operation not permitted"); another place can still take it.
                 offerSaveElsewhere(error, request: request, webView: webView, name: dest.lastPathComponent)
             } else {

@@ -27,6 +27,17 @@ Whatever the cause, the person gets a way through and is told what to do:
 - Rejected: retrying Downloads silently (the refusal stays until the app restarts or the person allows it); writing
   somewhere the person did not choose (a temp folder they would not find).
 
+## What the page is told (review 1 and 2)
+The page is told the save failed, as it did: the save to Downloads did fail. The restart answers no click on the page
+(the page's words for a saved file say Downloads, and offer Show in Finder there), so after a save to a chosen place the
+page still shows that the Downloads save failed; the app's own question and panel carry the rest. Accepted: telling the
+page a file was saved somewhere else needs page words that do not exist yet.
+
+## Limits (review 2)
+Only a GET is asked for again (a POST would be sent twice), and only while the page the download began on still shows.
+The panel says up front that a taken name gets a number (WebKit never writes over a file, so its Replace cannot be
+honoured).
+
 ## Weakest premise
 That a Save panel choice is writable when Downloads is refused. True for TCC's user-intent rule and measured here for a
 read-only folder (EACCES), but the EPERM case itself was not reproduced on this Mac.

@@ -352,8 +352,8 @@ test('kosmos#7952 review 1: only a download the board page itself asked for is m
   const fail = SRC.slice(SRC.indexOf('@objc(download:didFailWithError:resumeData:)'));
   assert.ok(fail.indexOf('} else if downloadsRestarted.contains(download) {') < fail.indexOf('downloadRefusedByMacOS(error)'),
     'a restarted download that fails is asked about again, as if it were Downloads');
-  assert.match(SRC, /\} else if let dest, downloadRefusedByMacOS\(error\), let request = download\.originalRequest, let webView = download\.webView \{/,
-    'the restart is no longer limited to a download that was already given a Downloads path');
+  assert.match(SRC, /\} else if let dest, downloadRefusedByMacOS\(error\), let request = download\.originalRequest, let webView = download\.webView,\n\s+\(request\.httpMethod \?\? "GET"\) == "GET", begunOn == nil \|\| begunOn == pageCommits \{/,
+    'the restart is no longer limited to a GET of a download that was already given a Downloads path, on the page it began on');
   const start = branch.indexOf('startDownload(using: request)');
   const mark = branch.indexOf('sameOriginDownloadRequest(asked)');
   assert.ok(start > guard && mark > guard, 'the request is marked or started before the page check');
