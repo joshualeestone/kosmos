@@ -1750,6 +1750,11 @@ done
 # --- claims, so these run here, in position, and not on my word.
 sbr="$(new_sandbox)"
 if boot_board_rich "$sbr" "$P11"; then
+  # kosmos#8694: first run completed HERE, as the P5, P6, P8 and P10 boards do, and as the checks below say they
+  # expect ("same first-run-complete board"). Before this, its screen stayed up until whichever check first closed it
+  # (render-list-row in a full run), so a check selection that skipped that one changed what the rest saw: #8691 went
+  # red that way. Not inside boot_board_rich, because P12's click-first-run needs first run open.
+  curl -s -X POST "http://127.0.0.1:$P11/api/first-run/complete" >/dev/null
   run_one "render-org-chart"   env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-org-chart.js
   run_one "render-not-running" env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-not-running.js
   run_one "render-list-row"    env KOSMOS_URL="http://127.0.0.1:$P11" node docs/browser-checks/render-list-row.js
