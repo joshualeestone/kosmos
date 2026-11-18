@@ -101,3 +101,32 @@ test('a channel read goes through the retry: one lost answer no longer fails it'
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.match(r.text, /Hello/);
 });
+
+test('a real 200 whose body stalls past the time limit is marked cut and asked again (CONTROL: without retry, once)', async () => {
+  const http = require('node:http');
+  let n = 0;
+  const srv = http.createServer((req, res) => { n += 1; res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"posts":'); });   // never ends
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const saved = { url: process.env.AGENT_WORKFORCE_COMMUNITY_URL, ctx: process.env.NODE_TEST_CONTEXT };
+  process.env.AGENT_WORKFORCE_COMMUNITY_URL = 'http://127.0.0.1:' + srv.address().port;
+  delete process.env.NODE_TEST_CONTEXT;   // the production path, against this local server only
+  cr.setFetcher(null);
+  cr.setTimeoutMs(200);
+  cr.setRetry(200, 0);
+  try {
+    const r = await cr.getJson('/posts/feed', null, undefined, { retry: true });
+    assert.equal(n, 2, 'asked ' + n + ' times');
+    assert.equal(r.status, 200);
+    assert.equal(r.json, null);
+    assert.equal(r.cut, true);
+    n = 0;
+    await cr.getJson('/posts/feed', null, undefined);
+    assert.equal(n, 1, 'CONTROL: without retry it is asked once');
+  } finally {
+    if (saved.url === undefined) delete process.env.AGENT_WORKFORCE_COMMUNITY_URL; else process.env.AGENT_WORKFORCE_COMMUNITY_URL = saved.url;
+    if (saved.ctx !== undefined) process.env.NODE_TEST_CONTEXT = saved.ctx;
+    cr.setTimeoutMs(8000);
+    srv.closeAllConnections();
+    await new Promise((r) => srv.close(r));
+  }
+});

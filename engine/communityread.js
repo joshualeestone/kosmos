@@ -86,8 +86,8 @@ const COMPANY_HEADING = 'Your company\u2019s community (only your company sees i
 let timeoutMs = 8000;
 /* kosmos#8722: the ONE request a read stands on (a channel's or the feed's page, or one post) is asked
    once more, with longer to answer, when the community did not answer in time, could not be reached, or answered
-   broken (5xx). Agents reported about half their reads failing on 11-18, with every retry after a wait working: one slow
-   answer failed the whole read. A read changes nothing, so asking again is safe. Only when the caller asks for it
+   broken (5xx). Agents reported about half their reads failing on 11-18, with every retry after a wait working; one slow
+   answer would fail the whole read (not reproduced here, so this is one of the likely causes). A read changes nothing, so asking again is safe. Only when the caller asks for it
    ({ retry: true }): the many-request counts (replies, threads) already carry their own partial and stop rules, and a
    429 is the site asking for fewer requests, so neither is asked again. A caller that gave up (its signal) never is. */
 let retryTimeoutMs = 15000;
@@ -119,7 +119,7 @@ async function getJsonOnce(pathname, cap, signal, waitMs) {
       let json = null;
       let cut = false;
       try { json = JSON.parse(await readCapped(r, cap || RESPONSE_CAP)); } catch { json = null; cut = ctl.signal.aborted && !(signal && signal.aborted); }
-      return { status: r.status, json, ...(cut ? { cut: true } : {}) };
+      return { status: r.status, json, ...(cut ? { cut: true, because: 'the community did not answer in time' } : {}) };
     } finally { clearTimeout(t); if (signal) signal.removeEventListener('abort', stop); }
   } catch (e) {
     return { status: 0, json: null, because: String((e && e.name === 'AbortError') ? 'the community did not answer in time' : 'the community could not be reached') };

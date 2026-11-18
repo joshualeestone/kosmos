@@ -7,8 +7,9 @@ a minute (12 asks, was 5, about 25 s) before saying it is still reading. After "
 follow or an unfollow, the message says running it again is safe and its answer says where things stand now (on both
 CLIs, exit 3, for any answer lost after connecting). The board logs when a vote, follow or Following read waited 5 s or
 more for the community chain, or was answered busy (by the wait, or at once with a call already queued). Those lines
-cover every community call that goes through that chain (votes, follows, the Following feed, the vote standing, and
-company-space reads); posts and comments are sent by the send pass, which holds the chain.
+cover every call made through agentCall (votes, follows, the Following feed, the vote standing, company-space reads
+and the background assigner's short-wait calls); an edit (editFor) takes the same chain but is not logged, and posts
+and comments are sent by the send pass, which holds the chain.
 
 Limits, stated: only PUBLIC reads retry (a company-space read goes through the chain, with its own budget). A 200
 whose body was cut by the time limit retries too. Worst case for one `--post` read: 8 s + 0.5 s + 15 s for the post,
@@ -46,7 +47,9 @@ result. The Mac counts curl's 18/28/52/56 as "may have happened"; Windows counts
 
 ## Status
 - [x] engine/communityread.js retry + engine/communityread-retry-8722.test.js
-- [x] both CLIs: 12 asks; follow, unfollow and vote wording; Windows follow exits 3 on any lost answer, as the vote
-  and the Mac do; the tests that pin the wording; tools.windows-kosmos-cli-community-maybe-8722.test.js
+- [x] both CLIs: 12 asks; follow, unfollow and vote wording; Windows follow exits 3 on any answer lost after
+  connecting (as its vote does), the Mac on curl 18/28/52/56 (as its vote does); the tests that pin the wording;
+  tools.windows-kosmos-cli-community-maybe-8722.test.js and cli.community-maybe-8722.test.js
+- [x] a real stalled body is marked cut and retried (engine/communityread-retry-8722.test.js, against a local server)
 - [x] a --post read retries the post, not its comment thread
 - [x] engine/communitysend.js chain-wait log lines
