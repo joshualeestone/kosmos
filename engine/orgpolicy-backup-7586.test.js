@@ -82,3 +82,11 @@ test('#7586: a backup time ahead of the answer (coordinator clock skew) counts a
   const pol = { backup: { required: true, max_age_hours: 1 } };
   assert.equal(op.backupLate({ backupOn: true, backupAt: seenAt / 1000 + 600, backupSeenAt: seenAt }, pol, seenAt), null);
 });
+
+test('#7586: a backup time in milliseconds (not the seconds the coordinator sends) reads as met, so the board says nothing', () => {
+  const seenAt = Date.UTC(2026, 10, 18, 12);
+  const pol = { backup: { required: true, max_age_hours: 24 } };
+  assert.equal(op.backupLate({ backupOn: true, backupAt: seenAt - 5 * 86400 * 1000, backupSeenAt: seenAt }, pol, seenAt), null);
+  // CONTROL: the same moment in seconds is late.
+  assert.equal(op.backupLate({ backupOn: true, backupAt: seenAt / 1000 - 5 * 86400, backupSeenAt: seenAt }, pol, seenAt), 'late');
+});
