@@ -19,7 +19,8 @@ stroke rgb(156,116,27). So the fix for "dingy" IS dropping the stroke; no new co
   dingy look Josh named twice).
 - The burst carries across repaints: the save's answer and the 5 s poll repaint the stars within milliseconds, so
   starBtn redraws a star mid-burst with a negative animation delay (STAR_BURST). Without that, the save's repaint cut
-  the burst off before it played (measured in render-star-6719).
+  the burst off before it played (seen in render-star-6719's first run of the burst arm; the check now asserts the
+  star the save's repaint draws carries the burst on, and goes red with the carry-over disabled).
 - Weakest premise: "agent's page" means the agents grid; no agent detail page draws a star (starBtn has six
   callers, all tiles and list rows).
 
@@ -27,4 +28,6 @@ stroke rgb(156,116,27). So the fix for "dingy" IS dropping the stroke; no new co
 - [x] CSS: no stroke, more-contrast edge, burst keyframes, reduced motion
 - [x] JS: starBurst, STAR_BURST carried by starBtn
 - [x] render-star-6719: no stroke by default, edge arms under more contrast, burst arms (270/270; main fails the 20 new)
-- [ ] design shots; iPhone star compared
+- [x] design shots: ~/work/design-shots/kosmos-8705/ (8 shots, posted on the card)
+- [x] iPhone star compared: it differs, carded as #8706
+- Known, cosmetic: the top spark of the first My Agents row can be clipped by that list's scroll box.

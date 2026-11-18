@@ -41922,6 +41922,7 @@ function starBtn(a) {
   if (!a.sessionName) return '';   // nothing to save it under, so no star to press
   const on = AGENT_STARS.has(a.sessionName);
   const say = (on ? 'Unstar ' : 'Star ') + (a.name || a.sessionName || '');
+  // typeof: a unit test that lifts starBtn out of the page has no STAR_BURST.
   const began = on && typeof STAR_BURST !== 'undefined' ? STAR_BURST.get(a.sessionName) : undefined;
   const into = began === undefined ? -1 : Date.now() - began;
   const burst = into >= 0 && into < STAR_BURST_MS ? ` burst" style="--burst-at:-${Math.round(into)}ms` : '';
@@ -42003,6 +42004,7 @@ function toggleStar(name, follow) {
   // Review 11: a repaint that throws must not stop the save going out (the page would show a star the board never got).
   try { repaintAgentOrder(follow); } catch { /* the save below still runs, and its answer repaints */ }
   if (on) starBurst(name);   // #8705: after the repaint, so it plays on the star now drawn
+  else if (typeof STAR_BURST !== 'undefined') STAR_BURST.delete(name);   // unstarred mid-burst: nothing left to carry
   STARS_WRITING += 1;
   /* Review 4: a save that threw (a repaint failing, say) must not stop the presses queued after it, so the chain goes
      on past a rejection; and the in-flight count is settled here, whatever the save did, or reloads stop for good. */

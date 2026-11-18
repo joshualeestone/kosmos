@@ -57,6 +57,7 @@ async function open(browser, eng, w, h, theme, touchArg, dsf) {
         if (opts && opts.method === 'PUT') {
           const body = JSON.parse(opts.body);
           window.STAR_PUTS.push(body);
+          if (window.STAR_DELAY) await new Promise((r) => setTimeout(r, window.STAR_DELAY));   // #8705: a save that answers late
           if (window.STAR_REFUSE) return enc({ error: 'unavailable' }, 503);   // a passing fault: the try-again line (review 10)
           window.STAR_STORE = window.STAR_STORE.filter((n) => n !== body.name);
           if (body.on) window.STAR_STORE.push(body.name);
@@ -428,6 +429,9 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       const t = `[${eng} ${motion === 'reduce' ? 'reduced motion ' : ''}burst]`;
       const { ctx, page, errs } = await open(browser, eng, 1280, 900, 'light');
       await page.emulateMedia({ reducedMotion: motion });
+      // The save answers 250 ms late, so the star is marked below before the save's repaint replaces it, every run
+      // (at 60 ms WebKit sometimes marked it after); still well inside the 550 ms burst.
+      await page.evaluate(() => { window.STAR_DELAY = 250; });
       const look = () => page.evaluate(() => [...document.querySelectorAll('[data-star="cam"]')].map((b) => ({
         on: b.classList.contains('on'), burst: b.classList.contains('burst'), shown: b.getClientRects().length > 0,
         anims: b.querySelector('svg').getAnimations().length + b.getAnimations({ subtree: true }).filter((a) => a.effect && a.effect.pseudoElement === '::before').length,
@@ -435,11 +439,21 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       await page.locator('#grid [data-star="cam"]').click();
       await page.waitForFunction(() => window.STAR_PUTS.length === 1);
       const starred = await look();
+      // Mark the star drawn now, so the check below can tell the save's repaint replaced it.
+      await page.evaluate(() => { const b = document.querySelector('#grid [data-star="cam"]'); if (b) b.dataset.drawnBefore = '1'; });
       chk(starred.length >= 2 && starred.every((b) => b.on && !/none/.test(b.fill)), `${t} CONTROL: the star is starred and filled in the grid and the list`, JSON.stringify(starred));
       if (motion === 'reduce') chk(starred.every((b) => !b.burst && b.anims === 0), `${t} starring plays no burst`, JSON.stringify(starred));
       else {
         // A hidden view (the list, while the grid is shown) runs no animation, so the animations are asked of the shown star.
         chk(starred.some((b) => b.shown) && starred.every((b) => b.burst && (!b.shown || b.anims >= 2)), `${t} starring plays the burst (the pop and the sparks) on the shown star; the hidden view's star carries it too`, JSON.stringify(starred));
+        // The save's answer repaints the stars within milliseconds. Mid-burst, the star drawn by that repaint still bursts,
+        // started part-way in (a negative --burst-at), so the burst carries on rather than being cut off or restarted.
+        await page.waitForFunction(() => { const b = document.querySelector('#grid [data-star="cam"]'); return !!b && !b.dataset.drawnBefore; }, null, { timeout: 2000 }).catch(() => {});
+        const mid = await page.evaluate(() => { const b = document.querySelector('#grid [data-star="cam"]'); if (!b) return null;
+          return { replaced: !b.dataset.drawnBefore, burst: b.classList.contains('burst'), at: b.style.getPropertyValue('--burst-at'),
+            running: b.querySelector('svg').getAnimations().filter((a) => a.playState === 'running').length }; });
+        chk(!!mid && mid.replaced, `${t} CONTROL: the save's answer repainted the star mid-burst`, JSON.stringify(mid));
+        chk(!!mid && mid.burst && /^-\d+ms$/.test(mid.at) && mid.running >= 1, `${t} the star the repaint drew carries the burst on, part-way in`, JSON.stringify(mid));
         await page.waitForTimeout(800);
         const after = await look();
         chk(after.every((b) => !b.burst), `${t} the burst plays once and is gone`, JSON.stringify(after));
