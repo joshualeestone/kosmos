@@ -141,6 +141,8 @@ const runsOn = (page) => page.evaluate(() => {
       check(`${look}: signed out: an agent with no model read, opened, says so on Runs on`, String(runsOut.line).includes(SIGNED_OUT_MODEL), JSON.stringify(runsOut));
       // Back to the first agent for the arms below, which read only the note and the section's lock.
       await page.evaluate((n) => openDetail(n), first);
+      const backOn = await page.evaluate(() => (typeof CURRENT !== 'undefined' && CURRENT ? CURRENT.sessionName : null));
+      check(`${look}: precondition: the first agent's page is open again`, backOn === runsBefore.agent, String(backOn));
       refuse = false;
       await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && n.hidden; }, null, { timeout: 20000 }).catch(() => {});
 
