@@ -20,6 +20,8 @@ Card: kosmos#8669. Scope posted on the card (issuecomment-6964342997).
 - One holder told, the setter first. Rejected: every holder (one event, one pick-up).
 - A busy holder is told when next idle (repeatdue's gates). Rejected: typing into a busy agent.
 - A file over 64 MB is watched by size and modified time only.
+- A file wake watches only an ordinary file under the home folder, outside hidden folders and Library (links followed), with one refusal sentence for every other path; page rows carry neither its path nor its fingerprint. Rejected: any absolute path (the board reads it for any agent on any project).
+- A branch 404 counts as gone only when the repository itself still answers (a lost sign-in also answers 404).
 
 ## Not in slice 1
 Kosmos-held GitHub token road; several conditions per task; a page control to set a wake (CLI only); agent instructions text naming the command.

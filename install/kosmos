@@ -6286,10 +6286,10 @@ cmd_task() {
       say "  kosmos task repeat <project-id> <task-number> --reviewer <agent|none>  who is told when a run is missed"
       say "      --at <HH:MM>  (several a day: --at 09:00,21:00; hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating"
       say "  kosmos task ran <project-id> <task-number> [\"what this run found\"]  record that a repeating task's job just ran"
-      say "  kosmos task wake <project-id> <task-number> --pr <owner/name#123>  tell you once when it merges (also --branch owner/name:main, --file <path>, --at 2h|HH:MM; --clear)"
       say "      --unchanged                                              it found nothing new (the task's page rolls such runs up)"
       say "      --value \"<reading>\"                                      what it found, checked against what the person was last told"
       say "  kosmos task told <project-id> <task-number> [--value \"<what you said>\"]  record what you just told the person (default: the last --value)"
+      say "  kosmos task wake <project-id> <task-number> --pr <owner/name#123>  tell you once when it merges (also --branch owner/name:main, --file <path>, --at 2h|HH:MM; --clear)"
       say "  (project ids are in your instructions' Your projects section.)"
       exit 2 ;;
     # Validate the subcommand AND its required args BEFORE the health check, the same order

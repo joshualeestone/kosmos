@@ -16,6 +16,7 @@ const nodePath = require('node:path');
 process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-taskwake-'));
 process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-taskwake-data-'));
 const FILES = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-taskwake-files-'));
+const IN_HOME = { home: FILES };   // the file wakes' home folder, for prepare (taskwake watches files only under home)
 process.on('exit', () => {
   for (const d of [process.env.AGENT_WORKFORCE_PROJECTS, process.env.AGENT_WORKFORCE_DATA, FILES]) {
     try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ }
@@ -48,7 +49,9 @@ const prClosed = { code: 0, out: 'closed\tfalse\n' };
 test('#8669: what a person writes is read whole, and anything else is refused with a sentence', () => {
   assert.deepEqual(taskwake.parsePr('octo/hello#123'), { repo: 'octo/hello', number: 123 });
   assert.deepEqual(taskwake.parsePr('https://github.com/octo/hello/pull/7'), { repo: 'octo/hello', number: 7 });
-  assert.deepEqual(taskwake.parsePr('https://github.com/octo/hello/pull/7/files'), { problem: 'say the pull request as owner/name#123, or paste its github.com address' });
+  assert.deepEqual(taskwake.parsePr('https://github.com/octo/hello/pull/7/files'), { repo: 'octo/hello', number: 7 }, 'a pasted tab address');
+  assert.deepEqual(taskwake.parsePr('https://github.com/octo/hello/pull/7/commits'), { repo: 'octo/hello', number: 7 });
+  assert.ok(taskwake.parsePr('https://github.com/octo/hello/pull/7/blob').problem);
   for (const bad of ['octo#1', 'octo/hello', 'octo/hello#0', '-x/hello#1', 'octo/..#1', 'a/b/c#1', 'octo/hel lo#1', '']) {
     assert.ok(taskwake.parsePr(bad).problem, bad + ' is refused');
   }
@@ -83,12 +86,27 @@ test('#8669: prepare reads the condition once, so a wake starts from what is tru
   assert.deepEqual(await taskwake.prepare({ branch: 'octo/hello:main' }, { gh }), { wake: { kind: 'branch', repo: 'octo/hello', branch: 'main', from: SHA_A } });
   const f = nodePath.join(FILES, 'notes.md');
   fs.writeFileSync(f, 'first');
-  const fw = (await taskwake.prepare({ file: f })).wake;
+  const fw = (await taskwake.prepare({ file: f }, IN_HOME)).wake;
   assert.equal(fw.kind, 'file');
   assert.equal(fw.name, 'notes.md');
   assert.match(fw.from, /^sha256:[0-9a-f]{64}$/);
-  assert.equal((await taskwake.prepare({ file: nodePath.join(FILES, 'nope.md') })).problem, 'there is no such file');
-  assert.equal((await taskwake.prepare({ file: FILES })).problem, 'that is not a file');
+  // One sentence for every file it will not watch, so a refusal does not say whether a path exists.
+  const CANNOT = 'Kosmos can watch an ordinary file in your home folder, outside hidden folders and Library; it cannot watch that one';
+  assert.equal((await taskwake.prepare({ file: nodePath.join(FILES, 'nope.md') }, IN_HOME)).problem, CANNOT);
+  assert.equal((await taskwake.prepare({ file: FILES }, IN_HOME)).problem, CANNOT);
+  assert.equal((await taskwake.prepare({ file: f }, { home: nodePath.join(FILES, 'elsewhere') })).problem, CANNOT, 'outside the home folder');
+  for (const inside of [['.ssh', 'config'], ['Library', 'prefs.plist'], ['work', '.git', 'HEAD']]) {
+    const hp = nodePath.join(FILES, ...inside);
+    fs.mkdirSync(nodePath.dirname(hp), { recursive: true });
+    fs.writeFileSync(hp, 'x');
+    assert.equal((await taskwake.prepare({ file: hp }, IN_HOME)).problem, CANNOT, inside.join('/'));
+  }
+  // A link inside the home folder that points out of it is followed, and refused.
+  const outside = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-taskwake-out-'));
+  fs.writeFileSync(nodePath.join(outside, 'target.txt'), 'x');
+  fs.symlinkSync(nodePath.join(outside, 'target.txt'), nodePath.join(FILES, 'link.txt'));
+  assert.equal((await taskwake.prepare({ file: nodePath.join(FILES, 'link.txt') }, IN_HOME)).problem, CANNOT);
+  fs.rmSync(outside, { recursive: true, force: true });
   assert.equal((await taskwake.prepare({ file: 'notes.md' })).problem, 'say the file as its full path');
   assert.equal((await taskwake.prepare({ pr: 'octo/hello#5', at: '2h' }, { gh })).problem, 'say one thing to wake on: --pr, --branch, --file or --at');
   assert.equal((await taskwake.prepare({}, { gh })).problem, 'say one thing to wake on: --pr, --branch, --file or --at');
@@ -114,7 +132,13 @@ test('#8669: the look says met only once the thing happened, and says why it cou
   answers['repos/octo/hello/git/ref/heads/main'] = { code: 0, out: SHA_B };
   assert.deepEqual(await taskwake.probe(br, { gh }), { met: true, words: 'it has a new commit (' + SHA_B.slice(0, 10) + ')' });
   delete answers['repos/octo/hello/git/ref/heads/main'];
-  assert.deepEqual(await taskwake.probe(br, { gh }), { met: true, words: 'the branch is no longer on GitHub' });
+  // A 404 for the branch is also what a repository this sign-in can no longer see answers: not met.
+  assert.deepEqual(await taskwake.probe(br, { gh }), { met: false, problem: 'GitHub does not show octo/hello to this computer\'s GitHub sign-in just now' });
+  answers['repos/octo/hello'] = { code: 0, out: 'octo/hello\n' };
+  assert.deepEqual(await taskwake.probe(br, { gh }), { met: true, words: 'the branch is no longer on GitHub' }, 'the repository answers and the branch does not');
+  // gh's answer is stdout then stderr in one string; a notice after it does not change the reading.
+  answers['repos/octo/hello/pulls/5'] = { code: 0, out: 'closed\ttrue\nA new release of gh is available\n' };
+  assert.deepEqual(await taskwake.probe(pr, { gh }), { met: true, words: 'it was merged' });
 
   const now = Date.now();
   assert.deepEqual(await taskwake.probe({ kind: 'at', at: now + 1000 }, { now }), { met: false });
@@ -124,7 +148,7 @@ test('#8669: the look says met only once the thing happened, and says why it cou
 test('#8669: a file wakes on a changed fingerprint, not on a touch, and on being removed', async () => {
   const f = nodePath.join(FILES, 'report.txt');
   fs.writeFileSync(f, 'version 1');
-  const w = (await taskwake.prepare({ file: f })).wake;
+  const w = (await taskwake.prepare({ file: f }, IN_HOME)).wake;
   const seen = new Map();
   assert.deepEqual(await taskwake.probe(w, {}, 'k', seen), { met: false }, 'unchanged');
   const later = new Date(Date.now() + 5000);
@@ -141,7 +165,7 @@ test('#8669: a file wakes on a changed fingerprint, not on a touch, and on being
   assert.deepEqual(await taskwake.probe(w, {}, 'k', seen), { met: true, words: 'it was removed' });
   // A file too big to fingerprint here is watched by its size and time.
   const big = { statSync: () => ({ isFile: () => true, size: taskwake.FILE_HASH_MAX + 1, mtimeMs: 5 }) };
-  const bw = (await taskwake.prepare({ file: '/big/file.bin' }, { fs: big })).wake;
+  const bw = (await taskwake.prepare({ file: '/big/file.bin' }, { fs: big, home: '/big' })).wake;
   assert.equal(bw.from, 'stat:' + (taskwake.FILE_HASH_MAX + 1) + ':5');
   assert.deepEqual(await taskwake.probe(bw, { fs: big }, 'b', new Map()), { met: false });
   const bigger = { statSync: () => ({ isFile: () => true, size: taskwake.FILE_HASH_MAX + 1, mtimeMs: 6 }) };
@@ -201,9 +225,10 @@ test('#8669: a file wake\'s path stays on this computer; the rows still name the
   fs.mkdirSync(nodePath.dirname(f), { recursive: true });
   fs.writeFileSync(f, 'x');
   const t = tasks.create(p.id, { sentence: 'Watch the plan', who: 'ann' });
-  tasks.setWake(p.id, t.number, (await taskwake.prepare({ file: f })).wake, { by: 'ann' });
+  tasks.setWake(p.id, t.number, (await taskwake.prepare({ file: f }, IN_HOME)).wake, { by: 'ann' });
   const row = tasks.withoutLocalPaths(stored(p.id, t.number));
   assert.equal('path' in row.wake, false);
+  assert.equal('from' in row.wake, false, 'nor the fingerprint');
   assert.equal(JSON.stringify(row).includes('secret-folder-name'), false, 'no part of the path');
   assert.equal(taskwake.fieldsOf(row).wakeWords, 'waits for plan.md to change');
   const joined = projects.joinTaskClaims([stored(p.id, t.number)], projects.readAll(), ['ann'], [], { name: p.name, id: p.id })[0];
@@ -327,4 +352,20 @@ test('#8669: a held task, a busy holder and a holder off the project are not tol
     assert.equal(w.typed.length, 1);
     assert.match(w.typed[0].text, /was set to wake you .*, and that time has come\./);
   }
+});
+
+test('#8669: the history says the wake in words, and the board\'s own wake rows are not activity', () => {
+  const { phrase } = require('./taskactphrase');
+  const names = (sn) => ({ ann: 'Ann' }[sn] || null);
+  assert.equal(phrase({ kind: 'wake-set', words: 'waits for PR #12 in octo/hello to merge' }, names), 'Set to wake: waits for PR #12 in octo/hello to merge');
+  assert.equal(phrase({ kind: 'wake-met', words: 'it was merged' }, names), 'Woke: it was merged');
+  assert.equal(phrase({ kind: 'wake-told', told: 'ann', reached: true }, names), 'Woke; Ann was told');
+  assert.equal(phrase({ kind: 'wake-told', told: 'ann', reached: false }, names), 'Woke; Kosmos could not reach Ann');
+  const p = setupProject('Quiet', ['ann']);
+  const t = tasks.create(p.id, { sentence: 'Quiet one', who: 'ann' });
+  tasks.setWake(p.id, t.number, { kind: 'at', at: Date.now() + 1000 }, { by: 'ann' });
+  const before = tasks.lastActivityOf(p.id, stored(p.id, t.number));
+  tasks.saveWakeMet(p.id, t.number, stored(p.id, t.number).wake.setAt, { at: new Date(Date.now() + 60e3).toISOString(), words: 'the time came' });
+  taskchat.record(p.id, t.number, { kind: 'wake-told', told: 'ann', reached: true });
+  assert.equal(tasks.lastActivityOf(p.id, stored(p.id, t.number)), before, 'unchanged by the wake-met and wake-told rows');
 });

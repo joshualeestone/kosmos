@@ -80,7 +80,7 @@ function branchProblem(b) {
 function parsePr(s) {
   const v = typeof s === 'string' ? s.trim() : '';
   let m = v.match(/^([^/#\s]+\/[^/#\s]+)#(\d{1,9})$/);
-  if (!m) m = v.match(/^https:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/pull\/(\d{1,9})\/?(?:[#?].*)?$/);
+  if (!m) m = v.match(/^https:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/pull\/(\d{1,9})(?:\/(?:files|commits|checks))?\/?(?:[#?].*)?$/);
   if (!m) return { problem: 'say the pull request as owner/name#123, or paste its github.com address' };
   const problem = repoProblem(m[1]);
   if (problem) return { problem };
@@ -169,6 +169,8 @@ function ghAsk(run, args) {
     try { run(args, (code, out) => resolve({ code, out: String(out || '') })); } catch { resolve({ code: -1, out: '' }); }
   });
 }
+/* runBounded answers stdout then stderr in one string, so any notice gh prints after its answer follows it. */
+function firstLine(out) { return String(out || '').split('\n')[0].trim(); }
 function ghFailure(r, what) {
   if (/HTTP 404|Not Found/i.test(r.out)) return { gone: true, problem: 'GitHub has no ' + what + ' that this computer\'s GitHub sign-in can see' };
   if (/HTTP 401|auth login|not logged|authentication/i.test(r.out)) return { problem: 'GitHub is not signed in on this computer (Connections)' };
@@ -177,7 +179,7 @@ function ghFailure(r, what) {
 async function readPr(run, repo, number) {
   const r = await ghAsk(run, ['api', 'repos/' + repo + '/pulls/' + number, '--jq', '[.state, (.merged|tostring)] | @tsv']);
   if (r.code !== 0) return ghFailure(r, 'pull request #' + number + ' in ' + repo);
-  const [state, merged] = r.out.trim().split('\t');
+  const [state, merged] = firstLine(r.out).split('\t');
   if (merged === 'true') return { state: 'merged' };
   if (state === 'closed') return { state: 'closed' };
   if (state === 'open') return { state: 'open' };
@@ -185,8 +187,15 @@ async function readPr(run, repo, number) {
 }
 async function readBranch(run, repo, branch) {
   const r = await ghAsk(run, ['api', 'repos/' + repo + '/git/ref/heads/' + branch, '--jq', '.object.sha']);
-  if (r.code !== 0) return ghFailure(r, 'branch ' + branch + ' in ' + repo);
-  const sha = r.out.trim();
+  if (r.code !== 0) {
+    const f = ghFailure(r, 'branch ' + branch + ' in ' + repo);
+    if (!f.gone) return f;
+    /* GitHub also answers 404 for a repository this sign-in can no longer see, so the branch counts as gone only when
+       the repository itself still answers. */
+    const repoSeen = await ghAsk(run, ['api', 'repos/' + repo, '--jq', '.full_name']);
+    return repoSeen.code === 0 ? f : { problem: 'GitHub does not show ' + repo + ' to this computer\'s GitHub sign-in just now' };
+  }
+  const sha = firstLine(r.out);
   return SHA_RE.test(sha) ? { sha } : { problem: 'GitHub answered in a way Kosmos could not read' };
 }
 /* A file's fingerprint, or its size and time when it is too big to hash here. { print, size, mtimeMs } or { missing }
@@ -201,6 +210,22 @@ function readFile(p, deps = {}) {
   const print = fileprint.plain(p);
   if (!PRINT_RE.test(print)) return { problem: 'the file cannot be read' };
   return { print, size: st.size, mtimeMs: st.mtimeMs };
+}
+
+/* Is `p` a path the board may watch: after following links, inside the home folder, in no folder whose name starts
+   with a dot, and not under ~/Library. `deps.home` and `deps.fs` are test seams. */
+function fileAllowed(p, deps = {}) {
+  const fs = deps.fs || require('node:fs');
+  const nodePath = require('node:path');
+  let home;
+  let real;
+  try { home = fs.realpathSync ? fs.realpathSync(deps.home || require('node:os').homedir()) : (deps.home || require('node:os').homedir()); } catch { return false; }
+  try { real = fs.realpathSync ? fs.realpathSync(p) : p; } catch { return false; }
+  const rel = nodePath.relative(home, real);
+  if (!rel || rel.startsWith('..') || nodePath.isAbsolute(rel)) return false;
+  const parts = rel.split(nodePath.sep);
+  if (parts[0] === 'Library') return false;
+  return !parts.some((x) => x.startsWith('.'));
 }
 
 /**
@@ -238,9 +263,13 @@ async function prepare(ask, deps = {}) {
       const p = typeof ask.file === 'string' ? ask.file : '';
       const shape = wakeProblem({ kind: 'file', path: p, from: 'stat:0:0' });
       if (shape) return { problem: shape };
+      /* The board reads the file, so it watches only files it should: an ordinary file in the person's home folder,
+         outside hidden folders and Library. Every other answer is the same sentence, so a refusal does not say whether
+         some other path exists. */
+      const cannot = { problem: 'Kosmos can watch an ordinary file in your home folder, outside hidden folders and Library; it cannot watch that one' };
+      if (!fileAllowed(p, deps)) return cannot;
       const r = readFile(p, deps);
-      if (r.missing) return { problem: 'there is no such file' };
-      if (r.problem) return { problem: r.problem };
+      if (r.missing || r.problem) return cannot;
       return { wake: { kind: 'file', path: p, name: baseName(p).slice(0, 255), from: r.print, size: r.size, mtimeMs: r.mtimeMs } };
     }
     const t = parseAt(ask.at, now);
@@ -407,7 +436,7 @@ function owed(projects) {
 
 function tellText(item) {
   const id = /^[A-Za-z0-9._-]{1,80}$/.test(item.projectId) && /[^.]/.test(item.projectId) ? item.projectId : '<project-id>';
-  const what = item.wake.kind === 'at' ? 'was set to wake you ' + describe(item.wake, Date.parse(item.setAt) || Date.now()) : 'was waiting for ' + describe(item.wake);
+  const what = item.wake.kind === 'at' ? 'was set to wake you ' + describe(item.wake, Date.now()) : 'was waiting for ' + describe(item.wake);
   return 'Kosmos: your task #' + item.n + ' in ' + plain(item.project, 80) + ', "' + plain(item.sentence, 160) + '", ' + what
     + (item.wake.kind === 'at' ? ', and that time has come.' : ', and ' + plain(item.met && item.met.words, 120) + '.')
     + ' Pick it up now. Kosmos tells you this once; to wait for something else, set a new wake with kosmos task wake ' + id + ' ' + item.n + '.';
