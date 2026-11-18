@@ -6415,14 +6415,16 @@ cmd_task() {
           --title)
             [ "$_et" = 0 ] || { say "Say --title once. $_eusage"; exit 2; }
             [ "$_ei" -lt "$#" ] || { say "--title needs the new title after it. $_eusage"; exit 2; }
+            _opt_value "task edit" --title "$_ev" "$_eusage"
             [ -n "$(printf '%s' "$_ev" | tr -d '[:space:]\001-\037\177')" ] || { say "A task needs a title: say what needs doing. $_eusage"; exit 2; }
             _et=1; _ei=$((_ei + 2)) ;;
           --detail)
             [ "$_ed" = 0 ] || { say "Say --detail once. $_eusage"; exit 2; }
             [ "$_ei" -lt "$#" ] || { say "--detail needs the new detail after it (or use --clear-detail). $_eusage"; exit 2; }
+            _opt_value "task edit" --detail "$_ev" "$_eusage"
             _ed=1; _ei=$((_ei + 2)) ;;
           --clear-detail) [ "$_ec" = 0 ] || { say "Say --clear-detail once. $_eusage"; exit 2; }; _ec=1; _ei=$((_ei + 1)) ;;
-          --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task edit" "$_eusage" "$_ew" ;;
+          --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task edit" "$_eusage" "$_ew" target ;;   # no -- escape here
           *) say "Put --title or --detail before the new words, and quote them. $_eusage"; exit 2 ;;
         esac
       done
@@ -7302,7 +7304,11 @@ cmd_task() {
         --data "{$_ebody,\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "change that task" "$rc" write; exit 1; }
       case "$body" in
-        '{"task":'*) say "Changed task $num on ${project:-the project}. See it with: kosmos task show ${project:-<project-id>} $num" ;;
+        '{"task":'*)
+          case "$body" in
+            *'"changed":false}') say "Task $num on ${project:-the project} already reads that way, so nothing changed." ;;
+            *) say "Changed task $num on ${project:-the project}. See it with: kosmos task show ${project:-<project-id>} $num" ;;
+          esac ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not change that task: ${because:-it did not say why}."; exit 1 ;;

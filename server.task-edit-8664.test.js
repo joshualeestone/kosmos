@@ -154,6 +154,32 @@ test('an edit from the screen is recorded as the person\'s', async () => {
   assert.equal(row.by, undefined);
 });
 
+test('a new title is told to the task\'s assignee (its instruction block lists the title); a detail-only edit tells nobody', async () => {
+  const pr = projects.create({ name: 'Edit told ' + Math.random().toString(36).slice(2) });
+  projects.mutate(pr.id, (p) => ({ ...p, agents: ['mara'] }));
+  const id = pr.id;
+  const n = tasks.create(id, { sentence: 'Fix login', detail: 'old detail', who: 'mara', made: { via: 'process', by: 'mara' } }).number;
+  assert.deepEqual(tasks.whoOf(tasks.byNumber(projects.readAll().find((x) => x.id === id), n)), ['mara'], 'fixture: mara is not on the task');
+  const told = [];
+  const real = projects.syncAgent;
+  projects.syncAgent = (name) => { told.push(name); return { state: 'skipped' }; };
+  try {
+    const d = await edit(id, n, { detail: 'only the detail' });
+    assert.equal(d.status, 200, JSON.stringify(d.json));
+    assert.deepEqual(told, [], 'a detail-only edit re-synced the assignee');
+    const t = await edit(id, n, { sentence: 'A new title for mara' });
+    assert.equal(t.status, 200, JSON.stringify(t.json));
+    assert.deepEqual(told, ['mara'], 'the assignee was not told the new title');
+  } finally { projects.syncAgent = real; }
+  assert.match(tasks.forAgent(tasks.byNumber(projects.readAll().find((p) => p.id === id), n)), /A new title for mara/);
+});
+
+test('the answer says whether anything changed', async () => {
+  const { id, n } = freshTask();
+  assert.equal((await edit(id, n, { sentence: 'Fix login' })).json.changed, false, 'an edit to the same words said it changed');
+  assert.equal((await edit(id, n, { sentence: 'Fix it now' })).json.changed, true);
+});
+
 test('the activity says what changed, in the words the CLIs print', async () => {
   const { id, n } = freshTask();
   await edit(id, n, { sentence: 'Fix login on iPhone' });

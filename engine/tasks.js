@@ -1676,7 +1676,9 @@ function setDue(projectId, n, dueDate) {
  * refused here rather than moved into the detail: an edit says exactly what it changes. A closed task can be edited too,
  * since correcting what a task was called changes no work. The change is recorded in the task's activity with the old and
  * new words and who made it (`by`, an agent's session name, or `person` for the screen). Changing nothing records
- * nothing. Returns the task as stored. Throws with a sentence (a 404 for no such task, else a 400).
+ * nothing. Returns { task, changed, titleChanged }: the task as stored, whether anything changed, and whether the title
+ * did (the assignees' instruction blocks list the title, so the route updates them then). Throws with a sentence (a 404
+ * for no such task, else a 400).
  */
 function setText(projectId, n, { sentence, detail } = {}, { by = null, person = false } = {}) {
   if (sentence === undefined && detail === undefined) throw new Error('say the new title, the new detail, or both');
@@ -1714,7 +1716,7 @@ function setText(projectId, n, { sentence, detail } = {}, { by = null, person = 
       ...who,
     });
   }
-  return changed;
+  return { task: changed, changed: titleChanged || detailChanged, titleChanged };
 }
 
 /**

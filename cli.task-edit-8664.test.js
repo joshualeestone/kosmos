@@ -36,7 +36,7 @@ function makeHome() {
 }
 
 /* A stub board: `/` answers as Kosmos, every POST is recorded with its parsed body and answered as a task write. */
-function withStub(fn, refusal) {
+function withStub(fn, refusal, answer) {
   const seen = [];
   const server = http.createServer((req, res) => {
     const route = req.url.split('?')[0];
@@ -48,7 +48,7 @@ function withStub(fn, refusal) {
         seen.push({ route, body, agent: req.headers['x-kosmos-agent-token'] });
         if (refusal) { res.writeHead(refusal.status, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: refusal.error })); return; }
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ task: { number: 4, sentence: 'x', who: null } }));
+        res.end(JSON.stringify(answer ? answer.body : { task: { number: 4, sentence: 'x', who: null }, changed: true }));
       });
       return;
     }
@@ -71,7 +71,7 @@ function sh(port, home, args) {
     resolve({ code: err ? err.code : 0, out: String(stdout) + String(stderr) });
   }));
 }
-async function win(argv, refusal) {
+async function win(argv, refusal, answer) {
   const calls = []; const out = []; const err = [];
   const code = await wincli.main(argv, {
     env: { KOSMOS_AGENT_TOKEN: TOKEN },
@@ -81,7 +81,7 @@ async function win(argv, refusal) {
       const route = url.replace('http://127.0.0.1:1', '').split('?')[0];
       calls.push({ route, method: init.method, body: init.body ? JSON.parse(init.body) : undefined, agent: init.headers['x-kosmos-agent-token'] });
       if (refusal) return { status: refusal.status, text: async () => JSON.stringify({ error: refusal.error }) };
-      return { status: 200, text: async () => JSON.stringify({ task: { number: 4, sentence: 'x', who: null } }) };
+      return { status: 200, text: async () => JSON.stringify(answer ? answer.body : { task: { number: 4, sentence: 'x', who: null }, changed: true }) };
     },
   });
   return { code, calls, out: out.join('\n') + '\n' + err.join('\n') };
@@ -105,7 +105,9 @@ const REFUSED = [
   [['--detail', 'a', '--clear-detail'], /do not go together/],
   [['--clear-detail', '--clear-detail'], /Say --clear-detail once/],
   [['just words'], /Put --title or --detail before the new words/],
-  [['--colour', 'red'], /--colour/],
+  [['--colour', 'red'], /--colour is not an option of kosmos task edit/],
+  [['--title', '--clear-detail'], /--title needs a value, and --clear-detail is an option/],   // never a title of "--clear-detail"
+  [['--detail', '--title', 'x'], /--detail needs a value, and --title is an option/],
 ];
 const withoutPane = (b) => { const c = { ...b }; delete c.from_pane; return c; };
 
@@ -149,6 +151,8 @@ test('both CLIs refuse the same mistakes before any request', { skip: SKIP_POSIX
       assert.equal(w.code, 2, 'win ' + JSON.stringify(extra) + ': ' + w.out);
       assert.match(w.out, re, 'win ' + JSON.stringify(extra));
       assert.equal(w.calls.length, 0, 'win sent a request for ' + JSON.stringify(extra));
+      // This verb takes no `--` escape, so neither CLI may offer one.
+      assert.doesNotMatch(mac.out + w.out, /put -- before it/, 'a refusal offered a -- escape the verb does not take: ' + JSON.stringify(extra));
     }
     const notNum = await sh(port, home, ['task', 'edit', 'p8664', 'four', '--title', 'x']);
     assert.equal(notNum.code, 2);
@@ -158,6 +162,19 @@ test('both CLIs refuse the same mistakes before any request', { skip: SKIP_POSIX
     assert.equal((await sh(port, home, ['task', 'edit', 'p8664', '4', '--title', 'ok'])).code, 0);
     assert.equal(seen.length, 1, 'the control did not reach the stub');
   });
+});
+
+test('an edit that changed nothing says so, on both CLIs', { skip: SKIP_POSIX_SHELL }, async () => {
+  const home = makeHome();
+  const nothing = { status: 200, body: { task: { number: 4, sentence: 'x', who: null }, changed: false } };
+  await withStub(async (port) => {
+    const r = await sh(port, home, ['task', 'edit', 'p8664', '4', '--title', 'x']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Task 4 on p8664 already reads that way, so nothing changed\./);
+  }, null, nothing);
+  const w = await win(['task', 'edit', 'p8664', '4', '--title', 'x'], null, nothing);
+  assert.equal(w.code, 0, w.out);
+  assert.match(w.out, /Task 4 on p8664 already reads that way, so nothing changed\./);
 });
 
 test('a board refusal is passed on in its own words, on both CLIs', { skip: SKIP_POSIX_SHELL }, async () => {

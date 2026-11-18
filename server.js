@@ -26824,9 +26824,17 @@ const server = http.createServer(async (req, res) => {
       const refusal = who.refusal || notOnProjectRefusal(who, id, 'change its tasks', 'the task was not changed', 'change a task');
       if (refusal) { sendJson(res, refusal[0], { error: refusal[1] }); return; }
       try {
-        const t = tasks.setText(id, taskText[2], { sentence: body.sentence, detail: body.detail },
+        const out = tasks.setText(id, taskText[2], { sentence: body.sentence, detail: body.detail },
           { by: who.card ? who.card.sessionName : null, person: viaScreen });
-        sendJson(res, 200, { task: taskForCaller(req, body, t) });
+        /* Each assignee's instruction block lists its tasks by title (projects.syncAgent), as create and close keep it;
+           a new title is told there too. The edit stands whatever the sync does. */
+        if (out.titleChanged) {
+          const roster = safeRoster();
+          for (const one of tasks.whoOf(out.task)) {
+            try { projects.syncAgent(one, roster); } catch { /* the edit stands; the next sync catches up */ }
+          }
+        }
+        sendJson(res, 200, { task: taskForCaller(req, body, out.task), changed: out.changed });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,

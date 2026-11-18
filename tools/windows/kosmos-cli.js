@@ -2088,18 +2088,20 @@ async function taskEdit(ctx, args) {
     if (a === '--title') {
       if (hasTitle) { ctx.err('Say --title once. ' + TASK_EDIT_USAGE); return 2; }
       if (i + 1 >= args.length) { ctx.err('--title needs the new title after it. ' + TASK_EDIT_USAGE); return 2; }
+      if (optValueRefused(ctx, '--title', args[i + 1], TASK_EDIT_USAGE)) return 2;
       const t = String(args[i + 1]).replace(/[\t\r\n]/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '');
       if (!t.trim()) { ctx.err('A task needs a title: say what needs doing. ' + TASK_EDIT_USAGE); return 2; }
       body.sentence = t; hasTitle = true; i += 1;
     } else if (a === '--detail') {
       if (hasDetail) { ctx.err('Say --detail once. ' + TASK_EDIT_USAGE); return 2; }
       if (i + 1 >= args.length) { ctx.err('--detail needs the new detail after it (or use --clear-detail). ' + TASK_EDIT_USAGE); return 2; }
+      if (optValueRefused(ctx, '--detail', args[i + 1], TASK_EDIT_USAGE)) return 2;
       body.detail = String(args[i + 1]).replace(/[\t\r]/g, ' ').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
       hasDetail = true; i += 1;
     } else if (a === '--clear-detail') {
       if (clearDetail) { ctx.err('Say --clear-detail once. ' + TASK_EDIT_USAGE); return 2; }
       clearDetail = true;
-    } else if (/^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task edit', TASK_EDIT_USAGE, a); return 2; }
+    } else if (/^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task edit', TASK_EDIT_USAGE, a, 'target'); return 2; }   // no -- escape here
     else { ctx.err('Put --title or --detail before the new words, and quote them. ' + TASK_EDIT_USAGE); return 2; }
   }
   if (hasDetail && clearDetail) { ctx.err('--detail and --clear-detail do not go together. ' + TASK_EDIT_USAGE); return 2; }
@@ -2109,7 +2111,11 @@ async function taskEdit(ctx, args) {
     return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
       : ctx.unreachable('change that task');
   }
-  if (r.json && r.json.task) { ctx.out('Changed task ' + num + ' on ' + project + '. See it with: kosmos task show ' + project + ' ' + num); return 0; }
+  if (r.json && r.json.task) {
+    ctx.out(r.json.changed === false ? 'Task ' + num + ' on ' + project + ' already reads that way, so nothing changed.'
+      : 'Changed task ' + num + ' on ' + project + '. See it with: kosmos task show ' + project + ' ' + num);
+    return 0;
+  }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when changing that task.');
   return 1;
