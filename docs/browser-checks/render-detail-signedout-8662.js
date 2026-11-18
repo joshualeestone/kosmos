@@ -31,13 +31,14 @@ const BASE = process.argv[2] || 'http://127.0.0.1:4399';
 const HEADED = process.env.HEADED !== '0';
 const AUTH_403 = { error: 'this board belongs to the account that started it; open it with `kosmos open`' };
 
-/* The rich board's first run is not completed (the runner never completes it), and its screen covers keyboard focus
-   and the sign-in box. It opens after the page's /api/first-run read, so testing for it at load misses it: wait for
-   the boot cover to lift (revealBoot runs after that read is decided), then close it with Escape. Closing it marks
-   first run complete ON THE BOARD, so every later check on the same board sees it complete. Without this the check
-   passed only when an earlier check on the same board had closed it (kosmos#8672). The waits swallow their timeouts
-   on purpose: a slow cover then shows as the caller's precondition failing (the screen still up), never as a pass.
-   Returns whether the screen is hidden afterwards, for that precondition. */
+/* The runner completes the rich board's first run since kosmos#8694; this stays so the check does not depend on that.
+   Left open, its screen covers keyboard focus and the sign-in box. It opens after the page's /api/first-run read,
+   so testing for it at load misses it: wait for the boot cover to lift (revealBoot runs after that read is
+   decided), then close it with Escape. Closing it marks first run complete ON THE BOARD, so every later check on
+   the same board sees it complete. Without this the check passed only when an earlier check on the same board had
+   closed it (kosmos#8672). The waits swallow their timeouts on purpose: a slow cover then shows as the caller's
+   precondition failing (the screen still up), never as a pass. Returns whether the screen is hidden afterwards, for
+   that precondition. */
 async function dismissFirstRun(page) {
   await page.waitForFunction(() => { const c = document.getElementById('boot-cover'); return !c || c.hidden; }, null, { timeout: 15000 }).catch(() => {});
   for (let i = 0; i < 2 && !(await page.$('#firstrun[hidden]')); i++) {
