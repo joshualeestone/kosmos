@@ -95,7 +95,7 @@ test('#8669: prepare reads the condition once, so a wake starts from what is tru
   assert.equal((await taskwake.prepare({ file: nodePath.join(FILES, 'nope.md') }, IN_HOME)).problem, CANNOT);
   assert.equal((await taskwake.prepare({ file: FILES }, IN_HOME)).problem, CANNOT);
   assert.equal((await taskwake.prepare({ file: f }, { home: nodePath.join(FILES, 'elsewhere') })).problem, CANNOT, 'outside the home folder');
-  for (const inside of [['.ssh', 'config'], ['Library', 'prefs.plist'], ['work', '.git', 'HEAD']]) {
+  for (const inside of [['.ssh', 'config'], ['Library', 'prefs.plist'], ['library', 'Keychains', 'login.db'], ['LIBRARY', 'x.plist'], ['work', '.git', 'HEAD']]) {
     const hp = nodePath.join(FILES, ...inside);
     fs.mkdirSync(nodePath.dirname(hp), { recursive: true });
     fs.writeFileSync(hp, 'x');
@@ -414,4 +414,20 @@ test('#8669: a wake on a task nobody holds tells the agent that set it', () => {
   tasks.setWake(p.id, t2.number, { kind: 'at', at: Date.now() + 1000 }, { person: true });
   tasks.saveWakeMet(p.id, t2.number, stored(p.id, t2.number).wake.setAt, { at: new Date().toISOString(), words: 'the time came' });
   assert.equal(taskwake.owed(only(p)).filter((x) => x.n === t2.number).length, 0);
+});
+
+test('#8669: a file this Mac will not let the board read says so, at set time and on a look', async () => {
+  const denied = () => { const e = new Error('operation not permitted'); e.code = 'EPERM'; throw e; };
+  const real = (x) => x;
+  real.native = (x) => { if (x.startsWith('/home/Documents')) denied(); return x; };
+  const tcc = { realpathSync: real, statSync: denied, lstatSync: () => ({}) };
+  const set = await taskwake.prepare({ file: '/home/Documents/plan.md' }, { fs: tcc, home: '/home' });
+  assert.match(set.problem, /^this Mac has not let Kosmos read that file: allow it under System Settings, Privacy & Security, Files and Folders/);
+  const w = { kind: 'file', path: '/home/Documents/plan.md', from: 'stat:1:2', size: 1, mtimeMs: 2 };
+  assert.deepEqual(await taskwake.probe(w, { fs: tcc, home: '/home' }, 'd', new Map()), { met: false, problem: 'this Mac has not let Kosmos read that file' }, 'never read as removed');
+  // CONTROL: the realpath allows it but the read itself is refused.
+  const real2 = (x) => x; real2.native = (x) => x;
+  const tcc2 = { realpathSync: real2, statSync: denied, lstatSync: () => ({}) };
+  assert.match((await taskwake.prepare({ file: '/home/notes/plan.md' }, { fs: tcc2, home: '/home' })).problem, /^this Mac has not let Kosmos read that file/);
+  assert.equal(taskwake.wakeProblem({ kind: 'branch', repo: 'octo/hello', branch: 'main', from: 'c'.repeat(64) }), null, 'a SHA-256 commit id');
 });

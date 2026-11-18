@@ -2317,7 +2317,7 @@ async function taskWake(ctx, args) {
     if (want) { if (/^--/.test(a)) { ctx.err('--' + want + ' needs a value, not ' + a + '. ' + WAKE_USAGE); return 2; } kind = want; value = a; want = ''; continue; }
     if (a === '--pr' || a === '--branch' || a === '--file' || a === '--at') { want = a.slice(2); count += 1; }
     else if (a === '--clear') { clear = true; count += 1; }
-    else if (/^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task wake', WAKE_USAGE, a); return 2; }
+    else if (/^--/.test(a)) { refuseOption(ctx, 'task wake', WAKE_USAGE, a); return 2; }   // a bare -- too, as install/kosmos
     else { ctx.err('Say what to wake on with --pr, --branch, --file or --at. ' + WAKE_USAGE); return 2; }
   }
   if (want) { ctx.err('--' + want + ' needs a value. ' + WAKE_USAGE); return 2; }
