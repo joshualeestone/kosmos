@@ -57,6 +57,12 @@ from them. Weakest point: (b) leaves the project on A's Mac, which is going away
    presigned chunks (engine/backupupload.js). Reuse both: the coordinator hands A's Mac presigned PUTs and B's Mac
    presigned GETs for keys it builds from the hand-over id; ciphertext only; a per-hand-over size cap (start
    500 MB); objects deleted on B's confirm, with a 7-day bucket lifecycle as the backstop.
+   **CORRECTED 16:0x CST 11-18:** the bucket must be AWS S3. backup.rs's signer takes only an AWS commercial region
+   (`region_ok`) and a custom endpoint only as a local dev test store (`dev_endpoint`), so a Hetzner bucket would need
+   a code change (and its storage is believed EU-only, unchecked). Josh told via Splinter to skip the Hetzner bucket.
+   The one ruling asked: may packs live in the AWS account we hold (Claw Cabal LLC, 230470759562, us-east-2, user
+   kosmos-agent)? Splinter's lean: no, a Kosmos-owned account. If yes, I make the bucket myself.
+   The paragraph below is the 13:4x version, kept as history.
    **DEPENDENCY, needs an operator:** prod has no object store configured (no backup store variable in the
    coordinator env, 11-18). It needs a bucket we own and a key limited to that bucket. Which provider account is
    Kosmos's, and not another company's, is the question to settle first (our existing storage keys on this Mac may
