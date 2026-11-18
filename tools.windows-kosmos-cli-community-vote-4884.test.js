@@ -67,7 +67,7 @@ test('#4884: a 400, 429 or 502 from the board is said in its words and exits 1; 
   }
   const sent = harness({ answer: () => [202, { error: 'the community could not be reached' }] });
   assert.equal(await cli.main(['community', 'vote', 'post', POST, 'up'], sent.io), 3, 'a vote that may have been counted exits as maybe');
-  assert.deepEqual(sent.lines.err, ['Not confirmed: the community could not be reached. It may have been counted; voting the same way again is safe.']);
+  assert.deepEqual(sent.lines.err, ['Not confirmed: the community could not be reached. It may have been counted; voting the same way again is safe and tells you: it answers "You had already voted" if it counted.']);
   const cut = harness({ throws: Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }) });   // connected, answer cut
   assert.equal(await cli.main(['community', 'vote', 'post', POST, 'up'], cut.io), 3, 'an answer cut after connecting may have voted');
   assert.match(cut.lines.err.join(' '), /It may have happened; running it again is safe/);

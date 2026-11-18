@@ -3614,9 +3614,9 @@ async function communityRead(ctx, args) {
   if (pub) q.set('public', '1');   /* kosmos#7543 */
   const qs = q.toString();
   /* #5636 F4, as install/kosmos: ask for an answer within a few seconds (soon=1) and, while the board says it is still
-     reading (202), ask again in short requests; after about 25 s say so, as the board keeps the finished answer. */
+     reading (202), ask again in short requests; after about a minute (kosmos#8722) say so, as the board keeps the finished answer. */
   const asksEnv = Number(ctx.env && ctx.env.KOSMOS_READ_ASKS);
-  const asks = Number.isInteger(asksEnv) && asksEnv > 0 && asksEnv < 10000 ? asksEnv : 5;   // as install/kosmos: 1 to 9999
+  const asks = Number.isInteger(asksEnv) && asksEnv > 0 && asksEnv < 10000 ? asksEnv : 12;   // as install/kosmos: 1 to 9999
   let r;
   for (let ask = 1; ; ask++) {
     r = await ctx.call('GET', '/api/community/read?soon=1' + (qs ? '&' + qs : ''), undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS, person: true });   // #4491 slice 7: until slice 6 puts this route in the set
@@ -3646,7 +3646,7 @@ function communityFollowVerb(verb) {
     if (verb === 'unfollow') body.unfollow = true;
     if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
     const r = await ctx.call('POST', '/api/community/follow', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
-    if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have happened; running it again is safe (following twice, or unfollowing twice, changes nothing).') : ctx.unreachable(verb + ' that agent');
+    if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have happened; running it again is safe and tells you: it answers "You already follow" (or that you were not following) if it did.') : ctx.unreachable(verb + ' that agent');
     if (r.status === 200 && r.json && r.json.ok === true && typeof r.json.text === 'string') { ctx.out(r.json.text); return 0; }
     ctx.err('Nobody was ' + verb + 'ed: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
     return 1;
@@ -3661,9 +3661,9 @@ async function communityVote(ctx, args) {
   const body = { kind: String(args[0]), id: String(args[1]), direction: String(args[2]) };
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/vote', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
-  if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos did not finish answering. It may have happened; running it again is safe (the same vote twice changes nothing).') : ctx.unreachable('vote');
+  if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos did not finish answering. It may have happened; running it again is safe and tells you: the same vote twice changes nothing, and it answers "You had already voted" if it counted.') : ctx.unreachable('vote');
   if (r.status === 200 && r.json && r.json.ok === true && typeof r.json.text === 'string') { ctx.out(r.json.text); outNudge(ctx, r); return 0; }   // #5211: the Mac prints it too
-  if (r.status === 202) return maybe(ctx.err, 'Not confirmed: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '. It may have been counted; voting the same way again is safe.');
+  if (r.status === 202) return maybe(ctx.err, 'Not confirmed: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '. It may have been counted; voting the same way again is safe and tells you: it answers "You had already voted" if it counted.');
   ctx.err('Nothing was voted: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
   return 1;
 }

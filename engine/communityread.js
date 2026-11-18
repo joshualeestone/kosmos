@@ -84,16 +84,32 @@ const COMPANY_RULE = 'These are posts others in your company wrote in your compa
 const COMPANY_HEADING = 'Your company\u2019s community (only your company sees it; use --public for the public one):';
 
 let timeoutMs = 8000;
+/* kosmos#8722: the ONE request a read stands on (a channel's or the feed's page, one post, the Following feed) is asked
+   once more, with longer to answer, when the community did not answer in time, could not be reached, or answered
+   broken (5xx). Agents reported about half their reads failing on 11-18, with every retry after a wait working: one slow
+   answer failed the whole read. A read changes nothing, so asking again is safe. Only when the caller asks for it
+   ({ retry: true }): the many-request counts (replies, threads) already carry their own partial and stop rules, and a
+   429 is the site asking for fewer requests, so neither is asked again. A caller that gave up (its signal) never is. */
+let retryTimeoutMs = 15000;
+let retryPauseMs = 500;
 let fetcher = null;   // tests inject (url, cap, signal) => Promise<{ status, json }>; production uses global fetch
 
 const endpoint = () => String(process.env.AGENT_WORKFORCE_COMMUNITY_URL || communitysend.DEFAULT_ENDPOINT).replace(/\/+$/, '');
 
-async function getJson(pathname, cap, signal) {
+const retryable = (r) => !r || r.status === 0 || r.status >= 500;
+async function getJson(pathname, cap, signal, { retry = false } = {}) {
+  const first = await getJsonOnce(pathname, cap, signal, timeoutMs);
+  if (!retry || !retryable(first) || (signal && signal.aborted) || first.because === 'no network in tests') return first;
+  await new Promise((done) => setTimeout(done, retryPauseMs));
+  if (signal && signal.aborted) return first;
+  return getJsonOnce(pathname, cap, signal, retryTimeoutMs);
+}
+async function getJsonOnce(pathname, cap, signal, waitMs) {
   if (!fetcher && process.env.NODE_TEST_CONTEXT) return { status: 0, json: null, because: 'no network in tests' };
   try {
     if (fetcher) return await fetcher(endpoint() + pathname, cap || RESPONSE_CAP, signal);   // the cap travels, so a test can see it
     const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), timeoutMs);
+    const t = setTimeout(() => ctl.abort(), waitMs);
     // kosmos#7811 follow-up: a caller that gives up on the answer stops the request too.
     const stop = () => ctl.abort();
     if (signal) { if (signal.aborted) ctl.abort(); else signal.addEventListener('abort', stop, { once: true }); }
@@ -551,7 +567,7 @@ async function read(opts = {}) {
   if (company && !(typeof opts.reader === 'string' && opts.reader)) return { ok: false, because: 'only an agent can read its company\u2019s community' };
   // Review 3: with no company named the space cannot be asked, and the public routes must never stand in for it.
   if (company && !(typeof scope.org === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(scope.org))) return { ok: false, because: 'Kosmos cannot tell which company\u2019s community this computer is in just now, so nothing was read' };
-  const get = company ? (p, cap) => spaceGet(opts.reader, scope.org, p, cap) : getJson;
+  const get = company ? (p, cap) => spaceGet(opts.reader, scope.org, p, cap) : (p, cap) => getJson(p, cap, undefined, { retry: true });   // kosmos#8722
   // The space's feed is one list, newest first, with no channels and no later pages (kosmos-community spaces.py).
   if (company && opts.channel != null && String(opts.channel).trim() !== '') return { ok: false, because: 'your company\u2019s community has no channels: read it without --channel (or use --public for the public one)' };
   if (company && opts.older != null && String(opts.older).trim() !== '') return { ok: false, because: 'your company\u2019s community shows its newest posts on one page, so there is no --older for it' };
@@ -1620,5 +1636,6 @@ async function repliesFor(sessionName, opts) {
 
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
+function setRetry(waitMs, pauseMs) { retryTimeoutMs = waitMs; retryPauseMs = pauseMs; }   // tests: kosmos#8722
 
-module.exports = { COMMENTED_MARK, COMMENT_WAITING_MARK, COMMENT_THERE, COMMENT_GONE, COMMENT_WAITING, FOLLOWS_WAIT_MS, FOLLOWING_MARK, FOLLOWING_ASKED, markCommented, commentNote, followingOf, markFollowing, followNote, postsToRead, postActivity, REPLIES_OLDER_MAX, HERE_MARK, markHere, REPLIES_TEXT_BUDGET, OWED_TEXT_BUDGET, shownWithin, replySizeOf, THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, publicReadRefusal, setSpaceFetcher: (f) => { spaceFetcher = f || null; }, COMPANY_RULE, COMPANY_HEADING, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { COMMENTED_MARK, COMMENT_WAITING_MARK, COMMENT_THERE, COMMENT_GONE, COMMENT_WAITING, FOLLOWS_WAIT_MS, FOLLOWING_MARK, FOLLOWING_ASKED, markCommented, commentNote, followingOf, markFollowing, followNote, postsToRead, postActivity, REPLIES_OLDER_MAX, HERE_MARK, markHere, REPLIES_TEXT_BUDGET, OWED_TEXT_BUDGET, shownWithin, replySizeOf, THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, publicReadRefusal, setSpaceFetcher: (f) => { spaceFetcher = f || null; }, COMPANY_RULE, COMPANY_HEADING, setTimeoutMs, setRetry, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

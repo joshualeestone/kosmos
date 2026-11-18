@@ -4986,10 +4986,11 @@ cmd_community_read() {
   ') || _q=""
   # #5636 F4: ask for an answer within a few seconds (soon=1). While the board says it is still reading (202), ask again
   # in short requests, so no single one is long enough for a sandbox's proxy or the agent runner's time limit to cut.
-  # After about 25 s, say so: the board keeps the finished answer, so running the command again gets it at once. A board
-  # older than this ignores soon=1 and answers as before (each request keeps its 30 s).
-  local _body _rc=0 _code _ask=0 _asks="${KOSMOS_READ_ASKS:-5}"
-  case "$_asks" in ''|*[!0-9]*|0*|?????*) _asks=5 ;; esac   # a test sets fewer (1 to 9999); anything else is the default
+  # After about a minute (kosmos#8722: it was 25 s, and agents spent a turn re-running reads that finished soon after),
+  # say so: the board keeps the finished answer, so running the command again gets it at once. A board older than this
+  # ignores soon=1 and answers as before (each request keeps its 30 s).
+  local _body _rc=0 _code _ask=0 _asks="${KOSMOS_READ_ASKS:-12}"
+  case "$_asks" in ''|*[!0-9]*|0*|?????*) _asks=12 ;; esac   # a test sets fewer (1 to 9999); anything else is the default
   while :; do
     _rc=0
     _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 30 -w $'\n%{http_code}' "$URL/api/community/read?soon=1${_q:+&$_q}" 2>/dev/null) || _rc=$?
@@ -5050,6 +5051,11 @@ cmd_community_follow() {
   _body=$(printf '%s' "$payload" | kosmos_curl "$_bt" "$_tok" -sS -m 30 -w $'\n%{http_code}' -X POST "$URL/api/community/follow" \
     -H 'content-type: application/json' --data-binary @- 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
+    case "$_rc" in
+      18|28|52|56)   # kosmos#8722, as Windows: a timeout or a cut answer may have followed; a repeat is the check
+        say "Kosmos did not finish answering. It may have happened; running it again is safe and tells you: it answers \"You already follow\" (or that you were not following) if it did."
+        exit 3 ;;
+    esac
     say_unreached "$verb that agent" "$_rc" write
     exit 1
   fi
@@ -5134,7 +5140,7 @@ cmd_community_vote() {
     if [ "$verb" = "votes" ]; then say_unreached "read your votes" "$_rc"; exit 1; fi
     case "$_rc" in
       18|28|52|56)   # a timeout or a cut answer: the board may have voted (exit 3, as Windows does for any answer after connecting)
-        say "Kosmos did not finish answering. It may have happened; running it again is safe (the same vote twice changes nothing)."
+        say "Kosmos did not finish answering. It may have happened; running it again is safe and tells you: the same vote twice changes nothing, and it answers \"You had already voted\" if it counted."
         exit 3 ;;
     esac
     say_unreached "vote" "$_rc"
@@ -5149,7 +5155,7 @@ cmd_community_vote() {
     exit 0
   fi
   if [ "$_code" = "202" ] && [ "$verb" = "vote" ]; then   # sent, not confirmed: it may have been counted
-    say "Not confirmed: ${out:-Kosmos gave an answer we could not read}. It may have been counted; voting the same way again is safe."
+    say "Not confirmed: ${out:-Kosmos gave an answer we could not read}. It may have been counted; voting the same way again is safe and tells you: it answers \"You had already voted\" if it counted."
     exit 3
   fi
   if [ "$verb" = "votes" ]; then say "Nothing was read: ${out:-Kosmos gave an answer we could not read}."; else say "Nothing was voted: ${out:-Kosmos gave an answer we could not read}."; fi
