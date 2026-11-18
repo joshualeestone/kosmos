@@ -110,9 +110,9 @@ const BASELINE = {
   "engine/you.js": 1,
 };
 
-/* The source with its comments taken out, so rewording a comment can neither trip the ratchet nor hide a real write
-   at the same count. Block comments, then line comments not preceded by a colon or a quote (a URL in a string keeps
-   its text). Crude by design and the same on every run, which is all a ratchet needs. */
+/* The source with its comments taken out, so rewording an ordinary comment does not change the count. Block comments,
+   then line comments not preceded by a colon or a quote (a URL in a string keeps its text). Crude by design: a slash
+   and star, or two slashes, inside a string can fool it. It is the same on every run, which is all a ratchet needs. */
 function codeOnly(text) {
   return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:\\'"`])\/\/.*$/gm, "$1");
 }
