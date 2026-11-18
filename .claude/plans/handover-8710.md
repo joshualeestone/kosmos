@@ -116,6 +116,11 @@ fingerprint of the hand-over key, for the admin to compare by eye. Not compared,
 - Board side (slice 3) drives `engine/backuprun.js` `runBackup` with: the member key = B's one-time public key, the
   hand-over's grant routes in place of the backup grant routes, and roots = only the named agents' folders.
 
+## Carried to slices 2-4 (from slice 1's post-rebase review, 16:2x CST 11-18)
+- A hand-over is cancelled when a MEMBERSHIP ends, not when a member's computer is unjoined while they stay. Slice 1
+  never acts on an open hand-over, so it is harmless there; every Mac-side step (key, grant, manifest, read, done) must
+  check that the calling computer is still the member's enrolled one, and refuse otherwise.
+
 ## Order of work and dates
 - 11-18/19: slice 1 and the plan's review. 11-20/21: slices 2 and 3. 11-22/23: slice 4. 11-24: slice 5.
 - 11-25: end-to-end on staging builds. Release cut and coordinator deploy by 11-27, measured, then switched on.
