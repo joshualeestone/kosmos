@@ -30,9 +30,14 @@ Pool PR before the 0.8.10 staging cut (11-18, #1050). Data only: `release/whats-
 - Lines trimmed to the window's 140 characters; the build refused each longer one and wrote nothing (checked: the built file changed only on the last build).
 
 ## Weakest premise
-Rank is judgement. The wake line's "tells its agent once" compresses "one holder, the setter first, told when next idle".
+Rank is judgement. The wake line no longer says who is told: one holder, the setter first, when next idle, and nobody when no one holds the task (the page says so).
 
 ## Would change my mind
 A person-facing merge since 7c2d1f1376 missing from these tables, or a reviewer showing a line claims more than its change does.
 
 ## Review log
+### Review 1 (opus): 2 WARNINGs fixed, 2 NITs fixed
+- WARNING fixed: the wake line names its condition, GitHub connected for a pull request or branch (engine/taskwake.js answers "GitHub is not connected with the gh tool" otherwise); it drops "tells its agent once" to fit.
+- WARNING fixed: the Windows leftover line said "works from" the folder, which reads as the working folder, the one case #8686 does not cover; now "runs from the agent's folder or names it".
+- NIT fixed: the #8668 notes line says the task page shows both ends of a move.
+- NIT fixed: the weakest premise names the no-holder case.

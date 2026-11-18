@@ -2277,7 +2277,7 @@
       "since": "0.8.10",
       "status": "pending",
       "title": "A task can wait for a merge or a time",
-      "line": "An agent can set a task to wait for a pull request, branch, file or time. The task shows what it waits for and tells its agent once.",
+      "line": "An agent can set a task to wait for a pull request or branch (with GitHub connected), a file or a time. The task shows what it waits for.",
       "icon": "tasks",
       "rank": 9.2
     },
@@ -2328,7 +2328,7 @@
       "since": "0.8.10",
       "status": "pending",
       "title": "A task check can say where its part went",
-      "line": "kosmos task check ... unmet --moved-to <task> links an unmet check to the task its part moved to; a check's report holds 1000 characters.",
+      "line": "kosmos task check ... unmet --moved-to <task> links an unmet check to the task its part moved to, and the task page shows both ends.",
       "icon": "list",
       "rank": 129,
       "notesOnly": true
@@ -2337,7 +2337,7 @@
       "since": "0.8.10",
       "status": "pending",
       "title": "A Windows leftover delete checks the folder",
-      "line": "On Windows, a leftover delete also refuses while a running program works from the agent's folder, not only while its name is in use.",
+      "line": "On Windows, a leftover delete also refuses while a running program runs from the agent's folder or names it, not only its name in use.",
       "icon": "shield",
       "rank": 130,
       "notesOnly": true,
