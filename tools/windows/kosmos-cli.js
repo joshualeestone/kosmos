@@ -94,7 +94,7 @@ const USAGE = {
   reply: 'Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and $ arrive as written)',
   post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624).',
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
-  claim: 'Usage: kosmos claim <project-id> <post-id> [--release]   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
+  claim: 'Usage: kosmos claim <project-id> <post-id> [--release | --status]   (plain claim TAKES the post; --status only says who holds it; the post id is in brackets before each post in kosmos room, e.g. [m3])',
   records: 'Usage: kosmos records <project-id> | kosmos records set <project-id> "<name>" [--status "<status>"] [--confirmed YYYY-MM-DD] [--source "<link or file>"] | kosmos records remove <project-id> "<name>" | kosmos records label <project-id> "<what the rows are>". A name can be up to 200 characters, a status 80, a source 500 and a label 40.',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--held] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear [why]    (take your needs_you or blocked off the board: the same as reporting working; over a question, your why stays in your chat with the person)\n  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC).\n  --until in words ("the owner says"): no stale reminder at all. Anything else with a number in it: as if no --until.\n  --held (needs_you only): the person asked you to hold questions until they are back. Nothing buzzes; you are told when they next message you directly.',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
@@ -4028,17 +4028,26 @@ function subcommandRequired(verb) {
 /* #6946: install/kosmos cmd_claim's twin. A claim never toggles, so a timed-out one is safe to run again. */
 async function verbClaim(ctx, args) {
   const release = args.includes('--release');
-  const words = args.filter((a) => a !== '--release');
+  const status = args.includes('--status');   // kosmos#8721: reads who holds it, never takes it
+  const words = args.filter((a) => a !== '--release' && a !== '--status');
   const [project, of] = words;
-  if (!project || !of) { ctx.err(USAGE.claim); return 2; }
+  if (!project || !of || (release && status)) { ctx.err(USAGE.claim); return 2; }
   if (tooManyWords(ctx, 'claim', 2, USAGE.claim, words)) return 2;
-  const r = await ctx.call('POST', '/api/react', { project, of, claim: release ? 'release' : 'claim', from_pane: '' });
+  const r = await ctx.call('POST', '/api/react', { project, of, claim: status ? 'status' : release ? 'release' : 'claim', from_pane: '' });
+  if (!r.reached && status) { if (r.timedOut) { ctx.err('Kosmos was slow to answer and we stopped waiting, so we could not tell who holds that post. Nothing was claimed; run the same command again.'); return 1; } return ctx.unreachable('read that claim'); }
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Run the same command again: it is safe, and it says whether the claim is yours.') : ctx.unreachable('claim');
   if (ctx.wrongWorld(r)) { ctx.err(ctx.outbox().WRONG_WORLD_SENTENCES.notOpen); return 1; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not read that claim: ' + ctx.refusedBy(r) + '.'); return 1; }
   const op = r.json && r.json.ok ? r.json.op : null;
   if (op === 'add') { ctx.out('Claimed: that post is yours, and the room shows it. Say in the room what you are doing with it.'); return 0; }
   if (op === 'already') { ctx.out('That post is already yours.'); return 0; }
+  if (op === 'status') {   // kosmos#8721: a read; nothing was claimed or given back
+    const by = clause(r.json.claimedBy); const age = clause(r.json.claimedAge) || 'earlier';
+    if (r.json.mine === true) ctx.out('That post is yours (claimed ' + age + '). Nothing was changed.');
+    else if (by) ctx.out(by + ' holds that post (claimed ' + age + '). Nothing was claimed.');
+    else ctx.out('Nobody holds that post. Nothing was claimed; kosmos claim ' + project + ' ' + of + ' takes it.');
+    return 0;
+  }
   if (op === 'remove') { ctx.out('Gave that post back: it is no longer claimed by you.'); return 0; }
   if (op === 'none') { const by = clause(r.json.claimedBy); ctx.out('That post is not claimed by you, so there was nothing to give back.' + (by ? ' ' + by + ' holds it.' : '')); return 0; }
   if (!(r.json && r.json.ok === false)) { ctx.err('Kosmos gave an answer we could not read, so we cannot tell whether the claim changed. Run kosmos room to see.'); return 1; }

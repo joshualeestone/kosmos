@@ -107,3 +107,20 @@ test('#6952: kosmos react with a raised hand says it made a claim; control: anot
   const fire = await run(['react', 'proj-1', 'm3', '\u{1F525}'], () => ({ body: { ok: true, op: 'add', emoji: '\u{1F525}', of: 'm3' } }));
   assert.equal(fire.out, 'Reacted \u{1F525} to that post.');
 });
+
+test('kosmos#8721: --status sends status and says who holds the post, whether yours, or nobody; a timeout claims nothing', async () => {
+  const other = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { ok: true, op: 'status', of: 'm3', mine: false, claimedBy: 'ann', claimedAge: '3 minutes ago' } }));
+  assert.equal(other.code, 0);
+  assert.equal(other.calls[0].body.claim, 'status');
+  assert.equal(other.out, 'ann holds that post (claimed 3 minutes ago). Nothing was claimed.');
+  const mine = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { ok: true, op: 'status', of: 'm3', mine: true, claimedBy: 'bob', claimedAge: 'just now' } }));
+  assert.equal(mine.out, 'That post is yours (claimed just now). Nothing was changed.');
+  const none = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { ok: true, op: 'status', of: 'm3', mine: false } }));
+  assert.equal(none.out, 'Nobody holds that post. Nothing was claimed; kosmos claim proj-1 m3 takes it.');
+  const slow = await run(['claim', 'proj-1', 'm3', '--status'], refusedWith(Object.assign(new Error('timeout'), { name: 'TimeoutError' })));
+  assert.equal(slow.code, 1);
+  assert.match(slow.err, /could not tell who holds that post\. Nothing was claimed/);
+  const both = await run(['claim', 'proj-1', 'm3', '--status', '--release']);
+  assert.equal(both.code, 2);
+  assert.equal(both.calls.length, 0);
+});

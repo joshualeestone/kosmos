@@ -131,7 +131,7 @@ test('#6946: no post id prints the usage, exits 2, and sends nothing', { skip: S
   withStub(() => ({ ok: true, op: 'add' }), async (port, seen) => {
     const out = await claim(port, seen, ['p']);
     assert.equal(out.code, 2);
-    assert.match(out.stdout + out.stderr, /Usage: kosmos claim <project-id> <post-id> \[--release\]/);
+    assert.match(out.stdout + out.stderr, /Usage: kosmos claim <project-id> <post-id> \[--release \| --status\]/);
     assert.equal(seen.length, 0);
   }));
 
@@ -174,3 +174,28 @@ test('#6952: kosmos react with a raised hand says it made a claim; control: anot
     assert.match(out.stdout, /Reacted \u{1F525} to that post\./u);
   });
 });
+
+/* kosmos#8721: --status sends status and prints who holds it, changing nothing; with --release it is a usage error. */
+test('kosmos#8721: --status sends status and says who holds the post, whether yours, or nobody', { skip: SKIP_POSIX_SHELL }, async () => {
+  const answers = [
+    [{ ok: true, op: 'status', of: 'm3', mine: false, claimedBy: 'ann', claimedAge: '3 minutes ago' }, 'ann holds that post (claimed 3 minutes ago). Nothing was claimed.'],
+    [{ ok: true, op: 'status', of: 'm3', mine: true, claimedBy: 'bob', claimedAge: 'just now' }, 'That post is yours (claimed just now). Nothing was changed.'],
+    [{ ok: true, op: 'status', of: 'm3', mine: false }, 'Nobody holds that post. Nothing was claimed; kosmos claim p m3 takes it.'],
+  ];
+  for (const [reply, said] of answers) {
+    await withStub(() => reply, async (port, seen) => {
+      const out = await claim(port, seen, ['p', 'm3', '--status']);
+      assert.equal(seen[seen.length - 1].body.claim, 'status');
+      assert.equal(out.stdout, '  ' + said + '\n');
+      assert.equal(out.code, 0);
+    });
+  }
+});
+
+test('kosmos#8721: --status with --release is a usage error that sends nothing', { skip: SKIP_POSIX_SHELL }, () =>
+  withStub(() => ({ ok: true, op: 'status' }), async (port, seen) => {
+    const out = await claim(port, seen, ['p', 'm3', '--status', '--release']);
+    assert.equal(out.code, 2);
+    assert.equal(seen.length, 0);
+    assert.match(out.stdout + out.stderr, /plain claim TAKES the post; --status only says who holds it/);
+  }));

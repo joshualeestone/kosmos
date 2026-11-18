@@ -4514,7 +4514,8 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   const projectId = String(project == null ? '' : project).trim();
   const postId = messageIdOf(of);   // #4631: '530' and 'message 530' name m530 too
   // #6946: `claim` is 'claim' (never takes it back) or 'release' (only takes it back); either one means 🙋.
-  if (claim !== undefined && claim !== 'claim' && claim !== 'release') return { ok: false, because: 'we could not tell whether to claim that post or give it back' };
+  // kosmos#8721: 'status' only says who holds it and changes nothing, so checking never takes a claim.
+  if (claim !== undefined && claim !== 'claim' && claim !== 'release' && claim !== 'status') return { ok: false, because: 'we could not tell whether to claim that post or give it back' };
   const typed = claim ? CLAIM_EMOJI : normalizeReactionEmoji(emoji);
   const e = isClaimEmoji(typed) ? CLAIM_EMOJI : typed;   // #6946: every 🙋 form is stored as the plain one
   if (!projectId) return { ok: false, because: 'we could not tell which project this post is in' };
@@ -4609,6 +4610,12 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   const holder = claimOf(postId, rows, roomNow);
   const holds = !!(claimants.get(reactor) && holder && holder.by === reactor);
   const pills = pillsOf(reactor).length > 0;   // a 🙋 of this agent's, whether or not it is the claim
+  /* kosmos#8721: a read. Answered after the same room and post checks as a claim, before anything is written, so a
+     check from an agent not on the project, or of a post that is not there, is refused exactly as a claim would be. */
+  if (claim === 'status') {
+    return { ok: true, op: 'status', of: postId, mine: holds,
+      ...(holder ? { claimedBy: holder.by, claimedAt: holder.at, claimedAge: claimAge(holder.at) } : {}) };
+  }
   const refuse = () => ({ ok: false, claimedBy: holder.by, claimedAt: holder.at,
     because: holder.by + ' claimed that post ' + claimAge(holder.at)
       + ', so do not post that you are taking it: read the room, and ask ' + holder.by + ' if you can help' });
