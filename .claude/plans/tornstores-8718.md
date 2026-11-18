@@ -31,3 +31,8 @@ That a store's absent default is safe. A person's "off" zeroed by a crash comes 
 - WARNING kill test could pass with no save: asserts at least one round saved, longer timeouts.
 - NITs: dead symlink line removed (dirent never isFile for a link), symlinked file and folder arms, MAX_ENTRIES counts every entry and the walk stops at the cap, token wording now names only what the path says.
 - Known limit: a module that read a torn store BEFORE the bind keeps that reading until it reads again; most read per call.
+
+## Review round 2 (sonnet)
+- WARNING scan-to-move gap: fixed, each file is looked at again just before its move; test hands in a stale scan.
+- WARNING any future empty .json marker under the root would be moved: DEFERRED. Grepped engine and server.js: no code writes an empty .json or .jsonl today (the empty markers are .reauth-seeded, ct-watch-off, an -ack file). An empty .json already fails JSON.parse for any reader, so the only behaviour change is for an existsSync marker, and the module header names the two shapes so a future author can see it.
+- NIT failed-line wording matched to the moved-line wording.

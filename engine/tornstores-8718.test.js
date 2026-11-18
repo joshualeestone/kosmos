@@ -100,6 +100,20 @@ test('a clean data folder: nothing moved, no torn folder, no log line', () => {
   assert.equal(fs.existsSync(path.join(root, torn.TORN_DIR)), false);
 });
 
+test('a file made whole between the scan and the move is left where it is', () => {
+  const root = freshRoot('stale');
+  put(root, 'a.json', Buffer.alloc(30));
+  put(root, 'b.json', '');
+  const found = torn.scan(root);
+  assert.equal(found.length, 2, 'control: both read as torn at scan time');
+  const a = put(root, 'a.json', '{"whole":true}');                  // a writer lands its save after the scan
+  const lines = [];
+  const out = torn.run(root, { found, log: (l) => lines.push(l) });
+  assert.deepEqual(out.moved.map((m) => m.rel), ['b.json']);
+  assert.equal(fs.readFileSync(a, 'utf8'), '{"whole":true}', 'the whole file stays, untouched');
+  assert.equal(lines.length, 1);
+});
+
 test('a missing data folder does not throw', () => {
   const out = torn.run(path.join(SB, 'nope'), { log: () => {} });
   assert.deepEqual(out.moved, []);

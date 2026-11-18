@@ -136,12 +136,18 @@ function run(root, opts = {}) {
   const log = typeof opts.log === 'function' ? opts.log : (line) => console.error(line);
   const result = { at: new Date(now).toISOString(), folder: null, moved: [], failed: [] };
   let found;
-  try { found = scan(root, { now }); } catch { found = []; }
+  /* opts.found: a scan's answer handed in, so a test can make it stale (a file rewritten between scan and move). */
+  try { found = Array.isArray(opts.found) ? opts.found : scan(root, { now }); } catch { found = []; }
   if (found.length) {
     const rel = TORN_DIR + '/' + stampOf(now);
     const folder = path.join(root, ...rel.split('/'));
     for (const item of found) {
       const dest = rel + '/' + item.rel;
+      /* Look again just before the move: a writer that replaced the file since the scan (a flushed save landing, the
+         CLI) has made it whole, and a whole file is never moved. */
+      let st;
+      try { st = fs.lstatSync(path.join(root, ...item.rel.split('/'))); } catch { continue; }
+      if (tornShape(path.join(root, ...item.rel.split('/')), st, now) !== item.shape) continue;
       try {
         fs.mkdirSync(path.dirname(path.join(root, ...dest.split('/'))), { recursive: true, mode: 0o700 });
         fs.renameSync(path.join(root, ...item.rel.split('/')), path.join(root, ...dest.split('/')));
@@ -149,7 +155,7 @@ function run(root, opts = {}) {
         try { log(logLine(item, dest)); } catch { /* a log that cannot write does not undo the move */ }
       } catch (e) {
         result.failed.push({ ...item, because: (e && e.code) || 'error' });
-        try { log('tornstores: ' + item.rel + ' looks torn (' + item.shape + ') but could not be moved aside: ' + ((e && e.code) || 'error') + '. Left where it is.'); } catch { /* as above */ }
+        try { log('tornstores: ' + item.rel + ' was ' + (item.shape === 'empty' ? 'empty' : 'all zero bytes') + ' but could not be moved aside: ' + ((e && e.code) || 'error') + '. Left where it is.'); } catch { /* as above */ }
       }
     }
     if (result.moved.length) {
