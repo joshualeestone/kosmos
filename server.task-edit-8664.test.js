@@ -244,6 +244,18 @@ test('an edit from the person\'s terminal (no agent token) marks the words as th
   assert.equal(tasks.byNumber(projects.readAll().find((x) => x.id === id), n).sentence, 'The person corrected it');
 });
 
+test('when the running agents cannot be read, a caller naming itself by pane is refused (503); the person\'s bare terminal is not', async (t) => {
+  const { id, n } = freshTask();
+  const blind = fleet.blind();   // tmux could not be asked: the roster is unreadable, not empty
+  t.after(() => blind.restore());
+  const byPane = await edit(id, n, { sentence: 'An agent by its pane', from_pane: '%8' });
+  assert.equal(byPane.status, 503, 'an unnamed pane edited while the roster was unreadable: ' + JSON.stringify(byPane.json));
+  assert.match(byPane.json.error, /could not check which agents are running, so the task was not changed/);
+  assert.equal(tasks.byNumber(projects.readAll().find((x) => x.id === id), n).sentence, 'Fix login', 'the refused edit changed the title');
+  const bare = await edit(id, n, { sentence: 'The person from a plain terminal' });
+  assert.equal(bare.status, 200, 'CONTROL: the person\'s terminal (no token, no pane) was refused: ' + JSON.stringify(bare.json));
+});
+
 test('the answer says whether anything changed', async () => {
   const { id, n } = freshTask();
   assert.equal((await edit(id, n, { sentence: 'Fix login' })).json.changed, false, 'an edit to the same words said it changed');

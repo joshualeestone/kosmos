@@ -26918,7 +26918,14 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 400, { error: 'say the new title, the new detail, or both' }); return;
       }
       const viaScreen = isViaScreen(req, body);
-      const who = processCaller(req, body, safeRoster(), viaScreen, 'the task was not changed');
+      /* As the wake route (#8669): a caller that names itself (a token or a pane) while the roster cannot be read is
+         refused, not let through unnamed: an unnamed edit may reword the person's task and marks the words as theirs. */
+      const roster = safeRoster();
+      const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
+      if (roster === null && !viaScreen && (presentedAgentToken(req, body) || fromPane)) {
+        sendJson(res, 503, { error: 'we could not check which agents are running, so the task was not changed' }); return;
+      }
+      const who = processCaller(req, body, roster, viaScreen, 'the task was not changed');
       const refusal = who.refusal || notOnProjectRefusal(who, id, 'change its tasks', 'the task was not changed', 'change a task');
       if (refusal) { sendJson(res, refusal[0], { error: refusal[1] }); return; }
       try {

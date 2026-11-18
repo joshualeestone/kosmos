@@ -10,7 +10,10 @@ title stayed the most visible thing about the task and the only fix was a note i
 - engine/tasks.js setText(projectId, n, { sentence, detail }, { by, person }): each of title and detail is left as it
   is when not given; a detail of null or blank clears it. Checked as create checks them (title required, at most 200;
   detail at most 2000), except an over-long title is refused rather than moved into the detail. A closed task can be
-  edited (correcting what it was called changes no work). A task the person wrote (added from the screen), or whose
+  edited (correcting what it was called changes no work). The activity row keeps the old and new words with their
+  line breaks turned into spaces (engine/taskchat.js keeps each row on one line). When the running agents cannot be
+  read, a caller that names itself (a token or a pane) is refused with a 503, as the wake route does, rather than let
+  through unnamed. A task the person wrote (added from the screen), or whose
   words the person has since changed (`textByPerson`), is refused to an identified agent with a 403: an agent does not
   rewrite what it was asked to do (review round 3). An unnamed caller is let through (review round 5): the person's
   own terminal is one, and this PR ships no edit control on the page, so refusing it would leave the person's tasks
