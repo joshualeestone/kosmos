@@ -2301,11 +2301,14 @@ test('a pane holding the name untied is refused, on the read as well as the writ
   await withAgent(fleet.agent('zeta', { ours: false, state: 'idle' }), [said()], async () => {
     const res = await req('/api/agent/zeta/thread');
     assert.equal(res.status, 404, 'a stranger’s pane must not serve this agent’s private thread');
-    assert.match(json(res).error, /no agent by that name/);
+    // kosmos#8719: the iPhone shows this text, so it says why, not "no agent by that name".
+    assert.match(json(res).error, /^zeta was started outside Kosmos, so Kosmos cannot confirm its window is this agent/);
     // The STANDING half of the pair above: this name answers 404 every time.
     assert.equal(json(res).because, 'borrowed');
     const sent = await post('/api/agent/zeta/thread', { text: 'are you there' });
-    assert.equal(sent.status, 404);
+    // kosmos#8719: still refused, nothing typed, but as 409 'untied' with the reason, not as a missing name.
+    assert.equal(sent.status, 409);
+    assert.equal(json(sent).because, 'untied');
   });
 });
 

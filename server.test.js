@@ -2624,9 +2624,10 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
   // "we found a session called research, but not the one research's own session
   // runs in" — the only message the legitimate non-Discord agent this branch
   // most affects would ever see.
-  assert.match(els['d-untied'].textContent, /-discord/,
-    'the explanation does not say what session it expected, so it reads as a '
-    + 'tautology for exactly the agents it is shown to');
+  // kosmos#8719: the reason itself is #d-task's (stateReason, "Started outside Kosmos ..."); this line says only what it
+  // adds, and is never built from the session name, so it cannot read as a tautology.
+  assert.equal(els['d-untied'].textContent, 'For the same reason, Kosmos will not change its picture, role or instructions from here.',
+    'the untied line is not the short one that leans on the page\'s reason');
 
   // ⚠️ AND the call site, which this test stopped pinning when it replaced the
   // source-shape version. Driving `setWritesOffered` in isolation proves the

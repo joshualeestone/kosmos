@@ -3358,7 +3358,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 .acard .ameta { font-weight: 600; color: var(--k-ink); font-size: .8125rem; margin-top: 1px; }
 /* #7978: inside the model line, so the card's grid gains no row; on a line of its own, and only when out of the ordinary. */
 .acard .amachine { display: block; font-weight: 600; color: var(--k-ink); margin-top: 2px; }
-.acard .auntied, .lrow .auntied { display: block; font-weight: 600; color: var(--k-ink); margin-top: 2px; }   /* kosmos#8719 */
+.acard .auntied { display: block; font-weight: 600; color: var(--k-ink); margin-top: 2px; }   /* kosmos#8719, as .amachine */
+.lrow .auntied { display: block; font-weight: 600; color: var(--k-ink); }
 /* In a cell, never as its own: the row's grid has exactly seven children, and an eighth lands in the avatar's column. */
 .lrow .amachine { display: block; font-weight: 600; color: var(--k-ink); }
 /* Josh, 2026-08-19: "a tiny bit more. Not crazy." One pixel is not a gap, it is
@@ -23242,10 +23243,11 @@ function stateReason(a, opts) {
      page, which calls this without `card`. (#6398 did this for a rate limit alone.) The tile keeps its .atask slot,
      empty, so every tile stays one height. */
   if (opts && opts.card === true) return '';
-  /* kosmos#8719: a window Kosmos did not start (no launch claim, isNamedOurs false). First, because every message to it
-     is refused, which matters more than what its screen shows. The tile carries the short label (untiedFlagHtml). */
-  /* A literal, not a shared constant: tests lift stateReason alone. */
-  if (a && a.isNamedOurs === false) return 'Started outside Kosmos, so Kosmos cannot confirm this window is the agent and will not type messages into it. Kosmos can message it once it is started from Kosmos.';
+  /* kosmos#8719: a window Kosmos did not start (no launch claim, isNamedOurs false). First, and on purpose ahead of every
+     other reason (a stuck sign-in, a rate limit, a question): Kosmos can act on none of them for this window, since it
+     will not type into it, so the one thing worth saying is why. The tile carries the short label (untiedFlagHtml).
+     A literal, not a shared constant: tests lift stateReason alone. */
+  if (a && a.isNamedOurs === false) return 'Started outside Kosmos, so Kosmos cannot confirm this window is the agent and will not type messages into it until Kosmos starts it.';
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
   /* #5154 slice A: Kosmos keeps restarting this agent and it keeps stopping within minutes (engine/crashloop.js).
@@ -50165,10 +50167,8 @@ function setWritesOffered(a, tied) {
     // affects ever sees.
     /* kosmos#8719: the real test is Kosmos's own launch mark on the session, which a window started outside Kosmos
        lacks; the old sentence named only the "-discord" spelling, which is one way to pass it. */
-    why.textContent = tied ? '' : `The window called ${a.sessionName} was started outside Kosmos, so Kosmos cannot `
-      + `confirm it is this agent (an agent Kosmos starts runs in a session Kosmos marks, or one called ${a.sessionName}-discord). `
-      + 'Kosmos will not type messages into it, and will not change its picture, role or instructions from here. '
-      + 'Kosmos can do both once it is started from Kosmos.';
+    /* The reason itself is #d-task's (stateReason), on this same page, so this says only what it adds. */
+    why.textContent = tied ? '' : 'For the same reason, Kosmos will not change its picture, role or instructions from here.';
   }
 }
 

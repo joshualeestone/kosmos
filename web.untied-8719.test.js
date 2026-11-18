@@ -14,7 +14,7 @@ const flagOf = (a) => new Function('a', `${page.lift(SCRIPT, 'untiedFlagHtml')}\
 
 test('#8719: an agent Kosmos did not start says why it cannot be messaged; CONTROL: one of ours says nothing new', () => {
   const untied = { state: 'idle', isNamedOurs: false };
-  assert.match(reasonOf(untied), /^Started outside Kosmos, so Kosmos cannot confirm this window is the agent and will not type messages into it\./);
+  assert.match(reasonOf(untied), /^Started outside Kosmos, so Kosmos cannot confirm this window is the agent and will not type messages into it until Kosmos starts it\.$/);
   assert.equal(reasonOf({ state: 'idle', isNamedOurs: true }), '', 'CONTROL: a tied idle agent has no reason sentence');
   assert.equal(reasonOf({ state: 'idle' }), '', 'CONTROL: a card without the field (paneless, older) is not called untied');
   assert.match(reasonOf({ state: 'working', isNamedOurs: false, waiting: { kind: 'x' } }), /^Started outside Kosmos/,
@@ -28,13 +28,10 @@ test('#8719: the tile and list row say "Not started by Kosmos"; CONTROL: a tied 
   assert.equal(flagOf({}), '', 'a card without the field is not labelled');
   assert.ok(SCRIPT.includes("${typeof untiedFlagHtml === 'function' ? untiedFlagHtml(a) : ''}</div>"), 'the tile draws the label');
   assert.ok(SCRIPT.includes("+ (typeof untiedFlagHtml === 'function' ? untiedFlagHtml(a) : '')"), 'the list row draws the label');
-  assert.match(HTML, /\.acard \.auntied, \.lrow \.auntied \{[^}]*display: block/, 'the label has its style');
+  assert.ok(/\.acard \.auntied \{[^}]*display: block/.test(HTML) && /\.lrow \.auntied \{[^}]*display: block/.test(HTML), 'the label has its style on the tile and the row');
 });
 
-test('#8719: the detail page names the launch mark, not only the -discord spelling', () => {
-  const at = SCRIPT.indexOf("why.textContent = tied ? '' : `The window called ${a.sessionName} was started outside Kosmos");
-  assert.ok(at > 0, 'the detail sentence is the new one');
-  const said = SCRIPT.slice(at, at + 600);
-  assert.match(said, /session Kosmos marks/);
-  assert.match(said, /-discord/, 'it still names the other spelling that counts');
+test('#8719: the detail page does not repeat the reason #d-task already shows; it says only what it adds', () => {
+  assert.ok(SCRIPT.includes("why.textContent = tied ? '' : 'For the same reason, Kosmos will not change its picture, role or instructions from here.';"),
+    'the detail sentence is the short one');
 });

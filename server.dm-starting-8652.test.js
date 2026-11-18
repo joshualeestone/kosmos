@@ -168,7 +168,7 @@ test('#8719 an agent on the board whose window Kosmos did not start is refused w
   const r = await send('omega', 'hello');
   assert.equal(r.status, 409, JSON.stringify(r.json));
   assert.equal(r.json.because, 'untied');
-  assert.match(r.json.error, /^Not sent: omega was started outside Kosmos, so Kosmos cannot confirm its window is this agent and did not type into it\./);
+  assert.match(r.json.error, /^Not sent: omega was started outside Kosmos, so Kosmos cannot confirm its window is this agent and did not type into it\. Kosmos cannot message it until Kosmos starts it\.$/);
   assert.ok(r.ms < 1500, 'an untied agent made the send wait: ' + r.ms + ' ms');
   roster.stranger = null;
   const gone = await send('omega', 'hello');

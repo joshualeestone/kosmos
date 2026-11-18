@@ -23,6 +23,12 @@ screen-read state with no reason, the direct-chat route 404s via knownAgent.
 - Tests: web.untied-8719.test.js (reason, label, detail sentence, each with a control); server.dm-starting-8652's
   stranger case now expects 409 untied (still refused, still no wait), plus a new case with a 404 control.
 
+- Review 1: the chat-open refusal ('borrowed', still 404 and still keyed by `because` on the board) now carries
+  UNTIED_READ_WORDS, since the iPhone shows its text; the page's #d-untied says only what it adds to #d-task's reason;
+  the sentence states the condition ("until Kosmos starts it"), not a route that the hand-started window blocks today.
+- Known, not changed: between the supervisor's new-session and its set-option @kosmos_agent (milliseconds), a poll could
+  read a Kosmos agent as untied; the card was anonymous in that gap before this change too.
+
 ## Decided / rejected
 - The tile carries a short label, not the sentence: Josh ruled sentences off tiles (#6716). The sentence is the pill's
   hover, screen-reader text and the agent page, where every other reason lives.

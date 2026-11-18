@@ -4407,9 +4407,11 @@ function nameRefusal(name) {
 
 /* The 404 body for a `nameRefusal` reason, shared by the DM thread's routes so the two
    sentences are written once. */
-function nameRefusalBody(refusal) {
+function nameRefusalBody(refusal, name) {
   return {
-    error: refusal === 'borrowed' ? 'no agent by that name' : 'we could not check which agents are running',
+    /* kosmos#8719: 'borrowed' is an agent on the board whose window Kosmos did not start, not a missing one. The board
+       draws its own sentence from `because`; the iPhone shows this text, so it says why. */
+    error: refusal === 'borrowed' ? UNTIED_READ_WORDS(name) : 'we could not check which agents are running',
     because: refusal,
   };
 }
@@ -4490,7 +4492,11 @@ function clearLeftovers(name, projectId, why) {
    they can do about it. */
 function UNTIED_SEND_WORDS(name) {
   return `Not sent: ${name} was started outside Kosmos, so Kosmos cannot confirm its window is this agent and did not type `
-    + 'into it. Kosmos can message it once it is started from Kosmos.';
+    + 'into it. Kosmos cannot message it until Kosmos starts it.';
+}
+function UNTIED_READ_WORDS(name) {
+  return `${name || 'This agent'} was started outside Kosmos, so Kosmos cannot confirm its window is this agent and does `
+    + 'not show its conversation here.';
 }
 
 function knownAgent(name) {
@@ -20804,7 +20810,7 @@ const server = http.createServer(async (req, res) => {
     // not tied to it must not write into the real agent's private thread.
     const refusal = nameRefusal(name);
     if (refusal) {
-      sendJson(res, 404, nameRefusalBody(refusal));
+      sendJson(res, 404, nameRefusalBody(refusal, name));
       return;
     }
     readBody(req)
@@ -20835,7 +20841,7 @@ const server = http.createServer(async (req, res) => {
     const name = decodeSegment(dmDelete[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     const refusal = nameRefusal(name);
-    if (refusal) { sendJson(res, 404, nameRefusalBody(refusal)); return; }
+    if (refusal) { sendJson(res, 404, nameRefusalBody(refusal, name)); return; }
     readBody(req)
       .then(async (buf) => {
         let body;
@@ -20936,7 +20942,7 @@ const server = http.createServer(async (req, res) => {
     const name = decodeSegment(dmOlder[1]);
     if (name === null) { sendJson(res, 404, { error: 'that is not a name we can read' }); return; }
     const refusal = nameRefusal(name);
-    if (refusal) { sendJson(res, 404, nameRefusalBody(refusal)); return; }
+    if (refusal) { sendJson(res, 404, nameRefusalBody(refusal, name)); return; }
     let beforeRaw = null;
     try { beforeRaw = new URL(req.url, ROUTING_BASE).searchParams.get('before'); } catch { beforeRaw = null; }
     const before = typeof beforeRaw === 'string' && /^\d{1,9}$/.test(beforeRaw) ? Number(beforeRaw) : NaN;   // digits only
@@ -21029,7 +21035,7 @@ const server = http.createServer(async (req, res) => {
        `nameRefusal`: 'borrowed' is standing and 'unreadable' is a blip. */
     const refusal = nameRefusal(name);
     if (refusal) {
-      sendJson(res, 404, nameRefusalBody(refusal));
+      sendJson(res, 404, nameRefusalBody(refusal, name));
       return;
     }
     /* kosmos#7810: ?tail=N (1 to 200) answers only the newest N, so a phone on a weak signal draws a screenful first. */
