@@ -56,7 +56,8 @@ test('#7586: the joined view\'s sentence carries the line, inside its not-report
   // The assignment itself, not a comment: the line that sets plus-org-say for a joined work Kosmos.
   const lines = PAGE.split('\n').filter((l) => /^\s*else if \(here\) document\.getElementById\('plus-org-say'\)\.textContent = /.test(l));
   assert.equal(lines.length, 1, 'the joined view sentence moved: ' + lines.length);
-  assert.match(lines[0], /st\.reporting === false \? \(.*\) \+ plusOrgRequiredWait\(st\) : ''\)\);$/);
+  // Since the backup line (web.joined-backup-7586.test.js) the branch is followed by plusOrgBackupLate, outside it.
+  assert.match(lines[0], /st\.reporting === false \? \(.*\) \+ plusOrgRequiredWait\(st\) : ''\) \+ plusOrgBackupLate\(st\)\);$/);
 });
 
 test('#7586 review: a family whose words are not accepted, with reporting required, is told too; without it, not', () => {

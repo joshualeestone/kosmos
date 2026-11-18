@@ -28,6 +28,7 @@
  *       so under the code field, which stays.
  *   O15 a joined Kosmos that does not report yet offers no button (the board takes the terms on itself) and says
  *       which wait it is in.
+ *   O15b (kosmos#7586) with backup required and not met, the joined sentence says so; not when met or not said.
  *   O17 on a fresh page: a failed /api/org read still shows only the button; an already joined Kosmos shows its joined
  *       view and heading at once; a company note opens the block.
  */
@@ -331,6 +332,22 @@ const text = (pg, id) => pg.evaluate((i) => document.getElementById(i).textConte
         && o15r.family.say.endsWith('Your family' + REQ) && !/company/i.test(o15r.family.say)
         && o15r.familyWords.say.endsWith('reads and accepts them. Your family' + REQ),
       'O15r reporting required: the joined sentence says the company (or family) requires it and its console shows it; not when reporting or asked for none', JSON.stringify(o15r));
+    // O15b (kosmos#7586): with backup required and the coordinator's record not meeting it (/api/org backupLate), the
+    // sentence ends by saying so, after any reporting line, for a company and a family; a reporting computer can still
+    // be behind on backup. CONTROLS: backupLate null, and absent (an older board's answer), say nothing more.
+    const BK = ' requires this computer to be backed up, and its console shows ';
+    const o15b = { never: await joinedAs({ reporting: true, backupLate: 'never' }),
+      late: await joinedAs({ reporting: true, backupLate: 'late' }),
+      both: await joinedAs({ reporting: false, reportingWait: null, reportingRequired: true, backupLate: 'never' }),
+      met: await joinedAs({ reporting: true, backupLate: null }),
+      absent: await joinedAs({ reporting: true }),
+      family: await joinedAs(Object.assign({ reporting: true, backupLate: 'late' }, fam)) };
+    chk(o15b.never.say === 'This Kosmos is your work Kosmos for Acme. Your company' + BK + 'it has not backed up yet.'
+        && o15b.late.say.endsWith('Your company' + BK + 'its last backup is older than your company allows.')
+        && o15b.both.say.endsWith('Your company' + REQ + ' Your company' + BK + 'it has not backed up yet.')
+        && o15b.met.say === 'This Kosmos is your work Kosmos for Acme.' && o15b.absent.say === 'This Kosmos is your work Kosmos for Acme.'
+        && o15b.family.say.endsWith('Your family' + BK + 'its last backup is older than your family allows.') && !/company/i.test(o15b.family.say),
+      'O15b backup required: the joined sentence says the company (or family) requires it and its console shows it is not met; not when met or not said', JSON.stringify(o15b));
     await page.evaluate(() => { PLUS_ORG.state = { enrolled: false, org: null, role: null }; plusOrgPaint(); });
 
     // O17 (review 1): on a FRESH page, before any click. (a) /api/org fails: still only the button. (b) This Kosmos is
