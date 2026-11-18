@@ -4411,7 +4411,7 @@ function nameRefusalBody(refusal, name) {
   return {
     /* kosmos#8719: 'borrowed' is an agent on the board whose window Kosmos did not start, not a missing one. The board
        draws its own sentence from `because`; the iPhone shows this text, so it says why. */
-    error: refusal === 'borrowed' ? UNTIED_READ_WORDS(name) : 'we could not check which agents are running',
+    error: refusal === 'borrowed' ? untiedReadWords(name) : 'we could not check which agents are running',
     because: refusal,
   };
 }
@@ -4488,15 +4488,18 @@ function clearLeftovers(name, projectId, why) {
 // removes it is a single `claimantFor` whose card both the gate and the session
 // come from, and that is a change to how every name-keyed route resolves.
 
-/* kosmos#8719: what a person is told when a message to an agent Kosmos did not start is refused: the reason, and what
-   they can do about it. */
-function UNTIED_SEND_WORDS(name) {
-  return `Not sent: ${name} was started outside Kosmos, so Kosmos cannot confirm its window is this agent and did not type `
-    + 'into it. Kosmos cannot message it until Kosmos starts it.';
+/* kosmos#8719: what a person is told when a message to, or a read of, an agent whose window Kosmos cannot tie to it is
+   refused: the reason, and what makes it reachable. */
+/* Worded as what is checked (the window lacks Kosmos's own launch mark), not as where it came from: a session Kosmos
+   started and was then renamed fails the same check. */
+function untiedSendWords(name) {
+  return `Not sent: Kosmos cannot confirm it started the window running as ${name}, so it did not type into it. `
+    + `Kosmos cannot message ${name} until Kosmos starts it.`;
 }
-function UNTIED_READ_WORDS(name) {
-  return `${name || 'This agent'} was started outside Kosmos, so Kosmos cannot confirm its window is this agent and does `
-    + 'not show its conversation here.';
+function untiedReadWords(name) {
+  const who = name || 'this agent';
+  return `Kosmos cannot confirm it started the window running as ${who}, so it does not show or change ${who}'s `
+    + 'conversation here.';
 }
 
 function knownAgent(name) {
@@ -21472,7 +21475,7 @@ const server = http.createServer(async (req, res) => {
             let card = null;
             try { card = claimantFor(name); } catch { card = null; }
             if (card && card.isNamedOurs === false) {
-              const untied = new Error(UNTIED_SEND_WORDS(name));
+              const untied = new Error(untiedSendWords(name));
               untied.status = 409;
               untied.because = 'untied';
               throw untied;

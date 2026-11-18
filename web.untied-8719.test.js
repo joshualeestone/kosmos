@@ -1,5 +1,5 @@
 'use strict';
-/* kosmos#8719: an agent whose window Kosmos did not start (no launch claim, so the card's isNamedOurs is false). The board
+/* kosmos#8719: an agent whose window Kosmos cannot tie to it (no launch mark, so the card's isNamedOurs is false). The board
    says why it cannot be messaged, marks it on the tile and the list row, and the detail page names the real test. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -14,19 +14,19 @@ const flagOf = (a) => new Function('a', `${page.lift(SCRIPT, 'untiedFlagHtml')}\
 
 test('#8719: an agent Kosmos did not start says why it cannot be messaged; CONTROL: one of ours says nothing new', () => {
   const untied = { state: 'idle', isNamedOurs: false };
-  assert.match(reasonOf(untied), /^Started outside Kosmos, so Kosmos cannot confirm this window is the agent and will not type messages into it until Kosmos starts it\.$/);
+  assert.equal(reasonOf(untied), 'Kosmos cannot confirm it started this window, so it will not type messages into it until Kosmos starts it.');
   assert.equal(reasonOf({ state: 'idle', isNamedOurs: true }), '', 'CONTROL: a tied idle agent has no reason sentence');
   assert.equal(reasonOf({ state: 'idle' }), '', 'CONTROL: a card without the field (paneless, older) is not called untied');
-  assert.match(reasonOf({ state: 'working', isNamedOurs: false, waiting: { kind: 'x' } }), /^Started outside Kosmos/,
+  assert.match(reasonOf({ state: 'working', isNamedOurs: false, waiting: { kind: 'x' } }), /^Kosmos cannot confirm it started this window/,
     'it outranks the working-while-waiting line: every message to it is refused');
   assert.equal(reasonOf(untied, { card: true }), '', 'the tile carries no sentence (#6716); the label says it there');
   for (const state of ['needs_you', 'auth_failed', 'rate_limited']) {
-    assert.match(reasonOf({ state, isNamedOurs: false }), /^Started outside Kosmos/, `it outranks the ${state} reason on purpose (Kosmos cannot act on it)`);
+    assert.match(reasonOf({ state, isNamedOurs: false }), /^Kosmos cannot confirm it started this window/, `it outranks the ${state} reason on purpose (Kosmos cannot act on it)`);
   }
 });
 
-test('#8719: the tile and list row say "Not started by Kosmos"; CONTROL: a tied agent shows no label', () => {
-  assert.equal(flagOf({ isNamedOurs: false }), '<span class="auntied">Not started by Kosmos</span>');
+test('#8719: the tile and list row say "Not linked to Kosmos"; CONTROL: a tied agent shows no label', () => {
+  assert.equal(flagOf({ isNamedOurs: false }), '<span class="auntied">Not linked to Kosmos</span>');
   assert.equal(flagOf({ isNamedOurs: true }), '');
   assert.equal(flagOf({}), '', 'a card without the field is not labelled');
   assert.ok(SCRIPT.includes("${typeof untiedFlagHtml === 'function' ? untiedFlagHtml(a) : ''}</div>"), 'the tile draws the label');
@@ -35,6 +35,6 @@ test('#8719: the tile and list row say "Not started by Kosmos"; CONTROL: a tied 
 });
 
 test('#8719: the detail page line stands alone (the button reads it alone, and #d-task hides on a question)', () => {
-  assert.ok(SCRIPT.includes("why.textContent = tied ? '' : 'Started outside Kosmos, so Kosmos will not change its picture, role or instructions from here.';"),
+  assert.ok(SCRIPT.includes("why.textContent = tied ? '' : 'Kosmos cannot confirm it started this window, so it will not change its picture, role or instructions from here.';"),
     'the detail sentence names its reason itself');
 });

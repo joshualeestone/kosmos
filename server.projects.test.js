@@ -2302,7 +2302,7 @@ test('a pane holding the name untied is refused, on the read as well as the writ
     const res = await req('/api/agent/zeta/thread');
     assert.equal(res.status, 404, 'a stranger’s pane must not serve this agent’s private thread');
     // kosmos#8719: the iPhone shows this text, so it says why, not "no agent by that name".
-    assert.match(json(res).error, /^zeta was started outside Kosmos, so Kosmos cannot confirm its window is this agent/);
+    assert.equal(json(res).error, "Kosmos cannot confirm it started the window running as zeta, so it does not show or change zeta's conversation here.");
     // The STANDING half of the pair above: this name answers 404 every time.
     assert.equal(json(res).because, 'borrowed');
     const sent = await post('/api/agent/zeta/thread', { text: 'are you there' });

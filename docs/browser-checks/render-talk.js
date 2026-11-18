@@ -1293,7 +1293,7 @@ function unreachableStates() {
         const four04 = (body) => async () => new Response(JSON.stringify(body),
           { status: 404, headers: { 'content-type': 'application/json' } });
         try {
-          window.fetch = four04({ error: 'april was started outside Kosmos, so Kosmos cannot confirm its window is this agent and does not show its conversation here.', because: 'borrowed' });   // kosmos#8719: the server's words now
+          window.fetch = four04({ error: "Kosmos cannot confirm it started the window running as april, so it does not show or change april's conversation here.", because: 'borrowed' });   // kosmos#8719: the server's words now
           await paintTalk('april', 'April');
           out.borrowed = document.getElementById('d-dmthread').innerText.trim();
           window.fetch = four04({ error: 'we could not check which agents are running', because: 'unreadable' });
@@ -1310,7 +1310,7 @@ function unreachableStates() {
       if (!/just now/.test(both.unreadable || '')) {
         problems.push(`[${theme}] refusal: a 404 we may recover from lost its time phrase: ${JSON.stringify(both.unreadable)}`);
       }
-      if (/no agent by that name|does not show its conversation here/i.test(both.borrowed || '')) {
+      if (/no agent by that name|does not show or change/i.test(both.borrowed || '')) {
         problems.push(`[${theme}] refusal: the route's own sentence reached the panel: ${JSON.stringify(both.borrowed)}`);
       }
 
