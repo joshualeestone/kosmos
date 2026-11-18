@@ -145,7 +145,7 @@ function chk(ok, label, extra) {
          agent's change would be refused) is not sent back over: changing only the title sends only the title. */
       await page.click('#tk-edit');
       tasks.setText(proj.id, a, { detail: 'Added from a terminal while the form was open.' }, { by: null });
-      await page.evaluate(async () => { await pjReload(); });   // the poll brings the agent's detail into PROJECTS
+      await page.evaluate(async () => { await pjReload(); });   // the poll brings the terminal's detail into PROJECTS
       await page.fill('#tk-edit-title', 'Write the 0.8.10 notes, please');
       await page.click('#tk-edit-save');
       await page.waitForFunction(() => document.getElementById('tk-editform').hidden, null, { timeout: 8000 }).catch(() => {});
@@ -177,7 +177,10 @@ function chk(ok, label, extra) {
         `${tag} Escape closes the form, sends nothing, gives focus back`);
 
       /* The board's refusal: its words show, the form stays open with focus on the title; Cancel then clears them. */
-      await page.route('**/task/*/text', (r) => r.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the board said no to this one' }) }));
+      await page.route('**/task/*/text', async (r) => {
+        try { await r.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'the board said no to this one' }) }); }
+        catch { /* the page may have closed under the route at teardown (#6022) */ }
+      });
       await page.click('#tk-edit');
       await page.fill('#tk-edit-title', 'Refused by the board');
       await page.click('#tk-edit-save');
@@ -191,8 +194,12 @@ function chk(ok, label, extra) {
       await page.unroute('**/task/*/text');
 
       /* A refusal that arrives after another task opened lands nowhere. */
-      await page.route('**/task/*/text', async (r) => { await new Promise((ok) => setTimeout(ok, 800));
-        await r.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'a late refusal' }) }); });
+      await page.route('**/task/*/text', async (r) => {
+        try {
+          await new Promise((ok) => setTimeout(ok, 800));
+          await r.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'a late refusal' }) });
+        } catch { /* the page may have closed under the route at teardown (#6022) */ }
+      });
       await page.click('#tk-edit');
       await page.fill('#tk-edit-title', 'Sent, then left');
       await page.click('#tk-edit-save');
