@@ -6998,7 +6998,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkwho-b small { color: var(--label-2); }
 .tkdetail { white-space: pre-wrap; margin: 0; }
 /* kosmos#8664: the task page's edit form, under the title it edits. */
-.tkedit-open { margin-top: 8px; align-self: flex-start; }
+.tkedit-open { margin-top: 8px; }
 .tkedit { margin: 4px 0 16px; max-width: 640px; }
 .tkedit .tk-inp { width: 100%; box-sizing: border-box; }
 .tkedit .field { margin-bottom: 12px; }
@@ -18239,7 +18239,7 @@ window.kosmosMeasureScrollbarWidth();
         <textarea class="tk-inp" id="tk-edit-detail" rows="4" maxlength="2000"></textarea>
       </div>
       <div class="tkedit-acts">
-        <button class="btn-quiet" id="tk-edit-save" type="submit">Save</button>
+        <button class="btn-quiet" id="tk-edit-save" type="submit" aria-label="Save title and detail">Save</button>
         <button class="btn" id="tk-edit-cancel" type="button">Cancel</button>
       </div>
     </form>
@@ -74581,7 +74581,7 @@ function openTaskPage(n) {
   if (!t) return;
   TK_OPEN = n;
   document.getElementById('tk-msg').textContent = '';
-  tkEditClose(false);   // kosmos#8664: an edit begun on one task never carries to another
+  if (typeof tkEditClose === 'function') tkEditClose(false);   // kosmos#8664: an edit begun on one task never carries to another (guarded: tests lift this function alone)
   /* #768: clear the composer for the new task. #tk-say / #tk-say-msg are STATIC
      markup (unlike #tk-newpart, which paintTaskPage rebuilds via innerHTML), so an
      unsent draft or a stale refusal band from the last task would otherwise carry
@@ -74688,6 +74688,7 @@ document.addEventListener('visibilitychange', tkTabReturn);
 // once per return (tkReturnAt).
 window.addEventListener('focus', tkTabReturn);
 function leaveTaskPage() {
+  if (typeof tkEditClose === 'function') tkEditClose(false);   // kosmos#8664: leaving the page closes the edit form
   const was = TK_OPEN;
   TK_OPEN = null;
   tkHoldLineClear();   // kosmos#7430 review 7: an unhold line lives only while its task page is open
@@ -74936,7 +74937,10 @@ function tkEditClose(focusBack) {
   form.dataset.gen = String(Number(form.dataset.gen || 0) + 1);   // a save still on its way belongs to a form now gone
   open.hidden = false;
   document.getElementById('pj-task-view').classList.remove('tk-editing');
-  document.getElementById('tk-msg').textContent = '';   // a refusal shown for the form leaves with it
+  // A refusal the form wrote leaves with it; anything another action wrote there (Mark as done's answer) stays.
+  const msg = document.getElementById('tk-msg');
+  if (form.dataset.msg && msg.textContent === form.dataset.msg) msg.textContent = '';
+  form.dataset.msg = '';
   if (focusBack) open.focus();
 }
 document.getElementById('tk-edit').addEventListener('click', () => {
@@ -74951,7 +74955,9 @@ document.getElementById('tk-edit').addEventListener('click', () => {
   form.dataset.gen = String(Number(form.dataset.gen || 0) + 1);
   document.getElementById('tk-edit-title').value = form.dataset.title;
   document.getElementById('tk-edit-detail').value = form.dataset.detail;
+  for (const el of form.querySelectorAll('input, textarea, button')) el.disabled = false;   // a lock left by an older form's save
   document.getElementById('tk-msg').textContent = '';
+  form.dataset.msg = '';
   form.hidden = false;
   document.getElementById('tk-edit').hidden = true;
   document.getElementById('pj-task-view').classList.add('tk-editing');
@@ -74973,7 +74979,8 @@ document.getElementById('tk-editform').addEventListener('submit', async (ev) => 
   const title = titleIn.value.trim();
   const detail = document.getElementById('tk-edit-detail').value.trim();
   const msg = document.getElementById('tk-msg');
-  if (!title) { msg.textContent = 'A task needs a title: say what needs doing.'; titleIn.focus(); return; }
+  const say = (words) => { msg.textContent = words; form.dataset.msg = words; };   // the form's own words, so closing can take them back
+  if (!title) { say('A task needs a title: say what needs doing.'); titleIn.focus(); return; }
   const body = {};
   if (title !== form.dataset.title.trim()) body.sentence = title;
   if (detail !== form.dataset.detail.trim()) body.detail = detail ? detail : null;
@@ -74992,12 +74999,12 @@ document.getElementById('tk-editform').addEventListener('submit', async (ev) => 
     });
     out = await res.json().catch(() => null);
   } catch {
-    lock(false);
-    if (still()) { msg.textContent = 'we could not change that task'; titleIn.focus(); }
+    if (form.dataset.gen === gen) lock(false);
+    if (still()) { say('we could not change that task'); titleIn.focus(); }
     return;
   }
-  lock(false);
-  if (!res.ok) { if (still()) { msg.textContent = (out && out.error) || 'we could not change that task'; titleIn.focus(); } return; }
+  if (form.dataset.gen === gen) lock(false);   // only this form's save unlocks it: a newer form unlocked itself when it opened
+  if (!res.ok) { if (still()) { say((out && out.error) || 'we could not change that task'); titleIn.focus(); } return; }
   /* Saved. A failed reload is not a failed save: the next poll repaints. The form closes after the reload, so the head
      never shows the old words for a moment. */
   try { await pjReload(); } catch { /* the poll catches up */ }
