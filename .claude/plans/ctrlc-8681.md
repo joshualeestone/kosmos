@@ -41,6 +41,10 @@ failure looks like "stopped at the limit", and the success looks like "stopped s
 - Worst passing case is about 360 s: three waits of up to 120 s each (node to start, pwsh to stop, node to be gone),
   under run-tests.sh's 600 s per-test timeout (review 3 corrected an earlier 240 s that left out the third).
 
+## Not covered
+- A test killed from outside (the runner's 600 s per-test timeout) skips its finally, so pwsh runs to its 600 s
+  limit and node stays. True before this change too; rarer now, since the worst passing case is about 360 s.
+
 ## Weakest premise
 That 120 s covers the worst load the self-hosted Mac sees. Tonight's worst sighting was 15.9 s, so the margin is
 about 7x; a box loaded far beyond tonight could still reach it, and then the red names the measured time.
