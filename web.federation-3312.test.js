@@ -415,6 +415,7 @@ test('kosmos#6595: a remote-session refusal is shown as the board says it, on bo
   assert.equal(s.pjFedMessage(stepUp, 'FALLBACK'), stepUp.error, 'the create screen door shows the step-up sentence');
   assert.equal(s.pjFedMessage({ code: 'remote_step_up_clock', error: 'Set the clock.' }, 'FALLBACK'), 'Set the clock.');
   assert.equal(s.pjFedMessage({ code: 'remote_not_allowed', error: 'Do it at the computer.' }, 'FALLBACK'), 'Do it at the computer.');
+  assert.equal(s.pjFedMessage({ code: 'remote_step_up_unavailable', error: 'Try again in a minute.' }, 'FALLBACK'), 'Try again in a minute.');
   // Controls: a code that is not a remote refusal (an invite secret) and a step-up with no sentence keep the fallback.
   assert.equal(s.pjFedMessage({ code: 'AB12-CD34', error: 'x' }, 'FALLBACK'), 'FALLBACK', 'an invite secret in code is never read as a refusal');
   assert.equal(s.pjFedMessage({ code: 'remote_step_up' }, 'FALLBACK'), 'FALLBACK');
