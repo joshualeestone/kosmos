@@ -189,7 +189,7 @@ test('a refused check is named by number and task, on both CLIs, and the usage l
   const home = makeHome();
   const error = 'keep how you checked it to 1000 characters or fewer';
   const args = ['task', 'check', 'p5152', '3', '2', 'met', 'x'.repeat(1001)];
-  const named = /Kosmos did not report check 2 on task 3: keep how you checked it to 1000 characters or fewer\. Nothing was recorded for check 2; any other check you reported stands/;
+  const named = /Kosmos did not report check 2 on task 3: keep how you checked it to 1000 characters or fewer\. Nothing was recorded for check 2; a check Kosmos already accepted is unchanged/;
   await withStub(async (port) => {
     const r = await sh(port, home, args);
     assert.equal(r.code, 1, r.out);

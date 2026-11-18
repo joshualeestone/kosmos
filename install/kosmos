@@ -7283,7 +7283,7 @@ cmd_task() {
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           # #8668: name the check. Agents report several checks as several commands, so a refusal that says only "that
           # check" reads as the whole set failing, or is missed while the others go through.
-          say "Kosmos did not report check $_kn on task $num: ${because:-it did not say why}. Nothing was recorded for check $_kn; any other check you reported stands. Fix this one and run it again."; exit 1 ;;
+          say "Kosmos did not report check $_kn on task $num: ${because:-it did not say why}. Nothing was recorded for check $_kn; a check Kosmos already accepted is unchanged. Fix this one and run it again."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when reporting that check."; exit 1 ;;
       esac
       ;;

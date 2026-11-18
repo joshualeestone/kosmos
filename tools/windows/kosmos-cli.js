@@ -2154,8 +2154,8 @@ async function taskCheck(ctx, args) {
       : 'Reported check ' + which + ' on task ' + num + ' on ' + project + ' as ' + word + (movedTo !== null ? ', moved to task ' + movedTo : '') + '. It reads as your word, not a verification. See them with: kosmos task show ' + project + ' ' + num);
     return 0;
   }
-  // #8668, as install/kosmos: name the check, and say the others stand.
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos did not report check ' + which + ' on task ' + num + ': ' + ctx.refusedBy(r) + '. Nothing was recorded for check ' + which + '; any other check you reported stands. Fix this one and run it again.'); return 1; }
+  // #8668, as install/kosmos: name the check, and say what was not recorded.
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos did not report check ' + which + ' on task ' + num + ': ' + ctx.refusedBy(r) + '. Nothing was recorded for check ' + which + '; a check Kosmos already accepted is unchanged. Fix this one and run it again.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when reporting that check.');
   return 1;
 }
