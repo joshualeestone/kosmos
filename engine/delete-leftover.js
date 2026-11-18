@@ -457,6 +457,20 @@ function realCaseName(asked, platform) {
  * when it must not be offered. The confirmation paints THESE words, never its
  * own, so the description of the act cannot drift from the act.
  */
+/* kosmos#8685: the agent's own session in a roster read (status.paneLook), by its session name or by its claim (this
+   world's launch key: `name`, or `name+world` in a named world), case-blind where the disk is. { live, byClaim }, live
+   null when neither is there. One rule for plan() and for planAsync's question "is it running, so no listing is needed". */
+function liveIn(look, clean, platform) {
+  const caseBlind = platform === 'darwin' || platform === 'win32';
+  const sameName = (a) => (caseBlind ? String(a).toLowerCase() === clean.toLowerCase() : a === clean);
+  const byName = look.roster.find((c) => sameName(c.sessionName)) || null;
+  if (byName) return { live: byName, byClaim: false };
+  const identity = require('./launchidentity');
+  const key = identity.launchKey(clean, identity.currentWorldId());
+  const c = look.claims.find((r) => (caseBlind ? r.claim.toLowerCase() === key.toLowerCase() : r.claim === key));
+  return c ? { live: { session: c.session, sessionName: c.session }, byClaim: true } : { live: null, byClaim: false };
+}
+
 function plan(name, opts) {
   const now = (opts && opts.now) || Date.now();
   /* ⚠️ INJECTED, NOT READ (#570). This module decides whether a NAME IS FREE,
@@ -492,16 +506,13 @@ function plan(name, opts) {
      folder), and offered that agent's folder and job. Both count as running now. */
   let byClaim = false;
   let byFolder = false;
+  /* kosmos#8685: planAsync may hand in the roster read it already made (opts.look); then this plan's later roster
+     question (namedRecords) uses that same read, so the page reads it once. A plan with none handed reads as before,
+     the stored-records look included (#7819: that look failing on its own refuses). */
+  const rosterLook = (opts && opts.look) || null;
   try {
-    const look = status.paneLook();
-    live = look.roster.find((c) => sameName(c.sessionName)) || null;
-    if (!live) {
-      // The claim is this world's launch key for the agent (`name`, or `name+world` in a named world).
-      const identity = require('./launchidentity');
-      const key = identity.launchKey(clean, identity.currentWorldId());
-      const c = look.claims.find((r) => (caseBlind ? r.claim.toLowerCase() === key.toLowerCase() : r.claim === key));
-      if (c) { live = { session: c.session, sessionName: c.session }; byClaim = true; }
-    }
+    const look = rosterLook || status.paneLook();
+    ({ live, byClaim } = liveIn(look, clean, platform));
     /* A pane working INSIDE the agent's folder, whatever its session or claim. It may be the agent or anything else
        working there; either way nothing in that folder is offered. Real paths, so a symlinked workers folder still
        matches; case-blind where the disk is. */
@@ -629,7 +640,7 @@ function plan(name, opts) {
   let recs = null;
   let damagedSettings = false;
   if (!folder && !job) {
-    try { recs = namedRecords(clean, null); } catch {
+    try { recs = namedRecords(clean, null, rosterLook); } catch {
       return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
     }
     if (recs.kept) {
@@ -686,7 +697,7 @@ function plan(name, opts) {
        could come, and the task-only words would promise both. Such a name gets main's full delete (typed when a picture
        goes for good), after main's checks below. A look at the profile that fails refuses. */
     let stored;
-    try { stored = namedRecords(clean, null); } catch {
+    try { stored = namedRecords(clean, null, rosterLook); } catch {
       return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
     }
     let hasProfile = true;
@@ -766,7 +777,7 @@ function plan(name, opts) {
      take them (the data root can be on another volume); otherwise deleted for good, and the plan says which. */
   /* A look that failed refuses, as the running check above does: read as "nothing stored", the plan would promise a
      free name and leave the profile behind. */
-  if (!recs) try { recs = namedRecords(clean, folder ? folder.path : null); } catch {
+  if (!recs) try { recs = namedRecords(clean, folder ? folder.path : null, rosterLook); } catch {
     return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
   }
   const bin = binWords(platform);   // kosmos#7820
@@ -1187,15 +1198,15 @@ function strandedRefusal(name, shown) {
    could name an agent that was running under another name, and its delete then refused. THROWS when the panes cannot be
    read, as paneRoster does, so each caller keeps its own fail-closed answer. The folder check (paneFolders) is not here:
    the list only names agents with no folder, and namedRecords asks about another agent's stored name, not a folder. */
-function runningNames() {
+function runningNames(handed) {
   const identity = require('./launchidentity');
   const world = identity.currentWorldId();
-  const look = status.paneLook();
+  const look = handed || status.paneLook();   // kosmos#8685: a roster read the caller already made, when it has one
   const names = look.roster.map((c) => c.sessionName);
   for (const c of look.claims) { const n = identity.nameInWorld(c.claim, world); if (n) names.push(n); }
   return names;
 }
-function namedRecords(name, folderPath) {
+function namedRecords(name, folderPath, look) {
   const store = require('./store');
   let key;
   try { key = store.safeKey(name); } catch { return { records: [], kept: null }; }
@@ -1207,7 +1218,7 @@ function namedRecords(name, folderPath) {
     if (dir && own && real(dir) === own) return;   // this leftover's own folder, under its own spelling
     try { if (store.safeKey(n) === key) kept = `${n} uses the same stored name`; } catch { /* not a name */ }
   };
-  for (const n of runningNames()) note(n, null);   // kosmos#8644: claims too, as plan() reads them
+  for (const n of runningNames(look)) note(n, null);   // kosmos#8644: claims too, as plan() reads them
   // A workers folder that cannot be read throws (plan() refuses): read as empty it would hide a folder sharing the key.
   let entries = [];
   try { entries = fs.readdirSync(create.WORKERS_DIR, { withFileTypes: true }); } catch (e) { if (!(e && e.code === 'ENOENT')) throw e; }
@@ -1783,12 +1794,23 @@ async function planAsync(name, opts) {
      when the agent's folder is there (foldersIfNeeded). */
   // The page's answer can be as old as the drive probe (up to 20 s); the delete itself reads again just before it acts
   // (delAsync), so do not make the delete reuse this read.
-  const had = await foldersIfNeeded(name, opts);
-  const warm = win ? await warmFor(name, { ...(opts || {}), ...had }) : null;
+  /* kosmos#8685 (Windows): the roster first, read once and handed to every plan below. An agent it shows running needs
+     no process listing (the plan answers "running" before it would read one), so a living agent's page no longer pays
+     for one. The read can be as old as the drive probe, as the listing's already could; the delete re-plans with fresh
+     reads before it acts (delAsync). */
+  let look = null;
+  if (win) {
+    try { look = status.paneLook(); } catch { look = null; }   // unreadable: plan() reads it itself and refuses as before
+  }
+  const withLook = look ? { look } : {};
+  let living = false;
+  if (look) { try { living = !!liveIn(look, realCaseName(create.cleanName(name), 'win32'), 'win32').live; } catch { living = false; } }
+  const had = living ? {} : await foldersIfNeeded(name, opts);
+  const warm = win ? await warmFor(name, { ...(opts || {}), ...withLook, ...had }) : null;
   // Asked again: a delete of the name can have started while the probe ran.
   if (win && deletingName(name)) return { ok: false, running: true, because: DELETING_BECAUSE };   // kosmos#7852: the page can say so
   if (warm && warm.first && !warm.probed) return warm.first;
-  return plan(name, { ...(opts || {}), ...had });
+  return plan(name, { ...(opts || {}), ...withLook, ...had });
 }
 /** The folder listing, read off the board's thread: the list, or the Error the read gave (plan() refuses on it). Reads
     already running are shared (two pages opening together start one Windows read, not two); a finished one is never
@@ -1816,7 +1838,15 @@ async function foldersIfNeeded(name, opts, fresh = false) {
   const win = ((opts && opts.platform) || process.platform) === 'win32';
   if (win) {
     // The same folder plan() resolves (realCaseName, as there), so the two checks cannot disagree on the name.
-    try { there = fs.existsSync(create.workerDir(realCaseName(create.cleanName(name), 'win32'))); } catch { there = true; }   // unsure: read
+    /* kosmos#8685: and under the workers root, as plan() requires before it reads a listing (a folder recorded
+       elsewhere is refused there without one), so such an agent does not cost a listing nobody uses. */
+    try {
+      const dir = create.workerDir(realCaseName(create.cleanName(name), 'win32'));
+      let under;
+      try { under = insideDir(fs.realpathSync(dir), fs.realpathSync(create.WORKERS_DIR)); }
+      catch { under = typeof dir === 'string' && insideDir(path.resolve(dir), path.resolve(create.WORKERS_DIR)); }
+      there = fs.existsSync(dir) && under;
+    } catch { there = true; }   // unsure: read
   }
   if (there) return { folders: await foldersOffThread(fresh) };
   /* Windows, no folder: a refusal is handed in, not nothing. plan() reads it only if the folder appeared in between, and

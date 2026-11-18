@@ -422,15 +422,22 @@ test('#7835 planAsync with every drive already answered plans once, and says wha
   leftover.setRunner(stub);
   const warmed = await asyncWin.plan('ot7835x');   // asks the drive, so the next one has nothing to ask
   assert.equal(warmed.ok, true, warmed.because);
+  /* Plans are counted by the one read every plan makes exactly once (its name as shown, status.readIdentity). Not by
+     roster reads: since kosmos#8685 planAsync reads the roster once and hands it to every plan it makes, so a roster
+     count can no longer see a second plan. */
+  const realIdentity = status.readIdentity;
   let asked = 0;
-  status.setPaneSource(() => { asked += 1; return ''; });
-  const again = await asyncWin.plan('ot7835x');
-  const plansRun = asked;
-  assert.ok(plansRun >= 1, 'the plan did not read the running panes, so this count proves nothing');
-  asked = 0;
-  const direct = win.plan('ot7835x');
-  assert.equal(plansRun, asked, 'planAsync planned twice with nothing left to ask the drive');
-  assert.deepEqual(again, direct);
+  status.readIdentity = (...a) => { asked += 1; return realIdentity(...a); };
+  try {
+    const again = await asyncWin.plan('ot7835x');
+    const plansRun = asked;
+    assert.ok(plansRun >= 1, 'no plan ran, so this count proves nothing');
+    asked = 0;
+    const direct = win.plan('ot7835x');
+    assert.equal(asked, 1, 'PRECONDITION: one plan reads the name as shown once');
+    assert.equal(plansRun, asked, 'planAsync planned twice with nothing left to ask the drive');
+    assert.deepEqual(again, direct);
+  } finally { status.readIdentity = realIdentity; }
 });
 
 test('#7835 an account move does not start while a Windows delete runs, and says why', async () => {
@@ -489,4 +496,61 @@ test('#7852 the plan asked while a delete runs says running, so a reloaded page 
   assert.equal((await going).outcome, leftover.OUTCOME.DELETED);
   const after = await asyncWin.plan('ot7852r');
   assert.notEqual(after.running, true, 'a plan asked after the delete still says it is running');
+});
+
+/* kosmos#8685, the Windows path driven on any platform: the page reads the roster once (handed to every plan it makes,
+   the probe's and the last), and a running agent's page starts no process listing. */
+test('#8685 planAsync (Windows) reads the roster once, through the drive probe and the plan after it', async () => {
+  leftoverFolder('ot8685a');
+  leftover.setRunner(later(50));   // the drive is asked, so the last plan runs after the probe
+  const realLook = status.paneLook;
+  let looks = 0;
+  status.paneLook = (...a) => { looks += 1; return realLook(...a); };
+  try {
+    const p = await asyncWin.plan('ot8685a');
+    assert.equal(p.ok, true, p.because);
+    assert.ok(probes() >= 1, 'PRECONDITION: the drive was probed, so two plans ran');
+    assert.equal(looks, 1, 'the page read the roster ' + looks + ' times');
+  } finally { status.paneLook = realLook; }
+});
+
+test('#8685 planAsync (Windows): a running agent\'s page starts no process listing, and says it is running', async () => {
+  const fleet = require('../test-support/fleet');
+  leftoverFolder('ot8685b');
+  status.setPaneSource(() => fleet.line({ session: 'ot8685b', claim: 'ot8685b' }) + '\n');
+  const realAsync = status.paneFoldersAsync;
+  let listings = 0;
+  status.paneFoldersAsync = async () => { listings += 1; return []; };
+  try {
+    const p = await asyncWin.plan('ot8685b');
+    assert.equal(p.ok, false);
+    assert.match(String(p.because), /is running/, 'PRECONDITION: the roster shows it running: ' + p.because);
+    assert.equal(listings, 0, 'a running agent\'s page still started a process listing');
+  } finally { status.paneFoldersAsync = realAsync; }
+});
+
+test('#8685 planAsync (Windows) CONTROL: the same leftover with nothing running is read for', async () => {
+  leftoverFolder('ot8685c');
+  const realAsync = status.paneFoldersAsync;
+  let listings = 0;
+  status.paneFoldersAsync = async () => { listings += 1; return []; };
+  try {
+    const p = await asyncWin.plan('ot8685c');
+    assert.equal(p.ok, true, p.because);
+    assert.ok(listings >= 1, 'a leftover with nothing running was not read for, so the guard would be skipped');
+  } finally { status.paneFoldersAsync = realAsync; }
+});
+
+test('#8685 planAsync (Windows): an agent recorded outside the workers folder costs no listing', async () => {
+  const store = require('./store');
+  const outside = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'ot8685-outside-'));
+  fs.writeFileSync(nodePath.join(outside, 'CLAUDE.md'), 'work\n');
+  store.writeProfile('ot8685d', { displayName: 'Outside', dir: outside });
+  const realAsync = status.paneFoldersAsync;
+  let listings = 0;
+  status.paneFoldersAsync = async () => { listings += 1; return []; };
+  try {
+    await asyncWin.plan('ot8685d');
+    assert.equal(listings, 0, 'a folder the plan refuses (not where Kosmos keeps agents) still started a listing');
+  } finally { status.paneFoldersAsync = realAsync; fs.rmSync(outside, { recursive: true, force: true }); try { fs.rmSync(store.profilePath('ot8685d'), { force: true }); } catch { /* gone */ } }
 });
