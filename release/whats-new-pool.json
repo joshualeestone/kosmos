@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.08",
+  "lastProd": "0.8.09",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -2135,47 +2135,52 @@
     },
     {
       "since": "0.8.09",
-      "status": "pending",
+      "status": "shown",
       "title": "GPT-6 runs when your account offers it",
       "line": "When your OpenAI account offers GPT-6, its agents can run it: Kosmos updates the Codex it installed, which older versions refused.",
       "icon": "spark",
-      "rank": 9.0,
-      "restart": "agents"
+      "rank": 9,
+      "restart": "agents",
+      "shownIn": "0.8.09"
     },
     {
       "since": "0.8.09",
-      "status": "pending",
+      "status": "shown",
       "title": "Report or block someone outside your Kosmos",
       "line": "A shared-room message from someone outside your Kosmos offers Report and Block; Settings, Your Profile lists who you blocked.",
       "icon": "shield",
-      "rank": 9.2
+      "rank": 9.2,
+      "shownIn": "0.8.09"
     },
     {
       "since": "0.8.08",
-      "status": "pending",
+      "status": "shown",
       "title": "Sort your Files",
       "line": "An agent's and a project's Files sort newest first, oldest first, A to Z or Z to A, and each screen keeps your choice.",
       "icon": "list",
-      "rank": 9.4
+      "rank": 9.4,
+      "shownIn": "0.8.09"
     },
     {
       "since": "0.8.09",
-      "status": "pending",
+      "status": "shown",
       "title": "Flip through every page of a PDF",
       "line": "On a Mac, previewing a PDF with several pages lets you flip through all of them, not only the first.",
       "icon": "list",
       "rank": 9.6,
       "platforms": [
         "mac"
-      ]
+      ],
+      "shownIn": "0.8.09"
     },
     {
       "since": "0.8.09",
-      "status": "pending",
+      "status": "shown",
       "title": "Link previews show their picture",
       "line": "A link preview shows its picture with its words, or words only when the picture cannot be fetched, never an empty picture box.",
       "icon": "chat",
-      "rank": 9.8
+      "rank": 9.8,
+      "shownIn": "0.8.09"
     },
     {
       "since": "0.8.08",

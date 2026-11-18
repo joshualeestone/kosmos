@@ -1,33 +1,36 @@
 {
-  "version": "0.8.09",
+  "version": "0.8.10",
   "highlights": [
     {
-      "icon": "spark",
-      "title": "GPT-6 runs when your account offers it",
-      "line": "When your OpenAI account offers GPT-6, its agents can run it: Kosmos updates the Codex it installed, which older versions refused."
+      "icon": "list",
+      "title": "A new agent gets a Files folder",
+      "line": "A new agent gets its own Files folder from the start, so it has a place to save a file for you the first time you ask."
+    },
+    {
+      "icon": "chat",
+      "title": "A long conversation keeps your place",
+      "line": "Reading back through a long conversation, a moment's failed read no longer moves you; one line at the end says so."
+    },
+    {
+      "icon": "chat",
+      "title": "A little more room between chat lines",
+      "line": "Messages in an agent conversation on the computer now have a little more space between lines."
     },
     {
       "icon": "shield",
-      "title": "Report or block someone outside your Kosmos",
-      "line": "A shared-room message from someone outside your Kosmos offers Report and Block; Settings, Your Profile lists who you blocked."
-    },
-    {
-      "icon": "list",
-      "title": "Sort your Files",
-      "line": "An agent's and a project's Files sort newest first, oldest first, A to Z or Z to A, and each screen keeps your choice."
-    },
-    {
-      "icon": "list",
-      "title": "Flip through every page of a PDF",
-      "line": "On a Mac, previewing a PDF with several pages lets you flip through all of them, not only the first.",
+      "title": "The restart note says what was checked",
+      "line": "After this computer restarts, the note says how many agents came back, names any that did not, and whether Kosmos's main records read fine.",
       "platforms": [
         "mac"
       ]
     },
     {
-      "icon": "chat",
-      "title": "Link previews show their picture",
-      "line": "A link preview shows its picture with its words, or words only when the picture cannot be fetched, never an empty picture box."
+      "icon": "shield",
+      "title": "Windows Settings stops a false warning",
+      "line": "Settings, Computer no longer says it could not tell which user Kosmos runs as, from a check that never applied here.",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }
