@@ -86956,7 +86956,16 @@ function pjResetFederation() {
 
 // A federation error response carries a distinct reason (already-used / expired / revoked /
 // not-found / self-join / double-join); name what the person can DO, never leak internals.
+/* A refusal the board gives a remote session (kosmos#6595: remote_step_up*, remote_not_allowed): its sentence says what to
+   do (sign in again, or do it at the computer), so it is shown as given, else ''. Asked only of a refusal: `code` is
+   the invite secret on a mint success, so only a code with this prefix counts. */
+function fedRemoteSays(body) {
+  return body && /^remote_(step_up|not_allowed)/.test(String(body.code || '')) && typeof body.error === 'string' && body.error
+    ? body.error : '';
+}
 function pjFedMessage(body, fallback, opts) {
+  // A remote-session refusal says its own way forward (the Make an invite code sheet hid it behind the fallback).
+  { const remote = fedRemoteSays(body); if (remote) return remote; }
   // reason || error only -- NOT body.code: `code` is the invite SECRET field on a mint success,
   // and overloading it as an error key here is a needless ambiguity. Unknown reasons fall through
   // to the caller's safe fallback.
@@ -88578,13 +88587,15 @@ async function fedInviteMake() {
       return;
     }
     if (!res.ok || !body || typeof body.code !== 'string' || !body.code) {
-      // A 403 means the request did not read as from this screen: nothing the person can act on.
+      // A 403 means the request did not read as from this screen (nothing the person can act on), or a remote session
+      // needs a fresh sign-in (kosmos#6595), which is.
       // kosmos#6681 review 1: a refused address marks the address field (and puts focus there), not "Who is it for?".
       if (res.status !== 403 && body && body.reason === 'bad-email') {
         pjFieldBad('fedinv-email', 'fedinv-msg', pjFedMessage(body, fallback));
         return;
       }
-      msg.textContent = res.status === 403 ? fallback
+      // A remote session's refusal is also a 403, and its sentence (sign in again) is the way forward: shown as given.
+      msg.textContent = res.status === 403 ? (fedRemoteSays(body) || fallback)
         : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback);
       document.getElementById('fedinv-label').focus();   // back in the field (pjFieldBad's way), not on <body>
       return;
