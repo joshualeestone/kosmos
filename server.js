@@ -30456,7 +30456,7 @@ function start(port = PORT) {
           })
           .catch(() => { /* best effort, like the repeat-due tell */ })
           .finally(() => { wakeLooking = false; });
-      }, Number(process.env.AGENT_WORKFORCE_TASK_WAKE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_TASK_WAKE_MS) : 60000); // the env is the test seam only
+      }, Number(process.env.AGENT_WORKFORCE_TASK_WAKE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_TASK_WAKE_MS) : taskwake.TICK_MS); // the env is the test seam only
       if (wakeTick && typeof wakeTick.unref === 'function') wakeTick.unref();
       /* kosmos#7416 slice 3: keep this computer awake while agents are working (keepAwakeTick, above). */
       const keepAwakeSweep = setInterval(keepAwakeTick, keepAwake.TICK_MS);

@@ -242,6 +242,7 @@ test('#8669: a file wake\'s path stays on this computer; the rows still name the
   const row = tasks.withoutLocalPaths(stored(p.id, t.number));
   assert.equal('path' in row.wake, false);
   assert.equal('from' in row.wake, false, 'nor the fingerprint');
+  assert.equal('size' in row.wake || 'mtimeMs' in row.wake, false, 'nor its size and time');
   assert.equal(JSON.stringify(row).includes('secret-folder-name'), false, 'no part of the path');
   assert.equal(taskwake.fieldsOf(row).wakeWords, 'waits for plan.md to change');
   const joined = projects.joinTaskClaims([stored(p.id, t.number)], projects.readAll(), ['ann'], [], { name: p.name, id: p.id })[0];
@@ -327,7 +328,7 @@ test('#8669: one holder is told once after the wake happens, and never before', 
     r = taskwake.sweep(w.o(only(p), { book }));
     assert.equal(w.typed.length, 1, 'one holder');
     assert.equal(w.typed[0].s, 'ann', 'the agent that set the wake is told first');
-    assert.match(w.typed[0].text, /^Kosmos: your task #\d+ in Tell, "Re-check the listings", was waiting for PR #12 in octo\/hello to merge, and it was merged\. Pick it up now\./);
+    assert.match(w.typed[0].text, /^Kosmos: your task #\d+ in Tell, "Re-check the listings", was waiting for PR #12 in octo\/hello to merge or close, and it was merged\. Pick it up now\./);
     assert.match(w.typed[0].text, /kosmos task wake [^ ]+ \d+\.$/);
     const s = stored(p.id, t.number);
     assert.ok(s.wakeToldAt, 'told is stored');
@@ -370,7 +371,7 @@ test('#8669: a held task, a busy holder and a holder off the project are not tol
 test('#8669: the history says the wake in words, and the board\'s own wake rows are not activity', () => {
   const { phrase } = require('./taskactphrase');
   const names = (sn) => ({ ann: 'Ann' }[sn] || null);
-  assert.equal(phrase({ kind: 'wake-set', words: 'waits for PR #12 in octo/hello to merge' }, names), 'Set to wake: waits for PR #12 in octo/hello to merge');
+  assert.equal(phrase({ kind: 'wake-set', words: 'waits for PR #12 in octo/hello to merge or close' }, names), 'Set to wake: waits for PR #12 in octo/hello to merge or close');
   assert.equal(phrase({ kind: 'wake-met', words: 'it was merged' }, names), 'Woke: it was merged');
   assert.equal(phrase({ kind: 'wake-told', told: 'ann', reached: true }, names), 'Woke; Ann was told');
   assert.equal(phrase({ kind: 'wake-told', told: 'ann', reached: false }, names), 'Woke; Kosmos could not reach Ann');
@@ -430,4 +431,28 @@ test('#8669: a file this Mac will not let the board read says so, at set time an
   const tcc2 = { realpathSync: real2, statSync: denied, lstatSync: () => ({}) };
   assert.match((await taskwake.prepare({ file: '/home/notes/plan.md' }, { fs: tcc2, home: '/home' })).problem, /^this Mac has not let Kosmos read that file/);
   assert.equal(taskwake.wakeProblem({ kind: 'branch', repo: 'octo/hello', branch: 'main', from: 'c'.repeat(64) }), null, 'a SHA-256 commit id');
+});
+
+test('#8669: one tick fingerprints at most HASH_PER_TICK files; the rest are looked at on the next', async () => {
+  const p = setupProject('Hashes', ['ann']);
+  const dir = nodePath.join(FILES, 'many');
+  fs.mkdirSync(dir, { recursive: true });
+  const nums = [];
+  for (let i = 0; i < taskwake.HASH_PER_TICK + 2; i += 1) {
+    const f = nodePath.join(dir, 'f' + i + '.txt');
+    fs.writeFileSync(f, 'one');
+    const t = tasks.create(p.id, { sentence: 'File ' + i, who: 'ann' });
+    tasks.setWake(p.id, t.number, (await taskwake.prepare({ file: f }, IN_HOME)).wake, { by: 'ann' });
+    fs.writeFileSync(f, 'two, longer');
+    nums.push(t.number);
+  }
+  const state = new Map();
+  const save = (pid, n, setAt, met) => tasks.saveWakeMet(pid, n, setAt, met);
+  const now = Date.now();
+  let done = (await taskwake.checkTick({ projects: only(p), now, state, seen: new Map(), save, home: FILES })).filter((x) => x.projectId === p.id);
+  assert.equal(done.filter((x) => x.act === 'met').length, taskwake.HASH_PER_TICK);
+  assert.equal(done.filter((x) => x.act === 'later').length, 2);
+  done = (await taskwake.checkTick({ projects: only(p), now: now + 1000, state, seen: new Map(), save, home: FILES })).filter((x) => x.projectId === p.id);
+  assert.equal(done.filter((x) => x.act === 'met').length, 2, 'the two left over are looked at on the next tick, not a minute later');
+  assert.ok(nums.every((n) => stored(p.id, n).wakeMet), 'all six woke');
 });

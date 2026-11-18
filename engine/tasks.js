@@ -1011,7 +1011,7 @@ function withoutLocalPaths(t) {
     delete r.landedRepo;
     // kosmos#8669: a file wake keeps the file's name in its words; its path stays on this computer.
     // The fingerprint goes with it: it says nothing the page needs, and it could confirm a guess at the file's contents.
-    if (r.wake && typeof r.wake === 'object' && r.wake.kind === 'file') { const { path: _p, from: _f, ...w } = r.wake; r.wake = w; }   // eslint-disable-line no-unused-vars
+    if (r.wake && typeof r.wake === 'object' && r.wake.kind === 'file') { const { path: _p, from: _f, size: _s, mtimeMs: _m, ...w } = r.wake; r.wake = w; }   // eslint-disable-line no-unused-vars
   }
   return r;
 }
