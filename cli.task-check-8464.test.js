@@ -246,6 +246,8 @@ test('a refused check is named by number and task, on both CLIs, and the usage l
   const w = await win(args, { status: 400, error });
   assert.equal(w.code, 1, w.out);
   assert.match(w.out, named);
+  // Review 12: no "run it again": for a closed task or a caller not on the project, running it again does not help.
+  assert.doesNotMatch(w.out, /run it again/);
   for (const out of [(await sh(0, home, ['task', 'check', 'p5152'])).out, (await win(['task', 'check', 'p5152'])).out]) {
     assert.match(out, /one check per command; how you checked it is one line, up to 1000 characters/);
   }

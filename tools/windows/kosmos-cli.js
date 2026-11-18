@@ -2161,7 +2161,7 @@ async function taskCheck(ctx, args) {
     return 0;
   }
   // #8668, as install/kosmos: name the check, and say what was not recorded.
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos did not report check ' + which + ' on task ' + num + ': ' + String(ctx.refusedBy(r)).replace(/\.$/, '') + '. Nothing was recorded for check ' + which + '; a check Kosmos already accepted is unchanged. Fix this one and run it again.'); return 1; }
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos did not report check ' + which + ' on task ' + num + ': ' + String(ctx.refusedBy(r)).replace(/\.$/, '') + '. Nothing was recorded for check ' + which + '; a check Kosmos already accepted is unchanged.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when reporting that check.');
   return 1;
 }

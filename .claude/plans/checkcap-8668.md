@@ -37,6 +37,11 @@ Done when: a 400-character evidence line is accepted and shows whole on the task
   board (an agent's install updated before its board) would otherwise claim a link an older board dropped; it now
   says "this Kosmos did not record the link to task N: update Kosmos for --moved-to". The report itself still lands.
 
+- Reporting a check again without `--moved-to` removes its link, and the CLI says only "Reported ... as not met"
+  (review 12). Deliberate: it is how an agent takes a link back, the rules say to add the flag when the work moves, and
+  the CLI cannot know a link existed without a second read. The refusal no longer ends "Fix this one and run it again"
+  (review 12): for a closed task or a caller not on the project, running it again does not help.
+
 ## Weakest premise
 That the moved-here list belongs in the checks row. On a task with no checks of its own the row's label becomes
 "Moved here from other tasks" (review 2), so it never reads as an empty "Done when".
