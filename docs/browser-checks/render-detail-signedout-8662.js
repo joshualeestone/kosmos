@@ -19,7 +19,8 @@
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
  *     node docs/browser-checks/render-detail-signedout-8662.js http://127.0.0.1:PORT
- * against a sandboxed board with first-run completed and at least one agent (the driver's fleet fixture).
+ * against a sandboxed board with first-run completed and at least two Claude agents with no model read (the driver's
+ * fleet fixture); the first one /api/status lists is the one whose page is opened.
  */
 'use strict';
 
@@ -106,9 +107,10 @@ const runsOn = (page) => page.evaluate(() => {
       const out = await state(page);
       check(`${look}: signed out: the agent page says so`, out.note && /This page is signed out/.test(out.text) && /See how to sign in/.test(out.text), JSON.stringify(out));
       const atShow = await page.evaluate(() => window.__atShow);
-      /* A page the browser reports hidden writes the words at once (no frames run), so words are only required to be
-         absent when it was on screen; there the words come a frame later and this proves focus did not wait for them. */
-      const where = !!atShow && atShow.inNote === true && (atShow.pageHidden === true || atShow.words === 0);
+      /* On screen, the words come a frame after the note shows, so "no words yet" proves focus did not wait for them. A
+         page the browser reports hidden writes them at once and this arm cannot tell the two orders apart: it fails. */
+      check(`${look}: precondition: the page was on screen when the note showed`, !!atShow && atShow.pageHidden === false, JSON.stringify(atShow));
+      const where = !!atShow && atShow.inNote === true && atShow.words === 0;
       check(`${look}: signed out: the Model section (the picker) is inert`, out.inert, JSON.stringify(out));
       check(`${look}: precondition: focus was inside the Model section before the sign-out`, focusedIn, String(focusedIn));
       check(`${look}: focus inside the Model section moved to the note when it locked, before its words arrived`, where, JSON.stringify(atShow));
@@ -129,7 +131,7 @@ const runsOn = (page) => page.evaluate(() => {
       const runsKept = await runsOn(page);
       check(`${look}: signed out: the open page keeps its last Runs on reading`, runsKept.line === runsBefore.line && !String(runsKept.line).includes(SIGNED_OUT_MODEL), JSON.stringify(runsKept));
       const other = await page.evaluate((cur) => {
-        const b = (typeof LAST !== 'undefined' && Array.isArray(LAST)) ? LAST.find((x) => x.sessionName !== cur && !x.modelName && !x.plannedModelName && (!x.runner || x.runner === 'claude')) : null;
+        const b = (typeof LAST !== 'undefined' && Array.isArray(LAST)) ? LAST.find((x) => x.sessionName !== cur && !x.modelName && !x.plannedModelName && (!x.runner || x.runner === 'claude') && !(x.account && x.account.provider && x.account.provider !== 'anthropic')) : null;
         if (b && typeof openDetail === 'function') openDetail(b.sessionName);
         return b ? b.sessionName : null;
       }, await page.evaluate(() => CURRENT && CURRENT.sessionName));
@@ -140,7 +142,7 @@ const runsOn = (page) => page.evaluate(() => {
          reachable here; modelLine is that menu's source too, and web.made-before.test.js pins modelLine itself. */
       check(`${look}: signed out: an agent with no model read, opened, says so on Runs on`, String(runsOut.line).includes(SIGNED_OUT_MODEL), JSON.stringify(runsOut));
       // Back to the first agent for the arms below, which read only the note and the section's lock.
-      await page.evaluate((n) => openDetail(n), first);
+      await page.evaluate((n) => openDetail(n), runsBefore.agent);
       const backOn = await page.evaluate(() => (typeof CURRENT !== 'undefined' && CURRENT ? CURRENT.sessionName : null));
       check(`${look}: precondition: the first agent's page is open again`, backOn === runsBefore.agent, String(backOn));
       refuse = false;
