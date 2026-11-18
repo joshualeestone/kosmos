@@ -141,17 +141,17 @@ function chk(ok, label, extra) {
         `${tag} the activity says what changed, as the person`, act.slice(-160));
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `taskedit-saved-${theme}-${width}.png`), fullPage: true });
 
-      /* A change made elsewhere while the form is open (an agent's, through the engine) is not sent back over: changing only
-         the title sends only the title. */
+      /* A change made elsewhere while the form is open (here from a terminal: by now the person has reworded this task, so an
+         agent's change would be refused) is not sent back over: changing only the title sends only the title. */
       await page.click('#tk-edit');
-      tasks.setText(proj.id, a, { detail: 'An agent added this while the form was open.' }, { by: 'ada' });
+      tasks.setText(proj.id, a, { detail: 'Added from a terminal while the form was open.' }, { by: null });
       await page.evaluate(async () => { await pjReload(); });   // the poll brings the agent's detail into PROJECTS
       await page.fill('#tk-edit-title', 'Write the 0.8.10 notes, please');
       await page.click('#tk-edit-save');
       await page.waitForFunction(() => document.getElementById('tk-editform').hidden, null, { timeout: 8000 }).catch(() => {});
       chk(JSON.stringify(JSON.parse(posts[posts.length - 1] || '{}')) === JSON.stringify({ sentence: 'Write the 0.8.10 notes, please' })
-        && stored(a).detail === 'An agent added this while the form was open.',
-        `${tag} a title-only save sends only the title, and an agent's detail written meanwhile survives`, JSON.stringify([posts[posts.length - 1], stored(a).detail]));
+        && stored(a).detail === 'Added from a terminal while the form was open.',
+        `${tag} a title-only save sends only the title, and a detail written elsewhere meanwhile survives`, JSON.stringify([posts[posts.length - 1], stored(a).detail]));
 
       /* Emptying the detail clears it (sent as null); Cancel sends nothing. */
       await page.click('#tk-edit');
