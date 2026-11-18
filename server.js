@@ -63,6 +63,10 @@ if (require.main === module) {
   const logring = require('./engine/logring');
   logring.board.tap(process.stdout, 'stdout');
   logring.board.tap(process.stderr, 'stderr');
+  /* #8718: before any module reads a store, a store a crash left empty or all zero bytes is moved aside into torn/,
+     one board.log line each, so it reads as absent and takes its default (engine/tornstores.js). After the log stamp,
+     so those lines carry a time. Never throws. */
+  try { require('./engine/tornstores').run(require('./engine/store').ROOT); } catch (e) { console.error('tornstores: not run: ' + (e && e.message)); }
 }
 /* #7693: after the log stamp and before the engine modules copy these functions: a blocking child process
    over a second writes its caller to board.log. See engine/slowspawn.js. Only when this file IS the board. */
