@@ -8,8 +8,8 @@
  *
  * install() gives stdout and stderr one listener: a closed reader exits with 141 (128 + SIGPIPE, what a shell reports
  * for a program a closed pipe stopped); any other stream error is thrown again, so it still fails as loudly as before.
- * A closed reader is CLOSED_READER_CODES: EPIPE, and ENOTCONN or ECONNRESET, which a socket-backed stdout can raise
- * instead (kosmos#8714: `write ENOTCONN` in macOS CI run 44377549059, from a child Node spawned).
+ * A closed reader is CLOSED_READER_CODES. EPIPE is the measured shell-pipe case; ENOTCONN was seen in its place in
+ * macOS CI run 44377549059 (kosmos#8714), and ECONNRESET is the other code a closed socket peer gives.
  * Every node install/kosmos runs is guarded this way except the board (below), not only one-shot verbs; no engine
  * file has its own stdout/stderr 'error' handler for this listener to pre-empt. The exit is immediate (no async
  * cleanup, no flush): when stderr's reader is the one that closed, a note the verb was about to write is lost with
@@ -31,9 +31,9 @@
 const QUIT_ON_CLOSED_READER = 141;
 const CLOSED_READER_CODES = new Set(['EPIPE', 'ENOTCONN', 'ECONNRESET']);
 
-/** One stream: a closed reader is a quiet exit, anything else is thrown again. Only when this is the stream's ONLY 'error'
- *  listener, which is exactly when Node itself would have crashed: a program with its own handler (a node-based git
- *  hook the wrapper runs, say) handles its errors as before, EPIPE included. */
+/** One stream: a closed reader is a quiet exit, anything else is thrown again. Only when this is the stream's ONLY
+ *  'error' listener, which is exactly when Node itself would have crashed: a program with its own handler (a
+ *  node-based git hook the wrapper runs, say) handles its errors as before, EPIPE included. */
 function guardStream(stream, proc) {
   if (!stream || typeof stream.on !== 'function') return;
   stream.on('error', (e) => {
