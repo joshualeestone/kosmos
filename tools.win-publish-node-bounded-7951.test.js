@@ -113,31 +113,62 @@ test('CI has both PowerShells to test with', { skip: process.platform !== 'win32
 if (!RUNTIMES.length) test('Invoke-ChildBounded', { skip: 'pwsh is not installed here, so it did not run on this computer' }, () => {});
 
 // A real Ctrl+C reaches a console, not a signal, so this arm is off Windows; the waits it pins are the same code.
+// #8681: "held off" means pwsh acts on Ctrl+C only when the node limit runs out, so the limit is set far above the time
+// allowed to stop (CTRLC_LIMIT_S against STOP_ALLOWED_MS). A fixed 15 s against a 40 s limit was tuned on an idle Mac
+// and went red three times on 11-17 under load (15.9 s to stop); the gap between the two numbers is what proves the
+// point, not how fast a busy Mac stops pwsh.
+const CTRLC_LIMIT_S = 600;
+const STOP_ALLOWED_MS = 120000;
+const START_ALLOWED_MS = 120000;   // a pwsh start alone took 17 s on CI's loaded Mac (#7998)
 test('Ctrl+C is not held off by the limit, and takes node with it', { skip: process.platform === 'win32' || !RUNTIMES.includes('pwsh') }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-7951-'));
+  const pidFile = path.join(dir, 'node.pid');
+  let child = null;
+  let exited = false;
   try {
     const harness = path.join(dir, 'int.ps1');
-    const pidFile = path.join(dir, 'node.pid');
     fs.writeFileSync(harness, HARNESS.slice(0, HARNESS.indexOf('$res = @{}')) + String.raw`
-$NodeTimeoutSec = 40
+$NodeTimeoutSec = ${CTRLC_LIMIT_S}
 [void] (Invoke-ChildBounded $node @('-e', "require('fs').writeFileSync(process.argv[1],String(process.pid));setInterval(()=>{},1000)", $args[2]))
 `);
-    const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', harness, SCRIPT, process.execPath, pidFile], { env: PS_ENV, stdio: 'ignore' });
-    const gone = new Promise((resolve) => child.on('exit', resolve));
-    const until = Date.now() + 20000;
-    while (!fs.existsSync(pidFile) && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
-    assert.ok(fs.existsSync(pidFile), 'node never started');
+    child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', harness, SCRIPT, process.execPath, pidFile], { env: PS_ENV, stdio: 'ignore' });
+    let exitWords = '';
+    const gone = new Promise((resolve) => child.on('exit', (code, signal) => { exited = true; exitWords = signal || String(code); resolve(); }));
+    const until = Date.now() + START_ALLOWED_MS;
+    // A pwsh that dies at start is named at once, not after the whole start allowance as "node never started".
+    while (!fs.existsSync(pidFile) && !exited && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
+    assert.ok(fs.existsSync(pidFile), exited ? `pwsh exited (${exitWords}) before node started` : 'node never started');
     await new Promise((r) => setTimeout(r, 300));
+    // A pwsh already gone would read as an instant stop and pass without measuring anything.
+    assert.ok(!exited, `pwsh exited (${exitWords}) before SIGINT was sent, so nothing was measured`);
     const sent = Date.now();
     child.kill('SIGINT');
-    const timer = setTimeout(() => child.kill('SIGKILL'), 25000);
+    let killed = false;
+    const timer = setTimeout(() => { killed = true; child.kill('SIGKILL'); }, STOP_ALLOWED_MS);
     await gone;
     clearTimeout(timer);
-    assert.ok(Date.now() - sent < 15000, `pwsh took ${Date.now() - sent} ms to stop after SIGINT, under a 40 s limit`);
+    const took = Date.now() - sent;
+    assert.ok(!killed && took < STOP_ALLOWED_MS, `pwsh took ${took} ms to stop after SIGINT (allowed ${STOP_ALLOWED_MS} ms, under a ${CTRLC_LIMIT_S} s limit)${killed ? ': it was still running and was killed, so Ctrl+C was held off' : ''}`);
+    console.log(`MEASURED: pwsh stopped ${took} ms after SIGINT (limit ${CTRLC_LIMIT_S} s)`);
     const nodePid = Number(fs.readFileSync(pidFile, 'utf8'));
-    await new Promise((r) => setTimeout(r, 300));
+    // Polled, not one fixed wait: a node being stopped, or not yet reaped, still answers kill(pid, 0) for a moment, and
+    // longer on a loaded Mac. A node that stays (pwsh left without killing it) is still there at the end of the allowance.
+    const goneBy = Date.now() + STOP_ALLOWED_MS;
+    const alive = () => { try { process.kill(nodePid, 0); return true; } catch { return false; } };
+    while (alive() && Date.now() < goneBy) await new Promise((r) => setTimeout(r, 200));
     assert.throws(() => process.kill(nodePid, 0), /ESRCH/, 'the node it started is gone');
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    /* After the assertions, never instead of them. A failed run must not leave pwsh running to its 600 s limit,
+       or the node it started running for ever (a SIGKILLed pwsh never reaches its own finally, which kills node). */
+    if (child && !exited) { try { child.kill('SIGKILL'); } catch { /* already gone */ } }
+    // Only a process whose command line still names this run's own pid file: a pid can be reused once node is gone.
+    try {
+      const left = Number(fs.readFileSync(pidFile, 'utf8'));
+      const cmd = left > 0 ? spawnSync('ps', ['-ww', '-o', 'command=', '-p', String(left)], { encoding: 'utf8' }).stdout || '' : '';
+      if (cmd.includes(pidFile)) process.kill(left, 'SIGKILL');
+    } catch { /* none, or already gone */ }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 for (const ps of RUNTIMES) {
