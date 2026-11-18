@@ -73970,12 +73970,14 @@ function tkActPhrase(ev, p) {
     case 'done-when-cleared': { const who = ev.person ? 'You' : nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
     case 'edited': {   // kosmos#8664
       const who = ev.person ? 'You' : nameOf(ev.by);
+      // The first verb is capitalised when nobody is named ("Changed the title ..."), written out rather than dressed.
+      const verb = (lower, upper) => (who ? lower : upper);
       const bits = [];
-      if (typeof ev.title === 'string') bits.push('the title from ' + (ev.fromTitle == null ? '' : ev.fromTitle) + ' to ' + ev.title);
-      if (ev.detailCleared === true) bits.push('cleared the detail');
-      else if (typeof ev.detail === 'string') bits.push('changed the detail');
-      const what = bits.length ? bits.join(' and ').replace(/^the title/, 'changed the title') : 'changed the task';
-      return who ? who + ' ' + what : what.charAt(0).toUpperCase() + what.slice(1);
+      if (typeof ev.title === 'string') bits.push(verb('changed', 'Changed') + ' the title from ' + (ev.fromTitle == null ? '' : ev.fromTitle) + ' to ' + ev.title);
+      if (ev.detailCleared === true) bits.push(bits.length ? 'cleared the detail' : verb('cleared', 'Cleared') + ' the detail');
+      else if (typeof ev.detail === 'string') bits.push(bits.length ? 'changed the detail' : verb('changed', 'Changed') + ' the detail');
+      const what = bits.length ? bits.join(' and ') : verb('changed', 'Changed') + ' the task';
+      return who ? who + ' ' + what : what;
     }
     // #8464 item 2: an agent's report on one check, as engine/taskactphrase.js words it.
     case 'check-reported': { const who = nameOf(ev.by) || 'An agent'; return who + ' says done-when check ' + (Number(ev.check) >= 1 ? Number(ev.check) : '?') + (ev.met === true ? ' is met' : ' is not met') + (ev.how ? ': ' + ev.how : ''); }
