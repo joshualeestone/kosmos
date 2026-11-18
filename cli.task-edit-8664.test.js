@@ -157,6 +157,10 @@ test('both CLIs refuse the same mistakes before any request', { skip: SKIP_POSIX
     const notNum = await sh(port, home, ['task', 'edit', 'p8664', 'four', '--title', 'x']);
     assert.equal(notNum.code, 2);
     assert.match(notNum.out, /must be a number/);
+    const winNotNum = await win(['task', 'edit', 'p8664', 'four', '--title', 'x']);
+    assert.equal(winNotNum.code, 2);
+    assert.match(winNotNum.out, /must be a number/);
+    assert.equal(winNotNum.calls.length, 0, 'win sent a request for a task number that is not a number');
     assert.equal(seen.length, 0, 'the Mac CLI sent a request for a refused edit');
     // CONTROL: the same harness does reach the board for a good edit.
     assert.equal((await sh(port, home, ['task', 'edit', 'p8664', '4', '--title', 'ok'])).code, 0);

@@ -1699,10 +1699,11 @@ function setText(projectId, n, { sentence, detail } = {}, { by = null, person = 
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
-    /* A task the person wrote, or whose words they have since changed, is theirs to reword, as done-when keeps the
-       person's own checks: an agent does not rewrite what it was asked to do. Checked inside the write. */
-    if (!person && (t.addedVia === 'screen' || t.textByPerson === true)) {
-      const e = new Error('the person wrote this task\'s words, so only they can change them; say what changed in the task\'s conversation instead');
+    /* A task the person wrote, or whose words they have since changed, is not an AGENT's to reword: an agent does not
+       rewrite what it was asked to do. Checked inside the write. An unnamed caller is let through: the person's own
+       terminal is one (`kosmos task edit` with no agent token), and the page has no edit control yet. */
+    if (!person && doneWhenSetter(by) && (t.addedVia === 'screen' || t.textByPerson === true)) {
+      const e = new Error('the person wrote this task\'s words, so an agent does not change them; say what changed in the task\'s conversation instead');
       e.status = 403;
       throw e;
     }
@@ -2570,6 +2571,9 @@ const AGENT_ROW = {
   built: (e) => typeof e.by === 'string' && e.by.trim() !== '' && e.person !== true,
   unbuilt: (e) => typeof e.by === 'string' && e.by.trim() !== '' && e.person !== true,
   run: (e) => typeof e.by === 'string' && e.by.trim() !== '' && e.person !== true,
+  // kosmos#8664: an agent renaming its own task keeps the task its own; an unnamed edit (the person's terminal can be
+  // one) or the person's does not.
+  edited: (e) => typeof e.by === 'string' && e.by.trim() !== '' && e.person !== true,
   // Not hold-set / hold-cleared (review 3): their `via: 'agent'` means "not the screen", which includes the person's
   // own terminal, and the row names nobody.
 };

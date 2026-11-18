@@ -201,18 +201,18 @@ test('a closed task can be edited (renaming it changes no work), and the edit is
   assert.equal(edits(id, n).length, 1);
 });
 
-test('a task the person wrote is theirs to reword: an agent and an unnamed process are refused (403), the screen is not', async (t) => {
+test('a task the person wrote is not an agent\'s to reword (403); an unnamed caller (the person\'s terminal) and the screen may', async (t) => {
   const pr = projects.create({ name: 'Edit person ' + Math.random().toString(36).slice(2) });
   projects.mutate(pr.id, (p) => ({ ...p, agents: ['mara'] }));
   const id = pr.id;
   const n = tasks.create(id, { sentence: 'The person asked for this', made: { via: 'screen' } }).number;
   const tok = agents(t);
-  for (const headers of [{ 'x-kosmos-agent-token': tok.mara }, { 'x-kosmos-board-token': BOARD }]) {   // an agent, and an unnamed process with the board token
-    const w = await edit(id, n, { sentence: 'What I did instead' }, headers);
-    assert.equal(w.status, 403, JSON.stringify(headers) + ' ' + JSON.stringify(w.json));
-    assert.match(w.json.error, /the person wrote this task's words, so only they can change them/);
-  }
+  const w = await edit(id, n, { sentence: 'What I did instead' }, { 'x-kosmos-agent-token': tok.mara });
+  assert.equal(w.status, 403, JSON.stringify(w.json));
+  assert.match(w.json.error, /the person wrote this task's words, so an agent does not change them/);
   assert.equal(tasks.byNumber(projects.readAll().find((x) => x.id === id), n).sentence, 'The person asked for this', 'a refused caller changed the person\'s words');
+  const terminal = await edit(id, n, { sentence: 'The person fixed it from the terminal' }, { 'x-kosmos-board-token': BOARD });
+  assert.equal(terminal.status, 200, 'the person\'s terminal (no agent token) could not reword their own task: ' + JSON.stringify(terminal.json));
   const screen = await edit(id, n, { sentence: 'The person reworded it' }, { 'sec-fetch-site': 'same-origin', 'x-kosmos-board-token': BOARD });
   assert.equal(screen.status, 200, 'CONTROL: the person could not reword their own task: ' + JSON.stringify(screen.json));
 });
@@ -224,7 +224,10 @@ test('once the person rewords an agent\'s task, its words are the person\'s: the
   const n = tasks.create(id, { sentence: 'mara added this', made: { via: 'process', by: 'mara' } }).number;
   const tok = agents(t);
   assert.equal((await edit(id, n, { sentence: 'mara fixed her own title' }, { 'x-kosmos-agent-token': tok.mara })).status, 200, 'CONTROL: an agent could not edit an agent\'s task');
+  // An agent renaming its own task keeps it its own (kosmos#7151's retire offers read this); the person's edit does not.
+  assert.equal(tasks.agentOnlyHistory(taskchat.read(id, n)), true, 'an agent\'s rename of its own task made it read as touched by the person');
   assert.equal((await edit(id, n, { detail: 'the person adds a detail' }, { 'sec-fetch-site': 'same-origin', 'x-kosmos-board-token': BOARD })).status, 200);
+  assert.equal(tasks.agentOnlyHistory(taskchat.read(id, n)), false, 'the person\'s edit left the task reading as only an agent\'s');
   const after = await edit(id, n, { sentence: 'mara again' }, { 'x-kosmos-agent-token': tok.mara });
   assert.equal(after.status, 403, JSON.stringify(after.json));
 });

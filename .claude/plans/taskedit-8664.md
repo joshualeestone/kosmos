@@ -11,8 +11,10 @@ title stayed the most visible thing about the task and the only fix was a note i
   is when not given; a detail of null or blank clears it. Checked as create checks them (title required, at most 200;
   detail at most 2000), except an over-long title is refused rather than moved into the detail. A closed task can be
   edited (correcting what it was called changes no work). A task the person wrote (added from the screen), or whose
-  words the person has since changed (`textByPerson`), is refused to an agent or an unnamed process with a 403, as
-  done-when keeps the person's own checks: an agent does not rewrite what it was asked to do (review round 3). Recorded in the task's activity as `edited` with the old and
+  words the person has since changed (`textByPerson`), is refused to an identified agent with a 403: an agent does not
+  rewrite what it was asked to do (review round 3). An unnamed caller is let through (review round 5): the person's
+  own terminal is one, and this PR ships no edit control on the page, so refusing it would leave the person's tasks
+  with no way to be fixed at all. An agent's edit of its own task stays its own for kosmos#7151's retire offers. Recorded in the task's activity as `edited` with the old and
   new words and who (an agent's session, or the person from the screen); an edit that changes nothing records nothing.
 - server.js POST /api/project/<id>/task/<n>/text { sentence?, detail? }: the done-when route's caller rules
   (processCaller, notOnProjectRefusal), and on AGENT_TOKEN_ROUTE_PATTERNS like done-when.
