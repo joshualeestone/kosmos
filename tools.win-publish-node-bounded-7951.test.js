@@ -152,7 +152,7 @@ $NodeTimeoutSec = ${CTRLC_LIMIT_S}
     console.log(`MEASURED: pwsh stopped ${took} ms after SIGINT (limit ${CTRLC_LIMIT_S} s)`);
     const nodePid = Number(fs.readFileSync(pidFile, 'utf8'));
     // Polled, not one fixed wait: a node being stopped, or not yet reaped, still answers kill(pid, 0) for a moment, and
-    // longer on a loaded Mac. A node that stays (the limit kept it) is still there at the end of the allowance.
+    // longer on a loaded Mac. A node that stays (pwsh left without killing it) is still there at the end of the allowance.
     const goneBy = Date.now() + STOP_ALLOWED_MS;
     const alive = () => { try { process.kill(nodePid, 0); return true; } catch { return false; } };
     while (alive() && Date.now() < goneBy) await new Promise((r) => setTimeout(r, 200));
@@ -164,7 +164,7 @@ $NodeTimeoutSec = ${CTRLC_LIMIT_S}
     // Only a process whose command line still names this run's own pid file: a pid can be reused once node is gone.
     try {
       const left = Number(fs.readFileSync(pidFile, 'utf8'));
-      const cmd = left > 0 ? spawnSync('ps', ['-o', 'command=', '-p', String(left)], { encoding: 'utf8' }).stdout || '' : '';
+      const cmd = left > 0 ? spawnSync('ps', ['-ww', '-o', 'command=', '-p', String(left)], { encoding: 'utf8' }).stdout || '' : '';
       if (cmd.includes(pidFile)) process.kill(left, 'SIGKILL');
     } catch { /* none, or already gone */ }
     fs.rmSync(dir, { recursive: true, force: true });

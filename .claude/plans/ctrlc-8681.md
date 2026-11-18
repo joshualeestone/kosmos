@@ -38,7 +38,8 @@ failure looks like "stopped at the limit", and the success looks like "stopped s
 - Perturbed again after the cleanup: red the same way, and no node left running (before it, one was).
 - Perturbed the other half (the script's finally no longer kills node): red, "the node it started is gone", and the
   test's cleanup stopped the surviving node (0 left).
-- Worst passing case is 240 s (start plus stop), under run-tests.sh's 600 s per-test timeout.
+- Worst passing case is about 360 s: three waits of up to 120 s each (node to start, pwsh to stop, node to be gone),
+  under run-tests.sh's 600 s per-test timeout (review 3 corrected an earlier 240 s that left out the third).
 
 ## Weakest premise
 That 120 s covers the worst load the self-hosted Mac sees. Tonight's worst sighting was 15.9 s, so the margin is
