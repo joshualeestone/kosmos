@@ -3357,6 +3357,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    heights still line their model up, and shrunk a long way — Josh: "very much
    smaller". This is the change that let the whole card get shorter. */
 .acard .amodel { font-size: .75rem; color: var(--k-ink-2); margin-top: auto; padding-top: 16px; }
+/* kosmos#8667: the no-model line's AI Settings link, in the line's own colour, marked as a link by its underline. */
+.amodel a.modelset, .lmodel a.modelset { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 /* presence is NOT status: three states, and the third does not look like off */
 .pres { position: absolute; right: 6px; bottom: 6px; width: 14px; height: 14px;
         border-radius: 50%; border: 2.5px solid var(--k-surface); box-sizing: content-box; }
@@ -23417,16 +23419,17 @@ function lmodelCell(a) {
   const flag = typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : '';
   /* kosmos#8662: by the words, not by asking modelLine, which says the sign-out (to be read) while the board is signed out.
      Literals, not shared constants: tests lift these functions alone; web.made-before.test.js pins modelLine's words. */
-  return (line === 'Made before Kosmos recorded this' ? '<span class="vh">' + esc(line) + '</span>' : esc(line)) + flag;
+  return (line === 'Made before Kosmos recorded this' ? '<span class="vh">' + esc(line) + '</span>' : modelLineHtml(a, line, true)) + flag;
 }
 /* #6716 (Josh: "I am not sure why it doesnt recognize Renet's model"): the TILE's and the list row's model line. Where
-   modelLine has nothing to name (it would say "Made before Kosmos recorded this" or "Unknown Model"), the model the
+   modelLine has nothing to name (it would say "Made before Kosmos recorded this" or "No model recorded: ..."), the model the
    agent's EARLIER session ran (a new one that has not replied yet) is named instead. Only here: the model picker, the
    agent page's Runs on and every other modelLine reader keep saying what the agent runs or is set to run (review 5). */
 function tileModelLine(a) {
   const line = modelLine(a);
   if (!a || !a.earlierModelName || a.modelName || a.plannedModelName) return line;
-  if (line !== 'Made before Kosmos recorded this' && line !== 'Unknown Model' && line !== 'Signed out: sign in to see its model') return line;   // kosmos#8662
+  if (line !== 'Made before Kosmos recorded this' && line !== 'No model recorded: set it in AI Settings' && line !== 'No model recorded'
+    && line !== 'Signed out: sign in to see its model') return line;   // kosmos#8662, #8667
   return /^claude/i.test(a.earlierModelName) ? a.earlierModelName : 'Claude ' + a.earlierModelName;
 }
 function modelLine(a) {
@@ -23496,8 +23499,27 @@ function modelLine(a) {
   /* kosmos#8662: signed out, the board cannot read the model, so it says that rather than "Unknown Model". */
   if (!name && ((typeof BOARD_NEEDS_SIGNIN !== 'undefined' && BOARD_NEEDS_SIGNIN === true)
     || (typeof BOARD_SIGNED_OUT !== 'undefined' && BOARD_SIGNED_OUT === true))) return 'Signed out: sign in to see its model';
-  if (!name) return a.neverRecorded === true ? 'Made before Kosmos recorded this' : 'Unknown Model';
+  /* kosmos#8667 (feedback 11-17): no model recorded, with a launch record, said a bare "Unknown Model", which read as a
+     fault with no way forward (an agent made with no model, or adopted from outside the app). It says so and where to
+     set it; modelLineHtml links "AI Settings" where the line is drawn on a card or list row. Review 7: only for an agent
+     Kosmos started (isNamedOurs, the model menu's own test), since AI Settings cannot change another's model. */
+  if (!name) return a.neverRecorded === true ? 'Made before Kosmos recorded this' : a.isNamedOurs === true ? 'No model recorded: set it in AI Settings' : 'No model recorded';
   return /^claude/i.test(name) ? name : 'Claude ' + name;
+}
+/* kosmos#8667: a model line as HTML for a card or list row. The no-model line's "AI Settings" is a link to the agent's
+   AI Settings (#7280's ?tab=detail&agent=<name>&sec=model, which also opens in a new tab); a click on the board
+   opens it in place (the board click handlers, data-ai-settings). Any other line, or a row with no session name to link
+   to, is the escaped text as before. */
+function modelLineHtml(a, line, whole) {
+  const noModel = 'No model recorded: set it in AI Settings';
+  if (line !== noModel || !a || !a.sessionName) return esc(line);
+  const open = '<a class="modelset" href="?tab=detail&amp;agent=' + encodeURIComponent(a.sessionName)
+    + '&amp;sec=model" data-ai-settings="' + esc(a.sessionName) + '"';
+  /* Review 1: `whole` (the list row, one line cut with an ellipsis) links the whole sentence, with it in full on hover,
+     so the part a narrow column still shows is the link; the card wraps, and links only "AI Settings". */
+  if (whole) return open + ' title="' + esc(line) + '">' + esc(line) + '</a>';
+  const tail = 'AI Settings';
+  return esc(line.slice(0, -tail.length)) + open + '>' + tail + '</a>';
 }
 /* #4416: what the Gemini/Grok model menu says it runs on: the card's own line (modelLine), never a second reading of
    the model, so a stopped agent is not named two ways. While no model is known at all the menu says the runner picks
@@ -23516,7 +23538,7 @@ function menuRunsOn(a) {
  *
  *   running          Right now: Claude Sonnet 5   (read from a live transcript)
  *   never run        Will start on Claude Sonnet 5 (read from its launchd job)
- *   neither known    Unknown Model                 (no lead at all)
+ *   neither known    No model recorded             (no lead at all; the card says the rest, #8667)
  *
  * ⚠️ THE THIRD STATE DROPS THE LEAD RATHER THAN KEEPING "Right now", by the
  * same rule that produced the second: nothing is running in that case either,
@@ -23633,7 +23655,8 @@ function runsOnLine(a, switched) {
   const pres = cardStOf(a).pres;
   if (switched && pres === 'on') return { lead: 'Right now: ', name: switched };
   const known = Boolean(a.modelName || a.plannedModelName);
-  if (!known) return { lead: '', name };
+  // kosmos#8667 review 3: this box is inside AI Settings, so the no-model line drops its "set it in AI Settings".
+  if (!known) return { lead: '', name: name === 'No model recorded: set it in AI Settings' ? 'No model recorded' : name };
   if (pres === 'on') return { lead: a.modelName ? 'Right now: ' : '', name };
   if (pres === 'off') {
     /* ⚠️ THE JOB IS THE AUTHORITY ON A FUTURE, NOT THE TRANSCRIPT. `name` above
@@ -24402,7 +24425,7 @@ function card(a) {
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}${twinNote(a)}</div>
     <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, say) : pillTitle(say)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${pillVh(say)}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
-    <div class="amodel">${esc(tileModelLine(a))}${typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : ''}</div>
+    <div class="amodel">${modelLineHtml(a, tileModelLine(a))}${typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : ''}</div>
     <div class="atask">${esc(taskLine(a, { card: true }))}</div>
   </div>`;
 }
@@ -50070,6 +50093,17 @@ for (const boardEl of [document.getElementById('grid'), document.getElementById(
     // Review 10: only a keyboard press (a click with no pointer, detail 0) follows the star to its new place; a mouse
     // click leaves the page where it is, so clicking down a row of stars does not jump the board each time.
     if (star) { e.preventDefault(); toggleStar(star.dataset.star, e.detail === 0); return; }
+    /* kosmos#8667: the no-model line's AI Settings link opens that agent's AI Settings here, never the card's plain open.
+       A modified click (new tab or window) is left to the browser, which follows the link's own address. */
+    const aiSet = e.target.closest('[data-ai-settings]');
+    if (aiSet) {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      const who = aiSet.dataset.aiSettings;
+      openDetail(who, 'model');
+      if (CURRENT && CURRENT.sessionName === who) detailRevealTalkOnPhone('model');
+      return;
+    }
     // #6400: an agent with a question carries its answer target on the card or row itself (answerAttrs), so it is
     // checked FIRST: the plain open below would take the same click and skip focusing the reply box.
     // kosmos#8303: My Agents: reopening the agent already open would reload its page and throw away anything typed there.
@@ -61400,7 +61434,8 @@ async function paintModelPicker(a) {
     /* Unmatched: still ANSWER the question, but with a value of '' so the
        Switch button stays down. Offering it as a choice would be a lie -- we
        do not have a key to send. */
-    : '<option value="" selected>' + esc(runningName || 'We cannot tell') + '</option>';
+    /* kosmos#8667 review 2: inside the control that sets the model, the no-model line drops its "set it in AI Settings". */
+    : '<option value="" selected>' + esc(runningName === 'No model recorded: set it in AI Settings' ? 'No model recorded' : (runningName || 'We cannot tell')) + '</option>';
   const html = head + CREATE_MODELS.map((m) =>
     '<option value="' + esc(m.key) + '"' + (currentModel && m.key === currentModel.key ? ' selected' : '') + '>'
     + esc(m.label) + '</option>').join('');

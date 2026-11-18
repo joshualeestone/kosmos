@@ -94,7 +94,7 @@ test('the card\'s line is escaped markup, and absent when quiet', () => {
 });
 
 test('the page wires every place: the running and the not-running card and list row, and the agent\'s own line, as text', () => {
-  assert.ok(SCRIPT.includes("<div class=\"amodel\">${esc(tileModelLine(a))}${typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : ''}</div>"), 'running card');
+  assert.ok(SCRIPT.includes("<div class=\"amodel\">${modelLineHtml(a, tileModelLine(a))}${typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : ''}</div>"), 'running card');
   assert.ok(/acard off notrunning[\s\S]{0,4000}machineFlag\(a\) \? '<div class="amodel">' \+ machineFlagHtml\(a\)/.test(SCRIPT), 'not-running card');
   assert.ok(/function lmodelCell\(a\) \{[\s\S]{0,300}machineFlagHtml\(a\)/.test(SCRIPT), 'running list row: inside the model cell, since the grid has seven children');
   assert.ok(/lrow off notrunning[\s\S]{0,4000}<div class="ltask">\$\{typeof machineFlagHtml === 'function' \? machineFlagHtml\(a\) : ''\}<\/div>/.test(SCRIPT), 'not-running list row');

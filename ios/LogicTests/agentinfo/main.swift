@@ -52,10 +52,12 @@ check(Board.modelLine(gus) == "Qwen GPT 5.6 Sol" , "Qwen runs on codex and is ne
 check(Board.modelLine(d("codex", model: "o3")) == "OpenAI o3" && Board.modelLine(d("codex", model: "GPT 5.6")) == "GPT 5.6" && Board.modelLine(d("codex")) == "OpenAI Codex", "codex")
 check(Board.modelLine(Board.parseAgentDetails(Data(status.utf8), session: "eli")!) == "Gemini 3.8 Flash (set to Gemini 3.8 Pro)", "a Gemini that fell back says what it was set to")
 check(Board.modelLine(d("grok")) == "Grok" && Board.modelLine(d("antigravity")) == "Gemini (Google subscription)" && Board.modelLine(d("muse")) == "Meta Muse", "the provider while no model is known")
-check(Board.modelLine(d("")) == "Unknown Model" && Board.modelLine(d("", never: true)) == "Made before Kosmos recorded this", "no model: the board's two words")
+var ownedNoModel = d(""); ownedNoModel.isNamedOurs = true
+check(Board.modelLine(d("")) == "No model recorded" && Board.modelLine(ownedNoModel) == "No model recorded: set it in AI Settings" && Board.modelLine(d("", never: true)) == "Made before Kosmos recorded this", "no model: the board's words (kosmos#8667: set it in AI Settings only for an agent Kosmos started)")
+check(Board.aiSettingsModelLine(d("")) == "No model recorded" && Board.aiSettingsModelLine(d("", never: true)) == "Made before Kosmos recorded this" && Board.aiSettingsModelLine(d("codex")) == "OpenAI Codex", "kosmos#8667: inside AI Settings the no-model line is short; every other line as the card")
 for phrase in ["if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';",
                "if (a.runner === 'antigravity') return name || 'Gemini (Google subscription)';",
-               "if (!name) return a.neverRecorded === true ? 'Made before Kosmos recorded this' : 'Unknown Model';",
+               "if (!name) return a.neverRecorded === true ? 'Made before Kosmos recorded this' : a.isNamedOurs === true ? 'No model recorded: set it in AI Settings' : 'No model recorded';",
                "return /^claude/i.test(name) ? name : 'Claude ' + name;"] {
     check(boardPage.contains(phrase), "the board's modelLine still says: \(phrase.prefix(60))")
 }

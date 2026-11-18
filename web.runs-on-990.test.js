@@ -80,7 +80,8 @@ test('the provider gate still refuses a no-op switch', () => {
    That agent must still see what it is on, and must NOT be offered it as a
    choice we cannot send. */
 test('a model the picker has no key for is still stated, and is not offered', () => {
-  assert.match(PAGE, /'<option value="" selected>' \+ esc\(runningName \|\| 'We cannot tell'\) \+ '<\/option>'/,
+  // kosmos#8667 review 2: the no-model line is shortened inside AI Settings; every other unmatched name is stated as it is.
+  assert.match(PAGE, /'<option value="" selected>' \+ esc\(runningName === 'No model recorded: set it in AI Settings' \? 'No model recorded' : \(runningName \|\| 'We cannot tell'\)\) \+ '<\/option>'/,
     'the unmatched-model arm is gone, so an agent on a model the menu cannot offer shows the wrong one as selected');
   assert.match(PAGE, /sel\.dataset\.current = currentModel \? currentModel\.key : '';/,
     'the current key is no longer recorded on the element, so both button gates silently compare against nothing');

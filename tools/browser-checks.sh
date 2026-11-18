@@ -1434,6 +1434,10 @@ if boot_board "$sb7" "$P8"; then
   # without dropping to "gone". Read-only (drives card() with fixture agents shaped
   # to the engine contract, reads computed styles), so it runs on this board.
   run_one "render-restart-timedout-2019" node docs/browser-checks/render-restart-timedout-2019.js "$B8"
+  # kosmos#8667: the no-model line's AI Settings link opens that agent's AI Settings from the grid, a card with a
+  # question and the list view; My Agents draws no model line. Read-only (draws fixture agents with card() and lrow(),
+  # stubs openDetail/pjAnswerFrom to record, never POSTs), so it runs on this board.
+  run_one "render-nomodel-8667" node docs/browser-checks/render-nomodel-8667.js "$B8"
   # #5154 slice C: an agent stuck past the threshold on a terminal error (expired login / rate limit that has
   # not lifted) names what is wrong + what to do and counts as an Issue; a brief one does not. Read-only (drives
   # card() + agentNeedsAttention() with fixture agents carrying stuckError, reads the DOM), so it runs on this board.

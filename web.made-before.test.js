@@ -38,11 +38,11 @@ function runModelLine(agent) {
 test('no model and no launch file reads as history; no model WITH one stays the admission', () => {
   assert.equal(runModelLine({ neverRecorded: true }), 'Made before Kosmos recorded this',
     'the never-recorded state still reads as a lookup fault');
-  assert.equal(runModelLine({ neverRecorded: false }), 'Unknown Model',
+  assert.equal(runModelLine({ neverRecorded: false, isNamedOurs: true }), 'No model recorded: set it in AI Settings',
     'the fault state was relabelled as history, which hides a breakage');
   /* An absent flag (an old server, a stranger row) must fail toward the
      admission: claiming history needs the server to have said so. */
-  assert.equal(runModelLine({}), 'Unknown Model',
+  assert.equal(runModelLine({}), 'No model recorded',
     'a row that never carried the flag was given the history sentence');
   /* And a model name beats the flag: the sentence is only for the state with
      nothing to show. */
@@ -53,7 +53,7 @@ test('no model and no launch file reads as history; no model WITH one stays the 
 /* #6516: the Agents LIST cell does not repeat the sentence on every row of a board set up before Kosmos; it keeps it for a
    screen reader. Any other model line, "Unknown Model" (the fault) included, is shown as before. */
 function runLmodelCell(agent) {
-  const src = liftAll(SCRIPT, ['modelLine', 'tileModelLine', 'lmodelCell', 'esc']);   // #6716: the row's line is tileModelLine
+  const src = liftAll(SCRIPT, ['modelLine', 'tileModelLine', 'modelLineHtml', 'lmodelCell', 'esc']);   // #6716: the row's line is tileModelLine
   return new Function('a', `
     const cardStOf = () => ({ pres: 'off' });
     ${src}
@@ -64,7 +64,7 @@ function runLmodelCell(agent) {
 test('#6516: the list cell keeps the never-recorded sentence for a screen reader only', () => {
   assert.equal(runLmodelCell({ neverRecorded: true }), '<span class="vh">Made before Kosmos recorded this</span>');
   // CONTROLS: the fault, and a real model, are shown as they were.
-  assert.equal(runLmodelCell({ neverRecorded: false }), 'Unknown Model', 'the fault state was hidden from the list');
+  assert.equal(runLmodelCell({ neverRecorded: false }), 'No model recorded', 'the fault state was hidden from the list');
   assert.equal(runLmodelCell({ neverRecorded: true, plannedModelName: 'Claude Sonnet 5' }), 'Claude Sonnet 5');
   assert.equal(runLmodelCell({ neverRecorded: true, plannedModelName: '<b>x</b>' }), 'Claude &lt;b&gt;x&lt;/b&gt;', 'a model name was not escaped');
 });
@@ -216,14 +216,15 @@ test('kosmos#8662: signed out, an unread model says so; signed in, the old lines
   assert.equal(runModelLineSignedOut({}, { needs: true }), 'Signed out: sign in to see its model');
   assert.equal(runModelLineSignedOut({ neverRecorded: true }, { relay: true }), 'Signed out: sign in to see its model');
   // CONTROL: signed in, the same agents read as before.
-  assert.equal(runModelLineSignedOut({}, {}), 'Unknown Model');
+  assert.equal(runModelLineSignedOut({}, {}), 'No model recorded');   // kosmos#8667: not ours, so no "set it in AI Settings"
+  assert.equal(runModelLineSignedOut({ isNamedOurs: true }, {}), 'No model recorded: set it in AI Settings');
   assert.equal(runModelLineSignedOut({ neverRecorded: true }, {}), 'Made before Kosmos recorded this');
   // A model the board already read is still named while signed out (the page shows what it last read).
   assert.match(runModelLineSignedOut({ modelName: 'Claude Opus 5.5' }, { needs: true }), /Opus 5\.5/);
 });
 
 test('kosmos#8662: lifted without the sign-in flags (every older caller), modelLine keeps its old lines', () => {
-  assert.equal(runModelLine({}), 'Unknown Model');
+  assert.equal(runModelLine({}), 'No model recorded');
   assert.equal(runModelLine({ neverRecorded: true }), 'Made before Kosmos recorded this');
 });
 

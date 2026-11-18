@@ -76,7 +76,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     await page.screenshot({ path: path.join(OUT, 'guide-page.png') });
     say(/Kosmos Guide/.test(detail), 'the guide\'s own page shows the title Kosmos Guide');
     say(!/Kosmos setup guide/.test(detail), 'the long title is gone');
-    say(!/Unknown model|Model: Unknown|Unknown Model/i.test(detail), 'the guide\'s page never says Unknown for its model');
+    say(!/Unknown model|Model: Unknown|Unknown Model|No model recorded/i.test(detail), 'the guide\'s page never says it has no model (Unknown, or since #8667 No model recorded)');
     /* The ring half of Josh's note: before its first session the guide's page shows the empty track, not nothing. */
     const ringOf = () => page.evaluate(() => {
       const r = document.getElementById('d-ring');
