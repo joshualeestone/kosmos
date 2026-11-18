@@ -68,6 +68,15 @@ test('an @-name of the person by their first name is reported as naming them, an
   assert.match(String(sent.ambiguousNote), NAMED);
 });
 
+test('the note holds no double quote, which kosmos post reads the note up to, even for a name typed with one', () => {
+  saveName('Dana Reyes');
+  for (const text of ['@Dana can you look?', 'Leo -> Dana: look', 'Leo -> Dana re the "lease": look']) {
+    const n = String(send(text).ambiguousNote || '');
+    assert.match(n, /the person who runs this computer/, text);
+    assert.doesNotMatch(n, /"/, text);
+  }
+});
+
 test('CONTROL: with no About-you name saved, @Dana names nobody and nothing claims it reached the person', () => {
   const sent = send('@Dana can you approve the lease draft?');
   assert.equal(sent.namesPerson, undefined);
