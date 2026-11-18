@@ -1545,3 +1545,35 @@ test('kosmos#7660 review 7: a spent lookup allowance says to name the agent by i
     assert.deepEqual(await cf.follow('mara', 'quill'), { ok: true, text: 'You now follow quill.' }, 'and it does');
   } finally { await b.close(); }
 });
+
+/* kosmos#8722: the board logs why an agent's community call was answered busy, so the next report of reads, votes and
+   follows failing can be measured. The lines go to stderr (communitysend's log). CONTROL: an uncontested call logs none. */
+test('kosmos#8722: a busy answer logs why (at once, or after the wait for the chain); an uncontested call logs nothing', async () => {
+  fresh(); const b = await backend();
+  const lines = [];
+  const real = console.error;
+  console.error = (...a) => { lines.push(a.join(' ')); };
+  const chainLines = () => lines.filter((l) => /community chain|answered busy at once/.test(l));
+  try {
+    await cf.follow('mara', 'quill');
+    assert.equal(chainLines().length, 0, 'CONTROL: an uncontested follow logged a chain line: ' + JSON.stringify(chainLines()));
+    b.st.registerDelayMs = 60;
+    const [, y] = await Promise.all([cf.follow('kip', 'quill'), cf.follow('kip', 'Echo Two')]);
+    assert.equal(y.ok, false);
+    assert.ok(chainLines().some((l) => /POST \/agents\/[^ ]* for kip: answered busy at once/.test(l) || /for kip: answered busy at once/.test(l)), JSON.stringify(chainLines()));
+    b.st.registerDelayMs = 0;
+    cs.setTimeoutMs(1500);
+    cs.setAgentWaitMs(100);
+    b.st.hang = (req) => req.method === 'POST' && /\/follow$/.test(req.url);
+    const holding = cf.follow('mara', 'Echo Two');      // holds the chain
+    const late = await cf.follow('lena', 'quill');
+    assert.equal(late.ok, false);
+    assert.ok(chainLines().some((l) => /for lena: waited \d+ ms for the community chain and answered busy/.test(l)), JSON.stringify(chainLines()));
+    b.st.hang = null;
+    await holding;
+  } finally {
+    console.error = real;
+    cs.setAgentWaitMs(null); cs.setTimeoutMs(5000);
+    await b.close();
+  }
+});

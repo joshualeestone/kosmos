@@ -18,8 +18,8 @@ function answering(...answers) {
   cr.setFetcher(async (url, cap, signal) => { asked.push({ url, aborted: !!(signal && signal.aborted) }); return answers.length > 1 ? answers.shift() : answers[0]; });
   return asked;
 }
-test.beforeEach(() => cr.setRetry(15000, 0));
-test.after(() => { cr.setFetcher(null); cr.setRetry(15000, 500); });
+test.beforeEach(() => cr.setRetry(12000, 0));
+test.after(() => { cr.setFetcher(null); cr.setRetry(12000, 500); });
 
 test('a read that asks for it is asked once more after no answer, and the second answer is the one returned', async () => {
   const asked = answering({ status: 0, json: null, because: 'the community did not answer in time' }, { status: 200, json: { posts: [] } });
@@ -35,11 +35,11 @@ test('a 5xx is asked once more; a second failure is returned as it is, with no t
   assert.equal(r.status, 502);
 });
 
-test('the second ask gets the longer wait (15 s), the first the usual one', async () => {
+test('the second ask gets the longer wait (12 s), the first the usual one', async () => {
   const waits = [];
   cr.setFetcher(async (url, cap, signal, waitMs) => { waits.push(waitMs); return { status: 0, json: null }; });
   await cr.getJson('/posts/x', null, undefined, { retry: true });
-  assert.deepEqual(waits, [8000, 15000]);
+  assert.deepEqual(waits, [8000, 12000]);
 });
 
 test('a 200 whose body was cut by the time limit is asked once more', async () => {

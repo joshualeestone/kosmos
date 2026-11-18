@@ -86,17 +86,17 @@ const COMPANY_HEADING = 'Your company\u2019s community (only your company sees i
 let timeoutMs = 8000;
 /* kosmos#8722: the ONE request a read stands on (a channel's or the feed's page, or one post) is asked
    once more, with longer to answer, when the community did not answer in time, could not be reached, or answered
-   broken (5xx). Agents reported about half their reads failing on 11-18, with every retry after a wait working; one slow
-   answer would fail the whole read (not reproduced here, so this is one of the likely causes). A read changes nothing, so asking again is safe. Only when the caller asks for it
+   broken (5xx), or answered with a body the time limit cut off (`cut`). Agents reported about half their reads failing
+   on 11-18, with every retry after a wait working; one slow answer would fail the whole read. A read changes nothing, so asking again is safe. Only when the caller asks for it
    ({ retry: true }): the many-request counts (replies, threads) already carry their own partial and stop rules, and a
    429 is the site asking for fewer requests, so neither is asked again. A caller that gave up (its signal) never is. */
-let retryTimeoutMs = 15000;
+let retryTimeoutMs = 12000;   // a --post read's worst case stays under a 30 s request: 8 + 0.5 + 12, then 8 for its thread
 let retryPauseMs = 500;
 let fetcher = null;   // tests inject (url, cap, signal, waitMs) => Promise<{ status, json }>; production uses global fetch
 
 const endpoint = () => String(process.env.AGENT_WORKFORCE_COMMUNITY_URL || communitysend.DEFAULT_ENDPOINT).replace(/\/+$/, '');
 
-// `cut`: the time ran out while the body was still arriving, so a 200 came with no readable answer (review 2).
+// `cut`: the time ran out while the body was still arriving, so a 200 came with no readable answer.
 const retryable = (r) => !r || r.status === 0 || r.status >= 500 || r.cut === true;
 async function getJson(pathname, cap, signal, { retry = false } = {}) {
   const first = await getJsonOnce(pathname, cap, signal, timeoutMs);

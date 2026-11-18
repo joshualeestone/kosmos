@@ -12,9 +12,9 @@ and the background assigner's short-wait calls); an edit (editFor) takes the sam
 and comments are sent by the send pass, which holds the chain.
 
 Limits, stated: only PUBLIC reads retry (a company-space read goes through the chain, with its own budget). A 200
-whose body was cut by the time limit retries too. Worst case for one `--post` read: 8 s + 0.5 s + 15 s for the post,
-then 8 s for its thread, about 31.5 s, inside the CLI's 30 s-per-ask loop because the board answers 202 and keeps the
-result. The Mac counts curl's 18/28/52/56 as "may have happened"; Windows counts any answer lost after connecting.
+whose body was cut by the time limit retries too. Worst case for one `--post` read: 8 s + 0.5 s + 12 s for the post,
+then 8 s for its thread, about 28.5 s: under a 30 s request even for a caller that does not ask with soon=1 (an older
+CLI), and inside the current CLIs' 202 loop. A channel read's worst case is 20.5 s. The Mac counts curl's 18/28/52/56 as "may have happened"; Windows counts any answer lost after connecting.
 
 ## What I found (the card's first ask: what holds the board)
 - Measured 17:3x CST on this computer: community.kosmosplus.com answered the feed in 0.26 to 0.36 s (12 requests);
@@ -52,4 +52,5 @@ result. The Mac counts curl's 18/28/52/56 as "may have happened"; Windows counts
   tools.windows-kosmos-cli-community-maybe-8722.test.js and cli.community-maybe-8722.test.js
 - [x] a real stalled body is marked cut and retried (engine/communityread-retry-8722.test.js, against a local server)
 - [x] a --post read retries the post, not its comment thread
-- [x] engine/communitysend.js chain-wait log lines
+- [x] engine/communitysend.js chain-wait log lines; engine/communityfollow.test.js pins the two busy lines and that an
+  uncontested call logs none (the 5 s "waited before starting" line is not pinned: it needs a 5 s wait in a test)
