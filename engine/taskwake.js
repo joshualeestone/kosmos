@@ -317,7 +317,8 @@ function pending(projects) {
 }
 
 /**
- * One look. `o`: { projects, now, gh (run or null), fs, fileprint, state (Map: key -> { at, problem }, per board),
+ * One look. `o`: { projects, now, gh (run or null), fs, fileprint, every (ms between looks at one task; CHECK_EVERY_MS
+ * unless a test speeds the tick), state (Map: key -> { at, problem }, per board),
  * seen (Map, per board), save(projectId, n, setAt, { at, words }) }. Resolves to the list of what it did; never rejects.
  * GitHub reads are capped at NET_PER_TICK a tick, the longest-unchecked first.
  */
@@ -331,7 +332,8 @@ async function checkTick(o) {
     const live = new Set(items.map((x) => x.projectId + '#' + x.n + '@' + x.setAt));
     for (const k of [...state.keys()]) if (!live.has(k)) state.delete(k);
     for (const k of [...seen.keys()]) if (!live.has(k)) seen.delete(k);
-    const due = items.filter((x) => { const s = state.get(x.projectId + '#' + x.n + '@' + x.setAt); return !s || now - s.at >= CHECK_EVERY_MS; });
+    const every = Number.isFinite(o.every) && o.every > 0 ? o.every : CHECK_EVERY_MS;   // a test's faster tick
+    const due = items.filter((x) => { const s = state.get(x.projectId + '#' + x.n + '@' + x.setAt); return !s || now - s.at >= every; });
     const net = due.filter((x) => x.wake.kind === 'pr' || x.wake.kind === 'branch')
       .sort((a, b) => ((state.get(a.projectId + '#' + a.n + '@' + a.setAt) || { at: 0 }).at) - ((state.get(b.projectId + '#' + b.n + '@' + b.setAt) || { at: 0 }).at))
       .slice(0, NET_PER_TICK);

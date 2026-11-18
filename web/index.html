@@ -73051,7 +73051,7 @@ function tskRow(t, at) {
      so automated work shows its owner and its rhythm instead of looking idle or ownerless. The rule's words and the next
      run come from the board (taskrepeat.describe / nextAfter), never worked out again here. */
   const repeatLine = !t.repeat || t.state === 'closed' ? '' : '<div class="why tsk-repeat' + (tskRepeatMissed(t) ? ' missed' : '') + '">' + esc(tskRepeatSentence(t, Date.now())) + '</div>';
-  const wakeSaid = t.state === 'closed' ? '' : tskWakeSentence(t);   // kosmos#8669
+  const wakeSaid = t.state === 'closed' || typeof tskWakeSentence !== 'function' ? '' : tskWakeSentence(t);   // kosmos#8669; typeof: tests lift this function alone
   const wakeLine = wakeSaid ? '<div class="why tsk-wake">' + esc(wakeSaid) + '</div>' : '';
   return '<div class="tsk-row' + (on ? ' sel' : '') + (place.depth ? ' d' + place.depth : '') + '" data-key="' + esc(tskKey(t)) + '">'
     /* #4226: the checkbox sits in a label, so on a touchscreen the label can widen the tap area to 44px (below). */
@@ -73796,7 +73796,7 @@ function paintTaskPage() {
   // A finished task has nothing to hold: no control, no hint.
   for (const hid of ['tk-hold-row', 'tk-hold-hint']) { const el = document.getElementById(hid); if (el) el.hidden = TK_ACT === 'reopen'; }
   tkPaintRepeat(p, t);
-  { const wl = document.getElementById('tk-wake-line'); if (wl) { const said = TK_ACT === 'reopen' ? '' : tskWakeSentence(t); if (wl.textContent !== said) wl.textContent = said; wl.hidden = !said; } }   // kosmos#8669
+  { const wl = document.getElementById('tk-wake-line'); if (wl) { const said = TK_ACT === 'reopen' || typeof tskWakeSentence !== 'function' ? '' : tskWakeSentence(t); if (wl.textContent !== said) wl.textContent = said; wl.hidden = !said; } }   // kosmos#8669
   const holdHint = document.getElementById('tk-hold-hint');
   /* #6683 item 3: a held task says who takes it off. The engine keeps a hold made here for the person alone
      (tasks.setOnHold refuses anyone else); a hold made elsewhere (an agent, or kosmos task hold from a terminal, which

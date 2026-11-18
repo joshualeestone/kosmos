@@ -30346,7 +30346,7 @@ function start(port = PORT) {
         try { projs = projects.readAll(); } catch { return; }
         if (!taskwake.pending(projs).length && !taskwake.owed(projs).length) return;
         wakeLooking = true;
-        taskwake.checkTick({ projects: projs, now: Date.now(), gh: wakeGh(), save: tasks.saveWakeMet })
+        taskwake.checkTick({ projects: projs, now: Date.now(), gh: wakeGh(), save: tasks.saveWakeMet, every: Number(process.env.AGENT_WORKFORCE_TASK_WAKE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_TASK_WAKE_MS) : undefined })
           .then((done) => {
             for (const x of done) if (x.act === 'met') process.stdout.write(`task wake: task #${x.n} (${x.projectId}) ${x.wake.kind} happened, saved=${x.saved}\n`);
             const now = Date.now();
