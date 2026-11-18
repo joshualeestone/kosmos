@@ -37,7 +37,8 @@ function cardModelLine(a) {
   if (a.runner === 'gemini' || a.runner === 'grok') return name || (a.runner === 'gemini' ? 'Gemini' : 'Grok');
   if (a.runner === 'antigravity') return name || 'Gemini (Google subscription)';
   if (a.runner === 'muse') return name || 'Meta Muse';
-  // kosmos#8667: the card's words: the full line only for an agent Kosmos started (isNamedOurs).
+  // kosmos#8667: the card's words (#8665's rule), the full line only for an agent Kosmos started (isNamedOurs); the
+  // AI Settings it names is on the board.
   if (!name) return a.neverRecorded === true ? 'Made before Kosmos recorded this' : a.isNamedOurs === true ? 'No model recorded: set it in AI Settings' : 'No model recorded';
   return /^claude/i.test(name) ? name : 'Claude ' + name;
 }

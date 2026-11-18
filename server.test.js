@@ -9378,6 +9378,9 @@ test('the Runs on line says which tense it is in, and a live model always wins',
   assert.deepEqual(runsOnLine({ state: 'unknown' }), { lead: '', name: 'No model recorded' },
     'an unknowable model asserted a present tense about an agent that may '
     + 'never have started');
+  // kosmos#8667 review (post-rebase): the box is inside AI Settings, so an owned agent's line drops "set it in AI Settings".
+  assert.deepEqual(runsOnLine({ state: 'unknown', isNamedOurs: true }), { lead: '', name: 'No model recorded' },
+    'inside AI Settings the Runs on box said to set the model in AI Settings');
 
   // ⚠️ THE CONTROL THE ROUTE CANNOT PROVIDE. A job file can be edited by hand
   // after an agent starts, so the two sources can disagree; the live reading is

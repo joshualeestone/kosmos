@@ -22,10 +22,13 @@ a link to that agent's AI Settings.
   place the phone shows the line, its AI Settings segment, shows the short form.
 - **No shared constant for the sentence**: modelLine must stay liftable alone (tests lift it without the rest of the
   page), so it cannot reference a page constant. modelLineHtml, runsOnLine and the Switch menu compare the literal
-  (one exact line takes the link or the short form). tileModelLine compares against modelLine({}) and
-  modelLine({ neverRecorded: true }); when #8662's signed-out line lands, whoever rebases second must keep its
-  fallback matching the no-model line (Ice Cream Kitty's branch compares literals there). The unit tests pin the
-  link, the short forms and the earlier-model borrow, so a drift in any copy goes red.
+  (one exact line takes the link or the short form). tileModelLine and lmodelCell compare literals too, as #8662
+  (merged first; this branch is rebased on it) does: a call to modelLine would say the sign-out on a signed-out
+  board. engine/clilists.js (#8665, also merged first) carries the same words, held to the page by its parity
+  matrix, which now varies isNamedOurs. Unit tests pin the link, both short forms on an owned agent (Runs on and the
+  iPhone segment), and the earlier-model borrow; the Switch menu placeholder is pinned by its source line only.
+- **The CLI says the card's words**, "set it in AI Settings" included, because #8665's rule is that `kosmos agent list`
+  names the model the way the card does; AI Settings is on the board.
 - Rejected: changing the server's `neverRecorded` split (#149/#150), out of scope.
 
 ## Where the line shows (review 8)

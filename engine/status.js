@@ -7518,7 +7518,7 @@ function readModel(agentName, exactSession) {
   }
   if (now) return { model: now, confidence: CONFIDENCE.STRUCTURED };
   // Review 10: only a session that has had NO reply borrows. One that replied but whose last 64 KB is a large paste or
-  // tool result names no model in the tail, and must stay "Unknown Model" rather than take another session's.
+  // tool result names no model in the tail, and must stay unnamed (the card's no-model line) rather than take another session's.
   if (hasReplied(file, text, whole)) return { model: null, confidence: CONFIDENCE.NONE };
   /**
    * #6716 (Josh, 2026-10-20: "I am not sure why it doesnt recognize Renet's model"). A session that has not had a reply

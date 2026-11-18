@@ -54,7 +54,7 @@ check(Board.modelLine(Board.parseAgentDetails(Data(status.utf8), session: "eli")
 check(Board.modelLine(d("grok")) == "Grok" && Board.modelLine(d("antigravity")) == "Gemini (Google subscription)" && Board.modelLine(d("muse")) == "Meta Muse", "the provider while no model is known")
 var ownedNoModel = d(""); ownedNoModel.isNamedOurs = true
 check(Board.modelLine(d("")) == "No model recorded" && Board.modelLine(ownedNoModel) == "No model recorded: set it in AI Settings" && Board.modelLine(d("", never: true)) == "Made before Kosmos recorded this", "no model: the board's words (kosmos#8667: set it in AI Settings only for an agent Kosmos started)")
-check(Board.aiSettingsModelLine(d("")) == "No model recorded" && Board.aiSettingsModelLine(d("", never: true)) == "Made before Kosmos recorded this" && Board.aiSettingsModelLine(d("codex")) == "OpenAI Codex", "kosmos#8667: inside AI Settings the no-model line is short; every other line as the card")
+check(Board.aiSettingsModelLine(d("")) == "No model recorded" && Board.aiSettingsModelLine(ownedNoModel) == "No model recorded" && Board.aiSettingsModelLine(d("", never: true)) == "Made before Kosmos recorded this" && Board.aiSettingsModelLine(d("codex")) == "OpenAI Codex", "kosmos#8667: inside AI Settings the no-model line is short; every other line as the card")
 for phrase in ["if (a.runner === 'codex') return name ? (/^(?:gpt|openai|codex)\\b/i.test(name) ? name : 'OpenAI ' + name) : 'OpenAI Codex';",
                "if (a.runner === 'antigravity') return name || 'Gemini (Google subscription)';",
                "if (!name) return a.neverRecorded === true ? 'Made before Kosmos recorded this' : a.isNamedOurs === true ? 'No model recorded: set it in AI Settings' : 'No model recorded';",

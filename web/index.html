@@ -47048,8 +47048,8 @@ function openDetail(sessionName, section, fromProject) {
      display name IS the machine name because no real one was found. */
   /* modelLine, not raw modelName: the same derivation both renderers read,
      or the card says "Claude X" while this panel says "X" the day a name
-     arrives without its provider. The panel gains the card's honest
-     "Unknown Model" for a missing name rather than silently omitting it. */
+     arrives without its provider. The panel gains the card's honest no-model
+     line (once "Unknown Model", since #8667 "No model recorded") rather than omitting it. */
   /* ⚠️ `roleLine`, not a private copy of its expression. This line said
      `a.profile && a.profile.role || a.role`, which was `roleLine`'s body before
      `roleLine` learned to sentence-case a PARSED role — so the card read
