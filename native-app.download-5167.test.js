@@ -127,7 +127,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 72[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 73[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -354,14 +354,18 @@ test('kosmos#7952 review 1: only a download the board page itself asked for is m
     'a restarted download that fails is asked about again, as if it were Downloads');
   assert.match(SRC, /\} else if let dest, downloadRefusedByMacOS\(error\), let request = download\.originalRequest, let webView = download\.webView,\n\s+\(request\.httpMethod \?\? "GET"\) == "GET", begunOn == pageCommits, downloadsFromMainFrame\.contains\(download\),\n\s+alertsOnScreen == 0 \{/,
     'the restart is no longer limited to a GET the page\'s main frame began, already given a Downloads path, on the page it began on');
-  // Review 3: the restart is not one of kosmos#7952's marked starts, whose set changes how the answer is judged.
-  assert.doesNotMatch(SRC.slice(SRC.indexOf('private func offerSaveElsewhere('), SRC.indexOf('@objc(download:didFailWithError:resumeData:)')),
-    /downloadsStartedHere\.add/, 'the restart joins downloadsStartedHere, so its answer is judged as a marked start\'s');
+  // Review 5: on a Kosmos+ page the restart is marked same-origin (the tunnel refuses an unmarked download) and is then one of
+  // downloadsStartedHere, as kosmos#7952's marked starts are; on this computer's own board it is neither.
+  const restartSrc = SRC.slice(SRC.indexOf('private func offerSaveElsewhere('), SRC.indexOf('@objc(download:didFailWithError:resumeData:)'));
+  assert.match(restartSrc, /let overKosmosPlus = \(self\.committedPageURL\.map\(isKosmosPlusURL\) \?\? false\) \|\| AppDelegate\.markBoardDownloadsForSelftest\n/);
+  assert.match(restartSrc, /webView\.startDownload\(using: overKosmosPlus \? sameOriginDownloadRequest\(request\) : request\)/);
+  assert.match(restartSrc, /if overKosmosPlus \{ self\.downloadsStartedHere\.add\(dl\) \}/, 'a restart joins downloadsStartedHere unmarked, or a marked one does not');
   const start = branch.indexOf('startDownload(using: request)');
   const mark = branch.indexOf('sameOriginDownloadRequest(asked)');
   assert.ok(start > guard && mark > guard, 'the request is marked or started before the page check');
   const marks = SRC.split('sameOriginDownloadRequest(').length - 1;
-  assert.equal(marks, 3, 'the mark is made somewhere else too (expected: its definition, this branch, its selftest row)');
+  // #5167 (11-18) review 5: +1, the chosen-place restart on a Kosmos+ page (a board download that passed the checks).
+  assert.equal(marks, 4, 'the mark is made somewhere else too (expected: its definition, this branch, its selftest row, the chosen-place restart)');
 });
 
 test('kosmos#8121 review 5: only a Don\'t Allow the person pressed forgets an always-allowed computer, never an Allow voided by a page change', () => {
@@ -388,7 +392,7 @@ test('#5167 (11-18): a download macOS refused in Downloads asks where else to sa
 
 test('#5167 (11-18): the restarted download is this app\'s, has this delegate, and goes where the person chose', () => {
   const offer = body('private func offerSaveElsewhere(');
-  assert.match(offer, /webView\.startDownload\(using: request\) \{ dl in\s*\n\s*self\.saveElsewhereChoices\.setObject\(chosen as NSURL, forKey: dl\)\s*\n\s*self\.downloadsRestarted\.add\(dl\)/);
+  assert.match(offer, /webView\.startDownload\(using: overKosmosPlus \? sameOriginDownloadRequest\(request\) : request\) \{ dl in\s*\n\s*self\.saveElsewhereChoices\.setObject\(chosen as NSURL, forKey: dl\)\s*\n\s*self\.downloadsRestarted\.add\(dl\)/);
   assert.match(offer, /dl\.delegate = self; self\.noteDownload\(dl, fresh: true, mainFrame: false\)/, 'the restart answers the page\'s click, whose words say Downloads');
   // Review 1: a page that changed while the person chose voids the restart (as kosmos#7952 voids an allowed start).
   assert.match(offer, /let commits = pageCommits, page = committedPageURL[\s\S]*guard self\.pageCommits == commits, self\.committedPageURL == page else/);
