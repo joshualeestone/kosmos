@@ -2757,7 +2757,9 @@ async function agentRemove(ctx, args) {
      tokens, which nothing brings back, so it needs a person at the terminal. --yes clears the tasks, which can always be
      set up again. */
 const AGENT_DELETE_LEFTOVERS_USAGE = 'Usage: kosmos agent delete-leftovers [--yes | --list]   (--yes: no question, and only leftovers that are nothing but a startup job; --list: show what would be deleted, delete nothing)';
-const LEFTOVER_DELETE_TIMEOUT_MS = 180000;   // a Windows Recycle Bin move can take 120 s (delete-leftover's own limit)
+const LEFTOVER_DELETE_TIMEOUT_MS = 240000;   // a Windows Recycle Bin move can take 120 s (delete-leftover's own limit), after two
+// process listings (kosmos#8640: up to 15 s each) and the drive probe (up to 20 s)
+const LEFTOVER_PLAN_TIMEOUT_MS = 50000;   // the process listing (up to 15 s) then the drive probe (up to 20 s)
 async function agentDeleteLeftovers(ctx, args) {
   const yes = args.includes('--yes');
   // kosmos#8547: --list builds the same plan from the same reads and stops before the question: it sends no DELETE.
@@ -2793,8 +2795,9 @@ async function agentDeleteLeftovers(ctx, args) {
   for (const n of names) {
     if (names.length > 25 && looked > 0 && looked % 25 === 0) ctx.out('Looked at ' + looked + ' of ' + names.length + '...');
     looked++;
-    // A Windows plan can wait up to 20 s on a cold drive (delete-leftover's DRIVE_WARM_TIMEOUT_MS), past the default limit.
-    const p = await ctx.call('GET', '/api/agent/' + encodeURIComponent(n.name) + '/leftover', undefined, { timeoutMs: 30000, person: true });
+    // A Windows plan can wait up to 20 s on a cold drive (delete-leftover's DRIVE_WARM_TIMEOUT_MS), past the default limit,
+    // after the process listing (kosmos#8640: up to 15 s), so the limit covers both with room.
+    const p = await ctx.call('GET', '/api/agent/' + encodeURIComponent(n.name) + '/leftover', undefined, { timeoutMs: LEFTOVER_PLAN_TIMEOUT_MS, person: true });
     if (!p.reached) return ctx.unreachable('read what is left of ' + n.shown);
     const plan = p.json || {};
     if (plan.ok !== true) { notOffered.push({ shown: n.shown, because: clause(plan.because || plan.error || '') || 'it did not say why' }); continue; }

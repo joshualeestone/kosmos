@@ -235,9 +235,7 @@ function filesWords(m) {
    folder can be left partly in the Recycle Bin. Both calls are synchronous, like the fs.rmSync they replace, so the
    whole board waits with them (every page and request), which is accepted here and named in the plan; the drive answer
    is kept a minute per drive so a plan and its delete ask once. */
-function powershell() {
-  return path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-}
+function powershell() { return status.win32Powershell(); }   // one copy of the path (status.js)
 const RECYCLE_PATH_VAR = 'KOSMOS_RECYCLE_PATH';
 /* Prints one line of JSON, or UNKNOWN: the drive's type and size, the NoRecycleFiles policy, and the volume's own
    Recycle Bin settings (NukeOnDelete, MaxCapacity in MB), which are null when they could not be read. */
@@ -1808,7 +1806,8 @@ async function foldersOffThread(fresh = false) {
 async function foldersIfNeeded(name, opts, fresh = false) {
   let there = true;
   if (((opts && opts.platform) || process.platform) === 'win32') {
-    try { there = fs.existsSync(create.workerDir(create.cleanName(name))); } catch { there = true; }   // unsure: read
+    // The same folder plan() resolves (realCaseName, as there), so the two checks cannot disagree on the name.
+    try { there = fs.existsSync(create.workerDir(realCaseName(create.cleanName(name), 'win32'))); } catch { there = true; }   // unsure: read
   }
   return there ? { folders: await foldersOffThread(fresh) } : {};
 }

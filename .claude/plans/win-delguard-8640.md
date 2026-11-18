@@ -6,7 +6,8 @@
 1. On Windows, `delete-leftover` refuses an agent while a process works in its folder (its program is inside the
    folder, or its command line names the folder or a path inside it), with the same sentence as on the Mac.
 2. A read that cannot be completed (no sentinel, PowerShell failed or timed out) refuses the delete (fails closed).
-3. The Mac and Linux path is unchanged; the source is off unless server.js turns it on, on Windows only.
+3. The Mac and Linux folder read is unchanged (see "Changes beyond Windows"); the source is off unless server.js turns
+   it on, on Windows only.
 
 ## Why
 `status.paneFoldersSteps()` returned `[]` whenever `paneSource` was set. On Windows server.js sets `paneSource` to
@@ -36,6 +37,13 @@
   board); the folder-exists gate applies on Windows only, so the Mac and Linux read is unchanged; a quoted path is not
   cut; the delete's last read never joins a page's earlier one. CI: every test file with "win32" in its name runs in
   the Windows job (tools/windows-tests.js), so this file's Windows arms run there; the Mac job runs its parser arms.
+- Review 5: whole command lines are read (no cut that could hide a path after the flags); the CLI's plan limit is
+  50 s and its delete limit 240 s, to cover the listing before the drive probe; failed driver answers (not run,
+  killed, non-zero exit) and the 8.3 lookup have tests; one copy of the PowerShell path.
+- Changes beyond Windows, named: `shDetail`/`shDetailAsync` now hide windows (`windowsHide`, nothing on a Mac) and
+  take 32 MiB of output for every caller (output that used to fail with ENOBUFS now reads). On a Mac and Linux,
+  delAsync's re-plan now gets the tmux listing read off the board's thread (before, plan() read it synchronously); the
+  read itself is unchanged.
 - Unquoted paths (review 1): where an unquoted path ends cannot be known, so each candidate is also cut at every space,
   `;`, `,` and `'`; an extra candidate can only make the check refuse more (the safe side).
 - Weakest part: the working-folder gap above. A Kosmos-started agent is already caught by the roster (by name), so the
@@ -43,7 +51,7 @@
 - Would change my mind: a cheap, safe way to read another process's working folder on Windows.
 
 ## Validation
-- `engine/delete-leftover.win32folders-8640.test.js` (17 tests, including a live process that names the folder, sync
+- `engine/delete-leftover.win32folders-8640.test.js` (19 tests, including a live process that names the folder, sync
   and async).
 - The delete-leftover and status suites plus the policy tests. On a Windows host, 17 tests in
   delete-leftover.offthread-7835, delete-leftover.running-8640, status.config-dir-1523, status.heldq-7915, status.snapshotunheld-7693 and status.tmux-bin fail with

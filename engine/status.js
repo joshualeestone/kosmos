@@ -8195,15 +8195,21 @@ function setPaneFolderSource(fn) { paneFolderSource = typeof fn === 'function' ?
 let win32FolderSource = null;
 function setWin32FolderSource(src) { win32FolderSource = src === true || typeof src === 'function' ? src : null; }
 const WIN32_FOLDERS_OK = 'KOSMOS-FOLDERS-READ-OK';
-/* Each command line is kept to its first 2048 characters (the path cuts look only within the first 1024 of a path),
-   so a box full of long Chrome or Electron command lines stays far under the drivers' 32 MiB output limit; a read past
-   that limit would refuse every delete with a sentence nobody can act on. */
+/* Whole command lines, not cut: a path can come after thousands of characters of flags, and a cut there would hide a
+   running process. A Windows command line is at most 32767 characters; the drivers take 32 MiB of output (this box:
+   ~110 KB for 425 processes). A listing past that limit fails, and fails closed (the delete is refused). */
 const WIN32_FOLDER_SCRIPT = '[Console]::OutputEncoding = [Text.Encoding]::UTF8; '
   + 'Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object { '
-  + '$c = [string]$_.CommandLine; if ($c.Length -gt 2048) { $c = $c.Substring(0, 2048) }; '
   + '[Console]::Out.WriteLine(([string]$_.ProcessId) + "`t" + ([string]$_.Name -replace "[\\r\\n\\t]", " ") + "`t" '
-  + '+ ([string]$_.ExecutablePath -replace "[\\r\\n\\t]", " ") + "`t" + ($c -replace "[\\r\\n\\t]", " ")) }; '
+  + '+ ([string]$_.ExecutablePath -replace "[\\r\\n\\t]", " ") + "`t" + ([string]$_.CommandLine -replace "[\\r\\n\\t]", " ")) }; '
   + `[Console]::Out.WriteLine('${WIN32_FOLDERS_OK}')`;
+/** A Windows read's text: a string as given (a test source), the output of a driver answer that ran and exited 0, else
+    null (not run, killed at its limit, a non-zero exit), which refuses the delete. Pure. */
+function win32ReadText(got) {
+  if (typeof got === 'string') return got;
+  return got && got.ran === true && got.status === 0 && typeof got.out === 'string' ? got.out : null;
+}
+/** The Windows PowerShell every Kosmos Windows read runs (one copy: delete-leftover.js asks this too). */
 function win32Powershell() {
   return path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 }
@@ -8320,8 +8326,7 @@ function* paneFoldersSteps() {
   if (win32FolderSource) {
     const out = typeof win32FolderSource === 'function' ? win32FolderSource()
       : (yield [win32Powershell(), ['-NoProfile', '-NonInteractive', '-Command', WIN32_FOLDER_SCRIPT], 15000]);
-    const text = typeof out === 'string' ? out : (out && out.ran && out.status === 0 ? out.out : null);
-    const rows = readWin32ProcessFolders(text);
+    const rows = readWin32ProcessFolders(win32ReadText(out));
     if (!rows) throw new Error('we could not see what is running on this computer');
     return rows;
   }
@@ -10674,7 +10679,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)

@@ -63,6 +63,31 @@ test('win32PathsIn: every Windows path a command line names, quoted or not, with
   assert.deepEqual(status.win32PathsIn(''), []);
 });
 
+test('win32ReadText: only a read that ran and exited 0 is text; not run, killed at its limit, or a failed exit is none', () => {
+  assert.equal(status.win32ReadText('as given'), 'as given');
+  assert.equal(status.win32ReadText({ ran: true, status: 0, out: 'x' }), 'x');
+  for (const got of [{ ran: false, status: null, out: '' }, { ran: true, status: 1, out: `${OK}\n` }, { ran: false, status: null, out: `${OK}\n` }, null, undefined, {}]) {
+    assert.equal(status.win32ReadText(got), null, JSON.stringify(got));
+  }
+  assert.equal(status.readWin32ProcessFolders(status.win32ReadText({ ran: true, status: 1, out: read() })), null,
+    'a failed exit with a sentinel in its output is still no answer');
+});
+
+test('win32LongForm: an 8.3 spelling on the agents\' drive is read in its long form; another drive is never looked up', { skip: WIN_ONLY }, () => {
+  const long = nodePath.join(SANDBOX, 'a long folder name 8640');
+  fs.mkdirSync(nodePath.join(long, 'inside'), { recursive: true });
+  const short = require('node:child_process').execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    '[Console]::Out.Write((New-Object -ComObject Scripting.FileSystemObject).GetFolder($env:KOSMOS_LONG_DIR).ShortPath)'],
+  { encoding: 'utf8', env: { ...process.env, KOSMOS_LONG_DIR: long } }).trim();
+  if (!short.includes('~')) return;   // 8.3 names are off on this volume: nothing to read
+  const got = status.win32LongForm(nodePath.join(short, 'inside', 'not-there.txt'), new Map());
+  assert.equal(fs.realpathSync.native(nodePath.dirname(got)).toLowerCase(), fs.realpathSync.native(nodePath.join(long, 'inside')).toLowerCase());
+  const drive = String(create.WORKERS_DIR).slice(0, 1).toUpperCase();
+  const other = drive === 'Z' ? 'Y' : 'Z';
+  assert.equal(status.win32LongForm(`${other}:\\SHARED~1\\x`, new Map()), null, 'a path on another drive was looked up');
+  assert.equal(status.win32LongForm('C:\\no tilde here', new Map()), null);
+});
+
 test('win32PathsIn: the "p:/" inside a web address is not a drive', () => {
   assert.deepEqual(status.win32PathsIn('chrome.exe --url https://example.com/a http://x/y'), []);
   assert.deepEqual(status.win32PathsIn('x --log=C:\\logs\\a.txt'), ['C:\\logs\\a.txt'], 'a path right after "=" still is');
