@@ -30,6 +30,15 @@ const BASE = process.argv[2] || 'http://127.0.0.1:4399';
 const HEADED = process.env.HEADED !== '0';
 const AUTH_403 = { error: 'this board belongs to the account that started it; open it with `kosmos open`' };
 
+/* The rich board's first run is not completed, and its screen covers the board (keyboard focus and the sign-in box
+   below it). It appears only once the page has read the board, so testing for it at load misses it: wait, then dismiss
+   it unless it is explicitly hidden (render-list-row's way). Without this the check passed only when an earlier check
+   on the same board had dismissed it (kosmos#8672). */
+async function dismissFirstRun(page) {
+  await page.waitForTimeout(600);
+  if (!(await page.$('#firstrun[hidden]'))) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+}
+
 const results = [];
 function check(name, pass, detail) {
   results.push({ name, pass: Boolean(pass), detail });
@@ -70,7 +79,7 @@ const runsOn = (page) => page.evaluate(() => {
         return r.fallback();
       });
       await page.goto(BASE + '/', { waitUntil: 'load' });
-      if (await page.$('#firstrun:not([hidden])')) await page.keyboard.press('Escape');
+      await dismissFirstRun(page);
       // The first agent, from the board's own status read (made by the page, so it carries the page's credentials).
       const first = await page.evaluate(async () => {
         const r = await fetch('/api/status');
@@ -80,6 +89,7 @@ const runsOn = (page) => page.evaluate(() => {
       });
       check(`${look}: precondition: the board has an agent to open`, !!first, String(first));
       await page.goto(BASE + '/?agent=' + encodeURIComponent(first || ''), { waitUntil: 'load' });
+      await dismissFirstRun(page);
       await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 15000 });
       await page.waitForTimeout(1500);
       const before = await state(page);
@@ -179,6 +189,7 @@ const runsOn = (page) => page.evaluate(() => {
       // The note's link leads to the sign-in steps: following it while signed out lands on the board's not-signed-in box.
       await page.waitForFunction(() => { const n = document.getElementById('d-signedout'); return n && !n.hidden && n.querySelector('a'); }, null, { timeout: 20000 }).catch(() => {});
       await Promise.all([page.waitForNavigation({ waitUntil: 'load' }).catch(() => {}), page.click('#d-signedout a').catch(() => {})]);
+      await dismissFirstRun(page);
       await page.waitForFunction(() => /not signed in/i.test(document.body.innerText) && /Sign this tab in again/.test(document.body.innerText), null, { timeout: 20000 }).catch(() => {});
       const landed = await page.evaluate(() => ({ box: /This board is not signed in/i.test(document.body.innerText), steps: /Sign this tab in again/.test(document.body.innerText) }));
       check(`${look}: the note's link lands on the board's sign-in box and its steps`, landed.box && landed.steps, JSON.stringify(landed));
