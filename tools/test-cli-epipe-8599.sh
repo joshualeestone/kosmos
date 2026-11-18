@@ -41,7 +41,7 @@ bash "$REPO/install/kosmos" feedback triage --dir "$HOME_DIR/reports" 2>"$ERR" |
 rc1=${PIPESTATUS[0]}
 [ "$rc1" = 141 ] || fail "the command did not end with 141 (a closed reader) through the wrapper: rc $rc1 / $(head -3 "$ERR")"
 grep -q '^digest line 0 ' "$LINE" || fail "the reader did not get the first line: $(cat "$LINE")"
-if grep -qE "EPIPE|Unhandled 'error'" "$ERR"; then fail "a closed reader still printed a trace: $(head -3 "$ERR")"; fi
+if grep -qE "EPIPE|ENOTCONN|ECONNRESET|Unhandled 'error'" "$ERR"; then fail "a closed reader still printed a trace: $(head -3 "$ERR")"; fi
 grep -q 'fake triage note' "$ERR" || fail "the verb's own stderr note is missing (did the verb run?): $(cat "$ERR")"
 
 # 2. CONTROL: the same run with the guard off prints the trace this card is about.

@@ -14,6 +14,7 @@ Card: kosmos#8714 (Angel, from PR #8713's macOS CI run 44377549059). Follows kos
 - Not reproduced as ENOTCONN by a spawn here: on this Mac the spawn arm shows EPIPE. The new unit test forces each code instead of relying on timing.
 
 ## Proof
+Status: mechanism built and unit-proven. Behaviour on a real socket-backed stdout raising ENOTCONN is NOT measured: it was seen once in CI and not reproduced here. The CI suite on macOS is where the next sighting would show, and it would now be exit 141.
 - Mutant (the set back to EPIPE only): the new test fails, 7 pass 1 fail; restored, 8 pass.
 - tools/test-cli-epipe-8599.sh passes (a real shell pipe: still EPIPE).
 
@@ -28,3 +29,8 @@ A real case where ENOTCONN on stdout means a failure the person needs to see.
 - WARNING fixed: the comment tied the socket to macOS; the reader's type decides it (a spawned child's stdout is a socket, a shell pipe a FIFO). Reworded to the measured case.
 - NITs fixed: the guarded test's name says closed-reader trace; the WRITER comment sits above WRITER again; the weakest premise names the real residual (an unconnected socket), not a tty.
 - NIT left: the exact-contents assertion checks a hand list; the loop above it is what proves behaviour, and nothing claims more.
+### Review 2 (sonnet): 2 WARNINGs (1 recorded, 1 deferred), 4 NITs (3 fixed, 1 left)
+- WARNING recorded: no measurement of a real ENOTCONN; the plan's Proof now says mechanism built, behaviour not measured.
+- WARNING deferred: the unguarded control arms (bare, board) could miss a trace on timing. Not seen: the flake was the guarded arm's exit code, and an unguarded writer of 1 MB to a closed reader always errors; widening those arms to the three codes already removes the code-shape half of the risk.
+- NITs fixed: the doc comment says which code was measured where (EPIPE shell pipe, ENOTCONN CI) instead of a reasoned mechanism; the long doc line rewrapped; tools/test-cli-epipe-8599.sh's guarded arm now refuses an ENOTCONN or ECONNRESET trace too.
+- NIT left: the exact-contents assertion (review 1's left NIT).
