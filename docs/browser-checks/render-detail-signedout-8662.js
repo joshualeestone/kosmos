@@ -46,7 +46,9 @@ const SIGNED_OUT_MODEL = 'Signed out: sign in to see its model';
 const runsOn = (page) => page.evaluate(() => {
   const line = document.getElementById('d-runson');
   const c = typeof CURRENT !== 'undefined' ? CURRENT : null;
-  return { line: line ? line.textContent.trim() : null, agent: c ? c.sessionName : null, noModel: !!c && !c.modelName && !c.plannedModelName };
+  // A Claude agent (no other runner or account provider: those keep their provider line, signed out or not) with no model.
+  const claude = !!c && (!c.runner || c.runner === 'claude') && !(c.account && c.account.provider && c.account.provider !== 'anthropic');
+  return { line: line ? line.textContent.trim() : null, agent: c ? c.sessionName : null, noModel: claude && !c.modelName && !c.plannedModelName };
 });
 
 (async () => {
@@ -85,7 +87,7 @@ const runsOn = (page) => page.evaluate(() => {
       const runsBefore = await runsOn(page);
       check(`${look}: control: signed in, Runs on does not say signed out`, !String(runsBefore.line).includes(SIGNED_OUT_MODEL), JSON.stringify(runsBefore));
       // Without this the kept-reading arm below cannot fail: an agent with a model shows its name either way.
-      check(`${look}: precondition: the open agent has no model read`, runsBefore.noModel, JSON.stringify(runsBefore));
+      check(`${look}: precondition: the open agent is a Claude agent with no model read`, runsBefore.noModel, JSON.stringify(runsBefore));
 
       // Keyboard focus inside the Model section when it locks must move to the note's way out, not fall to the page.
       await page.evaluate(() => { const b = document.querySelector('#d-nav button[data-go="model"]'); if (b) b.click(); });
@@ -130,7 +132,8 @@ const runsOn = (page) => page.evaluate(() => {
       const again = await state(page);
       check(`${look}: a second sign-out shows the note with its words again`, again.note && /This page is signed out/.test(again.text), JSON.stringify(again));
       /* kosmos#8672 pin 1. The open page keeps its last reading (the note says so), so the signed-out line reaches Runs
-         on when an agent page is painted while signed out: opening another agent in-page, from what the board last read. */
+         on when an agent page is painted while signed out: opening another agent in-page (openDetail called
+         directly, the painter rather than a click), from what the board last read. */
       // Two more status polls first, so a repaint driven by a refused poll would have landed before the read.
       const readsAt = statusReads;
       for (let i = 0; i < 100 && statusReads < readsAt + 2; i++) await page.waitForTimeout(200);
@@ -141,13 +144,13 @@ const runsOn = (page) => page.evaluate(() => {
         const b = (typeof LAST !== 'undefined' && Array.isArray(LAST)) ? LAST.find((x) => x.sessionName !== cur && !x.modelName && !x.plannedModelName && (!x.runner || x.runner === 'claude') && !(x.account && x.account.provider && x.account.provider !== 'anthropic')) : null;
         if (b && typeof openDetail === 'function') openDetail(b.sessionName);
         return b ? b.sessionName : null;
-      }, await page.evaluate(() => CURRENT && CURRENT.sessionName));
+      }, runsBefore.agent);
       check(`${look}: precondition: another Claude agent with no model read to open`, !!other, String(other));
       await page.waitForFunction((want) => { const l = document.getElementById('d-runson'); return l && l.textContent.includes(want); }, SIGNED_OUT_MODEL, { timeout: 5000 }).catch(() => {});
       const runsOut = await runsOn(page);
       /* Runs on only: the sandbox's Claude agents have no model menu options (no account), so its selected option is not
          reachable here; modelLine is that menu's source too, and web.made-before.test.js pins modelLine itself. */
-      check(`${look}: signed out: an agent with no model read, opened, says so on Runs on`, String(runsOut.line).includes(SIGNED_OUT_MODEL), JSON.stringify(runsOut));
+      check(`${look}: signed out: an agent with no model read, opened, says so on Runs on`, runsOut.agent === other && String(runsOut.line).includes(SIGNED_OUT_MODEL), JSON.stringify(runsOut));
       // Back to the first agent for the arms below, which read only the note and the section's lock.
       await page.evaluate((n) => openDetail(n), runsBefore.agent);
       const backOn = await page.evaluate(() => (typeof CURRENT !== 'undefined' && CURRENT ? CURRENT.sessionName : null));

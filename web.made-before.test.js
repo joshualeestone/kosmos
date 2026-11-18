@@ -249,9 +249,9 @@ test('kosmos#8662: signed out, a tile still names the model an earlier session r
   assert.match(runTileSignedOut({ earlierModelName: 'opus-5-5' }, {}), /opus-5-5/);
 });
 
-/* kosmos#8672 (from #8662's review): every early provider return in modelLine (these runners, and these accounts on
-   their own runner) comes before the signed-out line, so a reorder that put the guard above any of them turns red. */
-test('kosmos#8672: signed out, an agent on another runner with no model still names its provider', () => {
+/* kosmos#8672 (from #8662's review): every early provider return in modelLine (these runners, and these account
+   providers) comes before the signed-out line, so a reorder that put the guard above any of them turns red. */
+test('kosmos#8672: signed out, an agent on another runner or provider with no model still names its provider', () => {
   const cases = [
     [{ runner: 'codex' }, 'OpenAI Codex'],
     [{ runner: 'gemini' }, 'Gemini'],
