@@ -86954,16 +86954,17 @@ function pjResetFederation() {
   const jm = document.getElementById('pj-join-msg'); if (jm) jm.textContent = '';
 }
 
-/* A refusal the board gives a remote session (kosmos#6595: remote_step_up*, remote_not_allowed): its sentence says what to
-   do (sign in again, or do it at the computer), so it is shown as given, else ''. Only `error` is ever returned. */
+/* A remote session's step-up refusal (kosmos#6595: remote_step_up*, the page's one test for it, as at the other step-up
+   readers): its sentence says what to do, so it is shown as given, else ''. Only `error` is ever returned. */
 function fedRemoteSays(body) {
-  return body && /^remote_(step_up|not_allowed)/.test(String(body.code || '')) && typeof body.error === 'string' && body.error
+  return body && /^remote_step_up/.test(String(body.code || '')) && typeof body.error === 'string' && body.error
     ? body.error : '';
 }
 // A federation error response carries a distinct reason (already-used / expired / revoked /
 // not-found / self-join / double-join); name what the person can DO, never leak internals.
 function pjFedMessage(body, fallback, opts) {
-  { const remote = fedRemoteSays(body); if (remote) return remote; }
+  const remote = fedRemoteSays(body);
+  if (remote) return remote;
   // The map below keys on reason || error, never on body.code: `code` is the invite SECRET field on a mint
   // success (fedRemoteSays reads it only for its prefix and returns `error`). Unknown reasons fall through
   // to the caller's safe fallback.
@@ -88586,13 +88587,12 @@ async function fedInviteMake() {
     }
     if (!res.ok || !body || typeof body.code !== 'string' || !body.code) {
       // A 403 means the request did not read as from this screen (nothing the person can act on), or a remote session
-      // needs a fresh sign-in (kosmos#6595), which is.
+      // needs a fresh sign-in (kosmos#6595), whose sentence is shown.
       // kosmos#6681 review 1: a refused address marks the address field (and puts focus there), not "Who is it for?".
       if (res.status !== 403 && body && body.reason === 'bad-email') {
         pjFieldBad('fedinv-email', 'fedinv-msg', pjFedMessage(body, fallback));
         return;
       }
-      // A remote session's refusal is also a 403, and its sentence (sign in again) is the way forward: shown as given.
       msg.textContent = res.status === 403 ? (fedRemoteSays(body) || fallback)
         : pjFedMessage(body, (body && typeof body.error === 'string' && body.error) || fallback);
       document.getElementById('fedinv-label').focus();   // back in the field (pjFieldBad's way), not on <body>

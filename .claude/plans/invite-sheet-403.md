@@ -15,8 +15,8 @@ sentence, which is not for a person. Noted on the card.
 
 Decided: match on the code prefix, not the status, because `code` is the invite secret on success and every
 caller reaches pjFedMessage only on a failure; the prefix keeps a real code from ever reading as a refusal.
-Weakest premise: that every remote-session refusal the board sends carries a remote_* code. server.js does today
-(REMOTE_STEP_UP*, REMOTE_NOT_ALLOWED); a new refusal without one would still show the catch-all. An invite secret
+Weakest premise: that every refusal the federation step-up routes send carries a remote_step_up* code
+(remoteStepUpRefusal does today); a new refusal without one would still show the catch-all. An invite secret
 matching the prefix could not leak: fedRemoteSays returns `error`, never `code`, and callers ask it only on failure.
 
 Round 1 (review): the sheet is now tested by running fedInviteMake on a 403, not by a text pin.
@@ -27,3 +27,12 @@ Round 2 (review):
 - Deferred: Remove and Withdraw keep `403 ? fallback`. Neither is a step-up route (the gated list names join,
   invite, own-code, own-allow, own-confirm; "Removing and withdrawing take away"), so no remote refusal reaches
   them today. Would change my mind: either route joining the gated list.
+
+Round 3 (review):
+- One test for one fact: fedRemoteSays matches /^remote_step_up/, as the page's four other step-up readers do.
+  remote_not_allowed is never sent to a federation route, so it is not matched (the unit test pins that).
+- Browser check: render-federation-invite-4649.js gains two arms (a step-up 403 shows its sentence; a 403
+  with no code keeps the catch-all). Ran it: 182 PASS, all arms passed; with the sheet fix reverted, the
+  8700 arm FAILs with the catch-all.
+- render-agentdm-3414.js and render-unread-edge-3743.js match the diff only on the local name `msg`:
+  surface overrides in the commit.

@@ -409,12 +409,14 @@ test('#5275 review 3: a refused copy while focus is already in the code itself c
 
 // The Make an invite code sheet showed its catch-all for a remote session's 403 (Josh, 2026-11-18 09:20): the board's
 // sentence (sign in again, or do it at the computer) is the way forward, so both invite paths show it as given.
-test('kosmos#6595: a remote-session refusal is shown as the board says it, on both invite paths', () => {
+test('kosmos#6595: pjFedMessage shows a remote step-up refusal as the board says it', () => {
   const s = build();
   const stepUp = { code: 'remote_step_up', error: 'From a remote session this needs a fresh sign-in.' };
   assert.equal(s.pjFedMessage(stepUp, 'FALLBACK'), stepUp.error, 'the create screen door shows the step-up sentence');
   assert.equal(s.pjFedMessage({ code: 'remote_step_up_clock', error: 'Set the clock.' }, 'FALLBACK'), 'Set the clock.');
-  assert.equal(s.pjFedMessage({ code: 'remote_not_allowed', error: 'Do it at the computer.' }, 'FALLBACK'), 'Do it at the computer.');
+  // remote_not_allowed is never sent to a federation route (only step-up is), and the page's other step-up readers
+  // match /^remote_step_up/ alone: one test for one fact, so it keeps the fallback.
+  assert.equal(s.pjFedMessage({ code: 'remote_not_allowed', error: 'Do it at the computer.' }, 'FALLBACK'), 'FALLBACK');
   assert.equal(s.pjFedMessage({ code: 'remote_step_up_unavailable', error: 'Try again in a minute.' }, 'FALLBACK'), 'Try again in a minute.');
   // Controls: a code that is not a remote refusal (an invite secret) and a step-up with no sentence keep the fallback.
   assert.equal(s.pjFedMessage({ code: 'AB12-CD34', error: 'x' }, 'FALLBACK'), 'FALLBACK', 'an invite secret in code is never read as a refusal');
@@ -438,11 +440,11 @@ async function sheetSays(status, answer) {
   assert.deepEqual(calls, ['/api/federation/invite'], 'the sheet asked the board once');
   return doc.getElementById('fedinv-msg').textContent;
 }
-test('kosmos#6595: the Make an invite code sheet shows a remote-session refusal, and keeps its fallback for any other 403', async () => {
+test('kosmos#6595: the Make an invite code sheet shows a remote step-up refusal, and keeps its fallback for any other 403', async () => {
   const fallback = 'Kosmos could not make a code just now. Try again in a moment.';
   assert.equal(await sheetSays(403, { code: 'remote_step_up', error: 'From a remote session this needs a fresh sign-in.' }),
     'From a remote session this needs a fresh sign-in.');
-  assert.equal(await sheetSays(403, { code: 'remote_not_allowed', error: 'Do it at the computer.' }), 'Do it at the computer.');
+  assert.equal(await sheetSays(403, { code: 'remote_step_up_clock', error: 'Set the clock.' }), 'Set the clock.');
   // Control: the not-from-this-screen 403 carries no remote code, so its sentence stays hidden behind the fallback.
   assert.equal(await sheetSays(403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }), fallback);
 });
