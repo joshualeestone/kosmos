@@ -1682,28 +1682,38 @@ function setDue(projectId, n, dueDate) {
  */
 function setText(projectId, n, { sentence, detail } = {}, { by = null, person = false } = {}) {
   if (sentence === undefined && detail === undefined) throw new Error('say the new title, the new detail, or both');
+  // A title is one line wherever it is shown, so line breaks and control characters become spaces (the CLIs already do),
+  // and the title is checked AFTER that, so one made only of control characters is refused as empty.
+  const nextSentence = sentence === undefined ? undefined : (typeof sentence === 'string' ? sentence.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim() : null);
   if (sentence !== undefined) {
-    if (typeof sentence !== 'string' || !sentence.trim()) throw new Error('a task needs a title: say what needs doing');
-    if (sentence.trim().length > SENTENCE_MAX) throw new Error(`say what needs doing in ${SENTENCE_MAX} characters or fewer; the detail has the room`);
+    if (!nextSentence) throw new Error('a task needs a title: say what needs doing');
+    if (nextSentence.length > SENTENCE_MAX) throw new Error(`say what needs doing in ${SENTENCE_MAX} characters or fewer; the detail has the room`);
   }
   if (detail !== undefined) {
     const problem = detailProblem(detail);
     if (problem) throw new Error(problem);
   }
-  // A title is one line wherever it is shown, so line breaks and control characters become spaces (the CLIs already do).
-  const nextSentence = sentence === undefined ? undefined : sentence.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
   const nextDetail = detail === undefined ? undefined : ((typeof detail === 'string' && detail.trim()) ? detail.trim() : null);
   let changed;
   let before;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
+    /* A task the person wrote, or whose words they have since changed, is theirs to reword, as done-when keeps the
+       person's own checks: an agent does not rewrite what it was asked to do. Checked inside the write. */
+    if (!person && (t.addedVia === 'screen' || t.textByPerson === true)) {
+      const e = new Error('the person wrote this task\'s words, so only they can change them; say what changed in the task\'s conversation instead');
+      e.status = 403;
+      throw e;
+    }
     before = { sentence: t.sentence, detail: t.detail || null };
     changed = {
       ...t,
       ...(nextSentence !== undefined ? { sentence: nextSentence } : {}),
       ...(nextDetail !== undefined ? { detail: nextDetail } : {}),
     };
+    const reworded = (nextSentence !== undefined && nextSentence !== before.sentence) || (nextDetail !== undefined && nextDetail !== before.detail);
+    if (person && reworded) changed.textByPerson = true;
     return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
   });
   const titleChanged = nextSentence !== undefined && nextSentence !== before.sentence;

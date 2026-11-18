@@ -180,6 +180,55 @@ test('a title sent with line breaks is stored as one line (a title is one line w
   assert.equal((await listed(id, n)).sentence, 'Fix login on iPhone');
 });
 
+test('a title made only of control characters is refused as empty, not stored as an empty title', async () => {
+  const { id, n } = freshTask();
+  for (const sentence of ['\u0001', '\u0001\u0002', ' \u0007 ']) {
+    const w = await edit(id, n, { sentence });
+    assert.equal(w.status, 400, JSON.stringify(sentence) + ' ' + JSON.stringify(w.json));
+    assert.match(w.json.error, /a task needs a title/);
+  }
+  assert.equal((await listed(id, n)).sentence, 'Fix login');
+  assert.equal(edits(id, n).length, 0);
+});
+
+test('a closed task can be edited (renaming it changes no work), and the edit is recorded', async () => {
+  const { id, n } = freshTask();
+  tasks.close(id, n);
+  assert.ok((await listed(id, n)).closedAt, 'fixture: the task did not close');
+  const w = await edit(id, n, { sentence: 'Fixed login, as it turned out' });
+  assert.equal(w.status, 200, JSON.stringify(w.json));
+  assert.equal((await listed(id, n)).sentence, 'Fixed login, as it turned out');
+  assert.equal(edits(id, n).length, 1);
+});
+
+test('a task the person wrote is theirs to reword: an agent and an unnamed process are refused (403), the screen is not', async (t) => {
+  const pr = projects.create({ name: 'Edit person ' + Math.random().toString(36).slice(2) });
+  projects.mutate(pr.id, (p) => ({ ...p, agents: ['mara'] }));
+  const id = pr.id;
+  const n = tasks.create(id, { sentence: 'The person asked for this', made: { via: 'screen' } }).number;
+  const tok = agents(t);
+  for (const headers of [{ 'x-kosmos-agent-token': tok.mara }, { 'x-kosmos-board-token': BOARD }]) {   // an agent, and an unnamed process with the board token
+    const w = await edit(id, n, { sentence: 'What I did instead' }, headers);
+    assert.equal(w.status, 403, JSON.stringify(headers) + ' ' + JSON.stringify(w.json));
+    assert.match(w.json.error, /the person wrote this task's words, so only they can change them/);
+  }
+  assert.equal(tasks.byNumber(projects.readAll().find((x) => x.id === id), n).sentence, 'The person asked for this', 'a refused caller changed the person\'s words');
+  const screen = await edit(id, n, { sentence: 'The person reworded it' }, { 'sec-fetch-site': 'same-origin', 'x-kosmos-board-token': BOARD });
+  assert.equal(screen.status, 200, 'CONTROL: the person could not reword their own task: ' + JSON.stringify(screen.json));
+});
+
+test('once the person rewords an agent\'s task, its words are the person\'s: the agent is refused after that', async (t) => {
+  const pr = projects.create({ name: 'Edit taken ' + Math.random().toString(36).slice(2) });
+  projects.mutate(pr.id, (p) => ({ ...p, agents: ['mara'] }));
+  const id = pr.id;
+  const n = tasks.create(id, { sentence: 'mara added this', made: { via: 'process', by: 'mara' } }).number;
+  const tok = agents(t);
+  assert.equal((await edit(id, n, { sentence: 'mara fixed her own title' }, { 'x-kosmos-agent-token': tok.mara })).status, 200, 'CONTROL: an agent could not edit an agent\'s task');
+  assert.equal((await edit(id, n, { detail: 'the person adds a detail' }, { 'sec-fetch-site': 'same-origin', 'x-kosmos-board-token': BOARD })).status, 200);
+  const after = await edit(id, n, { sentence: 'mara again' }, { 'x-kosmos-agent-token': tok.mara });
+  assert.equal(after.status, 403, JSON.stringify(after.json));
+});
+
 test('the answer says whether anything changed', async () => {
   const { id, n } = freshTask();
   assert.equal((await edit(id, n, { sentence: 'Fix login' })).json.changed, false, 'an edit to the same words said it changed');
