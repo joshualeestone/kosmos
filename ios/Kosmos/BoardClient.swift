@@ -193,7 +193,8 @@ final class BoardClient: ObservableObject {
         func remaining(now: Date = Date()) -> TimeInterval { max(0, delay - now.timeIntervalSince(at)) }
     }
     @Published private(set) var starBurst: StarBurst?
-    static let starBurstWindow: TimeInterval = 0.3
+    // nonisolated: a constant StarBurst (a plain value) reads from any context.
+    nonisolated static let starBurstWindow: TimeInterval = 0.3
     // The press that just starred this agent, or nil for any other agent and after an unstar or a failed save.
     func burst(for session: String) -> StarBurst? { starBurst?.session == session ? starBurst : nil }
     // Review 1: every star press is numbered. A re-sort's own stars read that began before a press (or lands while one is
@@ -2299,7 +2300,7 @@ extension BoardClient.Phase {
 
 // kosmos#8706, #8708: the presses whose burst has started, by place, and which view will start each one that has not, so
 // a rebuilt StarredStar neither plays a press again nor loses one it was waiting for. Main thread only (view updates).
-// Both lists keep the newest 16 presses: a press is never asked about again once it is past its window.
+// Both lists keep the newest 16 press-and-place pairs: a press is never asked about again once it is past its window.
 @MainActor enum StarBurstsPlayed {
     private static var started: [String] = []
     private static var owner: [String: UUID] = [:]

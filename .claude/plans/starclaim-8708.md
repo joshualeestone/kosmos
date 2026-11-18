@@ -17,6 +17,10 @@ tests that run the shared ledger, each shown able to fail.
 - The owner list keeps the newest 16, as the started list does: a press re-starred during its wait is never started and
   its owner would otherwise stay.
 - StarBurst.fresh counts from when the burst is due (at + delay), so a view rebuilt during the wait can still take it.
+  This also lets a star in the OTHER place (the chat header) begin its first play up to delay + 0.3 s after the press,
+  not only a rebuilt row (Opus review 3). Harmless on a phone, where the list and a chat's header are not on screen
+  together; stated so it is not a surprise.
+- starBurstWindow is nonisolated, so StarBurst.fresh reads it without crossing the main actor (a Swift 6 error).
 - Tests: five ledger checks (rebuild takes over, the replaced view does not start, once only, places independent) and
   a freshness check with a wait. Removing the owner check fails two of them (measured).
 
