@@ -4830,6 +4830,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             if choose {
                 let panel = NSSavePanel()
                 panel.nameFieldStringValue = name
+                // Review 4: not Downloads, the folder macOS just refused.
+                panel.directoryURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
                 // Review 2: a name already there is never replaced (WebKit will not write over a file), so it says so first.
                 panel.message = "If a file with this name is already there, Kosmos saves the new one beside it with a number."
                 panel.canCreateDirectories = true
@@ -4863,9 +4865,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 // Review 1: the place the person chose failed too: said as that place's, and not asked about again.
                 tellDownloadFailed("The file could not be saved where you chose (\(downloadFailureWords(error))).")
             } else if let dest, downloadRefusedByMacOS(error), let request = download.originalRequest, let webView = download.webView,
-                      (request.httpMethod ?? "GET") == "GET", begunOn == pageCommits, downloadsFromMainFrame.contains(download) {
+                      (request.httpMethod ?? "GET") == "GET", begunOn == pageCommits, downloadsFromMainFrame.contains(download),
+                      alertsOnScreen == 0 {
                 /* Review 2: only a GET is asked for again (a POST would be sent twice), and only while the page it began on
-                   still shows; review 3: and only one the page's own main frame began. Otherwise the plain failure below. */
+                   still shows; review 3: and only one the page's own main frame began; review 4: and only with no other
+                   alert up, so a page cannot stack the question and its panel. Otherwise the plain failure below. */
                 // 11-18: macOS refused the write to Downloads ("Operation not permitted"); another place can still take it.
                 offerSaveElsewhere(error, request: request, webView: webView, name: dest.lastPathComponent)
             } else {
@@ -7334,12 +7338,13 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     var modalAsked = 0
     var questionWaited = false   // review 3: the Allow question did not open while a download alert was up
     /* Before the rows are read, the messages are waited for (up to 20s), so a busy build box cannot fail a good
-       product on a message that came late. Three FAILURES come from the arms (the 404, the web page, and the voided
+       product on a message that came late. Four FAILURES come from the arms (the 404, the web page, the refused-Downloads voided choice, and the voided
        Allow), and only those are counted here: refusals are said too, but how many reach the screen depends on the
        guard's timing; a run that says fewer failures is judged as it stands. */
     func settled(_ go: @escaping () -> Void, tries: Int = 200) {
-        // #5167 (11-06) review 2: the uncreatable file came first; since 11-18 it is a question (saveElsewhereForSelftest), not a failure.
-        if failures().count >= 3 || tries == 0 { go(); return }
+        // #5167 (11-06) review 2: the uncreatable file's failure came first; since 11-18 that is a question, and the fourth
+        // failure is the refused-Downloads arm's voided choice ("The page changed while you chose").
+        if failures().count >= 4 || tries == 0 { go(); return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled(go, tries: tries - 1) }
     }
     /* The per-computer question through a real click: the probe page is treated as a Kosmos+ computer that
