@@ -33,3 +33,10 @@ the workers folder costs no listing; the delete's last read starts its own while
 main's delete-leftover.js the first, second and fourth fail; the fifth fails with `fresh` ignored. The #7835 "plans
 once" test now counts plans by the identity read every plan makes once (a roster count can no longer see a second
 plan); it fails when planAsync is forced to plan twice.
+
+## Review notes
+- Iteration 1: the delete-limit test modelled one Recycle Bin move; a delete also moves each stored record (settings,
+  every picture file), each with its own 120 s, so a worst case can outlast the CLI's 240 s. Not changed in code: no
+  fixed limit covers an unbounded number of moves behind hidden dialogs. The test now says it covers one move, and the
+  gap is on the card. The handed roster read's age is about 35 s (listing then probe), now stated. A claim-only
+  (renamed session) fixture covers liveIn's second branch on the skip path.

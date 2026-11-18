@@ -237,4 +237,3 @@ test('win32 live: a real process started with the agent\'s folder in its command
   } finally { child.kill(); await new Promise((r) => setTimeout(r, 300)); }
   assert.equal(plan('agent6').ok, true, 'and once it has stopped, the leftover is offered again');
 });
-

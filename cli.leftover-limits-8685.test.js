@@ -3,7 +3,9 @@
 /**
  * kosmos#8685: the Windows CLI's limits for `kosmos agent delete-leftovers` cover the engine waits they sit in front of.
  * The plan limit must outlast one process listing and the drive probe; the delete limit must outlast two listings, the
- * probe and a Recycle Bin move. A CLI limit shorter than the work reads as a failed delete that in fact went ahead.
+ * probe and ONE Recycle Bin move (the folder's). A CLI limit shorter than the work reads as a failed delete that in fact
+ * went ahead. NOT COVERED: a delete also moves each stored record (settings, every picture file) with its own 120 s
+ * limit, so a delete whose every move sits behind a hidden dialog can outlast the CLI; that gap is on kosmos#8685.
  * Read from the sources, since the listing's and the move's limits are literals there, not exports.
  *
  *   node --test cli.leftover-limits-8685.test.js
@@ -35,11 +37,12 @@ test('#8685 the plan limit outlasts one process listing and the drive probe', ()
     `the CLI gives the plan ${PLAN_MS} ms, but a listing (${LISTING_MS}) and the probe (${PROBE_MS}) can take longer`);
 });
 
-test('#8685 the delete limit outlasts two listings, the drive probe and a Recycle Bin move', () => {
+test('#8685 the delete limit outlasts two listings, the drive probe and one Recycle Bin move', () => {
   const work = 2 * LISTING_MS + PROBE_MS + RECYCLE_MS;
   assert.ok(DELETE_MS > work, `the CLI gives the delete ${DELETE_MS} ms, but its waits add up to ${work} ms`);
 });
 
 test('#8685 CONTROL: the read numbers are the ones the comments name (so a regex that matched the wrong line shows)', () => {
-  assert.deepEqual([LISTING_MS, PROBE_MS, RECYCLE_MS], [15000, 20000, 120000]);
+  assert.deepEqual([LISTING_MS, PROBE_MS, RECYCLE_MS], [15000, 20000, 120000],
+    'an engine limit changed (or the regex found another line): check the CLI limits still cover it, then update this');
 });

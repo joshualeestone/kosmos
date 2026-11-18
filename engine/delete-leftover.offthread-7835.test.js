@@ -529,6 +529,21 @@ test('#8685 planAsync (Windows): a running agent\'s page starts no process listi
   } finally { status.paneFoldersAsync = realAsync; }
 });
 
+test('#8685 planAsync (Windows): an agent running under a renamed session (its claim only) also starts no listing', async () => {
+  const fleet = require('../test-support/fleet');
+  leftoverFolder('ot8685g');
+  status.setPaneSource(() => fleet.line({ session: 'renamed-8685', claim: 'ot8685g' }) + '\n');
+  const realAsync = status.paneFoldersAsync;
+  let listings = 0;
+  status.paneFoldersAsync = async () => { listings += 1; return []; };
+  try {
+    const p = await asyncWin.plan('ot8685g');
+    assert.equal(p.ok, false);
+    assert.match(String(p.because), /running/, 'PRECONDITION: the claim shows it running: ' + p.because);
+    assert.equal(listings, 0, 'an agent found by its claim still started a process listing');
+  } finally { status.paneFoldersAsync = realAsync; }
+});
+
 test('#8685 planAsync (Windows) CONTROL: the same leftover with nothing running is read for', async () => {
   leftoverFolder('ot8685c');
   const realAsync = status.paneFoldersAsync;
@@ -550,7 +565,8 @@ test('#8685 planAsync (Windows): an agent recorded outside the workers folder co
   let listings = 0;
   status.paneFoldersAsync = async () => { listings += 1; return []; };
   try {
-    await asyncWin.plan('ot8685d');
+    const p = await asyncWin.plan('ot8685d');
+    assert.match(String(p.because), /not where Kosmos keeps agents/, 'PRECONDITION: the plan saw the recorded folder outside the workers folder: ' + p.because);
     assert.equal(listings, 0, 'a folder the plan refuses (not where Kosmos keeps agents) still started a listing');
   } finally { status.paneFoldersAsync = realAsync; fs.rmSync(outside, { recursive: true, force: true }); try { fs.rmSync(store.profilePath('ot8685d'), { force: true }); } catch { /* gone */ } }
 });

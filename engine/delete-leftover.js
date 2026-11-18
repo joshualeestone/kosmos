@@ -1791,13 +1791,14 @@ async function planAsync(name, opts) {
      read here, off the board's thread, and handed to EVERY plan this request makes; a failure is handed in as itself,
      so plan() refuses as it would have. kosmos#8640 (Windows): read before warmFor too, whose own plan would otherwise
      read it on the board's thread (the Windows read is a PowerShell process, ~0.5 s, up to its 15 s limit), and only
-     when the agent's folder is there (foldersIfNeeded). */
+     when the agent's folder is there (foldersIfNeeded) and the roster does not already show it running (#8685). */
   // The page's answer can be as old as the drive probe (up to 20 s); the delete itself reads again just before it acts
   // (delAsync), so do not make the delete reuse this read.
   /* kosmos#8685 (Windows): the roster first, read once and handed to every plan below. An agent it shows running needs
      no process listing (the plan answers "running" before it would read one), so a living agent's page no longer pays
-     for one. The read can be as old as the drive probe, as the listing's already could; the delete re-plans with fresh
-     reads before it acts (delAsync). */
+     for one. The read is made before the listing and the probe, so the last plan here can use one about 35 s old (the
+     listing's 15 s and the probe's 20 s); the delete re-plans with fresh reads before it acts (delAsync), and no handed
+     read reaches that plan. */
   let look = null;
   if (win) {
     try { look = status.paneLook(); } catch { look = null; }   // unreadable: plan() reads it itself and refuses as before
@@ -1829,8 +1830,9 @@ async function foldersOffThread(fresh = false) {
 }
 /** { folders } (the listing) when the agent's folder is there; else {} (plan() reads no listing for a folder that is
     not there, and should one appear before the real plan, it reads the listing itself rather than trust an unread one).
-    A check of the folder only, not a plan: a second plan would read the roster a second time (kosmos#7835). A living
-    agent with a folder is still read for (one shared off-thread read), since only the plan knows it is living. The
+    A check of the folder only, not a plan: a second plan would read the roster a second time (kosmos#7835). The delete
+    reads for a living agent too (one shared off-thread read), since only its plan decides; the page skips this for an
+    agent its own roster read shows running (planAsync, #8685). The
     folder test is WINDOWS ONLY, the same condition as plan()'s: on a Mac or Linux the listing is always handed in, as
     before, so plan() never reads tmux on the board's thread (kosmos#8644 item 1). */
 async function foldersIfNeeded(name, opts, fresh = false) {
