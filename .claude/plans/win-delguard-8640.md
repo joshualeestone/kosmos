@@ -44,6 +44,10 @@
   take 32 MiB of output for every caller (output that used to fail with ENOBUFS now reads). On a Mac and Linux,
   delAsync's re-plan now gets the tmux listing read off the board's thread (before, plan() read it synchronously); the
   read itself is unchanged.
+- Review 6: a failed Windows read says what is true there (Windows would not give its list of running programs; try
+  again, or restart), not the tmux remedy; the agent's folder is also compared in its native long form. Known way the
+  guard can be unavailable for good: a box in PowerShell Constrained Language Mode (AppLocker/WDAC) cannot run the
+  read, so every leftover delete there is refused (fail closed, never a wrong delete).
 - Unquoted paths (review 1): where an unquoted path ends cannot be known, so each candidate is also cut at every space,
   `;`, `,` and `'`; an extra candidate can only make the check refuse more (the safe side).
 - Weakest part: the working-folder gap above. A Kosmos-started agent is already caught by the roster (by name), so the

@@ -8256,7 +8256,8 @@ function win32LongForm(p, cache) {
   const drive = win32HomeDrive();
   if (!drive || String(p).slice(0, 2).toLowerCase() !== drive) return null;
   let head = p, tail = '';
-  for (let i = 0; i < 12 && head.length > 3; i++) {
+  // Up to 32 levels of a missing tail (a path inside the 1024-character cut window has fewer than that in practice).
+  for (let i = 0; i < 32 && head.length > 3; i++) {
     let real;
     if (cache && cache.has(head)) real = cache.get(head);
     else { try { real = fs.realpathSync.native(head); } catch { real = null; } if (cache) cache.set(head, real); }   // one look per prefix per read

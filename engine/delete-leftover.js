@@ -521,6 +521,9 @@ function plan(name, opts) {
       if (typeof dir === 'string' && dir && path.isAbsolute(dir) && underWorkers) {
         homes.add(fold(path.resolve(dir)));
         try { homes.add(fold(fs.realpathSync(dir))); } catch { /* not there: as written only */ }
+        /* kosmos#8640 (Windows): and its long form. realpathSync does not expand an 8.3 spelling (a short workers root,
+           an 8.3 TEMP); the native one does, and the process paths are compared in their long form too. */
+        if (platform === 'win32') { try { homes.add(fold(fs.realpathSync.native(dir))); } catch { /* not there */ } }
       }
       const inside = (f) => { const n = fold(path.resolve(f)); for (const h of homes) if (n === h || n.startsWith(h + path.sep)) return true; return false; };
       /* Read even when the roster is empty: the roster keeps only sessions it can name as agents, and a pane in a session
@@ -538,6 +541,9 @@ function plan(name, opts) {
         const handed = opts && Object.prototype.hasOwnProperty.call(opts, 'folders');
         try { if (handed && opts.folders instanceof Error) throw opts.folders; folders = handed ? opts.folders : status.paneFolders(); }
         catch {
+          /* kosmos#8640 (Windows): there the read is Windows' own list of running programs, and closing windows does not
+             fix a list Windows would not give; say what is true there. */
+          if (platform === 'win32') return { ok: false, because: `Windows would not tell us which programs are running right now, so we could not check whether ${shown} is running and have not offered to delete anything. Try again in a minute; if it keeps happening, restarting the computer may help.` };
           return { ok: false, because: `Something open on this computer could not be read, so we could not check whether ${shown} is running and have not offered to delete anything. Closing windows you are not using may help.` };
         }
       }
@@ -1775,6 +1781,8 @@ async function planAsync(name, opts) {
      so plan() refuses as it would have. kosmos#8640 (Windows): read before warmFor too, whose own plan would otherwise
      read it on the board's thread (the Windows read is a PowerShell process, ~0.5 s, up to its 15 s limit), and only
      when the agent's folder is there (foldersIfNeeded). */
+  // The page's answer can be as old as the drive probe (up to 20 s); the delete itself reads again just before it acts
+  // (delAsync), so do not make the delete reuse this read.
   const had = await foldersIfNeeded(name, opts);
   const warm = win ? await warmFor(name, { ...(opts || {}), ...had }) : null;
   // Asked again: a delete of the name can have started while the probe ran.

@@ -211,7 +211,8 @@ test('win32: a read with no sentinel refuses the plan (fails closed)', { skip: W
   status.setWin32FolderSource(() => 'partial output, cut off');
   const p = plan('agent4');
   assert.equal(p.ok, false);
-  assert.match(p.because, /could not be read, so we could not check whether agent4 is running/);
+  assert.match(p.because, /Windows would not tell us which programs are running right now, so we could not check whether agent4 is running/);
+  assert.doesNotMatch(p.because, /Closing windows/, 'the tmux remedy, which does not help a failed Windows read');
 });
 
 test('control: with the Windows source off (the default), the roster alone decides, as before', { skip: WIN_ONLY }, () => {
