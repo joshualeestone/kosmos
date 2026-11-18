@@ -1045,8 +1045,8 @@ struct StatusPill: View {
 // kosmos#8706 (Josh 11-18, matching the board's #8705): the brightest gold with no outline. The darker edge comes back
 // only under Increase Contrast, as the board's does under prefers-contrast: more. `burst` is the press that just starred
 // this agent (BoardClient.burst(for:)), played only if fresh when this view would start it: the star pops and six gold
-// sparks fly out once, at the board's spark positions and close to its timings, and never under Reduce Motion (the star
-// just fills).
+// sparks fly out once, at the board's spark positions and close to its timings, and not when Reduce Motion is on as the
+// press is scheduled (the star just fills).
 struct StarredStar: View {
     // Which place draws this star ("row", "header"): a press plays once per place, however often the view is rebuilt.
     var place = "row"
@@ -1057,6 +1057,8 @@ struct StarredStar: View {
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var played: Int?
+    // This view, to StarBurstsPlayed: the last view to schedule a press in a place is the one that plays it.
+    @State private var token = UUID()
     @State private var popped = false
     @State private var sparking = false
 
@@ -1081,12 +1083,18 @@ struct StarredStar: View {
     // A rebuilt view (a toolbar item re-hosted when the save ends, a row re-made after the re-sort) starts with fresh
     // @State, so whether a press has played here is kept outside the view, by press and place. A rebuild during the
     // burst can cut it short; it never starts it again.
+    // kosmos#8708: a view rebuilt during the wait takes the press over (the old view's block finds it is no longer the
+    // owner), and waits only what is left of it; a press that has started never starts again.
     private func play(_ b: BoardClient.StarBurst?) {
-        guard let b, b.id != played, !reduceMotion, b.fresh(), StarBurstsPlayed.claim(b.id, place) else { return }
+        guard let b, b.id != played, b.fresh(), StarBurstsPlayed.schedule(b.id, place, by: token) else { return }
         let id = b.id
         played = id
-        DispatchQueue.main.asyncAfter(deadline: .now() + b.delay) {
-            guard played == id, !reduceMotion else { return }
+        // Under Reduce Motion this view still takes the press over and marks it started, so neither a view it replaced
+        // nor one rebuilt later can play it, and plays nothing.
+        if reduceMotion { _ = StarBurstsPlayed.start(id, place, by: token); return }
+        let wait = b.remaining()
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+            guard played == id, StarBurstsPlayed.start(id, place, by: token) else { return }
             sparking = true
             withAnimation(.easeOut(duration: 0.17)) { popped = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
@@ -1098,19 +1106,6 @@ struct StarredStar: View {
                 sparking = false
             }
         }
-    }
-}
-
-// kosmos#8706: the presses whose burst has started, by place, so a rebuilt StarredStar does not play one again. Main
-// thread only (view updates); kept small, since a press is never asked about again once it is past its window.
-@MainActor enum StarBurstsPlayed {
-    private static var seen: [String] = []
-    static func claim(_ id: Int, _ place: String) -> Bool {
-        let key = "\(id) \(place)"
-        if seen.contains(key) { return false }
-        seen.append(key)
-        if seen.count > 16 { seen.removeFirst(seen.count - 16) }
-        return true
     }
 }
 

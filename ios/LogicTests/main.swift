@@ -2334,6 +2334,32 @@ section("starring from the phone (kosmos#7034)")
         w.starWriteAnswer = (200, #"{"names":["dana","wes"],"ok":true}"#)
         await c.toggleStar("dana", burstDelay: 0.35)
         check(c.isStarred("wes") && c.isStarred("dana"), "the board's answer decides: a star set elsewhere meanwhile shows too")
+        let danaAt = c.burst(for: "dana")?.at ?? .distantPast
+        check(c.burst(for: "dana")?.fresh(now: danaAt.addingTimeInterval(0.5)) == true
+              && c.burst(for: "dana")?.fresh(now: danaAt.addingTimeInterval(0.35 + BoardClient.starBurstWindow + 0.05)) == false,
+              "kosmos#8708: a burst with a wait stays fresh until its wait plus the window, so a view rebuilt during the wait can take it over")
+        // kosmos#8708: the ledger the star views share. A view rebuilt during the wait takes the press over, the press
+        // starts once, and never again in that place; the other place keeps its own.
+        do {
+            let first = UUID(), rebuilt = UUID(), header = UUID()
+            check(StarBurstsPlayed.schedule(-8708, "row", by: first) && StarBurstsPlayed.schedule(-8708, "row", by: rebuilt),
+                  "both the first row view and its rebuild may schedule a press that has not started")
+            check(!StarBurstsPlayed.start(-8708, "row", by: first), "the view replaced during the wait does not start it")
+            check(StarBurstsPlayed.start(-8708, "row", by: rebuilt), "the view that took it over does")
+            check(!StarBurstsPlayed.schedule(-8708, "row", by: UUID()) && !StarBurstsPlayed.start(-8708, "row", by: rebuilt),
+                  "a press that has started never starts again in that place")
+            check(StarBurstsPlayed.schedule(-8708, "header", by: header) && StarBurstsPlayed.start(-8708, "header", by: header),
+                  "the header keeps its own: the row starting a press does not use it up there")
+        }
+        check(c.burst(for: "dana")?.remaining(now: danaAt) == 0.35 && abs((c.burst(for: "dana")?.remaining(now: danaAt.addingTimeInterval(0.2)) ?? -1) - 0.15) < 0.0001
+              && c.burst(for: "dana")?.remaining(now: danaAt.addingTimeInterval(1)) == 0,
+              "kosmos#8708: a view scheduling during the wait waits only what is left of it, and none once the burst is due")
+        do {   // the owner list keeps the newest 16: an abandoned press does not hold its owner forever
+            let v = UUID()
+            for i in 0..<20 { _ = StarBurstsPlayed.schedule(-9000 - i, "row", by: v) }
+            check(!StarBurstsPlayed.start(-9000, "row", by: v) && StarBurstsPlayed.start(-9019, "row", by: v),
+                  "kosmos#8708: an owner from long ago is dropped (its press cannot start), the newest still starts")
+        }
         check(c.burst(for: "dana")?.delay == 0.35 && c.burst(for: "wes") == nil,
               "kosmos#8706: a star from the long-press menu carries its wait, and wes, starred by the board's answer, has no burst")
         // Review 1: a pull whose stars read began before a press never undoes the press.
