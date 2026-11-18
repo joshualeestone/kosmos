@@ -201,7 +201,7 @@ const USAGE = {
     'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)',
     '       kosmos feedback write --unchanged [text]  (nothing new since your last report; any text is added to it)',
     '       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)',
-    '       kosmos feedback list [--mine]     (--mine: only the days holding your own report)',
+    '       kosmos feedback list [--mine]      (--mine: only the days holding your own report)',
     '       kosmos feedback day                (your own day on this computer, for writing the report)',
     '       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)',
     '       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]',

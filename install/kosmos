@@ -6219,7 +6219,7 @@ cmd_feedback() {
       say "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin)"
       say "       kosmos feedback write --unchanged [text]  (nothing new since your last report; any text is added to it)"
       say "       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)"
-      say "       kosmos feedback list [--mine]     (--mine: only the days holding your own report)"
+      say "       kosmos feedback list [--mine]      (--mine: only the days holding your own report)"
       say "       kosmos feedback day                (your own day on this computer, for writing the report)"
       say "       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)"
       say "       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]"

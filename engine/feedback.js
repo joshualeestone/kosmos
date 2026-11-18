@@ -470,11 +470,11 @@ function listNote(from, days = list()) {
   const only = mine.length < days.length ? ' To list only yours: kosmos feedback list --mine' : '';
   return whose + ' ' + (mine.length === 1 ? '1 of them holds yours: ' + mine[0] : mine.length + ' of them hold yours, the newest ' + mine[0]) + '.' + only;
 }
-/** kosmos#8698: what `feedback list --mine` prints (both CLIs, on stdout): the days holding a section by `from`, newest
- *  first, one a line, by the same rule as listNote's count (daysOf); none is said in a sentence. */
 function noneOfYoursWords() { return 'None of the days on this computer holds a report of yours yet, ' + NONE_OF_YOURS_TAIL; }
 /* kosmos#8698: --mine's answer when the reports cannot be read (both CLIs, on stderr, exit 1). */
 function unreadableWords() { return 'Kosmos could not read the product-feedback reports on this computer, so it cannot tell which days are yours.'; }
+/** kosmos#8698: what `feedback list --mine` prints (both CLIs, on stdout): the days holding a section by `from`, newest
+ *  first, one a line, by the same rule as listNote's count (daysOf); none is said in a sentence. */
 function mineLines(from) {
   const mine = daysOf(from);
   return mine.length ? mine : [noneOfYoursWords()];
