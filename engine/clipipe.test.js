@@ -12,9 +12,9 @@ const { EventEmitter } = require('node:events');
 const clipipe = require('./clipipe');
 
 const GUARD = path.join(__dirname, 'clipipe.js');
-// About 1 MB, far more than a pipe holds, so the write is still going when the reader closes.
-// kosmos#8714: on macOS the child's stdio is a socket, so the same closed reader can read as ENOTCONN or ECONNRESET.
+// kosmos#8714: a spawned child's stdout is a socket, so its closed reader can read as ENOTCONN or ECONNRESET.
 const CLOSED = /EPIPE|ENOTCONN|ECONNRESET/;
+// About 1 MB, far more than a pipe holds, so the write is still going when the reader closes.
 const WRITER = "process.stdout.write(Array.from({ length: 20000 }, (_, i) => 'line ' + i + ' ' + 'x'.repeat(40)).join('\\n') + '\\n');";
 
 /** Run node with `args`, read stdout until the first newline, then close the read end. */
@@ -32,7 +32,7 @@ function runAndCloseEarly(args, env) {
   });
 }
 
-test('guarded: a closed reader is a quiet exit 141 (CONTROL: unguarded, the same writer prints the EPIPE trace)', async () => {
+test('guarded: a closed reader is a quiet exit 141 (CONTROL: unguarded, the same writer prints the closed-reader trace)', async () => {
   const guarded = await runAndCloseEarly(['-e', "require(process.argv[1]).install(process); " + WRITER, GUARD]);
   assert.strictEqual(guarded.first, 'line 0 ' + 'x'.repeat(40));
   assert.strictEqual(guarded.code, 141, guarded.err);
