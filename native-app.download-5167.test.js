@@ -127,7 +127,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 73[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 74[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -352,7 +352,7 @@ test('kosmos#7952 review 1: only a download the board page itself asked for is m
   const fail = SRC.slice(SRC.indexOf('@objc(download:didFailWithError:resumeData:)'));
   assert.ok(fail.indexOf('} else if downloadsRestarted.contains(download) {') < fail.indexOf('downloadRefusedByMacOS(error)'),
     'a restarted download that fails is asked about again, as if it were Downloads');
-  assert.match(SRC, /\} else if let dest, downloadRefusedByMacOS\(error\), let request = download\.originalRequest, let webView = download\.webView,\n\s+\(request\.httpMethod \?\? "GET"\) == "GET", begunOn == pageCommits, downloadsFromMainFrame\.contains\(download\),\n\s+alertsOnScreen == 0 \{/,
+  assert.match(SRC, /\} else if let dest, downloadRefusedByMacOS\(error\), let request = download\.originalRequest, let webView = download\.webView,\n\s+\(request\.httpMethod \?\? "GET"\) == "GET", begunOn == pageCommits, downloadsFromMainFrame\.contains\(download\),\n\s+alertsOnScreen == 0, isBoardPage\(committedPageURL, board: badgeOrigin\),\n\s+let asked = request\.url, isSameOriginDownload\(asked, page: committedPageURL\) \{/,
     'the restart is no longer limited to a GET the page\'s main frame began, already given a Downloads path, on the page it began on');
   // Review 5: on a Kosmos+ page the restart is marked same-origin (the tunnel refuses an unmarked download) and is then one of
   // downloadsStartedHere, as kosmos#7952's marked starts are; on this computer's own board it is neither.

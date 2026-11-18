@@ -4776,8 +4776,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private let saveElsewhereChoices = NSMapTable<WKDownload, NSURL>.weakToStrongObjects()
     /// #5167 (11-18): the restarted downloads, so a failure of one is not asked about again and is not said as Downloads'.
     private let downloadsRestarted = NSHashTable<WKDownload>.weakObjects()
-    /// #5167 (11-18) review 3: downloads the page's own main frame began; only these are restarted, so a frame inside the
-    /// page never has its request sent again as the page's.
+    /// #5167 (11-18) review 3: downloads begun for the page's main frame; only these are restarted. For an attachment this is
+    /// the frame navigated, which a link inside a frame can target; the same-origin check on the request bounds that.
     private let downloadsFromMainFrame = NSHashTable<WKDownload>.weakObjects()
     /// Only --kosmos-app-download-selftest sets this: it stands in for the question and the Save panel, answering
     /// the file (nil: Cancel) for the words asked and the name offered.
@@ -4871,10 +4871,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 tellDownloadFailed("The file could not be saved where you chose (\(downloadFailureWords(error))).")
             } else if let dest, downloadRefusedByMacOS(error), let request = download.originalRequest, let webView = download.webView,
                       (request.httpMethod ?? "GET") == "GET", begunOn == pageCommits, downloadsFromMainFrame.contains(download),
-                      alertsOnScreen == 0 {
+                      alertsOnScreen == 0, isBoardPage(committedPageURL, board: badgeOrigin),
+                      let asked = request.url, isSameOriginDownload(asked, page: committedPageURL) {
                 /* Review 2: only a GET is asked for again (a POST would be sent twice), and only while the page it began on
-                   still shows; review 3: and only one the page's own main frame began; review 4: and only with no other
-                   alert up, so a page cannot stack the question and its panel. Otherwise the plain failure below. */
+                   still shows; review 3: and only one begun for the page's main frame (for an attachment that is the frame it
+                   loaded into, not necessarily the one that asked); review 4: and only with no other alert up, so a page cannot
+                   stack the question and its panel; review 6: and only when the request ITSELF is this board's, same-origin
+                   (a redirect can make the request that is sent again differ from the answer that was checked). Otherwise
+                   the plain failure below. */
                 // 11-18: macOS refused the write to Downloads ("Operation not permitted"); another place can still take it.
                 offerSaveElsewhere(error, request: request, webView: webView, name: dest.lastPathComponent)
             } else {
@@ -7748,13 +7752,16 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(FileManager.default.fileExists(atPath: elsewhere.appendingPathComponent("denied3.txt").path)
                 && (heads["/denied-att"] ?? "").contains("\r\nsec-fetch-site: same-origin\r\n"),
                 "#5167 (11-18) review 5: ON A KOSMOS+ PAGE A REFUSED ATTACHMENT IS ASKED FOR AGAIN MARKED SAME-ORIGIN, and saved where chosen")
+            // Review 6: CONTROL: on this computer's own board the restart goes out unmarked, so the row above can fail.
+            row(heads["/denied.txt"] != nil && !(heads["/denied.txt"] ?? "").contains("\r\nsec-fetch-site: same-origin\r\n"),
+                "#5167 (11-18) CONTROL: on this computer's own board the restart is NOT marked same-origin")
             let voidedChoice = failures().filter { $0.contains("The page changed while you chose where to save it") }
             row(voidedChoice.count == 1 && !FileManager.default.fileExists(atPath: elsewhere.appendingPathComponent("denied2.txt").path),
                 "#5167 (11-18) review 3: A PAGE THAT CHANGED WHILE THE PERSON CHOSE SAVES NOTHING THERE, and says so (\(voidedChoice.count))")
             let fails = failures()   // #5167 (11-06): +1, the uncreatable file; kosmos#7952: +3 (the voided start, the refused 403, the busy folder) and the web page
             let checkVoid = fails.filter { $0.contains("changed while Kosmos checked this computer") }   // kosmos#8121 reviews 3 and 7: their own rows say it
             row(fails.count == 11 && checkVoid.count == 3 && denied.count == 3 && voided.count == 1 && notStarted.count == 1 && refusedSaid.count == 1 && busySaid.count == 1 && fails.contains { $0.contains("answer was 404") } && fails.contains { $0.contains("a web page, not the file") },
-                "EVERY REAL FAILURE IS SAID, ONE ALERT EACH (the 404, two web pages answered for a file, the voided Allow, the voided start, the refused download, the busy folder) (failures \(fails.count): \(fails.joined(separator: " | ")))")
+                "EVERY REAL FAILURE IS SAID, ONE ALERT EACH (the 404, two web pages answered for a file, the voided Allow, the voided start, the refused download, the busy folder; the three refused saves are questions) (failures \(fails.count): \(fails.joined(separator: " | ")))")
             let refused = refusals()
             let heard = " (asked \(requested.count): \(requested.joined(separator: " | ")))"
             row(refusalAsked("This page is not a board Kosmos saves files from"), "A REFUSAL IS SAID, NOT ONLY LOGGED: the page that is not a board" + heard)
@@ -7813,7 +7820,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(own && !other && !unknown && revealed.map { $0.lastPathComponent } == ["same.txt"],
                 "kosmos#8120: SHOW IN FINDER SELECTS A FILE THIS APP SAVED, ONLY FOR THE ORIGIN THAT SAVED IT, and nothing for an unknown id (\(own)/\(other)/\(unknown))")
             try? FileManager.default.removeItem(at: dl); try? FileManager.default.removeItem(at: elsewhere)
-            let expected = 73   // kosmos#5167 (11-18): +3 (refused Downloads asks where else; a page change voids it; a Kosmos+ restart is marked); kosmos#8121 (re-land, five reviews): +21 (Always Allow kept and checked against the account: on it, moved, unread, joined, page change, Forget, the hour, the wall clock, the offer, Don't Allow forgets); kosmos#8120: +10 (what the page is told, that it runs there, and Show in Finder); #5167 (11-06): +1 (the uncreatable file says why); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
+            let expected = 74   // kosmos#5167 (11-18): +4 (and the unmarked control) (refused Downloads asks where else; a page change voids it; a Kosmos+ restart is marked); kosmos#8121 (re-land, five reviews): +21 (Always Allow kept and checked against the account: on it, moved, unread, joined, page change, Forget, the hour, the wall clock, the offer, Don't Allow forgets); kosmos#8120: +10 (what the page is told, that it runs there, and Show in Finder); #5167 (11-06): +1 (the uncreatable file says why); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
