@@ -3059,7 +3059,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 .astar.on svg path { fill: var(--gold-bright); stroke: none; }
 @media (prefers-contrast: more) { .astar.on svg path { stroke: currentColor; vector-effect: non-scaling-stroke; stroke-width: 1.5px; } }
 @media (prefers-contrast: more) and (min-resolution: 2dppx) { .astar.on svg path { stroke-width: .75px; } }
-/* #8705: a small burst when a press stars an agent (toggleStar adds .burst for one play, never under reduced motion):
+/* #8705: a small burst when a press stars an agent (starBurst, called by toggleStar, adds .burst for one play, never
+   under reduced motion):
    the star pops and six gold sparks fly out. ::before, because the rail uses ::after for its touch area. */
 .astar.burst svg { animation: astar-pop .42s cubic-bezier(.3, 1.6, .5, 1) var(--burst-at, 0ms) both; }
 .astar.burst::before { content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px;
@@ -3068,6 +3069,7 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 @keyframes astar-spark {
   0% { opacity: 1; box-shadow: 0 0 0 0 var(--gold-bright), 0 0 0 0 var(--gold-bright), 0 0 0 0 var(--gold-bright), 0 0 0 0 var(--gold-bright), 0 0 0 0 var(--gold-bright), 0 0 0 0 var(--gold-bright); }
   100% { opacity: 0; box-shadow: 0 -16px 0 -1px var(--gold-bright), 14px -8px 0 -1px var(--gold-bright), 14px 8px 0 -1px var(--gold-bright), 0 16px 0 -1px var(--gold-bright), -14px 8px 0 -1px var(--gold-bright), -14px -8px 0 -1px var(--gold-bright); } }
+/* A second layer: starBurst already adds no .burst under reduced motion; this holds if a .burst is ever drawn anyway. */
 @media (prefers-reduced-motion: reduce) { .astar.burst svg, .astar.burst::before { animation: none; } .astar.burst::before { content: none; } }
 /* High contrast: a literal fill is not overridden by the system, so the starred star takes the system colour, as before. */
 @media (forced-colors: active) { .astar.on svg path { fill: currentColor; } }

@@ -454,7 +454,7 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
     }
     // #8705: the save's answer repaints the stars within milliseconds. Mid-burst, the star that repaint draws still bursts,
     // started part-way in (a negative --burst-at), so the burst carries on rather than being cut off or restarted. The
-    // stubbed save answers 150 ms late, so the star is marked before the repaint replaces it, and the arm reads the
+    // stubbed save answers 300 ms late, so the star is marked before the repaint replaces it, and the arm reads the
     // repainted star only while the burst is still running: an attempt where the repaint landed too late to judge (a slow
     // runner) is tried again in a fresh page, up to three times, and three slow attempts are a failure, never a skip.
     {
@@ -462,7 +462,7 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
       let mid = null; let tries = 0;
       for (; tries < 3; tries++) {
         const { ctx, page, errs } = await open(browser, eng, 1280, 900, 'light');
-        await page.evaluate(() => { window.STAR_DELAY = 150; });
+        await page.evaluate(() => { window.STAR_DELAY = 300; });
         await page.locator('#grid [data-star="cam"]').click();
         await page.evaluate(() => { window.PRESSED = Date.now(); const b = document.querySelector('#grid [data-star="cam"]'); if (b) b.dataset.drawnBefore = '1'; });
         await page.waitForFunction(() => { const b = document.querySelector('#grid [data-star="cam"]'); return !!b && !b.dataset.drawnBefore; }, null, { timeout: 2000 }).catch(() => {});
