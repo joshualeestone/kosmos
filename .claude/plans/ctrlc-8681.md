@@ -20,10 +20,19 @@ failure looks like "stopped at the limit", and the success looks like "stopped s
 - Rejected: a control process stopped in the same run (the card's alternative). It measures how loaded the box is,
   but the 600 s gap already makes load irrelevant, and a second pwsh doubles the cost of the slowest case in the file.
 
+- **A failed run cleans up after itself** (review 1). The case's own failure path (pwsh SIGKILLed by the fallback)
+  skips pwsh's finally, so node was orphaned with no limit; three such nodes were found on this Mac (one from my first
+  perturbation, two 13 days old) and stopped. The test's finally now kills a pwsh still running and the node by its
+  pid, only when that pid's command line still names the run's own pid file (a pid is reused once node is gone).
+  This runs after the assertions, never instead of them.
+- A pwsh that dies at start is named at once ("exited before node started"), and a pwsh already gone at SIGINT
+  fails instead of reading as an instant stop (review 1).
+
 ## Measured
 - Alone on this Mac: pwsh stopped 459 ms after SIGINT; the whole file passes (4 pass, 1 skipped as win32-only).
 - Perturbed: replacing the 250 ms slices with one wait for the whole remaining limit (Ctrl+C held off) turns the case
   red at 121 s with "it was still running and was killed, so Ctrl+C was held off". Restored afterwards.
+- Perturbed again after the cleanup: red the same way, and no node left running (before it, one was).
 - Worst passing case is 240 s (start plus stop), under run-tests.sh's 600 s per-test timeout.
 
 ## Weakest premise
