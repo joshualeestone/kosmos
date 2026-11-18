@@ -9,7 +9,7 @@ const page = require('./test-support/page');
 
 const HTML = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(HTML);
-const reasonOf = (a, opts) => new Function('a', 'opts', `${page.lift(SCRIPT, 'stateReason')}\nreturn stateReason(a, opts);`)(a, opts);
+const reasonOf = (a, opts) => new Function('a', 'opts', `${page.lift(SCRIPT, 'waitingLine')}\n${page.lift(SCRIPT, 'stateReason')}\nreturn stateReason(a, opts);`)(a, opts);
 const flagOf = (a) => new Function('a', `${page.lift(SCRIPT, 'untiedFlagHtml')}\nreturn untiedFlagHtml(a);`)(a);
 
 test('#8719: an agent Kosmos did not start says why it cannot be messaged; CONTROL: one of ours says nothing new', () => {
@@ -21,8 +21,13 @@ test('#8719: an agent Kosmos did not start says why it cannot be messaged; CONTR
     'it outranks the working-while-waiting line: every message to it is refused');
   assert.equal(reasonOf(untied, { card: true }), '', 'the tile carries no sentence (#6716); the label says it there');
   for (const state of ['needs_you', 'auth_failed', 'rate_limited']) {
-    assert.match(reasonOf({ state, isNamedOurs: false }), /^Kosmos cannot confirm it started this window/, `it outranks the ${state} reason on purpose (Kosmos cannot act on it)`);
+    assert.match(reasonOf({ state, isNamedOurs: false }), /^Kosmos cannot confirm it started this window/, `it leads the ${state} reason on purpose (Kosmos will not type into it)`);
   }
+  // The agent's own reason still follows, so the person can read what the window waits on.
+  const stuck = { state: 'auth_failed', stuckError: { stuck: true, state: 'auth_failed', forMs: 600000 } };
+  const ownWords = reasonOf(stuck);
+  assert.ok(ownWords.length > 0, 'premise: a stuck sign-in has its own reason');
+  assert.equal(reasonOf({ ...stuck, isNamedOurs: false }), 'Kosmos cannot confirm it started this window, so it will not type messages into it until Kosmos starts it. ' + ownWords);
 });
 
 test('#8719: the tile and list row say "Not linked to Kosmos"; CONTROL: a tied agent shows no label', () => {

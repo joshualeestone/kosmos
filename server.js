@@ -21474,8 +21474,10 @@ const server = http.createServer(async (req, res) => {
           if (!starting) {
             let card = null;
             try { card = claimantFor(name); } catch { card = null; }
+            /* 409 'untied' for a send; the reads (thread, older, react, delete) keep 404 'borrowed' through nameRefusal,
+               which the board's standing arm keys on. Different answers to one condition on purpose; do not unify. */
             if (card && card.isNamedOurs === false) {
-              const untied = new Error(untiedSendWords(name));
+              const untied = new Error(untiedSendWords(card.sessionName || name));
               untied.status = 409;
               untied.because = 'untied';
               throw untied;
