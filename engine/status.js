@@ -8178,8 +8178,8 @@ function paneLook() {
    person's own tooling relaunched carries neither, and was offered for deletion while running. A second listing (the
    folder is not one of PANE_COLUMNS). THROWS when it could not be read, or on a line it cannot attribute to a pane, so a
    delete check fails closed; [] when no tmux server is running. An injected folder source (tests) always wins;
-   otherwise, with a pane source set it never asks tmux and answers [] (on Windows, whose roster is not tmux, so this
-   check does nothing there). It asks the default tmux server only, as the roster does. */
+   otherwise, on Windows the process list when setWin32FolderSource is on (kosmos#8640 Windows); otherwise, with a pane
+   source set it never asks tmux and answers []. It asks the default tmux server only, as the roster does. */
 let paneFolderSource = null;
 function setPaneFolderSource(fn) { paneFolderSource = typeof fn === 'function' ? fn : null; }
 /* kosmos#8640 (Windows): the folder check's source on Windows. `true` reads the live process list (server.js turns it
@@ -8201,25 +8201,34 @@ const WIN32_FOLDER_SCRIPT = '[Console]::OutputEncoding = [Text.Encoding]::UTF8; 
 function win32Powershell() {
   return path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 }
-/* Every Windows path a command line names: each piece that starts at a drive letter, up to a quote (a path with spaces
-   runs on to the next path or the end; running long only adds characters after the real path, which a folder test by
-   prefix still matches). */
+/* Every Windows path a command line names: each piece that starts at a drive letter, up to a quote. Where an unquoted
+   path ends cannot be known (a path may hold a space, and an argument may follow it), so the piece is given whole AND
+   cut at every space, `;`, `,` and `'` in it: `--dir C:\w\agent1 --verbose` gives `C:\w\agent1 --verbose` and
+   `C:\w\agent1` both. The folder test is by whole folder (the agent's folder or one inside it), so a candidate that is
+   not a real path only fails to match; extra candidates can only make the check refuse more, the safe side. */
 function win32PathsIn(cmd) {
   const out = [];
   for (const piece of String(cmd || '').split(/(?=[A-Za-z]:[\\/])/)) {
     if (!/^[A-Za-z]:[\\/]/.test(piece)) continue;
     const p = piece.split('"')[0].replace(/\s+$/, '');
-    if (p.length > 3) out.push(p);
+    if (p.length <= 3) continue;
+    for (let i = 3; i < p.length; i++) {
+      if (/[\s;,']/.test(p[i])) { const cut = p.slice(0, i).replace(/[\s;,']+$/, ''); if (cut.length > 3) out.push(cut); }
+    }
+    out.push(p);
   }
-  return out;
+  return [...new Set(out)];
 }
 /* An 8.3 short spelling (JOSHU~1) never matches a folder compared by its long name; resolved by its longest part that
    exists, so a tool started through the short name still counts. */
-function win32LongForm(p) {
+function win32LongForm(p, cache) {
   if (!p.includes('~')) return null;
   let head = p, tail = '';
   for (let i = 0; i < 12 && head.length > 3; i++) {
-    try { const real = fs.realpathSync.native(head); return tail ? path.win32.join(real, tail) : real; } catch { /* shorter */ }
+    let real;
+    if (cache && cache.has(head)) real = cache.get(head);
+    else { try { real = fs.realpathSync.native(head); } catch { real = null; } if (cache) cache.set(head, real); }   // one look per prefix per read
+    if (real) return tail ? path.win32.join(real, tail) : real;
     const cut = Math.max(head.lastIndexOf('\\'), head.lastIndexOf('/'));
     if (cut < 3) break;
     tail = tail ? path.win32.join(head.slice(cut + 1), tail) : head.slice(cut + 1);
@@ -8233,6 +8242,7 @@ function readWin32ProcessFolders(out) {
   const lines = out.split(/\r?\n/);
   if (!lines.some((l) => l.trim() === WIN32_FOLDERS_OK)) return null;
   const rows = [];
+  const realCache = new Map();
   for (const line of lines) {
     const f = line.split('\t');
     if (f.length < 4) continue;
@@ -8243,7 +8253,7 @@ function readWin32ProcessFolders(out) {
     folders.push(...win32PathsIn(f.slice(3).join(' ')));
     for (const folder of folders) {
       rows.push({ session, folder });
-      const long = win32LongForm(folder);
+      const long = win32LongForm(folder, realCache);
       if (long) rows.push({ session, folder: long });
     }
   }

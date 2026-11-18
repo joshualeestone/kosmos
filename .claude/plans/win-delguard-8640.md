@@ -22,6 +22,13 @@
   That gap is named in the code.
 - Rejected: turning the read on by `process.platform`. A test suite on Windows would then read the box's real
   processes. It is an explicit seam, `setWin32FolderSource(true)`, which only server.js sets.
+- Where the read runs (review 1): OFF the board's thread for every page and delete. planAsync and delAsync read the
+  list once with the async driver (paneFoldersAsync) before anything else, and hand it to every plan in that request
+  (the warm plan, the final plan, and delSteps' re-plan), so no plan in them reads synchronously (a test fails if one
+  does). Only the synchronous plan()/del() still read on the caller's thread, as the tmux read always did. The read is
+  ~0.5 s measured, bounded at 15 s; a timeout refuses the delete. An 8.3 lookup is done once per prefix per read.
+- Unquoted paths (review 1): where an unquoted path ends cannot be known, so each candidate is also cut at every space,
+  `;`, `,` and `'`; an extra candidate can only make the check refuse more (the safe side).
 - Weakest part: the working-folder gap above. A Kosmos-started agent is already caught by the roster (by name), so the
   folder check is the second line for tools a person started.
 - Would change my mind: a cheap, safe way to read another process's working folder on Windows.
@@ -29,7 +36,7 @@
 ## Validation
 - `engine/delete-leftover.win32folders-8640.test.js` (8 tests, including a live process that names the folder, sync
   and async).
-- The delete-leftover and status suites plus the policy tests. On a Windows host, 12 tests in
-  delete-leftover.offthread-7835, delete-leftover.running-8640, status.config-dir-1523 and status.heldq-7915 fail with
+- The delete-leftover and status suites plus the policy tests. On a Windows host, 17 tests in
+  delete-leftover.offthread-7835, delete-leftover.running-8640, status.config-dir-1523, status.heldq-7915, status.snapshotunheld-7693 and status.tmux-bin fail with
   and without this branch (Mac-shaped paths); Mac CI runs them.
 - Measured: the live read takes about 0.5 s on the Windows box (1015 rows).

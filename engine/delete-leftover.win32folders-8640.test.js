@@ -56,11 +56,18 @@ test.beforeEach(() => {
 test.afterEach(() => { status.setPaneSource(null); status.setWin32FolderSource(null); win32job.setRunner(null); });
 
 test('win32PathsIn: every Windows path a command line names, quoted or not, with spaces', () => {
-  assert.deepEqual(status.win32PathsIn('"C:\\Program Files\\x\\a.exe" --dir "D:\\work\\pat doe\\agent1" -v'),
-    ['C:\\Program Files\\x\\a.exe', 'D:\\work\\pat doe\\agent1']);
+  const quoted = status.win32PathsIn('"C:\\Program Files\\x\\a.exe" --dir "D:\\work\\pat doe\\agent1" -v');
+  for (const p of ['C:\\Program Files\\x\\a.exe', 'D:\\work\\pat doe\\agent1']) assert.ok(quoted.includes(p), p);
   assert.deepEqual(status.win32PathsIn('node C:\\k\\boot.js C:/w/agent2/notes'), ['C:\\k\\boot.js', 'C:/w/agent2/notes']);
   assert.deepEqual(status.win32PathsIn('svchost -k netsvcs'), []);
   assert.deepEqual(status.win32PathsIn(''), []);
+});
+
+test('win32PathsIn: an UNQUOTED path with more arguments after it still gives the bare path (the usual shape)', () => {
+  for (const cmd of ['tool.exe --dir C:\\w\\agent1 --verbose', 'x C:\\w\\agent1;D:\\other', 'x C:\\w\\agent1, y', "x 'C:\\w\\agent1' y"]) {
+    const got = status.win32PathsIn(cmd);
+    assert.ok(got.includes('C:\\w\\agent1') || got.some((p) => p === "C:\\w\\agent1"), `${cmd} -> ${JSON.stringify(got)}`);
+  }
 });
 
 test('readWin32ProcessFolders: rows only with the sentinel; a program folder and each named path per process', () => {
@@ -83,6 +90,27 @@ test('win32: a process naming the agent\'s folder in its command line holds it; 
   leftoverFolder('agent3');
   status.setWin32FolderSource(() => read(line(9, 'tool.exe', 'C:\\t\\tool.exe', `tool.exe "${create.workerDir('agent30')}"`)));
   assert.equal(plan('agent3').ok, true, 'a process in agent30 held agent3 (a prefix match, not a folder match)');
+});
+
+test('win32: an unquoted folder with more arguments after it holds the agent', { skip: WIN_ONLY }, () => {
+  const dir = leftoverFolder('agent7');
+  status.setWin32FolderSource(() => read(line(11, 'tool.exe', 'C:\\t\\tool.exe', `tool.exe --add-dir ${dir} --print`)));
+  assert.equal(plan('agent7').ok, false, 'a tool started with --add-dir <folder> --print was not seen');
+});
+
+test('win32: the page\'s plan and the delete read the folder list off the board\'s thread, never synchronously', { skip: WIN_ONLY }, async () => {
+  const dir = leftoverFolder('agent8');
+  status.setWin32FolderSource(() => read(line(12, 'tool.exe', 'C:\\t\\tool.exe', `tool.exe "${dir}"`)));
+  const realSync = status.paneFolders;
+  let syncReads = 0;
+  status.paneFolders = () => { syncReads += 1; return realSync(); };
+  try {
+    const p = await leftover.planAsync('agent8', { platform: 'win32' });
+    assert.equal(p.ok, false, 'PRECONDITION: the process in the folder holds it');
+    const d = await leftover.delAsync('agent8', { platform: 'win32', unchecked: true });
+    assert.notEqual(d.outcome, leftover.OUTCOME.DELETED);
+    assert.equal(syncReads, 0, 'a synchronous read on the board\'s thread');
+  } finally { status.paneFolders = realSync; }
 });
 
 test('win32: a program running from inside the agent\'s folder, or a subfolder, holds it', { skip: WIN_ONLY }, () => {

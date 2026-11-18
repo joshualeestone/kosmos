@@ -1342,8 +1342,11 @@ function* delSteps(name, opts) {
   /* The re-plan must ask the SAME platform the caller planned against, or a
      test (and a Mac driving the win32 arm) plans one act and performs another. */
   // kosmos#7835: and the drives delAsync warmed, whose answers this re-plan reads whatever their age.
-  const p = plan(name, opts && (opts.platform || opts.pinned)
-    ? { ...(opts.platform ? { platform: opts.platform } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}) } : undefined);
+  // kosmos#8640: and the folder listing delAsync read off the board's thread, when it handed one in.
+  const handedFolders = opts && Object.prototype.hasOwnProperty.call(opts, 'folders');
+  const p = plan(name, opts && (opts.platform || opts.pinned || handedFolders)
+    ? { ...(opts.platform ? { platform: opts.platform } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}),
+      ...(handedFolders ? { folders: opts.folders } : {}) } : undefined);
   if (!p.ok) return { outcome: OUTCOME.REFUSED, because: p.because };
   /* kosmos#8477: the person confirmed the plan the dialog showed, and this one is made again now. Between the two a
      folder can come back (a task-only removal would become the full delete, folder to the Recycle Bin with nothing to
@@ -1734,8 +1737,8 @@ function del(name, opts) {
 /* kosmos#7835: the drive probe and the Recycle Bin moves (Windows PowerShell) held the whole board, every page, request
    and health check, while they ran: the probe up to 5 s on an agent page, a move up to 120 s behind a hidden error
    dialog. planAsync and delAsync give the same answers as plan and del with those waits off the board. Still in the
-   board's own time: the plan itself (folder measure, roster, and for a name no session or claim matches a second
-   tmux read of each pane's folder, kosmos#8640), and Task Scheduler's removal of a startup job. */
+   board's own time: the plan itself (folder measure, roster), and Task Scheduler's removal of a startup job. The folder
+   listing (kosmos#8640: tmux on a Mac, the process list on Windows) is read off the board's thread and handed in. */
 const deleting = new Set();
 /* The name a delete holds, folded as create folds a name (slugFor: "Miles Davis" and "miles-davis" are one agent), so
    any spelling of the same agent meets the hold. */
@@ -1767,16 +1770,23 @@ async function warmFor(name, opts) {
 async function planAsync(name, opts) {
   const win = ((opts && opts.platform) || process.platform) === 'win32';
   if (win && deletingName(name)) return { ok: false, running: true, because: DELETING_BECAUSE };   // kosmos#7852: the page can say so
-  const warm = win ? await warmFor(name, opts) : null;
+  /* kosmos#8644 item 1: the folder listing (kosmos#8640's second read: tmux on a Mac, the process list on Windows) is
+     read here, off the board's thread, and handed to EVERY plan this request makes; a failure is handed in as itself,
+     so plan() refuses as it would have. kosmos#8640 (Windows): read before warmFor too, whose own plan would otherwise
+     read it on the board's thread (the Windows read is a PowerShell process, ~0.5 s, up to its 15 s limit). */
+  const folders = await foldersOffThread();
+  const warm = win ? await warmFor(name, { ...(opts || {}), folders }) : null;
   // Asked again: a delete of the name can have started while the probe ran.
   if (win && deletingName(name)) return { ok: false, running: true, because: DELETING_BECAUSE };   // kosmos#7852: the page can say so
   if (warm && warm.first && !warm.probed) return warm.first;
-  // kosmos#8644 item 1: the folder listing (kosmos#8640's second tmux read) is read here, off the board's thread, and
-  // handed to plan(); a failure is handed in as itself, so plan() refuses as it would have.
+  return plan(name, { ...(opts || {}), folders });
+}
+/** The folder listing, read off the board's thread: the list, or the Error the read gave (plan() refuses on it). */
+async function foldersOffThread() {
   let folders;
   try { folders = await status.paneFoldersAsync(); } catch (e) { folders = e instanceof Error ? e : new Error(String(e)); }
   if (!Array.isArray(folders) && !(folders instanceof Error)) folders = new Error('the folder listing was not a list');
-  return plan(name, { ...(opts || {}), folders });
+  return folders;
 }
 /** del, with the Windows drive probe and Recycle Bin moves run without holding the board. One at a time per name: a
     second delete of the same agent while one runs is refused, since its steps would interleave. */
@@ -1786,8 +1796,10 @@ async function delAsync(name, opts) {
   if (deleting.has(key)) return { outcome: OUTCOME.REFUSED, because: DELETING_BECAUSE };
   deleting.add(key);
   try {
-    const { roots } = await warmFor(name, opts);
-    const steps = delSteps(name, { ...(opts || {}), pinned: roots });
+    // kosmos#8640 (Windows): the folder listing off the board's thread, for the warm plan and the re-plan both.
+    const folders = await foldersOffThread();
+    const { roots } = await warmFor(name, { ...(opts || {}), folders });
+    const steps = delSteps(name, { ...(opts || {}), pinned: roots, folders });
     let r = steps.next();
     while (!r.done) {
       let got;
