@@ -132,13 +132,16 @@ function chk(ok, label, extra) {
         const why = document.querySelector('#tk-donewhen > li .why');
         const b = why && why.querySelector('button.linkish');
         return { says: why ? why.textContent : '', link: b ? b.dataset.sub : null, linkText: b ? b.textContent : null,
-          clipped: why ? why.scrollHeight > why.clientHeight + 1 || why.scrollWidth > why.clientWidth + 1 : true,
+          /* What could cut the words: a height cap, hidden overflow or a line clamp on the line or the list around it. */
+          clipped: why ? [why, why.closest('li'), why.closest('ol')].filter(Boolean).map((el) => getComputedStyle(el))
+            .filter((cs) => cs.maxHeight !== 'none' || cs.overflowY === 'hidden' || cs.textOverflow === 'ellipsis'
+              || (cs.webkitLineClamp && cs.webkitLineClamp !== 'none')).length : 'no line',
           hereHidden: document.getElementById('tk-movedhere').hidden };
       });
       const LONGT = 'no Windows box here; ' + 'checked the Mac build, the Linux build and the served pointer by hand. '.repeat(6);
       chk(LONGT.trim().length >= 400, `${tag} the fixture's report is at least 400 characters`, String(LONGT.trim().length));
       chk(src.says === 'Ada says not met: ' + LONGT.trim() + ' Moved to task 5', `${tag} the long report shows whole, then where it moved`, src.says.slice(-60));
-      chk(!src.clipped, `${tag} the long report is not cut by the box`);
+      chk(src.clipped === 0, `${tag} nothing on the line or its list can cut the long report (no height cap, hidden overflow or clamp)`, String(src.clipped));
       chk(src.link === '5' && src.linkText === 'task 5', `${tag} the moved-to words are a link to task 5`, JSON.stringify([src.link, src.linkText]));
       chk(src.hereHidden === true, `${tag} the reporting task lists nothing moved here`);
       await page.click('#tk-donewhen > li .why button.linkish');

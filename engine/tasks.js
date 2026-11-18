@@ -125,7 +125,7 @@ function doneWhenWords(list) {
 /* #8668: how a check was checked is evidence (two values and where each came from), not a check's sentence, so it has
    the built note's room (BUILT_NOTE_MAX, #8352) rather than the 200 a check has; a cut-down proof reads as a stronger one.
    Counted in characters, as the built note is. `movedTo`, on an unmet report only: the task the unmet part went to. */
-const CHECK_HOW_MAX = 1000;
+const CHECK_HOW_MAX = 1000;   // a literal: BUILT_NOTE_MAX is declared further down; a test holds the two equal
 /** The results as stored, aligned with `t.doneWhen`: a list of the same length, or null when there are no checks. */
 function checkResultsOf(t) {
   const checks = t && Array.isArray(t.doneWhen) && t.doneWhen.length ? t.doneWhen : null;

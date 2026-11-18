@@ -2134,8 +2134,8 @@ async function taskCheck(ctx, args) {
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
   if (!/^[1-9]$/.test(which)) { ctx.err('The check number must be the one kosmos task list shows, like 1 or 2.'); return 2; }
   if (verdict !== 'met' && verdict !== 'unmet') { ctx.err('Say met or unmet for the check. ' + CHECK_USAGE); return 2; }
-  // #8668, as install/kosmos: after met|unmet, so a bad verdict is named as that; a task number is 1 or more.
-  // A task number is 1 or more, and at most 15 digits (a safe integer; more would be sent as a different number).
+  // #8668, as install/kosmos: after met|unmet, so a bad verdict is named as that. A task number is 1 or more, and at
+  // most 15 digits (a safe integer; more would be sent as a different number).
   if (args.length === 7 && !/^0*[1-9][0-9]{0,14}$/.test(args[6])) { ctx.err('--moved-to needs the number of the task the unmet part went to, from: kosmos task list <project-id>.'); return 2; }
   if (args.length === 7 && verdict !== 'unmet') { ctx.err('Only an unmet check can be moved to another task; a met one is done here.'); return 2; }
   const movedTo = args.length === 7 ? Number(args[6]) : null;
