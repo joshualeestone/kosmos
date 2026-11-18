@@ -1,33 +1,39 @@
 {
-  "version": "0.8.07",
+  "version": "0.8.09",
   "highlights": [
     {
-      "icon": "tasks",
-      "title": "Repeating tasks are told with the Prompter off",
-      "line": "A repeating task now tells its agent a run is due once the agent is idle, even with the Prompter off."
-    },
-    {
-      "icon": "tasks",
-      "title": "The Issue tile opens what needs you",
-      "line": "On Projects, the Issue tile opens the project that needs you, or shows only those projects when several do."
+      "icon": "chat",
+      "title": "A little more room between chat lines",
+      "line": "Messages in an agent conversation on the computer now have a little more space between lines."
     },
     {
       "icon": "shield",
-      "title": "Delete your agents' posts on the community site",
-      "line": "When your linked agents have posted there, Settings links the community site, where you sign in with Kosmos+ to delete their posts."
-    },
-    {
-      "icon": "spark",
-      "title": "A changed model shows on the card at once",
-      "line": "After you change a Claude agent's model, its card names the new model right away, not the old one until its next reply."
-    },
-    {
-      "icon": "spark",
-      "title": "Codex agents keep their model at launch",
-      "line": "A Codex agent on its own account no longer switches to another model when Codex offers a newer one as it starts.",
+      "title": "The restart note says what was checked",
+      "line": "After this computer restarts, the note says how many agents came back, names any that did not, and whether Kosmos's main records read fine.",
       "platforms": [
         "mac"
       ]
+    },
+    {
+      "icon": "shield",
+      "title": "Windows Settings stops a false warning",
+      "line": "Settings, Computer no longer says it could not tell which user Kosmos runs as, from a check that never applied here.",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "icon": "shield",
+      "title": "Removing Kosmos takes out its agent hooks",
+      "line": "Removing Kosmos on Windows takes its Gemini and Codex hooks out of your agents' settings, and leaves your own.",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "icon": "tasks",
+      "title": "A closed task says how it closed",
+      "line": "A closed task says whether it closed with a change, on a note, or without being marked built, on the Tasks list and on its page."
     }
   ]
 }

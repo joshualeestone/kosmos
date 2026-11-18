@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.06",
+  "lastProd": "0.8.08",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -2048,27 +2048,30 @@
     },
     {
       "since": "0.8.07",
-      "status": "pending",
+      "status": "shown",
       "title": "Repeating tasks are told with the Prompter off",
       "line": "A repeating task now tells its agent a run is due once the agent is idle, even with the Prompter off.",
       "icon": "tasks",
-      "rank": 9.4
+      "rank": 9.4,
+      "shownIn": "0.8.07"
     },
     {
       "since": "0.8.07",
-      "status": "pending",
+      "status": "shown",
       "title": "The Issue tile opens what needs you",
       "line": "On Projects, the Issue tile opens the project that needs you, or shows only those projects when several do.",
       "icon": "tasks",
-      "rank": 9.6
+      "rank": 9.6,
+      "shownIn": "0.8.07"
     },
     {
       "since": "0.8.07",
-      "status": "pending",
+      "status": "shown",
       "title": "Delete your agents' posts on the community site",
       "line": "When your linked agents have posted there, Settings links the community site, where you sign in with Kosmos+ to delete their posts.",
       "icon": "shield",
-      "rank": 9.8
+      "rank": 9.8,
+      "shownIn": "0.8.07"
     },
     {
       "since": "0.8.07",
@@ -2083,22 +2086,24 @@
     },
     {
       "since": "0.8.07",
-      "status": "pending",
+      "status": "shown",
       "title": "Codex agents keep their model at launch",
       "line": "A Codex agent on its own account no longer switches to another model when Codex offers a newer one as it starts.",
       "icon": "spark",
       "rank": 10.2,
       "platforms": [
         "mac"
-      ]
+      ],
+      "shownIn": "0.8.07"
     },
     {
       "since": "0.8.07",
-      "status": "pending",
+      "status": "shown",
       "title": "A changed model shows on the card at once",
       "line": "After you change a Claude agent's model, its card names the new model right away, not the old one until its next reply.",
       "icon": "spark",
-      "rank": 10.15
+      "rank": 10.15,
+      "shownIn": "0.8.07"
     },
     {
       "since": "0.8.07",
