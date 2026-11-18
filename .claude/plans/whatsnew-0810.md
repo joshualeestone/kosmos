@@ -19,7 +19,7 @@ Pool PR before the 0.8.10 staging cut (11-18, #1050). Data only: `release/whats-
 | 4bf7392b41 | #8669 CLI: kosmos task wake | 127 |
 | 997e745e8b | #8665/#8666: kosmos agent list names the model; kosmos agent model | 128 |
 | e788308f2d | #8668: task check --moved-to, 1000-character report | 129 |
-| 8fde6a5aff, ab0c2a540c | #8686/#8685: the #8640 folder check on Windows (windows) | 130 |
+| 8fde6a5aff, ab0c2a540c | #8686/#8685: the #8640 folder check on Windows (windows); #8685's roster-read-once and no listing for a running agent are inside the same guard, folded into this line | 130 |
 
 ## No line
 #8632, #8679 (iPhone app, not in this build); #8055 (iPhone warm return); #8680 (agents' instructions name task edit, covered by the notes line); #8681 (a test's Ctrl+C timing); #8659 (Windows Codex upgrade's last-look deadline: a slow box's upgrade now lands, but it completes the 0.8.09 GPT-6 line's promise rather than adding one, so no line of its own); #8672, #8694 (test pins, browser-check board); plan/proof commits.
@@ -45,3 +45,8 @@ A person-facing merge since 7c2d1f1376 missing from these tables, or a reviewer 
 - WARNING fixed: the edit line said the activity records what changed; for a detail it records only that it changed (engine/taskactphrase.js). Now: who changed it, with the old and new title.
 - NIT fixed: the plan says why #8659 has no line.
 - NITs left: the wake title says "a merge" though a PR closed unmerged also wakes (the line says "a pull request"); the no-model line simplifies where the link shows (the condition is named).
+### Review 3 (opus): 1 WARNING fixed, 3 NITs fixed
+- WARNING fixed: "with GitHub connected" was false for a person who connected GitHub through Kosmos's own sign-in (githubdevice): the wake reads only the gh tool (server.js wakeGh, engine/taskwake.js "Not here (slice 1)"). Now "through the gh tool". The engine's own refusal ("Connect it under Connections") has the same gap: a card, not this PR.
+- NIT fixed: the edit line no longer implies old and new detail text: "for a title the old and new words".
+- NIT fixed: the agent model line says it lists choices when it can (some vendors have no list).
+- NIT fixed: the plan says #8685 is folded into the Windows folder-check line.

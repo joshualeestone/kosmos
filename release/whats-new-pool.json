@@ -2269,7 +2269,7 @@
       "since": "0.8.10",
       "status": "pending",
       "title": "Edit a task after it is made",
-      "line": "On a task page, Edit title or detail changes its words. The task's activity says who changed it, with the old and new title.",
+      "line": "On a task page, Edit title or detail changes its words. Its activity says who changed it, and for a title the old and new words.",
       "icon": "tasks",
       "rank": 9
     },
@@ -2277,7 +2277,7 @@
       "since": "0.8.10",
       "status": "pending",
       "title": "A task can wait for a merge or a time",
-      "line": "An agent can set a task to wait for a pull request or branch (with GitHub connected), a file or a time. The task shows what it waits for.",
+      "line": "An agent can set a task to wait for a pull request or branch (through the gh tool), a file or a time. The task shows what it waits for.",
       "icon": "tasks",
       "rank": 9.2
     },
@@ -2319,7 +2319,7 @@
       "since": "0.8.10",
       "status": "pending",
       "title": "kosmos agent model",
-      "line": "kosmos agent list names each agent's model, and kosmos agent model <name> shows it and the models it can switch to, or switches it.",
+      "line": "kosmos agent list names each agent's model; kosmos agent model <name> shows it, lists what it can switch to when it can, and switches it.",
       "icon": "spark",
       "rank": 128,
       "notesOnly": true

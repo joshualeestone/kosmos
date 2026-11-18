@@ -4,12 +4,12 @@
     {
       "icon": "tasks",
       "title": "Edit a task after it is made",
-      "line": "On a task page, Edit title or detail changes its words. The task's activity says who changed it, with the old and new title."
+      "line": "On a task page, Edit title or detail changes its words. Its activity says who changed it, and for a title the old and new words."
     },
     {
       "icon": "tasks",
       "title": "A task can wait for a merge or a time",
-      "line": "An agent can set a task to wait for a pull request or branch (with GitHub connected), a file or a time. The task shows what it waits for."
+      "line": "An agent can set a task to wait for a pull request or branch (through the gh tool), a file or a time. The task shows what it waits for."
     },
     {
       "icon": "shield",
