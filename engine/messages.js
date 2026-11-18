@@ -2648,12 +2648,6 @@ function personKeysNow(roster) {
   return keys;
 }
 
-/* The word in an agent's post that names the person (one of personKeysNow's keys), or null. A target of the poster's
-   header (an arrow header, or a to/for header by the poster, as addressedMembers reads it) counts when the whole target is the name ("Dana", "Dana Reyes"), or when the name is its first word and
-   the next word is lower case ("Dana re the lease"): "Josh Smith" is someone else, not the person Josh Stone. An
-   @-word counts as a whole token. Text in backticks is skipped, as outsidersNote skips it; mentionedMembers does not
-   skip it for members, so `@kano` in code still wakes kano while `@Dana` in code does not buzz the person's phone.
-   Never throws. */
 function isPersonWord(word, personKeys) {
   const k = require('./agentnames').nameKey(String(word || '').replace(/'s$/i, ''));
   return k.length >= 2 && personKeys instanceof Set && personKeys.has(k);
@@ -2668,6 +2662,12 @@ function personInTarget(part, personKeys) {
   for (const w of tries) if (isPersonWord(w, personKeys)) return w.replace(/'s$/i, '');
   return null;
 }
+/* The word in an agent's post that names the person (one of personKeysNow's keys), or null. A target of the poster's
+   header (an arrow header, or a to/for header by the poster, as addressedMembers reads it) counts when the whole target is the name ("Dana", "Dana Reyes"), or when the name is its first word and
+   the next word is lower case ("Dana re the lease"): "Josh Smith" is someone else, not the person Josh Stone. An
+   @-word counts as a whole token. Text in backticks is skipped, as outsidersNote skips it; mentionedMembers does not
+   skip it for members, so `@kano` in code still wakes kano while `@Dana` in code does not buzz the person's phone.
+   Never throws. */
 function personNamed(cleaned, roster, from, raw, personKeys) {
   try {
     const isPerson = (word) => isPersonWord(word, personKeys);

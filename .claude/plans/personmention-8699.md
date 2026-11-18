@@ -45,3 +45,7 @@ Card: kosmos#8699 (agent feedback 11-17). Night shift, PigeonPete.
 - The header read is addressedMembers' (an arrow header with or without a sender, or a to/for header by the poster).
 - Known and kept: the /api/post wiring is pinned by source (server.phonenotify-718), the tradeoff #6254 records for
   that route; the posted -> postedMention gating itself is proven behaviourally in that file.
+
+## Review iteration 4
+- Known and kept: a reply that names the person sets namesPerson (the phone may be told) but gets no sender
+  note, as #8566 gives replies no note (a reply already wakes the author it answers).
