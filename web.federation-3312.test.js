@@ -52,7 +52,7 @@ function build(opts) {
   opts = opts || {};
   // Lift the join picker (pjJoinPickOptions/pjPaintJoinAgents) + addAgentsHtml it delegates to, so
   // the join-mode own-agent picker is covered like the create-mode one.
-  const src = [lift('pjFederationRef'), lift('pjSpin'), lift('pjSetAddMode'), lift('pjFedMessage'),
+  const src = [lift('pjFederationRef'), lift('pjSpin'), lift('pjSetAddMode'), lift('fedRemoteSays'), lift('pjFedMessage'),
     lift('pjMintInvite'), lift('pjVerifyCode'), lift('pjJoinSubmit'), lift('pjResetFederation'), lift('copyTextOrdered'), lift('copyFocusStillOn'), lift('selectForCopy'), lift('copyRefusedLine'), lift('pjCopyInvite'),
     lift('addAgentsHtml'), lift('pjJoinPickOptions'), lift('pjPaintJoinAgents')].join('\n');
   // eslint-disable-next-line no-new-func
@@ -405,4 +405,21 @@ test('#5275 review 3: a refused copy while focus is already in the code itself c
   await s.pjCopyInvite();
   assert.deepEqual(calls, ['focus', 'select']);
   assert.equal(s.doc.getElementById('pj-invite-status').textContent, 'Kosmos could not copy it. Select the code and press Command C.');
+});
+
+// The Make an invite code sheet showed its catch-all for a remote session's 403 (Josh, 2026-11-18 09:20): the board's
+// sentence (sign in again, or do it at the computer) is the way forward, so both invite paths show it as given.
+test('kosmos#6595: a remote-session refusal is shown as the board says it, on both invite paths', () => {
+  const s = build();
+  const stepUp = { code: 'remote_step_up', error: 'From a remote session this needs a fresh sign-in.' };
+  assert.equal(s.pjFedMessage(stepUp, 'FALLBACK'), stepUp.error, 'the create screen door shows the step-up sentence');
+  assert.equal(s.pjFedMessage({ code: 'remote_step_up_signin', error: 'Sign in again.' }, 'FALLBACK'), 'Sign in again.');
+  assert.equal(s.pjFedMessage({ code: 'remote_not_allowed', error: 'Do it at the computer.' }, 'FALLBACK'), 'Do it at the computer.');
+  // Controls: a code that is not a remote refusal (an invite secret) and a step-up with no sentence keep the fallback.
+  assert.equal(s.pjFedMessage({ code: 'AB12-CD34', error: 'x' }, 'FALLBACK'), 'FALLBACK', 'an invite secret in code is never read as a refusal');
+  assert.equal(s.pjFedMessage({ code: 'remote_step_up' }, 'FALLBACK'), 'FALLBACK');
+  // The sheet's own 403 branch (fedInviteMake) asks the same helper before falling back.
+  const start = SCRIPT.indexOf('async function fedInviteMake');
+  const body = SCRIPT.slice(start, SCRIPT.indexOf('\n}', start));
+  assert.match(body, /res\.status === 403 \? \(fedRemoteSays\(body\) \|\| fallback\)/, 'the invite sheet shows a remote refusal on a 403');
 });
