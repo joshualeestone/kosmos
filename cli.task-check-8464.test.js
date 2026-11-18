@@ -33,12 +33,14 @@ const LISTED = { tasks: [
 /* #8668 review 10: the stubs answer a report as the board does, the stored result carrying movedTo at its check; with
    OLD_BOARD they answer as a board from before #8668, which drops the field it does not know. */
 let OLD_BOARD = false;
+let UNCHANGED = false;    // the board answers changed:false (the same report again)
+let OTHER_LINK = null;    // check 1 of the answered task already links this task number
 function answered(body) {
-  const rs = [null, null, null];
+  const rs = [OTHER_LINK ? { met: false, how: 'earlier', by: 'a', movedTo: OTHER_LINK } : null, null, null];
   if (body && Number.isInteger(body.check) && body.check >= 1 && body.check <= 3) {
     rs[body.check - 1] = { met: body.met, how: body.how, by: 'a', ...(!OLD_BOARD && body.movedTo !== undefined ? { movedTo: body.movedTo } : {}) };
   }
-  return { task: { number: 1, sentence: 'x', who: null, doneWhen: ['a', 'b', 'c'], doneWhenResults: rs } };
+  return { task: { number: 1, sentence: 'x', who: null, doneWhen: ['a', 'b', 'c'], doneWhenResults: rs }, ...(UNCHANGED ? { changed: false } : {}) };
 }
 
 const homes = [];
@@ -123,10 +125,10 @@ const SENDS = [
   // #8668: an unmet check's part moved to another task; leading zeros still send a JSON number.
   [['task', 'check', 'p5152', '3', '1', 'unmet', 'no Windows box', '--moved-to', '012'], '/api/project/p5152/task/3/check',
     (b, out) => { assert.deepEqual([b.check, b.met, b.how, b.movedTo], [1, false, 'no Windows box', 12]); assert.match(String(out), /moved to task 12\./); }],
-  // #8668: 1000 characters of evidence reach the board whole (the board holds the limit).
   // 15 digits, with leading zeros, is still sent (the board says whether the task exists).
   [['task', 'check', 'p5152', '3', '1', 'unmet', 'x', '--moved-to', '00' + '9'.repeat(15)], '/api/project/p5152/task/3/check',
     (b) => assert.equal(b.movedTo, 999999999999999)],
+  // #8668: 1000 characters of evidence reach the board whole (the board holds the limit).
   [['task', 'check', 'p5152', '3', '1', 'met', 'e'.repeat(1000)], '/api/project/p5152/task/3/check',
     (b) => assert.equal(b.how, 'e'.repeat(1000))],
 ];
@@ -194,8 +196,6 @@ test('install/kosmos prints the board\'s refusal whole, and exits 1', { skip: SK
   }, { status: 409, error });
 });
 
-/* #8668 (feedback 11-17): agents report several checks as several commands, so a refusal must name WHICH check failed
-   and say the others stand; before, it said only "that check" and a long line silently lost one check. */
 test('the moved-to link is said only when the board stored it: an older board that drops it is named, on both CLIs', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
   const args = ['task', 'check', 'p5152', '3', '1', 'unmet', 'no box', '--moved-to', '4'];
@@ -210,9 +210,29 @@ test('the moved-to link is said only when the board stored it: an older board th
         else { assert.match(out, /, moved to task 4\./); assert.doesNotMatch(out, /did not record/); }
       }
     }
-  } finally { OLD_BOARD = false; }
+    // Review 11: the same words again (changed:false) still say whether the link is there, on both boards.
+    UNCHANGED = true;
+    for (const old of [false, true]) {
+      OLD_BOARD = old;
+      let mac = '';
+      await withStub(async (port) => { mac = (await sh(port, home, args)).out; });
+      for (const out of [mac, (await win(args)).out]) {
+        assert.match(out, /already reported not met, in those words/);
+        assert.match(out, old ? /in those words \(this Kosmos did not record the link to task 4/ : /in those words, moved to task 4\./);
+      }
+    }
+    // Review 11: another check of the task already linking task 4 does not vouch for this one (both CLIs read the
+    // reported check's own result).
+    UNCHANGED = false; OLD_BOARD = true; OTHER_LINK = 4;
+    const other = ['task', 'check', 'p5152', '3', '2', 'unmet', 'no box', '--moved-to', '4'];
+    let mac = '';
+    await withStub(async (port) => { mac = (await sh(port, home, other)).out; });
+    for (const out of [mac, (await win(other)).out]) assert.match(out, /did not record the link to task 4/);
+  } finally { OLD_BOARD = false; UNCHANGED = false; OTHER_LINK = null; }
 });
 
+/* #8668 (feedback 11-17): agents report several checks as several commands, so a refusal must name WHICH check failed;
+   before, it said only "that check" and a long line silently lost one check. */
 test('a refused check is named by number and task, on both CLIs, and the usage line gives the limit', { skip: SKIP_POSIX_SHELL }, async () => {
   const home = makeHome();
   const error = 'keep how you checked it to 1000 characters or fewer.';   // a trailing full stop is not doubled

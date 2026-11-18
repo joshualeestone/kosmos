@@ -2150,12 +2150,14 @@ async function taskCheck(ctx, args) {
   }
   if (r.json && r.json.task) {
     const word = met ? 'met' : 'not met';
-    ctx.out(r.json.changed === false ? 'Check ' + which + ' on task ' + num + ' was already reported ' + word + ', in those words.'
-      : 'Reported check ' + which + ' on task ' + num + ' on ' + project + ' as ' + word + (movedTo === null ? '' : (() => {   // #8668 review 10: said only when the board's answer carries the link
-        const rs = r.json.task && Array.isArray(r.json.task.doneWhenResults) ? r.json.task.doneWhenResults : [];
-        const got = rs[Number(which) - 1];
-        return got && got.movedTo === movedTo ? ', moved to task ' + movedTo : ' (this Kosmos did not record the link to task ' + movedTo + ': update Kosmos for --moved-to)';
-      })()) + '. It reads as your word, not a verification. See them with: kosmos task show ' + project + ' ' + num);
+    // #8668 reviews 10-11, as install/kosmos: the link is said only when the reported check's stored result carries it,
+    // on either answer (an older board drops the field, and compares without it, so it can answer unchanged).
+    const rs = Array.isArray(r.json.task.doneWhenResults) ? r.json.task.doneWhenResults : [];
+    const got = rs[Number(which) - 1];
+    const moved = movedTo === null ? '' : got && got.movedTo === movedTo ? ', moved to task ' + movedTo
+      : ' (this Kosmos did not record the link to task ' + movedTo + ': update Kosmos for --moved-to)';
+    ctx.out(r.json.changed === false ? 'Check ' + which + ' on task ' + num + ' was already reported ' + word + ', in those words' + moved + '.'
+      : 'Reported check ' + which + ' on task ' + num + ' on ' + project + ' as ' + word + moved + '. It reads as your word, not a verification. See them with: kosmos task show ' + project + ' ' + num);
     return 0;
   }
   // #8668, as install/kosmos: name the check, and say what was not recorded.

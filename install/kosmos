@@ -7277,11 +7277,15 @@ cmd_task() {
       case "$body" in
         '{"task":'*)
           local _kword="met"; [ "$_kmet" = true ] || _kword="not met"
-          case "$body" in *'"changed":false'*) say "Check $_kn on task $num was already reported $_kword, in those words." ;;
+          # #8668 reviews 10-11: the link is said only when the reported check's own stored result carries it, on either
+          # answer (an older board drops the field, and compares without it, so it can answer unchanged).
+          local _kmv=""
+          if [ -n "$_kto" ]; then
+            if printf '%s' "$body" | KOSMOS_K_CHECK="$_kn" KOSMOS_K_TO="$_kto" "$NODE" -e 'let d;try{d=JSON.parse(require("fs").readFileSync(0,"utf8"))}catch{process.exit(1)}const r=d&&d.task&&Array.isArray(d.task.doneWhenResults)?d.task.doneWhenResults[Number(process.env.KOSMOS_K_CHECK)-1]:null;process.exit(r&&r.movedTo===Number(process.env.KOSMOS_K_TO)?0:1)' 2>/dev/null
+            then _kmv=", moved to task $_kto"; else _kmv=" (this Kosmos did not record the link to task $_kto: update Kosmos for --moved-to)"; fi
+          fi
+          case "$body" in *'"changed":false'*) say "Check $_kn on task $num was already reported $_kword, in those words$_kmv." ;;
             *)
-              # #8668 review 10: the link is said only when the board's answer carries it (an older board drops the field).
-              local _kmv=""
-              if [ -n "$_kto" ]; then case "$body" in *"\"movedTo\":$_kto"[,}]*) _kmv=", moved to task $_kto" ;; *) _kmv=" (this Kosmos did not record the link to task $_kto: update Kosmos for --moved-to)" ;; esac; fi
               say "Reported check $_kn on task $num on ${project:-the project} as $_kword$_kmv. It reads as your word, not a verification. See them with: kosmos task show ${project:-<project-id>} $num" ;; esac ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
