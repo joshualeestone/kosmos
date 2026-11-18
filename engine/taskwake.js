@@ -21,8 +21,9 @@
  *    settled holder, one line per agent per minute, inside Agent Communication's limit. The task then stores
  *    `wakeToldAt`, and it never wakes again unless a wake is set again.
  *
- * Not here (slice 1): waking a holder that is busy (it is told when it next goes idle, as a due repeat is), more than
- * one condition per task, and the Kosmos-held GitHub token road (githubdevice.js): only the gh road is read.
+ * A busy holder is never typed into: it is told when it next goes idle, as a due repeat is.
+ * Not here (slice 1): more than one condition per task, and the Kosmos-held GitHub token road (githubdevice.js): only the
+ * gh road is read.
  */
 const taskrepeat = require('./taskrepeat');
 
@@ -187,7 +188,8 @@ async function readPr(run, repo, number) {
   return { problem: 'GitHub answered in a way Kosmos could not read' };
 }
 async function readBranch(run, repo, branch) {
-  const r = await ghAsk(run, ['api', 'repos/' + repo + '/git/ref/heads/' + branch, '--jq', '.object.sha']);
+  // The branches route names one branch exactly (git/ref answers a list for a name that only prefixes others).
+  const r = await ghAsk(run, ['api', 'repos/' + repo + '/branches/' + branch, '--jq', '.commit.sha']);
   if (r.code !== 0) {
     const f = ghFailure(r, 'branch ' + branch + ' in ' + repo);
     if (!f.gone) return f;
@@ -434,8 +436,10 @@ function owed(projects) {
     for (const t of Array.isArray(p && p.tasks) ? p.tasks : []) {
       if (!t || !t.wake || !t.wakeMet || t.wakeToldAt || !liveTask(p, t, tasks, P) || tasks.isOnHold(t)) continue;
       if (wakeProblem(t.wake)) continue;
-      const everyHolder = [...new Set(tasks.partsOf(t).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))]
+      let everyHolder = [...new Set(tasks.partsOf(t).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))]
         .filter((who) => !P.isSwarmOff(p, who));
+      // A task nobody holds wakes the agent that set the wake, which is the one waiting for the event.
+      if (!everyHolder.length && t.wake.setBy && !P.isSwarmOff(p, t.wake.setBy)) everyHolder = [t.wake.setBy];
       if (!everyHolder.length) continue;
       // The agent that set the wake is asked first: it is the one waiting for the event.
       const holders = t.wake.setBy && everyHolder.includes(t.wake.setBy) ? [t.wake.setBy, ...everyHolder.filter((h) => h !== t.wake.setBy)] : everyHolder;
