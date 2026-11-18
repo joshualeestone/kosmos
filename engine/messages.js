@@ -4516,7 +4516,7 @@ const NOT_ON_PROJECT_FIX = "; ask the person to add this agent with the + beside
 function react({ project, of, emoji, from, operator, members, claim }) {
   const projectId = String(project == null ? '' : project).trim();
   const postId = messageIdOf(of);   // #4631: '530' and 'message 530' name m530 too
-  // #6946: `claim` is 'claim' (never takes it back) or 'release' (only takes it back); either one means 🙋.
+  // #6946: `claim` is 'claim' (never takes it back) or 'release' (only takes it back); any claim mode means 🙋.
   // kosmos#8721: 'status' only says who holds it and changes nothing, so checking never takes a claim.
   if (claim !== undefined && claim !== 'claim' && claim !== 'release' && claim !== 'status') return { ok: false, because: 'we could not tell whether to claim that post or give it back' };
   if (claim === 'status' && operator === true) return { ok: false, because: 'only an agent can ask who holds a post this way' };   // the person's branch below writes
@@ -4691,7 +4691,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
      read as the start of a clause either. "Need someone
      to..." is no room ask at all: said to bob, or in a reply to his post, it is bob's (review 2), and a post naming
      nobody is open anyway. */
-  const hold = askedHold(reactor);
+  const hold = askedHold(reactor);   // the rule the comment above describes, in the askedHold helper (kosmos#8721)
   if (hold) {
     const asked = hold.asked; const mins = hold.mins;
     const who = asked.length === 1 ? asked[0] : asked.slice(0, -1).join(', ') + ' or ' + asked[asked.length - 1];

@@ -208,3 +208,48 @@ test('kosmos#8721: --status with --release is a usage error that sends nothing',
     assert.equal(seen.length, 0);
     assert.match(out.stdout + out.stderr, /plain claim TAKES the post; --status only says who holds it/);
   }));
+
+/* kosmos#8721: a status check whose answer is lost changed nothing, so it exits 1 (never the claim's 3) and never says
+   it may have happened. A board that reads the request and hangs up (curl 52), and one that never answers (curl 28,
+   after the claim's 15 s limit). */
+function withSilentBoard(mode, fn) {
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url.startsWith('/api/react')) {
+      req.resume();
+      req.on('end', () => { if (mode === 'hangup') req.socket.destroy(); /* 'silent': never answers */ });
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end('<title>Kosmos</title>Agent Workforce');
+  });
+  return new Promise((resolve, reject) => {
+    server.listen(0, '127.0.0.1', async () => {
+      let failure = null;
+      try { await fn(server.address().port); } catch (e) { failure = e; }
+      server.closeAllConnections();
+      server.close(() => (failure ? reject(failure) : resolve()));
+    });
+  });
+}
+
+test('kosmos#8721: a status check cut off (curl 52) exits 1 and says it could not read the claim, not that it may have happened', { skip: SKIP_POSIX_SHELL }, () =>
+  withSilentBoard('hangup', async (port) => {
+    const out = await claim(port, [], ['p', 'm3', '--status']);
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.match(out.stdout + out.stderr, /read that claim/);
+    assert.doesNotMatch(out.stdout + out.stderr, /may still have happened|may have happened/);
+  }));
+
+test('kosmos#8721: a status check that times out (curl 28) exits 1 and says nothing was claimed', { skip: SKIP_POSIX_SHELL, timeout: 40000 }, () =>
+  withSilentBoard('silent', async (port) => {
+    // Its own run: the shared runCli kills the CLI at 15 s, the same moment curl's -m 15 ends, so curl must win here.
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+    const out = await new Promise((resolve, reject) => {
+      execFile(CLI, ['claim', 'p', 'm3', '--status'], { env, timeout: 30000 }, (err, stdout, stderr) => {
+        if (err && typeof err.code !== 'number') { reject(new Error('no exit code: ' + (err.signal || err.code))); return; }
+        resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
+      });
+    });
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.match(out.stdout, /could not tell who holds that post\. Nothing was claimed; run the same command again\./);
+  }));
