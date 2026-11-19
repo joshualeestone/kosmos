@@ -6,9 +6,9 @@ Follow-up to #8753 (part 1), before the 0.8.11 staging cut (#1050). Data only: o
 Splinter (14:43 CST 11-19): all three #8728 pieces are on main (#8739 d81b81430b, #8747 25c60b657d, #8755 2da068e7b1); name slices 1 and 2 in the What's New entry as remote sign-in from a laptop or phone no longer opening a browser on the far Mac and returning to the same dialog. Renet Tilley (author) posted the same two shas at 14:42.
 
 ## The entry
-- **A remote Claude sign-in stays on your screen** (rank 8.7, top of the window, icon phone, no platform tag): "From a laptop or phone, a Claude sign-in opens no browser on the far computer, and its dialog returns after the Kosmos+ sign-in it asks for." (140 characters, the limit.)
+- **A remote Claude sign-in stays on your screen** (rank 8.7, top of the window, icon phone, no platform tag): "From a laptop or phone, a Claude sign-in opens no browser on the far computer, and Sign in again reopens its dialog after a Kosmos+ sign-in." (140 characters, the limit.)
 - Slice 1 (#8747): a sign-in started from a remote session launches claude with BROWSER=/usr/bin/true on Mac and Linux, so no authorize tab opens there, and the page shows the link.
-- Windows: #8744 (5e77d5309a, merged) taught the Windows sign-in host to honour noOpener, but main did not SET it there until #8759: engine/connect.js:1625 computed remoteStarted as false on win32 (`signinPlatform() !== 'win32'`). #8759 merged 15:0x CST as e60feee681 (CI 8/8 incl. windows); on main now, engine/connect.js:1626 reads `opts.remoteStarted === true` with no platform exclusion (checked by content). The branch is rebased onto it.
+- Windows: #8744 (5e77d5309a, merged) taught the Windows sign-in host to honour noOpener, but main did not SET it there until #8759: engine/connect.js:1625 computed remoteStarted as false on win32 (`signinPlatform() !== 'win32'`). #8759 merged 15:09 CST as e60feee681 (CI 8/8 incl. windows); on main now, engine/connect.js:1626 reads `opts.remoteStarted === true` with no platform exclusion (checked by content). The branch is rebased onto it.
 - Slice 2 (#8755): after the refusal that asks for a fresh Kosmos+ sign-in, the page reopens that account's dialog on return. web/index.html only, so every platform.
 
 ## Why no platform tag (again)
@@ -21,7 +21,7 @@ Iteration 1 tagged the line mac because Windows still opened a tab. With #8759 o
 "Starring an agent shines" (9.6) leaves the window and stays pending. Mac shows 5, Windows 4 (one of the five is mac-tagged).
 
 ## Weakest premise
-"its dialog comes back after the Kosmos+ sign-in it asks for" is shorter than #8755's guards: it comes back only within 10 minutes of the refusal, in the same browser tab, after pressing that refusal's own Sign in again. 140 characters leave no room for all of that; "it asks for" keeps it to that one sign-in.
+"Sign in again reopens its dialog after a Kosmos+ sign-in" is shorter than #8755's guards. The return note is written only for Sign in again on an existing account (web/index.html, `reauthDir`), not for adding an account or first run, which is why the line names Sign in again. It also comes back only within 10 minutes of the refusal, in the same browser tab, after pressing that refusal's own Sign in again. 140 characters leave no room for those.
 
 ## Would change my mind
 A reviewer showing a remote sign-in that still opens a browser on a Mac, or that the dialog does not come back on the path the line names.
@@ -32,3 +32,4 @@ A reviewer showing a remote sign-in that still opens a browser on a Mac, or that
 - Iteration 1 (opus): BLOCKER, the untagged line was false on Windows: #8744 reads noOpener, but engine/connect.js:1625 on main never sets it on win32, so a remote sign-in still opens a tab there; #8759 is the fix. The premise came from #8744's title, read, not run (the old weakest premise named exactly this), and Renet's 14:45 check repeated it. Fixed: mac tag, "a far Mac". WARNING, the plan restated that premise: corrected above. NIT taken: "after a Kosmos+ sign-in" became "after the Kosmos+ sign-in it asks for".
 - Iteration 2 (sonnet): no new actionable findings (converged). Its WARNING, re-check #8759 at the 0.8.11 pin, is already the plan's rule above. NIT taken: the local-run line now gives the Windows count after the mac tag. NITs not changed: the dialog-return wording (the weakest premise above), and Starring leaving the window (by rank, as above).
 - After iteration 2: #8759 merged (e60feee681). Rebased onto main, tag dropped, line back to "the far computer" (Splinter 15:10). Rebuilt: mac 5, windows 4.
+- Iteration 3 (opus): WARNING, "its dialog returns" read as every remote sign-in, but the return note is saved only for Sign in again (web/index.html, `out.signInAgain === true && reauthDir`); adding an account or first run gets no dialog back. Fixed: the clause names Sign in again. NIT taken: the 15:0x placeholder is now 15:09 (gh pr view 8759). NIT not changed: the slice shas are the rebase-merged PRs' last commits, cited for ancestry only; the line was checked against the code by content.
