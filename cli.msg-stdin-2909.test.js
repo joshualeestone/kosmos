@@ -102,7 +102,7 @@ test('#2909: msg --stdin refusals send nothing (args too, --stdin beside words, 
   for (const args of [['msg', 'mara', '--stdin', 'also'], ['msg', 'mara', 'also', '--stdin']]) {
     const trailing = await runCli(args, envFor(port), 'x');
     assert.equal(trailing.code, 2, args.join(' '));
-    assert.match(trailing.stdout, /--stdin must come before the agent name|stdin OR as arguments/);
+    assert.match(trailing.stdout, /--stdin must come before the agent name/);
   }
   const empty = await runCli(['msg', '--stdin', 'mara'], envFor(port), '\n\u001b\n');
   assert.equal(empty.code, 2);

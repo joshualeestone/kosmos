@@ -283,7 +283,7 @@ test('#2909 and kosmos#8769: a lone --stdin after the project reads the pipe; be
   for (const args of [['post', 'proj', '--stdin', 'words'], ['post', 'proj', 'words', '--stdin']]) {
     const out = await runCli(args, env, 'the real message');
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout + out.stderr);
-    assert.match(out.stdout + out.stderr, /--stdin must come before the project id|stdin OR as arguments/);
+    assert.match(out.stdout + out.stderr, /--stdin must come before the project id/);
   }
   assert.equal(seen.length, 1, 'nothing more was posted');
 }));
