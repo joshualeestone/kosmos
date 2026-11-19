@@ -387,6 +387,7 @@ test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines)
   const trailing = await run(['post', 'proj-1', '--stdin'], placed, undefined, async () => ({ text: 'late flag post\n', ended: true }));
   assert.equal(trailing.code, 0, trailing.err);
   assert.equal(trailing.calls[0].body.text, 'late flag post');
+  assert.equal(trailing.calls[0].body.project, 'proj-1', 'posted to the project named before the flag');
   for (const args of [['post', 'proj-1', '--stdin', 'typed'], ['post', 'proj-1', 'typed', '--stdin']]) {
     const beside = await run(args, placed, undefined, async () => { throw new Error('stdin read for --stdin beside words'); });
     assert.equal(beside.code, 2, args.join(' ')); assert.equal(beside.calls.length, 0);

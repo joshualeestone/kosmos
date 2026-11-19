@@ -528,7 +528,7 @@ function keepPipedCopy(ctx, text, maybe) {   // maybe (#4934): a first try may h
 }
 
 async function verbMsg(ctx, args) {
-  /* #2909: --stdin (leading) reads the message from standard input, shared with post via
+  /* #2909: --stdin (leading, or alone after the agent: kosmos#8769) reads the message from standard input, shared with post via
      readPipedMessage, and every failure after the read keeps it in a private file. */
   /* #7886 item 3: --in-reply-to <id> (leading, in any order with --stdin) answers a direct message, as install/kosmos. */
   let fromStdin = false;
@@ -791,7 +791,7 @@ async function verbPost(ctx, args) {
     ctx.err('Text only for now: kosmos post <project-id> <text>');
     return 2;
   }
-  // #2908 --no-reply, #3224 --in-reply-to and #2909 --stdin are LEADING flags in any order, matching
+  // #2908 --no-reply, #3224 --in-reply-to and #2909 --stdin are LEADING flags (--stdin also alone after the project, kosmos#8769) in any order, matching
   // install/kosmos (the parity this second CLI must keep). --no-reply marks a post an
   // acknowledgement (reply_expected:false); --in-reply-to <id> binds the answer to the
   // room the cited message came from, so the server refuses if the target project

@@ -93,11 +93,11 @@ test('#2909 CONTROL: without --stdin, msg still takes its words from the args an
   assert.equal(seen[0].text, 'plain words');
 }));
 
-test('#2909: msg --stdin refusals send nothing (args too, trailing flag, empty pipe, no agent)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+test('#2909: msg --stdin refusals send nothing (args too, --stdin beside words, empty pipe, no agent)', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const mixed = await runCli(['msg', '--stdin', 'mara', 'also'], envFor(port), 'x');
   assert.equal(mixed.code, 2);
   assert.match(mixed.stdout, /stdin OR as arguments/);
-  /* kosmos#8769: a lone --stdin after the agent is the flag (tested where the message lands, below); beside other
+  /* kosmos#8769: a lone --stdin after the agent is the flag (tested where the message lands, in the test above); beside other
      words it is still refused. */
   for (const args of [['msg', 'mara', '--stdin', 'also'], ['msg', 'mara', 'also', '--stdin']]) {
     const trailing = await runCli(args, envFor(port), 'x');
