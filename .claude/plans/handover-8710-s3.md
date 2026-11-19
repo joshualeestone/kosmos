@@ -78,3 +78,13 @@ does not read the period; the snapshot's week checks are skipped only under the 
 - Notice to the leaving member: "<company> is moving <agents> to a colleague's computer." (shown, not a consent ask).
 - Tunnel allowlist: the six /v1/mac/org/handover/* paths (kosmos-relay crates/tunnel/src/coordinator.rs ~696).
   CHECK FIRST whether remote.macRequest refuses a path the tunnel does not list (it may only be the tunnel side).
+
+## Progress 2026-11-19 09:08 CST
+- DONE (ccda2b2bf4): engine/handoversend.js + engine/handoversend-8710.test.js (9 tests, 8x repeat clean, 5 mutations all
+  red: protect, packed memo, trim break, removed/stray names, trial seal). backuptick exports rootSegment. server.js starts
+  it after backuptick.startHere, off unless KOSMOS_ORG_HANDOVER=1. tools/test-connector-verbs.sh re-decided (27/27 local).
+- Tunnel allowlist for the six paths: already in kosmos-relay #844 (coordinator.rs 745-750, 925-930). Nothing to do here.
+- Found in flight: a random 32-byte seal_pub fails ~50% (bit 255 set is not a canonical X25519 key), and the snapshot
+  then says only "failed unexpectedly". packInput now trial-seals with hpke and refuses with a sentence.
+- REMAINING: member notice (needs a screen surface: state.failed / packing to the board's org status), then review
+  loop (cap 8), full suite after round 1, PR.
