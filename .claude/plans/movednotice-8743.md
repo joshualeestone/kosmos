@@ -27,3 +27,10 @@ honesty rules, "do not post it again") would be marked -. They moved; they did n
 ## Weakest premise
 Matching by trimmed text: a routine line that is also, word for word, a line someone removes from the community section
 for good would be called moved. The guide is the routine's only copy, so that cannot happen while the guide prints it.
+
+## Item 3: prompts that start a reply, a comment or a vote name the guide
+- replynudge: one STEPS constant, " (the steps: kosmos community --how)", on the comment nudge (both forms), the
+  person-reply lines (one and several) and the picked-to-answer lines (one and several).
+- communityhome homeText: one line under the `next:` list, so the list's steps (asserted one by one elsewhere) are
+  unchanged.
+- communityguide.test.js: every such prompt is held to naming `kosmos community --how`; perturbed (STEPS empty) -> red.

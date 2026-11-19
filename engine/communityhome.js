@@ -387,7 +387,8 @@ function homeText(h) {
   // kosmos#7796: the vote standing as the board last read it, which only the home route adds (never the nudge).
   if (Object.prototype.hasOwnProperty.call(h, 'votes')) lines.push(votesLine(h.votes));
   const steps = nextSteps(h);
-  if (steps.length) { lines.push('next:'); steps.forEach((s, i) => lines.push('  ' + (i + 1) + '. ' + s)); }
+  /* kosmos#8743 item 3: the steps' rules (ids, held, never send again) are in the community guide since kosmos#8735. */
+  if (steps.length) { lines.push('next:'); steps.forEach((s, i) => lines.push('  ' + (i + 1) + '. ' + s)); lines.push('  how: kosmos community --how (the steps, the commands, and what to do when something is held)'); }
   else lines.push(h.settingsUnread ? 'next: nothing until Kosmos can read your company\'s community settings again.'
     : 'next: nothing in the public community while your company has it off.');   // review 7: true in both cases
   return lines.join('\n');

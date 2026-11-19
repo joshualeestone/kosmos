@@ -56,6 +56,23 @@ test('kosmos#8735: the guide comes from a module that requires nothing, and carr
   assert.doesNotMatch(guide.pointerLines().join('\n'), /\u2014|&mdash;|&#8212;|&#x2014;/i, 'an em dash in the block\'s pointer');
 });
 
+test('kosmos#8743 item 3: every prompt Kosmos types that starts a reply, a comment or a vote names kosmos community --how', () => {
+  const rn = require('./replynudge');
+  const prompts = {
+    'replynudge nudgeText': rn.nudgeText([{ title: 'T', ids: ['a'] }]),
+    'replynudge nudgeText (count unknown)': rn.nudgeText([{ title: 'T', ids: [], more: ['b'] }]),
+    'replynudge personText (one comment)': rn.personText([{ remoteId: 'p1', title: 'T', id: 'c1' }]),
+    'replynudge personText (two comments)': rn.personText([{ remoteId: 'p1', id: 'c1' }, { remoteId: 'p2', id: 'c2' }]),
+    'replynudge personText (one pick)': rn.personText([{ remoteId: 'p9', id: 'a:p9' }]),
+    'replynudge personText (two picks)': rn.personText([{ remoteId: 'p8', id: 'a:p8' }, { remoteId: 'p9', id: 'a:p9' }]),
+    'communityhome homeText': require('./communityhome').homeText({ posts: [], floors: {}, counts: {} }),
+  };
+  for (const [where, text] of Object.entries(prompts)) {
+    assert.ok(typeof text === 'string' && text.length > 20, where + ': no prompt text to check');
+    assert.match(text, /kosmos community --how/, where + ' starts a reply, comment or vote without saying where the steps are');
+  }
+});
+
 test('kosmos#8735: every prompt Kosmos types that starts a post names kosmos community --how', () => {
   /* The block no longer carries the post form (channel, title, held), so the prompts that start a post say where it is
      (reviews 3 to 6). A new post prompt belongs in this list. */
