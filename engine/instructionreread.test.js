@@ -479,7 +479,7 @@ test('kosmos#8743: a community line that moved to kosmos community --how is left
   const out = ir.changedLines(before, after, moved);
   for (const l of routine) assert.ok(!out.includes('- ' + l), 'a moved line is marked as no longer applying: ' + l);
   assert.ok(out.includes('- ' + gone), 'a line that really left was not listed');
-  assert.match(out, /Left out: 3 lines that moved from The Kosmos\+ community to kosmos community --how, where they still apply\./);
+  assert.match(out, /Left out: 3 lines removed from The Kosmos\+ community that kosmos community --how prints, where they still apply\./);
   // CONTROL: without the moved set, the same diff marks the routine lines removed (so the arm above can fail).
   const plain = ir.changedLines(before, after);
   for (const l of routine) assert.ok(plain.includes('- ' + l), 'CONTROL: the plain diff did not mark ' + l);
@@ -489,7 +489,7 @@ test('kosmos#8743: a community line that moved to kosmos community --how is left
   assert.ok(ir.changedLines(elsewhere, after, moved).includes('- ' + routine[1]), 'a line outside the community section was treated as moved');
   // All moved: the file is the one note, never an empty fence.
   const onlyMoved = after.replace('\n\n## Next', '\n' + routine.join('\n') + '\n\n## Next');
-  assert.equal(ir.changedLines(onlyMoved, after, moved), 'Left out: 3 lines that moved from The Kosmos+ community to kosmos community --how, where they still apply.');
+  assert.equal(ir.changedLines(onlyMoved, after, moved), 'Left out: 3 lines removed from The Kosmos+ community that kosmos community --how prints, where they still apply. A line marked - under The Kosmos+ community may be there too, reworded: read kosmos community --how before you treat it as dropped.');
 });
 
 test('kosmos#8743 review 1: short and blank routine lines move too, and a cut file with moved lines still ends with the cut note, inside both caps', () => {
@@ -502,7 +502,7 @@ test('kosmos#8743 review 1: short and blank routine lines move too, and a cut fi
   const after = '# Ana\n\n' + cb.blockBody() + '\n\n## Next\n\nend\n';
   const before = after.replace('\n\n## Next', '\n' + short.join('\n') + '\n\n\n' + short[0] + '\n\n## Next');
   const out = ir.changedLines(before, after, moved);
-  assert.equal(out, 'Left out: 5 lines that moved from The Kosmos+ community to kosmos community --how, where they still apply.',
+  assert.equal(out, 'Left out: 5 lines removed from The Kosmos+ community that kosmos community --how prints, where they still apply. A line marked - under The Kosmos+ community may be there too, reworded: read kosmos community --how before you treat it as dropped.',
     'a short routine line or a blank line was still marked as no longer applying: ' + out);
   // CONTROL: the same diff without `moved` lists them.
   assert.match(ir.changedLines(before, after), /- KOSMOS_END/);
@@ -512,7 +512,21 @@ test('kosmos#8743 review 1: short and blank routine lines move too, and a cut fi
   const cut = ir.changedLines(bigBefore, after, moved);
   const lines = cut.split('\n');
   assert.equal(lines[lines.length - 1], '[More changed than fits here: read the sections the notice names.]', 'a cut file no longer ends with the cut note');
-  assert.ok(cut.includes('Left out: 5 lines that moved'), 'the moved note was dropped from a cut file');
+  assert.ok(cut.includes('Left out: 5 lines removed'), 'the moved note was dropped from a cut file');
   assert.ok(lines.length <= ir.CHANGES_LINES_MAX, 'the cut file has ' + lines.length + ' lines, over the cap');
   assert.ok(Buffer.byteLength(cut) <= ir.CHANGES_BYTES_MAX, 'the cut file is over the byte cap');
+});
+
+test('kosmos#8743 review 2: a removed section right after the community block is judged by its own heading, not taken as moved', () => {
+  const cb = require('./communityblock');
+  const guide = require('./communityguide');
+  const moved = { under: cb.blockBody().split('\n')[0], lines: new Set(guide.guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '')), where: 'kosmos community --how' };
+  const after = '# Ana\n\n' + cb.blockBody() + '\n\n## Next\n\nend\n';
+  // In the old text a whole section followed the community block; its lines happen to match guide lines.
+  const before = after.replace('\n\n## Next', '\n\n## Gone\n\nAlso:\nKOSMOS_END\n\n## Next');
+  const out = ir.changedLines(before, after, moved);
+  assert.match(out, /- Also:/, 'a line from another section was hidden as moved');
+  assert.match(out, /- KOSMOS_END/, 'a line from another section was hidden as moved');
+  assert.match(out, /- ## Gone/);
+  assert.ok(!/Left out:/.test(out), 'lines that were never in the community section were counted as moved');
 });

@@ -45,3 +45,13 @@ for good would be called moved. The guide is the routine's only copy, so that ca
 - The heading comes from communityblock itself. CHANGES_LINES_MAX and CHANGES_BYTES_MAX are exported for the test.
 - Deferred: the single reply and pick lines say "as the community rules show"; the block still shows the comment
   heredoc form (kept there in kosmos#8735 slice 1), so that stays true.
+
+## Review 2
+- A removed line is judged by the heading it had in the OLD text (a section right after the community block was being
+  read as part of it). Tested with a removed section of guide-like lines; perturbed (the new-side heading) -> red.
+- The note says only what the code checks: "removed from <section> that kosmos community --how prints, where they still
+  apply", plus a conditional for a reworded line it cannot match: "A line marked - under <section> may be there too,
+  reworded: read kosmos community --how before you treat it as dropped." True whatever later edits do.
+- nudgeLine: "and kosmos community --how prints the steps".
+- Deliberate: command OUTPUT (the counts line after a vote or comment) is not in item 3; it follows an action the agent
+  already took, it does not start one.

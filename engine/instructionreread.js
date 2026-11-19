@@ -316,7 +316,8 @@ function changedLines(before, after, moved = null) {
   let j = 0;
   let movedOut = 0;
   /* Review 1: any non-blank guide line (a short one such as KOSMOS_END or Also: is the guide's too; the heading keeps the
-     match narrow), and a blank line removed under that heading is spacing, left out without being counted. */
+     match narrow), and every blank line removed under that heading is left out without being counted (a blank line
+     carries no rule). Review 2: the heading is the one the removed line had in the OLD text, not the new text above it. */
   const underMoved = (head) => Boolean(moved && moved.lines instanceof Set && head === moved.under);
   const isMoved = (line, head) => underMoved(head) && line.trim() !== '' && moved.lines.has(line.trim());
   const isGap = (line, head) => underMoved(head) && line.trim() === '';
@@ -328,8 +329,9 @@ function changedLines(before, after, moved = null) {
        section are never filed under a heading added after them. */
     const removing = i < A.length && (j >= B.length || L[(i + 1) * w + j] >= L[i * w + j + 1]);
     const head = removing ? (headAt(headsB, pre + j - 1) || headAt(headsA, pre + i - 1)) : headAt(headsB, pre + j);
-    if (removing && isMoved(A[i], head)) { movedOut += 1; i += 1; continue; }   // kosmos#8743: moved, not removed
-    if (removing && isGap(A[i], head)) { i += 1; continue; }   // review 1: spacing around moved lines, not a rule
+    const oldHead = removing ? headsA[pre + i] : null;   // review 2: the section the removed line was in
+    if (removing && isMoved(A[i], oldHead)) { movedOut += 1; i += 1; continue; }   // kosmos#8743: the guide prints it
+    if (removing && isGap(A[i], oldHead)) { i += 1; continue; }   // review 1: a blank line, not a rule
     if (run && run.head !== head) flush();
     if (!run) run = { head, lines: [] };
     // A removed line before the line that replaced it, as a reader expects.
@@ -356,8 +358,12 @@ function changedLines(before, after, moved = null) {
   const NOTE = '[More changed than fits here: read the sections the notice names.]';
   /* Review 1: the moved note (kosmos#8743) is known before any output, so its room is kept too, and it goes before the
      cut note, so a cut file still ends with the more-changed note the header tells the reader to look for. */
-  const movedNote = movedOut ? 'Left out: ' + movedOut + (movedOut === 1 ? ' line' : ' lines') + ' that moved from '
-    + moved.under.replace(/^#+ /, '') + ' to ' + moved.where + ', where ' + (movedOut === 1 ? 'it still applies.' : 'they still apply.') : '';
+  /* Review 2: only what the code checks (the line left that section and the guide prints it), and, since a reworded line
+     cannot be matched, a conditional any reader can check for the lines still marked there. */
+  const where = moved ? moved.under.replace(/^#+ /, '') : '';
+  const movedNote = movedOut ? 'Left out: ' + movedOut + (movedOut === 1 ? ' line' : ' lines') + ' removed from ' + where + ' that '
+    + moved.where + ' prints, where ' + (movedOut === 1 ? 'it still applies' : 'they still apply') + '. A line marked - under ' + where
+    + ' may be there too, reworded: read ' + moved.where + ' before you treat it as dropped.' : '';
   const lineRoom = CHANGES_LINES_MAX - 2 - (movedNote ? 2 : 0);
   const byteRoom = CHANGES_BYTES_MAX - Buffer.byteLength(NOTE) - 2 - (movedNote ? Buffer.byteLength(movedNote) + 2 : 0);
   const fits = (s) => out.length < lineRoom && bytes + Buffer.byteLength(s) + 1 <= byteRoom;

@@ -548,6 +548,6 @@ test('kosmos#8743: the changes file an agent gets leaves the community routine t
   const body = fs.readFileSync(got.path, 'utf8');
   assert.match(body, /- Vote twice a day\./, 'a line that really left is not listed as removed');
   for (const l of moved) assert.ok(!body.includes('- ' + l), 'the file an agent reads marks a moved line as no longer applying: ' + l);
-  assert.match(body, /Left out: 2 lines that moved from The Kosmos\+ community to kosmos community --how, where they still apply\./);
+  assert.match(body, /Left out: 2 lines removed from The Kosmos\+ community that kosmos community --how prints, where they still apply\./);
   assert.ok(path.dirname(got.path) === path.dirname(f));
 });
