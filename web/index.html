@@ -32548,8 +32548,11 @@ function forgetStepUpReturn() {
   try { sessionStorage.removeItem(STEPUP_RETURN_KEY); } catch { /* nothing to forget */ }
 }
 /* The person pressed the ask's Sign in again (either way it goes: the fresh form or the logout, both a submit of
-   #stepup-form): the note says so, with the time of the press. */
-function markStepUpReturnGoing(now = Date.now()) {
+   #stepup-form) FOR the Claude start's refusal (review 4: the ask is shared by every refused write, and the one it is
+   showing records which request in stepUpFor): the note says so, with the time of the press. */
+const STEPUP_RETURN_FOR = 'POST /api/connect/start';
+function markStepUpReturnGoing(forKey, now = Date.now()) {
+  if (forKey !== STEPUP_RETURN_FOR) return;
   let n = null;
   try { n = JSON.parse(sessionStorage.getItem(STEPUP_RETURN_KEY) || 'null'); } catch { n = null; }
   if (!n || n.kind !== 'claude-signin' || typeof n.dir !== 'string' || !n.dir || typeof n.at !== 'number') return;
@@ -32599,7 +32602,11 @@ function stepUpReturnBoot() {
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', stepUpReturnBoot);
 else stepUpReturnBoot();
 // Capture phase: marked before the ask's own submit handler sends the logout path on its way.
-document.addEventListener('submit', (e) => { if (e.target && e.target.id === 'stepup-form') markStepUpReturnGoing(); }, true);
+document.addEventListener('submit', (e) => {
+  if (!e.target || e.target.id !== 'stepup-form') return;
+  const box = document.getElementById('stepup-ask');
+  markStepUpReturnGoing(box ? box.stepUpFor : '');
+}, true);
 /* #1587: the acct-add button is a SECOND entry into /api/connect/start, and it
    used to POST with no confirm, so an accounts click could begin a large Claude
    Code install (~231MB) unannounced, the same download the first-run flow

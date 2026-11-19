@@ -46,6 +46,13 @@ flow is today's (no worse).
 That the person goes through the ask's Sign in again in this tab within 10 minutes. If they close the tab, or sign in
 elsewhere, the note expires unused.
 
+## Known and left (review 4)
+- A tab duplicated after the press copies sessionStorage, so that copy can reopen the dialog too (each tab uses its own
+  copy once). The page acts in a tab the person opened from this one, never another visit or another viewer.
+- An account read that does not list the account uses the note up: the person falls back to today's flow.
+- The mark is tied to the refusal by the ask's own record of the refused request (`stepUpFor`), so Sign in again pressed
+  for another refused write does not mark the Claude note.
+
 ## Tests
 `web.stepupreturn-8728.test.js` (functions lifted, stand-in sessionStorage, performance and fetch): after a page load a
 note whose Sign in again was pressed reopens its account once and resets the return focus; in the same page view it
@@ -54,4 +61,4 @@ waits and is kept; a note over 10 minutes old, from the future, for an unlisted 
 (CONTROL: just inside the window does); other shapes are ignored; Not now forgets; blocked storage breaks nothing; boot
 reads the list once only with an actionable note (CONTROLs: no note, a same-view note); and the wiring points, including
 that only the Sign-in-again refusal writes a note. Existing tests that name the touched functions
-(web.accounts-add, web.flowpoll-4275, web.reauth-1492, web.switch-account-1373) pass: 53 with the new file.
+(web.accounts-add, web.flowpoll-4275, web.reauth-1492, web.switch-account-1373) pass: 54 with the new file.
