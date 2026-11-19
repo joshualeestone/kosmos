@@ -2649,8 +2649,11 @@ async function runFlow(owner, haveBinary) {
   await launchSignin(owner);
 }
 
-// kosmos#8728: what claude runs instead of a browser for a remote-started sign-in: exits 0, opens nothing.
-const TMUX_NO_OP_OPENER = '/usr/bin/true';
+/* kosmos#8728: what claude runs instead of a browser for a remote-started sign-in: exits 0, opens nothing. The tmux
+   host serves every platform but Windows; macOS has /usr/bin/true, and a Linux without a merged /usr may have only
+   /bin/true, so the one that exists is used (review 2). Measured on macOS only; Linux is reasoned from claude
+   honouring BROWSER there the same way. */
+const TMUX_NO_OP_OPENER = ['/usr/bin/true', '/bin/true'].find((f) => { try { return fs.statSync(f).isFile(); } catch { return false; } }) || '/usr/bin/true';
 /**
  * The command the tmux host runs in its new session, for one launch
  * (`{ claudeBin, launchDir, needsLogin, noOpener }`, built by `launchSignin`).
