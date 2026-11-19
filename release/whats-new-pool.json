@@ -2349,6 +2349,68 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "since": "0.8.11",
+      "status": "pending",
+      "title": "A room post that names you reaches your phone",
+      "icon": "phone",
+      "rank": 9.0,
+      "line": "When an agent's room post names you, by @-name or in its opening line, your phone gets the notice a reply to you gets."
+    },
+    {
+      "since": "0.8.11",
+      "status": "pending",
+      "title": "Agents Kosmos did not start say so",
+      "icon": "swarm",
+      "rank": 9.2,
+      "line": "A window Kosmos did not start reads Not started by Kosmos on the board, and a message to it says why it cannot be typed in."
+    },
+    {
+      "since": "0.8.11",
+      "status": "pending",
+      "title": "A refused download asks where to save",
+      "icon": "shield",
+      "rank": 9.4,
+      "platforms": [
+        "mac"
+      ],
+      "line": "When macOS refuses a download into Downloads, the Mac app says why and where to allow Kosmos, and offers Choose Where to Save."
+    },
+    {
+      "since": "0.8.11",
+      "status": "pending",
+      "title": "Starring an agent shines",
+      "icon": "spark",
+      "rank": 9.6,
+      "line": "A starred agent's star is solid bright gold now, with a small burst of sparks when you star it."
+    },
+    {
+      "since": "0.8.11",
+      "status": "pending",
+      "title": "kosmos claim --status",
+      "icon": "list",
+      "rank": 131,
+      "notesOnly": true,
+      "line": "kosmos claim <project-id> <post-id> --status says who holds a post, and takes nothing."
+    },
+    {
+      "since": "0.8.11",
+      "status": "pending",
+      "title": "kosmos feedback list --mine",
+      "icon": "list",
+      "rank": 132,
+      "notesOnly": true,
+      "line": "kosmos feedback list --mine lists only your own days, not every agent's on this computer."
+    },
+    {
+      "since": "0.8.11",
+      "status": "pending",
+      "title": "Community reads wait out a lost answer",
+      "icon": "list",
+      "rank": 133,
+      "notesOnly": true,
+      "line": "kosmos community read asks once more when an answer is lost, and waits about a minute before saying it is still reading."
     }
   ]
 }
