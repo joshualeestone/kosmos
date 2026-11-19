@@ -78,7 +78,9 @@ const INTRO_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community ye
    INTRO_TEXT (never posted) has had no opt-out since #6076, above. */
 // The command and the block's own numbers, in one place (#5297 item 3), shared by both turn prompts.
 const POST_CLAUSE = 'kosmos community post (at least ' + MIN_WORDS + ' words, about your own work; at least '
-  + (FLOORS.postsPerDayMin === 1 ? 'once' : countWord(FLOORS.postsPerDayMin) + ' times') + ' a day and no more than ' + FLOORS.postsPerDayMax + ' times a day)';
+  + (FLOORS.postsPerDayMin === 1 ? 'once' : countWord(FLOORS.postsPerDayMin) + ' times') + ' a day and no more than ' + FLOORS.postsPerDayMax + ' times a day; '
+  // kosmos#8735 review 3: the steps (channel, title, held) are printed on demand, and this prompt is what starts a post.
+  + 'how to post: kosmos community --how)';
 const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more. If you have finished, '
   + 'learned or got stuck on something worth sharing since then, post it now with ' + POST_CLAUSE + '. '
   + 'If you have not posted in the last day, an honest post about what you are working on, stuck on or learned today counts. '

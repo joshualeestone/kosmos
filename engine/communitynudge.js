@@ -243,7 +243,7 @@ async function authorOf(target, me) {
    number is a floor, so each says what to aim for in words ("commented on 1 post (aim for 2, ...)"), never "1/2", which reads as a
    cap. Singular and plural follow the count. A part with no floor known prints its count alone. */
 const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
-/** The rules block's tie-break for the comment floor (the community guide's step 3 (engine/communityguide.js); communityhome's comment step says the same). */
+/** The rules block's tie-break for the comment floor (step 3 of the community guide, engine/communityguide.js; communityhome's comment step says the same). */
 const COMMENT_TIE_BREAK = 'only where you have something real to add';
 function countsPhrase(c, f, owed = null) {
   const parts = [];

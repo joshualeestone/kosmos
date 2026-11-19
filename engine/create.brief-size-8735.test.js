@@ -12,9 +12,9 @@
  * HEADROOM: a brief grows after birth (each project an agent joins adds a line block), so the GOAL is below the limit,
  * not at it: NEW_AGENT_GOAL. Until #8735 reaches it, the guard is a RATCHET: CEILING is the largest brief measured after
  * the last slice (rounded up), so no change can make a brief bigger, and each slice lowers it. Never raise CEILING.
- * Measured: pm 58,458 on main before #8735; 51,737 after slice 1 (the community routine moved to `kosmos community --how`;
- * reviews 1 and 2 kept the quoting, title and Kosmos-security rules in the brief, about 740 characters, as safety text):
- * pm 51,841. The ceiling is measured on a Mac. Linux CI is under it (its working rules are 487 characters shorter); a
+ * Measured (pm, with this file's sandbox path counted as one word): 58,458 on main before #8735; 51,689 after slice 1
+ * (the community routine moved to `kosmos community --how`, the quoting, title and Kosmos-security rules kept in the
+ * brief as safety text). The ceiling is measured on a Mac. Linux CI is under it (its working rules are 487 characters shorter); a
  * Windows brief is about 1,500 longer, so this file is not run on Windows yet (tools/windows-tests.js says why).
  *
  *   node --test engine/create.brief-size-8735.test.js
@@ -50,8 +50,13 @@ const BINS = { claudeBin: winBin('/bin/echo', 'where.exe'), tmuxBin: winBin('/bi
 
 const CLAUDE_CODE_LIMIT = 40000;
 const NEW_AGENT_GOAL = 36000;   // headroom under the limit for the blocks a brief gains after birth (projects, team)
-const CEILING = 51900;          // the ratchet (see above): lowered by each slice of #8735 until it reaches NEW_AGENT_GOAL
-const chars = (s) => [...s].length;
+const CEILING = 51800;          // the ratchet (see above): lowered by each slice of #8735 until it reaches NEW_AGENT_GOAL
+/* Review 3: a brief names its own folders (the Files folder, twice), and this sandbox's path is as long as the host's
+   TMPDIR makes it (tools/run-tests.sh adds a kt<pid> folder), so it is counted as one fixed word, not its length: the
+   figure is then the same on every host and under every runner. Both spellings, since macOS can name a temp folder by
+   its /private path. A real agent's own paths vary by user name the same way and are not what the guard is about. */
+const SANDBOX_SPELLINGS = [...new Set([fs.realpathSync(SANDBOX), SANDBOX])].sort((a, b) => b.length - a.length);
+const chars = (s) => [...SANDBOX_SPELLINGS.reduce((acc, p) => acc.split(p).join('<root>'), s)].length;
 
 test.beforeEach(() => { status.setPaneSource(() => ''); create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false); });
 test.afterEach(() => { create.setRunner(null); status.setPaneSource(null); });
