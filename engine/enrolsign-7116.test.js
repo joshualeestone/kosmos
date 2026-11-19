@@ -133,3 +133,65 @@ test('#7116 step 2 caller: approve signs with this app\'s helper, refuses with n
   const second = await es.approve(es.review(e.bytes, { dataRoot: root }), { adminId: OTHER_ADMIN, expectedKey: h.expectedKey, keyFile: h.keyFile, dataRoot: root, appDir: h.app });
   assert.equal(second.adminId, OTHER_ADMIN);
 });
+
+/* ---- the route client (Renet Tilley's pinned interface, #7116 comment 7021733967) ---- */
+// A stand-in coordinator: start answers bytes it builds from the body (as the coordinator does with escrowd's nonce),
+// sign records what it is sent, pending lists entries.
+function coordinator({ swapKey = false, inviter } = {}) {
+  const calls = [];
+  const entries = new Map();
+  const send = async (method, route, body) => {
+    calls.push({ method, route, body });
+    if (method === 'POST' && route === '/v1/org/devkey-enrol') {
+      const key = swapKey ? dk.rawPublic(crypto.generateKeyPairSync('ed25519').publicKey) : Buffer.from(body.key, 'base64url');
+      const bytes = se.encodeDevkeyEnrol(ORG, MEMBER, key, Buffer.from(body.codeHash, 'base64url'), Buffer.from(body.joinTag, 'base64url'),
+        inviter || body.inviterAdminId, '7', Buffer.alloc(32, 0x5a));
+      entries.set('e1', bytes);
+      return { ok: true, data: { id: 'e1', bytes: bytes.toString('base64url'), expiresAt: 'later' } };
+    }
+    if (method === 'POST' && route === '/v1/org/devkey-enrol/e1/sign') return { ok: true, data: { ok: true, waiting: true, signedBy: [], keySigned: true } };
+    if (method === 'GET' && route === '/v1/org/devkey-enrol/pending') {
+      return { ok: true, data: { pending: [{ id: 'e1', member: MEMBER, bytes: entries.get('e1').toString('base64url'), signedBy: [], keySigned: true, expiresAt: 'later' },
+        { id: '../bad', bytes: 'AA' }] } };
+    }
+    return { ok: false, because: 'no such route' };
+  };
+  return { send, calls };
+}
+const macKey = () => { const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519'); return { ok: true, privateKey, publicKey }; };
+
+test('#7116 step 2 caller: the member\'s Mac starts, checks the bytes, signs them and posts keySig; the body never names an org', async () => {
+  const c = coordinator(); const mac = macKey(); const code = dk.newJoinCode();
+  const out = await es.startAndSign({ org: ORG, member: MEMBER, joinCode: code, inviterAdminId: INVITER, deviceKey: mac, send: c.send });
+  assert.equal(out.id, 'e1');
+  assert.equal(out.answer.keySigned, true);
+  const [start, sign] = c.calls;
+  assert.equal(start.route, '/v1/org/devkey-enrol');
+  assert.deepEqual(Object.keys(start.body).sort(), ['codeHash', 'inviterAdminId', 'joinTag', 'key']);
+  assert.ok(Buffer.from(start.body.joinTag, 'base64url').equals(dk.joinTag(code, ORG, MEMBER, dk.rawPublic(mac.publicKey))));
+  const bytes = se.encodeDevkeyEnrol(ORG, MEMBER, dk.rawPublic(mac.publicKey), dk.joinCodeHash(code), dk.joinTag(code, ORG, MEMBER, dk.rawPublic(mac.publicKey)), INVITER, '7', Buffer.alloc(32, 0x5a));
+  assert.ok(crypto.verify(null, bytes, mac.publicKey, Buffer.from(sign.body.keySig, 'base64url')), 'keySig is over the returned bytes');
+});
+
+test('#7116 step 2 caller: a coordinator that swaps the key or the inviter gets no signature', async () => {
+  const swapped = coordinator({ swapKey: true });
+  await assert.rejects(es.startAndSign({ org: ORG, member: MEMBER, joinCode: dk.newJoinCode(), inviterAdminId: INVITER, deviceKey: macKey(), send: swapped.send }),
+    /different key from this computer/);
+  assert.equal(swapped.calls.length, 1, 'nothing was signed or posted');
+  const otherInviter = coordinator({ inviter: OTHER_ADMIN });
+  await assert.rejects(es.startAndSign({ org: ORG, member: MEMBER, joinCode: dk.newJoinCode(), inviterAdminId: INVITER, deviceKey: macKey(), send: otherInviter.send }),
+    /different inviting admin/);
+  assert.equal(otherInviter.calls.length, 1);
+});
+
+test('#7116 step 2 caller: pending decodes each entry\'s bytes, drops a malformed id, and an admin\'s signature goes as escrowd\'s Wire object', async () => {
+  const c = coordinator();
+  await es.startAndSign({ org: ORG, member: MEMBER, joinCode: dk.newJoinCode(), inviterAdminId: INVITER, deviceKey: macKey(), send: c.send });
+  const list = await es.pending({ send: c.send });
+  assert.equal(list.length, 1, 'the malformed id is dropped');
+  assert.equal(se.decodeDevkeyEnrol(list[0].bytes).member, MEMBER);
+  await es.postAdminSig('e1', { adminId: OTHER_ADMIN, sig: Buffer.from('3045', 'hex') }, { send: c.send });
+  assert.deepEqual(c.calls.at(-1).body, { sig: { adminId: OTHER_ADMIN, se: Buffer.from('3045', 'hex').toString('base64url') } });
+  await assert.rejects(es.postAdminSig('../x', { adminId: 'a', sig: Buffer.alloc(1) }, { send: c.send }), /not an enrolment id/);
+  await assert.rejects(es.pending({ send: async () => ({ ok: false, because: 'this computer is not connected to Kosmos+' }) }), /not connected/);
+});
