@@ -119,8 +119,10 @@ test('#8736 a not-run mark already there is the closer\'s word: a later replace 
   const b = board();
   const n = b.kid('closed not run, then replaced');
   tasks.setBuilt(b.id, n, { by: 'rex' });
-  /* Closed --not-run while built (allowed before kosmos#8734's refusal): the close keeps closedHow, so it reads as ran. */
-  tasks.close(b.id, n, { notRun: true });
+  /* A task closed --not-run while built BEFORE kosmos#8734's refusal: closed (its close keeps closedHow, so it reads as
+     ran) and marked never run. The refusal stops making that record now, so it is made as an older one was left. */
+  tasks.close(b.id, n);
+  projects.mutate(b.id, (p) => ({ ...p, tasks: p.tasks.map((t) => (t.number === n ? { ...t, closedUnrun: true } : t)) }));
   assert.equal(b.stored(n).closedUnrun, true);
   assert.equal(tasks.ranOnRecord(b.stored(n)).any, true, 'CONTROL: the record does say it ran, so only the rule keeps the mark');
   tasks.close(b.id, n, { replacedBy: b.instead });
@@ -128,14 +130,15 @@ test('#8736 a not-run mark already there is the closer\'s word: a later replace 
   assert.equal(b.stored(n).closedUnrun, true, 'a replace took back the closer\'s not-run');
 });
 
-test('#8736 --not-run on a ran-then-replaced task is the closer saying so: it is marked never run', () => {
+test('#8736 --not-run on a ran-then-replaced task is refused (kosmos#8734), and the record stays replaced and done', () => {
   const b = board();
   const n = b.kid('replaced, then said not run');
   tasks.setBuilt(b.id, n, { by: 'rex' });
   tasks.close(b.id, n, { replacedBy: b.instead });
   assert.equal(b.stored(n).closedUnrun, false);
-  tasks.close(b.id, n, { notRun: true });
-  assert.equal(b.stored(n).closedUnrun, true);
+  assert.throws(() => tasks.close(b.id, n, { notRun: true }), /so it ran: it cannot be marked never run/);
+  assert.equal(b.stored(n).closedUnrun, false, 'a refused --not-run changed the record');
+  assert.equal(b.stored(n).replacedBy, b.instead);
 });
 
 test('#8736 a ran-then-replaced task replaced again by another task stays not "never run" (what its close kept carries it)', () => {

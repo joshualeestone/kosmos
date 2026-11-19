@@ -143,7 +143,7 @@ function checkResultsOf(t) {
    or, for a closed task, what its close kept of one (closedHow 'note' or 'change', or a landed commit; only closes since
    #8552 keep closedHow, so a built task closed before that reads as not built: nothing is guessed). Read from the
    task as it stands BEFORE a close takes its built mark away. Only the task's own record: a parent whose parts were
-   checked is not counted for them. Returns { met, ran, built, any }. kosmos#8734's --not-run refusal reads the same. */
+   checked is not counted for them. Returns { met, ran, built, any }. kosmos#8734's --not-run refusal in setClosed calls it. */
 function ranOnRecord(t) {
   const met = ((t && checkResultsOf(t)) || []).filter((r) => r && r.met === true).length;
   const ran = !!t && typeof t.lastRunAt === 'string' && t.lastRunAt !== '';
@@ -1396,9 +1396,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
        recorded with kosmos task ran stays on the task through a reopen, and still counts. Only the task's own record is
        read: a parent whose parts were checked may still be closed as never run itself (#8301 counts parts apart). */
     if (notRun) {
-      const met = (checkResultsOf(t) || []).filter((r) => r && r.met === true).length;
-      const ran = typeof t.lastRunAt === 'string' && t.lastRunAt !== '';
-      const built = !!t.builtAt || t.closedHow === 'note' || t.closedHow === 'change' || (typeof t.landedCommit === 'string' && t.landedCommit !== '');
+      const { met, ran, built } = ranOnRecord(t);   // kosmos#8736: the one "it ran" test, shared with the replaced path
       if (met || ran || built) {
         throw new Error('task ' + t.number + (met ? ' has ' + (met === 1 ? 'a check' : met + ' checks') + ' reported met'
           : ran ? ' has a run recorded on it' : ' was marked built')
