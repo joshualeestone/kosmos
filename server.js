@@ -24848,7 +24848,7 @@ const server = http.createServer(async (req, res) => {
           }
         }
         /* Asked of the reader: it named the reader (an @name, or an agent's `Sender -> Name:` header; messages.namedIn,
-           the claim guard's own reading), or the person posted and it reached the reader. A colleague's post that only
+           the claim guard's own reading), or the person posted and it reached the reader, unless it @-names only other agents (kosmos#8734). A colleague's post that only
            reached it is not counted: an FYI is not an ask, and listing it would invite the re-answers this exists to
            stop. Never the reader's own post. The rows above drop `addressed`, so it is read from the stored rows. */
         const namedReader = new Set();

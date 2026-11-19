@@ -59,7 +59,8 @@ const unanswered = async (project, who = ME) => {
   assert.equal(res.status, 200);
   return res.text();
 };
-const listed = (text, id) => text.split('\n').some((l) => l.includes('[' + id + ']') && !l.startsWith('[kosmos]'));
+// A listed post's own line, never a [kosmos] note about it (those start with a time, then [kosmos]).
+const listed = (text, id) => text.split('\n').some((l) => l.includes('[' + id + ']') && !/^\S*\s*\[kosmos\]/.test(l) && !/\s\[kosmos\]\s/.test(l.slice(0, 40)));
 
 test('kosmos#8734 item 4: a person\'s post naming only another agent is not on the reader\'s unanswered list, and is on theirs', async () => {
   const pid = newRoom('Others');

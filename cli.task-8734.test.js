@@ -87,6 +87,12 @@ test('#8734 item 1: the list the CLIs read carries an open task\'s wake words, a
   const row = rows.find((t) => t.number === n);
   assert.match(String(row.wakeWords), /^waits until /, JSON.stringify(row));
   assert.equal(rows.find((t) => t.number === none).wakeWords, undefined);
+  // CONTROL: a closed task's wake is not shown (the Tasks view's rule too).
+  const shut = newTask('Closed with a wake');
+  tasks.setWake(pid, shut, { kind: 'at', at: Date.now() + 2 * 3600 * 1000 });
+  tasks.close(pid, shut);
+  const after = (await (await fetch(`${base}/api/tasks?project=${encodeURIComponent(pid)}`)).json()).tasks;
+  assert.equal(after.find((t) => t.number === shut).wakeWords, undefined);
   // The grouped list (`kosmos task list` sends order=state) carries it too.
   const grouped = (await (await fetch(`${base}/api/tasks?project=${encodeURIComponent(pid)}&order=state`)).json()).tasks;
   assert.match(String(grouped.find((t) => t.number === n).wakeWords), /^waits until /);
@@ -101,6 +107,9 @@ test('#8734 item 1: Mac task show prints an active timed wake, and none once it 
   const shown = await mac(['task', 'show', pid, String(n)]);
   assert.equal(shown.code, 0, shown.out);
   assert.match(wakeLine(shown.out), /^Wake: waits until /, shown.out);
+  // kosmos task list prints its [waits ...] mark too, now that the list carries the words.
+  const list = await mac(['task', 'list', pid]);
+  assert.match(list.out.split('\n').find((l) => l.includes('Mac wake')) || '', /\[waits until /, list.out);
   tasks.setWake(pid, n, null, { by: 'mara' });
   const after = await mac(['task', 'show', pid, String(n)]);
   assert.equal(wakeLine(after.out), '', 'CONTROL: a cleared wake is not shown: ' + after.out);
@@ -112,6 +121,8 @@ test('#8734 item 1: Windows task show prints an active timed wake', async () => 
   const shown = await win(['task', 'show', pid, String(n)]);
   assert.equal(shown.code, 0, shown.err);
   assert.match(wakeLine(shown.out), /^Wake: waits until /, shown.out);
+  const list = await win(['task', 'list', pid]);
+  assert.match(list.out.split('\n').find((l) => l.includes('Windows wake')) || '', /\[waits until /, list.out);
 });
 
 /* ---- 2. an extra word after a valid option is the one named ---- */
@@ -171,13 +182,21 @@ test('#8734 item 3: the board refuses closing as never run a task with a check r
   r = await close(checked, { notRun: true });
   assert.equal(r.status, 400);
 });
-test('#8734 item 3: both CLIs say the refusal in the board\'s words', { skip: SKIP_POSIX_SHELL }, async () => {
-  const n = newTask('Checked for the CLIs');
+const checkedTask = (name) => {
+  const n = newTask(name);
   tasks.setDoneWhen(pid, n, ['it works']);
   tasks.setCheckResult(pid, n, 1, true, 'ran it, it works', { by: 'mara' });
+  return n;
+};
+test('#8734 item 3: the Mac CLI says the refusal in the board\'s words', { skip: SKIP_POSIX_SHELL }, async () => {
+  const n = checkedTask('Checked for the Mac CLI');
   const m = await mac(['task', 'close', pid, String(n), '--not-run']);
   assert.notEqual(m.code, 0, m.out);
   assert.match(m.out, /cannot be closed as never run/, m.out);
+  assert.equal(isClosed(n), false);
+});
+test('#8734 item 3: the Windows CLI says the refusal in the board\'s words', async () => {
+  const n = checkedTask('Checked for the Windows CLI');
   const w = await win(['task', 'close', pid, String(n), '--not-run']);
   assert.notEqual(w.code, 0, w.err);
   assert.match(w.err + w.out, /cannot be closed as never run/);
