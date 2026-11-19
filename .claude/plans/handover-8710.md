@@ -62,6 +62,11 @@ from them. Weakest point: (b) leaves the project on A's Mac, which is going away
    a code change (and its storage is believed EU-only, unchecked). Josh told via Splinter to skip the Hetzner bucket.
    The one ruling asked: may packs live in the AWS account we hold (Claw Cabal LLC, 230470759562, us-east-2, user
    kosmos-agent)? Splinter's lean: no, a Kosmos-owned account. If yes, I make the bucket myself.
+   **RULED 21:05 CST 11-18 (Josh in #admin, relayed by Splinter):** "Claw Cabal is mine and it's what turned into
+   Kosmos basically." So the packs live in the Claw Cabal LLC AWS account, us-east-2; no separate Kosmos-owned
+   account. Josh sends keys by Kosmos DM, needed around 11-20. With them I make a plain private bucket (no Object
+   Lock, block public access, 7-day lifecycle expiry) and a key limited to Put/Get/Delete on it, filed with
+   /add-secret, then set the KOSMOS_HANDOVER_* variables in the coordinator env with Baron's deploy.
    The paragraph below is the 13:4x version, kept as history.
    **DEPENDENCY, needs an operator:** prod has no object store configured (no backup store variable in the
    coordinator env, 11-18). It needs a bucket we own and a key limited to that bucket. Which provider account is
@@ -112,7 +117,7 @@ fingerprint of the hand-over key, for the admin to compare by eye. Not compared,
   the locked backup bucket (a company's backups and a hand-over's pack in one place, and a pack kept for 30 days).
   Weakest premise: that the delete credential on the coordinator is acceptable; backups deliberately hold PutObject only.
 - The bucket is NOT needed to build or test this: backup.rs's tests run against a loopback store (`dev_endpoint`).
-  Only switching it on in prod waits on the Kosmos-owned bucket (asked of Josh 11-18 12:56 via Splinter).
+  Only switching it on in prod waits on the bucket (Claw Cabal LLC AWS account, ruled 11-18 21:05; keys ~11-20).
 - Board side (slice 3) drives `engine/backuprun.js` `runBackup` with: the member key = B's one-time public key, the
   hand-over's grant routes in place of the backup grant routes, and roots = only the named agents' folders.
 
