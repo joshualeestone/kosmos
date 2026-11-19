@@ -74,7 +74,7 @@ function keyDir(root) { return path.join(root || require('./store').ROOT, 'hando
 function keyFile(id, root) { return path.join(keyDir(root), `${id}.key.json`); }
 
 /* Kept beside the key: received / restoring (a Kosmos id), expect (the agent folders a restore produced, noted before
-   its finish), attempts (a count), missingSince (ms), final (why it ended). */
+   its finish), attempts (a count), missingSince / outageSince (ms, when the wait began), final (why it ended). */
 const META = ['received', 'restoring', 'expect', 'attempts', 'missingSince', 'outageSince', 'final'];
 /* { sk, pk, ...META } from disk, null when there is none, or { problem } when there is one that cannot be used. */
 function readKey(id, root) {
@@ -270,7 +270,11 @@ function undoTry(base, world) {
   let dir = null;
   try { dir = w.worldBaseDir(base, world); } catch { dir = null; }
   if (!dir || !path.isAbsolute(dir) || !world.id || world.id === w.DEFAULT_ID) return;
-  try { fs.rmSync(path.join(dir, require('./restoreworld').RESTORE_DIR), { recursive: true, force: true }); } catch { /* left */ }
+  // The restore folder holds what a finish did not move (profiles, transcripts, held-back folders) once anything was
+  // finished in: removed only while the Kosmos's workers folder is still empty, so nothing a finish needs is lost.
+  let workersEmpty = false;
+  try { workersEmpty = fs.readdirSync(w.envOverridesFor(base, world).AGENT_WORKFORCE_WORKERS).length === 0; } catch (e) { workersEmpty = !!e && e.code === 'ENOENT'; }
+  if (workersEmpty) { try { fs.rmSync(path.join(dir, require('./restoreworld').RESTORE_DIR), { recursive: true, force: true }); } catch { /* left */ } }
   if (!hidden) return;
   if (!untouched(dir)) return;
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* hidden; its files stay until removed by hand */ }
@@ -323,13 +327,14 @@ async function receive(part, org, kp, deps) {
   try { updateKey(part.id, d.root, { restoring: made.world.id }); } catch { undoTry(base, made.world); return { ok: false, because: 'this computer could not note the hand-over it is unpacking' }; }
   let sink;
   try { sink = sinks.createRestoreSink(made.restoreDir, {}); } catch { undoTry(base, made.world); return { ok: false, because: 'the folder for these agents could not be used' }; }
+  const budget = diskBudget(made.restoreDir, d);
   let result;
   try {
     fetcher.plan(keys);
     result = await require('./backuprestore').restoreSnapshot({
       memberSk: kp.sk, devicePubAtSnapshot: senderPub, ctx, manifestObject: body,
       fetchChunk: (name, o) => (opened.objects && opened.objects[name] ? fetcher.fetchObject(opened.objects[name], o) : null),
-      sink, maxTotalBytes: diskBudget(made.restoreDir, d),
+      sink, maxTotalBytes: budget,
     });
   } catch { result = null; }
   try { sink.close({}); } catch { /* finish refuses a folder still holding the sink's entries */ }
@@ -343,7 +348,9 @@ async function receive(part, org, kp, deps) {
     if (result && !failed) return fail('the pack is not one this computer can unpack');
     if (failed && failed.length && !failed.every(passing)) return fail('part of the pack is not what its sender signed');
     if (failed && !failed.length && !restored) return fail('the pack holds no files');
-    if (failed && failed.some((x) => x && LOCAL_FAILURES.has(x.why))) return { ok: false, because: 'this computer has no room for the agents, or could not write them' };
+    // Over the byte budget when free disk was not the limit: the pack asks for more than any pack may hold.
+    if (budget === MAX_PACK_BYTES && failed.some((x) => x && x.why === 'the restore is over its byte budget')) return fail('the pack asks for more room than one hand-over can hold');
+    if (failed && failed.some((x) => x && LOCAL_FAILURES.has(x.why))) return { ok: false, because: 'the agents could not be written on this computer (no room left, or a file that could not be written)' };
     return { ok: false, because: fetcher.state.why || 'the agents could not be unpacked on this computer' };
   }
   const expect = agentsOf(result.restored);
@@ -493,7 +500,11 @@ async function tick(state, deps) {
         // Not finished: take it out before trying again.
         // Finished again first (it carries on whatever an earlier finish left), and received only once that finish is
         // ok: an agent folder in place alone may be a finish that stopped before the rest.
-        if (refinish(d.base, kp.restoring) && finished(d.base, { id: kp.restoring }, kp.expect)) {
+        // If finishing again keeps failing but the agents are already in place (a person may have added a project, or
+        // hidden the Kosmos), the copy is still received: never a second one, never this one hidden. Its leftovers
+        // stay in its restore folder for the review screen.
+        refinish(d.base, kp.restoring);
+        if (finished(d.base, { id: kp.restoring }, kp.expect)) {
           try { updateKey(part.id, d.root, { received: kp.restoring, restoring: null, expect: null }); } catch { /* restoring still says it */ }
           if ((z = await closing(part, true))) return z;
           continue;
