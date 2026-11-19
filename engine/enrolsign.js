@@ -170,5 +170,36 @@ async function postAdminSig(id, signed, { send } = {}) {
     'send the approval');
 }
 
+/**
+ * What the admin screen lists: each waiting enrolment, reviewed here (decoded, with this Mac's kept code when it is the
+ * inviter), as { id, prepared, member, fingerprint, inviterChecked, unusual, signedBy, keySigned, expiresAt, refused }.
+ * `prepared` is what approve() takes. An entry whose bytes do not decode, or whose kept code does not match, is listed
+ * with `refused` (the reason, a fixed sentence) and no `prepared`, so the screen can say so and never offer to sign it.
+ * Entries this admin already signed are left out (signedBy names them).
+ */
+async function adminQueue({ adminId, send, dataRoot, now } = {}) {
+  text(adminId, 'admin');
+  const out = [];
+  for (const e of await pending({ send })) {
+    if (e.signedBy.includes(adminId)) continue;
+    const row = { id: e.id, signedBy: e.signedBy, keySigned: e.keySigned, expiresAt: e.expiresAt };
+    try {
+      const prepared = review(e.bytes, { dataRoot, now });
+      Object.assign(row, { prepared, member: prepared.shown.member, fingerprint: prepared.fingerprint,
+        inviterChecked: prepared.inviterChecked, unusual: prepared.unusual, refused: null });
+      // The inviter whose code is not on this computer cannot sign (seadmin.sign refuses); say so before asking.
+      if (prepared.decoded.inviterAdminId === adminId && !prepared.inviterChecked) {
+        Object.assign(row, { prepared: null, refused: 'you sent this invite, but its join code is not on this computer' });
+      }
+    } catch (err) {
+      const why = /does not match that enrolment/.test(String(err && err.message)) ? 'this enrolment does not match the invite you sent'
+        : 'this enrolment could not be read';
+      Object.assign(row, { prepared: null, member: null, fingerprint: null, inviterChecked: false, unusual: false, refused: why });
+    }
+    out.push(row);
+  }
+  return out;
+}
+
 module.exports = { CODE_MAX_AGE_MS, helperPath, keepJoinCode, joinCodeFor, forgetJoinCode, review, approve,
-  startAndSign, pending, postAdminSig };
+  startAndSign, pending, postAdminSig, adminQueue };

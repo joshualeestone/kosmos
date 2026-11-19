@@ -195,3 +195,32 @@ test('#7116 step 2 caller: pending decodes each entry\'s bytes, drops a malforme
   await assert.rejects(es.postAdminSig('../x', { adminId: 'a', sig: Buffer.alloc(1) }, { send: c.send }), /not an enrolment id/);
   await assert.rejects(es.pending({ send: async () => ({ ok: false, because: 'this computer is not connected to Kosmos+' }) }), /not connected/);
 });
+
+test('#7116 step 2 caller: adminQueue lists what an admin can sign, says why it cannot sign the rest, and leaves out what it signed', async () => {
+  const root = fresh();
+  const c = coordinator(); const code = dk.newJoinCode();
+  await es.startAndSign({ org: ORG, member: MEMBER, joinCode: code, inviterAdminId: INVITER, deviceKey: macKey(), send: c.send });
+  // The second admin: offered, nothing checked.
+  const [second] = await es.adminQueue({ adminId: OTHER_ADMIN, send: c.send, dataRoot: root });
+  assert.equal(second.refused, null);
+  assert.equal(second.inviterChecked, false);
+  assert.equal(second.member, MEMBER);
+  assert.match(second.fingerprint, /^[0-9a-f]{8}( [0-9a-f]{8}){3}$/);
+  // The inviter without its code: listed, not offered.
+  const [noCode] = await es.adminQueue({ adminId: INVITER, send: c.send, dataRoot: root });
+  assert.equal(noCode.prepared, null);
+  assert.match(noCode.refused, /join code is not on this computer/);
+  // The inviter with the right code: offered, checked.
+  es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root });
+  const [checked] = await es.adminQueue({ adminId: INVITER, send: c.send, dataRoot: root });
+  assert.equal(checked.inviterChecked, true);
+  assert.ok(checked.prepared);
+  // The inviter with ANOTHER code kept for this member: refused, never offered.
+  es.keepJoinCode(ORG, MEMBER, dk.newJoinCode(), { dataRoot: root });
+  const [wrong] = await es.adminQueue({ adminId: INVITER, send: c.send, dataRoot: root });
+  assert.equal(wrong.prepared, null);
+  assert.match(wrong.refused, /does not match the invite you sent/);
+  // An admin who already signed it does not see it again.
+  const signedSend = async (m, r, b) => (m === 'GET' ? { ok: true, data: { pending: [{ id: 'e1', bytes: (await c.send(m, r, b)).data.pending[0].bytes, signedBy: [OTHER_ADMIN], keySigned: true }] } } : c.send(m, r, b));
+  assert.equal((await es.adminQueue({ adminId: OTHER_ADMIN, send: signedSend, dataRoot: root })).length, 0);
+});
