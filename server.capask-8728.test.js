@@ -201,6 +201,7 @@ test('8728 review 3: a tunnel that restarts on the same binary does not get a fr
 });
 
 test('8728 review 3: pending while this board has no tunnel of its own, no child, or the child has not said yet; not once it has', async () => {
+  try {
   const yes = () => warm().then((c) => assert.ok(c.has('session-headers')));
   remote.resetConnectorCapabilitiesForTests({ startedHere: false, runningPid: TEST_PID, commandOf: () => null });
   await yes();   // a yes is kept, so only "no tunnel started here" can make this pending
@@ -214,7 +215,7 @@ test('8728 review 3: pending while this board has no tunnel of its own, no child
   assert.equal(remote.connectorCapabilitiesPending(), true, 'the child\'s status not read yet');
   assert.ok(remote.connectorCapabilities().has('session-headers'));
   assert.equal(remote.connectorCapabilitiesPending(), false, 'CONTROL: the binary said yes and the child listed it');
-  reset(); await warm();
+  } finally { reset(); await warm(); }
 });
 
 test('8728 review 4: stopping the tunnel while an ask is on its way: the late answer is dropped and arms nothing', async () => {
@@ -230,4 +231,50 @@ test('8728 review 4: stopping the tunnel while an ask is on its way: the late an
     assert.equal(lines.length, 1, 'one ask, and no self-retry after the stop: ' + JSON.stringify(lines));
     assert.match(lines[0], /dropped, the tunnel has stopped or changed since/);
   } finally { releaseLog(); process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
+});
+
+test('8728 review 5: the stop path itself (stopChild, reached through resetForTests) drops an ask on its way', async () => {
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = slow('stop-path-tunnel', 60 * 1000);
+  catchLog();
+  try {
+    reset({ askMs: 200, retryAskMs: 200, recheckMs: 10 });
+    const asked = warm();
+    remote.resetForTests();   // ends in stopChild()
+    await asked;
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(lines.length, 1, 'one ask, and no self-retry after the stop: ' + JSON.stringify(lines));
+    assert.match(lines[0], /dropped, the tunnel has stopped or changed since/);
+  } finally { releaseLog(); process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
+});
+
+test('8728 review 5: a connector that ANSWERED no is never "still starting", and a recheck that times out keeps that answer', async () => {
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  // Two bodies of the SAME length, so the binary key (path, mtime, size) can be kept while the program changes.
+  const SAYS_NO = "process.exitCode = 2;                   ";
+  const HANGS = "setTimeout(() => {}, 60 * 1000);        ";
+  assert.equal(SAYS_NO.length, HANGS.length);
+  const bin = connector('same-binary-tunnel', SAYS_NO);
+  const SAME_TIME = 1700000000;   // whole seconds: a Date round trip would lose the sub-millisecond part of mtimeMs
+  fs.utimesSync(bin, SAME_TIME, SAME_TIME);
+  catchLog();
+  try {
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = bin;
+    // No child running (a crash backoff): the running half alone would say pending.
+    remote.resetConnectorCapabilitiesForTests({ runningPid: null, commandOf: () => null, timings: { askMs: 300, retryAskMs: 300, recheckMs: 10 } });
+    assert.equal((await warm()).size, 0, 'answered: none');
+    assert.equal(remote.connectorCapabilitiesPending(), false, 'an answered no is the update sentence, even with no child');
+    // Ten minutes later the same binary is asked again and this time does not answer (it hangs).
+    fs.writeFileSync(bin, "'use strict';\n" + HANGS + '\n');
+    fs.utimesSync(bin, SAME_TIME, SAME_TIME);   // the same binary, as far as the key can tell
+    const t0 = Date.now();
+    remote.connectorCapabilities(t0 + 10 * 60 * 1000 + 1);   // due: asks in the background
+    assert.ok(await until(() => lines.length >= 2, 5000), 'the recheck ran');
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(lines.length, 2, 'no self-retries: the earlier answer stands: ' + JSON.stringify(lines));
+    assert.match(lines[1], /the earlier answer is kept, asked again in ten minutes/);
+    assert.equal(remote.connectorCapabilitiesPending(), false, 'still the update sentence');
+  } finally {
+    releaseLog(); process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm();
+  }
 });
