@@ -236,7 +236,7 @@ test('kosmos#8721: a status check cut off (curl 52) exits 1 and says it could no
   withSilentBoard('hangup', async (port) => {
     const out = await claim(port, [], ['p', 'm3', '--status']);
     assert.equal(out.code, 1, out.stdout + out.stderr);
-    assert.match(out.stdout + out.stderr, /read that claim/);
+    assert.match(out.stdout + out.stderr, /tell who holds that post/);
     assert.doesNotMatch(out.stdout + out.stderr, /may still have happened|may have happened/);
   }));
 

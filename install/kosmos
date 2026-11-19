@@ -5500,7 +5500,7 @@ cmd_claim() {
     say "Kosmos was slow to answer and we stopped waiting. Run the same command again: it is safe, and it says whether the claim is yours."
     exit 3
   elif [ "$rc" -ne 0 ] && [ "$status" = 1 ]; then
-    say_unreached "read that claim" "$rc"   # kosmos#8721: a read, so never "it may still have happened"
+    say_unreached "tell who holds that post" "$rc"   # kosmos#8721: a read, so never "it may still have happened"
     exit 1
   elif [ "$rc" -ne 0 ]; then
     say_unreached "keep that claim" "$rc" write
@@ -5906,7 +5906,7 @@ kosmos_command_list() {
   printf '  kosmos away          what reached you while you were not running\n'
   printf '  kosmos file-notices  take the notices Kosmos kept for you when another agent was about to change a file of yours\n'
   printf '  kosmos react         react to a post in a project room\n'
-  printf '  kosmos claim         claim a request in a project room before you take it on\n'
+  printf '  kosmos claim         claim a request in a project room before you take it on (--status: see who holds it, taking nothing)\n'
   printf '  kosmos report        say what you are doing: working, blocked, waiting on someone\n'
   printf '  kosmos room          read a project room\n'
   printf '  kosmos notice        a job on this computer writes a line in a room, in Kosmos'"'"'s voice\n'

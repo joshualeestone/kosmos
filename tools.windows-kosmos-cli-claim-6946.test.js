@@ -130,6 +130,13 @@ test('kosmos#8721: --status sends status and says who holds the post, whether yo
   const slow = await run(['claim', 'proj-1', 'm3', '--status'], refusedWith(Object.assign(new Error('timeout'), { name: 'TimeoutError' })));
   assert.equal(slow.code, 1);
   assert.match(slow.err, /could not tell who holds that post\. Nothing was claimed/);
+  // A redirect is refused unfollowed; for a status check (a read) the line does not say to check before doing it again.
+  const moved = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ status: 302, body: '' }));
+  assert.equal(moved.code, 1);
+  assert.match(moved.err, /We could not tell who holds that post\.$/);
+  assert.doesNotMatch(moved.err, /check before doing it again/);
+  const movedClaim = await run(['claim', 'proj-1', 'm3'], () => ({ status: 302, body: '' }));
+  assert.match(movedClaim.err, /check before doing it again/, 'CONTROL: a claim (a write) does say it');
   const both = await run(['claim', 'proj-1', 'm3', '--status', '--release']);
   assert.equal(both.code, 2);
   assert.equal(both.calls.length, 0);

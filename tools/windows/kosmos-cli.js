@@ -4034,7 +4034,7 @@ async function verbClaim(ctx, args) {
   if (!project || !of || (release && status)) { ctx.err(USAGE.claim); return 2; }
   if (tooManyWords(ctx, 'claim', 2, USAGE.claim, words)) return 2;
   const r = await ctx.call('POST', '/api/react', { project, of, claim: status ? 'status' : release ? 'release' : 'claim', from_pane: '' }, status ? { read: true } : undefined);
-  if (!r.reached && status) { if (r.timedOut) { ctx.err('Kosmos was slow to answer and we stopped waiting, so we could not tell who holds that post. Nothing was claimed; run the same command again.'); return 1; } return ctx.unreachable('read that claim'); }
+  if (!r.reached && status) { if (r.timedOut) { ctx.err('Kosmos was slow to answer and we stopped waiting, so we could not tell who holds that post. Nothing was claimed; run the same command again.'); return 1; } return ctx.unreachable('tell who holds that post'); }
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Run the same command again: it is safe, and it says whether the claim is yours.') : ctx.unreachable('claim');
   if (ctx.wrongWorld(r)) { ctx.err(ctx.outbox().WRONG_WORLD_SENTENCES.notOpen); return 1; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not read that claim: ' + ctx.refusedBy(r) + '.'); return 1; }
@@ -4210,7 +4210,7 @@ const DESCRIBE = {
   away: 'what reached you while you were not running',
   post: 'post in a project room',
   react: 'react to a post in a project room',
-  claim: 'claim a request in a project room before you take it on',
+  claim: 'claim a request in a project room before you take it on (--status: see who holds it, taking nothing)',
   report: 'say what you are doing: working, blocked, waiting on someone',
   whoami: 'say which agent you are and which account you are on',
   handoff: 'print facts for your handoff: your live state, artifact fingerprints, instruction and git status',

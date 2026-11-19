@@ -19,6 +19,10 @@ is a usage error. The usage line on both CLIs says plainly that plain claim TAKE
 - The agent instructions (engine/defaults.js) are NOT changed. Adding a --status line there changes the doctrine
   block, which needs a version bump that banners every agent, and the card asked only for the command and its help.
   Recommend it for the next doctrine change; noted on the card.
+- A board older than this CLI refuses claim 'status' ("we could not tell whether to claim that post or give it
+  back"), so the CLI says "Could not check: ..." and nothing is written; it reads oddly, but it is safe, and it lasts
+  only until the board is updated with the CLI.
+- The one-line help (`kosmos help`) names --status too, so an agent scanning the verbs finds it.
 - Weakest premise: agents learn --status only from the usage line; an agent that never reads the help keeps using
   plain claim to check. The note on the card says how to close that.
 
