@@ -3,7 +3,7 @@
 
    Why it matters (kosmos#8599): the wrapper exports NODE_OPTIONS (the `--require engine/clipipe.js` preload) and
    KOSMOS_CLIPIPE_SET=1, and its non-node children inherit both until a node restores them. Its tmux calls today read
-   (list, display-message, capture-pane; the bundled tmux 3.5a asked to list with no server starts one that exits at
+   (list-sessions, display-message; the bundled tmux 3.5a asked to list with no server starts one that exits at
    once, status.js notes), and the board restores the environment before it starts agents. A
    `tmux new-session` (or `start-server`, or an `exec claude`) added to the wrapper would carry the preload into every
    pane started from it. This reads the script and refuses any line, outside a whole-line comment, that starts a tmux
@@ -31,12 +31,13 @@ const BIN = String.raw`(?:\btmux|"?\$\{?AGENT_WORKFORCE_TMUX_BIN(?::-[^}]*)?\}?)
 const FLAGS = String.raw`(?:\s+-\S+(?:\s+[^-\s;&|)]\S*)?)*`;    // flags, each with or without an argument
 const STARTS = [
   /\b(?:new-session|start-server)\b/,
-  new RegExp(BIN + FLAGS + String.raw`\s+(?:new|start)\b`),
+  new RegExp(BIN + FLAGS + String.raw`\s+(?:new|start)(?![\w-])`),   // new and start themselves, not new-window
   /* A bare tmux (flags only, then any redirects) at command position runs new-session. Command position: a line start,
-     ; & | { !, $(, a ( that starts the line (a "(tmux)" inside a message is prose), or exec, if, then, do, else.
+     ; & | { ! or a backtick, $(, a ( that starts the line (a "(tmux)" inside a message is prose), or exec, if, elif,
+     then, do, else, while, until, time.
      -V and -h only read. */
-  new RegExp(String.raw`(?:^|[;&|{!]|\$\(|^\s*\(|\b(?:exec|if|then|do|else)\b)\s*` + BIN
-    + String.raw`(?:\s+-(?![Vh]\b)\S+(?:\s+[^-\s;&|)<>]\S*)?)*(?:\s+\d*[<>]&?\S*)*\s*(?:$|[;&|)])`),
+  new RegExp(String.raw`(?:^|[;&|{!\`]|\$\(|^\s*\(|\b(?:exec|if|elif|then|do|else|while|until|time)\b)\s*` + BIN
+    + String.raw`(?:\s+-(?![Vh]\b)\S+(?:\s+[^-\s;&|)<>]\S*)?)*(?:\s+\d*[<>]&?\s*\S*)*\s*(?:$|[;&|)\`])`),
   /\bexec\s+(?:\S*\/)?(?:claude|codex)\b/,
 ];
 const offends = (line) => STARTS.some((re) => re.test(line));
@@ -69,6 +70,11 @@ test('#8603 CONTROL: the matcher fires on each way of starting one, and not on t
     '  if tmux -L k; then',
     '  { tmux; }',
     '  ( tmux -L k ) &',
+    '  elif tmux -L k; then',
+    '  while tmux; do',
+    '  x=`tmux`',
+    '  time tmux',
+    '  tmux > /dev/null',
   ]) assert.ok(offends(bad), 'missed: ' + bad);
   for (const fine of [
     '    _tsess=$(tmux display-message -p -t "$TMUX_PANE" \'#{session_name}\' 2>/dev/null || true)',
@@ -79,6 +85,7 @@ test('#8603 CONTROL: the matcher fires on each way of starting one, and not on t
     '  export PATH="$KOSMOS_HOME/tmux/bin:$PATH"',
     '  v=$(tmux -V)',
     '  "$AGENT_WORKFORCE_TMUX_BIN" -h; true',
+    '  "$AGENT_WORKFORCE_TMUX_BIN" new-window -t x',
   ]) assert.ok(!offends(fine), 'flagged a read: ' + fine);
   assert.ok(isComment('  # tmux new-session is never run here'), 'a comment is not code');
 });

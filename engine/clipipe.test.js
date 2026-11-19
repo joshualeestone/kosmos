@@ -151,6 +151,6 @@ test('kosmos#8603: a non-closed-reader stream error still crashes, non-zero, wit
   assert.match(guarded.stderr, /clipipe\.js/, 'the guarded trace does not point at the rethrow');
   assert.doesNotMatch(guarded.stderr, /node:events/, 'the guarded trace still points at Node\'s own throw site');
   assert.match(alone.stderr, /node:events/, 'CONTROL: Node alone throws from its own events module');
-  assert.doesNotMatch(alone.stderr, /clipipe\.js/, 'CONTROL: the unguarded run never touched the guard');
+  assert.doesNotMatch(alone.stderr, /clipipe\.js/, 'sanity: the unguarded run never loaded the guard');
   assert.notStrictEqual(guarded.status, 141, 'a non-closed-reader error was taken for a closed reader');
 });
