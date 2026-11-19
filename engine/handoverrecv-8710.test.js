@@ -230,8 +230,9 @@ test('a missing manifest gets MISSING_GRACE_MS before it is final; a lost /done 
   clock += hr.MISSING_GRACE_MS - 1000;
   await hr.tick(st, deps);
   assert.equal(c.calls.filter(([x]) => x === hr.DONE_ROUTE).length, 0, 'still within the grace');
-  // The sender's upload lands within the grace: received.
+  // The sender's upload lands within the grace: received at the next look (MISSING_RECHECK_MS later).
   b.stored.set(c.rec.manifest.key, saved);
+  clock += hr.MISSING_RECHECK_MS + 1;
   // ... but the first /done answer is lost.
   let lose = true;
   const lossy = async (m, route, body) => { const r = await c.recv(m, route, body); if (route === hr.DONE_ROUTE && lose) { lose = false; return { ok: false, because: 'no answer' }; } return r; };
@@ -252,7 +253,7 @@ test('a missing manifest gets MISSING_GRACE_MS before it is final; a lost /done 
   b.stored.delete(c2.rec.manifest.key);
   await hr.tick(st2, d3);
   clock += hr.MISSING_GRACE_MS;
-  const r = await hr.tick(st2, d3);
+  const r = await hr.tick(stateNew(), d3);   // a restart: the first miss is kept beside the key
   assert.match(r.because, /never finished arriving/);
   assert.equal(c2.calls.filter(([x, body]) => x === hr.DONE_ROUTE && body.ok === false).length, 1);
 });
@@ -353,4 +354,54 @@ test('a refused /mine (an older connector) makes no key and reads nothing; off u
   routes.length = 0;
   assert.deepEqual(await hr.tick(stateNew(), { org: () => null, root, macRequest: async (m, route) => { routes.push(route); return { ok: true, data: {} }; } }), { ok: true, none: true });
   assert.deepEqual(routes, []);
+});
+
+test('the attempt count survives a restart; a try that stopped part way is taken out first; no base spends no attempt', async (t) => {
+  hr.allowHttpForTests(true);
+  const b = await bucket();
+  t.after(() => b.close());
+  let clock = Date.now();
+  const root = fresh(t, 'data'), base = fresh(t, 'base');
+  const c = coordinator(b, 'hpers');
+  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+  await hr.tick(stateNew(), deps);
+  await pack(c, agentFolder(t));
+  // No base: nothing counted.
+  await hr.tick(stateNew(), Object.assign({}, deps, { base: null }));
+  assert.equal(hr.readKey('hpers', root).attempts, undefined);
+  // Chunks gone: each try counts, across fresh states (restarts).
+  const saved = new Map([...b.stored].filter(([k]) => k.startsWith(c.prefix) && !k.endsWith('manifest')));
+  for (const k of saved.keys()) b.stored.delete(k);
+  for (let i = 1; i <= 2; i++) { await hr.tick(stateNew(), deps); assert.equal(hr.readKey('hpers', root).attempts, i); }
+  // A try that died part way: its Kosmos is noted as restoring; the next tick takes it out before trying again.
+  const rw = require('./restoreworld');
+  const stale = rw.prepareRestoreWorld(base, { member: 'x', memberId: 'hpers', kind: 'handover' });
+  hr.updateKey('hpers', root, { restoring: stale.world.id });
+  for (const [k, v] of saved) b.stored.set(k, v);
+  assert.equal((await hr.tick(stateNew(), deps)).ok, true);
+  assert.equal(fs.existsSync(stale.dir), false, 'the stopped try\'s folder is gone');
+  assert.ok(worlds.readRegistry(base).worlds.find((x) => x.id === stale.world.id).hiddenAt, 'and it is off the list');
+  assert.equal(worlds.readRegistry(base).worlds.filter((x) => /^Handed over/.test(x.name) && !x.hiddenAt).length, 1, 'one copy on the list');
+});
+
+test('a damaged key while still requested is replaced, and later rows are not starved', async (t) => {
+  const root = fresh(t, 'data');
+  fs.mkdirSync(path.join(root, 'handover'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'handover', 'hbad.key.json'), '{not json');
+  const sent = [];
+  const mac = async (m, route, body) => {
+    if (route === hr.MINE_ROUTE) return { ok: true, data: { handovers: [{ id: 'hbad', side: 'receive', state: 'requested' }, { id: 'hnext', side: 'receive', state: 'requested' }] } };
+    if (route === hr.KEY_ROUTE) { sent.push(body.id); return { ok: true, data: {} }; }
+    return { ok: false };
+  };
+  await hr.tick(stateNew(), { org: () => ORG, macRequest: mac, root });
+  assert.deepEqual(sent, ['hbad', 'hnext']);
+  assert.equal(hr.readKey('hbad', root).problem, undefined, 'a good key replaced the damaged one');
+});
+
+test('a key write that fails leaves no temp file holding the secret', (t) => {
+  const root = fresh(t, 'data');
+  fs.mkdirSync(path.join(root, 'handover', 'hdir.key.json', 'x'), { recursive: true });   // the rename target is a non-empty folder
+  assert.throws(() => hr.writeKey('hdir', require('./hpke').hpkeKeyPair(), root));
+  assert.deepEqual(fs.readdirSync(path.join(root, 'handover')).filter((n) => n.endsWith('.tmp')), []);
 });
