@@ -86,4 +86,8 @@ case "$out" in *"not the one this release built"*) no "its own build was refused
 out="$(release_bundle_matches_tree "$T/b2.tgz" "$TREE" "" "" sealed "" "$(printf 'x' | shasum -a 256 | awk '{print $1}')" 2>&1 || true)"
 case "$out" in *"not the one this release built"*) ok "a kosmos-se from another build is refused" ;; *) no "another build's kosmos-se passed: $out" ;; esac
 
+# 9. release.sh passes kosmos-se's checksum ($SE_SHA, the 7th argument) at BOTH comparator calls (4b and 9b).
+_calls="$(grep -c 'release_bundle_matches_tree .*sourced}\\"" "\$SE_SHA" ||' "$REPO/tools/release.sh")"
+[ "$_calls" -eq 2 ] && ok "release.sh passes \$SE_SHA at both comparator calls" || no "release.sh passes \$SE_SHA at $_calls of the 2 comparator calls"
+
 [ "$fails" -eq 0 ] && echo "test-kosmos-se-bundle-7116: all passed" || { echo "test-kosmos-se-bundle-7116: $fails failed"; exit 1; }
