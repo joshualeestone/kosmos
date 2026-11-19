@@ -44,8 +44,8 @@
  * caller passes a time it trusts more than the manifest's when it has one.
  *
  * Fails closed. Unlike orgkeypin.js (where a null VERIFYING_KEY means "check nothing, answer ok"), a missing verifying
- * key here is a refusal: a restore that cannot check the history must fall back to the person confirming the
- * fingerprint (the pilot, #5536), never to the coordinator's word. VERIFYING_KEY is escrowd's history key on the
+ * key here is a refusal (never the coordinator's word); while a key ships that path is unreachable, kept as defence
+ * in depth. VERIFYING_KEY is escrowd's history key on the
  * production box (shipped 11-19, kosmos#7116 step 3); it is derived from the escrow key under its own HKDF label,
  * separate from the org-key signer.
  *
