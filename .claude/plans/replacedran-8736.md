@@ -37,7 +37,7 @@ That nothing outside the readers grepped (`closedUnrun` and `.unrun` across engi
 present-but-false `closedUnrun` as truthy-present. The grep found only `=== true` tests.
 
 ## Tests
-- engine/tasks.replacedran-8736.test.js (11; a kept not-run mark, --not-run after a ran replace, re-replacing): nothing on record stays unrun (control); a met check, a built mark, a run
+- engine/tasks.replacedran-8736.test.js (12; a combined count under one parent; a kept not-run mark, --not-run after a ran replace, re-replacing): nothing on record stays unrun (control); a met check, a built mark, a run
   recorded, and a built close replaced later each count done and not unrun; an unmet check stays unrun; a pre-#8301
   replaced task (no field) still counts unrun; a reopen clears the false; ranOnRecord's own cases.
 - 30 existing test files that mention closedUnrun, replacedBy, unrun, subtaskProgress or treeOf: 488 pass, 0 fail
