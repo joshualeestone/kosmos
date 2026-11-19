@@ -383,4 +383,4 @@ function startWorld(mode) {
   });
 }
 
-module.exports = { rootsFor, startTick, nextWeekStart, inputsHere, startHere, startPersonal, mayBackUp };
+module.exports = { rootsFor, rootSegment, startTick, nextWeekStart, inputsHere, startHere, startPersonal, mayBackUp };   // rootSegment: engine/handoversend.js (kosmos#8710)

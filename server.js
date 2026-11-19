@@ -29517,6 +29517,9 @@ function start(port = PORT) {
      while company backup is off, and the tick then asks again a day later (engine/backuptick.js). Best effort: never a
      reason not to start. */
   try { require('./engine/backuptick').startHere(); } catch { /* best effort */ }
+  /* kosmos#8710: the leaving member's computer packs a company hand-over (engine/handoversend.js). Off unless
+     KOSMOS_ORG_HANDOVER=1. Best effort: never a reason not to start. */
+  try { require('./engine/handoversend').startHere(); } catch { /* best effort */ }
   /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
   try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK, files: require('./engine/storecheck').lastScan() }); rn.startBeating(); } catch { /* best effort */ }
