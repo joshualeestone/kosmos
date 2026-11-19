@@ -150,8 +150,10 @@ function memberTag(memberId) {
   if (typeof memberId !== 'string' || !memberId) return '';
   return crypto.createHash('sha256').update('kosmos-restored-world:' + memberId).digest('hex').slice(0, MEMBER_TAG_HEX);
 }
-function worldName(member, now, attempt = 1, memberId) {
-  const base = `Restored: ${cleanMember(member)}, ${dayOf(now)}`;
+/* kosmos#8710: what a Kosmos made by this path is called, by its kind. A fixed set, never a caller's text. */
+const KIND_WORDS = { restore: 'Restored', handover: 'Handed over' };
+function worldName(member, now, attempt = 1, memberId, kind) {
+  const base = `${KIND_WORDS[kind] || KIND_WORDS.restore}: ${cleanMember(member)}, ${dayOf(now)}`;
   const tag = memberTag(memberId);
   if (tag) return attempt > 1 ? `${base} (${tag}, ${attempt})` : `${base} (${tag})`;
   return attempt > 1 ? `${base} (${attempt})` : base;
@@ -169,7 +171,8 @@ function onTheList(base, id) {
   try { return worlds.readRegistry(base).worlds.some((w) => w.id === id && !w.hiddenAt); } catch { return false; }
 }
 
-/* opts: { member, memberId?, now?, createWorld?, hideWorld? } (the two world calls injectable for tests). member is the
+/* opts: { member, memberId?, now?, kind?, createWorld?, hideWorld? } (the two world calls injectable for tests). kind:
+   'handover' (kosmos#8710) names it "Handed over: ..."; anything else, or none, "Restored: ...". member is the
    person's shown name, never the release's member id; memberId is the restore request's member (kosmos#7181), which
    goes only here: pass it, so this member's names are not shared with another's.
    { ok: true, world, dir, restoreDir } or { ok: false, because }.
@@ -184,7 +187,7 @@ function prepareRestoreWorld(base, opts = {}) {
   if (opts.memberId !== undefined && (typeof opts.memberId !== 'string' || !opts.memberId)) return { ok: false, because: 'the restore was asked with a member id Kosmos could not use' };
   let world = null, leftovers = 0;
   for (let n = 1; n <= MAX_NAME_TRIES && !world; n++) {
-    const name = worldName(opts.member, opts.now, n, opts.memberId);
+    const name = worldName(opts.member, opts.now, n, opts.memberId, opts.kind);
     try { world = create(base, name); } catch (e) {
       // Taken (a hidden Kosmos keeps its id too): try the next name. Anything else is a failure.
       if (takenIds(base).has(store.safeKey(name))) continue;
