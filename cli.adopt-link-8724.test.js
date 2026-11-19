@@ -8,6 +8,7 @@
  *
  *   node --test cli.adopt-link-8724.test.js
  */
+require('./test-support/tmpscope');   // first: this process's temp folders (the roster rows' data root) go when it exits
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
