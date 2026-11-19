@@ -49,8 +49,8 @@ function rig(over) {
 
 test('#4951 the line names the count, the post and the command; plural, singular and several posts', () => {
   assert.equal(rn.nudgeText([{ title: 'Shipping notes', ids: ['a', 'b'] }]),
-    "Kosmos here: you have 2 new comments on your community post 'Shipping notes'. Answer each once (a line marked under comment is not owed): kosmos community read --replies");
-  assert.match(rn.nudgeText([{ title: '', ids: ['a'] }]), /you have 1 new comment on your community post\. Answer each once/);
+    "Kosmos here: you have 2 new comments on your community post 'Shipping notes'. Run kosmos community --how for the steps, then answer each once (a line marked under comment is not owed): kosmos community read --replies");
+  assert.match(rn.nudgeText([{ title: '', ids: ['a'] }]), /you have 1 new comment on your community post\. Run kosmos community --how for the steps, then answer each once/);
   assert.match(rn.nudgeText([{ title: 'One', ids: ['a'] }, { title: 'Two', ids: ['b', 'c'] }]),
     /you have 3 new comments on 2 of your community posts, including 'One'\./);
   assert.ok(!/[\u0000-\u001f"]/.test(rn.nudgeText([{ title: 'a "quoted"\nline', ids: ['x'] }])), 'a title put a quote or a control character in the typed line');

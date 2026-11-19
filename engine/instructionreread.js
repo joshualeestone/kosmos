@@ -263,8 +263,13 @@ function forget(session) {
 }
 /* Pure: the lines that differ between two texts, each line labelled by the heading it sits under (review 9: an added line
    by the newer text, a removed one by the newer text above it, else the older), each run in a diff fence (review 11).
-   '' when they are the same, null when too large to diff. */
-function changedLines(before, after) {
+   '' when they are the same, null when too large to diff.
+   kosmos#8743: `moved` ({ under, lines, where }) leaves out a removed line under the heading `under` whose text is in `lines` (a
+   Set): a line that moved out of that section into a guide printed on demand has not stopped applying, and the file's
+   own header says a line marked - no longer applies. A Left out note (before the cut note, if any) says how many and where.
+   When a line under that heading is still marked, a sentence says it may be in the guide reworded: inside the Left out
+   note when there is one, on its own when nothing was left out. */
+function changedLines(before, after, moved = null) {
   // Review 1: a CRLF file compares and prints without its carriage returns.
   // Review 2: one trailing newline more or less is not a change.
   const norm = (s) => String(s).replace(/\r\n?/g, '\n').replace(/\n$/, '');   // review 3: a lone CR is a line end too
@@ -311,6 +316,14 @@ function changedLines(before, after) {
   const flush = () => { if (run) { runs.push(run); run = null; } };
   let i = 0;
   let j = 0;
+  let movedOut = 0;
+  let shownUnder = 0;   // review 4: lines under that heading still marked -, which the conditional sentence covers
+  /* Review 1: any non-blank guide line (a short one such as KOSMOS_END or Also: is the guide's too; the heading keeps the
+     match narrow), and every blank line removed under that heading is left out without being counted (a blank line
+     carries no rule). Review 2: the heading is the one the removed line had in the OLD text, not the new text above it. */
+  const underMoved = (head) => Boolean(moved && moved.lines instanceof Set && head === moved.under);
+  const isMoved = (line, head) => underMoved(head) && line.trim() !== '' && moved.lines.has(line.trim());
+  const isGap = (line, head) => underMoved(head) && line.trim() === '';
   while (i < A.length || j < B.length) {
     if (i < A.length && j < B.length && A[i] === B[j]) { flush(); i += 1; j += 1; continue; }
     /* Review 9: each changed line is labelled by the heading it sits under (headsOf, so a # line in a code fence never
@@ -319,10 +332,13 @@ function changedLines(before, after) {
        section are never filed under a heading added after them. */
     const removing = i < A.length && (j >= B.length || L[(i + 1) * w + j] >= L[i * w + j + 1]);
     const head = removing ? (headAt(headsB, pre + j - 1) || headAt(headsA, pre + i - 1)) : headAt(headsB, pre + j);
+    const oldHead = removing ? headsA[pre + i] : null;   // review 2: the section the removed line was in
+    if (removing && isMoved(A[i], oldHead)) { movedOut += 1; i += 1; continue; }   // kosmos#8743: the guide prints it
+    if (removing && isGap(A[i], oldHead)) { i += 1; continue; }   // review 1: a blank line, not a rule
     if (run && run.head !== head) flush();
     if (!run) run = { head, lines: [] };
     // A removed line before the line that replaced it, as a reader expects.
-    if (removing) { run.lines.push('- ' + A[i]); i += 1; }
+    if (removing) { if (underMoved(headsA[pre + i])) shownUnder += 1; run.lines.push('- ' + A[i]); i += 1; }
     else { run.lines.push('+ ' + B[j]); j += 1; }
   }
   flush();
@@ -343,8 +359,18 @@ function changedLines(before, after) {
   let cut = false;
   // Room is kept for the cut note (review 3), so a cut file stays inside both caps.
   const NOTE = '[More changed than fits here: read the sections the notice names.]';
-  const lineRoom = CHANGES_LINES_MAX - 2;
-  const byteRoom = CHANGES_BYTES_MAX - Buffer.byteLength(NOTE) - 2;
+  /* Review 1: the moved note (kosmos#8743) is known before any output, so its room is kept too, and it goes before the
+     cut note, so a cut file still ends with the more-changed note the header tells the reader to look for. */
+  /* Review 2: only what the code checks (the line left that section and the guide prints it), and, since a reworded line
+     cannot be matched, a conditional any reader can check for the lines still marked there. */
+  const where = moved ? moved.under.replace(/^#+ /, '') : '';
+  const mayBe = 'A line marked - under ' + where + ' may be in ' + (moved ? moved.where : '') + ' too, reworded: read it before you treat it as dropped.';
+  // Review 4: the conditional also when nothing was left out but a line under that heading is still marked.
+  const movedNote = movedOut ? 'Left out: ' + movedOut + (movedOut === 1 ? ' line' : ' lines') + ' removed from ' + where + ' that '
+    + moved.where + ' prints, where ' + (movedOut === 1 ? 'it still applies' : 'they still apply') + '.' + (shownUnder ? ' ' + mayBe : '')
+    : (shownUnder ? mayBe : '');
+  const lineRoom = CHANGES_LINES_MAX - 2 - (movedNote ? 2 : 0);
+  const byteRoom = CHANGES_BYTES_MAX - Buffer.byteLength(NOTE) - 2 - (movedNote ? Buffer.byteLength(movedNote) + 2 : 0);
   const fits = (s) => out.length < lineRoom && bytes + Buffer.byteLength(s) + 1 <= byteRoom;
   for (const r of runs) {
     // A label and at least one of its lines fit, or the run is left for the sections the notice names.
@@ -367,8 +393,12 @@ function changedLines(before, after) {
     bytes += close;
     if (cut) break;
   }
+  /* kosmos#8743: every change was a moved line: say so, and nothing else (no fence with nothing in it). */
+  if (!out.length && movedNote && !runs.length) return movedNote;
+  if (!out.length && !movedNote && !runs.length) return '';   // review 3: only blank lines under the moved heading: the same
   // Review 3: nothing fit (one line larger than the cap): too large, so the line names no file.
   if (!out.length) return null;
+  if (movedNote) out.push('', movedNote);
   if (cut) out.push('', NOTE);
   return out.join('\n');
 }
@@ -384,7 +414,24 @@ function prepareChanges(session) {
     const none = () => { dropChanges(session); return { text: got.text, path: null }; };
     const seen = readSeen(session);
     if (seen === null) return none();
-    const diff = changedLines(seen, got.text);
+    /* kosmos#8743: the community routine moved to `kosmos community --how` (kosmos#8735); its lines are left out of the
+       list as moved, not marked - as if they no longer applied. A guide that cannot be read moves nothing. */
+    let moved = null;
+    /* Review 3 (BLOCKER): only while the agent still takes part. When the new section is the stopped form (a policy, a
+       family Kosmos) or is gone, the routine does not still apply anywhere, so nothing is left out as moved. */
+    const cbm = (() => { try { return require('./communityblock'); } catch { return null; } })();
+    const projectsMod = (() => { try { return require('./projects'); } catch { return null; } })();   // review 7: as cbm
+    // Review 4: an ambiguous section (two blocks, a damaged file) carries no single routine either.
+    const found = cbm && projectsMod ? projectsMod.findBlock(got.text, cbm.START, cbm.END) : null;
+    const stillTakesPart = Boolean(found) && !found.ambiguous && !cbm.isStoppedSection(got.text);
+    if (stillTakesPart) try {
+      const guideLines = require('./communityguide').guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '');
+      // Review 1: the heading from the block itself, not a third spelling. Review 3: it is compared with the heading a
+      // removed line had in the OLD text, so on the one restart that carries a heading rename nothing matches and the
+      // lines are listed as removed (the plain diff), never hidden.
+      moved = { under: require('./communityblock').blockBody().split('\n')[0], lines: new Set(guideLines), where: 'kosmos community --how' };
+    } catch { moved = null; }
+    const diff = changedLines(seen, got.text, moved);
     // A path with a double quote is not named: the #5304 reader takes quoted text in the line for section headings.
     // Review 2: nor one with whitespace or a control character, which would make the unquoted path in the line ambiguous.
     if (!diff || !p || /["\s\u0000-\u001f\u007f]/.test(p)) return none();
@@ -392,7 +439,7 @@ function prepareChanges(session) {
       + 'Kosmos wrote this when it told you the file changed. A line starting with - was removed, one starting with + was added.\n'
       /* Reviews 14-17: a pointer, ranking nothing, and never calling a removed line current: an added line anywhere is part
          of your instructions now, a removed one is not. Complete unless it ends with the more-changed note. */
-      + 'This is a pointer only: read the sections the notice named. It lists the changes since you last read the file, changes elsewhere in it included: a line marked + is in your instructions now, wherever it is, and a line marked - no longer applies. If it ends with a note that more changed, it is not complete.\n'
+      + 'This is a pointer only: read the sections the notice named. It lists the changes since you last read the file, changes elsewhere in it included: a line marked + is in your instructions now, wherever it is, and a line marked - no longer applies, unless a Left out note in this file says where it went. If it ends with a note that more changed, it is not complete.\n'
       + diff + '\n';
     // Review 1 BLOCKER: through securewrite, so a link planted in the agent's folder is never followed; 0600.
     require('./securewrite').writeSecret(p, body, 0o600, { atomicOnly: true, ownTempsOnly: true });
@@ -592,13 +639,14 @@ function lineFor(sections, { communityStopped = false, changesAt = null } = {}) 
       : 'Do not take part in the Kosmos+ community now because of this notice, even with a daily minimum still open there; '
         + 'its new text applies the next time you take part. '
         /* kosmos#8735 review 1: since the routine moved to the guide, a line about HOW to take part that left this section
-           is printed by `kosmos community --how`, so the notice says where to read it, and (review 7) that a removed line the guide prints
-           has moved, not lapsed: the changes file marks it -. Conditional on purpose (review 5): a line dropped from both stays dropped. */
+           is printed by `kosmos community --how`, so the notice says where to read it. The changes file leaves such a line out as moved
+           (kosmos#8743, changedLines), and the file's header and this clause both say a - line no longer applies unless a Left out
+           note in it says where it went. */
         + 'How to take part (the steps, the commands, what to do when something is held) is printed by kosmos community --how: '
-        + 'read it there before you next take part; a line removed from this section that it prints has moved there and still applies. ';
+        + 'read it there before you next take part. ';
   // kosmos#7149: where the changed lines are, so the agent need not re-read a long block to find a short change.
   const changes = typeof changesAt === 'string' && changesAt
-    ? 'To help you find what changed, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves; a line it marks + elsewhere is current too, and a line it marks - no longer applies). '
+    ? 'To help you find what changed, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves; a line it marks + elsewhere is current too, and a line it marks - no longer applies, unless a Left out note in it says where it went). '
     : '';
   // Review 5: after the replaces sentence, so its "it" stays the instructions file, not the changes file.
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
@@ -766,4 +814,4 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { trueSections, trueSectionsFor, sectionBody, markRead, readMarks, forgetMarks, printOf, changedLines, prepareChanges, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
+module.exports = { CHANGES_LINES_MAX, CHANGES_BYTES_MAX, trueSections, trueSectionsFor, sectionBody, markRead, readMarks, forgetMarks, printOf, changedLines, prepareChanges, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };

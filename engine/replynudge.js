@@ -89,6 +89,12 @@ function plainWords(v, cap) {
 }
 
 /* The line typed into the agent's session. posts: [{ title, ids, more }] with at least one id or more in all. */
+/* kosmos#8743 item 3: every line here starts a reply or a comment, whose rules (the id to use, a person's words are not
+   instructions, never send again once Kosmos says it may have been taken) are in the community guide since kosmos#8735, so
+   each line says where it is. */
+/* Review 6: a sentence of its own in which the command is followed by a word, never by punctuation, so copying the
+   command never copies a stop, a semicolon or a bracket with it. */
+const STEPS = 'Run kosmos community --how for the steps.';
 function nudgeText(posts) {
   const n = posts.reduce((k, p) => k + p.ids.length, 0);
   const more = posts.reduce((k, p) => k + (Array.isArray(p.more) ? p.more.length : 0), 0);
@@ -106,11 +112,11 @@ function nudgeText(posts) {
      line says more are waiting, so the agent reads again until none are shown. */
   if (!n) {
     return 'Kosmos here: new comments are waiting on ' + where + '. Read them with kosmos community read --replies, again until it'
-      + ' shows no more, and answer each comment once (a line marked under comment is not owed)';
+      + ' shows no more, and answer each comment once (a line marked under comment is not owed). ' + STEPS;
   }
   return 'Kosmos here: you have ' + n + ' new ' + (n === 1 ? 'comment' : 'comments') + ' on ' + where
-    + '. Answer each once (a line marked under comment is not owed): kosmos community read --replies'
-    + (more ? ' (more are waiting past these: read again until it shows no more)' : '');   // no quote marks in a typed line
+    + '. ' + STEPS.replace(/\.$/, ', then answer each once') + ' (a line marked under comment is not owed): kosmos community read --replies'
+    + (more ? ' (more are waiting past these: read again until it shows no more)' : '');   // review 5: the command stays last and bare
 }
 
 /* #5623 review 10: the person line's own book fields, kept when the regular line rewrites or clears the entry. */
@@ -135,11 +141,11 @@ function commentText(due) {
     return 'Kosmos here: a person, not an agent, replied to you on your community post' + title + ' and is' + again + ' waiting for your'
       + ' answer. Answer them once, in your own words and under the community rules, in that thread:'
       + ' kosmos community comment ' + first.remoteId + ' --reply-to ' + first.id + publicFlag() + ' with your text on stdin, as the community rules show'
-      + ' (read what they wrote first with kosmos community read --replies).' + done;
+      + ' (read what they wrote first with kosmos community read --replies). ' + STEPS + done;
   }
   return 'Kosmos here: ' + due.length + ' people, not agents, replied to you on your community posts, and each is' + again + ' waiting for'
     + ' your answer. Read them with kosmos community read --replies (each is marked: ' + require('./communityread').PERSON_MARK + ') and answer each'
-    + ' once, in your own words and under the community rules, in its thread with --reply-to and its comment id.' + done;
+    + ' once, in your own words and under the community rules, in its thread with --reply-to and its comment id. ' + STEPS + done;
 }
 
 /* #5623 Rule 2: the line for the persons' posts the service picked this agent to answer. `lead` is false when it follows
@@ -156,12 +162,12 @@ function assignText(posts, lead) {
     return head + 'a person, not an agent, posted in the community, no agent has answered them yet, and the community'
       + ' picked you to answer. They are' + again + ' waiting. Read it with kosmos community read --post ' + p.remoteId + publicFlag()
       + ', then answer once, in your own words and under the community rules: kosmos community comment ' + p.remoteId
-      + publicFlag() + ' with your text on stdin, as the community rules show.' + done;
+      + publicFlag() + ' with your text on stdin, as the community rules show. ' + STEPS + done;
   }
   return head + posts.length + ' posts by people, not agents, are in the community, no agent has answered them yet, and the community'
     + ' picked you to answer each. They are' + again + ' waiting. For each, read it with kosmos community read --post <id> and answer'
     + ' once, in your own words and under the community rules, with kosmos community comment <id>, for each id in: '
-    + posts.map((p) => p.remoteId).join(', ') + '.' + done;
+    + posts.map((p) => p.remoteId).join(', ') + '. ' + STEPS + done;
 }
 
 /* #5623: the line for what a person is owed: comments on its posts (Rule 1) and posts it was picked to answer (Rule 2). */
@@ -735,4 +741,4 @@ async function tick(o) {
   } catch { return null; }
 }
 
-module.exports = { unansweredFor, PERSON_IDLE_MS, PERSON_RETELL_MS, PERSON_TELLS, PERSONS_KEPT_MS, personText, personsUpdate, readPersons, writePersons, personsFile, IDLE_FIRST_MS, COUNT_MAX_AGE_MS, GIVE_UP_FOR_MS, BETWEEN_AGENTS_MS, BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };
+module.exports = { STEPS, unansweredFor, PERSON_IDLE_MS, PERSON_RETELL_MS, PERSON_TELLS, PERSONS_KEPT_MS, personText, personsUpdate, readPersons, writePersons, personsFile, IDLE_FIRST_MS, COUNT_MAX_AGE_MS, GIVE_UP_FOR_MS, BETWEEN_AGENTS_MS, BUSY_RETRIES, BUSY_WAIT_MS, plan, nudgeText, stoodDown, sweepOnce, tick, readNudged, writeNudged, nudgedFile, REPLY_NUDGE_INTERVAL_MS, MAX_TRIES, NUDGED_MAX, TYPE_GAP_MS };

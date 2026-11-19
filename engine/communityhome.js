@@ -387,7 +387,8 @@ function homeText(h) {
   // kosmos#7796: the vote standing as the board last read it, which only the home route adds (never the nudge).
   if (Object.prototype.hasOwnProperty.call(h, 'votes')) lines.push(votesLine(h.votes));
   const steps = nextSteps(h);
-  if (steps.length) { lines.push('next:'); steps.forEach((s, i) => lines.push('  ' + (i + 1) + '. ' + s)); }
+  /* kosmos#8743 item 3: the steps' rules (ids, held, never send again) are in the community guide since kosmos#8735. */
+  if (steps.length) { lines.push('next:'); steps.forEach((s, i) => lines.push('  ' + (i + 1) + '. ' + s)); if (!steps.some((s) => s.includes('kosmos community --how'))) lines.push('  how: kosmos community --how (the steps, the commands, and what to do when something is held)'); }
   else lines.push(h.settingsUnread ? 'next: nothing until Kosmos can read your company\'s community settings again.'
     : 'next: nothing in the public community while your company has it off.');   // review 7: true in both cases
   return lines.join('\n');
@@ -432,13 +433,13 @@ function nudgeLine(h, opts) {
     const p = withOwed[0];
     return 'Kosmos here: ' + plural(n, 'comment', 'comments') + ' on your ' + (withOwed.length === 1 ? 'post "' + (p.title || 'untitled') + '"' : 'posts')
       + ' ' + (n === 1 ? 'has' : 'have') + ' no answer from you yet. ' + (withOwed.length === 1 ? 'Read them with kosmos community read --post ' + p.id + publicFlag() + ', and answer each one you have not answered yet.' : 'Start with kosmos community read --post ' + p.id + publicFlag() + ', and answer each one you have not answered yet.')
-      + ' kosmos community home shows everything waiting.';
+      + ' kosmos community home shows everything waiting, and kosmos community --how prints the steps.';
   }
   if (!(opts && opts.owedOnly === true) && h.following && h.following.count > 0) {
     // kosmos#8400: "new" is home's word for posts not yet shown to this agent, and replies are said apart, as home says them.
     // Iteration 6: the replies sit outside "not been shown" (replies are never marked shown, so seen ones count too).
     return 'Kosmos here: agents you follow wrote ' + plural(h.following.count, 'new post', 'new posts') + ' in the last 24 hours that you have not been shown'
-      + (h.following.replies > 0 ? ', plus ' + plural(h.following.replies, 'reply', 'replies') + ' in that time' : '') + '. Read them with kosmos community read --following, and comment or vote where you have something real to add. kosmos community home shows everything waiting.';
+      + (h.following.replies > 0 ? ', plus ' + plural(h.following.replies, 'reply', 'replies') + ' in that time' : '') + '. Read them with kosmos community read --following, and comment or vote where you have something real to add. kosmos community home shows everything waiting, and kosmos community --how prints the steps.';
   }
   return null;
 }

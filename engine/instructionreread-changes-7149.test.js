@@ -80,8 +80,8 @@ test('lineFor names the changes file when there is one, and is unchanged without
   const plain = ir.lineFor(['community']);
   assert.equal(ir.lineFor(['community'], { changesAt: null }), plain);
   const named = ir.lineFor(['community'], { changesAt: '/w/ada/.kosmos-instructions-changed.md' });
-  assert.match(named, /the changed lines are listed in \/w\/ada\/\.kosmos-instructions-changed\.md \(a pointer only: still read the sections themselves; a line it marks \+ elsewhere is current too, and a line it marks - no longer applies\)/);
-  assert.equal(named.replace(/To help you find what changed, the changed lines are listed in \S+ \(a pointer only: still read the sections themselves; a line it marks \+ elsewhere is current too, and a line it marks - no longer applies\)\. /, ''), plain);
+  assert.match(named, /the changed lines are listed in \/w\/ada\/\.kosmos-instructions-changed\.md \(a pointer only: still read the sections themselves; a line it marks \+ elsewhere is current too, and a line it marks - no longer applies, unless a Left out note in it says where it went\)/);
+  assert.equal(named.replace(/To help you find what changed, the changed lines are listed in \S+ \(a pointer only: still read the sections themselves; a line it marks \+ elsewhere is current too, and a line it marks - no longer applies, unless a Left out note in it says where it went\)\. /, ''), plain);
   // Review 5: after the replaces sentence; review 6: the sections are still read, the file only points.
   assert.ok(named.indexOf('What it says now replaces') < named.indexOf('To help you find'));
   assert.match(plain, /Read the section headed "The Kosmos\+ community" in it now\./);
@@ -396,7 +396,7 @@ test('review 14: the changes file says it is a pointer and the named sections ar
   const f = agentFile('jo', AFTER);
   ir.remember('jo', BEFORE);
   const body = fs.readFileSync(ir.prepareChanges('jo').path, 'utf8');
-  assert.match(body, /This is a pointer only: read the sections the notice named\. It lists the changes since you last read the file, changes elsewhere in it included: a line marked \+ is in your instructions now, wherever it is, and a line marked - no longer applies\. If it ends with a note that more changed, it is not complete\./);
+  assert.match(body, /This is a pointer only: read the sections the notice named\. It lists the changes since you last read the file, changes elsewhere in it included: a line marked \+ is in your instructions now, wherever it is, and a line marked - no longer applies, unless a Left out note in this file says where it went\. If it ends with a note that more changed, it is not complete\./);
   // Review 17: what - and + mean is said, and nothing calls a removed line current.
   assert.match(body, /A line starting with - was removed, one starting with \+ was added\./);
   assert.doesNotMatch(body, /those are your current instructions too/);
@@ -531,4 +531,78 @@ test('kosmos#8416: a file with no Kosmos block and none of its sections (empty o
   agentFile('ned2', require('./projects').BLOCK_START + '\nx\n' + require('./projects').BLOCK_END + '\n');
   assert.deepEqual(ir.trueSectionsFor('ned2', ['community']), [], 'CONTROL: a file with Kosmos blocks but not this one does not have it');
   ir.forget('ned2');
+});
+
+test('kosmos#8743: the changes file an agent gets leaves the community routine that moved to kosmos community --how out, as moved', () => {
+  const cb = require('./communityblock');
+  const guide = require('./communityguide');
+  const moved = ['3. Comments. At least once a day, comment on two different posts, one of each kind: a post from',
+    '  never as a favour to another agent.'];
+  for (const l of moved) assert.ok(guide.guideText().includes(l), 'fixture: the guide no longer prints ' + l);
+  // Review 3: between the block's own markers, as in every real agent file (the moved set applies only while the section
+  // there is the taking-part form).
+  const projects = require('./projects');
+  const after = '# You are Ivy\n\n' + projects.spliceBlock('', cb.blockBody(), cb.START, cb.END) + '\n## Who you report to\nSplinter.\n';
+  const before = '# You are Ivy\n\n' + projects.spliceBlock('', cb.blockBody() + '\n' + moved.join('\n') + '\nVote twice a day.', cb.START, cb.END) + '\n## Who you report to\nSplinter.\n';
+  const f = agentFile('ivy', after);
+  assert.equal(ir.remember('ivy', before), true);
+  const got = ir.prepareChanges('ivy');
+  assert.ok(got.path, 'no changes file was written');
+  const body = fs.readFileSync(got.path, 'utf8');
+  assert.match(body, /- Vote twice a day\./, 'a line that really left is not listed as removed');
+  for (const l of moved) assert.ok(!body.includes('- ' + l), 'the file an agent reads marks a moved line as no longer applying: ' + l);
+  assert.match(body, /Left out: 2 lines removed from The Kosmos\+ community that kosmos community --how prints, where they still apply\./);
+  assert.ok(path.dirname(got.path) === path.dirname(f));
+});
+
+test('kosmos#8743 review 3: an agent switched to not taking part gets nothing left out as moved, and no "still apply" note', () => {
+  const cb = require('./communityblock');
+  const projects = require('./projects');
+  const guide = require('./communityguide');
+  const routine = '3. Comments. At least once a day, comment on two different posts, one of each kind: a post from';
+  assert.ok(guide.guideText().includes(routine), 'fixture: the guide no longer prints the routine line');
+  const before = '# You are Una\n\n' + projects.spliceBlock('', cb.blockBody() + '\n' + routine, cb.START, cb.END) + '\n## Who you report to\nSplinter.\n';
+  // The new section is the stopped form (a policy or a family Kosmos keeps this agent out of the community).
+  const stopped = '# You are Una\n\n' + projects.spliceBlock('', cb.stoppedBody(false), cb.START, cb.END) + '\n## Who you report to\nSplinter.\n';
+  assert.ok(cb.isStoppedSection(stopped), 'fixture: the new text is not the stopped form');
+  agentFile('una', stopped);
+  assert.equal(ir.remember('una', before), true);
+  const body = fs.readFileSync(ir.prepareChanges('una').path, 'utf8');
+  assert.ok(body.includes('- ' + routine), 'a routine line was hidden from an agent told it no longer takes part');
+  assert.ok(!/Left out:/.test(body), 'an agent told not to take part was told the routine still applies');
+  // CONTROL: the same old text with a new section that still takes part leaves the routine line out, with the note.
+  const taking = '# You are Una\n\n' + projects.spliceBlock('', cb.blockBody(), cb.START, cb.END) + '\n## Who you report to\nSplinter.\n';
+  agentFile('una', taking);
+  assert.equal(ir.remember('una', before), true);
+  const ctl = fs.readFileSync(ir.prepareChanges('una').path, 'utf8');
+  assert.ok(!ctl.includes('- ' + routine) && /Left out: 1 line removed/.test(ctl), 'CONTROL: the taking-part case did not leave the routine line out');
+});
+
+test('kosmos#8743 review 4: two community blocks (a damaged file) hide nothing; a still-marked community line gets the conditional sentence', () => {
+  const cb = require('./communityblock');
+  const projects = require('./projects');
+  const routine = '3. Comments. At least once a day, comment on two different posts, one of each kind: a post from';
+  const block = (body) => cb.START + '\n' + body + '\n' + cb.END + '\n';
+  const before = '# You are Vi\n\n' + block(cb.blockBody() + '\n' + routine) + '\n## Who you report to\nSplinter.\n';
+  // Two blocks in the new text: no single section carries the routine, so nothing is left out as moved.
+  const twice = '# You are Vi\n\n' + block(cb.blockBody()) + '\n' + block(cb.blockBody()) + '\n## Who you report to\nSplinter.\n';
+  assert.ok(projects.findBlock(twice, cb.START, cb.END).ambiguous, 'fixture: the new text is not ambiguous');
+  agentFile('vi', twice);
+  assert.equal(ir.remember('vi', before), true);
+  const amb = fs.readFileSync(ir.prepareChanges('vi').path, 'utf8');
+  assert.ok(!/Left out:/.test(amb), 'a damaged file was told the routine still applies');
+  // Nothing left out, but a line under the community heading is still marked: the conditional sentence is there.
+  const reworded = 'Comment on two posts a day, one from people you follow and one not.';
+  const before2 = '# You are Vi\n\n' + block(cb.blockBody() + '\n' + reworded) + '\n## Who you report to\nSplinter.\n';
+  const now = '# You are Vi\n\n' + block(cb.blockBody()) + '\n## Who you report to\nSplinter.\n';
+  agentFile('vi', now);
+  assert.equal(ir.remember('vi', before2), true);
+  const body = fs.readFileSync(ir.prepareChanges('vi').path, 'utf8');
+  assert.ok(body.includes('- ' + reworded), 'fixture: the reworded line is not listed');
+  assert.match(body, /A line marked - under The Kosmos\+ community may be in kosmos community --how too, reworded: read it before you treat it as dropped\./);
+  // CONTROL: a pure move (the guide's own line) leaves no line marked there, so no conditional sentence.
+  agentFile('vi', now);
+  assert.equal(ir.remember('vi', '# You are Vi\n\n' + block(cb.blockBody() + '\n' + routine) + '\n## Who you report to\nSplinter.\n'), true);
+  const clean = fs.readFileSync(ir.prepareChanges('vi').path, 'utf8');
+  assert.ok(/Left out: 1 line removed/.test(clean) && !/may be in kosmos community --how too/.test(clean), 'CONTROL: the conditional sentence came with nothing marked');
 });

@@ -68,7 +68,7 @@ test('lineFor names every owed section, the community one by its own heading', (
   }
   // The community clause scopes itself to now and keeps the new community text in force; only when that section is named.
   for (const l of [ir.lineFor(['community']), both, ir.lineFor(every)]) {
-    assert.match(l, /started\. Do not take part in the Kosmos\+ community now because of this notice, even with a daily minimum still open there; its new text applies the next time you take part\. How to take part \(the steps, the commands, what to do when something is held\) is printed by kosmos community --how: read it there before you next take part; a line removed from this section that it prints has moved there and still applies\. Apart from that reading/, l);
+    assert.match(l, /started\. Do not take part in the Kosmos\+ community now because of this notice, even with a daily minimum still open there; its new text applies the next time you take part\. How to take part \(the steps, the commands, what to do when something is held\) is printed by kosmos community --how: read it there before you next take part\. Apart from that reading/, l);
   }
   for (const k of every.filter((x) => x !== 'community')) assert.doesNotMatch(ir.lineFor([k]), /community/i, 'a notice naming ' + k + ' mentions the community');
   assert.equal(ir.lineFor([]), null);
@@ -464,4 +464,69 @@ test('kosmos#8416: a session start recorded while the line was sent keeps its ow
   const q = passArgs({ owed: { ida: debt(['reports']) }, o: { trueSections: () => ['reports'], readText: () => 'old text', markRead: () => { touched.push('mark'); return true; } } });
   await ir.passOnce(q.o);
   assert.deepEqual(touched, ['mark']);
+});
+
+test('kosmos#8743: a community line that moved to kosmos community --how is left out of the changes list as moved, not marked -', () => {
+  const cb = require('./communityblock');
+  const guide = require('./communityguide');
+  const routine = ['1. Replies. You must answer every comment on your own posts at least once (one answer is enough). See them with:',
+    '  never as a favour to another agent.', '  to look at. "Held" is expected, not a failure, so do not post it again or try another way.'];
+  for (const l of routine) assert.ok(guide.guideText().includes(l), 'fixture: the guide no longer prints ' + l);
+  const gone = 'A line the guide does not print, removed for good.';
+  const after = '# Ana\n\n' + cb.blockBody() + '\n\n## Next\n\nend\n';
+  const before = after.replace('\n## Next', '\n' + routine.join('\n') + '\n' + gone + '\n\n## Next');
+  const moved = { under: '## The Kosmos+ community', lines: new Set(guide.guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '')), where: 'kosmos community --how' };
+  const out = ir.changedLines(before, after, moved);
+  for (const l of routine) assert.ok(!out.includes('- ' + l), 'a moved line is marked as no longer applying: ' + l);
+  assert.ok(out.includes('- ' + gone), 'a line that really left was not listed');
+  assert.match(out, /Left out: 3 lines removed from The Kosmos\+ community that kosmos community --how prints, where they still apply\./);
+  // CONTROL: without the moved set, the same diff marks the routine lines removed (so the arm above can fail).
+  const plain = ir.changedLines(before, after);
+  for (const l of routine) assert.ok(plain.includes('- ' + l), 'CONTROL: the plain diff did not mark ' + l);
+  assert.ok(!/Left out:/.test(plain));
+  // Only under that heading: the same text removed from another section is listed as removed.
+  const elsewhere = after.replace('\nend\n', '\nend\n' + routine[1] + '\n');
+  assert.ok(ir.changedLines(elsewhere, after, moved).includes('- ' + routine[1]), 'a line outside the community section was treated as moved');
+  // All moved: the file is the one note, never an empty fence.
+  const onlyMoved = after.replace('\n\n## Next', '\n' + routine.join('\n') + '\n\n## Next');
+  assert.equal(ir.changedLines(onlyMoved, after, moved), 'Left out: 3 lines removed from The Kosmos+ community that kosmos community --how prints, where they still apply.');
+});
+
+test('kosmos#8743 review 1: short and blank routine lines move too, and a cut file with moved lines still ends with the cut note, inside both caps', () => {
+  const cb = require('./communityblock');
+  const guide = require('./communityguide');
+  const moved = { under: cb.blockBody().split('\n')[0], lines: new Set(guide.guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '')), where: 'kosmos community --how' };
+  // Short guide lines and blank spacing, as the real first restart removes them (review 1 measured 7 of each).
+  const short = ['KOSMOS_END', 'Also:', '  Comment with:', '  again.'];
+  for (const l of short) assert.ok(moved.lines.has(l.trim()), 'fixture: the guide no longer prints ' + l);
+  const after = '# Ana\n\n' + cb.blockBody() + '\n\n## Next\n\nend\n';
+  const before = after.replace('\n\n## Next', '\n' + short.join('\n') + '\n\n\n' + short[0] + '\n\n## Next');
+  const out = ir.changedLines(before, after, moved);
+  assert.equal(out, 'Left out: 5 lines removed from The Kosmos+ community that kosmos community --how prints, where they still apply.',
+    'a short routine line or a blank line was still marked as no longer applying: ' + out);
+  // CONTROL: the same diff without `moved` lists them.
+  assert.match(ir.changedLines(before, after), /- KOSMOS_END/);
+  // A cut file: many real changes under another heading, plus moved lines. It ends with the cut note, and fits the caps.
+  const many = Array.from({ length: 400 }, (_, k) => 'old rule number ' + k + ' that is long enough to take some room on its own line');
+  const bigBefore = before.replace('\nend\n', '\nend\n' + many.join('\n') + '\n');
+  const cut = ir.changedLines(bigBefore, after, moved);
+  const lines = cut.split('\n');
+  assert.equal(lines[lines.length - 1], '[More changed than fits here: read the sections the notice names.]', 'a cut file no longer ends with the cut note');
+  assert.ok(cut.includes('Left out: 5 lines removed'), 'the moved note was dropped from a cut file');
+  assert.ok(lines.length <= ir.CHANGES_LINES_MAX, 'the cut file has ' + lines.length + ' lines, over the cap');
+  assert.ok(Buffer.byteLength(cut) <= ir.CHANGES_BYTES_MAX, 'the cut file is over the byte cap');
+});
+
+test('kosmos#8743 review 2: a removed section right after the community block is judged by its own heading, not taken as moved', () => {
+  const cb = require('./communityblock');
+  const guide = require('./communityguide');
+  const moved = { under: cb.blockBody().split('\n')[0], lines: new Set(guide.guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '')), where: 'kosmos community --how' };
+  const after = '# Ana\n\n' + cb.blockBody() + '\n\n## Next\n\nend\n';
+  // In the old text a whole section followed the community block; its lines happen to match guide lines.
+  const before = after.replace('\n\n## Next', '\n\n## Gone\n\nAlso:\nKOSMOS_END\n\n## Next');
+  const out = ir.changedLines(before, after, moved);
+  assert.match(out, /- Also:/, 'a line from another section was hidden as moved');
+  assert.match(out, /- KOSMOS_END/, 'a line from another section was hidden as moved');
+  assert.match(out, /- ## Gone/);
+  assert.ok(!/Left out:/.test(out), 'lines that were never in the community section were counted as moved');
 });

@@ -56,6 +56,35 @@ test('kosmos#8735: the guide comes from a module that requires nothing, and carr
   assert.doesNotMatch(guide.pointerLines().join('\n'), /\u2014|&mdash;|&#8212;|&#x2014;/i, 'an em dash in the block\'s pointer');
 });
 
+test('kosmos#8743 item 3: every prompt Kosmos types that starts a reply, a comment or a vote names kosmos community --how', () => {
+  const rn = require('./replynudge');
+  const prompts = {
+    'replynudge nudgeText': rn.nudgeText([{ title: 'T', ids: ['a'] }]),
+    'replynudge nudgeText (count unknown)': rn.nudgeText([{ title: 'T', ids: [], more: ['b'] }]),
+    'replynudge personText (one comment)': rn.personText([{ remoteId: 'p1', title: 'T', id: 'c1' }]),
+    'replynudge personText (two comments)': rn.personText([{ remoteId: 'p1', id: 'c1' }, { remoteId: 'p2', id: 'c2' }]),
+    'replynudge personText (one pick)': rn.personText([{ remoteId: 'p9', id: 'a:p9' }]),
+    'replynudge personText (two picks)': rn.personText([{ remoteId: 'p8', id: 'a:p8' }, { remoteId: 'p9', id: 'a:p9' }]),
+    // Review 1: a day whose post is done, so no post step carries the pointer and only the how line can.
+    'communityhome homeText (no post step)': require('./communityhome').homeText({ posts: [], floors: { postsPerDayMin: 1, commentsPerDay: 2, followsEveryDays: 1 }, counts: { posts: 1, comments: 0, follows: 0 } }),
+    'communityhome nudgeLine (owed)': require('./communityhome').nudgeLine({ posts: [{ id: 'p1', title: 'T', unanswered: [{ id: 'c1' }] }] }),
+    'communityvote standing (no vote yet)': require('./communityvote').UNREGISTERED_TEXT,   // review 4
+    'communityhome nudgeLine (following)': require('./communityhome').nudgeLine({ posts: [], following: { count: 2, replies: 0 } }),
+  };
+  for (const [where, text] of Object.entries(prompts)) {
+    assert.ok(typeof text === 'string' && text.length > 20, where + ': no prompt text to check');
+    assert.match(text, /kosmos community --how/, where + ' starts a reply, comment or vote without saying where the steps are');
+    // Review 5: a command the agent copies is never glued to a full stop (it would run `--replies.`).
+    // Review 6: the pointer itself is never followed by punctuation (it was, as `--how.`, and the earlier pattern needed a
+    // word after "community", so it could not see that shape).
+    assert.doesNotMatch(text, /kosmos community --how[.;,)]/, where + ' glues punctuation to kosmos community --how');
+    // Review 7: this test holds the pointer this branch adds; older lines that glue a comma or a bracket to a command
+    // they name (for example "--post p1, and") predate it and are not claimed here.
+  }
+  assert.doesNotMatch(prompts['communityhome homeText (no post step)'], /\bpost: kosmos community post/, 'fixture: the post step is there, so this arm proves nothing about the how line');
+  assert.match(prompts['communityhome homeText (no post step)'], /\n  how: kosmos community --how/);
+});
+
 test('kosmos#8735: every prompt Kosmos types that starts a post names kosmos community --how', () => {
   /* The block no longer carries the post form (channel, title, held), so the prompts that start a post say where it is
      (reviews 3 to 6). A new post prompt belongs in this list. */
