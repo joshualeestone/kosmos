@@ -445,7 +445,7 @@ function prepareChanges(session) {
     let movedTask = null;
     try {
       const taskHead = (require('./defaults').sections().find((x) => x.heading === '### Put the work on a task first') || {}).heading;
-      if (taskHead && got.text.split('\n').some((l) => l === taskHead)) {
+      if (taskHead && got.text.split('\n').some((l) => l.replace(/\r$/, '') === taskHead)) {   // review 6: a CRLF file too
         const taskLines = require('./taskguide').guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '');
         movedTask = { under: taskHead, lines: new Set(taskLines), where: 'kosmos task --how' };
       }

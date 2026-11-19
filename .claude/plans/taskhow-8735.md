@@ -78,3 +78,15 @@ wording pass (slice 3), written up on the card before it is built.
 - Tests: left out as moved; deleted section hides nothing (control); both guides at once, two notes. Perturbed: the
   entry off -> the first and third red; the heading guard off -> the control red.
 
+
+## Review 6 (Sonnet)
+- No BLOCKER.
+- WARNING fixed: the task heading check compared raw lines, so a file with Windows line endings (CRLF) lost the entry
+  and every moved line was marked removed again. Now `\r` is trimmed. Test added; perturbed (the trim removed) -> red,
+  which also MEASURED that the file reaches prepareChanges with CRLF intact (the reviewer had only reasoned it).
+- WARNING accepted: an agent whose task section a person edited is not re-offered the `kosmos task --how` pointer (as
+  in doctrine 32), yet a guide line it lost would be called moved. It needs a person's edit AND a removed guide line, the
+  note only says where the line went, and the guide is one `kosmos task` help away. Would change my mind: a real agent
+  file in that state.
+- NITs kept: no suite test fills both caps with two notes (the reviewer measured 160 lines, 3,052 bytes, both notes and
+  the cut note last, within the caps); the `—` in taskguide.test.js is a guard asserting absence.

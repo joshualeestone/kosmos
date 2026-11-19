@@ -662,3 +662,12 @@ test('kosmos#8735 slice 2: both guides at once give two notes, community first, 
   assert.ok(c >= 0 && t > c, 'want both notes, community first: ' + c + ' ' + t);
   assert.ok(!body.includes('- ' + routine), 'the community line was marked');
 });
+
+test('kosmos#8735 slice 2 review 6: a file with Windows line endings still leaves the moved task lines out', () => {
+  const { block, before } = withTaskGuideBack();
+  const crlf = (t) => t.replace(/\r?\n/g, '\r\n');
+  agentFile('tiw', crlf('# You are Tiw\n\n' + block + '\n'));
+  assert.equal(ir.remember('tiw', crlf('# You are Tiw\n\n' + before + '\n')), true);
+  const body = fs.readFileSync(ir.prepareChanges('tiw').path, 'utf8');
+  assert.match(body, /Left out: \d+ lines removed from Put the work on a task first that kosmos task --how prints/);
+});
