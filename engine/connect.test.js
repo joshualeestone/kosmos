@@ -2702,13 +2702,13 @@ driverTest('#8728: a local sign-in after a remote one carries no trace of the re
   } finally { subscription.setRunner(null); }
 });
 
-/* kosmos#8728 review 5: never on Windows. That host opens the sign-in page itself, so a remote start there still opens a
-   tab on the computer, and a flag saying otherwise would make the page tell the remote person nothing opened. */
-driverTest('#8728: on Windows a remote start does not claim that no browser opens', async () => {
+/* kosmos#8741 (was #8728 review 5's "never on Windows"): the Windows host now skips opening the page for a remote
+   start, so the flag is set there too. That host's own test (connect.win32signin.test.js) checks nothing opens. */
+driverTest('#8741: on Windows a remote start sets noOpener too', async () => {
   connect.setSigninPlatformForTests('win32');
   try {
     await connect.start({ reauth: true, remoteStarted: true });
-    assert.equal(connect.state().noOpener, false, 'the Windows flow claimed no browser opens');
+    assert.equal(connect.state().noOpener, true, 'the Windows remote flow did not say that no browser opens');
   } finally { connect.setSigninPlatformForTests('darwin'); }
 });
 
