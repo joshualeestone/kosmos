@@ -8,8 +8,11 @@
    pane started from it. This reads the script and refuses any line, outside a whole-line comment, that starts a tmux
    server (a server verb, or a bare tmux at command position, which runs new-session) or execs claude or codex.
 
-   It is a tripwire for what someone writes by mistake, not a parser: a verb built at run time, tmux's short command
-   prefixes (`st` for start-server) and an agent started without exec are not seen. Trailing comments, heredocs and
+   It is a tripwire for what someone writes by mistake, not a parser. Not seen: a verb built at run time; tmux's short
+   command prefixes (`st` for start-server); the binary through another variable (`"$_cand" new -d`; a literal
+   new-session is still caught); a line continuation splitting the binary from its verb; a bare binary behind `command`
+   or `env`; an agent started without exec, through a wrapper (`exec env X=1 claude`, `exec nohup claude`) or by a
+   quoted name (`exec "claude"`). Trailing comments, heredocs and
    embedded node programs ARE scanned, on purpose: a false alarm is loud, a miss is silent.
 
      node --test cli.no-tmux-server-8603.test.js */
@@ -29,7 +32,7 @@ const STARTS = [
   new RegExp(BIN + FLAGS + String.raw`\s+(?:new|start)\b`),
   /* A bare tmux (flags only) at command position runs new-session. Command position, so prose naming the binary does
      not count. */
-  new RegExp(String.raw`(?:^|[;&|]|\$\(|\bexec)\s*` + BIN + FLAGS + String.raw`\s*(?:$|[;&|)])`),   // $( and not ( : "(tmux)" in a message is prose
+  new RegExp(String.raw`(?:^|[;&|]|\$\(|\bexec)\s*` + BIN + String.raw`(?:\s+-(?![Vh]\b)\S+(?:\s+[^-\s;&|)]\S*)?)*\s*(?:$|[;&|)])`),   // -V and -h only read   // $( and not ( : "(tmux)" in a message is prose
   /\bexec\s+(?:\S*\/)?(?:claude|codex)\b/,
 ];
 const offends = (line) => STARTS.some((re) => re.test(line));
@@ -63,6 +66,10 @@ test('#8603 CONTROL: the matcher fires on each way of starting one, and not on t
     '  _ls=$("$AGENT_WORKFORCE_TMUX_BIN" ls 2>&1)',
     '  say "Sessions on this computer, as Kosmos\'s own tmux sees them ($AGENT_WORKFORCE_TMUX_BIN):"',
     '  _sys="$(PATH="${_KOSMOS_PATH_SYS:-$PATH}" command -v tmux 2>/dev/null || true)"',
+    '  "$KOSMOS_HOME/tmux/bin/tmux") ;;',
+    '  export PATH="$KOSMOS_HOME/tmux/bin:$PATH"',
+    '  v=$(tmux -V)',
+    '  "$AGENT_WORKFORCE_TMUX_BIN" -h; true',
   ]) assert.ok(!offends(fine), 'flagged a read: ' + fine);
   assert.ok(isComment('  # tmux new-session is never run here'), 'a comment is not code');
 });

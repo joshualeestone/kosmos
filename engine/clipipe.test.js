@@ -145,5 +145,8 @@ test('kosmos#8603: a non-closed-reader stream error still crashes, non-zero, wit
   assert.notStrictEqual(alone.status, 0, 'CONTROL: Node alone must crash on it');
   assert.strictEqual(guarded.status, alone.status, 'the guard changed the exit code: ' + guarded.status + ' vs ' + alone.status);
   assert.match(guarded.stderr, /boom-8603/, 'the error is not said on stderr');
+  /* And the one difference the clipipe.js header names: the guarded trace points at its rethrow, Node's at its own. */
+  assert.match(guarded.stderr, /clipipe\.js/, 'the guarded trace does not point at the rethrow');
+  assert.match(alone.stderr, /Unhandled 'error' event/, 'CONTROL: Node alone names its own line');
   assert.notStrictEqual(guarded.status, 141, 'a non-closed-reader error was taken for a closed reader');
 });
