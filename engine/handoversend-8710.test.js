@@ -374,3 +374,26 @@ test('round 5: too big after an uncounted try that uploaded says the earlier try
     assert.match(hs.notice(st).stopped, /an earlier try used up the room/);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('round 6: wrong state after a try that uploaded says the pack may be half sent', async () => {
+  const w = world();
+  try {
+    let clock = 0;
+    let answer = { ok: false, because: 'HTTP 503', added: new Map([['c1', {}]]) };
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hhalf' })] } }), takeSnapshot: async () => answer });
+    const st = hs.newSendState();
+    await hs.tick(st, d);
+    clock += hs.RETRY_MS + 1;
+    answer = { ok: false, because: 'Kosmos+ refused (HTTP 409 on /v1/mac/org/handover/manifest, code handover_wrong_state)' };
+    await hs.tick(st, d);
+    assert.match(hs.notice(st).stopped, /may have left the pack half sent/);
+    // CONTROL: with nothing granted before, it is the hand-over that is no longer open.
+    const w2 = world();
+    try {
+      const d2 = depsFor(w2, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hclosed' })] } }), takeSnapshot: async () => answer });
+      const s2 = hs.newSendState();
+      await hs.tick(s2, d2);
+      assert.equal(hs.notice(s2).stopped, 'the hand-over is no longer open');
+    } finally { fs.rmSync(w2.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
