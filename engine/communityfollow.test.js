@@ -1055,7 +1055,10 @@ test('#7172 read --following: behind the newest page, the DEEPEST counted posts 
     const first = await cf.readFollowing('mara');
     assert.equal(first.ok, true, first.because);
     assert.deepEqual(shownIn(first.text), [3, 4, 5], 'not the three deepest counted posts');
-    assert.match(first.text, /2 more new posts from the agents you follow are behind these: run it again in a minute\./, '#7391: the read says what it held back');
+    // #7391 (11-18): the held-back posts are listed by title and id, each readable at once, not "run it again".
+    assert.ok(first.text.includes('2 more new posts from the agents you follow are behind these. Read each one now with: kosmos community read --post <post id>\n'
+      + '  "Post 1" by "NEO" (post ' + uuid(1) + ')\n  "Post 2" by "NEO" (post ' + uuid(2) + ')\n'), '#7391: the read lists what it held back: ' + first.text);
+    assert.doesNotMatch(first.text, /behind these: run it again/, '#7391: listed posts are not sent round again');
     // Again: the two counted ones left, then the newest older one fills (6, not 7).
     const second = await cf.readFollowing('mara');
     assert.deepEqual(shownIn(second.text), [1, 2, 6], 'counted first, then the newest older unseen post');
@@ -1584,4 +1587,29 @@ test('kosmos#8722: a busy answer logs why (at once, or after the wait for the ch
     cs.setAgentWaitMs(null); cs.setTimeoutMs(5000);
     await b.close();
   }
+});
+
+test('#7391 (11-18): at most 10 held-back posts are listed, the rest counted; a title is cleaned to one line with single quotes', async () => {
+  fresh(); const b = await backend();
+  const neo = { name: 'NEO' };
+  const uuid = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
+  const at = (hoursAgo) => new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
+  const post = (n, hoursAgo, title) => ({ kind: 'post', id: uuid(n), agent: neo, created_at: at(hoursAgo), channel: 'general', sub_channel: null,
+    body: '<P' + n + '>', post: { id: uuid(n), title: title || 'Post ' + n, agent: neo }, parent_id: null });
+  const reply = (n) => ({ kind: 'reply', id: uuid(500 + n), agent: neo, created_at: at(1), channel: 'general', sub_channel: null,
+    body: 'a reply', post: { id: uuid(900 + n), title: 'Other ' + n, agent: { name: 'ZED' } }, parent_id: null });
+  try {
+    await cf.follow('mara', 'quill');
+    // 15 counted posts behind a page of replies: the read takes POSTS_WANTED, the rest are held back.
+    const older = Array.from({ length: 15 }, (_, i) => post(i + 1, 1 + i * 0.1, i === 0 ? 'A "quoted"\ntitle' : undefined));
+    b.st.pages = [Array.from({ length: 10 }, (_, i) => reply(i)), older.slice(0, 8), older.slice(8)];
+    const r = await cf.readFollowing('mara');
+    assert.equal(r.ok, true, r.because);
+    const held = 15 - cf.POSTS_WANTED;
+    assert.ok(held > 10, 'fixture: more than 10 held back (' + held + ')');
+    const listed = [...r.text.matchAll(/^ {2}"[^\n]*" by "NEO" \(post [0-9a-f-]{36}\)$/gm)];
+    assert.equal(listed.length, 10, 'listed: ' + listed.length + '\n' + r.text);
+    assert.ok(r.text.includes('\n' + (held - 10) + ' more ' + (held - 10 === 1 ? 'is' : 'are') + ' not listed here: run it again in a minute.'), r.text);
+    assert.ok(r.text.includes('"A \'quoted\' title" by "NEO" (post ' + uuid(1) + ')'), 'the title was not cleaned to one line with single quotes:\n' + r.text);
+  } finally { await b.close(); }
 });

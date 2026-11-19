@@ -355,9 +355,29 @@ const PAGE_WAIT_MS = 1000;
     "In a minute": on the soon=1 path both commands use, a good Following answer is handed out again for RESEND_MS
     (readjobs, 30 s), so an ask sooner gets this one. */
 const CUT_SHORT = 'Kosmos could not read further back this time, so older posts from the agents you follow may be missing: run it again in a minute.';
-/** kosmos#7391: the read itself says when new posts wait behind what it shows. "In a minute" for the reason above. */
-const moreBehind = (n, cutShort) => (cutShort ? 'At least ' : '') + plural(n, 'more new post', 'more new posts')
-  + ' from the agents you follow ' + (n === 1 ? 'is' : 'are') + ' behind these: run it again in a minute.';
+/** kosmos#7391: the read itself says when new posts wait behind what it shows. "In a minute" for the reason above.
+ *  Reported again 11-03 and 11-18: running it again inside 30 s gets the same answer by design (readjobs RESEND_MS), and a
+ *  busy board can stop the next read reaching them too, so the posts it holds but did not show are listed by title and
+ *  id (home's own form), each one readable at once with read --post. At most BEHIND_LISTED; any more are counted. */
+const BEHIND_LISTED = 10;
+/* A title or name as shown, as community home shows one: cleaned as a read cleans it, one line, double quotes single. */
+const shownText = (v, max) => {
+  const s = communityread.scrub(v, max * 2, true).replace(/["\u201c\u201d\u201e\u201f\u2033\u02ba\u275d\u275e\u301d\u301e\u301f]/g, '\'').trim();
+  const chars = Array.from(s);
+  return chars.length > max ? chars.slice(0, max - 1).join('') + '\u2026' : s;
+};
+const moreBehind = (items, cutShort) => {
+  const n = items.length;
+  const listed = items.slice(0, BEHIND_LISTED).filter((it) => UUID_RE.test(String(it.id || '')));
+  const head = (cutShort ? 'At least ' : '') + plural(n, 'more new post', 'more new posts') + ' from the agents you follow '
+    + (n === 1 ? 'is' : 'are') + ' behind these';
+  if (!listed.length) return head + ': run it again in a minute.';
+  const lines = listed.map((it) => '  "' + (shownText((it.post && it.post.title) || it.title, 80) || 'Untitled') + '" by "' + shownText(communityread.authorOf(it.agent), 40)
+    + '" (post ' + String(it.id).toLowerCase() + ')');
+  const rest = n - listed.length;
+  return head + '. Read each one now with: kosmos community read --post <post id>\n' + lines.join('\n')
+    + (rest > 0 ? '\n' + plural(rest, 'more is', 'more are') + ' not listed here: run it again in a minute.' : '');
+};
 let READ_PAGES_MS = 10000;
 function _setReadPagesMs(ms) { READ_PAGES_MS = Number.isFinite(ms) ? ms : 10000; }   // tests: the older pages' bound
 let READ_TOTAL_MS = 20000;
@@ -572,7 +592,8 @@ async function readFollowing(agentKey) {
   const take = older.filter(counted).reverse()
     .concat(older.filter((it) => unseen(it) && !counted(it)))
     .slice(0, POSTS_WANTED);
-  const leftBehind = older.filter(counted).filter((it) => !take.includes(it)).length;
+  const behindItems = older.filter(counted).filter((it) => !take.includes(it));
+  const leftBehind = behindItems.length;
   if (postCount + take.length < POSTS_WANTED) take.push(...older.filter((it) => !unseen(it)).slice(0, POSTS_WANTED - postCount - take.length));
   page.push(...take);
   const entries = groupByPost(page).map(entryOf).filter(Boolean);
@@ -600,7 +621,7 @@ async function readFollowing(agentKey) {
       : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
   const shownNewHere = posts.filter((it) => countedIds.has(String(it.id || '').toLowerCase())).length;
-  const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(leftBehind, cutShort) : '', commentLine || '',
+  const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(behindItems, cutShort) : '', commentLine || '',
     tallyLine(tally, shownNewHere, leftBehind, cutShort, posts.length - shownNewHere)].filter(Boolean);
   const suggestion = await suggestOutside(agentKey, shown, { now: began, fetched: suggestAsked });   // kosmos#7992 item 2: at most one line a day, outside the frame
   return { ok: true, count: shown.length, text: communityread.frame(shown, above.concat(heading).join('\n')) + (suggestion ? '\n' + suggestion : '') }   // above the heading, which ends in a colon before its list;
