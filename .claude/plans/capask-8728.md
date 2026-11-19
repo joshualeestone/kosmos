@@ -29,7 +29,10 @@ sign-in right now ... if this keeps happening, update Kosmos." Nothing was out o
   the 1 + 20 asks the update sentence comes back, so "still starting" is never a promise nothing keeps (a connector
   that cannot be started at all). One predicate, stillSelfRetrying, decides the retry, the log line and this. `remoteStepUpRefusal` then returns REMOTE_STEP_UP_STARTING ("Kosmos+ is still
   starting on this computer ... Try again in a minute"), same code `remote_step_up_unavailable`, so every page that
-  reads the code is unchanged. A connector that ANSWERED without the capability keeps the update sentence. A caller
+  reads the code is unchanged. A connector that ANSWERED without the capability keeps the update sentence, whatever
+  the running half is doing (review 5), and a later recheck of the same binary that does not answer keeps that answer
+  rather than turning it back into "not known". Read pending right after connectorCapabilities(), as
+  remoteStepUpRefusal does: the foreign window it reports is the one that read noted. A caller
   passing its own caps (tests) is treated as answered.
 - Nothing trusted widens: the decision to refuse is unchanged; only which sentence, and when the board asks again.
 
@@ -40,7 +43,7 @@ sign-in right now ... if this keeps happening, update Kosmos." Nothing was out o
   redesigns that dialog anyway.
 
 ## Tests
-`server.capask-8728.test.js`, nine tests, timings shortened through a test-only seam (`timings` on
+`server.capask-8728.test.js`, eleven tests, timings shortened through a test-only seam (`timings` on
 resetConnectorCapabilitiesForTests, honoured only under NODE_TEST_CONTEXT): self re-ask with the longer limit and both
 log lines; over HTTP the starting sentence while unknown; control, an old connector still gets "update Kosmos"; the cap
 of 1 + 20 asks and the last line; a new generation (forget with no new ask) leaves the old timer silent; while an
@@ -52,10 +55,10 @@ Mutations, each red: no self-retry (2 red), no starting sentence (1), no longer 
 forget (1), no foreign-window pending (1, set or read); review 3: forget resetting the count (1), the per-binary reset (1),
 the log's per-binary count (1), the status-not-read arm (1). Two separate "no tunnel here" and "no child" lines were
 removed rather than tested: each mutation left every test green because the status-not-read line already returns true
-in both cases, which the comment there now says. Review 4: a stop keeping the generation (1). NOT pinned: the one line
-in stopChild that calls retireCapabilityAsks (removing it leaves every test green). The only exported way to reach
-stopChild here is setOn(false), which also tells the coordinator; that is not a call to make from this sandbox. Existing: server.remotestepup-6595.test.js and
-server.stepupbutton-6616.test.js unchanged and green (48 with the new file).
+in both cases, which the comment there now says. Review 4: a stop keeping the generation (1). Review 5: stopChild not
+calling retireCapabilityAsks (1, reached through resetForTests), an answered no read as pending (1), a timed-out
+recheck replacing an answered no (1). Existing: server.remotestepup-6595.test.js and
+server.stepupbutton-6616.test.js unchanged and green (50 with the new file).
 
 ## Known and left
 - Review 4: "still starting" is bounded only for an unanswered ask. A child that runs and never writes its status file,

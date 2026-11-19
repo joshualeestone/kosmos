@@ -5663,8 +5663,9 @@ const REMOTE_STEP_UP_CONNECTOR = Object.freeze({
   code: 'remote_step_up_unavailable',
   error: "This computer's Kosmos+ connector cannot vouch for a fresh sign-in right now, so this cannot be done from a remote session. Do it at the computer, or try again in a minute; if this keeps happening, update Kosmos.",
 });
-/* kosmos#8728: the same refusal while the connector has not said yet (just started, or a slow start that did not
-   answer in time; it is asked again by itself). Seen by Josh on 11-19, six minutes after a restart under heavy load:
+/* kosmos#8728: the same refusal while the connector has not said yet: just started, a slow start that did not answer
+   in time (it is asked again by itself), a tunnel between a crash and its relaunch, or an earlier board's tunnel still
+   being ended. Seen by Josh on 11-19, six minutes after a restart under heavy load:
    the old sentence told him to update Kosmos, and nothing was out of date. Same code, so every page that reads the
    code keeps working; only the words change. */
 const REMOTE_STEP_UP_STARTING = Object.freeze({

@@ -139,7 +139,7 @@ const connectorSpawnOptions = (opts) => ({ ...opts, windowsHide: true });
    that cannot be run, lists nothing, so its headers are never trusted: this is what makes an old connector fail
    closed on every platform, whatever order things merge or ship in. Asked once and kept; a connector that lacked it
    is asked again after ten minutes, one that did not answer at all after thirty seconds (kosmos#8728: by itself, on a
-   timer, not only when a request finds it due). A YES is kept: never
+   timer, for 20 asks; after that only when a request finds it due). A YES is kept: never
    downgraded within a generation, and kept across a tunnel restart on the same binary (path, mtime, size). Asked only
    once this board has started its own tunnel (a tunnel left by an earlier board vouches for nothing), and always in
    the background, never while a request waits. */
@@ -161,7 +161,7 @@ const CAPABILITIES_RETRY_TIMEOUT_MS = 15000;
 const CAPABILITIES_SELF_RETRIES = 20;
 let capabilitiesSeen = null;
 let askingCapabilities = false;
-// kosmos#8728: unanswered asks in a row in this generation, and the timer that asks again by itself.
+// kosmos#8728: unanswered asks in a row for one connector binary (not reset by a new generation), and the timer.
 let unansweredInARow = 0;
 // kosmos#8728 review 3: which binary that count is about; a different binary (an update) starts it again.
 let unansweredBinary = null;
@@ -183,6 +183,12 @@ let capabilitiesGeneration = 0;
 function noteCapabilities(caps, answered, now, generation = capabilitiesGeneration, binary = connectorBinaryKey()) {
   if (generation !== capabilitiesGeneration) return capabilitiesSeen ? capabilitiesSeen.caps : new Set();
   if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) return capabilitiesSeen.caps;
+  /* kosmos#8728 review 5: a recheck of the same binary that does not answer keeps the answer it gave before (an
+     answer is better than no answer), with its ten-minute clock started again; no self-retries, nothing pending. */
+  if (!answered && capabilitiesSeen && capabilitiesSeen.answered && capabilitiesSeen.binary === binary) {
+    capabilitiesSeen = { ...capabilitiesSeen, at: now };
+    return capabilitiesSeen.caps;
+  }
   // `binary` is the one that was ASKED (taken when the ask started), so a binary swapped mid-ask is not credited.
   capabilitiesSeen = { caps, answered, at: now, binary };
   if (answered) { unansweredInARow = 0; unansweredBinary = null; clearSelfRetry(); } else {
@@ -196,8 +202,9 @@ function clearSelfRetry() { if (selfRetryTimer) { clearTimeout(selfRetryTimer); 
    way: a new generation drops its answer (so it cannot arm the timer again), and the asking flag is freed for the next
    start. A kept yes is untouched; the next start decides about it (forgetConnectorCapabilities). */
 function retireCapabilityAsks() { clearSelfRetry(); capabilitiesGeneration += 1; askingCapabilities = false; }
-/* kosmos#8728: ask again by itself after an unanswered ask. One timer, cleared by an answered ask and by a new
-   generation (forgetConnectorCapabilities). Unref'd, so it never holds a process open. */
+/* kosmos#8728: ask again by itself after an unanswered ask, while stillSelfRetrying allows. One timer, cleared by an
+   answered ask, a new generation (forgetConnectorCapabilities) and a stop (retireCapabilityAsks). Unref'd, so it never
+   holds a process open. */
 function scheduleSelfRetry() {
   clearSelfRetry();
   if (!stillSelfRetrying(unansweredInARow)) return;
@@ -210,8 +217,12 @@ function scheduleSelfRetry() {
    starting, never "update Kosmos"; once the self-retries have run out (review 2: a connector that cannot be started at
    all never answers), it is the update sentence again. The running
    tunnel's half counts too: started here but its own status not yet written by this child, or a tunnel from an
-   earlier board still being ended. */
+   earlier board still being ended. Review 5: a binary that ANSWERED without the capability is never pending,
+   whatever the running half is doing, because then the update sentence is the true one.
+   🛑 Read it right after connectorCapabilities(), as remoteStepUpRefusal does: the foreign window it reports is the
+   one that read noted (runningCapabilities sets it), so a read with nothing before it can be stale. */
 function connectorCapabilitiesPending() {
+  if (capabilitiesSeen && capabilitiesSeen.answered && !capabilitiesSeen.caps.has('session-headers')) return false;
   if (foreignHolding) return true;
   if (!capabilitiesSeen) return true;
   if (!capabilitiesSeen.answered) return stillSelfRetrying(unansweredInARow);
@@ -434,11 +445,13 @@ function logCapabilityAsk(answered, caps, ms, timeout, generation, binary) {
   if (answered) {
     line += 'answered in ' + ms + ' ms: ' + ([...caps].join(' ') || 'none');
     if (generation !== capabilitiesGeneration) line += '; dropped, the tunnel has stopped or changed since';
+    else if (!caps.has('session-headers') && capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) line += '; the earlier yes is kept';
   }
   else {
     line += 'not answered in ' + ms + ' ms (limit ' + timeout + ' ms); ';
     if (generation !== capabilitiesGeneration) line += 'dropped, the tunnel has stopped or changed since';
     else if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) line += 'the earlier yes is kept';
+    else if (capabilitiesSeen && capabilitiesSeen.answered && capabilitiesSeen.binary === binary) line += 'the earlier answer is kept, asked again in ten minutes';
     else if (stillSelfRetrying(count)) line += 'asking again in ' + Math.round(capTiming('recheckMs', CAPABILITIES_UNANSWERED_RECHECK_MS) / 1000) + ' s';
     else line += 'asked ' + count + ' times; asking again only when a remote request finds the answer due';
   }
