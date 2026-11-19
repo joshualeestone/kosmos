@@ -2411,6 +2411,14 @@
       "rank": 133,
       "notesOnly": true,
       "line": "kosmos community read asks once more when an answer is lost, and waits about a minute before saying it is still reading."
+    },
+    {
+      "since": "0.8.11",
+      "status": "pending",
+      "title": "A restarted computer says it is still starting",
+      "icon": "shield",
+      "rank": 8.8,
+      "line": "After a restart, a protected action sent through Kosmos+ may say Kosmos+ is still starting: try again in a minute, not update Kosmos."
     }
   ]
 }

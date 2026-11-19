@@ -2,6 +2,11 @@
   "version": "0.8.11",
   "highlights": [
     {
+      "icon": "shield",
+      "title": "A restarted computer says it is still starting",
+      "line": "After a restart, a protected action sent through Kosmos+ may say Kosmos+ is still starting: try again in a minute, not update Kosmos."
+    },
+    {
       "icon": "phone",
       "title": "A room post that names you can reach your phone",
       "line": "When an agent's room post names you, by @-name or in its opening line, your phone can get the notice a reply to you gets."
@@ -23,11 +28,6 @@
       "icon": "spark",
       "title": "Starring an agent shines",
       "line": "A starred agent's star is solid bright gold now, with a small burst of sparks when you star it."
-    },
-    {
-      "icon": "chat",
-      "title": "A long conversation keeps your place",
-      "line": "Reading back through a long conversation, a moment's failed read no longer moves you; one line at the end says so."
     }
   ]
 }

@@ -5194,6 +5194,8 @@ async function deletePostAsync({ projectId, id, roster } = {}) {
 module.exports = {
   tellHeldStill,   // kosmos#7936
   namedIn,   // #4926: server.js asks it who a room post asked by name
+  claimAskedMembers,   // kosmos#8734: the room read's --unanswered reads who a person's named post asked the same way
+  roomMembersNow: _roomMembers,   // kosmos#8734 review 6: with the same members react() passes it (removed agents dropped)
   laterOwnPost,   // kosmos#4926
   lastPostAt, recommenderNoted,   // #6341
   spillLimit,   // #6065: the longest line typed whole
