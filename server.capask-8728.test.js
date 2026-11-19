@@ -191,12 +191,19 @@ test('8728 review 3: a tunnel that restarts on the same binary does not get a fr
     assert.equal(lines.length, 22, 'and no fresh run of self-retries: ' + lines.length);
     assert.match(lines[21], /asked 22 times; asking again only when/);
     assert.equal(remote.connectorCapabilitiesPending(), false, 'given up: the update sentence, not "still starting"');
+    // CONTROL: an update (a different binary) starts the budget again.
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = slow('flap-tunnel-updated', 60 * 1000);
+    remote.forgetConnectorCapabilities();
+    assert.ok(await until(() => lines.length >= 25, 5000), 'a new binary is asked again by itself: ' + lines.length);
+    assert.match(lines[22], /asked 1 times|asking again in 0 s/);
+    assert.equal(remote.connectorCapabilitiesPending(), true, 'and is "still starting" again');
   } finally { releaseLog(); process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
 
 test('8728 review 3: pending while this board has no tunnel of its own, no child, or the child has not said yet; not once it has', async () => {
   const yes = () => warm().then((c) => assert.ok(c.has('session-headers')));
   remote.resetConnectorCapabilitiesForTests({ startedHere: false, runningPid: TEST_PID, commandOf: () => null });
+  await yes();   // a yes is kept, so only "no tunnel started here" can make this pending
   assert.equal(remote.connectorCapabilitiesPending(), true, 'no tunnel started here');
   remote.resetConnectorCapabilitiesForTests({ runningPid: null, commandOf: () => null });
   await yes();
