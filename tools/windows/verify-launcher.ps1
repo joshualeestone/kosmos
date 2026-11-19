@@ -59,13 +59,29 @@
 # checks another file against the source instead of the committed one: the way
 # to prove this check still catches a flipped byte in a signed binary.
 
-param([string]$Exe)
+# #8770: -Cli checks bin\kosmos.exe instead (tools/windows/cli/kosmos.exe, built from
+# tools/windows/cli/KosmosCli.cs): the same masked compare and signature check, with
+# its own source, output name and flags (a console exe, no icon).
+#
+#   powershell -File tools/windows/verify-launcher.ps1 -Cli
+param([string]$Exe, [switch]$Cli)
 
 $ErrorActionPreference = 'Stop'
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $src = Join-Path $here 'KosmosLauncher.cs'
-$committed = if ($Exe) { [System.IO.Path]::GetFullPath($Exe) } else { Join-Path $here 'Kosmos.exe' }
+# The output NAME is part of the artifact (it becomes the module name, see the two
+# rebuilds below), so each target is rebuilt under its own committed name.
+$outName = 'Kosmos.exe'
+$srcRel = 'tools\windows\KosmosLauncher.cs'
+$exeRel = 'tools\windows\Kosmos.exe'
+if ($Cli) {
+  $src = Join-Path $here 'cli\KosmosCli.cs'
+  $outName = 'kosmos.exe'
+  $srcRel = 'tools\windows\cli\KosmosCli.cs'
+  $exeRel = 'tools\windows\cli\kosmos.exe'
+}
+$committed = if ($Exe) { [System.IO.Path]::GetFullPath($Exe) } elseif ($Cli) { Join-Path $here 'cli\kosmos.exe' } else { Join-Path $here 'Kosmos.exe' }
 
 # The pinned compiler. Framework64 v4.0.30319 is present on every Windows 10/11
 # machine; naming the path rather than searching keeps two runs comparable.
@@ -80,6 +96,15 @@ $FLAGS = @('/nologo', '/target:winexe', '/optimize+', '/platform:anycpu')
 $ICON_FLAG_FROM_REPO_ROOT = '/win32icon:assets\kosmos.ico'
 $icon = [System.IO.Path]::GetFullPath((Join-Path $here '..\..\assets\kosmos.ico'))
 $buildFlags = $FLAGS + @("/win32icon:$icon")
+# #8770: the kosmos command is a CONSOLE program (its output is the command's output)
+# and carries no icon. Shared with tools/windows/README.md, like $FLAGS.
+$CLI_FLAGS = @('/nologo', '/target:exe', '/optimize+', '/platform:anycpu')
+if ($Cli) {
+  $FLAGS = $CLI_FLAGS
+  $ICON_FLAG_FROM_REPO_ROOT = ''
+  $buildFlags = $CLI_FLAGS
+  $icon = $src   # nothing extra to require below
+}
 
 foreach ($p in @($csc, $src, $committed, $icon)) {
   if (-not (Test-Path -LiteralPath $p)) { Write-Error "missing: $p"; exit 2 }
@@ -97,8 +122,8 @@ try {
   # sent the next person hunting a defect in the launcher.
   $dirOne = Join-Path $tmp 'one'; New-Item -ItemType Directory -Force -Path $dirOne | Out-Null
   $dirTwo = Join-Path $tmp 'two'; New-Item -ItemType Directory -Force -Path $dirTwo | Out-Null
-  $one = Join-Path $dirOne 'Kosmos.exe'
-  $two = Join-Path $dirTwo 'Kosmos.exe'
+  $one = Join-Path $dirOne $outName
+  $two = Join-Path $dirTwo $outName
 
   & $csc @buildFlags "/out:$one" $src | Out-Null
   if ($LASTEXITCODE -ne 0) { Write-Error 'the first rebuild failed'; exit 2 }
@@ -125,7 +150,7 @@ try {
   $kMagic = [BitConverter]::ToUInt16($k, $kOpt)
   if ($kMagic -eq 0x10B) { $dirsAt = $kOpt + 96; $countAt = $kOpt + 92 }
   elseif ($kMagic -eq 0x20B) { $dirsAt = $kOpt + 112; $countAt = $kOpt + 108 }
-  else { Write-Host ('MISMATCH: the committed Kosmos.exe has an unknown optional-header magic 0x{0:X}.' -f $kMagic); exit 1 }
+  else { Write-Host ('MISMATCH: the committed ' + $outName + ' has an unknown optional-header magic 0x{0:X}.' -f $kMagic); exit 1 }
   $secEntry = $null
   $signed = $false
   if ([BitConverter]::ToUInt32($k, $countAt) -gt 4) {
@@ -159,7 +184,7 @@ try {
   }
 
   if ($k.Length -ne $a.Length) {
-    Write-Host "MISMATCH: committed Kosmos.exe is $($k.Length) bytes, a fresh build is $($a.Length)."
+    Write-Host "MISMATCH: committed $outName is $($k.Length) bytes, a fresh build is $($a.Length)."
     Write-Host 'The committed binary did not come from the committed source (or from these flags).'
     exit 1
   }
@@ -237,13 +262,13 @@ try {
   if ($ha -eq $hk) {
     if ($signed -and $sig.Status -ne 'Valid') {
       Write-Host "SIGNATURE NOT VALID: the image matches its source, but Windows reports the signature as $($sig.Status)."
-      Write-Host 'Re-sign tools\windows\Kosmos.exe on the Windows box (see tools/windows/README.md).'
+      Write-Host ('Re-sign ' + $exeRel + ' on the Windows box (see tools/windows/README.md).')
       exit 1
     }
     if ($signed) {
-      Write-Host 'OK: the committed Kosmos.exe, less its Authenticode signature, reproduces from the committed KosmosLauncher.cs.'
+      Write-Host ('OK: the committed ' + $outName + ', less its Authenticode signature, reproduces from the committed ' + $srcRel + '.')
     } else {
-      Write-Host 'OK: the committed Kosmos.exe reproduces from the committed KosmosLauncher.cs.'
+      Write-Host ('OK: the committed ' + $outName + ' reproduces from the committed ' + $srcRel + '.')
     }
     exit 0
   }
@@ -253,7 +278,7 @@ try {
   Write-Host "MISMATCH: $n byte(s) differ outside the build metadata."
   Write-Host 'The committed binary did not come from the committed source (or from these flags).'
   Write-Host 'Rebuild it in the same commit as the source change:'
-  Write-Host ("  " + $csc + ' ' + ($FLAGS -join ' ') + ' ' + $ICON_FLAG_FROM_REPO_ROOT + ' /out:tools\windows\Kosmos.exe tools\windows\KosmosLauncher.cs')
+  Write-Host ("  " + $csc + ' ' + ($FLAGS -join ' ') + ' ' + $ICON_FLAG_FROM_REPO_ROOT + ' /out:' + $exeRel + ' ' + $srcRel)
   Write-Host 'then re-sign it on the Windows box (see tools/windows/README.md).'
   exit 1
 } finally {

@@ -480,6 +480,48 @@ If you change the icon master, regenerate the icon first
 (`powershell -ExecutionPolicy Bypass -File assets/make-kosmos-ico.ps1`), then
 rebuild the binary: the icon is compiled into it.
 
+## The kosmos command for other launchers (#8770)
+
+The agent's `kosmos` command ships as three files in `bin\`, one per kind of caller:
+
+| file | who runs it |
+|---|---|
+| `kosmos.ps1` | Windows PowerShell 5.1 and pwsh 7 (a bare `kosmos` resolves here) |
+| `kosmos` (no extension) | Git Bash |
+| `kosmos.exe` | cmd.exe, a scheduled task, node's `spawn('kosmos', args)` without a shell |
+
+This was measured on the Windows box with all three in one folder: adding the exe changed nothing for PowerShell or Git Bash.
+
+Before the exe, everything in the last row failed with "'kosmos' is not recognized". A script that read that failure as an empty answer took "no agents" for the truth.
+
+`kosmos.exe` is built from `cli\KosmosCli.cs`, a few dozen lines. It writes its argv as the JSON file `kosmos-cli.js` already reads (`--kosmos-argv-file`, as `kosmos.ps1` sends it), then runs `..\runtime\node.exe` with the same stdin, stdout and stderr. It returns the CLI's exit code unchanged. No second command line carries the words.
+
+**Not a `.cmd`.** cmd re-parses `%*` inside a batch file, so a caller that escaped correctly for one parse, as in `kosmos msg x a^&calc`, has the caret eaten and the batch line runs `calc`. This was measured on the box with a one-line `.cmd` wrapper, and the exe kept the same line as text. Node also refuses to spawn a `.cmd` without a shell, for this reason.
+
+It is committed, signed and verified exactly like `Kosmos.exe`, with its own flags (a console program, no icon). Rebuild from the repo root:
+
+```
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe ^
+  /nologo /target:exe /optimize+ /platform:anycpu ^
+  /out:tools\windows\cli\kosmos.exe tools\windows\cli\KosmosCli.cs
+```
+
+Then sign it and check it:
+
+```
+powershell -File tools/windows/verify-launcher.ps1 -Cli
+```
+
+It lives in `cli\` because `kosmos.exe` and `Kosmos.exe` are the same name on a case-insensitive file system. The output name is compiled into the binary, so it must stay `kosmos.exe`.
+
+`tools/build-kosmos-windows.sh` checks four things before the exe ships:
+- it is signed;
+- on Windows, Windows itself accepts the signature;
+- its last commit contains the last commit to `KosmosCli.cs`;
+- the zip contains `bin/kosmos.exe`.
+
+It is not in win32update's `REQUIRED_ENTRIES`, because a build from before #8770 is still a whole build.
+
 ## The port
 
 `DefaultPort` in the source is a **third copy** of the board's default port — the
