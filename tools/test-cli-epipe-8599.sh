@@ -2,12 +2,13 @@
 # kosmos#8599: `kosmos <verb> | head -1` must not end in an unhandled EPIPE stack trace.
 #
 # Runs the REAL install/kosmos and the REAL engine/clipipe.js against a fake app whose triage engine prints about
-# 1 MB, far more than a pipe holds, so the reader (head -1) closes while node is still writing. Five arms:
+# 1 MB, far more than a pipe holds, so the reader (head -1) closes while node is still writing. Five arms (and 4b):
 #   1. guarded: no EPIPE, ENOTCONN or ECONNRESET and no "Unhandled 'error'" on stderr, and the reader got its line
 #   2. CONTROL, guard off (KOSMOS_CLIPIPE_SET=1 before the wrapper, so it adds nothing): the trace IS there, which
 #      proves this test can see the defect at all
 #   3. CONTROL, full output: nothing closes early, every byte arrives and the verb exits 0
 #   4. the person's own NODE_OPTIONS reaches what the CLI's node starts, and the preload does not
+#   4b. guard off (kosmos#8603): the person's NODE_OPTIONS reaches it untouched
 #   5. a home folder with a space in it is guarded too
 set -u
 
