@@ -25,7 +25,9 @@
  *     (seadmin.prepare and sign are the signing; the screen is the admin screen, #7892, or the console page);
  *   - sending the request: the coordinator route that relays it to escrowd (step 1's op exists; the board-facing route
  *     is asked on #7116, comment 7021307518);
- *   - the join flow calling it: nothing outside the tests calls this file yet. Once it keeps the code it joined with,
+ *   - the join flow calling it: nothing outside the tests calls this file yet. When escrowd refuses a signature, one
+ *     possible cause is that the roster's generation moved after the bytes were signed (escrowd rebuilds them at its
+ *     current one, and says only that a signature failed): the caller fetches fresh bytes and signs again (review 5). Once it keeps the code it joined with,
  *     deviceSign's joinCode should be required, not optional (review 4);
  *   - that the inviter and the signing admins are on the company's admin roster: escrowd holds the roster, this Mac
  *     does not, so escrowd checks it (and each signature under its admin's registered key).
@@ -35,6 +37,7 @@ const crypto = require('node:crypto');
 const se = require('./seadmin');
 
 const CODE_LEN = 16;
+const NONCE_LEN = 32;   // escrowd's rosternonce::LEN: devkeyhist_enrol refuses any other length (review 5)
 const CODE_HASH_TAG = 'kosmos-join-code hash v1';
 const JOIN_TAG_TAG = 'kosmos-join-code tag v1';
 
@@ -113,12 +116,14 @@ function deviceSign(bytes, { org, member, deviceKey, joinCode }) {
  */
 function request(bytes, deviceSig, adminSigs) {
   const d = se.decodeDevkeyEnrol(bytes);
+  if (d.nonce.length !== NONCE_LEN) throw new Error('an enrolment\'s nonce is ' + NONCE_LEN + ' bytes, as escrowd issues it');
   if (!(deviceSig instanceof Uint8Array) || deviceSig.length !== 64) throw new Error('a device signature is 64 bytes');
   if (!Array.isArray(adminSigs) || adminSigs.length !== 2) throw new Error('an enrolment takes two admins\' signatures');
   const isBytes = (b) => b instanceof Uint8Array && b.length > 0;
   const b64 = (b) => Buffer.from(b).toString('base64url');
   const sigs = adminSigs.map((a) => {
     if (!a || typeof a.adminId !== 'string' || !a.adminId) throw new Error('each admin signature names its admin');
+    if (a.passkey !== undefined && a.sig !== undefined) throw new Error('an admin signature is a Mac key\'s or a passkey\'s, not both');   // review 5
     if (a.passkey && a.sig === undefined) {
       const pk = a.passkey;
       if (![pk.authenticatorData, pk.clientDataJSON, pk.signature].every(isBytes)) throw new Error('a passkey signature is three byte fields');
