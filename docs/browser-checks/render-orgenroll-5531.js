@@ -29,6 +29,7 @@
  *   O15 a joined Kosmos that does not report yet offers no button (the board takes the terms on itself) and says
  *       which wait it is in.
  *   O15b (kosmos#7586) with backup required and not met, the joined sentence says so; not when met or not said.
+ *   O15h (kosmos#8710) a hand-over: the joined sentence names the agents being moved, and a stopped pack's reason.
  *   O17 on a fresh page: a failed /api/org read still shows only the button; an already joined Kosmos shows its joined
  *       view and heading at once; a company note opens the block.
  */
@@ -348,6 +349,21 @@ const text = (pg, id) => pg.evaluate((i) => document.getElementById(i).textConte
         && o15b.met.say === 'This Kosmos is your work Kosmos for Acme.' && o15b.absent.say === 'This Kosmos is your work Kosmos for Acme.'
         && o15b.family.say.endsWith('Your family' + BK + 'its last backup is older than your family allows.') && !/company/i.test(o15b.family.say),
       'O15b backup required: the joined sentence says the company (or family) requires it and its console shows it is not met; not when met or not said', JSON.stringify(o15b));
+    // O15h (kosmos#8710): the leaving member is told which agents their company is moving (/api/org handover), after any
+    // backup line, and why a pack stopped when one did. CONTROLS: no handover, and one naming no agents, say nothing more.
+    const MOVE = ' to a colleague\'s computer.';
+    const o15h = { one: await joinedAs({ reporting: true, handover: { agents: ['Ledger'] } }),
+      many: await joinedAs({ reporting: true, handover: { agents: ['Ledger', 'Permit Intake', 'Scout'] } }),
+      stopped: await joinedAs({ reporting: true, handover: { agents: ['Ledger'], stopped: 'the folder of Ledger could not be found' } }),
+      afterBackup: await joinedAs({ reporting: true, backupLate: 'never', handover: { agents: ['Ledger'] } }),
+      none: await joinedAs({ reporting: true }),
+      empty: await joinedAs({ reporting: true, handover: { agents: [] } }) };
+    chk(o15h.one.say === 'This Kosmos is your work Kosmos for Acme. Your company is moving Ledger' + MOVE
+        && o15h.many.say.endsWith('Your company is moving Ledger, Permit Intake and Scout' + MOVE)
+        && o15h.stopped.say.endsWith('Ledger' + MOVE + ' Kosmos could not pack it: the folder of Ledger could not be found.')
+        && o15h.afterBackup.say.endsWith('it has not backed up yet. Your company is moving Ledger' + MOVE)
+        && o15h.none.say === 'This Kosmos is your work Kosmos for Acme.' && o15h.empty.say === 'This Kosmos is your work Kosmos for Acme.',
+      'O15h a hand-over: the joined sentence names the agents being moved, after the backup line, and a stopped pack\'s reason; nothing without one', JSON.stringify(o15h));
     await page.evaluate(() => { PLUS_ORG.state = { enrolled: false, org: null, role: null }; plusOrgPaint(); });
 
     // O17 (review 1): on a FRESH page, before any click. (a) /api/org fails: still only the button. (b) This Kosmos is

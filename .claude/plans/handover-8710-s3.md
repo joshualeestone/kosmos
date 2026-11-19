@@ -88,3 +88,13 @@ does not read the period; the snapshot's week checks are skipped only under the 
   then says only "failed unexpectedly". packInput now trial-seals with hpke and refuses with a sentence.
 - REMAINING: member notice (needs a screen surface: state.failed / packing to the board's org status), then review
   loop (cap 8), full suite after round 1, PR.
+
+## Progress 2026-11-19 09:40 CST
+- DONE: the member notice (c0ef876874): engine/handoversend notice(), /api/org `handover` (screen only, enrolled world
+  only), the joined view's sentence after the backup line.
+- Review round 1 (3bae38627c): mayReport gate; final vs backoff failures; newest transcript always; names in the
+  company's words; Antigravity gap and the slice 4 "packed with no manifest" obligation named in the header.
+- Review round 2: coordinator refusals no retry can change (too big, no longer open) are final in this module's own
+  words; 8 failed attempts are final; leaving the company clears the notice. The unauthenticated seal_pub is kosmos#8733
+  (fix: successor signs it, sender checks against #7116's escrowd device-key history); hand-over stays off until then.
+- REMAINING: review rounds until clean (cap 8), the full suite at convergence, PR.
