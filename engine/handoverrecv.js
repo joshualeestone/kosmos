@@ -451,9 +451,16 @@ async function tick(state, deps) {
     const close = async (part, ok, because) => {
       // A refusal is noted before /done, so a /done that does not go through is sent again without receiving again.
       if (!ok) {
-        // A half-made Kosmos from an earlier try is taken out before the hand-over ends, never left on the list.
         const k = readKey(part.id, d.root);
-        if (k && k.restoring && !k.received && d.base && !finished(d.base, { id: k.restoring }, k.expect)) undoTry(d.base, { id: k.restoring });   // a finished copy is the person's now: left
+        // A Kosmos noted as restoring whose agents are in place IS the received copy (a try that failed after its
+        // finish, at the ceiling): the hand-over ends received, never failed with a working copy left behind.
+        if (k && k.restoring && !k.received && d.base && finished(d.base, { id: k.restoring }, k.expect)) {
+          try { updateKey(part.id, d.root, { received: k.restoring, restoring: null, expect: null }); } catch { /* restoring still says it */ }
+          ok = true; because = undefined;
+        } else if (k && k.restoring && !k.received && d.base) undoTry(d.base, { id: k.restoring });   // a half-made Kosmos is taken out before the hand-over ends
+      }
+      if (!ok) {
+        const k = readKey(part.id, d.root);
         try { updateKey(part.id, d.root, { final: because || 'the hand-over could not be finished', restoring: null, expect: null }); } catch { /* no key file: nothing to receive again either */ }
       }
       const told = await mac('POST', DONE_ROUTE, { id: part.id, ok });

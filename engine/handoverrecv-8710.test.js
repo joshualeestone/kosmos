@@ -751,9 +751,30 @@ test('round 8: a restore that throws is a counted try, bounded by the ceiling; a
     ? { ok: true, data: { handovers: [{ id: 'hthrow2', side: 'receive', state: 'packed', seal_pub: kp.pk.toString('base64') }] } } : { ok: true, data: {} }) });
   assert.equal(hr.readKey('hthrow2', root2).attempts, 1);
   hr.allowHttpForTests(false);
-  const k = 'handover/org1/ho1/c1';
-  assert.equal(hr.urlProblem(`https://u:p@bucket.s3.us-east-2.amazonaws.com/${k}`, k), 'a link carrying a name or password');
-  assert.equal(hr.urlProblem(`https://bucket.s3.us-east-2.amazonaws.com:8443/${k}`, k), 'a link to another port');
-  assert.equal(hr.urlProblem(`https://bucket.s3.us-east-2.amazonaws.com:443/${k}`, k), null, 'CONTROL: 443 is the https port');
+  try {
+    const k = 'handover/org1/ho1/c1';
+    assert.equal(hr.urlProblem(`https://u:p@bucket.s3.us-east-2.amazonaws.com/${k}`, k), 'a link carrying a name or password');
+    assert.equal(hr.urlProblem(`https://bucket.s3.us-east-2.amazonaws.com:8443/${k}`, k), 'a link to another port');
+    assert.equal(hr.urlProblem(`https://bucket.s3.us-east-2.amazonaws.com/${k}`, k), null, 'CONTROL: no port (URL drops a written :443, so that spelling tests nothing more)');
+  } finally { hr.allowHttpForTests(true); }
+});
+
+test('round 9: a try that fails after its finish put the agents in place, at the ceiling, ends received, not failed', async (t) => {
   hr.allowHttpForTests(true);
+  const b = await bucket();
+  t.after(() => b.close());
+  let clock = Date.now();
+  const root = fresh(t, 'data'), base = fresh(t, 'base');
+  const c = coordinator(b, 'hceil');
+  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+  await hr.tick(stateNew(), deps);
+  await pack(c, agentFolder(t));
+  hr.updateKey('hceil', root, { attempts: hr.MAX_ATTEMPTS - 1 });   // this is the last try
+  const rw = require('./restoreworld');
+  const keep = rw.finishRestoreWorld;
+  // The finish moves the agents into place, then fails.
+  rw.finishRestoreWorld = (o) => { keep(o); throw new Error('failed after moving'); };
+  try { await hr.tick(stateNew(), deps); } finally { rw.finishRestoreWorld = keep; }
+  assert.equal(c.rec.state, 'done', 'received, not failed');
+  assert.equal(worlds.readRegistry(base).worlds.filter((x) => /^Handed over/.test(x.name) && !x.hiddenAt).length, 1);
 });
