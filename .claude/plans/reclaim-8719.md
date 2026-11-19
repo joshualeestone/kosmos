@@ -6,7 +6,7 @@ Card: kosmos#8719 asks 2 and 3. Stacked on unmanaged-8719 (part 1: the label, th
 On an agent's page whose window Kosmos cannot tie to it, a "Link this window to Kosmos" button, behind a confirmation,
 makes Kosmos treat that window as the agent: messages are typed into it and its conversation shows. Only a Claude
 window named exactly for the agent and not already linked is linked; anything else is refused with the reason, and
-nothing is changed. Proven by engine and route tests (each refusal with a control), and the page test.
+nothing is changed. Proven by engine, route and page tests (each refusal with a control) and a real-tmux test.
 
 ## How
 - engine/linkwindow.js: plan(name, panes) decides from the board's own tmux look (status.panesWithCommands, new: the
@@ -61,6 +61,13 @@ nothing is changed. Proven by engine and route tests (each refusal with a contro
   a window replaced after the look cannot be marked at all, and an unmark only ever touches the session this call
   marked. The look must also report the very program the board vetted (not merely any Claude-like command, so an
   unmarked node that replaced it fails). The mark field joins the rest of the line.
+
+- Review 5: the tmux binary is the board's own (status.boardTmux: the one whose look listed the panes); a session with
+  any window besides the agent is refused (the mark covers the whole session, and a supervisor later closes a marked
+  session none of whose panes is an agent, which would take the person's editor too); a mark naming something else is
+  its own refusal, not "already linked". The page's submit is one function (linkSubmit) with its own test: the POST,
+  the button off while out, a refusal said only on that agent's page, success never pulling the person back
+  (removing the page guard measured red).
 
 ## Weakest premise
 That `@kosmos_agent` = session is all Kosmos needs to treat the window as its own for messages and the conversation
