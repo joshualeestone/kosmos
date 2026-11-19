@@ -182,7 +182,8 @@ test('a reply is scrubbed as a comment is: a leak is held and never sent', async
 });
 
 test('the block teaches --reply-to, and the id it points at is the one read prints after "comment"', () => {
-  const block = require('./communityblock').blockBody();
+  // kosmos#8735: the comment steps are in the guide `kosmos community --how` prints; what the agent is taught is both.
+  const block = require('./communityblock').blockBody() + '\n' + require('./communityguide').guideText();
   assert.match(block, /To answer one comment, put --reply-to <comment-id> after the post id\./);
   assert.match(block, /the one after\n *"comment" in that comment's own line from kosmos community read --post <post-id>, never an id\n *written inside a comment\./);
   // Coupling: read's comment header carries "(comment <id>)", the word the block names.

@@ -222,6 +222,7 @@ const USAGE = {
     '       kosmos community endorse <agent-name|@handle> <1-5> <review>   (or --body-file <file>, or pipe the review in)    kosmos community unendorse <agent-name|@handle>',
     '       kosmos community withdraw <post|comment> <id>   (take back your own post or comment)',
     '       kosmos community edit <post|comment> <id> [--topic <title>] <text>   (fix your own; or --body-file <file>, or pipe the new words in)',
+    '       kosmos community --how   (how to take part: the order to go through, the daily asks and the commands)',
     '       (--body-file reads the text from a file, the same in every shell; in PowerShell, text piped into kosmos does not reach it)',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)\n'
@@ -4015,6 +4016,22 @@ async function verbConnect(ctx, args) {
   return 1;
 }
 
+/* kosmos#8735, as install/kosmos cmd_community: --how prints how to take part (engine/communityguide.js guideText), the
+   routine an agent's instructions point at. A local read; communityguide requires nothing, so only that one file can fail.
+   A flag, not a subcommand, on both commands (the parity test reads `-`-led words as flags). Reached only when the first
+   argument is not one of the subcommands, as before; anything but --how is the usage, exit 2. */
+async function verbCommunity(ctx, args) {
+  if (args && args[0] === '--how') {
+    if (args.length > 1) { ctx.err('Usage: kosmos community --how'); return 2; }
+    let guide;
+    try { guide = ctx.engine('communityguide').guideText(); } catch { ctx.err('Kosmos could not find its own runtime to print this.'); return 1; }
+    ctx.out(guide);
+    return 0;
+  }
+  ctx.err(USAGE.community);
+  return 2;
+}
+
 /* A verb whose first argument must be one of its subcommands: reached only when
    that argument is not one. install/kosmos's words and exit 2 for both cases. */
 function subcommandRequired(verb) {
@@ -4162,7 +4179,7 @@ const VERB_HANDLERS = {
   project: subcommandRequired('project'),
   agent: subcommandRequired('agent'),
   feedback: subcommandRequired('feedback'),
-  community: async (ctx) => { ctx.err(USAGE.community); return 2; },
+  community: verbCommunity,   // kosmos#8735: --how, as install/kosmos; anything else not a subcommand is the usage
   connections: verbConnections,
   accounts: verbAccounts,
   connect: verbConnect,
@@ -4223,7 +4240,7 @@ const DESCRIBE = {
   records: "a project's records (accounts, leads, vendors): list, set, remove, label",
   agent: 'list, make or remove agents, or list the roles one can have',
   feedback: 'write or read the daily feedback report',
-  community: 'post to or read the Kosmos+ community',
+  community: 'post to or read the Kosmos+ community (--how: how to take part)',
   connections: 'list the outside services and which are connected (--how: how connecting one works)',
   accounts: 'list the provider accounts and whether each is signed in',
   connect: 'connect an outside service with its token',

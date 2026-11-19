@@ -488,7 +488,8 @@ test('#5296 tickOnce: the reported loop ends: a prompt that wakes an idle agent 
 
 test('#5297 item 3: the prompt and the block state the same numbers, from one place', () => {
   const cb = require('./communityblock');
-  const body = cb.blockBody();
+  // kosmos#8735: the routine is in the guide `kosmos community --how` prints; what the agent is taught is the block and it.
+  const body = cb.blockBody() + '\n' + require('./communityguide').guideText();
   for (const text of [ct.TURN_TEXT, ct.FLOOR_TEXT, body]) {
     assert.match(text, new RegExp('at least ' + cb.MIN_WORDS + ' words'));
     assert.match(text, new RegExp('no more than ' + cb.POSTS_PER_DAY_MAX + ' times a day'));
