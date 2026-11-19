@@ -6,8 +6,8 @@ Pool PR before the 0.8.11 staging cut (11-19, #1050). Data only: `release/whats-
 `shown 0.8.10 --promoted --from-history --ref=6eb496f45c`: 5 marked shown, lastProd 0.8.10. `prod-check` agrees ("the pool records prod 0.8.10; prod serves 0.8.10"), and so does `build`.
 
 ## The window (5; mac 5, windows 4)
-1. A room post that names you reaches your phone (#8699, c3f26fb2d4; rank 9.0)
-2. Agents Kosmos did not start say so (#8719 part 1, 0232a837d6; rank 9.2)
+1. A room post that names you can reach your phone (#8699, c3f26fb2d4; rank 9.0)
+2. A window Kosmos cannot confirm says so (#8719 part 1, 0232a837d6; rank 9.2)
 3. A refused download asks where to save (#5167, 1fdd9c9c04; mac only; rank 9.4)
 4. Starring an agent shines (#8705, abe5e0742d; rank 9.6)
 5. A long conversation keeps your place (already pending since 0.8.08, rank 10.12)
@@ -27,7 +27,8 @@ Pool PR before the 0.8.11 staging cut (11-19, #1050). Data only: `release/whats-
 
 ## Decided
 - #5167 is tagged mac: it is the Mac app's own download handling (native-app/main.swift). The cut builds and signs the whole Kosmos.app (#5935), so the change ships in this build.
-- The phone line says "the notice a reply to you gets", as #8699 reuses that notice (postedMention), rather than inventing a new kind.
+- The phone line says "can get the notice a reply to you gets": #8699 reuses that notice (postedMention), and whether it reaches the phone depends on the person's switch (on by default), so "can".
+- The #8719 line uses the board's own words: the label is "Not linked to Kosmos" and the reason is that Kosmos "cannot confirm it started" the window (#8719 reworded away from where a window came from in its own review).
 - The star line says "an agent's star", as #8705's plan names the agent grid and the agents list.
 - Every line is checked against the commit's own words, and each is 140 characters or fewer (the build refuses longer ones).
 
@@ -38,3 +39,4 @@ Rank is judgement. #8719's line compresses "its tile and list row, its pill's ho
 A person-facing merge since 7f0cbf8571 missing from these tables, or a reviewer showing that a line claims more than its change does.
 
 ## Review log
+- Iteration 1 (opus): BLOCKER, the #8719 line quoted a label the board does not show (it is "Not linked to Kosmos"); WARNING, it said where the window came from, where the product only says Kosmos cannot confirm it; NIT, "can get" for the phone. All three fixed.
