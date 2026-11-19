@@ -35,16 +35,16 @@ sign-in right now ... if this keeps happening, update Kosmos." Nothing was out o
   redesigns that dialog anyway.
 
 ## Tests
-`server.capask-8728.test.js`, five tests, timings shortened through a test-only seam (`timings` on
+`server.capask-8728.test.js`, six tests, timings shortened through a test-only seam (`timings` on
 resetConnectorCapabilitiesForTests, honoured only under NODE_TEST_CONTEXT): self re-ask with the longer limit and both
 log lines; over HTTP the starting sentence while unknown; control, an old connector still gets "update Kosmos"; the cap
 of 1 + 20 asks and the last line; a new generation (forget with no new ask) leaves the old timer silent; while an
 earlier board's tunnel is being ended the sentence is "still starting", with a control that reaches the route.
 Mutations, each red: no self-retry (2 red), no starting sentence (1), no longer retry limit (1), no cap (1), no clear in
-forget, no foreign-window pending (see the review-1 commit for the last two).
+forget (1), no foreign-window pending (1, set or read). Existing: server.remotestepup-6595.test.js and
+server.stepupbutton-6616.test.js unchanged and green (45 with the new file).
 
 ## Known and left
 - Before this board has started its own tunnel, pending is true, so the sentence says "still starting". A board that
   never starts one gets no remote request through Kosmos+ in the first place (no tunnel of its own forwards to it, and
-  an orphan is ended), so this is not reached in practice; the sentence before this change was no truer there. Existing: server.remotestepup-6595.test.js and
-server.stepupbutton-6616.test.js unchanged and green (44 with the new file).
+  an orphan is ended), so this is not reached in practice; the sentence before this change was no truer there.
