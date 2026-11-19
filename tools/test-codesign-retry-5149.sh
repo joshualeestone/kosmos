@@ -94,7 +94,8 @@ rc=$(KOSMOS_CODESIGN_TS_DELAYS="" run cs_ts_always)
 #    timestamped codesign is left there (a new one added later would not be retried).
 B="$REPO/tools/build-kosmos-bundle.sh"
 n=$(grep -cE '^codesign_ts_retry --force --options runtime --timestamp' "$B")
-[ "$n" = 3 ] && ok "build-kosmos-bundle.sh signs both binaries and the sealed app through codesign_ts_retry" || bad "build-kosmos-bundle.sh: $n codesign_ts_retry signs, want 3"
+# kosmos#7116: kosmos-se, the Secure Enclave admin signer, is the fourth (the connector, the native app, kosmos-se, the sealed app).
+[ "$n" = 4 ] && ok "build-kosmos-bundle.sh signs the three binaries and the sealed app through codesign_ts_retry" || bad "build-kosmos-bundle.sh: $n codesign_ts_retry signs, want 4"
 grep -qE '^\. "\$REPO/tools/lib/codesign-retry\.sh"' "$B" && ok "build-kosmos-bundle.sh sources codesign-retry.sh" || bad "build-kosmos-bundle.sh does not source codesign-retry.sh"
 n=$(grep -E '(^|[^_[:alnum:]])codesign [^|]*--timestamp( |=|$)' "$B" | grep -vc 'timestamp=none')
 [ "$n" = 0 ] && ok "no bare timestamped codesign left in build-kosmos-bundle.sh" || bad "$n bare timestamped codesign line(s) in build-kosmos-bundle.sh"
