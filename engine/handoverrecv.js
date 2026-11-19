@@ -72,8 +72,9 @@ const b64 = (buf) => Buffer.from(buf).toString('base64');
 function keyDir(root) { return path.join(root || require('./store').ROOT, 'handover'); }
 function keyFile(id, root) { return path.join(keyDir(root), `${id}.key.json`); }
 
-/* Kept beside the key: received / restoring (a Kosmos id), attempts (a count), missingSince (ms), final (why it ended). */
-const META = ['received', 'restoring', 'attempts', 'missingSince', 'final'];
+/* Kept beside the key: received / restoring (a Kosmos id), expect (the agent folders a restore produced, noted before
+   its finish), attempts (a count), missingSince (ms), final (why it ended). */
+const META = ['received', 'restoring', 'expect', 'attempts', 'missingSince', 'final'];
 /* { sk, pk, ...META } from disk, null when there is none, or { problem } when there is one that cannot be used. */
 function readKey(id, root) {
   let text;
@@ -167,6 +168,7 @@ function readFetcher(opts) {
     }
   }
   async function fetchObject(key, o) {
+    state.why = null; state.missing = false;
     const maxBytes = (o && o.maxBytes) || MAX_CHUNK_BYTES;
     if (typeof key !== 'string' || !key.startsWith(prefix) || !PLAIN.test(key.slice(prefix.length))) { state.why = 'the pack names an object outside this hand-over'; return null; }
     if (!fresh(key)) await ask(key);
@@ -220,10 +222,42 @@ function diskBudget(dir, d) {
   return Math.max(0, Math.min(MAX_PACK_BYTES, free));
 }
 
+/* A Kosmos folder holding only what prepareRestoreWorld makes (measured: Kosmos/, projects/, workers/, the restore
+   folder and the restore mark), with its data, projects and workers folders all empty: nothing was finished into it
+   and nothing a person made is in it. Anything else, or anything unreadable, is not untouched. */
+const FRESH = new Set(['Kosmos', 'projects', 'workers', 'restored', 'restored-world.json']);
+function untouched(dir) {
+  try {
+    const top = fs.readdirSync(dir);
+    if (!top.every((n) => FRESH.has(n))) return false;
+    for (const n of ['Kosmos', 'projects', 'workers']) {
+      if (!top.includes(n)) continue;
+      if (fs.readdirSync(path.join(dir, n)).length) return false;
+    }
+    return true;
+  } catch { return false; }
+}
+/* Whether a finish of this Kosmos completed: every agent folder the restore produced (`expect`, noted before the
+   finish) is in its workers folder, and none is left in the restore folder. An agent a person made there does not
+   pass: it is not one of the expected names. */
+function finished(base, world, expect) {
+  if (!Array.isArray(expect) || !expect.length) return false;
+  try {
+    const w = require('./worlds');
+    const workers = w.envOverridesFor(base, world).AGENT_WORKFORCE_WORKERS;
+    const left = path.join(w.worldBaseDir(base, world), require('./restoreworld').RESTORE_DIR, 'workers');
+    return expect.every((n) => typeof n === 'string' && PLAIN.test(n) && fs.existsSync(path.join(workers, n)) && !fs.existsSync(path.join(left, n)));
+  } catch { return false; }
+}
+/* The agent folder names a restore produced (its restored paths are workers/<seg>/...). */
+function agentsOf(restored) {
+  return [...new Set((restored || []).map((p) => /^workers\/([^/]+)\//.exec(String(p))).filter(Boolean).map((m) => m[1]))];
+}
+
 /* Take out what one try wrote. The Kosmos it made is on the person's list from the moment it is made, so a person may
    have used it before this runs: only the restore folder (this module's own, RESTORE_DIR) is always removed. The
-   whole Kosmos folder goes only when hiding it worked AND its workers and projects folders are still empty (nothing
-   moved there by a finish, nothing a person made); otherwise it is hidden and its files are left. A hidden row keeps
+   whole Kosmos folder goes only when hiding it worked AND it is untouched (below); otherwise it is hidden and its
+   files are left. A hidden row keeps
    its name in use, so a hand-over that fails many times can run out of the day's names, which then counts as a try. */
 function undoTry(base, world) {
   const w = require('./worlds');
@@ -234,11 +268,7 @@ function undoTry(base, world) {
   if (!dir || !path.isAbsolute(dir) || !world.id || world.id === w.DEFAULT_ID) return;
   try { fs.rmSync(path.join(dir, require('./restoreworld').RESTORE_DIR), { recursive: true, force: true }); } catch { /* left */ }
   if (!hidden) return;
-  const empty = (p) => { try { return fs.readdirSync(p).length === 0; } catch (e) { return !!e && e.code === 'ENOENT'; } };
-  let roots = {};
-  try { roots = w.envOverridesFor(base, world); } catch { return; }
-  if (!roots.AGENT_WORKFORCE_WORKERS || !roots.AGENT_WORKFORCE_PROJECTS) return;
-  if (!empty(roots.AGENT_WORKFORCE_WORKERS) || !empty(roots.AGENT_WORKFORCE_PROJECTS)) return;
+  if (!untouched(dir)) return;
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* hidden; its files stay until removed by hand */ }
 }
 
@@ -257,7 +287,8 @@ async function receive(part, org, kp, deps) {
   if (m.size > MAX_MANIFEST_OBJECT) return fail('the pack\'s list of files is larger than one can be');
   const fetcher = readFetcher({ macRequest: mac, id: part.id, prefix, fetch: d.fetch, now: d.now });
   const body = await fetcher.fetchObject(m.key, { maxBytes: m.size });
-  if (!body) return { ok: false, missing: fetcher.state.missing === true, because: fetcher.state.why };
+  // Not there (missing) is counted against the grace; no answer at all (an outage) spends no attempt.
+  if (!body) return { ok: false, missing: fetcher.state.missing === true, outage: fetcher.state.missing !== true, because: fetcher.state.why };
   if (body.length !== m.size || crypto.createHash('sha256').update(body).digest('base64') !== m.sha256) return fail('the pack is not the one Kosmos+ recorded');
   const snap = require('./backupsnapshot');
   const ctx = snap.handoverContext(org, part.id);
@@ -300,17 +331,31 @@ async function receive(part, org, kp, deps) {
     if (failed && failed.some((x) => x && LOCAL_FAILURES.has(x.why))) return { ok: false, because: 'this computer has no room for the agents, or could not write them' };
     return { ok: false, because: fetcher.state.why || 'the agents could not be unpacked on this computer' };
   }
+  try { updateKey(part.id, d.root, { expect: agentsOf(result.restored) }); } catch { undoTry(base, made.world); return { ok: false, because: 'this computer could not note the hand-over it is unpacking' }; }
   const fin = rw.finishRestoreWorld({ base, world: made.world, restoreDir: made.restoreDir, result: { ok: true, result } });
   if (!fin.ok) { undoTry(base, made.world); return { ok: false, because: fin.because || 'the agents were unpacked but could not be put in place' }; }
-  // Received: noted before /done, so a lost answer sends /done again. Not noted: this copy is taken out and tried again,
-  // so there is never a second copy.
-  try { updateKey(part.id, d.root, { received: made.world.id, restoring: null }); } catch {
-    undoTry(base, made.world);
-    return { ok: false, because: 'this computer could not note that the agents arrived' };
-  }
+  // Received: noted before /done, so a lost answer sends /done again, never a second copy.
+  // If that note cannot be kept, `restoring` still names this Kosmos and it is finished, so the next tick reads it as
+  // received (finished()) rather than making a second copy.
+  try { updateKey(part.id, d.root, { received: made.world.id, restoring: null, expect: null }); } catch { /* see above */ }
   // heldBack: agent folders finish set aside (not plain folders), so not listed. The agents that did arrive are usable,
   // so done is still ok; the count is kept for the console slice to say.
   return { ok: true, world: made.world, restored, heldBack: Array.isArray(fin.heldBack) ? fin.heldBack.length : 0 };
+}
+
+/* A Kosmos this module made for this hand-over that nothing records (the board stopped between making it and noting it):
+   found by the tag its name carries (restoreworld.memberTag of the hand-over id), and taken out only while untouched. */
+function tidyOrphans(base, id) {
+  let rows = [];
+  try { rows = require('./worlds').readRegistry(base).worlds; } catch { return; }
+  const tag = require('./restoreworld').memberTag(id);
+  if (!tag) return;
+  for (const w of rows) {
+    if (!w || w.hiddenAt || typeof w.name !== 'string' || !w.name.startsWith('Handed over: ') || !w.name.includes(`(${tag}`)) continue;
+    let dir = null;
+    try { dir = require('./worlds').worldBaseDir(base, w); } catch { dir = null; }
+    if (dir && untouched(dir)) undoTry(base, w);
+  }
 }
 
 /* ---- the tick ---- */
@@ -356,10 +401,16 @@ async function tick(state, deps) {
       // A refusal is noted before /done, so a /done that does not go through is sent again without receiving again.
       if (!ok) { try { updateKey(part.id, d.root, { final: because || 'the hand-over could not be finished', restoring: null }); } catch { /* no key file: nothing to receive again either */ } }
       const told = await mac('POST', DONE_ROUTE, { id: part.id, ok });
-      if (told && told.ok) { state.closed.add(part.id); deleteKey(part.id, d.root); }
-      return { ok, id: part.id, because };
+      if (told && told.ok) { state.closed.add(part.id); deleteKey(part.id, d.root); return { ok, id: part.id, because }; }
+      return null;   // not accepted: sent again next tick; the rows after it go on
     };
     let last = null;   // the last row acted on, for the caller; waiting rows never stop the rows after them
+    /* close, and when /done was not accepted, go on to the next row (it is sent again next tick). */
+    const closing = async (part, ok, because) => {
+      const r = await close(part, ok, because);
+      if (!r) last = { ok: false, id: part.id, because: 'Kosmos+ did not take the answer for this hand-over yet' };
+      return r;
+    };
     for (const part of rows) {
       if (state.closed.has(part.id)) continue;
       if ((state.retryAt.get(part.id) || 0) > now) continue;
@@ -378,27 +429,42 @@ async function tick(state, deps) {
         continue;
       }
       if (part.state !== 'packing' && part.state !== 'packed' && part.state !== 'receiving') continue;
+      let z;
       // Past `requested` this computer's key was sent; without it (lost, or damaged) the pack can never be opened here.
-      if (!kp || kp.problem) return close(part, false, (kp && kp.problem) || 'the key for this hand-over is no longer on this computer');
-      if (typeof part.seal_pub === 'string' && part.seal_pub !== b64(kp.pk)) return close(part, false, 'the pack is sealed to a key this computer does not hold');
+      if (!kp || kp.problem) { if ((z = await closing(part, false, (kp && kp.problem) || 'the key for this hand-over is no longer on this computer'))) return z; continue; }
+      if (typeof part.seal_pub === 'string' && part.seal_pub !== b64(kp.pk)) { if ((z = await closing(part, false, 'the pack is sealed to a key this computer does not hold'))) return z; continue; }
       if (part.state === 'packing') continue;
-      if (kp.received) return close(part, true);   // received on an earlier tick; only the /done is owed
-      if (kp.final) return close(part, false, String(kp.final));   // refused on an earlier tick; only the /done is owed
+      // Decided on an earlier tick; only the /done is owed.
+      if (kp.received) { if ((z = await closing(part, true))) return z; continue; }
+      if (kp.final) { if ((z = await closing(part, false, String(kp.final)))) return z; continue; }
       if (!d.base) { last = { ok: false, id: part.id, because: 'this computer could not find where its Kosmoses live' }; continue; }   // not the pack's fault: no attempt spent
       if (kp.restoring) {
-        // A try that stopped part way (the board stopped, say): take its Kosmos out before trying again.
+        // A try that stopped part way. Finished (its agents were moved in) but not noted: it is the received copy.
+        // Not finished: take it out before trying again.
+        if (finished(d.base, { id: kp.restoring }, kp.expect)) {
+          try { updateKey(part.id, d.root, { received: kp.restoring, restoring: null, expect: null }); } catch { /* restoring still says it */ }
+          if ((z = await closing(part, true))) return z;
+          continue;
+        }
         undoTry(d.base, { id: kp.restoring });
-        try { updateKey(part.id, d.root, { restoring: null }); } catch { last = { ok: false, id: part.id, because: 'this computer could not tidy an unfinished hand-over' }; continue; }
+        try { updateKey(part.id, d.root, { restoring: null, expect: null }); } catch { last = { ok: false, id: part.id, because: 'this computer could not tidy an unfinished hand-over' }; continue; }
       }
+      tidyOrphans(d.base, part.id);
       const r = await (d.receive || receive)(part, org, kp, Object.assign({ macRequest: mac }, d));
-      if (r.ok) return close(part, true);
-      if (r.final) return close(part, false, r.because);
+      if (r.ok) { if ((z = await closing(part, true))) return z; continue; }
+      if (r.final) { if ((z = await closing(part, false, r.because))) return z; continue; }
       if (r.missing) {
         // The coordinator marks `packed` before the manifest lands; give the sender MISSING_GRACE_MS to finish its upload,
         // counted from the first miss this computer recorded (kept beside the key, so a restart does not reset it).
         const since = Number.isSafeInteger(kp.missingSince) ? kp.missingSince : now;
         if (!Number.isSafeInteger(kp.missingSince)) { try { updateKey(part.id, d.root, { missingSince: now }); } catch { /* counted from now again next tick */ } }
-        if (now - since >= MISSING_GRACE_MS) return close(part, false, 'the pack never finished arriving');
+        if (now - since >= MISSING_GRACE_MS) { if ((z = await closing(part, false, 'the pack never finished arriving'))) return z; continue; }
+        state.retryAt.set(part.id, now + MISSING_RECHECK_MS);
+        last = { ok: false, id: part.id, because: r.because };
+        continue;
+      }
+      if (r.outage) {
+        // Kosmos+ or the store did not answer: not the pack's fault, so no attempt is spent.
         state.retryAt.set(part.id, now + MISSING_RECHECK_MS);
         last = { ok: false, id: part.id, because: r.because };
         continue;
@@ -406,7 +472,7 @@ async function tick(state, deps) {
       // Kept beside the key, so the ceiling holds across restarts.
       const tries = (Number.isSafeInteger(kp.attempts) ? kp.attempts : 0) + 1;
       try { updateKey(part.id, d.root, { attempts: tries, missingSince: null }); } catch { /* counted in memory only this time */ }
-      if (tries >= MAX_ATTEMPTS) return close(part, false, `this computer tried ${tries} times and could not unpack the agents`);
+      if (tries >= MAX_ATTEMPTS) { if ((z = await closing(part, false, `this computer tried ${tries} times and could not unpack the agents`))) return z; continue; }
       state.retryAt.set(part.id, now + RETRY_MS);
       return { ok: false, id: part.id, because: r.because };   // a real attempt: one per tick
     }
