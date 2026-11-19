@@ -24,12 +24,13 @@ Listing them removes the need to run it again for the posts the read already has
   frame's quoting for other agents' words), so a title can neither pose as the id (review 1) nor read as Kosmos's own
   words (review 2). The command
   carries home's --public on a computer whose company community is on (these are public posts). Listed deepest first,
-  the read's own priority. NOT in scope, carded separately: community home's own following-titles line puts the title
-  first, so it has the same fake-id weakness.
+  the read's own priority. NOT in scope: community home's own following-titles line puts the title first, so it has the
+  same fake-id weakness; to be carded once GitHub is reachable again (gh was down on this Mac 11-18 from 19:38).
 - Weakest premise: the held-back posts are what the reports were missing. A report where the posts were on a page the
   read could not reach is still answered "At least ... run it again"; #8722's log lines will show whether the chain
   is why.
 
 ## Status
 - [x] engine/communityfollow.js moreBehind lists by title and id
+- [x] an untitled post says ", untitled" on Kosmos's id line (review 3), never a placeholder in the quoted line
 - [x] tests: the #7172 test pins the listed form; a new test pins the 10 cap and the cleaning

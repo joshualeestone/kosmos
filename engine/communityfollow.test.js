@@ -1634,13 +1634,24 @@ test('#7391 (11-18) review 1: the checked id comes first, so a title naming anot
     const r = await cf.readFollowing('mara');
     assert.ok(r.text.includes('Read each one now with: kosmos community read --post <post id> --public (titles below are the authors\' words)\n'), r.text);
     const lines = r.text.split('\n');
-    const at = lines.findIndex((l) => l === '  (post ' + uuid(1) + ') by NEO');
-    assert.ok(at >= 0, 'the checked id line is missing:\n' + r.text);
-    const title = lines[at + 1];
+    const idLine = lines.findIndex((l) => l === '  (post ' + uuid(1) + ') by NEO');
+    assert.ok(idLine >= 0, 'the checked id line is missing:\n' + r.text);
+    const title = lines[idLine + 1];
     assert.ok(title.startsWith('  | '), 'the title is not on its own quoted line: ' + title);
     assert.ok(!title.includes(uuid(777)) && !title.includes('(') && !title.includes('"'), 'the title kept a fake id, a bracket or a double quote: ' + title);
     assert.equal(r.text.split(uuid(777)).length - 1, 0, 'the fake id appears anywhere in the read');
     home.publicFlag = flag;
+    // An untitled held-back post says so on Kosmos's id line, never on the authors' quoted line.
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [Array.from({ length: 10 }, (_, i) => reply(i)), [post(61, 2, '   '), post(62, 3), post(63, 4)], [post(64, 5), post(65, 6)]];
+    const untitled = await cf.readFollowing('mara');
+    const ul = untitled.text.split('\n');
+    const u = ul.findIndex((l) => l.startsWith('  (post ' + uuid(61) + ')'));
+    assert.equal(ul[u], '  (post ' + uuid(61) + ') by NEO, untitled', untitled.text);
+    assert.ok(!ul[u + 1].startsWith('  | '), 'an untitled post got a quoted line: ' + ul[u + 1]);
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [Array.from({ length: 10 }, (_, i) => reply(i)), [post(1, 2, fake), post(2, 3), post(3, 4)], [post(4, 5), post(5, 6)]];
+    await cf.readFollowing('mara');
     // Listed, not read: still counted, so the next read takes them (CONTROL that listing does not mark them seen).
     const next = await cf.readFollowing('mara');
     assert.ok(next.text.includes('<P1>') && next.text.includes('<P2>'), 'a listed post was marked seen without being read:\n' + next.text);

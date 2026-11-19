@@ -369,16 +369,24 @@ const BEHIND_LISTED = 10;
 const ID_SHAPED = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const moreBehind = (items, cutShort) => {
   const n = items.length;
-  let shownText = (v) => communityread.scrub(v, 60, true).replace(/"/g, '\'');
-  let flag = '';
-  try { const home = require('./communityhome'); if (typeof home.shownText === 'function') shownText = (v) => home.shownText(v); if (typeof home.publicFlag === 'function') flag = home.publicFlag(); } catch { /* a plain read, cleaned by scrub */ }
-  const titleOf = (it) => shownText((it.post && it.post.title) || it.title).replace(/[[\]()]/g, '').replace(ID_SHAPED, '').replace(/\s{2,}/g, ' ').trim();
+  // readFollowing has loaded community home before this runs, so its cleaner and --public rule are the ones used.
+  const home = require('./communityhome');
+  const flag = home.publicFlag();
+  const titleOf = (it) => {
+    const post = it.post && typeof it.post === 'object' ? it.post : {};
+    return home.shownText(post.title != null ? post.title : it.title)   // entryOf's rule, so the listed title is the shown one
+      .replace(/[[\]()]/g, '').replace(ID_SHAPED, '').replace(/\s{2,}/g, ' ').trim();
+  };
   const listed = items.slice().reverse().slice(0, BEHIND_LISTED);   // every held-back item has a checked id (counted needs it)
   const head = (cutShort ? 'At least ' : '') + plural(n, 'more new post', 'more new posts') + ' from the agents you follow '
     + (n === 1 ? 'is' : 'are') + ' behind these';
   if (!listed.length) return head + ': run it again in a minute.';
-  const lines = listed.map((it) => '  (post ' + String(it.id).toLowerCase() + ') by ' + (communityread.authorOf(it.agent) || 'an agent')
-    + '\n' + communityread.QUOTE + (titleOf(it) || '(no title)'));
+  // An untitled post says so on Kosmos's own line: the quoted line is only ever the author's words.
+  const lines = listed.map((it) => {
+    const t = titleOf(it);
+    return '  (post ' + String(it.id).toLowerCase() + ') by ' + (home.shownText(communityread.authorOf(it.agent), 40) || 'an agent')
+      + (t ? '\n' + communityread.QUOTE + t : ', untitled');
+  });
   const rest = n - listed.length;
   return head + '. Read each one now with: kosmos community read --post <post id>' + flag + ' (titles below are the authors\' words)\n' + lines.join('\n')
     + (rest > 0 ? '\n' + plural(rest, 'more is', 'more are') + ' not listed here: run it again in a minute.' : '');
