@@ -8,8 +8,12 @@
  * from trusted state"). Today the only record of which key is whose is the coordinator's, so a breached coordinator can
  * name a key of its own, seal a manifest to the member's PUBLIC key and sign it, and restore would deliver its files as
  * the member's work (#5536 comment 6397036572). The history below is kept and signed by escrowd, not the coordinator.
- * Design v2 on #7116 (comment 6397107294). This slice is the format and the check only: nothing produces a history
- * yet, and nothing calls verify() outside its tests.
+ * Design v2 on #7116 (comment 6397107294). Called by engine/restorerun.js for a company restore, which has no
+ * production caller yet (a personal restore proves its manifest by member proof and skips this).
+ *
+ * The trust anchor is ONE shipped key, with no rotation set: if escrowd's escrow key is replaced (or its HKDF label
+ * changes), every installed Kosmos refuses every history until a build carrying the new key ships. That fails closed,
+ * and it is the cost of a rotation; engine/servicekeys.js's recovery-key set is the model if one is ever needed.
  *
  * The format. Per (org, member), escrowd keeps an append-only list of entries, each one of:
  *   { kind: 'enrol',  key, at, backfill }   a Mac key accepted for this member from time `at`
@@ -156,8 +160,9 @@ function verify(history, opts = {}) {
     // Outside a node test process the shipped key is the only key. Inside one, a key a test set stands in for it, so
     // fixtures can sign histories with a test key of their own; production never sets NODE_TEST_CONTEXT, and setting
     // the key needs code already running here. With neither, verify REFUSES (the difference from orgkeypin.js).
-    const testKey = process.env.NODE_TEST_CONTEXT ? verifyingKeyForTests : null;
-    const vk = testKey || (VERIFYING_KEY != null ? Buffer.from(VERIFYING_KEY, 'hex') : null);
+    // NODE_TEST_CONTEXT is inherited, so a process started from under node --test also has it; the seam still needs
+    // code in that process to call setVerifyingKeyForTests (only test files do).
+    const vk = trustAnchor();
     if (vk == null) return { ok: false, because: 'this version of Kosmos cannot check the device key history yet, so the key was not trusted' };
     // Read every field once, into a copy: what is hashed is exactly what is replayed.
     const h = history && typeof history === 'object' ? history : {};
@@ -198,6 +203,12 @@ function verify(history, opts = {}) {
   }
 }
 
+/* The key verify() checks a history's signature with: a test's key inside a node test process, else the shipped one.
+   One function, so the test can pin what verify trusts outside a test process. */
+function trustAnchor() {
+  const testKey = process.env.NODE_TEST_CONTEXT ? verifyingKeyForTests : null;
+  return testKey || (VERIFYING_KEY != null ? Buffer.from(VERIFYING_KEY, 'hex') : null);
+}
 function setVerifyingKeyForTests(k) { verifyingKeyForTests = Buffer.isBuffer(k) && k.length === 32 ? k : null; }
 
 function keyAt(keys, key, t) {
@@ -205,4 +216,4 @@ function keyAt(keys, key, t) {
   return keys.find((k) => k.key === key && t >= k.from && (k.until === null || t < k.until)) || null;
 }
 
-module.exports = { verify, keyAt, encodeHead, setVerifyingKeyForTests, VERIFYING_KEY, HEAD_TAG, CHAIN_TAG };
+module.exports = { trustAnchor, verify, keyAt, encodeHead, setVerifyingKeyForTests, VERIFYING_KEY, HEAD_TAG, CHAIN_TAG };
