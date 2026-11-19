@@ -140,8 +140,20 @@ test('#7116 step 2 caller review 7: another admin\'s invite for the same member 
   const { publicKey: p2 } = crypto.generateKeyPairSync('ed25519'); const k2 = dk.rawPublic(p2);
   const again = se.encodeDevkeyEnrol(ORG, MEMBER, k2, dk.joinCodeHash(mine.code), dk.joinTag(mine.code, ORG, MEMBER, k2), INVITER, '7', NONCE);
   assert.throws(() => es.review(again, { dataRoot: root }), /already used for another computer/);
-  assert.equal(es.review(again, { dataRoot: root, now: Date.now() + 2 * 60 * 60 * 1000 }).inviterChecked, false, 'past the hour the tie no longer refuses');
+  // Review 8: past the hour, this invite's entry is refused as expired, never offered as another admin's.
+  assert.throws(() => es.review(again, { dataRoot: root, now: Date.now() + 2 * 60 * 60 * 1000 }), /invite has expired/);
   assert.equal(es.joinCodeFor(ORG, MEMBER, { dataRoot: root, now: Date.now() + 2 * 60 * 60 * 1000, forKey: k2 }), null, 'nor does a direct lookup for another computer');
+  // Review 8: a forged entry with this Mac's codeHash naming ANOTHER inviter, after the hour or past 30 days: refused
+  // in the queue, never offered for signing.
+  const { publicKey: pf } = crypto.generateKeyPairSync('ed25519'); const kf = dk.rawPublic(pf);
+  const forged = se.encodeDevkeyEnrol(ORG, MEMBER, kf, dk.joinCodeHash(mine.code), Buffer.alloc(32, 0x22), OTHER_ADMIN, '7', NONCE);
+  const queue = (now, dataRoot) => es.adminQueue({ adminId: INVITER, dataRoot, now, send: async () => ({ ok: true, data: { pending: [{ id: 'ef', bytes: forged.toString('base64url'), signedBy: [] }] } }) });
+  const [late1] = await queue(Date.now() + 2 * 60 * 60 * 1000, root);
+  assert.equal(late1.prepared, null);
+  assert.match(late1.refused, /invite has expired/);
+  const untied = fresh(); es.keepJoinCode(ORG, MEMBER, mine.code, { dataRoot: untied });
+  const [late2] = await queue(Date.now() + 31 * 24 * 60 * 60 * 1000, untied);
+  assert.equal(late2.prepared, null, 'an untied code past 30 days is refused too');
   // A prepared entry reviewed before this Mac kept its code is refused at sign time: review it again.
   const late = enrolment(); const root3 = fresh();
   const unchecked = es.review(late.bytes, { dataRoot: root3 });

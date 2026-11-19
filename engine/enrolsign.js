@@ -5,8 +5,9 @@
  * screens stay with Kitty). What this Mac does for a device-key enrolment, minus the screen itself:
  *   - finds the kosmos-se helper in THIS app's own bundle (app/bin/kosmos-se), never a path a page or the coordinator gives;
  *   - keeps the inviting admin's join code, owner-only, keyed by company and member (never by a code_hash a coordinator
- *     sends). approve() ties it to one computer's key BEFORE signing (the tie lasts an entry's life, one hour), and
- *     approveAndSend() drops it once escrowd accepts. One invite enrols one computer;
+ *     sends). approve() ties it to one computer's key BEFORE signing (the tie lasts one hour, an entry's 30 minutes with
+ *     margin), and approveAndSend() drops it when escrowd accepts THIS Mac's post (an accept that lands on another
+ *     admin's Mac leaves it, and it then expires). One invite enrols one computer;
  *   - review() decodes an enrolment and checks it with the kept code when this Mac holds one; approve() signs the
  *     reviewed bytes with this Mac's Enclave admin key;
  *   - talks to the coordinator's three routes (Renet Tilley's pinned interface, #7116 comment 7021733967): the member's
@@ -133,13 +134,26 @@ function forgetJoinCode(org, member, { dataRoot } = {}) {
    the same member carries another code, and this Mac reviews it as a second admin (seadmin.sign and adminQueue still
    refuse this Mac signing as an inviter it did not check). Same hash, wrong tag: prepare's own refusal. `keptOther`
    says this Mac holds a code for that member that is not this entry's. */
+/* Review 8: the hash is compared with the code ON DISK, before the age and tie filters. Otherwise a code past its
+   30 days or its tie's hour read as "no code", and an entry carrying this Mac's own invite was offered to it as
+   another admin's. A match on a stale code refuses (send a new invite). After escrowd accepts, the record is gone and
+   this Mac is like any admin without the code: the inviter's own check is then what escrowd relies on. */
+function storedCode(org, member, dataRoot) {
+  const hit = readCodes(dataRoot)[keyOf(org, member)];
+  return hit && typeof hit.code === 'string' && /^[0-9a-f]{32}$/.test(hit.code) ? Buffer.from(hit.code, 'hex') : null;
+}
 function keptFor(decoded, { dataRoot, now } = {}) {
-  const kept = joinCodeFor(decoded.org, decoded.member, { dataRoot, now });
-  if (!kept) return { code: null, keptOther: false };
+  const stored = storedCode(decoded.org, decoded.member, dataRoot);
+  if (!stored) return { code: null, keptOther: false };
   const dk = require('./devkeyenrol');
-  if (!require('node:crypto').timingSafeEqual(dk.joinCodeHash(kept), Buffer.from(decoded.codeHash))) return { code: null, keptOther: true };
-  // This entry's own invite: refused when it is already tied to another computer (one invite enrols one computer).
-  return { code: joinCodeFor(decoded.org, decoded.member, { dataRoot, now, forKey: decoded.key }), keptOther: false };
+  if (!require('node:crypto').timingSafeEqual(dk.joinCodeHash(stored), Buffer.from(decoded.codeHash))) {
+    return { code: null, keptOther: !!joinCodeFor(decoded.org, decoded.member, { dataRoot, now }) };
+  }
+  // This entry's own invite: refused when it is already tied to another computer (one invite enrols one computer),
+  // and when it is past its age or its tie's hour.
+  const code = joinCodeFor(decoded.org, decoded.member, { dataRoot, now, forKey: decoded.key });
+  if (!code) throw new Error('this invite has expired: send a new one');
+  return { code, keptOther: false };
 }
 function reviewOf(bytes, opts = {}) {
   const decoded = se.decodeDevkeyEnrol(bytes);
@@ -337,6 +351,7 @@ async function adminQueue({ adminId, send, dataRoot, now } = {}) {
       const why = /does not match that enrolment/.test(m) ? 'this enrolment does not match the invite you sent'
         : /saved invite codes/.test(m) ? 'the invite codes saved on this computer could not be read'   // review 1: the store, not the entry
         : /already used for another computer/.test(m) ? 'your invite was already used for another computer'   // review 2
+        : /invite has expired/.test(m) ? 'your invite has expired: send a new one'   // review 8
         : 'this enrolment could not be read';
       Object.assign(row, { prepared: null, member: null, fingerprint: null, inviterChecked: false, unusual: false, refused: why });
     }

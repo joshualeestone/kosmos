@@ -20,10 +20,11 @@ That this Mac's admin id and enrolled Enclave key are known to the board at sign
 
 ## State after review (5 rounds, converged 15:3x 11-19)
 - Slices 1-3 built: helper path, kept codes, review/approve/approveAndSend, the route client (startAndSign, pending, postAdminSig), adminQueue.
-- The kept code: tied to one computer's key in approve() before signing; the tie lasts one hour (an entry lives 30 minutes); dropped when escrowd accepts and the kept code is still the one checked. One invite enrols one computer.
+- The kept code: tied to one computer's key in approve() before signing; the tie lasts one hour (an entry lives 30 minutes); dropped when escrowd accepts THIS Mac's post and the kept code is still the one checked (an accept on another admin's Mac leaves it until it expires; review 8 makes an expired match refuse, not read as absent). One invite enrols one computer.
 - Step 1's routes are no longer blocked: Renet pinned them (#7116 comment 7021733967). Still waiting: where invites are made (the screen).
 
 ## Rounds 6 and 7 (after rebase onto main, 11-19 16:4x)
 - Round 0 for these: Renet's corrected routes (all POST, fixed paths, id in the body, pending POST {}); `ended` worked out from the code (the tunnel drops the field on an error answer).
 - Round 6: a refused sign carries the entry id and expiresAt; `ended` only on sign calls, undefined when no code came back; every stays/ends code tested.
 - Round 7: a kept code applies only to the entry whose codeHash it hashes to, so another admin's invite for the same member is offered as a second admin; a tie's hour is checked before its other-computer refusal; approve() re-checks an unchecked entry against the store; the review-5 accept guard is tested; remote.busy()'s fixed sentences are shown.
+- Round 8 (the last, at the cap): a kept code's hash is compared on disk before its age and tie filters, so a stale code's own entry is refused as expired, never offered as another admin's. Not done, decided: adminQueue and approve do not check the decoded company is this computer's own; it matters only if one Enclave key is an admin in two companies, which nothing makes today.
