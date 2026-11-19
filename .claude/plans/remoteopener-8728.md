@@ -24,6 +24,8 @@ In a private tmux server with an empty sandbox config folder and logging stand-i
   `tmuxLaunchCommand` adds `BROWSER=/usr/bin/true` between `env` and the claude binary when it is set.
 - A sign-in started at the computer is unchanged (the browser opening there is the convenience).
 - Windows already replaces claude's opener for every sign-in (win32signin.js, withNoOpOpener); nothing changes there.
+- The opener is `/usr/bin/true`, or `/bin/true` where only that exists (a Linux without a merged /usr; review 2).
+  Measured on macOS only.
 
 ## Rejected
 - No opener for every sign-in, local included: at the computer, the browser opening by itself is what a person
