@@ -297,3 +297,22 @@ test('#7116 step 2 caller review 2: a store that cannot be READ is never set asi
   fs.symlinkSync(target, path.join(linked, 'devkey-join-codes.json'));
   assert.throws(() => es.joinCodeFor(ORG, MEMBER, { dataRoot: linked }), /not readable/);
 });
+
+test('#7116 step 2 caller review 3: the inviter\'s code is tied to the first computer BEFORE signing; a lost answer or a second entry cannot free it', async () => {
+  const root = fresh(); const code = dk.newJoinCode();
+  es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root });
+  const mk = () => { const { publicKey } = crypto.generateKeyPairSync('ed25519'); const k = dk.rawPublic(publicKey);
+    return se.encodeDevkeyEnrol(ORG, MEMBER, k, dk.joinCodeHash(code), dk.joinTag(code, ORG, MEMBER, k), INVITER, '7', Buffer.alloc(32, 0x5a)); };
+  const one = mk(); const two = mk();
+  const h = appWithHelper();
+  const opts = (send) => ({ adminId: INVITER, expectedKey: h.expectedKey, keyFile: h.keyFile, dataRoot: root, appDir: h.app, send });
+  // Both reviewed while the code was free (a stale list, or two entries for one member).
+  const p1 = es.review(one, { dataRoot: root }); const p2 = es.review(two, { dataRoot: root });
+  // The first is signed and its answer is LOST.
+  await assert.rejects(es.approveAndSend('e1', p1, opts(async () => ({ ok: false, because: 'lost' }))), /could not send the approval/);
+  // The code is now tied to the first computer: the second, already reviewed, is refused at approve.
+  await assert.rejects(es.approve(p2, opts()), /already used for another computer/);
+  assert.throws(() => es.review(two, { dataRoot: root }), /already used for another computer/);
+  // The first computer can be signed again (a refused or restarted entry for it).
+  assert.equal((await es.approve(es.review(one, { dataRoot: root }), opts())).adminId, INVITER);
+});

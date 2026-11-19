@@ -59,7 +59,7 @@ function writeCodes(codes, dataRoot) {
   const file = codesFile(dataRoot);
   // Review 1: a write error's message carries the data root's path; a person is shown a fixed sentence instead.
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });   // review 3: owner-only when made here
     require('./securewrite').writeSecret(file, JSON.stringify(codes), 0o600, { atomicOnly: true });
   } catch { throw new Error('the invite code could not be saved on this computer'); }
 }
@@ -104,7 +104,11 @@ function bindJoinCode(org, member, key, { dataRoot } = {}) {
   const codes = readCodes(dataRoot);
   const hit = codes[keyOf(org, member)];
   if (!hit) return false;
-  hit.key = Buffer.from(key).toString('hex');
+  const want = Buffer.from(key).toString('hex');
+  // Review 3: never re-tie a code to a second computer.
+  if (typeof hit.key === 'string' && hit.key !== want) throw new Error('this invite was already used for another computer');
+  if (hit.key === want) return true;
+  hit.key = want;
   writeCodes(codes, dataRoot);
   return true;
 }
@@ -134,7 +138,7 @@ function review(bytes, { dataRoot, now } = {}) {
  * Enclave public key, `keyFile` its key file; the helper is this app's own. seadmin.sign refuses the inviter unless
  * the code checked. On success the kept code is dropped. Returns { adminId, sig }.
  */
-async function approve(prepared, { adminId, expectedKey, keyFile, appDir } = {}) {
+async function approve(prepared, { adminId, expectedKey, keyFile, appDir, dataRoot } = {}) {
   const helper = helperPath(appDir);
   if (!helper) throw new Error('this Kosmos cannot sign as an admin: its admin key helper is not installed');
   /* Review 1: this computer holds the invite's code, so it IS the inviter, whatever admin the bytes name; signing as a
@@ -142,7 +146,14 @@ async function approve(prepared, { adminId, expectedKey, keyFile, appDir } = {})
   if (prepared && prepared.inviterChecked === true && adminId !== prepared.decoded.inviterAdminId) {
     throw new Error('you sent this invite, but the enrolment names another admin as the one who sent it');
   }
-  // The kept code is NOT dropped here (review 1): a refusal, a lost answer or a restarted entry needs it again.
+  /* Review 3: the inviter's code is tied to THIS computer's key BEFORE the signature exists (re-checked here, not only
+     in review, so a stale list or a second entry cannot get it for another key). A lost answer then leaves it tied, never
+     free. The code is NOT dropped here (review 1): a refusal or a restarted entry for the same computer needs it again. */
+  if (prepared && prepared.inviterChecked === true) {
+    const { org, member, key } = prepared.decoded;
+    if (!joinCodeFor(org, member, { dataRoot, forKey: key })) throw new Error('you sent this invite, but its join code is no longer on this computer');
+    bindJoinCode(org, member, key, { dataRoot });
+  }
   return se.sign(prepared, { helper, keyFile, expectedKey, adminId });
 }
 
@@ -155,10 +166,9 @@ async function approveAndSend(id, prepared, opts = {}) {
   const answer = await postAdminSig(id, signed, opts);
   if (prepared.inviterChecked === true) {
     const { org, member, key } = prepared.decoded;
-    try {
-      if (answer && answer.ok === true && answer.waiting !== true) forgetJoinCode(org, member, { dataRoot: opts.dataRoot });
-      else bindJoinCode(org, member, key, { dataRoot: opts.dataRoot });   // review 2: still waiting or refused: this key only
-    } catch { /* posted either way */ }
+    // Bound in approve (review 3); dropped once escrowd accepts.
+    void key;
+    try { if (answer && answer.ok === true && answer.waiting !== true) forgetJoinCode(org, member, { dataRoot: opts.dataRoot }); } catch { /* posted either way */ }
   }
   return answer;
 }
