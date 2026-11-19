@@ -37,6 +37,7 @@ let SIGNABLE_TAGS: [String] = [
     "kosmos-escrowd-roster-cancel v1",
     "kosmos-escrowd-reviewer-enrol v1",
     "kosmos-escrowd-reviewer-revoke v1",
+    "kosmos-escrowd-devkeyhist-enrol v1",   // kosmos#7116 step 2
 ]
 
 // kosmos#7892: what a presence key's Touch ID or password prompt says the signature is for. It is chosen here from the
@@ -50,6 +51,7 @@ let SIGN_REASONS: [String: String] = [
     "kosmos-escrowd-roster-cancel v1": "cancel a pending change to your company's Kosmos admins or reviewers",
     "kosmos-escrowd-reviewer-enrol v1": "add a reviewer for your company's Kosmos backups",
     "kosmos-escrowd-reviewer-revoke v1": "remove a reviewer for your company's Kosmos backups",
+    "kosmos-escrowd-devkeyhist-enrol v1": "approve a member's computer for your company's Kosmos backups",
 ]
 // The longest message escrowd's encoders make is a few hundred bytes; anything far larger is not one of them.
 let MAX_MESSAGE = 64 * 1024

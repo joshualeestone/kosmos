@@ -31,7 +31,10 @@ const admin = { ...V.admin, key: hex(V.admin.key), credentialId: hex(V.admin.cre
 const reviewer = { ...V.reviewer, key: hex(V.reviewer.key), credentialId: hex(V.reviewer.credentialId) };
 const nonce = hex(V.nonce);
 const ACTION_OF = { changeAdd: 'change', changeRemove: 'change', cancel: 'cancel', reviewerEnrol: 'reviewerEnrol',
-  reviewerRevoke: 'reviewerRevoke' };
+  reviewerRevoke: 'reviewerRevoke', devkeyEnrol: 'devkeyEnrol' };
+// kosmos#7116 step 2: the device-key enrolment's inputs, pinned with its bytes (kosmos-relay sealkey-8733 vectors.json).
+const devkey = { member: V.devkey.member, key: hex(V.devkey.key), codeHash: hex(V.devkey.codeHash), joinTag: hex(V.devkey.joinTag),
+  inviterAdminId: V.devkey.inviterAdminId };
 
 function p256Key(sec1) {
   return crypto.createPublicKey({ key: { kty: 'EC', crv: 'P-256', x: sec1.subarray(1, 33).toString('base64url'),
@@ -40,13 +43,15 @@ function p256Key(sec1) {
 const verifyDer = (pub, msg, der) => crypto.verify('sha256', msg, { key: p256Key(pub), dsaEncoding: 'der' }, der);
 
 test('#7116: every encoder reproduces escrowd\'s pinned bytes, and the fingerprints match', () => {
-  assert.strictEqual(V.bytes ? Object.keys(V.bytes).length : 0, 5, 'the vector file has the five byte strings');
+  assert.strictEqual(V.bytes ? Object.keys(V.bytes).length : 0, 6, 'the vector file has the six byte strings');
   assert.strictEqual(se.encodeChange(V.org, V.generation, { kind: 'add', admin }, nonce).toString('hex'), V.bytes.changeAdd);
   assert.strictEqual(se.encodeChange(V.org, V.generation,
     { kind: 'remove', adminId: V.remove.adminId, keyHash: hex(V.remove.keyHash) }, nonce).toString('hex'), V.bytes.changeRemove);
   assert.strictEqual(se.encodeCancel(V.org, 'roster-change', hex(V.id)).toString('hex'), V.bytes.cancel);
   assert.strictEqual(se.encodeReviewerEnrol(V.org, V.generation, reviewer, nonce).toString('hex'), V.bytes.reviewerEnrol);
   assert.strictEqual(se.encodeReviewerRevoke(V.org, reviewer.credentialId).toString('hex'), V.bytes.reviewerRevoke);
+  assert.strictEqual(se.encodeDevkeyEnrol(V.org, devkey.member, devkey.key, devkey.codeHash, devkey.joinTag, devkey.inviterAdminId,
+    V.generation, nonce).toString('hex'), V.bytes.devkeyEnrol, 'kosmos#7116 step 2: escrowd\'s encode_devkey_enrol bytes');
   assert.strictEqual(se.fingerprintDisplay(se.adminFingerprint(V.org, admin)), V.fingerprints.admin);
   assert.strictEqual(se.fingerprintDisplay(se.reviewerFingerprint(V.org, reviewer)), V.fingerprints.reviewer);
 });
