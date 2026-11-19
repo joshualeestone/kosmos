@@ -29,7 +29,7 @@
 # cancels it (a red job, re-run by hand). How long that window is has NOT been measured (it spans the Listener's own
 # round trips to GitHub), and it is armed at the start of every cut, not once by an operator as in the keepalive stage.
 # Also open: if the runner comes back as a new pid during a claim (by hand, or launchd after an unclean exit), the
-# pause refuses to stop it again and so stops pausing for the rest of that claim (exit 1, said every tick).
+# pause refuses to stop it again and so stops pausing for the rest of that claim (exit 1 every tick; logged once, see below).
 # A box that has never had a cut may have no marker folder yet: each tick then exits 1 ("cannot read") until the first
 # cut creates it. The runner dir goes into an ERE with only its dots escaped (as ci-runner-setup.sh's own_listener_re):
 # a dir with + ( or [ in its name would match no Listener, so the pause would wait forever (safe, but no pause).
@@ -58,6 +58,10 @@
 #   KOSMOS_CI_PAUSE_STATE (default ~/.kosmos-ci/claim-pause, holds the marker).
 # Test seams: KOSMOS_CI_LAUNCHCTL, KOSMOS_CI_PGREP, KOSMOS_CI_NOW, KOSMOS_CI_UID, KOSMOS_CI_DAEMON_DIR, and
 # KOSMOS_CI_PS (left unused by the test on purpose: the real ps against another user's pid is what it measures).
+# KOSMOS_CI_PAUSE_VERBOSE=1 also logs the quiet "nothing to do" ticks.
+# Logging: a line is written only when it differs from the last one (kept in $STATE/last-said), so a state that holds
+# is logged once, and again when its text changes (a claim renewal moves the "until" time in it). Exit codes repeat
+# every tick. If ps itself fails, a live claim reads as no claim (fail open), unlike an unreadable claim.
 # Exit: 0 a tick done (whatever it did), 1 it could not act (said why), 2 not set up (no claim file setting, no runner).
 PATH=/usr/bin:/bin
 set -u
@@ -137,7 +141,7 @@ if live="$(claim_live)"; then
   # Stopped by an earlier tick and still showing a pid under the same claim. The marker holds the pid this pause
   # stopped: the same pid is that process still ending (however long it takes); a different one is a NEW start (by
   # hand, or launchd after an unclean exit), and stopping again could loop, so refuse, loudly. That refusal lasts for
-  # the rest of the claim: the pause stops pausing for that cut, said every tick (see "Not closed" above).
+  # the rest of the claim: the pause stops pausing for that cut, exit 1 every tick (see "Not closed" above).
   if [ -f "$MARK" ]; then
     stopped="$(head -n 1 "$MARK" 2>/dev/null)"
     [ "$stopped" != "$rpid" ] || { say "$why; $label (pid $rpid) was told to stop and is still ending"; exit 0; }
@@ -159,7 +163,7 @@ if live="$(claim_live)"; then
   exit 0
 fi
 
-# A claim this user cannot read: change nothing and say so, every tick (exit 1). Not "no claim": that would restart a
+# A claim this user cannot read: change nothing and exit 1 every tick (logged once). Not "no claim": that would restart a
 # runner this pause stopped while the cut may still hold the box, and would log all is well. The claim's folder must
 # exist (on Mortals the marker dir is there between cuts, mode 755, measured on kosmos#8761); a folder that cannot be
 # entered, a claim that is not a file, or one that cannot be read counts here.

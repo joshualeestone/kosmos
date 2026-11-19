@@ -147,7 +147,7 @@ reset; rm -f "$T/running"; : > "$T/state/paused-by-claim"; chmod 000 "$T/claims"
 reset; tick; [ "$(rc)" = 0 ] && ! grep -q "cannot read" "$T/out" && pass "CONTROL: no claim file in a readable folder is a plain no claim, exit 0" || fail "control: rc $(rc) $(cat "$T/out")"
 
 # 8. Not set up.
-KOSMOS_CI_CLAIM_FILE= KOSMOS_CI_RUNNER_DIR="$T/home/actions-runner" "$PAUSE" >/dev/null 2>&1; [ $? = 2 ] && pass "no claim file setting: exit 2" || fail "no setting"
+HOME="$T/home" KOSMOS_CI_PAUSE_STATE="$T/state" KOSMOS_CI_CLAIM_FILE= KOSMOS_CI_RUNNER_DIR="$T/home/actions-runner" "$PAUSE" >/dev/null 2>&1; [ $? = 2 ] && pass "no claim file setting: exit 2" || fail "no setting"
 # The daemon stage's real shape: .service still names the agent path, the agent plist is moved away, a daemon plist
 # exists and gui/ does not know the label.
 reset; mv "$AGENT" "$T/agent.retired"; : > "$T/daemons/$LABEL.plist"; : > "$T/notloaded"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
@@ -165,4 +165,6 @@ printf '%s\n' "$T/home/Library/LaunchAgents/com.example.other.plist" > "$T/home/
 printf '%s\n' "$T/elsewhere/$LABEL.plist" > "$T/home/actions-runner/.service"; reset; tick
 [ "$(rc)" = 2 ] && pass ".service naming a plist outside this home's LaunchAgents: exit 2" || fail "outside: rc $(rc)"
 
+# Every run above had HOME and the state folder inside $T: nothing may land in the real home of whoever runs this.
+[ ! -e "$HOME/.kosmos-ci/claim-pause" ] && pass "nothing written to the real home's .kosmos-ci/claim-pause" || fail "wrote into $HOME/.kosmos-ci/claim-pause (a real install's state folder)"
 [ "$fails" = 0 ] && echo "PASS test-ci-runner-claim-pause-8761" || { echo "FAIL test-ci-runner-claim-pause-8761 ($fails)"; exit 1; }

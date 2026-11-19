@@ -37,7 +37,7 @@ That stopping the Listener cleanly while idle never loses an already-assigned jo
 real behaviour on Mortals is PigeonPete's install check.
 
 ## Tests
-- tools/test-ci-runner-claim-pause-8761.sh (46 checks at run time, in test:shell; macOS-only in tools/shell-macos-only.txt). Perturbed (15:41 CST, on c9156b8d2e): liveness
+- tools/test-ci-runner-claim-pause-8761.sh (47 checks at run time, in test:shell; macOS-only in tools/shell-macos-only.txt). Perturbed (15:41 CST, on c9156b8d2e): liveness
   as `kill -0` instead of `ps -p` fails the live-claim checks; restored from HEAD.
 
 ## Decided in review
@@ -56,3 +56,6 @@ real behaviour on Mortals is PigeonPete's install check.
   zone; the header says what a planted marker can really do.
 - Round 6: the SIGTERM-exits-0 premise is named in the header as a measurement PigeonPete's install must make on the
   box; a clear time ahead of now restarts the wait; the 50 s boundary is pinned at 49 and 50 (perturbed: -lt 49 fails).
+- Round 7: the "not set up" check ran with the real HOME and wrote ~/.kosmos-ci/claim-pause/last-said on this Mac
+  (found by the reviewer, removed: it held only that one line, created 15:58); now sandboxed, and a check asserts
+  nothing lands in the real home. Logging wording corrected (exit codes repeat, lines are logged once).
