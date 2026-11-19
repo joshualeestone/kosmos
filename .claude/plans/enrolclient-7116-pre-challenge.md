@@ -2,22 +2,22 @@
 pre_challenge: true
 method: challenge-loop
 branch: enrolclient-7116
-diff_hash: 4363b76ecfc2299004170a833249aadb0015fea9a0de636b717eaf6addfffc69
-validation: passed (Mortals)
+diff_hash: 47a48f4b3344911bf4452a22d7279bc27deddd49164759e23d9184bc4bcfdb39
+validation: passed
 subdir_audit: passed
-timestamp: 2026-11-19T19:54:13Z
-iterations: 4
+timestamp: 2026-11-19T22:17:34Z
+iterations: 6
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 4
-**Converged:** Yes: round 4 raised NITs only (5); three applied as comments and doc, two left with reasons.
-**Total findings:** 11 actionable (0 BLOCKERs, 10 WARNINGs, 1 CONVENTION), 12 NITs, from the four reviewers' reports
+**Iterations:** 6
+**Converged:** Yes: round 6 raised NITs only (3), all applied. Rounds 5 and 6 reviewed the request builder rewritten after round 4 to match escrowd's devkeyhist_enrol decoder as pushed (kosmos-relay sealkey-8733 b874d078d).
+**Total findings:** 12 actionable (0 BLOCKERs, 11 WARNINGs, 1 CONVENTION), 17 NITs, from the six reviewers' reports
 **Fixed:** 8 in code or tests | **Asked of step 1 (escrowd, #7116):** 3 (the submission's wire format; a cross-side fingerprint and join-code vector; each admin signature verified under its registered key) | **Asked (awaiting user):** 0
 
-Validation: passed on Mortals through mortals-validate.sh at 303ba8229 (29939 tests, 0 failed; shell shards 83, 75, 78, 80 all green), "status":"clean", hash 4363b76ecfc2, equal to this worktree's.
+Validation: the full suite at 27a24a62a3 passed on this Mac (29953 tests, 0 failed; all four shell shards green), hash 47a48f4b3344. A first local run failed only on 2 timing tests outside the change (create.test.js, restoreworld-5536.test.js), both passing alone (245/245, 66/66). The vectors file is identical to sealkey-8733 as pushed (b874d078d), re-checked before this proof.
 
 Bytes: seadmin.encodeDevkeyEnrol reproduces escrowd's pinned bytes.devkeyEnrol (kosmos-relay sealkey-8733 99c68c7c6); round 4 found that vector unchanged at the branch's then-latest commit. Held before the PR: the vector re-checked against sealkey-8733 once it is on GitHub.
 
@@ -49,3 +49,12 @@ Bytes: seadmin.encodeDevkeyEnrol reproduces escrowd's pinned bytes.devkeyEnrol (
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 5 NITs
 - sign()'s two return shapes documented; the caller slice's second-admin rule and deviceSign's required code noted --> FIXED (comments)
 - the join code hash and tag cross-side --> ASKED on #7116; the nonce's length --> NO CHANGE (escrowd checks it, as for every action)
+
+#### Iteration 5
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 2 NITs
+- [WARNING] request() did not refuse a nonce escrowd never issues (escrowd's rosternonce::LEN is 32) --> FIXED, with a 32-byte nonce in the test and a 16-byte one refused
+- NITs: an entry with both a Mac and a passkey signature; a note that a refused signature can mean the roster's generation moved --> FIXED
+
+#### Iteration 6
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs
+- deviceSign refuses a nonce that is not 32 bytes; the stale name 'submission'; a note that escrowd's K check is stricter than Node's --> FIXED
