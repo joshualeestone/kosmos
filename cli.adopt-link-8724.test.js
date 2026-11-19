@@ -30,9 +30,11 @@ function makeHome() {
   fs.symlinkSync(process.execPath, path.join(home, 'runtime', 'bin', 'node'));
   fs.writeFileSync(path.join(eng, 'store.js'), `module.exports = { ROOT: ${JSON.stringify(root)} };\n`);
   fs.writeFileSync(path.join(eng, 'status.js'), [
+    'const fs = require("node:fs");',
+    'const log = (x) => fs.appendFileSync(process.env.T_LINK_LOG, JSON.stringify(x) + "\\n");',
     'module.exports = {',
-    '  paneRoster: () => JSON.parse(process.env.T_ROWS || "[]"),',
-    '  panesWithCommands: () => { if (process.env.T_PANES_THROW) throw new Error("no tmux"); return JSON.parse(process.env.T_PANES || "[]"); },',
+    '  paneRoster: () => { log({ read: "roster" }); return JSON.parse(process.env.T_ROWS || "[]"); },',
+    '  panesWithCommands: () => { log({ read: "panes" }); if (process.env.T_PANES_THROW) throw new Error("no tmux"); return JSON.parse(process.env.T_PANES || "[]"); },',
     '};',
   ].join('\n'));
   fs.writeFileSync(path.join(eng, 'adopt.js'), [
@@ -48,8 +50,9 @@ function makeHome() {
     'const log = (x) => fs.appendFileSync(process.env.T_LINK_LOG, JSON.stringify(x) + "\\n");',
     'module.exports = {',
     '  OUTCOME: { LINKED: "linked", REFUSED: "refused" },',
-    '  plan: (name, panes) => { log({ plan: name, panes: Array.isArray(panes) }); return ok().includes(name) ? { ok: true } : { ok: false, outcome: "refused", because: "There is no window called " + name + " to link." }; },',
-    '  link: (name, opts) => { log({ link: name, panes: Array.isArray(opts && opts.panes) }); return ok().includes(name) ? { outcome: "linked", session: name, name } : { outcome: "refused", because: "There is no window called " + name + " to link." }; },',
+    /* The real plan returns { ok, session, pane, name, command } or a refusal; link returns linked or a refusal. */
+    '  plan: (name, panes) => { log({ plan: name, panes: Array.isArray(panes) }); return ok().includes(name) ? { ok: true, session: name, pane: "0.0", name, command: "2.1.212" } : { outcome: "refused", because: "There is no window called " + name + " to link." }; },',
+    '  link: (name, opts) => { log({ link: name, panes: Array.isArray(opts && opts.panes) }); if (process.env.T_LINK_THROW) throw new Error("boom"); return ok().includes(name) ? { outcome: "linked", session: name, name } : { outcome: "refused", because: "There is no window called " + name + " to link." }; },',
     '};',
   ].join('\n'));
   return home;
@@ -107,7 +110,8 @@ test('#8724 --link <name> --confirm links that one window, in either order; CONT
       const before = calls().filter((c) => c.link).length;
       const out = await run(args, env({ T_PANES: '[]', T_LINKABLE: 'zara' }));
       assert.equal(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
-      assert.match(out.stdout, /Linked the window called zara\. To give it a Kosmos identity too, run: kosmos adopt --confirm/);
+      assert.match(out.stdout, /Linked the window called zara\. Kosmos now types your messages into it and shows its conversation\./);
+      assert.match(out.stdout, /To record it as one of yours, run: kosmos adopt --confirm\. The agent in it uses its own Kosmos\nidentity, and can be restarted from the board, only once Kosmos starts it\./);
       const links = calls().filter((c) => c.link).slice(before);
       assert.deepEqual(links, [{ link: 'zara', panes: true }], args.join(' '));
     }
@@ -123,12 +127,32 @@ test('#8724 a refused link says the engine reason and exits 1', { skip: SKIP_POS
     }
   }));
 
-test('#8724 --link needs a name, and an unknown flag is refused before anything is read', { skip: SKIP_POSIX_SHELL }, () =>
+test('#8724 a link that throws says so in a sentence, never a stack; CONTROL: the plain link above succeeds', { skip: SKIP_POSIX_SHELL }, () =>
+  withHome(async (env) => {
+    const out = await run(['--link', 'zara', '--confirm'], env({ T_PANES: '[]', T_LINKABLE: 'zara', T_LINK_THROW: '1' }));
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.match(out.stdout, /^Kosmos could not see what is running on this computer, so nothing was changed\.$/m);
+    assert.doesNotMatch(out.stdout + out.stderr, /at .*\(.*:\d+:\d+\)|Error: boom/);
+  }));
+
+test('#8724 a link module that cannot load leaves the adoption review as it was, and --link says it cannot link', { skip: SKIP_POSIX_SHELL }, () =>
+  withHome(async (env) => {
+    const home = env({}).KOSMOS_HOME;
+    fs.writeFileSync(path.join(home, 'app', 'engine', 'linkwindow.js'), 'throw new Error("cannot load");\n');
+    const review = await run([], env({ T_ROWS: ROWS, T_PANES: '[]', T_LINKABLE: 'zara' }));
+    assert.equal(review.code, 0, review.stdout + review.stderr);
+    assert.match(review.stdout, /^ {2}skip zara -- not one of ours$/m);
+    const link = await run(['--link', 'zara', '--confirm'], env({ T_PANES: '[]', T_LINKABLE: 'zara' }));
+    assert.equal(link.code, 1, link.stdout + link.stderr);
+    assert.match(link.stdout, /^this Kosmos cannot link windows, so nothing was linked\.$/m);
+  }));
+
+test('#8724 --link needs one name, and an unknown flag is refused before anything is read', { skip: SKIP_POSIX_SHELL }, () =>
   withHome(async (env, calls) => {
-    for (const args of [['--link'], ['--link', '--confirm'], ['--frobnicate']]) {
+    for (const args of [['--link'], ['--link', '--confirm'], ['--frobnicate'], ['--link', 'zara', '--link', 'otto', '--confirm']]) {
       const out = await run(args, env({ T_PANES: '[]', T_LINKABLE: 'zara' }));
       assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout + out.stderr);
       assert.match(out.stdout + out.stderr, /kosmos adopt/);
     }
-    assert.deepEqual(calls(), [], 'a refused command reached the link');
+    assert.deepEqual(calls(), [], 'a refused command read the roster or the windows, or reached the link');
   }));

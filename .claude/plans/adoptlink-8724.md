@@ -7,15 +7,21 @@ itself, engine/linkwindow.js). Independent of item 1 (branch linkjob-8724).
 `kosmos adopt` no longer leaves a hand-started window at "skip zara -- not one of ours" with no way on. When the link
 would accept that window, the skip line names the command that links it. `kosmos adopt --link <name>` says what
 linking means and changes nothing; `kosmos adopt --link <name> --confirm` links that one window through the same
-engine and checks as the board's button, and says to run `kosmos adopt --confirm` next. Proven by CLI tests against
+engine and checks as the board's button. It then says what linking gives now (messages typed in, the conversation
+shown) and what waits: `kosmos adopt --confirm` records it, and the agent speaks as itself and can be restarted from
+the board only once Kosmos starts it (a running window keeps the environment it was started with). Proven by CLI tests against
 stand-in engine modules, with perturbation controls.
 
 ## How
 - install/kosmos `cmd_adopt`: arguments parsed in a loop (`--confirm`, `--link <name>`, either order). A missing or
-  flag-shaped name, or an unknown flag, is refused with the usage line before anything is read.
+  flag-shaped name, a second `--link`, or an unknown flag is refused with the usage line before anything is read.
+- engine/linkwindow.js is loaded only where it is used, guarded: a link module that cannot load never stops the
+  adoption review (its skip lines are then as before), and `--link` says this Kosmos cannot link windows.
 - With `--link`: read the window list once (`status.panesWithCommands`, the board's own look); without `--confirm`
   run `linkwindow.plan` and print what linking means, or its refusal (exit 1); with `--confirm` run
-  `linkwindow.link(name, { panes })` and print linked, or its refusal (exit 1). A list that cannot be read stops (2).
+  `linkwindow.link(name, { panes })` and print linked, or its refusal (exit 1). A plan or link that throws is said in a
+  sentence (exit 1), as the board route does. A list that cannot be read stops (2, as adopt's unreadable roster does
+  already; kept the same for one meaning inside this command rather than the help's general "not written right").
 - Without `--link`: the review is unchanged, except a skipped row whose reason is "not one of ours" and which
   `linkwindow.plan` accepts gets "; if you started it yourself, link it first: kosmos adopt --link <name>". The window
   list is read once; if it cannot be read the skip lines are exactly as before.
@@ -36,8 +42,10 @@ That `status.panesWithCommands()` and `status.boardTmux()` resolve the same tmux
 board's. Both read the same repick (status.js tmuxRepick); not measured from the CLI against a live second tmux here.
 
 ## Tests
-- cli.adopt-link-8724.test.js (6): hint only for a linkable skip (control: an unlinkable one stays plain); an unreadable
+- cli.adopt-link-8724.test.js (8; stand-ins log every read and return the real shapes): hint only for a linkable skip (control: an unlinkable one stays plain); an unreadable
   list leaves skips as before; --link alone changes nothing; --link --confirm links in either order; a refused link
-  says the engine reason and exits 1; bad arguments refused before any read. Perturbations: hint off (1 red); --link
+  says the engine reason and exits 1; a throwing link is a sentence, not a stack; a link module that cannot load
+  leaves the review as it was; bad arguments (including a second --link) refused before the roster or windows are
+  read. Perturbations: hint off (1 red); --link
   acting without --confirm (1 red).
 - Every test that reads install/kosmos (177 files).

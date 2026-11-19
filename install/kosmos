@@ -5840,7 +5840,7 @@ cmd_adopt() {
     case "$1" in
       --confirm) confirm=1 ;;
       --link)
-        [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { say "kosmos adopt --link <name> [--confirm]"; exit 2; }
+        [ -z "$link" ] && [ -n "${2:-}" ] && [ "${2#-}" = "$2" ] || { say "kosmos adopt --link <name> [--confirm]   (one window at a time)"; exit 2; }
         link="$2"; shift ;;
       *) say "kosmos adopt [--confirm] | kosmos adopt --link <name> [--confirm]"; exit 2 ;;
     esac
@@ -5856,15 +5856,20 @@ cmd_adopt() {
     const status = require(base + "/engine/status");
     const adopt  = require(base + "/engine/adopt");
     /* kosmos#8724 item 2: the board link (engine/linkwindow.js), with its own checks: a Claude window named exactly
-       for the agent, alone in its session, not marked already. Its refusal is said as it is. */
-    const linkwindow = require(base + "/engine/linkwindow");
+       for the agent, alone in its session, not marked already. Its refusal is said as it is. Loaded only where it is
+       used, and guarded, so a link module that cannot load never stops the adoption review itself. */
+    const loadLink = () => { try { return require(base + "/engine/linkwindow"); } catch (e) { return null; } };
     const want = process.env.KOSMOS_ADOPT_LINK || "";
     if (want) {
+      const linkwindow = loadLink();
+      if (!linkwindow) { console.log("this Kosmos cannot link windows, so nothing was linked."); process.exit(1); }
       let panes;
       try { panes = status.panesWithCommands(); }
       catch (e) { console.log("could not read the windows on this computer, so nothing was linked."); process.exit(2); }
       if (process.env.KOSMOS_ADOPT_CONFIRM !== "1") {
-        const lp = linkwindow.plan(want, panes);
+        let lp = null;
+        try { lp = linkwindow.plan(want, panes); } catch (e) { lp = null; }
+        if (!lp) { console.log("Kosmos could not check that window, so nothing was changed."); process.exit(1); }
         if (!lp.ok) { console.log(lp.because); process.exit(1); }
         console.log("Kosmos would link the window called " + want + ": it would then type your messages into it, show its");
         console.log("conversation and look after it as one of its own agents, which can include closing it if the agent");
@@ -5873,9 +5878,15 @@ cmd_adopt() {
         console.log("Nothing was changed. Run: kosmos adopt --link " + want + " --confirm");
         process.exit(0);
       }
-      const r = linkwindow.link(want, { panes });
+      let r = null;
+      try { r = linkwindow.link(want, { panes }); }
+      catch (e) { console.log("Kosmos could not see what is running on this computer, so nothing was changed."); process.exit(1); }
       if (!r || r.outcome !== linkwindow.OUTCOME.LINKED) { console.log((r && r.because) || "Kosmos could not link that window."); process.exit(1); }
-      console.log("Linked the window called " + want + ". To give it a Kosmos identity too, run: kosmos adopt --confirm");
+      /* What linking gives now, and what waits: the window keeps the environment it started with, so the agent in it
+         speaks as itself (and can be restarted from the board) only once Kosmos starts it. */
+      console.log("Linked the window called " + want + ". Kosmos now types your messages into it and shows its conversation.");
+      console.log("To record it as one of yours, run: kosmos adopt --confirm. The agent in it uses its own Kosmos");
+      console.log("identity, and can be restarted from the board, only once Kosmos starts it.");
       process.exit(0);
     }
     let rows;
@@ -5900,13 +5911,14 @@ cmd_adopt() {
     const p = adopt.plan(rows);
     /* kosmos#8724 item 2: a window skipped as not ours that the link would accept is named with the command that links
        it. The look is read once; a look that fails only leaves the skip lines as they were. */
+    const hintLink = loadLink();
     let linkPanes = null;
-    try { linkPanes = status.panesWithCommands(); } catch (e) { linkPanes = null; }
+    if (hintLink) { try { linkPanes = status.panesWithCommands(); } catch (e) { linkPanes = null; } }
     const skipLine = (s) => {
       let line = "  skip " + s.name + " -- " + s.because;
       if (s.because === "not one of ours" && linkPanes) {
         let lp = null;
-        try { lp = linkwindow.plan(s.name, linkPanes); } catch (e) { lp = null; }
+        try { lp = hintLink.plan(s.name, linkPanes); } catch (e) { lp = null; }
         if (lp && lp.ok) line += "; if you started it yourself, link it first: kosmos adopt --link " + s.name;
       }
       return line;
@@ -5966,7 +5978,7 @@ kosmos_command_list() {
   printf '  kosmos project       list, show, create or pause projects, say your role on one, or take a member off one\n'
   printf '  kosmos records       a project'"'"'s records (accounts, leads, vendors): list, set, remove, label\n'
   printf '  kosmos agent         list, make or remove agents, or list the roles one can have\n'
-  printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
+  printf '  kosmos adopt         give the agents already running here a Kosmos identity, once (--link <name>: link a window you started yourself)\n'
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
   printf '  kosmos handoff       print facts for your handoff: your live state, artifact fingerprints, instruction and git status\n'
   printf '  kosmos fingerprint   print the fingerprint of a file, or compare one with it, to check a handed-off copy (the dates and ID inside a PDF are left out)\n'
