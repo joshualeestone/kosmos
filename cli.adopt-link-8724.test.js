@@ -52,7 +52,7 @@ function makeHome() {
     '  OUTCOME: { LINKED: "linked", REFUSED: "refused" },',
     /* The real plan returns { ok, session, pane, name, command } or a refusal; link returns linked or a refusal. */
     '  plan: (name, panes) => { log({ plan: name, panes: Array.isArray(panes) }); return ok().includes(name) ? { ok: true, session: name, pane: "0.0", name, command: "2.1.212" } : { outcome: "refused", because: "There is no window called " + name + " to link." }; },',
-    '  link: (name, opts) => { log({ link: name, panes: Array.isArray(opts && opts.panes) }); if (process.env.T_LINK_THROW) throw new Error("boom"); return ok().includes(name) ? { outcome: "linked", session: name, name } : { outcome: "refused", because: "There is no window called " + name + " to link." }; },',
+    '  link: (name, opts) => { log({ link: name, panes: Array.isArray(opts && opts.panes) }); if (process.env.T_LINK_THROW) throw new Error("boom"); if (process.env.T_LINK_MARKLEFT) return { outcome: "refused", because: "Kosmos could not confirm the window called " + name + " after marking it, and could not take the mark off.", markLeft: true }; return ok().includes(name) ? { outcome: "linked", session: name, name } : { outcome: "refused", because: "There is no window called " + name + " to link." }; },',
     '};',
   ].join('\n'));
   return home;
@@ -71,7 +71,12 @@ async function withHome(fn) {
   const home = makeHome();
   const logFile = path.join(home, 'link.log');
   fs.writeFileSync(logFile, '');
-  const env = (extra) => ({ ...process.env, KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: path.join(home, 'root'), T_LINK_LOG: logFile, ...extra });
+  /* Built explicitly, with the fake tmux, so the CLI's own tmux pick never asks this Mac's real server. */
+  const env = (extra) => ({
+    PATH: process.env.PATH, HOME: home, KOSMOS_HOME: home, AGENT_WORKFORCE_HOME: home,
+    AGENT_WORKFORCE_DATA: path.join(home, 'root'), AGENT_WORKFORCE_TMUX_BIN: path.join(__dirname, 'test-support', 'fake-tmux.sh'),
+    T_LINK_LOG: logFile, ...extra,
+  });
   const calls = () => fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
   try { await fn(env, calls); } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
@@ -112,7 +117,7 @@ test('#8724 --link <name> --confirm links that one window, in either order; CONT
       const before = calls().filter((c) => c.link).length;
       const out = await run(args, env({ T_PANES: '[]', T_LINKABLE: 'zara' }));
       assert.equal(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
-      assert.match(out.stdout, /Linked the window called zara\. Kosmos now types your messages into it and shows its conversation\./);
+      assert.match(out.stdout, /Linked the window called zara\. The board now types your messages into it and shows its conversation\./);
       assert.match(out.stdout, /^The agent in it speaks as itself, and the board can restart it, only once Kosmos starts it\.$/m);
       assert.match(out.stdout, /^Run kosmos adopt to see what it would record now; nothing is recorded without --confirm\.$/m);
       const links = calls().filter((c) => c.link).slice(before);
@@ -148,6 +153,13 @@ test('#8724 with nothing skipped as not ours, the review does not look at the wi
     assert.equal(calls().filter((c) => c.read === 'panes').length, 1);
   }));
 
+test('#8724 a link that may have left its mark exits 3 (may have gone through), not 1; CONTROL: a plain refusal exits 1 (below)', { skip: SKIP_POSIX_SHELL }, () =>
+  withHome(async (env) => {
+    const out = await run(['--link', 'zara', '--confirm'], env({ T_PANES: '[]', T_LINKABLE: 'zara', T_LINK_MARKLEFT: '1' }));
+    assert.equal(out.code, 3, out.stdout + out.stderr);
+    assert.match(out.stdout, /could not take the mark off/);
+  }));
+
 test('#8724 a link that throws says so in a sentence, never a stack; CONTROL: the plain link above succeeds', { skip: SKIP_POSIX_SHELL }, () =>
   withHome(async (env) => {
     const out = await run(['--link', 'zara', '--confirm'], env({ T_PANES: '[]', T_LINKABLE: 'zara', T_LINK_THROW: '1' }));
@@ -178,11 +190,18 @@ test('#8724 --link needs one name, and an unknown flag is refused before anythin
     assert.deepEqual(calls(), [], 'a refused command read the roster or the windows, or reached the link');
   }));
 
-test('#8724 a name that is not plain is printed quoted, so the command can be pasted back; CONTROL: a plain one is bare', { skip: SKIP_POSIX_SHELL }, () =>
+test('#8724 a name that is not plain is printed in single quotes (nothing in it expands when pasted); CONTROL: a plain one is bare', { skip: SKIP_POSIX_SHELL }, () =>
   withHome(async (env) => {
     const odd = await run(['--link', 'my agent'], env({ T_PANES: '[]', T_LINKABLE: 'my agent' }));
     assert.equal(odd.code, 0, odd.stdout + odd.stderr);
-    assert.match(odd.stdout, /Nothing was changed\. Run: kosmos adopt --link "my agent" --confirm/);
+    assert.match(odd.stdout, /Nothing was changed\. Run: kosmos adopt --link 'my agent' --confirm/);
+    /* A $ and a quote: the printed argument, run through a real shell, comes back as the name itself. */
+    const nasty = "a$(x)`y`'b";
+    const out2 = await run(['--link', nasty], env({ T_PANES: '[]', T_LINKABLE: nasty }));
+    const m = /Run: kosmos adopt --link (.+) --confirm$/m.exec(out2.stdout);
+    assert.ok(m, out2.stdout);
+    const back = require('node:child_process').spawnSync('/bin/sh', ['-c', 'printf %s ' + m[1]], { encoding: 'utf8' });
+    assert.equal(back.stdout, nasty, 'the printed argument does not paste back as the name: ' + m[1]);
     const plain = await run(['--link', 'zara'], env({ T_PANES: '[]', T_LINKABLE: 'zara' }));
     assert.match(plain.stdout, /Nothing was changed\. Run: kosmos adopt --link zara --confirm/);
   }));
