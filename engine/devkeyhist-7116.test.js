@@ -84,7 +84,7 @@ test('with the test key cleared, only escrowd\'s SHIPPED key counts: a history s
   assert.strictEqual(hist.verify(h, opts).ok, true, 'control: restored');
 });
 
-test('the shipped key is the one Baron read on the box (kosmos#7116 step 3), so a stray edit is caught here', () => {
+test('the shipped key is pinned: an edit to the constant is caught here (that it is escrowd\'s is the golden vector\'s job)', () => {
   assert.strictEqual(hist.VERIFYING_KEY, '86855409717f1d2fd1444198e11f40e9b6bfa60d6bd42ccc14d1a971da17e5f1');
 });
 
@@ -252,9 +252,10 @@ test('a freshness window or clock allowance that is not a number of seconds is r
   assert.strictEqual(hist.verify(h, { ...opts, skewSecs: 0 }).ok, true, 'control: a zero allowance is a real one');
 });
 
-// kosmos#7116 step 3: a history escrowd REALLY signed on the production box (Baron Draxum, 11-19 17:16 UTC, build
-// 90664b5a1, for throwaway names). A signature is public. With the test key cleared this proves the SHIPPED key is the
-// one escrowd signs with, which no fixture can.
+// kosmos#7116 step 3: a history escrowd REALLY signed on the production box (11-19 17:16 UTC, for throwaway names). A
+// signature is public. With the test key cleared this proves the SHIPPED key is the one escrowd signs with, and the
+// head's encoding against escrowd. It has no entries: the entry chain against escrowd waits for the first enrolment
+// (the Rust side reproduces the Mac's entry vectors in devkeyhist.rs the_macs_vectors_are_reproduced).
 const GOLDEN = { entries: [], issuedAt: 1795108584, member: 'zz-goldenvector-7116-member', org: 'zz-goldenvector-7116',
   signature: 'E4_itbhUHAD5upwqSZ8pNhbUmvYEakR8Y0Kg-upxQOMkLSD-LG_KRqx_7I8uEBne4sxbnM5HHydwwKmAtEpJBw' };
 test('golden vector: escrowd\'s own signed history verifies under the shipped key, and a one-letter change does not', () => {
