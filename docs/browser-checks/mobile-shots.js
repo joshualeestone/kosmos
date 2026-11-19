@@ -599,6 +599,28 @@ async function pbPlansShot(page, refuse) {
   await page.waitForSelector('#pb-plans-list li button', { state: 'visible', timeout: 10000 });
 }
 /* #5359: a restart note made seven minutes ago, on this page's own route (engine/restartnote.js makes the real one). */
+/* kosmos#8719: the status read with the shot agent's window untied (isNamedOurs false), and the label check its tile and
+   list-row screens share. */
+async function stubUntied8719(page, data) {
+  await page.route('**/api/status*', async (r) => {
+    try {
+      if (r.request().method() !== 'GET') { await r.continue(); return; }
+      const res = await r.fetch();
+      let body = null;
+      try { body = await res.json(); } catch { body = null; }
+      if (!body || !Array.isArray(body.agents)) { await r.fulfill({ response: res }); return; }
+      for (const c of body.agents) if (c.sessionName === data.chatAgent) c.isNamedOurs = false;
+      await r.fulfill({ response: res, body: JSON.stringify(body) });
+    } catch { /* the page closed at teardown (#6022) */ }
+  });
+}
+async function checkUntiedLabel8719(page, sel) {
+  const n = await page.locator(sel).count();
+  if (n !== 1) throw new Error('expected one agent labelled, saw ' + n);
+  const got = await page.locator(sel).first().evaluate((el) => ({ text: el.innerText, clipped: el.scrollWidth > el.clientWidth + 1 }));
+  if (got.text !== 'Not linked to Kosmos' || got.clipped) throw new Error('the label: ' + JSON.stringify(got));
+}
+
 async function stubRebootNote(page) {
   const now = Date.now();
   const note = { lastAliveAt: new Date(now - 9 * 60000).toISOString(), bootAt: new Date(now - 7 * 60000).toISOString(), upAt: new Date(now - 60000).toISOString() };
@@ -1424,6 +1446,31 @@ const SCREENS = [
   }, verify: async (page) => {
     const t = await page.locator('#d-machine').innerText();
     if (!/Still running after what started it ended: bash, 6\.5 GB, for 14 days \(process 4242\)/.test(t)) throw new Error('the page said: ' + t);
+  }, after: async (page) => { await page.unroute('**/api/status*'); } },
+  /* kosmos#8719: an agent whose window Kosmos cannot tie to it (isNamedOurs false): its tile and list row say "Not
+     linked to Kosmos", and its page says why. The status read is stubbed for these screens only (stubUntied8719: a
+     throwaway board starts its own agents, all marked). Three literal entries, so tools.mobile-shots-serviceworker-6206
+     can read each one. */
+  { name: 'untied-tile-8719', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    await stubUntied8719(page, data);
+    await page.reload();
+    await page.waitForSelector('.acard .auntied', { state: 'visible', timeout: 15000 });
+  }, verify: async (page) => { await checkUntiedLabel8719(page, '.acard .auntied'); },
+  after: async (page) => { await page.unroute('**/api/status*'); } },
+  { name: 'untied-list-8719', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    await stubUntied8719(page, data);
+    await page.reload();
+    await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
+    await page.waitForSelector('.lrow .auntied', { state: 'visible', timeout: 15000 });
+  }, verify: async (page) => { await checkUntiedLabel8719(page, '.lrow .auntied'); },
+  after: async (page) => { await page.unroute('**/api/status*'); } },
+  { name: 'untied-page-8719', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    await stubUntied8719(page, data);
+    await at(page, '?agent=' + data.chatAgent);
+    await page.waitForSelector('#d-task', { state: 'visible', timeout: 15000 });
+  }, verify: async (page) => {
+    const t = await page.locator('#d-task').innerText();
+    if (!/^Kosmos cannot confirm it started this window, so it does not type messages into it/.test(t)) throw new Error('the page said: ' + t);
   }, after: async (page) => { await page.unroute('**/api/status*'); } },
   { name: 'agent-page', owner: 'Raiden', go: async (page, data) => {
     await at(page, '?agent=' + data.chatAgent);

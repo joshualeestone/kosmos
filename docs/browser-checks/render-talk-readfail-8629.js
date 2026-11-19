@@ -72,7 +72,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       if (u.includes('/thread/older')) return new Promise((res) => { window.__olderRelease = () => res(enc({ error: 'the board did not answer' }, 502)); });
       if (u.includes('/thread')) {
         if (window.__answer === 'fail') return enc({ error: 'the board did not answer' }, 502);
-        if (window.__answer === 'borrowed') return enc({ error: 'no agent by that name', because: 'borrowed' }, 404);
+        if (window.__answer === 'borrowed') return enc({ error: "Kosmos cannot confirm it started the window running as this agent, so it does not show or change this agent's conversation here.", because: 'borrowed' }, 404);
         return enc(window.__fx);
       }
       if (u.includes('/api/status')) return enc({ agents: [{ sessionName: 'april', name: 'April', state: 'idle', status: 'idle', isNamedOurs: true }] });

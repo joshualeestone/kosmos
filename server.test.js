@@ -2624,9 +2624,10 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
   // "we found a session called research, but not the one research's own session
   // runs in" — the only message the legitimate non-Discord agent this branch
   // most affects would ever see.
-  assert.match(els['d-untied'].textContent, /-discord/,
-    'the explanation does not say what session it expected, so it reads as a '
-    + 'tautology for exactly the agents it is shown to');
+  // kosmos#8719: self-contained (the button reads it alone), and never built from the session name, so it cannot read as
+  // a tautology.
+  assert.equal(els['d-untied'].textContent, 'Kosmos cannot confirm it started this window, so it does not change its picture, role or instructions from here.',
+    'the untied line is not the self-contained one');
 
   // ⚠️ AND the call site, which this test stopped pinning when it replaced the
   // source-shape version. Driving `setWritesOffered` in isolation proves the

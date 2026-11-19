@@ -4407,9 +4407,11 @@ function nameRefusal(name) {
 
 /* The 404 body for a `nameRefusal` reason, shared by the DM thread's routes so the two
    sentences are written once. */
-function nameRefusalBody(refusal) {
+function nameRefusalBody(refusal, name) {
   return {
-    error: refusal === 'borrowed' ? 'no agent by that name' : 'we could not check which agents are running',
+    /* kosmos#8719: 'borrowed' is an agent on the board whose window Kosmos did not start, not a missing one. The board
+       draws its own sentence from `because`; the iPhone shows this text, so it says why. */
+    error: refusal === 'borrowed' ? untiedReadWords(name) : 'we could not check which agents are running',
     because: refusal,
   };
 }
@@ -4485,6 +4487,20 @@ function clearLeftovers(name, projectId, why) {
 // `knownAgent` first, so this is noted rather than fixed here — the shape that
 // removes it is a single `claimantFor` whose card both the gate and the session
 // come from, and that is a change to how every name-keyed route resolves.
+
+/* kosmos#8719: what a person is told when a message to, or a read of, an agent whose window Kosmos cannot tie to it is
+   refused: the reason. (The remedy is an action, reclaiming the window, which part 2 of #8719 adds; no sentence here
+   promises a route the window itself blocks.) */
+/* Worded as what is checked (the window lacks Kosmos's own launch mark), not as where it came from: a session Kosmos
+   started and was then renamed fails the same check. */
+function untiedSendWords(name) {
+  return `Not sent: Kosmos cannot confirm it started the window running as ${name}, so it did not type into it.`;
+}
+function untiedReadWords(name) {
+  const who = name || 'this agent';
+  return `Kosmos cannot confirm it started the window running as ${who}, so it does not show or change ${who}'s `
+    + 'conversation here.';
+}
 
 function knownAgent(name) {
   try {
@@ -20797,7 +20813,7 @@ const server = http.createServer(async (req, res) => {
     // not tied to it must not write into the real agent's private thread.
     const refusal = nameRefusal(name);
     if (refusal) {
-      sendJson(res, 404, nameRefusalBody(refusal));
+      sendJson(res, 404, nameRefusalBody(refusal, name));
       return;
     }
     readBody(req)
@@ -20828,7 +20844,7 @@ const server = http.createServer(async (req, res) => {
     const name = decodeSegment(dmDelete[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     const refusal = nameRefusal(name);
-    if (refusal) { sendJson(res, 404, nameRefusalBody(refusal)); return; }
+    if (refusal) { sendJson(res, 404, nameRefusalBody(refusal, name)); return; }
     readBody(req)
       .then(async (buf) => {
         let body;
@@ -20929,7 +20945,7 @@ const server = http.createServer(async (req, res) => {
     const name = decodeSegment(dmOlder[1]);
     if (name === null) { sendJson(res, 404, { error: 'that is not a name we can read' }); return; }
     const refusal = nameRefusal(name);
-    if (refusal) { sendJson(res, 404, nameRefusalBody(refusal)); return; }
+    if (refusal) { sendJson(res, 404, nameRefusalBody(refusal, name)); return; }
     let beforeRaw = null;
     try { beforeRaw = new URL(req.url, ROUTING_BASE).searchParams.get('before'); } catch { beforeRaw = null; }
     const before = typeof beforeRaw === 'string' && /^\d{1,9}$/.test(beforeRaw) ? Number(beforeRaw) : NaN;   // digits only
@@ -21022,7 +21038,7 @@ const server = http.createServer(async (req, res) => {
        `nameRefusal`: 'borrowed' is standing and 'unreadable' is a blip. */
     const refusal = nameRefusal(name);
     if (refusal) {
-      sendJson(res, 404, nameRefusalBody(refusal));
+      sendJson(res, 404, nameRefusalBody(refusal, name));
       return;
     }
     /* kosmos#7810: ?tail=N (1 to 200) answers only the newest N, so a phone on a weak signal draws a screenful first. */
@@ -21453,6 +21469,20 @@ const server = http.createServer(async (req, res) => {
              (409, nothing typed, nothing kept), never as missing. A 4xx, not a 503: the page and the iPhone read a
              5xx on a send as "it may have gone" (BoardLogic.swift sendResult), and this one certainly did not. */
           const starting = startingAgent(name);
+          /* kosmos#8719: an agent that IS on the board but whose window Kosmos did not start (no @kosmos_agent claim, so
+             isNamedOurs is false) is not missing: say why nothing was typed, as a 409, never "no agent by that name". */
+          if (!starting) {
+            let card = null;
+            try { card = claimantFor(name); } catch { card = null; }
+            /* 409 'untied' for a send; the reads (thread, older, react, delete) keep 404 'borrowed' through nameRefusal,
+               which the board's standing arm keys on. Different answers to one condition on purpose; do not unify. */
+            if (card && card.isNamedOurs !== true) {   // the same test as nameRefusal's 'borrowed', so read and send agree
+              const untied = new Error(untiedSendWords(card.sessionName || name));
+              untied.status = 409;
+              untied.because = 'untied';
+              throw untied;
+            }
+          }
           if (!(starting && await awaitRosterRow(name))) {
             const missing = new Error(starting
               ? `${name} is still starting, so nothing was sent. Try again in a moment.`
@@ -22162,7 +22192,7 @@ const server = http.createServer(async (req, res) => {
       })
       .catch((err) => sendJson(res, (err && err.status) || ((err && err.code === 'UNREADABLE') ? 500 : 400),
         { error: String((err && err.message) || 'we could not read that request'),
-          ...(err && err.because === 'starting' ? { because: 'starting' } : {}) }))   // kosmos#8652
+          ...(err && (err.because === 'starting' || err.because === 'untied') ? { because: err.because } : {}) }))   // kosmos#8652, #8719
       .finally(() => { if (retryKey) DM_RETRYING.delete(retryKey); });   // kosmos#6720: after the verdict is written
     return;
   }

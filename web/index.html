@@ -3358,6 +3358,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 .acard .ameta { font-weight: 600; color: var(--k-ink); font-size: .8125rem; margin-top: 1px; }
 /* #7978: inside the model line, so the card's grid gains no row; on a line of its own, and only when out of the ordinary. */
 .acard .amachine { display: block; font-weight: 600; color: var(--k-ink); margin-top: 2px; }
+.acard .auntied { display: block; font-weight: 600; color: var(--k-ink); margin-top: 2px; }   /* kosmos#8719, as .amachine */
+.lrow .auntied { display: block; font-weight: 600; color: var(--k-ink); white-space: normal; }   /* the cell is one ellipsed line at desktop; this wraps rather than clipping */
 /* In a cell, never as its own: the row's grid has exactly seven children, and an eighth lands in the avatar's column. */
 .lrow .amachine { display: block; font-weight: 600; color: var(--k-ink); }
 /* Josh, 2026-08-19: "a tiny bit more. Not crazy." One pixel is not a gap, it is
@@ -23184,7 +23186,8 @@ function taskLine(a, opts) {
  * `connection_lost` (#3410) speak and every other state shows nothing rather
  * than a stale summary. (Since then also: a crash loop, a waiting count, a stuck
  * error. Since #6716 a CARD carries none of these: each is its pill's hover and hidden text, through pillSay, which
- * also adds the rules-far-behind note (#5957) for a calm card.)
+ * also adds the rules-far-behind note (#5957) for a calm card. #8719: a window Kosmos cannot tie to the agent leads
+ * with why it is not messaged, ahead of all of these.)
  *
  * 🛑 `taskWords` IS GONE. It stripped the "Claude Code" default out of the
  * frozen title (#222) so a brand-new agent did not read as "doing Claude Code".
@@ -23241,6 +23244,16 @@ function stateReason(a, opts) {
      page, which calls this without `card`. (#6398 did this for a rate limit alone.) The tile keeps its .atask slot,
      empty, so every tile stays one height. */
   if (opts && opts.card === true) return '';
+  /* kosmos#8719: a window Kosmos cannot tie to the agent (no launch mark, isNamedOurs false). It leads, ahead of every
+     other reason, since Kosmos will not type into this window whatever it shows. For a sign-in or a limit, one plain
+     clause says what its screen shows, so the person can still read what it waits on. No other reason is borrowed: the
+     ordinary sentences promise things Kosmos does (retry, restart, deliver a message) that it does not do for this
+     window. The tile carries the short label (untiedFlagHtml). Literals: tests lift stateReason alone. */
+  if (a && a.isNamedOurs === false) {
+    const shows = a.state === 'auth_failed' ? ' Its screen shows it is signed out.'
+      : a.state === 'rate_limited' ? ' Its screen shows it is paused by a usage limit.' : '';
+    return 'Kosmos cannot confirm it started this window, so it does not type messages into it.' + shows;
+  }
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
   /* #5154 slice A: Kosmos keeps restarting this agent and it keeps stopping within minutes (engine/crashloop.js).
@@ -23461,7 +23474,7 @@ function asSentence(s) {
 function lmodelCell(a) {
   const line = tileModelLine(a);
   // #7978: in this cell, never as its own: the row's grid has exactly seven children.
-  const flag = typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : '';
+  const flag = (typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : '') + (typeof untiedFlagHtml === 'function' ? untiedFlagHtml(a) : '');
   /* kosmos#8662: by the words, not by asking modelLine, which says the sign-out (to be read) while the board is signed out.
      Literals, not shared constants: tests lift these functions alone; web.made-before.test.js pins modelLine's words. */
   return (line === 'Made before Kosmos recorded this' ? '<span class="vh">' + esc(line) + '</span>' : modelLineHtml(a, line, true)) + flag;
@@ -24470,7 +24483,7 @@ function card(a) {
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}${twinNote(a)}</div>
     <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, say) : pillTitle(say)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${pillVh(say)}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
-    <div class="amodel">${modelLineHtml(a, tileModelLine(a))}${typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : ''}</div>
+    <div class="amodel">${modelLineHtml(a, tileModelLine(a))}${typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : ''}${typeof untiedFlagHtml === 'function' ? untiedFlagHtml(a) : ''}</div>
     <div class="atask">${esc(taskLine(a, { card: true }))}</div>
   </div>`;
 }
@@ -26762,6 +26775,12 @@ function machineFlag(a) {
   if (Number(m.memMb) >= MACHINE_BIG_MB) return 'Using ' + machineSize(m.memMb);
   if (Number(m.cpuPct) >= MACHINE_BUSY_CPU) return 'Using ' + machineCpuWords(m.cpuPct);
   return '';
+}
+/* kosmos#8719: managed vs not. A window Kosmos cannot tie to the agent (no launch mark) says so on its tile and list
+   row, in words, so an agent that reads idle there is not taken for one Kosmos can message. The reason is stateReason's (the pill's hover and
+   screen-reader text, as every other reason is, #6716). */
+function untiedFlagHtml(a) {
+  return a && a.isNamedOurs === false ? '<span class="auntied">Not linked to Kosmos</span>' : '';
 }
 function machineFlagHtml(a) {
   const f = machineFlag(a);
@@ -45324,11 +45343,11 @@ async function paintTalk(sessionName, agentName) {
        of an agent the person is looking at, beside a card carrying that name,
        is the screen contradicting itself. The standing arm is reached only for
        `because: 'borrowed'`, which is a card on the board under this name that
-       is not tied to it -- so `#d-untied` is showing directly above this box,
-       saying WHY. This sentence therefore states the consequence and claims no
+       is not tied to it -- so the page already says WHY (#8719: #d-task's
+       reason, and `#d-untied`'s short line, which stays when #d-task hides on a
+       question). This sentence therefore states the consequence and claims no
        cause of its own, a cause this arm did not compute. Measured on the
-       fixture fleet: `#d-untied` visible at y=243 with the full explanation,
-       this box at y=454; and before the fix rook's panel read "We cannot show
+       fixture fleet before #8719: `#d-untied` visible at y=243, this box at y=454; and before the fix rook's panel read "We cannot show
        this conversation. No agent by that name." over a visible card named
        rook. */
     /* 🛑 #8629 (Josh, 2026-11-17 09:02: "it jumps around and tries to jump down to the bottom or somewhere
@@ -50152,10 +50171,11 @@ function setWritesOffered(a, tied) {
     // but not the one research's own session runs in", a tautology, and it is
     // the ONLY message the legitimate non-Discord agent this branch most
     // affects ever sees.
-    why.textContent = tied ? '' : `This session is called ${a.sessionName}, but it is `
-      + `not the one an agent named ${a.sessionName} would run in. We expect that to be `
-      + `${a.sessionName}-discord. So we cannot say this pane belongs to that agent, and `
-      + 'we will not change its picture, role or instructions from here.';
+    /* kosmos#8719: the real test is Kosmos's own launch mark on the session, which a window started outside Kosmos
+       lacks; the old sentence named only the "-discord" spelling, which is one way to pass it. */
+    /* Self-contained: #d-task (the full reason) is hidden while the agent asks a question, and the picture button reads
+       this line alone as its description. */
+    why.textContent = tied ? '' : 'Kosmos cannot confirm it started this window, so it does not change its picture, role or instructions from here.';
   }
 }
 
