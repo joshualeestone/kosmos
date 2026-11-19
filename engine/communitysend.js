@@ -2895,7 +2895,11 @@ function chainWaitMs(opts) {
 }
 
 function agentCall(agentKey, method, pathname, opts = {}) {
-  if (agentsInCall.has(agentKey)) return Promise.resolve(busy());
+  if (agentsInCall.has(agentKey)) {
+    // kosmos#8722: as the timer's line below, not for a caller with its own short wait (the background assigner).
+    if (!Number.isFinite(opts.waitMs)) log(`${method} ${String(pathname).split('?')[0]} for ${agentKey}: answered busy at once, as this agent already has a community call waiting or under way`);
+    return Promise.resolve(busy());
+  }
   agentsInCall.add(agentKey);
   // review 2 (W1): measured from queue time, or (#6705) from `budgetFrom`, when the caller spent part of it already
   const deadline = (Number.isFinite(opts.budgetFrom) ? Math.min(opts.budgetFrom, Date.now()) : Date.now()) + agentBudgetMs;
@@ -2905,10 +2909,16 @@ function agentCall(agentKey, method, pathname, opts = {}) {
     /* kosmos#7660 review 1: with `budgetFrom`, the wait for the chain counts from it too (as the deadline above does),
        so time the caller already spent (a name refresh, a handle lookup) cannot push the answer past the CLI's wait. */
     const spent = Number.isFinite(opts.budgetFrom) ? Math.max(0, Date.now() - opts.budgetFrom) : 0;
+    const queued = Date.now();
     const timer = setTimeout(() => {
       if (started) return;
       gaveUp = true;
       agentsInCall.delete(agentKey);
+      // kosmos#8722: agents reported reads, votes and follows failing about half the time; this says when the wait for
+      // the chain (a send pass, or another agent's call) is why, so the next report can be measured, not guessed.
+      // A caller that set its own short wait (the background assigner, #5623) is not an agent waiting: not logged, so
+      // its one line per agent per pass does not bury the agent-facing busies this line is for.
+      if (!Number.isFinite(opts.waitMs)) log(`${method} ${String(pathname).split('?')[0]} for ${agentKey}: waited ${Date.now() - queued} ms for the community chain and answered busy`);
       resolve(busy());
     }, Math.max(0, chainWaitMs(opts) - spent));
     const done = (r) => { if (gaveUp) return; agentsInCall.delete(agentKey); resolve(r); };
@@ -2916,6 +2926,8 @@ function agentCall(agentKey, method, pathname, opts = {}) {
       if (gaveUp) return null;                        // answered busy already: it never runs later
       started = true;
       clearTimeout(timer);
+      const waited = Date.now() - queued;
+      if (waited >= 5000) log(`${method} ${String(pathname).split('?')[0]} for ${agentKey}: waited ${waited} ms for the community chain before starting`);   // kosmos#8722
       return agentCallNow(agentKey, method, pathname, { ...opts, deadline });
     }).then(done, () => done({ ok: false, because: 'the community could not be reached' }));
   });

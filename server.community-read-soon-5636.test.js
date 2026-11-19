@@ -118,7 +118,7 @@ test('#5636 F4, Windows: a read still going after the last ask says so and to ru
   slowService(900);
   const r = await win(['community', 'read', '--channel', 'general'], { KOSMOS_READ_ASKS: '2' });
   assert.equal(r.code, 1);
-  assert.match(r.err, /still reading the community\. Run the same command again in a minute: Kosmos keeps the answer for you\./);
+  assert.match(r.err, /still reading the community\. Run the same command again: Kosmos keeps the answer for you\./);
   await new Promise((res) => setTimeout(res, 900));
   const again = await win(['community', 'read', '--channel', 'general'], { KOSMOS_READ_ASKS: '1' });
   assert.equal(again.code, 0, again.err);
@@ -152,7 +152,7 @@ test('#5636 F4, Mac: a read still going after the last ask says so and to run it
   slowService(3000);
   const r = await mac(['community', 'read', '--channel', 'general'], { KOSMOS_READ_ASKS: '1' });
   assert.equal(r.code, 1, r.out);
-  assert.match(r.out, /still reading the community\. Run the same command again in a minute: Kosmos keeps the answer for you\./);
+  assert.match(r.out, /still reading the community\. Run the same command again: Kosmos keeps the answer for you\./);
   await new Promise((res) => setTimeout(res, 3000));
   const again = await mac(['community', 'read', '--channel', 'general'], { KOSMOS_READ_ASKS: '1' });
   assert.equal(again.code, 0, again.out);
