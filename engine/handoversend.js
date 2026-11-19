@@ -10,7 +10,9 @@
  * `packed`; nothing here has to say so.
  *
  * What a pack carries, per agent (root names use backuptick.rootSegment of the agent's machine name):
- *   agents/<seg>        the agent's folder (create.workerDir): its instructions and its Files folder. REQUIRED: an
+ *   workers/<seg>       the agent's folder (create.workerDir): its instructions and its Files folder. Named under
+ *                       `workers` because the receiving computer restores into a Kosmos made by the restore path, whose
+ *                       finish moves only `workers` and `projects` into place (restoreworld MOVED). REQUIRED: an
  *                       agent whose folder cannot be read fails the pack, said with its name.
  *   profiles/<seg>      its one profile file, by name (`only`). The successor strips per-install fields (slice 4).
  *   sessions/<seg>/...  its transcripts, from backuptick.inputsHere().sessions (the backup's builder), trimmed to the
@@ -30,10 +32,17 @@
  * Only on a computer that may send to its company (orgenroll.mayReport: enrolled here AND the company's words accepted
  * here), the gate every sender uses.
  *
- * One pack at a time, never two ticks at once. A failure the part itself decides (`final`: its names, its key, an agent
- * folder missing or protected) is kept in `state.failed` for the screen to say, and tried again only when the part
- * changes. retryLater (a network refusal, a quota) is tried next tick; any other failure (a coordinator error, a busy
- * connector, a file that could not be read) after RETRY_MS, and is not shown. Never throws.
+ * One pack at a time, never two ticks at once. Failures:
+ *   final: decided by the part or the coordinator's answer (its names, its key, an agent folder missing or protected,
+ *     a pack larger than the hand-over allows, a hand-over no longer open), or MAX_ATTEMPTS failed attempts. Kept in
+ *     `state.failed` with this module's own sentence for the screen; tried again only when the part changes.
+ *   retryLater (a network refusal, a quota): tried again next tick.
+ *   any other (a coordinator error, a busy connector, a file that could not be read): tried again after RETRY_MS.
+ * Neither of the last two is shown. Never throws.
+ *
+ * KNOWN, kosmos#8733: the colleague's one-time key (seal_pub) reaches this computer from Kosmos+ with nothing that ties
+ * it to the colleague's computer, so "only the successor's computer can open the pack" rests on Kosmos+ passing it on
+ * faithfully. Hand-over is off everywhere until that is closed.
  *
  * KNOWN, for slice 4: the coordinator moves the record to `packed` when it grants the manifest, before the upload. A
  * manifest upload that then fails leaves a `packed` record with no manifest, and a new pack cannot replace it (a new
@@ -47,6 +56,14 @@ const MINE_ROUTE = '/v1/mac/org/handover/mine';
 const SESSION_BYTES = 50 * 1024 * 1024;
 const EVERY_MS = 5 * 60 * 1000;
 const RETRY_MS = 60 * 60 * 1000;
+const MAX_ATTEMPTS = 8;
+/* Coordinator refusals that no retry can change, each said in this module's own words (never the coordinator's text). */
+const FINAL_CODES = {
+  handover_too_big: 'the agents are larger than one hand-over can carry',
+  handover_wrong_state: 'the hand-over is no longer open',
+  handover_not_open: 'the hand-over is no longer open',
+  handover_not_yours: 'the hand-over is no longer open',
+};
 
 /* The agents for the hand-over's labels, [{ name, label }] (act on name, speak label), or a final sentence.
    rows: register.survey().agents. */
@@ -113,7 +130,7 @@ function rootsFor(names, inputs, deps) {
     const rd = dir && path.isAbsolute(dir) ? real(dir) : null;
     if (!rd) return { ok: false, final: true, because: `the folder of ${label} could not be found` };
     if (protect.some((q) => inside(rd, q) || inside(q, rd))) return { ok: false, final: true, because: `the folder of ${label} holds, or is inside, Kosmos's own data or a sign-in folder` };
-    roots.push({ name: `agents/${seg}`, path: rd });
+    roots.push({ name: `workers/${seg}`, path: rd });
     const pd = real(profilesDir);
     if (pd && fs.existsSync(path.join(pd, `${name}.json`))) roots.push({ name: `profiles/${seg}`, path: pd, optional: true, only: [`${name}.json`] });
     let s = [];
@@ -159,7 +176,8 @@ function sendable(data) {
   return rows.filter((h) => h && h.side === 'send' && h.state === 'packing' && typeof h.seal_pub === 'string' && typeof h.id === 'string' && PLAIN.test(h.id));
 }
 
-/* One tick. state: { running, failed: Map id -> { because, key }, retryAt: Map id -> ms, packed: Set, open }. deps
+/* One tick. state: { running, failed: Map id -> { because, key }, retryAt: Map id -> ms, attempts: Map id -> n,
+   packed: Set, open }. deps
    (tests): macRequest, org(), now(), takeSnapshot, and packInput's. */
 async function tick(state, deps) {
   const d = deps || {};
@@ -168,7 +186,7 @@ async function tick(state, deps) {
   try {
     const org = (d.org || (() => { const oe = require('./orgenroll'); const r = oe.mayReport() ? oe.readEnrollment() : null; return r ? r.org.id : null; }))();
     const now = (d.now || Date.now)();
-    if (typeof org !== 'string' || !PLAIN.test(org)) return { ok: true, none: true };
+    if (typeof org !== 'string' || !PLAIN.test(org)) { state.open = []; return { ok: true, none: true }; }
     const mac = d.macRequest || ((m, r, b) => require('./remote').macRequest(m, r, b));
     const mine = await mac('POST', MINE_ROUTE, {});
     if (!mine || !mine.ok) return { ok: false, because: (mine && mine.because) || 'Kosmos+ did not answer' };
@@ -180,6 +198,7 @@ async function tick(state, deps) {
       const key = `${part.seal_pub}|${(part.agents || []).join('\n')}`;
       const f = state.failed.get(part.id);
       if (f && f.key === key) continue;   // decided already; a changed part is tried again
+      if (f) { state.failed.delete(part.id); state.attempts.delete(part.id); }
       if (state.packed.has(part.id)) continue;   // packed in this run; the record moves on its own
       if ((state.retryAt.get(part.id) || 0) > now) continue;
       const p = packInput(part, org, d);
@@ -190,9 +209,16 @@ async function tick(state, deps) {
         if (!r || typeof r !== 'object') r = { ok: false, because: 'the pack failed unexpectedly' };
       }
       state.retryAt.delete(part.id);
-      if (r.ok) { state.packed.add(part.id); state.failed.delete(part.id); }
-      else if (r.final) state.failed.set(part.id, { key, because: r.because || 'the pack did not finish' });
-      else if (!r.retryLater) state.retryAt.set(part.id, now + RETRY_MS);
+      if (r.ok) { state.packed.add(part.id); state.failed.delete(part.id); state.attempts.delete(part.id); }
+      else {
+        const tries = (state.attempts.get(part.id) || 0) + 1;
+        state.attempts.set(part.id, tries);
+        const code = r.code || require('./backupupload').refusalOf(r.because).code;
+        const said = FINAL_CODES[code];
+        if (r.final || said) state.failed.set(part.id, { key, because: said || r.because || 'the pack did not finish' });
+        else if (tries >= MAX_ATTEMPTS) state.failed.set(part.id, { key, because: `Kosmos tried ${tries} times and could not finish the pack; your company can start the hand-over again` });
+        else if (!r.retryLater) state.retryAt.set(part.id, now + RETRY_MS);
+      }
       return { ok: r.ok === true, id: part.id, because: r.ok ? undefined : r.because };   // one pack per tick
     }
     return { ok: true, none: true };
@@ -204,15 +230,16 @@ async function tick(state, deps) {
 /* The board's own timer. Never throws. */
 function startTick(deps) {
   const d = deps || {};
-  const state = { running: false, failed: new Map(), retryAt: new Map(), packed: new Set(), open: [] };
+  const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), open: [] };
   const run = () => { tick(state, d).catch(() => {}); };
   const t = (d.setInterval || setInterval)(run, d.everyMs || EVERY_MS);
   if (t && typeof t.unref === 'function') t.unref();
   return Object.assign(() => (d.clearInterval || clearInterval)(t), { tick: () => tick(state, d), state });
 }
 
-/* Off unless KOSMOS_ORG_HANDOVER=1 is in the board's environment, the same word that turns hand-over on at the
-   coordinator: until then no company computer asks /mine every few minutes for a route that is off. */
+/* Off unless KOSMOS_ORG_HANDOVER=1 is in the BOARD's environment. The coordinator has its own switch of the same name in
+   its own environment; the two are set separately, and until this one is set no company computer asks /mine every few
+   minutes. */
 function enabled(env) { return String(((env || process.env).KOSMOS_ORG_HANDOVER) || '').trim() === '1'; }
 let here = null;
 function startHere(env) { if (!enabled(env)) return null; if (!here) here = startTick({}); return here; }
@@ -229,4 +256,4 @@ function notice(state) {
   return failed ? { agents, stopped: failed.because } : { agents };
 }
 
-module.exports = { MINE_ROUTE, SESSION_BYTES, RETRY_MS, resolveNames, trimSessions, rootsFor, packInput, sendable, tick, startTick, enabled, startHere, notice };
+module.exports = { MINE_ROUTE, SESSION_BYTES, RETRY_MS, MAX_ATTEMPTS, resolveNames, trimSessions, rootsFor, packInput, sendable, tick, startTick, enabled, startHere, notice };
