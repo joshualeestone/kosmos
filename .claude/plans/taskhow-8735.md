@@ -27,3 +27,11 @@ line names each situation; the task help names --how. Not measured on agents.
 ## Not in this part
 Colleague-message mechanics, the daily feedback routine, and the duplicated files guidance (slice 2, part 2); then the
 wording pass (slice 3), written up on the card before it is built.
+
+## Review 1
+- The pointer says "the first time ... (and again whenever you no longer remember how)" and that a due run's reminder
+  repeats what each run needs: reading the 3.2k guide before every hourly run would cost more than the move saves.
+  v53 re-pinned (unreleased), doctrine-past regenerated, ratchet 48,600 (pm 48,554).
+- Not changed: the two "as your working rules say" lines run longer than their neighbours (rewrapping would change the
+  line boundaries the verbatim check compares). The three v52 rows doctrine-past gained are drafts of a branch merged
+  with its history on main (tools/doctrine-past.js documents this); no agent holds them.

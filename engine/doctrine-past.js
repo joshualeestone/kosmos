@@ -5,9 +5,9 @@
    first line, and the sha256 of exactly those characters. doctrine.planFor uses it to tell an unedited copy from one
    a person changed. `sections` holds the sha256 of every section of every one of them, for a span holding some. */
 const blocks = [
-  { version: 53, length: 31032, sha256: '083185404f40f2f7ac57886edfd863f22720cb7a7b80da47b39baa2482a798f9' },
-  { version: 53, length: 30032, sha256: 'b9d57348e1e1a4f9fe649e061c422bb235280eaad1865e21fd008ad7065f281c' },
-  { version: 53, length: 29545, sha256: 'e4f9535d0cf6bd476db9e5f2e70afec98b9d4f194ff4ebf5ea8a4ff5b200ed48' },
+  { version: 53, length: 31150, sha256: '8218837c97edc9df4eadbe94316f69c924984c696442a674329c6f79930d791b' },
+  { version: 53, length: 30150, sha256: 'b8c7b7255bf41d72492a750a9a832b9ff11d2d980bbbb5b5d66f62be6af1fe8a' },
+  { version: 53, length: 29663, sha256: '2b0efac7bac5c53bdfcf490b650b1785e3783d8a736e1f65813a7420c4923b6f' },
   { version: 52, length: 34260, sha256: '0a5890bcd8fcbf2ff65cb0f657b3dbb9e20ee431861009e05464d8f4fc6e80b9' },
   { version: 52, length: 34260, sha256: '49d9f7ef2f8054573b86af7f66ee13801c66bb427e6b3496588c3ece10e510aa' },
   { version: 52, length: 33260, sha256: 'd88d4bb3657fa4f4f796f9075fe0748f8e99eb61ac76e2873bdf823355bb557d' },
@@ -138,7 +138,6 @@ blocks.sections = [
   '55c82897e7505070c8e5ffc38e4d943ed3c9c413361c7fd227cb73cd44e911a7',
   '55dada06452b109ce3d57ba2acb40af935883cdad2396028d77d604ca7578a12',
   '5d2649db088975f359108c5ed6ffdb61d7c807d28b70ca1bbbb7ff75bc9404ee',
-  '64aa9b182a8aab80903a5368b15e71a27e0ad15df9dcbcb715913c07c4510731',
   '688b11fa382e8f187040a95ecacfab25eb6539d0bb45eeef35099d3caa94b961',
   '68abaa28d7744aa1e0f797b53fbc4f28bdab892a85e42d4642f8627e4bd57ccf',
   '68f4e82546d7fe6632a93d5a18e0d3e5f61bb008c6c6408ed3fa249459747952',
@@ -157,6 +156,7 @@ blocks.sections = [
   '84ca88f1a4cf599da446577431b985da1e47f3dd05df6f8abb6524c384c7ff8f',
   '850accd6f1a0f3c06bc7ef1e07bd94ffff0b6c31466e1e331e4a555d3ab15b1a',
   '88e446b477b04c752f732f80adb334759b969fb425097a9bc1e1c42932cf7f7e',
+  '8bf9900944d4dcffd5b74e4a0ec8952d6d1dddd925e63b1dfae257402a7b581c',
   '8ce2fa0d27021979ea956f9fd6ad227a3f223154a948e621592ca35fa43ca2c5',
   '9143d4c47752e3cf9edaa58919e85b088510ac7fd4f6ee7df4925551c9d92d39',
   '936a8f3a69b4dc978ad8d5456d19b795aab115f4de6ec7c3042312bf48b19a06',
