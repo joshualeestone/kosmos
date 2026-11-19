@@ -72,17 +72,20 @@ test('a head dated in the future is refused beyond the clock skew allowance', ()
   assert.match(hist.verify(signed(BASE, { issuedAt: NOW + 301 }), opts).because, /future/);
 });
 
-test('fails CLOSED with no verifying key: the shipped constant is null and that refuses (unlike orgkeypin.js)', () => {
-  assert.strictEqual(hist.VERIFYING_KEY, null, 'this test assumes the key has not shipped; revisit when it does');
+test('with the test key cleared, only escrowd\'s SHIPPED key counts: a history signed by any other key is refused', () => {
   const h = signed(BASE);
-  assert.strictEqual(hist.verify(h, opts).ok, true, 'control: the same history verifies with a key');
+  assert.strictEqual(hist.verify(h, opts).ok, true, 'control: the same history verifies with the test key');
   try {
     for (const bad of [null, undefined, Buffer.alloc(31), 'x'.repeat(64), VK.toString('hex')]) {
       hist.setVerifyingKeyForTests(bad);
-      assert.match(hist.verify(h, opts).because || '', /cannot check/, `${String(bad).slice(0, 12)} must not count as a key`);
+      assert.match(hist.verify(h, opts).because || '', /signature|signed/, `${String(bad).slice(0, 12)} must not count as a key, and the shipped key does not sign this`);
     }
   } finally { hist.setVerifyingKeyForTests(VK); }
   assert.strictEqual(hist.verify(h, opts).ok, true, 'control: restored');
+});
+
+test('the shipped key is the one Baron read on the box (kosmos#7116 step 3), so a stray edit is caught here', () => {
+  assert.strictEqual(hist.VERIFYING_KEY, '86855409717f1d2fd1444198e11f40e9b6bfa60d6bd42ccc14d1a971da17e5f1');
 });
 
 test('a caller cannot hand in its own verifying key, and the test seam counts only inside a test process', () => {
@@ -95,7 +98,7 @@ test('a caller cannot hand in its own verifying key, and the test seam counts on
   assert.ok(saved, 'this file runs under node --test, which sets NODE_TEST_CONTEXT');
   try {
     delete process.env.NODE_TEST_CONTEXT;
-    assert.match(hist.verify(h, opts).because, /cannot check/, 'outside a test process the seam key does not count');
+    assert.match(hist.verify(h, opts).because, /signature/, 'outside a test process the seam key does not count: only the shipped key, which did not sign this');
   } finally { process.env.NODE_TEST_CONTEXT = saved; }
   assert.strictEqual(hist.verify(h, opts).ok, true, 'control: back inside the test process');
 });
