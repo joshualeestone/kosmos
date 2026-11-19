@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: reclaim-8719
-diff_hash: 60a3edb63aa3b8c2a3ef1b8a020b17a21d342824795dfa4059141cdeb57a7996
-validation: not run locally as a full suite (the Mac's suite queue); focused tests on the rebased tree 415 pass, 1 skipped, 1 fail (#1304 in server.test.js, which fails identically on main's code: a module-load error in the test's seam probe); GitHub CI is the full gate
+diff_hash: 542bd0c88edfc00ab488447421a6ff81c2998927283b02d57e67fb727e0b4f14
+validation: GitHub CI is the full gate (the local suite queue was long). Focused tests from the repo root pass, including server.test.js; the #1304 failure first reported here came from running it outside the repo root (it reads files by relative path), not from main
 subdir_audit: passed
 timestamp: 2026-11-19T15:09:48Z
 iterations: 8
@@ -93,6 +93,17 @@ tool, no product code): screens `link-button-8719` and `link-dialog-8719`, so th
 desktop and phone shots of the button and its dialog (~/work/design-shots/kosmos-8719). The diff hash above covers
 them. The tool's own tests (mobile-shots-desktop, -serviceworker-6206, browser-checks reason-grep, bounded-close,
 teardown-guard) pass with them.
+
+### After the first CI run (2026-11-19 09:3x CST)
+This branch's first full suite on GitHub went red on six checks main added or tightened since the review loop, none of
+which the loop's local runs had covered (the full suite never ran locally). Fixed in 547dd2539d, test and layout only:
+- engine/linkwindow-8719.test.js: the private tmux server is ended with an `-L` array literal (#6857's accepted shape).
+- web.linksubmit-8719.test.js: the open agent is a real fleet card, not a hand-built one (fixture-discipline).
+- web.modal-way-out-1316.test.js: the link confirm is in the modal table (Escape closes it), and the count is 29.
+- web/index.html: the link confirm sits inside the agent panel, as #8631's Block confirm sits in the room column, so the
+  body keeps its 42 auto-placed children (web.consolidated-980). It is position:fixed, so it still covers the page.
+- The #2518 surface gate names 11 browser checks whose tokens (d-say, d-say-msg, msg, rm-back) sit on changed lines.
+  The PR's browser-checks job runs the checks this page diff selects (#4119); the per-check record follows that run.
 
 ### Outstanding questions (ASKED)
 None.
