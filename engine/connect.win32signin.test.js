@@ -212,6 +212,33 @@ winTest('slice 3 #3288: the Windows host ships ON, so a plain start runs auth lo
   assert.equal(url.searchParams.get('redirect_uri'), 'https://platform.claude.com/oauth/code/callback');
 });
 
+/* ── kosmos#8741: a remote-started sign-in opens nothing on the Windows computer ── */
+
+winTest('#8741: a remote start on Windows opens no page, says so, and offers the code-paste link; a local start still opens one', async (ctx, t) => {
+  const opened = [];
+  win32signin.setBrowserOpener((link) => opened.push(link));
+  win32signin.setPortFinder(async () => [52646]);
+  t.after(() => { win32signin.setBrowserOpener(null); win32signin.setPortFinder(null); });
+  ctx.behaviour = { onSpawn: (c) => { c.say(OUT_BROWSER); c.say(OUT_LINK_AND_PROMPT); } };
+
+  await connect.start({ remoteStarted: true });
+  await until(() => phase() === connect.PHASE.SIGNIN_AWAITING_CODE, 5000);
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(connect.state().noOpener, true, 'the page was not told that nothing opens here');
+  assert.deepEqual(opened, [], 'a remote start opened the sign-in page on this computer');
+  const url = new URL(connect.state().url);
+  assert.equal(url.searchParams.get('redirect_uri'), 'https://platform.claude.com/oauth/code/callback',
+    'the page must offer the manual link, which works from the person\'s own device');
+
+  /* Control: the same screen from a local start opens the page once, so the empty list above can fail. */
+  await connect.cancel();
+  await connect.start({ remoteStarted: false });
+  await until(() => ctx.spawns.length === 2 && phase() === connect.PHASE.SIGNIN_AWAITING_CODE, 5000);
+  await until(() => opened.length > 0, 5000);
+  assert.equal(opened.length, 1, 'the local start did not open the page exactly once');
+  assert.equal(connect.state().noOpener, false, 'the remote flag outlived its flow');
+});
+
 /* ── the kill switch: the Windows host forced off ────────────────────────────
    Production reaches this only if WINDOWS_SIGNIN_HOST_ENABLED is set back to false. */
 
