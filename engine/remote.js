@@ -154,13 +154,17 @@ const CAPABILITIES_ASK_TIMEOUT_MS = 5000;
    restarted ran its board's tunnel at load ~150, the first ask most likely did not answer inside five seconds, and the
    first remote action six minutes later was refused. */
 const CAPABILITIES_RETRY_TIMEOUT_MS = 15000;
-/* kosmos#8728: an unanswered ask is asked again ON ITS OWN, thirty seconds apart, this many times (about ten minutes),
-   so a person's press is never what starts the re-ask. After that only a request asks, as before. */
+/* kosmos#8728: an unanswered ask is asked again ON ITS OWN, thirty seconds apart, this many times (10 to 15 minutes,
+   with each ask's own limit), so a person's press is never what starts the re-ask. After that only a request asks, as
+   before. Review 3: the count is kept per connector BINARY, not per tunnel generation, so a tunnel that keeps
+   restarting on the same binary does not get a fresh budget each time. */
 const CAPABILITIES_SELF_RETRIES = 20;
 let capabilitiesSeen = null;
 let askingCapabilities = false;
 // kosmos#8728: unanswered asks in a row in this generation, and the timer that asks again by itself.
 let unansweredInARow = 0;
+// kosmos#8728 review 3: which binary that count is about; a different binary (an update) starts it again.
+let unansweredBinary = null;
 let selfRetryTimer = null;
 /* kosmos#8728 review 2: the one rule for "the board still asks by itself after this many unanswered asks in a row".
    The self-retry, the log line and the "still starting" sentence all read it, so none of them can drift apart. */
@@ -181,7 +185,10 @@ function noteCapabilities(caps, answered, now, generation = capabilitiesGenerati
   if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) return capabilitiesSeen.caps;
   // `binary` is the one that was ASKED (taken when the ask started), so a binary swapped mid-ask is not credited.
   capabilitiesSeen = { caps, answered, at: now, binary };
-  if (answered) { unansweredInARow = 0; clearSelfRetry(); } else { unansweredInARow += 1; scheduleSelfRetry(); }
+  if (answered) { unansweredInARow = 0; unansweredBinary = null; clearSelfRetry(); } else {
+    if (unansweredBinary !== binary) { unansweredInARow = 0; unansweredBinary = binary; }
+    unansweredInARow += 1; scheduleSelfRetry();
+  }
   return caps;
 }
 function clearSelfRetry() { if (selfRetryTimer) { clearTimeout(selfRetryTimer); selfRetryTimer = null; } }
@@ -220,7 +227,9 @@ function connectorBinaryKey() {
 function forgetConnectorCapabilities({ always = false, ask = true } = {}) {
   if (!always && capabilitiesSeen && capabilitiesSeen.caps.has('session-headers') && capabilitiesSeen.binary === connectorBinaryKey()) return;
   capabilitiesSeen = null; askingCapabilities = false; capabilitiesGeneration += 1;
-  unansweredInARow = 0; clearSelfRetry();
+  // The unanswered count is NOT reset here (review 3): it belongs to the binary, and noteCapabilities resets it when
+  // the binary that answers (or fails to) is a different one.
+  clearSelfRetry();
   // Asked again at once, in the background (review iteration 17: a forget right after the start-up ask used to drop
   // that answer and leave nothing asking until a request was refused).
   if (ask) askConnectorCapabilities();
@@ -260,6 +269,8 @@ let runningSeen = null;   // { pid, caps }
 /* What the tunnel process this board runs says it can do; null only before this board has started any (the binary's
    answer is then gated by tunnelStartedHere alone). Read until that process has said: a small file. */
 function runningCapabilities() {
+  // Review 3: cleared first, so an early return below never leaves an earlier call's foreign verdict standing.
+  foreignHolding = false;
   if (!tunnelStartedHere) return null;
   const pid = child ? child.pid : (process.env.NODE_TEST_CONTEXT ? runningPidForTests : null);
   if (pid === null || pid === undefined) return new Set();
@@ -273,7 +284,6 @@ function runningCapabilities() {
     // orphan's. Until that pid is settled as one to leave alone (a live board's, not ours, gone, Windows), nothing.
     if (foreignVerdict.get(raw.pid) !== 'leave') { foreignHolding = true; return new Set(); }
   }
-  foreignHolding = false;
   if (runningSeen && runningSeen.pid === pid) return runningSeen.caps;
   if (!raw || raw.pid !== pid) return new Set();
   return noteRunning(raw, pid);
@@ -424,7 +434,7 @@ function logCapabilityAsk(answered, caps, ms, timeout, generation) {
     if (generation !== capabilitiesGeneration) line += 'dropped, the tunnel has changed since';
     else if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) line += 'the earlier yes is kept';
     else if (stillSelfRetrying(unansweredInARow + 1)) line += 'asking again in ' + Math.round(capTiming('recheckMs', CAPABILITIES_UNANSWERED_RECHECK_MS) / 1000) + ' s';
-    else line += 'asked ' + (CAPABILITIES_SELF_RETRIES + 1) + ' times; asking again at the next remote request';
+    else line += 'asked ' + (unansweredInARow + 1) + ' times; asking again only when a remote request finds the answer due';
   }
   console.error(line);
 }
@@ -432,6 +442,7 @@ const resetConnectorCapabilitiesForTests = ({ startedHere = true, runningPid = n
   tunnelStartedHere = startedHere;
   capabilityTimingsForTests = timings;
   foreignHolding = false;
+  unansweredInARow = 0; unansweredBinary = null;
   runningPidForTests = runningPid;
   runningSeen = null;
   foreignLooked.clear(); foreignAsking.clear(); foreignVerdict.clear();
@@ -1334,6 +1345,7 @@ function registerTakesOver() {
 }
 
 function stopChild() {
+  clearSelfRetry();   // kosmos#8728 review 3: a deliberate stop ends the board's own re-asking too
   restartPending = false;   // a deliberate stop: the next start is not a supervisor relaunch
   if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
   backoffMs = 1000;
