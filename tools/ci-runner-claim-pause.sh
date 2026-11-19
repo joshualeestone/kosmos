@@ -25,6 +25,11 @@
 # needs a re-run (the keepalive stage accepts the same window). A runner run as a LaunchDaemon (the daemon stage) is in
 # the system domain, which this user cannot stop: refused, exit 1.
 #
+# Installing it (kosmos#8761: the Mortals install is PigeonPete's half, after this lands): as the runner user, a copy
+# pinned like ci-runner-setup.sh (same <commit>, shasum checked), and a LaunchAgent ~/Library/LaunchAgents/
+# com.kosmos.ci-claim-pause.plist with ProgramArguments [/bin/bash, <that copy>], StartInterval 60, RunAtLoad true,
+# EnvironmentVariables KOSMOS_CI_CLAIM_FILE=<the claim>, StandardOutPath ~/.kosmos-ci/claim-pause.log; then
+# `launchctl bootstrap gui/$(id -u) <plist>`. A ci-runner-setup.sh stage that writes it is not part of this change.
 # Usage: ci-runner-claim-pause.sh            one tick; prints one line saying what it saw and did
 # Settings: KOSMOS_CI_CLAIM_FILE (required: the claim to watch, e.g.
 #   /Users/mortalkombat/.cache/kosmos-run-markers/machine-claim), KOSMOS_CI_RUNNER_DIR (default ~/actions-runner),

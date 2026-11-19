@@ -11,7 +11,9 @@ Mortals install (kosmos-ci user, install, register, keepalive, before/after meas
 2. A test proves both arms with a stand-in launchctl/pgrep: live claim + idle -> stopped; live claim + job running ->
    left alone until idle; no claim, expired claim, malformed claim -> started; a claim held by ANOTHER user's live pid
    reads as live (the control below).
-3. tools/ci-runner-setup.sh documents and installs it (a stage, dry run by default like every other stage).
+3. The script's header says exactly how to install it (a LaunchAgent, every 60 s). DECIDED: no ci-runner-setup.sh stage
+   in this PR: the install is PigeonPete's half, and that 1,560-line staged tool deserves its own reviewed change.
+   Rejected: adding the stage here (doubles the review surface for an install nobody runs before the 0.8.11 cut ends).
 
 ## Traps measured (15:2x CST, this Mac)
 - `kill -0 <pid>` as a different user than the claim's holder gives EPERM and rc 1, the same rc as a dead pid; so
@@ -33,3 +35,7 @@ Mortals install (kosmos-ci user, install, register, keepalive, before/after meas
 ## Weakest premise
 That stopping the Listener cleanly while idle never loses an already-assigned job. To measure in the test only by stand-in;
 real behaviour on Mortals is PigeonPete's install check.
+
+## Tests
+- tools/test-ci-runner-claim-pause-8761.sh (21 checks, in test:shell). Perturbed (15:41 CST, on c9156b8d2e): liveness
+  as `kill -0` instead of `ps -p` fails the live-claim checks; restored from HEAD.
