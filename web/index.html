@@ -32528,20 +32528,14 @@ function acctFlowWatch() {
     } catch { /* next tick */ }
   }, 1000);
 }
-/* #1587: the acct-add button is a SECOND entry into /api/connect/start, and it
-   used to POST with no confirm, so an accounts click could begin a large Claude
-   Code install (~231MB) unannounced, the same download the first-run flow
-   already gates behind a confirm. Gate this one the same way: learn willInstall
-   (the field #1556 made real, read from /api/first-run, the same source the
-   first-run confirm uses) and, if an install may happen, show the confirm before
-   the POST. Errs toward asking: anything other than a definite
-   `willInstall === false` shows the confirm, so a silent download is impossible
-   even when the field cannot be read. */
-/* kosmos#8728 slice 2: a Claude Sign in again refused from a remote session for want of a fresh Kosmos+ sign-in leaves one
-   note in this TAB (sessionStorage: it never outlives the tab, never reaches another visit or another viewer): which
-   account, and when. Back from the fresh sign-in, the page reopens that account's dialog and says to press Sign in
-   again; it never starts a sign-in by itself. The note holds no code and no token, is read once, and counts only
-   within 10 minutes, the same window the fresh sign-in has. */
+/* kosmos#8728 slice 2: a Claude Sign in again refused from a remote session for want of a fresh Kosmos+ sign-in (the
+   refusal that offers Sign in again: code remote_step_up with signInAgain) leaves one note in this TAB (sessionStorage:
+   it never outlives the tab, never reaches another visit or another viewer): which account (its folder) and when. No
+   code and no token. When the page has been loaded again since the note was written (the fresh sign-in navigates), it
+   reads the account list once and reopens that account's dialog, saying to press Sign in again; it never starts a
+   sign-in by itself. The note counts only within 10 minutes, the same window the fresh sign-in has, is removed when it
+   is acted on, and Not now on the ask forgets it. In the same page view it never acts (review 1: any later account
+   read would otherwise reopen the dialog with a false "you signed in again"), and never over another open dialog. */
 const STEPUP_RETURN_KEY = 'kosmos-stepup-return';
 const STEPUP_RETURN_MS = 10 * 60 * 1000;
 function noteStepUpReturn(dir) {
@@ -32551,24 +32545,55 @@ function noteStepUpReturn(dir) {
 function forgetStepUpReturn() {
   try { sessionStorage.removeItem(STEPUP_RETURN_KEY); } catch { /* nothing to forget */ }
 }
-/* The note, if it is one this page wrote and still within its window; removed as it is read, whatever it held. */
-function takeStepUpReturn(now = Date.now()) {
+/* The note, if this page may act on it: one this page wrote, written BEFORE this page loaded, within its window. Not
+   removed here; a note of the wrong shape or past its window is removed. */
+function peekStepUpReturn(now = Date.now(), pageStart = performance.timeOrigin) {
   let n = null;
   try { n = JSON.parse(sessionStorage.getItem(STEPUP_RETURN_KEY) || 'null'); } catch { n = null; }
-  forgetStepUpReturn();
-  if (!n || n.kind !== 'claude-signin' || typeof n.dir !== 'string' || !n.dir || typeof n.at !== 'number') return null;
-  if (now - n.at > STEPUP_RETURN_MS || n.at - now > 60 * 1000) return null;
+  if (!n) return null;
+  const shaped = n.kind === 'claude-signin' && typeof n.dir === 'string' && n.dir && typeof n.at === 'number';
+  if (!shaped || now - n.at > STEPUP_RETURN_MS || n.at - now > 60 * 1000) { forgetStepUpReturn(); return null; }
+  if (!(n.at < pageStart)) return null;   // written in this page view: no fresh sign-in has happened yet, keep it
   return n;
 }
-function resumeStepUpReturn() {
-  const n = takeStepUpReturn();
-  if (!n || !Array.isArray(ACCOUNTS)) return;
+/* Another dialog or first run on screen: the return waits (the note is kept) rather than open over it. */
+function stepUpReturnBusy() {
+  for (const id of ['acct-add-modal', 'firstrun', 'fr-choice']) {
+    const el = document.getElementById(id);
+    if (el && !el.hidden) return true;
+  }
+  return false;
+}
+function resumeStepUpReturn(now = Date.now(), pageStart = performance.timeOrigin) {
+  const n = peekStepUpReturn(now, pageStart);
+  if (!n || stepUpReturnBusy() || !Array.isArray(ACCOUNTS)) return;
+  forgetStepUpReturn();
   const acct = ACCOUNTS.find((a) => a && a.dir === n.dir && !a.apiKey);
-  if (!acct || typeof openAcctReauth !== 'function') return;
+  if (!acct) return;
   openAcctReauth(n.dir, typeof acct.email === 'string' ? acct.email : '');
   const note = document.getElementById('acct-add-note');
   if (note) note.textContent = 'You signed in to Kosmos+ again. Press Sign in again to sign this account in to Claude.';
 }
+/* On load, with a note this page may act on: read the account list once, which resumes (accountsRead). Without one,
+   nothing is read here. */
+function stepUpReturnBoot() {
+  if (!peekStepUpReturn()) return;
+  fetch('/api/accounts', { cache: 'no-store' })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((body) => { if (body && Array.isArray(body.accounts)) accountsRead(body.accounts); })
+    .catch(() => { /* the return is a courtesy */ });
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', stepUpReturnBoot);
+else stepUpReturnBoot();
+/* #1587: the acct-add button is a SECOND entry into /api/connect/start, and it
+   used to POST with no confirm, so an accounts click could begin a large Claude
+   Code install (~231MB) unannounced, the same download the first-run flow
+   already gates behind a confirm. Gate this one the same way: learn willInstall
+   (the field #1556 made real, read from /api/first-run, the same source the
+   first-run confirm uses) and, if an install may happen, show the confirm before
+   the POST. Errs toward asking: anything other than a definite
+   `willInstall === false` shows the confirm, so a silent download is impossible
+   even when the field cannot be read. */
 async function acctAddStart(installConfirmed) {
   const btn = document.getElementById('acct-add');
   const note = document.getElementById('acct-add-note');
@@ -32598,7 +32623,7 @@ async function acctAddStart(installConfirmed) {
     if (!res.ok) {
       btn.disabled = false;
       // kosmos#8728 slice 2: refused for a fresh Kosmos+ sign-in: remember this account so the page can come back to it.
-      if (out && /^remote_step_up/.test(String(out.code || '')) && ACCT_REAUTH_DIR) noteStepUpReturn(ACCT_REAUTH_DIR);
+      if (out && out.code === 'remote_step_up' && out.signInAgain === true && ACCT_REAUTH_DIR) noteStepUpReturn(ACCT_REAUTH_DIR);
       note.textContent = (out && (out.because || out.error)) || 'We could not start the sign-in.';
       note.focus();
       return;
