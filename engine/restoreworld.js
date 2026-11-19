@@ -153,7 +153,7 @@ function memberTag(memberId) {
 /* kosmos#8710: what a Kosmos made by this path is called, by its kind. A fixed set, never a caller's text. */
 const KIND_WORDS = { restore: 'Restored', handover: 'Handed over' };
 function worldName(member, now, attempt = 1, memberId, kind) {
-  const base = `${KIND_WORDS[kind] || KIND_WORDS.restore}: ${cleanMember(member)}, ${dayOf(now)}`;
+  const base = `${Object.hasOwn(KIND_WORDS, kind) ? KIND_WORDS[kind] : KIND_WORDS.restore}: ${cleanMember(member)}, ${dayOf(now)}`;
   const tag = memberTag(memberId);
   if (tag) return attempt > 1 ? `${base} (${tag}, ${attempt})` : `${base} (${tag})`;
   return attempt > 1 ? `${base} (${attempt})` : base;

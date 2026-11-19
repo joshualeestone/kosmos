@@ -117,7 +117,7 @@ async function pack(c, dir) {
   assert.equal(r.ok, true, r.because);
 }
 
-const stateNew = () => ({ running: false, failed: new Map(), done: new Set() });
+const stateNew = () => hr.newState();
 
 test('end to end: key kept before it is sent, the pack received into a "Handed over" Kosmos, done, key gone', async (t) => {
   hr.allowHttpForTests(true);
@@ -157,7 +157,7 @@ test('end to end: key kept before it is sent, the pack received into a "Handed o
 test('a lost /key answer sends the same public half again; a key that cannot be kept sends nothing', async (t) => {
   const root = fresh(t, 'data');
   const sent = [];
-  let state = 'requested';
+  const state = 'requested';
   const mac = async (m, route, body) => {
     if (route === hr.MINE_ROUTE) return { ok: true, data: { handovers: [{ id: 'ho2', side: 'receive', state, seal_pub: null }] } };
     if (route === hr.KEY_ROUTE) { sent.push(body.pubkey); return { ok: false, because: 'no answer' }; }
@@ -167,27 +167,25 @@ test('a lost /key answer sends the same public half again; a key that cannot be 
   await hr.tick(stateNew(), { org: () => ORG, macRequest: mac, root });
   assert.equal(sent.length, 2);
   assert.equal(sent[0], sent[1], 'the same key both times');
-  // A data root that cannot hold the key: nothing is sent.
-  const blocked = path.join(fresh(t, 'blocked'), 'file');
-  fs.writeFileSync(blocked, 'not a folder');
+  // A key that cannot be kept: nothing is sent.
   sent.length = 0;
-  const r = await hr.tick(stateNew(), { org: () => ORG, macRequest: mac, root: blocked });
-  assert.match(r.because, /could not be (kept on this computer, so none was sent|read)/);   // a root that is a file fails at the read
+  const r = await hr.tick(stateNew(), { org: () => ORG, macRequest: mac, root: fresh(t, 'data2'), writeKey: () => { throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); } });
+  assert.match(r.because, /could not be kept on this computer, so none was sent/);
   assert.equal(sent.length, 0);
-  state = 'packing';
 });
 
-test('refusals end the hand-over as failed, once: a foreign key, no packing computer, a missing or wrong manifest', async (t) => {
+test('refusals end the hand-over as failed, once, and leave no Kosmos: a foreign key, a lost key, no packing computer, a wrong manifest', async (t) => {
   hr.allowHttpForTests(true);
   const b = await bucket();
   t.after(() => b.close());
   const cases = [
-    ['foreign seal_pub', (c) => { c.rec.seal_pub = Buffer.alloc(32, 7).toString('base64'); }, /sealed to a key this computer does not hold/, false],
-    ['no sender_pubkey', (c) => { c.rec.sender_pubkey = null; }, /no longer known to Kosmos\+/, true],
-    ['manifest missing from the store', (c) => { b.stored.delete(c.rec.manifest.key); }, /never finished arriving/, true],
-    ['manifest not the recorded one', (c) => { c.rec.manifest.sha256 = sha256b(Buffer.from('other')); }, /not the one Kosmos\+ recorded/, true],
+    ['foreign seal_pub', (c) => { c.rec.seal_pub = Buffer.alloc(32, 7).toString('base64'); }, /sealed to a key this computer does not hold/],
+    ['key lost from this computer', (c, root) => { fs.rmSync(path.join(root, 'handover'), { recursive: true, force: true }); }, /no longer on this computer/],
+    ['no sender_pubkey', (c) => { c.rec.sender_pubkey = null; }, /no longer known to Kosmos\+/],
+    ['manifest not the recorded one', (c) => { c.rec.manifest.sha256 = sha256b(Buffer.from('other')); }, /not the one Kosmos\+ recorded/],
+    ['a chunk that is not what was signed', (c) => { const k = [...b.stored.keys()].find((x) => x.startsWith(c.prefix) && !x.endsWith('manifest')); const v = b.stored.get(k); v.body = Buffer.from(v.body); v.body[v.body.length - 1] ^= 1; }, /not what its sender signed/],
   ];
-  for (const [label, spoil, why, tellsDone] of cases) {
+  for (const [label, spoil, why] of cases) {
     const root = fresh(t, 'data'), base = fresh(t, 'base');
     const id = 'h' + crypto.randomBytes(4).toString('hex');
     const c = coordinator(b, id);
@@ -195,14 +193,15 @@ test('refusals end the hand-over as failed, once: a foreign key, no packing comp
     const st = stateNew();
     await hr.tick(st, deps);   // keyed
     await pack(c, agentFolder(t));
-    spoil(c);
+    spoil(c, root);
     const r = await hr.tick(st, deps);
     assert.equal(r.ok, false, label);
     assert.match(r.because || '', why, label);
-    assert.equal(c.calls.filter(([x, body]) => x === hr.DONE_ROUTE && body.ok === false).length, tellsDone ? 1 : 0, label + ': done {ok:false}');
+    assert.equal(c.calls.filter(([x, body]) => x === hr.DONE_ROUTE && body.ok === false).length, 1, label + ': done {ok:false}');
     await hr.tick(st, deps);
-    assert.equal(c.calls.filter(([x]) => x === hr.DONE_ROUTE).length, tellsDone ? 1 : 0, label + ': not again');
-    assert.equal(worlds.readRegistry(base).worlds.some((x) => /^Handed over/.test(x.name)), false, label + ': no Kosmos made');
+    assert.equal(c.calls.filter(([x]) => x === hr.DONE_ROUTE).length, 1, label + ': not again');
+    assert.equal(worlds.readRegistry(base).worlds.some((x) => /^Handed over/.test(x.name) && !x.hiddenAt), false, label + ': no Kosmos on the list');
+    assert.equal(hr.readKey(id, root), null, label + ': the one-time key is gone');
   }
   // CONTROL: the same steps unspoiled receive.
   const root = fresh(t, 'data'), base = fresh(t, 'base');
@@ -212,6 +211,79 @@ test('refusals end the hand-over as failed, once: a foreign key, no packing comp
   await hr.tick(st, deps);
   await pack(c, agentFolder(t));
   assert.equal((await hr.tick(st, deps)).ok, true);
+});
+
+test('a missing manifest gets MISSING_GRACE_MS before it is final; a lost /done is sent again, never received again', async (t) => {
+  hr.allowHttpForTests(true);
+  const b = await bucket();
+  t.after(() => b.close());
+  let clock = Date.now();
+  const root = fresh(t, 'data'), base = fresh(t, 'base');
+  const c = coordinator(b, 'hmiss');
+  const st = stateNew();
+  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+  await hr.tick(st, deps);
+  await pack(c, agentFolder(t));
+  const saved = b.stored.get(c.rec.manifest.key);
+  b.stored.delete(c.rec.manifest.key);
+  assert.equal((await hr.tick(st, deps)).ok, false);
+  clock += hr.MISSING_GRACE_MS - 1000;
+  await hr.tick(st, deps);
+  assert.equal(c.calls.filter(([x]) => x === hr.DONE_ROUTE).length, 0, 'still within the grace');
+  // The sender's upload lands within the grace: received.
+  b.stored.set(c.rec.manifest.key, saved);
+  // ... but the first /done answer is lost.
+  let lose = true;
+  const lossy = async (m, route, body) => { const r = await c.recv(m, route, body); if (route === hr.DONE_ROUTE && lose) { lose = false; return { ok: false, because: 'no answer' }; } return r; };
+  const d2 = Object.assign({}, deps, { macRequest: lossy });
+  assert.equal((await hr.tick(st, d2)).ok, true);
+  assert.ok(hr.readKey('hmiss', root).received, 'marked received before /done');
+  c.rec.state = 'receiving';   // the coordinator never heard the /done
+  await hr.tick(st, d2);
+  assert.equal(worlds.readRegistry(base).worlds.filter((x) => /^Handed over/.test(x.name)).length, 1, 'one Kosmos, not two');
+  assert.equal(c.calls.filter(([x]) => x === hr.DONE_ROUTE).length, 2);
+  assert.equal(hr.readKey('hmiss', root), null);
+  // And past the grace with nothing there: final.
+  const c2 = coordinator(b, 'hgone');
+  const st2 = stateNew();
+  const d3 = Object.assign({}, deps, { macRequest: c2.recv });
+  await hr.tick(st2, d3);
+  await pack(c2, agentFolder(t));
+  b.stored.delete(c2.rec.manifest.key);
+  await hr.tick(st2, d3);
+  clock += hr.MISSING_GRACE_MS;
+  const r = await hr.tick(st2, d3);
+  assert.match(r.because, /never finished arriving/);
+  assert.equal(c2.calls.filter(([x, body]) => x === hr.DONE_ROUTE && body.ok === false).length, 1);
+});
+
+test('a chunk that does not arrive is tried again after RETRY_MS, MAX_ATTEMPTS times, then final; each try leaves nothing behind', async (t) => {
+  hr.allowHttpForTests(true);
+  const b = await bucket();
+  t.after(() => b.close());
+  let clock = Date.now();
+  const root = fresh(t, 'data'), base = fresh(t, 'base');
+  const c = coordinator(b, 'hretry');
+  const st = stateNew();
+  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+  await hr.tick(st, deps);
+  await pack(c, agentFolder(t));
+  for (const k of [...b.stored.keys()]) if (k.startsWith(c.prefix) && !k.endsWith('manifest')) b.stored.delete(k);
+  for (let i = 1; i < hr.MAX_ATTEMPTS; i++) {
+    const r = await hr.tick(st, deps);
+    assert.equal(r.ok, false, 'try ' + i);
+    assert.deepEqual(await hr.tick(st, deps), { ok: true, none: true }, 'waits RETRY_MS after try ' + i);
+    clock += hr.RETRY_MS + 1;
+  }
+  const last = await hr.tick(st, deps);
+  assert.match(last.because, /tried 5 times/);
+  assert.equal(c.calls.filter(([x, body]) => x === hr.DONE_ROUTE && body.ok === false).length, 1);
+  const handed = worlds.readRegistry(base).worlds.filter((x) => /^Handed over/.test(x.name));
+  assert.equal(handed.filter((x) => !x.hiddenAt).length, 0, 'none on the list');
+  for (const w of handed) {
+    const dir = path.join(path.dirname(worlds.envOverridesFor(base, w).AGENT_WORKFORCE_WORKERS), require('./restoreworld').RESTORE_DIR);
+    assert.equal(fs.existsSync(dir), false, 'a failed try took out its restore folder');
+  }
 });
 
 test('the read links: https on a named host, a path ending in its key, and a cap on what is read', () => {

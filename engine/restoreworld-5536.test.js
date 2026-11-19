@@ -1302,5 +1302,6 @@ test('kosmos#8710: a hand-over\'s Kosmos is named "Handed over", and only a know
   const day = rw.worldName('Ann Lee', NOW).replace(/^Restored: Ann Lee, /, '');
   assert.equal(rw.worldName('Ann Lee', NOW, 1, undefined, 'handover'), `Handed over: Ann Lee, ${day}`);
   assert.equal(rw.worldName('Ann Lee', NOW, 1, undefined, 'Pwned'), `Restored: Ann Lee, ${day}`, 'an unknown kind is a restore');
+  for (const k of ['constructor', 'toString', '__proto__']) assert.equal(rw.worldName('Ann Lee', NOW, 1, undefined, k), `Restored: Ann Lee, ${day}`, k);
   assert.equal(rw.worldName('Ann Lee', NOW, 2, undefined, 'handover'), `Handed over: Ann Lee, ${day} (2)`);
 });
