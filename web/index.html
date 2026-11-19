@@ -54306,6 +54306,10 @@ let RST_RETURN = null;   // focus goes back where it came from
    changeDialog puts on its own Escape (`goBtn.disabled`); this path reuses that
    flow's loader, so it must reuse its exit rule too. */
 let RST_BUSY = false;
+/* kosmos#8724: set when the restart was refused only because a window linked by hand has no launch job, and the
+   engine offered to write one (canWriteJob). The next press of the same button is the person's "Set up and restart",
+   and sends writeJob. A fresh open starts without it. */
+let RST_WRITE_JOB = false;
 
 function openRestartModal(btn, name, opts) {
   const card = (LAST || []).find((a) => a && a.sessionName === name) || CURRENT;
@@ -54337,6 +54341,7 @@ function openRestartModal(btn, name, opts) {
   document.getElementById('rst-cost').hidden = false;
   document.getElementById('rst-keep').hidden = false;
   RST_BUSY = false;   // #2831: a fresh open is never mid-restart
+  RST_WRITE_JOB = false;   // kosmos#8724
   const go = document.getElementById('rst-go');
   go.hidden = false;
   go.disabled = false;
@@ -54674,7 +54679,10 @@ document.getElementById('rst-go').addEventListener('click', async () => {
   // The confirm view, restored so the person can retry after a refusal or an error.
   const restoreConfirm = () => { RST_BUSY = false; clearLoader(); showConfirm(true); go.textContent = wasGo; go.disabled = false; hgo.disabled = false; };
   try {
-    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
+    /* kosmos#8724: after the engine offered it, this press also writes the agent's launch job first. */
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', RST_WRITE_JOB
+      ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ writeJob: true }) }
+      : { method: 'POST' });
     const out = await res.json().catch(() => null);
     /* 🛑 THE OUTCOME, NOT THE STATUS CODE. This asked only whether the response
        was `ok`, and the route answers 400 for a REFUSED restart and 200 for
@@ -54709,6 +54717,14 @@ document.getElementById('rst-go').addEventListener('click', async () => {
          because that box disappears on success and this one does not, so
          silence is the same picture as either outcome. */
       document.getElementById('rst-msg').textContent = restartFailureLine(out);
+      /* kosmos#8724: the engine can set this agent up to start on its own; the sentence above says so, and the button
+         now says what its next press does. Offered once: a second refusal keeps the plain button. */
+      if (out && out.canWriteJob === true && !RST_WRITE_JOB) {
+        RST_WRITE_JOB = true;
+        go.textContent = 'Set up and restart';
+      } else {
+        RST_WRITE_JOB = false;
+      }
       return;
     }
     /* #2831: hold the loader for the remainder of the floor so the whole hold
@@ -54929,6 +54945,11 @@ document.getElementById('rst-handoff-go').addEventListener('click', async () => 
   if (!restartTook(resOk, out)) {
     restoreConfirm();
     setStatus(restartFailureLine(out));
+    /* kosmos#8724: the handoff is written; the plain Restart button, relabelled, now sets the agent up and restarts it. */
+    if (out && out.canWriteJob === true && !RST_WRITE_JOB) {
+      RST_WRITE_JOB = true;
+      document.getElementById('rst-go').textContent = 'Set up and restart';
+    }
     return;
   }
   // Hold the loader for the remainder of the floor so the hold plays in full.

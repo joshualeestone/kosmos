@@ -2472,6 +2472,7 @@ function* restartSteps(name, cause, platform, startIfDead) {
       because: `${shown} was not started by Kosmos, so we cannot start it again. `
         + 'Whatever launched it is what can restart it.',
       cannotStart: true,   // #7470: a start or restart from its card cannot help (callers word their next step by it)
+      noJob: true,         // kosmos#8724: the reason is the missing job, so a window linked by hand can be offered one
     };
   }
 

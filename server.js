@@ -4375,6 +4375,25 @@ function claimantFor(name) {
 // gate above), and we re-impose the isNamedOurs REQUIREMENT the route-level
 // card/askingCard matches had. Single-sourced so the two direct-thread routes do
 // not carry two copies of one derivation.
+/* kosmos#8724: a window the person linked to Kosmos by hand (engine/linkwindow.js) whose agent still has no launch job.
+   The board's own card for it, marked ours, whose tmux session is exactly the agent's name: the job's supervisor looks
+   for `=<name>` (bin/agent-supervisor.sh TARGET) and adopts a marked live session of that name, so a linked `zara-discord`
+   would not be found and the job would start a second Zara beside it. Those are left as they are. The job half (profile,
+   folder, not removed, a proven absent job) is register.repair's own check, run again when it acts. */
+function linkedWithoutJob(name) {
+  try {
+    const card = paneRoster().find((a) => a && a.sessionName === name);
+    if (!card || card.isNamedOurs !== true || card.session !== name) return false;
+    const seen = register.survey();
+    return !!(seen && seen.ok && seen.agents.some((x) => x.name === name && x.profile && x.folder && !x.removed && x.job === false));
+  } catch { return false; }
+}
+/* The model it is running now, as POST /api/register reads it for a repair: the job carries it, or it would come back
+   on the default. */
+function linkedModelFor(name) {
+  try { const m = status.readModel(name); return (m && m.model) || null; } catch { return null; }
+}
+
 function ourCardByName(roster, name) {
   const rc = chat.resolveCard(roster, name);
   return rc && rc.isNamedOurs === true ? rc : null;
@@ -11346,12 +11365,43 @@ const server = http.createServer(async (req, res) => {
             && r.names.some((n) => String(n).toLowerCase() === String(name).trim().toLowerCase()));
         } catch { removedNow = false; }
         if (removedNow) { sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, steps: [], because: `${name} was removed, so it is not restarted; put it back from the board first` }); return; }
+        /* kosmos#8724: { writeJob: true } is the person's "Set up and restart" from the dialog below. Only for a window
+           linked by hand that still has no job (linkedWithoutJob); the job is written first, then the restart runs as
+           any other. A job that could not be written stops here with its reason, and nothing was restarted. */
+        let jobWritten = false;
+        if (body && body.writeJob === true) {
+          const shown = (() => { try { return status.readIdentity(name).displayName || name; } catch { return name; } })();
+          if (!linkedWithoutJob(name)) {
+            sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, steps: [], because: `${shown} does not need setting up, so nothing was changed. Try Restart again.` });
+            return;
+          }
+          let rep = null;
+          try { rep = register.repair({ only: name, linked: true, modelFor: linkedModelFor }); } catch { rep = null; }
+          const one = rep && rep.ok && Array.isArray(rep.results) ? rep.results[0] : null;
+          if (!one || one.ok !== true) {
+            const why = (one && one.because) || (rep && rep.because) || 'something went wrong';
+            sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, steps: [], because: `Kosmos could not set ${shown} up to start on its own (${why}), so it was not restarted.` });
+            return;
+          }
+          jobWritten = true;
+        }
         let out;
         // #3410: this IS the "Start this agent" affordance (Mona #3433 reuses this route), so it
         // opts into starting a fully-dead agent (no session) rather than refusing it. The config-
         // switch routes below deliberately do NOT pass startIfDead.
         try { out = removal.restart(name, cause, { startIfDead: true, quiet: true }); }   // kosmos#6239: quiet hours
         catch (err) { sendJson(res, 500, { error: 'we could not restart this agent', detail: String(err && err.message || err) }); return; }
+        if (jobWritten) out = { ...out, jobWritten: true };
+        /* kosmos#8724: refused only for want of a job, on a window the person linked: say what Kosmos can do instead. */
+        if (out.outcome === removal.OUTCOME.REFUSED && out.noJob === true && !jobWritten && linkedWithoutJob(name)) {
+          const shown = (() => { try { return status.readIdentity(name).displayName || name; } catch { return name; } })();
+          out = {
+            ...out,
+            canWriteJob: true,
+            because: `${shown} was started by hand, so Kosmos has no way to start it again yet. `
+              + `Kosmos can set ${shown} up to start on its own, then restart it. It comes back the way Kosmos starts its own agents, which may be a different account from the one this window was started on.`,
+          };
+        }
         sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, out);
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,

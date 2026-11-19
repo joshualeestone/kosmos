@@ -815,7 +815,16 @@ function repair(opts) {
   /* #6714: one agent, from its own Start at login. Only a name the notice offers: the set a repair acts on is still
      exactly what the survey reports, so a caller cannot name an agent the survey refused. */
   const only = opts && typeof opts.only === 'string' ? opts.only : null;
-  if (only !== null && !seen.missing.includes(only)) {
+  /* kosmos#8724: a window the person linked to Kosmos by hand (linkwindow) can be given its job from the restart dialog.
+     Such an agent may never have written a run record and may sit on a hidden notice, so `missing` can leave it out;
+     what still holds is the rest of what makes a repair safe: a profile, its folder, not removed, and a PROVEN absent
+     job (`job === false`, never the unknown null). The caller checks the linked window itself (server.js). */
+  const linked = !!(opts && opts.linked === true);
+  if (linked && only === null) return { ok: false, refused: true, because: 'that agent does not need this', results: [] };
+  const offered = linked
+    ? seen.agents.some((x) => x.name === only && x.profile && x.folder && !x.removed && x.job === false)
+    : seen.missing.includes(only);
+  if (only !== null && !offered) {
     return { ok: false, refused: true, because: 'that agent does not need this', results: [] };
   }
   const modelFor = (opts && typeof opts.modelFor === 'function') ? opts.modelFor : () => null;
