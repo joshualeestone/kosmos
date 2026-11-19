@@ -134,6 +134,7 @@ test('#7116 step 2: the submission carries exactly the signed fields, in Kitty\'
   assert.ok(se.encodeDevkeyEnrol(s.org, s.member, h(s.key), h(s.code_hash), h(s.join_tag), s.inviter_admin_id, s.generation, h(s.nonce)).equals(e.bytes));
   // Refusals.
   assert.throws(() => dk.submission(e.bytes, signature, [admins[0]]), /two admins/);
+  assert.throws(() => dk.submission(e.bytes, signature, [{ adminId: INVITER, sig: '3045' }, admins[1]]), /each admin signature is bytes/);   // review 2
   assert.throws(() => dk.submission(e.bytes, signature, [admins[0], admins[0]]), /must be different/);
   assert.throws(() => dk.submission(e.bytes, signature, [{ adminId: 'admin-1', sig: Buffer.alloc(2) }, admins[1]]), /sent the invite must be one/);
   const wrong = macKey();

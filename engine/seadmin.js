@@ -512,6 +512,9 @@ async function signOne(prepared, { helper, keyFile, expectedKey, adminId }) {
   if (!crypto.verify('sha256', message, { key: crypto.createPublicKey({ key: jwk, format: 'jwk' }), dsaEncoding: 'der' }, der)) {
     throw new Error('kosmos-se returned a signature that does not verify under its own key');
   }
+  // kosmos#7116 step 2 review 2: an enrolment's signature comes back WITH the admin id the rule above checked, as one
+  // object, so the id a caller later posts beside it (devkeyenrol.submission takes this shape) is the id that was checked.
+  if (prepared.action === 'devkeyEnrol') return Object.freeze({ adminId, sig: der });
   return der;
 }
 

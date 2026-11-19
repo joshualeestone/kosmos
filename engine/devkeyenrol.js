@@ -13,9 +13,10 @@
  *     the inviter's own device can recompute it and refuse a K the coordinator substituted (seadmin.prepare, joinCode);
  *   - signing the enrolment bytes with this Mac's own key, after decoding them and checking they enrol THIS key, for
  *     THIS org and member: never a blob, never bytes for another key;
- *   - the submission, in the shape Kitty described (field names; the byte encodings and a passkey admin's signature
- *     object are NOT yet confirmed against escrowd's op, which is step 1: review 1 of this branch, asked on #7116): { org, member, key (hex), code_hash, join_tag, inviter_admin_id,
- *     generation, nonce, device_sig, admin_sigs: [{ admin_id, sig }] }.
+ *   - the submission, in the shape Kitty described: { org, member, key (hex), code_hash, join_tag, inviter_admin_id,
+ *     generation, nonce, device_sig, admin_sigs: [{ admin_id, sig }] }. Its byte encodings and a passkey admin's
+ *     signature object are NOT yet confirmed against escrowd's op (step 1); asked on #7116 (review 1 of this branch).
+ *     Each admin entry is what seadmin.sign returns for an enrolment ({ adminId, sig }), so the id is the one checked.
  *
  * Not here, each named so nobody reads this file as the whole flow:
  *   - where the inviter's app keeps the code between invite and join, and the screen that asks an admin to sign
@@ -107,6 +108,7 @@ function submission(bytes, deviceSig, adminSigs) {
   const d = se.decodeDevkeyEnrol(bytes);
   if (!(deviceSig instanceof Uint8Array) || deviceSig.length !== 64) throw new Error('a device signature is 64 bytes');
   if (!Array.isArray(adminSigs) || adminSigs.length !== 2) throw new Error('an enrolment takes two admins\' signatures');
+  if (adminSigs.some((a) => !a || !(a.sig instanceof Uint8Array) || !a.sig.length)) throw new Error('each admin signature is bytes');   // review 2
   const ids = adminSigs.map((a) => a && a.adminId);
   if (ids.some((x) => typeof x !== 'string' || !x) || ids[0] === ids[1]) throw new Error('the two admins must be different');
   if (!ids.includes(d.inviterAdminId)) throw new Error('the admin who sent the invite must be one of the two');
