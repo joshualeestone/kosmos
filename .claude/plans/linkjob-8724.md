@@ -49,8 +49,12 @@ refuse, failed job) with perturbation controls, and a browser-check arm on the r
 ## Weakest premise
 That installJob's start, with the linked session already live, adopts it rather than starting a second one.
 supervisor.adopt-linked-8724.test.js runs the real bin/agent-supervisor.sh against a fake tmux reporting a session
-marked with its own name and a Claude pane: adopted, no kill, no new-session (control: a shell pane is killed). Not run
-against a real tmux and launchd end to end.
+marked with its own name and a Claude pane: adopted, no kill, no new-session (control: a shell pane is killed).
+Measured once more on a REAL tmux (2026-11-19 09:03 CST, private socket `-L angel-rt-8724`, never the shared server):
+a session `zara` marked `@kosmos_agent=zara` whose pane ran a binary named `2.1.212` (pane_current_command 2.1.212,
+as a native Claude window reads). The real bin/agent-supervisor.sh said "zara is already running -- leaving it alone
+and watching it"; afterwards one session, same pane pid (91928). Control on the same socket: the session holding only
+`zsh` was closed and a launch attempted. Not run under launchd itself.
 
 ## Tests
 - engine/register.linked-8724.test.js (4; perturbation of the linked branch: 3 red).
