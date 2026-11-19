@@ -90,3 +90,14 @@ wording pass (slice 3), written up on the card before it is built.
   file in that state.
 - NITs kept: no suite test fills both caps with two notes (the reviewer measured 160 lines, 3,052 bytes, both notes and
   the cut note last, within the caps); the U+2014 escape in taskguide.test.js is a guard asserting absence.
+
+## Review 7 (Opus)
+- No BLOCKER, no WARNING. Measured: 45 of the 47 lines that left the section are in the guide character for character,
+  the other 2 are the planned rewordings; real v52 to v53 gives the same changes file on all three platforms (45 left
+  out, 2 marked, covered by the conditional sentence); the due-run reminder (repeatdue.js tellText) still carries the
+  deadline and overrun rules that moved.
+- NITs kept, with reasons: the per-run sentence names `kosmos report blocked` without `--on` (the full form is taught
+  earlier in the same brief, and a bare call is refused with its usage, so it costs one retry; adding it costs
+  characters and a re-pin); the test fixture rebuilds v52 from the guide rather than the real old text (tests cannot
+  read git history here; the real result was measured twice, by me and by this reviewer); the help line's
+  "(--how: one situation each)" is terse, and the full usage line is clear.
