@@ -420,8 +420,9 @@ test('#7116 step 2 caller: every route is a POST on a fixed path, the id in the 
   // Codes that spend nothing leave the entry; every other code, and an unknown one, ends it.
   // Review 6: every code Renet named, each side, so a typo in any one fails.
   for (const code of ['roster_signers', 'devkey_inviter_not_signer', 'roster_bad_signature', 'roster_bad_assertion',
-    'roster_admin_synced_passkey', 'roster_new_key_signature', 'bad_request']) assert.equal(es.endsEntry(code), false, code);
-  for (const code of ['devkey_already_enrolled', 'roster_nonce', 'devkey_history_full', 'devkey_history_unsaved', 'audit_unavailable',
+    'roster_admin_synced_passkey', 'roster_new_key_signature', 'roster_proof_type', 'roster_backup_eligibility']) assert.equal(es.endsEntry(code), false, code);
+  // Renet's final interface: bad_request ends the entry now.
+  for (const code of ['bad_request', 'devkey_already_enrolled', 'roster_nonce', 'devkey_history_full', 'devkey_history_unsaved', 'audit_unavailable',
     'roster_nonce_unsaved', 'roster_counts_unsaved', 'something_new']) assert.equal(es.endsEntry(code), true, code);
   const refused = async () => ({ ok: false, because: 'x', refusal: { status: 409, code: 'roster_nonce' } });
   const err = await es.postAdminSig('e1', { adminId: OTHER_ADMIN, sig: Buffer.alloc(2) }, { send: refused }).catch((e) => e);
@@ -431,6 +432,16 @@ test('#7116 step 2 caller: every route is a POST on a fixed path, the id in the 
   const kept = await es.postAdminSig('e1', { adminId: OTHER_ADMIN, sig: Buffer.alloc(2) },
     { send: async () => ({ ok: false, refusal: { status: 400, code: 'roster_bad_signature' } }) }).catch((e) => e);
   assert.equal(kept.ended, false);
+  // Start answered with no nonce: escrowd's answer with ended true, and nothing is signed.
+  let signed = 0;
+  const noNonce = await es.startAndSign({ org: ORG, member: MEMBER, joinCode: dk.newJoinCode(), inviterAdminId: INVITER, deviceKey: macKey(),
+    send: async (m, r) => { if (r !== '/v1/org/devkey-enrol') signed++; return { ok: true, data: { ok: false, code: 'audit_unavailable', ended: true } }; } }).catch((e) => e);
+  assert.equal(noNonce.ended, true);
+  assert.equal(noNonce.code, 'audit_unavailable');
+  assert.equal(signed, 0, 'no signature leaves');
+  // pending carries `ready` as the coordinator says, and only true counts.
+  const rdy = await es.pending({ send: async () => ({ ok: true, data: { pending: [{ id: 'r1', bytes: 'AA', ready: true }, { id: 'r2', bytes: 'AA', ready: 'yes' }] } }) });
+  assert.deepEqual(rdy.map((x) => x.ready), [true, false]);
   // Review 6: a refusal from start or pending names no entry, so it carries no `ended`; no readable code leaves it unknown.
   const startErr = await es.startAndSign({ org: ORG, member: MEMBER, joinCode: dk.newJoinCode(), inviterAdminId: INVITER, deviceKey: macKey(),
     send: async () => ({ ok: false, refusal: { status: 404, code: 'not_found' } }) }).catch((e) => e);

@@ -262,8 +262,10 @@ const answerOf = (r, doing, entry) => {
    is already enrolled, so there is nothing to start again; any other ended entry is started again by the member's Mac).
    The tunnel keeps a refusal's code but not its `ended` field, so the board works it out from the code; a 2xx answer
    that carries `ended` is read as it says (endedOf). */
+// Renet's final interface (#7116 comment 7024805833): roster_proof_type and roster_backup_eligibility stay too, and
+// bad_request now ENDS the entry. After a kept refusal nothing relays by itself: re-read pending, sign what is missing.
 const STAYS = new Set(['roster_signers', 'devkey_inviter_not_signer', 'roster_bad_signature', 'roster_bad_assertion',
-  'roster_admin_synced_passkey', 'roster_new_key_signature', 'bad_request']);
+  'roster_admin_synced_passkey', 'roster_new_key_signature', 'roster_proof_type', 'roster_backup_eligibility']);
 const endsEntry = (code) => !STAYS.has(code);
 /* Review 7: true when the entry is gone (refused for good); false while it waits, once it is accepted, or when a refusal
    leaves it open; undefined for a refusal with no readable code (not known, as answerOf's). */
@@ -291,6 +293,13 @@ async function startAndSign({ org, member, joinCode, inviterAdminId, deviceKey, 
   // computed it for another org makes bytes deviceSign then refuses (it checks the decoded org is the one given).
   const started = answerOf(await go('POST', ROUTE, { key: b64(k), codeHash: b64(dk.joinCodeHash(joinCode)),
     joinTag: b64(dk.joinTag(joinCode, org, member, k)), inviterAdminId }), 'start the enrolment');
+  // Renet's final interface: when escrowd issues no nonce, start answers escrowd's answer with `ended: true`, no entry.
+  if (started && started.ended === true) {
+    const err = new Error('could not start the enrolment: Kosmos+ refused it');
+    if (typeof started.code === 'string' && /^[A-Za-z0-9_]{1,40}$/.test(started.code)) err.code = started.code;
+    err.ended = true;
+    throw err;
+  }
   if (!started || !idOk(started.id)) throw new Error('the coordinator did not name the enrolment');
   const bytes = unb64(started.bytes, 'enrolment bytes');
   const decoded = se.decodeDevkeyEnrol(bytes);
@@ -302,7 +311,8 @@ async function startAndSign({ org, member, joinCode, inviterAdminId, deviceKey, 
   return { id: started.id, decoded, expiresAt: exp, answer, ended: endedOf(answer) };
 }
 
-/** An admin's list of what waits: [{ id, bytes, signedBy, keySigned, expiresAt }], each entry's bytes decoded later. */
+/** An admin's list of what waits: [{ id, bytes, signedBy, keySigned, ready, expiresAt }], each entry's bytes decoded
+ * later. `ready`: K's, the inviter's and one other admin's signatures are all there (the coordinator's word). */
 async function pending({ send } = {}) {
   const data = answerOf(await sendOf(send)('POST', ROUTE + '/pending', {}), 'read the computers waiting for approval');
   const list = data && Array.isArray(data.pending) ? data.pending : null;
@@ -310,7 +320,7 @@ async function pending({ send } = {}) {
   // Review 1: one entry's unreadable bytes make THAT entry refused (bytes null), never the whole list unreadable.
   const bytesOf = (t) => { try { return unb64(t, 'enrolment bytes'); } catch { return null; } };
   return list.filter((e) => e && idOk(e.id)).map((e) => ({ id: e.id, bytes: bytesOf(e.bytes),
-    signedBy: Array.isArray(e.signedBy) ? e.signedBy.filter((x) => typeof x === 'string') : [], keySigned: e.keySigned === true,
+    signedBy: Array.isArray(e.signedBy) ? e.signedBy.filter((x) => typeof x === 'string') : [], keySigned: e.keySigned === true, ready: e.ready === true,
     expiresAt: (typeof e.expiresAt === 'string' && e.expiresAt.length <= 64) || Number.isFinite(e.expiresAt) ? e.expiresAt : null }));
 }
 
@@ -336,7 +346,7 @@ async function adminQueue({ adminId, send, dataRoot, now } = {}) {
   const out = [];
   for (const e of await pending({ send })) {
     if (e.signedBy.includes(adminId)) continue;
-    const row = { id: e.id, signedBy: e.signedBy, keySigned: e.keySigned, expiresAt: e.expiresAt };
+    const row = { id: e.id, signedBy: e.signedBy, keySigned: e.keySigned, ready: e.ready, expiresAt: e.expiresAt };
     try {
       if (!e.bytes) throw new Error('unreadable');
       const { prepared, keptOther } = reviewOf(e.bytes, { dataRoot, now });
