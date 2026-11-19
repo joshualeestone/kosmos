@@ -70,6 +70,11 @@ OLD="$T/old"; mk_tree "$OLD" without-se
 out="$(run "$T/b1.tgz" "$OLD" sealed)"
 case "$out" in *"$SAY"*) no "a tree with no native-se required kosmos-se: $out" ;; *) ok "a tree without native-se/main.swift does not require it" ;; esac
 
+# 7. Another identifier is refused (the requirement names kosmos-se, review 1).
+mk_stage "$T/s7"; cp /usr/bin/true "$T/s7/app/bin/kosmos-se"; chmod 755 "$T/s7/app/bin/kosmos-se"; codesign --force -s - -i com.example.other "$T/s7/app/bin/kosmos-se" >/dev/null 2>&1; mk_tar "$T/s7" "$T/b7.tgz"
+out="$(run "$T/b7.tgz" "$TREE" sealed)"
+case "$out" in *"admin signer"*"signature does not verify"*) ok "a kosmos-se signed under another identifier is refused" ;; *) no "another identifier passed: $out" ;; esac
+
 # 6. Its signature must meet the cut's identity requirement too, when one is given (a real cut passes the team's).
 out="$(release_bundle_matches_tree "$T/b2.tgz" "$TREE" "" "" sealed 'certificate leaf[subject.OU] = "NOSUCHTEAM0"' 2>&1 || true)"
 case "$out" in *"admin signer"*"signature does not verify"*) ok "an ad-hoc kosmos-se fails a team requirement" ;; *) no "an ad-hoc kosmos-se met a team requirement: $out" ;; esac
