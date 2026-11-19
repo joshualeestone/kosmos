@@ -39,7 +39,7 @@ function fakeTmux(opts) {
       const after = o.looks > 1;
       const id = after && o.swapped ? '$9' : '$0';
       const cmd = after && o.nowRunning ? o.nowRunning : (o.firstRunning || fleet.CLAUDE_COMMAND);
-      const claim = !after && o.claimedAtLook ? o.claimedAtLook : (options['=zara: @kosmos_agent'] || '');
+      const claim = !after && o.claimedAtLook ? o.claimedAtLook : (options['$0 @kosmos_agent'] || '');
       return { ok: true, code: 0, stdout: id + '\t' + cmd + '\t' + claim + '\n' };
     }
     return { ok: false, code: 1, stdout: '' };
@@ -55,11 +55,11 @@ test('#8719: a hand-started Claude window is linked, with an exact target, and o
   const calls = fakeTmux();
   const r = linkwindow.link('zara', { panes, platform: 'darwin' });
   assert.deepEqual(r, { outcome: 'linked', session: 'zara', name: 'zara' });
-  const look = ['display-message', '-p', '-t', '=zara:0.0', '#{session_id}\t#{pane_current_command}\t#{@kosmos_agent}'];
-  assert.deepEqual(calls[0], look, 'first, which session it is and what runs in it');
-  assert.deepEqual(calls[1], ['set-option', '-t', '=zara:', '@kosmos_agent', 'zara'], 'the mark, on exactly that session (=name:)');
-  assert.deepEqual(calls[2], ['show-options', '-v', '-t', '=zara:', '@kosmos_agent'], 'then read back');
-  assert.deepEqual(calls[3], look, 'and the same session and program again');
+  const fmt = '#{session_id}\t#{pane_current_command}\t#{@kosmos_agent}';
+  assert.deepEqual(calls[0], ['display-message', '-p', '-t', '=zara:0.0', fmt], 'first, the very pane by its exact name');
+  assert.deepEqual(calls[1], ['set-option', '-t', '$0', '@kosmos_agent', 'zara'], 'the mark, on that session by its id');
+  assert.deepEqual(calls[2], ['show-options', '-v', '-t', '$0', '@kosmos_agent'], 'then read back, by id');
+  assert.deepEqual(calls[3], ['display-message', '-p', '-t', '$0:0.0', fmt], 'and the same session, pane and program again');
   assert.equal(calls.length, 4, 'nothing else is changed');
 });
 
@@ -70,7 +70,8 @@ test('#8719: in a named Kosmos the card is the agent name and the mark goes on t
   assert.equal(p.session, 'zara+atlas');
   const calls = fakeTmux();
   assert.equal(linkwindow.link('zara', { panes: [pane], platform: 'darwin' }).outcome, 'linked');
-  assert.deepEqual(calls[1], ['set-option', '-t', '=zara+atlas:', '@kosmos_agent', 'zara+atlas'], 'the claim equals the raw session, as a launch sets it');
+  assert.deepEqual(calls[0][3], '=zara+atlas:0.0', 'the look names the raw session');
+  assert.deepEqual(calls[1], ['set-option', '-t', '$0', '@kosmos_agent', 'zara+atlas'], 'the claim equals the raw session, as a launch sets it');
   assert.equal(linkwindow.plan('zara+atlas', [pane], 'darwin').ok, undefined, 'CONTROL: the raw session is not the name a card carries');
 });
 
@@ -80,13 +81,16 @@ test('#8719: a window whose program changed between the look and the mark is not
   const r = linkwindow.link('zara', { panes, platform: 'darwin' });
   assert.equal(r.outcome, 'refused');
   assert.match(r.because, /took the mark off again/);
-  assert.deepEqual(calls[calls.length - 1], ['set-option', '-u', '-t', '=zara:', '@kosmos_agent'], 'the mark was removed');
-  assert.equal(calls.options['=zara: @kosmos_agent'], undefined, 'and is gone');
-  // The same name, still Claude, but another session (a new id): replaced, so not linked, and that session's mark is
-  // left alone (Kosmos's own supervisor may have stamped it), so nothing is unset.
+  assert.deepEqual(calls[calls.length - 1], ['set-option', '-u', '-t', '$0', '@kosmos_agent'], 'the mark was removed, from that session by id');
+  assert.equal(calls.options['$0 @kosmos_agent'], undefined, 'and is gone');
+  // The look reports another session id afterwards: not linked, and only this call's session (by id) is unmarked.
   const swapped = fakeTmux({ swapped: true });
-  assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /changed while Kosmos was linking it, so nothing was linked/);
-  assert.equal(swapped.filter((c) => c[0] === 'set-option' && c[1] === '-u').length, 0, 'a swapped session was unmarked');
+  assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /took the mark off again/);
+  assert.deepEqual(swapped.filter((c) => c[0] === 'set-option' && c[1] === '-u'), [['set-option', '-u', '-t', '$0', '@kosmos_agent']]);
+  // A program that is not the one the board saw (an unmarked node that replaced it): nothing is marked.
+  const nodeNow = fakeTmux({ firstRunning: 'node' });
+  assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /could not confirm what runs in the window called zara/);
+  assert.equal(nodeNow.filter((c) => c[0] === 'set-option').length, 0);
   // A mark already there at the look (a supervisor started it since the board's look): refused, nothing set.
   const claimed = fakeTmux({ claimedAtLook: 'zara' });
   assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /already linked/);
@@ -135,6 +139,12 @@ test('#8719: on a real tmux, link() marks exactly the named session and never a 
     assert.equal(t('show-options', '-v', '-t', '=zara:', '@kosmos_agent').stdout.trim(), 'zara', 'the mark is on zara');
     assert.notEqual(t('show-options', '-v', '-t', '=zarah:', '@kosmos_agent').status, 0, 'and not on its prefix-named neighbour');
     assert.match(t('list-panes', '-a', '-F', '#{session_name}=#{@kosmos_agent}').stdout, /^zara=zara$/m, 'the board\'s own read sees it');
+    /* A session replaced after the look cannot be marked: the id it was looked up by is gone. Measured as link() sends it. */
+    const oldId = t('display-message', '-p', '-t', '=zara:', '#{session_id}').stdout.trim();
+    t('kill-session', '-t', oldId);
+    t('new-session', '-d', '-s', 'zara', 'sleep 60');
+    assert.notEqual(t('set-option', '-t', oldId, '@kosmos_agent', 'zara').status, 0, 'the old id marks nothing');
+    assert.match(t('list-panes', '-a', '-F', '#{session_name}=#{@kosmos_agent}').stdout, /^zara=$/m, 'and the new zara is unmarked');
   } finally {
     linkwindow.setRunner(null);
     t('kill-server');

@@ -72,36 +72,35 @@ function link(name, opts) {
   const panes = Array.isArray(o.panes) ? o.panes : status.panesWithCommands();
   const p = plan(name, panes, o.platform);
   if (!p.ok) return p;
-  /* `=session:` names exactly that session (its active pane). Measured on tmux 3.6a: `set-option -t =zara` and
-     `display-message -t =zara` do not resolve (an option or message target is a pane), while `=zara:` does, and never
-     reaches `zarah`, nor marks anything when only `zarah` exists. */
-  const target = `=${p.session}:`;
-  /* The look reads the very pane plan() checked (a split window's active pane may be a shell), plus the session's id
-     and its current mark. */
-  const paneTarget = /^\d+\.\d+$/.test(String(p.pane || '')) ? `${target}${p.pane}` : target;
-  const look = () => {
-    const r = run(['display-message', '-p', '-t', paneTarget, '#{session_id}\t#{pane_current_command}\t#{@kosmos_agent}']);
-    const [lid = '', lcmd = '', lclaim = ''] = (r && r.ok !== false ? String(r.stdout || '').replace(/\n$/, '') : '').split('\t');
-    return { id: lid, cmd: lcmd, claim: lclaim.trim() };
+  /* `=session:W.P` names exactly the pane plan() checked. Measured on tmux 3.6a: `=zara` does not resolve as an
+     option or message target, `=zara:` does, and never reaches `zarah`. */
+  const named = `=${p.session}:`;
+  const paneOf = /^\d+\.\d+$/.test(String(p.pane || '')) ? p.pane : '';
+  const lookAt = (target) => {
+    const r = run(['display-message', '-p', '-t', target, '#{session_id}\t#{pane_current_command}\t#{@kosmos_agent}']);
+    const line = r && r.ok !== false ? String(r.stdout || '').replace(/\n$/, '') : '';
+    const parts = line.split('\t');
+    // The mark is the last field and joins the rest, so a value holding a tab is read whole, never as empty.
+    return { id: parts[0] || '', cmd: parts[1] || '', claim: parts.slice(2).join('\t').trim() };
   };
-  /* The session's id and program just before the mark and again just after: the same pair, or the window was
-     replaced (even by another Claude session of the same name) and nothing is linked. A mark already there (Kosmos's own
-     supervisor started this session since the board's look) refuses before anything is set. */
-  const before = look();
+  const before = lookAt(named + paneOf);
   if (before.claim) return refused(`${p.name}'s window is already linked to Kosmos.`);
-  if (!before.id || !status.isClaudeCommand(before.cmd)) return refused(`Kosmos could not confirm what runs in the window called ${p.name}, so nothing was linked.`);
-  const set = run(['set-option', '-t', target, '@kosmos_agent', p.session]);
-  if (!set || set.ok === false) return refused(`Kosmos could not mark the window called ${p.name}. Nothing was changed.`);
-  const read = run(['show-options', '-v', '-t', target, '@kosmos_agent']);
-  const now = read && read.ok !== false ? String(read.stdout || '').trim() : '';
-  const after = look();
-  /* Another session now holds the name: the mark on it cannot be told apart from one Kosmos's own supervisor stamped
-     there, so it is left alone and nothing is claimed linked. */
-  if (after.id !== before.id) {
-    return refused(`The window called ${p.name} changed while Kosmos was linking it, so nothing was linked. Look again before trying.`);
+  /* The very program the board saw (plan() vetted it as an agent), not merely a command that could be Claude: an
+     unmarked `node` that replaced it since the board's look must not pass. */
+  if (!/^\$\d+$/.test(before.id) || before.cmd !== String(p.command || '') || !status.isClaudeCommand(before.cmd)) {
+    return refused(`Kosmos could not confirm what runs in the window called ${p.name}, so nothing was linked.`);
   }
-  if (now !== p.session || after.cmd !== before.cmd) {
-    const off = run(['set-option', '-u', '-t', target, '@kosmos_agent']);
+  /* From here on the SESSION ID is the target, not the name. Measured: once that session is gone, `$id` answers "no
+     such session" and a new session under the name is never marked. So a window replaced after the look cannot be
+     marked at all, and taking a mark off can only touch the session this call marked. */
+  const byId = before.id;
+  const set = run(['set-option', '-t', byId, '@kosmos_agent', p.session]);
+  if (!set || set.ok === false) return refused(`Kosmos could not mark the window called ${p.name}. Nothing was changed.`);
+  const read = run(['show-options', '-v', '-t', byId, '@kosmos_agent']);
+  const now = read && read.ok !== false ? String(read.stdout || '').trim() : '';
+  const after = lookAt(byId + (paneOf ? ':' + paneOf : ''));
+  if (now !== p.session || after.id !== before.id || after.cmd !== before.cmd) {
+    const off = run(['set-option', '-u', '-t', byId, '@kosmos_agent']);
     if (!off || off.ok === false) {
       return refused(`Kosmos could not confirm the window called ${p.name} after marking it, and could not take the mark off. Restart that window, or ask for help, before messaging it.`);
     }

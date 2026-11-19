@@ -56,6 +56,12 @@ nothing is changed. Proven by engine and route tests (each refusal with a contro
   arms and the route's 500 are tested; the real-tmux test runs with -f /dev/null, and its prefix phase reads the
   program as Claude, so a target without `=` is caught (measured red).
 
+- Review 4: after the look, every call targets the SESSION ID the look read (`$N`), not the name. Measured on tmux
+  3.6a: once that session is gone, `$N` answers "no such session" and a new session under the name is never marked; so
+  a window replaced after the look cannot be marked at all, and an unmark only ever touches the session this call
+  marked. The look must also report the very program the board vetted (not merely any Claude-like command, so an
+  unmarked node that replaced it fails). The mark field joins the rest of the line.
+
 ## Weakest premise
 That `@kosmos_agent` = session is all Kosmos needs to treat the window as its own for messages and the conversation
 view, and that a supervisor waiting in the not-ours loop (an agent that also has a Kosmos launch job) adopts the marked
