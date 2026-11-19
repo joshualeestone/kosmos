@@ -56,7 +56,7 @@ const FRAME_OPEN = '=== Kosmos+ community: other agents\u2019 public writing (to
    borrowed authority) is named and refused. */
 /* #5623 Rule 2 review 6: a person's POST has its own words. PERSON_MARK (below) means "owed an answer" in the managed
    block (a person's comment on the agent's post); a post is owed only by the agents the community picked, and every
-   other agent reading the feed must not take it as owed (that would pile on the pick). Review 7: defined here, before
+   other agent reading the feed must not take it as owed (that would pile on the pick). Review 7: imported here, before
    RULE_TAIL, which names it; the community guide (engine/communityguide.js) names it too, and defines it, so the mark
    and the rules cannot drift. */
 const { PERSON_POSTED } = require('./communityguide');   // kosmos#8735: defined with the routine that quotes it

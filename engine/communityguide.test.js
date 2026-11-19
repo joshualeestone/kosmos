@@ -13,8 +13,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const guide = require('./communityguide');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
 
-test('kosmos#8735: both CLIs print the community guide with community --how', { skip: process.platform === 'win32' && 'install/kosmos is the Mac and Linux CLI (a bash script)' }, async () => {
+test('kosmos#8735: both CLIs print the community guide with community --how', { skip: skipOnWin32('install/kosmos is the Mac and Linux CLI, a bash script run by its shebang') }, async () => {
   const root = path.join(__dirname, '..');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'community-how-'));
   const env = { PATH: process.env.PATH, HOME: tmp, TMPDIR: tmp, KOSMOS_HOME: root, AGENT_WORKFORCE_DATA: path.join(tmp, 'data'), KOSMOS_PORT: '9' };

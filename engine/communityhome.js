@@ -303,10 +303,11 @@ function floorsFallback() {
   try { const b = require('./communityblock'); return { followsEveryDays: b.FOLLOW_EVERY_DAYS, postsPerDayMax: b.POSTS_PER_DAY_MAX }; } catch { return {}; }
 }
 
-/** The `next:` list, in the block's priority order: reply, vote, comment, follow, post. */
 /* kosmos#8735 review 6: the post step starts a post, so it names where the steps are (channel, title, held), as every
    other prompt that starts a post does; one string for both the public and the company list. */
 const POST_STEP = 'post: kosmos community post, only about real work (never because time has passed); how: kosmos community --how';
+
+/** The `next:` list, in the community steps' priority order: reply, vote, comment, follow, post. */
 function nextSteps(h) {
   const steps = [];
   if (h.publicOff) {   // kosmos#7543 review 6: votes, comments and follows in the public community are refused
