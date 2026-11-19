@@ -17,7 +17,7 @@ sign-in right now ... if this keeps happening, update Kosmos." Nothing was out o
   ask's own limit), then falls back to the request-driven re-ask as before. Review 3: the count belongs to the connector
   BINARY (path, mtime, size), not the generation, so a tunnel that keeps restarting on one binary gets one budget; an
   update starts it again. A deliberate stop (stopChild) clears the timer. One unref'd timer, cleared by any answered ask and by a new
-  generation (forgetConnectorCapabilities). Review 1: the timer used to re-check its generation and the kept answer as
+  generation (forgetConnectorCapabilities); a deliberate stop starts a new generation too (review 4). Review 1: the timer used to re-check its generation and the kept answer as
   well; those were removed, so the clears are the one mechanism and a test can fail on them.
 - (d) An ask after an unanswered one gets 15 s instead of 5 s.
 - (c) Every ask writes one stderr line (the board's log): answered in N ms with what it listed, or not answered and what
@@ -40,21 +40,29 @@ sign-in right now ... if this keeps happening, update Kosmos." Nothing was out o
   redesigns that dialog anyway.
 
 ## Tests
-`server.capask-8728.test.js`, eight tests, timings shortened through a test-only seam (`timings` on
+`server.capask-8728.test.js`, nine tests, timings shortened through a test-only seam (`timings` on
 resetConnectorCapabilitiesForTests, honoured only under NODE_TEST_CONTEXT): self re-ask with the longer limit and both
 log lines; over HTTP the starting sentence while unknown; control, an old connector still gets "update Kosmos"; the cap
 of 1 + 20 asks and the last line; a new generation (forget with no new ask) leaves the old timer silent; while an
 earlier board's tunnel is being ended the sentence is "still starting", with a control that reaches the route; review
-3: a restart on the same binary after the budget ran out asks once and no more; pending for no tunnel here, no child,
+3: a restart on the same binary after the budget ran out asks once and no more, while an update starts it again;
+review 4: a stop while an ask is out drops its answer and arms nothing; pending for no tunnel here, no child,
 and the child's status not yet read, with the control that clears it.
 Mutations, each red: no self-retry (2 red), no starting sentence (1), no longer retry limit (1), no cap (1), no clear in
 forget (1), no foreign-window pending (1, set or read); review 3: forget resetting the count (1), the per-binary reset (1),
 the log's per-binary count (1), the status-not-read arm (1). Two separate "no tunnel here" and "no child" lines were
 removed rather than tested: each mutation left every test green because the status-not-read line already returns true
 in both cases, which the comment there now says. Existing: server.remotestepup-6595.test.js and
-server.stepupbutton-6616.test.js unchanged and green (47 with the new file).
+server.stepupbutton-6616.test.js unchanged and green (48 with the new file).
 
 ## Known and left
+- Review 4: "still starting" is bounded only for an unanswered ask. A child that runs and never writes its status file,
+  or an earlier board's tunnel that can never be ended, keeps it. Neither is a state seen in practice, and only the
+  sentence is at stake, never the refusal.
+- Review 4, older than this branch: noteRunning keeps the child's first status for that child's life, even one with
+  no `capabilities` field, so such a child gets the update sentence and no recheck. Not changed here.
+- In tests the log reads "asking again in 0 s" (the seam's short timing); production prints 30 s. The wording itself is
+  asserted only through the seam.
 - With no tunnel child running (between a crash and its relaunch, at most 60 s apart), pending is true and the sentence
   says "still starting". A tunnel that crashes forever keeps saying it. Not bounded here: the relaunch is real and
   close, and a request can only arrive then through an earlier board's tunnel that could not be ended.

@@ -195,7 +195,7 @@ test('8728 review 3: a tunnel that restarts on the same binary does not get a fr
     process.env.AGENT_WORKFORCE_TUNNEL_BIN = slow('flap-tunnel-updated', 60 * 1000);
     remote.forgetConnectorCapabilities();
     assert.ok(await until(() => lines.length >= 25, 5000), 'a new binary is asked again by itself: ' + lines.length);
-    assert.match(lines[22], /asked 1 times|asking again in 0 s/);
+    assert.match(lines[22], /asking again in 0 s/);
     assert.equal(remote.connectorCapabilitiesPending(), true, 'and is "still starting" again');
   } finally { releaseLog(); process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
@@ -215,4 +215,19 @@ test('8728 review 3: pending while this board has no tunnel of its own, no child
   assert.ok(remote.connectorCapabilities().has('session-headers'));
   assert.equal(remote.connectorCapabilitiesPending(), false, 'CONTROL: the binary said yes and the child listed it');
   reset(); await warm();
+});
+
+test('8728 review 4: stopping the tunnel while an ask is on its way: the late answer is dropped and arms nothing', async () => {
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = slow('stop-tunnel', 60 * 1000);
+  catchLog();
+  try {
+    reset({ askMs: 200, retryAskMs: 200, recheckMs: 10 });
+    const asked = warm();
+    remote.retireCapabilityAsks();   // what stopChild does, while that ask is still out
+    await asked;
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(lines.length, 1, 'one ask, and no self-retry after the stop: ' + JSON.stringify(lines));
+    assert.match(lines[0], /dropped, the tunnel has stopped or changed since/);
+  } finally { releaseLog(); process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
