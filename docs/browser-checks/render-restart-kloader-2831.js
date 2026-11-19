@@ -66,9 +66,18 @@ function initStub() {
   window.fetch = async (url, opts) => {
     const u = String(url);
     const method = (opts && opts.method ? String(opts.method) : 'GET').toUpperCase();
-    window.__posted.push({ url: u, method });
+    window.__posted.push({ url: u, method, body: opts && typeof opts.body === 'string' ? opts.body : null });
     if (/\/api\/agent\/[^/]+\/restart$/.test(u) && method === 'POST') {
       window.__statusSinceRestart = 0;
+      /* kosmos#8724: 'offer' is a window linked by hand with no launch job: refused with canWriteJob until the press
+         sends { writeJob: true }, which restarts it. */
+      if (window.__restartOutcome === 'offer') {
+        let b = null;
+        try { b = JSON.parse(opts && opts.body ? opts.body : 'null'); } catch { b = null; }
+        if (b && b.writeJob === true) return enc({ outcome: 'restarted', steps: [], jobWritten: true });
+        return enc({ outcome: 'refused', steps: [], cannotStart: true, noJob: true, canWriteJob: true,
+          because: 'April was started by hand, so Kosmos has no way to start it again yet. Kosmos can set April up to start on its own, then restart it.' }, 400);
+      }
       if (window.__restartOutcome === 'refused') {
         return enc({ outcome: 'refused', because: 'It was not started by Kosmos, so we cannot start it again.',
           steps: [{ label: 'close its window', ok: false }] }, 400);
@@ -307,6 +316,47 @@ function initStub() {
   check('REFUSED: the loader is torn down and the confirm controls are restored so the person can retry',
     refused.noCanvas && refused.goBack && refused.modalStillOpen, JSON.stringify(refused));
   check('REFUSED: no false auto-hello receipt is written for a restart that did not take', refused.note === '', JSON.stringify(refused.note));
+  const refusedGoText = await page.evaluate(() => document.getElementById('rst-go').textContent);   // kosmos#8724's control
+
+  // ---- Arm 3 (kosmos#8724): a window linked by hand with no launch job. The refusal offers to set it up; the button
+  //             then says "Set up and restart", and its next press sends writeJob and restarts. A plain refusal
+  //             (arm 2) never relabels it, and a fresh open takes the offer back.
+  await page.evaluate(() => {
+    window.__posted = [];
+    window.__restartOutcome = 'offer';
+    window.__kosmosRestartHoldMs = 50;
+    document.querySelector('#__ah .instr-restart-note').textContent = '';
+    openRestartModal(document.querySelector('#__ah [data-restart-agent]'), 'april');
+  });
+  await page.click('#rst-go');
+  await page.waitForFunction(() => /started by hand/.test(document.getElementById('rst-msg').textContent || ''), { timeout: 3000 }).catch(() => {});
+  const offered = await page.evaluate(() => ({
+    line: document.getElementById('rst-msg').textContent || '',
+    go: document.getElementById('rst-go').textContent,
+    goUsable: document.getElementById('rst-go').hidden === false && document.getElementById('rst-go').disabled === false,
+    bodies: window.__posted.filter((x) => /\/restart$/.test(x.url)).map((x) => x.body),
+  }));
+  check('#8724 OFFER: the refusal says the agent was started by hand and that Kosmos can set it up, then restart it',
+    /started by hand/.test(offered.line) && /set April up to start on its own, then restart it/.test(offered.line), JSON.stringify(offered));
+  check('#8724 OFFER: the button now says what its next press does, and is usable',
+    offered.go === 'Set up and restart' && offered.goUsable, JSON.stringify(offered));
+  check('#8724 OFFER: the first press did not ask for a job (no writeJob without the offer)',
+    offered.bodies.length === 1 && !/writeJob/.test(String(offered.bodies[0] || '')), JSON.stringify(offered.bodies));
+  await page.click('#rst-go');
+  await page.waitForFunction(() => document.getElementById('rst-modal').hidden === true, { timeout: 4000 }).catch(() => {});
+  const setUp = await page.evaluate(() => ({
+    bodies: window.__posted.filter((x) => /\/restart$/.test(x.url)).map((x) => x.body),
+    closed: document.getElementById('rst-modal').hidden === true,
+  }));
+  check('#8724 SET UP: the second press sends { writeJob: true } and the restart goes through',
+    setUp.bodies.length === 2 && JSON.parse(setUp.bodies[1] || '{}').writeJob === true && setUp.closed, JSON.stringify(setUp));
+  await page.evaluate(() => { openRestartModal(document.querySelector('#__ah [data-restart-agent]'), 'april'); });
+  const reopened = await page.evaluate(() => ({ go: document.getElementById('rst-go').textContent, flag: typeof RST_WRITE_JOB !== 'undefined' ? RST_WRITE_JOB : null }));
+  check('#8724 REOPEN: a fresh open is a plain Restart again (the offer does not carry over)',
+    /^Restart /.test(reopened.go) && reopened.flag === false, JSON.stringify(reopened));
+  await page.evaluate(() => { document.getElementById('rst-keep').click(); });
+  check('#8724 CONTROL: the plain refusal in arm 2 left the button as Restart (only canWriteJob relabels it)',
+    refusedGoText !== 'Set up and restart' && /^Restart /.test(refusedGoText), refusedGoText);
 
   if (pageErrors.length) check('no page/console errors during the run', false, pageErrors.join(' | '));
   else check('no page/console errors during the run', true);
