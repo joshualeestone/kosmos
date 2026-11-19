@@ -294,7 +294,7 @@ test('round 3: retryLater is not counted; "too big" after a try that uploaded sa
     let st = fresh();
     for (let i = 0; i < 12; i++) { await hs.tick(st, d); clock += hs.SOFT_RETRY_MS + 1; }
     assert.equal(st.attempts.get('ho9'), 0, 'twelve network refusals counted none');
-    answer = { ok: false, because: 'Kosmos+ refused (HTTP 503 on /v1/mac/org/handover/grant)' };
+    answer = { ok: false, because: 'Kosmos+ refused (HTTP 503 on /v1/mac/org/handover/grant)', added: new Map([['c1', {}]]) };   // it had uploaded
     await hs.tick(st, d);
     assert.equal(st.attempts.get('ho9'), 1);
     st = fresh();   // a restart
@@ -326,5 +326,51 @@ test('round 4: memory notes survive the transcript cap; retryLater ends after MA
     for (let i = 1; i < hs.MAX_SOFT; i++) { await hs.tick(s1, d); assert.equal(hs.notice(s1) && hs.notice(s1).stopped, undefined, 'soft ' + i); clock += hs.SOFT_RETRY_MS + 1; }
     await hs.tick(s1, d);
     assert.match(hs.notice(s1).stopped, /kept asking this computer to wait/);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('round 5: a counted failure ends a retryLater run; old decision files are swept; a failed /mine clears the notice', async () => {
+  const w = world();
+  try {
+    let clock = 0;
+    let answer = { ok: false, retryLater: true, because: 'quota' };
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hrun' })] } }), takeSnapshot: async () => answer });
+    const st = hs.newSendState();
+    for (let i = 1; i < hs.MAX_SOFT; i++) { await hs.tick(st, d); clock += hs.RETRY_MS + 1; }
+    answer = { ok: false, because: 'HTTP 503' };   // counted: the run of waits ends
+    await hs.tick(st, d); clock += hs.RETRY_MS + 1;
+    answer = { ok: false, retryLater: true, because: 'quota' };
+    await hs.tick(st, d);
+    assert.equal(hs.notice(st).stopped, undefined, 'not final: the run started again');
+    // Sweep: an unlisted decision file a day old goes; a listed one stays.
+    const dir = path.join(w.base, 'data', 'handover');
+    fs.mkdirSync(dir, { recursive: true });
+    for (const id of ['gone', 'kept']) fs.writeFileSync(path.join(dir, `send-${id}.json`), '{}');
+    const old = (Date.now() - 2 * 86400 * 1000) / 1000;
+    for (const id of ['gone', 'kept']) fs.utimesSync(path.join(dir, `send-${id}.json`), old, old);
+    hs.sweepSends(new Set(['kept']), Date.now(), path.join(w.base, 'data'));
+    assert.equal(fs.existsSync(path.join(dir, 'send-gone.json')), false);
+    assert.equal(fs.existsSync(path.join(dir, 'send-kept.json')), true);
+    // A failed /mine: the old line goes.
+    const s2 = hs.newSendState();
+    s2.open = [{ id: 'h1', agents: ['Ledger'] }];
+    await hs.tick(s2, { org: () => 'org1', macRequest: async () => ({ ok: false, because: 'down' }) });
+    assert.equal(hs.notice(s2), null);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('round 5: too big after an uncounted try that uploaded says the earlier try used up the room', async () => {
+  const w = world();
+  try {
+    let clock = 0;
+    let answer = { ok: false, retryLater: true, because: 'network', added: new Map([['c1', {}]]) };   // uploaded, then a network refusal
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hspent' })] } }), takeSnapshot: async () => answer });
+    const st = hs.newSendState();
+    await hs.tick(st, d);
+    clock += hs.SOFT_RETRY_MS + 1;
+    answer = { ok: false, because: 'Kosmos+ refused (HTTP 413 on /v1/mac/org/handover/grant, code handover_too_big)' };
+    await hs.tick(st, d);
+    assert.equal(st.attempts.get('hspent'), 1, 'the first counted try');
+    assert.match(hs.notice(st).stopped, /an earlier try used up the room/);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

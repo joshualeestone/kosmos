@@ -24,12 +24,15 @@ const HO = { id: 'ho1', prefix: 'handover/org1/ho1/' };
 
 async function bucket() {
   const stored = new Map();
+  const script = new Map();
   let puts = 0;
   const srv = http.createServer((req, res) => {
     const parts = []; req.on('data', (c) => parts.push(c)); req.on('end', () => {
       puts++;
       const key = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/bucket\//, '');
       const body = Buffer.concat(parts);
+      const next = script.has(key) && script.get(key).shift();   // scripted answers first (kosmos#8710 re-grant arm)
+      if (next) { res.statusCode = next[0]; return res.end(next[1] || ''); }
       const sha = req.headers['x-amz-checksum-sha256'];
       if (sha !== undefined ? sha !== sha256b(body) : req.headers['content-md5'] !== md5(body)) { res.statusCode = 400; return res.end('<Error><Code>BadDigest</Code></Error>'); }
       if (req.headers['if-none-match'] === '*' && stored.has(key)) { res.statusCode = 412; return res.end(''); }
@@ -38,7 +41,7 @@ async function bucket() {
   });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${srv.address().port}`;
-  return { stored, base, get puts() { return puts; }, close: () => new Promise((r) => { srv.closeAllConnections && srv.closeAllConnections(); srv.close(r); }) };
+  return { stored, script, base, get puts() { return puts; }, close: () => new Promise((r) => { srv.closeAllConnections && srv.closeAllConnections(); srv.close(r); }) };
 }
 
 /* The coordinator's hand-over routes. `tamper(data, route)` edits an answer; `prefix` overrides the key prefix. */
@@ -204,4 +207,30 @@ test("a hand-over manifest refuses a locked chunk or one outside the prefix, and
   assert.strictEqual(m3.ok, false);
   assert.match(m3.because, /no lock end for the manifest's chunk/);
   assert.strictEqual(c.calls.length, 0);
+});
+
+test('a hand-over manifest whose grant ran out cleanly is re-granted under the same key and stored; a re-grant naming a chunk key is still refused', async () => {
+  let b = await bucket();
+  try {
+    const c = coordinator(b);
+    const chunks = await up.uploadChunks(deps(c), [chunk(1)], { handover: HO });
+    assert.strictEqual(chunks.ok, true, chunks.because);
+    const list = [...chunks.keys.values()].map((key) => ({ key, lockedUntilMs: null }));
+    b.script.set(`${HO.prefix}manifest`, [[400, '<Error><Code>RequestTimeout</Code></Error>'], [403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']]);
+    const m = await up.uploadManifest(deps(c), crypto.randomBytes(up.MIN_OBJECT + 7), { chunks: list, handover: HO, bucket: chunks.bucket });
+    assert.strictEqual(m.ok, true, m.because);
+    assert.strictEqual(c.calls.filter((x) => x.route === up.HANDOVER_MANIFEST_ROUTE).length, 2, 'granted again');
+    assert.ok(b.stored.has(`${HO.prefix}manifest`));
+  } finally { await b.close(); }
+  b = await bucket();
+  try {
+    let n = 0;
+    const c = coordinator(b, { tamper: (d, route) => { if (route === up.HANDOVER_MANIFEST_ROUTE && ++n === 2) { d.upload.key = `${HO.prefix}k1`; d.upload.url = d.upload.url.replace('manifest', 'k1'); } } });
+    const chunks = await up.uploadChunks(deps(c), [chunk(1)], { handover: HO });
+    const list = [...chunks.keys.values()].map((key) => ({ key, lockedUntilMs: null }));
+    b.script.set(`${HO.prefix}manifest`, [[400, '<Error><Code>RequestTimeout</Code></Error>'], [403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']]);
+    const m = await up.uploadManifest(deps(c), crypto.randomBytes(up.MIN_OBJECT + 7), { chunks: list, handover: HO, bucket: chunks.bucket });
+    assert.strictEqual(m.ok, false);
+    assert.match(m.because, /must not write/);
+  } finally { await b.close(); }
 });

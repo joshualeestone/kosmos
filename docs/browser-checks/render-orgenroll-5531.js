@@ -351,7 +351,7 @@ const text = (pg, id) => pg.evaluate((i) => document.getElementById(i).textConte
       'O15b backup required: the joined sentence says the company (or family) requires it and its console shows it is not met; not when met or not said', JSON.stringify(o15b));
     // O15h (kosmos#8710): the leaving member is told which agents their company is moving (/api/org handover), after any
     // backup line, and why a pack stopped when one did. CONTROLS: no handover, and one naming no agents, say nothing more.
-    const MOVE = ' to a colleague\'s computer.';
+    const MOVE = ', with their recent conversations and notes, to a colleague\'s computer.';
     const o15h = { one: await joinedAs({ reporting: true, handover: { agents: ['Ledger'] } }),
       many: await joinedAs({ reporting: true, handover: { agents: ['Ledger', 'Permit Intake', 'Scout'] } }),
       stopped: await joinedAs({ reporting: true, handover: { agents: ['Ledger'], stopped: 'the folder of Ledger could not be found' } }),

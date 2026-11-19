@@ -16,8 +16,9 @@
  *                       agent whose folder cannot be read fails the pack, said with its name.
  *   profiles/<seg>      its one profile file, by name (`only`). The successor strips per-install fields (slice 4).
  *   sessions/<seg>/...  its transcripts, from backuptick.inputsHere().sessions (the backup's builder), trimmed to the
- *                       newest files up to SESSION_BYTES per agent. The newest file is always taken, even alone over
- *                       the cap (the snapshot's own MAX_FILE still applies to it).
+ *                       files up to SESSION_BYTES per agent: its memory notes first, whatever their age, then the
+ *                       newest transcripts that fit. The first file is taken even alone over the cap (the snapshot's own
+ *                       MAX_FILE still applies to it).
  *   NOT carried: Antigravity conversations. The backup stages those live SQLite files into Kosmos's own data first
  *   (backuptick.startWorld, backupagy.stageAgy); a pack does not, so an Antigravity agent arrives without them.
  * Never the data root, credentials or provider sign-ins: an agent folder that holds or sits inside one of backuptick's
@@ -40,7 +41,13 @@
  *     MAX_SOFT of them in a row.
  *   any other (a coordinator error, a busy connector, a file that could not be read): tried again after RETRY_MS.
  * Neither of the last two is shown. The attempt count and a final reason are kept on disk (send-<id>.json) for the
- * part they were decided for, so a restart neither forgets nor resets them. Never throws.
+ * part they were decided for, so a restart neither forgets nor resets them (the back-off wait itself is not kept: a
+ * restart tries once at once). Never throws.
+ *
+ * KNOWN: every try packs and uploads the whole pack (a hand-over keeps no index), and the coordinator counts every
+ * granted byte against the pack's 500 MB cap. So for a pack over about half the cap, a try interrupted after its
+ * uploads leaves too little room for another: it ends with "an earlier try used up the room", and the company starts
+ * the hand-over again.
  *
  * KNOWN, for slice 4: a pack's agent folders are named `workers/<seg>` (backuptick.rootSegment), which is the agent's
  * name unless that name is not a plain segment (then a cleaned form plus a hash); the receiver names the agent from its
@@ -81,6 +88,17 @@ function writeSend(id, root, rec) {
   } catch { /* kept in memory for this run */ }
 }
 function dropSend(id, root) { try { fs.rmSync(sendFile(id, root), { force: true }); } catch { /* left */ } }
+/* A decision file whose hand-over Kosmos+ no longer lists, a day after it was last written: removed. */
+function sweepSends(open, now, root) {
+  const dir = path.dirname(sendFile('x', root));
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return; }
+  for (const n of names) {
+    const m = /^send-([A-Za-z0-9_-]{1,64})\.json$/.exec(n);
+    if (!m || open.has(m[1])) continue;
+    try { const st = fs.lstatSync(path.join(dir, n)); if (st.isFile() && now - st.mtimeMs >= 24 * 60 * 60 * 1000) fs.rmSync(path.join(dir, n), { force: true }); } catch { /* left */ }
+  }
+}
 /* Coordinator refusals that no retry can change, each said in this module's own words (never the coordinator's text). */
 const FINAL_CODES = {
   handover_too_big: 'the agents are larger than one hand-over can carry',
@@ -250,7 +268,8 @@ async function tick(state, deps) {
     if (typeof org !== 'string' || !PLAIN.test(org)) { state.open = []; return { ok: true, none: true }; }
     const mac = d.macRequest || ((m, r, b) => require('./remote').macRequest(m, r, b));
     const mine = await mac('POST', MINE_ROUTE, {});
-    if (!mine || !mine.ok) return { ok: false, because: (mine && mine.because) || 'Kosmos+ did not answer' };
+    if (!mine || !mine.ok) { state.open = []; return { ok: false, because: (mine && mine.because) || 'Kosmos+ did not answer' }; }   // nothing known: say nothing rather than an old line
+    sweepSends(new Set((mine.data && Array.isArray(mine.data.handovers) ? mine.data.handovers : []).map((h) => h && h.id)), now, d.root);
     // What the leaving member is told (notice): every open part this computer sends, as the company named its agents.
     const rows = mine.data && Array.isArray(mine.data.handovers) ? mine.data.handovers : [];
     state.open = rows.filter((h) => h && h.side === 'send' && typeof h.id === 'string' && PLAIN.test(h.id) && Array.isArray(h.agents))
@@ -264,12 +283,13 @@ async function tick(state, deps) {
         if (rec.key === key) {
           if (Number.isSafeInteger(rec.attempts)) state.attempts.set(part.id, rec.attempts);
           if (Number.isSafeInteger(rec.soft)) state.soft.set(part.id, rec.soft);
+          if (rec.spent === true) state.spent.add(part.id);
           if (typeof rec.final === 'string') state.failed.set(part.id, { key, because: rec.final });
         }
       }
       const f = state.failed.get(part.id);
       if (f && f.key === key) continue;   // decided already; a changed part is tried again
-      if (f) { state.failed.delete(part.id); state.attempts.delete(part.id); dropSend(part.id, d.root); }
+      if (f) { state.failed.delete(part.id); state.attempts.delete(part.id); state.soft.delete(part.id); state.spent.delete(part.id); dropSend(part.id, d.root); }
       if (state.packed.has(part.id)) continue;   // packed in this run; the record moves on its own
       if ((state.retryAt.get(part.id) || 0) > now) continue;
       const p = packInput(part, org, d);
@@ -282,14 +302,17 @@ async function tick(state, deps) {
       state.retryAt.delete(part.id);
       if (r.ok) { state.packed.add(part.id); state.failed.delete(part.id); state.attempts.delete(part.id); state.soft.delete(part.id); dropSend(part.id, d.root); }
       else {
+        const grantedNow = !!(r.added && r.added.size) || r.grantSpent === true;
         // A network refusal or a quota (retryLater) is not the pack's: tried next tick, not counted.
         const tries = (state.attempts.get(part.id) || 0) + (r.retryLater ? 0 : 1);
+        if (!r.retryLater) state.soft.delete(part.id);   // the retryLater run is IN A ROW: a counted failure ends it
         state.attempts.set(part.id, tries);
         const code = r.code || require('./backupupload').refusalOf(r.because).code;
         // Every grant counts against the pack's cap on the coordinator and a new try uploads again, so "too big" after a
         // try that uploaded is the earlier try's bytes, not the agents' size.
         let said = FINAL_CODES[code];
-        if (code === 'handover_too_big' && tries > 1) said = 'an earlier try used up the room Kosmos+ keeps for this hand-over; your company can start the hand-over again';
+        // `spent`: an earlier try was granted bytes (kept on disk), counted or not, so the cap may hold its uploads.
+        if (code === 'handover_too_big' && state.spent.has(part.id)) said = 'an earlier try used up the room Kosmos+ keeps for this hand-over; your company can start the hand-over again';
         let final = null;
         if (r.final || said) final = said || r.because || 'the pack did not finish';
         else if (tries >= MAX_ATTEMPTS) final = `Kosmos tried ${tries} times and could not finish the pack; your company can start the hand-over again`;
@@ -301,7 +324,8 @@ async function tick(state, deps) {
           else state.retryAt.set(part.id, now + SOFT_RETRY_MS);
         } else state.retryAt.set(part.id, now + RETRY_MS);
         if (final) state.failed.set(part.id, { key, because: final });
-        writeSend(part.id, d.root, Object.assign({ key, attempts: tries, soft: state.soft.get(part.id) || 0 }, final ? { final } : {}));
+        if (grantedNow) state.spent.add(part.id);
+        writeSend(part.id, d.root, Object.assign({ key, attempts: tries, soft: state.soft.get(part.id) || 0, spent: state.spent.has(part.id) }, final ? { final } : {}));
       }
       return { ok: r.ok === true, id: part.id, because: r.ok ? undefined : r.because };   // one pack per tick
     }
@@ -312,7 +336,7 @@ async function tick(state, deps) {
   } finally { state.running = false; }
 }
 
-function newSendState() { return { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), soft: new Map(), packed: new Set(), loaded: new Set(), open: [] }; }
+function newSendState() { return { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), soft: new Map(), spent: new Set(), packed: new Set(), loaded: new Set(), open: [] }; }
 
 /* The board's own timer. Never throws. */
 function startTick(deps) {
@@ -343,4 +367,4 @@ function notice(state) {
   return failed ? { agents, stopped: failed.because } : { agents };
 }
 
-module.exports = { newSendState, MAX_SOFT, SOFT_RETRY_MS, MINE_ROUTE, SESSION_BYTES, RETRY_MS, MAX_ATTEMPTS, resolveNames, trimSessions, rootsFor, packInput, sendable, tick, startTick, enabled, startHere, notice };
+module.exports = { sweepSends, newSendState, MAX_SOFT, SOFT_RETRY_MS, MINE_ROUTE, SESSION_BYTES, RETRY_MS, MAX_ATTEMPTS, resolveNames, trimSessions, rootsFor, packInput, sendable, tick, startTick, enabled, startHere, notice };
