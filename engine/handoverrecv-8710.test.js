@@ -724,3 +724,36 @@ test('round 7: finishing again keeps failing but the agents are in place: receiv
   assert.equal(rows.length, 1, 'no second copy');
   assert.equal(rows[0].hiddenAt, undefined, 'and it is not hidden');
 });
+
+test('round 8: a restore that throws is a counted try, bounded by the ceiling; a link with credentials or another port is refused', async (t) => {
+  hr.allowHttpForTests(true);
+  const b = await bucket();
+  t.after(() => b.close());
+  let clock = Date.now();
+  const root = fresh(t, 'data'), base = fresh(t, 'base');
+  const c = coordinator(b, 'hthrow');
+  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+  await hr.tick(stateNew(), deps);
+  await pack(c, agentFolder(t));
+  const br = require('./backuprestore');
+  const keep = br.restoreSnapshot;
+  br.restoreSnapshot = async () => { throw new Error('boom'); };
+  try {
+    for (let i = 1; i < hr.MAX_ATTEMPTS; i++) { await hr.tick(stateNew(), deps); assert.equal(hr.readKey('hthrow', root).attempts, i, 'try ' + i); clock += hr.RETRY_MS + 1; }
+    await hr.tick(stateNew(), deps);
+  } finally { br.restoreSnapshot = keep; }
+  assert.equal(c.rec.state, 'failed', 'ended at the ceiling');
+  // A receive that throws outright is counted too.
+  const root2 = fresh(t, 'data');
+  hr.writeKey('hthrow2', require('./hpke').hpkeKeyPair(), root2);
+  const kp = hr.readKey('hthrow2', root2);
+  await hr.tick(stateNew(), { org: () => ORG, root: root2, base, fetch, receive: async () => { throw new Error('boom'); }, macRequest: async (m, route) => (route === hr.MINE_ROUTE
+    ? { ok: true, data: { handovers: [{ id: 'hthrow2', side: 'receive', state: 'packed', seal_pub: kp.pk.toString('base64') }] } } : { ok: true, data: {} }) });
+  assert.equal(hr.readKey('hthrow2', root2).attempts, 1);
+  hr.allowHttpForTests(false);
+  const k = 'handover/org1/ho1/c1';
+  assert.equal(hr.urlProblem(`https://u:p@bucket.s3.us-east-2.amazonaws.com/${k}`, k), 'a link carrying a name or password');
+  assert.equal(hr.urlProblem(`https://bucket.s3.us-east-2.amazonaws.com:8443/${k}`, k), 'a link to another port');
+  assert.equal(hr.urlProblem(`https://bucket.s3.us-east-2.amazonaws.com:443/${k}`, k), null, 'CONTROL: 443 is the https port');
+  hr.allowHttpForTests(true);
+});
