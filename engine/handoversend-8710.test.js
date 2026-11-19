@@ -128,7 +128,7 @@ test('the real snapshot accepts the pack input and asks the hand-over grant firs
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('a tick packs one part; a final failure is kept, another waits RETRY_MS, retryLater goes next tick', async () => {
+test('a tick packs one part; a final failure is kept, another waits RETRY_MS, retryLater waits SOFT_RETRY_MS', async () => {
   const w = world();
   try {
     const parts = [part({ id: 'ho1' }), part({ id: 'ho2' })];
@@ -142,7 +142,7 @@ test('a tick packs one part; a final failure is kept, another waits RETRY_MS, re
       macRequest: async (m, route, body) => { asked.push(route); assert.deepEqual(body, {}); return { ok: true, data: { handovers: parts } }; },
       takeSnapshot: async (input) => { takes.push(input.handover.id); return answer; },
     });
-    const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set() };
+    const state = hs.newSendState();
     assert.deepEqual(await hs.tick(state, d), { ok: false, id: 'ho1', because: 'refused for good' });
     assert.equal(asked[0], hs.MINE_ROUTE);
     // ho1 is decided: the next tick moves to ho2. A coordinator error (no final, no retryLater) waits RETRY_MS.
@@ -152,7 +152,10 @@ test('a tick packs one part; a final failure is kept, another waits RETRY_MS, re
     clock += hs.RETRY_MS + 1;
     answer = { ok: false, retryLater: true, because: 'later' };
     assert.equal((await hs.tick(state, d)).id, 'ho2');
-    assert.equal((await hs.tick(state, d)).id, 'ho2', 'retryLater waits for nothing');
+    assert.deepEqual(await hs.tick(state, d), { ok: true, none: true }, 'retryLater waits SOFT_RETRY_MS');
+    clock += hs.SOFT_RETRY_MS + 1;
+    assert.equal((await hs.tick(state, d)).id, 'ho2', 'then tries again');
+    clock += hs.SOFT_RETRY_MS + 1;
     answer = { ok: true };
     assert.equal((await hs.tick(state, d)).ok, true);
     assert.deepEqual(await hs.tick(state, d), { ok: true, none: true });
@@ -172,12 +175,12 @@ test('a coordinator refusal no retry can change is final, in this module\'s word
     const d = depsFor(w, { org: () => 'org1', now: () => clock,
       macRequest: async () => ({ ok: true, data: { handovers: parts } }),
       takeSnapshot: async () => answer });
-    const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set(), open: [] };
+    const state = hs.newSendState();
     await hs.tick(state, d);
     assert.deepEqual(hs.notice(state), { agents: ['Ledger'], stopped: 'the agents are larger than one hand-over can carry' });
     assert.equal(JSON.stringify(hs.notice(state)).includes('HTTP'), false, 'no coordinator text reaches the screen');
     // The ceiling: a failure that is neither final nor retryLater, every hour.
-    const s2 = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set(), open: [] };
+    const s2 = hs.newSendState();
     answer = { ok: false, because: 'Kosmos+ refused (HTTP 503 on /v1/mac/org/handover/grant)' };
     const d2 = Object.assign({}, d, { root: path.join(w.base, 'data2') });   // its own decisions file: the first part's final is kept on disk
     for (let i = 1; i < hs.MAX_ATTEMPTS; i++) { await hs.tick(s2, d2); assert.equal(hs.notice(s2).stopped, undefined, 'attempt ' + i); clock += hs.RETRY_MS + 1; }
@@ -192,7 +195,7 @@ test('a coordinator refusal no retry can change is final, in this module\'s word
 });
 
 test('leaving the company clears the notice at the next tick', async () => {
-  const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set(), open: [{ id: 'h1', agents: ['Ledger'] }] };
+  const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), soft: new Map(), packed: new Set(), loaded: new Set(), open: [{ id: 'h1', agents: ['Ledger'] }] };
   assert.deepEqual(hs.notice(state), { agents: ['Ledger'] });
   await hs.tick(state, { org: () => null, macRequest: async () => { throw new Error('not asked'); } });
   assert.equal(hs.notice(state), null);
@@ -206,10 +209,10 @@ test('a tick sends only where orgenroll.mayReport allows: enrolled here with no 
   try {
     oe.readEnrollment = () => ({ org: { id: 'org1' }, world: 'w' });
     oe.mayReport = () => false;   // enrolled, words not accepted here
-    assert.deepEqual(await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set() }, { macRequest }), { ok: true, none: true });
+    assert.deepEqual(await hs.tick(hs.newSendState(), { macRequest }), { ok: true, none: true });
     assert.equal(asked, 0);
     oe.mayReport = () => true;    // CONTROL: the same record, words accepted
-    await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set() }, { macRequest });
+    await hs.tick(hs.newSendState(), { macRequest });
     assert.equal(asked, 1);
   } finally { Object.assign(oe, keep); }
 });
@@ -217,13 +220,13 @@ test('a tick sends only where orgenroll.mayReport allows: enrolled here with no 
 test('a tick asks nothing when this computer is not in a company, and never runs twice at once', async () => {
   let asked = 0;
   const d = { org: () => null, macRequest: async () => { asked++; return { ok: true, data: { handovers: [] } }; } };
-  assert.deepEqual(await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set() }, d), { ok: true, none: true });
+  assert.deepEqual(await hs.tick(hs.newSendState(), d), { ok: true, none: true });
   assert.equal(asked, 0);
-  assert.deepEqual(await hs.tick({ running: true, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set() }, { org: () => 'org1', macRequest: d.macRequest }), { skipped: true });
+  assert.deepEqual(await hs.tick(Object.assign(hs.newSendState(), { running: true }), { org: () => 'org1', macRequest: d.macRequest }), { skipped: true });
   assert.equal(asked, 0);
   // A refused /mine (an older connector, say) packs nothing.
   let took = 0;
-  assert.equal((await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set() }, { org: () => 'org1', macRequest: async () => ({ ok: false, notSent: true, because: 'down' }), takeSnapshot: async () => { took++; return { ok: true }; } })).because, 'down');
+  assert.equal((await hs.tick(hs.newSendState(), { org: () => 'org1', macRequest: async () => ({ ok: false, notSent: true, because: 'down' }), takeSnapshot: async () => { took++; return { ok: true }; } })).because, 'down');
   assert.equal(took, 0);
 });
 
@@ -236,7 +239,7 @@ test('the tick is off unless KOSMOS_ORG_HANDOVER=1', () => {
 
 test('the notice lists every open send part\'s agents, with a stopped pack\'s reason', async () => {
   const k = sealPub();
-  const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set(), open: [] };
+  const state = hs.newSendState();
   assert.equal(hs.notice(state), null);
   const d = { org: () => 'org1', macRequest: async () => ({ ok: true, data: { handovers: [
     { id: 'h1', side: 'send', state: 'packed', seal_pub: k, agents: ['Ledger'] },
@@ -287,9 +290,9 @@ test('round 3: retryLater is not counted; "too big" after a try that uploaded sa
     let answer = { ok: false, retryLater: true, because: 'network' };
     const parts = [part({ id: 'ho9' })];
     const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: parts } }), takeSnapshot: async () => answer });
-    const fresh = () => ({ running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set(), open: [] });
+    const fresh = () => (hs.newSendState());
     let st = fresh();
-    for (let i = 0; i < 12; i++) await hs.tick(st, d);
+    for (let i = 0; i < 12; i++) { await hs.tick(st, d); clock += hs.SOFT_RETRY_MS + 1; }
     assert.equal(st.attempts.get('ho9'), 0, 'twelve network refusals counted none');
     answer = { ok: false, because: 'Kosmos+ refused (HTTP 503 on /v1/mac/org/handover/grant)' };
     await hs.tick(st, d);
@@ -305,5 +308,23 @@ test('round 3: retryLater is not counted; "too big" after a try that uploaded sa
     await hs.tick(st, Object.assign({}, d, { takeSnapshot: async () => { took++; return { ok: true }; } }));
     assert.equal(took, 0);
     assert.match(hs.notice(st).stopped, /an earlier try used up the room/);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('round 4: memory notes survive the transcript cap; retryLater ends after MAX_SOFT in a row', async () => {
+  // Newest first alone would take new + older (60 of 60) and drop the memory note.
+  const st = { 'a/new.jsonl': [30, 300], 'a/older.jsonl': [30, 200], 'a/memory/notes.md': [30, 1] };
+  const roots = [{ name: 'sessions/x/claude', path: '/r/a', only: ['memory/notes.md', 'new.jsonl', 'older.jsonl'] }];
+  const kept = hs.trimSessions(roots, 60, { stat: (p) => { const rel = path.relative('/r', p); const v = st[rel]; if (!v) throw new Error('nope'); return { isFile: () => true, size: v[0], mtimeMs: v[1] }; } });
+  assert.deepEqual(kept[0].only, ['memory/notes.md', 'new.jsonl'], 'the old memory note first, then the newest transcript');
+  const w = world();
+  try {
+    let clock = 0;
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hsoft' })] } }),
+      takeSnapshot: async () => ({ ok: false, retryLater: true, because: 'quota' }) });
+    const s1 = hs.newSendState();
+    for (let i = 1; i < hs.MAX_SOFT; i++) { await hs.tick(s1, d); assert.equal(hs.notice(s1) && hs.notice(s1).stopped, undefined, 'soft ' + i); clock += hs.SOFT_RETRY_MS + 1; }
+    await hs.tick(s1, d);
+    assert.match(hs.notice(s1).stopped, /kept asking this computer to wait/);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
