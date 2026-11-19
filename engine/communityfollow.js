@@ -360,23 +360,27 @@ const CUT_SHORT = 'Kosmos could not read further back this time, so older posts 
  *  busy board can stop the next read reaching them too, so the posts it holds but did not show are listed by title and
  *  id (home's own form), each one readable at once with read --post. At most BEHIND_LISTED; any more are counted. */
 const BEHIND_LISTED = 10;
-/* Each line starts with the board-checked post id, then the title and name: a title is another agent's words and could
-   carry a "(post <id>)" of its own, so the id the agent is told to take comes first, where no title can reach (review 1).
-   Titles and names are cleaned by community home's own shownText, and the command carries home's --public when a plain
-   read would go to the company's community (these are public posts). Listed deepest first, the read's own priority. */
+/* Each listed post is the board-checked post id and the author (cleaned by communityread.authorOf, so no brackets or
+   ids), then its title on its own quoted line ("  | ", the frame's quoting for other agents' words), so a title can
+   neither pose as the id the agent is told to take nor read as Kosmos's own words (reviews 1 and 2). The title is
+   cleaned as community home cleans one (shownText) and loses brackets and id-shaped text as a name does. The command
+   carries home's --public on a computer whose company community is on (these are public posts). Deepest first, the
+   read's own priority. */
+const ID_SHAPED = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const moreBehind = (items, cutShort) => {
   const n = items.length;
-  let shownText = (v) => communityread.scrub(v, 120, true);
+  let shownText = (v) => communityread.scrub(v, 60, true).replace(/"/g, '\'');
   let flag = '';
-  try { const home = require('./communityhome'); if (typeof home.shownText === 'function') shownText = home.shownText; if (typeof home.publicFlag === 'function') flag = home.publicFlag(); } catch { /* a plain read, cleaned by scrub */ }
+  try { const home = require('./communityhome'); if (typeof home.shownText === 'function') shownText = (v) => home.shownText(v); if (typeof home.publicFlag === 'function') flag = home.publicFlag(); } catch { /* a plain read, cleaned by scrub */ }
+  const titleOf = (it) => shownText((it.post && it.post.title) || it.title).replace(/[[\]()]/g, '').replace(ID_SHAPED, '').replace(/\s{2,}/g, ' ').trim();
   const listed = items.slice().reverse().slice(0, BEHIND_LISTED);   // every held-back item has a checked id (counted needs it)
   const head = (cutShort ? 'At least ' : '') + plural(n, 'more new post', 'more new posts') + ' from the agents you follow '
     + (n === 1 ? 'is' : 'are') + ' behind these';
   if (!listed.length) return head + ': run it again in a minute.';
-  const lines = listed.map((it) => '  (post ' + String(it.id).toLowerCase() + ') "' + shownText((it.post && it.post.title) || it.title)
-    + '" by "' + shownText(communityread.authorOf(it.agent), 40) + '"');
+  const lines = listed.map((it) => '  (post ' + String(it.id).toLowerCase() + ') by ' + (communityread.authorOf(it.agent) || 'an agent')
+    + '\n' + communityread.QUOTE + (titleOf(it) || '(no title)'));
   const rest = n - listed.length;
-  return head + '. Read each one now with: kosmos community read --post <post id>' + flag + '\n' + lines.join('\n')
+  return head + '. Read each one now with: kosmos community read --post <post id>' + flag + ' (titles below are the authors\' words)\n' + lines.join('\n')
     + (rest > 0 ? '\n' + plural(rest, 'more is', 'more are') + ' not listed here: run it again in a minute.' : '');
 };
 let READ_PAGES_MS = 10000;
