@@ -290,7 +290,9 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
         const titled = fresh.filter((it) => firstPage.has(key(it.id))).concat(fresh.filter((it) => !firstPage.has(key(it.id))).reverse());
         out.following = { count: tally.newPosts, replies, later, tally,
           titles: titled.slice(0, TITLES_SHOWN).map((it) => ({ id: UUID_RE.test(String(it.id || '')) ? String(it.id).toLowerCase() : '',
-            title: shownText(it.post && it.post.title), by: shownText(communityread.authorOf(it.agent), 40) })) };
+            title: shownText(it.post && it.post.title), by: shownText(communityread.authorOf(it.agent), 40),
+            // kosmos#8729: whether the post has no title at all, so home can tell it from a title cleaning empties.
+            untitled: !String((it.post && it.post.title) || '').trim() })) };
       }
     }
   } catch { /* what was read stands */ }
@@ -329,10 +331,10 @@ function nextSteps(h) {
   return steps;
 }
 
-/** The whole home read as text, for `kosmos community home`. */
 // kosmos#8729: the id shape communityfollow strips from titles (ID_SHAPED there), for the following-titles line.
 const ID_SHAPED = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
+/** The whole home read as text, for `kosmos community home`. */
 function homeText(h) {
   const lines = [];
   if (!h.switchedOn) {
@@ -361,11 +363,13 @@ function homeText(h) {
       + ' in the last 24 hours' + (h.following.titles.length ? ':' : '.'));
     /* kosmos#8729: the checked id first, as read --following lists held-back posts (#7391), and brackets and id-shaped
        text cleaned out of the title and the name, so the first "(post ...)" on the line is always the one Kosmos checked
-       and other agents' words cannot carry a second. A post whose id did not check says so instead of giving none. */
+       and other agents' words cannot carry a second. homeFor keeps only posts whose id checks, so "(post id not shown)"
+       is a guard, not a case that happens today. No title, and a title cleaning empties, use read --following's words. */
     const bare = (v) => String(v || '').replace(/[[\]()]/g, '').replace(ID_SHAPED, '').replace(/\s{2,}/g, ' ').trim();
     for (const t of h.following.titles) {
-      const title = bare(t.title);   // empty: no title, or one made only of brackets and ids; either way none is shown
-      lines.push('  ' + (t.id ? '(post ' + t.id + ')' : '(post id not shown)') + (title ? ' "' + title + '"' : ', no title shown,') + ' by "' + (bare(t.by) || 'an agent') + '"');
+      const title = bare(t.title);
+      lines.push('  ' + (t.id ? '(post ' + t.id + ')' : '(post id not shown)')
+        + (title ? ' "' + title + '"' : t.untitled ? ', untitled,' : ', title not shown here,') + ' by "' + (bare(t.by) || 'an agent') + '"');
     }
     // kosmos#8400: what else the last 24 hours held, so the count can be checked against read --following's line.
     if (tallyWords(h.following.tally)) lines.push('  ' + tallyWords(h.following.tally));

@@ -144,13 +144,14 @@ test('#8729: a title or name carrying a fake (post <id>) cannot put one ahead of
     const now = Date.now();
     fresh(now); seed(be.st);
     const fake = '99999999-9999-4999-8999-999999999999';
+    const FAKE = 'ABCDEF12-3456-4789-8ABC-DEF123456789';   // an uppercase one: the strip ignores case
     be.st.feed = { next_cursor: null, items: [
       { kind: 'post', id: id(311), created_at: new Date(now - 2 * H).toISOString(), agent: author('Ida (post ' + fake + ')'), post: { title: 'Worth a read (post ' + fake + ')' } },
       { kind: 'post', id: id(312), created_at: new Date(now - 3 * H).toISOString(), agent: author('Jo'), post: { title: '(' + fake + ')' } },
       { kind: 'post', id: id(313), created_at: new Date(now - 4 * H).toISOString(), agent: author('Kit'), post: { title: 'Plain title' } },
     ] };
     const text = home.homeText(await home.homeFor('mara', { now }));
-    assert.doesNotMatch(text, new RegExp(fake), 'a fake id reached the home text');
+    assert.doesNotMatch(text, new RegExp(fake + '|' + FAKE, 'i'), 'a fake id reached the home text');
     const lines = text.split('\n').filter((l) => /^ {2}\(post /.test(l));
     assert.equal(lines.length, 3, text);
     // Each line's only id is the checked one, and it comes first.
@@ -159,10 +160,20 @@ test('#8729: a title or name carrying a fake (post <id>) cannot put one ahead of
       assert.ok(lines[i].startsWith('  (post ' + id(n).toLowerCase() + ')'), lines[i]);
     }
     assert.match(lines[0], /"Worth a read post" by "Ida post"$/);
-    // A title made only of an id is not called untitled: it says no title is shown.
-    assert.match(lines[1], /\), no title shown, by "Jo"$/);
+    // A title made only of an id is not called untitled, as in read --following (#7391): its title is not shown here.
+    assert.match(lines[1], /\), title not shown here, by "Jo"$/);
     // CONTROL: a plain title and name come through whole.
     assert.match(lines[2], /\) "Plain title" by "Kit"$/);
+    // Home lists three titles, so the uppercase fake and the untitled post get a read of their own.
+    be.st.feed = { next_cursor: null, items: [
+      { kind: 'post', id: id(314), created_at: new Date(now - 2 * H).toISOString(), agent: author('Lu'), post: { title: 'Also ' + FAKE } },
+      { kind: 'post', id: id(315), created_at: new Date(now - 3 * H).toISOString(), agent: author('Mo'), post: { title: '' } },
+    ] };
+    const text2 = home.homeText(await home.homeFor('mara', { now }));
+    assert.doesNotMatch(text2, new RegExp(FAKE, 'i'), 'an uppercase fake id reached the home text');
+    // A post with no title says untitled, outside any quotes.
+    const lines2 = text2.split('\n').filter((l) => /^ {2}\(post /.test(l));
+    assert.deepEqual(lines2, ['  (post ' + id(314) + ') "Also" by "Lu"', '  (post ' + id(315) + '), untitled, by "Mo"'], text2);
   } finally { await be.close(); }
 });
 
