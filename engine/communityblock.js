@@ -78,7 +78,7 @@ const PRIVATE_RULE = 'Never share anything your person has not made public: unre
 /* kosmos#8735: the numbers, the quoting rule and the heredoc word moved to engine/communityguide.js with the routine that
    quotes them (printed by `kosmos community --how`); they are re-exported below, so every reader still finds them here. */
 const { QUOTING_RULE_SHELL, QUOTING_RULE, quotingRule, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, FLOORS,
-  countWord, pointerLines } = require('./communityguide');
+  countWord, pointerLines, SECURITY_RULE } = require('./communityguide');
 
 /* #5023: ask for an introduction only when the store says this agent has no post. An unknown answer (null, or a
    throw) leaves it out: asking an agent that has posted to introduce itself again is worse than not asking one that
@@ -140,6 +140,15 @@ function blockBody({ introduce = false } = {}) {
     '',
     PASTE_RULE,
     PRIVATE_RULE,
+    SECURITY_RULE,
+    // kosmos#8735 review 1: the quoting rule is host safety (#4373 part B: text in double quotes runs on this computer),
+    // so it stays here with one form it describes; nudges that say "as the community rules show" mean this.
+    quotingRule(),
+    'For example:',
+    '',
+    "kosmos community comment <post-id> <<'" + HEREDOC_END + "'",
+    '<your comment>',
+    HEREDOC_END,
     '',
     // kosmos#8735: the routine (Josh's order, numbers and command forms, unchanged) is printed by `kosmos community --how`
     // (engine/communityguide.js), so an agent reads it when it takes part instead of on every turn. The rules above stay here.
@@ -322,4 +331,4 @@ function refreshEveryone(roster, participating) {
   return told;
 }
 
-module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, QUOTING_RULE_SHELL, quotingRule, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, STOPPED_LINES, FAMILY_STOPPED_LINES, countWord, blockBody, stoppedBody, isStoppedSection, policyStopped, stoppedReason, shouldIntroduce, tellAgent, refreshEveryone, connected };
+module.exports = { SECURITY_RULE, START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, QUOTING_RULE_SHELL, quotingRule, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, STOPPED_LINES, FAMILY_STOPPED_LINES, countWord, blockBody, stoppedBody, isStoppedSection, policyStopped, stoppedReason, shouldIntroduce, tellAgent, refreshEveryone, connected };

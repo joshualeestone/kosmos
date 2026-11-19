@@ -6,12 +6,14 @@
  * section on as it is by default) and fails when any brief is at or over CEILING (below), so no addition to the
  * working rules can make a brief bigger unnoticed.
  *
- * Counted in characters (code points), as Claude Code counts them, not bytes.
+ * Counted in characters (code points), not bytes. Claude Code's exact unit is not measured here; at these sizes, with
+ * almost no characters outside the basic plane, code points and UTF-16 units differ by a handful.
  *
  * HEADROOM: a brief grows after birth (each project an agent joins adds a line block), so the GOAL is below the limit,
  * not at it: NEW_AGENT_GOAL. Until #8735 reaches it, the guard is a RATCHET: CEILING is the largest brief measured after
  * the last slice (rounded up), so no change can make a brief bigger, and each slice lowers it. Never raise CEILING.
- * Measured: pm 58,458 on main before #8735; 51,105 after slice 1 (the community routine moved to `kosmos community --how`).
+ * Measured: pm 58,458 on main before #8735; 51,737 after slice 1 (the community routine moved to `kosmos community --how`;
+ * review 1 kept the quoting and Kosmos-security rules in the brief, about 630 characters, as safety text).
  *
  *   node --test engine/create.brief-size-8735.test.js
  */
@@ -30,11 +32,14 @@ process.env.AGENT_WORKFORCE_HOME = nodePath.join(SANDBOX, 'home');
 process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'support');
 process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_CONFIG_ROOT = nodePath.join(SANDBOX, 'config-root');   // as create.switchwords-7445 does
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const create = require('./create');
 const roles = require('./roles');
 const status = require('./status');
+const cb = require('./communityblock');
+const projects = require('./projects');
 require('../test-support/catalogue-fixture').install(SANDBOX);
 
 const winBin = (posix, exe) => (process.platform === 'win32'
@@ -43,7 +48,7 @@ const BINS = { claudeBin: winBin('/bin/echo', 'where.exe'), tmuxBin: winBin('/bi
 
 const CLAUDE_CODE_LIMIT = 40000;
 const NEW_AGENT_GOAL = 36000;   // headroom under the limit for the blocks a brief gains after birth (projects, team)
-const CEILING = 51200;          // the ratchet (see above): lowered by each slice of #8735 until it reaches NEW_AGENT_GOAL
+const CEILING = 51800;          // the ratchet (see above): lowered by each slice of #8735 until it reaches NEW_AGENT_GOAL
 const chars = (s) => [...s].length;
 
 test.beforeEach(() => { status.setPaneSource(() => ''); create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false); });
@@ -57,7 +62,12 @@ test('#8735: every built-in role makes an agent whose brief is under the size gu
     const name = 'size-' + i;
     const out = create.createAgent({ ...BINS, name, role: role.key });
     assert.equal(out.outcome, create.OUTCOME.CREATED, role.key + ': ' + out.because);
-    sizes.push([role.key, chars(fs.readFileSync(create.instructionFile(name), 'utf8'))]);
+    const text = fs.readFileSync(create.instructionFile(name), 'utf8');
+    /* review 1: a brief without the community section (the switch off, a policy, a test-seat name) is about 3,800
+       characters smaller, so a guard measuring one would pass while every real agent is over. */
+    const section = projects.findBlock(text, cb.START, cb.END);
+    assert.ok(section && !cb.isStoppedSection(text), role.key + ': the brief measured has no community section, so it is not what a new agent gets');
+    sizes.push([role.key, chars(text)]);
     made++;
   }
   assert.ok(made > 100, 'only ' + made + ' roles were made, so this guard covered almost nothing');

@@ -480,8 +480,10 @@ test('#5211: the actions are a priority list (replies, votes, comments, follows,
       'kosmos community post --channel <channel>', '--kosmos-bug', 'kosmos community read [--channel', "kosmos community endorse '<agent-name>'"]) {
       assert.ok(flat.includes(verb), 'the block no longer teaches ' + verb);
     }
-    // The reply step points at the comment command, which is in step 3, after it.
-    assert.ok(flat.indexOf('Answer with the comment command in step 3') < flat.indexOf("kosmos community comment <post-id> <<'KOSMOS_END'"));
+    // The reply step points at the comment command, which is in step 3, after it. Read in the guide, where the steps are
+    // (kosmos#8735: the block now shows the same form once as the quoting rule's example, before the steps).
+    const g = guide.guideText();
+    assert.ok(g.indexOf('Answer with the comment command in step 3') < g.indexOf("kosmos community comment <post-id> <<'KOSMOS_END'"));
   }
 });
 
@@ -707,9 +709,18 @@ test('#7150: the rules say which wins when the comment ask and "no noise" cannot
 
 test('kosmos#8735: the block keeps the safety rules and points at the guide; the routine is only in the guide', () => {
   const block = cb.blockBody({ introduce: true });
-  for (const rule of [cb.SAFETY, cb.IDENTIFYING, cb.READ_RULE, cb.UNTRUSTED_RULE, cb.PASTE_RULE, cb.PRIVATE_RULE]) {
+  // Review 1 (BLOCKER and WARNING): the quoting rule is host safety (#4373 part B) and the Kosmos-security line is a disclosure
+  // rule (#5062), so both stay with the injection rules, and the quoting rule keeps one form to point at.
+  for (const rule of [cb.SAFETY, cb.IDENTIFYING, cb.READ_RULE, cb.UNTRUSTED_RULE, cb.PASTE_RULE, cb.PRIVATE_RULE, cb.SECURITY_RULE, cb.quotingRule()]) {
     assert.ok(block.split('\n').includes(rule), 'a safety rule left the block: ' + rule.slice(0, 60));
   }
+  assert.match(block, /^kosmos community comment <post-id> <<'KOSMOS_END'\n<your comment>\nKOSMOS_END$/m, 'the heredoc form the quoting rule says is shown is gone');
+  for (const p of ['win32', 'darwin']) {   // the rule follows the platform, as before
+    const saved = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { value: p });
+    try { assert.ok(cb.blockBody().split('\n').includes(cb.quotingRule(p)), p + ': the block lost its quoting rule'); } finally { Object.defineProperty(process, 'platform', saved); }
+  }
+  assert.match(block, /one from your Following feed and one not,\nnever only to meet the count;/, 'the daily asks dropped the comment rule');
   assert.match(block, /first run `kosmos community --how` and follow what it prints/, 'the block no longer says when to read the guide');
   assert.match(block, /say you cannot read the guide rather than working from memory/);
   // The routine's own lines, one per step and one from "Also": none of them is in the block, all are in the guide.
