@@ -169,3 +169,21 @@ test('the tick is off unless KOSMOS_ORG_HANDOVER=1', () => {
   assert.equal(hs.startHere({}), null);
   assert.equal(hs.enabled({ KOSMOS_ORG_HANDOVER: ' 1 ' }), true);
 });
+
+test('the notice lists every open send part\'s agents, with a stopped pack\'s reason', async () => {
+  const k = sealPub();
+  const state = { running: false, failed: new Map(), packed: new Set(), open: [] };
+  assert.equal(hs.notice(state), null);
+  const d = { org: () => 'org1', macRequest: async () => ({ ok: true, data: { handovers: [
+    { id: 'h1', side: 'send', state: 'packed', seal_pub: k, agents: ['Ledger'] },
+    { id: 'h2', side: 'receive', state: 'packing', seal_pub: k, agents: ['Other'] },
+    { id: 'h3', side: 'send', state: 'requested', seal_pub: null, agents: ['Scout', 'Ledger'] },
+  ] } }) };
+  await hs.tick(state, d);
+  assert.deepEqual(hs.notice(state), { agents: ['Ledger', 'Scout'] });
+  state.failed.set('h3', { key: 'x', because: 'no folder' });
+  assert.deepEqual(hs.notice(state), { agents: ['Ledger', 'Scout'], stopped: 'no folder' });
+  // Nothing open: nothing said.
+  await hs.tick(state, { org: () => 'org1', macRequest: async () => ({ ok: true, data: { handovers: [] } }) });
+  assert.equal(hs.notice(state), null);
+});

@@ -155,6 +155,10 @@ async function tick(state, deps) {
     const mac = d.macRequest || ((m, r, b) => require('./remote').macRequest(m, r, b));
     const mine = await mac('POST', MINE_ROUTE, {});
     if (!mine || !mine.ok) return { ok: false, because: (mine && mine.because) || 'Kosmos+ did not answer' };
+    // What the leaving member is told (notice): every open part this computer sends, as the company named its agents.
+    const rows = mine.data && Array.isArray(mine.data.handovers) ? mine.data.handovers : [];
+    state.open = rows.filter((h) => h && h.side === 'send' && typeof h.id === 'string' && PLAIN.test(h.id) && Array.isArray(h.agents))
+      .map((h) => ({ id: h.id, agents: h.agents.filter((x) => typeof x === 'string' && x) }));
     for (const part of sendable(mine.data)) {
       const key = `${part.seal_pub}|${(part.agents || []).join('\n')}`;
       const f = state.failed.get(part.id);
@@ -180,7 +184,7 @@ async function tick(state, deps) {
 /* The board's own timer. Never throws. */
 function startTick(deps) {
   const d = deps || {};
-  const state = { running: false, failed: new Map(), packed: new Set() };
+  const state = { running: false, failed: new Map(), packed: new Set(), open: [] };
   const run = () => { tick(state, d).catch(() => {}); };
   const t = (d.setInterval || setInterval)(run, d.everyMs || EVERY_MS);
   if (t && typeof t.unref === 'function') t.unref();
@@ -190,6 +194,18 @@ function startTick(deps) {
 /* Off unless KOSMOS_ORG_HANDOVER=1 is in the board's environment, the same word that turns hand-over on at the
    coordinator: until then no company computer asks /mine every few minutes for a route that is off. */
 function enabled(env) { return String(((env || process.env).KOSMOS_ORG_HANDOVER) || '').trim() === '1'; }
-function startHere(env) { return enabled(env) ? startTick({}) : null; }
+let here = null;
+function startHere(env) { if (!enabled(env)) return null; if (!here) here = startTick({}); return here; }
 
-module.exports = { MINE_ROUTE, SESSION_BYTES, resolveNames, trimSessions, rootsFor, packInput, sendable, tick, startTick, enabled, startHere };
+/* For the leaving member's screen: the agents moving, and why a pack stopped if one did, or null. Read from the last
+   /mine answer, so it is at most one tick old. A notice, not a consent ask: the company decided. */
+function notice(state) {
+  const st = state || (here && here.state);
+  if (!st || !Array.isArray(st.open) || !st.open.length) return null;
+  const agents = [...new Set(st.open.flatMap((h) => h.agents))];
+  if (!agents.length) return null;
+  const failed = st.open.map((h) => st.failed.get(h.id)).find(Boolean);
+  return failed ? { agents, stopped: failed.because } : { agents };
+}
+
+module.exports = { MINE_ROUTE, SESSION_BYTES, resolveNames, trimSessions, rootsFor, packInput, sendable, tick, startTick, enabled, startHere, notice };
