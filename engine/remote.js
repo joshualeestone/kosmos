@@ -149,10 +149,10 @@ const CAPABILITIES_RECHECK_MS = 10 * 60 * 1000;
 const CAPABILITIES_UNANSWERED_RECHECK_MS = 30 * 1000;
 // How long one ask may take before it counts as unanswered (a cold start on Windows can scan the exe first).
 const CAPABILITIES_ASK_TIMEOUT_MS = 5000;
-/* kosmos#8728: an ask made while the last one went unanswered (a self-retry, or a request's ask after the self-retries
-   ran out) may take this long. Measured on 11-19: a Mac that had just
-   restarted ran its board's tunnel at load ~150, the first ask most likely did not answer inside five seconds, and the
-   first remote action six minutes later was refused. */
+/* kosmos#8728: an ask made while unanswered asks are counted (a self-retry, a request's ask after the self-retries ran
+   out, or the first ask on a new binary right after them) may take this long. On 11-19 a Mac that had just restarted
+   ran its board's tunnel at load ~150, the first ask most likely did not answer inside five seconds, and the first
+   remote action six minutes later was refused. */
 const CAPABILITIES_RETRY_TIMEOUT_MS = 15000;
 /* kosmos#8728: an unanswered ask is asked again ON ITS OWN, thirty seconds apart, this many times (10 to 15 minutes,
    with each ask's own limit), so a person's press is never what starts the re-ask. After that only a request asks, as
@@ -192,6 +192,10 @@ function noteCapabilities(caps, answered, now, generation = capabilitiesGenerati
   return caps;
 }
 function clearSelfRetry() { if (selfRetryTimer) { clearTimeout(selfRetryTimer); selfRetryTimer = null; } }
+/* kosmos#8728 review 4: a deliberate stop of the tunnel ends the board's own asking, including an ask already on its
+   way: a new generation drops its answer (so it cannot arm the timer again), and the asking flag is freed for the next
+   start. A kept yes is untouched; the next start decides about it (forgetConnectorCapabilities). */
+function retireCapabilityAsks() { clearSelfRetry(); capabilitiesGeneration += 1; askingCapabilities = false; }
 /* kosmos#8728: ask again by itself after an unanswered ask. One timer, cleared by an answered ask and by a new
    generation (forgetConnectorCapabilities). Unref'd, so it never holds a process open. */
 function scheduleSelfRetry() {
@@ -429,11 +433,11 @@ function logCapabilityAsk(answered, caps, ms, timeout, generation, binary) {
   let line = 'remote: connector capabilities ';
   if (answered) {
     line += 'answered in ' + ms + ' ms: ' + ([...caps].join(' ') || 'none');
-    if (generation !== capabilitiesGeneration) line += '; dropped, the tunnel has changed since';
+    if (generation !== capabilitiesGeneration) line += '; dropped, the tunnel has stopped or changed since';
   }
   else {
     line += 'not answered in ' + ms + ' ms (limit ' + timeout + ' ms); ';
-    if (generation !== capabilitiesGeneration) line += 'dropped, the tunnel has changed since';
+    if (generation !== capabilitiesGeneration) line += 'dropped, the tunnel has stopped or changed since';
     else if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) line += 'the earlier yes is kept';
     else if (stillSelfRetrying(count)) line += 'asking again in ' + Math.round(capTiming('recheckMs', CAPABILITIES_UNANSWERED_RECHECK_MS) / 1000) + ' s';
     else line += 'asked ' + count + ' times; asking again only when a remote request finds the answer due';
@@ -1347,7 +1351,7 @@ function registerTakesOver() {
 }
 
 function stopChild() {
-  clearSelfRetry();   // kosmos#8728 review 3: a deliberate stop ends the board's own re-asking too
+  retireCapabilityAsks();   // kosmos#8728 reviews 3 and 4: a deliberate stop ends the board's own asking too
   restartPending = false;   // a deliberate stop: the next start is not a supervisor relaunch
   if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
   backoffMs = 1000;
@@ -4441,7 +4445,7 @@ async function signinRegister(name) {
 
 module.exports = {
   PRICE_SHAPE,   // kosmos#7404: personal backup's price is checked by the same shape (engine/personalbackupoffer.js)
-  cloudKeepsOn, clearStateDir, offeredKeyIn, acceptOfferedKey, OFFERED_KEY_LABEL /* kosmos#6596 step 8 */, connectorCapabilities, connectorCapabilitiesPending /* kosmos#8728 */, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, busy /* #7215: read-only, a Forget or sign-in under way */, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
+  cloudKeepsOn, clearStateDir, offeredKeyIn, acceptOfferedKey, OFFERED_KEY_LABEL /* kosmos#6596 step 8 */, connectorCapabilities, connectorCapabilitiesPending, retireCapabilityAsks /* kosmos#8728 */, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, busy /* #7215: read-only, a Forget or sign-in under way */, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,
