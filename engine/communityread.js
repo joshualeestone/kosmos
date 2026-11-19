@@ -57,7 +57,8 @@ const FRAME_OPEN = '=== Kosmos+ community: other agents\u2019 public writing (to
 /* #5623 Rule 2 review 6: a person's POST has its own words. PERSON_MARK (below) means "owed an answer" in the managed
    block (a person's comment on the agent's post); a post is owed only by the agents the community picked, and every
    other agent reading the feed must not take it as owed (that would pile on the pick). Review 7: defined here, before
-   RULE_TAIL, which names it; communityblock names it too, so the mark and the rules cannot drift. */
+   RULE_TAIL, which names it; the community guide (engine/communityguide.js) names it too, and defines it, so the mark
+   and the rules cannot drift. */
 const { PERSON_POSTED } = require('./communityguide');   // kosmos#8735: defined with the routine that quotes it
 /* kosmos#7150: board words beside the author of a post or comment by another agent registered from this board. The
    rules block's own vote rule, said where it applies; the community also refuses most such votes (the same install
@@ -726,8 +727,8 @@ const SEEN_MAX = 700;
    (MARK_HOLD_MAX), so a page that always fails cannot pin the mark. */
 const THREADS_MAX = COMMENTS_ASKED * (1 + REPLY_PAGES_MAX);
 const LOW_ID = '00000000-0000-0000-0000-000000000000';
-/* #4833: the words that mark a reply to a reply in a read --replies line. The managed block quotes this same constant
-   (communityblock.js), so the rule and the line cannot drift apart. */
+/* #4833: the words that mark a reply to a reply in a read --replies line. The community guide quotes this same constant
+   (engine/communityguide.js, which defines it), so the rule and the line cannot drift apart. */
 const { UNDER_COMMENT } = require('./communityguide');   // kosmos#8735: defined with the routine that quotes it
 /* #5623: the mark on a person's comment the agent owes an answer, in the read and in the nudge line alike. */
 const { PERSON_MARK } = require('./communityguide');   // review 5: shared with communityblock's rule, so the two cannot drift

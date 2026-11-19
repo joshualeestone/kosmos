@@ -592,9 +592,10 @@ function lineFor(sections, { communityStopped = false, changesAt = null } = {}) 
       : 'Do not take part in the Kosmos+ community now because of this notice, even with a daily minimum still open there; '
         + 'its new text applies the next time you take part. '
         /* kosmos#8735 review 1: since the routine moved to the guide, a line about HOW to take part that left this section
-           is printed by `kosmos community --how`, not dropped; without this, the changes file marks it as no longer applying. */
-        + 'How to take part (the steps, the commands, what to do when something is held) is printed by kosmos community --how, '
-        + 'so a line about that which left this section still applies there. ';
+           is printed by `kosmos community --how`, so the notice says where to read it (review 5: it does not claim any one removed
+           line still applies, which a later change could make false). */
+        + 'How to take part (the steps, the commands, what to do when something is held) is printed by kosmos community --how: '
+        + 'read it there before you next take part. ';
   // kosmos#7149: where the changed lines are, so the agent need not re-read a long block to find a short change.
   const changes = typeof changesAt === 'string' && changesAt
     ? 'To help you find what changed, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves; a line it marks + elsewhere is current too, and a line it marks - no longer applies). '

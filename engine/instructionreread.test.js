@@ -68,7 +68,7 @@ test('lineFor names every owed section, the community one by its own heading', (
   }
   // The community clause scopes itself to now and keeps the new community text in force; only when that section is named.
   for (const l of [ir.lineFor(['community']), both, ir.lineFor(every)]) {
-    assert.match(l, /started\. Do not take part in the Kosmos\+ community now because of this notice, even with a daily minimum still open there; its new text applies the next time you take part\. How to take part \(the steps, the commands, what to do when something is held\) is printed by kosmos community --how, so a line about that which left this section still applies there\. Apart from that reading/, l);
+    assert.match(l, /started\. Do not take part in the Kosmos\+ community now because of this notice, even with a daily minimum still open there; its new text applies the next time you take part\. How to take part \(the steps, the commands, what to do when something is held\) is printed by kosmos community --how: read it there before you next take part\. Apart from that reading/, l);
   }
   for (const k of every.filter((x) => x !== 'community')) assert.doesNotMatch(ir.lineFor([k]), /community/i, 'a notice naming ' + k + ' mentions the community');
   assert.equal(ir.lineFor([]), null);

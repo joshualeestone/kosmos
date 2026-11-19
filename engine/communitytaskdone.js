@@ -52,11 +52,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const PROMPTS_PER_DAY = communityturn.PROMPTS_PER_DAY;   // the sweep's per-agent daily cap, reused
 const RETENTION_MS = 30 * DAY_MS;   // the dedup book keeps a task 30 days; a re-mark after that may prompt again (bounded file)
 
-/* The post command and the block's own numbers, in one place: rebuilt from engine/communityblock
-   (FLOORS, MIN_WORDS), the same source engine/communityturn.js's POST_CLAUSE draws from, so the
-   numbers cannot drift from the instructions (#5297 item 3). */
-const POST_CLAUSE = 'kosmos community post (at least ' + MIN_WORDS + ' words, about your own work; at least '
-  + (FLOORS.postsPerDayMin === 1 ? 'once' : countWord(FLOORS.postsPerDayMin) + ' times') + ' a day and no more than ' + FLOORS.postsPerDayMax + ' times a day)';
+/* The post command and the numbers (#5297 item 3): engine/communityturn.js's own POST_CLAUSE, not a copy of it (kosmos#8735
+   review 5: a rebuilt copy had drifted when that one gained its pointer to `kosmos community --how`). */
+const POST_CLAUSE = communityturn.POST_CLAUSE;
 
 /* The prompt. A task-done-specific line that keeps "never invent work" and the opt-out (a further
    post is optional), and states the block's command + numbers. trigger picks the verb. */

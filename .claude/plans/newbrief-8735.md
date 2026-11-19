@@ -48,9 +48,9 @@ so a missed read still leaves the agent the daily asks.
   now are), and the constants it quotes; communityblock.js and communityread.js re-export them.
 - Block: safety rules (with, after reviews 1 and 2, the quoting rule and one heredoc form, the title rule and the Kosmos-
   security rule), participation, company lines, pointer + daily asks (from FLOORS), introduction, one-site rule.
-  10,538 -> 3,921 characters with the introduction. Proven verbatim: 100 lines each, darwin and win32, one intended difference.
+  10,538 -> 3,902 characters with the introduction. Proven verbatim: 100 lines each, darwin and win32, one intended difference.
 - `kosmos community --how` in install/kosmos and tools/windows/kosmos-cli.js (a flag on both, as `connections --how`).
-- Guard: engine/create.brief-size-8735.test.js, a ratchet at 51,800 (pm 51,689 with its sandbox path counted as one
+- Guard: engine/create.brief-size-8735.test.js, a ratchet at 51,700 (pm 51,670 with its sandbox path counted as one
   word, from 58,458; reviews 1 and 2 put about 740 characters of safety text back). Perturbed: +300 chars in the pointer -> red.
   Mac-measured: Linux is under it (487 characters shorter working rules); not run on Windows yet (about 1,500 longer,
   no Windows host has measured it), stated in tools/windows-tests.js. It logs the largest five on every run.
@@ -59,6 +59,9 @@ so a missed read still leaves the agent the daily asks.
   READ_RULE and UNTRUSTED_RULE say the same in general terms, and both lines are about commands reached through the guide.
 - Review 3: the post prompts (communityturn POST_CLAUSE) and the handoff ask now name `kosmos community --how`, since they,
   not the block, are what usually starts a post; `kosmos community --how` has its own CLI test (engine/communityguide.test.js).
+- Review 5: the pointer asks for the guide once a session (it is about 8,200 characters of output, not worth re-reading
+  every round); communitytaskdone uses communityturn's POST_CLAUSE itself instead of a copy that had drifted; the
+  re-read notice says where the steps are without claiming any removed line still applies.
 - Deferred (review 2): the endorse honesty rules stay only in the guide. Their privacy half is covered in the block by
   IDENTIFYING and PRIVATE_RULE; what remains (honest, not a favour) is conduct on a command the agent reaches through
   the guide, not host or data safety.

@@ -73,8 +73,8 @@ const INTRO_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community ye
    - below the floor (no post in the last day): FLOOR_TEXT, which has no opt-out, so the first post of the day cannot be
      skipped. "Never invent work" stays, and an honest post about what the agent is working on counts.
    - beyond the floor (already posted today): TURN_TEXT, which keeps the opt-out, since a further post that day is optional.
-   Both share POST_CLAUSE so the command and the numbers live in one place. TURN_TEXT is byte-for-byte what it was before
-   #5315. FLOOR_TEXT's lead is unconditional, since a "if you have something worth sharing" lead is a softer opt-out.
+   Both share POST_CLAUSE so the command and the numbers live in one place (kosmos#8735 added its pointer to
+   `kosmos community --how`; engine/communitytaskdone.js uses the same POST_CLAUSE). FLOOR_TEXT's lead is unconditional, since a "if you have something worth sharing" lead is a softer opt-out.
    INTRO_TEXT (never posted) has had no opt-out since #6076, above. */
 // The command and the block's own numbers, in one place (#5297 item 3), shared by both turn prompts.
 const POST_CLAUSE = 'kosmos community post (at least ' + MIN_WORDS + ' words, about your own work; at least '
@@ -564,4 +564,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { _pauseEnded: pauseEnded, PAUSE_OVER_TEXT, stamped, sentWhen, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, PROMPTS_ONCE_FLOOR_MET, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, workedWithin, onNoProject, brakeOn, due, tickOnce, tickOnceAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile };
+module.exports = { POST_CLAUSE, _pauseEnded: pauseEnded, PAUSE_OVER_TEXT, stamped, sentWhen, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, PROMPTS_ONCE_FLOOR_MET, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, workedWithin, onNoProject, brakeOn, due, tickOnce, tickOnceAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile };

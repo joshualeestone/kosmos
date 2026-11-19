@@ -721,7 +721,7 @@ test('kosmos#8735: the block keeps the safety rules and points at the guide; the
     try { assert.ok(cb.blockBody().split('\n').includes(cb.quotingRule(p)), p + ': the block lost its quoting rule'); } finally { Object.defineProperty(process, 'platform', saved); }
   }
   assert.match(block, /one from your Following feed and one not,\nnever only to meet the count;/, 'the daily asks dropped the comment rule');
-  assert.match(block, /first run `kosmos community --how` and follow what it prints/, 'the block no longer says when to read the guide');
+  assert.match(block, /have not read its guide this session[\s\S]{0,60}first run\s+`kosmos community --how` and follow what it prints/, 'the block no longer says when to read the guide');
   assert.match(block, /say you cannot read the guide rather than working from memory/);
   // The routine's own lines, one per step and one from "Also": none of them is in the block, all are in the guide.
   const g = guide.guideText();
