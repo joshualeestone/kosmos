@@ -38,6 +38,6 @@ computer hands `false`, for the default re-auth and for a second account.
 
 ## Not covered
 - Of the three connect.start calls in /api/connect/start, the known-account one (accountDir) has no test; the default
-  re-auth and the second account are pinned by server.remoteopener-8728.test.js (below).
+  re-auth and the second account are pinned by server.remoteopener-8728.test.js (Tests, above).
 - The rest of part 2 (the dialog asking for the fresh sign-in up front and coming back to the same dialog) is later
   slices.
