@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: linkjob-8724
-diff_hash: efa4a16dbaaa50d8198c4c659ae949d60ea9f7fd065d1312f6c470f737863d34
+diff_hash: 88b11f88c4d4eab31911dfcb5134c85b86757a65fce83cb021325cea945a8e7b
 validation: passed (Mortals): full suite on head 25875cf1a (the same code before its rebase onto main), entry status "clean", hash d94715e73316, 11:49 CST 2026-11-19; rebased onto main since (8 commits, no conflict), its tests and the guards main added pass on the rebased head
 subdir_audit: passed
 timestamp: 2026-11-19T17:49:55Z
@@ -47,6 +47,11 @@ sentence moved with the modal into the agent panel) and then onto main.
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 new WARNINGs, 0 CONVENTIONs. **Converged.** Its WARNING repeated round 2's (adoption unmeasured), already measured on a real tmux.
 - [NIT] survey twice per press; hgo handling spread over three sites --> recorded
+
+### After the loop
+- f9cca6a9bf: a design-shot screen (docs/browser-checks/mobile-shots.js `restart-setup-8724`, the tool only, no product
+  code) for the restart dialog's offer, so the reviewer has light and dark, desktop and phone shots
+  (~/work/design-shots/kosmos-8724). The tool's own tests pass with it; the diff hash above covers it.
 
 ### Strengths
 - [STRENGTH] The job is written inside the restart, after its own checks, so a refused restart leaves no job.
