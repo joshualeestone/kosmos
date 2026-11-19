@@ -32,9 +32,12 @@ In a private tmux server with an empty sandbox config folder and logging stand-i
 re-auth's new-session argv has `BROWSER=/usr/bin/true` exactly once, between `env` and the claude binary; the CONTROL,
 a local re-auth, has no BROWSER assignment. Both end in `auth login --claudeai`. Mutation: removing the push makes the
 remote arm red. engine/connect.test.js and server.connect.test.js: 171 pass, 0 fail.
+`server.remoteopener-8728.test.js`: connect.start replaced by a recorder; a request through Kosmos+ (vouching
+connector, fresh session headers, so it passes the step-up gate) hands `remoteStarted: true`, and the CONTROL at the
+computer hands `false`, for the default re-auth and for a second account.
 
 ## Not covered
-- server.js threading (`remoteStarted: isRemoteRequest(req)`) has no test: a remote request reaches /api/connect/start
-  only through the step-up gate, which needs a vouching connector and fresh session headers.
+- Of the three connect.start calls in /api/connect/start, the known-account one (accountDir) has no test; the default
+  re-auth and the second account are pinned by server.remoteopener-8728.test.js (below).
 - The rest of part 2 (the dialog asking for the fresh sign-in up front and coming back to the same dialog) is later
   slices.
