@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: handover-8710-s4
-diff_hash: c89ff23dec3257d4210a37cacce92d104937fe439d18c9bd8fcd15531ccbd979
+diff_hash: 49cd432b7b57055721bb92c1672c6fb71f1b05b28686bfcb45e4f24c79464661
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-19T18:17:52Z
+timestamp: 2026-11-19T19:57:37Z
 iterations: 9
 converged: false
 ---
@@ -14,9 +14,11 @@ converged: false
 
 **Iterations:** 9 (8 under Splinter's cap, plus a targeted 9th for the BLOCKER round 8 found)
 **Converged:** No (stopped at the cap; round 9's one WARNING fixed; leftovers with reasons on kosmos#8738)
-**Validation:** full tools/run-tests.sh ON MORTALS (mortals-validate.sh) at 37ddb3b8e5: 29,881 node tests, 0 failed;
-4 shell shards status 0; entry status clean, hash c89ff23dec32 (equal to this diff_hash). This branch contains slice 3
-(handover-8710-s3, PR #8751), so the diff and the hash cover both.
+**Validation:** full tools/run-tests.sh ON MORTALS (mortals-validate.sh) at 36d7653aff, after the rebase onto main
+a149e6e254 (slice 3, PR #8751, merged): node tests 30,002 = 29,389 pass + 613 skipped, 0 failed, 0 cancelled; entry
+status clean, base a149e6e254, hash 49cd432b7b57 (equal to this diff_hash). The rebase changed no line of slice 4's
+own diff (same 8 files, identical changed lines); only the base moved. Earlier run, before the rebase: 37ddb3b8e5,
+hash c89ff23dec32, with slice 3 in the diff.
 
 ### Per-Iteration Breakdown (slice 4's own commits; slice 3's rounds are in its own proof)
 
