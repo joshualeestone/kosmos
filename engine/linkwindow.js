@@ -120,6 +120,8 @@ function link(name, opts) {
   const after = lookAt(byId + (paneOf ? ':' + paneOf : ''));
   if (now !== p.session || after.id !== before.id || after.panes !== '1x1' || after.cmd !== before.cmd) {
     const off = run(['set-option', '-u', '-t', byId, '@kosmos_agent']);
+    /* The session itself gone (the after-look read no id): nothing marked is left, so no alarm. */
+    if (!after.id && (!off || off.ok === false)) return refused(`The window called ${p.name} went away while Kosmos was linking it, so nothing was linked.`);
     if (!off || off.ok === false) {
       return refused(`Kosmos could not confirm the window called ${p.name} after marking it, and could not take the mark off. Restart that window, or ask for help, before messaging it.`);
     }

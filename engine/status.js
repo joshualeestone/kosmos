@@ -632,12 +632,12 @@ function attachTmux(baked) {
     (Open in Terminal): a newer tmux reads an older server and not the other way round (measured 2026-10-01: Homebrew
     3.6a lists a 3.5a server; 3.5a against 3.6a says "server exited unexpectedly"), so a baked path can be the one that
     cannot. Null with an explicit choice (a test's stub) or a failed look: the baked path stays. */
-/* kosmos#8719: the tmux a write about a pane the board just listed should use: the one whose last look listed panes,
-   else this module's own choice (as paneFolders reads them), so a link reaches the server the board saw. */
-function boardTmux() { return TMUX_READ_BY || tmuxBin(); }
 function readerTmux() {
   return launcherPick() && LAST_LOOK_PROBLEM === null && TMUX_READ_BY && TMUX_READ_BY === tmuxBin() ? TMUX_READ_BY : null;
 }
+/* kosmos#8719: the tmux a write about a pane the board just listed should use: the one whose last look listed panes,
+   else this module's own choice (as paneFolders reads them), so a link reaches the server the board saw. */
+function boardTmux() { return TMUX_READ_BY || tmuxBin(); }
 /** The tmux this board's launcher picked, or null when the value was a choice (or there was no launcher), AND only
     while the live value is still that pick or one this module switched to itself: an explicit value set later in
     the process (a harness that loaded this module first) is a choice, whatever the environment said at load. */

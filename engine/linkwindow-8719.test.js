@@ -21,7 +21,7 @@ function fakeTmux(opts) {
   linkwindow.setRunner((bin, args) => {
     calls.push(args);
     if (args[0] === 'set-option' && args[1] === '-u') {
-      if (o.unsetFails) return { ok: false, code: 1, stdout: '' };
+      if (o.unsetFails || o.gone) return { ok: false, code: 1, stdout: '' };
       delete options[args[3] + ' ' + args[4]]; return { ok: true, code: 0, stdout: '' };
     }
     if (args[0] === 'set-option') {
@@ -37,6 +37,7 @@ function fakeTmux(opts) {
     if (args[0] === 'display-message') {
       o.looks = (o.looks || 0) + 1;
       const after = o.looks > 1;
+      if (after && o.gone) return { ok: false, code: 1, stdout: '' };
       const id = after && o.swapped ? '$9' : '$0';
       const cmd = after && o.nowRunning ? o.nowRunning : (o.firstRunning || fleet.CLAUDE_COMMAND);
       const claim = !after && o.claimedAtLook ? o.claimedAtLook : (options['$0 @kosmos_agent'] || '');
@@ -88,6 +89,11 @@ test('#8719: a window whose program changed between the look and the mark is not
   const swapped = fakeTmux({ swapped: true });
   assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /took the mark off again/);
   assert.deepEqual(swapped.filter((c) => c[0] === 'set-option' && c[1] === '-u'), [['set-option', '-u', '-t', '$0', '@kosmos_agent']]);
+  // The session went away after the mark (no id at the after-look, the unmark finds nothing): no false alarm.
+  fakeTmux({ gone: true });
+  const goneR = linkwindow.link('zara', { panes, platform: 'darwin' });
+  assert.match(goneR.because, /went away while Kosmos was linking it, so nothing was linked/);
+  assert.doesNotMatch(goneR.because, /could not take the mark off/);
   // A window added to the session after the look: not linked, and the mark comes off.
   const grew = fakeTmux({ paneAdded: true });
   assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /took the mark off again/);

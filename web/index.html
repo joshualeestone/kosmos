@@ -14820,8 +14820,9 @@ window.kosmosMeasureScrollbarWidth();
     <h2 class="rm-title" id="link-m-title">Link this window to Kosmos?</h2>
     <p class="rm-small" id="link-m-small">Only if you started this agent yourself in that window. Kosmos will then
       treat the window as one of its own agents: it types your messages into it, shows its conversation here, and
-      looks after it as it does any agent it started, which can include restarting it, and closing the window if the
-      agent in it has stopped. Nothing changes in the window now.</p>
+      looks after it as it does any agent it started, which can include closing the window if the agent in it has
+      stopped. Nothing changes in the window now. Until Kosmos starts this agent itself, the board cannot restart it,
+      and the agent's own kosmos commands do not yet speak for it.</p>
     <div class="rm-acts">
       <button class="btn" id="link-m-keep" type="button">Not now</button>
       <button class="btn" id="link-m-go" type="button">Link it</button>
@@ -50248,8 +50249,17 @@ async function linkSubmit(name) {
     try { got = await res.json(); } catch { got = null; }
     if (!res.ok || !got || got.outcome !== 'linked') {
       if (here() && msg) msg.textContent = (got && (got.because || got.error)) || 'Kosmos could not link that window.';
+      if (btn) btn.disabled = false;
       return 'refused';
     }
+  } catch {
+    if (here() && msg) msg.textContent = 'We could not reach Kosmos to link it.';
+    if (btn) btn.disabled = false;
+    return 'unreached';
+  }
+  /* Linked. What follows only refreshes the page, so a failure here never reports the link itself as failed. */
+  if (here() && msg) msg.textContent = '';
+  try {
     if (typeof tick === 'function') await tick();
     /* Only if the person is still on this agent's page: never pull them back from one they have moved to. */
     if (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName === name) {
@@ -50261,13 +50271,9 @@ async function linkSubmit(name) {
       const say = document.getElementById('d-say');
       if (say && !say.disabled && typeof say.focus === 'function') say.focus();
     }
-    return 'linked';
-  } catch {
-    if (here() && msg) msg.textContent = 'We could not reach Kosmos to link it.';
-    return 'unreached';
-  } finally {
-    if (btn) btn.disabled = false;
-  }
+  } catch { /* the link stands; the next poll repaints the page */ }
+  if (btn) btn.disabled = false;
+  return 'linked';
 }
 document.getElementById('link-m-go').addEventListener('click', () => {
   const name = LINK_PENDING;

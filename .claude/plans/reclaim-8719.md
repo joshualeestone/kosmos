@@ -25,8 +25,9 @@ nothing is changed. Proven by engine, route and page tests (each refusal with a 
   as Claude and would route it through the wrong classifier. Refused with the reason instead.
 - The program is checked before "is an agent running": the board never counts an unmarked Codex window as an agent,
   so the other order told that person "no agent is running", which is false.
-- Not in this change: the launch job (restart still needs one) and `kosmos adopt` re-binding (ask 2): adopt still
-  requires the mark; once linked, adopt can vouch for it as for any of ours.
+- Not in this change, carried on kosmos#8724: the launch job (restart still needs one), `kosmos adopt` re-binding
+  (ask 2), and non-Claude runners. The dialog says what is left: until Kosmos starts the agent, the board cannot
+  restart it and its own kosmos commands do not speak for it.
 
 ## Rejected
 - Relaxing the delivery guard for a name match (it is exactly what the guard is for).
@@ -51,8 +52,8 @@ nothing is changed. Proven by engine, route and page tests (each refusal with a 
   a remote session without a fresh sign-in: the route is on REMOTE_STEP_UP_PATTERNS, beside connect-agent and restore,
   since it opens a typing channel into a window kept outside Kosmos (tested over HTTP in server.remotestepup-6595).
 - Review 3: the look reads the exact pane plan() checked (=session:W.P) and the session's current mark; a mark already
-  there refuses before anything is set; if the session's id changed, nothing is unset (that mark may be Kosmos's own
-  supervisor's); every pane carrying the name is checked for a mark before one is chosen; the roster read's fail-closed
+  there refuses before anything is set; (superseded by review 4: every write after the look targets the session id,
+  so the unmark only ever touches the session this call marked); every pane carrying the name is checked for a mark before one is chosen; the roster read's fail-closed
   arms and the route's 500 are tested; the real-tmux test runs with -f /dev/null, and its prefix phase reads the
   program as Claude, so a target without `=` is caught (measured red).
 
