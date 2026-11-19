@@ -2,19 +2,17 @@
 
 /**
  * kosmos#7116 step 2, the caller (Splinter 14:26: step 2 is Mona Lisa's end to end; #7892's roster-change and reviewer
- * screens stay with Kitty). What this Mac's admin needs to approve a member's computer, minus the screen and minus the
- * coordinator routes (step 1, not built when this was; asked on #7116 comment 7021307518):
- *   - the kosmos-se helper, found in THIS app's own bundle (app/bin/kosmos-se beside app/engine), never a path a page
- *     or the coordinator supplies (#7892 gate);
- *   - the inviting admin's join codes, kept on this computer from the invite until the member's enrolment is signed,
- *     owner-only, keyed by company and member: never by the code_hash a coordinator puts in the bytes, so a coordinator
- *     cannot point this computer at a code of its choosing;
- *   - approve(): prepare one enrolment's bytes (with the stored code when this computer holds one) and sign them with
- *     this Mac's Enclave admin key, returning what seadmin.sign returns ({ adminId, sig }).
- *
- * Not here: the screen; fetching the waiting enrolments and posting the signature (step 1's routes); making the admin
- * key (a person at the screen, #7892 gate 6); shipping kosmos-se in the bundle (the release build, with Baron).
- */
+ * screens stay with Kitty). What this Mac does for a device-key enrolment, minus the screen itself:
+ *   - finds the kosmos-se helper in THIS app's own bundle (app/bin/kosmos-se), never a path a page or the coordinator gives;
+ *   - keeps the inviting admin's join code, owner-only, keyed by company and member (never by a code_hash a coordinator
+ *     sends). approve() ties it to one computer's key BEFORE signing (the tie lasts an entry's life, one hour), and
+ *     approveAndSend() drops it once escrowd accepts. One invite enrols one computer;
+ *   - review() decodes an enrolment and checks it with the kept code when this Mac holds one; approve() signs the
+ *     reviewed bytes with this Mac's Enclave admin key;
+ *   - talks to the coordinator's three routes (Renet Tilley's pinned interface, #7116 comment 7021733967): the member's
+ *     Mac starts and signs (startAndSign), an admin lists (pending, adminQueue) and posts an approval (postAdminSig).
+ * Not here: the screen (it waits on where invites are made, #7116 comment 7021307518); making the admin key (a person at
+ * the screen, #7892 gate 6); shipping kosmos-se (sebundle-7116, with Baron). */
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -102,10 +100,10 @@ function joinCodeFor(org, member, { dataRoot, now = Date.now(), forKey } = {}) {
   if (forKey && typeof hit.key === 'string' && hit.key !== Buffer.from(forKey).toString('hex')) {
     throw new Error('this invite was already used for another computer');
   }
-  if (typeof hit.key === 'string' && (!Number.isFinite(hit.boundAt) || now - hit.boundAt > BOUND_MAX_AGE_MS)) return null;   // review 4
+  if (typeof hit.key === 'string' && (!Number.isFinite(hit.boundAt) || now - hit.boundAt > BOUND_MAX_AGE_MS || hit.boundAt > now + 60000)) return null;   // review 4, 5
   return Buffer.from(hit.code, 'hex');
 }
-/** After the inviter's signature is posted: the kept code is tied to that computer's key from then on. */
+/** Before the inviter signs (approve): the kept code is tied to that computer's key from then on. */
 function bindJoinCode(org, member, key, { dataRoot } = {}) {
   const codes = readCodes(dataRoot);
   const hit = codes[keyOf(org, member)];
@@ -120,7 +118,7 @@ function bindJoinCode(org, member, key, { dataRoot } = {}) {
   return true;
 }
 
-/** Drop the kept code for (org, member), once its enrolment is signed (or the invite withdrawn). */
+/** Drop the kept code for (org, member), once escrowd accepts its enrolment (or the invite is withdrawn). */
 function forgetJoinCode(org, member, { dataRoot } = {}) {
   const codes = readCodes(dataRoot);
   const k = keyOf(org, member);
@@ -143,7 +141,7 @@ function review(bytes, { dataRoot, now } = {}) {
 /**
  * Sign a reviewed enrolment as this Mac's admin. `adminId` and `expectedKey` are this Mac's enrolled admin id and
  * Enclave public key, `keyFile` its key file; the helper is this app's own. seadmin.sign refuses the inviter unless
- * the code checked. On success the kept code is dropped. Returns { adminId, sig }.
+ * the code checked. The kept code is tied to this computer here, never dropped (approveAndSend drops it once escrowd accepts). Returns { adminId, sig }.
  */
 async function approve(prepared, { adminId, expectedKey, keyFile, appDir, dataRoot } = {}) {
   const helper = helperPath(appDir);
@@ -178,7 +176,13 @@ async function approveAndSend(id, prepared, opts = {}) {
     const { org, member, key } = prepared.decoded;
     // Bound in approve (review 3); dropped once escrowd accepts.
     void key;
-    try { if (answer && answer.ok === true && answer.waiting !== true) forgetJoinCode(org, member, { dataRoot: opts.dataRoot }); } catch { /* posted either way */ }
+    try {
+      // Review 5: only the code this entry was checked with; a re-invite kept meanwhile stays.
+      const kept = joinCodeFor(org, member, { dataRoot: opts.dataRoot });
+      if (answer && answer.ok === true && answer.waiting !== true && kept && require('./devkeyenrol').matchesJoinCode(kept, prepared.decoded)) {
+        forgetJoinCode(org, member, { dataRoot: opts.dataRoot });
+      }
+    } catch { /* posted either way */ }
   }
   return answer;
 }

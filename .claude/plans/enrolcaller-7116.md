@@ -17,3 +17,8 @@ A McKinney admin on their own Mac sees each computer waiting for their approval 
 
 ## Weakest premise
 That this Mac's admin id and enrolled Enclave key are known to the board at sign time. Nothing stores them yet; they come with the admin-key creation flow (#7892 gate 6) or from the coordinator's roster.
+
+## State after review (5 rounds, converged 15:3x 11-19)
+- Slices 1-3 built: helper path, kept codes, review/approve/approveAndSend, the route client (startAndSign, pending, postAdminSig), adminQueue.
+- The kept code: tied to one computer's key in approve() before signing; the tie lasts one hour (an entry lives 30 minutes); dropped when escrowd accepts and the kept code is still the one checked. One invite enrols one computer.
+- Step 1's routes are no longer blocked: Renet pinned them (#7116 comment 7021733967). Still waiting: where invites are made (the screen).
