@@ -8,8 +8,9 @@ itself, engine/linkwindow.js). Independent of item 1 (branch linkjob-8724).
 would accept that window, the skip line names the command that links it. `kosmos adopt --link <name>` says what
 linking means and changes nothing; `kosmos adopt --link <name> --confirm` links that one window through the same
 engine and checks as the board's button. It then says what linking gives now (messages typed in, the conversation
-shown) and what waits: `kosmos adopt --confirm` records it, and the agent speaks as itself and can be restarted from
-the board only once Kosmos starts it (a running window keeps the environment it was started with). Proven by CLI tests against
+shown) and what waits: the agent speaks as itself and can be restarted from the board only once Kosmos starts it (a
+running window keeps the environment it was started with), and `kosmos adopt` now lists it with the other agents it
+would record (adopt records every eligible running agent, so nothing is said that sounds like adopting this one alone). Proven by CLI tests against
 stand-in engine modules, with perturbation controls.
 
 ## How
@@ -42,7 +43,7 @@ That `status.panesWithCommands()` and `status.boardTmux()` resolve the same tmux
 board's. Both read the same repick (status.js tmuxRepick); not measured from the CLI against a live second tmux here.
 
 ## Tests
-- cli.adopt-link-8724.test.js (8; stand-ins log every read and return the real shapes): hint only for a linkable skip (control: an unlinkable one stays plain); an unreadable
+- cli.adopt-link-8724.test.js (10; --link with an unreadable window list; no window look when nothing is skipped as not ours; stand-ins log every read and return the real shapes): hint only for a linkable skip (control: an unlinkable one stays plain); an unreadable
   list leaves skips as before; --link alone changes nothing; --link --confirm links in either order; a refused link
   says the engine reason and exits 1; a throwing link is a sentence, not a stack; a link module that cannot load
   leaves the review as it was; bad arguments (including a second --link) refused before the roster or windows are

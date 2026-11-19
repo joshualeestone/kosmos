@@ -111,7 +111,8 @@ test('#8724 --link <name> --confirm links that one window, in either order; CONT
       const out = await run(args, env({ T_PANES: '[]', T_LINKABLE: 'zara' }));
       assert.equal(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
       assert.match(out.stdout, /Linked the window called zara\. Kosmos now types your messages into it and shows its conversation\./);
-      assert.match(out.stdout, /To record it as one of yours, run: kosmos adopt --confirm\. The agent in it uses its own Kosmos\nidentity, and can be restarted from the board, only once Kosmos starts it\./);
+      assert.match(out.stdout, /^The agent in it speaks as itself, and the board can restart it, only once Kosmos starts it\.$/m);
+      assert.match(out.stdout, /^kosmos adopt now lists it with the other agents it would record; nothing is recorded without --confirm\.$/m);
       const links = calls().filter((c) => c.link).slice(before);
       assert.deepEqual(links, [{ link: 'zara', panes: true }], args.join(' '));
     }
@@ -125,6 +126,24 @@ test('#8724 a refused link says the engine reason and exits 1', { skip: SKIP_POS
       assert.match(out.stdout, /There is no window called otto to link\./, args.join(' '));
       assert.doesNotMatch(out.stdout, /Linked/);
     }
+  }));
+
+test('#8724 --link with a window list that cannot be read stops (2) and links nothing', { skip: SKIP_POSIX_SHELL }, () =>
+  withHome(async (env, calls) => {
+    const out = await run(['--link', 'zara', '--confirm'], env({ T_PANES_THROW: '1', T_LINKABLE: 'zara' }));
+    assert.equal(out.code, 2, out.stdout + out.stderr);
+    assert.match(out.stdout, /^could not read the windows on this computer, so nothing was linked\.$/m);
+    assert.deepEqual(calls().filter((c) => c.link || c.plan), []);
+  }));
+
+test('#8724 with nothing skipped as not ours, the review does not look at the windows', { skip: SKIP_POSIX_SHELL }, () =>
+  withHome(async (env, calls) => {
+    const out = await run([], env({ T_ROWS: JSON.stringify([{ sessionName: 'ivy', isNamedOurs: true }]), T_PANES: '[]', T_LINKABLE: 'zara' }));
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.deepEqual(calls().filter((c) => c.read === 'panes'), [], 'an extra look at the windows');
+    /* CONTROL: with a not-ours row it does look (the first test's hint needs it). */
+    await run([], env({ T_ROWS: ROWS, T_PANES: '[]', T_LINKABLE: 'zara' }));
+    assert.equal(calls().filter((c) => c.read === 'panes').length, 1);
   }));
 
 test('#8724 a link that throws says so in a sentence, never a stack; CONTROL: the plain link above succeeds', { skip: SKIP_POSIX_SHELL }, () =>
