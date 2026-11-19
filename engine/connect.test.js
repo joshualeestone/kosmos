@@ -2678,6 +2678,40 @@ for (const remote of [true, false]) {
   });
 }
 
+/* kosmos#8728 review 5: the flag belongs to the flow that set it. A remote-started flow, cancelled, then a local start:
+   the second flow's state says no and its launch keeps claude's own opener (writeState sets the flag from the owning
+   flow on every write, so nothing carried over can say yes). */
+driverTest('#8728: a local sign-in after a remote one carries no trace of the remote flag', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    await connect.start({ reauth: true, remoteStarted: true });
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    assert.equal(connect.state().noOpener, true, 'the remote flow said so');
+    await connect.cancel();
+    const before = term.all.filter((a) => a[0] === 'new-session').length;
+    await connect.start({ reauth: true, remoteStarted: false });
+    await until(() => term.all.filter((a) => a[0] === 'new-session').length > before, 5000);
+    const second = term.all.filter((a) => a[0] === 'new-session')[before];
+    assert.ok(second, 'the local start launched nothing');
+    assert.equal(connect.state().noOpener, false, 'the remote flag outlived its flow');
+    assert.deepEqual(second.filter((x) => /^BROWSER=/.test(String(x))), [], 'the local launch got the remote opener: ' + JSON.stringify(second));
+  } finally { subscription.setRunner(null); }
+});
+
+/* kosmos#8728 review 5: never on Windows. That host opens the sign-in page itself, so a remote start there still opens a
+   tab on the computer, and a flag saying otherwise would make the page tell the remote person nothing opened. */
+driverTest('#8728: on Windows a remote start does not claim that no browser opens', async () => {
+  connect.setSigninPlatformForTests('win32');
+  try {
+    await connect.start({ reauth: true, remoteStarted: true });
+    assert.equal(connect.state().noOpener, false, 'the Windows flow claimed no browser opens');
+  } finally { connect.setSigninPlatformForTests('darwin'); }
+});
+
 /* kosmos#8728 review 1: the OTHER launch, a bare first-run claude (no credential, no re-auth: needsLogin false), gets
    the same opener when it was started remotely. Measured 11-19: the onboarding's own browser step honours BROWSER too. */
 driverTest('#8728: a remote-started FIRST-RUN sign-in (bare claude, no auth login) gives claude an opener that opens nothing', async () => {

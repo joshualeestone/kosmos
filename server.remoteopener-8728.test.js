@@ -64,7 +64,13 @@ const post = async (headers, body) => {
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 
-for (const [label, body] of [['the default account re-auth', { reauth: true }], ['a second account', { another: true }]]) {
+// The known-account row (accountDir) is the per-account "Sign in again": a second Claude account this computer knows
+// (a .claude-<label> folder in HOME whose config names its oauth account, engine/accounts.js list()).
+const KNOWN = path.join(HOME, '.claude-test8728');
+fs.mkdirSync(KNOWN, { recursive: true });
+fs.writeFileSync(path.join(KNOWN, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'someone@example.com' } }));
+for (const [label, body] of [['the default account re-auth', { reauth: true }], ['a second account', { another: true }],
+  ['a known account (accountDir)', { accountDir: KNOWN, reauth: true }]]) {
   test('#8728: ' + label + ' started through Kosmos+ is handed remoteStarted: true', async () => {
     calls.length = 0;
     const got = await post(VIA_PLUS(), body);

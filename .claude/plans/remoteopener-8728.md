@@ -32,7 +32,10 @@ In a private tmux server with an empty sandbox config folder and logging stand-i
   includes the answer. `writeState` sets the flag from the owning flow on every write (and removes one a caller's
   spread carried in).
 - A sign-in started at the computer is unchanged (the browser opening there is the convenience).
-- Windows already replaces claude's opener for every sign-in (win32signin.js, withNoOpOpener); nothing changes there.
+- Windows (review 5): the flag is never set there. That host replaces claude's opener but then opens the sign-in page
+  ITSELF (win32signin.js, openSigninPageOnce, with a localhost callback), so a remote start on Windows still opens a
+  tab on the computer. Not setting the flag keeps the page's words true there ("your browser has opened"). Making
+  Windows skip its own open for a remote start is the Windows owner's change, filed separately.
 - The opener is `/usr/bin/true`, or `/bin/true` where only that exists (a Linux without a merged /usr; review 2).
   Measured on macOS only.
 
@@ -57,11 +60,14 @@ not open" words) with a local CONTROL (Mac words, fallback link); its harness al
 Browser-check-surface trailer.
 `server.remoteopener-8728.test.js`: connect.start replaced by a recorder; a request through Kosmos+ (vouching
 connector, fresh session headers, so it passes the step-up gate) hands `remoteStarted: true`, and the CONTROL at the
-computer hands `false`, for the default re-auth and for a second account.
+computer hands `false`, for the default re-auth, a second account and (review 5) a known account (accountDir, a
+sandbox .claude-<label> folder whose config names its oauth account). Review 5 engine arms: a local start after a
+cancelled remote one carries no flag and no BROWSER; on Windows a remote start does not set the flag.
 
 ## Not covered
-- Of the three connect.start calls in /api/connect/start, the known-account one (accountDir) has no test; the default
-  re-auth and the second account are pinned by server.remoteopener-8728.test.js (Tests, above).
+- If neither /usr/bin/true nor /bin/true exists, the opener names /usr/bin/true anyway and what claude does with a
+  program it cannot run is unmeasured. Every macOS has /usr/bin/true, and a Linux with coreutils or busybox has one of
+  the two, so this is not reached on any system Kosmos runs on today.
 - A start while a sign-in is already running attaches to that flow with that flow's setting: a remote start that
   lands on one begun at the computer finds a browser tab already open there (opened by the local press, not by this
   change), and a local press that lands on a remote-started one gets no tab and uses the paste link.
