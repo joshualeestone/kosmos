@@ -5,9 +5,15 @@
    first line, and the sha256 of exactly those characters. doctrine.planFor uses it to tell an unedited copy from one
    a person changed. `sections` holds the sha256 of every section of every one of them, for a span holding some. */
 const blocks = [
+  { version: 53, length: 31032, sha256: '083185404f40f2f7ac57886edfd863f22720cb7a7b80da47b39baa2482a798f9' },
+  { version: 53, length: 30032, sha256: 'b9d57348e1e1a4f9fe649e061c422bb235280eaad1865e21fd008ad7065f281c' },
+  { version: 53, length: 29545, sha256: 'e4f9535d0cf6bd476db9e5f2e70afec98b9d4f194ff4ebf5ea8a4ff5b200ed48' },
   { version: 52, length: 34260, sha256: '0a5890bcd8fcbf2ff65cb0f657b3dbb9e20ee431861009e05464d8f4fc6e80b9' },
+  { version: 52, length: 34260, sha256: '49d9f7ef2f8054573b86af7f66ee13801c66bb427e6b3496588c3ece10e510aa' },
   { version: 52, length: 33260, sha256: 'd88d4bb3657fa4f4f796f9075fe0748f8e99eb61ac76e2873bdf823355bb557d' },
+  { version: 52, length: 33260, sha256: '92880574fde44953eb896c64d14f69a3e211ff9064274942a586a382d1b61226' },
   { version: 52, length: 32773, sha256: '0b42fe59e587b1f7c05454f7455f24c3f32b5c7cfa62099dd72f4308e6218042' },
+  { version: 52, length: 32773, sha256: 'ed028b58b81823e636e23bd20357d4a12b4139c7fab948355a86ad11a24a4101' },
   { version: 51, length: 33866, sha256: 'd3227e5a84e90c1b8c37c6361362c23d9c285aadb035d579866e659b6e2fecd4' },
   { version: 51, length: 32866, sha256: '329c5140dc069164af5e53837d67839cb2baf2ed4d36053021301cba03b37af2' },
   { version: 51, length: 32379, sha256: '59cbbca192babc459379ce63df53010ee81f9178049171176c58671373f4d6b5' },
@@ -132,6 +138,7 @@ blocks.sections = [
   '55c82897e7505070c8e5ffc38e4d943ed3c9c413361c7fd227cb73cd44e911a7',
   '55dada06452b109ce3d57ba2acb40af935883cdad2396028d77d604ca7578a12',
   '5d2649db088975f359108c5ed6ffdb61d7c807d28b70ca1bbbb7ff75bc9404ee',
+  '64aa9b182a8aab80903a5368b15e71a27e0ad15df9dcbcb715913c07c4510731',
   '688b11fa382e8f187040a95ecacfab25eb6539d0bb45eeef35099d3caa94b961',
   '68abaa28d7744aa1e0f797b53fbc4f28bdab892a85e42d4642f8627e4bd57ccf',
   '68f4e82546d7fe6632a93d5a18e0d3e5f61bb008c6c6408ed3fa249459747952',
@@ -179,6 +186,7 @@ blocks.sections = [
   'd80f0fb3e012e5f6337fcee336d03db1a927abe40a5bdaf147f8e56bb3e629ca',
   'dd5a2db581810c02f98f8dcc6e54f76eb75f934e9895808e4a3eecf5b6b21220',
   'e2ee3e07cc1f000975515d0b0048ef0b40407736a288b427f15de7a7faece4f0',
+  'e466755e2336cdaa9a71fc4c11cb9cadba38c04619b37da69213583faa031a75',
   'ec18433f76a55e066677735b6758a6cf1e4fcfe40727ef2e1656250d207a491f',
   'ec3452b6a1b9e979734f6f1aaba451859d7c9b7872d8ddd1b727e04bf80dda31',
   'ef92f1a1649a3a3e6378440ea5e72302ca21cea33fe79adb07d677e744cf6a3a',

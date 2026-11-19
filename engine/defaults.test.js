@@ -40,7 +40,7 @@ test('the doctrine version and the block text move together', () => {
   const print = defaults.DOCTRINE_VERSION >= 50 ? perPlatform() : printOf(defaults.block());
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d', 27: '72f53800599edd5c', 28: '2d83463db37f9c28', 29: '52783dd7981ce771', 30: '459a0b50b68e5660', 31: 'abc33c9b62fa12ae', 32: '73e44376fbc76c20', 33: '2133561e3eab26ea', 34: 'a39a0bc29b3835a1', 35: '6b57ebef325d31bd', 36: '5a663e79f786d9d1', 37: '3b7a0343b77de055', 38: 'd1101aed44310c79', 39: 'fb51f108efd5d1a4', 40: '25e4303042b14af1', 41: '9886a04b66bca4c1', 42: '6dc0b29879f7fc3d', 43: 'e9e1378a3d20145a', 44: '68f2a8f66a49177b', 45: '3711e533b1a4e500', 46: '402a26bcb32c2af7', 47: 'cd1f2e4c64228956', 48: '4e7599776278c915', 49: '1d13807c5e08095d', 50: { darwin: 'ce21a502d452adf1', linux: 'e9d2a81d9ac959df', win32: 'c12d49b5a7b13306' }, 51: { darwin: '329c5140dc069164', linux: '59cbbca192babc45', win32: 'd3227e5a84e90c1b' }, 52: { darwin: 'd88d4bb3657fa4f4', linux: '0b42fe59e587b1f7', win32: '0a5890bcd8fcbf2f' } };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d', 27: '72f53800599edd5c', 28: '2d83463db37f9c28', 29: '52783dd7981ce771', 30: '459a0b50b68e5660', 31: 'abc33c9b62fa12ae', 32: '73e44376fbc76c20', 33: '2133561e3eab26ea', 34: 'a39a0bc29b3835a1', 35: '6b57ebef325d31bd', 36: '5a663e79f786d9d1', 37: '3b7a0343b77de055', 38: 'd1101aed44310c79', 39: 'fb51f108efd5d1a4', 40: '25e4303042b14af1', 41: '9886a04b66bca4c1', 42: '6dc0b29879f7fc3d', 43: 'e9e1378a3d20145a', 44: '68f2a8f66a49177b', 45: '3711e533b1a4e500', 46: '402a26bcb32c2af7', 47: 'cd1f2e4c64228956', 48: '4e7599776278c915', 49: '1d13807c5e08095d', 50: { darwin: 'ce21a502d452adf1', linux: 'e9d2a81d9ac959df', win32: 'c12d49b5a7b13306' }, 51: { darwin: '329c5140dc069164', linux: '59cbbca192babc45', win32: 'd3227e5a84e90c1b' }, 52: { darwin: 'd88d4bb3657fa4f4', linux: '0b42fe59e587b1f7', win32: '0a5890bcd8fcbf2f' }, 53: { darwin: 'b9d57348e1e1a4f9', linux: 'e4f9535d0cf6bd47', win32: '083185404f40f2f7' } };
   const shown = JSON.stringify(print).replace(/"/g, "'");
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: ${shown}} here and a line to the version log in defaults.js`);
@@ -663,6 +663,11 @@ test('#4873: the block tells every agent not to start a message with its own nam
 test('#5152: work goes on a task first, with Done when checks, and the built note reports each check', () => {
   const sec = defaults.sections().find((s) => s.heading === '### Put the work on a task first');
   assert.ok(sec, 'the "Put the work on a task first" section is missing from the block');
+  // kosmos#8735 slice 2: the repeating-run procedure moved to `kosmos task --how` (engine/taskguide.js); the section keeps
+  // the rule and points at it, and what moved is asserted on the guide.
+  const how = require('./taskguide').guideText();
+  assert.match(sec.text, /one task that repeats,\*\* not a new task\s+each time/);
+  assert.match(sec.text, /run\s+`kosmos task --how`\*\* and follow what it prints for that case/);
   // v26 (#5152): the checks go on as their own field, one --done each, not into the detail.
   assert.match(sec.text, /`kosmos task add <project-id> "<the work, in one line>" --done "<check 1>" --done "<check 2>" --who me`/);
   assert.match(sec.text, /one `--done` per check, up to three/);
@@ -672,23 +677,23 @@ test('#5152: work goes on a task first, with Done when checks, and the built not
   assert.match(sec.text, /`kosmos task built <project-id> <task-number> "<what you finished>"`/);
   assert.match(sec.text, /`kosmos task done-when <project-id> <task-number> "<check 1>" "<check 2>"`/);
   // v26 (#5643 slice 2): a scheduled run that found nothing new is flagged and not posted in the room.
-  assert.match(sec.text, /`kosmos task ran <project-id> <task-number> --unchanged "what it checked"`/);
-  assert.match(sec.text, /do not post about\s+it on your own/);
+  assert.match(how, /`kosmos task ran <project-id> <task-number> --unchanged "what it checked"`/);
+  assert.match(how, /do not post about\s+it on your own/);
   // Review 1: asked, an agent answers; a change goes to whoever asked, where they asked; a run that could not check is
   // Blocked, never unchanged; and a person's checks are kept, as task list shows them.
-  assert.match(sec.text, /If someone asks, answer as usual\./);
-  assert.match(sec.text, /tell\s+whoever asked for the check, where they asked/);
-  assert.match(sec.text, /A run that could not check is not unchanged/);
+  assert.match(how, /If someone asks, answer as usual\./);
+  assert.match(how, /tell\s+whoever asked for the check, where they asked/);
+  assert.match(how, /A run that could not check is not unchanged/);
   // Review 3: the whole command (a bare `report blocked` is refused by both CLIs), needs_you when only the person can fix
   // it, and how it ends.
-  assert.match(sec.text, /`kosmos report blocked --on "<what\s+stopped it>"`/);
-  assert.match(sec.text, /`needs_you` as above if only the person can fix it/);   // the verb itself stays in its own section (#1253)
-  assert.match(sec.text, /`kosmos report clear`/);
+  assert.match(how, /`kosmos report blocked --on "<what\s+stopped it>"`/);
+  assert.match(how, /`needs_you`, as your working rules say, if only the person can fix it/);   // the verb itself stays in its own section (#1253)
+  assert.match(how, /`kosmos report clear`/);
   // The words the rules quote are the words both CLIs print (review 3): a CLI reword must not strand the rule.
   for (const f of ['install/kosmos', 'tools/windows/kosmos-cli.js']) {
     assert.ok(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', f), 'utf8').includes('set by the person'), f + ' no longer prints "set by the person"');
   }
-  assert.match(sec.text, /if nobody is asking right now, post it in the room the task belongs\s+to/);
+  assert.match(how, /if nobody is asking right now, post it in the room the task belongs\s+to/);
   assert.match(sec.text, /"set by the person" \(keep those\)/);
   assert.doesNotMatch(sec.text, /Done when: 1\)/, 'the v24 checks-in-the-detail form is back');
   assert.match(sec.text, /If the work came to you as a task already, do not add another\./);
@@ -713,21 +718,23 @@ test('#5152: work goes on a task first, with Done when checks, and the built not
 /* kosmos#4787 slice 1b (doctrine v25): the repeating-work paragraph says what the CLIs accept and what Kosmos does not
    do. Asserted on the text, so removing the paragraph and re-pinning the fingerprint above cannot pass unseen. */
 test('#4787: the block teaches a repeating task: the exact repeat and ran commands, that Kosmos does not start a run, and never built', () => {
-  const b = defaults.block();
+  // kosmos#8735 slice 2: the repeat procedure is printed by `kosmos task --how` (engine/taskguide.js).
+  const b = require('./taskguide').guideText();
   assert.match(b, /`kosmos task repeat <project-id> <task-number> daily --at 09:00`/);
   assert.match(b, /`weekly --on mon --at 09:00`/);
   assert.match(b, /`kosmos task ran <project-id> <task-number> "what this run found"`/);
   assert.match(b, /it does not start the run for you/);
   assert.match(b, /A repeating task is never marked built/);
-  const sec = b.slice(b.indexOf('### Put the work on a task first'));
-  assert.ok(sec.indexOf('task repeat') > 0 && sec.indexOf('task repeat') < sec.indexOf('###', 5), 'under its own heading, not another');
+  // The block names the situation and the command, so an agent with a schedule is sent to the guide.
+  assert.match(defaults.block(), /Before you set a task to repeat or record one of its runs/);
 });
 
 /* kosmos#5920: a retry that held an agent for hours swallowed the scheduled runs after it. Pinned as CONTENT (the
    fingerprint above catches any change; this says which one must not be undone): each run is recorded while more than
    15 minutes (or a quarter of the gap) remain before the next is due, and an overrun is recorded as it stands. */
 test('#5920: the repeating-work paragraph has each run recorded while more than 15 minutes remain before the next', () => {
-  const b = defaults.block();
+  // kosmos#8735 slice 2: the repeat procedure is printed by `kosmos task --how` (engine/taskguide.js).
+  const b = require('./taskguide').guideText();
   assert.match(b, /Record each run while\s+more than 15 minutes remain before the next one is due\*\*/, 'the per-run deadline is gone');
   assert.match(b, /or a quarter of the\s+time between runs, if that is shorter/, 'the deadline for short gaps is gone');
   assert.match(b, /record it as it\s+stands with what stopped it, and start the next\s+run/, 'what to do when a run runs over is gone');

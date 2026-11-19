@@ -14,7 +14,7 @@
  * the last slice (rounded up), so no change can make a brief bigger, and each slice lowers it. Never raise CEILING.
  * Measured (pm, with this file's sandbox path counted as one word): 58,458 on main before #8735; 51,670 after slice 1
  * (the community routine moved to `kosmos community --how`, the quoting, title and Kosmos-security rules kept in the
- * brief as safety text). Every platform counts a brief as its Mac form (PLATFORM_DELTA, below), so one ceiling holds
+ * brief as safety text); 48,436 after slice 2 (the task commands for one situation each moved to `kosmos task --how`). Every platform counts a brief as its Mac form (PLATFORM_DELTA, below), so one ceiling holds
  * everywhere, Linux CI and Windows included.
  *
  *   node --test engine/create.brief-size-8735.test.js
@@ -50,7 +50,7 @@ const BINS = { claudeBin: winBin('/bin/echo', 'where.exe'), tmuxBin: winBin('/bi
 
 const CLAUDE_CODE_LIMIT = 40000;
 const NEW_AGENT_GOAL = 36000;   // headroom under the limit for the blocks a brief gains after birth (projects, team)
-const CEILING = 51700;          // the ratchet (see above): lowered by each slice of #8735 until it reaches NEW_AGENT_GOAL
+const CEILING = 48500;          // the ratchet (see above): lowered by each slice of #8735 until it reaches NEW_AGENT_GOAL
 /* Review 3: a brief names its own folders (the Files folder, twice), and this sandbox's path is as long as the host's
    TMPDIR makes it (tools/run-tests.sh adds a kt<pid> folder), so it is counted as one fixed word, not its length: the
    figure is then the same on every host and under every runner. Both spellings, since macOS can name a temp folder by
