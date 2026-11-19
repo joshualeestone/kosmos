@@ -5686,7 +5686,6 @@ const REMOTE_STEP_UP_CONNECTOR = Object.freeze({
 const REMOTE_STEP_UP_STARTING = Object.freeze({
   code: 'remote_step_up_unavailable',
   error: 'Kosmos+ is still starting on this computer, so it cannot check a remote sign-in yet. Try again in a minute. This can take a few minutes after the computer restarts.',
-  starting: true,
 });
 /* The refusal for this request, or null. One place, before any route reads a body. */
 function remoteStepUpRefusal(req, pathname, nowSecs, caps) {

@@ -138,7 +138,8 @@ const connectorSpawnOptions = (opts) => ({ ...opts, windowsHide: true });
    "session-headers" (it strips client copies, kosmos-relay sessioniat-6595). A connector older than that verb, or one
    that cannot be run, lists nothing, so its headers are never trusted: this is what makes an old connector fail
    closed on every platform, whatever order things merge or ship in. Asked once and kept; a connector that lacked it
-   is asked again after ten minutes, one that did not answer at all after thirty seconds. A YES is kept: never
+   is asked again after ten minutes, one that did not answer at all after thirty seconds (kosmos#8728: by itself, on a
+   timer, not only when a request finds it due). A YES is kept: never
    downgraded within a generation, and kept across a tunnel restart on the same binary (path, mtime, size). Asked only
    once this board has started its own tunnel (a tunnel left by an earlier board vouches for nothing), and always in
    the background, never while a request waits. */
@@ -160,6 +161,8 @@ let askingCapabilities = false;
 // kosmos#8728: unanswered asks in a row in this generation, and the timer that asks again by itself.
 let unansweredInARow = 0;
 let selfRetryTimer = null;
+// kosmos#8728 review 1: set while the running half lists nothing because a tunnel from an earlier board is being ended.
+let foreignHolding = false;
 // kosmos#8728: tests only (honoured under the test runner alone), shorter timings so a slow start can be played fast.
 let capabilityTimingsForTests = null;
 const capTiming = (name, real) => (process.env.NODE_TEST_CONTEXT && capabilityTimingsForTests && capabilityTimingsForTests[name] !== undefined)
@@ -178,25 +181,22 @@ function noteCapabilities(caps, answered, now, generation = capabilitiesGenerati
   return caps;
 }
 function clearSelfRetry() { if (selfRetryTimer) { clearTimeout(selfRetryTimer); selfRetryTimer = null; } }
-/* kosmos#8728: ask again by itself after an unanswered ask, in the same generation only, and only while the kept
-   answer is still an unanswered one (a request's ask may have filled it meanwhile). Unref'd, so it never holds a
-   process open. */
+/* kosmos#8728: ask again by itself after an unanswered ask. One timer, cleared by an answered ask and by a new
+   generation (forgetConnectorCapabilities). Unref'd, so it never holds a process open. */
 function scheduleSelfRetry(generation) {
   clearSelfRetry();
   if (unansweredInARow > CAPABILITIES_SELF_RETRIES) return;
-  selfRetryTimer = setTimeout(() => {
-    selfRetryTimer = null;
-    if (generation !== capabilitiesGeneration) return;
-    if (capabilitiesSeen && capabilitiesSeen.answered) return;
-    askConnectorCapabilities();
-  }, capTiming('recheckMs', CAPABILITIES_UNANSWERED_RECHECK_MS));
+  selfRetryTimer = setTimeout(() => { selfRetryTimer = null; askConnectorCapabilities(); },
+    capTiming('recheckMs', CAPABILITIES_UNANSWERED_RECHECK_MS));
   if (selfRetryTimer && typeof selfRetryTimer.unref === 'function') selfRetryTimer.unref();
 }
 /* kosmos#8728: whether an empty answer means "not known yet" rather than "this connector lacks it": nothing kept, or
    the kept ask did not answer. The refusal then says Kosmos+ is still starting, never "update Kosmos". The running
-   tunnel's half counts too: started here but its own status not yet written by this child. */
+   tunnel's half counts too: started here but its own status not yet written by this child, or a tunnel from an
+   earlier board still being ended. */
 function connectorCapabilitiesPending() {
   if (!tunnelStartedHere) return true;
+  if (foreignHolding) return true;
   if (!capabilitiesSeen || !capabilitiesSeen.answered) return true;
   const pid = child ? child.pid : (process.env.NODE_TEST_CONTEXT ? runningPidForTests : null);
   if (pid === null || pid === undefined) return true;
@@ -264,8 +264,9 @@ function runningCapabilities() {
     endForeignTunnel(raw.pid);
     // Review 10: ending is asynchronous, and both tunnels forward to the same port, so a request now may be the
     // orphan's. Until that pid is settled as one to leave alone (a live board's, not ours, gone, Windows), nothing.
-    if (foreignVerdict.get(raw.pid) !== 'leave') return new Set();
+    if (foreignVerdict.get(raw.pid) !== 'leave') { foreignHolding = true; return new Set(); }
   }
+  foreignHolding = false;
   if (runningSeen && runningSeen.pid === pid) return runningSeen.caps;
   if (!raw || raw.pid !== pid) return new Set();
   return noteRunning(raw, pid);
@@ -376,8 +377,9 @@ function binaryCapabilities(now) {
   return capabilitiesSeen ? capabilitiesSeen.caps : new Set();
 }
 const capabilityLines = (out) => new Set(String(out || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
-/* One ask of the connector, without blocking. Run when this board starts its tunnel (forgetConnectorCapabilities) and
-   when a kept answer is due again (connectorCapabilities); never at board start, and never while a request waits. */
+/* One ask of the connector, without blocking. Run when this board starts its tunnel (forgetConnectorCapabilities),
+   when a kept answer is due again (connectorCapabilities), and after an unanswered ask by its own timer (kosmos#8728);
+   never at board start, and never while a request waits. */
 function warmConnectorCapabilities(done = () => {}) {
   // As the other connector spawns here: under the test runner, only a connector a test names is ever run.
   if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) { done(new Set()); return; }
@@ -403,11 +405,13 @@ function warmConnectorCapabilities(done = () => {}) {
     done(noteCapabilities(new Set(), false, Date.now(), generation, binary));
   }
 }
-/* kosmos#8728: one line per ask, written before the answer is kept, so what it says about the next ask matches what
-   noteCapabilities then does (a later generation drops the answer; the self-retries run out after ten minutes). */
+/* kosmos#8728: one line per ask, written before the answer is kept. */
 function logCapabilityAsk(answered, caps, ms, timeout, generation) {
   let line = 'remote: connector capabilities ';
-  if (answered) line += 'answered in ' + ms + ' ms: ' + ([...caps].join(' ') || 'none');
+  if (answered) {
+    line += 'answered in ' + ms + ' ms: ' + ([...caps].join(' ') || 'none');
+    if (generation !== capabilitiesGeneration) line += '; dropped, the tunnel has changed since';
+  }
   else {
     line += 'not answered in ' + ms + ' ms (limit ' + timeout + ' ms); ';
     if (generation !== capabilitiesGeneration) line += 'dropped, the tunnel has changed since';
@@ -420,6 +424,7 @@ function logCapabilityAsk(answered, caps, ms, timeout, generation) {
 const resetConnectorCapabilitiesForTests = ({ startedHere = true, runningPid = null, commandOf = null, kill = null, timings = null } = {}) => {
   tunnelStartedHere = startedHere;
   capabilityTimingsForTests = timings;
+  foreignHolding = false;
   runningPidForTests = runningPid;
   runningSeen = null;
   foreignLooked.clear(); foreignAsking.clear(); foreignVerdict.clear();
