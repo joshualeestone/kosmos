@@ -37,7 +37,7 @@ function el(id) {
  * interval and fetch faked. `connect` is what GET /api/connect answers; `start` is
  * what POST /api/connect/start answers.
  */
-function harness({ start, connect, cloud = false }) {
+function harness({ start, connect, cloud = false, words = false }) {
   const els = new Map();
   const document = {
     activeElement: null,
@@ -59,7 +59,11 @@ function harness({ start, connect, cloud = false }) {
     "const MUSE_BUSY = 'busy'; const acctAddPickSay = () => {};",
     lift(SCRIPT, 'frConnActive'), lift(SCRIPT, 'acctFlowStop'), lift(SCRIPT, 'acctFocusAfterFlow'),
     // kosmos#4903 S5: the page's cloud-machine reader, stubbed; absent unless asked (the page then keeps the Mac words).
-    cloud ? 'function onCloudMachine() { return true; }\n' + SCRIPT.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + lift(SCRIPT, 'signinSay') + '\n' + lift(SCRIPT, 'frCloudSigninDetail') : '',
+    cloud ? 'function onCloudMachine() { return true; }\n' : '',
+    // kosmos#8728: `words` lifts the sign-in wording on a Mac too (no onCloudMachine: the helper reads it as false).
+    cloud || words ? SCRIPT.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + lift(SCRIPT, 'signinSay') + '\n' + lift(SCRIPT, 'frCloudSigninDetail') : '',
+    // kosmos#8728: acctClaudePaintUrl and signinSay ask this whether no browser opens here (cloud, or a remote start).
+    lift(SCRIPT, 'signinOpensNoBrowserHere'),
     lift(SCRIPT, 'acctClaudePaintUrl'),
     lift(SCRIPT, 'acctFlowPaint'), lift(SCRIPT, 'acctFlowWatch'), lift(SCRIPT, 'acctAddStart'),
     'return { acctAddStart, acctFlowWatch, acctFlowPaint };',
@@ -148,6 +152,21 @@ test('kosmos#4903 S5: Settings\' Claude sign-in on a cloud machine shows the sig
   const mac = harness({ start: {}, connect: {} });
   mac.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: URL });
   assert.equal(mac.document.getElementById('acct-claude-open-row').hidden, true, 'the Mac Settings flow changed');
+});
+
+test('kosmos#8728: on a Mac, a Settings sign-in started from a remote session shows the link and says to open it; a local one does not', () => {
+  const URL = 'https://claude.com/cai/oauth/authorize?code=true';
+  const remote = harness({ start: {}, connect: {}, words: true });
+  remote.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: URL, noOpener: true });
+  assert.equal(remote.document.getElementById('acct-claude-open-row').hidden, false, 'no browser opened anywhere, so the link is the only way');
+  assert.equal(remote.document.getElementById('acct-claude-open').href, URL);
+  assert.match(remote.document.getElementById('acct-flow-say').textContent, /Open the Claude sign-in page below/);
+  assert.doesNotMatch(remote.document.getElementById('acct-flow-say').textContent, /just opened|has opened/);
+  // CONTROL: the same Mac, a sign-in started at the computer: no row (its browser opened), so the open-it words are absent.
+  const local = harness({ start: {}, connect: {}, words: true });
+  local.page.acctFlowPaint({ phase: 'signin-awaiting-code', url: URL, noOpener: false });
+  assert.equal(local.document.getElementById('acct-claude-open-row').hidden, true, 'a local sign-in got the remote link');
+  assert.doesNotMatch(local.document.getElementById('acct-flow-say').textContent, /Open the Claude sign-in page below/);
 });
 
 test('kosmos#4903 S5 review 1: a link that arrives on the SAME phase still lands in Settings, and a changed one replaces it', () => {
