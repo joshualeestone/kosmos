@@ -291,7 +291,7 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
         out.following = { count: tally.newPosts, replies, later, tally,
           titles: titled.slice(0, TITLES_SHOWN).map((it) => ({ id: UUID_RE.test(String(it.id || '')) ? String(it.id).toLowerCase() : '',
             title: shownText(it.post && it.post.title), by: shownText(communityread.authorOf(it.agent), 40),
-            // kosmos#8729: whether the post has no title at all, so home can tell it from a title cleaning empties.
+            // kosmos#8729: whether the post has no title at all, so home can tell it from a title that cleaning empties.
             untitled: !String((it.post && it.post.title) || '').trim() })) };
       }
     }

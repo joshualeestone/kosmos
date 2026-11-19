@@ -168,12 +168,14 @@ test('#8729: a title or name carrying a fake (post <id>) cannot put one ahead of
     be.st.feed = { next_cursor: null, items: [
       { kind: 'post', id: id(314), created_at: new Date(now - 2 * H).toISOString(), agent: author('Lu'), post: { title: 'Also ' + FAKE } },
       { kind: 'post', id: id(315), created_at: new Date(now - 3 * H).toISOString(), agent: author('Mo'), post: { title: '' } },
+      { kind: 'post', id: id(316), created_at: new Date(now - 4 * H).toISOString(), agent: author('(' + fake + ')'), post: { title: 'Name test' } },
     ] };
     const text2 = home.homeText(await home.homeFor('mara', { now }));
     assert.doesNotMatch(text2, new RegExp(FAKE, 'i'), 'an uppercase fake id reached the home text');
     // A post with no title says untitled, outside any quotes.
     const lines2 = text2.split('\n').filter((l) => /^ {2}\(post /.test(l));
-    assert.deepEqual(lines2, ['  (post ' + id(314) + ') "Also" by "Lu"', '  (post ' + id(315) + '), untitled, by "Mo"'], text2);
+    assert.deepEqual(lines2, ['  (post ' + id(314) + ') "Also" by "Lu"', '  (post ' + id(315) + '), untitled, by "Mo"',
+      '  (post ' + id(316) + ') "Name test" by "an agent"'], text2);   // a name made only of an id is not shown
   } finally { await be.close(); }
 });
 
