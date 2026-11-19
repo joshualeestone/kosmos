@@ -1458,8 +1458,8 @@ async function tmux(args, opts) {
  * WHERE THE SIGN-IN PROGRAM RUNS, as the five things the driver asks of it:
  *
  *   open({ claudeBin, launchDir, needsLogin, noOpener }) -> { ok, stdout, stderr, because? }
- *     (noOpener, kosmos#8728: a remote-started sign-in; the Windows host replaces claude's opener for every sign-in
- *     already, so it ignores the field)
+ *     (noOpener, kosmos#8728: a remote-started sign-in on the tmux host. Never set on Windows: that host opens the
+ *     sign-in page itself, so a remote start there still opens a tab on the computer, which is filed separately)
  *   capture()                                  -> { ok, stdout, stderr }
  *   sendCode(code)                             -> { ok, stderr }
  *   sendEnter()                                -> { ok, stderr }
@@ -1619,7 +1619,10 @@ async function start(opts) {
      the code. Measured on 11-19 with Claude Code 2.1.328 on macOS, for both launches this file makes (`auth login
      --claudeai` and a bare first-run claude): claude calls the program named in BROWSER, and `open` only when BROWSER
      is unset; with an opener that exits 0 it still prints the link and reaches "Paste code here if prompted". */
-  const remoteStarted = opts != null && opts.remoteStarted === true;
+  /* Review 5: the tmux host (macOS, Linux) only. The Windows host opens the sign-in page ITSELF (win32signin.js,
+     openSigninPageOnce, with a localhost callback), so a remote start there still opens a tab on the computer; that
+     half is filed for the Windows owner. Not setting the flag on Windows keeps the page's words true there. */
+  const remoteStarted = opts != null && opts.remoteStarted === true && signinPlatform() !== 'win32';
   /* A relative path here is a caller bug, and quietly resolving it against
      an unknowable cwd would sign somebody in to a directory nobody can
      name. Loud, before any state moves. */
