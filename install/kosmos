@@ -2786,6 +2786,9 @@ cmd_msg() {
         exit 2 ;;
     esac
   done
+  # kosmos#8769: a lone --stdin after the agent name has one reading only (the message is on stdin), so it is taken as the
+  # flag. With any other word beside it the intent is unclear, and it is refused as before (#2909).
+  if [ "$from_stdin" = 0 ] && [ $# -eq 1 ] && [ "$1" = "--stdin" ]; then from_stdin=1; shift; fi
   if [ "$from_stdin" = 1 ]; then
     if [ -n "$to" ] && [ $# -gt 0 ]; then
       say "Give the message on stdin OR as arguments, not both: kosmos msg --stdin <agent> < message.md"
@@ -2793,8 +2796,8 @@ cmd_msg() {
     fi
     [ -n "$to" ] && _read_piped_message sent "kosmos msg --stdin <agent> < message.md"
   else
-    # A --stdin AFTER the agent would send the literal word and silently drop the pipe, so it is
-    # refused. Tradeoff, same as cmd_post's --file scan: a standalone unquoted `--stdin` word in a
+    # A --stdin AFTER the agent, beside other words, would send the literal word and silently drop the pipe, so it is
+    # refused (alone, #8769 takes it above). Tradeoff, same as cmd_post's --file scan: a standalone unquoted `--stdin` word in a
     # typed message is refused too; recoverable by quoting the message as one argument.
     for _a in "$@"; do
       if [ "$_a" = "--stdin" ]; then
@@ -3372,6 +3375,9 @@ cmd_post() {
   project="${1:-}"
   case "$project" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option post "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>" "$project" target ;; esac   # kosmos#4889
   shift 2>/dev/null || true
+  # kosmos#8769: a lone --stdin after the project id has one reading only (the message is on stdin), so it is taken as the
+  # flag. With any other word beside it the intent is unclear, and it is refused as before (#2909).
+  if [ "$from_stdin" = 0 ] && [ $# -eq 1 ] && [ "$1" = "--stdin" ]; then from_stdin=1; shift; fi
   if [ "$from_stdin" = 1 ]; then
     if [ -n "$project" ] && [ $# -gt 0 ]; then
       say "Give the message on stdin OR as arguments, not both: kosmos post --stdin <project-id> < message.md"
@@ -3381,8 +3387,8 @@ cmd_post() {
       _read_piped_message posted "kosmos post --stdin <project-id> < message.md"
     fi
   else
-    # #2909: a --stdin AFTER the project would post the literal word and silently drop the
-    # piped message; refuse it, the same recoverable tradeoff as the --file scan above.
+    # #2909: a --stdin AFTER the project, beside other words, would post the literal word and silently drop the
+    # piped message; refuse it, the same recoverable tradeoff as the --file scan above. (Alone, #8769 takes it above.)
     for _a in "$@"; do
       if [ "$_a" = "--stdin" ]; then
         say "--stdin must come before the project id: kosmos post --stdin <project-id> < message.md"

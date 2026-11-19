@@ -79,6 +79,14 @@ test('#2909: kosmos msg --stdin delivers backticks, $, quotes and newlines as wr
   assert.equal(seen[0].text, RICH);
 }));
 
+test('kosmos#8769: a lone --stdin AFTER the agent reads the pipe, as before it', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['msg', 'mara', '--stdin'], envFor(port), RICH + '\n');
+  assert.equal(out.code, 0, out.stdout + out.stderr);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].to, 'mara');
+  assert.equal(seen[0].text, RICH);
+}));
+
 test('#2909 CONTROL: without --stdin, msg still takes its words from the args and never reads stdin', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const out = await runCli(['msg', 'mara', 'plain', 'words'], envFor(port), 'this must not be read');
   assert.equal(out.code, 0, out.stdout + out.stderr);
@@ -89,9 +97,13 @@ test('#2909: msg --stdin refusals send nothing (args too, trailing flag, empty p
   const mixed = await runCli(['msg', '--stdin', 'mara', 'also'], envFor(port), 'x');
   assert.equal(mixed.code, 2);
   assert.match(mixed.stdout, /stdin OR as arguments/);
-  const trailing = await runCli(['msg', 'mara', '--stdin'], envFor(port), 'x');
-  assert.equal(trailing.code, 2);
-  assert.match(trailing.stdout, /--stdin must come before the agent name/);
+  /* kosmos#8769: a lone --stdin after the agent is the flag (tested where the message lands, below); beside other
+     words it is still refused. */
+  for (const args of [['msg', 'mara', '--stdin', 'also'], ['msg', 'mara', 'also', '--stdin']]) {
+    const trailing = await runCli(args, envFor(port), 'x');
+    assert.equal(trailing.code, 2, args.join(' '));
+    assert.match(trailing.stdout, /--stdin must come before the agent name|stdin OR as arguments/);
+  }
   const empty = await runCli(['msg', '--stdin', 'mara'], envFor(port), '\n\u001b\n');
   assert.equal(empty.code, 2);
   assert.match(empty.stdout, /nothing was piped in: kosmos msg --stdin <agent>/);

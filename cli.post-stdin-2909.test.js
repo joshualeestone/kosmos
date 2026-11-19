@@ -275,12 +275,17 @@ test('#2909: --stdin combines with --in-reply-to (#3224), in either order', { sk
   assert.deepEqual(seen.map((s) => [s.project, s.text, s.in_reply_to]), [['proj', 'the `answer`', 'm9'], ['proj', 'another $one', 'm10']]);
 }));
 
-test('#2909: a --stdin after the project is refused instead of posting the word and dropping the pipe', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
+test('#2909 and kosmos#8769: a lone --stdin after the project reads the pipe; beside other words it is refused', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
-  const out = await runCli(['post', 'proj', '--stdin'], env, 'the real message');
-  assert.equal(out.code, 2, out.stdout + out.stderr);
-  assert.match(out.stdout + out.stderr, /--stdin must come before the project id/);
-  assert.equal(seen.length, 0);
+  const late = await runCli(['post', '--in-reply-to', 'm9', 'proj', '--stdin'], env, 'the real `message`\n');
+  assert.equal(late.code, 0, late.stdout + late.stderr);
+  assert.deepEqual(seen.map((s) => [s.project, s.text, s.in_reply_to]), [['proj', 'the real `message`', 'm9']]);
+  for (const args of [['post', 'proj', '--stdin', 'words'], ['post', 'proj', 'words', '--stdin']]) {
+    const out = await runCli(args, env, 'the real message');
+    assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout + out.stderr);
+    assert.match(out.stdout + out.stderr, /--stdin must come before the project id|stdin OR as arguments/);
+  }
+  assert.equal(seen.length, 1, 'nothing more was posted');
 }));
 
 test('#2909: a post the board declines keeps a piped message in a file instead of dumping it', { skip: SKIP_POSIX_SHELL }, () => withStubBoard(async (port, seen) => {
