@@ -2426,10 +2426,7 @@
       "title": "A remote Claude sign-in stays on your screen",
       "icon": "phone",
       "rank": 8.7,
-      "platforms": [
-        "mac"
-      ],
-      "line": "From a laptop or phone, a Claude sign-in opens no browser on a far Mac, and its dialog comes back after the Kosmos+ sign-in it asks for."
+      "line": "From a laptop or phone, a Claude sign-in opens no browser on the far computer, and its dialog returns after the Kosmos+ sign-in it asks for."
     }
   ]
 }
