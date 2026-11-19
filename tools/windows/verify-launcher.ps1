@@ -152,7 +152,7 @@ try {
   $kMagic = [BitConverter]::ToUInt16($k, $kOpt)
   if ($kMagic -eq 0x10B) { $dirsAt = $kOpt + 96; $countAt = $kOpt + 92 }
   elseif ($kMagic -eq 0x20B) { $dirsAt = $kOpt + 112; $countAt = $kOpt + 108 }
-  else { Write-Host ('MISMATCH: the committed ' + $outName + ' has an unknown optional-header magic 0x{0:X}.' -f $kMagic); exit 1 }
+  else { Write-Host ('MISMATCH: the committed ' + $outName + (' has an unknown optional-header magic 0x{0:X}.' -f $kMagic)); exit 1 }
   $secEntry = $null
   $signed = $false
   if ([BitConverter]::ToUInt32($k, $countAt) -gt 4) {

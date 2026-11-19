@@ -43,7 +43,9 @@ static class KosmosCli
     static int Main(string[] args)
     {
         string argvFile = null;
-        Console.CancelKeyPress += (s, e) => { e.Cancel = true; };
+        // Ctrl+C only: Ctrl+Break still ends this process, and the job then ends node, so a
+        // node that ever handles SIGBREAK cannot leave this waiting (review round 2).
+        Console.CancelKeyPress += (s, e) => { if (e.SpecialKey == ConsoleSpecialKey.ControlC) e.Cancel = true; };
         try
         {
             string bin = AppDomain.CurrentDomain.BaseDirectory;
@@ -56,7 +58,12 @@ static class KosmosCli
             // Throws on a lone surrogate rather than writing U+FFFD: a word that would
             // change is refused (exit 1), never sent different (review round 1).
             File.WriteAllText(argvFile, JsonArray(args), new UTF8Encoding(false, true));
+            // This process joins the job BEFORE node starts, so node is in it from its first
+            // instruction: no gap in which a kill of this exe leaves node outside (review
+            // round 2). Best effort: a job that cannot be made or joined leaves the command
+            // working as before. The handle is never closed here; this process's exit does it.
             IntPtr job = KillOnCloseJob();
+            if (job != IntPtr.Zero) AssignProcessToJobObject(job, GetCurrentProcess());
 
             var psi = new ProcessStartInfo
             {
@@ -68,9 +75,6 @@ static class KosmosCli
             };
             using (var p = Process.Start(psi))
             {
-                // Best effort: a job that cannot be made or joined leaves the command working
-                // as before. The handle is never closed here; this process's exit closes it.
-                if (job != IntPtr.Zero) AssignProcessToJobObject(job, p.Handle);
                 p.WaitForExit();
                 return p.ExitCode;
             }
@@ -148,6 +152,9 @@ static class KosmosCli
 
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+    [DllImport("kernel32.dll")]
+    static extern IntPtr GetCurrentProcess();
 
     static int Fail(string why)
     {
