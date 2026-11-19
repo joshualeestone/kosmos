@@ -452,7 +452,8 @@ async function tick(state, deps) {
   const d = deps || {};
   if (state.running) return { skipped: true };
   // kosmos#8738: a tick that threw waits MISSING_RECHECK_MS before the next, never every tick.
-  if ((state.thrownUntil || 0) > (d.now || Date.now)()) return { ok: false, because: 'the hand-over could not be checked' };
+  // A wait further off than one wait (the clock was set back) is dropped, never held for however long it went back.
+  { const t = (d.now || Date.now)(); if (typeof state.thrownUntil === 'number' && state.thrownUntil > t + MISSING_RECHECK_MS) state.thrownUntil = undefined; if (typeof state.thrownUntil === 'number' && state.thrownUntil > t) return { ok: false, because: 'the hand-over could not be checked' }; }
   state.running = true;
   try {
     const org = (d.org || (() => { const oe = require('./orgenroll'); const r = oe.mayReport() ? oe.readEnrollment() : null; return r ? r.org.id : null; }))();

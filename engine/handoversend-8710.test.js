@@ -588,5 +588,11 @@ test('kosmos#8738: a mixed-case agent\'s own folder is not "another agent\'s"; a
     clock += hs.SOFT_RETRY_MS + 1;
     await hs.tick(st, d);
     assert.equal(calls, 2, 'again after SOFT_RETRY_MS');
+    // The clock set back a day after a throw: the wait is dropped, not held for the day.
+    clock += 1; await hs.tick(st, d);   // inside the wait the last throw armed: no call
+    assert.equal(calls, 2);
+    clock -= 24 * 60 * 60 * 1000;
+    await hs.tick(st, d);
+    assert.equal(calls, 3, 'a clock set back does not hold the wait');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
