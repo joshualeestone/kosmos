@@ -236,6 +236,14 @@ test('#8734 item 3: the Mac CLI says the refusal in the board\'s words', { skip:
   assert.match(m.out, /cannot be closed as never run/, m.out);
   assert.equal(isClosed(n), false);
 });
+test('#8734 item 3: closing several as never run, one refused: it stays open, the others close, and the refused one is named', async () => {
+  const a = checkedTask('Bulk checked');
+  const b = newTask('Bulk never started');
+  const w = await win(['task', 'close', pid, String(a), String(b), '--not-run']);
+  assert.match(w.err + w.out, new RegExp('task ' + a + '[^\\n]*cannot be closed as never run'), w.err + w.out);
+  assert.equal(isClosed(a), false, 'the refused task closed');
+  assert.equal(isClosed(b), true, 'the others did not close: ' + w.err + w.out);
+});
 test('#8734 item 3: the Windows CLI says the refusal in the board\'s words', async () => {
   const n = checkedTask('Checked for the Windows CLI');
   const w = await win(['task', 'close', pid, String(n), '--not-run']);

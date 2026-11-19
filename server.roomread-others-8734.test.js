@@ -91,7 +91,18 @@ test('kosmos#8734 item 4: a person\'s post naming others but also @all, or an @-
   assert.equal(listed(mine, unsure), true, 'an @-word that may have meant me was ignored:\n' + mine);
   assert.equal(listed(mine, quoted), false, mine);
   assert.equal(listed(mine, roomAsk), true, 'a named post that asks the room in words was hidden:\n' + mine);
-  // Review 6: one naming only an agent no longer in the room asks nobody here (the claim guard's reading), so it stays.
+});
+
+test('kosmos#8734 review 6/7: a person\'s ask naming only a member who has since been removed asks nobody here, so it stays listed', async () => {
+  const pid = newRoom('Others3');
+  projects.mutate(pid, (p) => ({ ...p, agents: [...(p.agents || []), 'goneseat'] }));   // a member of the room
   const gone = personPost(pid, '@goneseat can you finish this', ['goneseat']);
-  assert.equal(listed(await unanswered(pid), gone), true, 'an ask to an agent that left was hidden from the room');
+  // CONTROL: while goneseat is in the room, the ask is its, not the reader's.
+  assert.equal(listed(await unanswered(pid), gone), false, 'an ask to a current member was listed for the reader');
+  const removal = require('./engine/remove');
+  const real = removal.removedNames;
+  removal.removedNames = () => ({ ok: true, names: ['goneseat'] });   // remove.js's real shape: goneseat was removed
+  try {
+    assert.equal(listed(await unanswered(pid), gone), true, 'an ask to a removed member was hidden from the room');
+  } finally { removal.removedNames = real; }
 });
