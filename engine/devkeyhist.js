@@ -161,7 +161,8 @@ function verify(history, opts = {}) {
     // fixtures can sign histories with a test key of their own; production never sets NODE_TEST_CONTEXT, and setting
     // the key needs code already running here. With neither, verify REFUSES (the difference from orgkeypin.js).
     // NODE_TEST_CONTEXT is inherited, so a process started from under node --test also has it; the seam still needs
-    // code in that process to call setVerifyingKeyForTests (only test files do).
+    // code in that process to call setVerifyingKeyForTests (only test files do). With no key at all (the constant
+    // edited back to null) verify still refuses: defence in depth, unreachable while a key ships.
     const vk = trustAnchor();
     if (vk == null) return { ok: false, because: 'this version of Kosmos cannot check the device key history yet, so the key was not trusted' };
     // Read every field once, into a copy: what is hashed is exactly what is replayed.
