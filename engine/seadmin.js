@@ -25,9 +25,9 @@
  * a Rust test and the page's test check the same file). Raw tag, then every field a u32 big-endian length and bytes.
  *
  * Not here yet, each named so nobody reads this file as the whole client:
- *   - devkeyhist-enrol and devkeyhist-revoke. Their layouts are agreed on #7116 (comment 6515728359 and Renet's reply),
- *     but escrowd has no encoder for them yet, so there is no pinned vector to build against. They join SIGNED, and
- *     kosmos-se's list, with that vector.
+ *   - devkeyhist-revoke. Its layout is agreed on #7116 (comment 6515728359), but escrowd has no encoder or pinned
+ *     vector for it yet. It joins SIGNED, and kosmos-se's list, with that vector. (devkeyhist-enrol is here: #7116
+ *     step 2, against the vector pinned on kosmos-relay sealkey-8733, comment 7016119703.)
  *   - the local signed-item log and the 4 h no-fresh-head alarm, and checking a signed roster head against this
  *     Mac's own challenge (the plan's head-read rules).
  *   - shipping kosmos-se in the app bundle and any caller. Nothing outside the test calls this file yet.
@@ -47,9 +47,14 @@ const TAGS = {
   reviewerRevoke: 'kosmos-escrowd-reviewer-revoke v1',
   adminFingerprint: 'kosmos-escrowd-admin-fingerprint v1',
   reviewerFingerprint: 'kosmos-escrowd-reviewer-fingerprint v1',
+  // kosmos#7116 step 2: two admins (the inviter among them) and the Mac's own key K enrol K in escrowd's device-key
+  // history. The tag and layout are escrowd's (roster.rs encode_devkey_enrol), pinned by the vector.
+  devkeyEnrol: 'kosmos-escrowd-devkeyhist-enrol v1',
+  // A hash input, never signed: what the member's Mac and each admin's screen show for K (engine/devkeyenrol.js).
+  devkeyFingerprint: 'kosmos-escrowd-devkey-fingerprint v1',
 };
 // The tags an admin key signs. Fingerprint tags are hash inputs, never signed.
-const SIGNED = ['change', 'cancel', 'reviewerEnrol', 'reviewerRevoke'];
+const SIGNED = ['change', 'cancel', 'reviewerEnrol', 'reviewerRevoke', 'devkeyEnrol'];
 const KEY_TYPES = ['se-p256', 'webauthn-p256'];
 const CANCEL_KINDS = ['roster-change', 'reviewer-enrol'];
 const HELPER_TIMEOUT_MS = 120000;
@@ -105,6 +110,17 @@ function encodeReviewerEnrol(org, generation, r, nonce) {
   return Buffer.concat([utf8(TAGS.reviewerEnrol), field(utf8(org)), field(generationBytes(generation)),
     field(utf8(r.reviewer)), field(r.credentialId), field(key(r.key)), field(flagByte(r.be)), field(flagByte(r.bs)),
     field(nonce)]);
+}
+function raw32(b, what) {
+  if (!(b instanceof Uint8Array) || b.length !== 32) throw new Error(what + ' is 32 bytes');
+  return b;
+}
+/* kosmos#7116 step 2, as roster.rs encode_devkey_enrol: K is the raw 32-byte Ed25519 key (engine/backupdevicekey.js),
+   code_hash and join_tag come from the inviter's join code (engine/devkeyenrol.js), escrowd only binds them. */
+function encodeDevkeyEnrol(org, member, k, codeHash, joinTag, inviterAdminId, generation, nonce) {
+  return Buffer.concat([utf8(TAGS.devkeyEnrol), field(utf8(org)), field(utf8(member)), field(raw32(k, 'a Mac key')),
+    field(raw32(codeHash, 'a code hash')), field(raw32(joinTag, 'a join tag')), field(utf8(inviterAdminId)),
+    field(generationBytes(generation)), field(nonce)]);
 }
 function encodeReviewerRevoke(org, credentialId) {
   return Buffer.concat([utf8(TAGS.reviewerRevoke), field(utf8(org)), field(credentialId)]);
@@ -181,6 +197,19 @@ function decodeReviewerEnrol(bytes) {
   r.end();
   return out;
 }
+function decodeDevkeyEnrol(bytes) {
+  const r = new Reader(bytes, TAGS.devkeyEnrol);
+  const out = { org: r.text(), member: r.text(), key: r.take(), codeHash: r.take(), joinTag: r.take(),
+    inviterAdminId: r.text(), generation: r.generation(), nonce: r.take() };
+  r.end();
+  for (const [k, what] of [['key', 'a Mac key'], ['codeHash', 'a code hash'], ['joinTag', 'a join tag']]) raw32(out[k], what);
+  // Review 3: an enrolment names a company, a member and the admin who invited them; an empty one is no enrolment (and an
+  // empty inviter would let any admin sign it as "second" with nothing checked).
+  for (const [k, what] of [['org', 'company'], ['member', 'member'], ['inviterAdminId', 'inviting admin']]) {
+    if (!out[k]) throw new Error('an enrolment must name its ' + what);
+  }
+  return out;
+}
 function decodeReviewerRevoke(bytes) {
   const r = new Reader(bytes, TAGS.reviewerRevoke);
   const out = { org: r.text(), credentialId: r.take() };
@@ -197,6 +226,13 @@ function adminFingerprint(org, a) {
 function reviewerFingerprint(org, r) {
   return sha256(Buffer.concat([utf8(TAGS.reviewerFingerprint), field(utf8(org)), field(utf8(r.reviewer)),
     field(r.credentialId), field(key(r.key)), field(flagByte(r.be)), field(flagByte(r.bs))])).subarray(0, 16);
+}
+/* kosmos#7116 step 2: K's fingerprint, the four groups of 8 hex the member's Mac and each admin's screen show, so a
+   person can compare them (Kitty's 10-30 design, comment 6515728359). Bound to the org and member, as the admin and
+   reviewer fingerprints are bound to their org, so one Mac key enrolled for two members reads differently for each. */
+function devkeyFingerprint(org, member, k) {
+  return sha256(Buffer.concat([utf8(TAGS.devkeyFingerprint), field(utf8(org)), field(utf8(member)),
+    field(raw32(k, 'a Mac key'))])).subarray(0, 16);
 }
 function fingerprintDisplay(fp) {
   const h = Buffer.from(fp).toString('hex');
@@ -341,13 +377,18 @@ function shownFields(decoded) {
 }
 
 const DECODERS = { change: decodeChange, cancel: decodeCancel, reviewerEnrol: decodeReviewerEnrol,
-  reviewerRevoke: decodeReviewerRevoke };
+  reviewerRevoke: decodeReviewerRevoke, devkeyEnrol: decodeDevkeyEnrol };
 
 // The objects prepare() made, each with its own copy of the bytes. sign() takes nothing else.
 const PREPARED = new WeakMap();
 
-/** Decode `bytes` as `action` (refusing anything else) and say what a screen must show before the person signs. */
-function prepare(action, bytes) {
+/** Decode `bytes` as `action` (refusing anything else) and say what a screen must show before the person signs.
+ * kosmos#7116 step 2, devkeyEnrol only: `opts.joinCode` (16 bytes) is the inviting admin's own copy of the join code,
+ * held on this device since the invite. Given, the code's hash and the join tag must recompute from it and from the
+ * decoded org, member and K, or prepare refuses: that check is what stops a coordinator showing its own K to the
+ * inviter. Not given (the second admin, who never holds the code), `inviterChecked` is false, and the screen must not
+ * say the key was checked. */
+function prepare(action, bytes, opts = {}) {
   if (!SIGNED.includes(action)) throw new Error('not an action an admin key signs');
   if (!(bytes instanceof Uint8Array)) throw new Error('the bytes to sign are bytes');
   const message = Buffer.from(bytes);
@@ -357,10 +398,22 @@ function prepare(action, bytes) {
     fingerprint = fingerprintDisplay(adminFingerprint(decoded.org, decoded.change.admin));
   } else if (action === 'reviewerEnrol') {
     fingerprint = fingerprintDisplay(reviewerFingerprint(decoded.org, decoded));
+  } else if (action === 'devkeyEnrol') {
+    fingerprint = fingerprintDisplay(devkeyFingerprint(decoded.org, decoded.member, decoded.key));
+  }
+  let inviterChecked = false;
+  // Review 3: a join code belongs to an enrolment only; wired to another action it is a caller's mistake, said at once.
+  if (action !== 'devkeyEnrol' && opts && opts.joinCode !== undefined) throw new Error('a join code goes only with an enrolment');
+  if (action === 'devkeyEnrol' && opts && opts.joinCode !== undefined) {
+    const dk = require('./devkeyenrol');
+    if (!dk.matchesJoinCode(opts.joinCode, decoded)) {
+      throw new Error('this join code does not match that enrolment: the key, member or company is not the one you invited');
+    }
+    inviterChecked = true;
   }
   const shown = shownFields(decoded);   // #7892: what the screen shows in place of the raw strings
   const prepared = Object.freeze(Object.defineProperties({ action, fingerprint, challenge: sha256(message).toString('hex'),
-    shown: shown.fields, unusual: shown.unusual }, {
+    shown: shown.fields, unusual: shown.unusual, ...(action === 'devkeyEnrol' ? { inviterChecked } : {}) }, {
     // Read fresh from the held copy every time, so nothing a caller does to one read changes the next.
     decoded: { get: () => DECODERS[action](Buffer.from(message)), enumerable: true },
   }));
@@ -434,7 +487,8 @@ async function publicKey({ helper, keyFile }) {
 }
 
 /**
- * Sign what prepare() decoded and showed, with the Enclave key; returns the DER signature escrowd's verify_se takes.
+ * Sign what prepare() decoded and showed, with the Enclave key; returns the DER signature escrowd's verify_se takes,
+ * except for a devkeyEnrol, which returns { adminId, sig: DER } (kosmos#7116 step 2: the id the inviter rule checked).
  * `expectedKey` is the 65-byte public key this Mac enrolled as its admin key; a key file holding any other refuses.
  */
 // #7892: one signature at a time. Each raises its own Touch ID prompt, which names only the KIND of action, so two in
@@ -445,9 +499,23 @@ function sign(prepared, opts) {
   signQueue = run.catch(() => {});
   return run;
 }
-async function signOne(prepared, { helper, keyFile, expectedKey }) {
+async function signOne(prepared, { helper, keyFile, expectedKey, adminId }) {
   const message = PREPARED.get(prepared);
   if (!message) throw new Error('sign takes only what prepare returned');
+  /* kosmos#7116 step 2 (review 1): the inviter's check is the only defence against a coordinator's own K (escrowd never
+     holds the code), so it cannot be skipped by a lookup that found nothing. A devkeyEnrol is signed only by a caller
+     that says which admin it is: the inviter only after prepare checked the code, anyone else as the second admin.
+     This Mac holds no roster, so it cannot check that `adminId` is the admin whose key `expectedKey` is (review 3):
+     escrowd must verify each signature under the key registered for the admin id it is posted with, so an app that
+     names the wrong admin here produces a signature escrowd refuses. That is step 1's rule; asked on #7116. The caller
+     slice should also refuse to sign as second admin bytes whose code_hash matches a code this device holds (it is the
+     inviter then, whatever the bytes name; review 4). */
+  if (prepared.action === 'devkeyEnrol') {
+    if (typeof adminId !== 'string' || !adminId) throw new Error('say which admin is signing this enrolment');
+    if (adminId === prepared.decoded.inviterAdminId && prepared.inviterChecked !== true) {
+      throw new Error('you sent this invite, so your join code must be checked before you sign, and it was not checked');
+    }
+  }
   const expected = key(expectedKey);
   const pub = await publicKey({ helper, keyFile });
   if (!pub.equals(Buffer.from(expected))) throw new Error('the key file holds a different key from the enrolled one');
@@ -457,13 +525,16 @@ async function signOne(prepared, { helper, keyFile, expectedKey }) {
   if (!crypto.verify('sha256', message, { key: crypto.createPublicKey({ key: jwk, format: 'jwk' }), dsaEncoding: 'der' }, der)) {
     throw new Error('kosmos-se returned a signature that does not verify under its own key');
   }
+  // kosmos#7116 step 2 review 2: an enrolment's signature comes back WITH the admin id the rule above checked, as one
+  // object, so the id a caller later posts beside it (devkeyenrol.request takes this shape) is the id that was checked.
+  if (prepared.action === 'devkeyEnrol') return Object.freeze({ adminId, sig: der });
   return der;
 }
 
 module.exports = {
   TAGS, SIGNED,
-  encodeChange, encodeCancel, encodeReviewerEnrol, encodeReviewerRevoke,
-  decodeChange, decodeCancel, decodeReviewerEnrol, decodeReviewerRevoke,
-  adminFingerprint, reviewerFingerprint, fingerprintDisplay,
+  encodeChange, encodeCancel, encodeReviewerEnrol, encodeReviewerRevoke, encodeDevkeyEnrol,
+  decodeChange, decodeCancel, decodeReviewerEnrol, decodeReviewerRevoke, decodeDevkeyEnrol,
+  adminFingerprint, reviewerFingerprint, devkeyFingerprint, fingerprintDisplay,
   prepare, createKey, publicKey, sign, HELPER_SAYS, HELPER_SAYS_PREFIX,
 };
