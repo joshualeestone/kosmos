@@ -20,6 +20,9 @@ still refused, as #2909 made it (that is the case where the literal word would b
 ## Weakest premise
 That no script relies on the refusal for a lone trailing --stdin. The refusal only ever produced exit 2 with nothing
 posted, so a caller that hit it was already failing.
+Also: the trailing form now READS stdin, so a pipe that stays open and is never written to waits (the Mac CLI has no
+quiet-pipe time limit, as with the leading form already; a terminal on stdin is still refused at once). Before, the
+trailing form failed at once. Same behaviour as the leading form, not a new kind of hang.
 
 ## Tests
 cli.post-stdin-2909.test.js, cli.msg-stdin-2909.test.js, tools.windows-kosmos-cli-570.test.js: the lone trailing form

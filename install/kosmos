@@ -3345,8 +3345,9 @@ cmd_post() {
   # recipient reads it in the foreground but is NOT told to answer -- this is what breaks the
   # ack-of-an-ack loop. Leading flag only (kosmos post --no-reply <project> <text>); anywhere else
   # it is treated as message text, the same recoverable tradeoff the --file scan above takes.
-  # #2908 --no-reply, #3224 --in-reply-to and #2909 --stdin are LEADING flags (--stdin also alone after the project, kosmos#8769), in any order, the
-  # same recoverable tradeoff as the --file scan: anywhere but the front they are message text.
+  # #2908 --no-reply, #3224 --in-reply-to and #2909 --stdin are LEADING flags, in any order. After the project,
+  # --no-reply and --in-reply-to are message text (the same recoverable tradeoff as the --file scan); a late --stdin
+  # is never text: alone it is taken as the flag (kosmos#8769), beside other words it is refused (#2909).
   # --in-reply-to <id> binds the answer to the room the cited message came from; the server
   # refuses if the target project differs (the misroute this fix catches).
   # --stdin reads the message from standard input instead of the args, so backticks and $
