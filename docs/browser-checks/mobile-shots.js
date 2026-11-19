@@ -1496,6 +1496,34 @@ const SCREENS = [
     try { await page.locator('#link-m-keep').click({ timeout: 2000 }); } catch { /* already closed */ }
     await page.unroute('**/api/status*');
   } },
+  /* kosmos#8724 item 1 (Angel): the restart dialog after a restart refused for want of a launch job, on a window linked
+     by hand: the engine's offer sentence and "Set up and restart". The restart route is stubbed (refused, canWriteJob),
+     so nothing restarts; the dialog is closed with its harmless answer in `after`. */
+  { name: 'restart-setup-8724', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    await page.route('**/api/agent/*/restart', async (r) => {
+      try {
+        if (r.request().method() !== 'POST') { await r.continue(); return; }
+        await r.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ outcome: 'refused', steps: [], cannotStart: true, noJob: true, canWriteJob: true,
+          because: 'Nothing is set up to start ' + data.chatAgent + ' again, so Kosmos cannot restart it yet. Kosmos can set ' + data.chatAgent + ' up to start on its own, then restart it. It comes back the way Kosmos starts its own agents, which may be a different account from the one it is running on now.' }) });
+      } catch { /* the page closed at teardown (#6022) */ }
+    });
+    await at(page, '?agent=' + data.chatAgent);
+    await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 15000 });
+    await page.evaluate((name) => {
+      const btn = document.querySelector('[data-restart-note="d-restart-msg"]');
+      btn.dataset.restartAgent = name;
+      openRestartModal(btn, name);
+    }, data.chatAgent);
+    await page.click('#rst-go');
+    await page.waitForFunction(() => document.getElementById('rst-go').textContent === 'Set up and restart', { timeout: 5000 });
+  }, verify: async (page) => {
+    const go = await page.locator('#rst-go').innerText();
+    const msg = await page.locator('#rst-msg').innerText();
+    if (go !== 'Set up and restart' || !/Nothing is set up to start/.test(msg)) throw new Error('the dialog said: ' + go + ' / ' + msg);
+  }, after: async (page) => {
+    try { await page.locator('#rst-keep').click({ timeout: 2000 }); } catch { /* already closed */ }
+    await page.unroute('**/api/agent/*/restart');
+  } },
   { name: 'agent-page', owner: 'Raiden', go: async (page, data) => {
     await at(page, '?agent=' + data.chatAgent);
     await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });

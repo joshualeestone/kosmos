@@ -2472,6 +2472,7 @@ function* restartSteps(name, cause, platform, startIfDead) {
       because: `${shown} was not started by Kosmos, so we cannot start it again. `
         + 'Whatever launched it is what can restart it.',
       cannotStart: true,   // #7470: a start or restart from its card cannot help (callers word their next step by it)
+      noJob: true,         // kosmos#8724: the reason is the missing job, so a window linked by hand can be offered one
     };
   }
 
@@ -2799,6 +2800,13 @@ function restart(name, cause, opts) {
     let c = { ok: true };
     try { c = require('./usagecap').capAllows(); } catch { c = { ok: true }; }
     if (c.ok !== true) return { outcome: OUTCOME.REFUSED, steps: [], because: `it was not started: ${c.because}`, capped: true };
+  }
+  /* kosmos#8724: work the caller needs done only once the restart is allowed (the checks above), before it acts. The
+     restart route writes a hand-linked agent's launch job here, so a refusal above never leaves a job behind. A return
+     other than null/undefined is the answer, and nothing is restarted. */
+  if (opts && typeof opts.beforeSteps === 'function') {
+    const stop = opts.beforeSteps();
+    if (stop) return stop;
   }
   return markDryRun(driveSync(restartSteps(name, cause, opts && opts.platform, opts && opts.startIfDead)));
 }

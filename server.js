@@ -4375,6 +4375,30 @@ function claimantFor(name) {
 // gate above), and we re-impose the isNamedOurs REQUIREMENT the route-level
 // card/askingCard matches had. Single-sourced so the two direct-thread routes do
 // not carry two copies of one derivation.
+/* kosmos#8724: a window the person linked to Kosmos by hand (engine/linkwindow.js) whose agent still has no launch job.
+   On a board running in a named world the agent's sessions carry the world's suffix, so none matches here and those
+   keep the plain refusal (safe: no offer, no job).
+   The board's own card for it, marked ours, whose tmux session is exactly the agent's name: the job's supervisor looks
+   for `=<name>` (bin/agent-supervisor.sh TARGET) and adopts a marked live session of that name, so a linked `zara-discord`
+   would not be found and the job would start a second Zara beside it. Those are left as they are. The job half (profile,
+   folder, not removed, a proven absent job) is register.repair's own check, run again when it acts. */
+function linkedWithoutJob(name) {
+  /* Not on Windows: a link is refused there (engine/linkwindow.js), and nothing has shown that a Scheduled Task written
+     and started while the agent's process is live adopts it rather than starting a second one. */
+  if (process.platform === 'win32') return false;
+  try {
+    const card = paneRoster().find((a) => a && a.sessionName === name);
+    if (!card || card.isNamedOurs !== true || card.session !== name) return false;
+    const seen = register.survey();
+    return !!(seen && seen.ok && seen.agents.some((x) => x.name === name && x.profile && x.folder && !x.removed && x.job === false));
+  } catch { return false; }
+}
+/* The model it is running now, as POST /api/register reads it for a repair: the job carries it, or it would come back
+   on the default. */
+function linkedModelFor(name) {
+  try { const m = status.readModel(name); return (m && m.model) || null; } catch { return null; }
+}
+
 function ourCardByName(roster, name) {
   const rc = chat.resolveCard(roster, name);
   return rc && rc.isNamedOurs === true ? rc : null;
@@ -11346,12 +11370,59 @@ const server = http.createServer(async (req, res) => {
             && r.names.some((n) => String(n).toLowerCase() === String(name).trim().toLowerCase()));
         } catch { removedNow = false; }
         if (removedNow) { sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, steps: [], because: `${name} was removed, so it is not restarted; put it back from the board first` }); return; }
+        /* kosmos#8724: { writeJob: true } is the person's "Set up and restart" from the dialog below. Only for a window
+           linked by hand that still has no job (linkedWithoutJob); the job is written first, then the restart runs as
+           any other. A job that could not be written stops here with its reason, and nothing was restarted. */
+        const shown = (() => { try { return status.readIdentity(name).displayName || name; } catch { return name; } })();
+        const wantsJob = !!(body && body.writeJob === true);
+        /* The offer is made only to a caller that can act on it (the restart dialog sends offerJob); every other caller
+           of this route (the restart line, Add instructions, Start, the CLI) keeps the engine's own sentence. */
+        const offerJob = !!(body && body.offerJob === true);
+        if (wantsJob && !linkedWithoutJob(name)) {
+          sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, steps: [], because: `${shown} does not need setting up, so nothing was changed.` });
+          return;
+        }
+        /* The job is written inside the restart, after its own quiet-hours, usage-cap and busy checks (removal.restart's
+           beforeSteps), so a refused restart never leaves a new job behind. A job that could not be written stops there
+           with its reason, and nothing is restarted. */
+        let jobWritten = false;
+        const beforeSteps = !wantsJob ? undefined : () => {
+          let rep = null;
+          try { rep = register.repair({ only: name, linked: true, modelFor: linkedModelFor }); } catch { rep = null; }
+          if (rep && rep.refused === true) {
+            return { outcome: removal.OUTCOME.REFUSED, steps: [], because: `${shown} does not need setting up, so nothing was changed.` };
+          }
+          const one = rep && rep.ok && Array.isArray(rep.results) ? rep.results[0] : null;
+          if (!one || one.ok !== true) {
+            const why = (one && one.because) || (rep && rep.because) || 'something went wrong';
+            return { outcome: removal.OUTCOME.REFUSED, steps: [], because: `Kosmos could not set ${shown} up to start on its own (${why}), so it was not restarted.` };
+          }
+          jobWritten = true;
+          return null;
+        };
         let out;
         // #3410: this IS the "Start this agent" affordance (Mona #3433 reuses this route), so it
         // opts into starting a fully-dead agent (no session) rather than refusing it. The config-
         // switch routes below deliberately do NOT pass startIfDead.
-        try { out = removal.restart(name, cause, { startIfDead: true, quiet: true }); }   // kosmos#6239: quiet hours
+        try { out = removal.restart(name, cause, { startIfDead: true, quiet: true, beforeSteps }); }   // kosmos#6239: quiet hours
         catch (err) { sendJson(res, 500, { error: 'we could not restart this agent', detail: String(err && err.message || err) }); return; }
+        if (jobWritten) {
+          out = { ...out, jobWritten: true };
+          /* Set up, but the restart itself did not take: the job is there now and starts the agent at the next login. */
+          /* switchRestartWhy drops the engine's "Nothing was changed." tail, which is no longer true once the job is in. */
+          if (out.outcome !== removal.OUTCOME.RESTARTED) {
+            out.because = `${switchRestartWhy(out) || 'The restart did not finish.'} Kosmos did set ${shown} up to start on its own from now on.`;
+          }
+        }
+        /* kosmos#8724: refused only for want of a job, on a linked window of exactly that name: say what Kosmos can do. */
+        if (offerJob && out.outcome === removal.OUTCOME.REFUSED && out.noJob === true && !wantsJob && linkedWithoutJob(name)) {
+          out = {
+            ...out,
+            canWriteJob: true,
+            because: `Nothing is set up to start ${shown} again, so Kosmos cannot restart it yet. `
+              + `Kosmos can set ${shown} up to start on its own, then restart it. It comes back the way Kosmos starts its own agents, which may be a different account from the one it is running on now.`,
+          };
+        }
         sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, out);
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
