@@ -46,9 +46,15 @@ nothing is changed. Proven by engine and route tests (each refusal with a contro
   zarah exists. link() now reads the session's id and program before marking and compares the same pair after (a
   same-named Claude session swapped in is caught), checks the unmark's own result, and refuses Windows before reading
   tmux. A test drives link() through a real tmux on a private socket and fails on the old `=zara` form (measured).
-- Who can link: the board's person, and any local process that can reach the board's loopback port, as for every other
-  board write (restart, remove). It is not in AGENT_TOKEN_ROUTES, so a remote caller with only an agent token cannot.
-  That is the board's existing trust model, not something this change widens.
+- Who can link (review 3 corrected this): the person on the board, and any local process that can reach the board's
+  loopback port, as for every other board write. Not an agent with only its token (not in AGENT_TOKEN_ROUTES), and not
+  a remote session without a fresh sign-in: the route is on REMOTE_STEP_UP_PATTERNS, beside connect-agent and restore,
+  since it opens a typing channel into a window kept outside Kosmos (tested over HTTP in server.remotestepup-6595).
+- Review 3: the look reads the exact pane plan() checked (=session:W.P) and the session's current mark; a mark already
+  there refuses before anything is set; if the session's id changed, nothing is unset (that mark may be Kosmos's own
+  supervisor's); every pane carrying the name is checked for a mark before one is chosen; the roster read's fail-closed
+  arms and the route's 500 are tested; the real-tmux test runs with -f /dev/null, and its prefix phase reads the
+  program as Claude, so a target without `=` is caught (measured red).
 
 ## Weakest premise
 That `@kosmos_agent` = session is all Kosmos needs to treat the window as its own for messages and the conversation
