@@ -126,6 +126,7 @@ const {
 } = require('./engine/status');
 const accountmove = require('./engine/accountmove'); // #6173: several agents' account move, one request, restarts without blocking the board's thread
 const removal = require('./engine/remove');
+const linkwindow = require('./engine/linkwindow');   // kosmos#8719 part 2
 const { strictStringify } = require('./engine/textcut');   // #7108
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
 const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents from one Kosmos into another
@@ -5629,6 +5630,9 @@ const REMOTE_STEP_UP_EXACT = new Set([
    and a project webhook (making one mints a secret address an outside party can post tasks to, for as long as it lives). */
 const REMOTE_STEP_UP_PATTERNS = [
   /^\/api\/svc\/[a-z0-9-]+\/token$/, /^\/api\/runners\/[a-z]+\/install$/, /^\/api\/agent\/[^/]+\/restore$/,
+  /* kosmos#8719: linking a window gives Kosmos a typing channel into a Claude window kept outside it, the same class as
+     bringing an agent under Kosmos (POST /api/connect-agent), so a stale remote session may not do it. */
+  /^\/api\/agent\/[^/]+\/link$/,
   /^\/api\/project\/[^/]+\/webhooks$/,
 ];
 function needsRemoteStepUp(pathname, method) {
@@ -5679,12 +5683,23 @@ const REMOTE_STEP_UP_CONNECTOR = Object.freeze({
   code: 'remote_step_up_unavailable',
   error: "This computer's Kosmos+ connector cannot vouch for a fresh sign-in right now, so this cannot be done from a remote session. Do it at the computer, or try again in a minute; if this keeps happening, update Kosmos.",
 });
+/* kosmos#8728: the same refusal while the connector has not said yet: just started, a slow start that did not answer
+   in time (it is asked again by itself), a tunnel between a crash and its relaunch, or an earlier board's tunnel still
+   being ended. Seen by Josh on 11-19, six minutes after a restart under heavy load:
+   the old sentence told him to update Kosmos, and nothing was out of date. Same code, so every page that reads the
+   code keeps working; only the words change. */
+const REMOTE_STEP_UP_STARTING = Object.freeze({
+  code: 'remote_step_up_unavailable',
+  error: 'Kosmos+ is still starting on this computer, so it cannot check a remote sign-in yet. Try again in a minute. This can take a few minutes after the computer restarts.',
+});
 /* The refusal for this request, or null. One place, before any route reads a body. */
 function remoteStepUpRefusal(req, pathname, nowSecs, caps) {
   if (!needsRemoteStepUp(pathname, req.method) || !isRemoteRequest(req)) return null;
   // Asked only for a remote request to a gated route, so no other request ever waits on the connector.
   const said = caps || remote.connectorCapabilities();
-  if (!said.has('session-headers')) return REMOTE_STEP_UP_CONNECTOR;
+  /* kosmos#8728: "not known yet" and "this connector lacks it" are different, and only the second is fixed by an
+     update. A caller that hands in its own caps (tests) is describing a connector that answered. */
+  if (!said.has('session-headers')) return (!caps && remote.connectorCapabilitiesPending()) ? REMOTE_STEP_UP_STARTING : REMOTE_STEP_UP_CONNECTOR;
   if (remoteSessionFresh(req.headers, nowSecs)) return null;
   const { second, iat } = remoteSessionHeaders(req.headers);
   if (second && iat !== null && iat - nowSecs > 60) return REMOTE_STEP_UP_CLOCK;
@@ -11272,6 +11287,29 @@ const server = http.createServer(async (req, res) => {
     try { delivery = await chat.deliverAsync(name, command, safeRoster(), undefined, undefined); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { command: ctx[2], delivery });
+    return;
+  }
+
+  /* kosmos#8719 part 2: link a window Kosmos did not start to its agent (engine/linkwindow.js sets Kosmos's own launch
+     mark on that one session, after checking it is plainly that agent, and reads it back). A person's confirmed act:
+     the body must say { confirm: true }, so no stray POST links anything. Cross-site writes are refused before every
+     route (crossSiteWrite). */
+  const lnk = pathname.match(/^\/api\/agent\/([^/]+)\/link$/);
+  if (lnk && req.method === 'POST') {
+    const name = decodeSegment(lnk[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || body.confirm !== true) { sendJson(res, 400, { outcome: 'refused', because: 'Linking a window needs your confirmation.' }); return; }
+        let out;
+        try { out = linkwindow.link(name); }
+        catch (err) { sendJson(res, 500, { outcome: 'refused', because: 'Kosmos could not see what is running on this computer, so nothing was changed.', detail: String(err && err.message || err) }); return; }
+        sendJson(res, out.outcome === linkwindow.OUTCOME.LINKED ? 200 : 409, out);
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
     return;
   }
 
@@ -31402,7 +31440,7 @@ module.exports = { _setStartedProofPlatformForTest, _setStartWaitForTest,   // k
   _sendJsonForTest: sendJson, _sendTextForTest: sendText, _refuseDownloadForTest: refuseDownload, // kosmos#7686: never a second head, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
-  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616, #7625
+  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_STARTING /* kosmos#8728 */, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616, #7625
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   claudeObservationsFor, overlayStuckCards, // #7212 slice 3 reviews 6-7: the badge's evidence and the route's step, for their test
   safeRoster, // #5811: its rows carry no geminiSeen, for its test

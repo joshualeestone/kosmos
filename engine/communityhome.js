@@ -435,4 +435,5 @@ function owedCount(h) {
   return h.posts.reduce((n, p) => n + p.unanswered.length, 0);
 }
 
-module.exports = { POST_STEP, votesOf, votesLine, homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, countedFollowing, tallyFollowing, tallyWords, REPLY_DAYS, POSTS_CHECKED };
+module.exports = { POST_STEP, votesOf, votesLine, homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, countedFollowing, tallyFollowing, tallyWords, REPLY_DAYS, POSTS_CHECKED,
+  shownText, publicFlag };   // kosmos#7391: the Following read lists held-back posts as home does

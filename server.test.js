@@ -2546,11 +2546,11 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
   const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
 
   const ids = ['d-file', 'd-file-btn', 'd-remove', 'd-save', 'd-role', 'd-rename', 'd-instr', 'd-instr-save',
-    'd-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-msg', 'd-untied'];
+    'd-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-msg', 'd-untied', 'd-link', 'd-link-msg'];
   const els = {};
   // setAttribute/removeAttribute: #4038 names the button's reason (aria-describedby) only while it is disabled.
   for (const id of ids) {
-    els[id] = { id, disabled: false, hidden: false, value: '', textContent: '', attrs: {},
+    els[id] = { id, disabled: false, hidden: false, value: '', textContent: '', attrs: {}, dataset: {},
       setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } };
   }
   const document = { getElementById: (id) => els[id] || null };
@@ -2628,6 +2628,9 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
   // a tautology.
   assert.equal(els['d-untied'].textContent, 'Kosmos cannot confirm it started this window, so it does not change its picture, role or instructions from here.',
     'the untied line is not the self-contained one');
+  // kosmos#8719 part 2: the way to link it sits beside the reason, naming the window it would link.
+  assert.equal(els['d-link'].hidden, false, 'no way to link the window is offered');
+  assert.equal(els['d-link'].dataset.agent, untiedCard.sessionName, 'the link names another window');
 
   // ⚠️ AND the call site, which this test stopped pinning when it replaced the
   // source-shape version. Driving `setWritesOffered` in isolation proves the
@@ -2682,6 +2685,8 @@ test('the detail panel withdraws the writes it cannot perform, and clears what i
   // #4038: a hidden element still describes whatever points at it, so a live button must point at no reason.
   assert.equal(els['d-file-btn'].attrs['aria-describedby'], undefined, 'a live Change picture button still names a reason');
   assert.equal(els['d-untied'].hidden, true, 'the explanation stayed up for a tied agent');
+  assert.equal(els['d-link'].hidden, true, 'kosmos#8719: a tied agent was offered a link');
+  assert.equal(els['d-link'].dataset.agent, '', 'kosmos#8719: a tied agent kept a window to link');
 });
 
 test('every write route refuses the untied card’s own spelling while the real agent is up', async () => {

@@ -1,30 +1,33 @@
 {
-  "version": "0.8.10",
+  "version": "0.8.11",
   "highlights": [
     {
-      "icon": "tasks",
-      "title": "Edit a task after it is made",
-      "line": "On a task page, Edit title or detail changes its words. Its activity says who changed it, and for a title the old and new words."
+      "icon": "phone",
+      "title": "A room post that names you can reach your phone",
+      "line": "When an agent's room post names you, by @-name or in its opening line, your phone can get the notice a reply to you gets."
     },
     {
-      "icon": "tasks",
-      "title": "A task can wait for a merge or a time",
-      "line": "An agent can set a task to wait for a pull request or branch (through the gh tool), a file or a time. The task shows what it waits for."
+      "icon": "swarm",
+      "title": "A window Kosmos cannot confirm says so",
+      "line": "A window Kosmos cannot confirm it started reads Not linked to Kosmos on the board, and a message to it says why it was not sent."
     },
     {
       "icon": "shield",
-      "title": "A signed-out agent page says so",
-      "line": "An agent page left open while Kosmos restarts or updates says it needs a sign-in, links the steps, and offers no model switch until then."
+      "title": "A refused download asks where to save",
+      "line": "When macOS refuses a download into Downloads, the Mac app says why and where to allow Kosmos, and offers Choose Where to Save.",
+      "platforms": [
+        "mac"
+      ]
     },
     {
       "icon": "spark",
-      "title": "No model recorded says where to set it",
-      "line": "An agent with no model recorded says so, not Unknown Model, and links its AI Settings when Kosmos started it."
+      "title": "Starring an agent shines",
+      "line": "A starred agent's star is solid bright gold now, with a small burst of sparks when you star it."
     },
     {
-      "icon": "list",
-      "title": "A new agent gets a Files folder",
-      "line": "A new agent gets its own Files folder from the start, so it has a place to save a file for you the first time you ask."
+      "icon": "chat",
+      "title": "A long conversation keeps your place",
+      "line": "Reading back through a long conversation, a moment's failed read no longer moves you; one line at the end says so."
     }
   ]
 }

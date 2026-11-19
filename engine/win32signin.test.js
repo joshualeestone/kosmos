@@ -842,6 +842,35 @@ test('#3288: once the link is printed, Kosmos opens the automatic link on the pr
   await host.kill();
 });
 
+test('#8741: a remote-started sign-in (noOpener) opens nothing on this computer, and still takes a pasted code', async (t) => {
+  const spawn = withSpawn(t);
+  const { opened, asked } = withOpener(t, [52646]);
+  const host = win32signin.createSigninHost();
+  await host.open({ claudeBin: CLAUDE_BIN, noOpener: true });
+  const child = spawn.calls[0].child;
+  child.stdout.write(PRINTED_SCREEN + '\n');
+  child.stdout.write('more output\n');
+  await settle(); await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(opened, [], 'a tab was opened on the host computer for a sign-in started remotely');
+  assert.deepEqual(asked, [], 'the port was looked up for a page that is never opened');
+  assert.equal(spawn.calls[0].opts.env.BROWSER, win32signin.NO_OP_OPENER, 'the program\'s own opener must stay the no-op');
+  assert.match((await host.capture()).stdout || '', /oauth\/authorize/, 'the printed link must still reach the page');
+  await host.kill();
+});
+
+test('#8741 control: the same printed screen without noOpener opens the page once (the remote test can fail)', async (t) => {
+  for (const spec of [{}, { noOpener: false }]) {
+    const spawn = withSpawn(t);
+    const { opened } = withOpener(t, [52646]);
+    const host = win32signin.createSigninHost();
+    await host.open(Object.assign({ claudeBin: CLAUDE_BIN }, spec));
+    spawn.calls[0].child.stdout.write(PRINTED_SCREEN + '\n');
+    await waitFor(() => opened.length > 0);
+    assert.equal(opened.length, 1, 'spec ' + JSON.stringify(spec));
+    await host.kill();
+  }
+});
+
 test('#3288: no single port (none found, or two) opens the printed code-paste link', async (t) => {
   for (const ports of [[], [1, 2]]) {
     const spawn = withSpawn(t);

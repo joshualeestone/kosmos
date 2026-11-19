@@ -363,6 +363,26 @@ const MEMBER = 'taskmate';
     // The input clears on a successful send.
     const sayVal = await p.$eval('#tk-say', (el) => el.value);
     if (sayVal !== '') die('the composer did not clear after sending: ' + sayVal);
+    /* #8731: one unbroken token (a long path, a URL with a query) must wrap inside its activity row, not run off the
+       page. A 300-character token is wider than the activity list at this viewport, so two failures are both caught:
+       text spilling out of a row that kept its width (row scrollWidth), and a row that grew to fit the token (the
+       row's right edge past the list's, or the list itself scrolling sideways). */
+    const LONG = 'https://example.invalid/' + 'x'.repeat(300) + '?q=' + Date.now();
+    await p.fill('#tk-say', LONG);
+    await p.click('#tk-say-go');
+    await p.waitForFunction((t) => ((document.getElementById('tk-activity') || {}).innerText || '').includes(t), LONG, { timeout: 10000 })
+      .catch(() => {});
+    const longRow = await p.$$eval('#tk-activity .tkact-what', (els, t) => {
+      const el = els.find((e) => e.innerText.includes(t));
+      if (!el) return null;
+      const list = document.getElementById('tk-activity');
+      return { scrollW: el.scrollWidth, clientW: el.clientWidth, right: el.getBoundingClientRect().right,
+        listRight: list.getBoundingClientRect().right, listScrollW: list.scrollWidth, listClientW: list.clientWidth };
+    }, LONG);
+    if (!longRow) die('#8731: the message with a long token did not show in the activity');
+    if (longRow.scrollW > longRow.clientW + 1 || longRow.right > longRow.listRight + 1 || longRow.listScrollW > longRow.listClientW + 1) {
+      die('#8731: an activity row does not wrap a long unbroken token: ' + JSON.stringify(longRow));
+    }
     await p.screenshot({ path: path.join(OUT, 'tasks-view-page.png') });
 
     /* Mark as done, come back, and the done task is BEHIND THE DOOR.
