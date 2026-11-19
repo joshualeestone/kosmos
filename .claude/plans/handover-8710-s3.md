@@ -60,7 +60,7 @@ does not read the period; the snapshot's week checks are skipped only under the 
   profile === true and !removed, matching `shownAs || name`; act on `name` (register.js: "ACT ON name, SPEAK
   shownAs"). A name that matches none, or more than one, fails the pack with that name in the sentence.
 - Roots per agent `<seg>` (backuptick rootSegment of the name):
-  - `agents/<seg>`: create.workerDir(name) (holds its instructions file and its Files folder, dmfiles.filesDir).
+  - `workers/<seg>` (was agents/<seg>; renamed in round 2 so the receiver's restore finish moves it): create.workerDir(name) (holds its instructions file and its Files folder, dmfiles.filesDir).
   - `profiles/<seg>`: store.PROFILES with `only: ['<name>.json']`; the receiver strips per-install fields the way
     agentfile.js does (slice 4).
   - `sessions/<seg>/...`: backupsessions.sessionsFor(dir, {...}) with the SAME inputs backuptick builds (its
