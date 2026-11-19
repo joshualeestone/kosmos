@@ -110,9 +110,56 @@ test('#7116 step 2 caller: review uses the kept code for the DECODED company and
   const p = es.review(e.bytes, { dataRoot: root });
   assert.equal(p.inviterChecked, true);
   assert.equal(p.decoded.member, MEMBER);
-  // Kept code for this member, bytes made from another code (a coordinator's substitute): refused.
+  // Review 7: bytes made from ANOTHER code (another admin's invite, or a coordinator's substitute) are not this Mac's
+  // invite: the second admin's view, never checked with this Mac's code.
   const other = enrolment();
-  assert.throws(() => es.review(other.bytes, { dataRoot: root }), /does not match that enrolment/);
+  assert.equal(es.review(other.bytes, { dataRoot: root }).inviterChecked, false);
+  // This entry's code hash with a join tag that does not match: prepare refuses.
+  const { publicKey } = crypto.generateKeyPairSync('ed25519'); const k = dk.rawPublic(publicKey);
+  const badTag = se.encodeDevkeyEnrol(ORG, MEMBER, k, dk.joinCodeHash(e.code), Buffer.alloc(32, 0x11), INVITER, '7', NONCE);
+  assert.throws(() => es.review(badTag, { dataRoot: root }), /does not match that enrolment/);
+});
+
+test('#7116 step 2 caller review 7: another admin\'s invite for the same member is offered to this Mac as a second admin; a tie refuses others for its hour only', async () => {
+  const root = fresh();
+  const mine = enrolment();
+  es.keepJoinCode(ORG, MEMBER, mine.code, { dataRoot: root });
+  // B invited the same member for another computer, with B's own code.
+  const bCode = dk.newJoinCode();
+  const { publicKey } = crypto.generateKeyPairSync('ed25519'); const kb = dk.rawPublic(publicKey);
+  const bEntry = se.encodeDevkeyEnrol(ORG, MEMBER, kb, dk.joinCodeHash(bCode), dk.joinTag(bCode, ORG, MEMBER, kb), OTHER_ADMIN, '7', NONCE);
+  const rows = await es.adminQueue({ adminId: INVITER, dataRoot: root, send: async () => ({ ok: true, data: { pending: [{ id: 'eb', bytes: bEntry.toString('base64url'), signedBy: [] }] } }) });
+  assert.equal(rows[0].refused, null, 'offered as a second admin');
+  assert.ok(rows[0].prepared);
+  assert.equal(rows[0].inviterChecked, false);
+  // Once this Mac's code is tied to a computer, B's entry is still offered (it is not this invite) ...
+  const h = appWithHelper();
+  await es.approve(es.review(mine.bytes, { dataRoot: root }), { adminId: INVITER, expectedKey: h.expectedKey, keyFile: h.keyFile, dataRoot: root, appDir: h.app });
+  assert.equal(es.review(bEntry, { dataRoot: root }).inviterChecked, false);
+  // ... and this invite for another computer is refused within the hour, but not after it.
+  const { publicKey: p2 } = crypto.generateKeyPairSync('ed25519'); const k2 = dk.rawPublic(p2);
+  const again = se.encodeDevkeyEnrol(ORG, MEMBER, k2, dk.joinCodeHash(mine.code), dk.joinTag(mine.code, ORG, MEMBER, k2), INVITER, '7', NONCE);
+  assert.throws(() => es.review(again, { dataRoot: root }), /already used for another computer/);
+  assert.equal(es.review(again, { dataRoot: root, now: Date.now() + 2 * 60 * 60 * 1000 }).inviterChecked, false, 'past the hour the tie no longer refuses');
+  assert.equal(es.joinCodeFor(ORG, MEMBER, { dataRoot: root, now: Date.now() + 2 * 60 * 60 * 1000, forKey: k2 }), null, 'nor does a direct lookup for another computer');
+  // A prepared entry reviewed before this Mac kept its code is refused at sign time: review it again.
+  const late = enrolment(); const root3 = fresh();
+  const unchecked = es.review(late.bytes, { dataRoot: root3 });
+  es.keepJoinCode(ORG, MEMBER, late.code, { dataRoot: root3 });
+  await assert.rejects(es.approve(unchecked, { adminId: OTHER_ADMIN, expectedKey: h.expectedKey, keyFile: h.keyFile, dataRoot: root3, appDir: h.app }), /review it again/);
+});
+
+test('#7116 step 2 caller review 7: a re-invite kept while the accept is in flight is not dropped by it', async () => {
+  const root = fresh();
+  const e = enrolment();
+  es.keepJoinCode(ORG, MEMBER, e.code, { dataRoot: root });
+  const h = appWithHelper();
+  const fresher = dk.newJoinCode();
+  // The answer arrives after a re-invite kept a new code for the same member.
+  const send = async () => { es.keepJoinCode(ORG, MEMBER, fresher, { dataRoot: root }); return { ok: true, data: { ok: true } }; };
+  await es.approveAndSend('e1', es.review(e.bytes, { dataRoot: root }), { adminId: INVITER, expectedKey: h.expectedKey, keyFile: h.keyFile, dataRoot: root, appDir: h.app, send });
+  const left = es.joinCodeFor(ORG, MEMBER, { dataRoot: root });
+  assert.ok(left && left.equals(Buffer.from(fresher)), 'the new invite\'s code survives the old entry\'s accept');
 });
 
 test('#7116 step 2 caller: approve signs with this app\'s helper (refuses with none), keeps the code; approveAndSend drops it only once escrowd accepts', async () => {
@@ -267,7 +314,9 @@ test('#7116 step 2 caller review 2: one invite enrols one computer; the queue re
   const h = appWithHelper();
   const opts = (adminId, send) => ({ adminId, expectedKey: h.expectedKey, keyFile: h.keyFile, dataRoot: root, appDir: h.app, send });
   // A second admin's send never touches the inviter's code.
-  await es.approveAndSend('e1', es.review(first, { dataRoot: fresh() }), opts(OTHER_ADMIN, async () => ({ ok: true, data: { ok: true } })));
+  // (Review 7: the second admin is another Mac, with its own store.)
+  const second = fresh();
+  await es.approveAndSend('e1', es.review(first, { dataRoot: second }), { ...opts(OTHER_ADMIN, async () => ({ ok: true, data: { ok: true } })), dataRoot: second });
   assert.ok(es.joinCodeFor(ORG, MEMBER, { dataRoot: root }), 'a second admin\'s accept left the inviter\'s code');
   // The inviter signs first: waiting, so the code is kept but bound to that key; a restart with ANOTHER key is refused.
   await es.approveAndSend('e1', es.review(first, { dataRoot: root }), opts(INVITER, async () => ({ ok: true, data: { ok: true, waiting: true } })));
@@ -387,4 +436,11 @@ test('#7116 step 2 caller: every route is a POST on a fixed path, the id in the 
   assert.equal(es.endedOf({ ok: false, code: 'roster_signers', ended: true }), true);
   assert.equal(es.endedOf({ ok: false, code: 'roster_nonce' }), true);
   assert.equal(es.endedOf({ ok: true, waiting: true }), false);
+  assert.equal(es.endedOf({ ok: false }), undefined, 'review 7: a refusal with no code is not known');
+  assert.equal(es.endedOf({ ok: true }), false, 'accepted: not ended');
+  // Review 7: remote.busy()'s fixed sentence is shown as it is; any other tunnel text stays hidden.
+  const busyErr = await es.pending({ send: async () => ({ ok: false, notSent: true, because: 'this computer is still signing in; give it a minute' }) }).catch((e) => e);
+  assert.match(busyErr.message, /still signing in; give it a minute$/);
+  const rawErr = await es.pending({ send: async () => ({ ok: false, notSent: true, because: '/Users/x/tunnel: boom' }) }).catch((e) => e);
+  assert.match(rawErr.message, /not connected to Kosmos\+$/);
 });

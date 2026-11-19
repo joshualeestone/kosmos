@@ -97,10 +97,11 @@ function joinCodeFor(org, member, { dataRoot, now = Date.now(), forKey } = {}) {
   const hit = readCodes(dataRoot)[keyOf(org, member)];
   if (!hit || typeof hit.code !== 'string' || !/^[0-9a-f]{32}$/.test(hit.code) || !Number.isFinite(hit.at)) return null;
   if (now - hit.at > CODE_MAX_AGE_MS || hit.at > now + 60000) return null;
+  // Review 7: a tie past its hour is checked first, so it refuses other computers for that hour only, as BOUND_MAX_AGE_MS says.
+  if (typeof hit.key === 'string' && (!Number.isFinite(hit.boundAt) || now - hit.boundAt > BOUND_MAX_AGE_MS || hit.boundAt > now + 60000)) return null;   // review 4, 5
   if (forKey && typeof hit.key === 'string' && hit.key !== Buffer.from(forKey).toString('hex')) {
     throw new Error('this invite was already used for another computer');
   }
-  if (typeof hit.key === 'string' && (!Number.isFinite(hit.boundAt) || now - hit.boundAt > BOUND_MAX_AGE_MS || hit.boundAt > now + 60000)) return null;   // review 4, 5
   return Buffer.from(hit.code, 'hex');
 }
 /** Before the inviter signs (approve): the kept code is tied to that computer's key from then on. */
@@ -128,15 +129,29 @@ function forgetJoinCode(org, member, { dataRoot } = {}) {
   return true;
 }
 
+/* Review 7: a kept code is this entry's invite only when its hash is the entry's codeHash. Another admin's invite for
+   the same member carries another code, and this Mac reviews it as a second admin (seadmin.sign and adminQueue still
+   refuse this Mac signing as an inviter it did not check). Same hash, wrong tag: prepare's own refusal. `keptOther`
+   says this Mac holds a code for that member that is not this entry's. */
+function keptFor(decoded, { dataRoot, now } = {}) {
+  const kept = joinCodeFor(decoded.org, decoded.member, { dataRoot, now });
+  if (!kept) return { code: null, keptOther: false };
+  const dk = require('./devkeyenrol');
+  if (!require('node:crypto').timingSafeEqual(dk.joinCodeHash(kept), Buffer.from(decoded.codeHash))) return { code: null, keptOther: true };
+  // This entry's own invite: refused when it is already tied to another computer (one invite enrols one computer).
+  return { code: joinCodeFor(decoded.org, decoded.member, { dataRoot, now, forKey: decoded.key }), keptOther: false };
+}
+function reviewOf(bytes, opts = {}) {
+  const decoded = se.decodeDevkeyEnrol(bytes);
+  const { code, keptOther } = keptFor(decoded, opts);
+  return { prepared: se.prepare('devkeyEnrol', bytes, code ? { joinCode: code } : {}), keptOther };
+}
 /**
  * What the screen shows before asking: the decoded enrolment (seadmin.prepare), with the kept code when this computer
- * holds one for the decoded company and member. A kept code that does not match refuses (prepare's own refusal).
+ * holds this entry's invite code for the decoded company and member (keptFor). A kept code with the entry's hash that
+ * does not match refuses (prepare's own refusal).
  */
-function review(bytes, { dataRoot, now } = {}) {
-  const decoded = se.decodeDevkeyEnrol(bytes);
-  const code = joinCodeFor(decoded.org, decoded.member, { dataRoot, now, forKey: decoded.key });
-  return se.prepare('devkeyEnrol', bytes, code ? { joinCode: code } : {});
-}
+function review(bytes, opts = {}) { return reviewOf(bytes, opts).prepared; }
 
 /**
  * Sign a reviewed enrolment as this Mac's admin. `adminId` and `expectedKey` are this Mac's enrolled admin id and
@@ -161,6 +176,9 @@ async function approve(prepared, { adminId, expectedKey, keyFile, appDir, dataRo
     // Review 4: and it is still the code this enrolment was checked with (a re-invite since then keeps a new one).
     if (!require('./devkeyenrol').matchesJoinCode(kept, prepared.decoded)) throw new Error('you sent a new invite since this one: review it again');
     bindJoinCode(org, member, key, { dataRoot });
+  } else if (prepared && prepared.decoded) {
+    // Review 7: reviewed without this entry's code, but this computer holds it now (kept since): review it again.
+    if (keptFor(prepared.decoded, { dataRoot }).code) throw new Error('you sent this invite: review it again');
   }
   return se.sign(prepared, { helper, keyFile, expectedKey, adminId });
 }
@@ -198,6 +216,7 @@ const unb64 = (t, what) => {
   if (typeof t !== 'string' || !/^[A-Za-z0-9_-]+$/.test(t)) throw new Error('the coordinator sent ' + what + ' we cannot read');
   return Buffer.from(t, 'base64url');
 };
+const BUSY = new Set(['this computer is being forgotten; try again in a moment', 'this computer is still signing in; give it a minute']);
 const sendOf = (send) => send || ((...a) => require('./remote').macRequest(...a));
 /* Review 2: a person sees only fixed sentences; macRequest's `because` can carry a tunnel's line or a spawn error. A
    coordinator refusal's public code (letters, digits, _) is kept on the error for the screen.
@@ -207,7 +226,9 @@ const sendOf = (send) => send || ((...a) => require('./remote').macRequest(...a)
    an outage, an older tunnel): undefined means "not known", and the caller reads the pending list again. */
 const answerOf = (r, doing, entry) => {
   if (!r || r.ok !== true) {
-    const why = r && r.notSent ? 'this computer is not connected to Kosmos+' : 'Kosmos+ did not answer';
+    // Review 7: remote.busy()'s two sentences are fixed and say what is true; any other `because` stays hidden.
+    const why = r && r.notSent && BUSY.has(r.because) ? r.because
+      : r && r.notSent ? 'this computer is not connected to Kosmos+' : 'Kosmos+ did not answer';
     const err = new Error('could not ' + doing + ': ' + why);
     if (r && r.refusal && typeof r.refusal.code === 'string') err.code = r.refusal.code;
     if (entry) {
@@ -226,9 +247,12 @@ const answerOf = (r, doing, entry) => {
 const STAYS = new Set(['roster_signers', 'devkey_inviter_not_signer', 'roster_bad_signature', 'roster_bad_assertion',
   'roster_admin_synced_passkey', 'roster_new_key_signature', 'bad_request']);
 const endsEntry = (code) => !STAYS.has(code);
+/* Review 7: true when the entry is gone (refused for good); false while it waits, once it is accepted, or when a refusal
+   leaves it open; undefined for a refusal with no readable code (not known, as answerOf's). */
 const endedOf = (data) => {
   if (data && typeof data.ended === 'boolean') return data.ended;
-  return data && typeof data.code === 'string' ? endsEntry(data.code) : false;
+  if (data && typeof data.code === 'string') return endsEntry(data.code);
+  return data && data.ok === false ? undefined : false;
 };
 const idOk = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id);
 
@@ -236,8 +260,7 @@ const idOk = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id)
  * The member's Mac starts its enrolment: K (this Mac's key), and the code hash and join tag from the join code it was
  * invited with. The coordinator answers the exact bytes to sign; they are decoded, and must enrol THIS key with the
  * inviter and code asked for. Then this Mac signs them (devkeyenrol.deviceSign) and posts keySig.
- * Returns { id, decoded, expiresAt, answer, ended } (answer: the sign route's, waiting or escrowd's; ended: the entry
- * is gone, see STAYS). A refused sign throws an error carrying code, ended, id and expiresAt (answerOf).
+ * Returns { id, decoded, expiresAt, answer, ended } (answer: the sign route's, waiting or escrowd's; ended: endedOf). A refused sign throws an error carrying code, ended, id and expiresAt (answerOf).
  */
 async function startAndSign({ org, member, joinCode, inviterAdminId, deviceKey, send } = {}) {
   text(org, 'company'); text(member, 'member'); text(inviterAdminId, 'inviting admin');
@@ -298,12 +321,13 @@ async function adminQueue({ adminId, send, dataRoot, now } = {}) {
     const row = { id: e.id, signedBy: e.signedBy, keySigned: e.keySigned, expiresAt: e.expiresAt };
     try {
       if (!e.bytes) throw new Error('unreadable');
-      const prepared = review(e.bytes, { dataRoot, now });
+      const { prepared, keptOther } = reviewOf(e.bytes, { dataRoot, now });
       Object.assign(row, { prepared, member: prepared.shown.member, fingerprint: prepared.fingerprint,
         inviterChecked: prepared.inviterChecked, unusual: prepared.unusual, refused: null });
       // The inviter whose code is not on this computer cannot sign (seadmin.sign refuses); say so before asking.
       if (prepared.decoded.inviterAdminId === adminId && !prepared.inviterChecked) {
-        Object.assign(row, { prepared: null, refused: 'you sent this invite, but its join code is not on this computer' });
+        Object.assign(row, { prepared: null, refused: keptOther ? 'this enrolment does not match the invite you sent'   // review 7: re-invited since
+          : 'you sent this invite, but its join code is not on this computer' });
       }
       if (prepared.inviterChecked && prepared.decoded.inviterAdminId !== adminId) {   // review 1: approve() refuses it
         Object.assign(row, { prepared: null, refused: 'you sent this invite, but it names another admin as the one who sent it' });
