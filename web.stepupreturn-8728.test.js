@@ -137,6 +137,7 @@ test('#8728 slice 2: a note of another shape is ignored and removed; Not now for
     p.storage.set(p.KEY, bad);
     p.resumeStepUpReturn();
     assert.deepEqual(p.opened, [], 'acted on ' + bad);
+    assert.equal(p.storage.has(p.KEY), false, 'review 5: a note it cannot use was left in the tab: ' + bad);
   }
   const p = page({ accounts: ACCOUNTS });
   earlier(p);
@@ -179,7 +180,14 @@ test('#8728 slice 2: the page wires it: only the refusal that offers Sign in aga
   // review 3: the folder is read before the request, and the note after the awaits uses that value, never the global.
   assert.match(body, /const reauthDir = ACCT_REAUTH_DIR;[\s\S]*await fetch\('\/api\/connect\/start'/);
   assert.doesNotMatch(body.slice(body.indexOf('const out = await res.json()')), /ACCT_REAUTH_DIR/, 'the global is read again after an await');
-  assert.match(lift(SCRIPT, 'accountsRead'), /resumeStepUpReturn\(\)/);
+  // review 5: resumed only by the boot read on arrival, never from the page's later account reads.
+  assert.doesNotMatch(lift(SCRIPT, 'accountsRead'), /StepUpReturn/);
+  assert.equal((SCRIPT.match(/resumeStepUpReturn\(/g) || []).length, 2, 'one definition and the one call in stepUpReturnBoot');
+  // review 5: every Claude start clears an older note first, so a note always belongs to the latest refusal.
+  const first = body.indexOf('forgetStepUpReturn();');   // the guarded call: typeof ... forgetStepUpReturn();
+  assert.ok(first > -1 && first < body.indexOf("await fetch('/api/connect/start'"), 'acctAddStart does not clear an older note before its request');
+  const fr = lift(SCRIPT, 'frConnectStartConfirmed');
+  assert.ok(fr.indexOf('forgetStepUpReturn()') > -1 && fr.indexOf('forgetStepUpReturn()') < fr.indexOf("fetch('/api/connect/start'"), 'the first-run start does not clear an older note');
   assert.match(SCRIPT, /closest\('#stepup-close'\)\) \{ hideStepUpAsk\(\); stepUpFocusAway\(\); if \(typeof forgetStepUpReturn === 'function'\) forgetStepUpReturn\(\); \}/);
   assert.match(SCRIPT, /document\.addEventListener\('DOMContentLoaded', stepUpReturnBoot\);\nelse stepUpReturnBoot\(\);/);
   // review 2: the ask's Sign in again (both ways it goes are a submit of #stepup-form) marks the note, in capture.
