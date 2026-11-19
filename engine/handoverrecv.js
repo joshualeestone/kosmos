@@ -136,6 +136,8 @@ function urlProblem(u, key) {
   let url;
   try { url = new URL(u); } catch { return 'not a URL'; }
   if (url.protocol !== 'https:' && !(allowHttp && url.protocol === 'http:')) return 'not https';
+  if (url.username || url.password) return 'a link carrying a name or password';
+  if (!allowHttp && url.port && url.port !== '443') return 'a link to another port';
   const host = url.hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '');
   if (!allowHttp && (net.isIP(host) || host === 'localhost' || host.endsWith('.localhost') || !host.includes('.') || host.endsWith('.local'))) return 'not a named host';
   let p;
@@ -349,7 +351,7 @@ async function receive(part, org, kp, deps) {
     if (failed && failed.length && !failed.every(passing)) return fail('part of the pack is not what its sender signed');
     if (failed && !failed.length && !restored) return fail('the pack holds no files');
     // Over the byte budget when free disk was not the limit: the pack asks for more than any pack may hold.
-    if (budget === MAX_PACK_BYTES && failed.some((x) => x && x.why === 'the restore is over its byte budget')) return fail('the pack asks for more room than one hand-over can hold');
+    if (budget === MAX_PACK_BYTES && failed && failed.some((x) => x && x.why === 'the restore is over its byte budget')) return fail('the pack asks for more room than one hand-over can hold');
     if (failed && failed.some((x) => x && LOCAL_FAILURES.has(x.why))) return { ok: false, because: 'the agents could not be written on this computer (no room left, or a file that could not be written)' };
     return { ok: false, because: fetcher.state.why || 'the agents could not be unpacked on this computer' };
   }
@@ -513,7 +515,10 @@ async function tick(state, deps) {
         try { updateKey(part.id, d.root, { restoring: null, expect: null }); } catch { last = { ok: false, id: part.id, because: 'this computer could not tidy an unfinished hand-over' }; continue; }
       }
       tidyOrphans(d.base, part.id);
-      const r = await (d.receive || receive)(part, org, kp, Object.assign({ macRequest: mac }, d));
+      // Anything receive throws is a failed try like any other (counted below), never an escape past the ceiling.
+      let r;
+      try { r = await (d.receive || receive)(part, org, kp, Object.assign({ macRequest: mac }, d)); } catch { r = null; }
+      if (!r || typeof r !== 'object') r = { ok: false, because: 'the agents could not be unpacked on this computer' };
       if (r.ok) { if ((z = await closing(part, true))) return z; continue; }
       if (r.final) { if ((z = await closing(part, false, r.because))) return z; continue; }
       if (r.missing) {
