@@ -117,7 +117,7 @@ test('#8724 --link <name> --confirm links that one window, in either order; CONT
       const before = calls().filter((c) => c.link).length;
       const out = await run(args, env({ T_PANES: '[]', T_LINKABLE: 'zara' }));
       assert.equal(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
-      assert.match(out.stdout, /Linked the window called zara\. The board now types your messages into it and shows its conversation\./);
+      assert.match(out.stdout, /Linked the window called zara\. Kosmos now treats it as its own: the board types your messages into it and shows its conversation\./);
       assert.match(out.stdout, /^The agent in it speaks as itself, and the board can restart it, only once Kosmos starts it\.$/m);
       assert.match(out.stdout, /^Run kosmos adopt to see what it would record now; nothing is recorded without --confirm\.$/m);
       const links = calls().filter((c) => c.link).slice(before);
@@ -135,10 +135,10 @@ test('#8724 a refused link says the engine reason and exits 1', { skip: SKIP_POS
     }
   }));
 
-test('#8724 --link with a window list that cannot be read stops (2) and links nothing', { skip: SKIP_POSIX_SHELL }, () =>
+test('#8724 --link with a window list that cannot be read stops (1, not done) and links nothing', { skip: SKIP_POSIX_SHELL }, () =>
   withHome(async (env, calls) => {
     const out = await run(['--link', 'zara', '--confirm'], env({ T_PANES_THROW: '1', T_LINKABLE: 'zara' }));
-    assert.equal(out.code, 2, out.stdout + out.stderr);
+    assert.equal(out.code, 1, out.stdout + out.stderr);
     assert.match(out.stdout, /^could not read the windows on this computer, so nothing was linked\.$/m);
     assert.deepEqual(calls().filter((c) => c.link || c.plan), []);
   }));

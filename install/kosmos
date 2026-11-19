@@ -5870,7 +5870,7 @@ cmd_adopt() {
       if (!linkwindow) { console.log("this Kosmos cannot link windows, so nothing was linked."); process.exit(1); }
       let panes;
       try { panes = status.panesWithCommands(); }
-      catch (e) { console.log("could not read the windows on this computer, so nothing was linked."); process.exit(2); }
+      catch (e) { console.log("could not read the windows on this computer, so nothing was linked."); process.exit(1); }
       if (process.env.KOSMOS_ADOPT_CONFIRM !== "1") {
         let lp = null;
         try { lp = linkwindow.plan(want, panes); } catch (e) { lp = null; }
@@ -5893,7 +5893,7 @@ cmd_adopt() {
       if (!r || r.outcome !== linkwindow.OUTCOME.LINKED) { console.log((r && r.because) || "Kosmos could not link that window."); process.exit(r && r.markLeft === true ? 3 : 1); }
       /* What linking gives now, and what waits: the window keeps the environment it started with, so the agent in it
          speaks as itself (and can be restarted from the board) only once Kosmos starts it. */
-      console.log("Linked the window called " + (r.name || want) + ". The board now types your messages into it and shows its conversation.");
+      console.log("Linked the window called " + (r.name || want) + ". Kosmos now treats it as its own: the board types your messages into it and shows its conversation.");
       console.log("The agent in it speaks as itself, and the board can restart it, only once Kosmos starts it.");
       console.log("Run kosmos adopt to see what it would record now; nothing is recorded without --confirm.");
       process.exit(0);

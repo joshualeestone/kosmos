@@ -11,8 +11,8 @@ engine and checks as the board's button. It then says what linking gives now (me
 shown) and what waits: the agent speaks as itself and can be restarted from the board only once Kosmos starts it (a
 running window keeps the environment it was started with), and to run `kosmos adopt` to see what it would record now.
 It does not promise adopt will take it: an agent adopted before is skipped for its provenance, and two sessions under
-one board name can leave the roster's chosen pane unmarked. The preview carries the board dialog's caveat (no board
-restart, its own kosmos commands not yet its) before consent, as the dialog does. Names are echoed as the engine read
+one board name can leave the roster's chosen pane unmarked. The preview carries the board dialog's caveat (the board
+cannot restart it, its own kosmos commands do not yet speak for it) before consent, as the dialog does. Names are echoed as the engine read
 them (trimmed). Proven by CLI tests against
 stand-in engine modules, with perturbation controls.
 
@@ -26,8 +26,8 @@ stand-in engine modules, with perturbation controls.
   `linkwindow.link(name, { panes })` and print linked, or its refusal (exit 1). A plan or link that throws is said in a
   sentence (exit 1), as the board route does. The one refusal after which the mark may still be on the window
   (could not confirm it, and could not take the mark off) exits 3, "may have gone through": linkwindow now says that
-  as a field (`markLeft: true`), so the CLI keys on it rather than on the sentence. A list that cannot be read stops (2, as adopt's unreadable roster does
-  already; kept the same for one meaning inside this command rather than the help's general "not written right").
+  as a field (`markLeft: true`), so the CLI keys on it rather than on the sentence. A window list that cannot be read stops with 1 too
+  (not done), as every other "could not look" in --link does; review rounds 1, 4, 5 and 6 each raised the 2 it had first.
 - Without `--link`: the review is unchanged, except a skipped row whose reason is "not one of ours" and which
   `linkwindow.plan` accepts gets "; if you started it yourself, you can link it (kosmos adopt --link <name>), then run
   kosmos adopt again" (no promise adopt then takes it). A name that is not plain is printed in single quotes (a quote inside closed,
