@@ -315,7 +315,11 @@ function changedLines(before, after, moved = null) {
   let i = 0;
   let j = 0;
   let movedOut = 0;
-  const isMoved = (line, head) => Boolean(moved && moved.lines instanceof Set && head === moved.under && moved.lines.has(line.trim()));
+  /* Review 1: any non-blank guide line (a short one such as KOSMOS_END or Also: is the guide's too; the heading keeps the
+     match narrow), and a blank line removed under that heading is spacing, left out without being counted. */
+  const underMoved = (head) => Boolean(moved && moved.lines instanceof Set && head === moved.under);
+  const isMoved = (line, head) => underMoved(head) && line.trim() !== '' && moved.lines.has(line.trim());
+  const isGap = (line, head) => underMoved(head) && line.trim() === '';
   while (i < A.length || j < B.length) {
     if (i < A.length && j < B.length && A[i] === B[j]) { flush(); i += 1; j += 1; continue; }
     /* Review 9: each changed line is labelled by the heading it sits under (headsOf, so a # line in a code fence never
@@ -325,6 +329,7 @@ function changedLines(before, after, moved = null) {
     const removing = i < A.length && (j >= B.length || L[(i + 1) * w + j] >= L[i * w + j + 1]);
     const head = removing ? (headAt(headsB, pre + j - 1) || headAt(headsA, pre + i - 1)) : headAt(headsB, pre + j);
     if (removing && isMoved(A[i], head)) { movedOut += 1; i += 1; continue; }   // kosmos#8743: moved, not removed
+    if (removing && isGap(A[i], head)) { i += 1; continue; }   // review 1: spacing around moved lines, not a rule
     if (run && run.head !== head) flush();
     if (!run) run = { head, lines: [] };
     // A removed line before the line that replaced it, as a reader expects.
@@ -349,8 +354,12 @@ function changedLines(before, after, moved = null) {
   let cut = false;
   // Room is kept for the cut note (review 3), so a cut file stays inside both caps.
   const NOTE = '[More changed than fits here: read the sections the notice names.]';
-  const lineRoom = CHANGES_LINES_MAX - 2;
-  const byteRoom = CHANGES_BYTES_MAX - Buffer.byteLength(NOTE) - 2;
+  /* Review 1: the moved note (kosmos#8743) is known before any output, so its room is kept too, and it goes before the
+     cut note, so a cut file still ends with the more-changed note the header tells the reader to look for. */
+  const movedNote = movedOut ? 'Left out: ' + movedOut + (movedOut === 1 ? ' line' : ' lines') + ' that moved from '
+    + moved.under.replace(/^#+ /, '') + ' to ' + moved.where + ', where ' + (movedOut === 1 ? 'it still applies.' : 'they still apply.') : '';
+  const lineRoom = CHANGES_LINES_MAX - 2 - (movedNote ? 2 : 0);
+  const byteRoom = CHANGES_BYTES_MAX - Buffer.byteLength(NOTE) - 2 - (movedNote ? Buffer.byteLength(movedNote) + 2 : 0);
   const fits = (s) => out.length < lineRoom && bytes + Buffer.byteLength(s) + 1 <= byteRoom;
   for (const r of runs) {
     // A label and at least one of its lines fit, or the run is left for the sections the notice names.
@@ -374,13 +383,11 @@ function changedLines(before, after, moved = null) {
     if (cut) break;
   }
   /* kosmos#8743: every change was a moved line: say so, and nothing else (no fence with nothing in it). */
-  const movedNote = movedOut ? 'Left out: ' + movedOut + (movedOut === 1 ? ' line' : ' lines') + ' that moved from '
-    + moved.under.replace(/^#+ /, '') + ' to ' + moved.where + ', where ' + (movedOut === 1 ? 'it still applies.' : 'they still apply.') : '';
   if (!out.length && movedNote && !runs.length) return movedNote;
   // Review 3: nothing fit (one line larger than the cap): too large, so the line names no file.
   if (!out.length) return null;
-  if (cut) out.push('', NOTE);
   if (movedNote) out.push('', movedNote);
+  if (cut) out.push('', NOTE);
   return out.join('\n');
 }
 /* Before a line: the current file, and (when a copy of what the agent last read exists and differs) the path of the
@@ -399,8 +406,9 @@ function prepareChanges(session) {
        list as moved, not marked - as if they no longer applied. A guide that cannot be read moves nothing. */
     let moved = null;
     try {
-      const guideLines = require('./communityguide').guideText().split('\n').map((l) => l.trim()).filter((l) => l.length > 20);
-      moved = { under: '## The Kosmos+ community', lines: new Set(guideLines), where: 'kosmos community --how' };
+      const guideLines = require('./communityguide').guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '');
+      // Review 1: the heading from the block itself, so a rename there cannot silently match nothing here.
+      moved = { under: require('./communityblock').blockBody().split('\n')[0], lines: new Set(guideLines), where: 'kosmos community --how' };
     } catch { moved = null; }
     const diff = changedLines(seen, got.text, moved);
     // A path with a double quote is not named: the #5304 reader takes quoted text in the line for section headings.
@@ -784,4 +792,4 @@ async function passOnce(o) {
   return out;
 }
 
-module.exports = { trueSections, trueSectionsFor, sectionBody, markRead, readMarks, forgetMarks, printOf, changedLines, prepareChanges, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };
+module.exports = { CHANGES_LINES_MAX, CHANGES_BYTES_MAX, trueSections, trueSectionsFor, sectionBody, markRead, readMarks, forgetMarks, printOf, changedLines, prepareChanges, remember, rememberRead, forget, dropChanges, readSeen, GIVE_UP_MS, MAX_PER_PASS, SECTIONS, file, readOwed, readOwedStrict, writeOwed, owe, oweNow, settle, startedSince, mergeCleared, oweChanged, oweEach, lineFor, passOnce, recordSent, sentTimes, sentFile };

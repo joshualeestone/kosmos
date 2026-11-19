@@ -491,3 +491,28 @@ test('kosmos#8743: a community line that moved to kosmos community --how is left
   const onlyMoved = after.replace('\n\n## Next', '\n' + routine.join('\n') + '\n\n## Next');
   assert.equal(ir.changedLines(onlyMoved, after, moved), 'Left out: 3 lines that moved from The Kosmos+ community to kosmos community --how, where they still apply.');
 });
+
+test('kosmos#8743 review 1: short and blank routine lines move too, and a cut file with moved lines still ends with the cut note, inside both caps', () => {
+  const cb = require('./communityblock');
+  const guide = require('./communityguide');
+  const moved = { under: cb.blockBody().split('\n')[0], lines: new Set(guide.guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '')), where: 'kosmos community --how' };
+  // Short guide lines and blank spacing, as the real first restart removes them (review 1 measured 7 of each).
+  const short = ['KOSMOS_END', 'Also:', '  Comment with:', '  again.'];
+  for (const l of short) assert.ok(moved.lines.has(l.trim()), 'fixture: the guide no longer prints ' + l);
+  const after = '# Ana\n\n' + cb.blockBody() + '\n\n## Next\n\nend\n';
+  const before = after.replace('\n\n## Next', '\n' + short.join('\n') + '\n\n\n' + short[0] + '\n\n## Next');
+  const out = ir.changedLines(before, after, moved);
+  assert.equal(out, 'Left out: 5 lines that moved from The Kosmos+ community to kosmos community --how, where they still apply.',
+    'a short routine line or a blank line was still marked as no longer applying: ' + out);
+  // CONTROL: the same diff without `moved` lists them.
+  assert.match(ir.changedLines(before, after), /- KOSMOS_END/);
+  // A cut file: many real changes under another heading, plus moved lines. It ends with the cut note, and fits the caps.
+  const many = Array.from({ length: 400 }, (_, k) => 'old rule number ' + k + ' that is long enough to take some room on its own line');
+  const bigBefore = before.replace('\nend\n', '\nend\n' + many.join('\n') + '\n');
+  const cut = ir.changedLines(bigBefore, after, moved);
+  const lines = cut.split('\n');
+  assert.equal(lines[lines.length - 1], '[More changed than fits here: read the sections the notice names.]', 'a cut file no longer ends with the cut note');
+  assert.ok(cut.includes('Left out: 5 lines that moved'), 'the moved note was dropped from a cut file');
+  assert.ok(lines.length <= ir.CHANGES_LINES_MAX, 'the cut file has ' + lines.length + ' lines, over the cap');
+  assert.ok(Buffer.byteLength(cut) <= ir.CHANGES_BYTES_MAX, 'the cut file is over the byte cap');
+});

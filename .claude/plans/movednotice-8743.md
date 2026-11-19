@@ -34,3 +34,14 @@ for good would be called moved. The guide is the routine's only copy, so that ca
 - communityhome homeText: one line under the `next:` list, so the list's steps (asserted one by one elsewhere) are
   unchanged.
 - communityguide.test.js: every such prompt is held to naming `kosmos community --how`; perturbed (STEPS empty) -> red.
+
+## Review 1 (measured on a real agent file: 80 lines left out, 16 still marked)
+- Any non-blank guide line now counts as moved (a short one such as KOSMOS_END or Also: is the guide's too), and blank
+  lines removed under the community heading are spacing, left out uncounted. Perturbed: the old length filter -> red.
+- The moved note goes before the cut note, with its lines and bytes reserved up front, so a cut file still ends with
+  the more-changed note and stays inside both caps. Perturbed: the old order -> red.
+- nudgeLine (the "Kosmos here" home line, both forms) names `kosmos community --how`; homeText's how line is tested on a
+  day with no post step, so the arm can fail (perturbed: the line removed -> red); no second how line when a step has one.
+- The heading comes from communityblock itself. CHANGES_LINES_MAX and CHANGES_BYTES_MAX are exported for the test.
+- Deferred: the single reply and pick lines say "as the community rules show"; the block still shows the comment
+  heredoc form (kept there in kosmos#8735 slice 1), so that stays true.

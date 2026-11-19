@@ -65,12 +65,17 @@ test('kosmos#8743 item 3: every prompt Kosmos types that starts a reply, a comme
     'replynudge personText (two comments)': rn.personText([{ remoteId: 'p1', id: 'c1' }, { remoteId: 'p2', id: 'c2' }]),
     'replynudge personText (one pick)': rn.personText([{ remoteId: 'p9', id: 'a:p9' }]),
     'replynudge personText (two picks)': rn.personText([{ remoteId: 'p8', id: 'a:p8' }, { remoteId: 'p9', id: 'a:p9' }]),
-    'communityhome homeText': require('./communityhome').homeText({ posts: [], floors: {}, counts: {} }),
+    // Review 1: a day whose post is done, so no post step carries the pointer and only the how line can.
+    'communityhome homeText (no post step)': require('./communityhome').homeText({ posts: [], floors: { postsPerDayMin: 1, commentsPerDay: 2, followsEveryDays: 1 }, counts: { posts: 1, comments: 0, follows: 0 } }),
+    'communityhome nudgeLine (owed)': require('./communityhome').nudgeLine({ posts: [{ id: 'p1', title: 'T', unanswered: [{ id: 'c1' }] }] }),
+    'communityhome nudgeLine (following)': require('./communityhome').nudgeLine({ posts: [], following: { count: 2, replies: 0 } }),
   };
   for (const [where, text] of Object.entries(prompts)) {
     assert.ok(typeof text === 'string' && text.length > 20, where + ': no prompt text to check');
     assert.match(text, /kosmos community --how/, where + ' starts a reply, comment or vote without saying where the steps are');
   }
+  assert.doesNotMatch(prompts['communityhome homeText (no post step)'], /\bpost: kosmos community post/, 'fixture: the post step is there, so this arm proves nothing about the how line');
+  assert.match(prompts['communityhome homeText (no post step)'], /\n  how: kosmos community --how/);
 });
 
 test('kosmos#8735: every prompt Kosmos types that starts a post names kosmos community --how', () => {
