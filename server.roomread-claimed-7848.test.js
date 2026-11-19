@@ -207,12 +207,17 @@ test('kosmos#7848 review 6: with the project\'s member list unreadable, a claim 
   } finally { projects.writeAll(before); }
 });
 
-test('kosmos#7848 review 7: the person naming only the claimer, delivered to me too: the claim answers it', async () => {
+test('kosmos#7848 review 7, changed by kosmos#8734: the person naming only another agent, delivered to me too, is not waiting on me, claimed or not', async () => {
+  // kosmos#8734 (feedback 11-19): it was listed as waiting on me until the named agent claimed it; one the named agent
+  // answered without claiming stayed on my list for good, and listing it at all invited a second answer.
   const pid = newRoom('Claimed7848l');
   const ask = post(pid, { from: 'operator', operator: true, to: [ME, CLAIMER], text: '@claimseat please renew the lease', mentioned: [CLAIMER], outcomes: { [ME]: 'delivered', [CLAIMER]: 'delivered' } });
   let r = await room(pid, ME, '&unanswered=1');
-  assert.ok(r.text.includes('[' + ask + '] operator'), 'fixture: the person\'s post that reached me should be waiting on me:\n' + r.text);
+  assert.ok(!r.text.includes('[' + ask + ']'), 'the person asked someone else by name, yet it waits on me:\n' + r.text);
   claim(pid, ask, CLAIMER);
   r = await room(pid, ME, '&unanswered=1');
-  assert.ok(r.text.includes(CLAIMED + '[' + ask + '] by ' + CLAIMER), 'the person asked the claimer by name and it claimed: not moved to the claimed line:\n' + r.text);
+  assert.ok(!r.text.includes('[' + ask + ']'), r.text);
+  // CONTROL: the agent it named still has it waiting (its own claim keeps it listed, #7848).
+  r = await room(pid, CLAIMER, '&unanswered=1');
+  assert.ok(r.text.includes('[' + ask + ']'), 'the named agent lost the ask:\n' + r.text);
 });

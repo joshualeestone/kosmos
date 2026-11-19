@@ -212,9 +212,10 @@ test('kosmos#8300: an old ask the reader claimed and has not answered stays list
   assert.ok(listed(r.text, mine), 'the claimed ask left the list:\n' + r.text);
 });
 
-test('kosmos#8300: an old ask that names only someone else stays listed: it was not to the whole room', async () => {
+test('kosmos#8300: an old ask that names the reader stays listed: it was not to the whole room', async () => {
+  // kosmos#8734: it named only someone else before; such an ask is no longer the reader's at all, so it names the reader.
   const pid = newRoom('Aged8300h');
-  const other = toRoom(pid, 10 * DAY, { mentioned: [CLAIMER], text: '@claimseat can you look' });
+  const other = toRoom(pid, 10 * DAY, { mentioned: [ME, CLAIMER], text: '@readerseat @claimseat can you look' });
   myPost(pid, 9 * DAY);
   assert.ok(listed((await room(pid, '&unanswered=1')).text, other));
 });
