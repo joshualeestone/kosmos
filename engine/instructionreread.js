@@ -390,6 +390,7 @@ function changedLines(before, after, moved = null) {
   }
   /* kosmos#8743: every change was a moved line: say so, and nothing else (no fence with nothing in it). */
   if (!out.length && movedNote && !runs.length) return movedNote;
+  if (!out.length && !movedNote && !runs.length) return '';   // review 3: only blank lines under the moved heading: the same
   // Review 3: nothing fit (one line larger than the cap): too large, so the line names no file.
   if (!out.length) return null;
   if (movedNote) out.push('', movedNote);
@@ -411,9 +412,16 @@ function prepareChanges(session) {
     /* kosmos#8743: the community routine moved to `kosmos community --how` (kosmos#8735); its lines are left out of the
        list as moved, not marked - as if they no longer applied. A guide that cannot be read moves nothing. */
     let moved = null;
-    try {
+    /* Review 3 (BLOCKER): only while the agent still takes part. When the new section is the stopped form (a policy, a
+       family Kosmos) or is gone, the routine does not still apply anywhere, so nothing is left out as moved. */
+    const cbm = (() => { try { return require('./communityblock'); } catch { return null; } })();
+    const projectsMod = require('./projects');
+    const stillTakesPart = Boolean(cbm) && projectsMod.findBlock(got.text, cbm.START, cbm.END) && !cbm.isStoppedSection(got.text);
+    if (stillTakesPart) try {
       const guideLines = require('./communityguide').guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '');
-      // Review 1: the heading from the block itself, so a rename there cannot silently match nothing here.
+      // Review 1: the heading from the block itself, not a third spelling. Review 3: it is compared with the heading a
+      // removed line had in the OLD text, so on the one restart that carries a heading rename nothing matches and the
+      // lines are listed as removed (the plain diff), never hidden.
       moved = { under: require('./communityblock').blockBody().split('\n')[0], lines: new Set(guideLines), where: 'kosmos community --how' };
     } catch { moved = null; }
     const diff = changedLines(seen, got.text, moved);
@@ -424,7 +432,7 @@ function prepareChanges(session) {
       + 'Kosmos wrote this when it told you the file changed. A line starting with - was removed, one starting with + was added.\n'
       /* Reviews 14-17: a pointer, ranking nothing, and never calling a removed line current: an added line anywhere is part
          of your instructions now, a removed one is not. Complete unless it ends with the more-changed note. */
-      + 'This is a pointer only: read the sections the notice named. It lists the changes since you last read the file, changes elsewhere in it included: a line marked + is in your instructions now, wherever it is, and a line marked - no longer applies. If it ends with a note that more changed, it is not complete.\n'
+      + 'This is a pointer only: read the sections the notice named. It lists the changes since you last read the file, changes elsewhere in it included: a line marked + is in your instructions now, wherever it is, and a line marked - no longer applies, unless a note at the end of this file says where it went. If it ends with a note that more changed, it is not complete.\n'
       + diff + '\n';
     // Review 1 BLOCKER: through securewrite, so a link planted in the agent's folder is never followed; 0600.
     require('./securewrite').writeSecret(p, body, 0o600, { atomicOnly: true, ownTempsOnly: true });
@@ -625,12 +633,13 @@ function lineFor(sections, { communityStopped = false, changesAt = null } = {}) 
         + 'its new text applies the next time you take part. '
         /* kosmos#8735 review 1: since the routine moved to the guide, a line about HOW to take part that left this section
            is printed by `kosmos community --how`, so the notice says where to read it. The changes file leaves such a line out as moved
-           (kosmos#8743, changedLines), so nothing here contradicts its header's "a line marked - no longer applies". */
+           (kosmos#8743, changedLines), and the file's header and this clause both say a - line no longer applies unless a note at
+           its end says where it went. */
         + 'How to take part (the steps, the commands, what to do when something is held) is printed by kosmos community --how: '
         + 'read it there before you next take part. ';
   // kosmos#7149: where the changed lines are, so the agent need not re-read a long block to find a short change.
   const changes = typeof changesAt === 'string' && changesAt
-    ? 'To help you find what changed, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves; a line it marks + elsewhere is current too, and a line it marks - no longer applies). '
+    ? 'To help you find what changed, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves; a line it marks + elsewhere is current too, and a line it marks - no longer applies, unless a note at its end says where it went). '
     : '';
   // Review 5: after the replaces sentence, so its "it" stays the instructions file, not the changes file.
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '

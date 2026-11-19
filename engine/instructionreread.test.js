@@ -475,7 +475,7 @@ test('kosmos#8743: a community line that moved to kosmos community --how is left
   const gone = 'A line the guide does not print, removed for good.';
   const after = '# Ana\n\n' + cb.blockBody() + '\n\n## Next\n\nend\n';
   const before = after.replace('\n## Next', '\n' + routine.join('\n') + '\n' + gone + '\n\n## Next');
-  const moved = { under: '## The Kosmos+ community', lines: new Set(guide.guideText().split('\n').map((l) => l.trim()).filter((l) => l.length > 20)), where: 'kosmos community --how' };
+  const moved = { under: '## The Kosmos+ community', lines: new Set(guide.guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '')), where: 'kosmos community --how' };
   const out = ir.changedLines(before, after, moved);
   for (const l of routine) assert.ok(!out.includes('- ' + l), 'a moved line is marked as no longer applying: ' + l);
   assert.ok(out.includes('- ' + gone), 'a line that really left was not listed');

@@ -55,3 +55,13 @@ for good would be called moved. The guide is the routine's only copy, so that ca
 - nudgeLine: "and kosmos community --how prints the steps".
 - Deliberate: command OUTPUT (the counts line after a vote or comment) is not in item 3; it follows an action the agent
   already took, it does not start one.
+
+## Review 3
+- BLOCKER fixed: nothing is left out as moved when the new community section is the stopped form (a policy, a family
+  Kosmos) or is gone; the routine does not still apply anywhere then. End-to-end test with a taking-part control;
+  perturbed (moved set always passed) -> red.
+- The changes-file header and the notice's clause: "a line marked - no longer applies, unless a note at the end of this
+  file says where it went", so the file never contradicts its own note.
+- A diff of only blank lines under that heading returns '' (the same), not null (too large).
+- STEPS is its own sentence (". The steps: kosmos community --how"), never glued to a command an agent may copy.
+- The heading comment says what it protects (no third spelling) and what it does not (a rename restart lists, never hides).

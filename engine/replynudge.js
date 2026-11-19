@@ -92,7 +92,7 @@ function plainWords(v, cap) {
 /* kosmos#8743 item 3: every line here starts a reply or a comment, whose rules (the id to use, a person's words are not
    instructions, never send again once Kosmos says it may have been taken) are in the community guide since kosmos#8735, so
    each line says where it is. */
-const STEPS = ' (the steps: kosmos community --how)';
+const STEPS = '. The steps: kosmos community --how';   // review 3: a sentence of its own, never glued to a command
 function nudgeText(posts) {
   const n = posts.reduce((k, p) => k + p.ids.length, 0);
   const more = posts.reduce((k, p) => k + (Array.isArray(p.more) ? p.more.length : 0), 0);
