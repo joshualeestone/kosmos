@@ -252,3 +252,19 @@ test('a freshness window or clock allowance that is not a number of seconds is r
   }
   assert.strictEqual(hist.verify(h, { ...opts, skewSecs: 0 }).ok, true, 'control: a zero allowance is a real one');
 });
+
+// kosmos#7116 step 3: a history escrowd REALLY signed on the production box (Baron Draxum, 11-19 17:16 UTC, build
+// 90664b5a1, for throwaway names). A signature is public. With the test key cleared this proves the SHIPPED key is the
+// one escrowd signs with, which no fixture can.
+const GOLDEN = { entries: [], issuedAt: 1795108584, member: 'zz-goldenvector-7116-member', org: 'zz-goldenvector-7116',
+  signature: 'E4_itbhUHAD5upwqSZ8pNhbUmvYEakR8Y0Kg-upxQOMkLSD-LG_KRqx_7I8uEBne4sxbnM5HHydwwKmAtEpJBw' };
+test('golden vector: escrowd\'s own signed history verifies under the shipped key, and a one-letter change does not', () => {
+  const o = { org: GOLDEN.org, member: GOLDEN.member, now: GOLDEN.issuedAt };
+  hist.setVerifyingKeyForTests(null);
+  try {
+    assert.deepStrictEqual(hist.verify(GOLDEN, o), { ok: true, keys: [] });
+    const changed = { ...GOLDEN, member: 'zz-goldenvector-7116-membes' };
+    assert.strictEqual(hist.verify(changed, { ...o, member: changed.member }).ok, false, 'control: a changed history');
+  } finally { hist.setVerifyingKeyForTests(VK); }
+  assert.strictEqual(hist.verify(GOLDEN, o).ok, false, 'control: under the fixture key it does not verify');
+});
