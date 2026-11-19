@@ -36,7 +36,8 @@
  *   final: decided by the part or the coordinator's answer (its names, its key, an agent folder missing, protected or
  *     holding other work, a pack larger than the hand-over allows, a hand-over no longer open), or MAX_ATTEMPTS failed
  *     attempts. Said in this module's own sentence on the screen; tried again only when the part changes.
- *   retryLater (a network refusal, a quota): tried again next tick, and not counted.
+ *   retryLater (a network refusal, a quota): not counted as an attempt; tried again after SOFT_RETRY_MS, and final after
+ *     MAX_SOFT of them in a row.
  *   any other (a coordinator error, a busy connector, a file that could not be read): tried again after RETRY_MS.
  * Neither of the last two is shown. The attempt count and a final reason are kept on disk (send-<id>.json) for the
  * part they were decided for, so a restart neither forgets nor resets them. Never throws.
@@ -62,8 +63,11 @@ const SESSION_BYTES = 50 * 1024 * 1024;
 const EVERY_MS = 5 * 60 * 1000;
 const RETRY_MS = 60 * 60 * 1000;
 const MAX_ATTEMPTS = 8;
+const SOFT_RETRY_MS = 15 * 60 * 1000;   // a retryLater (a network refusal, a quota) waits this long
+const MAX_SOFT = 24;                     // ... and this many in a row (six hours) is final
 const MAX_PACK_BYTES = 500 * 1024 * 1024;   // kosmos-relay handover.rs MAX_PACK_BYTES
-/* What this computer decided about one part (attempts, a final reason, and the part it was decided for), kept in
+/* What this computer decided about one part (attempts, the retryLater run, a final reason, and the part it was decided
+   for), kept in
    <store.ROOT>/handover/send-<id>.json so a restart neither forgets a final decision nor resets the ceiling. */
 function sendFile(id, root) { return path.join(root || require('./store').ROOT, 'handover', `send-${id}.json`); }
 function readSend(id, root) { try { const j = JSON.parse(fs.readFileSync(sendFile(id, root), 'utf8')); return j && typeof j === 'object' ? j : {}; } catch { return {}; } }
@@ -100,15 +104,18 @@ function resolveNames(labels, rows) {
   return { ok: true, names };
 }
 
-/* Keep the newest session files of one agent, across all its session roots, up to `cap` bytes; the newest is kept even
-   alone over it. A file that cannot be read is dropped. Roots left with no files are dropped. */
+/* Keep one agent's memory notes, then its newest session files, across all its session roots, up to `cap` bytes; the
+   first file is kept even alone over it. A file that cannot be read is dropped. Roots left with no files are dropped. */
 function trimSessions(roots, cap, deps) {
   const stat = (deps && deps.stat) || ((p) => fs.statSync(p));
   const all = [];
   for (const r of roots) for (const rel of r.only || []) {
     try { const s = stat(path.join(r.path, rel)); if (s.isFile()) all.push({ r, rel, size: s.size, mtime: s.mtimeMs }); } catch { /* gone */ }
   }
-  all.sort((a, b) => b.mtime - a.mtime || (a.rel < b.rel ? -1 : 1));
+  // The agent's memory notes (backupsessions lists them as memory/...) first, whatever their age: they are what the
+  // colleague most needs, and they are usually older than the recent transcripts. Then the newest transcripts.
+  const mem = (f) => (f.rel === 'memory' || f.rel.startsWith('memory/') ? 0 : 1);
+  all.sort((a, b) => mem(a) - mem(b) || b.mtime - a.mtime || (a.rel < b.rel ? -1 : 1));
   const keep = new Map();
   let used = 0;
   for (const f of all) {
@@ -203,7 +210,7 @@ function packInput(part, org, deps) {
   const sealable = (k) => { try { require('./hpke').hpkeSeal(k, Buffer.alloc(0), Buffer.alloc(0), Buffer.alloc(0)); return true; } catch { return false; } };
   // A trial seal (hpke's own rule: 32 bytes, a canonical X25519 point): one that is not would otherwise fail inside the
   // snapshot as "failed unexpectedly".
-  if (!pk || pk.length !== 32 || pk.toString('base64') !== part.seal_pub || !sealable(pk)) return { ok: false, final: true, because: 'the colleague\'s key for this hand-over is not one this computer can seal to' };
+  if (!pk || pk.length !== 32 || pk.toString('base64') !== part.seal_pub || !sealable(pk)) return { ok: false, final: true, because: 'the key for this hand-over is not one this computer can seal to' };
   let rows;
   try { const sv = (d.survey || (() => require('./register').survey()))(); if (!sv || !sv.ok) return { ok: false, retryLater: true, because: (sv && sv.because) || 'the agents on this computer could not be read' }; rows = sv.agents; } catch { return { ok: false, retryLater: true, because: 'the agents on this computer could not be read' }; }
   const names = resolveNames(part.agents, rows);
@@ -256,6 +263,7 @@ async function tick(state, deps) {
         const rec = readSend(part.id, d.root);
         if (rec.key === key) {
           if (Number.isSafeInteger(rec.attempts)) state.attempts.set(part.id, rec.attempts);
+          if (Number.isSafeInteger(rec.soft)) state.soft.set(part.id, rec.soft);
           if (typeof rec.final === 'string') state.failed.set(part.id, { key, because: rec.final });
         }
       }
@@ -272,7 +280,7 @@ async function tick(state, deps) {
         if (!r || typeof r !== 'object') r = { ok: false, because: 'the pack failed unexpectedly' };
       }
       state.retryAt.delete(part.id);
-      if (r.ok) { state.packed.add(part.id); state.failed.delete(part.id); state.attempts.delete(part.id); dropSend(part.id, d.root); }
+      if (r.ok) { state.packed.add(part.id); state.failed.delete(part.id); state.attempts.delete(part.id); state.soft.delete(part.id); dropSend(part.id, d.root); }
       else {
         // A network refusal or a quota (retryLater) is not the pack's: tried next tick, not counted.
         const tries = (state.attempts.get(part.id) || 0) + (r.retryLater ? 0 : 1);
@@ -285,9 +293,15 @@ async function tick(state, deps) {
         let final = null;
         if (r.final || said) final = said || r.because || 'the pack did not finish';
         else if (tries >= MAX_ATTEMPTS) final = `Kosmos tried ${tries} times and could not finish the pack; your company can start the hand-over again`;
-        else if (!r.retryLater) state.retryAt.set(part.id, now + RETRY_MS);
+        else if (r.retryLater) {
+          // Not counted as an attempt, but not every tick for ever: backed off, and final past MAX_SOFT in a row.
+          const soft = (state.soft.get(part.id) || 0) + 1;
+          state.soft.set(part.id, soft);
+          if (soft >= MAX_SOFT) final = 'Kosmos+ kept asking this computer to wait, so the pack did not finish; your company can start the hand-over again';
+          else state.retryAt.set(part.id, now + SOFT_RETRY_MS);
+        } else state.retryAt.set(part.id, now + RETRY_MS);
         if (final) state.failed.set(part.id, { key, because: final });
-        writeSend(part.id, d.root, Object.assign({ key, attempts: tries }, final ? { final } : {}));
+        writeSend(part.id, d.root, Object.assign({ key, attempts: tries, soft: state.soft.get(part.id) || 0 }, final ? { final } : {}));
       }
       return { ok: r.ok === true, id: part.id, because: r.ok ? undefined : r.because };   // one pack per tick
     }
@@ -298,10 +312,12 @@ async function tick(state, deps) {
   } finally { state.running = false; }
 }
 
+function newSendState() { return { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), soft: new Map(), packed: new Set(), loaded: new Set(), open: [] }; }
+
 /* The board's own timer. Never throws. */
 function startTick(deps) {
   const d = deps || {};
-  const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set(), open: [] };
+  const state = newSendState();
   const run = () => { tick(state, d).catch(() => {}); };
   const t = (d.setInterval || setInterval)(run, d.everyMs || EVERY_MS);
   if (t && typeof t.unref === 'function') t.unref();
@@ -327,4 +343,4 @@ function notice(state) {
   return failed ? { agents, stopped: failed.because } : { agents };
 }
 
-module.exports = { MINE_ROUTE, SESSION_BYTES, RETRY_MS, MAX_ATTEMPTS, resolveNames, trimSessions, rootsFor, packInput, sendable, tick, startTick, enabled, startHere, notice };
+module.exports = { newSendState, MAX_SOFT, SOFT_RETRY_MS, MINE_ROUTE, SESSION_BYTES, RETRY_MS, MAX_ATTEMPTS, resolveNames, trimSessions, rootsFor, packInput, sendable, tick, startTick, enabled, startHere, notice };
