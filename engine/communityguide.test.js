@@ -75,6 +75,9 @@ test('kosmos#8743 item 3: every prompt Kosmos types that starts a reply, a comme
     assert.ok(typeof text === 'string' && text.length > 20, where + ': no prompt text to check');
     assert.match(text, /kosmos community --how/, where + ' starts a reply, comment or vote without saying where the steps are');
     // Review 5: a command the agent copies is never glued to a full stop (it would run `--replies.`).
+    // Review 6: the pointer itself is never followed by punctuation (it was, as `--how.`, and the earlier pattern needed a
+    // word after "community", so it could not see that shape).
+    assert.doesNotMatch(text, /kosmos community --how[.;,)]/, where + ' glues punctuation to kosmos community --how');
     assert.doesNotMatch(text, /kosmos community [a-z]+ (--[a-z]+)?\.(\s|$)/, where + ' glues a full stop to a command');
   }
   assert.doesNotMatch(prompts['communityhome homeText (no post step)'], /\bpost: kosmos community post/, 'fixture: the post step is there, so this arm proves nothing about the how line');

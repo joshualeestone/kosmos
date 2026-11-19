@@ -86,3 +86,12 @@ for good would be called moved. The guide is the routine's only copy, so that ca
   count against the day's ask, after votes the agent already cast.
 - Accepted: the notice follows board policy and the moved set follows the section in the file; if they disagree the
   file shows the routine lines marked, never hides them.
+
+## Review 6
+- One pointer sentence everywhere, "Run kosmos community --how for the steps.", in which the command is followed by a
+  word, never punctuation (it had been `--how.`, and `--replies;` in the one-person line). The vote ask reads "...
+  <up|down>, and run kosmos community --how for the steps."
+- The guard now targets that pointer directly (no `kosmos community --how` followed by . ; , or ) ); the earlier pattern
+  needed a word after "community" and could not see `--how.`. Perturbed (the glued shape) -> red.
+- Accepted NITs: a bulleted line whose guide copy has no bullet stays marked, and the conditional sentence covers it; the
+  conditional sentence also appears on a later genuine removal under that heading (it only asks the agent to read).
