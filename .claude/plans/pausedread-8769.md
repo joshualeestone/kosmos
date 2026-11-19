@@ -37,6 +37,14 @@ Agents read `kosmos room <project>` before they post, so that is where the pause
   (the (length - cap + 1)th newest wake ages out). "After that" read as "after my own next post".
 - "Your person's post here ends the pause": a person on another computer of a shared room does not end it.
 
+## Review 3 changes
+- At the cap: "starts a pause of an hour and is under it", not "is paused itself": a post to exactly one member still
+  gets through (pairCan passes with nothing spent).
+- A clock that answers anything but a string falls back to the board's own time (not "undefined"); no at-cap line with
+  no wake in the window (a cap of 0 in a test).
+- Not changed: two assertion messages a reviewer read as backwards; each describes the failure it reports, as the
+  repo's other messages do.
+
 ## Tests
 - `engine/roomloop-8769.test.js`: nothing said below the cap (CONTROL); at the cap said before any post, and the read
   starts no pause; during a pause the allowance left is counted down and "used up" is said; an expired pause is not
@@ -47,7 +55,8 @@ Agents read `kosmos room <project>` before they post, so that is where the pause
   served time is HH:MM in the view's form.
 - Review 2: the at-cap moment is when the count drops below the cap (at and above it); "After that" is gone; "Your
   person's".
-- Mutations, each red: the at-cap moment from the oldest wake only; "A person's"; the view's clock not passed; the @all wording back;
+- Review 3: no "is paused itself"; a non-string clock answer falls back.
+- Mutations, each red: a non-string clock answer printed; the at-cap moment from the oldest wake only; "A person's"; the view's clock not passed; the @all wording back;
   the line left out of the view; the read latching through paused(); no at-cap case; the
   allowance not counted down.
 - Swept and green: engine.reachable, roomloop-7246, server.room-held-5800, messages.roomhold-4624, roomhold-told-4926,

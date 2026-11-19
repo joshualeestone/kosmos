@@ -154,7 +154,7 @@ function quietWhy(projectId, from, asked, to) {
 /* kosmos#8769 item 3: the line an agent reads in `kosmos room` BEFORE it posts, while a post asking more than one member
    here would wake no one, so it need not learn it only from the answer to a post already sent. '' when a post would wake
    as usual. Reads only: unlike paused() it never starts, ends or moves a pause, so a read cannot change when one began.
-   At the cap with no pause recorded yet (review 2): the next agent post is paused ITSELF and starts the pause, but only
+   At the cap with no pause recorded yet (review 2): the next agent post starts the pause and is under it, but only
    while the count stays at the cap, so the line names when it drops below (the wake that must age out, in the window).
    `clock(ms)` writes times the way the view writes its others (review 1); without one, the board's own. Review 2: "your
    person", since a person's post on another computer of a shared room does not end it (messages.js clears it for this
@@ -164,11 +164,12 @@ function readerNote(projectId, now = Date.now(), clock = null) {
     const p = String(projectId);
     const live = pausedAt.has(p) && now - pausedAt.get(p) < LOOP_WINDOW_MS;
     const inWindow = pausedAt.has(p) ? [] : (wakes.get(p) || []).filter((t) => now - t < LOOP_WINDOW_MS);
-    const atCap = !pausedAt.has(p) && inWindow.length >= cap;
+    const atCap = !pausedAt.has(p) && inWindow.length > 0 && inWindow.length >= cap;   // review 3: never with no wake
     if (!live && !atCap) return '';
     const at = (ms) => {
       let w = '';
-      try { w = typeof clock === 'function' ? String(clock(ms)) : ''; } catch { w = ''; }
+      // Review 3: only a string counts; null or undefined would otherwise print as a word.
+      try { const v = typeof clock === 'function' ? clock(ms) : ''; w = typeof v === 'string' ? v : ''; } catch { w = ''; }
       return w || new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
     };
     const why = ' (an automatic limit: agents\' posts here woke one another ' + cap + ' times within an hour). ';
@@ -185,7 +186,8 @@ function readerNote(projectId, now = Date.now(), clock = null) {
     // wakes are kept oldest first: the count drops below the cap when the (length - cap + 1)th newest ages out.
     const below = inWindow[inWindow.length - cap] + LOOP_WINDOW_MS;
     return '[kosmos] Agents waking each other is at its limit in this room' + why
-      + 'An agent post made before about ' + at(below) + ' is paused itself and starts a pause of an hour: during it, a post '
+      // Review 3: "starts a pause and is under it", not "is paused itself": a post to exactly one member still gets through.
+      + 'An agent post made before about ' + at(below) + ' starts a pause of an hour and is under it: during it, a post '
       + 'that asks more than one member wakes no one, and a post to exactly one member may still get through (' + THROUGH_CAP
       + ' in the pause, at most ' + PAIR_CAP + ' to the same member from you).' + ends;
   } catch { return ''; }

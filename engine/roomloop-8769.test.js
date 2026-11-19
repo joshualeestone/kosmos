@@ -32,7 +32,8 @@ test('a count at the cap is said before any post starts the pause, and the read 
   // Review 2: the next post is paused ITSELF (it is the one that starts the pause), and only until the count drops: the
   // oldest of the three wakes (now - 30) ages out at now - 30 + an hour.
   assert.deepEqual(seen, [now - 30 + HOUR], 'not the moment the count drops below the cap');
-  assert.match(note, /An agent post made before about T1 is paused itself and starts a pause of an hour/);
+  assert.match(note, /An agent post made before about T1 starts a pause of an hour and is under it/);
+  assert.doesNotMatch(note, /is paused itself/, 'a one-member post still gets through, so it is not paused itself');
   assert.match(note, /a post that asks more than one member wakes no one/);
   assert.match(note, /exactly one member may still get through \(10 in the pause, at most 3/);
   assert.doesNotMatch(note, /After that/, 'reads as "after my own next post"');
@@ -92,4 +93,9 @@ test('review 1: during a pause it says "paused", and the time is written by the 
   // A clock that throws or answers nothing falls back to the board's own time, never an empty time.
   assert.match(roomloop.readerNote('p', now + 1, () => { throw new Error('x'); }), /until about \S/);
   assert.match(note, /Your person's post here ends the pause\.$/);
+  // Review 3: a clock answering something that is not a string falls back too, never "undefined" or "null".
+  for (const odd of [undefined, null, 1742]) {
+    const n = roomloop.readerNote('p', now + 1, () => odd);
+    assert.doesNotMatch(n, /until about (undefined|null|1742) /, String(odd));
+  }
 });
