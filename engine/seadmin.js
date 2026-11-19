@@ -203,6 +203,11 @@ function decodeDevkeyEnrol(bytes) {
     inviterAdminId: r.text(), generation: r.generation(), nonce: r.take() };
   r.end();
   for (const [k, what] of [['key', 'a Mac key'], ['codeHash', 'a code hash'], ['joinTag', 'a join tag']]) raw32(out[k], what);
+  // Review 3: an enrolment names a company, a member and the admin who invited them; an empty one is no enrolment (and an
+  // empty inviter would let any admin sign it as "second" with nothing checked).
+  for (const [k, what] of [['org', 'company'], ['member', 'member'], ['inviterAdminId', 'inviting admin']]) {
+    if (!out[k]) throw new Error('an enrolment must name its ' + what);
+  }
   return out;
 }
 function decodeReviewerRevoke(bytes) {
@@ -397,6 +402,8 @@ function prepare(action, bytes, opts = {}) {
     fingerprint = fingerprintDisplay(devkeyFingerprint(decoded.org, decoded.member, decoded.key));
   }
   let inviterChecked = false;
+  // Review 3: a join code belongs to an enrolment only; wired to another action it is a caller's mistake, said at once.
+  if (action !== 'devkeyEnrol' && opts && opts.joinCode !== undefined) throw new Error('a join code goes only with an enrolment');
   if (action === 'devkeyEnrol' && opts && opts.joinCode !== undefined) {
     const dk = require('./devkeyenrol');
     if (!dk.matchesJoinCode(opts.joinCode, decoded)) {
@@ -496,11 +503,14 @@ async function signOne(prepared, { helper, keyFile, expectedKey, adminId }) {
   if (!message) throw new Error('sign takes only what prepare returned');
   /* kosmos#7116 step 2 (review 1): the inviter's check is the only defence against a coordinator's own K (escrowd never
      holds the code), so it cannot be skipped by a lookup that found nothing. A devkeyEnrol is signed only by a caller
-     that says which admin it is: the inviter only after prepare checked the code, anyone else as the second admin. */
+     that says which admin it is: the inviter only after prepare checked the code, anyone else as the second admin.
+     This Mac holds no roster, so it cannot check that `adminId` is the admin whose key `expectedKey` is (review 3):
+     escrowd must verify each signature under the key registered for the admin id it is posted with, so an app that
+     names the wrong admin here produces a signature escrowd refuses. That is step 1's rule; asked on #7116. */
   if (prepared.action === 'devkeyEnrol') {
     if (typeof adminId !== 'string' || !adminId) throw new Error('say which admin is signing this enrolment');
     if (adminId === prepared.decoded.inviterAdminId && prepared.inviterChecked !== true) {
-      throw new Error('you sent this invite, so your join code must be checked before you sign; it was not found on this computer');
+      throw new Error('you sent this invite, so your join code must be checked before you sign, and it was not checked');
     }
   }
   const expected = key(expectedKey);

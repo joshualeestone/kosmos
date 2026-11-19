@@ -97,6 +97,24 @@ test('#7116 step 2 review 1: an admin signing an enrolment says who it is; the i
   await assert.rejects(se.sign(se.prepare('devkeyEnrol', e.bytes, { joinCode: e.code }), { adminId: INVITER }), /a key is 65 bytes/);
 });
 
+test('#7116 step 2 review 3: the decoder refuses a wrong-length key, code hash or join tag, and an empty company, member or inviter', () => {
+  const e = enrolment();
+  const parts = { org: ORG, member: MEMBER, key: e.key, codeHash: dk.joinCodeHash(e.code), joinTag: dk.joinTag(e.code, ORG, MEMBER, e.key), inviter: INVITER };
+  // Built field by field, so a wrong length reaches the decoder (the encoder refuses one itself).
+  const put = (b) => { const l = Buffer.alloc(4); l.writeUInt32BE(b.length); return Buffer.concat([l, b]); };
+  const raw = (q) => Buffer.concat([Buffer.from('kosmos-escrowd-devkeyhist-enrol v1'), put(Buffer.from(q.org, 'utf8')), put(Buffer.from(q.member)),
+    put(q.key), put(q.codeHash), put(q.joinTag), put(Buffer.from(q.inviter)), put(Buffer.from('0000000100000002', 'hex')), put(NONCE)]);
+  assert.ok(se.decodeDevkeyEnrol(raw(parts)), 'CONTROL: the valid twin decodes');
+  for (const [k, what] of [['key', 'a Mac key'], ['codeHash', 'a code hash'], ['joinTag', 'a join tag']]) {
+    for (const n of [31, 33]) assert.throws(() => se.decodeDevkeyEnrol(raw({ ...parts, [k]: Buffer.alloc(n) })), new RegExp(what + ' is 32 bytes'), k + ' ' + n);
+  }
+  for (const [k, what] of [['org', 'company'], ['member', 'member'], ['inviter', 'inviting admin']]) {
+    assert.throws(() => se.decodeDevkeyEnrol(raw({ ...parts, [k]: '' })), new RegExp('must name its ' + what), k);
+  }
+  // Review 3: a join code with another action is refused, never ignored.
+  assert.throws(() => se.prepare('cancel', se.encodeCancel(ORG, 'roster-change', Buffer.alloc(16)), { joinCode: e.code }), /only with an enrolment/);
+});
+
 test('#7116 step 2: this Mac signs only bytes enrolling its own key for the expected org and member', () => {
   const e = enrolment();
   const { signature, decoded } = dk.deviceSign(e.bytes, { org: ORG, member: MEMBER, deviceKey: e.mac });

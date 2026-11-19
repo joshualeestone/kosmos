@@ -22,7 +22,9 @@
  *   - where the inviter's app keeps the code between invite and join, and the screen that asks an admin to sign
  *     (seadmin.prepare and sign are the signing; the screen is the admin screen, #7892, or the console page);
  *   - sending the submission: escrowd's op and its coordinator route are step 1 (Kitty), not built when this was;
- *   - the join flow calling it: nothing outside the tests calls this file yet.
+ *   - the join flow calling it: nothing outside the tests calls this file yet;
+ *   - that the inviter and the signing admins are on the company's admin roster: escrowd holds the roster, this Mac
+ *     does not, so escrowd checks it (and each signature under its admin's registered key).
  */
 
 const crypto = require('node:crypto');

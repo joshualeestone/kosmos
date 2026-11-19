@@ -16,5 +16,5 @@ The Mac side of Kitty's step 1 exists and is pinned to the same bytes escrowd en
 That the vector on Kitty's local branch is final: sealkey-8733 is not on GitHub yet. Before the PR, re-check the vector file against the pushed branch.
 
 ## Status
-- [x] seadmin.js, devkeyenrol.js, native-se/main.swift, the vectors file, tests (24), the reachability excuses
+- [x] seadmin.js, devkeyenrol.js, native-se/main.swift, the vectors file, tests (seadmin-7116 20, devkeyenrol-7116 6), the reachability excuses
 - [ ] review, full validation, PR
