@@ -33,10 +33,14 @@ function fakeTmux(cmd, opts) {
       return v ? { ok: true, code: 0, stdout: v + '\n' } : { ok: false, code: 1, stdout: '' };
     }
     if (verb === 'set-option' && args[1] === '-u') {
-      if (o.unsetFails) return { ok: false, code: 1, stdout: '' };
-      marks[args[args.length - 1]] = ''; return { ok: true, code: 0, stdout: '' };
+      const key = args[args.length - 1];
+      if (o.unsetFails === true || o.unsetFails === key) return { ok: false, code: 1, stdout: '' };
+      marks[key] = ''; return { ok: true, code: 0, stdout: '' };
     }
-    if (verb === 'set-option') { marks[args[3]] = args[4]; return { ok: true, code: 0, stdout: '' }; }
+    if (verb === 'set-option') {
+      if (o.setFails === args[3]) return { ok: false, code: 1, stdout: '' };
+      marks[args[3]] = args[4]; return { ok: true, code: 0, stdout: '' };
+    }
     return { ok: false, code: 1, stdout: '' };
   });
   return { marks, calls };
@@ -57,7 +61,9 @@ for (const [cmd, runner] of [['codex', 'codex'], ['agy', 'antigravity'], ['grok-
 }
 
 test('#8724 refused when Kosmos knows the agent as another runner, or has no record of it; nothing is changed', () => {
-  for (const [expected, why] of [['claude', /running Codex, but Kosmos knows zara as a Claude agent/], ['grok', /knows zara as a Grok agent/], [null, /Kosmos has no record of an agent called zara/]]) {
+  for (const [expected, why] of [['claude', /running Codex, but Kosmos knows zara as a Claude agent/], ['grok', /knows zara as a Grok agent/],
+    ['antigravity', /knows zara as an Antigravity agent/], ['gemini', /knows zara as a Gemini agent/],
+    [null, /Kosmos has no record of an agent called zara, so it was not linked\. Add zara to Kosmos first/]]) {
     linkwindow.setExpectedSource(() => expected);
     const t = fakeTmux('codex');
     const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
@@ -98,7 +104,7 @@ test('#8724 a runner that does not read back takes both marks off; CONTROL: the 
   assert.notEqual(r.markLeft, true);
 });
 
-test('#8724 a runner mark that cannot be taken off is reported as a mark left on the window', () => {
+test('#8724 an agent mark that cannot be taken off is reported as a mark left on the window', () => {
   linkwindow.setExpectedSource(() => 'codex');
   fakeTmux('codex', { readRunnerAs: 'claude', unsetFails: true });
   const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
@@ -107,12 +113,57 @@ test('#8724 a runner mark that cannot be taken off is reported as a mark left on
   assert.match(r.because, /could not take the mark off/);
 });
 
-test('#8724 a Claude window still links as before, with no runner mark written', () => {
-  linkwindow.setExpectedSource(() => { throw new Error('the record is not asked for a Claude window'); });
+test('#8724 only the runner note left behind is said, not reported as the mark left on the window', () => {
+  linkwindow.setExpectedSource(() => 'codex');
+  const t = fakeTmux('codex', { readRunnerAs: 'claude', unsetFails: '@kosmos_runner' });
+  const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
+  assert.equal(r.outcome, 'refused');
+  assert.notEqual(r.markLeft, true, 'a runner note alone does not make the window ours');
+  assert.match(r.because, /A note of which program runs it stayed on the window, which does not make it Kosmos's\./);
+  assert.equal(t.marks['@kosmos_agent'], '');
+});
+
+test('#8724 an agent mark that will not take, with a runner note that will not come off, says so honestly', () => {
+  linkwindow.setExpectedSource(() => 'codex');
+  const t = fakeTmux('codex', { setFails: '@kosmos_agent', unsetFails: '@kosmos_runner' });
+  const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
+  assert.equal(r.outcome, 'refused');
+  assert.match(r.because, /could not take back the note of which program runs it\. The window is not linked\./);
+  assert.doesNotMatch(r.because, /Nothing was changed/);
+  assert.equal(t.marks['@kosmos_agent'], '');
+  /* CONTROL: when the note does come off, it is the plain sentence. */
+  fakeTmux('codex', { setFails: '@kosmos_agent' });
+  const r2 = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
+  assert.match(r2.because, /could not mark the window called zara\. Nothing was changed\./);
+});
+
+test('#8724 a Claude window still links as before (no record, or a Claude record), and no runner mark is written', () => {
+  for (const expected of [null, 'claude']) {
+    linkwindow.setExpectedSource(() => expected);
+    const t = fakeTmux(fleet.CLAUDE_COMMAND);
+    const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '' }), platform: 'darwin' });
+    assert.equal(r.outcome, 'linked', JSON.stringify(r));
+    assert.equal(r.runner, undefined);
+    assert.equal(t.marks['@kosmos_runner'], '');
+    assert.ok(!t.calls.some((c) => c[0] === 'set-option' && c.includes('@kosmos_runner')), 'a Claude link wrote the runner mark');
+  }
+});
+
+test('#8724 a Claude window under an agent Kosmos knows runs something else is refused; nothing is changed', () => {
+  linkwindow.setExpectedSource(() => 'codex');
   const t = fakeTmux(fleet.CLAUDE_COMMAND);
   const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '' }), platform: 'darwin' });
-  assert.equal(r.outcome, 'linked', JSON.stringify(r));
-  assert.equal(r.runner, undefined);
-  assert.equal(t.marks['@kosmos_runner'], '');
-  assert.ok(!t.calls.some((c) => c.includes('@kosmos_runner')), 'a Claude link touched the runner mark');
+  assert.equal(r.outcome, 'refused');
+  assert.match(r.because, /running Claude, but Kosmos knows zara as a Codex agent, so it was not linked/);
+  assert.equal(t.calls.length, 0);
+});
+
+test('#8724 a Claude window carrying a runner mark for another program is left alone; CONTROL: an empty one links (above)', () => {
+  linkwindow.setExpectedSource(() => null);
+  const t = fakeTmux(fleet.CLAUDE_COMMAND, { runner: 'codex' });
+  const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', runner: 'codex' }), platform: 'darwin' });
+  assert.equal(r.outcome, 'refused');
+  assert.match(r.because, /carries a runner mark naming codex, so Kosmos did not change it/);
+  assert.equal(t.marks['@kosmos_agent'], '');
+  assert.equal(t.calls.length, 0, 'read from the board look, so tmux is not asked');
 });

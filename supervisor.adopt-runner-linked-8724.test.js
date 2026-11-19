@@ -1,6 +1,7 @@
 'use strict';
 /**
- * kosmos#8724 item 3: a Codex, Antigravity or Grok window linked by hand carries Kosmos's mark and its runner. A
+ * kosmos#8724 item 3: a Codex or Antigravity window linked by hand carries Kosmos's mark and its runner (Grok's is
+ * supervisor.adopt-grok-3953.test.js, which already runs the supervisor over a marked live Grok window). A
  * supervisor started for that agent later (a launch job written afterwards, or a restart of the board) must adopt the
  * live window, never close it or start a second agent beside it. Runs the real bin/agent-supervisor.sh against a
  * recording fake tmux reporting one session marked with its own name whose pane runs each runner's program, with the

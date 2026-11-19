@@ -192,12 +192,13 @@ test('#8719: it refuses every window that is not plainly that agent, and changes
     [[], /There is no window called zara/, 'nothing running at all'],
   ];
   linkwindow.setExpectedSource(() => 'claude');
-  for (const [panes, why, label] of cases) {
-    const r = linkwindow.link('zara', { panes, platform: 'darwin' });
-    assert.equal(r.outcome, 'refused', label);
-    assert.match(r.because, why, label);
-  }
-  linkwindow.setExpectedSource(null);
+  try {
+    for (const [panes, why, label] of cases) {
+      const r = linkwindow.link('zara', { panes, platform: 'darwin' });
+      assert.equal(r.outcome, 'refused', label);
+      assert.match(r.because, why, label);
+    }
+  } finally { linkwindow.setExpectedSource(null); }
 
   assert.equal(linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '' }), platform: 'win32' }).outcome, 'refused', 'Windows');
   assert.equal(linkwindow.link('  ', { panes: [], platform: 'darwin' }).outcome, 'refused', 'a blank name');

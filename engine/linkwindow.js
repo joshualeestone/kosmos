@@ -41,7 +41,8 @@ function runnerOfCommand(command) {
   if (status.isGrokCommand(command)) return 'grok';
   return null;
 }
-const RUNNER_WORD = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity', grok: 'Grok' };
+const RUNNER_WORD = { claude: 'Claude', codex: 'Codex', antigravity: 'Antigravity', grok: 'Grok', gemini: 'Gemini', muse: 'Muse' };
+const aOrAn = (w) => (/^[AEIOU]/.test(w) ? 'an ' : 'a ') + w;
 
 /* What Kosmos's record of the agent says it runs on (create.providerRunner, the one provider -> runner map), or null
    when Kosmos has no record of it. Loaded here, not at the top, so this module stays light for its callers. */
@@ -99,18 +100,27 @@ function plan(name, panes, platform) {
   if (!runner) {
     return refused(`The window called ${clean} is running ${pane.command || 'nothing we can name'}, which Kosmos cannot tell is an agent, so it was not linked.`);
   }
+  /* kosmos#8724 item 3: the program must agree with Kosmos's record of the agent, whichever runner it is. A Claude window
+     with no record links as it always has (a window started by hand usually has none); one whose record names another
+     runner is refused, because a launch job written later records THAT runner on the window and the board would read
+     a live Claude window as something else. */
+  const expected = expectedRunner(clean);
+  const word = (r) => RUNNER_WORD[r] || r;
   if (runner === 'claude') {
     /* And it must look like an agent to the board: a native version string always does; an unmarked `node`, or the
        legacy `claude` / `claude.exe` names, never do (the board gives such a window no card), and are refused here. */
     if (!status.isAgentSession(pane)) return refused(`Kosmos cannot tell that the window called ${clean} is running an agent, so it was not linked.`);
-  } else {
-    /* kosmos#8724 item 3: a Codex, Antigravity or Grok window, only for an agent Kosmos knows runs on exactly that. */
-    const expected = expectedRunner(clean);
-    if (expected !== runner) {
-      return refused(`The window called ${clean} is running ${RUNNER_WORD[runner]}, but `
-        + (expected ? `Kosmos knows ${clean} as a ${RUNNER_WORD[expected] || expected} agent` : `Kosmos has no record of an agent called ${clean}`)
-        + ', so it was not linked.');
+    if (expected && expected !== 'claude') {
+      return refused(`The window called ${clean} is running Claude, but Kosmos knows ${clean} as ${aOrAn(word(expected))} agent, so it was not linked.`);
     }
+    /* A runner mark for another program, read by the board's own look: once marked ours, status.js trusts the runner
+       mark over the command, so the window would be read by the wrong classifier. Left alone, as for any runner. */
+    const was = String(pane.runner || '').trim();
+    if (was && was !== 'claude') return refused(`The window called ${clean} carries a runner mark naming ${was}, so Kosmos did not change it.`);
+  } else if (expected !== runner) {
+    return refused(`The window called ${clean} is running ${word(runner)}, but `
+      + (expected ? `Kosmos knows ${clean} as ${aOrAn(word(expected))} agent, so it was not linked.`
+        : `Kosmos has no record of an agent called ${clean}, so it was not linked. Add ${clean} to Kosmos first (in Kosmos, "Import an agent you already have").`));
   }
   return { ok: true, session: pane.session, pane: pane.pane, name: clean, command: pane.command, runner };
 }
@@ -175,7 +185,11 @@ function link(name, opts) {
   const unsetRunner = () => (runnerSetHere ? run(['set-option', '-u', '-t', byId, '@kosmos_runner']) : { ok: true });
   const set = run(['set-option', '-t', byId, '@kosmos_agent', p.session]);
   if (!set || set.ok === false) {
-    unsetRunner();
+    const offR = unsetRunner();
+    if (!offR || offR.ok === false) {
+      /* Not marked ours, so Kosmos still will not type into it; only the note of its program stayed. */
+      return refused(`Kosmos could not mark the window called ${p.name}, and could not take back the note of which program runs it. The window is not linked.`);
+    }
     return refused(`Kosmos could not mark the window called ${p.name}. Nothing was changed.`);
   }
   const read = run(['show-options', '-v', '-t', byId, '@kosmos_agent']);
@@ -185,8 +199,12 @@ function link(name, opts) {
   if (now !== p.session || (withRunner && runnerNow !== p.runner) || after.id !== before.id || after.panes !== '1x1' || after.cmd !== before.cmd) {
     const offAgent = run(['set-option', '-u', '-t', byId, '@kosmos_agent']);
     const offRunner = unsetRunner();
-    /* Either mark that could not come off leaves the window half-marked: treated as the mark left on it. */
-    const off = (!offAgent || offAgent.ok === false) ? offAgent : offRunner;
+    /* Only the agent mark makes the window Kosmos's, so only it failing to come off is the mark left on the window
+       (markLeft). A runner note left behind alone is said, not alarmed about. */
+    const off = offAgent;
+    if (off && off.ok !== false && after.id && (!offRunner || offRunner.ok === false)) {
+      return refused(`Kosmos could not confirm the window called ${p.name} after marking it, so it took the mark off again and nothing was linked. A note of which program runs it stayed on the window, which does not make it Kosmos's.`);
+    }
     /* The session itself gone (the after-look read no id): nothing marked is left, so no alarm. */
     if (!after.id && (!off || off.ok === false)) return refused(`The window called ${p.name} went away while Kosmos was linking it, so nothing was linked.`);
     if (!off || off.ok === false) {
