@@ -158,14 +158,14 @@ const isClosed = (n) => tasks.progressOf(tasks.byNumber(projects.readAll().find(
 test('#8734 item 3: the board refuses closing as never run a task with a check reported, or marked built', async () => {
   const checked = newTask('Checked');
   tasks.setDoneWhen(pid, checked, ['the page loads']);
-  tasks.setCheckResult(pid, checked, 1, false, 'it did not load, measured', { by: 'mara' });   // unmet still means it was checked
+  tasks.setCheckResult(pid, checked, 1, true, 'it loads, measured', { by: 'mara' });
   const built = newTask('Built');
   assert.ok(tasks.setBuilt(pid, built, { by: 'mara' }).ok);
   const plain = newTask('Never started');
   const close = (n, body) => fetch(`${base}/api/project/${encodeURIComponent(pid)}/task/${n}/close`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   let r = await close(checked, { notRun: true });
   assert.equal(r.status, 400);
-  assert.match((await r.json()).error, /has a check reported on it, so it ran: it cannot be closed as never run/);
+  assert.match((await r.json()).error, /has a check reported met, so it ran: it cannot be closed as never run/);
   assert.equal(isClosed(checked), false);
   r = await close(built, { notRun: true });
   assert.equal(r.status, 400);
@@ -176,6 +176,19 @@ test('#8734 item 3: the board refuses closing as never run a task with a check r
   assert.equal(r.status, 200, await r.text());
   r = await close(built, { notRun: true });
   assert.equal(r.status, 400, 'a built task, closed, was then marked never run');
+  // Review 3: a recorded run (kosmos task ran) is refused too.
+  const ranTask = newTask('Ran once');
+  // As kosmos task ran leaves it (recordRun needs a repeat rule; a close keeps lastRunAt after taking the rule away).
+  projects.mutate(pid, (p) => ({ ...p, tasks: p.tasks.map((t) => (t.number === ranTask ? { ...t, lastRunAt: new Date().toISOString(), lastRunBy: 'mara' } : t)) }));
+  r = await close(ranTask, { notRun: true });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /has a run recorded on it, so it ran/);
+  // Review 3, CONTROL: an unmet check is no proof it ran (nothing done here, or the part moved on): it closes as never run.
+  const unmet = newTask('Looked, nothing there');
+  tasks.setDoneWhen(pid, unmet, ['the page loads']);
+  tasks.setCheckResult(pid, unmet, 1, false, 'not started', { by: 'mara' });
+  r = await close(unmet, { notRun: true });
+  assert.equal(r.status, 200, await r.text());
   // CONTROL: a task with no record of running still closes as never run, and the checked one still closes plainly.
   r = await close(plain, { notRun: true });
   assert.equal(r.status, 200, await r.text());

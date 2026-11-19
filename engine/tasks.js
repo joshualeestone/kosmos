@@ -1366,16 +1366,19 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
     } else if (closedAt === null) {
       delete changed.replacedBy;   // a reopen clears the link; a plain close leaves one that is there
     }
-    /* kosmos#8734 (feedback): never-run is refused over a record that says it ran: a check reported on it (met or not:
-       someone checked the work) or a built mark. Saying so in the close's answer instead would leave the record saying
+    /* kosmos#8734 (feedback): never-run is refused over a record that says it ran: a check reported met, a run recorded
+       (kosmos task ran), or a built mark. Not an unmet check (review 3): that can mean nothing was done here, or the part
+       went to another task (movedTo). Saying so in the close's answer instead would leave the record saying
        both; a plain close, or a reopen first, is the way to record what happened. A close takes the built mark away, so
-       for a closed task the built evidence is what the close kept: closedHow 'note' or 'change' (closedHowAt), or a
-       landed commit (review 2). */
+       for a closed task the built evidence is what the close kept: the closedHow field 'note' or 'change', or a landed
+       commit (review 2). A reopen clears all three, so reopened work that was never built again is not refused. */
     if (notRun) {
-      const reported = (checkResultsOf(t) || []).filter(Boolean).length;
+      const met = (checkResultsOf(t) || []).filter((r) => r && r.met === true).length;
+      const ran = typeof t.lastRunAt === 'string' && t.lastRunAt !== '';
       const built = !!t.builtAt || t.closedHow === 'note' || t.closedHow === 'change' || (typeof t.landedCommit === 'string' && t.landedCommit !== '');
-      if (reported || built) {
-        throw new Error('task ' + t.number + (reported ? ' has ' + (reported === 1 ? 'a check' : reported + ' checks') + ' reported on it' : ' was marked built')
+      if (met || ran || built) {
+        throw new Error('task ' + t.number + (met ? ' has ' + (met === 1 ? 'a check' : met + ' checks') + ' reported met'
+          : ran ? ' has a run recorded on it' : ' was marked built')
           + ', so it ran: it cannot be closed as never run. Close it without --not-run');
       }
     }
