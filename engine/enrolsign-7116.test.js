@@ -151,7 +151,7 @@ test('#7116 step 2 caller review 1: holding the code makes this Mac the inviter,
     /names another admin as the one who sent it/);
   // One entry with unreadable bytes is listed as refused; the readable one is still offered.
   const good = enrolment();
-  const mixed = async (m) => (m === 'GET' ? { ok: true, data: { pending: [{ id: 'e2', bytes: '!!' }, { id: 'e3', bytes: good.bytes.toString('base64url'), signedBy: [] }] } } : { ok: false });
+  const mixed = async (m, r) => (r === '/v1/org/devkey-enrol/pending' ? { ok: true, data: { pending: [{ id: 'e2', bytes: '!!' }, { id: 'e3', bytes: good.bytes.toString('base64url'), signedBy: [] }] } } : { ok: false });
   const rows = await es.adminQueue({ adminId: OTHER_ADMIN, send: mixed, dataRoot: fresh() });
   assert.deepEqual(rows.map((r) => [r.id, !!r.prepared]), [['e2', false], ['e3', true]]);
   assert.match(rows[0].refused, /could not be read/);
@@ -180,8 +180,8 @@ function coordinator({ swapKey = false, inviter } = {}) {
       entries.set('e1', bytes);
       return { ok: true, data: { id: 'e1', bytes: bytes.toString('base64url'), expiresAt: 'later' } };
     }
-    if (method === 'POST' && route === '/v1/org/devkey-enrol/e1/sign') return { ok: true, data: { ok: true, waiting: true, signedBy: [], keySigned: true } };
-    if (method === 'GET' && route === '/v1/org/devkey-enrol/pending') {
+    if (method === 'POST' && route === '/v1/org/devkey-enrol/sign' && body.id === 'e1') return { ok: true, data: { ok: true, waiting: true, signedBy: [], keySigned: true } };
+    if (method === 'POST' && route === '/v1/org/devkey-enrol/pending' && Object.keys(body).length === 0) {
       return { ok: true, data: { pending: [{ id: 'e1', member: MEMBER, bytes: entries.get('e1').toString('base64url'), signedBy: [], keySigned: true, expiresAt: 'later' },
         { id: '../bad', bytes: 'AA' }] } };
     }
@@ -222,7 +222,7 @@ test('#7116 step 2 caller: pending decodes each entry\'s bytes, drops a malforme
   assert.equal(list.length, 1, 'the malformed id is dropped');
   assert.equal(se.decodeDevkeyEnrol(list[0].bytes).member, MEMBER);
   await es.postAdminSig('e1', { adminId: OTHER_ADMIN, sig: Buffer.from('3045', 'hex') }, { send: c.send });
-  assert.deepEqual(c.calls.at(-1).body, { sig: { adminId: OTHER_ADMIN, se: Buffer.from('3045', 'hex').toString('base64url') } });
+  assert.deepEqual(c.calls.at(-1).body, { id: 'e1', sig: { adminId: OTHER_ADMIN, se: Buffer.from('3045', 'hex').toString('base64url') } });
   await assert.rejects(es.postAdminSig('../x', { adminId: 'a', sig: Buffer.alloc(1) }, { send: c.send }), /not an enrolment id/);
   await assert.rejects(es.pending({ send: async () => ({ ok: false, notSent: true, because: 'raw tunnel line /Users/x' }) }), /not connected/);
 });
@@ -252,7 +252,7 @@ test('#7116 step 2 caller: adminQueue lists what an admin can sign, says why it 
   assert.equal(wrong.prepared, null);
   assert.match(wrong.refused, /does not match the invite you sent/);
   // An admin who already signed it does not see it again.
-  const signedSend = async (m, r, b) => (m === 'GET' ? { ok: true, data: { pending: [{ id: 'e1', bytes: (await c.send(m, r, b)).data.pending[0].bytes, signedBy: [OTHER_ADMIN], keySigned: true }] } } : c.send(m, r, b));
+  const signedSend = async (m, r, b) => (r === '/v1/org/devkey-enrol/pending' ? { ok: true, data: { pending: [{ id: 'e1', bytes: (await c.send(m, r, b)).data.pending[0].bytes, signedBy: [OTHER_ADMIN], keySigned: true }] } } : c.send(m, r, b));
   assert.equal((await es.adminQueue({ adminId: OTHER_ADMIN, send: signedSend, dataRoot: root })).length, 0);
 });
 
@@ -337,4 +337,30 @@ test('#7116 step 2 caller review 4: a tied code ends with its entry\'s life; a r
   assert.throws(() => es.joinCodeFor(ORG, MEMBER, { dataRoot: bad }), /not readable/);
   es.keepJoinCode(ORG, MEMBER, code, { dataRoot: bad });
   assert.ok(es.joinCodeFor(ORG, MEMBER, { dataRoot: bad }).equals(code));
+});
+
+test('#7116 step 2 caller: every route is a POST on a fixed path, the id in the body; a refusal says whether the entry ended', async () => {
+  const c = coordinator();
+  const out = await es.startAndSign({ org: ORG, member: MEMBER, joinCode: dk.newJoinCode(), inviterAdminId: INVITER, deviceKey: macKey(), send: c.send });
+  assert.equal(out.ended, false, 'a waiting answer leaves the entry open');
+  await es.pending({ send: c.send });
+  await es.postAdminSig('e1', { adminId: OTHER_ADMIN, sig: Buffer.from('3045', 'hex') }, { send: c.send });
+  assert.deepEqual(c.calls.map((x) => [x.method, x.route]), [['POST', '/v1/org/devkey-enrol'], ['POST', '/v1/org/devkey-enrol/sign'],
+    ['POST', '/v1/org/devkey-enrol/pending'], ['POST', '/v1/org/devkey-enrol/sign']]);
+  assert.ok(c.calls.every((x) => !/e1/.test(x.route)), 'no id in any path');
+  assert.deepEqual(c.calls[2].body, {});
+  // Codes that spend nothing leave the entry; every other code, and an unknown one, ends it.
+  for (const code of ['roster_signers', 'devkey_inviter_not_signer', 'roster_bad_signature', 'bad_request']) assert.equal(es.endsEntry(code), false, code);
+  for (const code of ['devkey_already_enrolled', 'roster_nonce', 'devkey_history_full', 'audit_unavailable', 'something_new']) assert.equal(es.endsEntry(code), true, code);
+  const refused = async () => ({ ok: false, because: 'x', refusal: { status: 409, code: 'roster_nonce' } });
+  const err = await es.postAdminSig('e1', { adminId: OTHER_ADMIN, sig: Buffer.alloc(2) }, { send: refused }).catch((e) => e);
+  assert.equal(err.code, 'roster_nonce');
+  assert.equal(err.ended, true);
+  const kept = await es.postAdminSig('e1', { adminId: OTHER_ADMIN, sig: Buffer.alloc(2) },
+    { send: async () => ({ ok: false, refusal: { status: 400, code: 'roster_bad_signature' } }) }).catch((e) => e);
+  assert.equal(kept.ended, false);
+  // A 2xx answer's own `ended` is read as it says, even against the code.
+  assert.equal(es.endedOf({ ok: false, code: 'roster_signers', ended: true }), true);
+  assert.equal(es.endedOf({ ok: false, code: 'roster_nonce' }), true);
+  assert.equal(es.endedOf({ ok: true, waiting: true }), false);
 });

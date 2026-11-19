@@ -187,8 +187,9 @@ async function approveAndSend(id, prepared, opts = {}) {
   return answer;
 }
 
-/* ---- the coordinator routes (Renet Tilley's pinned interface, #7116 comment 7021733967) ----
+/* ---- the coordinator routes (Renet Tilley's pinned interface, #7116 comment 7021733967, as corrected 14:45) ----
    Every call is a signed Mac request (remote.macRequest); the org is always the calling Mac's own, never in a body.
+   All three are POST on fixed paths (a signed request signs its path, so the entry's id goes in the body).
    `send` is that function, injectable for tests. Bytes the coordinator returns are decoded here before anything uses
    them, and a signature leaves only for bytes that decode as an enrolment. */
 const ROUTE = '/v1/org/devkey-enrol';
@@ -204,10 +205,21 @@ const answerOf = (r, doing) => {
   if (!r || r.ok !== true) {
     const why = r && r.notSent ? 'this computer is not connected to Kosmos+' : 'Kosmos+ did not answer';
     const err = new Error('could not ' + doing + ': ' + why);
-    if (r && r.refusal && typeof r.refusal.code === 'string') err.code = r.refusal.code;
+    if (r && r.refusal && typeof r.refusal.code === 'string') { err.code = r.refusal.code; err.ended = endsEntry(err.code); }
     throw err;
   }
   return r.data;
+};
+/* Renet's correction 2 (from Kitty's rosterops::devkey_enrol): a refused submission leaves the entry open, for a fresh
+   signature, only on these codes, which spend nothing; every other code ends it, and the member's Mac starts a new one.
+   The tunnel keeps a refusal's code but not its `ended` field, so the board works it out from the code; a 2xx answer
+   that carries `ended` is read as it says (endedOf). */
+const STAYS = new Set(['roster_signers', 'devkey_inviter_not_signer', 'roster_bad_signature', 'roster_bad_assertion',
+  'roster_admin_synced_passkey', 'roster_new_key_signature', 'bad_request']);
+const endsEntry = (code) => !STAYS.has(code);
+const endedOf = (data) => {
+  if (data && typeof data.ended === 'boolean') return data.ended;
+  return data && typeof data.code === 'string' ? endsEntry(data.code) : false;
 };
 const idOk = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id);
 
@@ -215,7 +227,8 @@ const idOk = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id)
  * The member's Mac starts its enrolment: K (this Mac's key), and the code hash and join tag from the join code it was
  * invited with. The coordinator answers the exact bytes to sign; they are decoded, and must enrol THIS key with the
  * inviter and code asked for. Then this Mac signs them (devkeyenrol.deviceSign) and posts keySig.
- * Returns { id, decoded, expiresAt, answer } (answer: the sign route's, waiting or escrowd's).
+ * Returns { id, decoded, expiresAt, answer, ended } (answer: the sign route's, waiting or escrowd's; ended: the entry
+ * is gone and a new one must be started).
  */
 async function startAndSign({ org, member, joinCode, inviterAdminId, deviceKey, send } = {}) {
   text(org, 'company'); text(member, 'member'); text(inviterAdminId, 'inviting admin');
@@ -233,14 +246,14 @@ async function startAndSign({ org, member, joinCode, inviterAdminId, deviceKey, 
   const decoded = se.decodeDevkeyEnrol(bytes);
   if (decoded.inviterAdminId !== inviterAdminId) throw new Error('the enrolment names a different inviting admin from the one asked');
   const { signature } = dk.deviceSign(bytes, { org, member, deviceKey: key, joinCode });
-  const answer = answerOf(await go('POST', ROUTE + '/' + started.id + '/sign', { keySig: b64(signature) }), 'send this computer\'s signature');
+  const answer = answerOf(await go('POST', ROUTE + '/sign', { id: started.id, keySig: b64(signature) }), 'send this computer\'s signature');
   const exp = (typeof started.expiresAt === 'string' && started.expiresAt.length <= 64) || Number.isFinite(started.expiresAt) ? started.expiresAt : null;
-  return { id: started.id, decoded, expiresAt: exp, answer };
+  return { id: started.id, decoded, expiresAt: exp, answer, ended: endedOf(answer) };
 }
 
 /** An admin's list of what waits: [{ id, bytes, signedBy, keySigned, expiresAt }], each entry's bytes decoded later. */
 async function pending({ send } = {}) {
-  const data = answerOf(await sendOf(send)('GET', ROUTE + '/pending'), 'read the computers waiting for approval');
+  const data = answerOf(await sendOf(send)('POST', ROUTE + '/pending', {}), 'read the computers waiting for approval');
   const list = data && Array.isArray(data.pending) ? data.pending : null;
   if (!list) throw new Error('the coordinator answered without a list');
   // Review 1: one entry's unreadable bytes make THAT entry refused (bytes null), never the whole list unreadable.
@@ -254,7 +267,7 @@ async function pending({ send } = {}) {
 async function postAdminSig(id, signed, { send } = {}) {
   if (!idOk(id)) throw new Error('not an enrolment id');
   if (!signed || typeof signed.adminId !== 'string' || !(signed.sig instanceof Uint8Array)) throw new Error('post only what approve returned');
-  return answerOf(await sendOf(send)('POST', ROUTE + '/' + id + '/sign', { sig: { adminId: signed.adminId, se: b64(signed.sig) } }),
+  return answerOf(await sendOf(send)('POST', ROUTE + '/sign', { id, sig: { adminId: signed.adminId, se: b64(signed.sig) } }),
     'send the approval');
 }
 
@@ -297,4 +310,4 @@ async function adminQueue({ adminId, send, dataRoot, now } = {}) {
 }
 
 module.exports = { CODE_MAX_AGE_MS, helperPath, keepJoinCode, joinCodeFor, forgetJoinCode, review, approve,
-  startAndSign, pending, postAdminSig, adminQueue, approveAndSend };
+  startAndSign, pending, postAdminSig, adminQueue, approveAndSend, endsEntry, endedOf };
