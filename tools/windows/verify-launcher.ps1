@@ -1,4 +1,6 @@
-# Prove the committed Kosmos.exe came from the committed KosmosLauncher.cs.
+# Prove the committed Kosmos.exe came from the committed KosmosLauncher.cs (and, with
+# -Cli, that tools/windows/cli/kosmos.exe came from cli/KosmosCli.cs, #8770; every
+# note below about Kosmos.exe holds for it too).
 #
 # 🛑 WHY A SCRIPT AND NOT A CHECKSUM IN A README. Baron's condition for allowing a
 # binary into the tree (#2086) is that a reviewer can REGENERATE it, not that they

@@ -25,9 +25,17 @@
 //
 // COMMITTED, NOT BUILT DURING THE CUT, and signed, like Kosmos.exe: see
 // tools/windows/README.md ("The kosmos command for other launchers").
+//
+// THE CHILD DIES WITH THIS PROCESS (review round 1). A caller's timeout (spawnSync's
+// `timeout`, child.kill(), a scheduled task's time limit) kills only this exe; node
+// would live on holding the caller's stdout and stderr, so a caller waiting for those
+// pipes to close would hang. node runs in a job object that is closed, and so killed,
+// when this process ends for any reason. And Ctrl+C is left to node: the console sends
+// it to both, and this process waits for node's own exit instead of returning first.
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 
 static class KosmosCli
@@ -35,6 +43,7 @@ static class KosmosCli
     static int Main(string[] args)
     {
         string argvFile = null;
+        Console.CancelKeyPress += (s, e) => { e.Cancel = true; };
         try
         {
             string bin = AppDomain.CurrentDomain.BaseDirectory;
@@ -44,7 +53,10 @@ static class KosmosCli
             if (!File.Exists(cli)) return Fail("the command is missing (" + cli + ")");
 
             argvFile = Path.Combine(Path.GetTempPath(), "kosmos-argv-" + Guid.NewGuid().ToString("N") + ".json");
-            File.WriteAllText(argvFile, JsonArray(args), new UTF8Encoding(false));
+            // Throws on a lone surrogate rather than writing U+FFFD: a word that would
+            // change is refused (exit 1), never sent different (review round 1).
+            File.WriteAllText(argvFile, JsonArray(args), new UTF8Encoding(false, true));
+            IntPtr job = KillOnCloseJob();
 
             var psi = new ProcessStartInfo
             {
@@ -56,6 +68,9 @@ static class KosmosCli
             };
             using (var p = Process.Start(psi))
             {
+                // Best effort: a job that cannot be made or joined leaves the command working
+                // as before. The handle is never closed here; this process's exit closes it.
+                if (job != IntPtr.Zero) AssignProcessToJobObject(job, p.Handle);
                 p.WaitForExit();
                 return p.ExitCode;
             }
@@ -70,6 +85,69 @@ static class KosmosCli
             if (argvFile != null) { try { File.Delete(argvFile); } catch { } }
         }
     }
+
+    // A job whose processes are killed when its last handle closes, which is when this
+    // process exits. Zero when Windows will not make one.
+    static IntPtr KillOnCloseJob()
+    {
+        IntPtr job = CreateJobObject(IntPtr.Zero, null);
+        if (job == IntPtr.Zero) return IntPtr.Zero;
+        var info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        int size = Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
+        IntPtr ptr = Marshal.AllocHGlobal(size);
+        try
+        {
+            Marshal.StructureToPtr(info, ptr, false);
+            if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, ptr, (uint)size)) return IntPtr.Zero;
+        }
+        finally { Marshal.FreeHGlobal(ptr); }
+        return job;
+    }
+
+    const int JobObjectExtendedLimitInformation = 9;
+    const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+    {
+        public long PerProcessUserTimeLimit;
+        public long PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize;
+        public UIntPtr MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass;
+        public uint SchedulingClass;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct IO_COUNTERS
+    {
+        public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount;
+        public ulong ReadTransferCount, WriteTransferCount, OtherTransferCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+    {
+        public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+        public IO_COUNTERS IoInfo;
+        public UIntPtr ProcessMemoryLimit;
+        public UIntPtr JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed;
+        public UIntPtr PeakJobMemoryUsed;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool SetInformationJobObject(IntPtr job, int infoClass, IntPtr info, uint length);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
 
     static int Fail(string why)
     {
