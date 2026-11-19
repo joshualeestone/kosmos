@@ -148,8 +148,22 @@ const CAPABILITIES_RECHECK_MS = 10 * 60 * 1000;
 const CAPABILITIES_UNANSWERED_RECHECK_MS = 30 * 1000;
 // How long one ask may take before it counts as unanswered (a cold start on Windows can scan the exe first).
 const CAPABILITIES_ASK_TIMEOUT_MS = 5000;
+/* kosmos#8728: an ask after one that went unanswered may take this long. Measured on 11-19: a Mac that had just
+   restarted ran its board's tunnel at load ~150, the first ask most likely did not answer inside five seconds, and the
+   first remote action six minutes later was refused. */
+const CAPABILITIES_RETRY_TIMEOUT_MS = 15000;
+/* kosmos#8728: an unanswered ask is asked again ON ITS OWN, thirty seconds apart, this many times (about ten minutes),
+   so a person's press is never what starts the re-ask. After that only a request asks, as before. */
+const CAPABILITIES_SELF_RETRIES = 20;
 let capabilitiesSeen = null;
 let askingCapabilities = false;
+// kosmos#8728: unanswered asks in a row in this generation, and the timer that asks again by itself.
+let unansweredInARow = 0;
+let selfRetryTimer = null;
+// kosmos#8728: tests only (honoured under the test runner alone), shorter timings so a slow start can be played fast.
+let capabilityTimingsForTests = null;
+const capTiming = (name, real) => (process.env.NODE_TEST_CONTEXT && capabilityTimingsForTests && capabilityTimingsForTests[name] !== undefined)
+  ? capabilityTimingsForTests[name] : real;
 // Each ask carries the generation it started in; forgetting the answer starts a new one, so a late answer from an
 // earlier ask (an earlier connector) is dropped, never written over the new state.
 let capabilitiesGeneration = 0;
@@ -160,7 +174,33 @@ function noteCapabilities(caps, answered, now, generation = capabilitiesGenerati
   if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) return capabilitiesSeen.caps;
   // `binary` is the one that was ASKED (taken when the ask started), so a binary swapped mid-ask is not credited.
   capabilitiesSeen = { caps, answered, at: now, binary };
+  if (answered) { unansweredInARow = 0; clearSelfRetry(); } else { unansweredInARow += 1; scheduleSelfRetry(generation); }
   return caps;
+}
+function clearSelfRetry() { if (selfRetryTimer) { clearTimeout(selfRetryTimer); selfRetryTimer = null; } }
+/* kosmos#8728: ask again by itself after an unanswered ask, in the same generation only, and only while the kept
+   answer is still an unanswered one (a request's ask may have filled it meanwhile). Unref'd, so it never holds a
+   process open. */
+function scheduleSelfRetry(generation) {
+  clearSelfRetry();
+  if (unansweredInARow > CAPABILITIES_SELF_RETRIES) return;
+  selfRetryTimer = setTimeout(() => {
+    selfRetryTimer = null;
+    if (generation !== capabilitiesGeneration) return;
+    if (capabilitiesSeen && capabilitiesSeen.answered) return;
+    askConnectorCapabilities();
+  }, capTiming('recheckMs', CAPABILITIES_UNANSWERED_RECHECK_MS));
+  if (selfRetryTimer && typeof selfRetryTimer.unref === 'function') selfRetryTimer.unref();
+}
+/* kosmos#8728: whether an empty answer means "not known yet" rather than "this connector lacks it": nothing kept, or
+   the kept ask did not answer. The refusal then says Kosmos+ is still starting, never "update Kosmos". The running
+   tunnel's half counts too: started here but its own status not yet written by this child. */
+function connectorCapabilitiesPending() {
+  if (!tunnelStartedHere) return true;
+  if (!capabilitiesSeen || !capabilitiesSeen.answered) return true;
+  const pid = child ? child.pid : (process.env.NODE_TEST_CONTEXT ? runningPidForTests : null);
+  if (pid === null || pid === undefined) return true;
+  return !(runningSeen && runningSeen.pid === pid);
 }
 /* Which connector binary an answer came from: its path and when it last changed. */
 function connectorBinaryKey() {
@@ -173,6 +213,7 @@ function connectorBinaryKey() {
 function forgetConnectorCapabilities({ always = false, ask = true } = {}) {
   if (!always && capabilitiesSeen && capabilitiesSeen.caps.has('session-headers') && capabilitiesSeen.binary === connectorBinaryKey()) return;
   capabilitiesSeen = null; askingCapabilities = false; capabilitiesGeneration += 1;
+  unansweredInARow = 0; clearSelfRetry();
   // Asked again at once, in the background (review iteration 17: a forget right after the start-up ask used to drop
   // that answer and leave nothing asking until a request was refused).
   if (ask) askConnectorCapabilities();
@@ -342,19 +383,43 @@ function warmConnectorCapabilities(done = () => {}) {
   if (process.env.NODE_TEST_CONTEXT && !process.env.AGENT_WORKFORCE_TUNNEL_BIN) { done(new Set()); return; }
   const generation = capabilitiesGeneration;
   const binary = connectorBinaryKey();
+  // kosmos#8728: a retry after an unanswered ask gets longer, for a computer still busy starting up.
+  const timeout = unansweredInARow > 0 ? capTiming('retryAskMs', CAPABILITIES_RETRY_TIMEOUT_MS) : capTiming('askMs', CAPABILITIES_ASK_TIMEOUT_MS);
+  const began = Date.now();
   try {
     const cmd = tunnelCommand(BIN(), ['capabilities']);
-    const child = execFile(cmd.file, cmd.args, connectorSpawnOptions({ encoding: 'utf8', timeout: CAPABILITIES_ASK_TIMEOUT_MS }), (err, stdout) => {
+    const child = execFile(cmd.file, cmd.args, connectorSpawnOptions({ encoding: 'utf8', timeout }), (err, stdout) => {
       // Answered = it ran to an exit code (an old connector's unknown verb is an answer); killed or unstartable is not.
       const answered = !err || (typeof err.code === 'number' && !err.killed);
-      done(noteCapabilities(err ? new Set() : capabilityLines(stdout), answered, Date.now(), generation, binary));
+      const caps = err ? new Set() : capabilityLines(stdout);
+      // kosmos#8728: every ask leaves a line, so a refused remote action can be explained from the board's log.
+      logCapabilityAsk(answered, caps, Date.now() - began, timeout, generation);
+      done(noteCapabilities(caps, answered, Date.now(), generation, binary));
     });
     // Nothing to say on stdin: closed at once, so a connector that reads it cannot sit until the timeout.
     if (child && child.stdin) child.stdin.end();
-  } catch { done(noteCapabilities(new Set(), false, Date.now(), generation, binary)); }
+  } catch {
+    logCapabilityAsk(false, new Set(), Date.now() - began, timeout, generation);
+    done(noteCapabilities(new Set(), false, Date.now(), generation, binary));
+  }
 }
-const resetConnectorCapabilitiesForTests = ({ startedHere = true, runningPid = null, commandOf = null, kill = null } = {}) => {
+/* kosmos#8728: one line per ask, written before the answer is kept, so what it says about the next ask matches what
+   noteCapabilities then does (a later generation drops the answer; the self-retries run out after ten minutes). */
+function logCapabilityAsk(answered, caps, ms, timeout, generation) {
+  let line = 'remote: connector capabilities ';
+  if (answered) line += 'answered in ' + ms + ' ms: ' + ([...caps].join(' ') || 'none');
+  else {
+    line += 'not answered in ' + ms + ' ms (limit ' + timeout + ' ms); ';
+    if (generation !== capabilitiesGeneration) line += 'dropped, the tunnel has changed since';
+    else if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) line += 'the earlier yes is kept';
+    else if (unansweredInARow + 1 <= CAPABILITIES_SELF_RETRIES) line += 'asking again in ' + Math.round(capTiming('recheckMs', CAPABILITIES_UNANSWERED_RECHECK_MS) / 1000) + ' s';
+    else line += 'asked ' + CAPABILITIES_SELF_RETRIES + ' times; asking again at the next remote request';
+  }
+  console.error(line);
+}
+const resetConnectorCapabilitiesForTests = ({ startedHere = true, runningPid = null, commandOf = null, kill = null, timings = null } = {}) => {
   tunnelStartedHere = startedHere;
+  capabilityTimingsForTests = timings;
   runningPidForTests = runningPid;
   runningSeen = null;
   foreignLooked.clear(); foreignAsking.clear(); foreignVerdict.clear();
@@ -4350,7 +4415,7 @@ async function signinRegister(name) {
 
 module.exports = {
   PRICE_SHAPE,   // kosmos#7404: personal backup's price is checked by the same shape (engine/personalbackupoffer.js)
-  cloudKeepsOn, clearStateDir, offeredKeyIn, acceptOfferedKey, OFFERED_KEY_LABEL /* kosmos#6596 step 8 */, connectorCapabilities, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, busy /* #7215: read-only, a Forget or sign-in under way */, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
+  cloudKeepsOn, clearStateDir, offeredKeyIn, acceptOfferedKey, OFFERED_KEY_LABEL /* kosmos#6596 step 8 */, connectorCapabilities, connectorCapabilitiesPending /* kosmos#8728 */, warmConnectorCapabilities, askConnectorCapabilities, forgetConnectorCapabilities, resetConnectorCapabilitiesForTests /* kosmos#6595 R01 */, endForeignTunnel, isOrphanedTunnel /* kosmos#6669 */, computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, busy /* #7215: read-only, a Forget or sign-in under way */, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,

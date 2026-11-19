@@ -5679,12 +5679,23 @@ const REMOTE_STEP_UP_CONNECTOR = Object.freeze({
   code: 'remote_step_up_unavailable',
   error: "This computer's Kosmos+ connector cannot vouch for a fresh sign-in right now, so this cannot be done from a remote session. Do it at the computer, or try again in a minute; if this keeps happening, update Kosmos.",
 });
+/* kosmos#8728: the same refusal while the connector has not said yet (just started, or a slow start that did not
+   answer in time; it is asked again by itself). Seen by Josh on 11-19, six minutes after a restart under heavy load:
+   the old sentence told him to update Kosmos, and nothing was out of date. Same code, so every page that reads the
+   code keeps working; only the words change. */
+const REMOTE_STEP_UP_STARTING = Object.freeze({
+  code: 'remote_step_up_unavailable',
+  error: 'Kosmos+ is still starting on this computer, so it cannot check a remote sign-in yet. Try again in a minute. This can take a few minutes after the computer restarts.',
+  starting: true,
+});
 /* The refusal for this request, or null. One place, before any route reads a body. */
 function remoteStepUpRefusal(req, pathname, nowSecs, caps) {
   if (!needsRemoteStepUp(pathname, req.method) || !isRemoteRequest(req)) return null;
   // Asked only for a remote request to a gated route, so no other request ever waits on the connector.
   const said = caps || remote.connectorCapabilities();
-  if (!said.has('session-headers')) return REMOTE_STEP_UP_CONNECTOR;
+  /* kosmos#8728: "not known yet" and "this connector lacks it" are different, and only the second is fixed by an
+     update. A caller that hands in its own caps (tests) is describing a connector that answered. */
+  if (!said.has('session-headers')) return (!caps && remote.connectorCapabilitiesPending()) ? REMOTE_STEP_UP_STARTING : REMOTE_STEP_UP_CONNECTOR;
   if (remoteSessionFresh(req.headers, nowSecs)) return null;
   const { second, iat } = remoteSessionHeaders(req.headers);
   if (second && iat !== null && iat - nowSecs > 60) return REMOTE_STEP_UP_CLOCK;
@@ -31402,7 +31413,7 @@ module.exports = { _setStartedProofPlatformForTest, _setStartWaitForTest,   // k
   _sendJsonForTest: sendJson, _sendTextForTest: sendText, _refuseDownloadForTest: refuseDownload, // kosmos#7686: never a second head, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
-  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616, #7625
+  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_STARTING /* kosmos#8728 */, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616, #7625
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   claudeObservationsFor, overlayStuckCards, // #7212 slice 3 reviews 6-7: the badge's evidence and the route's step, for their test
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
