@@ -31,7 +31,8 @@ const OUTCOME = { LINKED: 'linked', REFUSED: 'refused' };
 
 let runner = null;   // tests: (bin, args) -> { ok, code, stdout }
 function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; }
-function tmuxBin() { return process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux'; }
+/* The same tmux the board's look used (status.boardTmux), so the window it listed is the one this reaches. */
+function tmuxBin() { return status.boardTmux(); }
 function run(args) {
   if (runner) return runner(tmuxBin(), args);
   const r = childProcess.spawnSync(tmuxBin(), args, { encoding: 'utf8', timeout: 5000 });
@@ -51,16 +52,27 @@ function plan(name, panes, platform) {
   const mine = (Array.isArray(panes) ? panes : []).filter((p) => p && p.name === clean && typeof p.session === 'string' && p.session);
   if (!mine.length) return refused(`There is no window called ${clean} to link.`);
   if (mine.some((p) => paneSessionIsOurs(p.session, p.claim))) return refused(`${clean}'s window is already linked to Kosmos.`);
+  /* A mark that names something else (a session renamed with its old mark, or another tool's value): not "already
+     linked" (the board still cannot confirm it), and not overwritten blindly either. */
+  const foreign = mine.find((p) => String(p.claim || '').trim());
+  if (foreign) return refused(`The window called ${clean} carries a mark naming ${String(foreign.claim).trim()}, so Kosmos did not change it.`);
   /* What runs in it first: the board never counts an unmarked Codex (or Antigravity, Grok) window as an agent at all
      (status.isFleetSession), so asking isAgentSession first would tell that person "no agent is running", which is
      false. status.onePanePerSession keeps one ranked pane per board NAME (so `zara` and `zara-discord` are one), and
      the already-linked check above ran over every pane carrying the name before that choice mattered. */
   const pane = status.onePanePerSession(mine)[0] || mine[0];
+  /* The mark covers the whole tmux session, and a supervisor later closes a marked session none of whose panes is an
+     agent (bin/agent-supervisor.sh): an editor or shell in another window of it would go too. So only a session whose
+     one pane is the agent is linked. */
+  const sessionPanes = (Array.isArray(panes) ? panes : []).filter((x) => x && x.session === pane.session);
+  if (sessionPanes.length > 1) {
+    return refused(`The window called ${clean} shares its session with ${sessionPanes.length - 1} other window${sessionPanes.length === 2 ? '' : 's'}, which Kosmos could close along with it later, so it was not linked. Close the others first.`);
+  }
   if (!status.isClaudeCommand(pane.command)) {
     return refused(`The window called ${clean} is running ${pane.command || 'nothing we can name'}, not Claude. Only a Claude window can be linked for now.`);
   }
-  /* And it must look like an agent to the board: a native version string always does, while an unmarked `node` could
-     be any program and is refused here. */
+  /* And it must look like an agent to the board: a native version string always does; an unmarked `node`, or the
+     legacy `claude` / `claude.exe` names, never do (the board gives such a window no card), and are refused here. */
   if (!status.isAgentSession(pane)) return refused(`Kosmos cannot tell that the window called ${clean} is running an agent, so it was not linked.`);
   return { ok: true, session: pane.session, pane: pane.pane, name: clean, command: pane.command };
 }
@@ -84,7 +96,11 @@ function link(name, opts) {
     return { id: parts[0] || '', cmd: parts[1] || '', claim: parts.slice(2).join('\t').trim() };
   };
   const before = lookAt(named + paneOf);
-  if (before.claim) return refused(`${p.name}'s window is already linked to Kosmos.`);
+  if (before.claim) {
+    return paneSessionIsOurs(p.session, before.claim)
+      ? refused(`${p.name}'s window is already linked to Kosmos.`)
+      : refused(`The window called ${p.name} carries a mark naming ${before.claim}, so Kosmos did not change it.`);
+  }
   /* The very program the board saw (plan() vetted it as an agent), not merely a command that could be Claude: an
      unmarked `node` that replaced it since the board's look must not pass. */
   if (!/^\$\d+$/.test(before.id) || before.cmd !== String(p.command || '') || !status.isClaudeCommand(before.cmd)) {

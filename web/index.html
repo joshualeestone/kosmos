@@ -50232,34 +50232,47 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || document.getElementById('link-modal').hidden) return;
   linkModalClose();
 });
-document.getElementById('link-m-go').addEventListener('click', async () => {
-  const name = LINK_PENDING;
-  linkModalClose();
-  if (!name) return;
+/* kosmos#8719 part 2: the POST and what the page does with its answer, as one function (tests lift it). The button is
+   off while a request is out; an answer is written only on the page of the agent it is about. */
+async function linkSubmit(name) {
+  const box = document.getElementById('d-link');
+  const btn = document.getElementById('d-link-btn');
   const msg = document.getElementById('d-link-msg');
-  msg.textContent = 'Linking…';
+  const here = () => box && box.dataset.agent === name;
+  if (btn) btn.disabled = true;
+  if (here() && msg) msg.textContent = 'Linking…';
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/link', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirm: true }) });
     let got = null;
     try { got = await res.json(); } catch { got = null; }
     if (!res.ok || !got || got.outcome !== 'linked') {
-      msg.textContent = (got && (got.because || got.error)) || 'Kosmos could not link that window.';
-      return;
+      if (here() && msg) msg.textContent = (got && (got.because || got.error)) || 'Kosmos could not link that window.';
+      return 'refused';
     }
     if (typeof tick === 'function') await tick();
     /* Only if the person is still on this agent's page: never pull them back from one they have moved to. */
     if (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName === name) {
       if (typeof openDetail === 'function') openDetail(name);
       /* The link control hides once the agent is tied, so the result is said where it stays and is about: the
-         composer's own message line (an assertive live region), written after the page has reopened. Focus follows
-         it, since the button it was on is gone. */
+         composer's own message line (an assertive live region). Focus follows it, since the button it was on is gone. */
       const said = document.getElementById('d-say-msg');
       if (said) said.textContent = name + ' is linked. Kosmos can message it now.';
-      const box = document.getElementById('d-say');
-      if (box && !box.disabled && typeof box.focus === 'function') box.focus();
+      const say = document.getElementById('d-say');
+      if (say && !say.disabled && typeof say.focus === 'function') say.focus();
     }
-  } catch { msg.textContent = 'We could not reach Kosmos to link it.'; }
+    return 'linked';
+  } catch {
+    if (here() && msg) msg.textContent = 'We could not reach Kosmos to link it.';
+    return 'unreached';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+document.getElementById('link-m-go').addEventListener('click', () => {
+  const name = LINK_PENDING;
+  linkModalClose();
+  if (name) linkSubmit(name);
 });
 
 for (const boardEl of [document.getElementById('grid'), document.getElementById('alist'), document.getElementById('my-agents-list')]) {

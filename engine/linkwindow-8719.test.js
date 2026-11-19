@@ -111,7 +111,7 @@ test('#8719: on a real tmux, link() marks exactly the named session and never a 
   const cp = require('node:child_process');
   const sock = 'kosmos-link-8719-' + process.pid;
   // -f /dev/null: the person's own ~/.tmux.conf (hooks, destroy-unattached, a default-command) never reaches this server.
-  const t = (...args) => cp.spawnSync(realTmux, ['-L', sock, '-f', '/dev/null', ...args], { encoding: 'utf8' });
+  const t = (...args) => cp.spawnSync(realTmux, ['-L', sock, '-f', '/dev/null', ...args], { encoding: 'utf8', timeout: 10000 });
   /* No Claude runs on a test box, so the look's program ("sleep") is read as Claude's version string; every other call
      is real tmux with link()'s own arguments. Installed for the prefix phase too: a non-exact target would then really
      resolve to zarah, find "Claude" there, and mark it, which this test must see. */
@@ -121,12 +121,12 @@ test('#8719: on a real tmux, link() marks exactly the named session and never a 
     return { ok: r.status === 0, code: r.status, stdout: out };
   };
   try {
-    t('new-session', '-d', '-s', 'zarah', 'sleep 60');
+    assert.equal(t('new-session', '-d', '-s', 'zarah', 'sleep 60').status, 0, 'premise: the private tmux server started');
     linkwindow.setRunner(asClaude);
     const onlyPrefix = linkwindow.link('zara', { panes: [{ name: 'zara', session: 'zara', claim: '', command: fleet.CLAUDE_COMMAND, pane: '0.0', title: '' }], platform: 'darwin' });
     assert.equal(onlyPrefix.outcome, 'refused', 'with only zarah running, nothing called zara was linked');
     assert.notEqual(t('show-options', '-v', '-t', '=zarah:', '@kosmos_agent').status, 0, 'zarah was not marked');
-    t('new-session', '-d', '-s', 'zara', 'sleep 60');
+    assert.equal(t('new-session', '-d', '-s', 'zara', 'sleep 60').status, 0, 'premise: a session called zara started');
     // The pane reports its shell for a moment before `sleep` starts: wait (bounded) until it shows the program.
     let seen = '';
     for (let i = 0; i < 40 && !/\tsleep/.test(seen); i++) {
@@ -200,4 +200,23 @@ test('#8719: every pane carrying the name is checked for a mark, not only the on
   ];
   assert.match(linkwindow.plan('zara', panes, 'darwin').because, /already linked/, 'a -discord sibling is Kosmos\'s by its suffix');
   assert.equal(linkwindow.plan('zara', [panes[0]], 'darwin').ok, true, 'CONTROL: without the sibling it is linkable');
+});
+
+test('#8719: a mark naming something else is its own refusal, never "already linked", and is not overwritten', () => {
+  const panes = [{ name: 'zara', session: 'zara', claim: 'old-name', command: fleet.CLAUDE_COMMAND, pane: '0.0', title: '' }];
+  const p = linkwindow.plan('zara', panes, 'darwin');
+  assert.match(p.because, /carries a mark naming old-name, so Kosmos did not change it/);
+  assert.doesNotMatch(p.because, /already linked/);
+  const calls = fakeTmux({ claimedAtLook: 'something-else' });
+  const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '' }), platform: 'darwin' });
+  assert.match(r.because, /carries a mark naming something-else/, 'found at the look too');
+  assert.equal(calls.filter((c) => c[0] === 'set-option').length, 0);
+});
+
+test('#8719: a session with another window besides the agent is not linked (the mark covers the whole session)', () => {
+  const agent = { name: 'zara', session: 'zara', claim: '', command: fleet.CLAUDE_COMMAND, pane: '0.0', title: '' };
+  const editor = { name: 'zara', session: 'zara', claim: '', command: 'vim', pane: '1.0', title: '' };
+  const r = linkwindow.plan('zara', [agent, editor], 'darwin');
+  assert.match(r.because, /shares its session with 1 other window, which Kosmos could close along with it later/);
+  assert.equal(linkwindow.plan('zara', [agent], 'darwin').ok, true, 'CONTROL: the agent alone is linkable');
 });

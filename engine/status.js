@@ -632,6 +632,9 @@ function attachTmux(baked) {
     (Open in Terminal): a newer tmux reads an older server and not the other way round (measured 2026-10-01: Homebrew
     3.6a lists a 3.5a server; 3.5a against 3.6a says "server exited unexpectedly"), so a baked path can be the one that
     cannot. Null with an explicit choice (a test's stub) or a failed look: the baked path stays. */
+/* kosmos#8719: the tmux a write about a pane the board just listed should use: the one whose last look listed panes,
+   else this module's own choice (as paneFolders reads them), so a link reaches the server the board saw. */
+function boardTmux() { return TMUX_READ_BY || tmuxBin(); }
 function readerTmux() {
   return launcherPick() && LAST_LOOK_PROBLEM === null && TMUX_READ_BY && TMUX_READ_BY === tmuxBin() ? TMUX_READ_BY : null;
 }
@@ -10696,7 +10699,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { panesWithCommands /* kosmos#8719 */, isClaudeCommand /* kosmos#8719 */, paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719 */, isClaudeCommand /* kosmos#8719 */, paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
