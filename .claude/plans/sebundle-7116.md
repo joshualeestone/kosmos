@@ -7,7 +7,7 @@ Every Kosmos release built from a tree with native-se/main.swift carries app/bin
 
 ## What changed
 - tools/build-kosmos-bundle.sh: compile native-se/main.swift to app/bin/kosmos-se (floor target), sign as kosmos-app is (no entitlements: the key file is a blob only this Mac's Enclave can use), verify --strict, run it (usage exit 2 proves it loads under hardened runtime), all before the sealed Kosmos.app; and notarize_binaries includes it.
-- tools/lib/release-freeze.sh: release_bundle_matches_tree checks app/bin/kosmos-se by its signature (identifier kosmos-se, plus the cut's team requirement) and its executable bit, and refuses a SEALED bundle without it when the tree has native-se/main.swift. No new argument: no caller changes.
+- tools/lib/release-freeze.sh: release_bundle_matches_tree checks app/bin/kosmos-se by its signature (identifier kosmos-se, plus the cut's team requirement) and its executable bit, and refuses a SEALED bundle without it when the tree has native-se/main.swift. A 7th optional argument is its expected sha256 (review 3): tools/release.sh takes it from the built tarball (SE_SHA, as NATIVE_APP_SHA) and passes it at both calls (4b, built; 9b, served); every other caller passes fewer arguments and is unchanged.
 - tools/lib/sbom.js: app/bin/kosmos-se is first-party; when shipped, native-se/main.swift must import Apple frameworks only (CryptoKit and LocalAuthentication added).
 - Tests: tools/test-kosmos-se-bundle-7116.sh (red: a sealed bundle without it is refused by name; controls), in test:shell and the macOS-only list; tools.sbom-kosmosse-7116.test.js.
 

@@ -2219,7 +2219,7 @@ for i in 1 2 3 4 5 6; do
 done
 rm -f "$_served_tgz"
 if [ "$_bundle_ok" = 1 ]; then
-  echo "   the served kosmos-$V-arm64.tar.gz is ${SHA:0:12}: every tree file (app/ and bin/kosmos) matches, the connector is ${TUNNEL_SHA:0:12}, and the native app is ${NATIVE_APP_SHA:0:12}"
+  echo "   the served kosmos-$V-arm64.tar.gz is ${SHA:0:12}: every tree file (app/ and bin/kosmos) matches, the connector is ${TUNNEL_SHA:0:12}, and the native app is ${NATIVE_APP_SHA:0:12}${SE_SHA:+, and the Secure Enclave admin signer is ${SE_SHA:0:12}}"
 else
   echo "THE SERVED BUNDLE DID NOT VERIFY AGAINST THE TREE THAT WAS TESTED (${SHA:0:12}) AFTER SIX READS: $_bundle_cause"; exit 1
 fi
