@@ -21565,7 +21565,7 @@ function showStepUpAsk(body, key) {
   setTimeout(() => { words.textContent = body.error; }, 0);
 }
 document.addEventListener('click', (e) => {
-  if (e.target && e.target.closest && e.target.closest('#stepup-close')) { hideStepUpAsk(); stepUpFocusAway(); }
+  if (e.target && e.target.closest && e.target.closest('#stepup-close')) { hideStepUpAsk(); stepUpFocusAway(); if (typeof forgetStepUpReturn === 'function') forgetStepUpReturn(); }
 });
 /* kosmos#7625: a connector that does not serve /_kosmos/signin?fresh=1 (server.js REMOTE_STEP_UP_LOGOUT) is asked
    for a whole new sign-in another way: Sign in again logs this browser out of the gate, as Settings, Kosmos+, Log out
@@ -32537,6 +32537,38 @@ function acctFlowWatch() {
    the POST. Errs toward asking: anything other than a definite
    `willInstall === false` shows the confirm, so a silent download is impossible
    even when the field cannot be read. */
+/* kosmos#8728 slice 2: a Claude Sign in again refused from a remote session for want of a fresh Kosmos+ sign-in leaves one
+   note in this TAB (sessionStorage: it never outlives the tab, never reaches another visit or another viewer): which
+   account, and when. Back from the fresh sign-in, the page reopens that account's dialog and says to press Sign in
+   again; it never starts a sign-in by itself. The note holds no code and no token, is read once, and counts only
+   within 10 minutes, the same window the fresh sign-in has. */
+const STEPUP_RETURN_KEY = 'kosmos-stepup-return';
+const STEPUP_RETURN_MS = 10 * 60 * 1000;
+function noteStepUpReturn(dir) {
+  if (typeof dir !== 'string' || !dir) return;
+  try { sessionStorage.setItem(STEPUP_RETURN_KEY, JSON.stringify({ kind: 'claude-signin', dir, at: Date.now() })); } catch { /* the return is a courtesy */ }
+}
+function forgetStepUpReturn() {
+  try { sessionStorage.removeItem(STEPUP_RETURN_KEY); } catch { /* nothing to forget */ }
+}
+/* The note, if it is one this page wrote and still within its window; removed as it is read, whatever it held. */
+function takeStepUpReturn(now = Date.now()) {
+  let n = null;
+  try { n = JSON.parse(sessionStorage.getItem(STEPUP_RETURN_KEY) || 'null'); } catch { n = null; }
+  forgetStepUpReturn();
+  if (!n || n.kind !== 'claude-signin' || typeof n.dir !== 'string' || !n.dir || typeof n.at !== 'number') return null;
+  if (now - n.at > STEPUP_RETURN_MS || n.at - now > 60 * 1000) return null;
+  return n;
+}
+function resumeStepUpReturn() {
+  const n = takeStepUpReturn();
+  if (!n || !Array.isArray(ACCOUNTS)) return;
+  const acct = ACCOUNTS.find((a) => a && a.dir === n.dir && !a.apiKey);
+  if (!acct || typeof openAcctReauth !== 'function') return;
+  openAcctReauth(n.dir, typeof acct.email === 'string' ? acct.email : '');
+  const note = document.getElementById('acct-add-note');
+  if (note) note.textContent = 'You signed in to Kosmos+ again. Press Sign in again to sign this account in to Claude.';
+}
 async function acctAddStart(installConfirmed) {
   const btn = document.getElementById('acct-add');
   const note = document.getElementById('acct-add-note');
@@ -32565,6 +32597,8 @@ async function acctAddStart(installConfirmed) {
     const out = await res.json().catch(() => null);
     if (!res.ok) {
       btn.disabled = false;
+      // kosmos#8728 slice 2: refused for a fresh Kosmos+ sign-in: remember this account so the page can come back to it.
+      if (out && /^remote_step_up/.test(String(out.code || '')) && ACCT_REAUTH_DIR) noteStepUpReturn(ACCT_REAUTH_DIR);
       note.textContent = (out && (out.because || out.error)) || 'We could not start the sign-in.';
       note.focus();
       return;
@@ -61818,6 +61852,8 @@ function accountsRead(list) {
   ACCOUNTS = Array.isArray(list) ? list : [];
   ACCOUNTS_LOADED = true;
   ACCOUNTS_UNREADABLE = false;
+  // kosmos#8728 slice 2: back from a fresh Kosmos+ sign-in, reopen the Claude account it was for (once, then forgotten).
+  if (typeof resumeStepUpReturn === 'function') resumeStepUpReturn();
 }
 function accountsUnreadable() {
   /* 🛑 DELIBERATELY DOES NOT TOUCH `ACCOUNTS`, AND THAT IS NOT AN OVERSIGHT. A failed read
