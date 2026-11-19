@@ -202,6 +202,8 @@ test('#7116 step 2 caller: the member\'s Mac starts, checks the bytes, signs the
   assert.ok(Buffer.from(start.body.joinTag, 'base64url').equals(dk.joinTag(code, ORG, MEMBER, dk.rawPublic(mac.publicKey))));
   const bytes = se.encodeDevkeyEnrol(ORG, MEMBER, dk.rawPublic(mac.publicKey), dk.joinCodeHash(code), dk.joinTag(code, ORG, MEMBER, dk.rawPublic(mac.publicKey)), INVITER, '7', Buffer.alloc(32, 0x5a));
   assert.ok(crypto.verify(null, bytes, mac.publicKey, Buffer.from(sign.body.keySig, 'base64url')), 'keySig is over the returned bytes');
+  assert.deepEqual(Object.keys(sign.body).sort(), ['id', 'keySig'], 'review 6: the member\'s sign body is exactly id and keySig');
+  assert.equal(sign.body.id, 'e1');
 });
 
 test('#7116 step 2 caller: a coordinator that swaps the key or the inviter gets no signature', async () => {
@@ -350,15 +352,37 @@ test('#7116 step 2 caller: every route is a POST on a fixed path, the id in the 
   assert.ok(c.calls.every((x) => !/e1/.test(x.route)), 'no id in any path');
   assert.deepEqual(c.calls[2].body, {});
   // Codes that spend nothing leave the entry; every other code, and an unknown one, ends it.
-  for (const code of ['roster_signers', 'devkey_inviter_not_signer', 'roster_bad_signature', 'bad_request']) assert.equal(es.endsEntry(code), false, code);
-  for (const code of ['devkey_already_enrolled', 'roster_nonce', 'devkey_history_full', 'audit_unavailable', 'something_new']) assert.equal(es.endsEntry(code), true, code);
+  // Review 6: every code Renet named, each side, so a typo in any one fails.
+  for (const code of ['roster_signers', 'devkey_inviter_not_signer', 'roster_bad_signature', 'roster_bad_assertion',
+    'roster_admin_synced_passkey', 'roster_new_key_signature', 'bad_request']) assert.equal(es.endsEntry(code), false, code);
+  for (const code of ['devkey_already_enrolled', 'roster_nonce', 'devkey_history_full', 'devkey_history_unsaved', 'audit_unavailable',
+    'roster_nonce_unsaved', 'roster_counts_unsaved', 'something_new']) assert.equal(es.endsEntry(code), true, code);
   const refused = async () => ({ ok: false, because: 'x', refusal: { status: 409, code: 'roster_nonce' } });
   const err = await es.postAdminSig('e1', { adminId: OTHER_ADMIN, sig: Buffer.alloc(2) }, { send: refused }).catch((e) => e);
   assert.equal(err.code, 'roster_nonce');
   assert.equal(err.ended, true);
+  assert.equal(err.id, 'e1');
   const kept = await es.postAdminSig('e1', { adminId: OTHER_ADMIN, sig: Buffer.alloc(2) },
     { send: async () => ({ ok: false, refusal: { status: 400, code: 'roster_bad_signature' } }) }).catch((e) => e);
   assert.equal(kept.ended, false);
+  // Review 6: a refusal from start or pending names no entry, so it carries no `ended`; no readable code leaves it unknown.
+  const startErr = await es.startAndSign({ org: ORG, member: MEMBER, joinCode: dk.newJoinCode(), inviterAdminId: INVITER, deviceKey: macKey(),
+    send: async () => ({ ok: false, refusal: { status: 404, code: 'not_found' } }) }).catch((e) => e);
+  assert.equal(startErr.code, 'not_found');
+  assert.equal(startErr.ended, undefined);
+  const pendErr = await es.pending({ send: async () => ({ ok: false, refusal: { status: 404, code: 'not_found' } }) }).catch((e) => e);
+  assert.equal(pendErr.ended, undefined);
+  const outage = await es.postAdminSig('e1', { adminId: OTHER_ADMIN, sig: Buffer.alloc(2) }, { send: async () => ({ ok: false, because: 'timeout' }) }).catch((e) => e);
+  assert.equal(outage.ended, undefined);
+  assert.equal(outage.id, 'e1');
+  // The member's refused keySig carries the entry, so a Mac told it stays can sign it again.
+  const memberSend = async (m, r, b) => (r === '/v1/org/devkey-enrol/sign' ? { ok: false, refusal: { status: 400, code: 'roster_bad_signature' } } : c.send(m, r, b));
+  const memberErr = await es.startAndSign({ org: ORG, member: MEMBER, joinCode: dk.newJoinCode(), inviterAdminId: INVITER, deviceKey: macKey(), send: memberSend }).catch((e) => e);
+  assert.equal(memberErr.ended, false);
+  assert.equal(memberErr.id, 'e1');
+  assert.equal(memberErr.expiresAt, 'later');
+  // A 2xx admin answer says whether the entry ended, as startAndSign's does.
+  assert.equal((await es.postAdminSig('e1', { adminId: OTHER_ADMIN, sig: Buffer.alloc(2) }, { send: async () => ({ ok: true, data: { ok: false, code: 'roster_nonce' } }) })).ended, true);
   // A 2xx answer's own `ended` is read as it says, even against the code.
   assert.equal(es.endedOf({ ok: false, code: 'roster_signers', ended: true }), true);
   assert.equal(es.endedOf({ ok: false, code: 'roster_nonce' }), true);

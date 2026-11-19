@@ -200,18 +200,27 @@ const unb64 = (t, what) => {
 };
 const sendOf = (send) => send || ((...a) => require('./remote').macRequest(...a));
 /* Review 2: a person sees only fixed sentences; macRequest's `because` can carry a tunnel's line or a spawn error. A
-   coordinator refusal's public code (letters, digits, _) is kept on the error for the screen. */
-const answerOf = (r, doing) => {
+   coordinator refusal's public code (letters, digits, _) is kept on the error for the screen.
+   Review 6: `entry` is given only for a sign call, whose refusal is a relayed submission that either ends the entry or
+   leaves it open; then the error also carries `ended` and the entry's `id` and `expiresAt`, so a Mac told it stays can
+   post a fresh signature to it. `ended` is true, false, or left undefined when no readable code came back (a timeout,
+   an outage, an older tunnel): undefined means "not known", and the caller reads the pending list again. */
+const answerOf = (r, doing, entry) => {
   if (!r || r.ok !== true) {
     const why = r && r.notSent ? 'this computer is not connected to Kosmos+' : 'Kosmos+ did not answer';
     const err = new Error('could not ' + doing + ': ' + why);
-    if (r && r.refusal && typeof r.refusal.code === 'string') { err.code = r.refusal.code; err.ended = endsEntry(err.code); }
+    if (r && r.refusal && typeof r.refusal.code === 'string') err.code = r.refusal.code;
+    if (entry) {
+      err.id = entry.id; err.expiresAt = entry.expiresAt === undefined ? null : entry.expiresAt;
+      if (err.code) err.ended = endsEntry(err.code);
+    }
     throw err;
   }
   return r.data;
 };
 /* Renet's correction 2 (from Kitty's rosterops::devkey_enrol): a refused submission leaves the entry open, for a fresh
-   signature, only on these codes, which spend nothing; every other code ends it, and the member's Mac starts a new one.
+   signature, only on these codes, which spend nothing; every other code ends it (devkey_already_enrolled too: that key
+   is already enrolled, so there is nothing to start again; any other ended entry is started again by the member's Mac).
    The tunnel keeps a refusal's code but not its `ended` field, so the board works it out from the code; a 2xx answer
    that carries `ended` is read as it says (endedOf). */
 const STAYS = new Set(['roster_signers', 'devkey_inviter_not_signer', 'roster_bad_signature', 'roster_bad_assertion',
@@ -228,7 +237,7 @@ const idOk = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id)
  * invited with. The coordinator answers the exact bytes to sign; they are decoded, and must enrol THIS key with the
  * inviter and code asked for. Then this Mac signs them (devkeyenrol.deviceSign) and posts keySig.
  * Returns { id, decoded, expiresAt, answer, ended } (answer: the sign route's, waiting or escrowd's; ended: the entry
- * is gone and a new one must be started).
+ * is gone, see STAYS). A refused sign throws an error carrying code, ended, id and expiresAt (answerOf).
  */
 async function startAndSign({ org, member, joinCode, inviterAdminId, deviceKey, send } = {}) {
   text(org, 'company'); text(member, 'member'); text(inviterAdminId, 'inviting admin');
@@ -246,8 +255,9 @@ async function startAndSign({ org, member, joinCode, inviterAdminId, deviceKey, 
   const decoded = se.decodeDevkeyEnrol(bytes);
   if (decoded.inviterAdminId !== inviterAdminId) throw new Error('the enrolment names a different inviting admin from the one asked');
   const { signature } = dk.deviceSign(bytes, { org, member, deviceKey: key, joinCode });
-  const answer = answerOf(await go('POST', ROUTE + '/sign', { id: started.id, keySig: b64(signature) }), 'send this computer\'s signature');
   const exp = (typeof started.expiresAt === 'string' && started.expiresAt.length <= 64) || Number.isFinite(started.expiresAt) ? started.expiresAt : null;
+  const answer = answerOf(await go('POST', ROUTE + '/sign', { id: started.id, keySig: b64(signature) }), 'send this computer\'s signature',
+    { id: started.id, expiresAt: exp });
   return { id: started.id, decoded, expiresAt: exp, answer, ended: endedOf(answer) };
 }
 
@@ -267,8 +277,10 @@ async function pending({ send } = {}) {
 async function postAdminSig(id, signed, { send } = {}) {
   if (!idOk(id)) throw new Error('not an enrolment id');
   if (!signed || typeof signed.adminId !== 'string' || !(signed.sig instanceof Uint8Array)) throw new Error('post only what approve returned');
-  return answerOf(await sendOf(send)('POST', ROUTE + '/sign', { id, sig: { adminId: signed.adminId, se: b64(signed.sig) } }),
-    'send the approval');
+  const answer = answerOf(await sendOf(send)('POST', ROUTE + '/sign', { id, sig: { adminId: signed.adminId, se: b64(signed.sig) } }),
+    'send the approval', { id });
+  // Review 6: as startAndSign's, a 2xx answer says whether the entry ended.
+  return answer && typeof answer === 'object' ? { ...answer, ended: endedOf(answer) } : answer;
 }
 
 /**
