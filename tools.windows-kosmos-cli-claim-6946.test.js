@@ -118,9 +118,9 @@ test('kosmos#8721: --status sends status and says who holds the post, whether yo
   const none = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { ok: true, op: 'status', of: 'm3', mine: false } }));
   assert.equal(none.out, 'Nobody holds that post. Nothing was claimed.');
   const asked = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { ok: true, op: 'status', of: 'm3', mine: false, askedOf: ['ann'], askedWho: 'ann', askedMinutes: 12 } }));
-  assert.equal(asked.out, "Nobody holds that post, but it asks ann for 12 more minutes, so anyone else's claim is refused until then. Nothing was claimed.");
+  assert.equal(asked.out, "Nobody holds that post, but it asks ann first, for up to 12 more minutes, so anyone else's claim is refused for now. Nothing was claimed.");
   const two = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { ok: true, op: 'status', of: 'm3', mine: false, askedOf: ['ann', 'cy'], askedWho: 'ann or cy', askedMinutes: 1 } }));
-  assert.equal(two.out, "Nobody holds that post, but it asks ann or cy for 1 more minute, so anyone else's claim is refused until then. Nothing was claimed.");
+  assert.equal(two.out, "Nobody holds that post, but it asks ann or cy first, for up to 1 more minute, so anyone else's claim is refused for now. Nothing was claimed.");
   const odd = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { something: 'else' } }));
   assert.equal(odd.code, 1);
   assert.match(odd.err, /we could not tell who holds that post/);

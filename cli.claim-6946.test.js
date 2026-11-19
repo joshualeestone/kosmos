@@ -181,8 +181,8 @@ test('kosmos#8721: --status sends status and says who holds the post, whether yo
     [{ ok: true, op: 'status', of: 'm3', mine: false, claimedBy: 'ann', claimedAge: '3 minutes ago' }, 'ann holds that post (claimed 3 minutes ago). Nothing was claimed.'],
     [{ ok: true, op: 'status', of: 'm3', mine: true, claimedBy: 'bob', claimedAge: 'just now' }, 'That post is yours (claimed just now). Nothing was changed.'],
     [{ ok: true, op: 'status', of: 'm3', mine: false }, 'Nobody holds that post. Nothing was claimed.'],
-    [{ ok: true, op: 'status', of: 'm3', mine: false, askedOf: ['ann'], askedWho: 'ann', askedMinutes: 12 }, "Nobody holds that post, but it asks ann for 12 more minutes, so anyone else's claim is refused until then. Nothing was claimed."],
-    [{ ok: true, op: 'status', of: 'm3', mine: false, askedOf: ['ann', 'cy'], askedWho: 'ann or cy', askedMinutes: 1 }, "Nobody holds that post, but it asks ann or cy for 1 more minute, so anyone else's claim is refused until then. Nothing was claimed."],
+    [{ ok: true, op: 'status', of: 'm3', mine: false, askedOf: ['ann'], askedWho: 'ann', askedMinutes: 12 }, "Nobody holds that post, but it asks ann first, for up to 12 more minutes, so anyone else's claim is refused for now. Nothing was claimed."],
+    [{ ok: true, op: 'status', of: 'm3', mine: false, askedOf: ['ann', 'cy'], askedWho: 'ann or cy', askedMinutes: 1 }, "Nobody holds that post, but it asks ann or cy first, for up to 1 more minute, so anyone else's claim is refused for now. Nothing was claimed."],
   ];
   for (const [reply, said] of answers) {
     await withStub(() => reply, async (port, seen) => {

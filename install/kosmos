@@ -5523,7 +5523,7 @@ cmd_claim() {
         *) if [ -n "$holder" ]; then say "$holder holds that post (claimed ${age:-earlier}). Nothing was claimed."
            else
              local asked mins; asked=$(printf '%s' "$body" | sed -n 's/.*"askedWho":"\([^"]*\)".*/\1/p'); mins=$(printf '%s' "$body" | sed -n 's/.*"askedMinutes":\([0-9]*\).*/\1/p')
-             if [ -n "$asked" ]; then say "Nobody holds that post, but it asks $asked for ${mins:-a few} more minute$([ "${mins:-2}" = 1 ] || echo s), so anyone else's claim is refused until then. Nothing was claimed."
+             if [ -n "$asked" ]; then say "Nobody holds that post, but it asks $asked first, for up to ${mins:-a few} more minute$([ "${mins:-2}" = 1 ] || echo s), so anyone else's claim is refused for now. Nothing was claimed."
              else say "Nobody holds that post. Nothing was claimed."; fi
            fi ;;
       esac ;;
