@@ -264,7 +264,7 @@ test('golden vector: escrowd\'s own signed history verifies under the shipped ke
   try {
     assert.deepStrictEqual(hist.verify(GOLDEN, o), { ok: true, keys: [] });
     const changed = { ...GOLDEN, member: 'zz-goldenvector-7116-membes' };
-    assert.strictEqual(hist.verify(changed, { ...o, member: changed.member }).ok, false, 'control: a changed history');
+    assert.match(hist.verify(changed, { ...o, member: changed.member }).because || '', /signature/, 'control: a changed history fails on the signature');
   } finally { hist.setVerifyingKeyForTests(VK); }
   assert.strictEqual(hist.verify(GOLDEN, o).ok, false, 'control: under the fixture key it does not verify');
 });
