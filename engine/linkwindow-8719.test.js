@@ -40,7 +40,8 @@ function fakeTmux(opts) {
       const id = after && o.swapped ? '$9' : '$0';
       const cmd = after && o.nowRunning ? o.nowRunning : (o.firstRunning || fleet.CLAUDE_COMMAND);
       const claim = !after && o.claimedAtLook ? o.claimedAtLook : (options['$0 @kosmos_agent'] || '');
-      return { ok: true, code: 0, stdout: id + '\t' + cmd + '\t' + claim + '\n' };
+      const count = after && o.paneAdded ? '1x2' : '1x1';
+      return { ok: true, code: 0, stdout: id + '\t' + count + '\t' + cmd + '\t' + claim + '\n' };
     }
     return { ok: false, code: 1, stdout: '' };
   });
@@ -55,7 +56,7 @@ test('#8719: a hand-started Claude window is linked, with an exact target, and o
   const calls = fakeTmux();
   const r = linkwindow.link('zara', { panes, platform: 'darwin' });
   assert.deepEqual(r, { outcome: 'linked', session: 'zara', name: 'zara' });
-  const fmt = '#{session_id}\t#{pane_current_command}\t#{@kosmos_agent}';
+  const fmt = '#{session_id}\t#{session_windows}x#{window_panes}\t#{pane_current_command}\t#{@kosmos_agent}';
   assert.deepEqual(calls[0], ['display-message', '-p', '-t', '=zara:0.0', fmt], 'first, the very pane by its exact name');
   assert.deepEqual(calls[1], ['set-option', '-t', '$0', '@kosmos_agent', 'zara'], 'the mark, on that session by its id');
   assert.deepEqual(calls[2], ['show-options', '-v', '-t', '$0', '@kosmos_agent'], 'then read back, by id');
@@ -87,6 +88,10 @@ test('#8719: a window whose program changed between the look and the mark is not
   const swapped = fakeTmux({ swapped: true });
   assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /took the mark off again/);
   assert.deepEqual(swapped.filter((c) => c[0] === 'set-option' && c[1] === '-u'), [['set-option', '-u', '-t', '$0', '@kosmos_agent']]);
+  // A window added to the session after the look: not linked, and the mark comes off.
+  const grew = fakeTmux({ paneAdded: true });
+  assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /took the mark off again/);
+  assert.equal(grew.filter((c) => c[0] === 'set-option' && c[1] === '-u').length, 1);
   // A program that is not the one the board saw (an unmarked node that replaced it): nothing is marked.
   const nodeNow = fakeTmux({ firstRunning: 'node' });
   assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /could not confirm what runs in the window called zara/);

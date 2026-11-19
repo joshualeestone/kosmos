@@ -43,7 +43,7 @@ test.before(async () => {
     calls.push(args);
     if (args[0] === 'set-option') { marks[args[2]] = args[4]; return { ok: true, code: 0, stdout: '' }; }
     if (args[0] === 'show-options') { const v = marks[args[3]]; return v ? { ok: true, code: 0, stdout: v + '\n' } : { ok: false, code: 1, stdout: '' }; }
-    if (args[0] === 'display-message') return { ok: true, code: 0, stdout: '$0\t' + fleet.CLAUDE_COMMAND + '\t' + (marks['$0'] || '') + '\n' };
+    if (args[0] === 'display-message') return { ok: true, code: 0, stdout: '$0\t1x1\t' + fleet.CLAUDE_COMMAND + '\t' + (marks['$0'] || '') + '\n' };
     return { ok: false, code: 1, stdout: '' };
   });
   await start(0);

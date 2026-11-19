@@ -89,11 +89,11 @@ function link(name, opts) {
   const named = `=${p.session}:`;
   const paneOf = /^\d+\.\d+$/.test(String(p.pane || '')) ? p.pane : '';
   const lookAt = (target) => {
-    const r = run(['display-message', '-p', '-t', target, '#{session_id}\t#{pane_current_command}\t#{@kosmos_agent}']);
+    const r = run(['display-message', '-p', '-t', target, '#{session_id}\t#{session_windows}x#{window_panes}\t#{pane_current_command}\t#{@kosmos_agent}']);
     const line = r && r.ok !== false ? String(r.stdout || '').replace(/\n$/, '') : '';
     const parts = line.split('\t');
     // The mark is the last field and joins the rest, so a value holding a tab is read whole, never as empty.
-    return { id: parts[0] || '', cmd: parts[1] || '', claim: parts.slice(2).join('\t').trim() };
+    return { id: parts[0] || '', panes: parts[1] || '', cmd: parts[2] || '', claim: parts.slice(3).join('\t').trim() };
   };
   const before = lookAt(named + paneOf);
   if (before.claim) {
@@ -103,7 +103,10 @@ function link(name, opts) {
   }
   /* The very program the board saw (plan() vetted it as an agent), not merely a command that could be Claude: an
      unmarked `node` that replaced it since the board's look must not pass. */
-  if (!/^\$\d+$/.test(before.id) || before.cmd !== String(p.command || '') || !status.isClaudeCommand(before.cmd)) {
+  /* One window with one pane (measured on tmux 3.6a: there is no session_panes; session_windows and window_panes are
+     real), as plan() required, at the look and again after the mark: a window or split added meanwhile would be
+     covered by the mark too. */
+  if (!/^\$\d+$/.test(before.id) || before.panes !== '1x1' || before.cmd !== String(p.command || '') || !status.isClaudeCommand(before.cmd)) {
     return refused(`Kosmos could not confirm what runs in the window called ${p.name}, so nothing was linked.`);
   }
   /* From here on the SESSION ID is the target, not the name. Measured: once that session is gone, `$id` answers "no
@@ -115,7 +118,7 @@ function link(name, opts) {
   const read = run(['show-options', '-v', '-t', byId, '@kosmos_agent']);
   const now = read && read.ok !== false ? String(read.stdout || '').trim() : '';
   const after = lookAt(byId + (paneOf ? ':' + paneOf : ''));
-  if (now !== p.session || after.id !== before.id || after.cmd !== before.cmd) {
+  if (now !== p.session || after.id !== before.id || after.panes !== '1x1' || after.cmd !== before.cmd) {
     const off = run(['set-option', '-u', '-t', byId, '@kosmos_agent']);
     if (!off || off.ok === false) {
       return refused(`Kosmos could not confirm the window called ${p.name} after marking it, and could not take the mark off. Restart that window, or ask for help, before messaging it.`);
