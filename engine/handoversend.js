@@ -14,7 +14,9 @@
  *                       `workers` because the receiving computer restores into a Kosmos made by the restore path, whose
  *                       finish moves only `workers` and `projects` into place (restoreworld MOVED). REQUIRED: an
  *                       agent whose folder cannot be read fails the pack, said with its name.
- *   profiles/<seg>      its one profile file, by name (`only`). The successor strips per-install fields (slice 4).
+ *   NOT its profile file: that holds this install's id (idInstall) and absolute paths under the member's home, which a
+ *                       profile never takes off this computer (store.js, kosmos#5995). The receiver names an agent from
+ *                       its folder and brief, as a restore does.
  *   sessions/<seg>/...  its transcripts, from backuptick.inputsHere().sessions (the backup's builder), trimmed to the
  *                       files up to SESSION_BYTES per agent: its memory notes first, whatever their age, then the
  *                       newest transcripts that fit. The first file is taken even alone over the cap (the snapshot's own
@@ -115,7 +117,7 @@ function resolveNames(labels, rows) {
   const names = [];
   for (const label of labels) {
     const hits = [...new Set(live.filter((r) => r.name === label || r.shownAs === label).map((r) => r.name))];
-    if (!hits.length) return { ok: false, final: true, because: `there is no agent called ${label} on this computer` };
+    if (!hits.length) return { ok: false, because: `there is no agent called ${label} on this computer` };   // may be mid-rename: an ordinary try
     if (hits.length > 1) return { ok: false, final: true, because: `more than one agent on this computer is called ${label}` };
     if (!names.some((n) => n.name === hits[0])) names.push({ name: hits[0], label });
   }
@@ -170,7 +172,7 @@ function inside(child, parent) {
 }
 
 /* The roots of one pack, or a sentence (`final` when the agent itself decides it). names: resolveNames' [{ name, label }].
-   inputs: backuptick.inputsHere() (sessions, protect, protectIncomplete). deps (tests): workerDir(name), profilesDir, stat. */
+   inputs: backuptick.inputsHere() (sessions, protect, protectIncomplete). deps (tests): workerDir(name), stat. */
 function rootsFor(names, inputs, deps) {
   const d = deps || {};
   const bt = require('./backuptick');
@@ -183,7 +185,6 @@ function rootsFor(names, inputs, deps) {
     }
   }
   const workerDir = d.workerDir || ((n) => require('./create').workerDir(n));
-  const profilesDir = d.profilesDir || require('./store').PROFILES;
   const roots = [];
   let total = 0;
   for (const { name, label } of names) {
@@ -192,7 +193,7 @@ function rootsFor(names, inputs, deps) {
     let dir = null;
     try { dir = workerDir(name); } catch { dir = null; }
     const rd = dir && path.isAbsolute(dir) ? real(dir) : null;
-    if (!rd) return { ok: false, final: true, because: `the folder of ${label} could not be found` };
+    if (!rd) return { ok: false, because: `the folder of ${label} could not be found` };   // an unmounted disk, a denied folder: an ordinary try
     if (protect.some((q) => inside(rd, q) || inside(q, rd))) return { ok: false, final: true, because: `the folder of ${label} holds, or is inside, Kosmos's own data or a sign-in folder` };
     // Only this agent's own folder (as the backup refuses a root that would hold the workers folder): never one that is
     // or holds the workers or projects folder or a project, nor one that holds, or sits inside, another agent's.
@@ -205,8 +206,6 @@ function rootsFor(names, inputs, deps) {
     if (size === null) return { ok: false, final: true, because: `the folder of ${label} holds more files than one hand-over can carry` };
     total += size;
     roots.push({ name: `workers/${seg}`, path: rd });
-    const pd = real(profilesDir);
-    if (pd && fs.existsSync(path.join(pd, `${name}.json`))) roots.push({ name: `profiles/${seg}`, path: pd, optional: true, only: [`${name}.json`] });
     let s = [];
     try { s = inputs.sessions ? inputs.sessions(dir, seg, name) : []; } catch { s = []; }
     // A transcript root inside the agent's own folder is already carried there.
@@ -284,6 +283,10 @@ async function tick(state, deps) {
           if (Number.isSafeInteger(rec.attempts)) state.attempts.set(part.id, rec.attempts);
           if (Number.isSafeInteger(rec.soft)) state.soft.set(part.id, rec.soft);
           if (rec.spent === true) state.spent.add(part.id);
+          if (rec.inflight === true) {   // the board stopped during a try: count it, and its bytes may be on the coordinator
+            state.attempts.set(part.id, (state.attempts.get(part.id) || 0) + 1);
+            state.spent.add(part.id);
+          }
           if (typeof rec.final === 'string') state.failed.set(part.id, { key, because: rec.final });
         }
       }
@@ -296,6 +299,9 @@ async function tick(state, deps) {
       let r = p;
       if (p.ok) {
         const take = d.takeSnapshot || require('./backupsnapshot').takeSnapshot;
+        // Noted before the upload: a board that quits part way leaves `inflight`, which the next run reads as a try that
+        // counted and may have been granted bytes (it cannot know it was not).
+        writeSend(part.id, d.root, { key, attempts: state.attempts.get(part.id) || 0, soft: state.soft.get(part.id) || 0, spent: state.spent.has(part.id), inflight: true });
         r = await take(p.input, { macRequest: mac });
         if (!r || typeof r !== 'object') r = { ok: false, because: 'the pack failed unexpectedly' };
       }
@@ -313,17 +319,17 @@ async function tick(state, deps) {
         let said = FINAL_CODES[code];
         // `spent`: an earlier try was granted bytes (kept on disk), counted or not, so the cap may hold its uploads.
         // "No longer open" after an earlier try was granted bytes is most likely that try's manifest grant having moved the
-        // record to packed before its upload landed (the KNOWN note below): say so, not that the hand-over closed.
-        if (code === 'handover_wrong_state' && state.spent.has(part.id)) said = 'an earlier try may have left the pack half sent; your company can start the hand-over again';
-        if (code === 'handover_too_big' && state.spent.has(part.id)) said = 'an earlier try used up the room Kosmos+ keeps for this hand-over; your company can start the hand-over again';
+        // record to packed before its upload landed (the KNOWN note in the header): say so, not that the hand-over closed.
+        if (code === 'handover_wrong_state' && state.spent.has(part.id)) said = 'an earlier try may have left the pack half sent; your company can cancel this hand-over and start a new one';
+        if (code === 'handover_too_big' && state.spent.has(part.id)) said = 'an earlier try used up the room Kosmos+ keeps for this hand-over; your company can cancel this hand-over and start a new one';
         let final = null;
         if (r.final || said) final = said || r.because || 'the pack did not finish';
-        else if (tries >= MAX_ATTEMPTS) final = `Kosmos tried ${tries} times and could not finish the pack; your company can start the hand-over again`;
+        else if (tries >= MAX_ATTEMPTS) final = `Kosmos tried ${tries} times and could not finish the pack; your company can cancel this hand-over and start a new one`;
         else if (r.retryLater) {
           // Not counted as an attempt, but not every tick for ever: backed off, and final past MAX_SOFT in a row.
           const soft = (state.soft.get(part.id) || 0) + 1;
           state.soft.set(part.id, soft);
-          if (soft >= MAX_SOFT) final = 'Kosmos+ kept asking this computer to wait, so the pack did not finish; your company can start the hand-over again';
+          if (soft >= MAX_SOFT) final = 'Kosmos+ kept asking this computer to wait, so the pack did not finish; your company can cancel this hand-over and start a new one';
           else state.retryAt.set(part.id, now + SOFT_RETRY_MS);
         } else state.retryAt.set(part.id, now + RETRY_MS);
         if (final) state.failed.set(part.id, { key, because: final });
