@@ -4,8 +4,8 @@
  *
  * The coordinator (kosmos-relay, slice 2) records a hand-over: which member leaves, who takes the agents, and the
  * agents by name. Once the successor's computer has made a one-time key and sent its public half (seal_pub), this
- * computer's part reads `packing`. tick() then packs: each named agent's folder, its profile and its recent
- * transcripts, sealed to seal_pub, signed with this computer's device key, uploaded under handover/<org>/<id>/ through
+ * computer's part reads `packing`. tick() then packs: each named agent's folder, its memory notes and its recent
+ * transcripts (never its profile: below), sealed to seal_pub, signed with this computer's device key, uploaded under handover/<org>/<id>/ through
  * the hand-over grant and manifest routes (backupsnapshot input.handover). The manifest step moves the record to
  * `packed`; nothing here has to say so.
  *
@@ -24,9 +24,8 @@
  *   NOT carried: Antigravity conversations. The backup stages those live SQLite files into Kosmos's own data first
  *   (backuptick.startWorld, backupagy.stageAgy); a pack does not, so an Antigravity agent arrives without them.
  * Never the data root, credentials or provider sign-ins: an agent folder that holds or sits inside one of backuptick's
- * protected folders fails the pack. Two kinds of root are not put through that check, as in backuptick: the one
- * profile file, by name, inside Kosmos's data; and the transcript roots, inside provider homes, whose safety is
- * backupsessions' file lists (session files only). Every file still passes the snapshot's own name and content scans.
+ * protected folders fails the pack. One kind of root is not put through that check, as in backuptick: the transcript
+ * roots, inside provider homes, whose safety is backupsessions' file lists (session files only). Every file still passes the snapshot's own name and content scans.
  *
  * Names: the hand-over names agents as the company's rollup shows them (a running agent's name, a stopped one's shown
  * name). Each is matched against register.survey() rows with a profile and not removed, by name or shown name; one that
