@@ -39,7 +39,8 @@ function fakeTmux(opts) {
       const after = o.looks > 1;
       const id = after && o.swapped ? '$9' : '$0';
       const cmd = after && o.nowRunning ? o.nowRunning : (o.firstRunning || fleet.CLAUDE_COMMAND);
-      return { ok: true, code: 0, stdout: id + '\t' + cmd + '\n' };
+      const claim = !after && o.claimedAtLook ? o.claimedAtLook : (options['=zara: @kosmos_agent'] || '');
+      return { ok: true, code: 0, stdout: id + '\t' + cmd + '\t' + claim + '\n' };
     }
     return { ok: false, code: 1, stdout: '' };
   });
@@ -54,7 +55,7 @@ test('#8719: a hand-started Claude window is linked, with an exact target, and o
   const calls = fakeTmux();
   const r = linkwindow.link('zara', { panes, platform: 'darwin' });
   assert.deepEqual(r, { outcome: 'linked', session: 'zara', name: 'zara' });
-  const look = ['display-message', '-p', '-t', '=zara:', '#{session_id}\t#{pane_current_command}'];
+  const look = ['display-message', '-p', '-t', '=zara:0.0', '#{session_id}\t#{pane_current_command}\t#{@kosmos_agent}'];
   assert.deepEqual(calls[0], look, 'first, which session it is and what runs in it');
   assert.deepEqual(calls[1], ['set-option', '-t', '=zara:', '@kosmos_agent', 'zara'], 'the mark, on exactly that session (=name:)');
   assert.deepEqual(calls[2], ['show-options', '-v', '-t', '=zara:', '@kosmos_agent'], 'then read back');
@@ -81,10 +82,15 @@ test('#8719: a window whose program changed between the look and the mark is not
   assert.match(r.because, /took the mark off again/);
   assert.deepEqual(calls[calls.length - 1], ['set-option', '-u', '-t', '=zara:', '@kosmos_agent'], 'the mark was removed');
   assert.equal(calls.options['=zara: @kosmos_agent'], undefined, 'and is gone');
-  // The same name, still Claude, but another session (a new id): replaced, so not linked either.
+  // The same name, still Claude, but another session (a new id): replaced, so not linked, and that session's mark is
+  // left alone (Kosmos's own supervisor may have stamped it), so nothing is unset.
   const swapped = fakeTmux({ swapped: true });
-  assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /took the mark off again/);
-  assert.equal(swapped.options['=zara: @kosmos_agent'], undefined);
+  assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /changed while Kosmos was linking it, so nothing was linked/);
+  assert.equal(swapped.filter((c) => c[0] === 'set-option' && c[1] === '-u').length, 0, 'a swapped session was unmarked');
+  // A mark already there at the look (a supervisor started it since the board's look): refused, nothing set.
+  const claimed = fakeTmux({ claimedAtLook: 'zara' });
+  assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /already linked/);
+  assert.equal(claimed.filter((c) => c[0] === 'set-option').length, 0);
   // And when the mark cannot be taken off, it says so rather than claiming it did.
   fakeTmux({ nowRunning: 'zsh', unsetFails: true });
   assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /could not take the mark off/);
@@ -100,15 +106,22 @@ const realTmux = ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux', '/usr/bin/tmu
 test('#8719: on a real tmux, link() marks exactly the named session and never a prefix-named one', { skip: !realTmux && 'no tmux on this computer' }, () => {
   const cp = require('node:child_process');
   const sock = 'kosmos-link-8719-' + process.pid;
-  const t = (...args) => cp.spawnSync(realTmux, ['-L', sock, ...args], { encoding: 'utf8' });
+  // -f /dev/null: the person's own ~/.tmux.conf (hooks, destroy-unattached, a default-command) never reaches this server.
+  const t = (...args) => cp.spawnSync(realTmux, ['-L', sock, '-f', '/dev/null', ...args], { encoding: 'utf8' });
+  /* No Claude runs on a test box, so the look's program ("sleep") is read as Claude's version string; every other call
+     is real tmux with link()'s own arguments. Installed for the prefix phase too: a non-exact target would then really
+     resolve to zarah, find "Claude" there, and mark it, which this test must see. */
+  const asClaude = (bin, args) => {
+    const r = t(...args);
+    const out = args[0] === 'display-message' ? String(r.stdout || '').replace(/\tsleep/, '\t' + fleet.CLAUDE_COMMAND) : String(r.stdout || '');
+    return { ok: r.status === 0, code: r.status, stdout: out };
+  };
   try {
     t('new-session', '-d', '-s', 'zarah', 'sleep 60');
-    linkwindow.setRunner((bin, args) => { const r = t(...args); return { ok: r.status === 0, code: r.status, stdout: String(r.stdout || '') }; });
+    linkwindow.setRunner(asClaude);
     const onlyPrefix = linkwindow.link('zara', { panes: [{ name: 'zara', session: 'zara', claim: '', command: fleet.CLAUDE_COMMAND, pane: '0.0', title: '' }], platform: 'darwin' });
     assert.equal(onlyPrefix.outcome, 'refused', 'with only zarah running, nothing called zara was linked');
     assert.notEqual(t('show-options', '-v', '-t', '=zarah:', '@kosmos_agent').status, 0, 'zarah was not marked');
-    /* A real session called zara. No Claude runs on a test box, so the program the look reports ("sleep") is read as
-       Claude's version string by the runner; every other call is real tmux, with link()'s own arguments. */
     t('new-session', '-d', '-s', 'zara', 'sleep 60');
     // The pane reports its shell for a moment before `sleep` starts: wait (bounded) until it shows the program.
     let seen = '';
@@ -117,11 +130,6 @@ test('#8719: on a real tmux, link() marks exactly the named session and never a 
       if (!/\tsleep/.test(seen)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
     }
     assert.match(seen, /^\$\d+\tsleep/, 'premise: the look reads id and program');
-    linkwindow.setRunner((bin, args) => {
-      const r = t(...args);
-      const out = args[0] === 'display-message' ? String(r.stdout || '').replace(/\tsleep/, '\t' + fleet.CLAUDE_COMMAND) : String(r.stdout || '');
-      return { ok: r.status === 0, code: r.status, stdout: out };
-    });
     const linked = linkwindow.link('zara', { panes: [{ name: 'zara', session: 'zara', claim: '', command: fleet.CLAUDE_COMMAND, pane: '0.0', title: '' }], platform: 'darwin' });
     assert.deepEqual(linked, { outcome: 'linked', session: 'zara', name: 'zara' }, 'a real link through real tmux');
     assert.equal(t('show-options', '-v', '-t', '=zara:', '@kosmos_agent').stdout.trim(), 'zara', 'the mark is on zara');
@@ -165,4 +173,21 @@ test('#8719: it refuses every window that is not plainly that agent, and changes
   assert.equal(linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '' }), platform: 'win32' }).outcome, 'refused', 'Windows');
   assert.equal(linkwindow.link('  ', { panes: [], platform: 'darwin' }).outcome, 'refused', 'a blank name');
   assert.equal(calls.length, 0, 'a refusal never touched tmux');
+});
+
+test('#8719: the roster read fails closed (never "there is no window") when tmux could not be asked or answered nonsense', () => {
+  status.setPaneSource(() => null);
+  try { assert.throws(() => status.panesWithCommands(), /could not see what is running/); } finally { status.setPaneSource(null); }
+  status.setPaneSource(() => 'garbage with no tabs\nmore garbage\n');
+  try { assert.throws(() => status.panesWithCommands(), /could not make sense of what came back/); } finally { status.setPaneSource(null); }
+  assert.equal(panesOf({ session: 'zara', claim: '' }).length, 1, 'CONTROL: a readable answer is read');
+});
+
+test('#8719: every pane carrying the name is checked for a mark, not only the one the board ranks first', () => {
+  const panes = [
+    { name: 'zara', session: 'zara', claim: '', command: fleet.CLAUDE_COMMAND, pane: '0.0', title: '' },
+    { name: 'zara', session: 'zara-discord', claim: '', command: 'zsh', pane: '0.0', title: '' },
+  ];
+  assert.match(linkwindow.plan('zara', panes, 'darwin').because, /already linked/, 'a -discord sibling is Kosmos\'s by its suffix');
+  assert.equal(linkwindow.plan('zara', [panes[0]], 'darwin').ok, true, 'CONTROL: without the sibling it is linkable');
 });

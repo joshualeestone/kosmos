@@ -43,7 +43,7 @@ test.before(async () => {
     calls.push(args);
     if (args[0] === 'set-option') { marks[args[2]] = args[4]; return { ok: true, code: 0, stdout: '' }; }
     if (args[0] === 'show-options') { const v = marks[args[3]]; return v ? { ok: true, code: 0, stdout: v + '\n' } : { ok: false, code: 1, stdout: '' }; }
-    if (args[0] === 'display-message') return { ok: true, code: 0, stdout: '$0\t' + fleet.CLAUDE_COMMAND + '\n' };
+    if (args[0] === 'display-message') return { ok: true, code: 0, stdout: '$0\t' + fleet.CLAUDE_COMMAND + '\t' + (marks['=zara:'] || '') + '\n' };
     return { ok: false, code: 1, stdout: '' };
   });
   await start(0);
@@ -98,5 +98,17 @@ test('#8719 a cross-site request cannot link a window (the board-wide write guar
   lines = [{ session: 'zara', claim: '' }];
   const r = await link('zara', { confirm: true }, { origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' });
   assert.equal(r.status, 403, JSON.stringify(r.json));
+  assert.equal(calls.length, 0);
+});
+
+test('#8719 when tmux cannot be asked the route says so (500), never "there is no window"', async () => {
+  status.setPaneSource(() => null);
+  try {
+    const r = await link('zara', { confirm: true });
+    assert.equal(r.status, 500, JSON.stringify(r.json));
+    assert.match(r.json.because, /could not see what is running on this computer, so nothing was changed/);
+  } finally {
+    status.setPaneSource(() => lines.map((l) => fleet.line(l)).join('\n') + (lines.length ? '\n' : ''));
+  }
   assert.equal(calls.length, 0);
 });

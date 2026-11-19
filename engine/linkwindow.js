@@ -53,15 +53,16 @@ function plan(name, panes, platform) {
   if (mine.some((p) => paneSessionIsOurs(p.session, p.claim))) return refused(`${clean}'s window is already linked to Kosmos.`);
   /* What runs in it first: the board never counts an unmarked Codex (or Antigravity, Grok) window as an agent at all
      (status.isFleetSession), so asking isAgentSession first would tell that person "no agent is running", which is
-     false. One pane per session (status.onePanePerSession), so `mine[0]` is the window. */
-  const pane = mine[0];
+     false. status.onePanePerSession keeps one ranked pane per board NAME (so `zara` and `zara-discord` are one), and
+     the already-linked check above ran over every pane carrying the name before that choice mattered. */
+  const pane = status.onePanePerSession(mine)[0] || mine[0];
   if (!status.isClaudeCommand(pane.command)) {
     return refused(`The window called ${clean} is running ${pane.command || 'nothing we can name'}, not Claude. Only a Claude window can be linked for now.`);
   }
   /* And it must look like an agent to the board: a native version string always does, while an unmarked `node` could
      be any program and is refused here. */
   if (!status.isAgentSession(pane)) return refused(`Kosmos cannot tell that the window called ${clean} is running an agent, so it was not linked.`);
-  return { ok: true, session: pane.session, name: clean, command: pane.command };
+  return { ok: true, session: pane.session, pane: pane.pane, name: clean, command: pane.command };
 }
 
 /** Link the window called `name`. `panes` is the board's tmux look; read again here when not given. */
@@ -75,20 +76,31 @@ function link(name, opts) {
      `display-message -t =zara` do not resolve (an option or message target is a pane), while `=zara:` does, and never
      reaches `zarah`, nor marks anything when only `zarah` exists. */
   const target = `=${p.session}:`;
+  /* The look reads the very pane plan() checked (a split window's active pane may be a shell), plus the session's id
+     and its current mark. */
+  const paneTarget = /^\d+\.\d+$/.test(String(p.pane || '')) ? `${target}${p.pane}` : target;
   const look = () => {
-    const r = run(['display-message', '-p', '-t', target, '#{session_id}\t#{pane_current_command}']);
-    return r && r.ok !== false ? String(r.stdout || '').trim() : '';
+    const r = run(['display-message', '-p', '-t', paneTarget, '#{session_id}\t#{pane_current_command}\t#{@kosmos_agent}']);
+    const [lid = '', lcmd = '', lclaim = ''] = (r && r.ok !== false ? String(r.stdout || '').replace(/\n$/, '') : '').split('\t');
+    return { id: lid, cmd: lcmd, claim: lclaim.trim() };
   };
-  /* The session's id and its program, just before the mark and again just after it: the same pair, or the window was
-     replaced (even by another Claude session of the same name) and nothing is linked. */
+  /* The session's id and program just before the mark and again just after: the same pair, or the window was
+     replaced (even by another Claude session of the same name) and nothing is linked. A mark already there (Kosmos's own
+     supervisor started this session since the board's look) refuses before anything is set. */
   const before = look();
-  const [id, cmd] = before.split('\t');
-  if (!id || !status.isClaudeCommand(cmd)) return refused(`Kosmos could not confirm what runs in the window called ${p.name}, so nothing was linked.`);
+  if (before.claim) return refused(`${p.name}'s window is already linked to Kosmos.`);
+  if (!before.id || !status.isClaudeCommand(before.cmd)) return refused(`Kosmos could not confirm what runs in the window called ${p.name}, so nothing was linked.`);
   const set = run(['set-option', '-t', target, '@kosmos_agent', p.session]);
   if (!set || set.ok === false) return refused(`Kosmos could not mark the window called ${p.name}. Nothing was changed.`);
   const read = run(['show-options', '-v', '-t', target, '@kosmos_agent']);
   const now = read && read.ok !== false ? String(read.stdout || '').trim() : '';
-  if (now !== p.session || look() !== before) {
+  const after = look();
+  /* Another session now holds the name: the mark on it cannot be told apart from one Kosmos's own supervisor stamped
+     there, so it is left alone and nothing is claimed linked. */
+  if (after.id !== before.id) {
+    return refused(`The window called ${p.name} changed while Kosmos was linking it, so nothing was linked. Look again before trying.`);
+  }
+  if (now !== p.session || after.cmd !== before.cmd) {
     const off = run(['set-option', '-u', '-t', target, '@kosmos_agent']);
     if (!off || off.ok === false) {
       return refused(`Kosmos could not confirm the window called ${p.name} after marking it, and could not take the mark off. Restart that window, or ask for help, before messaging it.`);

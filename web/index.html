@@ -14820,7 +14820,7 @@ window.kosmosMeasureScrollbarWidth();
     <h2 class="rm-title" id="link-m-title">Link this window to Kosmos?</h2>
     <p class="rm-small" id="link-m-small">Only if you started this agent yourself in that window. Kosmos will then
       treat the window as one of its own agents: it types your messages into it, shows its conversation here, and
-      looks after it as it does any agent it started, which includes restarting it, and closing the window if the
+      looks after it as it does any agent it started, which can include restarting it, and closing the window if the
       agent in it has stopped. Nothing changes in the window now.</p>
     <div class="rm-acts">
       <button class="btn" id="link-m-keep" type="button">Not now</button>
@@ -50248,11 +50248,17 @@ document.getElementById('link-m-go').addEventListener('click', async () => {
       return;
     }
     if (typeof tick === 'function') await tick();
-    if (typeof openDetail === 'function') openDetail(name);
-    /* The link control hides once the agent is tied, so the result is said where it stays and is about: the
-       composer's own message line (an assertive live region), written after the page has reopened. */
-    const said = document.getElementById('d-say-msg');
-    if (said) said.textContent = name + ' is linked. Kosmos can message it now.';
+    /* Only if the person is still on this agent's page: never pull them back from one they have moved to. */
+    if (typeof CURRENT !== 'undefined' && CURRENT && CURRENT.sessionName === name) {
+      if (typeof openDetail === 'function') openDetail(name);
+      /* The link control hides once the agent is tied, so the result is said where it stays and is about: the
+         composer's own message line (an assertive live region), written after the page has reopened. Focus follows
+         it, since the button it was on is gone. */
+      const said = document.getElementById('d-say-msg');
+      if (said) said.textContent = name + ' is linked. Kosmos can message it now.';
+      const box = document.getElementById('d-say');
+      if (box && !box.disabled && typeof box.focus === 'function') box.focus();
+    }
   } catch { msg.textContent = 'We could not reach Kosmos to link it.'; }
 });
 

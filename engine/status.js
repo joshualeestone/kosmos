@@ -8155,15 +8155,16 @@ function paneRoster() {
   // stricter about a PARTIAL answer: see the note below.
   return paneRosterFrom(paneSource ? paneSource() : tmuxPanes());
 }
-/* kosmos#8719: the same look as paneRoster (the test seam honoured, throwing when tmux could not be asked), one pane per
-   session, with every field readPanes keeps (command, claim, runner): linkwindow.js decides on the command and claim. */
+/* kosmos#8719: the same look as paneRoster (the test seam honoured, throwing when tmux could not be asked), EVERY pane
+   with every field readPanes keeps (command, claim, runner): linkwindow.js checks each pane carrying a name for a mark,
+   then picks one with onePanePerSession. */
 function panesWithCommands() {
   const out = paneSource ? paneSource() : tmuxPanes();
   if (out === null || out === undefined) throw new Error('we could not see what is running on this computer');
   const { panes, rejected } = readPanes(out);
   // Fails closed on an answer nobody can read, as paneRosterFrom does: never "there is no window".
   if (rejected > 0 && panes.length === 0) throw new Error('we could not make sense of what came back');
-  return onePanePerSession(panes);
+  return panes;
 }
 /* #6173: the same roster from a tmux look that does not block the board's thread (an account move's restarts). */
 async function paneRosterAsync() {

@@ -80,6 +80,7 @@ const STEP_UP_ROUTES = [
   '/api/github-device/start', '/api/vercel/start',
   '/api/register/hide',   // #6714: closing a restart notice silences a warning
   '/api/agents', '/api/team', '/api/connect-agent', '/api/worlds', '/api/worlds/import', '/api/agent/scout/restore',
+  '/api/agent/scout/link',   // kosmos#8719: a typing channel into a window kept outside Kosmos
   '/api/register', '/api/remote/second-reset', '/api/project/p1/webhooks', '/api/org/enroll',
   '/api/federation/join', '/api/federation/invite', '/api/federation/own-code', '/api/federation/own-allow', '/api/federation/own-confirm',
   '/api/remote/signin-start', '/api/remote/signin-register', '/api/remote/setup-start', '/api/remote/setup-complete',
@@ -239,6 +240,7 @@ const REGEX_ROUTES = {
   '/^\\/api\\/svc\\/([a-z0-9-]+)(?:\\/(token|forget))?$/': { gated: '/api/svc/brave-search/token' },
   '/^\\/api\\/runners\\/([a-z]+)\\/install$/': { gated: '/api/runners/openai/install' },
   '/^\\/api\\/agent\\/([^/]+)\\/restore$/': { gated: '/api/agent/scout/restore' },
+  '/^\\/api\\/agent\\/([^/]+)\\/link$/': { gated: '/api/agent/scout/link' },   // kosmos#8719
   /* kosmos#8039: answers Claude Code's imports question with No only, then restarts the agent. It only takes files away
      from what the agent reads; no credential, software or Yes enters, and the agent's page is the place to answer it. */
   '/^\\/api\\/agent\\/([^/]+)\\/decline-imports$/': { exempt: 'writes only the No (files are left out of what the agent reads) and restarts it; nothing is let in' },
@@ -251,6 +253,7 @@ const REGEX_ROUTES = {
   '/^\\/api\\/svc\\/[a-z0-9-]+\\/token$/': { gate: true },
   '/^\\/api\\/runners\\/[a-z]+\\/install$/': { gate: true },
   '/^\\/api\\/agent\\/[^/]+\\/restore$/': { gate: true },
+  '/^\\/api\\/agent\\/[^/]+\\/link$/': { gate: true },
   '/^\\/api\\/project\\/[^/]+\\/webhooks$/': { gate: true },
 };
 test('R01: every regex route naming a token, install, sign-in, import, restore or skill is decided, and gated ones match', () => {

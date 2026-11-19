@@ -5630,6 +5630,9 @@ const REMOTE_STEP_UP_EXACT = new Set([
    and a project webhook (making one mints a secret address an outside party can post tasks to, for as long as it lives). */
 const REMOTE_STEP_UP_PATTERNS = [
   /^\/api\/svc\/[a-z0-9-]+\/token$/, /^\/api\/runners\/[a-z]+\/install$/, /^\/api\/agent\/[^/]+\/restore$/,
+  /* kosmos#8719: linking a window gives Kosmos a typing channel into a Claude window kept outside it, the same class as
+     bringing an agent under Kosmos (POST /api/connect-agent), so a stale remote session may not do it. */
+  /^\/api\/agent\/[^/]+\/link$/,
   /^\/api\/project\/[^/]+\/webhooks$/,
 ];
 function needsRemoteStepUp(pathname, method) {
