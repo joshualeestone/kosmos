@@ -1,7 +1,8 @@
 #!/bin/bash
 # kosmos#8761: a kosmos-ci runner that takes no job while ANOTHER user's machine claim is live (Mortals: a release cut
-# holds the box). One tick: run it every minute from its own LaunchAgent (how, below under "Installing it"). Why not wait inside the job: tools/run-tests.sh does wait on the claim, but inside a job whose suite times out
-# at 45 minutes, so during a two-hour cut the runner would take queued jobs and time each one out red. Why not refuse in
+# holds the box). One tick: run it every minute from its own LaunchAgent (how, below under "Installing it").
+# Why not wait inside the job: tools/run-tests.sh does wait on the claim, but inside a job whose suite times out at 45
+# minutes, so during a two-hour cut the runner would take queued jobs and time each one out red. Why not refuse in
 # the job-started hook: a hook that exits non-zero fails the job red too. So the runner is stopped between jobs.
 #
 # Each tick:
@@ -32,7 +33,8 @@
 # refuse loudly. Neither can make it stop a different job.
 #
 # Installing it (kosmos#8761: the Mortals install is PigeonPete's half, after this lands): as the runner user, a copy
-# pinned like ci-runner-setup.sh (same <commit>, shasum checked), and a LaunchAgent ~/Library/LaunchAgents/
+# fetched and checked exactly as ci-runner-setup.sh's header "HOW kosmos-ci GETS THIS SCRIPT" says (curl the file at a
+# main <commit>, compare its shasum -a 256 with the owner's `git show <commit>:<path>`), and a LaunchAgent ~/Library/LaunchAgents/
 # com.kosmos.ci-claim-pause.plist with ProgramArguments [/bin/bash, <that copy>], StartInterval 60, RunAtLoad true,
 # EnvironmentVariables KOSMOS_CI_CLAIM_FILE=<the claim>, StandardOutPath ~/.kosmos-ci/claim-pause.log; then
 # `launchctl bootstrap gui/$(id -u) <plist>`. A ci-runner-setup.sh stage that writes it is not part of this change.
@@ -101,9 +103,21 @@ if live="$(claim_live)"; then
   why="a live claim ($(printf '%s' "$live" | cut -d' ' -f3-), until $(date -r "$hexp" '+%H:%M' 2>/dev/null || echo "$hexp"))"
   [ "$prc" = 0 ] || { say "$why, but $label is not loaded in $dom: nothing to pause"; exit 0; }
   [ -n "$rpid" ] || { say "$why; $label is already stopped"; exit 0; }
-  # Stopped by an earlier tick and running again under the same claim: launchd restarted it (a loaded KeepAlive true,
-  # not the {SuccessfulExit: false} the keepalive stage writes) or someone started it. Stopping again would loop.
-  [ ! -f "$MARK" ] || { say "$why, but $label runs again after this pause stopped it (KeepAlive true, or started by hand): not stopping it again"; exit 1; }
+  # A loaded KeepAlive true restarts even a clean exit, so a SIGTERM would only cut the Listener's GitHub session and
+  # bring a new one up. Read as ci-runner-setup.sh's loaded_always does (measured there on macOS 27): a "keepalive"
+  # property and no "successful exit => 0" semaphore.
+  if printf '%s\n' "$printed" | sed -n 's/^[[:space:]]properties = //p' | tr '|' '\n' | grep -x -E '[[:space:]]*keepalive[[:space:]]*' >/dev/null \
+     && ! printf '%s\n' "$printed" | grep -x -E '[[:space:]]*successful exit => 0' >/dev/null; then
+    say "$why, but $label is loaded with KeepAlive true, which restarts a stopped runner: not stopping (run ci-runner-setup.sh keepalive)"; exit 1
+  fi
+  # Stopped by an earlier tick and running again under the same claim. Within 90 s of that stop it may simply still
+  # be ending (a Listener can take a while to close its session): wait. Later, launchd restarted it or someone started
+  # it, or a tick wrote the marker and died before the stop: stopping again could loop, so refuse, loudly.
+  if [ -f "$MARK" ]; then
+    age=$(( $(date +%s) - $(stat -f %m "$MARK" 2>/dev/null || echo 0) ))
+    [ "$age" -ge 90 ] || { say "$why; $label was told to stop ${age}s ago and is still ending"; exit 0; }
+    say "$why, but $label runs again ${age}s after this pause stopped it (started by hand or by launchd, or the stop never happened): not stopping it again; remove $MARK to let the pause act"; exit 1
+  fi
   wrc=0; "$PGREP" -u "$uid" -x Runner.Worker >/dev/null 2>&1 || wrc=$?
   [ "$wrc" -lt 2 ] || { say "$why, but pgrep failed (exit $wrc), so a job cannot be ruled out: not stopping"; exit 1; }
   [ "$wrc" = 1 ] || { say "$why; a job is running, so the runner is left to finish it"; exit 0; }
@@ -113,21 +127,20 @@ if live="$(claim_live)"; then
   exit 0
 fi
 
-# A claim this user cannot read reads as none (fail open, as cut-guard), but says so: a permissions change on the
-# holder's home would otherwise disarm the pause with a log saying all is well.
+# A claim this user cannot read: change nothing and say so, every tick (exit 1). Not "no claim": that would restart a
+# runner this pause stopped while the cut may still hold the box, and would log all is well. The claim's folder must
+# exist (on Mortals the marker dir is there between cuts, mode 755, measured on kosmos#8761); a folder that cannot be
+# entered, a claim that is not a file, or one that cannot be read counts here.
 cdir="$(dirname "$CLAIM")"
 if [ ! -d "$cdir" ] || [ ! -x "$cdir" ] || { [ -e "$CLAIM" ] && { [ ! -f "$CLAIM" ] || [ ! -r "$CLAIM" ]; }; }; then
-  unread="cannot read $CLAIM (missing or closed folder, not a file, or no read permission), so it counts as no claim; "
-else
-  unread=""
+  say "cannot read $CLAIM (missing or closed folder, not a file, or no read permission): nothing changed, the runner stays $([ -f "$MARK" ] && echo paused || echo as it is)"
+  exit 1
 fi
 if [ -f "$MARK" ]; then
-  "$LAUNCHCTL" kickstart "$dom/$label" >/dev/null 2>&1 || { say "${unread}no live claim, but launchctl kickstart $dom/$label failed (if it is not loaded: launchctl bootstrap $dom $plist); the marker stays, so the next tick tries again"; exit 1; }
+  "$LAUNCHCTL" kickstart "$dom/$label" >/dev/null 2>&1 || { say "no live claim, but launchctl kickstart $dom/$label failed (if it is not loaded: launchctl bootstrap $dom $plist); the marker stays, so the next tick tries again"; exit 1; }
   rm -f "$MARK"
-  say "${unread}no live claim; $label was started again (this pause had stopped it)"
-  [ -z "$unread" ] || exit 1
+  say "no live claim; $label was started again (this pause had stopped it)"
   exit 0
 fi
-say "${unread}no live claim; nothing to do"
-[ -z "$unread" ] || exit 1
+say "no live claim; nothing to do"
 exit 0

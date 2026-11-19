@@ -26,7 +26,10 @@ cat > "$T/bin/launchctl" <<EOF
 #!/bin/bash
 echo "\$*" >> "$T/calls"
 case "\$1" in
-  print) case "\$2" in system/*) [ -f "$T/insystem" ] && exit 0; exit 113 ;; esac; [ -f "$T/notloaded" ] && exit 113; echo "$LABEL = {"; [ -f "$T/running" ] && printf '\tpid = 4242\n'; echo "}" ;;
+  print) case "\$2" in system/*) [ -f "$T/insystem" ] && exit 0; exit 113 ;; esac; [ -f "$T/notloaded" ] && exit 113; echo "$LABEL = {"; [ -f "$T/running" ] && printf '\tpid = 4242\n'
+    [ -f "$T/kaalways" ] && printf '\tproperties = keepalive | runatload | inferred program\n'
+    [ -f "$T/kasuccess" ] && printf '\tproperties = runatload | inferred program\n\tsemaphores = {\n\t\tsuccessful exit => 0\n\t}\n'
+    echo "}" ;;
   kill) [ -f "$T/killfails" ] && exit 1; rm -f "$T/running" ;;
   kickstart) [ -f "$T/kickfails" ] && exit 1; : > "$T/running" ;;
 esac
@@ -55,7 +58,7 @@ tick() {
 rc() { cat "$T/rc"; }
 called() { grep -q -- "$1" "$T/calls"; }
 : > "$T/pgrepcalls"
-reset() { chmod 755 "$T/claims" 2>/dev/null; rm -rf "$CLAIM"; rm -f "$T/insystem" "$T/daemons/$LABEL.plist" "$T/running" "$T/busy" "$T/notloaded" "$T/killfails" "$T/kickfails" "$T/pgrepbroken" "$T/state/paused-by-claim" "$CLAIM"; : > "$T/running"; }
+reset() { chmod 755 "$T/claims" 2>/dev/null; rm -rf "$CLAIM"; rm -f "$T/insystem" "$T/kaalways" "$T/kasuccess" "$T/daemons/$LABEL.plist" "$T/running" "$T/busy" "$T/notloaded" "$T/killfails" "$T/kickfails" "$T/pgrepbroken" "$T/state/paused-by-claim" "$CLAIM"; : > "$T/running"; }
 
 # Precondition: kill -0 really cannot see pid 1 as this user, so the control below means something.
 if kill -0 1 2>/dev/null; then echo "skip test-ci-runner-claim-pause-8761: kill -0 1 succeeds here (running as root?)"; exit 0; fi
@@ -80,7 +83,7 @@ if [ "$(rc)" = 0 ] && ! called kickstart; then pass "stopped by hand, no claim: 
 
 # 5. A job running under a live claim: left to finish (no kill), then stopped once idle.
 reset; : > "$T/busy"; echo "c1 1 $((NOW + 3600)) mortals cut" > "$CLAIM"; tick
-if [ "$(rc)" = 0 ] && ! called kill && [ -f "$T/running" ]; then pass "job running: not stopped"; else fail "busy: $(tr '\n' ';' < "$T/calls")"; fi
+if [ "$(rc)" = 0 ] && ! called kill && [ -f "$T/running" ] && [ ! -f "$T/state/paused-by-claim" ]; then pass "job running: not stopped, no marker written"; else fail "busy: $(tr '\n' ';' < "$T/calls")"; fi
 rm -f "$T/busy"; tick; called "kill SIGTERM" && pass "job finished: stopped on the next tick" || fail "after the job: $(tr '\n' ';' < "$T/calls")"
 
 # 6. Claims that must read as NO claim (fail open): each leaves a running runner running.
@@ -97,8 +100,16 @@ done
 # 7. Refusals that must not stop the runner.
 reset; : > "$T/pgrepbroken"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 1 ] && ! called kill && pass "pgrep failed: not stopped, exit 1" || fail "pgrep broken: rc $(rc) $(tr '\n' ';' < "$T/calls")"
+reset; : > "$T/state/paused-by-claim"; touch -t 202001010000 "$T/state/paused-by-claim"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
+[ "$(rc)" = 1 ] && ! called kill && pass "running again long after this pause stopped it: not stopped again, exit 1" || fail "restart loop: rc $(rc) $(tr '\n' ';' < "$T/calls")"
 reset; : > "$T/state/paused-by-claim"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
-[ "$(rc)" = 1 ] && ! called kill && pass "running again after this pause stopped it: not stopped again, exit 1" || fail "restart loop: rc $(rc) $(tr '\n' ';' < "$T/calls")"
+[ "$(rc)" = 0 ] && ! called kill && grep -q "still ending" "$T/out" && pass "still running seconds after the stop: waits, exit 0" || fail "fresh marker: rc $(rc) $(cat "$T/out")"
+reset; : > "$T/kaalways"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
+[ "$(rc)" = 1 ] && ! called kill && [ ! -f "$T/state/paused-by-claim" ] && pass "KeepAlive true loaded: not stopped, no marker, exit 1" || fail "keepalive true: rc $(rc) $(cat "$T/out")"
+reset; : > "$T/kasuccess"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
+[ "$(rc)" = 0 ] && called "kill SIGTERM" && pass "CONTROL: KeepAlive {SuccessfulExit: false} loaded: stopped" || fail "keepalive success: rc $(rc) $(cat "$T/out")"
+reset; rm -f "$T/running"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
+[ "$(rc)" = 0 ] && ! called kill && [ ! -f "$T/state/paused-by-claim" ] && pass "live claim, stopped by hand, no marker: left alone, no marker written" || fail "hand-stopped under claim: rc $(rc)"
 reset; : > "$T/killfails"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 1 ] && [ ! -f "$T/state/paused-by-claim" ] && pass "SIGTERM failed: exit 1, no marker left" || fail "kill fails: rc $(rc)"
 reset; rm -f "$CLAIM"; : > "$T/state/paused-by-claim"; rm -f "$T/running"; : > "$T/kickfails"; tick
@@ -111,6 +122,8 @@ reset; mkdir "$CLAIM"; tick
 [ "$(rc)" = 1 ] && ! called kill && grep -q "cannot read" "$T/out" && pass "claim path is a folder: not paused, said, exit 1" || fail "claim dir: rc $(rc) $(cat "$T/out")"
 reset; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; chmod 000 "$T/claims"; tick; chmod 755 "$T/claims"
 [ "$(rc)" = 1 ] && ! called kill && grep -q "cannot read" "$T/out" && pass "claim's folder closed: not paused, said, exit 1" || fail "closed dir: rc $(rc) $(cat "$T/out")"
+reset; rm -f "$T/running"; : > "$T/state/paused-by-claim"; chmod 000 "$T/claims"; tick; chmod 755 "$T/claims"
+[ "$(rc)" = 1 ] && ! called kickstart && [ -f "$T/state/paused-by-claim" ] && pass "unreadable while paused: NOT started again (the cut may still hold the box), marker kept" || fail "unreadable paused: rc $(rc) $(tr '\n' ';' < "$T/calls")"
 reset; tick; [ "$(rc)" = 0 ] && ! grep -q "cannot read" "$T/out" && pass "CONTROL: no claim file in a readable folder is a plain no claim, exit 0" || fail "control: rc $(rc) $(cat "$T/out")"
 
 # 8. Not set up.
