@@ -31,6 +31,12 @@ Agents read `kosmos room <project>` before they post, so that is where the pause
 - Two backwards test messages reworded. Not done: telling a person who runs `kosmos room` that their own posts are
   never quiet (the view does not know who reads; the line is for agents).
 
+## Review 2 changes
+- At the cap with no pause yet: the next agent post is paused ITSELF and starts the pause, so the line says "an agent
+  post made before about T is paused itself and starts a pause of an hour", T being when the count drops below the cap
+  (the (length - cap + 1)th newest wake ages out). "After that" read as "after my own next post".
+- "Your person's post here ends the pause": a person on another computer of a shared room does not end it.
+
 ## Tests
 - `engine/roomloop-8769.test.js`: nothing said below the cap (CONTROL); at the cap said before any post, and the read
   starts no pause; during a pause the allowance left is counted down and "used up" is said; an expired pause is not
@@ -39,7 +45,9 @@ Agents read `kosmos room <project>` before they post, so that is where the pause
   project, and not after clear.
 - Review 1: the caller's clock is used (and a throwing one falls back); "paused" during a pause; no @all claim; the
   served time is HH:MM in the view's form.
-- Mutations, each red: the view's clock not passed; the @all wording back;
+- Review 2: the at-cap moment is when the count drops below the cap (at and above it); "After that" is gone; "Your
+  person's".
+- Mutations, each red: the at-cap moment from the oldest wake only; "A person's"; the view's clock not passed; the @all wording back;
   the line left out of the view; the read latching through paused(); no at-cap case; the
   allowance not counted down.
 - Swept and green: engine.reachable, roomloop-7246, server.room-held-5800, messages.roomhold-4624, roomhold-told-4926,

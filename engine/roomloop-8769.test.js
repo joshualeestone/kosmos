@@ -26,10 +26,21 @@ test('nothing is said while a broad post would wake as usual (CONTROL), nor belo
 test('a count at the cap is said before any post starts the pause, and the read does not start it', () => {
   const now = 1_000_000_000_000;
   for (const d of [30, 20, 10]) roomloop.noteWake('p', now - d);
-  const note = roomloop.readerNote('p', now);
-  assert.match(note, /^\[kosmos\] Agents waking each other is at its limit in this room: the next agent post pauses it, until about /);
-  assert.match(note, /a post that asks more than one member will wake no one/);
-  assert.match(note, /exactly one member may still get through: 10 more in this pause/);
+  const seen = [];
+  const note = roomloop.readerNote('p', now, (ms) => { seen.push(ms); return 'T' + seen.length; });
+  assert.match(note, /^\[kosmos\] Agents waking each other is at its limit in this room /);
+  // Review 2: the next post is paused ITSELF (it is the one that starts the pause), and only until the count drops: the
+  // oldest of the three wakes (now - 30) ages out at now - 30 + an hour.
+  assert.deepEqual(seen, [now - 30 + HOUR], 'not the moment the count drops below the cap');
+  assert.match(note, /An agent post made before about T1 is paused itself and starts a pause of an hour/);
+  assert.match(note, /a post that asks more than one member wakes no one/);
+  assert.match(note, /exactly one member may still get through \(10 in the pause, at most 3/);
+  assert.doesNotMatch(note, /After that/, 'reads as "after my own next post"');
+  // Above the cap, the moment is when enough have aged out to leave the count below it.
+  roomloop.noteWake('p', now - 1);
+  const seen2 = [];
+  roomloop.readerNote('p', now, (ms) => { seen2.push(ms); return 'x'; });
+  assert.deepEqual(seen2, [now - 20 + HOUR], 'four wakes over a cap of three drop below it when the second oldest ages out');
   assert.equal(roomloop.freesAt('p', now + 5), now + 5, 'the read started the pause (freesAt moved off "no pause")');
   // The next agent post starts it, at its own time, not the read's.
   assert.equal(roomloop.paused('p', now + 60_000), true);
@@ -80,4 +91,5 @@ test('review 1: during a pause it says "paused", and the time is written by the 
   assert.doesNotMatch(note, /@all/, '@all can get through in a room of two');
   // A clock that throws or answers nothing falls back to the board's own time, never an empty time.
   assert.match(roomloop.readerNote('p', now + 1, () => { throw new Error('x'); }), /until about \S/);
+  assert.match(note, /Your person's post here ends the pause\.$/);
 });
