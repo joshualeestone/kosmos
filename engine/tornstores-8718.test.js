@@ -19,7 +19,7 @@ test.after(() => fs.rmSync(SB, { recursive: true, force: true }));
 const store = require('./store');
 const torn = require('./tornstores');
 
-const OLD = Date.now() - 60 * 1000;   // a crash's file: older than the restart
+const OLD = Date.now() - 60 * 60 * 1000;   // a crash's file: well older than the restart, however long the suite runs
 function put(root, rel, bytes, mtime = OLD) {
   const f = path.join(root, ...rel.split('/'));
   fs.mkdirSync(path.dirname(f), { recursive: true });
@@ -113,6 +113,20 @@ test('the record goes once nothing is torn, so a stale one never outlives the fi
   assert.deepEqual(out.found, []);
   assert.equal(lines.length, 0);
   assert.equal(fs.existsSync(rec), false);
+});
+
+test('a symlinked report folder is never written through or removed through', { skip: process.platform === 'win32' && 'symlinks need elevation on Windows' }, () => {
+  const root = freshRoot('reportlink');
+  const elsewhere = freshRoot('reportlink-elsewhere');
+  fs.symlinkSync(elsewhere, path.join(root, torn.REPORT_DIR));
+  put(root, 'a.json', '');
+  const out = torn.check(root, { log: () => {} });
+  assert.equal(out.found.length, 1, 'control: the torn store is still found and logged');
+  assert.deepEqual(fs.readdirSync(elsewhere), [], 'nothing written through the link');
+  const kept = put(elsewhere, torn.LAST_FILE, '{"theirs":true}');
+  fs.writeFileSync(path.join(root, 'a.json'), '{}');
+  torn.check(root, { log: () => {} });
+  assert.equal(fs.readFileSync(kept, 'utf8'), '{"theirs":true}', 'nothing removed through the link');
 });
 
 test('a missing data folder does not throw', () => {

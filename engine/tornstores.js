@@ -134,16 +134,22 @@ function check(root, opts = {}) {
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   const log = typeof opts.log === 'function' ? opts.log : (line) => console.error(line);
   let found;
-  try { found = scan(root, { now }); } catch { found = []; }
+  let scanned = true;
+  try { found = scan(root, { now }); } catch { found = []; scanned = false; }
   const result = { at: new Date(now).toISOString(), found };
   for (const item of found) { try { log(logLine(item)); } catch { /* a log that cannot write changes nothing */ } }
-  const last = path.join(root, REPORT_DIR, LAST_FILE);
+  const dir = path.join(root, REPORT_DIR);
+  const last = path.join(dir, LAST_FILE);
   try {
-    if (found.length) {
+    /* Its own folder is checked like any store: a link there would carry the write or the removal somewhere else. */
+    let dst = null;
+    try { dst = fs.lstatSync(dir); } catch { /* not there yet: made below */ }
+    if (dst && !dst.isDirectory()) { /* not a plain folder (a link): leave it and write nothing */ }
+    else if (found.length) {
       fs.mkdirSync(path.dirname(last), { recursive: true, mode: 0o700 });
       require('./securewrite').writeSecret(last, JSON.stringify(result, null, 2) + '\n', 0o600, { atomicOnly: true });
-    } else {
-      fs.rmSync(last, { force: true });
+    } else if (scanned) {
+      fs.rmSync(last, { force: true });   // a failed scan keeps the last record rather than claiming nothing is torn
     }
   } catch { /* the log lines already say it */ }
   LAST = result;

@@ -53,3 +53,8 @@ That the log line and record are enough until the board notice lands: a person d
 - WARNING the atomic-write half is not converted here: stated in Decided and in the PR body.
 - NIT wiring test now bounded by the end of onListening. NIT codeOnly claim: the ratchet header says "crude"; the round-1 comment sentence about hiding writes stays limited to comment rewording.
 - Rounds 2-4's move-related fixes (re-check before move, ENOENT, path containment) went with the move code.
+
+## Review round 6 (sonnet, code only)
+- WARNING windows-tests.js comment still said "moves": fixed to "reports".
+- WARNING the report folder was not lstat-checked: a non-folder (a link) there is left alone and nothing is written or removed through it (POSIX test; red when the guard is removed).
+- NITs taken: a failed scan keeps the last record; the tests' OLD time is an hour back. NIT SECRET_RE breadth left: wording only.
