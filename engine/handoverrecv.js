@@ -77,8 +77,9 @@ function keyDir(root) { return path.join(root || require('./store').ROOT, 'hando
 function keyFile(id, root) { return path.join(keyDir(root), `${id}.key.json`); }
 
 /* Kept beside the key: received / restoring (a Kosmos id), expect (the agent folders a restore produced, noted before
-   its finish), attempts (a count), missingSince / outageSince (ms, when the wait began), final (why it ended). */
-const META = ['received', 'restoring', 'expect', 'attempts', 'missingSince', 'outageSince', 'final'];
+   its finish), attempts (a count), missingSince / outageSince / waitSince (ms, when the wait began; waitSince is the
+   packing key's check waiting, kosmos#8733), final (why it ended). */
+const META = ['received', 'restoring', 'expect', 'attempts', 'missingSince', 'outageSince', 'waitSince', 'final'];
 /* { sk, pk, ...META } from disk, null when there is none, or { problem } when there is one that cannot be used. */
 function readKey(id, root) {
   let text;
@@ -297,11 +298,13 @@ async function receive(part, org, kp, deps) {
   // kosmos#8733: the packing key must be the LEAVING member's, by escrowd's signed history, never Kosmos+'s word. It
   // is checked at now until kosmos#8764 gives a signed pack time. Mostly stricter (a key revoked since the pack was made
   // refuses it), with one case looser: a key enrolled AFTER the pack would pass. That needs two admins to enrol it,
-  // and is listed on #8764. checkSender's wait (escrowd not reachable, a stale history, an enrolment not finished) is an
-  // outage: no attempt spent, ended after OUTAGE_LIMIT_MS; the rest is final.
+  // and is listed on #8764. checkSender's wait (escrowd not reachable, a stale history, an enrolment not finished)
+  // spends no attempt and has its own clock (waitSince), ended after OUTAGE_LIMIT_MS; the rest is final. A pass ends
+  // that wait, so a later outage of another kind starts its own day.
   const nowSec = Math.floor(((d.now || Date.now)()) / 1000);
   const tie = require('./handoverseal').checkSender({ org, member: part.sender_member, senderPub, history: part.sender_history, at: nowSec, now: nowSec });
-  if (!tie.ok) return tie.wait ? { ok: false, outage: true, because: tie.because } : fail(tie.because);
+  if (!tie.ok) return tie.wait ? { ok: false, tieWait: true, because: tie.because } : fail(tie.because);
+  if (kp && Number.isSafeInteger(kp.waitSince)) { try { updateKey(part.id, d.root, { waitSince: null }); } catch { /* cleared next pass */ } }
   const m = part.manifest || {};
   const prefix = `handover/${org}/${part.id}/`;
   if (typeof m.key !== 'string' || m.key !== `${prefix}manifest` || typeof m.sha256 !== 'string' || !Number.isSafeInteger(m.size) || m.size < 1) return fail('Kosmos+ has no record of this pack\'s manifest');
@@ -550,6 +553,15 @@ async function tick(state, deps) {
         const since = Number.isSafeInteger(kp.missingSince) ? kp.missingSince : now;
         if (!Number.isSafeInteger(kp.missingSince)) { try { updateKey(part.id, d.root, { missingSince: now }); } catch { /* counted from now again next tick */ } }
         if (now - since >= MISSING_GRACE_MS) { if ((z = await closing(part, false, 'the pack never finished arriving'))) return z; continue; }
+        state.retryAt.set(part.id, now + MISSING_RECHECK_MS);
+        last = { ok: false, id: part.id, because: r.because };
+        continue;
+      }
+      if (r.tieWait) {
+        // kosmos#8733: the packing key could not be checked yet. No attempt spent; bounded, and said in its own words.
+        const since = Number.isSafeInteger(kp.waitSince) ? kp.waitSince : now;
+        if (!Number.isSafeInteger(kp.waitSince)) { try { updateKey(part.id, d.root, { waitSince: now }); } catch { /* from now again */ } }
+        if (now - since >= OUTAGE_LIMIT_MS) { if ((z = await closing(part, false, `${r.because}, and that did not change for a day; your company can start the hand-over again`))) return z; continue; }
         state.retryAt.set(part.id, now + MISSING_RECHECK_MS);
         last = { ok: false, id: part.id, because: r.because };
         continue;

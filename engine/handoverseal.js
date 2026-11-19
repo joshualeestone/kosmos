@@ -18,11 +18,12 @@
  *
  * Both checks refuse with a sentence, never throw, and say whether the refusal may pass later ({ wait: true }) or never
  * will. Waiting (nothing is packed or opened meanwhile, and the caller bounds the wait): escrowd could not be asked (no
- * history), a history too old or dated ahead of this computer's clock, a signer escrowd does not list YET, or one listed
- * only as a backfill entry (both: an enrolment the company's admins have not finished). Final: a signature that does not
- * check, a history for another member or company or not signed by escrowd, a key escrowd lists but not as valid then
- * (revoked). escrowd's history key ships in engine/devkeyhist.js (VERIFYING_KEY), which is the only key trusted outside
- * a node test process.
+ * history), a history too old or dated ahead of this computer's clock, a signer escrowd does not list YET (an enrolment
+ * the company's admins have not finished), or one enrolled a moment after this computer's clock. Final: a signature
+ * that does not check, a history for another member or company or not signed by escrowd, a key escrowd lists as revoked,
+ * and a key listed only as a BACKFILL entry: escrowd enrols a key once, so a backfilled key never becomes an admin-
+ * enrolled one (kosmos#8768: how such a computer gets enrolled). escrowd's history key ships in
+ * engine/devkeyhist.js (VERIFYING_KEY), which is the only key trusted outside a node test process.
  */
 const crypto = require('crypto');
 const devkeyhist = require('./devkeyhist');
@@ -35,11 +36,13 @@ const PLAIN = /^[A-Za-z0-9_-]{1,64}$/;
 const STALE = /too old to trust|dated in the future/;
 const no = (because) => ({ ok: false, because });
 const later = (because) => ({ ok: false, wait: true, because });
-/* The key's entry valid at t, or why not: { e } | { absent: true } (escrowd does not list it at all) | { invalid: true }. */
+/* The key's entry valid at t, or why not: { e } | { absent: true } (escrowd does not list it at all, or lists it from a
+   moment after t: both may pass later) | { revoked: true } (listed, and its validity ended at or before t). */
 function entryAt(keys, hex, t) {
   const e = devkeyhist.keyAt(keys, hex, t);
   if (e) return { e };
-  return Array.isArray(keys) && keys.some((k) => k && k.key === hex) ? { invalid: true } : { absent: true };
+  const listed = Array.isArray(keys) ? keys.filter((k) => k && k.key === hex) : [];
+  return listed.some((k) => k.until !== null && t >= k.until) ? { revoked: true } : { absent: true };
 }
 
 function put(b) { const n = Buffer.alloc(4); n.writeUInt32BE(b.length); return Buffer.concat([n, b]); }
@@ -82,9 +85,10 @@ function checkSeal(o) {
     if (!pub || !crypto.verify(null, msg, pub, Buffer.from(x.sig, 'base64url'))) return no('the key for this hand-over was not signed by the colleague\'s own computer');
     const at = entryAt(h.keys, x.signer, x.now);
     if (at.absent) return later('the colleague\'s computer has not been enrolled by your company\'s admins yet');
-    if (at.invalid) return no('the key for this hand-over was signed by a computer that is no longer the colleague\'s');
-    // A backfilled entry is the coordinator's word at the switch-over: never enough to seal a member's work to.
-    if (at.e.backfill !== false) return later('the colleague\'s computer has not been enrolled by your company\'s admins yet');
+    if (at.revoked) return no('the key for this hand-over was signed by a computer that is no longer the colleague\'s');
+    // A backfilled entry is the coordinator's word at the switch-over: never enough to seal a member's work to, and
+    // never upgraded (escrowd enrols a key once), so final.
+    if (at.e.backfill !== false) return no('the colleague\'s computer was only carried over from before your company\'s admins enrolled computers, so it has to be enrolled again before it can take a hand-over');
     return { ok: true };
   } catch { return no('the key for this hand-over could not be checked'); }
 }
@@ -102,8 +106,8 @@ function checkSender(o) {
     if (!h.ok) return (STALE.test(h.because) ? later : no)(`the computer that packed these agents could not be checked: ${h.because}`);
     const at = entryAt(h.keys, hex, x.at);
     if (at.absent) return later('the computer that packed these agents has not been enrolled by your company\'s admins yet');
-    if (at.invalid) return no('the pack was not signed by the leaving member\'s own computer');
-    if (at.e.backfill !== false) return later('the computer that packed these agents has not been enrolled by your company\'s admins yet');
+    if (at.revoked) return no('the pack was not signed by the leaving member\'s own computer');
+    if (at.e.backfill !== false) return no('the computer that packed these agents was only carried over from before your company\'s admins enrolled computers, so it has to be enrolled again before it can hand agents over');
     return { ok: true };
   } catch { return no('the computer that packed these agents could not be checked'); }
 }

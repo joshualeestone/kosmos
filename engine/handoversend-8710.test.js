@@ -448,6 +448,7 @@ test('kosmos#8733: never packs to a key the successor\'s computer did not sign; 
       ['a history for another member', () => ({ seal_member: 'm-other' }), /could not be checked/],
       ['a history of another company', () => ({ seal_history: signedHistory('org2', 'm-succ', SUCC.publicKey, t) }), /could not be checked/],
       ['a history escrowd did not sign', (p) => ({ seal_history: Object.assign({}, p.seal_history, { signature: Buffer.alloc(64).toString('base64url') }) }), /could not be checked/],
+      ['a backfilled entry (escrowd never upgrades it)', () => ({ seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, t, { backfill: true }) }), /carried over from before/],
     ];
     for (const [why, patch, re] of cases) {
       const p = part();
@@ -461,7 +462,6 @@ test('kosmos#8733: never packs to a key the successor\'s computer did not sign; 
     const waits = [
       ['escrowd could not be asked', () => ({ seal_history: null }), /could not get its device keys/],
       ['another computer named as the signer, which escrowd does not list for the successor', (p) => ({ seal_sig: seal.signSeal(p.id, p.seal_pub, other.privateKey), seal_signer: seal.keyHex(other.publicKey) }), /not been enrolled by your company's admins yet/],
-      ['a backfilled entry (the coordinator\'s word at the switch-over)', () => ({ seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, t, { backfill: true }) }), /not been enrolled by your company's admins yet/],
       ['a history dated ahead of this computer\'s clock', () => ({ seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, t + 3600) }), /dated in the future/],
     ];
     for (const [why, patch, re] of waits) {
@@ -470,5 +470,35 @@ test('kosmos#8733: never packs to a key the successor\'s computer did not sign; 
       assert.deepEqual([r.ok, r.retryLater, r.final, r.input], [false, true, undefined, undefined], why);
       assert.match(r.because, re, why);
     }
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('kosmos#8733: a run of the tie\'s waits ends when the key checks out, and running out says why', async () => {
+  const w = world();
+  try {
+    let clock = 0;
+    const one = part({ id: 'htie' }, 0);
+    const waiting = Object.assign({}, one, { seal_history: null });
+    let rows = [waiting];
+    let answer = { ok: false, retryLater: true, because: 'network' };
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: rows } }), takeSnapshot: async () => answer });
+    const st = hs.newSendState();
+    // MAX_SOFT - 1 waits for escrowd: not final yet.
+    for (let i = 0; i < hs.MAX_SOFT - 1; i++) { await hs.tick(st, d); clock += hs.SOFT_RETRY_MS + 1; }
+    assert.equal(st.soft.get('htie'), hs.MAX_SOFT - 1);
+    assert.equal(hs.notice(st).stopped, undefined);
+    // The key now checks out; the pack then meets a network refusal. Its run starts from one, not from MAX_SOFT.
+    rows = [one];
+    await hs.tick(st, d);
+    assert.equal(st.soft.get('htie'), 1, 'the tie\'s waits do not count against the network run');
+    assert.equal(hs.notice(st).stopped, undefined);
+    // CONTROL: a network run alone still ends at MAX_SOFT (the reset is only after the tie's waits).
+    for (let i = 1; i < hs.MAX_SOFT; i++) { clock += hs.SOFT_RETRY_MS + 1; await hs.tick(st, d); }
+    assert.match(hs.notice(st).stopped || '', /kept asking this computer to wait/);
+    // Running out of tie waits says the cause, not "kept asking".
+    const st2 = hs.newSendState();
+    const d2 = Object.assign({}, d, { root: path.join(w.base, 'data2'), macRequest: async () => ({ ok: true, data: { handovers: [Object.assign({}, part({ id: 'htie2' }, 0), { seal_history: null })] } }) });
+    for (let i = 0; i < hs.MAX_SOFT; i++) { await hs.tick(st2, d2); clock += hs.SOFT_RETRY_MS + 1; }
+    assert.match(hs.notice(st2).stopped || '', /could not get its device keys.*did not change for six hours/);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

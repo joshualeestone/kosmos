@@ -205,6 +205,7 @@ test('refusals end the hand-over as failed, once, and leave no Kosmos: a foreign
     // kosmos#8733: the packing key checked against escrowd's signed history for the LEAVING member.
     ['a packing key escrowd lists for the leaving member but revoked', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-leave', c.sender.publicKey, null, [{ kind: 'revoke', key: seal.keyHex(c.sender.publicKey), at: 1 }]); }, /not signed by the leaving member's own computer/],
     ['a history for another member', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-other', c.sender.publicKey); }, /names a different member/],
+    ['a backfilled packing key (escrowd never upgrades it)', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-leave', c.sender.publicKey, { backfill: true }); }, /carried over from before/],
     ['manifest not the recorded one', (c) => { c.rec.manifest.sha256 = sha256b(Buffer.from('other')); }, /not the one Kosmos\+ recorded/],
     ['a chunk that is not what was signed', (c) => { const k = [...b.stored.keys()].find((x) => x.startsWith(c.prefix) && !x.endsWith('manifest')); const v = b.stored.get(k); v.body = Buffer.from(v.body); v.body[v.body.length - 1] ^= 1; }, /not what its sender signed/],
   ];
@@ -860,7 +861,6 @@ test('kosmos#8733: the key step signs with this computer\'s device key, or sends
   const waits = [
     ['escrowd could not be asked', () => null],
     ['a packing key escrowd does not list yet', () => signedHistory(ORG, 'm-leave', crypto.generateKeyPairSync('ed25519').publicKey)],
-    ['a backfilled entry for the packing key', (c) => signedHistory(ORG, 'm-leave', c.sender.publicKey, { backfill: true })],
   ];
   for (const [label, hist] of waits) {
     const root = fresh(t, 'data'), base = fresh(t, 'base');
@@ -877,16 +877,20 @@ test('kosmos#8733: the key step signs with this computer\'s device key, or sends
     assert.equal(c.calls.filter(([x]) => x === hr.DONE_ROUTE).length, 0, `${label}: no /done after ${hr.MAX_ATTEMPTS + 3} ticks`);
     assert.equal(worlds.readRegistry(base).worlds.some((x) => /^Handed over/.test(x.name) && !x.hiddenAt), false, `${label}: nothing restored`);
     assert.notEqual(hr.readKey(id, root), null, `${label}: the one-time key is kept`);
+    // Its own clock, not the store-outage one, so a pass ends it and a later outage starts its own day.
+    assert.ok(Number.isSafeInteger(hr.readKey(id, root).waitSince), `${label}: waitSince kept`);
+    assert.equal(Number.isSafeInteger(hr.readKey(id, root).outageSince), false, `${label}: the outage clock untouched`);
     if (label === 'escrowd could not be asked') {
       // CONTROL: the history back, the same hand-over is received.
       delete c.rec.sender_history;
       const ok = await hr.tick(st, deps);
       assert.equal(ok.ok, true, ok.because);
     } else {
-      // Bounded: past OUTAGE_LIMIT_MS from the first wait, ended once.
+      // Bounded: past OUTAGE_LIMIT_MS from the first wait, ended once, in the wait's own words.
       clock += 24 * 60 * 60 * 1000;
       await hr.tick(st, deps);
-      assert.equal(c.calls.filter(([x, body]) => x === hr.DONE_ROUTE && body.ok === false).length, 1, `${label}: ended after the outage window`);
+      const done = c.calls.filter(([x, body]) => x === hr.DONE_ROUTE && body.ok === false);
+      assert.equal(done.length, 1, `${label}: ended after the outage window`);
     }
   }
 });

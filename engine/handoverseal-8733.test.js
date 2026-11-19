@@ -48,7 +48,10 @@ test('every substitution is refused, and each says whether it may pass later (wa
     ['a history signed by someone other than escrowd', { history: history('m-succ', [{ kind: 'enrol', key: hex(other), at: NOW - 900, backfill: false }], { key: other.privateKey }), signer: hex(other), sig: seal.signSeal('ho1', sealPub, other.privateKey) }, /escrowd's signature on the device key history did not check/, FINAL],
     ['a key revoked before now', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: false }, { kind: 'revoke', key: hex(succ), at: NOW - 100 }]) }, /no longer the colleague's/, FINAL],
     ['no signature', { sig: undefined }, /did not sign/, FINAL],
-    ['a key the backfill entered (the coordinator\'s word)', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: true }]) }, /not been enrolled by your company's admins yet/, WAIT],
+    // escrowd enrols a key once, so a backfilled key never becomes an admin-enrolled one: final, said as such.
+    ['a key the backfill entered (the coordinator\'s word)', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: true }]) }, /carried over from before your company's admins enrolled computers/, FINAL],
+    // Enrolled a moment after this computer's clock (escrowd's clock is ahead, within the skew verify allows): waits.
+    ['a key enrolled a moment after this computer\'s clock', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW + 60, backfill: false }], { issuedAt: NOW + 120 }) }, /not been enrolled by your company's admins yet/, WAIT],
     ['no history (escrowd could not be asked)', { history: undefined }, /could not get its device keys/, WAIT],
     ['a null history', { history: null }, /could not get its device keys/, WAIT],
     ['a history too old to trust', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 200000, backfill: false }], { issuedAt: NOW - 100000 }) }, /too old/, WAIT],
@@ -97,7 +100,14 @@ test('the packing key must be the leaving member\'s at the grant time', () => {
   assert.match(r({ senderPub: other.publicKey }).because, /not been enrolled by your company's admins yet/);
   assert.equal(r({ senderPub: other.publicKey }).wait, true);
   const bf = history('m-leave', [{ kind: 'enrol', key: hex(leaver), at: NOW - 900, backfill: true }]);
-  assert.equal(r({ history: bf }).wait, true);
+  assert.equal(r({ history: bf }).wait, undefined, 'a backfilled packing key is final');
+  assert.match(r({ history: bf }).because, /carried over/);
+  // Stale or ahead of this computer's clock: waits (review 2: no test caught this being final).
+  const old = history('m-leave', [{ kind: 'enrol', key: hex(leaver), at: NOW - 200000, backfill: false }], { issuedAt: NOW - 100000 });
+  assert.equal(r({ history: old, at: NOW, now: NOW }).wait, true);
+  assert.match(r({ history: old, at: NOW, now: NOW }).because, /too old/);
+  const ahead = history('m-leave', [{ kind: 'enrol', key: hex(leaver), at: NOW - 900, backfill: false }], { issuedAt: NOW + 3600 });
+  assert.equal(r({ history: ahead }).wait, true);
   assert.equal(r({ history: null }).wait, true);
   assert.match(r({ history: null }).because, /could not get its device keys/);
 });
