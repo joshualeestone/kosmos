@@ -6,7 +6,7 @@ Follow-up to the 0.8.11 pool (#8740, merged c9b385c4cc), before the 0.8.11 stagi
 Josh asked on 11-19 (kosmos#8728) for refreshing a Claude login on a remote computer to work. Part 1 (capask-8728, merged d81b81430b) landed after #8740's base. Splinter (11:27 CST): put it in 0.8.11's What's New, and part 2 too if it merges before the pin; do not hold the cut for part 2.
 
 ## The entry
-- **A restarted computer says it is still starting** (rank 8.8, top of the window): "Right after a computer restarts, a remote sign-in says Kosmos+ is still starting and to try again in a minute, not to update Kosmos."
+- **A restarted computer says it is still starting** (rank 8.8, top of the window, icon shield): "Right after a computer restarts, an action you send it through Kosmos+ says it is still starting: try again in a minute, not update Kosmos."
 - From capask-8728's plan, What changes (b): `remoteStepUpRefusal` returns REMOTE_STEP_UP_STARTING ("Kosmos+ is still starting on this computer ... Try again in a minute") while the board still asks the connector by itself, instead of the update sentence. (a) is the board re-asking by itself after an unanswered ask, which is why "in a minute" holds.
 - Not platform-tagged: the change is in engine/remote.js and server.js, which every computer on Kosmos+ runs. The first wording said "Mac", and the build refused it untagged, correctly.
 
@@ -19,9 +19,10 @@ Josh asked on 11-19 (kosmos#8728) for refreshing a Claude login on a remote comp
 #8728 part 2 (remoteopener-8728) has no PR yet. If it merges before the 0.8.11 pin, it goes in the versions entry; a window line for it needs its own merged change to read.
 
 ## Weakest premise
-"a remote sign-in" names the case Josh hit; the same refusal covers every remote step-up action, so the line understates rather than overstates.
+"try again in a minute" is the sentence's own advice. The board re-asks by itself for 10 to 15 minutes (capask-8728 plan, (a)); the line promises nothing about when a retry succeeds.
 
 ## Would change my mind
-A reviewer showing the starting sentence is not what a remote sign-in shows after a restart, or that some computer does not run this path.
+A reviewer showing the starting sentence is not what an action sent through Kosmos+ shows after a restart, or that some computer does not run this path.
 
 ## Review log
+- Iteration 1 (opus): WARNING, "a remote sign-in" read as signing in to Kosmos+, which never shows this sentence; it is any protected action sent through Kosmos+. Fixed. NITs: icon now shield (two phones in a row); Review log filled; "and it works then" declined (the self re-ask runs up to 10 to 15 minutes, so not promised).

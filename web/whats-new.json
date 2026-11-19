@@ -2,9 +2,9 @@
   "version": "0.8.11",
   "highlights": [
     {
-      "icon": "phone",
+      "icon": "shield",
       "title": "A restarted computer says it is still starting",
-      "line": "Right after a computer restarts, a remote sign-in says Kosmos+ is still starting and to try again in a minute, not to update Kosmos."
+      "line": "Right after a computer restarts, an action you send it through Kosmos+ says it is still starting: try again in a minute, not update Kosmos."
     },
     {
       "icon": "phone",
