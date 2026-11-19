@@ -9,7 +9,9 @@
  * This sets that one mark on one named session, when a PERSON asks for it from the board and confirms. It never runs
  * on its own: the guard exists so that Kosmos does not type into a window it cannot tie to an agent, and linking is
  * the person saying "this window is that agent". So it refuses whenever the window is not plainly that agent:
- *   - no session is named exactly for the agent (the board's untied card can also come from a looser name match);
+ *   - no window carries the agent's name (the pane's `name`, which the board keys cards on: the session with a
+ *     `-discord` or this Kosmos's world suffix stripped). The mark is set on that pane's raw `session`, which is what
+ *     launchidentity.paneSessionIsOurs compares it with;
  *   - the session already carries the mark (nothing to do);
  *   - the program in it is not Claude (a shell after a crash, an editor, Codex);
  *   - no agent is running in it now (status.isAgentSession);
@@ -46,7 +48,7 @@ function plan(name, panes, platform) {
   const clean = String(name == null ? '' : name).trim();
   if (!clean) return refused('that is not a name we can read');
   if ((platform || process.platform) === 'win32') return refused('Linking a window is not available on Windows yet.');
-  const mine = (Array.isArray(panes) ? panes : []).filter((p) => p && p.session === clean);
+  const mine = (Array.isArray(panes) ? panes : []).filter((p) => p && p.name === clean && typeof p.session === 'string' && p.session);
   if (!mine.length) return refused(`There is no window called ${clean} to link.`);
   if (mine.some((p) => paneSessionIsOurs(p.session, p.claim))) return refused(`${clean}'s window is already linked to Kosmos.`);
   /* What runs in it first: the board never counts an unmarked Codex (or Antigravity, Grok) window as an agent at all
@@ -56,8 +58,10 @@ function plan(name, panes, platform) {
   if (!status.isClaudeCommand(pane.command)) {
     return refused(`The window called ${clean} is running ${pane.command || 'nothing we can name'}, not Claude. Only a Claude window can be linked for now.`);
   }
-  if (!status.isAgentSession(pane)) return refused(`No agent is running in the window called ${clean}, so there is nothing to link.`);
-  return { ok: true, session: clean };
+  /* isAgentSession only for a non-native command (`node`, plain `claude`): a native version string is Claude and
+     nothing else, while an unmarked `node` could be any program, so it must look like an agent to the board. */
+  if (!status.isAgentSession(pane)) return refused(`Kosmos cannot tell that the window called ${clean} is running an agent, so it was not linked.`);
+  return { ok: true, session: pane.session, name: clean, command: pane.command };
 }
 
 /** Link the window called `name`. `panes` is the board's roster read; read again here when not given. */
@@ -68,11 +72,18 @@ function link(name, opts) {
   if (!p.ok) return p;
   const target = `=${p.session}`;   // exact: never a prefix match onto another session
   const set = run(['set-option', '-t', target, '@kosmos_agent', p.session]);
-  if (!set || set.ok === false) return refused(`Kosmos could not mark the window called ${p.session}. Nothing was changed.`);
+  if (!set || set.ok === false) return refused(`Kosmos could not mark the window called ${p.name}. Nothing was changed.`);
   const read = run(['show-options', '-v', '-t', target, '@kosmos_agent']);
   const now = read && read.ok !== false ? String(read.stdout || '').trim() : '';
-  if (now !== p.session) return refused(`Kosmos marked the window called ${p.session} but could not read the mark back, so it is not treated as linked.`);
-  return { outcome: OUTCOME.LINKED, session: p.session };
+  /* And what runs in it is still what was checked: a session closed and another opened under the name between the
+     look and the mark must not keep the mark. If either check fails, the mark is taken off again. */
+  const cmd = run(['display-message', '-p', '-t', target, '#{pane_current_command}']);
+  const still = cmd && cmd.ok !== false ? String(cmd.stdout || '').trim() : '';
+  if (now !== p.session || still !== String(p.command || '')) {
+    run(['set-option', '-u', '-t', target, '@kosmos_agent']);
+    return refused(`Kosmos could not confirm the window called ${p.name} after marking it, so it took the mark off again and nothing was linked.`);
+  }
+  return { outcome: OUTCOME.LINKED, session: p.session, name: p.name };
 }
 
 module.exports = { OUTCOME, plan, link, setRunner };

@@ -8160,7 +8160,10 @@ function paneRoster() {
 function panesWithCommands() {
   const out = paneSource ? paneSource() : tmuxPanes();
   if (out === null || out === undefined) throw new Error('we could not see what is running on this computer');
-  return onePanePerSession(readPanes(out).panes);
+  const { panes, rejected } = readPanes(out);
+  // Fails closed on an answer nobody can read, as paneRosterFrom does: never "there is no window".
+  if (rejected > 0 && panes.length === 0) throw new Error('we could not make sense of what came back');
+  return onePanePerSession(panes);
 }
 /* #6173: the same roster from a tmux look that does not block the board's thread (an account move's restarts). */
 async function paneRosterAsync() {

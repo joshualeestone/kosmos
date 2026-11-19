@@ -33,7 +33,16 @@ nothing is changed. Proven by engine and route tests (each refusal with a contro
 - Linking any window under the name without checking what runs in it (a shell or editor under the name would then
   receive typed messages).
 
+- Review 1: windows are matched by the pane's `name` (what cards key on; a named Kosmos's sessions carry `+world`) and
+  the mark goes on the raw `session`. After marking, the mark AND the program are read again; on any mismatch the mark
+  is taken off and nothing is linked. panesWithCommands fails closed on an unreadable answer. The dialog says what
+  linking hands over: Kosmos looks after the window like its own, which includes restarting it and closing it if the
+  agent in it has stopped (bin/agent-supervisor.sh adopts a marked session, and kills one whose panes are at a shell).
+  The dialog joins the shared Tab trap and gives focus back; a stale message clears when the page shows another agent;
+  success is said in the composer's message line, which stays.
+
 ## Weakest premise
 That `@kosmos_agent` = session is all Kosmos needs to treat the window as its own for messages and the conversation
-view. Reasoned from launchidentity.paneSessionIsOurs and chat.addressable; to be checked end to end on a real
+view, and that a supervisor waiting in the not-ours loop (an agent that also has a Kosmos launch job) adopts the marked
+session rather than doing something worse. Reasoned from launchidentity.paneSessionIsOurs and chat.addressable; to be checked end to end on a real
 hand-started window before calling the card done.
