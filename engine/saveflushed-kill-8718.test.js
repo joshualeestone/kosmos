@@ -28,7 +28,7 @@ function freshRoot(name) {
    What this can and cannot see: a SIGKILL ends the process, not the machine, so the page cache survives and this proves
    the temp-then-rename half (no reader ever sees a half-written file). The flush half, which is what a power loss
    needs, is pinned by the order of fsync and rename in engine/*fsync-5434.test.js; no test here can cut the power. */
-test('a kill during a flushed save leaves a whole file', { skip: process.platform === 'win32' }, () => {
+test('a kill during a flushed save leaves a whole file', { skip: process.platform === 'win32' && 'checked on a Mac only so far' }, () => {
   const dir = freshRoot('kill');
   const f = path.join(dir, 'state.json');
   fs.writeFileSync(f, JSON.stringify({ n: 0, pad: 'x'.repeat(20000) }));

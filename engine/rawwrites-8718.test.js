@@ -111,7 +111,7 @@ const BASELINE = {
 };
 
 /* The source with its comments taken out, so rewording an ordinary comment does not change the count. Block comments,
-   then line comments not preceded by a colon or a quote (a URL in a string keeps its text). Crude by design: a slash
+   then line comments not preceded by a colon, a quote, a backtick or a backslash (a URL in a string keeps its text). Crude by design: a slash
    and star, or two slashes, inside a string can fool it. It is the same on every run, which is all a ratchet needs. */
 function codeOnly(text) {
   return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:\\'"`])\/\/.*$/gm, "$1");
