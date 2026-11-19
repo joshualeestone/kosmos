@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: devkeyvk-7116
-diff_hash: 72a671968ee71793bb9515c5dbb1ebee8c9f0c09ab2a102f408c71f6c69550d6
+diff_hash: 42ea5c92fb36f94f234ab922d4444f6334409129c2ccd7e4e4b1e9dbbc9b248c
 validation: passed
 subdir_audit: passed
 timestamp: 2026-11-19T18:39:58Z
@@ -16,7 +16,8 @@ converged: true
 **Converged:** Yes: round 5 found no new defect; its one WARNING (a golden vector WITH entries) cannot be made yet and is
 deferred with its reason on kosmos#7116.
 **Validation:** full tools/run-tests.sh on Agent1s at 0776544578: 29,887 node tests, 0 failed; 4 shell shards status 0;
-entry clean, hash 72a671968ee7 (equal to this diff_hash).
+entry clean, hash 72a671968ee7. After it, one commit added only the plan file
+(.claude/plans/devkeyvk-7116.md, required by the PR gate), which is why this diff_hash differs: no code changed.
 
 ### Per-Iteration Breakdown
 
