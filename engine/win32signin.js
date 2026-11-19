@@ -573,6 +573,12 @@ function createSigninHost() {
       signal: null,
       drained: false,
       killed: false,
+      /* #8741: a sign-in started from a remote session (Kosmos+, from a laptop or phone)
+         opens nothing on this computer, where nobody is looking. The page offers the
+         printed link (the manual one: it shows a code), the person signs in on their own
+         device and pastes the code, and sendCode finishes it. claude's own opener is
+         already the no-op, so with this set no tab opens at all. */
+      noOpener: Boolean(spec.noOpener),
     };
     const sentPieces = () => session.sentFragments;
     session.screen = createTextKeeper(SIGNIN_OUTPUT_LIMIT_CHARS, sentPieces);
@@ -605,7 +611,7 @@ function createSigninHost() {
       stream.on('data', (d) => {
         session.screen.push(d);
         if (session.sinceSend) session.sinceSend.push(d);
-        if (!isStderr && !session.pageOpened) openSigninPageOnce(session);
+        if (!isStderr && !session.pageOpened && !session.noOpener) openSigninPageOnce(session);
         if (!isStderr) return;
         session.stderr.push(d);
         if (session.stderrSinceSend) {
