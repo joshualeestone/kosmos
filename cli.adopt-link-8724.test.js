@@ -15,6 +15,15 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 
+/* Roster rows are real ones from test-support/fleet (fixture-discipline: no hand-built rows), serialized for the
+   stand-in status.js in the CLI's own process. */
+process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-8724-adopt-rows-'));
+const fleet = require('./test-support/fleet');
+function rowsOf(specs) {
+  const board = fleet.install(specs.map(([name, ours]) => fleet.agent(name, { ours })), { strict: false });
+  try { return JSON.stringify(board.roster); } finally { fleet.restore(); }
+}
+
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');
 
@@ -81,7 +90,7 @@ async function withHome(fn) {
   try { await fn(env, calls); } finally { fs.rmSync(home, { recursive: true, force: true }); }
 }
 
-const ROWS = JSON.stringify([{ sessionName: 'zara', isNamedOurs: false }, { sessionName: 'otto', isNamedOurs: false }]);
+const ROWS = rowsOf([['zara', false], ['otto', false]]);
 
 test('#8724 adopt names the link command for a skipped window the link would take; CONTROL: one it would not stays a plain skip', { skip: SKIP_POSIX_SHELL }, () =>
   withHome(async (env, calls) => {
@@ -145,7 +154,7 @@ test('#8724 --link with a window list that cannot be read stops (1, not done) an
 
 test('#8724 with nothing skipped as not ours, the review does not look at the windows', { skip: SKIP_POSIX_SHELL }, () =>
   withHome(async (env, calls) => {
-    const out = await run([], env({ T_ROWS: JSON.stringify([{ sessionName: 'ivy', isNamedOurs: true }]), T_PANES: '[]', T_LINKABLE: 'zara' }));
+    const out = await run([], env({ T_ROWS: rowsOf([['ivy', true]]), T_PANES: '[]', T_LINKABLE: 'zara' }));
     assert.equal(out.code, 0, out.stdout + out.stderr);
     assert.deepEqual(calls().filter((c) => c.read === 'panes'), [], 'an extra look at the windows');
     /* CONTROL: with a not-ours row it does look (the first test's hint needs it). */
@@ -208,7 +217,7 @@ test('#8724 a name that is not plain is printed in single quotes (nothing in it 
 
 test('#8724 the skip hint quotes a name that is not plain, and sends a name starting with - to the board', { skip: SKIP_POSIX_SHELL }, () =>
   withHome(async (env) => {
-    const rows = JSON.stringify([{ sessionName: 'my agent', isNamedOurs: false }, { sessionName: '-x', isNamedOurs: false }]);
+    const rows = rowsOf([['my agent', false], ['-x', false]]);
     const out = await run([], env({ T_ROWS: rows, T_PANES: '[]', T_LINKABLE: 'my agent,-x' }));
     assert.equal(out.code, 0, out.stdout + out.stderr);
     assert.match(out.stdout, /^ {2}skip my agent -- not one of ours; if you started it yourself, you can link it \(kosmos adopt --link 'my agent'\), then run kosmos adopt again$/m);
