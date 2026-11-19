@@ -126,6 +126,7 @@ const {
 } = require('./engine/status');
 const accountmove = require('./engine/accountmove'); // #6173: several agents' account move, one request, restarts without blocking the board's thread
 const removal = require('./engine/remove');
+const linkwindow = require('./engine/linkwindow');   // kosmos#8719 part 2
 const { strictStringify } = require('./engine/textcut');   // #7108
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
 const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents from one Kosmos into another
@@ -11272,6 +11273,29 @@ const server = http.createServer(async (req, res) => {
     try { delivery = await chat.deliverAsync(name, command, safeRoster(), undefined, undefined); }
     catch (err) { sendJson(res, 500, { error: 'we could not reach this agent', detail: String(err && err.message || err) }); return; }
     sendJson(res, delivery.state === chat.DELIVERY.COULD_NOT ? 409 : 200, { command: ctx[2], delivery });
+    return;
+  }
+
+  /* kosmos#8719 part 2: link a window Kosmos did not start to its agent (engine/linkwindow.js sets Kosmos's own launch
+     mark on that one session, after checking it is plainly that agent, and reads it back). A person's confirmed act:
+     the body must say { confirm: true }, so no stray POST links anything. Cross-site writes are refused before every
+     route (crossSiteWrite). */
+  const lnk = pathname.match(/^\/api\/agent\/([^/]+)\/link$/);
+  if (lnk && req.method === 'POST') {
+    const name = decodeSegment(lnk[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || body.confirm !== true) { sendJson(res, 400, { outcome: 'refused', because: 'Linking a window needs your confirmation.' }); return; }
+        let out;
+        try { out = linkwindow.link(name); }
+        catch (err) { sendJson(res, 500, { outcome: 'refused', because: 'Kosmos could not see what is running on this computer, so nothing was changed.', detail: String(err && err.message || err) }); return; }
+        sendJson(res, out.outcome === linkwindow.OUTCOME.LINKED ? 200 : 409, out);
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
     return;
   }
 

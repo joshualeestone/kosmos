@@ -13491,6 +13491,9 @@ window.kosmosMeasureScrollbarWidth();
        yet and are drawn as the honest not-built line instead (recorded
        gaps in the plan). -->
   <p id="d-untied" hidden></p>
+  <!-- kosmos#8719 part 2: the way to bring such a window under Kosmos, behind a confirmation (#link-modal). -->
+  <div id="d-link" hidden><button class="btn" id="d-link-btn" type="button">Link this window to Kosmos</button>
+    <p id="d-link-msg" role="status" aria-live="polite"></p></div>
   <!-- The removed-agent sentence, visible from every section since the page
        grew them (it used to sit at the foot of the one column; now it would
        be only in Remove, and a person on Talk would see controls go grey with
@@ -14810,6 +14813,21 @@ window.kosmosMeasureScrollbarWidth();
      thing: instructions are written, nothing restarts. The warning he asked
      for ("this will restart all of your agents") would be false, so the
      dialog says what actually happens instead. -->
+<!-- kosmos#8719 part 2: linking a window Kosmos did not start. The harmless answer is first and takes the focus. -->
+<div class="rm-back" id="link-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true"
+       aria-labelledby="link-m-title" aria-describedby="link-m-small">
+    <h2 class="rm-title" id="link-m-title">Link this window to Kosmos?</h2>
+    <p class="rm-small" id="link-m-small">Only if you started this agent yourself in that window. Kosmos will then
+      treat the window as this agent: it will type your messages into it and show its conversation here. The window
+      keeps running as it is.</p>
+    <div class="rm-acts">
+      <button class="btn" id="link-m-keep" type="button">Not now</button>
+      <button class="btn" id="link-m-go" type="button">Link it</button>
+    </div>
+  </div>
+</div>
+
 <div class="rm-back" id="pol-modal" hidden>
   <div class="rm-box" role="alertdialog" aria-modal="true"
        aria-labelledby="pol-m-title" aria-describedby="pol-m-small">
@@ -50177,7 +50195,54 @@ function setWritesOffered(a, tied) {
        this line alone as its description. */
     why.textContent = tied ? '' : 'Kosmos cannot confirm it started this window, so it does not change its picture, role or instructions from here.';
   }
+  /* kosmos#8719 part 2: the way out, beside the reason. */
+  const link = document.getElementById('d-link');
+  if (link) {
+    link.hidden = tied;
+    link.dataset.agent = tied ? '' : String((a && a.sessionName) || '');
+    const msg = document.getElementById('d-link-msg');
+    if (msg && tied) msg.textContent = '';
+  }
 }
+
+/* kosmos#8719 part 2: Link this window to Kosmos. The person confirms; the server checks the window is plainly that
+   agent (a Claude window named exactly for it, not already linked) and refuses with the reason otherwise. */
+let LINK_PENDING = null;
+function linkModalClose() { document.getElementById('link-modal').hidden = true; LINK_PENDING = null; }
+document.getElementById('d-link-btn').addEventListener('click', () => {
+  const name = document.getElementById('d-link').dataset.agent;
+  if (!name) return;
+  LINK_PENDING = name;
+  document.getElementById('link-m-title').textContent = 'Link the window called ' + name + ' to Kosmos?';
+  document.getElementById('link-modal').hidden = false;
+  document.getElementById('link-m-keep').focus();
+});
+document.getElementById('link-m-keep').addEventListener('click', linkModalClose);
+document.getElementById('link-modal').addEventListener('click', (e) => { if (e.target.id === 'link-modal') linkModalClose(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || document.getElementById('link-modal').hidden) return;
+  linkModalClose();
+});
+document.getElementById('link-m-go').addEventListener('click', async () => {
+  const name = LINK_PENDING;
+  linkModalClose();
+  if (!name) return;
+  const msg = document.getElementById('d-link-msg');
+  msg.textContent = 'Linking…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/link', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirm: true }) });
+    let got = null;
+    try { got = await res.json(); } catch { got = null; }
+    if (!res.ok || !got || got.outcome !== 'linked') {
+      msg.textContent = (got && (got.because || got.error)) || 'Kosmos could not link that window.';
+      return;
+    }
+    msg.textContent = 'Linked. Kosmos can message it now.';
+    if (typeof tick === 'function') await tick();
+    if (typeof openDetail === 'function') openDetail(name);
+  } catch { msg.textContent = 'We could not reach Kosmos to link it.'; }
+});
 
 for (const boardEl of [document.getElementById('grid'), document.getElementById('alist'), document.getElementById('my-agents-list')]) {
   boardEl.addEventListener('click', (e) => {

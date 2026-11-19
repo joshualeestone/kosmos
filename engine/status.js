@@ -8155,6 +8155,13 @@ function paneRoster() {
   // stricter about a PARTIAL answer: see the note below.
   return paneRosterFrom(paneSource ? paneSource() : tmuxPanes());
 }
+/* kosmos#8719: the same look as paneRoster (the test seam honoured, throwing when tmux could not be asked), one pane per
+   session, with every field readPanes keeps (command, claim, runner): linkwindow.js decides on the command and claim. */
+function panesWithCommands() {
+  const out = paneSource ? paneSource() : tmuxPanes();
+  if (out === null || out === undefined) throw new Error('we could not see what is running on this computer');
+  return onePanePerSession(readPanes(out).panes);
+}
 /* #6173: the same roster from a tmux look that does not block the board's thread (an account move's restarts). */
 async function paneRosterAsync() {
   return paneRosterFrom(paneSource ? paneSource() : await tmuxPanesAsync());
@@ -10685,7 +10692,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { panesWithCommands /* kosmos#8719 */, isClaudeCommand /* kosmos#8719 */, paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
