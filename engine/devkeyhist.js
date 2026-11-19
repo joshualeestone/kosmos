@@ -8,8 +8,8 @@
  * from trusted state"). Today the only record of which key is whose is the coordinator's, so a breached coordinator can
  * name a key of its own, seal a manifest to the member's PUBLIC key and sign it, and restore would deliver its files as
  * the member's work (#5536 comment 6397036572). The history below is kept and signed by escrowd, not the coordinator.
- * Design v2 on #7116 (comment 6397107294). Called by engine/restorerun.js for a company restore, which has no
- * production caller yet (a personal restore proves its manifest by member proof and skips this).
+ * Design v2 on #7116 (comment 6397107294). Reached through engine/restorerun.js runRestore WITHOUT trust
+ * 'member-proof' (a company restore); a personal restore passes member-proof and skips this.
  *
  * The trust anchor is ONE shipped key, with no rotation set: if escrowd's escrow key is replaced (or its HKDF label
  * changes), every installed Kosmos refuses every history until a build carrying the new key ships. That fails closed,
