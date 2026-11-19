@@ -145,6 +145,9 @@ async function fetchBounded(fetchObject, key, o, ms) {
      sink, maxTotalBytes   as backuprestore.restoreSnapshot
      plan, planned         optional: engine/restorefetch.js readGrantFetcher's, given with its fetchObject
    Resolves { ok: true, deviceKey, backfill, takenAt, result, fetchProblems } (result is restoreSnapshot's;
+   backfill is the key's standing in the history as signed NOW: a carried-over key two admins have since confirmed
+   reads false even for a snapshot taken before the confirm, so never word it as "made by an admin-enrolled computer"
+   at that time, kosmos#8768;
    fetchProblems the fetcher's reasons for any file it could not fetch), or { ok: false, because }, or, when the fetcher
    stopped part way, { ok: false, because, result, fetchProblems }, with partial: true when some files were restored.
    ok: true still allows files in result.failed (one damaged file does not fail the rest), as before, but never with
