@@ -25342,7 +25342,11 @@ const server = http.createServer(async (req, res) => {
             + (agedFromPerson ? ', including ' + agedFromPerson + ' from the person to the whole room that you have posted since' : '') + '. '
             + 'Add --all to see ' + (agedAsks === 1 ? 'it' : 'them') + ' too.\n'
           : '';
-        res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + coveredLine + agedLine);
+        /* kosmos#8769 item 3: agents read this view before they post, so a room whose agent wake-ups are paused says so here,
+           not only in the answer to a post already sent (roomloop.readerNote reads; it never starts or moves a pause). */
+        let loopLine = '';
+        try { const n = require('./engine/roomloop').readerNote(id); loopLine = n ? n + '\n' : ''; } catch { loopLine = ''; }
+        res.end(shared + onHold + loopLine + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + coveredLine + agedLine);
         return;
       }
       if (jsonRows !== null) {   // kosmos#7032: a page (see the cursor note where n is read)
