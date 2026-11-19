@@ -2664,8 +2664,10 @@ for (const remote of [true, false]) {
       // The page reads this to show the link (no browser opens here) and to word the step as "open the sign-in page".
       assert.equal(connect.state().noOpener, remote, 'state() must say whether this sign-in opens a browser here');
       if (remote) {
-        assert.deepEqual(browser, ['BROWSER=/usr/bin/true'], 'argv was ' + JSON.stringify(made));
-        const at = made.indexOf('BROWSER=/usr/bin/true');
+        // /usr/bin/true, or /bin/true where only that exists (a Linux without a merged /usr).
+        assert.equal(browser.length, 1, 'argv was ' + JSON.stringify(made));
+        assert.match(browser[0], /^BROWSER=\/(usr\/)?bin\/true$/);
+        const at = made.indexOf(browser[0]);
         assert.ok(at > made.indexOf('env') && at < made.indexOf('auth') - 1,
           'the assignment must sit between env and the claude binary: ' + JSON.stringify(made));
       } else {
@@ -2689,7 +2691,7 @@ driverTest('#8728: a remote-started FIRST-RUN sign-in (bare claude, no auth logi
     const made = term.all.find((a) => a[0] === 'new-session');
     assert.ok(made, 'no sign-in session was launched');
     assert.ok(!made.includes('auth'), 'this is the bare launch, not auth login: ' + JSON.stringify(made));
-    const at = made.indexOf('BROWSER=/usr/bin/true');
+    const at = made.findIndex((x) => /^BROWSER=\/(usr\/)?bin\/true$/.test(String(x)));
     assert.ok(at > made.indexOf('env') && at === made.length - 2, 'the assignment sits right before the claude binary: ' + JSON.stringify(made));
   } finally { subscription.setRunner(null); }
 });
