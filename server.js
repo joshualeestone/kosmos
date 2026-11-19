@@ -11399,7 +11399,7 @@ const server = http.createServer(async (req, res) => {
           out = { ...out, jobWritten: true };
           /* Set up, but the restart itself did not take: the job is there now and starts the agent at the next login. */
           if (out.outcome !== removal.OUTCOME.RESTARTED) {
-            out.because = `${out.because || 'The restart did not finish.'} Kosmos did set ${shown} up to start on its own, so it starts again at the next login.`;
+            out.because = `${out.because || 'The restart did not finish.'} Kosmos did set ${shown} up to start on its own from now on.`;
           }
         }
         /* kosmos#8724: refused only for want of a job, on a linked window of exactly that name: say what Kosmos can do. */

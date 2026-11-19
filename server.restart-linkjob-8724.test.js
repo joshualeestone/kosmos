@@ -149,11 +149,11 @@ test('#8724 a restart its own checks refuse (quiet hours, cap, busy) writes no j
   assert.notEqual(r.j.jobWritten, true);
 });
 
-test('#8724 set up but the restart did not take: the answer says the job is there and starts it at the next login', async () => {
+test('#8724 set up but the restart did not take: the answer says the job is there', async () => {
   afterJob = { outcome: removal.OUTCOME.PARTIAL, steps: [{ label: 'close its window', ok: false }], because: 'We could not close its window.' };
   const r = await post('zara', { writeJob: true });
   assert.equal(r.j.jobWritten, true, JSON.stringify(r.j));
-  assert.match(r.j.because, /^We could not close its window\. Kosmos did set zara up to start on its own, so it starts again at the next login\.$/);
+  assert.match(r.j.because, /^We could not close its window\. Kosmos did set zara up to start on its own from now on\.$/);
 });
 
 test('#8724 a job that could not be written stops before the restart, with the reason', async () => {
