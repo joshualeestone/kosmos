@@ -181,7 +181,7 @@ test('#7116: a key made in the Enclave signs every pinned action, and the signat
     const callers = Buffer.from(msg);
     const shown = se.prepare(action, callers);
     callers.fill(0);                       // changed after the screen: the signature must still be over what was shown
-    const der = await se.sign(shown, { helper: HELPER, keyFile, expectedKey: pub });
+    const der = await se.sign(shown, { helper: HELPER, keyFile, expectedKey: pub, adminId: 'enclave-test-admin' });   // #7116 step 2: an enrolment's signer says who it is (here, not its inviter)
     assert.ok(verifyDer(pub, msg, der), name);
     assert.ok(!verifyDer(otherPub, msg, der), `${name} under another key`);
   }

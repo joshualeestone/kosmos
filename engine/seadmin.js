@@ -491,9 +491,18 @@ function sign(prepared, opts) {
   signQueue = run.catch(() => {});
   return run;
 }
-async function signOne(prepared, { helper, keyFile, expectedKey }) {
+async function signOne(prepared, { helper, keyFile, expectedKey, adminId }) {
   const message = PREPARED.get(prepared);
   if (!message) throw new Error('sign takes only what prepare returned');
+  /* kosmos#7116 step 2 (review 1): the inviter's check is the only defence against a coordinator's own K (escrowd never
+     holds the code), so it cannot be skipped by a lookup that found nothing. A devkeyEnrol is signed only by a caller
+     that says which admin it is: the inviter only after prepare checked the code, anyone else as the second admin. */
+  if (prepared.action === 'devkeyEnrol') {
+    if (typeof adminId !== 'string' || !adminId) throw new Error('say which admin is signing this enrolment');
+    if (adminId === prepared.decoded.inviterAdminId && prepared.inviterChecked !== true) {
+      throw new Error('you sent this invite, so your join code must be checked before you sign; it was not found on this computer');
+    }
+  }
   const expected = key(expectedKey);
   const pub = await publicKey({ helper, keyFile });
   if (!pub.equals(Buffer.from(expected))) throw new Error('the key file holds a different key from the enrolled one');

@@ -70,8 +70,31 @@ test('#7116 step 2: the inviter\'s screen checks the code; a substituted key, me
   assert.throws(() => se.prepare('devkeyEnrol', otherMember, { joinCode: e.code }), /does not match/);
   // Another invite's code: refused.
   assert.throws(() => se.prepare('devkeyEnrol', e.bytes, { joinCode: dk.newJoinCode() }), /does not match/);
+  // Review 1: the right tag with another code's hash refuses (the hash arm of the check, alone).
+  const wrongHash = se.encodeDevkeyEnrol(ORG, MEMBER, e.key, dk.joinCodeHash(dk.newJoinCode()), dk.joinTag(e.code, ORG, MEMBER, e.key),
+    INVITER, GEN, NONCE);
+  assert.throws(() => se.prepare('devkeyEnrol', wrongHash, { joinCode: e.code }), /does not match/);
+  // Review 1: a code that is not 16 bytes refuses; it is never read as "no code, unchecked".
+  assert.throws(() => se.prepare('devkeyEnrol', e.bytes, { joinCode: null }), /a join code is 16 bytes/);
+  assert.throws(() => se.prepare('devkeyEnrol', e.bytes, { joinCode: Buffer.alloc(15) }), /a join code is 16 bytes/);
+  // Review 1: K's fingerprint recomputed from its definition (posted on #7116 for the console page to match).
+  const put = (b) => { const l = Buffer.alloc(4); l.writeUInt32BE(b.length); return Buffer.concat([l, b]); };
+  const fp = crypto.createHash('sha256').update(Buffer.concat([Buffer.from('kosmos-escrowd-devkey-fingerprint v1'),
+    put(Buffer.from(ORG, 'utf8')), put(Buffer.from(MEMBER)), put(e.key)])).digest().subarray(0, 16).toString('hex');
+  assert.equal(p.fingerprint, [fp.slice(0, 8), fp.slice(8, 16), fp.slice(16, 24), fp.slice(24, 32)].join(' '));
   // The fingerprint is bound to the member: one key for two members reads differently.
   assert.notEqual(se.fingerprintDisplay(se.devkeyFingerprint(ORG, 'member-8', e.key)), p.fingerprint);
+});
+
+test('#7116 step 2 review 1: an admin signing an enrolment says who it is; the inviter cannot sign one its code did not check', async () => {
+  const e = enrolment();
+  const unchecked = se.prepare('devkeyEnrol', e.bytes);
+  // Refused before kosmos-se is ever run (no helper is given): the inviter, unchecked; and an admin who does not say.
+  await assert.rejects(se.sign(unchecked, { adminId: INVITER }), /you sent this invite, so your join code must be checked/);
+  await assert.rejects(se.sign(unchecked, {}), /say which admin is signing this enrolment/);
+  // CONTROL: the second admin, and the inviter once checked, get past that rule (and stop at the next check, the key).
+  await assert.rejects(se.sign(unchecked, { adminId: OTHER_ADMIN }), /a key is 65 bytes/);
+  await assert.rejects(se.sign(se.prepare('devkeyEnrol', e.bytes, { joinCode: e.code }), { adminId: INVITER }), /a key is 65 bytes/);
 });
 
 test('#7116 step 2: this Mac signs only bytes enrolling its own key for the expected org and member', () => {
@@ -88,6 +111,9 @@ test('#7116 step 2: this Mac signs only bytes enrolling its own key for the expe
   // Another action's bytes: refused by the decoder.
   assert.throws(() => dk.deviceSign(se.encodeCancel(ORG, 'roster-change', Buffer.alloc(16)), { org: ORG, member: MEMBER, deviceKey: e.mac }),
     /different action/);
+  // Review 1: with the code this Mac joined with, it signs only that invite's enrolment.
+  assert.ok(dk.deviceSign(e.bytes, { org: ORG, member: MEMBER, deviceKey: e.mac, joinCode: e.code }).signature.length === 64);
+  assert.throws(() => dk.deviceSign(e.bytes, { org: ORG, member: MEMBER, deviceKey: e.mac, joinCode: dk.newJoinCode() }), /not for the invite/);
   // A device key that could not be read says why.
   assert.throws(() => dk.deviceSign(e.bytes, { org: ORG, member: MEMBER, deviceKey: { ok: false, because: 'this computer has no device key yet' } }),
     /no device key yet/);

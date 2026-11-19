@@ -13,7 +13,8 @@
  *     the inviter's own device can recompute it and refuse a K the coordinator substituted (seadmin.prepare, joinCode);
  *   - signing the enrolment bytes with this Mac's own key, after decoding them and checking they enrol THIS key, for
  *     THIS org and member: never a blob, never bytes for another key;
- *   - the submission, in the shape Kitty pinned: { org, member, key (hex), code_hash, join_tag, inviter_admin_id,
+ *   - the submission, in the shape Kitty described (field names; the byte encodings and a passkey admin's signature
+ *     object are NOT yet confirmed against escrowd's op, which is step 1: review 1 of this branch, asked on #7116): { org, member, key (hex), code_hash, join_tag, inviter_admin_id,
  *     generation, nonce, device_sig, admin_sigs: [{ admin_id, sig }] }.
  *
  * Not here, each named so nobody reads this file as the whole flow:
@@ -83,13 +84,15 @@ function rawPublic(publicKey) {
  * member the caller expects; anything else refuses, so this signs nothing it was not asked to. `deviceKey` is
  * backupdevicekey.deviceKey's answer (a test passes its own). Returns { signature (64 bytes), decoded }.
  */
-function deviceSign(bytes, { org, member, deviceKey }) {
+function deviceSign(bytes, { org, member, deviceKey, joinCode }) {
   const dk = deviceKey || require('./backupdevicekey').deviceKey();
   if (!dk || dk.ok !== true) throw new Error((dk && dk.because) || 'this computer\'s device key could not be read');
   const decoded = se.decodeDevkeyEnrol(bytes);
   if (decoded.org !== org || decoded.member !== member) throw new Error('these bytes enrol a key for a different company or member');
   const mine = rawPublic(dk.publicKey);
   if (!mine.equals(Buffer.from(decoded.key))) throw new Error('these bytes enrol a different key from this computer\'s');
+  // Review 1: the member's Mac holds the code it joined with; given, it binds this signature to that invite.
+  if (joinCode !== undefined && !matchesJoinCode(joinCode, decoded)) throw new Error('these bytes are not for the invite this computer joined with');
   const signature = crypto.sign(null, Buffer.from(bytes), dk.privateKey);
   if (!crypto.verify(null, Buffer.from(bytes), dk.publicKey, signature)) throw new Error('the device signature does not verify');
   return { signature, decoded };
