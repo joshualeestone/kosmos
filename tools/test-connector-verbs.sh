@@ -247,8 +247,14 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # kosmos#6255 re-decided for engine/invitestep.js (the dark "Help Kosmos grow" step): it calls /v1/mac/account-invite, which
 # only a connector carrying that route signs. An older connector refuses it, and the step simply is not offered and is asked
 # again later; it is off by default and nothing that works today depends on it.
+# kosmos#8710 decided for engine/handoversend.js (packing a company hand-over on the leaving member's computer): it
+# calls /v1/mac/org/handover/mine, and hands remote.macRequest to takeSnapshot, whose signed calls for a hand-over are
+# backupupload's two hand-over routes (grant, manifest). Only a connector listing the hand-over paths (kosmos-relay #844)
+# signs them. An older connector refuses /mine unsent; the tick reads that as "Kosmos+ did not answer", packs nothing and
+# asks again next tick (engine/handoversend-8710.test.js pins that a refused /mine packs nothing). Hand-over is new and
+# off on the coordinator (KOSMOS_ORG_HANDOVER), so nothing that works today breaks.
 callers="$(grep -l "macRequest(" engine/*.js 2>/dev/null | grep -v -e "engine/remote.js" -e "\.test\.js$" | sort | tr '\n' ' ')"
-[ "$callers" = "engine/account-computers.js engine/agentevents.js engine/backupmemberkey.js engine/backuprun.js engine/backupupload.js engine/communitysend.js engine/companycommunity.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/invitestep.js engine/mac-standing.js engine/orgenroll.js engine/orgrollup.js engine/personalbackup.js engine/personalbackupkey.js engine/personalrestore-child.js engine/personalrestore.js engine/personalrestorejob.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the ones the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
+[ "$callers" = "engine/account-computers.js engine/agentevents.js engine/backupmemberkey.js engine/backuprun.js engine/backupupload.js engine/communitysend.js engine/companycommunity.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/handoversend.js engine/invitestep.js engine/mac-standing.js engine/orgenroll.js engine/orgrollup.js engine/personalbackup.js engine/personalbackupkey.js engine/personalrestore-child.js engine/personalrestore.js engine/personalrestorejob.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the ones the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
 
 # The real connector on this Mac, when it is there: an integration line, reported but never failed.
 R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
