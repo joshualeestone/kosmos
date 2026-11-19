@@ -133,7 +133,7 @@ test('end to end: key kept before it is sent, the pack received into a "Handed o
   assert.equal((await hr.tick(st, Object.assign({}, deps, { macRequest: recvWatch }))).ok, true);
   assert.equal(wroteFirst, true);
   assert.equal(c.rec.state, 'packing');
-  if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(root, 'handover', 'ho1.key.json')).mode & 0o777, 0o600);
+  if (typeof process.getuid === 'function') assert.equal(fs.statSync(path.join(root, 'handover', 'ho1.key.json')).mode & 0o777, 0o600);   // POSIX file modes only
   // packing: nothing to do yet.
   assert.deepEqual(await hr.tick(st, deps), { ok: true, none: true });
   // The leaving computer packs; then this one receives.
