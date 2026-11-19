@@ -27,6 +27,7 @@ function page({ accounts = [], storage = new Map(), throws = false, visible = []
   const src = [
     SCRIPT.match(/const STEPUP_RETURN_KEY = [^;]*;/)[0],
     SCRIPT.match(/const STEPUP_RETURN_MS = [^;]*;/)[0],
+    SCRIPT.match(/const STEPUP_RETURN_FOR = [^;]*;/)[0],
     'let ACCT_ADD_RETURN_FOCUS = "an older opener";',
     lift(SCRIPT, 'noteStepUpReturn'), lift(SCRIPT, 'forgetStepUpReturn'), lift(SCRIPT, 'markStepUpReturnGoing'), lift(SCRIPT, 'peekStepUpReturn'),
     lift(SCRIPT, 'stepUpReturnBusy'), lift(SCRIPT, 'resumeStepUpReturn'), lift(SCRIPT, 'stepUpReturnBoot'),
@@ -73,16 +74,26 @@ test('#8728 slice 2 review 2: a reload WITHOUT pressing Sign in again opens noth
   p.resumeStepUpReturn();
   assert.deepEqual(p.opened, [], 'a reload alone said "you signed in again"');
   assert.equal(p.storage.has(p.KEY), true);
-  // Pressed now, in this view: the sign-in has not navigated back yet.
-  p.markStepUpReturnGoing();
+  // Pressed now, in this view, for the Claude start's refusal: the sign-in has not navigated back yet.
+  p.markStepUpReturnGoing('POST /api/connect/start');
   assert.equal(typeof JSON.parse(p.storage.get(p.KEY)).went, 'number', 'the press was not marked');
   p.resumeStepUpReturn();
   assert.deepEqual(p.opened, [], 'acted before the sign-in came back');
   // A press on a note past its window marks nothing.
   const late = page({ accounts: ACCOUNTS });
   late.storage.set(late.KEY, JSON.stringify({ kind: 'claude-signin', dir: DIR, at: Date.now() - 11 * 60 * 1000 }));
-  late.markStepUpReturnGoing();
+  late.markStepUpReturnGoing('POST /api/connect/start');
   assert.equal(JSON.parse(late.storage.get(late.KEY)).went, undefined);
+});
+
+test('#8728 slice 2 review 4: Sign in again pressed for ANOTHER refused write does not mark the Claude note', () => {
+  const p = page({ accounts: ACCOUNTS });
+  p.noteStepUpReturn(DIR);
+  for (const other of ['POST /api/agents', 'POST /api/update', '', undefined]) p.markStepUpReturnGoing(other);
+  assert.equal(JSON.parse(p.storage.get(p.KEY)).went, undefined, 'another refusal marked the Claude note');
+  // CONTROL: the Claude start's own refusal does mark it.
+  p.markStepUpReturnGoing('POST /api/connect/start');
+  assert.equal(typeof JSON.parse(p.storage.get(p.KEY)).went, 'number');
 });
 
 test('#8728 slice 2 review 1: another dialog or first run on screen: the return waits and keeps the note', () => {
@@ -172,5 +183,8 @@ test('#8728 slice 2: the page wires it: only the refusal that offers Sign in aga
   assert.match(SCRIPT, /closest\('#stepup-close'\)\) \{ hideStepUpAsk\(\); stepUpFocusAway\(\); if \(typeof forgetStepUpReturn === 'function'\) forgetStepUpReturn\(\); \}/);
   assert.match(SCRIPT, /document\.addEventListener\('DOMContentLoaded', stepUpReturnBoot\);\nelse stepUpReturnBoot\(\);/);
   // review 2: the ask's Sign in again (both ways it goes are a submit of #stepup-form) marks the note, in capture.
-  assert.match(SCRIPT, /document\.addEventListener\('submit', \(e\) => \{ if \(e\.target && e\.target\.id === 'stepup-form'\) markStepUpReturnGoing\(\); \}, true\);/);
+  assert.match(SCRIPT, /document\.addEventListener\('submit', \(e\) => \{\n  if \(!e\.target \|\| e\.target\.id !== 'stepup-form'\) return;\n  const box = document\.getElementById\('stepup-ask'\);\n  markStepUpReturnGoing\(box \? box\.stepUpFor : ''\);\n\}, true\);/);
+  // review 4: the key the ask records for the Claude start is the one the mark asks for.
+  assert.equal(SCRIPT.match(/const STEPUP_RETURN_FOR = '([^']*)';/)[1], 'POST /api/connect/start');
+  assert.match(lift(SCRIPT, 'requestKey'), /requestMethod\(args\) \+ ' ' \+ new URL\(res\.url, location\.href\)\.pathname/);
 });
