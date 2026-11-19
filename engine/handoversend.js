@@ -14,7 +14,7 @@
  *                       `workers` because the receiving computer restores into a Kosmos made by the restore path, whose
  *                       finish moves only `workers` and `projects` into place (restoreworld MOVED). REQUIRED: an
  *                       agent whose folder cannot be read fails the pack, said with its name.
- *   NOT its profile file: that holds this install's id (idInstall) and absolute paths under the member's home, which a
+ *   NOT its profile file: that holds this install's own id and absolute paths under the member's home, which a
  *                       profile never takes off this computer (store.js, kosmos#5995). The receiver names an agent from
  *                       its folder and brief, as a restore does.
  *   sessions/<seg>/...  its transcripts, from backuptick.inputsHere().sessions (the backup's builder), trimmed to the
@@ -83,9 +83,7 @@ function writeSend(id, root, rec) {
   try {
     const f = sendFile(id, root);
     fs.mkdirSync(path.dirname(f), { recursive: true, mode: 0o700 });
-    const tmp = `${f}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(rec) + '\n', { mode: 0o600 });
-    fs.renameSync(tmp, f);
+    require('./store').saveFlushed(f, Buffer.from(JSON.stringify(rec) + '\n'));   // whole, flushed, renamed (#8718)
   } catch { /* kept in memory for this run */ }
 }
 function dropSend(id, root) { try { fs.rmSync(sendFile(id, root), { force: true }); } catch { /* left */ } }
