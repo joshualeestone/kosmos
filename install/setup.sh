@@ -398,7 +398,8 @@ sealed_requirement() {
 # removed leaves those parts missing, and the rerun holds only the runtime to its signer.
 update_signer_ok() {
   local stage="$1" dest="$2" part req deep d desc unheld=""
-  for part in app/Kosmos.app runtime/bin/node app/bin/kosmos-tunnel app/bin/kosmos-app; do
+  # kosmos#7116: and kosmos-se, which signs admin approvals; skipped like the others where it is not installed.
+  for part in app/Kosmos.app runtime/bin/node app/bin/kosmos-tunnel app/bin/kosmos-app app/bin/kosmos-se; do
     [ -e "$dest/$part" ] || [ -L "$dest/$part" ] || continue
     if [ -L "$dest/$part" ]; then unheld="$unheld $part"; continue; fi
     # Matched on codesign's own lines, never on the whole output (which carries the path).

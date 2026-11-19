@@ -14,7 +14,7 @@ Every Kosmos release built from a tree with native-se/main.swift carries app/bin
 ## Not changed, and why
 - tools/kosmos-artifact-check.sh (9e) discovers every Mach-O and gates its floor and signature: it covers kosmos-se once present; presence is 4b's and 9b's.
 - tools/check-served.js reads page and app markers, not the binary list.
-- install/setup.sh: Kosmos runs without kosmos-se (engine/enrolsign.js says the helper is not installed); an install must not refuse a bundle for lacking it.
+- install/setup.sh's install checks: Kosmos runs without kosmos-se, so an install must not refuse a bundle for lacking it. (Its update-signer check DOES name it, review 1: an installed kosmos-se is held to the installed signer, and a part not installed is skipped.)
 
 ## Weakest premise
 That the real build signs and notarises it cleanly: only measured here with an ad-hoc signature and a floor build (minos 13.5, no home paths, usage exit 2). The first real cut is the test; Baron names the merge sha in it.
