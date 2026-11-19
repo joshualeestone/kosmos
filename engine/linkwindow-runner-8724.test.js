@@ -32,6 +32,7 @@ function fakeTmux(cmd, opts) {
       let v = marks[key];
       if (key === '@kosmos_runner' && o.readRunnerAs !== undefined && v) v = o.readRunnerAs;
       if (key === '@kosmos_agent' && o.readAgentAs !== undefined && v) v = o.readAgentAs;
+      if (key === '@kosmos_agent' && o.agentAlwaysReadsAs !== undefined) v = o.agentAlwaysReadsAs;
       /* As tmux: with -q an option that is not set answers empty and succeeds; without it, it fails. */
       if (!v) return args.includes('-q') ? { ok: true, code: 0, stdout: '' } : { ok: false, code: 1, stdout: '' };
       return { ok: true, code: 0, stdout: v + '\n' };
@@ -229,4 +230,22 @@ test('#8724 a Claude window carrying a runner mark for another program is left a
   assert.match(r.because, /carries a runner mark naming codex, so Kosmos did not change it/);
   assert.equal(t.marks['@kosmos_agent'], '');
   assert.equal(t.calls.length, 0, 'read from the board look, so tmux is not asked');
+});
+
+test('#8724 a runner write that applied but answered as failed is taken back off; nothing is left', () => {
+  linkwindow.setExpectedSource(() => 'codex');
+  const t = fakeTmux('codex', { setReportsFail: '@kosmos_runner' });
+  const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
+  assert.equal(r.outcome, 'refused');
+  assert.match(r.because, /could not record which program runs the window called zara, so nothing was linked/);
+  assert.deepEqual(t.marks, { '@kosmos_agent': '', '@kosmos_runner': '' });
+});
+
+test('#8724 a foreign agent mark that appears after a failed set is left alone, with its runner note', () => {
+  linkwindow.setExpectedSource(() => 'codex');
+  const t = fakeTmux('codex', { setFails: '@kosmos_agent', agentAlwaysReadsAs: 'someone-else' });
+  const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
+  assert.equal(r.outcome, 'refused');
+  assert.match(r.because, /carries a mark naming someone-else, so Kosmos did not change it/);
+  assert.ok(!t.calls.some((c) => c[0] === 'set-option' && c[1] === '-u'), 'another writer\'s mark, or the runner beside it, was taken off');
 });

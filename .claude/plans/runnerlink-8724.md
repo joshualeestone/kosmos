@@ -7,7 +7,9 @@ reclaim-8719 (#8719 part 2, PR #8732: engine/linkwindow.js). Design posted on th
 `kosmos adopt --link <name>` links a hand-started Codex, Antigravity or Grok window when, and only when, its program
 names that runner exactly and Kosmos's own record of the agent says it runs on it. The runner is recorded
 (`@kosmos_runner`, the value the supervisor records) before the agent mark, both are read back, and on a mismatch both
-come off. A Claude window links exactly as before. Proven by engine tests with a stand-in tmux, the real CLI with the
+come off. A Claude window links as before, except when Kosmos's record of the agent names another runner (refused:
+a later launch job would record that runner on the window) or the record cannot be read at all (refused, as for any
+runner). Proven by engine tests with a stand-in tmux, the real CLI with the
 real store, and the real supervisor adopting such a window.
 
 ## How

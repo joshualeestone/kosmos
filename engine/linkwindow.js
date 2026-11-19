@@ -159,7 +159,7 @@ function link(name, opts) {
      covered by the mark too. */
   /* A runner mark for another program, read at the look itself: a Claude window keeps none but claude, and any other
      runner keeps only its own (the board trusts this mark over the command once the window is ours). */
-  if (before.runner && before.runner !== p.runner && !(p.runner === 'claude' && before.runner === 'claude')) {
+  if (before.runner && before.runner !== p.runner) {
     return refused(`The window called ${p.name} carries a runner mark naming ${before.runner}, so Kosmos did not change it.`);
   }
   if (!/^\$\d+$/.test(before.id) || before.panes !== '1x1' || before.cmd !== String(p.command || '') || runnerOfCommand(before.cmd) !== p.runner) {
@@ -185,7 +185,12 @@ function link(name, opts) {
     const was = before.runner;   // read at the look; one naming another runner was refused above
     if (!was) {
       const setR = run(['set-option', '-t', byId, '@kosmos_runner', p.runner]);
-      if (!setR || setR.ok === false) return refused(`Kosmos could not record which program runs the window called ${p.name}, so nothing was linked.`);
+      if (!setR || setR.ok === false) {
+        /* A set that reports failure may still have applied, as for the agent mark below: what reads back as this
+           call's own value is taken off (it was empty at the look), anything else is left alone. */
+        if (readRunner() === p.runner) run(['set-option', '-u', '-t', byId, '@kosmos_runner']);
+        return refused(`Kosmos could not record which program runs the window called ${p.name}, so nothing was linked.`);
+      }
       runnerSetHere = true;
     }
   }
@@ -196,6 +201,10 @@ function link(name, opts) {
        note off, so a window marked ours never loses its runner. */
     const took = run(['show-options', '-q', '-v', '-t', byId, '@kosmos_agent']);
     const mark = took && took.ok !== false ? String(took.stdout || '').trim() : null;
+    /* Another writer's mark (it was empty at the look) is not this call's to take off: refused as any foreign mark. */
+    if (mark !== null && mark !== '' && mark !== p.session) {
+      return refused(`The window called ${p.name} carries a mark naming ${mark}, so Kosmos did not change it.`);
+    }
     if (mark !== '') {
       const offA = mark === null ? null : run(['set-option', '-u', '-t', byId, '@kosmos_agent']);
       if (!offA || offA.ok === false) {
