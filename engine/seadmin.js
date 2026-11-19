@@ -487,7 +487,8 @@ async function publicKey({ helper, keyFile }) {
 }
 
 /**
- * Sign what prepare() decoded and showed, with the Enclave key; returns the DER signature escrowd's verify_se takes.
+ * Sign what prepare() decoded and showed, with the Enclave key; returns the DER signature escrowd's verify_se takes,
+ * except for a devkeyEnrol, which returns { adminId, sig: DER } (kosmos#7116 step 2: the id the inviter rule checked).
  * `expectedKey` is the 65-byte public key this Mac enrolled as its admin key; a key file holding any other refuses.
  */
 // #7892: one signature at a time. Each raises its own Touch ID prompt, which names only the KIND of action, so two in
@@ -506,7 +507,9 @@ async function signOne(prepared, { helper, keyFile, expectedKey, adminId }) {
      that says which admin it is: the inviter only after prepare checked the code, anyone else as the second admin.
      This Mac holds no roster, so it cannot check that `adminId` is the admin whose key `expectedKey` is (review 3):
      escrowd must verify each signature under the key registered for the admin id it is posted with, so an app that
-     names the wrong admin here produces a signature escrowd refuses. That is step 1's rule; asked on #7116. */
+     names the wrong admin here produces a signature escrowd refuses. That is step 1's rule; asked on #7116. The caller
+     slice should also refuse to sign as second admin bytes whose code_hash matches a code this device holds (it is the
+     inviter then, whatever the bytes name; review 4). */
   if (prepared.action === 'devkeyEnrol') {
     if (typeof adminId !== 'string' || !adminId) throw new Error('say which admin is signing this enrolment');
     if (adminId === prepared.decoded.inviterAdminId && prepared.inviterChecked !== true) {
