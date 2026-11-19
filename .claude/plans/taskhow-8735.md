@@ -35,3 +35,10 @@ wording pass (slice 3), written up on the card before it is built.
 - Not changed: the two "as your working rules say" lines run longer than their neighbours (rewrapping would change the
   line boundaries the verbatim check compares). The three v52 rows doctrine-past gained are drafts of a branch merged
   with its history on main (tools/doctrine-past.js documents this); no agent holds them.
+
+## Review 2
+- Three run-recording rules apply on EVERY run, not in one situation, so they stay in the rules as one sentence: an
+  unchanged run is recorded with --unchanged and not posted about; a run that could not check is not unchanged (record
+  and report it); a run that finds something is told to whoever asked, where they asked. The pointer now says a due
+  run's reminder "names the commands" (it does not repeat everything). v53 re-pinned, doctrine-past regenerated,
+  ratchet 48,900 (pm 48,842).
