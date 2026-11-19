@@ -121,6 +121,20 @@ fingerprint of the hand-over key, for the admin to compare by eye. Not compared,
   never acts on an open hand-over, so it is harmless there; every Mac-side step (key, grant, manifest, read, done) must
   check that the calling computer is still the member's enrolled one, and refuse otherwise.
 
+## Found while starting slice 3 (19:4x CST 11-18): the pack's NAMING KEY must reach the successor
+A backup's chunk names are HMAC-SHA256 under a period naming key that only the member's own side holds
+(engine/backupformat.js header), and restore opens chunks only through openVerifiedChunk(memberSk, namingKey, ...).
+In a hand-over the two sides are different computers, so the leaving Mac must hand B the naming key, secretly.
+- **Decided:** A makes a fresh naming key for the hand-over (backupkeys.newNamingKey), wraps it to B's one-time key
+  with backupkeys' own `wrap` (the same sealing the backup keys use), and sends the wrapped bytes with its manifest
+  request. The coordinator records them (opaque, bounded, about 1 KB) and returns them to B in `mine`. A relay change:
+  **slice 2b**, small, one field on `manifest` and one in `mine`.
+- **Rejected:** putting the naming key inside the backup manifest (the manifest schema is shared with backups, and a
+  second shape there is the defect the snapshot reuse avoids); an extra object in the bucket (a third grant kind for
+  one small secret).
+- **Weakest premise:** that `wrap`'s info and aad strings can take a hand-over domain tag without touching backups;
+  check backupkeys.wrap's callers before building.
+
 ## Order of work and dates
 - 11-18/19: slice 1 and the plan's review. 11-20/21: slices 2 and 3. 11-22/23: slice 4. 11-24: slice 5.
 - 11-25: end-to-end on staging builds. Release cut and coordinator deploy by 11-27, measured, then switched on.
