@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: adoptlink-8724
-diff_hash: c1569bddee6d1d2a751c5dbd7f34371899dadc6033b510a40d19a2b560095ffc
+diff_hash: 03d891b51c8745799832706763be19d831418c06f3a071d36b3ca51c48c50503
 validation: full suite on Mortals for the stack top (runnerlink-8724 @ f23cee883, this branch's commits included) ran 29,916 tests, 29,301 pass, 2 fail, both guards main added (a test seam to excuse, two test files for the Windows list), fixed in 393aed409d here and 2de2694305 on runnerlink and passing; GitHub CI is the gate on this PR
 subdir_audit: passed
 timestamp: 2026-11-19T17:40:11Z
@@ -72,6 +72,8 @@ this branch has been rebased onto main since, with two commits after the loop fo
 ### After the loop (guards added on main, test files only)
 - d43adf1e2b: the CLI test's roster rows come from test-support/fleet (fixture-discipline: no hand-built rows).
 - 393aed409d: both CLI link tests listed in tools/windows-tests.js HOST_BRANCH_EXCLUDED with the reason their skip gives.
+- After the first CI run: the CLI test requires test-support/tmpscope first, so the folder its roster rows use is removed
+  (the suite's #4273 leak check failed on it; all 29,336 tests passed).
 
 ### Strengths
 - [STRENGTH] The name reaches node only through the environment; nothing links without --confirm; --help never links.
