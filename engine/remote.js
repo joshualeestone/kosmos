@@ -213,7 +213,7 @@ function connectorCapabilitiesPending() {
   if (!capabilitiesSeen) return true;
   if (!capabilitiesSeen.answered) return stillSelfRetrying(unansweredInARow);
   const pid = child ? child.pid : (process.env.NODE_TEST_CONTEXT ? runningPidForTests : null);
-  if (pid === null || pid === undefined) return true;
+  // No child (pid null) lands here too: a kept status is never about a pid that is not running.
   return !(runningSeen && runningSeen.pid === pid);
 }
 /* Which connector binary an answer came from: its path and when it last changed. */
@@ -412,18 +412,20 @@ function warmConnectorCapabilities(done = () => {}) {
       const answered = !err || (typeof err.code === 'number' && !err.killed);
       const caps = err ? new Set() : capabilityLines(stdout);
       // kosmos#8728: every ask leaves a line, so a refused remote action can be explained from the board's log.
-      logCapabilityAsk(answered, caps, Date.now() - began, timeout, generation);
+      logCapabilityAsk(answered, caps, Date.now() - began, timeout, generation, binary);
       done(noteCapabilities(caps, answered, Date.now(), generation, binary));
     });
     // Nothing to say on stdin: closed at once, so a connector that reads it cannot sit until the timeout.
     if (child && child.stdin) child.stdin.end();
   } catch {
-    logCapabilityAsk(false, new Set(), Date.now() - began, timeout, generation);
+    logCapabilityAsk(false, new Set(), Date.now() - began, timeout, generation, binary);
     done(noteCapabilities(new Set(), false, Date.now(), generation, binary));
   }
 }
 /* kosmos#8728: one line per ask, written before the answer is kept. */
-function logCapabilityAsk(answered, caps, ms, timeout, generation) {
+function logCapabilityAsk(answered, caps, ms, timeout, generation, binary) {
+  // The count this ask makes, as noteCapabilities will keep it: a different binary starts again at one.
+  const count = (unansweredBinary === binary ? unansweredInARow : 0) + 1;
   let line = 'remote: connector capabilities ';
   if (answered) {
     line += 'answered in ' + ms + ' ms: ' + ([...caps].join(' ') || 'none');
@@ -433,8 +435,8 @@ function logCapabilityAsk(answered, caps, ms, timeout, generation) {
     line += 'not answered in ' + ms + ' ms (limit ' + timeout + ' ms); ';
     if (generation !== capabilitiesGeneration) line += 'dropped, the tunnel has changed since';
     else if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) line += 'the earlier yes is kept';
-    else if (stillSelfRetrying(unansweredInARow + 1)) line += 'asking again in ' + Math.round(capTiming('recheckMs', CAPABILITIES_UNANSWERED_RECHECK_MS) / 1000) + ' s';
-    else line += 'asked ' + (unansweredInARow + 1) + ' times; asking again only when a remote request finds the answer due';
+    else if (stillSelfRetrying(count)) line += 'asking again in ' + Math.round(capTiming('recheckMs', CAPABILITIES_UNANSWERED_RECHECK_MS) / 1000) + ' s';
+    else line += 'asked ' + count + ' times; asking again only when a remote request finds the answer due';
   }
   console.error(line);
 }
