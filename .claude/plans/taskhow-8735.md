@@ -42,3 +42,8 @@ wording pass (slice 3), written up on the card before it is built.
   and report it); a run that finds something is told to whoever asked, where they asked. The pointer now says a due
   run's reminder "names the commands" (it does not repeat everything). v53 re-pinned, doctrine-past regenerated,
   ratchet 48,900 (pm 48,842).
+
+## Review 3
+- The kept per-run sentence carries the guide's fallback (if nobody is asking, in the room the task belongs to).
+- Log 53 says what stayed and the real saving (about 2,800; darwin 33,260 to 30,492). The guide names the heading the
+  agent sees (How you work, whatever the job). Ratchet 49,000 (pm 48,897).

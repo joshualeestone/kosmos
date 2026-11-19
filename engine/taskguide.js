@@ -12,8 +12,8 @@
 
 function guideText() {
   return [
-    'How to use the task commands for one situation each. The rule and the everyday commands are in the working rules',
-    'of your instructions, under "Put the work on a task first".',
+    'How to use the task commands for one situation each. The rule and the everyday commands are in your instructions,',
+    'under "How you work, whatever the job", in "Put the work on a task first" ("your working rules" below).',
     '',
   // Put the work on a task first: the parts for one situation each, word for word from the working rules.
   "**If a task's title or detail stops matching the work, fix it:**",

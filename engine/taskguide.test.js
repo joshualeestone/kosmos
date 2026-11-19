@@ -41,7 +41,7 @@ test('kosmos#8735 slice 2: the Windows CLI prints the same task guide, and the s
   assert.match(usage.join('\n'), /kosmos task --how/);
 });
 
-test('kosmos#8735 slice 2: the task guide requires nothing, carries what moved, and the rules point at it', () => {
+test('kosmos#8735 slice 2: the task guide requires nothing, and carries what moved and only that (the pointer is pinned in defaults.test.js #5152)', () => {
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, 'taskguide.js'), 'utf8'), /require\(/);
   const g = guide.guideText();
   for (const line of ['`kosmos task repeat <project-id> <task-number> daily --at 09:00`', '`kosmos task ran <project-id> <task-number> --unchanged "what it checked"`',

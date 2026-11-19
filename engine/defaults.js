@@ -547,7 +547,8 @@ const LINES = [
   'from Kosmos names the commands. On every run, three things hold: a run that found',
   'nothing new is recorded with `--unchanged` and not posted about on your own; a run that',
   'could not check is not unchanged, so record what stopped it and report it; and when a',
-  'run finds something, tell whoever asked for the check, where they asked.',
+  'run finds something, tell whoever asked for the check, where they asked (if nobody is',
+  'asking, in the room the task belongs to).',
   '',
   'A question, a quick answer or small talk is not a task. If you are on no',
   'project, or the work belongs to none of yours, do not guess another: write the',
@@ -1321,8 +1322,10 @@ function block() {
  *  53. kosmos#8735 slice 2: a new agent's instructions were over Claude Code's 40,000-character warning. The parts of
  *     "Put the work on a task first" that each serve one situation (fixing a task's words, listing across projects, a
  *     file's fingerprint, a code fix's commit, and the repeating-task procedure) moved word for word to `kosmos task
- *     --how` (engine/taskguide.js); the section keeps the rule, the everyday commands, "one task that repeats" and one
- *     line naming those situations. About 3,200 characters out of every agent's file. No new heading, so as in 32 an
+ *     --how` (engine/taskguide.js); the section keeps the rule, the everyday commands, "one task that repeats", one
+ *     line naming those situations, and one sentence with the three rules that hold on every run (an unchanged run is
+ *     not posted about, a run that could not check is not unchanged, a find goes to whoever asked or the task's room).
+ *     About 2,800 characters out of every agent's file (darwin 33,260 to 30,492). No new heading, so as in 32 an
  *     agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent runs `kosmos task --how` when one of those situations comes up; the line
  *     names each, and `kosmos task` help names --how too, in both CLIs.
