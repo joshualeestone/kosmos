@@ -37,7 +37,7 @@ That stopping the Listener cleanly while idle never loses an already-assigned jo
 real behaviour on Mortals is PigeonPete's install check.
 
 ## Tests
-- tools/test-ci-runner-claim-pause-8761.sh (45 checks at run time, in test:shell; macOS-only in tools/shell-macos-only.txt). Perturbed (15:41 CST, on c9156b8d2e): liveness
+- tools/test-ci-runner-claim-pause-8761.sh (46 checks at run time, in test:shell; macOS-only in tools/shell-macos-only.txt). Perturbed (15:41 CST, on c9156b8d2e): liveness
   as `kill -0` instead of `ps -p` fails the live-claim checks; restored from HEAD.
 
 ## Decided in review
@@ -54,3 +54,5 @@ real behaviour on Mortals is PigeonPete's install check.
 - Round 5: listed in tools/shell-macos-only.txt (plutil, launchd, ps of pid 1; it cannot pass on Linux); the clear
   rule needs 50 s between the two clear ticks (a hand-run tick); a state that holds is logged once; times carry the
   zone; the header says what a planted marker can really do.
+- Round 6: the SIGTERM-exits-0 premise is named in the header as a measurement PigeonPete's install must make on the
+  box; a clear time ahead of now restarts the wait; the 50 s boundary is pinned at 49 and 50 (perturbed: -lt 49 fails).

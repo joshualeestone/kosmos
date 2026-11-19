@@ -63,7 +63,7 @@ reset() { chmod 755 "$T/claims" 2>/dev/null; rm -rf "$CLAIM"; rm -f "$T/nolisten
 
 # Precondition: kill -0 really cannot see pid 1 as this user, so the control below means something.
 if kill -0 1 2>/dev/null; then echo "skip test-ci-runner-claim-pause-8761: kill -0 1 succeeds here (running as root?)"; exit 0; fi
-/bin/ps -p 1 -o pid= >/dev/null 2>&1 || { fail "precondition: ps cannot see pid 1"; }
+/bin/ps -p 1 -o pid= >/dev/null 2>&1 || { echo "FAIL test-ci-runner-claim-pause-8761: precondition: ps cannot see pid 1, so no cross-user check would mean anything"; exit 1; }
 
 # 1. A live claim held by ANOTHER user's live process (pid 1), runner idle: stopped, marker written.
 reset; echo "c1 1 $((NOW + 3600)) mortals 0.8.11 cut" > "$CLAIM"; tick
@@ -82,7 +82,7 @@ rm -f "$CLAIM"; tick
 [ "$(rc)" = 0 ] && ! called kickstart && [ -f "$T/state/claim-cleared-once" ] && pass "claim gone once: not started yet" || fail "first clear: rc $(rc) $(tr '\n' ';' < "$T/calls")"
 echo "c1 1 $((NOW + 3600)) mortals next phase" > "$CLAIM"; tick
 [ ! -f "$T/state/claim-cleared-once" ] && ! called kickstart && pass "claim back between phases: the clear is forgotten, still paused" || fail "re-claim: $(tr '\n' ';' < "$T/calls")"
-rm -f "$CLAIM"; tick; NOW=$((NOW + 30)); tick; [ "$(rc)" = 0 ] && ! called kickstart && pass "gone again 30 s later (a tick run by hand): not started yet" || fail "early second clear: $(tr '\n' ';' < "$T/calls")"; NOW=$((NOW + 30)); tick; NOW=$((NOW - 60))
+rm -f "$CLAIM"; tick; NOW=$((NOW + 49)); tick; [ "$(rc)" = 0 ] && ! called kickstart && pass "gone again 49 s later (a tick run by hand): not started yet" || fail "early second clear: $(tr '\n' ';' < "$T/calls")"; NOW=$((NOW + 1)); tick; NOW=$((NOW - 50))
 if [ "$(rc)" = 0 ] && called "kickstart gui/501/$LABEL" && [ ! -f "$T/state/paused-by-claim" ] && [ -f "$T/running" ]; then pass "claim cleared: kickstarted, marker removed"; else fail "cleared: rc $(rc) $(tr '\n' ';' < "$T/calls")"; fi
 
 # 4. No claim, no marker, runner stopped by hand: never started here.
@@ -129,6 +129,8 @@ reset; : > "$T/killfails"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 1 ] && [ ! -f "$T/state/paused-by-claim" ] && pass "SIGTERM failed: exit 1, no marker left" || fail "kill fails: rc $(rc)"
 reset; rm -f "$CLAIM"; : > "$T/state/paused-by-claim"; echo $((NOW - 60)) > "$T/state/claim-cleared-once"; rm -f "$T/running"; : > "$T/kickfails"; tick
 [ "$(rc)" = 1 ] && [ -f "$T/state/paused-by-claim" ] && pass "kickstart failed: exit 1, marker kept for the next tick" || fail "kick fails: rc $(rc)"
+reset; rm -f "$CLAIM" "$T/running"; echo 4242 > "$T/state/paused-by-claim"; echo $((NOW + 1000)) > "$T/state/claim-cleared-once"; tick
+[ "$(rc)" = 0 ] && ! called kickstart && [ "$(cat "$T/state/claim-cleared-once")" = "$NOW" ] && pass "a clear time ahead of now: the wait starts again from now" || fail "future clear: rc $(rc) $(cat "$T/state/claim-cleared-once")"
 reset; : > "$T/notloaded"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 0 ] && ! called kill && pass "not loaded: nothing to pause" || fail "not loaded: rc $(rc)"
 

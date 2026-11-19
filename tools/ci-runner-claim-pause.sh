@@ -12,7 +12,7 @@
 #     false} does not restart a clean exit. A marker records that THIS pause stopped it. Refused before any stop: a
 #     loaded KeepAlive true (it would restart at once). Waited on: a job running, or no Listener (restarting or
 #     self-updating).
-#   - no live claim on two ticks in a row, marker present: `launchctl kickstart` the runner and remove the marker
+#   - no live claim on two ticks at least 50 s apart, marker present: `launchctl kickstart` the runner and remove the marker
 #     (once the pid it stopped has ended; the marker holds that pid).
 #   - no live claim, no marker: nothing, and nothing logged. A runner someone stopped by hand is never started here.
 #   - the claim cannot be read (its folder closed, not a file, no read permission): nothing changes, exit 1 every tick.
@@ -49,11 +49,15 @@
 # com.kosmos.ci-claim-pause.plist with ProgramArguments [/bin/bash, <that copy>], StartInterval 60, RunAtLoad true,
 # EnvironmentVariables KOSMOS_CI_CLAIM_FILE=<the claim>, StandardOutPath ~/.kosmos-ci/claim-pause.log; then
 # `launchctl bootstrap gui/$(id -u) <plist>`. A ci-runner-setup.sh stage that writes it is not part of this change.
+# MEASURE ON THE BOX BEFORE RELYING ON IT: that `launchctl kill SIGTERM` makes the runner's service exit 0 there (only
+# stand-ins have tested it). A non-zero exit is restarted by launchd as a new pid, and the pause then refuses for the
+# rest of that claim (safe and loud, but no pause).
 # Usage: ci-runner-claim-pause.sh            one tick; prints one line saying what it saw and did
 # Settings: KOSMOS_CI_CLAIM_FILE (required: the claim to watch, e.g.
 #   /Users/mortalkombat/.cache/kosmos-run-markers/machine-claim), KOSMOS_CI_RUNNER_DIR (default ~/actions-runner),
 #   KOSMOS_CI_PAUSE_STATE (default ~/.kosmos-ci/claim-pause, holds the marker).
-# Test seams: KOSMOS_CI_LAUNCHCTL, KOSMOS_CI_PGREP, KOSMOS_CI_PS, KOSMOS_CI_NOW, KOSMOS_CI_UID, KOSMOS_CI_DAEMON_DIR.
+# Test seams: KOSMOS_CI_LAUNCHCTL, KOSMOS_CI_PGREP, KOSMOS_CI_NOW, KOSMOS_CI_UID, KOSMOS_CI_DAEMON_DIR, and
+# KOSMOS_CI_PS (left unused by the test on purpose: the real ps against another user's pid is what it measures).
 # Exit: 0 a tick done (whatever it did), 1 it could not act (said why), 2 not set up (no claim file setting, no runner).
 PATH=/usr/bin:/bin
 set -u
@@ -174,6 +178,9 @@ if [ -f "$MARK" ] && [ -n "$rpid" ]; then
 fi
 now="${KOSMOS_CI_NOW:-$(date +%s)}"
 seen="$(head -n 1 "$CLEARED" 2>/dev/null)"; case "$seen" in ''|*[!0-9]*) seen="" ;; esac
+# A time ahead of now (the clock stepped back, or a planted file) would hold the start off until the clock passes it:
+# start the wait again from now instead.
+[ -z "$seen" ] || [ "$seen" -le "$now" ] || { rm -f "$CLEARED"; seen=""; }
 if [ -f "$MARK" ] && { [ -z "$seen" ] || [ $((now - seen)) -lt 50 ]; }; then
   # Absent on two ticks at least 50 s apart before starting it: a cut can release its claim and claim again between
   # phases, and a start in that gap could take a job a minute before the next tick pauses it again. 50 s, not "two
