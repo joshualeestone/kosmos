@@ -31,13 +31,13 @@ function load() {
 
 test('#8710: the hand-over line names the agents, and a stopped pack says why', () => {
   const c = load();
-  assert.equal(c.plusOrgHandover({ handover: { agents: ['Ledger'] } }), ' Your company is moving Ledger to a colleague\'s computer.');
+  assert.equal(c.plusOrgHandover({ handover: { agents: ['Ledger'] } }), ' Your company is moving Ledger, with their recent conversations and notes, to a colleague\'s computer.');
   assert.equal(c.plusOrgHandover({ handover: { agents: ['Ledger', 'Permit Intake', 'Scout'] } }),
-    ' Your company is moving Ledger, Permit Intake and Scout to a colleague\'s computer.');
+    ' Your company is moving Ledger, Permit Intake and Scout, with their recent conversations and notes, to a colleague\'s computer.');
   assert.equal(c.plusOrgHandover({ handover: { agents: ['Ledger'], stopped: 'there is no agent called Ledger on this computer' } }),
-    ' Your company is moving Ledger to a colleague\'s computer. Kosmos could not pack it: there is no agent called Ledger on this computer.');
+    ' Your company is moving Ledger, with their recent conversations and notes, to a colleague\'s computer. Kosmos could not pack it: there is no agent called Ledger on this computer.');
   assert.equal(c.plusOrgHandover({ handover: { agents: ['Ledger', 'Scout'], stopped: 'no folder' } }),
-    ' Your company is moving Ledger and Scout to a colleague\'s computer. Kosmos could not pack them: no folder.');
+    ' Your company is moving Ledger and Scout, with their recent conversations and notes, to a colleague\'s computer. Kosmos could not pack them: no folder.');
   for (const st of [null, {}, { handover: null }, { handover: {} }, { handover: { agents: [] } }, { handover: { agents: [3, ''] } }]) {
     assert.equal(c.plusOrgHandover(st), '', JSON.stringify(st));
   }

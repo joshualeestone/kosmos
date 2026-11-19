@@ -724,6 +724,7 @@ async function uploadManifestInner(deps, bytes, o, st) {
     floor = Math.min(floor, c.lockedUntilMs);
   }
   if (!avoid.size) return { ok: false, grantSpent: false, because: 'a manifest must name at least one chunk' };
+  const chunkKeys = new Set(avoid);   // the chunks' keys alone (avoid grows with each manifest grant below)
   // Every key the coordinator builds is <org>/<account>/<epoch>/<period>/<random>, from the authenticated member. The
   // chunks must share one <org>/<account>, and the manifest's key must too (checked as it arrives): a coordinator bug
   // cannot file this member's manifest under another member's path. (Not the epoch or period: a manifest may name
@@ -762,7 +763,11 @@ async function uploadManifestInner(deps, bytes, o, st) {
     const skew = clockSkew(now(), g.expiresAtMs);
     if (skew) return { ok: false, because: skew, grantSpent: true };
     const up = g.upload;
-    if (avoid.has(up.key)) return { ok: false, grantSpent: true, because: 'the manifest grant names a key it must not write (a chunk key, or a key an earlier manifest grant gave); nothing was sent (this grant\'s allowance is spent)' };
+    // kosmos#8710: a hand-over's manifest has ONE key, <prefix>manifest, and the coordinator grants that same key again
+    // for the same hash and size when an upload lapsed (handover.rs mac_manifest). It is unlocked and write-once
+    // (If-None-Match), so a re-grant of it is the retry, never a second manifest: allowed, and nothing else is.
+    const handoverManifestKey = ho ? `${ho.prefix}manifest` : null;
+    if (ho ? (up.key !== handoverManifestKey || chunkKeys.has(up.key)) : avoid.has(up.key)) return { ok: false, grantSpent: true, because: 'the manifest grant names a key it must not write (a chunk key, or a key an earlier manifest grant gave); nothing was sent (this grant\'s allowance is spent)' };
     avoid.add(up.key);
     if (!ho && ownerOf(up.key) !== owner) return { ok: false, grantSpent: true, because: `the manifest grant's key is not under its chunks' path (${owner}/); nothing was sent (this grant's allowance is spent)` };
     if (!ho && up.retainMs > floor) return { ok: false, outlastsChunks: true, grantSpent: true, because: `the manifest grant locks until ${new Date(up.retainMs).toISOString()}, past the earliest chunk it names (${new Date(floor).toISOString()}); nothing was sent (this grant's allowance is spent)` };

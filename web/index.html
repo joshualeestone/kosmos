@@ -59798,7 +59798,7 @@ function plusOrgHandover(st) {
   if (!names.length) return '';
   const list = names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
   const stopped = typeof h.stopped === 'string' && h.stopped ? ' Kosmos could not pack ' + (names.length === 1 ? 'it' : 'them') + ': ' + h.stopped + '.' : '';
-  return ' Your company is moving ' + list + ' to a colleague\'s computer.' + stopped;
+  return ' Your company is moving ' + list + ', with their recent conversations and notes, to a colleague\'s computer.' + stopped;
 }
 function plusForgetRequiredLine(st) {
   if (!(st && st.enrolled === true && st.reportingRequired === true)) return '';
