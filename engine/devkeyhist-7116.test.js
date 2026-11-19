@@ -78,7 +78,7 @@ test('with the test key cleared, only escrowd\'s SHIPPED key counts: a history s
   try {
     for (const bad of [null, undefined, Buffer.alloc(31), 'x'.repeat(64), VK.toString('hex')]) {
       hist.setVerifyingKeyForTests(bad);
-      assert.match(hist.verify(h, opts).because || '', /signature|signed/, `${String(bad).slice(0, 12)} must not count as a key, and the shipped key does not sign this`);
+      assert.match(hist.verify(h, opts).because || '', /signature/, `${String(bad).slice(0, 12)} must not count as a key, and the shipped key does not sign this`);
     }
   } finally { hist.setVerifyingKeyForTests(VK); }
   assert.strictEqual(hist.verify(h, opts).ok, true, 'control: restored');
@@ -182,9 +182,8 @@ test('a clock that is not a time is refused by name, against an honest twin', ()
   }
 });
 
-test('the shipped verifying key is 32 bytes of lowercase hex and an Ed25519 point (a bad paste fails here, not in a restore)', () => {
+test('the shipped verifying key is 32 bytes of lowercase hex (that it is escrowd\'s key is the golden vector\'s job below)', () => {
   assert.match(hist.VERIFYING_KEY, /^[0-9a-f]{64}$/);
-  assert.doesNotThrow(() => crypto.createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), Buffer.from(hist.VERIFYING_KEY, 'hex')]), format: 'der', type: 'spki' }));
 });
 
 test('outside a test process verify trusts exactly the shipped key; inside one, a test key stands in', () => {
@@ -266,5 +265,5 @@ test('golden vector: escrowd\'s own signed history verifies under the shipped ke
     const changed = { ...GOLDEN, member: 'zz-goldenvector-7116-membes' };
     assert.match(hist.verify(changed, { ...o, member: changed.member }).because || '', /signature/, 'control: a changed history fails on the signature');
   } finally { hist.setVerifyingKeyForTests(VK); }
-  assert.strictEqual(hist.verify(GOLDEN, o).ok, false, 'control: under the fixture key it does not verify');
+  assert.match(hist.verify(GOLDEN, o).because || '', /signature/, 'control: under the fixture key it does not verify');
 });
