@@ -12,8 +12,8 @@
 #     false} does not restart a clean exit. A marker records that THIS pause stopped it. Refused before any stop: a
 #     loaded KeepAlive true (it would restart at once). Waited on: a job running, or no Listener (restarting or
 #     self-updating).
-#   - no live claim, marker present: `launchctl kickstart` the runner and remove the marker (once it has finished
-#     stopping: within 90 s of the stop it may still be ending).
+#   - no live claim on two ticks in a row, marker present: `launchctl kickstart` the runner and remove the marker
+#     (once the pid it stopped has ended; the marker holds that pid).
 #   - no live claim, no marker: nothing, and nothing logged. A runner someone stopped by hand is never started here.
 #   - the claim cannot be read (its folder closed, not a file, no read permission): nothing changes, exit 1 every tick.
 #
@@ -28,6 +28,11 @@
 # Not closed, said so: a job the Listener has accepted but not yet handed to a Runner.Worker is not seen, and the SIGTERM
 # cancels it (a red job, re-run by hand). How long that window is has NOT been measured (it spans the Listener's own
 # round trips to GitHub), and it is armed at the start of every cut, not once by an operator as in the keepalive stage.
+# Also open: if the runner comes back as a new pid during a claim (by hand, or launchd after an unclean exit), the
+# pause refuses to stop it again and so stops pausing for the rest of that claim (exit 1, said every tick).
+# A box that has never had a cut may have no marker folder yet: each tick then exits 1 ("cannot read") until the first
+# cut creates it. The runner dir goes into an ERE with only its dots escaped (as ci-runner-setup.sh's own_listener_re):
+# a dir with + ( or [ in its name would match no Listener, so the pause would wait forever (safe, but no pause).
 # Not handled: a runner run as a LaunchDaemon (the daemon stage) is in the system domain, which this user cannot stop:
 # refused, exit 1, every tick. Out of scope: a kosmos-relay runner under the same user is never stopped (its jobs do
 # delay the pause, since pgrep cannot tell the two runners' Workers apart).
@@ -58,7 +63,8 @@ CLAIM="${KOSMOS_CI_CLAIM_FILE:-}"
 RUNNER_DIR="${KOSMOS_CI_RUNNER_DIR:-$HOME/actions-runner}"
 STATE="${KOSMOS_CI_PAUSE_STATE:-$HOME/.kosmos-ci/claim-pause}"
 uid="${KOSMOS_CI_UID:-$(id -u)}"
-MARK="$STATE/paused-by-claim"
+MARK="$STATE/paused-by-claim"      # holds the pid this pause stopped
+CLEARED="$STATE/claim-cleared-once" # the claim was gone on the last tick
 
 say() { printf 'claim-pause %s: %s\n' "$(date '+%F %T %Z')" "$*"; }
 [ -n "$CLAIM" ] || { say "not set up: KOSMOS_CI_CLAIM_FILE is empty"; exit 2; }
@@ -103,6 +109,7 @@ printed="$("$LAUNCHCTL" print "$dom/$label" 2>/dev/null)"; prc=$?
 rpid="$(printf '%s\n' "$printed" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)"
 
 if live="$(claim_live)"; then
+  rm -f "$CLEARED"   # the claim is live: a "gone once" from an earlier tick no longer counts
   hexp="$(printf '%s' "$live" | awk '{print $2}')"
   why="a live claim ($(printf '%s' "$live" | cut -d' ' -f3-), until $(date -r "$hexp" '+%H:%M' 2>/dev/null || echo "$hexp"))"
   [ "$prc" = 0 ] || { say "$why, but $label is not loaded in $dom: nothing to pause"; exit 0; }
@@ -114,13 +121,14 @@ if live="$(claim_live)"; then
      && ! printf '%s\n' "$printed" | grep -x -E '[[:space:]]*successful exit => 0' >/dev/null; then
     say "$why, but $label is loaded with KeepAlive true, which restarts a stopped runner: not stopping (run ci-runner-setup.sh keepalive)"; exit 1
   fi
-  # Stopped by an earlier tick and running again under the same claim. Within 90 s of that stop it may simply still
-  # be ending (a Listener can take a while to close its session): wait. Later, launchd restarted it or someone started
-  # it, or a tick wrote the marker and died before the stop: stopping again could loop, so refuse, loudly.
+  # Stopped by an earlier tick and still showing a pid under the same claim. The marker holds the pid this pause
+  # stopped: the same pid is that process still ending (however long it takes); a different one is a NEW start (by
+  # hand, or launchd after an unclean exit), and stopping again could loop, so refuse, loudly. That refusal lasts for
+  # the rest of the claim: the pause stops pausing for that cut, said every tick (see "Not closed" above).
   if [ -f "$MARK" ]; then
-    age=$(( $(date +%s) - $(stat -f %m "$MARK" 2>/dev/null || echo 0) ))
-    [ "$age" -ge 90 ] || { say "$why; $label was told to stop ${age}s ago and is still ending"; exit 0; }
-    say "$why, but $label runs again ${age}s after this pause stopped it (started by hand or by launchd, or the stop never happened): not stopping it again; remove $MARK to let the pause act"; exit 1
+    stopped="$(head -n 1 "$MARK" 2>/dev/null)"
+    [ "$stopped" != "$rpid" ] || { say "$why; $label (pid $rpid) was told to stop and is still ending"; exit 0; }
+    say "$why, but $label runs again as pid $rpid after this pause stopped pid ${stopped:-?} (started by hand, or by launchd after an unclean exit): not stopping it again this claim; remove $MARK to let the pause act"; exit 1
   fi
   # The service runs but no Listener of THIS runner does: between Listeners, or self-updating (it moves bin/ while
   # none runs). A SIGTERM now could end the updater half way (ci-runner-setup.sh's keepalive refuses the same state).
@@ -132,7 +140,7 @@ if live="$(claim_live)"; then
   wrc=0; "$PGREP" -u "$uid" -x Runner.Worker >/dev/null 2>&1 || wrc=$?
   [ "$wrc" -lt 2 ] || { say "$why, but pgrep failed (exit $wrc), so a job cannot be ruled out: not stopping"; exit 1; }
   [ "$wrc" = 1 ] || { say "$why; a job is running, so the runner is left to finish it"; exit 0; }
-  mkdir -p "$STATE" 2>/dev/null && : > "$MARK" || { say "$why, but the marker $MARK cannot be written: not stopping (it could not be restarted)"; exit 1; }
+  mkdir -p "$STATE" 2>/dev/null && printf '%s\n' "$rpid" > "$MARK" || { say "$why, but the marker $MARK cannot be written: not stopping (it could not be restarted)"; exit 1; }
   "$LAUNCHCTL" kill SIGTERM "$dom/$label" >/dev/null 2>&1 || { rm -f "$MARK"; say "$why, but launchctl kill SIGTERM $dom/$label failed"; exit 1; }
   say "$why; no job running, so $label was stopped (SIGTERM); it starts again when the claim clears"
   exit 0
@@ -148,16 +156,22 @@ if [ ! -d "$cdir" ] || [ ! -x "$cdir" ] || { [ -e "$CLAIM" ] && { [ ! -f "$CLAIM
   exit 1
 fi
 if [ -f "$MARK" ] && [ -n "$rpid" ]; then
-  # The claim cleared while the runner this pause stopped still shows a pid. Within 90 s it is still ending: a
-  # kickstart now would do nothing to a running service, and the old Listener's clean exit would then leave it down
-  # with no marker to bring it back, so keep the marker and wait. Later, it was started some other way: nothing to undo.
-  age=$(( $(date +%s) - $(stat -f %m "$MARK" 2>/dev/null || echo 0) ))
-  [ "$age" -ge 90 ] || { say "no live claim; $label was told to stop ${age}s ago and is still ending: starting it once it has"; exit 0; }
-  rm -f "$MARK"; say "no live claim; $label is already running (started another way)"; exit 0
+  # The claim cleared while the runner still shows a pid. The pid this pause stopped is still ending: a kickstart now
+  # would do nothing to a running service, and its clean exit would then leave it down with no marker to bring it back,
+  # so keep the marker and wait. A different pid was started some other way: nothing to undo.
+  stopped="$(head -n 1 "$MARK" 2>/dev/null)"
+  [ "$stopped" != "$rpid" ] || { say "no live claim; $label (pid $rpid) is still ending: starting it once it has"; exit 0; }
+  rm -f "$MARK" "$CLEARED"; say "no live claim; $label is already running as pid $rpid (started another way)"; exit 0
+fi
+if [ -f "$MARK" ] && [ ! -f "$CLEARED" ]; then
+  # Absent on two ticks in a row before starting it: a cut can release its claim and claim again between phases, and
+  # a start in that gap could take a job a minute before the next tick pauses it again.
+  : > "$CLEARED" 2>/dev/null || { say "no live claim, but $CLEARED cannot be written: not starting $label yet"; exit 1; }
+  say "no live claim; starting $label next tick if the claim is still gone"; exit 0
 fi
 if [ -f "$MARK" ]; then
   "$LAUNCHCTL" kickstart "$dom/$label" >/dev/null 2>&1 || { say "no live claim, but launchctl kickstart $dom/$label failed (if it is not loaded: launchctl bootstrap $dom $plist); the marker stays, so the next tick tries again"; exit 1; }
-  rm -f "$MARK"
+  rm -f "$MARK" "$CLEARED"
   say "no live claim; $label was started again (this pause had stopped it)"
   exit 0
 fi
