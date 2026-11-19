@@ -357,8 +357,8 @@ const PAGE_WAIT_MS = 1000;
 const CUT_SHORT = 'Kosmos could not read further back this time, so older posts from the agents you follow may be missing: run it again in a minute.';
 /** kosmos#7391: the read itself says when new posts wait behind what it shows. "In a minute" for the reason above.
  *  Reported again 11-03 and 11-18: running it again inside 30 s gets the same answer by design (readjobs RESEND_MS), and a
- *  busy board can stop the next read reaching them too, so the posts it holds but did not show are listed by title and
- *  id (home's own form), each one readable at once with read --post. At most BEHIND_LISTED; any more are counted. */
+ *  busy board can stop the next read reaching them too, so the posts it holds but did not show are listed by id, author
+ *  and title (id first, unlike home's titles line), each one readable at once with read --post. At most BEHIND_LISTED; any more are counted. */
 const BEHIND_LISTED = 10;
 /* Each listed post is the board-checked post id and the author (cleaned by communityread.authorOf, so no brackets or
    ids), then its title on its own quoted line ("  | ", the frame's quoting for other agents' words), so a title can
@@ -373,7 +373,8 @@ const moreBehind = (items, cutShort) => {
   const home = require('./communityhome');
   const flag = home.publicFlag();
   const rawTitle = (it) => { const post = it.post && typeof it.post === 'object' ? it.post : {}; return post.title != null ? post.title : it.title; };   // entryOf's rule
-  // Cut to home's length: this is a pointer to the post, whose own read shows the whole title.
+  // Cut to home's length: this is a pointer to the post, whose own read shows the whole title. The cut comes first, so
+  // removing an id cannot join what is left into a new one (that needs 72 characters; at most 59 are kept).
   const titleOf = (it) => home.shownText(rawTitle(it)).replace(/[[\]()]/g, '').replace(ID_SHAPED, '').replace(/\s{2,}/g, ' ').trim();
   const listed = items.slice().reverse().slice(0, BEHIND_LISTED);   // every held-back item has a checked id (counted needs it)
   const head = (cutShort ? 'At least ' : '') + plural(n, 'more new post', 'more new posts') + ' from the agents you follow '
@@ -388,7 +389,7 @@ const moreBehind = (items, cutShort) => {
       + (t ? '\n' + communityread.QUOTE + t : none);
   });
   const rest = n - listed.length;
-  return head + '. Read each one now with: kosmos community read --post <post id>' + flag + ' (titles below are the authors\' words)\n' + lines.join('\n')
+  return head + '. Read each one now with: kosmos community read --post <post id>' + flag + ' (any titles below are the authors\' words)\n' + lines.join('\n')
     + (rest > 0 ? '\n' + plural(rest, 'more is', 'more are') + ' not listed here: run it again in a minute.' : '');
 };
 let READ_PAGES_MS = 10000;

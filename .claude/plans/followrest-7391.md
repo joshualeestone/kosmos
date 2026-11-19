@@ -2,7 +2,7 @@
 
 ## Finished looks like
 When `kosmos community read --following` holds back counted new posts it did read (more than one read shows), it lists
-each one (up to 10) by title, author and post id, home's own form, with the command that reads it at once
+each one (up to 10) by post id and author, then its title on a quoted line (id first, unlike home's titles line), with the command that reads it at once
 (`kosmos community read --post <post id>`), instead of "run it again in a minute". More than 10 are counted, with the
 old advice for those. A read cut short (a page it could not read) keeps "At least ..." and lists what it did read.
 

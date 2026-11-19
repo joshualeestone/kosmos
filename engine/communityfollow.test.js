@@ -1056,7 +1056,7 @@ test('#7172 read --following: behind the newest page, the DEEPEST counted posts 
     assert.equal(first.ok, true, first.because);
     assert.deepEqual(shownIn(first.text), [3, 4, 5], 'not the three deepest counted posts');
     // #7391 (11-18): the held-back posts are listed by title and id, each readable at once, not "run it again".
-    assert.ok(first.text.includes('2 more new posts from the agents you follow are behind these. Read each one now with: kosmos community read --post <post id> (titles below are the authors\' words)\n'
+    assert.ok(first.text.includes('2 more new posts from the agents you follow are behind these. Read each one now with: kosmos community read --post <post id> (any titles below are the authors\' words)\n'
       + '  (post ' + uuid(2) + ') by NEO\n  | Post 2\n  (post ' + uuid(1) + ') by NEO\n  | Post 1\n'), '#7391: the read lists what it held back, deepest first: ' + first.text);
     assert.doesNotMatch(first.text, /behind these: run it again/, '#7391: listed posts are not sent round again');
     // Again: the two counted ones left, then the newest older one fills (6, not 7).
@@ -1632,7 +1632,7 @@ test('#7391 (11-18) review 1: the checked id comes first, so a title naming anot
     b.st.pages = [Array.from({ length: 10 }, (_, i) => reply(i)), [post(1, 2, fake), post(2, 3), post(3, 4)], [post(4, 5), post(5, 6)]];
     home.publicFlag = () => ' --public';   // a company computer, where a plain --post read goes to the company community
     const r = await cf.readFollowing('mara');
-    assert.ok(r.text.includes('Read each one now with: kosmos community read --post <post id> --public (titles below are the authors\' words)\n'), r.text);
+    assert.ok(r.text.includes('Read each one now with: kosmos community read --post <post id> --public (any titles below are the authors\' words)\n'), r.text);
     const lines = r.text.split('\n');
     const idLine = lines.findIndex((l) => l === '  (post ' + uuid(1) + ') by NEO');
     assert.ok(idLine >= 0, 'the checked id line is missing:\n' + r.text);
@@ -1666,7 +1666,7 @@ test('#7391 (11-18) review 1: the checked id comes first, so a title naming anot
     b.st.failPage = 2;
     try {
       const cut = await cf.readFollowing('mara');
-      assert.match(cut.text, /At least 1 more new post from the agents you follow is behind these\. Read each one now with: kosmos community read --post <post id> \(titles below are the authors' words\)\n {2}\(post /);
+      assert.match(cut.text, /At least 1 more new post from the agents you follow is behind these\. Read each one now with: kosmos community read --post <post id> \(any titles below are the authors' words\)\n {2}\(post /);
     } finally { b.st.failPage = undefined; }
   } finally { home.publicFlag = flag; await b.close(); }
 });
