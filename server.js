@@ -1942,6 +1942,14 @@ function withRepeatWords(t) {
   if (!t || !t.repeat) return t;
   return Object.assign({}, t, repeatFields(t));
 }
+/* kosmos#8734 (feedback): what an open task waits for (kosmos task wake), in the same words the Tasks view's rows carry
+   (taskwake.fieldsOf), on the list the CLIs read. `kosmos task show` prints them, but this arm never added them, so an
+   active wake was invisible from the command line once its confirmation scrolled away. A map lookup per waking row. */
+function withWakeWords(t) {
+  if (!t || !t.wake || tasks.progressOf(t).closed) return t;
+  const w = taskwake.fieldsOf(t, Date.now(), taskwake.problemFor(t.projectId, t));
+  return Object.keys(w).length ? Object.assign({}, t, w) : t;
+}
 /* #1307: a project's webhooks (engine/webhooks.js). */
 const webhooks = require('./engine/webhooks');
 const HOOK_BODY_MAX = 16 * 1024;
@@ -23691,7 +23699,7 @@ const server = http.createServer(async (req, res) => {
           .map((x) => ({ ...x, ms: x.at ? Date.parse(x.at) : NaN }))
           .filter((x) => !Number.isFinite(x.ms) || x.ms <= cutoff)
           .sort((a, b) => (Number.isFinite(a.ms) ? a.ms : -Infinity) - (Number.isFinite(b.ms) ? b.ms : -Infinity))
-          .map((x) => Object.assign({}, withRepeatWords(x.t), { lastActivityAt: x.at || null }));
+          .map((x) => Object.assign({}, withWakeWords(withRepeatWords(x.t)), { lastActivityAt: x.at || null }));
         /* kosmos#7151 (feedback): a quiet task an agent left under work that has since finished is OFFERED for retiring
            (`leftUnder`, the closed parent's number); nothing is retired here. The rule is tasks.retireOffers'. The
            roster (a board snapshot) and each candidate's transcript are read only when some row would be offered. */
@@ -23742,7 +23750,7 @@ const server = http.createServer(async (req, res) => {
         }
         return Object.assign({}, t, extra);
       } : (t) => t;
-      sendJson(res, 200, { tasks: rows.map(withRepeatWords).map(taskseen ? seenOf : (t) => t).map(activityOf), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}), ...(allProjects ? { all: true } : {}), ...(mineCaller ? { mine: true } : {}) });   // kosmos#4787, kosmos#7992
+      sendJson(res, 200, { tasks: rows.map(withRepeatWords).map(withWakeWords).map(taskseen ? seenOf : (t) => t).map(activityOf), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}), ...(allProjects ? { all: true } : {}), ...(mineCaller ? { mine: true } : {}) });   // kosmos#4787, kosmos#7992
       return;
     }
     /* #3559: the Tasks view groups by WHERE THE WORK IS, and the engine derives
@@ -24949,7 +24957,8 @@ const server = http.createServer(async (req, res) => {
           }
         }
         /* Asked of the reader: it named the reader (an @name, or an agent's `Sender -> Name:` header; messages.namedIn,
-           the claim guard's own reading), or the person posted and it reached the reader. A colleague's post that only
+           the claim guard's own reading), or the person posted and it reached the reader, unless the claim guard reads it
+           as asking only other agents (kosmos#8734, see namedOthersOnly below). A colleague's post that only
            reached it is not counted: an FYI is not an ask, and listing it would invite the re-answers this exists to
            stop. Never the reader's own post. The rows above drop `addressed`, so it is read from the stored rows. */
         const namedReader = new Set();
@@ -24957,11 +24966,31 @@ const server = http.createServer(async (req, res) => {
         const namedBy = new Map();
         /* kosmos#8300: posts aimed at someone: an @-name, an @-word that matched two members, or a reply to one post. */
         const aimedAt = new Set();
+        /* kosmos#8734 (feedback): a person's post reaches every member (messages.js: an operator post's recipients are the
+           whole room), so one that names only OTHER agents was listed as asked of every reader. Named, and not the reader. */
+        const namedOthersOnly = new Set();
+        /* Review 6: the members the claim guard reads it with (react(): the project's agents less removed ones), so a post
+           naming only an agent that has left asks nobody and stays listed. Unreadable: null, and nothing is hidden. */
+        let membersNow = null;
+        try {
+          const now = messages.roomMembersNow(Array.isArray(roomRecord && roomRecord.agents) ? roomRecord.agents : []);
+          membersNow = now.ok === true && Array.isArray(now.members) && now.members.length ? now.members : null;
+        } catch { membersNow = null; }
         if (readerName) {
           for (const m of roomRows) {
             if (!m || m.kind !== 'post') continue;
             const named = messages.namedIn(m);
             if (named.includes(readerName)) namedReader.add(String(m.id));
+            /* Who it asked is the claim guard's reading (messages.claimAskedMembers), so the two never disagree (review 5):
+               its named members, unless an @-word could not be placed or it asks the room in words ("@bob is swamped so
+               somebody else please grab it"). Review 4: and not with @all or @everyone, which a person's row does not
+               record as names (the test messages.js uses, `code` spans skipped). */
+            else if (named.length && m.operator === true
+              && !/(^|[^A-Za-z0-9._-])@(all|everyone)(?![A-Za-z0-9_-])/i.test(String(m.text || '').replace(/`[^`]*`/g, ' '))) {
+              let asked = [];
+              try { asked = membersNow ? messages.claimAskedMembers(m, roomRows, id, membersNow) : []; } catch { asked = []; }   // unread: listed, as before
+              if (asked.length && !asked.includes(readerName)) namedOthersOnly.add(String(m.id));
+            }
             if (onlyUnanswered) namedBy.set(String(m.id), named);
             if (named.length || (Array.isArray(m.ambiguousMentions) && m.ambiguousMentions.length) || typeof m.replyTo === 'string') aimedAt.add(String(m.id));
           }
@@ -24970,7 +24999,8 @@ const server = http.createServer(async (req, res) => {
            is handled for the reader: it is left out of --unanswered and named under the list, so the reader can still
            read it. A later post that names the reader again is its own ask and is listed as one. Only a claimant the
            post asked: a bystander's claim does not answer for the agents that were asked. The reader's own claim is no
-           answer either, so an ask it claimed and has not answered stays listed. */
+           answer either, so an ask it claimed and has not answered stays listed (one that asked the reader at all: a person's
+           post naming only others, kosmos#8734, is never on the reader's list, claimed or not). */
         /* kosmos#7848: "asked" as for the reader: a post that names agents asked those it names (a person's @name narrows
            it too); the person's post that names nobody asked every agent it was delivered to, not one it went quiet or
            could not reach. */
@@ -24992,7 +25022,7 @@ const server = http.createServer(async (req, res) => {
         const askedOfReader = (m) => !!readerName && m && m.kind === 'post'
           && (m.operator === true || m.from !== readerName)
           && (namedReader.has(String(m.id))
-            || (m.operator === true && Array.isArray(m.to) && m.to.includes(readerName)
+            || (m.operator === true && Array.isArray(m.to) && m.to.includes(readerName) && !namedOthersOnly.has(String(m.id))
               && !(m.outcomes && (m.outcomes[readerName] === 'quiet' || m.outcomes[readerName] === 'could_not'))));
         // kosmos#4926: the asks a later post of the reader's does not move: its own claim is no answer (#7848), and a person's ask stays listed (kosmos#8300 has the one way it leaves, below).
         const listKeepsAsk = (m) => m.operator === true || !!(m.claim && m.claim.by === readerName);

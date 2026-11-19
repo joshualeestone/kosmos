@@ -1585,11 +1585,16 @@ async function taskClose(ctx, args) {
   else {
     /* kosmos#7412, as install/kosmos: several numbers close several tasks, each as one close is. Every word after the first
        number must be a number too, checked before anything closes. */
+    let plain = false;
     for (const w of args.slice(2)) {
       if (w === '--replaced-by') { ctx.err('--replaced-by takes one task: close the others on their own.'); return 2; }
       if (w === '--with-built' || w === '--not-run') continue;   // kosmos#7514: also close the built subtasks of each task closed; kosmos#8301
-      if (!/^[0-9]+$/.test(w) && tooManyWords(ctx, 'task close', 2, TASK_CLOSE_USAGE, args)) return 2;   // not a number: as #4889 review 6
+      /* kosmos#8734 (feedback), as install/kosmos: an unknown option is named itself, and a plain word blames no option.
+         tooManyWords named the FIRST option after the number, so `close p 3 --not-run x` blamed the valid --not-run. */
+      if (/^--[A-Za-z]/.test(w)) { refuseOption(ctx, 'task close', TASK_CLOSE_USAGE, w, 'target'); return 2; }
+      if (!/^[0-9]+$/.test(w)) plain = true;   // review 8: said after the loop, so an unknown option later in the line is still named
     }
+    if (plain) { ctx.err('kosmos task close takes no more words than its usage shows, so nothing was done. Quote anything of more than one word.'); ctx.err(TASK_CLOSE_USAGE); return 2; }
     /* The board's own limit for closing several at once (server.js BULK_CLOSE_MAX), refused before anything is sent. */
     if (args.length - 1 - args.filter((x) => x === '--with-built' || x === '--not-run').length > 200) { ctx.err('Close up to 200 tasks at a time: run it again with the rest.'); return 2; }
     const nums = args.slice(1).filter((x) => x !== '--with-built' && x !== '--not-run');
