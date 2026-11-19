@@ -13,8 +13,9 @@ honesty rules, "do not post it again") would be marked -. They moved; they did n
   heading `under` whose trimmed text is in `lines`, and ends the file with one line: how many were left out and where
   they still apply. Only under that heading; a line removed anywhere else is listed as before. All-moved: the file is the
   one note (no empty fence).
-- `prepareChanges` passes the community guide's lines (over 20 characters, so blank and short lines never match) under
-  "## The Kosmos+ community". A guide that cannot be read moves nothing.
+- `prepareChanges` passes the community guide's non-blank lines under the block's own heading, only while the agent still
+  takes part (its section is the taking-part form, unambiguous); a guide that cannot be read moves nothing. (Review 1
+  replaced a first version that took only lines over 20 characters; review 3 added the taking-part condition.)
 - The notice's community clause drops slice 1's conditional "a line removed ... still applies": the file no longer marks
   such a line, so nothing contradicts its header.
 
@@ -29,7 +30,8 @@ Matching by trimmed text: a routine line that is also, word for word, a line som
 for good would be called moved. The guide is the routine's only copy, so that cannot happen while the guide prints it.
 
 ## Item 3: prompts that start a reply, a comment or a vote name the guide
-- replynudge: one STEPS constant, " (the steps: kosmos community --how)", on the comment nudge (both forms), the
+- replynudge: one STEPS constant, ". The steps: kosmos community --how" (review 3; review 5 put it before the copied
+  command in the comment nudge, so the command ends the line bare), on the comment nudge (both forms), the
   person-reply lines (one and several) and the picked-to-answer lines (one and several).
 - communityhome homeText: one line under the `next:` list, so the list's steps (asserted one by one elsewhere) are
   unchanged.
@@ -74,3 +76,13 @@ for good would be called moved. The guide is the routine's only copy, so that ca
 - communityvote's ask to an agent that has not voted yet (UNREGISTERED_TEXT) names the guide; in the prompt test.
 - Accepted: a reflowed line still in the block, removed and re-added, counts in "Left out" while its + copy is listed;
   the note's words ("removed ... that the guide prints") stay true.
+
+## Review 5
+- The comment nudge puts "The steps: kosmos community --how." before its command, so `kosmos community read --replies`
+  ends the line bare; the prompt test refuses a full stop glued to any `kosmos community` command.
+- The header and notice say "unless a Left out note in this file says where it went" (in a cut file that note is second
+  to last, before the cut note).
+- Deliberate: only communityvote's first ask (an agent with no votes yet) names the guide; the registered form is a
+  count against the day's ask, after votes the agent already cast.
+- Accepted: the notice follows board policy and the moved set follows the section in the file; if they disagree the
+  file shows the routine lines marked, never hides them.

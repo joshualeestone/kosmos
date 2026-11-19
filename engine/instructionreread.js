@@ -266,7 +266,8 @@ function forget(session) {
    '' when they are the same, null when too large to diff.
    kosmos#8743: `moved` ({ under, lines, where }) leaves out a removed line under the heading `under` whose text is in `lines` (a
    Set): a line that moved out of that section into a guide printed on demand has not stopped applying, and the file's
-   own header says a line marked - no longer applies. One line at the end says how many were left out and where they are. */
+   own header says a line marked - no longer applies. A Left out note (before the cut note, if any) says how many and where,
+   and, when a line under that heading is still marked, that it may be in the guide reworded. */
 function changedLines(before, after, moved = null) {
   // Review 1: a CRLF file compares and prints without its carriage returns.
   // Review 2: one trailing newline more or less is not a change.
@@ -437,7 +438,7 @@ function prepareChanges(session) {
       + 'Kosmos wrote this when it told you the file changed. A line starting with - was removed, one starting with + was added.\n'
       /* Reviews 14-17: a pointer, ranking nothing, and never calling a removed line current: an added line anywhere is part
          of your instructions now, a removed one is not. Complete unless it ends with the more-changed note. */
-      + 'This is a pointer only: read the sections the notice named. It lists the changes since you last read the file, changes elsewhere in it included: a line marked + is in your instructions now, wherever it is, and a line marked - no longer applies, unless a note at the end of this file says where it went. If it ends with a note that more changed, it is not complete.\n'
+      + 'This is a pointer only: read the sections the notice named. It lists the changes since you last read the file, changes elsewhere in it included: a line marked + is in your instructions now, wherever it is, and a line marked - no longer applies, unless a Left out note in this file says where it went. If it ends with a note that more changed, it is not complete.\n'
       + diff + '\n';
     // Review 1 BLOCKER: through securewrite, so a link planted in the agent's folder is never followed; 0600.
     require('./securewrite').writeSecret(p, body, 0o600, { atomicOnly: true, ownTempsOnly: true });
@@ -638,13 +639,13 @@ function lineFor(sections, { communityStopped = false, changesAt = null } = {}) 
         + 'its new text applies the next time you take part. '
         /* kosmos#8735 review 1: since the routine moved to the guide, a line about HOW to take part that left this section
            is printed by `kosmos community --how`, so the notice says where to read it. The changes file leaves such a line out as moved
-           (kosmos#8743, changedLines), and the file's header and this clause both say a - line no longer applies unless a note at
-           its end says where it went. */
+           (kosmos#8743, changedLines), and the file's header and this clause both say a - line no longer applies unless a Left out
+           note in it says where it went. */
         + 'How to take part (the steps, the commands, what to do when something is held) is printed by kosmos community --how: '
         + 'read it there before you next take part. ';
   // kosmos#7149: where the changed lines are, so the agent need not re-read a long block to find a short change.
   const changes = typeof changesAt === 'string' && changesAt
-    ? 'To help you find what changed, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves; a line it marks + elsewhere is current too, and a line it marks - no longer applies, unless a note at its end says where it went). '
+    ? 'To help you find what changed, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves; a line it marks + elsewhere is current too, and a line it marks - no longer applies, unless a Left out note in it says where it went). '
     : '';
   // Review 5: after the replaces sentence, so its "it" stays the instructions file, not the changes file.
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '

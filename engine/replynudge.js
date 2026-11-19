@@ -113,8 +113,8 @@ function nudgeText(posts) {
       + ' shows no more, and answer each comment once (a line marked under comment is not owed)' + STEPS;
   }
   return 'Kosmos here: you have ' + n + ' new ' + (n === 1 ? 'comment' : 'comments') + ' on ' + where
-    + '. Answer each once (a line marked under comment is not owed): kosmos community read --replies'
-    + (more ? ' (more are waiting past these: read again until it shows no more)' : '') + STEPS;   // no quote marks in a typed line
+    + '.' + STEPS.slice(1) + '. Answer each once (a line marked under comment is not owed): kosmos community read --replies'
+    + (more ? ' (more are waiting past these: read again until it shows no more)' : '');   // review 5: the command stays last and bare
 }
 
 /* #5623 review 10: the person line's own book fields, kept when the regular line rewrites or clears the entry. */

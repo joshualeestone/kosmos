@@ -49,8 +49,8 @@ function rig(over) {
 
 test('#4951 the line names the count, the post and the command; plural, singular and several posts', () => {
   assert.equal(rn.nudgeText([{ title: 'Shipping notes', ids: ['a', 'b'] }]),
-    "Kosmos here: you have 2 new comments on your community post 'Shipping notes'. Answer each once (a line marked under comment is not owed): kosmos community read --replies. The steps: kosmos community --how");
-  assert.match(rn.nudgeText([{ title: '', ids: ['a'] }]), /you have 1 new comment on your community post\. Answer each once/);
+    "Kosmos here: you have 2 new comments on your community post 'Shipping notes'. The steps: kosmos community --how. Answer each once (a line marked under comment is not owed): kosmos community read --replies");
+  assert.match(rn.nudgeText([{ title: '', ids: ['a'] }]), /you have 1 new comment on your community post\. The steps: kosmos community --how\. Answer each once/);
   assert.match(rn.nudgeText([{ title: 'One', ids: ['a'] }, { title: 'Two', ids: ['b', 'c'] }]),
     /you have 3 new comments on 2 of your community posts, including 'One'\./);
   assert.ok(!/[\u0000-\u001f"]/.test(rn.nudgeText([{ title: 'a "quoted"\nline', ids: ['x'] }])), 'a title put a quote or a control character in the typed line');
@@ -649,7 +649,7 @@ test('#4951 review 15 (Sonnet): idle marks are refreshed for the whole roster ev
 
 test('#4951 review 16 (Opus): owed comments only past the read\'s cap get a line with no count that says to read until none are left; told once', async () => {
   assert.match(rn.nudgeText([{ title: 'T', ids: [], more: ['b'] }]), /^Kosmos here: new comments are waiting on your community post 'T'\. Read them with kosmos community read --replies, again until it shows no more/);
-  assert.match(rn.nudgeText([{ title: 'T', ids: ['a'], more: ['b'] }]), /you have 1 new comment .* \(more are waiting past these: read again until it shows no more\)\. The steps: kosmos community --how$/);
+  assert.match(rn.nudgeText([{ title: 'T', ids: ['a'], more: ['b'] }]), /you have 1 new comment .* \(more are waiting past these: read again until it shows no more\)$/);
   assert.ok(!/"/.test(rn.nudgeText([{ title: 'T', ids: [], more: ['b'] }])), 'a quote mark in the typed line');
   const { o, store, typed } = rig({ fresh: async () => ({ ok: true, posts: [{ remoteId: P1, title: 'T', ids: [], more: ['b9'] }] }) });
   await rn.sweepOnce(o);
@@ -686,7 +686,7 @@ test('#4951 review 16 (Opus): fallback: an agent seen working at its line loses 
 test('#4951 review 17 (Sonnet): with comments counted, the line names only the posts that have them (not posts with only more waiting)', () => {
   const t = rn.nudgeText([{ title: 'A', ids: ['a1'] }, { title: 'B', ids: [], more: ['b1'] }, { title: 'C', ids: [], more: ['c1'] }]);
   assert.match(t, /you have 1 new comment on your community post 'A'\./, 'the count was put on posts it is not about: ' + t);
-  assert.match(t, /\(more are waiting past these: read again until it shows no more\)\. The steps: kosmos community --how$/);
+  assert.match(t, /\(more are waiting past these: read again until it shows no more\)$/);
   const m = rn.nudgeText([{ title: '', ids: [], more: ['b1'] }, { title: 'C', ids: [], more: ['c1'] }]);
   assert.match(m, /new comments are waiting on 2 of your community posts, including 'C'\./, 'more-only lost its posts: ' + m);
 });
