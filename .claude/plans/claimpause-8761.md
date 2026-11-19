@@ -7,7 +7,7 @@ Mortals install (kosmos-ci user, install, register, keepalive, before/after meas
 1. A runner can be told to watch a machine-claim file (Mortals: /Users/mortalkombat/.cache/kosmos-run-markers/machine-claim,
    readable by a standard user: home 750 group staff, marker dir 755, PigeonPete measured). While that file holds a LIVE
    claim, the runner takes no new job: it finishes the job it has, then its service is stopped; when the claim clears or
-   expires it is started again. Never a red job (waiting inside a job times out at suite's 45 min, PigeonPete's point 2).
+   expires it is started again. No red jobs by design (waiting inside a job times out at suite's 45 min, PigeonPete's point 2), except the unmeasured race named below.
 2. A test proves both arms with a stand-in launchctl/pgrep: live claim + idle -> stopped; live claim + job running ->
    left alone until idle; no claim, expired claim, malformed claim -> started; a claim held by ANOTHER user's live pid
    reads as live (the control below).
@@ -37,7 +37,7 @@ That stopping the Listener cleanly while idle never loses an already-assigned jo
 real behaviour on Mortals is PigeonPete's install check.
 
 ## Tests
-- tools/test-ci-runner-claim-pause-8761.sh (47 checks at run time, in test:shell; macOS-only in tools/shell-macos-only.txt). Perturbed (15:41 CST, on c9156b8d2e): liveness
+- tools/test-ci-runner-claim-pause-8761.sh (48 checks at run time, in test:shell; macOS-only in tools/shell-macos-only.txt). Perturbed (15:41 CST, on c9156b8d2e): liveness
   as `kill -0` instead of `ps -p` fails the live-claim checks; restored from HEAD.
 
 ## Decided in review
@@ -59,3 +59,6 @@ real behaviour on Mortals is PigeonPete's install check.
 - Round 7: the "not set up" check ran with the real HOME and wrote ~/.kosmos-ci/claim-pause/last-said on this Mac
   (found by the reviewer, removed: it held only that one line, created 15:58); now sandboxed, and a check asserts
   nothing lands in the real home. Logging wording corrected (exit codes repeat, lines are logged once).
+- Round 8 (the cap): an unreadable tick now resets the two-clear-ticks rule (tested, perturbed); "never a red job"
+  became "by design, except the unmeasured race"; the test's call log is cleared per case. Fixed AFTER the last
+  review round, so unreviewed.

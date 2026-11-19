@@ -169,6 +169,7 @@ fi
 # entered, a claim that is not a file, or one that cannot be read counts here.
 cdir="$(dirname "$CLAIM")"
 if [ ! -d "$cdir" ] || [ ! -x "$cdir" ] || { [ -e "$CLAIM" ] && { [ ! -f "$CLAIM" ] || [ ! -r "$CLAIM" ]; }; }; then
+  rm -f "$CLEARED"   # an unreadable tick is not a clear tick: the two-clear-ticks rule starts again
   say "cannot read $CLAIM (missing or closed folder, not a file, or no read permission): nothing changed, the runner stays $([ -f "$MARK" ] && echo paused || echo as it is)"
   exit 1
 fi
