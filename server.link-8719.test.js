@@ -90,7 +90,8 @@ test('#8719 a window that is not plainly that agent is refused 409 with the reas
   lines = [{ session: 'zara', claim: '', command: 'codex' }];
   r = await link('zara', { confirm: true });
   assert.equal(r.status, 409);
-  assert.match(r.json.because, /not Claude/);
+  /* kosmos#8724 item 3: a Codex window links only for an agent Kosmos knows runs Codex; this board has no such record. */
+  assert.match(r.json.because, /running Codex, but Kosmos (has no record of an agent called zara|knows zara as a Claude agent)/);
   assert.equal(calls.length, 0);
 });
 

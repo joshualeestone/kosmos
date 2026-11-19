@@ -184,17 +184,21 @@ test('#8719: it refuses every window that is not plainly that agent, and changes
     [panesOf({ session: 'zara', claim: 'zara' }), /already linked/, 'already marked'],
     [panesOf({ session: 'zara-discord', claim: '' }), /already linked/, 'a -discord session carries the name zara and is ours by its suffix'],
     [panesOf({ session: 'zarah', claim: '' }), /There is no window called zara to link/, 'a prefix is not the name'],
-    [panesOf({ session: 'zara', claim: '', command: 'zsh' }), /running zsh, not Claude/, 'a crashed pane back at a shell'],
-    [panesOf({ session: 'zara', claim: '', command: 'vim' }), /running vim, not Claude/, 'an editor under the name'],
-    [panesOf({ session: 'zara', claim: '', command: 'codex' }), /running codex, not Claude/, 'a Codex window: its runner would read as Claude'],
+    [panesOf({ session: 'zara', claim: '', command: 'zsh' }), /running zsh, which Kosmos cannot tell is an agent/, 'a crashed pane back at a shell'],
+    [panesOf({ session: 'zara', claim: '', command: 'vim' }), /running vim, which Kosmos cannot tell is an agent/, 'an editor under the name'],
+    /* kosmos#8724 item 3: a Codex window is linked only for an agent Kosmos knows runs Codex; zara is a Claude agent here. */
+    [panesOf({ session: 'zara', claim: '', command: 'codex' }), /running Codex, but Kosmos knows zara as a Claude agent/, 'a Codex window under a Claude agent\'s name'],
     [panesOf({ session: 'zara', claim: '', command: 'node' }), /cannot tell that the window called zara is running an agent/, 'an unmarked node could be any program'],
     [[], /There is no window called zara/, 'nothing running at all'],
   ];
+  linkwindow.setExpectedSource(() => 'claude');
   for (const [panes, why, label] of cases) {
     const r = linkwindow.link('zara', { panes, platform: 'darwin' });
     assert.equal(r.outcome, 'refused', label);
     assert.match(r.because, why, label);
   }
+  linkwindow.setExpectedSource(null);
+
   assert.equal(linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '' }), platform: 'win32' }).outcome, 'refused', 'Windows');
   assert.equal(linkwindow.link('  ', { panes: [], platform: 'darwin' }).outcome, 'refused', 'a blank name');
   assert.equal(calls.length, 0, 'a refusal never touched tmux');
