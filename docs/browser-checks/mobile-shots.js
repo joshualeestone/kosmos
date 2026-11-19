@@ -1491,7 +1491,7 @@ const SCREENS = [
     await page.waitForSelector('#link-m-title', { state: 'visible', timeout: 5000 });
   }, verify: async (page) => {
     const t = await page.locator('#link-m-title').innerText();
-    if (t !== 'Link this window to Kosmos?') throw new Error('the dialog said: ' + t);
+    if (!/^Link the window called .+ to Kosmos\?$/.test(t)) throw new Error('the dialog said: ' + t);
   }, after: async (page) => {
     try { await page.locator('#link-m-keep').click({ timeout: 2000 }); } catch { /* already closed */ }
     await page.unroute('**/api/status*');
