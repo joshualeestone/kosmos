@@ -14,14 +14,15 @@ sign-in right now ... if this keeps happening, update Kosmos." Nothing was out o
 
 ## What changes (engine/remote.js, server.js)
 - (a) After an unanswered ask, the board asks again BY ITSELF after 30 s, up to 20 times (about ten minutes), then
-  falls back to the request-driven re-ask as before. One unref'd timer; cleared by any answered ask and by a new
-  generation (forgetConnectorCapabilities). The timer also checks its generation and the kept answer when it fires;
-  those two checks are belts only (the clears above already cover both cases), so no test can fail on them alone.
+  falls back to the request-driven re-ask as before. One unref'd timer, cleared by any answered ask and by a new
+  generation (forgetConnectorCapabilities). Review 1: the timer used to re-check its generation and the kept answer as
+  well; those were removed, so the clears are the one mechanism and a test can fail on them.
 - (d) An ask after an unanswered one gets 15 s instead of 5 s.
 - (c) Every ask writes one stderr line (the board's log): answered in N ms with what it listed, or not answered and what
   happens next (asking again in 30 s / asked 20 times, next request / dropped, a newer tunnel / the earlier yes kept).
-- (b) `connectorCapabilitiesPending()`: true when nothing is kept, the kept ask did not answer, no child runs, or this
-  child's status has not been read yet. `remoteStepUpRefusal` then returns REMOTE_STEP_UP_STARTING ("Kosmos+ is still
+- (b) `connectorCapabilitiesPending()`: true when nothing is kept, the kept ask did not answer, no child runs, this
+  child's status has not been read yet, or (review 1) the status file is held by a tunnel from an earlier board that
+  is still being ended. `remoteStepUpRefusal` then returns REMOTE_STEP_UP_STARTING ("Kosmos+ is still
   starting on this computer ... Try again in a minute"), same code `remote_step_up_unavailable`, so every page that
   reads the code is unchanged. A connector that ANSWERED without the capability keeps the update sentence. A caller
   passing its own caps (tests) is treated as answered.
@@ -37,7 +38,13 @@ sign-in right now ... if this keeps happening, update Kosmos." Nothing was out o
 `server.capask-8728.test.js`, five tests, timings shortened through a test-only seam (`timings` on
 resetConnectorCapabilitiesForTests, honoured only under NODE_TEST_CONTEXT): self re-ask with the longer limit and both
 log lines; over HTTP the starting sentence while unknown; control, an old connector still gets "update Kosmos"; the cap
-of 1 + 20 asks and the last line; a new generation leaves no stray ask. Mutations, each red: no self-retry (2 red), no
-starting sentence (1), no longer retry limit (1), no cap (1). The generation/answered checks inside the timer survive
-mutation alone and together with the clear in forget, as said above. Existing: server.remotestepup-6595.test.js and
+of 1 + 20 asks and the last line; a new generation (forget with no new ask) leaves the old timer silent; while an
+earlier board's tunnel is being ended the sentence is "still starting", with a control that reaches the route.
+Mutations, each red: no self-retry (2 red), no starting sentence (1), no longer retry limit (1), no cap (1), no clear in
+forget, no foreign-window pending (see the review-1 commit for the last two).
+
+## Known and left
+- Before this board has started its own tunnel, pending is true, so the sentence says "still starting". A board that
+  never starts one gets no remote request through Kosmos+ in the first place (no tunnel of its own forwards to it, and
+  an orphan is ended), so this is not reached in practice; the sentence before this change was no truer there. Existing: server.remotestepup-6595.test.js and
 server.stepupbutton-6616.test.js unchanged and green (44 with the new file).

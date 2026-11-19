@@ -42,8 +42,8 @@ const remote = require('./engine/remote');
 
 const TEST_PID = 424240;
 const STATUS = path.join(require('./engine/store').ROOT, 'remote-status.json');
-const listRunning = () => { fs.mkdirSync(path.dirname(STATUS), { recursive: true }); fs.writeFileSync(STATUS, JSON.stringify({ state: 'up', pid: TEST_PID, capabilities: ['session-headers'] })); };
-const reset = (timings = null) => { listRunning(); remote.resetConnectorCapabilitiesForTests({ runningPid: TEST_PID, commandOf: () => null, timings }); };
+const listRunning = (pid = TEST_PID) => { fs.mkdirSync(path.dirname(STATUS), { recursive: true }); fs.writeFileSync(STATUS, JSON.stringify({ state: 'up', pid, capabilities: ['session-headers'] })); };
+const reset = (timings = null, commandOf = () => null) => { listRunning(); remote.resetConnectorCapabilitiesForTests({ runningPid: TEST_PID, commandOf, timings }); };
 const warm = () => new Promise((resolve) => remote.warmConnectorCapabilities(resolve));
 const until = async (ok, ms = 8000) => { const end = Date.now() + ms; while (!ok() && Date.now() < end) await new Promise((r) => setTimeout(r, 20)); return ok(); };
 // The board's log lines from the capability ask, caught from stderr.
@@ -74,12 +74,14 @@ test('8728 (a)(c)(d): a slow first ask goes unanswered, then the board asks agai
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = slow('slow-tunnel', 400);
   catchLog();
   try {
-    reset({ askMs: 100, retryAskMs: 3000, recheckMs: 150 });
+    // The retry's limit is wide (review 1): a cold node start on a loaded machine must not turn a slow answer into a
+    // third, unanswered ask. Only the FIRST limit has to be shorter than the stand-in's 400 ms.
+    reset({ askMs: 100, retryAskMs: 15000, recheckMs: 150 });
     const first = await warm();
     assert.equal(first.size, 0, 'the first ask did not answer inside its 100 ms');
     assert.equal(remote.connectorCapabilitiesPending(), true, 'not known yet, so pending');
     // No request is made from here on: only the board's own retry can fill it.
-    assert.ok(await until(() => kept().has('session-headers')), 'asked again by itself and answered: ' + JSON.stringify(lines));
+    assert.ok(await until(() => kept().has('session-headers'), 30000), 'asked again by itself and answered: ' + JSON.stringify(lines));
     assert.equal(remote.connectorCapabilitiesPending(), false);
     assert.match(lines[0], /not answered in \d+ ms \(limit 100 ms\); asking again in 0 s/);
     assert.match(lines[lines.length - 1], /answered in \d+ ms: session-headers$/);
@@ -135,19 +137,36 @@ test('8728: a connector that never answers is asked 1 + 20 times by itself, then
   } finally { releaseLog(); process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
 
-test('8728: a new tunnel (a new generation) stops the old self-retry; it never writes over the new answer', async () => {
+test('8728: a new tunnel (a new generation) clears the old self-retry, so the old timer never asks', async () => {
   const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = slow('gen-tunnel', 60 * 1000);
   catchLog();
   try {
     reset({ askMs: 40, retryAskMs: 40, recheckMs: 300 });
     await warm();
-    assert.equal(lines.length, 1);
-    process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;
-    remote.forgetConnectorCapabilities({ always: true, ask: true });   // as a tunnel start does
-    assert.ok(await until(() => kept().has('session-headers')));
-    const n = lines.length;
-    await new Promise((r) => setTimeout(r, 600));
-    assert.equal(lines.length, n, 'no stray ask from the old generation after the new answer: ' + JSON.stringify(lines));
+    assert.equal(lines.length, 1, 'the first ask, unanswered: its self-retry is now armed for 300 ms');
+    // A tunnel start forgets the answer. ask: false, so nothing else asks: only a surviving old timer could log a line
+    // (review 1: with a new ask that answers, that answer's own clear hid whether the forget cleared anything).
+    remote.forgetConnectorCapabilities({ always: true, ask: false });
+    await new Promise((r) => setTimeout(r, 800));
+    assert.equal(lines.length, 1, 'the old timer was cleared with its generation: ' + JSON.stringify(lines));
   } finally { releaseLog(); process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
+});
+
+test('8728 review 1: while a tunnel from an earlier board is being ended, the refusal says still starting, not update', async () => {
+  catchLog();
+  try {
+    // ps cannot answer (undefined): the foreign pid gets no verdict, so the running half lists nothing meanwhile.
+    reset(null, () => undefined);
+    assert.ok((await warm()).has('session-headers'), 'the binary said yes');
+    assert.ok(remote.connectorCapabilities().has('session-headers'), 'and the running child listed it');
+    listRunning(999999);   // an orphan from an earlier board rewrites the status file under its own pid
+    const got = await post('/api/accounts/gemini/apikey');
+    assert.equal(got.status, 403, JSON.stringify(got.body));
+    assert.equal(got.body.error, REMOTE_STEP_UP_STARTING.error);
+    // Control: the child's own status again, and the request reaches the route (400 on its unreadable body).
+    listRunning();
+    const ok = await post('/api/accounts/gemini/apikey');
+    assert.equal(ok.status, 400, JSON.stringify(ok.body));
+  } finally { releaseLog(); reset(); await warm(); }
 });
