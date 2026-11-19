@@ -69,7 +69,9 @@ const b64 = (buf) => Buffer.from(buf).toString('base64');
 function keyDir(root) { return path.join(root || require('./store').ROOT, 'handover'); }
 function keyFile(id, root) { return path.join(keyDir(root), `${id}.key.json`); }
 
-/* { sk, pk } (Buffers) from disk, null when there is none, or { problem } when there is one that cannot be used. */
+/* Kept beside the key: received / restoring (a Kosmos id), attempts (a count), missingSince (ms). */
+const META = ['received', 'restoring', 'attempts', 'missingSince'];
+/* { sk, pk, ...META } from disk, null when there is none, or { problem } when there is one that cannot be used. */
 function readKey(id, root) {
   let text;
   try { text = fs.readFileSync(keyFile(id, root), 'utf8'); } catch (err) {
@@ -79,29 +81,41 @@ function readKey(id, root) {
     const j = JSON.parse(text);
     const sk = Buffer.from(String(j.sk), 'base64'), pk = Buffer.from(String(j.pk), 'base64');
     if (j.id !== id || sk.length !== 32 || pk.length !== 32 || b64(pk) !== j.pk) return { problem: 'the hand-over key on this computer is damaged' };
-    return Object.assign({ sk, pk }, j.received ? { received: String(j.received) } : {});
+    // What this computer recorded about the hand-over, beside its key, so a restart keeps it (META).
+    const meta = {};
+    for (const k of META) if (j[k] !== undefined && j[k] !== null) meta[k] = j[k];
+    return Object.assign({ sk, pk }, meta);
   } catch { return { problem: 'the hand-over key on this computer is damaged' }; }
 }
 
 /* Written whole (a temp file, fsynced, renamed), mode 600 in a 700 folder. Throws on failure: the caller sends nothing. */
-function writeKey(id, kp, root, received) {
+function writeKey(id, kp, root, meta) {
   const dir = keyDir(root);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.chmodSync(dir, 0o700);
   const tmp = path.join(dir, `.${id}.${crypto.randomBytes(6).toString('hex')}.tmp`);
-  const fd = fs.openSync(tmp, 'wx', 0o600);
+  const keep = {};
+  for (const k of META) if (meta && meta[k] !== undefined && meta[k] !== null) keep[k] = meta[k];
   try {
-    fs.writeSync(fd, JSON.stringify(Object.assign({ id, sk: b64(kp.sk), pk: b64(kp.pk), at: new Date().toISOString() }, received ? { received } : {})) + '\n');
-    fs.fsyncSync(fd);
-  } finally { fs.closeSync(fd); }
-  fs.renameSync(tmp, keyFile(id, root));
+    const fd = fs.openSync(tmp, 'wx', 0o600);
+    try {
+      fs.writeSync(fd, JSON.stringify(Object.assign({ id, sk: b64(kp.sk), pk: b64(kp.pk), at: new Date().toISOString() }, keep)) + '\n');
+      fs.fsyncSync(fd);
+    } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, keyFile(id, root));
+  } catch (err) {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* the folder is 700; nothing else reads it */ }
+    throw err;
+  }
 }
 
-/* After a pack is unpacked and before /done is sent: so a lost /done answer sends /done again, never a second copy. */
-function markReceived(id, worldId, root) {
+/* Change what is kept beside the key (patch: META fields, null clears one). Throws when it cannot be kept. */
+function updateKey(id, root, patch) {
   const kp = readKey(id, root);
-  if (!kp || kp.problem) throw new Error('no key to mark');
-  writeKey(id, kp, root, worldId || 'yes');
+  if (!kp || kp.problem) throw new Error('no key to update');
+  const meta = {};
+  for (const k of META) meta[k] = Object.prototype.hasOwnProperty.call(patch, k) ? patch[k] : kp[k];
+  writeKey(id, kp, root, meta);
 }
 
 function deleteKey(id, root) {
@@ -116,7 +130,7 @@ function urlProblem(u, key) {
   let url;
   try { url = new URL(u); } catch { return 'not a URL'; }
   if (url.protocol !== 'https:' && !(allowHttp && url.protocol === 'http:')) return 'not https';
-  const host = url.hostname.replace(/^\[|\]$/g, '');
+  const host = url.hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '');
   if (!allowHttp && (net.isIP(host) || host === 'localhost' || host.endsWith('.localhost'))) return 'not a named host';
   let p;
   try { p = decodeURIComponent(url.pathname); } catch { return 'an unreadable path'; }
@@ -133,7 +147,7 @@ function readFetcher(opts) {
   const urls = new Map();   // key -> { url, at }
   let order = [];
   const done = new Set();
-  const state = { why: null };
+  const state = { why: null, missing: false };
   const fresh = (k) => { const u = urls.get(k); return u && now() - u.at < URL_LIFETIME_MS ? u.url : null; };
   async function ask(key) {
     const keys = [key];
@@ -159,7 +173,7 @@ function readFetcher(opts) {
     const t = setTimeout(() => ac.abort(), opts.getTimeoutMs || GET_TIMEOUT_MS);
     try {
       const res = await fetchFn(url, { redirect: 'error', signal: ac.signal });
-      if (res.status === 404) { state.why = 'part of the pack is not in the store'; return null; }
+      if (res.status === 404) { state.why = 'part of the pack is not in the store'; state.missing = true; return null; }
       if (res.status !== 200 || !res.body) { state.why = `the store answered ${res.status} for part of the pack`; return null; }
       const parts = [];
       let n = 0, over = false;
@@ -173,7 +187,7 @@ function readFetcher(opts) {
       return Buffer.concat(parts);
     } catch { state.why = 'part of the pack could not be fetched'; return null; } finally { clearTimeout(t); }
   }
-  return { fetchObject, plan: (keys) => { order = keys.slice(); }, state };
+  return { fetchObject, plan: (keys) => { order = [...new Set(keys)]; }, state };
 }
 
 /* ---- one hand-over received ---- */
@@ -200,11 +214,17 @@ function diskBudget(dir, d) {
   return Math.max(0, Math.min(MAX_PACK_BYTES, free));
 }
 
-/* Take out what one failed try wrote: its restore folder (under the new Kosmos, made by prepareRestoreWorld for this try
-   only), and the Kosmos itself off the list. */
-function undoTry(base, made) {
-  try { fs.rmSync(made.restoreDir, { recursive: true, force: true }); } catch { /* hidden below either way */ }
-  try { require('./worlds').hideWorld(base, made.world.id); } catch { /* left on the list */ }
+/* Take out what one try wrote: the Kosmos it made (prepareRestoreWorld, for this try only) goes off the list and its
+   folder is removed. Its registry row stays hidden, so its name stays used: MAX_ATTEMPTS (5) tries a hand-over fit
+   inside restoreworld's MAX_NAME_TRIES (9) names a day. */
+function undoTry(base, world) {
+  const w = require('./worlds');
+  try { w.hideWorld(base, world.id); } catch { /* removed below either way */ }
+  let dir = null;
+  try { dir = w.worldBaseDir(base, world); } catch { dir = null; }
+  if (dir && path.isAbsolute(dir) && world.id && world.id !== w.DEFAULT_ID) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* hidden; its files stay until removed by hand */ }
+  }
 }
 
 /* Receive one packed hand-over into a new Kosmos. { ok, world?, because?, final?, missing? }. final: the pack itself
@@ -222,7 +242,7 @@ async function receive(part, org, kp, deps) {
   if (m.size > MAX_MANIFEST_OBJECT) return fail('the pack\'s list of files is larger than one can be');
   const fetcher = readFetcher({ macRequest: mac, id: part.id, prefix, fetch: d.fetch, now: d.now });
   const body = await fetcher.fetchObject(m.key, { maxBytes: m.size });
-  if (!body) return { ok: false, missing: /not in the store/.test(fetcher.state.why || ''), because: fetcher.state.why };
+  if (!body) return { ok: false, missing: fetcher.state.missing === true, because: fetcher.state.why };
   if (body.length !== m.size || crypto.createHash('sha256').update(body).digest('base64') !== m.sha256) return fail('the pack is not the one Kosmos+ recorded');
   const snap = require('./backupsnapshot');
   const ctx = snap.handoverContext(org, part.id);
@@ -238,8 +258,10 @@ async function receive(part, org, kp, deps) {
   // day are told apart.
   const made = rw.prepareRestoreWorld(base, { member: d.member || 'a colleague', memberId: part.id, kind: 'handover', now: d.now ? d.now() : undefined });
   if (!made.ok) return { ok: false, because: made.because };
+  // Recorded before anything is written into it, so a try that dies part way is taken out by the next tick.
+  try { updateKey(part.id, d.root, { restoring: made.world.id }); } catch { undoTry(base, made.world); return { ok: false, because: 'this computer could not note the hand-over it is unpacking' }; }
   let sink;
-  try { sink = sinks.createRestoreSink(made.restoreDir, {}); } catch { undoTry(base, made); return { ok: false, because: 'the folder for these agents could not be used' }; }
+  try { sink = sinks.createRestoreSink(made.restoreDir, {}); } catch { undoTry(base, made.world); return { ok: false, because: 'the folder for these agents could not be used' }; }
   let result;
   try {
     fetcher.plan(keys);
@@ -253,7 +275,7 @@ async function receive(part, org, kp, deps) {
   const failed = result && Array.isArray(result.failed) ? result.failed : null;
   const restored = result && Array.isArray(result.restored) ? result.restored.length : 0;
   if (!failed || failed.length || !restored) {
-    undoTry(base, made);
+    undoTry(base, made.world);
     // A pack restore refused whole (overBound, malformed) or a file that arrived wrong is the pack's; a chunk that did not
     // arrive, or this computer failing, may pass later.
     const fetchOnly = failed && failed.length && failed.every((x) => x && FETCH_FAILURES.has(x.why));
@@ -263,16 +285,25 @@ async function receive(part, org, kp, deps) {
     return { ok: false, because: fetcher.state.why || 'the agents could not be unpacked on this computer' };
   }
   const fin = rw.finishRestoreWorld({ base, world: made.world, restoreDir: made.restoreDir, result: { ok: true, result } });
-  if (!fin.ok) { undoTry(base, made); return { ok: false, because: fin.because || 'the agents were unpacked but could not be put in place' }; }
-  return { ok: true, world: made.world, restored };
+  if (!fin.ok) { undoTry(base, made.world); return { ok: false, because: fin.because || 'the agents were unpacked but could not be put in place' }; }
+  // Received: noted before /done, so a lost answer sends /done again. Not noted: this copy is taken out and tried again,
+  // so there is never a second copy.
+  try { updateKey(part.id, d.root, { received: made.world.id, restoring: null }); } catch {
+    undoTry(base, made.world);
+    return { ok: false, because: 'this computer could not note that the agents arrived' };
+  }
+  // heldBack: agent folders finish set aside (not plain folders), so not listed. The agents that did arrive are usable,
+  // so done is still ok; the count is kept for the console slice to say.
+  return { ok: true, world: made.world, restored, heldBack: Array.isArray(fin.heldBack) ? fin.heldBack.length : 0 };
 }
 
 /* ---- the tick ---- */
 
 const RETRY_MS = 60 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
+const MISSING_RECHECK_MS = 10 * 60 * 1000;   // how often a manifest still being uploaded is looked for
 
-/* state: { running, closed: Set, retryAt: Map id -> ms, attempts: Map id -> n, missingSince: Map id -> ms }. deps
+/* state: { running, closed: Set, retryAt: Map id -> ms } (attempts and missingSince are kept beside the key). deps
    (tests): org(), macRequest, root, now(), writeKey, and receive's. */
 async function tick(state, deps) {
   const d = deps || {};
@@ -294,20 +325,23 @@ async function tick(state, deps) {
       if (told && told.ok) { state.closed.add(part.id); deleteKey(part.id, d.root); }
       return { ok, id: part.id, because };
     };
+    let last = null;   // the last row acted on, for the caller; waiting rows never stop the rows after them
     for (const part of rows) {
       if (state.closed.has(part.id)) continue;
       if ((state.retryAt.get(part.id) || 0) > now) continue;
       let kp = readKey(part.id, d.root);
       if (part.state === 'requested') {
-        if (kp && kp.problem) return { ok: false, id: part.id, because: kp.problem };   // nothing sent yet: not final
+        // Nothing has been accepted yet, so a damaged key is replaced rather than ending the hand-over.
+        if (kp && kp.problem) { deleteKey(part.id, d.root); kp = null; }
         if (!kp) {
           const made = require('./hpke').hpkeKeyPair();
-          try { (d.writeKey || writeKey)(part.id, made, d.root); } catch { return { ok: false, id: part.id, because: 'the hand-over key could not be kept on this computer, so none was sent' }; }
+          try { (d.writeKey || writeKey)(part.id, made, d.root); } catch { last = { ok: false, id: part.id, because: 'the hand-over key could not be kept on this computer, so none was sent' }; continue; }
           kp = readKey(part.id, d.root);
-          if (!kp || kp.problem) return { ok: false, id: part.id, because: 'the hand-over key could not be read back, so none was sent' };
+          if (!kp || kp.problem) { last = { ok: false, id: part.id, because: 'the hand-over key could not be read back, so none was sent' }; continue; }
         }
         const r = await mac('POST', KEY_ROUTE, { id: part.id, pubkey: b64(kp.pk) });
-        return { ok: !!(r && r.ok), id: part.id, because: r && r.ok ? undefined : (r && r.because) };
+        last = { ok: !!(r && r.ok), id: part.id, because: r && r.ok ? undefined : (r && r.because) };
+        continue;
       }
       if (part.state !== 'packing' && part.state !== 'packed' && part.state !== 'receiving') continue;
       // Past `requested` this computer's key was sent; without it (lost, or damaged) the pack can never be opened here.
@@ -315,25 +349,33 @@ async function tick(state, deps) {
       if (typeof part.seal_pub === 'string' && part.seal_pub !== b64(kp.pk)) return close(part, false, 'the pack is sealed to a key this computer does not hold');
       if (part.state === 'packing') continue;
       if (kp.received) return close(part, true);   // received on an earlier tick; only the /done is owed
-      const r = await (d.receive || receive)(part, org, kp, Object.assign({ macRequest: mac }, d));
-      if (r.ok) {
-        try { markReceived(part.id, r.world && r.world.id, d.root); } catch { /* /done below still goes; a lost answer then receives again */ }
-        return close(part, true);
+      if (!d.base) { last = { ok: false, id: part.id, because: 'this computer could not find where its Kosmoses live' }; continue; }   // not the pack's fault: no attempt spent
+      if (kp.restoring) {
+        // A try that stopped part way (the board stopped, say): take its Kosmos out before trying again.
+        undoTry(d.base, { id: kp.restoring });
+        try { updateKey(part.id, d.root, { restoring: null }); } catch { last = { ok: false, id: part.id, because: 'this computer could not tidy an unfinished hand-over' }; continue; }
       }
+      const r = await (d.receive || receive)(part, org, kp, Object.assign({ macRequest: mac }, d));
+      if (r.ok) return close(part, true);
       if (r.final) return close(part, false, r.because);
       if (r.missing) {
-        // The coordinator marks `packed` before the manifest lands; give the sender an hour to finish its upload.
-        if (!state.missingSince.has(part.id)) state.missingSince.set(part.id, now);
-        if (now - state.missingSince.get(part.id) >= MISSING_GRACE_MS) return close(part, false, 'the pack never finished arriving');
-        return { ok: false, id: part.id, because: r.because };
+        // The coordinator marks `packed` before the manifest lands; give the sender MISSING_GRACE_MS to finish its upload,
+        // counted from the first miss this computer recorded (kept beside the key, so a restart does not reset it).
+        const since = Number.isSafeInteger(kp.missingSince) ? kp.missingSince : now;
+        if (!Number.isSafeInteger(kp.missingSince)) { try { updateKey(part.id, d.root, { missingSince: now }); } catch { /* counted from now again next tick */ } }
+        if (now - since >= MISSING_GRACE_MS) return close(part, false, 'the pack never finished arriving');
+        state.retryAt.set(part.id, now + MISSING_RECHECK_MS);
+        last = { ok: false, id: part.id, because: r.because };
+        continue;
       }
-      state.missingSince.delete(part.id);
-      const tries = (state.attempts.get(part.id) || 0) + 1;
-      state.attempts.set(part.id, tries);
+      // Kept beside the key, so the ceiling holds across restarts.
+      const tries = (Number.isSafeInteger(kp.attempts) ? kp.attempts : 0) + 1;
+      try { updateKey(part.id, d.root, { attempts: tries, missingSince: null }); } catch { /* counted in memory only this time */ }
       if (tries >= MAX_ATTEMPTS) return close(part, false, `this computer tried ${tries} times and could not unpack the agents`);
       state.retryAt.set(part.id, now + RETRY_MS);
-      return { ok: false, id: part.id, because: r.because };   // one hand-over per tick
+      return { ok: false, id: part.id, because: r.because };   // a real attempt: one per tick
     }
+    if (last) return last;
     return { ok: true, none: true };
   } catch {
     return { ok: false, because: 'the hand-over could not be checked' };
@@ -347,7 +389,7 @@ function startTick(deps) {
   if (t && typeof t.unref === 'function') t.unref();
   return Object.assign(() => (d.clearInterval || clearInterval)(t), { tick: () => tick(state, d), state });
 }
-function newState() { return { running: false, closed: new Set(), retryAt: new Map(), attempts: new Map(), missingSince: new Map() }; }
+function newState() { return { running: false, closed: new Set(), retryAt: new Map() }; }
 
 /* Off unless KOSMOS_ORG_HANDOVER=1 in the board's environment, the same switch as the sender's (handoversend.enabled). */
 let here = null;
@@ -356,4 +398,4 @@ function baseOf() {
   try { return require('./worldenv').bootedBaseDir() || require('./worlds').baseRoot(require('./worlds').preWorldEnv(process.env)); } catch { return null; }
 }
 
-module.exports = { startHere, newState, MAX_ATTEMPTS, RETRY_MS, MISSING_GRACE_MS, markReceived, MINE_ROUTE, KEY_ROUTE, READ_ROUTE, DONE_ROUTE, READ_KEYS, allowHttpForTests, readKey, writeKey, deleteKey, urlProblem, readFetcher, senderKeyOf, receive, tick, startTick };
+module.exports = { startHere, newState, MAX_ATTEMPTS, RETRY_MS, MISSING_GRACE_MS, updateKey, MISSING_RECHECK_MS, MINE_ROUTE, KEY_ROUTE, READ_ROUTE, DONE_ROUTE, READ_KEYS, allowHttpForTests, readKey, writeKey, deleteKey, urlProblem, readFetcher, senderKeyOf, receive, tick, startTick };
