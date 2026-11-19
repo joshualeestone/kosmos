@@ -9,23 +9,33 @@
  *               mode 600, written whole), then POST /key {id, pubkey}. /key moves the record to `packing` once, so a
  *               secret lost after its public half was accepted could never open the pack. A row still `requested`
  *               with a key on disk sends the same public half again (an answer that was lost).
- *   packing     wait for the leaving computer. A seal_pub that is not this computer's key: final, said.
+ *   packing     wait for the leaving computer. A seal_pub that is not this computer's key, or a key that is lost or
+ *               damaged: POST /done {ok:false} (final, said to the company).
  *   packed / receiving
  *               fetch the manifest through /read, check it is the one the coordinator recorded (sha256, size), open it
  *               with the one-time secret and the packing computer's key (sender_pubkey), and restore into a Kosmos made
- *               by the restore path (engine/restoreworld.js, kind 'handover': "Handed over: <member>, <date>"). Agents
+ *               by the restore path (engine/restoreworld.js, kind 'handover': "Handed over: a colleague, <date>";
+ *               /mine names no member, so the console slice names the person when it can). Agents
  *               arrive STOPPED and are enabled on the restore review screen (#5536 4c); nothing here starts one. Then
  *               POST /done {id, ok: true} and delete the key file.
- *               A missing sender_pubkey (the packing computer was retired), a manifest that is missing (the coordinator
- *               marks `packed` when it grants the manifest, before the upload lands: handoversend's KNOWN note), one
- *               that is not the recorded one, or one that does not open: POST /done {id, ok: false}, so the company
- *               sees it failed and can start again. Never a skipped check.
+ *               Final, and POST /done {id, ok: false} so the company sees it failed and can start again: a missing
+ *               sender_pubkey (the packing computer was retired); a manifest still missing after MISSING_GRACE_MS (the
+ *               coordinator marks `packed` when it grants the manifest, before the upload lands: handoversend's KNOWN
+ *               note); one that is not the recorded one, does not open, or names files outside this hand-over; a pack
+ *               restore refuses whole, or a file in it that arrived but is not what was signed. Anything else (a
+ *               chunk that did not arrive, this computer failing) is tried again after RETRY_MS, MAX_ATTEMPTS times
+ *               in all, then final. A failed try takes out its own restore folder and its Kosmos. Never a skipped check.
+ *               Before /done {ok: true} the key file is marked `received`, so a lost answer sends /done again and
+ *               never makes a second copy.
  *
  * Chunks are read through /read (at most READ_KEYS keys a call): every URL must be https, on a named host (never an IP
  * address or localhost), with a path ending in its key; no redirect is followed and no body is read past its cap.
  * Every byte is then checked against the device-signed manifest by backuprestore.restoreSnapshot, so a wrong URL reads
  * as a failure, never as the colleague's files. Not restorefetch.readGrantFetcher: its grant contract needs a numeric
  * key epoch and a period, which a hand-over does not have.
+ *
+ * KNOWN: the URL rules refuse a bare IP address and localhost, not a name that resolves to a private address, so a
+ * hostile coordinator could still point this computer's reads at its own network; nothing it fetches is trusted.
  *
  * KNOWN, kosmos#8733: the one-time key this computer sends and the packing computer's key it is given both pass through
  * Kosmos+ unauthenticated. Hand-over is off everywhere until that is closed.
@@ -42,7 +52,7 @@ const KEY_ROUTE = '/v1/mac/org/handover/key';
 const READ_ROUTE = '/v1/mac/org/handover/read';
 const DONE_ROUTE = '/v1/mac/org/handover/done';
 const READ_KEYS = 200;                         // kosmos-relay handover.rs MAX_READ_KEYS
-const URL_LIFETIME_MS = 4 * 60 * 1000;         // asked for again before the coordinator's GRANT_SECS run out
+const URL_LIFETIME_MS = 4 * 60 * 1000;         // asked for again before kosmos-relay backup.rs READ_GRANT_SECS (5 min)
 const GET_TIMEOUT_MS = 60 * 1000;
 const MAX_CHUNK_BYTES = 16 * 1024 * 1024 + 4096;   // above a sealed chunk's size (backuprestore's own bound decides)
 const EVERY_MS = 5 * 60 * 1000;
@@ -69,22 +79,29 @@ function readKey(id, root) {
     const j = JSON.parse(text);
     const sk = Buffer.from(String(j.sk), 'base64'), pk = Buffer.from(String(j.pk), 'base64');
     if (j.id !== id || sk.length !== 32 || pk.length !== 32 || b64(pk) !== j.pk) return { problem: 'the hand-over key on this computer is damaged' };
-    return { sk, pk };
+    return Object.assign({ sk, pk }, j.received ? { received: String(j.received) } : {});
   } catch { return { problem: 'the hand-over key on this computer is damaged' }; }
 }
 
 /* Written whole (a temp file, fsynced, renamed), mode 600 in a 700 folder. Throws on failure: the caller sends nothing. */
-function writeKey(id, kp, root) {
+function writeKey(id, kp, root, received) {
   const dir = keyDir(root);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.chmodSync(dir, 0o700);
   const tmp = path.join(dir, `.${id}.${crypto.randomBytes(6).toString('hex')}.tmp`);
   const fd = fs.openSync(tmp, 'wx', 0o600);
   try {
-    fs.writeSync(fd, JSON.stringify({ id, sk: b64(kp.sk), pk: b64(kp.pk), at: new Date().toISOString() }) + '\n');
+    fs.writeSync(fd, JSON.stringify(Object.assign({ id, sk: b64(kp.sk), pk: b64(kp.pk), at: new Date().toISOString() }, received ? { received } : {})) + '\n');
     fs.fsyncSync(fd);
   } finally { fs.closeSync(fd); }
   fs.renameSync(tmp, keyFile(id, root));
+}
+
+/* After a pack is unpacked and before /done is sent: so a lost /done answer sends /done again, never a second copy. */
+function markReceived(id, worldId, root) {
+  const kp = readKey(id, root);
+  if (!kp || kp.problem) throw new Error('no key to mark');
+  writeKey(id, kp, root, worldId || 'yes');
 }
 
 function deleteKey(id, root) {
@@ -168,8 +185,31 @@ function senderKeyOf(s) {
   try { return crypto.createPublicKey({ key: Buffer.concat([SPKI_ED25519, raw]), format: 'der', type: 'spki' }); } catch { return null; }
 }
 
-/* Receive one packed hand-over into a new Kosmos. { ok, world?, because?, final? }. deps (tests): macRequest, fetch,
-   base, member, maxTotalBytes, and the restore modules. */
+/* restoreSnapshot's own sentences for a chunk that did not arrive (restorerun FETCH_FAILURES): those may pass on a later
+   try; any other failed file (a chunk that arrived and was wrong, a path the pack may not write) is the pack's. */
+const FETCH_FAILURES = new Set(['a chunk could not be fetched', 'a chunk is missing']);
+const MAX_MANIFEST_OBJECT = 256 * 1024 * 1024;   // backuprestore's own bound
+const MAX_PACK_BYTES = 500 * 1024 * 1024;        // kosmos-relay handover.rs MAX_PACK_BYTES: no pack is larger
+const MISSING_GRACE_MS = 60 * 60 * 1000;         // a manifest the sender may still be uploading (handoversend KNOWN)
+
+/* What this computer can write for a pack: the smaller of the largest pack and its free space less a margin. */
+function diskBudget(dir, d) {
+  if (d && Number.isSafeInteger(d.maxTotalBytes)) return d.maxTotalBytes;
+  let free = MAX_PACK_BYTES;
+  try { const st = fs.statfsSync(dir); free = Number(st.bavail) * Number(st.bsize) - 1024 * 1024 * 1024; } catch { /* the pack bound alone */ }
+  return Math.max(0, Math.min(MAX_PACK_BYTES, free));
+}
+
+/* Take out what one failed try wrote: its restore folder (under the new Kosmos, made by prepareRestoreWorld for this try
+   only), and the Kosmos itself off the list. */
+function undoTry(base, made) {
+  try { fs.rmSync(made.restoreDir, { recursive: true, force: true }); } catch { /* hidden below either way */ }
+  try { require('./worlds').hideWorld(base, made.world.id); } catch { /* left on the list */ }
+}
+
+/* Receive one packed hand-over into a new Kosmos. { ok, world?, because?, final?, missing? }. final: the pack itself
+   decides it (no retry can change it); otherwise the tick tries again later. deps (tests): macRequest, fetch, base,
+   member, maxTotalBytes, now, and the restore modules. */
 async function receive(part, org, kp, deps) {
   const d = deps || {};
   const mac = d.macRequest;
@@ -178,50 +218,62 @@ async function receive(part, org, kp, deps) {
   if (!senderPub) return fail('the computer that packed these agents is no longer known to Kosmos+');
   const m = part.manifest || {};
   const prefix = `handover/${org}/${part.id}/`;
-  if (typeof m.key !== 'string' || m.key !== `${prefix}manifest` || typeof m.sha256 !== 'string' || !Number.isSafeInteger(m.size)) return fail('Kosmos+ has no record of this pack\'s manifest');
+  if (typeof m.key !== 'string' || m.key !== `${prefix}manifest` || typeof m.sha256 !== 'string' || !Number.isSafeInteger(m.size) || m.size < 1) return fail('Kosmos+ has no record of this pack\'s manifest');
+  if (m.size > MAX_MANIFEST_OBJECT) return fail('the pack\'s list of files is larger than one can be');
   const fetcher = readFetcher({ macRequest: mac, id: part.id, prefix, fetch: d.fetch, now: d.now });
   const body = await fetcher.fetchObject(m.key, { maxBytes: m.size });
-  if (!body) {
-    // A missing manifest is final (the pack can never arrive); a refusal or an outage is tried again.
-    return /not in the store/.test(fetcher.state.why || '') ? fail('the pack never finished arriving') : { ok: false, because: fetcher.state.why };
-  }
+  if (!body) return { ok: false, missing: /not in the store/.test(fetcher.state.why || ''), because: fetcher.state.why };
   if (body.length !== m.size || crypto.createHash('sha256').update(body).digest('base64') !== m.sha256) return fail('the pack is not the one Kosmos+ recorded');
   const snap = require('./backupsnapshot');
   const ctx = snap.handoverContext(org, part.id);
   const opened = require('./backupformat').openManifest(kp.sk, senderPub, ctx, body);
   if (!opened) return fail('the pack could not be opened with this computer\'s key for it');
+  const keys = Object.values(opened.objects || {});
+  // A signed manifest naming an object outside this hand-over: the coordinator would refuse every batch holding it.
+  if (keys.some((k) => typeof k !== 'string' || !k.startsWith(prefix) || !PLAIN.test(k.slice(prefix.length)))) return fail('the pack names files outside this hand-over');
   const rw = d.restoreworld || require('./restoreworld');
   const sinks = d.restoresink || require('./restoresink');
   const base = d.base;
+  // memberId is the hand-over's id here: prepareRestoreWorld uses it only for the name's tag, so two hand-overs on one
+  // day are told apart.
   const made = rw.prepareRestoreWorld(base, { member: d.member || 'a colleague', memberId: part.id, kind: 'handover', now: d.now ? d.now() : undefined });
   if (!made.ok) return { ok: false, because: made.because };
   let sink;
-  try { sink = sinks.createRestoreSink(made.restoreDir, {}); } catch { return { ok: false, because: 'the folder for these agents could not be used' }; }
+  try { sink = sinks.createRestoreSink(made.restoreDir, {}); } catch { undoTry(base, made); return { ok: false, because: 'the folder for these agents could not be used' }; }
   let result;
   try {
-    const keys = Object.values(opened.objects || {});
     fetcher.plan(keys);
     result = await require('./backuprestore').restoreSnapshot({
       memberSk: kp.sk, devicePubAtSnapshot: senderPub, ctx, manifestObject: body,
-      fetchChunk: (name) => (opened.objects && opened.objects[name] ? fetcher.fetchObject(opened.objects[name]) : null),
-      sink, maxTotalBytes: d.maxTotalBytes || 2 ** 40,
+      fetchChunk: (name, o) => (opened.objects && opened.objects[name] ? fetcher.fetchObject(opened.objects[name], o) : null),
+      sink, maxTotalBytes: diskBudget(made.restoreDir, d),
     });
-  } catch { result = { failed: ['the restore failed on this computer'] }; }
+  } catch { result = null; }
   try { sink.close({}); } catch { /* finish refuses a folder still holding the sink's entries */ }
-  const failed = result && Array.isArray(result.failed) ? result.failed.length : 1;
+  const failed = result && Array.isArray(result.failed) ? result.failed : null;
   const restored = result && Array.isArray(result.restored) ? result.restored.length : 0;
-  if (!restored || failed) {
-    try { require('./worlds').hideWorld(base, made.world.id); } catch { /* left on the list, named below */ }
+  if (!failed || failed.length || !restored) {
+    undoTry(base, made);
+    // A pack restore refused whole (overBound, malformed) or a file that arrived wrong is the pack's; a chunk that did not
+    // arrive, or this computer failing, may pass later.
+    const fetchOnly = failed && failed.length && failed.every((x) => x && FETCH_FAILURES.has(x.why));
+    if (result && !failed) return fail('the pack is not one this computer can unpack');
+    if (failed && failed.length && !fetchOnly) return fail('part of the pack is not what its sender signed');
+    if (failed && !failed.length && !restored) return fail('the pack holds no files');
     return { ok: false, because: fetcher.state.why || 'the agents could not be unpacked on this computer' };
   }
   const fin = rw.finishRestoreWorld({ base, world: made.world, restoreDir: made.restoreDir, result: { ok: true, result } });
-  if (!fin.ok) return { ok: false, because: fin.because || 'the agents were unpacked but could not be put in place', world: made.world };
+  if (!fin.ok) { undoTry(base, made); return { ok: false, because: fin.because || 'the agents were unpacked but could not be put in place' }; }
   return { ok: true, world: made.world, restored };
 }
 
 /* ---- the tick ---- */
 
-/* state: { running, failed: Map id -> because, done: Set }. deps (tests): org(), macRequest, root, and receive's. */
+const RETRY_MS = 60 * 60 * 1000;
+const MAX_ATTEMPTS = 5;
+
+/* state: { running, closed: Set, retryAt: Map id -> ms, attempts: Map id -> n, missingSince: Map id -> ms }. deps
+   (tests): org(), macRequest, root, now(), writeKey, and receive's. */
 async function tick(state, deps) {
   const d = deps || {};
   if (state.running) return { skipped: true };
@@ -229,39 +281,58 @@ async function tick(state, deps) {
   try {
     const org = (d.org || (() => { const oe = require('./orgenroll'); const r = oe.mayReport() ? oe.readEnrollment() : null; return r ? r.org.id : null; }))();
     if (typeof org !== 'string' || !PLAIN.test(org)) return { ok: true, none: true };
+    const now = (d.now || Date.now)();
     const mac = d.macRequest || ((m, r, b) => require('./remote').macRequest(m, r, b));
     const mine = await mac('POST', MINE_ROUTE, {});
     if (!mine || !mine.ok) return { ok: false, because: (mine && mine.because) || 'Kosmos+ did not answer' };
     const rows = (mine.data && Array.isArray(mine.data.handovers) ? mine.data.handovers : [])
       .filter((h) => h && h.side === 'receive' && typeof h.id === 'string' && PLAIN.test(h.id));
+    /* Tell the coordinator, and only then forget: the key file goes once /done has been accepted. A /done that is not
+       accepted is sent again next tick, never received again (the key file's `received` mark). */
+    const close = async (part, ok, because) => {
+      const told = await mac('POST', DONE_ROUTE, { id: part.id, ok });
+      if (told && told.ok) { state.closed.add(part.id); deleteKey(part.id, d.root); }
+      return { ok, id: part.id, because };
+    };
     for (const part of rows) {
-      if (state.done.has(part.id) || state.failed.has(part.id)) continue;
+      if (state.closed.has(part.id)) continue;
+      if ((state.retryAt.get(part.id) || 0) > now) continue;
       let kp = readKey(part.id, d.root);
-      if (kp && kp.problem) { state.failed.set(part.id, kp.problem); return { ok: false, id: part.id, because: kp.problem }; }
       if (part.state === 'requested') {
+        if (kp && kp.problem) return { ok: false, id: part.id, because: kp.problem };   // nothing sent yet: not final
         if (!kp) {
           const made = require('./hpke').hpkeKeyPair();
-          try { writeKey(part.id, made, d.root); } catch { return { ok: false, id: part.id, because: 'the hand-over key could not be kept on this computer, so none was sent' }; }
+          try { (d.writeKey || writeKey)(part.id, made, d.root); } catch { return { ok: false, id: part.id, because: 'the hand-over key could not be kept on this computer, so none was sent' }; }
           kp = readKey(part.id, d.root);
           if (!kp || kp.problem) return { ok: false, id: part.id, because: 'the hand-over key could not be read back, so none was sent' };
         }
         const r = await mac('POST', KEY_ROUTE, { id: part.id, pubkey: b64(kp.pk) });
         return { ok: !!(r && r.ok), id: part.id, because: r && r.ok ? undefined : (r && r.because) };
       }
-      if (!kp) continue;   // a part keyed by another computer of this member; nothing to open it with here
-      if (typeof part.seal_pub === 'string' && part.seal_pub !== b64(kp.pk)) {
-        state.failed.set(part.id, 'the pack is sealed to a key this computer does not hold');
-        return { ok: false, id: part.id, because: state.failed.get(part.id) };
-      }
-      if (part.state !== 'packed' && part.state !== 'receiving') continue;
+      if (part.state !== 'packing' && part.state !== 'packed' && part.state !== 'receiving') continue;
+      // Past `requested` this computer's key was sent; without it (lost, or damaged) the pack can never be opened here.
+      if (!kp || kp.problem) return close(part, false, (kp && kp.problem) || 'the key for this hand-over is no longer on this computer');
+      if (typeof part.seal_pub === 'string' && part.seal_pub !== b64(kp.pk)) return close(part, false, 'the pack is sealed to a key this computer does not hold');
+      if (part.state === 'packing') continue;
+      if (kp.received) return close(part, true);   // received on an earlier tick; only the /done is owed
       const r = await (d.receive || receive)(part, org, kp, Object.assign({ macRequest: mac }, d));
-      if (r.ok || r.final) {
-        const told = await mac('POST', DONE_ROUTE, { id: part.id, ok: r.ok === true });
-        if (told && told.ok) {
-          if (r.ok) { state.done.add(part.id); deleteKey(part.id, d.root); } else state.failed.set(part.id, r.because);
-        }
+      if (r.ok) {
+        try { markReceived(part.id, r.world && r.world.id, d.root); } catch { /* /done below still goes; a lost answer then receives again */ }
+        return close(part, true);
       }
-      return { ok: r.ok === true, id: part.id, because: r.because };   // one hand-over per tick
+      if (r.final) return close(part, false, r.because);
+      if (r.missing) {
+        // The coordinator marks `packed` before the manifest lands; give the sender an hour to finish its upload.
+        if (!state.missingSince.has(part.id)) state.missingSince.set(part.id, now);
+        if (now - state.missingSince.get(part.id) >= MISSING_GRACE_MS) return close(part, false, 'the pack never finished arriving');
+        return { ok: false, id: part.id, because: r.because };
+      }
+      state.missingSince.delete(part.id);
+      const tries = (state.attempts.get(part.id) || 0) + 1;
+      state.attempts.set(part.id, tries);
+      if (tries >= MAX_ATTEMPTS) return close(part, false, `this computer tried ${tries} times and could not unpack the agents`);
+      state.retryAt.set(part.id, now + RETRY_MS);
+      return { ok: false, id: part.id, because: r.because };   // one hand-over per tick
     }
     return { ok: true, none: true };
   } catch {
@@ -271,11 +342,12 @@ async function tick(state, deps) {
 
 function startTick(deps) {
   const d = deps || {};
-  const state = { running: false, failed: new Map(), done: new Set() };
+  const state = newState();
   const t = (d.setInterval || setInterval)(() => { tick(state, d).catch(() => {}); }, d.everyMs || EVERY_MS);
   if (t && typeof t.unref === 'function') t.unref();
   return Object.assign(() => (d.clearInterval || clearInterval)(t), { tick: () => tick(state, d), state });
 }
+function newState() { return { running: false, closed: new Set(), retryAt: new Map(), attempts: new Map(), missingSince: new Map() }; }
 
 /* Off unless KOSMOS_ORG_HANDOVER=1 in the board's environment, the same switch as the sender's (handoversend.enabled). */
 let here = null;
@@ -284,4 +356,4 @@ function baseOf() {
   try { return require('./worldenv').bootedBaseDir() || require('./worlds').baseRoot(require('./worlds').preWorldEnv(process.env)); } catch { return null; }
 }
 
-module.exports = { startHere, MINE_ROUTE, KEY_ROUTE, READ_ROUTE, DONE_ROUTE, READ_KEYS, allowHttpForTests, readKey, writeKey, deleteKey, urlProblem, readFetcher, senderKeyOf, receive, tick, startTick };
+module.exports = { startHere, newState, MAX_ATTEMPTS, RETRY_MS, MISSING_GRACE_MS, markReceived, MINE_ROUTE, KEY_ROUTE, READ_ROUTE, DONE_ROUTE, READ_KEYS, allowHttpForTests, readKey, writeKey, deleteKey, urlProblem, readFetcher, senderKeyOf, receive, tick, startTick };
