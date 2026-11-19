@@ -606,3 +606,59 @@ test('kosmos#8743 review 4: two community blocks (a damaged file) hide nothing; 
   const clean = fs.readFileSync(ir.prepareChanges('vi').path, 'utf8');
   assert.ok(/Left out: 1 line removed/.test(clean) && !/may be in kosmos community --how too/.test(clean), 'CONTROL: the conditional sentence came with nothing marked');
 });
+
+/* kosmos#8735 slice 2 (review 5): the task commands for one situation each moved from "Put the work on a task first" to
+   `kosmos task --how`. A running agent re-reading its file must not be told those lines no longer apply. The old text is
+   the current working rules with the guide's lines back under that heading, the shape a v52 agent holds. */
+function withTaskGuideBack() {
+  const defaults = require('./defaults');
+  const taskguide = require('./taskguide');
+  const block = defaults.blockFor(process.platform);
+  const head = '### Put the work on a task first';
+  assert.ok(block.split('\n').includes(head), 'fixture: the working rules lost the task heading');
+  const back = taskguide.guideText().split('\n').slice(3);   // the guide less its two-line header and the blank after it
+  assert.ok(back.length > 20, 'fixture: the guide prints almost nothing');
+  return { block, head, back, before: block.replace(head + '\n', head + '\n' + back.join('\n') + '\n') };
+}
+
+test('kosmos#8735 slice 2: the task commands that moved to kosmos task --how are left out of the changes file, as moved', () => {
+  const { block, back, before } = withTaskGuideBack();
+  agentFile('tia', '# You are Tia\n\n' + block + '\n');
+  assert.equal(ir.remember('tia', '# You are Tia\n\n' + before + '\n'), true);
+  const got = ir.prepareChanges('tia');
+  assert.ok(got && got.path, 'no changes file was written');
+  const body = fs.readFileSync(got.path, 'utf8');
+  const marked = back.filter((l) => l.trim() !== '' && body.includes('\n- ' + l + '\n'));
+  assert.deepEqual(marked, [], 'the file a running agent reads marks moved task lines as no longer applying');
+  const n = new Set(back.map((l) => l.trim()).filter((l) => l !== '')).size;
+  assert.ok(n > 20, 'fixture: too few moved lines to mean anything');
+  assert.match(body, /Left out: \d+ lines removed from Put the work on a task first that kosmos task --how prints, where they still apply\./);
+});
+
+test('kosmos#8735 slice 2: a file whose task section is gone hides nothing as moved (CONTROL: the same lines, heading kept, are left out)', () => {
+  const { head, back, before } = withTaskGuideBack();
+  const gone = before.split('\n').filter((l) => l !== head).join('\n').replace(back.join('\n') + '\n', '');
+  assert.ok(!gone.split('\n').includes(head), 'fixture: the heading is still there');
+  agentFile('tad', '# You are Tad\n\n' + gone + '\n');
+  assert.equal(ir.remember('tad', '# You are Tad\n\n' + before + '\n'), true);
+  const body = fs.readFileSync(ir.prepareChanges('tad').path, 'utf8');
+  assert.ok(!/removed from Put the work on a task first that kosmos task --how prints/.test(body), 'a deleted section was told it still applies');
+  assert.ok(body.includes('- ' + back.find((l) => l.trim().length > 30)), 'a line of a deleted section was hidden');
+});
+
+test('kosmos#8735 slice 2: both guides at once give two notes, community first, each under its own heading', () => {
+  const cb = require('./communityblock');
+  const projects = require('./projects');
+  const routine = '3. Comments. At least once a day, comment on two different posts, one of each kind: a post from';
+  assert.ok(require('./communityguide').guideText().includes(routine), 'fixture: the community guide no longer prints the routine line');
+  const { block, before } = withTaskGuideBack();
+  const after = '# You are Teo\n\n' + block + '\n' + projects.spliceBlock('', cb.blockBody(), cb.START, cb.END) + '\n';
+  const old = '# You are Teo\n\n' + before + '\n' + projects.spliceBlock('', cb.blockBody() + '\n' + routine, cb.START, cb.END) + '\n';
+  agentFile('teo', after);
+  assert.equal(ir.remember('teo', old), true);
+  const body = fs.readFileSync(ir.prepareChanges('teo').path, 'utf8');
+  const c = body.indexOf('Left out: 1 line removed from The Kosmos+ community');
+  const t = body.search(/Left out: \d+ lines removed from Put the work on a task first/);
+  assert.ok(c >= 0 && t > c, 'want both notes, community first: ' + c + ' ' + t);
+  assert.ok(!body.includes('- ' + routine), 'the community line was marked');
+});

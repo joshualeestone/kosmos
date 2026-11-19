@@ -63,9 +63,18 @@ wording pass (slice 3), written up on the card before it is built.
 - To fit the ratchet: "whenever you no longer remember how" -> "whenever you forget how", and the sentence "It is long,
   so it is not repeated here" dropped (it explained, it did not instruct). darwin block 30,517; pm 48,868; ratchet 48,900.
 - v53 re-pinned (never released, so no bump) and doctrine-past regenerated.
-- WARNING, NOT fixed on this branch, and it blocks shipping: a running agent's changes file marks the 47 moved task
+- WARNING, built after #8743 merged (993d9ab0d4, see below): a running agent's changes file marks the 47 moved task
   lines `-` ("no longer applies"). #8743 builds the "moved to a guide" treatment for the community guide; this branch
   must extend it to `taskguide.guideText()` when `rules` is named, after #8743 is on main. This branch does not merge
   before that. Measured by the reviewer (changedLines on v52 vs v53).
 - Nits fixed: log 53's darwin figure; this plan's stale figures.
+
+## The moved task lines (review 5's WARNING), built on #8743
+- `changedLines` takes a list of moved entries, each with its own heading, counts and note (one entry behaves as
+  before, so #8743's tests still pin it). `prepareChanges` adds the task guide under "Put the work on a task first"
+  whenever the new file still has that heading; a file whose section is gone hides nothing.
+- Measured on the real files: main's v52 darwin block against this branch's v53 marks 56 lines - without the entry and
+  2 with it (the two deliberate "as above" rewordings, which the conditional sentence covers); 45 left out with the note.
+- Tests: left out as moved; deleted section hides nothing (control); both guides at once, two notes. Perturbed: the
+  entry off -> the first and third red; the heading guard off -> the control red.
 
