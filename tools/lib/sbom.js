@@ -464,9 +464,11 @@ function crateComponent(p, relayCommit, crateRef, members) {
 // The release's own files, from the signed manifest's list. Anything outside these places, or any node_modules, would
 // be code this SBOM does not list, so it refuses; so does an npm dependency in package.json at the app commit.
 // Native code is where a third-party addition would most likely land, so app/bin/ and the Mac app are exact: scripts
-// by extension, and the two binaries by name; inside Kosmos.app only its own executable, plist, icon and signature.
+// by extension, and the binaries by name (kosmos-se: kosmos#7116, the Secure Enclave admin signer, compiled from
+// native-se/main.swift and checked below like the Mac app); inside Kosmos.app only its own executable, plist, icon and
+// signature.
 const FIRST_PARTY_FILES = new Set(['VERSION', 'bin/kosmos', 'runtime/bin/node', 'runtime/LICENSE', 'app/server.js', 'app/package.json',
-  'app/bin/kosmos-app', 'app/bin/kosmos-tunnel', 'app/Kosmos.app/Contents/Info.plist', 'app/Kosmos.app/Contents/CodeResources',
+  'app/bin/kosmos-app', 'app/bin/kosmos-tunnel', 'app/bin/kosmos-se', 'app/Kosmos.app/Contents/Info.plist', 'app/Kosmos.app/Contents/CodeResources',
   'app/Kosmos.app/Contents/MacOS/Kosmos', 'app/Kosmos.app/Contents/_CodeSignature/CodeResources']);
 const FIRST_PARTY_DIRS = ['app/engine/', 'app/web/', 'app/assets/'];
 // Inside those, text and image files only: a prebuilt addon (.node), a library or a binary with no extension refuses.
@@ -505,13 +507,14 @@ function checkFirstParty(manifest, packageJson) {
 // import Apple's frameworks only. A Swift package, or another module, would be third-party code this does not list.
 const APPLE_MODULES = new Set(['Foundation', 'Cocoa', 'AppKit', 'WebKit', 'Network', 'ApplicationServices', 'AVFoundation', 'Speech',
   'UserNotifications', 'Security', 'CoreGraphics', 'CoreFoundation', 'CoreServices', 'Darwin', 'os', 'ServiceManagement',
-  'SwiftUI', 'Combine', 'IOKit', 'SystemConfiguration', 'UniformTypeIdentifiers', 'QuartzCore', 'CoreAudio', 'Dispatch']);
+  'SwiftUI', 'Combine', 'IOKit', 'SystemConfiguration', 'UniformTypeIdentifiers', 'QuartzCore', 'CoreAudio', 'Dispatch',
+  'CryptoKit', 'LocalAuthentication']);   // kosmos#7116: native-se/main.swift's Secure Enclave key and its Touch ID prompt
 // The modules a Swift file imports, as the Swift compiler reads them (-emit-imported-modules). Reviews 15 to 17 each
 // found a way for a hand-written reading of Swift to miss an import (an access level, a lost quote in a raw string, a
 // comment before the import); the compiler is the one reader that cannot disagree with the compiler.
 // target: the release's own (-target arm64-apple-macos<floor>, as the bundle build compiles it), so `#if arch(...)`
 // and `#if os(...)` read as they do in the build, not as they do on the machine running this.
-function swiftcImports(swift, target) {
+function swiftcImports(swift, target, name = 'native-app/main.swift') {
   if (!/^arm64-apple-macos[0-9]+(\.[0-9]+)*$/.test(target || '')) throw new Error(`no Swift target to read the imports for (${target})`);
   const dir = fs.mkdtempSync(require('path').join(require('os').tmpdir(), 'kosmos-sbom-swift-'));
   try {
@@ -520,7 +523,7 @@ function swiftcImports(swift, target) {
     try {
       execFileSync('xcrun', ['swiftc', '-frontend', '-emit-imported-modules', '-target', target, src, '-o', out], { timeout: LIMITS.tool, stdio: ['ignore', 'ignore', 'pipe'] });
     } catch (e) {
-      throw new Error(`the Swift compiler could not read native-app/main.swift (xcrun swiftc is needed): ${String(e.stderr || e.message).split('\n')[0]}`);
+      throw new Error(`the Swift compiler could not read ${name} (xcrun swiftc is needed): ${String(e.stderr || e.message).split('\n')[0]}`);
     }
     return fs.readFileSync(out, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean);
   } finally {
@@ -536,11 +539,26 @@ function checkNativeApp(manifest, swift, target, readImports = swiftcImports) {
   // Any #if refuses (review 20): several conditions (canImport, swift, compiler, hasFeature, hasAttribute...) follow
   // the machine running this rather than the build, a list of them keeps missing one, and the real file has none.
   // Anywhere, not only at a line start: Swift accepts a directive after a comment or code on the same line.
+  checkSwiftSource('native-app/main.swift', swift, target, readImports);
+}
+// Any #if refuses, and every import must be an Apple framework (the reasons are checkNativeApp's above).
+function checkSwiftSource(name, swift, target, readImports = swiftcImports) {
   const cond = swift.match(/#\s*(if|elseif)\b[^\n]*/);
-  if (cond) throw new Error(`native-app/main.swift has a conditional (${cond[0].trim()}), which this SBOM cannot read for the build machine`);
-  for (const mod of readImports(swift, target)) {
-    if (!APPLE_MODULES.has(mod)) throw new Error(`native-app/main.swift imports ${mod}, which is not an Apple framework this SBOM knows`);
+  if (cond) throw new Error(`${name} has a conditional (${cond[0].trim()}), which this SBOM cannot read for the build machine`);
+  for (const mod of readImports(swift, target, name)) {
+    if (!APPLE_MODULES.has(mod)) throw new Error(`${name} imports ${mod}, which is not an Apple framework this SBOM knows`);
   }
+}
+/* kosmos#7116: the Secure Enclave admin signer, when the release ships it. Its source must be in the app commit and import
+   Apple's frameworks only, as the Mac app's. Like the Mac app, the shipped binary is not tied to that source here (see
+   the LIMIT above); its signature is checked by the cut (release-freeze.sh). */
+function checkSeHelper(manifest, show, repo, appCommit, target, readImports = swiftcImports) {
+  if (!manifest.files.some((f) => f.path === 'app/bin/kosmos-se')) return;
+  let swift;
+  try { swift = show(repo, appCommit, 'native-se/main.swift'); } catch {
+    throw new Error('the manifest ships app/bin/kosmos-se, but native-se/main.swift is not in the app commit');
+  }
+  checkSwiftSource('native-se/main.swift', swift, target, readImports);
 }
 
 const MANIFEST_KEYS = new Set(['manifest', 'version', 'arch', 'artifact', 'sha256', 'app', 'node', 'connector', 'native_app', 'built',
@@ -604,6 +622,7 @@ function build(manifest, { repo, relay, tmux, show = gitShow, workspace = cargoW
   const floor = show(repo, appCommit, 'tools/macos-floor').trim();
   if (!/^[0-9]+(\.[0-9]+)*$/.test(floor)) throw new Error(`tools/macos-floor at the app commit is not a macOS version (${floor})`);
   checkNativeApp(manifest, show(repo, appCommit, 'native-app/main.swift'), `arm64-apple-macos${floor}`, readImports);
+  checkSeHelper(manifest, show, repo, appCommit, `arm64-apple-macos${floor}`, readImports);
   const pins = tmuxPins(show(repo, appCommit, 'tools/build-tmux-from-source.sh')).map((p) => p.name);
   for (const name of pins) {
     if (!tmux.versions[name]) throw new Error(`the build script fetches ${name}, but the tmux bundle's VERSION does not name it (linked statically and unrecorded?)`);
@@ -676,7 +695,7 @@ function uuidFrom(seed) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-8${h.slice(13, 16)}-${((parseInt(h[16], 16) & 3) | 8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-module.exports = { SELF_SHA, gitShow, gitEntry, cargoWorkspace, lockMatchesCargo, tmuxCpeFor: cpe, parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, build };
+module.exports = { SELF_SHA, gitShow, gitEntry, cargoWorkspace, lockMatchesCargo, tmuxCpeFor: cpe, parseLock, closure, tmuxPins, parseTmuxVersion, readTmuxBundle, readSignedManifest, swiftcImports, checkSeHelper, build };
 
 // A path as the file system resolves it (following a symlink), or as written when it does not exist yet.
 function realish(p) { try { return fs.realpathSync(p); } catch { return require('path').resolve(p); } }

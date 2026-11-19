@@ -9,8 +9,8 @@
 # 39553501883), and a core count and load read only from macOS sysctl (`hw.ncpu`, `vm.loadavg`) two more (probe run
 # 39558291451), and `pgrep -fl`, which prints only the process name on Linux, three more (probe run 39559795454).
 # #6756 added one `both:` line, for a test that passed on Linux by skipping its lock arms. kosmos#7001 added
-# tools/test-ci-runner-daemon-7001.sh (it reads plists with plutil), and kosmos#8761 tools/test-ci-runner-claim-pause-8761.sh (plutil,
-# launchd, ps of pid 1). That is 29 here.
+# tools/test-ci-runner-daemon-7001.sh (it reads plists with plutil), kosmos#8761 tools/test-ci-runner-claim-pause-8761.sh (plutil,
+# launchd, ps of pid 1), and kosmos#7116 tools/test-kosmos-se-bundle-7116.sh (it signs with codesign). That is 30 here.
 # (The Linux share is every other test:shell command, so its size moves with package.json:
 # `node tools/shell-shard.js list 1 1 linux | wc -l` gives it.)
 # tools/shell-shard.js reads this file: `linux` shards run everything NOT listed here, the `mac` shard runs these, plus
@@ -85,3 +85,5 @@ bash tools/test-test-leak-guard-4273.sh
 bash tools/test-board-foreground-2956.sh
 # Skips its locked-file arms (macOS's flag); its Linux arms run in test-linux-setup-4920.yml.
 sh tools/test-update-locked-app-4455.sh
+# kosmos#7116: skips the whole file without codesign (it signs its fixtures and checks their signatures).
+bash tools/test-kosmos-se-bundle-7116.sh
