@@ -184,12 +184,11 @@ it('the installer calls it before the new runtime is first run, on the downloade
 
 /* kosmos#7116 (review 2 of sebundle-7116): kosmos-se, the Secure Enclave admin signer, is held to the installed signer
    too (it signs admin approvals). Placed beside the tree's two parts by hand, so tree() stays as it is. */
-function withSe(root, src, adhoc = false) {
+function withSe(root, src) {
   const dst = path.join(root, 'app/bin/kosmos-se');
   fs.mkdirSync(path.dirname(dst), { recursive: true });
   fs.copyFileSync(src, dst);
   fs.chmodSync(dst, 0o755);
-  if (adhoc) execFileSync('/usr/bin/codesign', ['--force', '-s', '-', dst], { stdio: 'ignore' });
   return root;
 }
 it('#7116: an installed kosmos-se holds the update\'s copy to its signer; one signed by someone else is refused', () => {

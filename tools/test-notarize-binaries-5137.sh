@@ -343,8 +343,9 @@ unset KOSMOS_STAPLER_CMD KOSMOS_NOTARY_SPCTL_CMD KOSMOS_NOTARY_XATTR_CMD KOSMOS_
 
 # --- the build calls it, on both binaries, after the last self-test and before packing ---
 B="$REPO/tools/build-kosmos-bundle.sh"
-call="$(grep -n '^notarize_binaries "\$STAGE/app/bin/kosmos-app" "\$STAGE/app/bin/kosmos-tunnel" "\$STAGE/app/Kosmos.app" ||' "$B" | head -1 | cut -d: -f1)"
-[ -n "$call" ] && ok "build-kosmos-bundle.sh notarises both binaries and the sealed Kosmos.app (#5896), failing the build on refusal" || bad "build-kosmos-bundle.sh does not call notarize_binaries on both binaries and Kosmos.app with ||"
+# kosmos#7116: and kosmos-se, the Secure Enclave admin signer, between the connector and the sealed app.
+call="$(grep -n '^notarize_binaries "\$STAGE/app/bin/kosmos-app" "\$STAGE/app/bin/kosmos-tunnel" "\$STAGE/app/bin/kosmos-se" "\$STAGE/app/Kosmos.app" ||' "$B" | head -1 | cut -d: -f1)"
+[ -n "$call" ] && ok "build-kosmos-bundle.sh notarises the three binaries and the sealed Kosmos.app (#5896, #7116), failing the build on refusal" || bad "build-kosmos-bundle.sh does not call notarize_binaries on both binaries and Kosmos.app with ||"
 sealed_sign="$(grep -n '^codesign_ts_retry .*"\$_sealed"' "$B" | head -1 | cut -d: -f1)"
 [ -n "$call" ] && [ -n "$sealed_sign" ] && [ "$call" -gt "$sealed_sign" ] && ok "the app is notarised after it is sealed ($sealed_sign < $call)" || bad "the app is not notarised after sealing (seal=$sealed_sign notarise=$call)"
 for _seam in KOSMOS_STAPLER_CMD KOSMOS_STAPLER_RETRY_DELAYS KOSMOS_NOTARY_SPCTL_CMD KOSMOS_NOTARY_XATTR_CMD; do
