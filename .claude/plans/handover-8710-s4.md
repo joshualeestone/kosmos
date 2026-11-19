@@ -43,3 +43,10 @@ for each `/v1/mac/org/handover/mine` row with `side: 'receive'`:
 - end to end: slice 3's packer output (the same fake bucket as `backupsnapshot-handover-8710.test.js`) received into a
   prepared world; the files match; the key file is gone after done.
 - the fetcher's URL rules, each with its control.
+
+## Layout fix found while designing this slice (11-19 10:0x CST), carried into slice 3's round 2
+`restoreworld.finishRestoreWorld` moves only the `workers` and `projects` roots into the new Kosmos (MOVED), and
+`listRestoredAgents` reads agents from that Kosmos's workers folder. Slice 3 named each agent's root `agents/<seg>`, so
+a received pack would have left every agent in the restore folder, never listed. Slice 3 now names it `workers/<seg>`
+(checked: `rootNameProblem('workers/ledger')` is null; 50 agents a hand-over, under the snapshot's 64 required roots).
+`profiles/<seg>` and `sessions/<seg>/...` stay in the restore folder, as a backup's transcripts do after a restore.
