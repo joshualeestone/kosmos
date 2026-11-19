@@ -138,6 +138,19 @@ function checkResultsOf(t) {
         ...(r.met === false && Number.isSafeInteger(r.movedTo) && r.movedTo > 0 ? { movedTo: r.movedTo } : {}) } : null;
   });
 }
+/* kosmos#8736: what on a task's own record says it ran: a check reported MET (an unmet one can mean nothing was done
+   here, or the part moved to another task), a run recorded (lastRunAt, which a close and a reopen keep), or a built mark,
+   or, for a closed task, what its close kept of one (closedHow 'note' or 'change', or a landed commit). Read from the
+   task as it stands BEFORE a close takes its built mark away. Only the task's own record: a parent whose parts were
+   checked is not counted for them. Returns { met, ran, built, any }. kosmos#8734's --not-run refusal reads the same. */
+function ranOnRecord(t) {
+  const met = ((t && checkResultsOf(t)) || []).filter((r) => r && r.met === true).length;
+  const ran = !!t && typeof t.lastRunAt === 'string' && t.lastRunAt !== '';
+  const built = !!t && (!!t.builtAt || t.closedHow === 'note' || t.closedHow === 'change'
+    || (typeof t.landedCommit === 'string' && t.landedCommit !== ''));
+  return { met, ran, built, any: met > 0 || ran || built };
+}
+
 /** { total, reported, met } over a task's checks, or null when it has none. */
 function checkCounts(t) {
   const r = checkResultsOf(t);
@@ -289,8 +302,15 @@ function treeOf(p) {
   const isBuilt = isBuiltOpen;   // held reads held (taskState); one definition, shared with kosmos#7514's closesWithParent
   /* kosmos#8140: `held` counts the open children on hold, so a parent can show them apart from the ones not done yet
      (a built parent with most pieces held read as finished). kosmos#8301: `unrun` counts the children closed as never run or replaced (closedUnrun), so "done" can mean done: they stay in `done`, which every reader of "all closed" needs. */
-  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, held: k.filter((t) => !progressOf(t).closed && isOnHold(t)).length, unrun: k.filter((t) => progressOf(t).closed && (t.closedUnrun === true || Number.isInteger(t.replacedBy))).length, total: k.length }; };
+  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, held: k.filter((t) => !progressOf(t).closed && isOnHold(t)).length, unrun: k.filter(closedUnrunOf).length, total: k.length }; };
   return { byNum, up, under, progress };
+}
+
+/* kosmos#8301/#8736: a closed task counted as closed without running: marked so (closedUnrun true), or replaced. A
+   task replaced after its own record said it ran carries closedUnrun false, so it counts as done and not as unrun; one
+   replaced before #8301 has no closedUnrun at all and still counts unrun by its link, as it always did. */
+function closedUnrunOf(t) {
+  return progressOf(t).closed && (t.closedUnrun === true || (Number.isInteger(t.replacedBy) && t.closedUnrun !== false));
 }
 
 /**
@@ -1390,7 +1410,12 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
     notRunNew = notRun && after && t.closedUnrun !== true;   // kosmos#8301: an already-closed task newly marked records that too
     /* kosmos#8301: closed without running, only when the closer says so (--not-run) or it was replaced. Never inferred from
        what is missing: a parent whose children did the work, or a person's own plain close, has no sign of work either. */
-    if (after && (notRun || replacedNew)) changed.closedUnrun = true;
+    /* kosmos#8736: a replaced task whose own record says it ran is "done, then superseded", not "never run": it is
+       replaced (the link is kept) without the never-run mark, so a parent's done-count (#8301) does not count it unrun.
+       Replacing finished work is legitimate, so this is not a refusal. --not-run itself is refused over such a record
+       (kosmos#8734). */
+    if (after && (notRun || (replacedNew && !ranOnRecord(t).any))) changed.closedUnrun = true;
+    else if (after && replacedNew) changed.closedUnrun = false;   // replaced, and its record says it ran (not "never run")
     if (!after || closedAt === null) delete changed.closedUnrun;   // a reopen clears it, also when the parts still read closed
     if (!before && after) setClosedHow(changed, t, p);   // kosmos#8552: read before the built mark goes (below)
     if (!after) delete changed.closedHow;
@@ -3228,7 +3253,7 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
   return out.slice(0, 3);
 }
 
-module.exports = { HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, setText /* kosmos#8664 */, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
+module.exports = { ranOnRecord /* kosmos#8736 */, HOLD_TOLD_FIELDS, whoIsLeft, runBefore, create, setText /* kosmos#8664 */, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   setDoneWhenCheck, setCheckResult, checkResultsOf, checkCounts, CHECK_HOW_MAX, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
