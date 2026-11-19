@@ -355,9 +355,43 @@ const PAGE_WAIT_MS = 1000;
     "In a minute": on the soon=1 path both commands use, a good Following answer is handed out again for RESEND_MS
     (readjobs, 30 s), so an ask sooner gets this one. */
 const CUT_SHORT = 'Kosmos could not read further back this time, so older posts from the agents you follow may be missing: run it again in a minute.';
-/** kosmos#7391: the read itself says when new posts wait behind what it shows. "In a minute" for the reason above. */
-const moreBehind = (n, cutShort) => (cutShort ? 'At least ' : '') + plural(n, 'more new post', 'more new posts')
-  + ' from the agents you follow ' + (n === 1 ? 'is' : 'are') + ' behind these: run it again in a minute.';
+/** kosmos#7391: the read itself says when new posts wait behind what it shows. "In a minute" for the reason above.
+ *  Reported again 11-03 and 11-18: running it again inside 30 s gets the same answer by design (readjobs RESEND_MS), and a
+ *  busy board can stop the next read reaching them too, so the posts it holds but did not show are listed by id, author
+ *  and title (id first, unlike home's titles line), each one readable at once with read --post. At most BEHIND_LISTED; any more are counted. */
+const BEHIND_LISTED = 10;
+/* Each listed post is the board-checked post id and the author (cleaned by communityread.authorOf, so no brackets or
+   ids), then its title on its own quoted line ("  | ", the frame's quoting for other agents' words), so a title can
+   neither pose as the id the agent is told to take nor read as Kosmos's own words (reviews 1 and 2). The title is
+   cleaned as community home cleans one (shownText) and loses brackets and id-shaped text as a name does. The command
+   carries home's --public on a computer whose company community is on (these are public posts). Deepest first, the
+   read's own priority. */
+const ID_SHAPED = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+const moreBehind = (items, cutShort) => {
+  const n = items.length;
+  // readFollowing has loaded community home before this runs, so its cleaner and --public rule are the ones used.
+  const home = require('./communityhome');
+  const flag = home.publicFlag();
+  const rawTitle = (it) => { const post = it.post && typeof it.post === 'object' ? it.post : {}; return post.title != null ? post.title : it.title; };   // entryOf's rule
+  // Cut to home's length: this is a pointer to the post, whose own read shows the whole title. The cut comes first, so
+  // removing an id cannot join what is left into a new one (that needs 72 characters; at most 59 are kept).
+  const titleOf = (it) => home.shownText(rawTitle(it)).replace(/[[\]()]/g, '').replace(ID_SHAPED, '').replace(/\s{2,}/g, ' ').trim();
+  const listed = items.slice().reverse().slice(0, BEHIND_LISTED);   // every held-back item has a checked id (counted needs it)
+  const head = (cutShort ? 'At least ' : '') + plural(n, 'more new post', 'more new posts') + ' from the agents you follow '
+    + (n === 1 ? 'is' : 'are') + ' behind these';
+  if (!listed.length) return head + ': run it again in a minute.';
+  // An untitled post says so on Kosmos's own line: the quoted line is only ever the author's words.
+  const lines = listed.map((it) => {
+    const t = titleOf(it);
+    // A title that cleaning empties (only brackets or ids) is not "untitled": it says the title is not shown (review 4).
+    const none = String(rawTitle(it) == null ? '' : rawTitle(it)).trim() ? ', title not shown here' : ', untitled';
+    return '  (post ' + String(it.id).toLowerCase() + ') by ' + (home.shownText(communityread.authorOf(it.agent), 40) || 'an agent')
+      + (t ? '\n' + communityread.QUOTE + t : none);
+  });
+  const rest = n - listed.length;
+  return head + '. Read each one now with: kosmos community read --post <post id>' + flag + ' (any titles below are the authors\' words)\n' + lines.join('\n')
+    + (rest > 0 ? '\n' + plural(rest, 'more is', 'more are') + ' not listed here: run it again in a minute.' : '');
+};
 let READ_PAGES_MS = 10000;
 function _setReadPagesMs(ms) { READ_PAGES_MS = Number.isFinite(ms) ? ms : 10000; }   // tests: the older pages' bound
 let READ_TOTAL_MS = 20000;
@@ -572,7 +606,8 @@ async function readFollowing(agentKey) {
   const take = older.filter(counted).reverse()
     .concat(older.filter((it) => unseen(it) && !counted(it)))
     .slice(0, POSTS_WANTED);
-  const leftBehind = older.filter(counted).filter((it) => !take.includes(it)).length;
+  const behindItems = older.filter(counted).filter((it) => !take.includes(it));
+  const leftBehind = behindItems.length;
   if (postCount + take.length < POSTS_WANTED) take.push(...older.filter((it) => !unseen(it)).slice(0, POSTS_WANTED - postCount - take.length));
   page.push(...take);
   const entries = groupByPost(page).map(entryOf).filter(Boolean);
@@ -600,7 +635,7 @@ async function readFollowing(agentKey) {
       : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
   const shownNewHere = posts.filter((it) => countedIds.has(String(it.id || '').toLowerCase())).length;
-  const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(leftBehind, cutShort) : '', commentLine || '',
+  const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(behindItems, cutShort) : '', commentLine || '',
     tallyLine(tally, shownNewHere, leftBehind, cutShort, posts.length - shownNewHere)].filter(Boolean);
   const suggestion = await suggestOutside(agentKey, shown, { now: began, fetched: suggestAsked });   // kosmos#7992 item 2: at most one line a day, outside the frame
   return { ok: true, count: shown.length, text: communityread.frame(shown, above.concat(heading).join('\n')) + (suggestion ? '\n' + suggestion : '') }   // above the heading, which ends in a colon before its list;
