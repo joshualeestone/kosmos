@@ -149,7 +149,8 @@ const CAPABILITIES_RECHECK_MS = 10 * 60 * 1000;
 const CAPABILITIES_UNANSWERED_RECHECK_MS = 30 * 1000;
 // How long one ask may take before it counts as unanswered (a cold start on Windows can scan the exe first).
 const CAPABILITIES_ASK_TIMEOUT_MS = 5000;
-/* kosmos#8728: an ask after one that went unanswered may take this long. Measured on 11-19: a Mac that had just
+/* kosmos#8728: an ask made while the last one went unanswered (a self-retry, or a request's ask after the self-retries
+   ran out) may take this long. Measured on 11-19: a Mac that had just
    restarted ran its board's tunnel at load ~150, the first ask most likely did not answer inside five seconds, and the
    first remote action six minutes later was refused. */
 const CAPABILITIES_RETRY_TIMEOUT_MS = 15000;
@@ -161,6 +162,9 @@ let askingCapabilities = false;
 // kosmos#8728: unanswered asks in a row in this generation, and the timer that asks again by itself.
 let unansweredInARow = 0;
 let selfRetryTimer = null;
+/* kosmos#8728 review 2: the one rule for "the board still asks by itself after this many unanswered asks in a row".
+   The self-retry, the log line and the "still starting" sentence all read it, so none of them can drift apart. */
+const stillSelfRetrying = (unanswered) => unanswered <= CAPABILITIES_SELF_RETRIES;
 // kosmos#8728 review 1: set while the running half lists nothing because a tunnel from an earlier board is being ended.
 let foreignHolding = false;
 // kosmos#8728: tests only (honoured under the test runner alone), shorter timings so a slow start can be played fast.
@@ -177,27 +181,30 @@ function noteCapabilities(caps, answered, now, generation = capabilitiesGenerati
   if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) return capabilitiesSeen.caps;
   // `binary` is the one that was ASKED (taken when the ask started), so a binary swapped mid-ask is not credited.
   capabilitiesSeen = { caps, answered, at: now, binary };
-  if (answered) { unansweredInARow = 0; clearSelfRetry(); } else { unansweredInARow += 1; scheduleSelfRetry(generation); }
+  if (answered) { unansweredInARow = 0; clearSelfRetry(); } else { unansweredInARow += 1; scheduleSelfRetry(); }
   return caps;
 }
 function clearSelfRetry() { if (selfRetryTimer) { clearTimeout(selfRetryTimer); selfRetryTimer = null; } }
 /* kosmos#8728: ask again by itself after an unanswered ask. One timer, cleared by an answered ask and by a new
    generation (forgetConnectorCapabilities). Unref'd, so it never holds a process open. */
-function scheduleSelfRetry(generation) {
+function scheduleSelfRetry() {
   clearSelfRetry();
-  if (unansweredInARow > CAPABILITIES_SELF_RETRIES) return;
+  if (!stillSelfRetrying(unansweredInARow)) return;
   selfRetryTimer = setTimeout(() => { selfRetryTimer = null; askConnectorCapabilities(); },
     capTiming('recheckMs', CAPABILITIES_UNANSWERED_RECHECK_MS));
   if (selfRetryTimer && typeof selfRetryTimer.unref === 'function') selfRetryTimer.unref();
 }
 /* kosmos#8728: whether an empty answer means "not known yet" rather than "this connector lacks it": nothing kept, or
-   the kept ask did not answer. The refusal then says Kosmos+ is still starting, never "update Kosmos". The running
+   the kept ask did not answer while the board is still asking by itself. The refusal then says Kosmos+ is still
+   starting, never "update Kosmos"; once the self-retries have run out (review 2: a connector that cannot be started at
+   all never answers), it is the update sentence again. The running
    tunnel's half counts too: started here but its own status not yet written by this child, or a tunnel from an
    earlier board still being ended. */
 function connectorCapabilitiesPending() {
   if (!tunnelStartedHere) return true;
   if (foreignHolding) return true;
-  if (!capabilitiesSeen || !capabilitiesSeen.answered) return true;
+  if (!capabilitiesSeen) return true;
+  if (!capabilitiesSeen.answered) return stillSelfRetrying(unansweredInARow);
   const pid = child ? child.pid : (process.env.NODE_TEST_CONTEXT ? runningPidForTests : null);
   if (pid === null || pid === undefined) return true;
   return !(runningSeen && runningSeen.pid === pid);
@@ -416,8 +423,8 @@ function logCapabilityAsk(answered, caps, ms, timeout, generation) {
     line += 'not answered in ' + ms + ' ms (limit ' + timeout + ' ms); ';
     if (generation !== capabilitiesGeneration) line += 'dropped, the tunnel has changed since';
     else if (capabilitiesSeen && capabilitiesSeen.caps.has('session-headers')) line += 'the earlier yes is kept';
-    else if (unansweredInARow + 1 <= CAPABILITIES_SELF_RETRIES) line += 'asking again in ' + Math.round(capTiming('recheckMs', CAPABILITIES_UNANSWERED_RECHECK_MS) / 1000) + ' s';
-    else line += 'asked ' + CAPABILITIES_SELF_RETRIES + ' times; asking again at the next remote request';
+    else if (stillSelfRetrying(unansweredInARow + 1)) line += 'asking again in ' + Math.round(capTiming('recheckMs', CAPABILITIES_UNANSWERED_RECHECK_MS) / 1000) + ' s';
+    else line += 'asked ' + (CAPABILITIES_SELF_RETRIES + 1) + ' times; asking again at the next remote request';
   }
   console.error(line);
 }

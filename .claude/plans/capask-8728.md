@@ -19,10 +19,13 @@ sign-in right now ... if this keeps happening, update Kosmos." Nothing was out o
   well; those were removed, so the clears are the one mechanism and a test can fail on them.
 - (d) An ask after an unanswered one gets 15 s instead of 5 s.
 - (c) Every ask writes one stderr line (the board's log): answered in N ms with what it listed, or not answered and what
-  happens next (asking again in 30 s / asked 20 times, next request / dropped, a newer tunnel / the earlier yes kept).
+  happens next (asking again in 30 s / asked 21 times, next request / dropped, a newer tunnel / the earlier yes kept);
+  an answer from an older generation says it was dropped.
 - (b) `connectorCapabilitiesPending()`: true when nothing is kept, the kept ask did not answer, no child runs, this
   child's status has not been read yet, or (review 1) the status file is held by a tunnel from an earlier board that
-  is still being ended. `remoteStepUpRefusal` then returns REMOTE_STEP_UP_STARTING ("Kosmos+ is still
+  is still being ended. Review 2: an unanswered ask counts as pending only while the board still asks by itself; after
+  the 1 + 20 asks the update sentence comes back, so "still starting" is never a promise nothing keeps (a connector
+  that cannot be started at all). One predicate, stillSelfRetrying, decides the retry, the log line and this. `remoteStepUpRefusal` then returns REMOTE_STEP_UP_STARTING ("Kosmos+ is still
   starting on this computer ... Try again in a minute"), same code `remote_step_up_unavailable`, so every page that
   reads the code is unchanged. A connector that ANSWERED without the capability keeps the update sentence. A caller
   passing its own caps (tests) is treated as answered.
