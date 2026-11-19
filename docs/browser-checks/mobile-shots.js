@@ -1472,6 +1472,30 @@ const SCREENS = [
     const t = await page.locator('#d-task').innerText();
     if (!/^Kosmos cannot confirm it started this window, so it does not type messages into it/.test(t)) throw new Error('the page said: ' + t);
   }, after: async (page) => { await page.unroute('**/api/status*'); } },
+  /* kosmos#8719 part 2 (Angel): the same untied page, scrolled to "Link this window to Kosmos", and its confirmation.
+     Nothing is linked: the dialog is shot open and closed in `after` with its harmless answer. */
+  { name: 'link-button-8719', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    await stubUntied8719(page, data);
+    await at(page, '?agent=' + data.chatAgent);
+    await page.waitForSelector('#d-link', { state: 'visible', timeout: 15000 });
+    await page.locator('#d-link').scrollIntoViewIfNeeded();
+  }, verify: async (page) => {
+    const t = await page.locator('#d-link').innerText();
+    if (!/Link this window to Kosmos/.test(t)) throw new Error('the link control said: ' + t);
+  }, after: async (page) => { await page.unroute('**/api/status*'); } },
+  { name: 'link-dialog-8719', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    await stubUntied8719(page, data);
+    await at(page, '?agent=' + data.chatAgent);
+    await page.waitForSelector('#d-link', { state: 'visible', timeout: 15000 });
+    await page.locator('#d-link-btn').click();
+    await page.waitForSelector('#link-m-title', { state: 'visible', timeout: 5000 });
+  }, verify: async (page) => {
+    const t = await page.locator('#link-m-title').innerText();
+    if (t !== 'Link this window to Kosmos?') throw new Error('the dialog said: ' + t);
+  }, after: async (page) => {
+    try { await page.locator('#link-m-keep').click({ timeout: 2000 }); } catch { /* already closed */ }
+    await page.unroute('**/api/status*');
+  } },
   { name: 'agent-page', owner: 'Raiden', go: async (page, data) => {
     await at(page, '?agent=' + data.chatAgent);
     await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
