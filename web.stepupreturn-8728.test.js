@@ -27,9 +27,10 @@ function page({ accounts = [], storage = new Map(), throws = false, visible = []
   const src = [
     SCRIPT.match(/const STEPUP_RETURN_KEY = [^;]*;/)[0],
     SCRIPT.match(/const STEPUP_RETURN_MS = [^;]*;/)[0],
-    lift(SCRIPT, 'noteStepUpReturn'), lift(SCRIPT, 'forgetStepUpReturn'), lift(SCRIPT, 'peekStepUpReturn'),
+    'let ACCT_ADD_RETURN_FOCUS = "an older opener";',
+    lift(SCRIPT, 'noteStepUpReturn'), lift(SCRIPT, 'forgetStepUpReturn'), lift(SCRIPT, 'markStepUpReturnGoing'), lift(SCRIPT, 'peekStepUpReturn'),
     lift(SCRIPT, 'stepUpReturnBusy'), lift(SCRIPT, 'resumeStepUpReturn'), lift(SCRIPT, 'stepUpReturnBoot'),
-    'return { noteStepUpReturn, forgetStepUpReturn, peekStepUpReturn, resumeStepUpReturn, stepUpReturnBoot, KEY: STEPUP_RETURN_KEY };',
+    'return { noteStepUpReturn, forgetStepUpReturn, markStepUpReturnGoing, peekStepUpReturn, resumeStepUpReturn, stepUpReturnBoot, KEY: STEPUP_RETURN_KEY, focus: () => ACCT_ADD_RETURN_FOCUS };',
   ].join('\n');
   const fns = new Function('sessionStorage', 'document', 'performance', 'fetch', 'ACCOUNTS', 'openAcctReauth', 'accountsRead', src)(
     sessionStorage, document, performance, fetch, accounts, (dir, email) => opened.push({ dir, email }), (list) => read.push(list));
@@ -38,8 +39,8 @@ function page({ accounts = [], storage = new Map(), throws = false, visible = []
 
 const DIR = '/Users/someone/.claude-work';
 const ACCOUNTS = [{ dir: DIR, email: 'someone@example.com' }, { dir: '/Users/someone/.claude', email: 'other@example.com' }];
-// A note written before this page view began: the fresh sign-in navigated, so the page loaded again since.
-const earlier = (p, ago = 60 * 1000) => p.storage.set(p.KEY, JSON.stringify({ kind: 'claude-signin', dir: DIR, at: p.performance.timeOrigin - ago }));
+// A note written, and its Sign in again pressed, before this page view began: the fresh sign-in navigated back here.
+const earlier = (p, ago = 60 * 1000) => p.storage.set(p.KEY, JSON.stringify({ kind: 'claude-signin', dir: DIR, at: p.performance.timeOrigin - ago, went: p.performance.timeOrigin - ago + 1000 }));
 
 test('#8728 slice 2: after the page loads again, a remembered account reopens its own dialog once, then the note is gone', () => {
   const p = page({ accounts: ACCOUNTS });
@@ -47,6 +48,7 @@ test('#8728 slice 2: after the page loads again, a remembered account reopens it
   p.resumeStepUpReturn();
   assert.deepEqual(p.opened, [{ dir: DIR, email: 'someone@example.com' }]);
   assert.match(p.els['acct-add-note'].textContent, /signed in to Kosmos\+ again\. Press Sign in again/);
+  assert.equal(p.focus(), null, 'focus has no older opener to return to');
   assert.equal(p.storage.has(p.KEY), false, 'removed when acted on');
   p.resumeStepUpReturn();
   assert.equal(p.opened.length, 1, 'a second account read does not reopen it');
@@ -60,6 +62,25 @@ test('#8728 slice 2 review 1: in the SAME page view the note never acts (no fres
   p.resumeStepUpReturn();   // a later account read in this view: Settings, an agent panel, a timer
   assert.deepEqual(p.opened, [], 'reopened the dialog with "you signed in again" before any sign-in');
   assert.equal(p.storage.has(p.KEY), true, 'kept for after the fresh sign-in');
+});
+
+test('#8728 slice 2 review 2: a reload WITHOUT pressing Sign in again opens nothing; a press in this same view opens nothing either', () => {
+  const p = page({ accounts: ACCOUNTS });
+  // Refused in an earlier view, never pressed, page reloaded: the note is older than the page but was never sent on.
+  p.storage.set(p.KEY, JSON.stringify({ kind: 'claude-signin', dir: DIR, at: p.performance.timeOrigin - 60 * 1000 }));
+  p.resumeStepUpReturn();
+  assert.deepEqual(p.opened, [], 'a reload alone said "you signed in again"');
+  assert.equal(p.storage.has(p.KEY), true);
+  // Pressed now, in this view: the sign-in has not navigated back yet.
+  p.markStepUpReturnGoing();
+  assert.equal(typeof JSON.parse(p.storage.get(p.KEY)).went, 'number', 'the press was not marked');
+  p.resumeStepUpReturn();
+  assert.deepEqual(p.opened, [], 'acted before the sign-in came back');
+  // A press on a note past its window marks nothing.
+  const late = page({ accounts: ACCOUNTS });
+  late.storage.set(late.KEY, JSON.stringify({ kind: 'claude-signin', dir: DIR, at: Date.now() - 11 * 60 * 1000 }));
+  late.markStepUpReturnGoing();
+  assert.equal(JSON.parse(late.storage.get(late.KEY)).went, undefined);
 });
 
 test('#8728 slice 2 review 1: another dialog or first run on screen: the return waits and keeps the note', () => {
@@ -122,7 +143,8 @@ test('#8728 slice 2 review 1: on load, a note this page may act on makes it read
   await new Promise((r) => setTimeout(r, 0));
   await new Promise((r) => setTimeout(r, 0));
   assert.deepEqual(p.fetched, ['/api/accounts']);
-  assert.deepEqual(p.read, [ACCOUNTS], 'the read went through accountsRead (which resumes)');
+  assert.deepEqual(p.opened, [{ dir: DIR, email: 'someone@example.com' }], 'boot resumed from its own read');
+  assert.deepEqual(p.read, [], 'review 2: the boot read does not replace the page list (accountsRead)');
   // CONTROL: no note, nothing is read.
   const none = page({ accounts: ACCOUNTS, fetchBody: { accounts: ACCOUNTS } });
   none.stepUpReturnBoot();
@@ -145,4 +167,6 @@ test('#8728 slice 2: the page wires it: only the refusal that offers Sign in aga
   assert.match(lift(SCRIPT, 'accountsRead'), /resumeStepUpReturn\(\)/);
   assert.match(SCRIPT, /closest\('#stepup-close'\)\) \{ hideStepUpAsk\(\); stepUpFocusAway\(\); if \(typeof forgetStepUpReturn === 'function'\) forgetStepUpReturn\(\); \}/);
   assert.match(SCRIPT, /document\.addEventListener\('DOMContentLoaded', stepUpReturnBoot\);\nelse stepUpReturnBoot\(\);/);
+  // review 2: the ask's Sign in again (both ways it goes are a submit of #stepup-form) marks the note, in capture.
+  assert.match(SCRIPT, /document\.addEventListener\('submit', \(e\) => \{ if \(e\.target && e\.target\.id === 'stepup-form'\) markStepUpReturnGoing\(\); \}, true\);/);
 });

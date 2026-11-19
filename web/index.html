@@ -32531,9 +32531,9 @@ function acctFlowWatch() {
 /* kosmos#8728 slice 2: a Claude Sign in again refused from a remote session for want of a fresh Kosmos+ sign-in (the
    refusal that offers Sign in again: code remote_step_up with signInAgain) leaves one note in this TAB (sessionStorage:
    it never outlives the tab, never reaches another visit or another viewer): which account (its folder) and when. No
-   code and no token. When the page has been loaded again since the note was written (the fresh sign-in navigates), it
-   reads the account list once and reopens that account's dialog, saying to press Sign in again; it never starts a
-   sign-in by itself. The note counts only within 10 minutes, the same window the fresh sign-in has, is removed when it
+   code and no token. Pressing the ask's own Sign in again marks it (review 2: a reload alone proves no sign-in). When
+   the page has loaded again since that press (the fresh sign-in navigates), it reads the account list once and reopens
+   that account's dialog, saying to press Sign in again; it never starts a sign-in by itself. The note counts only within 10 minutes, the same window the fresh sign-in has, is removed when it
    is acted on, and Not now on the ask forgets it. In the same page view it never acts (review 1: any later account
    read would otherwise reopen the dialog with a false "you signed in again"), and never over another open dialog. */
 const STEPUP_RETURN_KEY = 'kosmos-stepup-return';
@@ -32545,6 +32545,15 @@ function noteStepUpReturn(dir) {
 function forgetStepUpReturn() {
   try { sessionStorage.removeItem(STEPUP_RETURN_KEY); } catch { /* nothing to forget */ }
 }
+/* The person pressed the ask's Sign in again (either way it goes: the fresh form or the logout, both a submit of
+   #stepup-form): the note says so, with the time of the press. */
+function markStepUpReturnGoing(now = Date.now()) {
+  let n = null;
+  try { n = JSON.parse(sessionStorage.getItem(STEPUP_RETURN_KEY) || 'null'); } catch { n = null; }
+  if (!n || n.kind !== 'claude-signin' || typeof n.dir !== 'string' || !n.dir || typeof n.at !== 'number') return;
+  if (now - n.at > STEPUP_RETURN_MS) return;
+  try { sessionStorage.setItem(STEPUP_RETURN_KEY, JSON.stringify({ kind: 'claude-signin', dir: n.dir, at: n.at, went: now })); } catch { /* the return is a courtesy */ }
+}
 /* The note, if this page may act on it: one this page wrote, written BEFORE this page loaded, within its window. Not
    removed here; a note of the wrong shape or past its window is removed. */
 function peekStepUpReturn(now = Date.now(), pageStart = performance.timeOrigin) {
@@ -32553,7 +32562,8 @@ function peekStepUpReturn(now = Date.now(), pageStart = performance.timeOrigin) 
   if (!n) return null;
   const shaped = n.kind === 'claude-signin' && typeof n.dir === 'string' && n.dir && typeof n.at === 'number';
   if (!shaped || now - n.at > STEPUP_RETURN_MS || n.at - now > 60 * 1000) { forgetStepUpReturn(); return null; }
-  if (!(n.at < pageStart)) return null;   // written in this page view: no fresh sign-in has happened yet, keep it
+  // Not yet pressed, or pressed in this page view (the sign-in has not navigated back yet): keep it.
+  if (typeof n.went !== 'number' || !(n.went < pageStart)) return null;
   return n;
 }
 /* Another dialog or first run on screen: the return waits (the note is kept) rather than open over it. */
@@ -32564,27 +32574,30 @@ function stepUpReturnBusy() {
   }
   return false;
 }
-function resumeStepUpReturn(now = Date.now(), pageStart = performance.timeOrigin) {
-  const n = peekStepUpReturn(now, pageStart);
-  if (!n || stepUpReturnBusy() || !Array.isArray(ACCOUNTS)) return;
+function resumeStepUpReturn(list = ACCOUNTS) {
+  const n = peekStepUpReturn();
+  if (!n || stepUpReturnBusy() || !Array.isArray(list)) return;
   forgetStepUpReturn();
-  const acct = ACCOUNTS.find((a) => a && a.dir === n.dir && !a.apiKey);
+  const acct = list.find((a) => a && a.dir === n.dir && !a.apiKey);
   if (!acct) return;
+  ACCT_ADD_RETURN_FOCUS = null;   // review 2: opened by the page, not from a control, so focus has nowhere older to return
   openAcctReauth(n.dir, typeof acct.email === 'string' ? acct.email : '');
   const note = document.getElementById('acct-add-note');
   if (note) note.textContent = 'You signed in to Kosmos+ again. Press Sign in again to sign this account in to Claude.';
 }
-/* On load, with a note this page may act on: read the account list once, which resumes (accountsRead). Without one,
-   nothing is read here. */
+/* On load, with a note this page may act on: read the account list once and resume from THAT list. It is not stored as
+   the page's list (review 2): the page's own reads keep their sequencing. Without a note, nothing is read here. */
 function stepUpReturnBoot() {
   if (!peekStepUpReturn()) return;
   fetch('/api/accounts', { cache: 'no-store' })
     .then((res) => (res.ok ? res.json() : null))
-    .then((body) => { if (body && Array.isArray(body.accounts)) accountsRead(body.accounts); })
+    .then((body) => { if (body && Array.isArray(body.accounts)) resumeStepUpReturn(body.accounts); })
     .catch(() => { /* the return is a courtesy */ });
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', stepUpReturnBoot);
 else stepUpReturnBoot();
+// Capture phase: marked before the ask's own submit handler sends the logout path on its way.
+document.addEventListener('submit', (e) => { if (e.target && e.target.id === 'stepup-form') markStepUpReturnGoing(); }, true);
 /* #1587: the acct-add button is a SECOND entry into /api/connect/start, and it
    used to POST with no confirm, so an accounts click could begin a large Claude
    Code install (~231MB) unannounced, the same download the first-run flow
