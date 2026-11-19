@@ -1,0 +1,43 @@
+# adoptlink-8724: `kosmos adopt` offers the board link (kosmos#8724 item 2)
+
+Card: kosmos#8724 item 2 ("`kosmos adopt` re-binding"). Stacked on reclaim-8719 (#8719 part 2, PR #8732: the link
+itself, engine/linkwindow.js). Independent of item 1 (branch linkjob-8724).
+
+## Finished means
+`kosmos adopt` no longer leaves a hand-started window at "skip zara -- not one of ours" with no way on. When the link
+would accept that window, the skip line names the command that links it. `kosmos adopt --link <name>` says what
+linking means and changes nothing; `kosmos adopt --link <name> --confirm` links that one window through the same
+engine and checks as the board's button, and says to run `kosmos adopt --confirm` next. Proven by CLI tests against
+stand-in engine modules, with perturbation controls.
+
+## How
+- install/kosmos `cmd_adopt`: arguments parsed in a loop (`--confirm`, `--link <name>`, either order). A missing or
+  flag-shaped name, or an unknown flag, is refused with the usage line before anything is read.
+- With `--link`: read the window list once (`status.panesWithCommands`, the board's own look); without `--confirm`
+  run `linkwindow.plan` and print what linking means, or its refusal (exit 1); with `--confirm` run
+  `linkwindow.link(name, { panes })` and print linked, or its refusal (exit 1). A list that cannot be read stops (2).
+- Without `--link`: the review is unchanged, except a skipped row whose reason is "not one of ours" and which
+  `linkwindow.plan` accepts gets "; if you started it yourself, link it first: kosmos adopt --link <name>". The window
+  list is read once; if it cannot be read the skip lines are exactly as before.
+
+## Decided
+- Two steps (`--link`, then `--link --confirm`), matching adopt's own "nothing is written without --confirm" and the
+  board's confirmation dialog. Rejected: linking from plain `adopt --confirm` for every linkable window (a vouch the
+  person never made, per window, for windows they may not have started).
+- Linking and adopting stay separate commands. Adoption mints a credential and records provenance (Josh's 2026-08-27
+  ruling, engine/adopt.js); linking only sets the window mark. Rejected: doing both in one step (it would blur the
+  record of what was vouched for).
+- The engine is linkwindow's, unchanged; its checks (Claude window named exactly for the agent, alone in its session,
+  not marked) and its refusal sentences are the board's.
+- `kosmos adopt --help` still re-dispatches a bare review, so --help never links.
+
+## Weakest premise
+That `status.panesWithCommands()` and `status.boardTmux()` resolve the same tmux from the CLI's process as from the
+board's. Both read the same repick (status.js tmuxRepick); not measured from the CLI against a live second tmux here.
+
+## Tests
+- cli.adopt-link-8724.test.js (6): hint only for a linkable skip (control: an unlinkable one stays plain); an unreadable
+  list leaves skips as before; --link alone changes nothing; --link --confirm links in either order; a refused link
+  says the engine reason and exits 1; bad arguments refused before any read. Perturbations: hint off (1 red); --link
+  acting without --confirm (1 red).
+- Every test that reads install/kosmos (177 files).
