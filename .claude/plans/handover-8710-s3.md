@@ -53,3 +53,28 @@ off as this one, and the leaving computer's device signature over it is checked 
 Rejected: a new coordinator column holding a context the sender reports (a slice 2 change for information both
 sides already hold). Weakest premise: that nothing in restore treats `period` as a week. Checked: backuprestore.js
 does not read the period; the snapshot's week checks are skipped only under the hand-over layout.
+
+## handoversend.js design (09:0x CST 11-19, from reading engine/backuptick.js, register.js, backupsessions.js)
+- Names: a hand-over names agents as the rollup reports them (orgrollup gather: a running card's `name`, a stopped
+  agent's `shownAs || name` from register.survey()). Resolve each with the same sources: survey() rows where
+  profile === true and !removed, matching `shownAs || name`; act on `name` (register.js: "ACT ON name, SPEAK
+  shownAs"). A name that matches none, or more than one, fails the pack with that name in the sentence.
+- Roots per agent `<seg>` (backuptick rootSegment of the name):
+  - `agents/<seg>`: create.workerDir(name) (holds its instructions file and its Files folder, dmfiles.filesDir).
+  - `profiles/<seg>`: store.PROFILES with `only: ['<name>.json']`; the receiver strips per-install fields the way
+    agentfile.js does (slice 4).
+  - `sessions/<seg>/...`: backupsessions.sessionsFor(dir, {...}) with the SAME inputs backuptick builds (its
+    input.sessions callback, ~lines 211-310: claudeRoots, gemini/codex/grok homes, museData, moreHomes); reuse by
+    exporting that builder from backuptick, not by copying it. Then trim each root's `only` list to the newest files
+    up to 50 MB per agent (mtime order), so a 2 GB history carries recent context only.
+  - Never the data root, credentials or provider sign-ins (backuptick's protect list applies: pass the same).
+- Keys: memberPk = Buffer.from(seal_pub, 'base64') (32 bytes, else refuse); deviceKey = backupdevicekey.deviceKey()
+  (the connector's mac_key = the coordinator's sender_pubkey); a NEW naming key per pack (backupkeys.newNamingKey);
+  ctx = backupsnapshot.handoverContext(org, id); org from orgenroll status; prefix `handover/<org>/<id>/`.
+- Tick: on the org status tick (where orgrollup / backuptick start), POST /v1/mac/org/handover/mine {}; for each
+  part with side 'send', state 'packing' and a seal_pub: one pack at a time (a module-level in-flight guard), never
+  while another is running. On ok, the manifest grant already moved the record to `packed`. On failure: keep state,
+  retry next tick only for retryLater; record other failures in a local file the notice can read.
+- Notice to the leaving member: "<company> is moving <agents> to a colleague's computer." (shown, not a consent ask).
+- Tunnel allowlist: the six /v1/mac/org/handover/* paths (kosmos-relay crates/tunnel/src/coordinator.rs ~696).
+  CHECK FIRST whether remote.macRequest refuses a path the tunnel does not list (it may only be the tunnel side).
