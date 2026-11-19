@@ -54,6 +54,7 @@ CLI), and inside the current CLIs' 202 loop. A channel read's worst case is 20.5
   connecting (as its vote does), the Mac on curl 18/28/52/56 (as its vote does); the tests that pin the wording;
   tools.windows-kosmos-cli-community-maybe-8722.test.js and cli.community-maybe-8722.test.js
 - [x] a real stalled body is marked cut and retried (engine/communityread-retry-8722.test.js, against a local server)
-- [x] a --post read retries the post, not its comment thread
+- [x] a --post read retries the post, not its comment thread (tested with the post's first answer lost)
+- [x] the second ask is logged (path only, both outcomes), so the next report shows how often it saves a read
 - [x] engine/communitysend.js chain-wait log lines; engine/communityfollow.test.js pins the two busy lines and that an
   uncontested call logs none (the 5 s "waited before starting" line is not pinned: it needs a 5 s wait in a test)

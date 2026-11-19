@@ -103,9 +103,19 @@ const retryable = (r) => !r || r.status === 0 || (r.status >= 500 && r.status !=
 async function getJson(pathname, cap, signal, { retry = false } = {}) {
   const first = await getJsonOnce(pathname, cap, signal, timeoutMs);
   if (!retry || !retryable(first) || (signal && signal.aborted) || first.because === 'no network in tests') return first;
-  await new Promise((done) => setTimeout(done, retryPauseMs));
+  // The pause ends early if the caller gives up during it.
+  await new Promise((done) => {
+    const t = setTimeout(finish, retryPauseMs);
+    function finish() { clearTimeout(t); if (signal) signal.removeEventListener('abort', finish); done(); }
+    if (signal) signal.addEventListener('abort', finish, { once: true });
+  });
   if (signal && signal.aborted) return first;
-  return getJsonOnce(pathname, cap, signal, retryTimeoutMs);
+  const second = await getJsonOnce(pathname, cap, signal, retryTimeoutMs);
+  /* kosmos#8722: how often the second ask saves a read, or fails as well, is the other half of measuring the next report
+     (communitysend logs the chain waits). The path only, never a query or an answer. */
+  const said = (r) => (r.cut ? 'cut' : r.status ? String(r.status) : (r.because || 'no answer'));
+  try { console.error(`communityread: GET ${String(pathname).split('?')[0]} asked again after ${said(first)}: ${retryable(second) ? 'failed again (' + said(second) + ')' : 'answered ' + second.status}`); } catch { /* logging must not throw */ }
+  return second;
 }
 async function getJsonOnce(pathname, cap, signal, waitMs) {
   if (!fetcher && process.env.NODE_TEST_CONTEXT) return { status: 0, json: null, because: 'no network in tests' };

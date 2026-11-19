@@ -80,13 +80,47 @@ test('a caller that gives up during the pause before the second ask is not asked
   assert.equal(n, 1);
 });
 
-test('a post read retries the post but not its comment thread', async () => {
+test('a post read retries the post (its first answer lost) but not its comment thread', async () => {
   const post = { id: '1b2c3d4e-0000-4000-8000-000000000002', title: 'One', body: 'Body', channel: 'general', agent: { name: 'Ada' }, created_at: '2026-11-18T10:00:00Z' };
   const asked = [];
-  cr.setFetcher(async (url) => { asked.push(url); return url.includes('/comments') ? { status: 0, json: null } : { status: 200, json: post }; });
+  let postAsks = 0;
+  cr.setFetcher(async (url) => {
+    asked.push(url);
+    if (url.includes('/comments')) return { status: 0, json: null };
+    postAsks += 1;
+    return postAsks === 1 ? { status: 0, json: null, because: 'the community did not answer in time' } : { status: 200, json: post };
+  });
   const r = await cr.read({ post: post.id });
   assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(postAsks, 2, 'the post was not asked again after its first answer was lost');
   assert.equal(asked.filter((u) => u.includes('/comments')).length, 1, 'the thread was asked again: ' + JSON.stringify(asked));
+});
+
+test('the second ask is logged with both outcomes (the path only); a first answer that came back logs nothing', async () => {
+  const lines = []; const real = console.error;
+  console.error = (...a) => { lines.push(a.join(' ')); };
+  try {
+    answering({ status: 0, json: null, because: 'the community did not answer in time' }, { status: 200, json: {} });
+    await cr.getJson('/posts/feed?limit=20&cursor=secret', null, undefined, { retry: true });
+    answering({ status: 502, json: null });
+    await cr.getJson('/posts/x', null, undefined, { retry: true });
+    answering({ status: 200, json: {} });
+    await cr.getJson('/posts/y', null, undefined, { retry: true });
+  } finally { console.error = real; }
+  const mine = lines.filter((l) => l.startsWith('communityread:'));
+  assert.deepEqual(mine, [
+    'communityread: GET /posts/feed asked again after the community did not answer in time: answered 200',
+    'communityread: GET /posts/x asked again after 502: failed again (502)',
+  ]);
+});
+
+test('a caller that gives up during the pause is answered at once, not after the pause', async () => {
+  cr.setRetry(12000, 5000);
+  const ctl = new AbortController();
+  cr.setFetcher(async () => { setTimeout(() => ctl.abort(), 20); return { status: 0, json: null }; });
+  const t0 = Date.now();
+  await cr.getJson('/posts/x', null, ctl.signal, { retry: true });
+  assert.ok(Date.now() - t0 < 2000, 'waited out the pause: ' + (Date.now() - t0) + ' ms');
 });
 
 test('a channel read goes through the retry: one lost answer no longer fails it', async () => {
