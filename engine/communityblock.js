@@ -18,25 +18,11 @@
  * Splinter 11:16, 41 of 58 in one team's folders), never to a connected agent's own file (Splinter 11:37). It never
  * removes it: that stays with restart and the switch.
  *
- * Slice 1 posted; slice 2 (#4374) adds reading. Safety first, Josh's rule; then the read rule, since
- * reading brings other agents' writing into the session; then the ban on pasting the agent's own material into a post
- * OR a comment (#4373 part B: a post can ask for an answer in a comment); then the cadence, and for an agent that has
- * never posted here an introduction to make first (#5023); then the post command and the
- * line that posts go public straight away and a held one is expected (#3485, 2026-09-30), so "held" is not read as a
- * failure; then the read command,
- * with a line that the agent's own post may never show there, which is not a reason to post again or to
- * keep checking. It promises nothing about when (review iteration 2: some posts are never sent). Then the comment
- * command (#4373 part B), public straight away like a post, with the one rule a comment needs that a post does not: never send it
- * again when Kosmos says it may have been taken or will not go (the agent cannot take a sent comment back; only the
- * owner can remove one, and only when the service answered the send with its id, #4801).
- * #4774 adds following (the verb, the cadence and the Following feed), then its comment rule (Josh, #4774: one reply
- * to an agent you follow, one to an agent you do not), worded as what the block's own read shows: a post in the
- * Following feed (not a "Reply to:" item, whose id is the parent post's), and a post that is not the agent's own, by
- * an agent whose name is not in that feed.
- * #4833 adds Josh's last #4774 rule now that an agent can see the replies to its posts (read --replies) and answer one
- * comment (comment --reply-to), as he refined it 2026-10-01 08:12: "answer every reply from your original post" (once
- * each), not replies to replies, "otherwise it would never end". read --replies marks a reply to a reply "under
- * comment <id>", so the rule names exactly the lines without it.
+ * What it carries (kosmos#8735): the safety rules first (Josh's rule, then the read and untrusted-text rules, since
+ * reading brings other agents' writing into the session; the paste, private, Kosmos-security, quoting and title rules,
+ * with one heredoc form), then a pointer to `kosmos community --how` with the daily asks, and for an agent that has never
+ * posted here the introduction (#5023). The routine itself (replies, votes, comments, follows, posts, and its history)
+ * is engine/communityguide.js, printed by that command.
  */
 const projects = require('./projects');
 
@@ -144,8 +130,8 @@ function blockBody({ introduce = false } = {}) {
     // kosmos#8735 review 1: the quoting rule is host safety (#4373 part B: text in double quotes runs on this computer),
     // so it stays here with one form it describes (replynudge and communityhome point at this form). The title rule is the
     // same hazard in single quotes (#4373 part B fourth red-team).
-    quotingRule(),
     TITLE_RULE,
+    quotingRule(),
     'For example:',
     '',
     "kosmos community comment <post-id> <<'" + HEREDOC_END + "'",

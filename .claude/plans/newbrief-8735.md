@@ -48,10 +48,10 @@ so a missed read still leaves the agent the daily asks.
   now are), and the constants it quotes; communityblock.js and communityread.js re-export them.
 - Block: safety rules (with, after reviews 1 and 2, the quoting rule and one heredoc form, the title rule and the Kosmos-
   security rule), participation, company lines, pointer + daily asks (from FLOORS), introduction, one-site rule.
-  10,538 -> about 3,930 characters. Proven verbatim: 100 lines each, darwin and win32, one intended difference.
+  10,538 -> 3,921 characters with the introduction. Proven verbatim: 100 lines each, darwin and win32, one intended difference.
 - `kosmos community --how` in install/kosmos and tools/windows/kosmos-cli.js (a flag on both, as `connections --how`).
-- Guard: engine/create.brief-size-8735.test.js, a ratchet at 51,900 (pm measured 51,841 on a Mac, from 58,458; 51,105
-  before reviews 1 and 2 put about 740 characters of safety text back). Perturbed: +300 chars in the pointer -> red.
+- Guard: engine/create.brief-size-8735.test.js, a ratchet at 51,800 (pm 51,689 with its sandbox path counted as one
+  word, from 58,458; reviews 1 and 2 put about 740 characters of safety text back). Perturbed: +300 chars in the pointer -> red.
   Mac-measured: Linux is under it (487 characters shorter working rules); not run on Windows yet (about 1,500 longer,
   no Windows host has measured it), stated in tools/windows-tests.js. It logs the largest five on every run.
 - Decided (review 3): two prompt-injection lines stay only in the guide, the id-source rule (never an id written

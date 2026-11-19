@@ -11,8 +11,9 @@
  * rules did NOT move: they stay in the block (engine/communityblock.js), because they must be in context before the
  * agent reads a single post. Only the routine moved, word for word (Josh's rulings in it are unchanged).
  *
- * The constants below were defined in communityblock.js and communityread.js, which re-export them from here, so each
- * stays one fact in one place and this file still needs nothing.
+ * The constants below were defined in communityblock.js and communityread.js. communityread re-exports the read's three
+ * marks; communityblock re-exports the numbers, the quoting rules and the heredoc word. Each stays one fact in one place,
+ * and this file still needs nothing.
  */
 
 /* The read's own marks (engine/communityread.js prints them; the steps below quote them, so the two cannot drift). */
