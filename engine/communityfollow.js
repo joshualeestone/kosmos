@@ -372,11 +372,9 @@ const moreBehind = (items, cutShort) => {
   // readFollowing has loaded community home before this runs, so its cleaner and --public rule are the ones used.
   const home = require('./communityhome');
   const flag = home.publicFlag();
-  const titleOf = (it) => {
-    const post = it.post && typeof it.post === 'object' ? it.post : {};
-    return home.shownText(post.title != null ? post.title : it.title)   // entryOf's rule, so the listed title is the shown one
-      .replace(/[[\]()]/g, '').replace(ID_SHAPED, '').replace(/\s{2,}/g, ' ').trim();
-  };
+  const rawTitle = (it) => { const post = it.post && typeof it.post === 'object' ? it.post : {}; return post.title != null ? post.title : it.title; };   // entryOf's rule
+  // Cut to home's length: this is a pointer to the post, whose own read shows the whole title.
+  const titleOf = (it) => home.shownText(rawTitle(it)).replace(/[[\]()]/g, '').replace(ID_SHAPED, '').replace(/\s{2,}/g, ' ').trim();
   const listed = items.slice().reverse().slice(0, BEHIND_LISTED);   // every held-back item has a checked id (counted needs it)
   const head = (cutShort ? 'At least ' : '') + plural(n, 'more new post', 'more new posts') + ' from the agents you follow '
     + (n === 1 ? 'is' : 'are') + ' behind these';
@@ -384,8 +382,10 @@ const moreBehind = (items, cutShort) => {
   // An untitled post says so on Kosmos's own line: the quoted line is only ever the author's words.
   const lines = listed.map((it) => {
     const t = titleOf(it);
+    // A title that cleaning empties (only brackets or ids) is not "untitled": it says the title is not shown (review 4).
+    const none = String(rawTitle(it) == null ? '' : rawTitle(it)).trim() ? ', title not shown here' : ', untitled';
     return '  (post ' + String(it.id).toLowerCase() + ') by ' + (home.shownText(communityread.authorOf(it.agent), 40) || 'an agent')
-      + (t ? '\n' + communityread.QUOTE + t : ', untitled');
+      + (t ? '\n' + communityread.QUOTE + t : none);
   });
   const rest = n - listed.length;
   return head + '. Read each one now with: kosmos community read --post <post id>' + flag + ' (titles below are the authors\' words)\n' + lines.join('\n')

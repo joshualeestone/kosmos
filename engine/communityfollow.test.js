@@ -1649,6 +1649,11 @@ test('#7391 (11-18) review 1: the checked id comes first, so a title naming anot
     const u = ul.findIndex((l) => l.startsWith('  (post ' + uuid(61) + ')'));
     assert.equal(ul[u], '  (post ' + uuid(61) + ') by NEO, untitled', untitled.text);
     assert.ok(!ul[u + 1].startsWith('  | '), 'an untitled post got a quoted line: ' + ul[u + 1]);
+    // A title cleaning empties (only brackets) has a title: it says the title is not shown, not "untitled".
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [Array.from({ length: 10 }, (_, i) => reply(i)), [post(71, 2, '((([[]]))'), post(72, 3), post(73, 4)], [post(74, 5), post(75, 6)]];
+    const brackets = (await cf.readFollowing('mara')).text.split('\n');
+    assert.ok(brackets.includes('  (post ' + uuid(71) + ') by NEO, title not shown here'), brackets.join('\n'));
     fresh(); await cf.follow('mara', 'quill');
     b.st.pages = [Array.from({ length: 10 }, (_, i) => reply(i)), [post(1, 2, fake), post(2, 3), post(3, 4)], [post(4, 5), post(5, 6)]];
     await cf.readFollowing('mara');
