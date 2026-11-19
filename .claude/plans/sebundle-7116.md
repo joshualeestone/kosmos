@@ -1,4 +1,4 @@
-# sebundle-7116: ship kosmos-se, the Secure Enclave admin signer, inside Kosmos.app (kosmos#7116 step 2)
+# sebundle-7116: ship kosmos-se, the Secure Enclave admin signer, in the release bundle (app/bin, beside kosmos-app) (kosmos#7116 step 2)
 
 Baron 11-19 14:33 (release owner): "you add it, and I review." His three rules: every list must name bin/kosmos-se, with a check that FAILS when it is absent, proven red; sign it in the same step and with the same identity as kosmos-app, before the bundle is sealed and notarised; a cut pinned before this merge simply does not carry it (release-freeze.sh hashes what ships).
 

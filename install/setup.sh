@@ -384,7 +384,9 @@ sealed_requirement() {
 # in the stage ($1) must satisfy the designated requirement of the same part installed at $2: the identifier and the
 # signing team, read from the installed copy, so no Team ID is spelled here (runtime/bin/node is Node's own team, the
 # rest are ours). Runs BEFORE anything in the stage is run. A part the installed copy does not have is not checked
-# (the stage's own gates refuse a missing node or connector, and the app falls back to wrapping kosmos-app, which is).
+# (the stage's own gates refuse a missing node or connector, and the app falls back to wrapping kosmos-app, which is;
+# kosmos#7116: kosmos-se is missing from every install before the release that first ships it, so that first update's
+# copy is held to no installed signer, only to the signed manifest that covers its bytes).
 # An installed part that is ad-hoc signed (a local or test build) or unsigned has no release signer to hold the new one
 # to, so it is not checked and the run says so once; an installed part whose signature cannot be READ is a refusal.
 # A folder on a part's path that is a symlink is refused too (codesign would follow it to the installed files).
