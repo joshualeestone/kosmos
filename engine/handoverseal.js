@@ -15,7 +15,7 @@
  *                                      (not a backfill entry, which is the coordinator's word), and the signature holds.
  *   checkSender(o)                     the receiving computer, before it opens: the packing key is one of the LEAVING
  *                                      member's keys at the time asked (the receiver passes now until kosmos#8764
-                                      gives a signed pack time).
+ *                                      gives a signed pack time).
  *
  * Both checks refuse with a sentence, never throw, and say whether the refusal may pass later ({ wait: true }) or never
  * will. Waiting (nothing is packed or opened meanwhile, and the caller bounds the wait): escrowd could not be asked (no
@@ -79,11 +79,12 @@ function checkSeal(o) {
     const msg = sealMessage(x.id, x.sealPub);
     if (!msg) return no('the key for this hand-over is not one this computer can check');
     if (typeof x.sig !== 'string' || !/^[A-Za-z0-9_-]+$/.test(x.sig)) return no('the colleague\'s computer did not sign the key for this hand-over');
+    // The signature first: it needs no history, so a forged one is refused at once, never waited on (review 5).
+    const pub = publicKeyOfHex(x.signer);
+    if (!pub || !crypto.verify(null, msg, pub, Buffer.from(x.sig, 'base64url'))) return no('the key for this hand-over was not signed by the colleague\'s own computer');
     if (x.history == null) return later('the colleague\'s computer could not be checked yet: Kosmos+ could not get its device keys from the key service');
     const h = devkeyhist.verify(x.history, { org: x.org, member: x.member, now: x.now });
     if (!h.ok) return (STALE.test(h.because) ? later : no)(`the colleague's computer could not be checked: ${h.because}`);
-    const pub = publicKeyOfHex(x.signer);
-    if (!pub || !crypto.verify(null, msg, pub, Buffer.from(x.sig, 'base64url'))) return no('the key for this hand-over was not signed by the colleague\'s own computer');
     const at = entryAt(h.keys, x.signer, x.now);
     // Absent may be an enrolment not finished, or a key that never came from the colleague's computer: say both.
     if (at.absent) return later('the colleague\'s computer has not been enrolled by your company\'s admins yet, or the key for this hand-over did not come from it');
@@ -108,7 +109,8 @@ function checkSender(o) {
     if (!h.ok) return (STALE.test(h.because) ? later : no)(`the computer that packed these agents could not be checked: ${h.because}`);
     const at = entryAt(h.keys, hex, x.at);
     if (at.absent) return later('the computer that packed these agents has not been enrolled by your company\'s admins yet, or the pack did not come from the leaving member\'s computer');
-    if (at.revoked) return no('the pack was not signed by the leaving member\'s own computer');
+    // Revoked at the time asked (now, until #8764): most often a computer the admins retired after it packed.
+    if (at.revoked) return no('the computer that packed these agents is no longer the leaving member\'s');
     if (at.e.backfill !== false) return no('the computer that packed these agents was only carried over from before your company\'s admins enrolled computers, so it has to be enrolled again before it can hand agents over');
     return { ok: true };
   } catch { return no('the computer that packed these agents could not be checked'); }

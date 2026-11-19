@@ -48,6 +48,11 @@ test('every substitution is refused, and each says whether it may pass later (wa
     ['a history signed by someone other than escrowd', { history: history('m-succ', [{ kind: 'enrol', key: hex(other), at: NOW - 900, backfill: false }], { key: other.privateKey }), signer: hex(other), sig: seal.signSeal('ho1', sealPub, other.privateKey) }, /escrowd's signature on the device key history did not check/, FINAL],
     ['a key revoked before now', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: false }, { kind: 'revoke', key: hex(succ), at: NOW - 100 }]) }, /no longer the colleague's/, FINAL],
     ['no signature', { sig: undefined }, /did not sign/, FINAL],
+    // Review 5: a forged signature is final even while escrowd cannot be asked (the signature needs no history).
+    ['a forged signature with no history', { sig: seal.signSeal('ho1', sealPub, other.privateKey), history: null }, /not signed by the colleague's own computer/, FINAL],
+    ['a retired signer (the relay sends null) with no history', { signer: null, history: null }, /not signed by the colleague's own computer/, FINAL],
+    // Review 5: at exactly the revoke second the key is revoked (final), not absent.
+    ['revoked at exactly now', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: false }, { kind: 'revoke', key: hex(succ), at: NOW }], { issuedAt: NOW }) }, /no longer the colleague's/, FINAL],
     // escrowd enrols a key once, so a backfilled key never becomes an admin-enrolled one: final, said as such.
     ['a key the backfill entered (the coordinator\'s word)', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: true }]) }, /carried over from before your company's admins enrolled computers/, FINAL],
     // Enrolled a moment after this computer's clock (escrowd's clock is ahead, within the skew verify allows): waits.
@@ -93,10 +98,10 @@ test('the packing key must be the leaving member\'s at the time asked (today: no
   assert.deepEqual(seal.checkSender(o), { ok: true }, 'valid when the pack was granted, though revoked since');
   const r = (patch) => seal.checkSender(Object.assign({}, o, patch));
   // What the receiver passes today, at = now: a key revoked since the pack was made is refused (final).
-  assert.match(r({ at: NOW }).because, /not signed by the leaving member's own computer/);
+  assert.match(r({ at: NOW }).because, /no longer the leaving member's/);
   assert.equal(r({ at: NOW }).wait, undefined);
   // Final: listed for the leaving member, but not valid then (revoked); a history for another member.
-  assert.match(r({ at: NOW - 50 }).because, /not signed by the leaving member's own computer/);
+  assert.match(r({ at: NOW - 50 }).because, /no longer the leaving member's/);
   assert.equal(r({ at: NOW - 50 }).wait, undefined, 'revoked is final');
   assert.match(r({ member: 'm-succ' }).because, /names a different member/);
   assert.equal(r({ member: 'm-succ' }).wait, undefined);
