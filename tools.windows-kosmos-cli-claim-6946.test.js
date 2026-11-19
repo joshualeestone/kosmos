@@ -107,3 +107,37 @@ test('#6952: kosmos react with a raised hand says it made a claim; control: anot
   const fire = await run(['react', 'proj-1', 'm3', '\u{1F525}'], () => ({ body: { ok: true, op: 'add', emoji: '\u{1F525}', of: 'm3' } }));
   assert.equal(fire.out, 'Reacted \u{1F525} to that post.');
 });
+
+test('kosmos#8721: --status sends status and says who holds the post, whether yours, or nobody; a timeout claims nothing', async () => {
+  const other = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { ok: true, op: 'status', of: 'm3', mine: false, claimedBy: 'ann', claimedAge: '3 minutes ago' } }));
+  assert.equal(other.code, 0);
+  assert.equal(other.calls[0].body.claim, 'status');
+  assert.equal(other.out, 'ann holds that post (claimed 3 minutes ago). Nothing was claimed.');
+  const mine = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { ok: true, op: 'status', of: 'm3', mine: true, claimedBy: 'bob', claimedAge: 'just now' } }));
+  assert.equal(mine.out, 'That post is yours (claimed just now). Nothing was changed.');
+  const none = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { ok: true, op: 'status', of: 'm3', mine: false } }));
+  assert.equal(none.out, 'Nobody holds that post. Nothing was claimed.');
+  const asked = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { ok: true, op: 'status', of: 'm3', mine: false, askedOf: ['ann'], askedWho: 'ann', askedMinutes: 12 } }));
+  assert.equal(asked.out, "Nobody holds that post, but it asks ann first, for up to 12 more minutes, so anyone else's claim is refused for now. Nothing was claimed.");
+  const two = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { ok: true, op: 'status', of: 'm3', mine: false, askedOf: ['ann', 'cy'], askedWho: 'ann or cy', askedMinutes: 1 } }));
+  assert.equal(two.out, "Nobody holds that post, but it asks ann or cy first, for up to 1 more minute, so anyone else's claim is refused for now. Nothing was claimed.");
+  const odd = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ body: { something: 'else' } }));
+  assert.equal(odd.code, 1);
+  assert.match(odd.err, /we could not tell who holds that post/);
+  const no = await run(['claim', 'proj-1', 'm9', '--status'], () => ({ body: { ok: false, because: 'there is no post by that id in this room' } }));
+  assert.equal(no.code, 1);
+  assert.equal(no.err, 'Could not check: there is no post by that id in this room.');
+  const slow = await run(['claim', 'proj-1', 'm3', '--status'], refusedWith(Object.assign(new Error('timeout'), { name: 'TimeoutError' })));
+  assert.equal(slow.code, 1);
+  assert.match(slow.err, /could not tell who holds that post\. Nothing was claimed/);
+  // A redirect is refused unfollowed; for a status check (a read) the line does not say to check before doing it again.
+  const moved = await run(['claim', 'proj-1', 'm3', '--status'], () => ({ status: 302, body: '' }));
+  assert.equal(moved.code, 1);
+  assert.match(moved.err, /We could not tell who holds that post\.$/);
+  assert.doesNotMatch(moved.err, /check before doing it again/);
+  const movedClaim = await run(['claim', 'proj-1', 'm3'], () => ({ status: 302, body: '' }));
+  assert.match(movedClaim.err, /check before doing it again/, 'CONTROL: a claim (a write) does say it');
+  const both = await run(['claim', 'proj-1', 'm3', '--status', '--release']);
+  assert.equal(both.code, 2);
+  assert.equal(both.calls.length, 0);
+});

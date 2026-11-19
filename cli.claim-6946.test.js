@@ -1,6 +1,6 @@
 'use strict';
 /**
- * #6946: `kosmos claim <project> <postId> [--release]` posts to /api/react with `claim` set, as THIS agent, and says in
+ * #6946: `kosmos claim <project> <postId> [--release | --status]` posts to /api/react with `claim` set, as THIS agent, and says in
  * words whether the post is now yours, already yours, given back, or held by somebody else (exit 1, naming them). The
  * claim rule itself is pinned in engine/roomclaim-6946.test.js; this is the CLI half meeting it. Harness copied from
  * cli.react-2255.test.js.
@@ -131,7 +131,7 @@ test('#6946: no post id prints the usage, exits 2, and sends nothing', { skip: S
   withStub(() => ({ ok: true, op: 'add' }), async (port, seen) => {
     const out = await claim(port, seen, ['p']);
     assert.equal(out.code, 2);
-    assert.match(out.stdout + out.stderr, /Usage: kosmos claim <project-id> <post-id> \[--release\]/);
+    assert.match(out.stdout + out.stderr, /Usage: kosmos claim <project-id> <post-id> \[--release \| --status\]/);
     assert.equal(seen.length, 0);
   }));
 
@@ -174,3 +174,82 @@ test('#6952: kosmos react with a raised hand says it made a claim; control: anot
     assert.match(out.stdout, /Reacted \u{1F525} to that post\./u);
   });
 });
+
+/* kosmos#8721: --status sends status and prints who holds it, changing nothing; with --release it is a usage error. */
+test('kosmos#8721: --status sends status and says who holds the post, whether yours, or nobody', { skip: SKIP_POSIX_SHELL }, async () => {
+  const answers = [
+    [{ ok: true, op: 'status', of: 'm3', mine: false, claimedBy: 'ann', claimedAge: '3 minutes ago' }, 'ann holds that post (claimed 3 minutes ago). Nothing was claimed.'],
+    [{ ok: true, op: 'status', of: 'm3', mine: true, claimedBy: 'bob', claimedAge: 'just now' }, 'That post is yours (claimed just now). Nothing was changed.'],
+    [{ ok: true, op: 'status', of: 'm3', mine: false }, 'Nobody holds that post. Nothing was claimed.'],
+    [{ ok: true, op: 'status', of: 'm3', mine: false, askedOf: ['ann'], askedWho: 'ann', askedMinutes: 12 }, "Nobody holds that post, but it asks ann first, for up to 12 more minutes, so anyone else's claim is refused for now. Nothing was claimed."],
+    [{ ok: true, op: 'status', of: 'm3', mine: false, askedOf: ['ann', 'cy'], askedWho: 'ann or cy', askedMinutes: 1 }, "Nobody holds that post, but it asks ann or cy first, for up to 1 more minute, so anyone else's claim is refused for now. Nothing was claimed."],
+  ];
+  for (const [reply, said] of answers) {
+    await withStub(() => reply, async (port, seen) => {
+      const out = await claim(port, seen, ['p', 'm3', '--status']);
+      assert.equal(seen[seen.length - 1].body.claim, 'status');
+      assert.equal(out.stdout, '  ' + said + '\n');
+      assert.equal(out.code, 0);
+    });
+  }
+});
+
+test('kosmos#8721: a refused status check says it could not check, exit 1', { skip: SKIP_POSIX_SHELL }, () =>
+  withStub(() => ({ ok: false, because: 'there is no post by that id in this room' }), async (port, seen) => {
+    const out = await claim(port, seen, ['p', 'm9', '--status']);
+    assert.equal(out.code, 1);
+    assert.match(out.stdout + out.stderr, /Could not check: there is no post by that id in this room\./);
+  }));
+
+test('kosmos#8721: --status with --release is a usage error that sends nothing', { skip: SKIP_POSIX_SHELL }, () =>
+  withStub(() => ({ ok: true, op: 'status' }), async (port, seen) => {
+    const out = await claim(port, seen, ['p', 'm3', '--status', '--release']);
+    assert.equal(out.code, 2);
+    assert.equal(seen.length, 0);
+    assert.match(out.stdout + out.stderr, /plain claim TAKES the post; --status only says who holds it/);
+  }));
+
+/* kosmos#8721: a status check whose answer is lost changed nothing, so it exits 1 (never the claim's 3) and never says
+   it may have happened. A board that reads the request and hangs up (curl 52), and one that never answers (curl 28,
+   after the claim's 15 s limit). */
+function withSilentBoard(mode, fn) {
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url.startsWith('/api/react')) {
+      req.resume();
+      req.on('end', () => { if (mode === 'hangup') req.socket.destroy(); /* 'silent': never answers */ });
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end('<title>Kosmos</title>Agent Workforce');
+  });
+  return new Promise((resolve, reject) => {
+    server.listen(0, '127.0.0.1', async () => {
+      let failure = null;
+      try { await fn(server.address().port); } catch (e) { failure = e; }
+      server.closeAllConnections();
+      server.close(() => (failure ? reject(failure) : resolve()));
+    });
+  });
+}
+
+test('kosmos#8721: a status check cut off (curl 52) exits 1 and says it could not tell who holds the post, not that it may have happened', { skip: SKIP_POSIX_SHELL }, () =>
+  withSilentBoard('hangup', async (port) => {
+    const out = await claim(port, [], ['p', 'm3', '--status']);
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.match(out.stdout + out.stderr, /tell who holds that post/);
+    assert.doesNotMatch(out.stdout + out.stderr, /may still have happened|may have happened/);
+  }));
+
+test('kosmos#8721: a status check that times out (curl 28) exits 1 and says nothing was claimed', { skip: SKIP_POSIX_SHELL, timeout: 40000 }, () =>
+  withSilentBoard('silent', async (port) => {
+    // Its own run: the shared runCli kills the CLI at 15 s, the same moment curl's -m 15 ends, so curl must win here.
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+    const out = await new Promise((resolve, reject) => {
+      execFile(CLI, ['claim', 'p', 'm3', '--status'], { env, timeout: 30000 }, (err, stdout, stderr) => {
+        if (err && typeof err.code !== 'number') { reject(new Error('no exit code: ' + (err.signal || err.code))); return; }
+        resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
+      });
+    });
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.match(out.stdout, /could not tell who holds that post\. Nothing was claimed; run the same command again\./);
+  }));

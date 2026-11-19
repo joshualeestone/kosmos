@@ -20783,7 +20783,7 @@ const server = http.createServer(async (req, res) => {
         // #2255: the project's members, same derivation as /api/post -- react()
         // refuses an agent that is not on the project (room isolation).
         const members = (found.agents || []).map((a) => a.sessionName);
-        // #6946: `claim` ('claim' | 'release') is `kosmos claim`; react() refuses any other value.
+        // #6946: `claim` ('claim' | 'release', kosmos#8721: or 'status', a read) is `kosmos claim`; react() refuses any other value.
         const out = messages.react({ project: found.id, of: body.of, emoji: body.emoji, from: sender.card.sessionName, members,
           ...(body.claim !== undefined ? { claim: body.claim } : {}) });
         // #2255: 200 for a refusal too, matching /api/post and this route's own
