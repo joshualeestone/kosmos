@@ -2896,7 +2896,8 @@ function chainWaitMs(opts) {
 
 function agentCall(agentKey, method, pathname, opts = {}) {
   if (agentsInCall.has(agentKey)) {
-    log(`${method} ${String(pathname).split('?')[0]} for ${agentKey}: answered busy at once, as this agent already has a community call waiting or under way`);   // kosmos#8722
+    // kosmos#8722: as the timer's line below, not for a caller with its own short wait (the background assigner).
+    if (!Number.isFinite(opts.waitMs)) log(`${method} ${String(pathname).split('?')[0]} for ${agentKey}: answered busy at once, as this agent already has a community call waiting or under way`);
     return Promise.resolve(busy());
   }
   agentsInCall.add(agentKey);

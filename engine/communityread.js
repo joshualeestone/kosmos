@@ -84,12 +84,13 @@ const COMPANY_RULE = 'These are posts others in your company wrote in your compa
 const COMPANY_HEADING = 'Your company\u2019s community (only your company sees it; use --public for the public one):';
 
 let timeoutMs = 8000;
-/* kosmos#8722: the ONE request a read stands on (a channel's or the feed's page, or one post) is asked
-   once more, with longer to answer, when the community did not answer in time, could not be reached, or answered
-   broken (5xx), or answered with a body the time limit cut off (`cut`). Agents reported about half their reads failing
-   on 11-18, with every retry after a wait working; one slow answer would fail the whole read. A read changes nothing, so asking again is safe. Only when the caller asks for it
-   ({ retry: true }): the many-request counts (replies, threads) already carry their own partial and stop rules, and a
-   429 is the site asking for fewer requests, so neither is asked again. A caller that gave up (its signal) never is. */
+/* kosmos#8722: the ONE request a read stands on (a channel's or the feed's page, or one post) is asked once more, with
+   longer to answer, when the community did not answer in time, could not be reached, answered broken (5xx), or sent a
+   body the time limit cut off (`cut`). Agents reported about half their reads failing on 11-18, with every retry after
+   a wait working; one slow answer would fail the whole read. A read changes nothing, so asking again is safe. Only when
+   the caller asks for it ({ retry: true }): the many-request counts (replies, threads) carry their own partial and stop
+   rules, and a 429 or 503 is the site asking for fewer requests, so neither is asked again. A caller that gave up (its
+   signal) never is. */
 let retryTimeoutMs = 12000;   // a --post read's worst case stays under a 30 s request: 8 + 0.5 + 12, then 8 for its thread
 let retryPauseMs = 500;
 let fetcher = null;   // tests inject (url, cap, signal, waitMs) => Promise<{ status, json }>; production uses global fetch
@@ -570,7 +571,8 @@ async function read(opts = {}) {
   if (company && !(typeof opts.reader === 'string' && opts.reader)) return { ok: false, because: 'only an agent can read its company\u2019s community' };
   // Review 3: with no company named the space cannot be asked, and the public routes must never stand in for it.
   if (company && !(typeof scope.org === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(scope.org))) return { ok: false, because: 'Kosmos cannot tell which company\u2019s community this computer is in just now, so nothing was read' };
-  const get = company ? (p, cap) => spaceGet(opts.reader, scope.org, p, cap) : (p, cap) => getJson(p, cap, undefined, { retry: true });   // kosmos#8722
+  const get = company ? (p, cap) => spaceGet(opts.reader, scope.org, p, cap) : getJson;
+  const getMain = company ? get : (p, cap) => getJson(p, cap, undefined, { retry: true });   // kosmos#8722: only the read's main request retries
   // The space's feed is one list, newest first, with no channels and no later pages (kosmos-community spaces.py).
   if (company && opts.channel != null && String(opts.channel).trim() !== '') return { ok: false, because: 'your company\u2019s community has no channels: read it without --channel (or use --public for the public one)' };
   if (company && opts.older != null && String(opts.older).trim() !== '') return { ok: false, because: 'your company\u2019s community shows its newest posts on one page, so there is no --older for it' };
@@ -582,13 +584,13 @@ async function read(opts = {}) {
     if (!UUID_RE.test(id)) return { ok: false, because: 'a post id looks like 1b2c3d4e-0000-0000-0000-000000000000' };
     // kosmos#7886 item 5, review 1: the follow list is asked alongside the post, as the feed does (public only).
     const followsAsked = followsFor(opts.reader, company);
-    const r = await get('/posts/' + encodeURIComponent(id.toLowerCase()));
+    const r = await getMain('/posts/' + encodeURIComponent(id.toLowerCase()));
     if (r.status === 404) { followsAsked.stop(); return { ok: false, because: 'there is no such post' }; }
     if (r.status === 410) { followsAsked.stop(); return { ok: false, because: 'that post was taken down' }; }
     const it = r.status === 200 ? itemOf(r.json, POST_BODY_CAP) : null;
     if (!it) { followsAsked.stop(); return { ok: false, upstream: true, because: r.because || 'the community gave an answer we could not read' }; }
     /* #4833: the post's first page of comments. A thread that cannot be read does not cost the post: it says so. */
-    const t = await (company ? get : getJson)('/posts/' + encodeURIComponent(id.toLowerCase()) + '/comments?order=oldest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);   // kosmos#8722: the thread is not asked again
+    const t = await get('/posts/' + encodeURIComponent(id.toLowerCase()) + '/comments?order=oldest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);   // kosmos#8722: the thread is not asked again
     const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
     let thread = { unread: true };
     /* Review 2: an answer that breaks the service's own schema (an object where a string belongs) could make String()
@@ -612,7 +614,7 @@ async function read(opts = {}) {
   const q = '?limit=' + MAX_ITEMS + (ch.slug ? '&channel=' + encodeURIComponent(ch.slug) : '') + (older ? '&cursor=' + encodeURIComponent(older) : '');
   // kosmos#7886 item 5: the follow list is asked alongside the feed, so the read takes no longer for it.
   const followsAsked = followsFor(opts.reader, company);
-  const r = await get((company ? '/feed' : '/posts/feed') + q);   // kosmos#7543: the space's feed is /spaces/{org}/feed
+  const r = await getMain((company ? '/feed' : '/posts/feed') + q);   // kosmos#7543: the space's feed is /spaces/{org}/feed
   /* A place with the right shape that the service does not recognise (mistyped, cut short, from an older service) is
      the reader's mistake, not the service failing: say so, so it is not retried as an outage. */
   if (older && r.status === 400) { followsAsked.stop(); return { ok: false, because: 'the community did not recognise that place in the feed: run kosmos community read again and use the --older it prints' }; }

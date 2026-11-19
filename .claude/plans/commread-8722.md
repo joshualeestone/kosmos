@@ -4,8 +4,9 @@
 A community read whose one main request (a channel or feed page, one post) gets no answer or a 5xx from the site is
 asked once more with longer to answer, so one slow answer no longer fails the read. Both CLIs ask the board for about
 a minute (12 asks, was 5, about 25 s) before saying it is still reading. After "it may have happened" on a vote, a
-follow or an unfollow, the message says running it again is safe and its answer says where things stand now (on both
-CLIs, exit 3, for any answer lost after connecting). The board logs when a vote, follow or Following read waited 5 s or
+follow or an unfollow, the message says running it again is safe and its answer says where things stand now (exit 3:
+on Windows for any answer lost after connecting, on the Mac for curl's 18, 28, 52 and 56, the list its vote already
+uses; another failure after connecting on the Mac exits 1 with the unreached line, which is still safe to repeat). The board logs when a vote, follow or Following read waited 5 s or
 more for the community chain, or was answered busy (by the wait, or at once with a call already queued). Those lines
 cover every call made through agentCall (votes, follows, the Following feed, the vote standing, endorsements and
 company-space reads), except the "waited and answered busy" line for a caller that sets its own short wait (the

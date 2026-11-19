@@ -1570,10 +1570,13 @@ test('kosmos#8722: a busy answer logs why (at once, or after the wait for the ch
     const late = await cf.follow('lena', 'quill');
     assert.equal(late.ok, false);
     assert.ok(chainLines().some((l) => /for lena: waited \d+ ms for the community chain and answered busy/.test(l)), JSON.stringify(chainLines()));
-    // A background caller with its own short wait (the assigner) is answered busy the same way, and logs nothing.
+    // A background caller with its own short wait (the assigner) is answered busy the same way, and logs nothing:
+    // waiting for the chain, and at once for an agent already in a call (mara holds one now).
     const bg = await cs.agentCall('quill', 'GET', '/agents/me/votes', { register: false, waitMs: 50 });
     assert.equal(bg.ok, false);
-    assert.equal(chainLines().filter((l) => /for quill:/.test(l)).length, 0, 'a background busy was logged: ' + JSON.stringify(chainLines()));
+    const bgAtOnce = await cs.agentCall('mara', 'GET', '/agents/me/votes', { register: false, waitMs: 50 });
+    assert.equal(bgAtOnce.ok, false);
+    assert.equal(chainLines().filter((l) => /for quill:|for mara:/.test(l)).length, 0, 'a background busy was logged: ' + JSON.stringify(chainLines()));
   } finally {
     b.st.hang = null;
     if (holding) await holding.catch(() => {});
