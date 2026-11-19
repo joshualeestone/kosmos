@@ -84,8 +84,11 @@ test('kosmos#8734 item 4: a person\'s post naming others but also @all, or an @-
     text: '@seat and @otherseat, have a look', mentioned: [OTHER], ambiguousMentions: ['seat'], at: new Date(Date.now() - 60 * 1000).toISOString(),
     outcomes: { [ME]: 'placed', [OTHER]: 'placed' } });
   const quoted = personPost(pid, 'the `@all` tag is for @otherseat only', [OTHER]);   // CONTROL: @all in a code span is not a broadcast
+  // Review 5: named, but asking the room in words (the claim guard's own example): anyone may take it, so it stays listed.
+  const roomAsk = personPost(pid, '@otherseat is swamped so somebody else please grab it', [OTHER]);
   const mine = await unanswered(pid);
   assert.equal(listed(mine, withAll), true, '@all was ignored:\n' + mine);
   assert.equal(listed(mine, unsure), true, 'an @-word that may have meant me was ignored:\n' + mine);
   assert.equal(listed(mine, quoted), false, mine);
+  assert.equal(listed(mine, roomAsk), true, 'a named post that asks the room in words was hidden:\n' + mine);
 });

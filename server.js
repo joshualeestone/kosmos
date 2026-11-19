@@ -24865,11 +24865,16 @@ const server = http.createServer(async (req, res) => {
             if (!m || m.kind !== 'post') continue;
             const named = messages.namedIn(m);
             if (named.includes(readerName)) namedReader.add(String(m.id));
-            /* Review 2: an @-word that matched two members may have meant the reader, so such a post stays listed. Review 4:
-               so does one with @all or @everyone, which a person's row does not record as names (messages.js, the same
-               test as namesIn's, `code` spans skipped). */
-            else if (named.length && m.operator === true && !(Array.isArray(m.ambiguousMentions) && m.ambiguousMentions.length)
-              && !/(^|[^A-Za-z0-9._-])@(all|everyone)(?![A-Za-z0-9_-])/i.test(String(m.text || '').replace(/`[^`]*`/g, ' '))) namedOthersOnly.add(String(m.id));
+            /* Who it asked is the claim guard's reading (messages.claimAskedMembers), so the two never disagree (review 5):
+               its named members, unless an @-word could not be placed or it asks the room in words ("@bob is swamped so
+               somebody else please grab it"). Review 4: and not with @all or @everyone, which a person's row does not
+               record as names (the test messages.js uses, `code` spans skipped). */
+            else if (named.length && m.operator === true
+              && !/(^|[^A-Za-z0-9._-])@(all|everyone)(?![A-Za-z0-9_-])/i.test(String(m.text || '').replace(/`[^`]*`/g, ' '))) {
+              let asked = [];
+              try { asked = messages.claimAskedMembers(m, roomRows, id, null); } catch { asked = []; }   // unread: listed, as before
+              if (asked.length && !asked.includes(readerName)) namedOthersOnly.add(String(m.id));
+            }
             if (onlyUnanswered) namedBy.set(String(m.id), named);
             if (named.length || (Array.isArray(m.ambiguousMentions) && m.ambiguousMentions.length) || typeof m.replyTo === 'string') aimedAt.add(String(m.id));
           }
@@ -24878,7 +24883,8 @@ const server = http.createServer(async (req, res) => {
            is handled for the reader: it is left out of --unanswered and named under the list, so the reader can still
            read it. A later post that names the reader again is its own ask and is listed as one. Only a claimant the
            post asked: a bystander's claim does not answer for the agents that were asked. The reader's own claim is no
-           answer either, so an ask it claimed and has not answered stays listed. */
+           answer either, so an ask it claimed and has not answered stays listed (one that asked the reader at all: a person's
+           post naming only others, kosmos#8734, is never on the reader's list, claimed or not). */
         /* kosmos#7848: "asked" as for the reader: a post that names agents asked those it names (a person's @name narrows
            it too); the person's post that names nobody asked every agent it was delivered to, not one it went quiet or
            could not reach. */

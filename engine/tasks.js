@@ -1372,7 +1372,8 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
        both; a plain close, or a reopen first, is the way to record what happened. A close takes the built mark away, so
        for a closed task the built evidence is what the close kept: the closedHow field 'note' or 'change', or a landed
        commit (review 2). A reopen clears those three, so reopened work never built again is not refused for them; a run
-       recorded with kosmos task ran stays on the task through a reopen, and still counts. */
+       recorded with kosmos task ran stays on the task through a reopen, and still counts. Only the task's own record is
+       read: a parent whose parts were checked may still be closed as never run itself (#8301 counts parts apart). */
     if (notRun) {
       const met = (checkResultsOf(t) || []).filter((r) => r && r.met === true).length;
       const ran = typeof t.lastRunAt === 'string' && t.lastRunAt !== '';
@@ -1380,7 +1381,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
       if (met || ran || built) {
         throw new Error('task ' + t.number + (met ? ' has ' + (met === 1 ? 'a check' : met + ' checks') + ' reported met'
           : ran ? ' has a run recorded on it' : ' was marked built')
-          + ', so it ran: it cannot be ' + (t.closedAt ? 'marked never run. It stays closed as it is' : 'closed as never run. Close it without --not-run'));   // review 4: a closed one has nothing left to close
+          + ', so it ran: it cannot be ' + (before ? 'marked never run. It stays closed as it is' : 'closed as never run. Close it without --not-run'));   // review 4: a closed one has nothing left to close; review 5: closed as progressOf reads it (all its parts closed counts)
       }
     }
     if (notRun && t.closedAt) changed.closedAt = t.closedAt;   // kosmos#8301: as for replaced, marking a closed task keeps when it finished
