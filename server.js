@@ -1941,6 +1941,14 @@ function withRepeatWords(t) {
   if (!t || !t.repeat) return t;
   return Object.assign({}, t, repeatFields(t));
 }
+/* kosmos#8734 (feedback): what an open task waits for (kosmos task wake), in the same words the Tasks view's rows carry
+   (taskwake.fieldsOf), on the list the CLIs read. `kosmos task show` prints them, but this arm never added them, so an
+   active wake was invisible from the command line once its confirmation scrolled away. A map lookup per waking row. */
+function withWakeWords(t) {
+  if (!t || !t.wake || tasks.progressOf(t).closed) return t;
+  const w = taskwake.fieldsOf(t, Date.now(), taskwake.problemFor(t.projectId, t));
+  return Object.keys(w).length ? Object.assign({}, t, w) : t;
+}
 /* #1307: a project's webhooks (engine/webhooks.js). */
 const webhooks = require('./engine/webhooks');
 const HOOK_BODY_MAX = 16 * 1024;
@@ -23582,7 +23590,7 @@ const server = http.createServer(async (req, res) => {
           .map((x) => ({ ...x, ms: x.at ? Date.parse(x.at) : NaN }))
           .filter((x) => !Number.isFinite(x.ms) || x.ms <= cutoff)
           .sort((a, b) => (Number.isFinite(a.ms) ? a.ms : -Infinity) - (Number.isFinite(b.ms) ? b.ms : -Infinity))
-          .map((x) => Object.assign({}, withRepeatWords(x.t), { lastActivityAt: x.at || null }));
+          .map((x) => Object.assign({}, withWakeWords(withRepeatWords(x.t)), { lastActivityAt: x.at || null }));
         /* kosmos#7151 (feedback): a quiet task an agent left under work that has since finished is OFFERED for retiring
            (`leftUnder`, the closed parent's number); nothing is retired here. The rule is tasks.retireOffers'. The
            roster (a board snapshot) and each candidate's transcript are read only when some row would be offered. */
@@ -23633,7 +23641,7 @@ const server = http.createServer(async (req, res) => {
         }
         return Object.assign({}, t, extra);
       } : (t) => t;
-      sendJson(res, 200, { tasks: rows.map(withRepeatWords).map(taskseen ? seenOf : (t) => t).map(activityOf), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}), ...(allProjects ? { all: true } : {}), ...(mineCaller ? { mine: true } : {}) });   // kosmos#4787, kosmos#7992
+      sendJson(res, 200, { tasks: rows.map(withRepeatWords).map(withWakeWords).map(taskseen ? seenOf : (t) => t).map(activityOf), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}), ...(allProjects ? { all: true } : {}), ...(mineCaller ? { mine: true } : {}) });   // kosmos#4787, kosmos#7992
       return;
     }
     /* #3559: the Tasks view groups by WHERE THE WORK IS, and the engine derives
@@ -24848,11 +24856,15 @@ const server = http.createServer(async (req, res) => {
         const namedBy = new Map();
         /* kosmos#8300: posts aimed at someone: an @-name, an @-word that matched two members, or a reply to one post. */
         const aimedAt = new Set();
+        /* kosmos#8734 (feedback): a person's post reaches every member (messages.js: an operator post's recipients are the
+           whole room), so one that names only OTHER agents was listed as asked of every reader. Named, and not the reader. */
+        const namedOthersOnly = new Set();
         if (readerName) {
           for (const m of roomRows) {
             if (!m || m.kind !== 'post') continue;
             const named = messages.namedIn(m);
             if (named.includes(readerName)) namedReader.add(String(m.id));
+            else if (named.length) namedOthersOnly.add(String(m.id));
             if (onlyUnanswered) namedBy.set(String(m.id), named);
             if (named.length || (Array.isArray(m.ambiguousMentions) && m.ambiguousMentions.length) || typeof m.replyTo === 'string') aimedAt.add(String(m.id));
           }
@@ -24883,7 +24895,7 @@ const server = http.createServer(async (req, res) => {
         const askedOfReader = (m) => !!readerName && m && m.kind === 'post'
           && (m.operator === true || m.from !== readerName)
           && (namedReader.has(String(m.id))
-            || (m.operator === true && Array.isArray(m.to) && m.to.includes(readerName)
+            || (m.operator === true && Array.isArray(m.to) && m.to.includes(readerName) && !namedOthersOnly.has(String(m.id))
               && !(m.outcomes && (m.outcomes[readerName] === 'quiet' || m.outcomes[readerName] === 'could_not'))));
         // kosmos#4926: the asks a later post of the reader's does not move: its own claim is no answer (#7848), and a person's ask stays listed (kosmos#8300 has the one way it leaves, below).
         const listKeepsAsk = (m) => m.operator === true || !!(m.claim && m.claim.by === readerName);

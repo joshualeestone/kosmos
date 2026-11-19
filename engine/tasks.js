@@ -1366,6 +1366,16 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
     } else if (closedAt === null) {
       delete changed.replacedBy;   // a reopen clears the link; a plain close leaves one that is there
     }
+    /* kosmos#8734 (feedback): never-run is refused over a record that says it ran: a check reported on it (met or not:
+       someone checked the work) or a built mark. Saying so in the close's answer instead would leave the record saying
+       both; a plain close, or a reopen first, is the way to record what happened. */
+    if (notRun) {
+      const reported = (checkResultsOf(t) || []).filter(Boolean).length;
+      if (reported || t.builtAt) {
+        throw new Error('task ' + t.number + (reported ? ' has ' + (reported === 1 ? 'a check' : reported + ' checks') + ' reported on it' : ' is marked built')
+          + ', so it ran: it cannot be closed as never run. Close it without --not-run');
+      }
+    }
     if (notRun && t.closedAt) changed.closedAt = t.closedAt;   // kosmos#8301: as for replaced, marking a closed task keeps when it finished
     const after = progressOf(changed).closed;
     if (before !== after) transition = after ? 1 : -1;

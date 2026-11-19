@@ -6514,7 +6514,10 @@ cmd_task() {
           case "$_cw" in
             --replaced-by) say "--replaced-by takes one task: close the others on their own."; exit 2 ;;
             --with-built|--not-run) ;;   # kosmos#7514: also close the built subtasks of each task closed; kosmos#8301
-            ''|*[!0-9]*) _no_more_words "task close" 2 "$_cusage" "$@" ;;   # a word that is not a number: as #4889 review 6
+            # kosmos#8734 (feedback): an unknown option is named itself, and a plain word blames no option. _no_more_words named
+            # the FIRST option after the number, so `close p 3 --not-run x` blamed the valid --not-run.
+            --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task close" "$_cusage" "$_cw" target ;;
+            ''|*[!0-9]*) say "kosmos task close takes no more words than its usage shows, so nothing was done. Quote anything of more than one word."; say "$_cusage"; exit 2 ;;
           esac
         done
         # The board's own limit for closing several at once (server.js BULK_CLOSE_MAX), refused before anything is sent.
