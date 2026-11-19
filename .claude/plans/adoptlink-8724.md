@@ -27,7 +27,8 @@ stand-in engine modules, with perturbation controls.
   sentence (exit 1), as the board route does. A list that cannot be read stops (2, as adopt's unreadable roster does
   already; kept the same for one meaning inside this command rather than the help's general "not written right").
 - Without `--link`: the review is unchanged, except a skipped row whose reason is "not one of ours" and which
-  `linkwindow.plan` accepts gets "; if you started it yourself, link it first: kosmos adopt --link <name>". The window
+  `linkwindow.plan` accepts gets "; if you started it yourself, you can link it (kosmos adopt --link <name>), then run
+  kosmos adopt again" (no promise adopt then takes it). A name that is not plain is printed in double quotes. The window
   list is read once; if it cannot be read the skip lines are exactly as before.
 
 ## Decided
@@ -46,7 +47,7 @@ That `status.panesWithCommands()` and `status.boardTmux()` resolve the same tmux
 board's. Both read the same repick (status.js tmuxRepick); not measured from the CLI against a live second tmux here.
 
 ## Tests
-- cli.adopt-link-8724.test.js (10; --link with an unreadable window list; no window look when nothing is skipped as not ours; stand-ins log every read and return the real shapes): hint only for a linkable skip (control: an unlinkable one stays plain); an unreadable
+- cli.adopt-link-8724.test.js (11; a quoted name in the printed command; --link with an unreadable window list; no window look when nothing is skipped as not ours; stand-ins log every read and return the real shapes): hint only for a linkable skip (control: an unlinkable one stays plain); an unreadable
   list leaves skips as before; --link alone changes nothing; --link --confirm links in either order; a refused link
   says the engine reason and exits 1; a throwing link is a sentence, not a stack; a link module that cannot load
   leaves the review as it was; bad arguments (including a second --link) refused before the roster or windows are

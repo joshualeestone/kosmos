@@ -70,7 +70,7 @@ test('#8724 real engine: adopt names the link for a lone unmarked Claude window,
   withBoard(BOARD, async (env) => {
     const out = await run([], env);
     assert.equal(out.code, 0, out.stdout + out.stderr);
-    assert.match(out.stdout, /^ {2}skip zara -- not one of ours; if you started it yourself, link it first: kosmos adopt --link zara$/m,
+    assert.match(out.stdout, /^ {2}skip zara -- not one of ours; if you started it yourself, you can link it \(kosmos adopt --link zara\), then run kosmos adopt again$/m,
       'the real roster row and the real link check did not meet on the same name: ' + out.stdout);
     assert.match(out.stdout, /^ {2}skip otto -- not one of ours$/m, 'a window sharing its session was offered the link: ' + out.stdout);
   }));

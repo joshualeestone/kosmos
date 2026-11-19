@@ -5859,6 +5859,8 @@ cmd_adopt() {
        for the agent, alone in its session, not marked already. Its refusal is said as it is. Loaded only where it is
        used, and guarded, so a link module that cannot load never stops the adoption review itself. */
     const loadLink = () => { try { return require(base + "/engine/linkwindow"); } catch (e) { return null; } };
+    /* A name as it can be pasted back: plain names as they are, anything else in double quotes. */
+    const asArg = (n) => (/^[A-Za-z0-9._-]+$/.test(String(n)) ? String(n) : JSON.stringify(String(n)));
     const want = process.env.KOSMOS_ADOPT_LINK || "";
     if (want) {
       const linkwindow = loadLink();
@@ -5878,7 +5880,7 @@ cmd_adopt() {
         console.log("Until Kosmos starts this agent itself, the board cannot restart it, and its own kosmos commands do not");
         console.log("yet speak for it.");
         console.log("");
-        console.log("Nothing was changed. Run: kosmos adopt --link " + shownName + " --confirm");
+        console.log("Nothing was changed. Run: kosmos adopt --link " + asArg(shownName) + " --confirm");
         process.exit(0);
       }
       let r = null;
@@ -5924,7 +5926,7 @@ cmd_adopt() {
       if (s.because === "not one of ours" && linkPanes) {
         let lp = null;
         try { lp = hintLink.plan(s.name, linkPanes); } catch (e) { lp = null; }
-        if (lp && lp.ok) line += "; if you started it yourself, link it first: kosmos adopt --link " + s.name;
+        if (lp && lp.ok) line += "; if you started it yourself, you can link it (kosmos adopt --link " + asArg(s.name) + "), then run kosmos adopt again";
       }
       return line;
     };

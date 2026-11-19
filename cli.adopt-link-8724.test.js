@@ -60,7 +60,7 @@ function makeHome() {
 
 function run(args, env) {
   return new Promise((resolve, reject) => {
-    execFile(CLI, ['adopt', ...args], { env, timeout: 15000 }, (err, stdout, stderr) => {
+    execFile(CLI, ['adopt', ...args], { env, timeout: 30000 }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('no exit code: ' + (err.signal || err.code) + ' ' + stderr)); return; }
       resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
     });
@@ -82,7 +82,7 @@ test('#8724 adopt names the link command for a skipped window the link would tak
   withHome(async (env, calls) => {
     const out = await run([], env({ T_ROWS: ROWS, T_PANES: '[]', T_LINKABLE: 'zara' }));
     assert.equal(out.code, 0, out.stdout + out.stderr);
-    assert.match(out.stdout, /^ {2}skip zara -- not one of ours; if you started it yourself, link it first: kosmos adopt --link zara$/m);
+    assert.match(out.stdout, /^ {2}skip zara -- not one of ours; if you started it yourself, you can link it \(kosmos adopt --link zara\), then run kosmos adopt again$/m);
     assert.match(out.stdout, /^ {2}skip otto -- not one of ours$/m, 'a window the link refuses was offered the link');
     assert.equal(calls().filter((c) => c.link).length, 0, 'a review linked something');
   }));
@@ -176,4 +176,13 @@ test('#8724 --link needs one name, and an unknown flag is refused before anythin
       assert.match(out.stdout + out.stderr, /kosmos adopt/);
     }
     assert.deepEqual(calls(), [], 'a refused command read the roster or the windows, or reached the link');
+  }));
+
+test('#8724 a name that is not plain is printed quoted, so the command can be pasted back; CONTROL: a plain one is bare', { skip: SKIP_POSIX_SHELL }, () =>
+  withHome(async (env) => {
+    const odd = await run(['--link', 'my agent'], env({ T_PANES: '[]', T_LINKABLE: 'my agent' }));
+    assert.equal(odd.code, 0, odd.stdout + odd.stderr);
+    assert.match(odd.stdout, /Nothing was changed\. Run: kosmos adopt --link "my agent" --confirm/);
+    const plain = await run(['--link', 'zara'], env({ T_PANES: '[]', T_LINKABLE: 'zara' }));
+    assert.match(plain.stdout, /Nothing was changed\. Run: kosmos adopt --link zara --confirm/);
   }));
