@@ -754,6 +754,26 @@ echo "==> native app: dictation listens on-device only, or not at all (#4409)"
 _app_bin_sha="$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')"
 echo "==> native app: kosmos-app signed $_app_bin_sha"
 
+# ---- kosmos-se, the Secure Enclave admin signer (kosmos#7116 step 2) ---------
+# An admin's approvals (a member's computer enrolled for backups and hand-over) are signed with a key held in this
+# Mac's Secure Enclave, by native-se/main.swift. engine/enrolsign.js finds it here, in the app's OWN bin, and nowhere
+# else (never a path a page or the coordinator gives). Compiled to the floor, Developer ID signed with hardened runtime
+# and the same identity as kosmos-app, here, BEFORE the sealed app below and before notarisation (Baron 11-19: a binary
+# signed after the seal breaks the notarised app for a quarantined copy). No entitlements: its key file is a blob only
+# this Mac's Enclave can use, so it needs no keychain group and no signed app (measured 2026-11-03, native-se/main.swift).
+# release-freeze.sh requires it in every sealed bundle whose tree has native-se/main.swift, verified by its signature.
+echo "==> compiling the Secure Enclave admin signer (native-se/main.swift)"
+swiftc -target "arm64-apple-macos$(cat "$REPO/tools/macos-floor")" -O "$REPO/native-se/main.swift" -o "$STAGE/app/bin/kosmos-se" 2>&1 | sed 's/^/    /'
+[ -x "$STAGE/app/bin/kosmos-se" ] || { echo "the Secure Enclave admin signer failed to compile" >&2; exit 1; }
+codesign_ts_retry --force --options runtime --timestamp -s "$_codesign_id" "$STAGE/app/bin/kosmos-se" || {
+  printf '%s\n' "could not Developer ID sign the Secure Enclave admin signer as \"$_codesign_id\". NOT falling back to ad-hoc." >&2; exit 1; }
+codesign -v --strict "$STAGE/app/bin/kosmos-se" 2>&1 | sed 's/^/    /' || { echo "the Secure Enclave admin signer's signature did not verify after signing" >&2; exit 1; }
+# Run it, not only verify it: with no arguments it prints its usage and exits 2, which proves the signed binary loads
+# under hardened runtime here. Any other exit (a crash, a load failure, a hang the alarm ends) refuses the build.
+perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-se" >/dev/null 2>&1 && _se_rc=0 || _se_rc=$?
+[ "$_se_rc" -eq 2 ] || { echo "the signed Secure Enclave admin signer does not run (exit $_se_rc, expected its usage exit 2)" >&2; exit 1; }
+echo "==> Secure Enclave admin signer: kosmos-se signed $(shasum -a 256 "$STAGE/app/bin/kosmos-se" | awk '{print $1}')"
+
 # ---- #5896 slice 2: the sealed Kosmos.app ----------------------------------
 # The whole app, assembled and signed HERE, once, so a notarized bundle can ship (slice 3): a signed bundle cannot be
 # written into afterwards, so install/setup.sh copies it as it is and every per-install fact lives in the account's
@@ -1025,7 +1045,7 @@ fi
 # assessed (tools/lib/notarize-binaries.sh): a quarantined copy that is sealed but not notarised is refused by
 # Gatekeeper, and a notarised, stapled one is accepted (measured). This is not shown to be the cause of Josh's 0.7.42
 # "Kosmos is damaged" (#5896). Stapling adds the ticket inside the bundle only.
-notarize_binaries "$STAGE/app/bin/kosmos-app" "$STAGE/app/bin/kosmos-tunnel" "$STAGE/app/Kosmos.app" || {
+notarize_binaries "$STAGE/app/bin/kosmos-app" "$STAGE/app/bin/kosmos-tunnel" "$STAGE/app/bin/kosmos-se" "$STAGE/app/Kosmos.app" || {
   echo "could not notarise and staple the native app, the Plus connector and the sealed Kosmos.app (#5137, #5896). NOT shipping what Gatekeeper rejects." >&2; exit 1; }
 [ "$(shasum -a 256 "$STAGE/app/bin/kosmos-app" | awk '{print $1}')" = "$_app_bin_sha" ] \
   && [ "$(shasum -a 256 "$STAGE/app/bin/kosmos-tunnel" | awk '{print $1}')" = "$_tunnel_sha" ] || {
