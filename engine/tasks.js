@@ -140,7 +140,8 @@ function checkResultsOf(t) {
 }
 /* kosmos#8736: what on a task's own record says it ran: a check reported MET (an unmet one can mean nothing was done
    here, or the part moved to another task), a run recorded (lastRunAt, which a close and a reopen keep), or a built mark,
-   or, for a closed task, what its close kept of one (closedHow 'note' or 'change', or a landed commit). Read from the
+   or, for a closed task, what its close kept of one (closedHow 'note' or 'change', or a landed commit; only closes since
+   #8552 keep closedHow, so a built task closed before that reads as not built: nothing is guessed). Read from the
    task as it stands BEFORE a close takes its built mark away. Only the task's own record: a parent whose parts were
    checked is not counted for them. Returns { met, ran, built, any }. kosmos#8734's --not-run refusal reads the same. */
 function ranOnRecord(t) {
@@ -1415,7 +1416,9 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
        Replacing finished work is legitimate, so this is not a refusal. --not-run itself is refused over such a record
        (kosmos#8734). */
     if (after && (notRun || (replacedNew && !ranOnRecord(t).any))) changed.closedUnrun = true;
-    else if (after && replacedNew) changed.closedUnrun = false;   // replaced, and its record says it ran (not "never run")
+    /* Replaced, and its record says it ran: not "never run". Never over a not-run mark already there: that is the
+       closer's word (#8301), and a replace does not take it back. */
+    else if (after && replacedNew && t.closedUnrun !== true) changed.closedUnrun = false;
     if (!after || closedAt === null) delete changed.closedUnrun;   // a reopen clears it, also when the parts still read closed
     if (!before && after) setClosedHow(changed, t, p);   // kosmos#8552: read before the built mark goes (below)
     if (!after) delete changed.closedHow;

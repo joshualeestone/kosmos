@@ -27,12 +27,17 @@ subtask count puts it in done and not in unrun. A replaced task with nothing on 
   (tasklist.js, the Windows CLI, web/index.html), so `false` reads as "not marked never run" everywhere.
 - Rejected: changing the count to ignore the link altogether (it would move every pre-#8301 replaced task to done).
 
+- Round 1: a replace never takes back a not-run mark already there (the closer's word, #8301), even over a record
+  that ran (possible for tasks closed --not-run before kosmos#8734's refusal).
+- At the rebase onto kosmos#8734: its refusal makes `--not-run` over a ran record fail, so the test "--not-run on a
+  ran-then-replaced task" must then expect that refusal, and its inline "it ran" test switches to ranOnRecord.
+
 ## Weakest premise
 That nothing outside the readers grepped (`closedUnrun` and `.unrun` across engine, server, web, tools, ios) treats a
 present-but-false `closedUnrun` as truthy-present. The grep found only `=== true` tests.
 
 ## Tests
-- engine/tasks.replacedran-8736.test.js (8): nothing on record stays unrun (control); a met check, a built mark, a run
+- engine/tasks.replacedran-8736.test.js (11; a kept not-run mark, --not-run after a ran replace, re-replacing): nothing on record stays unrun (control); a met check, a built mark, a run
   recorded, and a built close replaced later each count done and not unrun; an unmet check stays unrun; a pre-#8301
   replaced task (no field) still counts unrun; a reopen clears the false; ranOnRecord's own cases.
 - 30 existing test files that mention closedUnrun, replacedBy, unrun, subtaskProgress or treeOf: 488 pass, 0 fail

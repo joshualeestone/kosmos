@@ -64,8 +64,9 @@ test('#8736 replaced after a built mark, or after a run recorded: not never run'
   assert.equal(b.stored(built).closedUnrun, false, 'built, then replaced');
   assert.ok(!b.stored(built).builtAt, 'the close still takes the built mark away (#6923)');
   const ran = b.kid('ran');
-  /* A run recorded (kosmos task ran, on a repeating task) leaves lastRunAt, which a close keeps; set as it leaves it. */
-  projects.mutate(b.id, (p) => ({ ...p, tasks: p.tasks.map((t) => (t.number === ran ? { ...t, lastRunAt: '2026-11-19T15:00:00.000Z' } : t)) }));
+  /* A run recorded as kosmos task ran records it: on a repeating task (the close then drops the repeat, and keeps the run). */
+  tasks.setRepeat(b.id, ran, { every: 'hour' }, { person: true });
+  tasks.recordRun(b.id, ran, 'rex', 'ran it');
   assert.ok(b.stored(ran).lastRunAt, 'a run was recorded');
   tasks.close(b.id, ran, { replacedBy: b.instead });
   assert.equal(b.stored(ran).closedUnrun, false, 'a run recorded, then replaced');
@@ -92,7 +93,7 @@ test('#8736 a task replaced before #8301 (no closedUnrun at all) still counts as
   assert.deepEqual(b.count(), { done: 1, built: 0, held: 0, unrun: 1, total: 1 });
 });
 
-test('#8736 a reopen clears the false as it clears true; --not-run on a ran-then-replaced task is the closer saying so', () => {
+test('#8736 a reopen clears the false as it clears true', () => {
   const b = board();
   const n = b.kid('reopened');
   tasks.setBuilt(b.id, n, { by: 'rex' });
@@ -112,4 +113,39 @@ test('#8736 ranOnRecord reads only the task\'s own record', () => {
   const checked = { doneWhen: ['a', 'b'], doneWhenResults: [{ met: false, how: 'no', by: 'rex', at: 'x' }, { met: true, how: 'yes', by: 'rex', at: 'x' }] };
   assert.deepEqual(tasks.ranOnRecord(checked), { met: 1, ran: false, built: false, any: true });
   assert.equal(tasks.ranOnRecord(null).any, false);
+});
+
+test('#8736 a not-run mark already there is the closer\'s word: a later replace keeps it, even over a record that ran', () => {
+  const b = board();
+  const n = b.kid('closed not run, then replaced');
+  tasks.setBuilt(b.id, n, { by: 'rex' });
+  /* Closed --not-run while built (allowed before kosmos#8734's refusal): the close keeps closedHow, so it reads as ran. */
+  tasks.close(b.id, n, { notRun: true });
+  assert.equal(b.stored(n).closedUnrun, true);
+  assert.equal(tasks.ranOnRecord(b.stored(n)).any, true, 'CONTROL: the record does say it ran, so only the rule keeps the mark');
+  tasks.close(b.id, n, { replacedBy: b.instead });
+  assert.equal(b.stored(n).replacedBy, b.instead);
+  assert.equal(b.stored(n).closedUnrun, true, 'a replace took back the closer\'s not-run');
+});
+
+test('#8736 --not-run on a ran-then-replaced task is the closer saying so: it is marked never run', () => {
+  const b = board();
+  const n = b.kid('replaced, then said not run');
+  tasks.setBuilt(b.id, n, { by: 'rex' });
+  tasks.close(b.id, n, { replacedBy: b.instead });
+  assert.equal(b.stored(n).closedUnrun, false);
+  tasks.close(b.id, n, { notRun: true });
+  assert.equal(b.stored(n).closedUnrun, true);
+});
+
+test('#8736 a ran-then-replaced task replaced again by another task stays not "never run" (what its close kept carries it)', () => {
+  const b = board();
+  const n = b.kid('re-replaced');
+  const other = tasks.create(b.id, { sentence: 'another' }).number;
+  tasks.setBuilt(b.id, n, { by: 'rex' });
+  tasks.close(b.id, n, { replacedBy: b.instead });
+  assert.ok(!b.stored(n).builtAt, 'the built mark is gone after the first close');
+  tasks.close(b.id, n, { replacedBy: other });
+  assert.equal(b.stored(n).replacedBy, other);
+  assert.equal(b.stored(n).closedUnrun, false);
 });
