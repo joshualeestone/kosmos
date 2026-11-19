@@ -19,13 +19,17 @@ Sign in again a second time. On a phone that is the step most likely to lose the
 - `accountsRead` (each good account-list read) calls `resumeStepUpReturn`. It acts only on a note whose Sign in again was
   pressed BEFORE this page loaded (`went < performance.timeOrigin`: the fresh sign-in navigated back), at most 10 minutes old and not from the
   future, for an account still listed and not an API-key account, and not while the account dialog or first run is on
-  screen (the note is kept then). It reopens that account's dialog (`openAcctReauth`) with "You signed in to Kosmos+
-  again. Press Sign in again to sign this account in to Claude." and removes the note. Review 1: without the
+  screen (the note is kept then). It reopens that account's dialog (`openAcctReauth`) with "Press Sign in again to sign
+  this account in to Claude." and removes the note. Review 3: the words claim nothing about the Kosmos+ sign-in, since
+  a log-out can fail (or the form answer an error) after the press and the person reload; a reopen then is harmless,
+  because a press just meets the same refusal. Review 1: without the
   page-load rule, any later read in the same view (Settings, an agent panel, a timer) reopened it with a false sentence.
 - `stepUpReturnBoot` on load: with a note this page may act on, one `/api/accounts` read, and the resume runs on that
   list without storing it as the page's list (review 2: the page's own reads keep their sequencing). So the return
   happens on arrival rather than when the person next opens Settings. No note, no read. The dialog's return focus is
   reset, since the page opened it, not a control.
+- `acctAddStart` reads the folder into a local before its awaits, and the note uses that (review 3: another account's
+  dialog opened while the request was out would otherwise be named in the note).
 - Not now on the step-up ask forgets the note. Closing the account dialog does not: the ask at the foot is still the way
   to the fresh sign-in.
 

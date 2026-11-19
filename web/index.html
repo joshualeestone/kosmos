@@ -32533,9 +32533,11 @@ function acctFlowWatch() {
    it never outlives the tab, never reaches another visit or another viewer): which account (its folder) and when. No
    code and no token. Pressing the ask's own Sign in again marks it (review 2: a reload alone proves no sign-in). When
    the page has loaded again since that press (the fresh sign-in navigates), it reads the account list once and reopens
-   that account's dialog, saying to press Sign in again; it never starts a sign-in by itself. The note counts only within 10 minutes, the same window the fresh sign-in has, is removed when it
+   that account's dialog, saying to press Sign in again; it never starts a sign-in by itself. Review 3: the words do
+   not claim the Kosmos+ sign-in succeeded (a log-out can fail and the person reload), only what to press next. The note counts only within 10 minutes, the same window the fresh sign-in has, is removed when it
    is acted on, and Not now on the ask forgets it. In the same page view it never acts (review 1: any later account
-   read would otherwise reopen the dialog with a false "you signed in again"), and never over another open dialog. */
+   read would otherwise reopen the dialog with a false "you signed in again"), and never over the account dialog or
+   first run. */
 const STEPUP_RETURN_KEY = 'kosmos-stepup-return';
 const STEPUP_RETURN_MS = 10 * 60 * 1000;
 function noteStepUpReturn(dir) {
@@ -32554,8 +32556,8 @@ function markStepUpReturnGoing(now = Date.now()) {
   if (now - n.at > STEPUP_RETURN_MS) return;
   try { sessionStorage.setItem(STEPUP_RETURN_KEY, JSON.stringify({ kind: 'claude-signin', dir: n.dir, at: n.at, went: now })); } catch { /* the return is a courtesy */ }
 }
-/* The note, if this page may act on it: one this page wrote, written BEFORE this page loaded, within its window. Not
-   removed here; a note of the wrong shape or past its window is removed. */
+/* The note, if this page may act on it: of the right shape, within its window, and its Sign in again pressed BEFORE this
+   page loaded. Not removed here; a note of the wrong shape or past its window is removed. */
 function peekStepUpReturn(now = Date.now(), pageStart = performance.timeOrigin) {
   let n = null;
   try { n = JSON.parse(sessionStorage.getItem(STEPUP_RETURN_KEY) || 'null'); } catch { n = null; }
@@ -32583,7 +32585,7 @@ function resumeStepUpReturn(list = ACCOUNTS) {
   ACCT_ADD_RETURN_FOCUS = null;   // review 2: opened by the page, not from a control, so focus has nowhere older to return
   openAcctReauth(n.dir, typeof acct.email === 'string' ? acct.email : '');
   const note = document.getElementById('acct-add-note');
-  if (note) note.textContent = 'You signed in to Kosmos+ again. Press Sign in again to sign this account in to Claude.';
+  if (note) note.textContent = 'Press Sign in again to sign this account in to Claude.';
 }
 /* On load, with a note this page may act on: read the account list once and resume from THAT list. It is not stored as
    the page's list (review 2): the page's own reads keep their sequencing. Without a note, nothing is read here. */
@@ -32613,6 +32615,9 @@ async function acctAddStart(installConfirmed) {
   btn.disabled = true;
   note.textContent = '';
   ACCT_FLOW_LAST = null;
+  // kosmos#8728 slice 2 review 3: the folder this press is for, read before any await can change it (the note after the
+  // refusal below uses it; the request body is built before the first await, so it reads the same value).
+  const reauthDir = ACCT_REAUTH_DIR;
   try {
     const res = await fetch('/api/connect/start', {
       method: 'POST',
@@ -32636,7 +32641,7 @@ async function acctAddStart(installConfirmed) {
     if (!res.ok) {
       btn.disabled = false;
       // kosmos#8728 slice 2: refused for a fresh Kosmos+ sign-in: remember this account so the page can come back to it.
-      if (out && out.code === 'remote_step_up' && out.signInAgain === true && ACCT_REAUTH_DIR) noteStepUpReturn(ACCT_REAUTH_DIR);
+      if (out && out.code === 'remote_step_up' && out.signInAgain === true && reauthDir) noteStepUpReturn(reauthDir);
       note.textContent = (out && (out.because || out.error)) || 'We could not start the sign-in.';
       note.focus();
       return;

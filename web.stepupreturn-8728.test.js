@@ -47,7 +47,9 @@ test('#8728 slice 2: after the page loads again, a remembered account reopens it
   earlier(p);
   p.resumeStepUpReturn();
   assert.deepEqual(p.opened, [{ dir: DIR, email: 'someone@example.com' }]);
-  assert.match(p.els['acct-add-note'].textContent, /signed in to Kosmos\+ again\. Press Sign in again/);
+  assert.equal(p.els['acct-add-note'].textContent, 'Press Sign in again to sign this account in to Claude.');
+  // review 3: a log-out can fail and the person reload, so the words never claim the Kosmos+ sign-in succeeded.
+  assert.doesNotMatch(p.els['acct-add-note'].textContent, /signed in .*again|you signed in/i);
   assert.equal(p.focus(), null, 'focus has no older opener to return to');
   assert.equal(p.storage.has(p.KEY), false, 'removed when acted on');
   p.resumeStepUpReturn();
@@ -162,8 +164,10 @@ test('#8728 slice 2: the page wires it: only the refusal that offers Sign in aga
   const start = SCRIPT.indexOf('async function acctAddStart(');
   const body = SCRIPT.slice(start, SCRIPT.indexOf('\n}\n', start));
   // review 1: remote_step_up_unavailable ("still starting") and remote_step_up_clock are followed by no fresh sign-in.
-  assert.match(body, /out\.code === 'remote_step_up' && out\.signInAgain === true && ACCT_REAUTH_DIR\) noteStepUpReturn\(ACCT_REAUTH_DIR\)/);
-  assert.doesNotMatch(body, /\/\^remote_step_up\/\.test\(String\(out\.code[^)]*\)\) && ACCT_REAUTH_DIR\) noteStepUpReturn/);
+  assert.match(body, /out\.code === 'remote_step_up' && out\.signInAgain === true && reauthDir\) noteStepUpReturn\(reauthDir\)/);
+  // review 3: the folder is read before the request, and the note after the awaits uses that value, never the global.
+  assert.match(body, /const reauthDir = ACCT_REAUTH_DIR;[\s\S]*await fetch\('\/api\/connect\/start'/);
+  assert.doesNotMatch(body.slice(body.indexOf('const out = await res.json()')), /ACCT_REAUTH_DIR/, 'the global is read again after an await');
   assert.match(lift(SCRIPT, 'accountsRead'), /resumeStepUpReturn\(\)/);
   assert.match(SCRIPT, /closest\('#stepup-close'\)\) \{ hideStepUpAsk\(\); stepUpFocusAway\(\); if \(typeof forgetStepUpReturn === 'function'\) forgetStepUpReturn\(\); \}/);
   assert.match(SCRIPT, /document\.addEventListener\('DOMContentLoaded', stepUpReturnBoot\);\nelse stepUpReturnBoot\(\);/);
