@@ -13,15 +13,18 @@
  *     the inviter's own device can recompute it and refuse a K the coordinator substituted (seadmin.prepare, joinCode);
  *   - signing the enrolment bytes with this Mac's own key, after decoding them and checking they enrol THIS key, for
  *     THIS org and member: never a blob, never bytes for another key;
- *   - the submission, in the shape Kitty described: { org, member, key (hex), code_hash, join_tag, inviter_admin_id,
- *     generation, nonce, device_sig, admin_sigs: [{ admin_id, sig }] }. Its byte encodings and a passkey admin's
- *     signature object are NOT yet confirmed against escrowd's op (step 1); asked on #7116 (review 1 of this branch).
- *     Each admin entry is what seadmin.sign returns for an enrolment ({ adminId, sig }), so the id is the one checked.
+ *   - the request escrowd's devkeyhist_enrol op decodes (kosmos-relay coordinator/src/rosterwire.rs at sealkey-8733
+ *     b874d078d): { op, org, member, key, codeHash, joinTag, inviterAdminId, nonce, sigs: [{ adminId, se | passkey }],
+ *     keySig }, every byte field unpadded base64url. No generation: escrowd rebuilds the bytes at its CURRENT roster
+ *     generation, so bytes signed at another one fail there. A Mac admin's entry is what seadmin.sign returns for an
+ *     enrolment ({ adminId, sig }, sent as `se`), so the id is the one checked; a passkey admin's comes from the
+ *     console page, already typed.
  *
  * Not here, each named so nobody reads this file as the whole flow:
  *   - where the inviter's app keeps the code between invite and join, and the screen that asks an admin to sign
  *     (seadmin.prepare and sign are the signing; the screen is the admin screen, #7892, or the console page);
- *   - sending the submission: escrowd's op and its coordinator route are step 1 (Kitty), not built when this was;
+ *   - sending the request: the coordinator route that relays it to escrowd (step 1's op exists; the board-facing route
+ *     is asked on #7116, comment 7021307518);
  *   - the join flow calling it: nothing outside the tests calls this file yet. Once it keeps the code it joined with,
  *     deviceSign's joinCode should be required, not optional (review 4);
  *   - that the inviter and the signing admins are on the company's admin roster: escrowd holds the roster, this Mac
@@ -103,28 +106,37 @@ function deviceSign(bytes, { org, member, deviceKey, joinCode }) {
 }
 
 /**
- * The submission for the coordinator to relay to escrowd, in the shape Kitty pinned. Built from the decoded bytes, so
- * every field is what was signed. adminSigs: [{ adminId, sig (DER bytes) }], two of them, distinct ids, the inviter
- * among them (escrowd checks persons and keys; this refuses only what it can see).
+ * The devkeyhist_enrol request escrowd decodes, built from the decoded bytes so every field is what was signed.
+ * adminSigs: two entries, distinct ids, the inviter among them: a Mac admin's as seadmin.sign returns it
+ * ({ adminId, sig: DER }), or a passkey admin's already typed ({ adminId, passkey: { authenticatorData,
+ * clientDataJSON, signature } }, bytes). escrowd checks persons, keys and every signature; this refuses what it can see.
  */
-function submission(bytes, deviceSig, adminSigs) {
+function request(bytes, deviceSig, adminSigs) {
   const d = se.decodeDevkeyEnrol(bytes);
   if (!(deviceSig instanceof Uint8Array) || deviceSig.length !== 64) throw new Error('a device signature is 64 bytes');
   if (!Array.isArray(adminSigs) || adminSigs.length !== 2) throw new Error('an enrolment takes two admins\' signatures');
-  if (adminSigs.some((a) => !a || !(a.sig instanceof Uint8Array) || !a.sig.length)) throw new Error('each admin signature is bytes');   // review 2
-  const ids = adminSigs.map((a) => a && a.adminId);
-  if (ids.some((x) => typeof x !== 'string' || !x) || ids[0] === ids[1]) throw new Error('the two admins must be different');
-  if (!ids.includes(d.inviterAdminId)) throw new Error('the admin who sent the invite must be one of the two');
+  const isBytes = (b) => b instanceof Uint8Array && b.length > 0;
+  const b64 = (b) => Buffer.from(b).toString('base64url');
+  const sigs = adminSigs.map((a) => {
+    if (!a || typeof a.adminId !== 'string' || !a.adminId) throw new Error('each admin signature names its admin');
+    if (a.passkey && a.sig === undefined) {
+      const pk = a.passkey;
+      if (![pk.authenticatorData, pk.clientDataJSON, pk.signature].every(isBytes)) throw new Error('a passkey signature is three byte fields');
+      return { adminId: a.adminId, passkey: { authenticatorData: b64(pk.authenticatorData), clientDataJSON: b64(pk.clientDataJSON), signature: b64(pk.signature) } };
+    }
+    if (!isBytes(a.sig) || a.passkey !== undefined) throw new Error('each admin signature is bytes');   // review 2
+    return { adminId: a.adminId, se: b64(a.sig) };
+  });
+  if (sigs[0].adminId === sigs[1].adminId) throw new Error('the two admins must be different');
+  if (!sigs.some((x) => x.adminId === d.inviterAdminId)) throw new Error('the admin who sent the invite must be one of the two');
   if (!crypto.verify(null, Buffer.from(bytes), crypto.createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519',
     x: Buffer.from(d.key).toString('base64url') }, format: 'jwk' }), Buffer.from(deviceSig))) {
     throw new Error('the device signature is not by the key being enrolled');
   }
-  const hex = (b) => Buffer.from(b).toString('hex');
   return {
-    org: d.org, member: d.member, key: hex(d.key), code_hash: hex(d.codeHash), join_tag: hex(d.joinTag),
-    inviter_admin_id: d.inviterAdminId, generation: d.generation.toString(), nonce: hex(d.nonce),
-    device_sig: hex(deviceSig), admin_sigs: adminSigs.map((a) => ({ admin_id: a.adminId, sig: hex(a.sig) })),
+    op: 'devkeyhist_enrol', org: d.org, member: d.member, key: b64(d.key), codeHash: b64(d.codeHash), joinTag: b64(d.joinTag),
+    inviterAdminId: d.inviterAdminId, nonce: b64(d.nonce), sigs, keySig: b64(deviceSig),
   };
 }
 
-module.exports = { CODE_LEN, newJoinCode, joinCodeHash, joinTag, matchesJoinCode, rawPublic, deviceSign, submission };
+module.exports = { CODE_LEN, newJoinCode, joinCodeHash, joinTag, matchesJoinCode, rawPublic, deviceSign, request };

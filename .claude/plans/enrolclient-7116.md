@@ -13,7 +13,7 @@ The Mac side of Kitty's step 1 exists and is pinned to the same bytes escrowd en
 - Not built here: keeping the code between invite and join, the admin screen that asks, sending the submission (escrowd's op and route are step 1), any caller.
 
 ## Weakest premise
-That the vector on Kitty's local branch is final: sealkey-8733 is not on GitHub yet. Before the PR, re-check the vector file against the pushed branch.
+That escrowd's devkeyhist_enrol request shape will not move before the board-facing route exists. Re-checked 11-19 14:4x against sealkey-8733 as pushed (b874d078d): the vector is identical, and devkeyenrol.request() now matches rosterwire.rs's decoder (camelCase names, unpadded base64url, typed sigs, keySig, no generation).
 
 ## Status
 - [x] seadmin.js, devkeyenrol.js, native-se/main.swift, the vectors file, tests (seadmin-7116 20, devkeyenrol-7116 6), the reachability excuses

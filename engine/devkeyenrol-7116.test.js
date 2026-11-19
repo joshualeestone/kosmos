@@ -137,24 +137,35 @@ test('#7116 step 2: this Mac signs only bytes enrolling its own key for the expe
     /no device key yet/);
 });
 
-test('#7116 step 2: the submission carries exactly the signed fields, in Kitty\'s shape, and refuses what escrowd would', () => {
+test('#7116 step 2: the request is escrowd\'s devkeyhist_enrol shape (rosterwire.rs at sealkey-8733), carries exactly the signed fields, and refuses what escrowd would', () => {
   const e = enrolment();
   const { signature } = dk.deviceSign(e.bytes, { org: ORG, member: MEMBER, deviceKey: e.mac });
   const admins = [{ adminId: INVITER, sig: Buffer.from('3045', 'hex') }, { adminId: OTHER_ADMIN, sig: Buffer.from('3046', 'hex') }];
-  const s = dk.submission(e.bytes, signature, admins);
-  assert.deepEqual(Object.keys(s), ['org', 'member', 'key', 'code_hash', 'join_tag', 'inviter_admin_id', 'generation', 'nonce', 'device_sig', 'admin_sigs']);
-  assert.equal(s.key, e.key.toString('hex'));
-  assert.equal(s.generation, GEN);
-  assert.equal(s.nonce, NONCE.toString('hex'));
-  assert.deepEqual(s.admin_sigs, [{ admin_id: INVITER, sig: '3045' }, { admin_id: OTHER_ADMIN, sig: '3046' }]);
-  // Re-encoding the submission's fields gives the signed bytes back.
-  const h = (x) => Buffer.from(x, 'hex');
-  assert.ok(se.encodeDevkeyEnrol(s.org, s.member, h(s.key), h(s.code_hash), h(s.join_tag), s.inviter_admin_id, s.generation, h(s.nonce)).equals(e.bytes));
+  const r = dk.request(e.bytes, signature, admins);
+  // The names rosterwire.rs reads, and nothing else (no generation: escrowd rebuilds the bytes at its current one).
+  assert.deepEqual(Object.keys(r), ['op', 'org', 'member', 'key', 'codeHash', 'joinTag', 'inviterAdminId', 'nonce', 'sigs', 'keySig']);
+  assert.equal(r.op, 'devkeyhist_enrol');
+  // Every byte field unpadded base64url (rosterwire's B64 = URL_SAFE_NO_PAD).
+  const b64 = (x) => Buffer.from(x, 'base64url');
+  for (const k of ['key', 'codeHash', 'joinTag', 'nonce', 'keySig']) assert.match(r[k], /^[A-Za-z0-9_-]+$/, k + ' is unpadded base64url');
+  assert.ok(b64(r.key).equals(e.key));
+  assert.ok(b64(r.nonce).equals(NONCE));
+  assert.ok(b64(r.keySig).equals(signature));
+  assert.deepEqual(r.sigs, [{ adminId: INVITER, se: Buffer.from('3045', 'hex').toString('base64url') }, { adminId: OTHER_ADMIN, se: Buffer.from('3046', 'hex').toString('base64url') }]);
+  // Re-encoding the request's fields at the signed generation gives the signed bytes back.
+  assert.ok(se.encodeDevkeyEnrol(r.org, r.member, b64(r.key), b64(r.codeHash), b64(r.joinTag), r.inviterAdminId, GEN, b64(r.nonce)).equals(e.bytes));
+  // A passkey admin's signature (from the console page) goes through typed.
+  const pk = { authenticatorData: Buffer.from('aa', 'hex'), clientDataJSON: Buffer.from('{}'), signature: Buffer.from('3044', 'hex') };
+  const withPasskey = dk.request(e.bytes, signature, [admins[0], { adminId: OTHER_ADMIN, passkey: pk }]);
+  assert.deepEqual(withPasskey.sigs[1], { adminId: OTHER_ADMIN, passkey: { authenticatorData: 'qg', clientDataJSON: 'e30', signature: 'MEQ' } });
+  assert.throws(() => dk.request(e.bytes, signature, [admins[0], { adminId: OTHER_ADMIN, passkey: { ...pk, signature: '' } }]), /three byte fields/);
+  assert.throws(() => dk.request(e.bytes, signature, [admins[0], { adminId: OTHER_ADMIN, passkey: pk, sig: Buffer.alloc(2) }]), /each admin signature is bytes/);
   // Refusals.
-  assert.throws(() => dk.submission(e.bytes, signature, [admins[0]]), /two admins/);
-  assert.throws(() => dk.submission(e.bytes, signature, [{ adminId: INVITER, sig: '3045' }, admins[1]]), /each admin signature is bytes/);   // review 2
-  assert.throws(() => dk.submission(e.bytes, signature, [admins[0], admins[0]]), /must be different/);
-  assert.throws(() => dk.submission(e.bytes, signature, [{ adminId: 'admin-1', sig: Buffer.alloc(2) }, admins[1]]), /sent the invite must be one/);
+  assert.throws(() => dk.request(e.bytes, signature, [admins[0]]), /two admins/);
+  assert.throws(() => dk.request(e.bytes, signature, [{ adminId: INVITER, sig: '3045' }, admins[1]]), /each admin signature is bytes/);   // review 2
+  assert.throws(() => dk.request(e.bytes, signature, [admins[0], admins[0]]), /must be different/);
+  assert.throws(() => dk.request(e.bytes, signature, [{ adminId: 'admin-1', sig: Buffer.alloc(2) }, admins[1]]), /sent the invite must be one/);
+  assert.throws(() => dk.request(e.bytes, signature, [{ adminId: '', sig: Buffer.alloc(2) }, admins[1]]), /names its admin/);
   const wrong = macKey();
-  assert.throws(() => dk.submission(e.bytes, crypto.sign(null, e.bytes, wrong.privateKey), admins), /not by the key being enrolled/);
+  assert.throws(() => dk.request(e.bytes, crypto.sign(null, e.bytes, wrong.privateKey), admins), /not by the key being enrolled/);
 });
