@@ -316,3 +316,25 @@ test('#7116 step 2 caller review 3: the inviter\'s code is tied to the first com
   // The first computer can be signed again (a refused or restarted entry for it).
   assert.equal((await es.approve(es.review(one, { dataRoot: root }), opts())).adminId, INVITER);
 });
+
+test('#7116 step 2 caller review 4: a tied code ends with its entry\'s life; a re-invite since review refuses; a wrong-shaped store is damage', async () => {
+  const root = fresh(); const code = dk.newJoinCode();
+  es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root });
+  const { publicKey } = crypto.generateKeyPairSync('ed25519'); const k = dk.rawPublic(publicKey);
+  const bytes = se.encodeDevkeyEnrol(ORG, MEMBER, k, dk.joinCodeHash(code), dk.joinTag(code, ORG, MEMBER, k), INVITER, '7', Buffer.alloc(32, 0x5a));
+  const h = appWithHelper();
+  const opts = { adminId: INVITER, expectedKey: h.expectedKey, keyFile: h.keyFile, dataRoot: root, appDir: h.app };
+  await es.approve(es.review(bytes, { dataRoot: root }), opts);   // tied now
+  assert.ok(es.joinCodeFor(ORG, MEMBER, { dataRoot: root }), 'within the hour: still usable for that computer');
+  assert.equal(es.joinCodeFor(ORG, MEMBER, { dataRoot: root, now: Date.now() + 2 * 60 * 60 * 1000 }), null, 'past an entry life: never checked again');
+  // Re-invite since review: approving the old entry refuses, and does not tie the new code.
+  const root2 = fresh(); es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root2 });
+  const stale = es.review(bytes, { dataRoot: root2 });
+  es.keepJoinCode(ORG, MEMBER, dk.newJoinCode(), { dataRoot: root2 });
+  await assert.rejects(es.approve(stale, { ...opts, dataRoot: root2 }), /sent a new invite since this one/);
+  // Valid JSON of the wrong shape is damage: set aside by a new code, refused on read.
+  const bad = fresh(); fs.writeFileSync(path.join(bad, 'devkey-join-codes.json'), '[]');
+  assert.throws(() => es.joinCodeFor(ORG, MEMBER, { dataRoot: bad }), /not readable/);
+  es.keepJoinCode(ORG, MEMBER, code, { dataRoot: bad });
+  assert.ok(es.joinCodeFor(ORG, MEMBER, { dataRoot: bad }).equals(code));
+});

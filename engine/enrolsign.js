@@ -23,6 +23,9 @@ const se = require('./seadmin');
 const CODES_FILE = 'devkey-join-codes.json';
 // A code past this age is dropped when read: an invite that sat this long is re-sent with a new code, not trusted.
 const CODE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+// Review 4: once tied to a computer, a code lives only as long as an enrolment entry can (escrowd's nonce: 30 minutes),
+// with margin; after that this Mac never checks with it again, so a later re-enrolment of that computer is re-invited.
+const BOUND_MAX_AGE_MS = 60 * 60 * 1000;
 
 /** The helper this app ships, or null when this install has none (an older bundle, or a source checkout). */
 function helperPath(appDir = path.join(__dirname, '..')) {
@@ -53,7 +56,9 @@ function readCodes(dataRoot) {
   }
   let parsed;
   try { parsed = JSON.parse(raw); } catch { throw Object.assign(new Error(DAMAGED), { damaged: true }); }
-  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  // Review 4: valid JSON of the wrong shape is damage too (set aside by a new code, never silently overwritten).
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw Object.assign(new Error(DAMAGED), { damaged: true });
+  return parsed;
 }
 function writeCodes(codes, dataRoot) {
   const file = codesFile(dataRoot);
@@ -97,6 +102,7 @@ function joinCodeFor(org, member, { dataRoot, now = Date.now(), forKey } = {}) {
   if (forKey && typeof hit.key === 'string' && hit.key !== Buffer.from(forKey).toString('hex')) {
     throw new Error('this invite was already used for another computer');
   }
+  if (typeof hit.key === 'string' && (!Number.isFinite(hit.boundAt) || now - hit.boundAt > BOUND_MAX_AGE_MS)) return null;   // review 4
   return Buffer.from(hit.code, 'hex');
 }
 /** After the inviter's signature is posted: the kept code is tied to that computer's key from then on. */
@@ -109,6 +115,7 @@ function bindJoinCode(org, member, key, { dataRoot } = {}) {
   if (typeof hit.key === 'string' && hit.key !== want) throw new Error('this invite was already used for another computer');
   if (hit.key === want) return true;
   hit.key = want;
+  hit.boundAt = Date.now();
   writeCodes(codes, dataRoot);
   return true;
 }
@@ -151,7 +158,10 @@ async function approve(prepared, { adminId, expectedKey, keyFile, appDir, dataRo
      free. The code is NOT dropped here (review 1): a refusal or a restarted entry for the same computer needs it again. */
   if (prepared && prepared.inviterChecked === true) {
     const { org, member, key } = prepared.decoded;
-    if (!joinCodeFor(org, member, { dataRoot, forKey: key })) throw new Error('you sent this invite, but its join code is no longer on this computer');
+    const kept = joinCodeFor(org, member, { dataRoot, forKey: key });
+    if (!kept) throw new Error('you sent this invite, but its join code is no longer on this computer');
+    // Review 4: and it is still the code this enrolment was checked with (a re-invite since then keeps a new one).
+    if (!require('./devkeyenrol').matchesJoinCode(kept, prepared.decoded)) throw new Error('you sent a new invite since this one: review it again');
     bindJoinCode(org, member, key, { dataRoot });
   }
   return se.sign(prepared, { helper, keyFile, expectedKey, adminId });
