@@ -2,12 +2,14 @@
 # kosmos#8599: `kosmos <verb> | head -1` must not end in an unhandled EPIPE stack trace.
 #
 # Runs the REAL install/kosmos and the REAL engine/clipipe.js against a fake app whose triage engine prints about
-# 1 MB, far more than a pipe holds, so the reader (head -1) closes while node is still writing. Five arms:
+# 1 MB, far more than a pipe holds, so the reader (head -1) closes while node is still writing. Six arms (1, 2, 3, 4, 4b, 5):
 #   1. guarded: no EPIPE, ENOTCONN or ECONNRESET and no "Unhandled 'error'" on stderr, and the reader got its line
 #   2. CONTROL, guard off (KOSMOS_CLIPIPE_SET=1 before the wrapper, so it adds nothing): the trace IS there, which
 #      proves this test can see the defect at all
 #   3. CONTROL, full output: nothing closes early, every byte arrives and the verb exits 0
 #   4. the person's own NODE_OPTIONS reaches what the CLI's node starts, and the preload does not
+#   4b. guard off (kosmos#8603): the wrapper adds no preload, so the person's NODE_OPTIONS reaches it untouched (and the
+#       caller's own KOSMOS_CLIPIPE_SET=1 is not cleared)
 #   5. a home folder with a space in it is guarded too
 set -u
 
@@ -62,6 +64,10 @@ seen="$(NODE_OPTIONS='--max-old-space-size=300' bash "$REPO/install/kosmos" feed
 [ "$seen" = '["--max-old-space-size=300",null]' ] || fail "a child of the CLI's node saw $seen, want the person's NODE_OPTIONS only"
 seen="$(env -u NODE_OPTIONS bash "$REPO/install/kosmos" feedback triage --dir "$HOME_DIR/reports" 2>/dev/null)"
 [ "$seen" = '[null,null]' ] || fail "with no NODE_OPTIONS of the person's, a child saw $seen, want none"
+# 4b (kosmos#8603). Guard off (KOSMOS_CLIPIPE_SET=1 before the wrapper, as arm 2): the wrapper adds no preload, so a
+#    child sees the person's NODE_OPTIONS exactly as they set it.
+seen="$(KOSMOS_CLIPIPE_SET=1 NODE_OPTIONS='--max-old-space-size=300' bash "$REPO/install/kosmos" feedback triage --dir "$HOME_DIR/reports" 2>/dev/null)"
+[ "$seen" = '["--max-old-space-size=300","1"]' ] || fail "guard off: a child of the CLI's node saw $seen, want the person's NODE_OPTIONS untouched (and the caller's KOSMOS_CLIPIPE_SET=1)"
 
 # 5. A home folder with a space in it is guarded too (the preload path is quoted inside NODE_OPTIONS).
 cat > "$HOME_DIR/app/engine/feedback-triage.js" <<'EOF'

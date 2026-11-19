@@ -133,3 +133,24 @@ test('the Windows CLI guards itself before main() runs, checked by source (measu
   assert.ok(guard > 0, 'the entry block requires clipipe and installs it');
   assert.ok(guard < entry.indexOf('main(process.argv.slice(2))'), 'before main() starts writing');
 });
+
+/* kosmos#8603 item 2: "still crashes as before" measured in a real process (the error is emitted by hand): a stream error
+   that is not a closed reader still ends the program with a non-zero exit and its message on stderr (CONTROL: Node
+   alone does the same). Only the trace differs: it points at this guard's rethrow, not at Node's own line. */
+test('kosmos#8603: a non-closed-reader stream error still crashes, non-zero, with its message (CONTROL: unguarded, the same)', () => {
+  const { spawnSync } = require('node:child_process');
+  const body = "const e = new Error('boom-8603'); e.code = 'EIO'; process.stdout.emit('error', e);";
+  const guarded = spawnSync(process.execPath, ['-e', 'require(' + JSON.stringify(GUARD) + ').install(); ' + body], { encoding: 'utf8' });
+  const alone = spawnSync(process.execPath, ['-e', body], { encoding: 'utf8' });
+  assert.notStrictEqual(alone.status, 0, 'CONTROL: Node alone must crash on it');
+  assert.strictEqual(guarded.status, alone.status, 'the guard changed the exit code: ' + guarded.status + ' vs ' + alone.status);
+  assert.match(guarded.stderr, /boom-8603/, 'the error is not said on stderr');
+  /* And the one difference the clipipe.js header names: the guarded trace points at its rethrow, Node's at its own.
+     These four read the text of Node's uncaught-error report, which is not a stable interface: a Node release that
+     changes it can turn them red with no change here (the exit code and message above are the hard pins). */
+  assert.match(guarded.stderr, /clipipe\.js/, 'the guarded trace does not point at the rethrow');
+  assert.doesNotMatch(guarded.stderr, /node:events/, 'the guarded trace still points at Node\'s own throw site');
+  assert.match(alone.stderr, /node:events/, 'CONTROL: Node alone throws from its own events module');
+  assert.doesNotMatch(alone.stderr, /clipipe\.js/, 'sanity: the unguarded run never loaded the guard');
+  assert.notStrictEqual(guarded.status, 141, 'a non-closed-reader error was taken for a closed reader');
+});

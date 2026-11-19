@@ -1,0 +1,45 @@
+# clipipefu-8603: follow-ups to #8599's closed-reader guard (kosmos#8603)
+
+Card: kosmos#8603 (left at #8599's 8-round review cap). Was parked needs-event until #8599 merged; it merged as #8609
+(and #8715 since), so it was unparked at 14:04 CST 11-19.
+
+## Finished means
+1. A test fails if install/kosmos ever gains a line (outside a comment) that starts a tmux server or execs claude or codex,
+   because the wrapper's NODE_OPTIONS preload would ride into that pane.
+2. engine/clipipe.js says only what is true about a stream error that is not a closed reader, and a test pins it in a
+   real process.
+3. The NITs that still apply are done or recorded.
+
+## How
+- cli.no-tmux-server-8603.test.js: reads install/kosmos and refuses any non-comment line matching new-session,
+  start-server, the binary (`tmux`, `"$AGENT_WORKFORCE_TMUX_BIN"`, `"${AGENT_WORKFORCE_TMUX_BIN:-}"`, with flags each
+  with or without an argument) followed by new or start, a bare binary at command position (runs new-session), or
+  `exec claude`/`exec codex`. Not seen, by design and said in the header: verbs built at run time, tmux's short
+  prefixes (and new-window, which starts no server, is not flagged), the binary or an agent through another variable, a line continuation, a bare binary spelled by its path, a bare binary behind any wrapper, a
+  quoted flag argument with a space, an agent started without exec, through a wrapper, with exec's flags, or by a quoted
+  name. A bare binary with only -V or -h is a read. Presence first (the script does call tmux, to read); a control proves the matcher fires on
+  each way of starting one and not on the reads the script makes.
+- engine/clipipe.js header: "still fails as loudly as before" becomes what was measured on 11-19: the same non-zero
+  exit and the message on stderr; only the trace differs (it points at the guard's rethrow, not Node's own line).
+- engine/clipipe.test.js: a real child process emits an EIO error on stdout by hand, guarded and alone: the same exit
+  code, not 141, the message on stderr, and the trace pointing at the guard's rethrow (alone: Node's own line).
+- tools/test-cli-epipe-8599.sh arm 4b: with the guard off (KOSMOS_CLIPIPE_SET=1 before the wrapper), a child of the
+  CLI's node sees the person's NODE_OPTIONS exactly. Perturbed once (14:04 CST, on 9c3d9ad7ff): with the expected
+  value changed to a wrong one the script printed FAIL; restored from HEAD.
+
+## Decided
+- Item 2 by rewording plus a test of the real behaviour, not by changing the rethrow: a crash with a different trace is
+  the intended design; only the comment overclaimed.
+- Item 3: the 156-column line no longer exists (gone since #8715). Moving the preload epilogue and isBoard above
+  module.exports was not done: it works by hoisting today, and moving runtime code for order alone is a change with no
+  behaviour to test. Recorded, not worked.
+
+## Weakest premise
+The tmux guard is a text tripwire: what its header lists as not seen is not seen. A tmux call inside a node -e program is
+covered another way (every installed node restores NODE_OPTIONS before its own code runs); the real residual is a
+non-node child of the wrapper (a shell script, a git hook) that starts tmux, and a narrow race: the bundled tmux 3.5a
+started by the wrapper's list with no server keeps the preload in its environment for the instant it lives, so a
+session the board created in that instant would inherit it.
+
+## Tests
+- cli.no-tmux-server-8603.test.js (2), engine/clipipe.test.js (9, one new), tools/test-cli-epipe-8599.sh (PASS, arm 4b new).
