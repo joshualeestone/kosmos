@@ -2418,7 +2418,7 @@
       "title": "A restarted computer says it is still starting",
       "icon": "shield",
       "rank": 8.8,
-      "line": "After a restart, a protected action sent through Kosmos+ may say the computer is still starting: try again in a minute, not update Kosmos."
+      "line": "After a restart, a protected action sent through Kosmos+ may say Kosmos+ is still starting: try again in a minute, not update Kosmos."
     }
   ]
 }
