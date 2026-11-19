@@ -363,6 +363,20 @@ const MEMBER = 'taskmate';
     // The input clears on a successful send.
     const sayVal = await p.$eval('#tk-say', (el) => el.value);
     if (sayVal !== '') die('the composer did not clear after sending: ' + sayVal);
+    /* #8731: one unbroken token (a long path, a URL with a query) must wrap inside its activity row, not run off the
+       page. Measured on served 0.8.10 before the fix: scrollWidth 2539 in a 689px row. A 300-character token is wider
+       than any row at this viewport, so a row that does not wrap is measurably wider than its box. */
+    const LONG = 'https://example.invalid/' + 'x'.repeat(300) + '?q=' + Date.now();
+    await p.fill('#tk-say', LONG);
+    await p.click('#tk-say-go');
+    await p.waitForFunction((t) => ((document.getElementById('tk-activity') || {}).innerText || '').includes(t), LONG, { timeout: 10000 })
+      .catch(() => {});
+    const longRow = await p.$$eval('#tk-activity .tkact-what', (els, t) => {
+      const el = els.find((e) => e.innerText.includes(t));
+      return el ? { scrollW: el.scrollWidth, clientW: el.clientWidth } : null;
+    }, LONG);
+    if (!longRow) die('#8731: the message with a long token did not show in the activity');
+    if (longRow.scrollW > longRow.clientW + 1) die('#8731: an activity row does not wrap a long unbroken token: ' + JSON.stringify(longRow));
     await p.screenshot({ path: path.join(OUT, 'tasks-view-page.png') });
 
     /* Mark as done, come back, and the done task is BEHIND THE DOOR.
