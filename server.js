@@ -29547,6 +29547,7 @@ function start(port = PORT) {
   /* kosmos#8710: the leaving member's computer packs a company hand-over (engine/handoversend.js). Off unless
      KOSMOS_ORG_HANDOVER=1. Best effort: never a reason not to start. */
   try { require('./engine/handoversend').startHere(); } catch { /* best effort */ }
+  try { require('./engine/handoverrecv').startHere(); } catch { /* best effort: the successor's half, same switch */ }
   /* #5532: the enrolled work Kosmos's rollup, a minute after start (once the refresh has answered) and then on a tick. */
   setTimeout(orgRollupTick, 60 * 1000).unref();
   setInterval(orgRollupTick, ORG_ROLLUP_TICK_MS).unref();
