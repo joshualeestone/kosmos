@@ -27,6 +27,10 @@ In a private tmux server with an empty sandbox config folder and logging stand-i
   remote-started flow. Settings' link row (`acctClaudePaintUrl`) and the wording (`signinSay`, both screens) read it,
   so a remote person on a Mac is shown the sign-in link and told to open it, never "the browser window that just
   opened". Before review 3 the row was cloud-only, so the slice removed the wrong-screen browser and left no link.
+  Review 4: the first-run screen (`frPaintConnect`, `frConnPaintUrl`) reads the same question, so a remote start on a
+  Mac gets the link as the primary button and never "Your browser has opened"; frConnPaintUrl's no-repaint stamp
+  includes the answer. `writeState` sets the flag from the owning flow on every write (and removes one a caller's
+  spread carried in).
 - A sign-in started at the computer is unchanged (the browser opening there is the convenience).
 - Windows already replaces claude's opener for every sign-in (win32signin.js, withNoOpOpener); nothing changes there.
 - The opener is `/usr/bin/true`, or `/bin/true` where only that exists (a Linux without a merged /usr; review 2).
@@ -47,6 +51,10 @@ assignment right before the binary. engine/connect.test.js and server.connect.te
 Review 3: the engine arms also assert `state().noOpener` (true remote, false local); `web.flowpoll-4275.test.js` has a
 remote Mac Settings arm (link shown, "Open the Claude sign-in page below", never "just opened") with a local CONTROL
 (no row, no open-it words), through a new `words` harness option that lifts the wording without the cloud stub.
+Review 4: `server.connect.test.js` has a first-run arm for a remote start on a Mac (primary link, no "opened" or "did
+not open" words) with a local CONTROL (Mac words, fallback link); its harness always lifts the helper and gains a
+`words` option. docs/browser-checks/render-cloud-signin-4903.js (keyed on frConnPaintUrl) ran 50/50 and carries a
+Browser-check-surface trailer.
 `server.remoteopener-8728.test.js`: connect.start replaced by a recorder; a request through Kosmos+ (vouching
 connector, fresh session headers, so it passes the step-up gate) hands `remoteStarted: true`, and the CONTROL at the
 computer hands `false`, for the default re-auth and for a second account.
