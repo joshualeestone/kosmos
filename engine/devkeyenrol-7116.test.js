@@ -16,7 +16,8 @@ const ORG = 'org-é1';
 const MEMBER = 'member-7';
 const INVITER = 'admin-3';
 const OTHER_ADMIN = 'admin-9';
-const NONCE = Buffer.from('00112233445566778899aabbccddeeff', 'hex');
+const NONCE = Buffer.from('00112233445566778899aabbccddeeff', 'hex');   // the pinned vector's (16 bytes: it pins the encoder only)
+const NONCE_ESCROWD = Buffer.alloc(32, 0x5a);   // escrowd issues 32-byte nonces (rosternonce::LEN), and the Mac signs only those
 const GEN = '4294967298';
 
 function macKey() {
@@ -24,9 +25,9 @@ function macKey() {
   return { ok: true, privateKey, publicKey };
 }
 // The bytes as the coordinator would hand them to every signer, made from a code the inviter holds.
-function enrolment({ code = dk.newJoinCode(), mac = macKey(), org = ORG, member = MEMBER, k } = {}) {
+function enrolment({ code = dk.newJoinCode(), mac = macKey(), org = ORG, member = MEMBER, k, nonce = NONCE_ESCROWD } = {}) {
   const key = k || dk.rawPublic(mac.publicKey);
-  const bytes = se.encodeDevkeyEnrol(org, member, key, dk.joinCodeHash(code), dk.joinTag(code, org, member, key), INVITER, GEN, NONCE);
+  const bytes = se.encodeDevkeyEnrol(org, member, key, dk.joinCodeHash(code), dk.joinTag(code, org, member, key), INVITER, GEN, nonce);
   return { code, mac, key, bytes };
 }
 
@@ -162,9 +163,10 @@ test('#7116 step 2: the request is escrowd\'s devkeyhist_enrol shape (rosterwire
   // Re-encoding the request's fields at the signed generation gives the signed bytes back.
   assert.ok(se.encodeDevkeyEnrol(r.org, r.member, b64(r.key), b64(r.codeHash), b64(r.joinTag), r.inviterAdminId, GEN, b64(r.nonce)).equals(e.bytes));
   // A nonce of any other length is refused, as escrowd refuses it (review 5).
-  const short = enrolment();
-  const shortSig = dk.deviceSign(short.bytes, { org: ORG, member: MEMBER, deviceKey: short.mac }).signature;
-  assert.throws(() => dk.request(short.bytes, shortSig, admins), /nonce is 32 bytes/);
+  const short = enrolment({ nonce: NONCE });
+  // The Mac refuses to sign it (review 6); a signature made anyway is refused by request() too.
+  assert.throws(() => dk.deviceSign(short.bytes, { org: ORG, member: MEMBER, deviceKey: short.mac }), /nonce escrowd did not issue/);
+  assert.throws(() => dk.request(short.bytes, crypto.sign(null, short.bytes, short.mac.privateKey), admins), /nonce is 32 bytes/);
   // A passkey admin's signature (from the console page) goes through typed.
   const pk = { authenticatorData: Buffer.from('aa', 'hex'), clientDataJSON: Buffer.from('{}'), signature: Buffer.from('3044', 'hex') };
   const withPasskey = dk.request(e.bytes, signature, [admins[0], { adminId: OTHER_ADMIN, passkey: pk }]);

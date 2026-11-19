@@ -4,7 +4,7 @@
 The Mac side of Kitty's step 1 exists and is pinned to the same bytes escrowd encodes:
 - `engine/seadmin.js` encodes and decodes `kosmos-escrowd-devkeyhist-enrol v1` exactly as the vector pinned on kosmos-relay sealkey-8733 (99c68c7c6, `bytes.devkeyEnrol`), and an admin's screen can prepare and sign it like the other actions, showing the member and K's fingerprint;
 - the inviting admin's screen, given its own join code, refuses an enrolment whose code hash or join tag does not recompute from the decoded org, member and K (the check that stops a coordinator substituting its own K); the second admin is told nothing was checked;
-- `engine/devkeyenrol.js`: the join code, its hash and tag; the member's Mac signs only bytes enrolling its own key for the expected org and member; the submission in Kitty's pinned JSON shape;
+- `engine/devkeyenrol.js`: the join code, its hash and tag; the member's Mac signs only bytes enrolling its own key for the expected org and member; the request escrowd's devkeyhist_enrol decodes (rosterwire.rs at sealkey-8733 b874d078d);
 - kosmos-se's tag fence and Touch ID reason include the new tag.
 
 ## Calls

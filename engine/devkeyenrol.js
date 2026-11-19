@@ -99,6 +99,8 @@ function deviceSign(bytes, { org, member, deviceKey, joinCode }) {
   if (!dk || dk.ok !== true) throw new Error((dk && dk.because) || 'this computer\'s device key could not be read');
   const decoded = se.decodeDevkeyEnrol(bytes);
   if (decoded.org !== org || decoded.member !== member) throw new Error('these bytes enrol a key for a different company or member');
+  // Review 6: a nonce escrowd never issues makes a signature nobody can use; refused here as request() refuses it.
+  if (decoded.nonce.length !== NONCE_LEN) throw new Error('these bytes carry a nonce escrowd did not issue (not ' + NONCE_LEN + ' bytes)');
   const mine = rawPublic(dk.publicKey);
   if (!mine.equals(Buffer.from(decoded.key))) throw new Error('these bytes enrol a different key from this computer\'s');
   // Review 1: the member's Mac holds the code it joined with; given, it binds this signature to that invite.
@@ -134,6 +136,8 @@ function request(bytes, deviceSig, adminSigs) {
   });
   if (sigs[0].adminId === sigs[1].adminId) throw new Error('the two admins must be different');
   if (!sigs.some((x) => x.adminId === d.inviterAdminId)) throw new Error('the admin who sent the invite must be one of the two');
+  // Node's Ed25519 verify; escrowd's k_signed is stricter (verify_strict, a canonical K, no small-order K or R). K comes
+  // from this Mac's own key pair, so the two agree on every request this makes (review 6).
   if (!crypto.verify(null, Buffer.from(bytes), crypto.createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519',
     x: Buffer.from(d.key).toString('base64url') }, format: 'jwk' }), Buffer.from(deviceSig))) {
     throw new Error('the device signature is not by the key being enrolled');
