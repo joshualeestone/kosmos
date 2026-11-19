@@ -166,19 +166,21 @@ function link(name, opts) {
      already naming this runner is kept (and never taken off below). */
   const withRunner = !!p.runner && p.runner !== 'claude';
   let runnerSetHere = false;
+  /* -q, measured on tmux 3.6a: an option that is not set answers empty and succeeds (without -q it fails, "invalid
+     option"), so a read that does fail (null: no server, a tmux that cannot answer) is told apart from no mark. A
+     session that is gone also answers empty under -q; the set that follows then fails, so nothing is written. */
   const readRunner = () => {
-    const r = run(['show-options', '-v', '-t', byId, '@kosmos_runner']);
-    return r && r.ok !== false ? String(r.stdout || '').trim() : '';
+    const r = run(['show-options', '-q', '-v', '-t', byId, '@kosmos_runner']);
+    return r && r.ok !== false ? String(r.stdout || '').trim() : null;
   };
   if (withRunner) {
     const was = readRunner();
+    /* A read that failed is not "no mark": another program's mark could be there, and it is never overwritten. */
+    if (was === null) return refused(`Kosmos could not read the window called ${p.name}, so nothing was linked.`);
     if (was && was !== p.runner) return refused(`The window called ${p.name} carries a runner mark naming ${was}, so Kosmos did not change it.`);
     if (!was) {
       const setR = run(['set-option', '-t', byId, '@kosmos_runner', p.runner]);
-      if (!setR || setR.ok === false) {
-        run(['set-option', '-u', '-t', byId, '@kosmos_runner']);
-        return refused(`Kosmos could not record which program runs the window called ${p.name}, so nothing was linked.`);
-      }
+      if (!setR || setR.ok === false) return refused(`Kosmos could not record which program runs the window called ${p.name}, so nothing was linked.`);
       runnerSetHere = true;
     }
   }
@@ -198,7 +200,9 @@ function link(name, opts) {
   const after = lookAt(byId + (paneOf ? ':' + paneOf : ''));
   if (now !== p.session || (withRunner && runnerNow !== p.runner) || after.id !== before.id || after.panes !== '1x1' || after.cmd !== before.cmd) {
     const offAgent = run(['set-option', '-u', '-t', byId, '@kosmos_agent']);
-    const offRunner = unsetRunner();
+    /* The runner note comes off only once the agent mark has: a window still marked ours keeps its runner, or the
+       board would read it as Claude (the state the runner-first order exists to prevent). */
+    const offRunner = (!offAgent || offAgent.ok === false) ? { ok: true } : unsetRunner();
     /* Only the agent mark makes the window Kosmos's, so only it failing to come off is the mark left on the window
        (markLeft). A runner note left behind alone is said, not alarmed about. */
     const off = offAgent;

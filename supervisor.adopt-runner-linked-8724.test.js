@@ -1,7 +1,6 @@
 'use strict';
 /**
- * kosmos#8724 item 3: a Codex or Antigravity window linked by hand carries Kosmos's mark and its runner (Grok's is
- * supervisor.adopt-grok-3953.test.js, which already runs the supervisor over a marked live Grok window). A
+ * kosmos#8724 item 3: a Codex, Antigravity or Grok window linked by hand carries Kosmos's mark and its runner. A
  * supervisor started for that agent later (a launch job written afterwards, or a restart of the board) must adopt the
  * live window, never close it or start a second agent beside it. Runs the real bin/agent-supervisor.sh against a
  * recording fake tmux reporting one session marked with its own name whose pane runs each runner's program, with the
@@ -47,8 +46,8 @@ function runOver(paneCmd, runner, model) {
   };
 }
 
-test('#8724: a job started for a linked Codex or Antigravity window adopts it; nothing is closed, no second agent', () => {
-  for (const [cmd, runner, model] of [['codex', 'codex', 'gpt-5'], ['codex.exe', 'codex', 'gpt-5'], ['agy', 'antigravity', 'gemini-3-pro']]) {
+test('#8724: a job started for a linked Codex, Antigravity or Grok window adopts it; nothing is closed, no second agent', () => {
+  for (const [cmd, runner, model] of [['codex', 'codex', 'gpt-5'], ['codex.exe', 'codex', 'gpt-5'], ['agy', 'antigravity', 'gemini-3-pro'], ['grok-native', 'grok', 'grok-4.6']]) {
     const out = runOver(cmd, runner, model);
     assert.equal(out.r.error, undefined, String(out.r.error));
     assert.ok(/^list-panes/m.test(out.calls), `the supervisor never looked at the pane (${cmd}): ${out.calls}`);

@@ -28,9 +28,12 @@ function fakeTmux(cmd, opts) {
     if (verb === 'display-message') return { ok: true, code: 0, stdout: `$0\t1x1\t${cmd}\t${marks['@kosmos_agent']}\n` };
     if (verb === 'show-options') {
       const key = args[args.length - 1];
+      if (key === '@kosmos_runner' && o.readFails) return { ok: false, code: 1, stdout: '' };
       let v = marks[key];
       if (key === '@kosmos_runner' && o.readRunnerAs !== undefined && v) v = o.readRunnerAs;
-      return v ? { ok: true, code: 0, stdout: v + '\n' } : { ok: false, code: 1, stdout: '' };
+      /* As tmux: with -q an option that is not set answers empty and succeeds; without it, it fails. */
+      if (!v) return args.includes('-q') ? { ok: true, code: 0, stdout: '' } : { ok: false, code: 1, stdout: '' };
+      return { ok: true, code: 0, stdout: v + '\n' };
     }
     if (verb === 'set-option' && args[1] === '-u') {
       const key = args[args.length - 1];
@@ -102,6 +105,25 @@ test('#8724 a runner that does not read back takes both marks off; CONTROL: the 
   assert.match(r.because, /took the mark off again/);
   assert.deepEqual(t.marks, { '@kosmos_agent': '', '@kosmos_runner': '' });
   assert.notEqual(r.markLeft, true);
+});
+
+test('#8724 an agent mark that will not come off keeps its runner (never ours with an empty runner), and is markLeft', () => {
+  linkwindow.setExpectedSource(() => 'codex');
+  const t = fakeTmux('codex', { readRunnerAs: 'claude', unsetFails: '@kosmos_agent' });
+  const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
+  assert.equal(r.markLeft, true);
+  assert.equal(t.marks['@kosmos_agent'], 'zara');
+  assert.equal(t.marks['@kosmos_runner'], 'codex', 'the runner note was taken off a window still marked ours');
+  assert.ok(!t.calls.some((c) => c[0] === 'set-option' && c[1] === '-u' && c.includes('@kosmos_runner')));
+});
+
+test('#8724 a runner read that fails is not taken for no mark: nothing is written', () => {
+  linkwindow.setExpectedSource(() => 'codex');
+  const t = fakeTmux('codex', { readFails: true });
+  const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
+  assert.equal(r.outcome, 'refused');
+  assert.match(r.because, /could not read the window called zara, so nothing was linked/);
+  assert.ok(!t.calls.some((c) => c[0] === 'set-option'), 'a mark was written after a failed read');
 });
 
 test('#8724 an agent mark that cannot be taken off is reported as a mark left on the window', () => {
