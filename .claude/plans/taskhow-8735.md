@@ -101,3 +101,10 @@ wording pass (slice 3), written up on the card before it is built.
   characters and a re-pin); the test fixture rebuilds v52 from the guide rather than the real old text (tests cannot
   read git history here; the real result was measured twice, by me and by this reviewer); the help line's
   "(--how: one situation each)" is terse, and the full usage line is clear.
+
+## Review 8 (Sonnet, whole branch)
+- No BLOCKER, no WARNING. NITs kept: "a repeating task is never marked built" is now in the guide only (the system
+  refuses it anyway: tasks.js refuses to mark a repeating task built, read in review 5); the taskguide.js array indent;
+  the two reworded lines show as marked with the conditional sentence, as designed.
+- The loop stops here at the fleet's 8-round cap, with no BLOCKER open.
+- Validation runs on this Mac, not Mortals: Baron's 0.8.11 cut is next on Mortals.
