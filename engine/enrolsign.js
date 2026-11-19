@@ -109,4 +109,66 @@ async function approve(prepared, { adminId, expectedKey, keyFile, dataRoot, appD
   return signed;
 }
 
-module.exports = { CODE_MAX_AGE_MS, helperPath, keepJoinCode, joinCodeFor, forgetJoinCode, review, approve };
+/* ---- the coordinator routes (Renet Tilley's pinned interface, #7116 comment 7021733967) ----
+   Every call is a signed Mac request (remote.macRequest); the org is always the calling Mac's own, never in a body.
+   `send` is that function, injectable for tests. Bytes the coordinator returns are decoded here before anything uses
+   them, and a signature leaves only for bytes that decode as an enrolment. */
+const ROUTE = '/v1/org/devkey-enrol';
+const b64 = (b) => Buffer.from(b).toString('base64url');
+const unb64 = (t, what) => {
+  if (typeof t !== 'string' || !/^[A-Za-z0-9_-]+$/.test(t)) throw new Error('the coordinator sent ' + what + ' we cannot read');
+  return Buffer.from(t, 'base64url');
+};
+const sendOf = (send) => send || ((...a) => require('./remote').macRequest(...a));
+const answerOf = (r, doing) => {
+  if (!r || r.ok !== true) throw new Error('could not ' + doing + ': ' + ((r && r.because) || 'no answer'));
+  return r.data;
+};
+const idOk = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id);
+
+/**
+ * The member's Mac starts its enrolment: K (this Mac's key), and the code hash and join tag from the join code it was
+ * invited with. The coordinator answers the exact bytes to sign; they are decoded, and must enrol THIS key with the
+ * inviter and code asked for. Then this Mac signs them (devkeyenrol.deviceSign) and posts keySig.
+ * Returns { id, decoded, expiresAt, answer } (answer: the sign route's, waiting or escrowd's).
+ */
+async function startAndSign({ org, member, joinCode, inviterAdminId, deviceKey, send } = {}) {
+  text(org, 'company'); text(member, 'member'); text(inviterAdminId, 'inviting admin');
+  const dk = require('./devkeyenrol');
+  const key = deviceKey || require('./backupdevicekey').deviceKey();
+  if (!key || key.ok !== true) throw new Error((key && key.because) || 'this computer\'s device key could not be read');
+  const k = dk.rawPublic(key.publicKey);
+  const go = sendOf(send);
+  // The body never names the org (the coordinator uses the caller's own), but the join tag binds it, so a Mac that
+  // computed it for another org makes bytes deviceSign then refuses (it checks the decoded org is the one given).
+  const started = answerOf(await go('POST', ROUTE, { key: b64(k), codeHash: b64(dk.joinCodeHash(joinCode)),
+    joinTag: b64(dk.joinTag(joinCode, org, member, k)), inviterAdminId }), 'start the enrolment');
+  if (!started || !idOk(started.id)) throw new Error('the coordinator did not name the enrolment');
+  const bytes = unb64(started.bytes, 'enrolment bytes');
+  const decoded = se.decodeDevkeyEnrol(bytes);
+  if (decoded.inviterAdminId !== inviterAdminId) throw new Error('the enrolment names a different inviting admin from the one asked');
+  const { signature } = dk.deviceSign(bytes, { org, member, deviceKey: key, joinCode });
+  const answer = answerOf(await go('POST', ROUTE + '/' + started.id + '/sign', { keySig: b64(signature) }), 'send this computer\'s signature');
+  return { id: started.id, decoded, expiresAt: started.expiresAt || null, answer };
+}
+
+/** An admin's list of what waits: [{ id, bytes, signedBy, keySigned, expiresAt }], each entry's bytes decoded later. */
+async function pending({ send } = {}) {
+  const data = answerOf(await sendOf(send)('GET', ROUTE + '/pending'), 'read the computers waiting for approval');
+  const list = data && Array.isArray(data.pending) ? data.pending : null;
+  if (!list) throw new Error('the coordinator answered without a list');
+  return list.filter((e) => e && idOk(e.id)).map((e) => ({ id: e.id, bytes: unb64(e.bytes, 'enrolment bytes'),
+    signedBy: Array.isArray(e.signedBy) ? e.signedBy.filter((x) => typeof x === 'string') : [], keySigned: e.keySigned === true,
+    expiresAt: e.expiresAt || null }));
+}
+
+/** Post one admin's signature (approve()'s { adminId, sig }) for entry `id`, as escrowd's Wire object. */
+async function postAdminSig(id, signed, { send } = {}) {
+  if (!idOk(id)) throw new Error('not an enrolment id');
+  if (!signed || typeof signed.adminId !== 'string' || !(signed.sig instanceof Uint8Array)) throw new Error('post only what approve returned');
+  return answerOf(await sendOf(send)('POST', ROUTE + '/' + id + '/sign', { sig: { adminId: signed.adminId, se: b64(signed.sig) } }),
+    'send the approval');
+}
+
+module.exports = { CODE_MAX_AGE_MS, helperPath, keepJoinCode, joinCodeFor, forgetJoinCode, review, approve,
+  startAndSign, pending, postAdminSig };
