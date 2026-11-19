@@ -6,7 +6,7 @@ Follow-up to the 0.8.11 pool (#8740, merged c9b385c4cc), before the 0.8.11 stagi
 Josh asked on 11-19 (kosmos#8728) for refreshing a Claude login on a remote computer to work. Part 1 (capask-8728, merged d81b81430b) landed after #8740's base. Splinter (11:27 CST): put it in 0.8.11's What's New, and part 2 too if it merges before the pin; do not hold the cut for part 2.
 
 ## The entry
-- **A restarted computer says it is still starting** (rank 8.8, top of the window, icon shield): "Right after a computer restarts, an action you send it through Kosmos+ says it is still starting: try again in a minute, not update Kosmos."
+- **A restarted computer says it is still starting** (rank 8.8, top of the window, icon shield): "After a restart, a protected action sent through Kosmos+ may say the computer is still starting: try again in a minute, not update Kosmos."
 - From capask-8728's plan, What changes (b): `remoteStepUpRefusal` returns REMOTE_STEP_UP_STARTING ("Kosmos+ is still starting on this computer ... Try again in a minute") while the board still asks the connector by itself, instead of the update sentence. (a) is the board re-asking by itself after an unanswered ask, which is why "in a minute" holds.
 - Not platform-tagged: the change is in engine/remote.js and server.js, which every computer on Kosmos+ runs. The first wording said "Mac", and the build refused it untagged, correctly.
 
@@ -26,3 +26,4 @@ A reviewer showing the starting sentence is not what an action sent through Kosm
 
 ## Review log
 - Iteration 1 (opus): WARNING, "a remote sign-in" read as signing in to Kosmos+, which never shows this sentence; it is any protected action sent through Kosmos+. Fixed. NITs: icon now shield (two phones in a row); Review log filled; "and it works then" declined (the self re-ask runs up to 10 to 15 minutes, so not promised).
+- After convergence, Renet Tilley (author of #8728) on Fleet Builders: only a PROTECTED action (a provider sign-in, a key, an update, a new agent) is refused, and only until the connector answers. "an action ... says" read as every action, always. Fixed with her wording, trimmed to 140: "a protected action ... may say".

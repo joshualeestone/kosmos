@@ -4,7 +4,7 @@
     {
       "icon": "shield",
       "title": "A restarted computer says it is still starting",
-      "line": "Right after a computer restarts, an action you send it through Kosmos+ says it is still starting: try again in a minute, not update Kosmos."
+      "line": "After a restart, a protected action sent through Kosmos+ may say the computer is still starting: try again in a minute, not update Kosmos."
     },
     {
       "icon": "phone",
