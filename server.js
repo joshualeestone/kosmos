@@ -24865,8 +24865,11 @@ const server = http.createServer(async (req, res) => {
             if (!m || m.kind !== 'post') continue;
             const named = messages.namedIn(m);
             if (named.includes(readerName)) namedReader.add(String(m.id));
-            // Review 2: an @-word that matched two members may have meant the reader, so such a post stays listed.
-            else if (named.length && !(Array.isArray(m.ambiguousMentions) && m.ambiguousMentions.length)) namedOthersOnly.add(String(m.id));
+            /* Review 2: an @-word that matched two members may have meant the reader, so such a post stays listed. Review 4:
+               so does one with @all or @everyone, which a person's row does not record as names (messages.js, the same
+               test as namesIn's, `code` spans skipped). */
+            else if (named.length && m.operator === true && !(Array.isArray(m.ambiguousMentions) && m.ambiguousMentions.length)
+              && !/(^|[^A-Za-z0-9._-])@(all|everyone)(?![A-Za-z0-9_-])/i.test(String(m.text || '').replace(/`[^`]*`/g, ' '))) namedOthersOnly.add(String(m.id));
             if (onlyUnanswered) namedBy.set(String(m.id), named);
             if (named.length || (Array.isArray(m.ambiguousMentions) && m.ambiguousMentions.length) || typeof m.replyTo === 'string') aimedAt.add(String(m.id));
           }

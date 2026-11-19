@@ -75,3 +75,17 @@ test('kosmos#8734 item 4: a person\'s post naming only another agent is not on t
   const theirs = await unanswered(pid, OTHER);
   assert.equal(listed(theirs, toOther), true, theirs);
 });
+
+test('kosmos#8734 item 4: a person\'s post naming others but also @all, or an @-word it could not place, stays listed', async () => {
+  const pid = newRoom('Others2');
+  const withAll = personPost(pid, '@all and @otherseat please both look', [OTHER]);
+  const unsure = 'm' + (87340 + (++seq));   // an @-word that matched two members is kept apart from the names
+  append({ id: unsure, kind: 'post', operator: true, from: 'operator', to: [ME, OTHER], project: pid,
+    text: '@seat and @otherseat, have a look', mentioned: [OTHER], ambiguousMentions: ['seat'], at: new Date(Date.now() - 60 * 1000).toISOString(),
+    outcomes: { [ME]: 'placed', [OTHER]: 'placed' } });
+  const quoted = personPost(pid, 'the `@all` tag is for @otherseat only', [OTHER]);   // CONTROL: @all in a code span is not a broadcast
+  const mine = await unanswered(pid);
+  assert.equal(listed(mine, withAll), true, '@all was ignored:\n' + mine);
+  assert.equal(listed(mine, unsure), true, 'an @-word that may have meant me was ignored:\n' + mine);
+  assert.equal(listed(mine, quoted), false, mine);
+});

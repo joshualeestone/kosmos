@@ -150,6 +150,7 @@ test('#8734 item 2: Windows task close names the extra word, never the valid opt
     assert.match(r.err, want, tail.join(' ') + ': ' + r.err);
     assert.doesNotMatch(r.err, /--(not-run|with-built) is not an option/, tail.join(' ') + ' blamed a valid option: ' + r.err);
   }
+  assert.equal(tasks.progressOf(tasks.byNumber(projects.readAll().find((p) => p.id === pid), n)).closed, false, 'a refused close closed it');
 });
 
 /* ---- 3. never-run is refused over a record that says it ran ---- */
@@ -176,6 +177,23 @@ test('#8734 item 3: the board refuses closing as never run a task with a check r
   assert.equal(r.status, 200, await r.text());
   r = await close(built, { notRun: true });
   assert.equal(r.status, 400, 'a built task, closed, was then marked never run');
+  // Review 4: a closed task is not told to close it again.
+  assert.match((await r.json()).error, /was marked built, so it ran: it cannot be marked never run\. It stays closed as it is/);
+  // Review 4: a closed task carrying only a landed commit (what task built --commit leaves through the close).
+  const landed = newTask('Landed');
+  tasks.close(pid, landed);
+  projects.mutate(pid, (p) => ({ ...p, tasks: p.tasks.map((t) => (t.number === landed ? { ...t, landedCommit: 'a'.repeat(40) } : t)) }));
+  r = await close(landed, { notRun: true });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /was marked built/);
+  // Review 4: two met checks are counted in the words.
+  const two = newTask('Two checks');
+  tasks.setDoneWhen(pid, two, ['one', 'two']);
+  tasks.setCheckResult(pid, two, 1, true, 'yes', { by: 'mara' });
+  tasks.setCheckResult(pid, two, 2, true, 'yes', { by: 'mara' });
+  r = await close(two, { notRun: true });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /has 2 checks reported met/);
   // Review 3: a recorded run (kosmos task ran) is refused too.
   const ranTask = newTask('Ran once');
   // As kosmos task ran leaves it (recordRun needs a repeat rule; a close keeps lastRunAt after taking the rule away).
