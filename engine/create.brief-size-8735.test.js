@@ -14,9 +14,9 @@
  * the last slice (rounded up), so no change can make a brief bigger, and each slice lowers it. Never raise CEILING.
  * Measured (pm, with this file's sandbox path counted as one word): 58,458 on main before #8735; 51,670 after slice 1
  * (the community routine moved to `kosmos community --how`, the quoting, title and Kosmos-security rules kept in the
- * brief as safety text); 48,897 after slice 2
- * (the task commands for one situation each moved to `kosmos task --how`; reviews 1 and 2 kept the per-run rules). Every platform counts a brief as its Mac form (PLATFORM_DELTA, below), so one ceiling holds
- * everywhere, Linux CI and Windows included.
+ * brief as safety text); 48,897 after slice 2 (the task commands for one situation each moved to `kosmos task --how`,
+ * with the three per-run rules kept in the brief). Every platform counts a brief as its Mac form (PLATFORM_DELTA, below),
+ * so one ceiling holds everywhere, Linux CI and Windows included.
  *
  *   node --test engine/create.brief-size-8735.test.js
  */
