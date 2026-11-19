@@ -1,12 +1,12 @@
 "use strict";
 /**
  * #8731: on a task page, the activity row (.tkact .tkact-what) did not wrap one unbroken token, so a check report
- * or message holding a long path or a URL with a query ran off the page. Measured on served 0.8.10: a 392-character
- * token gave the row a scrollWidth of 2539 in a 689px box, while the check row (.why) wrapped the same report.
+ * or message holding a long path or a URL with a query ran off the page.
  *
- * This pins the rule that WINS (test-support/cascade, #1476), not the first one written, so a later same-selector
- * rule that put it back to normal goes red. The rendered proof is docs/browser-checks/render-tasks.js, which sends a
- * message with a long token and measures every activity row.
+ * This pins the rule that WINS among rules written with this exact selector (test-support/cascade, #1476), so a later
+ * same-selector rule that put it back to normal goes red. It cannot see a more specific selector or a multi-line rule;
+ * the rendered guard is docs/browser-checks/render-tasks.js, which sends a message with a long token and measures that
+ * message's row against the activity list.
  *
  *   node --test web.task-activity-wrap-8731.test.js
  */

@@ -364,8 +364,9 @@ const MEMBER = 'taskmate';
     const sayVal = await p.$eval('#tk-say', (el) => el.value);
     if (sayVal !== '') die('the composer did not clear after sending: ' + sayVal);
     /* #8731: one unbroken token (a long path, a URL with a query) must wrap inside its activity row, not run off the
-       page. Measured on served 0.8.10 before the fix: scrollWidth 2539 in a 689px row. A 300-character token is wider
-       than any row at this viewport, so a row that does not wrap is measurably wider than its box. */
+       page. A 300-character token is wider than the activity list at this viewport, so two failures are both caught:
+       text spilling out of a row that kept its width (row scrollWidth), and a row that grew to fit the token (the
+       row's right edge past the list's, or the list itself scrolling sideways). */
     const LONG = 'https://example.invalid/' + 'x'.repeat(300) + '?q=' + Date.now();
     await p.fill('#tk-say', LONG);
     await p.click('#tk-say-go');
@@ -373,10 +374,15 @@ const MEMBER = 'taskmate';
       .catch(() => {});
     const longRow = await p.$$eval('#tk-activity .tkact-what', (els, t) => {
       const el = els.find((e) => e.innerText.includes(t));
-      return el ? { scrollW: el.scrollWidth, clientW: el.clientWidth } : null;
+      if (!el) return null;
+      const list = document.getElementById('tk-activity');
+      return { scrollW: el.scrollWidth, clientW: el.clientWidth, right: el.getBoundingClientRect().right,
+        listRight: list.getBoundingClientRect().right, listScrollW: list.scrollWidth, listClientW: list.clientWidth };
     }, LONG);
     if (!longRow) die('#8731: the message with a long token did not show in the activity');
-    if (longRow.scrollW > longRow.clientW + 1) die('#8731: an activity row does not wrap a long unbroken token: ' + JSON.stringify(longRow));
+    if (longRow.scrollW > longRow.clientW + 1 || longRow.right > longRow.listRight + 1 || longRow.listScrollW > longRow.listClientW + 1) {
+      die('#8731: an activity row does not wrap a long unbroken token: ' + JSON.stringify(longRow));
+    }
     await p.screenshot({ path: path.join(OUT, 'tasks-view-page.png') });
 
     /* Mark as done, come back, and the done task is BEHIND THE DOOR.
