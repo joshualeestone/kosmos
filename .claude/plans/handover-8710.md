@@ -132,8 +132,9 @@ In a hand-over the two sides are different computers, so the leaving Mac must ha
 - **Rejected:** putting the naming key inside the backup manifest (the manifest schema is shared with backups, and a
   second shape there is the defect the snapshot reuse avoids); an extra object in the bucket (a third grant kind for
   one small secret).
-- **Weakest premise:** that `wrap`'s info and aad strings can take a hand-over domain tag without touching backups;
-  check backupkeys.wrap's callers before building.
+- **Checked 19:5x, the premise holds better than assumed:** backupkeys already exports `wrapNamingKey(namingKey,
+  memberPk, ctx)` (NAMING_MAGIC, its own context), the call backups use for exactly this. A calls it with B's one-time
+  key and a ctx naming the hand-over; B opens it with its secret half. No new wrap, no new magic.
 
 ## Order of work and dates
 - 11-18/19: slice 1 and the plan's review. 11-20/21: slices 2 and 3. 11-22/23: slice 4. 11-24: slice 5.
