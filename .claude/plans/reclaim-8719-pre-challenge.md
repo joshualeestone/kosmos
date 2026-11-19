@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: reclaim-8719
-diff_hash: 6ecdac482a818c4e0bc8d59f94ef217176bed81949637f7493a11c87a98d633b
+diff_hash: 60a3edb63aa3b8c2a3ef1b8a020b17a21d342824795dfa4059141cdeb57a7996
 validation: not run locally as a full suite (the Mac's suite queue); focused tests on the rebased tree 415 pass, 1 skipped, 1 fail (#1304 in server.test.js, which fails identically on main's code: a module-load error in the test's seam probe); GitHub CI is the full gate
 subdir_audit: passed
 timestamp: 2026-11-19T15:09:48Z
@@ -86,6 +86,13 @@ guessed. Rebased this morning onto main after #8719 part 1 (#8725, 0232a837d6) m
 **Stopped at the cap.** Two low-risk findings, recorded on kosmos#8724 (comment of 2026-11-19 08:2x CST) rather than worked:
 - [DEFERRED] engine/linkwindow.js: a comment should say the 1x1 check is what makes the active-pane fallback safe, so a later change to the check cannot weaken it quietly
 - [DEFERRED] web/index.html: the link dialog's Escape handler neither stops propagation nor checks it is the topmost dialog; it does nothing unless that dialog is visible
+
+### After the loop
+Two commits after this proof's first version, both to docs/browser-checks/mobile-shots.js only (the design-shot
+tool, no product code): screens `link-button-8719` and `link-dialog-8719`, so the reviewer has light and dark,
+desktop and phone shots of the button and its dialog (~/work/design-shots/kosmos-8719). The diff hash above covers
+them. The tool's own tests (mobile-shots-desktop, -serviceworker-6206, browser-checks reason-grep, bounded-close,
+teardown-guard) pass with them.
 
 ### Outstanding questions (ASKED)
 None.
