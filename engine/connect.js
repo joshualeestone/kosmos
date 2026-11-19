@@ -349,7 +349,8 @@ function writeState(next) {
   const dirNow = driver ? (driver.configDir || null) : flowDir;
   mem = { ...next, configDir: dirNow, pid: process.pid, updatedAt: new Date().toISOString() };
   // kosmos#8728: every write of a remote-started flow says so, so the page shows the sign-in link (no browser opens).
-  if (driver && driver.noOpener === true) mem.noOpener = true;
+  // Set from the owning flow on every write, never carried in by a caller's spread of an earlier state (review 4).
+  if (driver && driver.noOpener === true) mem.noOpener = true; else delete mem.noOpener;
   /* #5018: a sign-in that completes moves the login's date; the login-expiry notice and the Settings date are
      read again on the next poll instead of after their caches run out (which looked stuck until a restart).
      Every write of connected counts, the already-signed-in answer to a start included (a terminal sign-in, then
