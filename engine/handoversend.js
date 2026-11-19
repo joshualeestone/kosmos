@@ -33,12 +33,17 @@
  * here), the gate every sender uses.
  *
  * One pack at a time, never two ticks at once. Failures:
- *   final: decided by the part or the coordinator's answer (its names, its key, an agent folder missing or protected,
- *     a pack larger than the hand-over allows, a hand-over no longer open), or MAX_ATTEMPTS failed attempts. Kept in
- *     `state.failed` with this module's own sentence for the screen; tried again only when the part changes.
- *   retryLater (a network refusal, a quota): tried again next tick.
+ *   final: decided by the part or the coordinator's answer (its names, its key, an agent folder missing, protected or
+ *     holding other work, a pack larger than the hand-over allows, a hand-over no longer open), or MAX_ATTEMPTS failed
+ *     attempts. Said in this module's own sentence on the screen; tried again only when the part changes.
+ *   retryLater (a network refusal, a quota): tried again next tick, and not counted.
  *   any other (a coordinator error, a busy connector, a file that could not be read): tried again after RETRY_MS.
- * Neither of the last two is shown. Never throws.
+ * Neither of the last two is shown. The attempt count and a final reason are kept on disk (send-<id>.json) for the
+ * part they were decided for, so a restart neither forgets nor resets them. Never throws.
+ *
+ * KNOWN, for slice 4: a pack's agent folders are named `workers/<seg>` (backuptick.rootSegment), which is the agent's
+ * name unless that name is not a plain segment (then a cleaned form plus a hash); the receiver names the agent from its
+ * brief, as a restore does, not from the folder.
  *
  * KNOWN, kosmos#8733: the colleague's one-time key (seal_pub) reaches this computer from Kosmos+ with nothing that ties
  * it to the colleague's computer, so "only the successor's computer can open the pack" rests on Kosmos+ passing it on
@@ -57,6 +62,21 @@ const SESSION_BYTES = 50 * 1024 * 1024;
 const EVERY_MS = 5 * 60 * 1000;
 const RETRY_MS = 60 * 60 * 1000;
 const MAX_ATTEMPTS = 8;
+const MAX_PACK_BYTES = 500 * 1024 * 1024;   // kosmos-relay handover.rs MAX_PACK_BYTES
+/* What this computer decided about one part (attempts, a final reason, and the part it was decided for), kept in
+   <store.ROOT>/handover/send-<id>.json so a restart neither forgets a final decision nor resets the ceiling. */
+function sendFile(id, root) { return path.join(root || require('./store').ROOT, 'handover', `send-${id}.json`); }
+function readSend(id, root) { try { const j = JSON.parse(fs.readFileSync(sendFile(id, root), 'utf8')); return j && typeof j === 'object' ? j : {}; } catch { return {}; } }
+function writeSend(id, root, rec) {
+  try {
+    const f = sendFile(id, root);
+    fs.mkdirSync(path.dirname(f), { recursive: true, mode: 0o700 });
+    const tmp = `${f}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(rec) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, f);
+  } catch { /* kept in memory for this run */ }
+}
+function dropSend(id, root) { try { fs.rmSync(sendFile(id, root), { force: true }); } catch { /* left */ } }
 /* Coordinator refusals that no retry can change, each said in this module's own words (never the coordinator's text). */
 const FINAL_CODES = {
   handover_too_big: 'the agents are larger than one hand-over can carry',
@@ -101,6 +121,24 @@ function trimSessions(roots, cap, deps) {
 }
 
 function real(p) { try { return fs.realpathSync.native(p); } catch { return null; } }
+/* Bytes of the files under a folder (links not followed), or null past MAX_WALK entries. */
+const MAX_WALK = 200000;
+function folderBytes(dir) {
+  let n = 0, bytes = 0;
+  const stack = [dir];
+  while (stack.length) {
+    const d = stack.pop();
+    let ents;
+    try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+    for (const e of ents) {
+      if (++n > MAX_WALK) return null;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) stack.push(p);
+      else if (e.isFile()) { try { bytes += fs.lstatSync(p).size; } catch { /* gone */ } }
+    }
+  }
+  return bytes;
+}
 function inside(child, parent) {
   const rel = path.relative(parent, child);
   return rel === '' || (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel));
@@ -122,6 +160,7 @@ function rootsFor(names, inputs, deps) {
   const workerDir = d.workerDir || ((n) => require('./create').workerDir(n));
   const profilesDir = d.profilesDir || require('./store').PROFILES;
   const roots = [];
+  let total = 0;
   for (const { name, label } of names) {
     const seg = bt.rootSegment(name);
     if (!seg) return { ok: false, final: true, because: `the agent ${label} has a name a pack cannot carry` };
@@ -130,6 +169,16 @@ function rootsFor(names, inputs, deps) {
     const rd = dir && path.isAbsolute(dir) ? real(dir) : null;
     if (!rd) return { ok: false, final: true, because: `the folder of ${label} could not be found` };
     if (protect.some((q) => inside(rd, q) || inside(q, rd))) return { ok: false, final: true, because: `the folder of ${label} holds, or is inside, Kosmos's own data or a sign-in folder` };
+    // Only this agent's own folder (as the backup refuses a root that would hold the workers folder): never one that is
+    // or holds the workers or projects folder or a project, nor one that holds, or sits inside, another agent's.
+    const roots0 = [inputs.workersDir, inputs.projectsDir, ...(inputs.projects || []).map((p) => p && p.folder)].map((x) => (typeof x === 'string' && path.isAbsolute(x) ? real(x) : null)).filter(Boolean);
+    const others = (inputs.agents || []).filter((a) => a && a.id !== name && typeof a.dir === 'string' && path.isAbsolute(a.dir)).map((a) => real(a.dir)).filter(Boolean);
+    if (roots0.some((q) => inside(q, rd)) || others.some((q) => inside(q, rd) || inside(rd, q))) {
+      return { ok: false, final: true, because: `the folder of ${label} holds other work (the workers or projects folder, or another agent's), so it is not handed over` };
+    }
+    const size = folderBytes(rd);
+    if (size === null) return { ok: false, final: true, because: `the folder of ${label} holds more files than one hand-over can carry` };
+    total += size;
     roots.push({ name: `workers/${seg}`, path: rd });
     const pd = real(profilesDir);
     if (pd && fs.existsSync(path.join(pd, `${name}.json`))) roots.push({ name: `profiles/${seg}`, path: pd, optional: true, only: [`${name}.json`] });
@@ -137,8 +186,13 @@ function rootsFor(names, inputs, deps) {
     try { s = inputs.sessions ? inputs.sessions(dir, seg, name) : []; } catch { s = []; }
     // A transcript root inside the agent's own folder is already carried there.
     s = (s || []).filter((r) => r && r.only && !(real(r.path) && inside(real(r.path), rd)));
-    for (const r of trimSessions(s, SESSION_BYTES, d)) roots.push(r);
+    for (const r of trimSessions(s, SESSION_BYTES, d)) {
+      for (const rel of r.only || []) { try { total += fs.statSync(path.join(r.path, rel)).size; } catch { /* gone */ } }
+      roots.push(r);
+    }
   }
+  // Raw sizes: nothing is compressed, so a pack larger than this is larger once sealed (only duplicate files shrink it).
+  if (total > (Number.isSafeInteger(d.maxPackBytes) ? d.maxPackBytes : MAX_PACK_BYTES)) return { ok: false, final: true, because: 'the agents are larger than one hand-over can carry' };
   return { ok: true, roots };
 }
 
@@ -184,7 +238,7 @@ async function tick(state, deps) {
   if (state.running) return { skipped: true };
   state.running = true;
   try {
-    const org = (d.org || (() => { const oe = require('./orgenroll'); const r = oe.mayReport() ? oe.readEnrollment() : null; return r ? r.org.id : null; }))();
+    const org = (d.org || (() => { const oe = require('./orgenroll'); const r = oe.mayReport() ? oe.readEnrollment() : null; return r && r.org ? r.org.id : null; }))();
     const now = (d.now || Date.now)();
     if (typeof org !== 'string' || !PLAIN.test(org)) { state.open = []; return { ok: true, none: true }; }
     const mac = d.macRequest || ((m, r, b) => require('./remote').macRequest(m, r, b));
@@ -196,9 +250,18 @@ async function tick(state, deps) {
       .map((h) => ({ id: h.id, agents: h.agents.filter((x) => typeof x === 'string' && x) }));
     for (const part of sendable(mine.data)) {
       const key = `${part.seal_pub}|${(part.agents || []).join('\n')}`;
+      // What an earlier run decided, kept on disk; a changed part (a new key, other agents) starts again.
+      if (!state.loaded.has(part.id)) {
+        state.loaded.add(part.id);
+        const rec = readSend(part.id, d.root);
+        if (rec.key === key) {
+          if (Number.isSafeInteger(rec.attempts)) state.attempts.set(part.id, rec.attempts);
+          if (typeof rec.final === 'string') state.failed.set(part.id, { key, because: rec.final });
+        }
+      }
       const f = state.failed.get(part.id);
       if (f && f.key === key) continue;   // decided already; a changed part is tried again
-      if (f) { state.failed.delete(part.id); state.attempts.delete(part.id); }
+      if (f) { state.failed.delete(part.id); state.attempts.delete(part.id); dropSend(part.id, d.root); }
       if (state.packed.has(part.id)) continue;   // packed in this run; the record moves on its own
       if ((state.retryAt.get(part.id) || 0) > now) continue;
       const p = packInput(part, org, d);
@@ -209,20 +272,28 @@ async function tick(state, deps) {
         if (!r || typeof r !== 'object') r = { ok: false, because: 'the pack failed unexpectedly' };
       }
       state.retryAt.delete(part.id);
-      if (r.ok) { state.packed.add(part.id); state.failed.delete(part.id); state.attempts.delete(part.id); }
+      if (r.ok) { state.packed.add(part.id); state.failed.delete(part.id); state.attempts.delete(part.id); dropSend(part.id, d.root); }
       else {
-        const tries = (state.attempts.get(part.id) || 0) + 1;
+        // A network refusal or a quota (retryLater) is not the pack's: tried next tick, not counted.
+        const tries = (state.attempts.get(part.id) || 0) + (r.retryLater ? 0 : 1);
         state.attempts.set(part.id, tries);
         const code = r.code || require('./backupupload').refusalOf(r.because).code;
-        const said = FINAL_CODES[code];
-        if (r.final || said) state.failed.set(part.id, { key, because: said || r.because || 'the pack did not finish' });
-        else if (tries >= MAX_ATTEMPTS) state.failed.set(part.id, { key, because: `Kosmos tried ${tries} times and could not finish the pack; your company can start the hand-over again` });
+        // Every grant counts against the pack's cap on the coordinator and a new try uploads again, so "too big" after a
+        // try that uploaded is the earlier try's bytes, not the agents' size.
+        let said = FINAL_CODES[code];
+        if (code === 'handover_too_big' && tries > 1) said = 'an earlier try used up the room Kosmos+ keeps for this hand-over; your company can start the hand-over again';
+        let final = null;
+        if (r.final || said) final = said || r.because || 'the pack did not finish';
+        else if (tries >= MAX_ATTEMPTS) final = `Kosmos tried ${tries} times and could not finish the pack; your company can start the hand-over again`;
         else if (!r.retryLater) state.retryAt.set(part.id, now + RETRY_MS);
+        if (final) state.failed.set(part.id, { key, because: final });
+        writeSend(part.id, d.root, Object.assign({ key, attempts: tries }, final ? { final } : {}));
       }
       return { ok: r.ok === true, id: part.id, because: r.ok ? undefined : r.because };   // one pack per tick
     }
     return { ok: true, none: true };
   } catch {
+    state.open = [];   // nothing known: say nothing rather than an old line
     return { ok: false, because: 'the hand-over could not be checked' };
   } finally { state.running = false; }
 }
@@ -230,7 +301,7 @@ async function tick(state, deps) {
 /* The board's own timer. Never throws. */
 function startTick(deps) {
   const d = deps || {};
-  const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), open: [] };
+  const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set(), open: [] };
   const run = () => { tick(state, d).catch(() => {}); };
   const t = (d.setInterval || setInterval)(run, d.everyMs || EVERY_MS);
   if (t && typeof t.unref === 'function') t.unref();

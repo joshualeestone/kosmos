@@ -69,6 +69,7 @@ function world() {
   return { base, workers, profiles, sess };
 }
 const depsFor = (w, extra) => Object.assign({
+  root: path.join(w.base, 'data'),   // send-<id>.json goes here, never into this computer's real data folder
   survey: () => ({ ok: true, agents: rows }),
   inputsHere: () => ({ protect: [path.join(w.base, 'data')], protectIncomplete: false,
     sessions: (dir, seg) => [{ name: `sessions/${seg}/claude`, path: w.sess, optional: true, only: ['one.jsonl'] }] }),
@@ -141,7 +142,7 @@ test('a tick packs one part; a final failure is kept, another waits RETRY_MS, re
       macRequest: async (m, route, body) => { asked.push(route); assert.deepEqual(body, {}); return { ok: true, data: { handovers: parts } }; },
       takeSnapshot: async (input) => { takes.push(input.handover.id); return answer; },
     });
-    const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set() };
+    const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set() };
     assert.deepEqual(await hs.tick(state, d), { ok: false, id: 'ho1', because: 'refused for good' });
     assert.equal(asked[0], hs.MINE_ROUTE);
     // ho1 is decided: the next tick moves to ho2. A coordinator error (no final, no retryLater) waits RETRY_MS.
@@ -171,26 +172,27 @@ test('a coordinator refusal no retry can change is final, in this module\'s word
     const d = depsFor(w, { org: () => 'org1', now: () => clock,
       macRequest: async () => ({ ok: true, data: { handovers: parts } }),
       takeSnapshot: async () => answer });
-    const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), open: [] };
+    const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set(), open: [] };
     await hs.tick(state, d);
     assert.deepEqual(hs.notice(state), { agents: ['Ledger'], stopped: 'the agents are larger than one hand-over can carry' });
     assert.equal(JSON.stringify(hs.notice(state)).includes('HTTP'), false, 'no coordinator text reaches the screen');
     // The ceiling: a failure that is neither final nor retryLater, every hour.
-    const s2 = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), open: [] };
+    const s2 = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set(), open: [] };
     answer = { ok: false, because: 'Kosmos+ refused (HTTP 503 on /v1/mac/org/handover/grant)' };
-    for (let i = 1; i < hs.MAX_ATTEMPTS; i++) { await hs.tick(s2, d); assert.equal(hs.notice(s2).stopped, undefined, 'attempt ' + i); clock += hs.RETRY_MS + 1; }
-    await hs.tick(s2, d);
+    const d2 = Object.assign({}, d, { root: path.join(w.base, 'data2') });   // its own decisions file: the first part's final is kept on disk
+    for (let i = 1; i < hs.MAX_ATTEMPTS; i++) { await hs.tick(s2, d2); assert.equal(hs.notice(s2).stopped, undefined, 'attempt ' + i); clock += hs.RETRY_MS + 1; }
+    await hs.tick(s2, d2);
     assert.match(hs.notice(s2).stopped, /tried 8 times/);
     // A changed part starts again from nothing.
     parts[0].seal_pub = sealPub();
     answer = { ok: true };
-    assert.equal((await hs.tick(s2, d)).ok, true);
+    assert.equal((await hs.tick(s2, d2)).ok, true);
     assert.equal(hs.notice(s2).stopped, undefined);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
 test('leaving the company clears the notice at the next tick', async () => {
-  const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), open: [{ id: 'h1', agents: ['Ledger'] }] };
+  const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set(), open: [{ id: 'h1', agents: ['Ledger'] }] };
   assert.deepEqual(hs.notice(state), { agents: ['Ledger'] });
   await hs.tick(state, { org: () => null, macRequest: async () => { throw new Error('not asked'); } });
   assert.equal(hs.notice(state), null);
@@ -204,10 +206,10 @@ test('a tick sends only where orgenroll.mayReport allows: enrolled here with no 
   try {
     oe.readEnrollment = () => ({ org: { id: 'org1' }, world: 'w' });
     oe.mayReport = () => false;   // enrolled, words not accepted here
-    assert.deepEqual(await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set() }, { macRequest }), { ok: true, none: true });
+    assert.deepEqual(await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set() }, { macRequest }), { ok: true, none: true });
     assert.equal(asked, 0);
     oe.mayReport = () => true;    // CONTROL: the same record, words accepted
-    await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set() }, { macRequest });
+    await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set() }, { macRequest });
     assert.equal(asked, 1);
   } finally { Object.assign(oe, keep); }
 });
@@ -215,13 +217,13 @@ test('a tick sends only where orgenroll.mayReport allows: enrolled here with no 
 test('a tick asks nothing when this computer is not in a company, and never runs twice at once', async () => {
   let asked = 0;
   const d = { org: () => null, macRequest: async () => { asked++; return { ok: true, data: { handovers: [] } }; } };
-  assert.deepEqual(await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set() }, d), { ok: true, none: true });
+  assert.deepEqual(await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set() }, d), { ok: true, none: true });
   assert.equal(asked, 0);
-  assert.deepEqual(await hs.tick({ running: true, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set() }, { org: () => 'org1', macRequest: d.macRequest }), { skipped: true });
+  assert.deepEqual(await hs.tick({ running: true, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set() }, { org: () => 'org1', macRequest: d.macRequest }), { skipped: true });
   assert.equal(asked, 0);
   // A refused /mine (an older connector, say) packs nothing.
   let took = 0;
-  assert.equal((await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set() }, { org: () => 'org1', macRequest: async () => ({ ok: false, notSent: true, because: 'down' }), takeSnapshot: async () => { took++; return { ok: true }; } })).because, 'down');
+  assert.equal((await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set() }, { org: () => 'org1', macRequest: async () => ({ ok: false, notSent: true, because: 'down' }), takeSnapshot: async () => { took++; return { ok: true }; } })).because, 'down');
   assert.equal(took, 0);
 });
 
@@ -234,7 +236,7 @@ test('the tick is off unless KOSMOS_ORG_HANDOVER=1', () => {
 
 test('the notice lists every open send part\'s agents, with a stopped pack\'s reason', async () => {
   const k = sealPub();
-  const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), open: [] };
+  const state = { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set(), open: [] };
   assert.equal(hs.notice(state), null);
   const d = { org: () => 'org1', macRequest: async () => ({ ok: true, data: { handovers: [
     { id: 'h1', side: 'send', state: 'packed', seal_pub: k, agents: ['Ledger'] },
@@ -248,4 +250,60 @@ test('the notice lists every open send part\'s agents, with a stopped pack\'s re
   // Nothing open: nothing said.
   await hs.tick(state, { org: () => 'org1', macRequest: async () => ({ ok: true, data: { handovers: [] } }) });
   assert.equal(hs.notice(state), null);
+});
+
+test('round 3: an agent folder holding other work is refused; a pack over the cap is refused before anything is sent', () => {
+  const w = world();
+  try {
+    // The agent's recorded folder is the parent of the workers folder.
+    const holdsWorkers = hs.packInput(part(), 'org1', depsFor(w, { workerDir: () => w.base,
+      inputsHere: () => ({ protect: [], workersDir: w.workers, agents: [], projects: [], sessions: () => [] }) }));
+    assert.match(holdsWorkers.because, /holds other work/);
+    assert.equal(holdsWorkers.final, true);
+    // Another agent's folder inside this one.
+    fs.mkdirSync(path.join(w.workers, 'ledger', 'nested'), { recursive: true });
+    const holdsAgent = hs.packInput(part(), 'org1', depsFor(w, {
+      inputsHere: () => ({ protect: [], workersDir: w.workers, agents: [{ id: 'other', dir: path.join(w.workers, 'ledger', 'nested') }], projects: [], sessions: () => [] }) }));
+    assert.match(holdsAgent.because, /holds other work/);
+    // A project inside it.
+    const holdsProject = hs.packInput(part(), 'org1', depsFor(w, {
+      inputsHere: () => ({ protect: [], workersDir: w.workers, agents: [], projects: [{ slug: 'p', folder: path.join(w.workers, 'ledger', 'nested') }], sessions: () => [] }) }));
+    assert.match(holdsProject.because, /holds other work/);
+    // CONTROL: its own folder, with itself listed among the agents, packs.
+    assert.equal(hs.packInput(part(), 'org1', depsFor(w, {
+      inputsHere: () => ({ protect: [], workersDir: w.workers, agents: [{ id: 'ledger', dir: path.join(w.workers, 'ledger') }], projects: [], sessions: () => [] }) })).ok, true);
+    // Over the cap: refused, final, in this module's words.
+    const big = hs.packInput(part(), 'org1', depsFor(w, { maxPackBytes: 10 }));
+    assert.equal(big.final, true);
+    assert.match(big.because, /larger than one hand-over can carry/);
+    assert.equal(hs.packInput(part(), 'org1', depsFor(w, { maxPackBytes: 10 * 1024 * 1024 })).ok, true, 'CONTROL: under the cap');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('round 3: retryLater is not counted; "too big" after a try that uploaded says so; a restart keeps the count and a final reason', async () => {
+  const w = world();
+  try {
+    let clock = 0;
+    let answer = { ok: false, retryLater: true, because: 'network' };
+    const parts = [part({ id: 'ho9' })];
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: parts } }), takeSnapshot: async () => answer });
+    const fresh = () => ({ running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), packed: new Set(), loaded: new Set(), open: [] });
+    let st = fresh();
+    for (let i = 0; i < 12; i++) await hs.tick(st, d);
+    assert.equal(st.attempts.get('ho9'), 0, 'twelve network refusals counted none');
+    answer = { ok: false, because: 'Kosmos+ refused (HTTP 503 on /v1/mac/org/handover/grant)' };
+    await hs.tick(st, d);
+    assert.equal(st.attempts.get('ho9'), 1);
+    st = fresh();   // a restart
+    clock += hs.RETRY_MS + 1;
+    answer = { ok: false, because: 'Kosmos+ refused (HTTP 413 on /v1/mac/org/handover/grant, code handover_too_big)' };
+    await hs.tick(st, d);
+    assert.equal(st.attempts.get('ho9'), 2, 'the count came back from disk');
+    assert.match(hs.notice(st).stopped, /an earlier try used up the room/);
+    st = fresh();   // another restart: the final reason is kept, and nothing is tried
+    let took = 0;
+    await hs.tick(st, Object.assign({}, d, { takeSnapshot: async () => { took++; return { ok: true }; } }));
+    assert.equal(took, 0);
+    assert.match(hs.notice(st).stopped, /an earlier try used up the room/);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
