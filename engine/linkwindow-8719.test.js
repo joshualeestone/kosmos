@@ -158,7 +158,8 @@ test('#8719: on a real tmux, link() marks exactly the named session and never a 
     assert.match(t('list-panes', '-a', '-F', '#{session_name}=#{@kosmos_agent}').stdout, /^zara=$/m, 'and the new zara is unmarked');
   } finally {
     linkwindow.setRunner(null);
-    t('kill-server');
+    /* kosmos#6857's accepted shape: an -L array literal, so the guard can see the kill names this test's own socket. */
+    cp.spawnSync(realTmux, ['-L', sock, 'kill-server'], { encoding: 'utf8', timeout: 10000 });
   }
 });
 

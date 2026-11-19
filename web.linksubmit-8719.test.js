@@ -5,8 +5,21 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const nodePath = require('node:path');
 const page = require('./test-support/page');
+
+/* The open agent (CURRENT) is a real card from test-support/fleet, never a hand-built one (fixture-discipline). */
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-linksubmit-8719-'));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+const fleet = require('./test-support/fleet');
+const BOARD = fleet.install([fleet.agent('zara'), fleet.agent('other')]);
+test.after(() => { fleet.restore(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+const cardOf = (name) => {
+  const c = BOARD.agents.find((a) => a.sessionName === name);
+  if (!c) throw new Error('fleet has no card for ' + name);
+  return c;
+};
 
 const SCRIPT = page.scriptOf(fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8'));
 const BODY = page.lift(SCRIPT, 'linkSubmit');
@@ -27,7 +40,7 @@ function world(opts) {
   };
   const run = new Function('document', 'fetch', 'tick', 'openDetail', 'CURRENT',
     `${BODY}\nreturn linkSubmit;`)({ getElementById: (id) => els[id] || null }, fetch,
-    async () => { seen.ticks += 1; }, (n) => { seen.opened.push(n); }, { sessionName: o.current == null ? 'zara' : o.current });
+    async () => { seen.ticks += 1; }, (n) => { seen.opened.push(n); }, cardOf(o.current == null ? 'zara' : o.current));
   return { run, els, sent, seen };
 }
 

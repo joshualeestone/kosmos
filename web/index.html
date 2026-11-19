@@ -13494,6 +13494,24 @@ window.kosmosMeasureScrollbarWidth();
   <!-- kosmos#8719 part 2: the way to bring such a window under Kosmos, behind a confirmation (#link-modal). -->
   <div id="d-link" hidden><button class="btn" id="d-link-btn" type="button">Link this window to Kosmos</button>
     <p id="d-link-msg" role="status" aria-live="polite"></p></div>
+  <!-- kosmos#8719 part 2: the link confirm sits inside the agent panel, as #8631's Block confirm sits in the room column,
+       so the body keeps its 42 auto-placed children (web.consolidated-980). It is position:fixed, so it still covers the page. -->
+  <!-- kosmos#8719 part 2: linking a window Kosmos did not start. The harmless answer is first and takes the focus. -->
+  <div class="rm-back" id="link-modal" hidden>
+    <div class="rm-box" role="alertdialog" aria-modal="true"
+         aria-labelledby="link-m-title" aria-describedby="link-m-small">
+      <h2 class="rm-title" id="link-m-title">Link this window to Kosmos?</h2>
+      <p class="rm-small" id="link-m-small">Only if you started this agent yourself in that window. Kosmos will then
+        treat the window as one of its own agents: it types your messages into it, shows its conversation here, and
+        looks after it as it does any agent it started, which can include closing the window if the agent in it has
+        stopped. Nothing changes in the window now. Until Kosmos starts this agent itself, the board cannot restart it,
+        and the agent's own kosmos commands do not yet speak for it.</p>
+      <div class="rm-acts">
+        <button class="btn" id="link-m-keep" type="button">Not now</button>
+        <button class="btn" id="link-m-go" type="button">Link it</button>
+      </div>
+    </div>
+  </div>
   <!-- The removed-agent sentence, visible from every section since the page
        grew them (it used to sit at the foot of the one column; now it would
        be only in Remove, and a person on Talk would see controls go grey with
@@ -14813,22 +14831,6 @@ window.kosmosMeasureScrollbarWidth();
      thing: instructions are written, nothing restarts. The warning he asked
      for ("this will restart all of your agents") would be false, so the
      dialog says what actually happens instead. -->
-<!-- kosmos#8719 part 2: linking a window Kosmos did not start. The harmless answer is first and takes the focus. -->
-<div class="rm-back" id="link-modal" hidden>
-  <div class="rm-box" role="alertdialog" aria-modal="true"
-       aria-labelledby="link-m-title" aria-describedby="link-m-small">
-    <h2 class="rm-title" id="link-m-title">Link this window to Kosmos?</h2>
-    <p class="rm-small" id="link-m-small">Only if you started this agent yourself in that window. Kosmos will then
-      treat the window as one of its own agents: it types your messages into it, shows its conversation here, and
-      looks after it as it does any agent it started, which can include closing the window if the agent in it has
-      stopped. Nothing changes in the window now. Until Kosmos starts this agent itself, the board cannot restart it,
-      and the agent's own kosmos commands do not yet speak for it.</p>
-    <div class="rm-acts">
-      <button class="btn" id="link-m-keep" type="button">Not now</button>
-      <button class="btn" id="link-m-go" type="button">Link it</button>
-    </div>
-  </div>
-</div>
 
 <div class="rm-back" id="pol-modal" hidden>
   <div class="rm-box" role="alertdialog" aria-modal="true"
