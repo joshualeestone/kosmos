@@ -32,6 +32,10 @@
 // pipes to close would hang. node runs in a job object that is closed, and so killed,
 // when this process ends for any reason. And Ctrl+C is left to node: the console sends
 // it to both, and this process waits for node's own exit instead of returning first.
+// ⚠️ EVERYTHING node starts is in the job too, so it ends with the command. No verb
+// of kosmos-cli.js starts anything meant to outlive it today (restarts go through the
+// board over HTTP). A verb that ever does must leave the job (a breakaway flag on the
+// job and CREATE_BREAKAWAY_FROM_JOB on that child), or it will be killed silently.
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -65,19 +69,10 @@ static class KosmosCli
             IntPtr job = KillOnCloseJob();
             if (job != IntPtr.Zero) AssignProcessToJobObject(job, GetCurrentProcess());
 
-            var psi = new ProcessStartInfo
-            {
-                FileName = node,
-                // Two paths only, each quoted; a Windows path cannot contain a quote, and
-                // neither ends in a backslash, so this line needs no further escaping.
-                Arguments = "\"" + cli + "\" --kosmos-argv-file \"" + argvFile + "\"",
-                UseShellExecute = false,
-            };
-            using (var p = Process.Start(psi))
-            {
-                p.WaitForExit();
-                return p.ExitCode;
-            }
+            // Two paths only, each quoted; a Windows path cannot contain a quote, and
+            // neither ends in a backslash, so this line needs no further escaping.
+            string commandLine = "\"" + node + "\" \"" + cli + "\" --kosmos-argv-file \"" + argvFile + "\"";
+            return RunWithOurStdio(node, commandLine);
         }
         catch (Exception e)
         {
@@ -89,6 +84,108 @@ static class KosmosCli
             if (argvFile != null) { try { File.Delete(argvFile); } catch { } }
         }
     }
+
+    // node gets EXACTLY this process's stdin, stdout and stderr, whatever they are: a
+    // console, pipes, files, or nothing (review round 3). .NET's Process.Start passes no
+    // standard handles when nothing is redirected, so under a caller that started this
+    // exe with no console (node spawn with detached: true, piped) node opened a console
+    // of its own and every word it wrote was lost: exit code right, output empty
+    // (measured). CreateProcess with STARTF_USESTDHANDLES hands over inheritable copies
+    // of our three handles; with no console of our own, node gets none either
+    // (CREATE_NO_WINDOW), so no window flashes. Returns node's exit code.
+    static int RunWithOurStdio(string node, string commandLine)
+    {
+        IntPtr self = GetCurrentProcess();
+        var si = new STARTUPINFO();
+        si.cb = Marshal.SizeOf(typeof(STARTUPINFO));
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdInput = InheritableCopy(self, GetStdHandle(STD_INPUT_HANDLE));
+        si.hStdOutput = InheritableCopy(self, GetStdHandle(STD_OUTPUT_HANDLE));
+        si.hStdError = InheritableCopy(self, GetStdHandle(STD_ERROR_HANDLE));
+        uint flags = CREATE_UNICODE_ENVIRONMENT;
+        if (GetConsoleWindow() == IntPtr.Zero) flags |= CREATE_NO_WINDOW;
+        PROCESS_INFORMATION pi;
+        try
+        {
+            if (!CreateProcess(node, new StringBuilder(commandLine), IntPtr.Zero, IntPtr.Zero, true, flags,
+                    IntPtr.Zero, null, ref si, out pi))
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        }
+        finally
+        {
+            // node holds its own copies now; ours are closed whether or not it started.
+            CloseIfSet(si.hStdInput); CloseIfSet(si.hStdOutput); CloseIfSet(si.hStdError);
+        }
+        try
+        {
+            WaitForSingleObject(pi.hProcess, INFINITE);
+            uint code;
+            if (!GetExitCodeProcess(pi.hProcess, out code)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            return unchecked((int)code);
+        }
+        finally
+        {
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+        }
+    }
+
+    // An inheritable duplicate of a standard handle, or zero when there is none (a
+    // process started with that stream closed). Zero tells CreateProcess "no stream".
+    static IntPtr InheritableCopy(IntPtr self, IntPtr h)
+    {
+        if (h == IntPtr.Zero || h == new IntPtr(-1)) return IntPtr.Zero;
+        IntPtr dup;
+        return DuplicateHandle(self, h, self, out dup, 0, true, DUPLICATE_SAME_ACCESS) ? dup : IntPtr.Zero;
+    }
+
+    static void CloseIfSet(IntPtr h) { if (h != IntPtr.Zero) CloseHandle(h); }
+
+    const int STD_INPUT_HANDLE = -10, STD_OUTPUT_HANDLE = -11, STD_ERROR_HANDLE = -12;
+    const int STARTF_USESTDHANDLES = 0x100;
+    const uint CREATE_UNICODE_ENVIRONMENT = 0x400, CREATE_NO_WINDOW = 0x08000000;
+    const uint DUPLICATE_SAME_ACCESS = 2, INFINITE = 0xFFFFFFFF;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct STARTUPINFO
+    {
+        public int cb;
+        public string lpReserved, lpDesktop, lpTitle;
+        public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+        public short wShowWindow, cbReserved2;
+        public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct PROCESS_INFORMATION
+    {
+        public IntPtr hProcess, hThread;
+        public int dwProcessId, dwThreadId;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool CreateProcess(string applicationName, StringBuilder commandLine, IntPtr processAttributes,
+        IntPtr threadAttributes, bool inheritHandles, uint creationFlags, IntPtr environment, string currentDirectory,
+        ref STARTUPINFO startupInfo, out PROCESS_INFORMATION processInformation);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern IntPtr GetStdHandle(int which);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool DuplicateHandle(IntPtr sourceProcess, IntPtr source, IntPtr targetProcess, out IntPtr target,
+        uint access, bool inherit, uint options);
+
+    [DllImport("kernel32.dll")]
+    static extern IntPtr GetConsoleWindow();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool CloseHandle(IntPtr handle);
 
     // A job whose processes are killed when its last handle closes, which is when this
     // process exits. Zero when Windows will not make one.
@@ -103,7 +200,7 @@ static class KosmosCli
         try
         {
             Marshal.StructureToPtr(info, ptr, false);
-            if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, ptr, (uint)size)) return IntPtr.Zero;
+            if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, ptr, (uint)size)) { CloseHandle(job); return IntPtr.Zero; }
         }
         finally { Marshal.FreeHGlobal(ptr); }
         return job;
