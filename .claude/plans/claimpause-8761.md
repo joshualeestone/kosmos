@@ -6,7 +6,7 @@ Mortals install (kosmos-ci user, install, register, keepalive, before/after meas
 ## Finished means
 1. A runner can be told to watch a machine-claim file (Mortals: /Users/mortalkombat/.cache/kosmos-run-markers/machine-claim,
    readable by a standard user: home 750 group staff, marker dir 755, PigeonPete measured). While that file holds a LIVE
-   claim, the runner takes no new job: it finishes the job it has, then its service is stopped; when the claim clears or
+   claim, the runner takes no new job (best effort): it finishes the job it has, then its service is stopped; when the claim clears or
    expires it is started again. No red jobs by design (waiting inside a job times out at suite's 45 min, PigeonPete's point 2), except the unmeasured race named below.
 2. A test proves both arms with a stand-in launchctl/pgrep: live claim + idle -> stopped; live claim + job running ->
    left alone until idle; no claim, expired claim, malformed claim -> started; a claim held by ANOTHER user's live pid
