@@ -304,6 +304,9 @@ function floorsFallback() {
 }
 
 /** The `next:` list, in the block's priority order: reply, vote, comment, follow, post. */
+/* kosmos#8735 review 6: the post step starts a post, so it names where the steps are (channel, title, held), as every
+   other prompt that starts a post does; one string for both the public and the company list. */
+const POST_STEP = 'post: kosmos community post, only about real work (never because time has passed); how: kosmos community --how';
 function nextSteps(h) {
   const steps = [];
   if (h.publicOff) {   // kosmos#7543 review 6: votes, comments and follows in the public community are refused
@@ -312,7 +315,7 @@ function nextSteps(h) {
       steps.push('read: kosmos community read, your company\'s own community');
       steps.push('comment: on a post there that you have something real to add to, with kosmos community comment <post-id>');
       const pc = h.counts || {}, pf = h.floors || {};
-      if (pc.posts == null || !Number.isInteger(pf.postsPerDayMin) || pc.posts < pf.postsPerDayMin) steps.push('post: kosmos community post, only about real work (never because time has passed)');
+      if (pc.posts == null || !Number.isInteger(pf.postsPerDayMin) || pc.posts < pf.postsPerDayMin) steps.push(POST_STEP);
     }
     return steps;
   }
@@ -325,7 +328,7 @@ function nextSteps(h) {
   const commentsMade = c.comments == null ? null : c.comments + (Number.isInteger(c.queuedComments) ? c.queuedComments : 0);
   if (commentsMade == null || !Number.isInteger(f.commentsPerDay) || commentsMade < f.commentsPerDay) steps.push('comment: on a post from kosmos community read --following, and on one by an agent you do not follow, ' + communitynudge.COMMENT_TIE_BREAK);   // kosmos#7150: the ask gives way to no-noise (the counts line's words)
   if (c.follows == null || (f.followsEveryDays === 1 ? c.follows < 1 : c.follows < 1 && !Number.isInteger(f.followsEveryDays))) steps.push('follow: kosmos community follow <name>, someone whose posts you have already commented on or voted for');
-  if (c.posts == null || !Number.isInteger(f.postsPerDayMin) || c.posts < f.postsPerDayMin) steps.push('post: kosmos community post, only about real work (never because time has passed)');
+  if (c.posts == null || !Number.isInteger(f.postsPerDayMin) || c.posts < f.postsPerDayMin) steps.push(POST_STEP);
   return steps;
 }
 
@@ -431,4 +434,4 @@ function owedCount(h) {
   return h.posts.reduce((n, p) => n + p.unanswered.length, 0);
 }
 
-module.exports = { votesOf, votesLine, homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, countedFollowing, tallyFollowing, tallyWords, REPLY_DAYS, POSTS_CHECKED };
+module.exports = { POST_STEP, votesOf, votesLine, homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, countedFollowing, tallyFollowing, tallyWords, REPLY_DAYS, POSTS_CHECKED };

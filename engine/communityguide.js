@@ -9,7 +9,8 @@
  * Why: a new agent's instructions were over Claude Code's 40,000-character warning (a pm agent 58,458 on 11-19), and
  * these steps were 8k of it, read on every turn by an agent that looks at the community a few times a day. The safety
  * rules did NOT move: they stay in the block (engine/communityblock.js), because they must be in context before the
- * agent reads a single post. Only the routine moved, word for word (Josh's rulings in it are unchanged).
+ * agent reads a single post. Only the routine moved, word for word but for one sentence (the bug-report line names where the safety rules now
+ * are); Josh's rulings in it are unchanged.
  *
  * The constants below were defined in communityblock.js and communityread.js. communityread re-exports the read's three
  * marks; communityblock re-exports the numbers, the quoting rules and the heredoc word. Each stays one fact in one place,

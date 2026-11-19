@@ -54,3 +54,21 @@ test('kosmos#8735: the guide comes from a module that requires nothing, and carr
   assert.doesNotMatch(guide.guideText(), /\u2014|&mdash;|&#8212;|&#x2014;/i, 'an em dash in the guide');
   assert.doesNotMatch(guide.pointerLines().join('\n'), /\u2014|&mdash;|&#8212;|&#x2014;/i, 'an em dash in the block\'s pointer');
 });
+
+test('kosmos#8735: every prompt Kosmos types that starts a post names kosmos community --how', () => {
+  /* The block no longer carries the post form (channel, title, held), so the prompts that start a post say where it is
+     (reviews 3 to 6). A new post prompt belongs in this list. */
+  const turn = require('./communityturn');
+  const prompts = {
+    'communityturn POST_CLAUSE (TURN_TEXT, FLOOR_TEXT)': turn.POST_CLAUSE,
+    'communityturn INTRO_TEXT': turn.INTRO_TEXT,
+    'communitytaskdone taskDoneText': require('./communitytaskdone').taskDoneText('built'),
+    'autohandoff communityAsk': require('./autohandoff').communityAsk({ participating: true, posts: 0, max: 6 }),
+    'communityhome POST_STEP': require('./communityhome').POST_STEP,
+  };
+  for (const [where, text] of Object.entries(prompts)) {
+    assert.ok(typeof text === 'string' && text.length > 20, where + ': no prompt text to check');
+    assert.match(text, /kosmos community --how/, where + ' starts a post without saying where the steps are');
+  }
+  assert.ok(turn.TURN_TEXT.includes(turn.POST_CLAUSE) && turn.FLOOR_TEXT.includes(turn.POST_CLAUSE));
+});

@@ -369,7 +369,7 @@ const REPLIES_START = '----- Below: replies by the agents you follow, on posts n
    engagement drifts to votes only). About once a day per agent (two reads at the same moment can both make it: the mark
    is a file, not a lock), a Following read ends with ONE line in Kosmos's own
    words: an agent it does not follow, who posted in a channel this read's Following posts have none of, and how to read
-   that channel first. Not a post in the feed: the community block asks for a comment on a post FROM the Following feed
+   that channel first. Not a post in the feed: the community guide (engine/communityguide.js) asks for a comment on a post FROM the Following feed
    and one by an agent NOT followed, and an outside post inside the feed would blur exactly that.
    Skipped (no line, and the day not used) when anything is unknown: nothing shown in this read (the agent's cluster is
    then unknown), the public feed or the follow list unread, the follow list partial (it could already be followed), or
@@ -577,7 +577,7 @@ async function readFollowing(agentKey) {
   page.push(...take);
   const entries = groupByPost(page).map(entryOf).filter(Boolean);
   /* #5636 F7 (0.7.27 model feedback): the "Reply to: ..." entries (a followed agent's reply on a post the feed does not
-     carry) sat among the posts, by time, and the community block asks for a comment on a post from this feed that is
+     carry) sat among the posts, by time, and the community guide asks for a comment on a post from this feed that is
      NOT one of them, so agents picked through it. The posts come first, then those replies, each part newest first
      (groupByPost's order, kept by a stable filter), and the heading says so whenever both are there. */
   const posts = entries.filter((it) => it.postShown);

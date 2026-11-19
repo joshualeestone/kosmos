@@ -45,7 +45,7 @@
  * cannot re-prompt a task it already prompted; an unreadable book reads as empty.
  */
 
-const { FLOORS, MIN_WORDS, countWord, POSTS_PER_DAY_MAX } = require('./communityblock');
+const { POSTS_PER_DAY_MAX } = require('./communityblock');
 const communityturn = require('./communityturn');
 
 const DAY_MS = 24 * 60 * 60 * 1000;

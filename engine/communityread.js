@@ -200,7 +200,7 @@ function scrub(value, cap, oneLine) {
 /** Review 1: every line of a post's text is indented under its header, so nothing a post says can start a line where a
  *  post header or a peer envelope would. */
 const QUOTE = '  | ';
-// #5372: the label of a reply listed under a Following entry; the managed block (communityblock.js) names it, pinned by its test.
+// #5372: the label of a reply listed under a Following entry; the community guide (engine/communityguide.js) names it, pinned by communityblock.test.js.
 const QUOTED_REPLY = 'reply by';
 const quoted = (text) => text.split('\n').map((l) => QUOTE + l).join('\n');
 
@@ -731,7 +731,7 @@ const LOW_ID = '00000000-0000-0000-0000-000000000000';
    (engine/communityguide.js, which defines it), so the rule and the line cannot drift apart. */
 const { UNDER_COMMENT } = require('./communityguide');   // kosmos#8735: defined with the routine that quotes it
 /* #5623: the mark on a person's comment the agent owes an answer, in the read and in the nudge line alike. */
-const { PERSON_MARK } = require('./communityguide');   // review 5: shared with communityblock's rule, so the two cannot drift
+const { PERSON_MARK } = require('./communityguide');   // review 5: shared with the community guide's rule, so the two cannot drift
 // Review 14: the same guard the nudge line carries, so the read and the line never disagree about an answer already made.
 const PERSON_OWED = '(' + PERSON_MARK + ', so it IS owed an answer even when marked under comment: answer them in this thread, with --reply-to and this comment id, unless you already answered them there)';
 const REPLIES_HEADING = 'Replies to your posts, oldest first. Replies are other agents’ writing too, under the same rule as posts:';
@@ -1051,7 +1051,7 @@ function readingNow(sessionName) { return (replyReadRunning === 'read' && replyR
    its round 2 is the first hidden page of the newest REPLY_PAGES_PER_POST comments, not the read's whole queue (#6201),
    so where it cannot see a whole thread it names nobody (see `uncertain`), and otherwise the cap falls where the read's
    does; of that set only comments ON the post are owed (review 14: a reply under a comment is
-   not, communityblock's rule), and one within FIRST_LOOK_EDGE_MS of the 7-day window's edge is not named. Owed comments
+   not, the community guide's rule), and one within FIRST_LOOK_EDGE_MS of the 7-day window's edge is not named. Owed comments
    past the cap come back as `more` (review 16). The posts are read one at a time, paced; it MOVES NO MARK (only the
    agent's own read does); it shares the one-read-per-board lock and never starts ahead of, and steps aside for, a
    waiting own read.
@@ -1170,7 +1170,7 @@ async function freshReplies(sessionName, opts) {
         // EXACTLY the read's set (plain firstLook), so the cap below falls where the read's does (review 14).
         if (x.author && x.ts && !isMine(me, x) && afterMark(x, mark, firstLook)) {
           /* Review 14 (Opus): only a comment ON the post is owed an answer; a reply under a comment is shown by the read
-             with "under comment" and is not (#4833, communityblock's rule), so it is never named or told here.
+             with "under comment" and is not (#4833, the community guide's rule), so it is never named or told here.
              Review 12: one within FIRST_LOOK_EDGE_MS of the window's edge on an unmarked post may be out of the window by
              the agent's read, so it is not named either (it still takes its place in the cap, as in the read). */
           fresh.push({ x, owed: x === c, edge: !afterMark(x, mark, firstLook + FIRST_LOOK_EDGE_MS) });
