@@ -1295,3 +1295,12 @@ test('one listing per world at a time; stopListings ends a running one as a refu
   late[1](new Error('killed'), '');
   rw.startListings();
 });
+
+test('kosmos#8710: a hand-over\'s Kosmos is named "Handed over", and only a known kind changes the name', () => {
+  const rw = require('./restoreworld');
+  const NOW = Date.UTC(2026, 10, 19, 12);
+  const day = rw.worldName('Ann Lee', NOW).replace(/^Restored: Ann Lee, /, '');
+  assert.equal(rw.worldName('Ann Lee', NOW, 1, undefined, 'handover'), `Handed over: Ann Lee, ${day}`);
+  assert.equal(rw.worldName('Ann Lee', NOW, 1, undefined, 'Pwned'), `Restored: Ann Lee, ${day}`, 'an unknown kind is a restore');
+  assert.equal(rw.worldName('Ann Lee', NOW, 2, undefined, 'handover'), `Handed over: Ann Lee, ${day} (2)`);
+});
