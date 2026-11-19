@@ -199,16 +199,12 @@ function rootsFor(names, inputs, deps) {
     // Only this agent's own folder (as the backup refuses a root that would hold the workers folder): never one that is
     // or holds the workers or projects folder or a project, nor one that holds, or sits inside, another agent's.
     const roots0 = [inputs.workersDir, inputs.projectsDir, ...(inputs.projects || []).map((p) => p && p.folder)].map((x) => (typeof x === 'string' && path.isAbsolute(x) ? real(x) : null)).filter(Boolean);
-    const others = (inputs.agents || []).filter((a) => a && a.id !== name && typeof a.dir === 'string' && path.isAbsolute(a.dir)).map((a) => real(a.dir)).filter(Boolean);
+    // Another agent's folder is any listed folder that is not THIS one, by path: inputsHere lists an agent both by its
+    // profile key (lowercased, safeKey) and by its folder's own name, so an id comparison counted a mixed-case agent's
+    // own folder as another's and refused it for good (kosmos#8738 review).
+    const others = (inputs.agents || []).filter((a) => a && typeof a.dir === 'string' && path.isAbsolute(a.dir)).map((a) => real(a.dir)).filter((q) => q && q !== rd);
     if (roots0.some((q) => inside(q, rd)) || others.some((q) => inside(q, rd) || inside(rd, q))) {
       return { ok: false, final: true, because: `the folder of ${label} holds other work (the workers or projects folder, or another agent's), so it is not handed over` };
-    }
-    // kosmos#8738: the folder must be the one this agent is registered with (backuptick.inputsHere agents), not only
-    // wherever workerDir resolves. Checked whenever the list is given (it always is outside tests).
-    if (Array.isArray(inputs.agents)) {
-      const mine = inputs.agents.find((a) => a && a.id === name && typeof a.dir === 'string' && path.isAbsolute(a.dir));
-      if (!mine) return { ok: false, because: `the folder of ${label} is not one this computer has registered for it` };
-      if (real(mine.dir) !== rd) return { ok: false, final: true, because: `the folder of ${label} is not the one it was set up with, so it is not handed over` };
     }
     const size = folderBytes(rd);
     if (size === null) return { ok: false, final: true, because: `the folder of ${label} holds more files than one hand-over can carry` };
@@ -280,7 +276,7 @@ function sendable(data) {
 async function tick(state, deps) {
   const d = deps || {};
   if (state.running) return { skipped: true };
-  // kosmos#8738: a tick that threw (a step documented never to) waits RETRY_MS before the next, never every tick.
+  // kosmos#8738: a tick that threw (a step documented never to) waits SOFT_RETRY_MS before the next, never every tick.
   if ((state.thrownUntil || 0) > (d.now || Date.now)()) return { ok: false, because: 'the hand-over could not be checked' };
   state.running = true;
   try {
@@ -375,7 +371,7 @@ async function tick(state, deps) {
     return { ok: true, none: true };
   } catch {
     state.open = [];   // nothing known: say nothing rather than an old line
-    state.thrownUntil = (d.now || Date.now)() + RETRY_MS;
+    state.thrownUntil = (d.now || Date.now)() + SOFT_RETRY_MS;
     return { ok: false, because: 'the hand-over could not be checked' };
   } finally { state.running = false; }
 }

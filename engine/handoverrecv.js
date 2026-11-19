@@ -451,7 +451,7 @@ const MISSING_RECHECK_MS = 10 * 60 * 1000;   // how often a manifest still being
 async function tick(state, deps) {
   const d = deps || {};
   if (state.running) return { skipped: true };
-  // kosmos#8738: a tick that threw waits RETRY_MS before the next, never every tick.
+  // kosmos#8738: a tick that threw waits MISSING_RECHECK_MS before the next, never every tick.
   if ((state.thrownUntil || 0) > (d.now || Date.now)()) return { ok: false, because: 'the hand-over could not be checked' };
   state.running = true;
   try {
@@ -589,7 +589,7 @@ async function tick(state, deps) {
     if (last) return last;
     return { ok: true, none: true };
   } catch {
-    state.thrownUntil = (d.now || Date.now)() + RETRY_MS;
+    state.thrownUntil = (d.now || Date.now)() + MISSING_RECHECK_MS;
     return { ok: false, because: 'the hand-over could not be checked' };
   } finally { state.running = false; }
 }

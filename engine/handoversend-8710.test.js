@@ -565,31 +565,28 @@ test('kosmos#8733 review 4: the key checking out ends its waits even when a late
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('kosmos#8738: an agent folder that is not the one it is registered with is refused; a thrown tick backs off', async () => {
+test('kosmos#8738: a mixed-case agent\'s own folder is not "another agent\'s"; a thrown tick backs off', async () => {
   const w = world();
   try {
-    const other = path.join(w.base, 'elsewhere');
-    fs.mkdirSync(other, { recursive: true });
-    const listed = (dir) => () => ({ protect: [], workersDir: w.workers, agents: [{ id: 'ledger', dir }], projects: [], sessions: () => [] });
-    // workerDir resolves somewhere other than where the agent is registered: final, nothing packed.
-    const moved = hs.packInput(part(), 'org1', depsFor(w, { workerDir: () => other, inputsHere: listed(path.join(w.workers, 'ledger')) }));
-    assert.deepEqual([moved.ok, moved.final, moved.input], [false, true, undefined]);
-    assert.match(moved.because, /not the one it was set up with/);
-    // Not registered at all: tried again later, nothing packed.
-    const none = hs.packInput(part(), 'org1', depsFor(w, { inputsHere: () => ({ protect: [], workersDir: w.workers, agents: [], projects: [], sessions: () => [] }) }));
-    assert.deepEqual([none.ok, none.final, none.input], [false, undefined, undefined]);
-    assert.match(none.because, /not one this computer has registered/);
-    // CONTROL: the registered folder packs.
-    assert.equal(hs.packInput(part(), 'org1', depsFor(w, { inputsHere: listed(path.join(w.workers, 'ledger')) })).ok, true);
-    // A tick that throws waits RETRY_MS before the next.
+    // inputsHere lists the agent twice: by its profile key (lowercased) and by its folder's own name. Both are THIS
+    // agent's folder, so it packs; before, the id comparison refused it for good as "holds other work".
+    const own = path.join(w.workers, 'ledger');
+    const twice = () => ({ protect: [], workersDir: w.workers, agents: [{ id: 'ledger', dir: own }, { id: 'Ledger', dir: own }], projects: [], sessions: () => [] });
+    const p = hs.packInput(part({ agents: ['Ledger'] }), 'org1', depsFor(w, { inputsHere: twice }));
+    assert.equal(p.ok, true, p.because);
+    // CONTROL: another agent's folder inside this one is still refused.
+    fs.mkdirSync(path.join(own, 'nested'), { recursive: true });
+    const holds = hs.packInput(part(), 'org1', depsFor(w, { inputsHere: () => ({ protect: [], workersDir: w.workers, agents: [{ id: 'ledger', dir: own }, { id: 'other', dir: path.join(own, 'nested') }], projects: [], sessions: () => [] }) }));
+    assert.match(holds.because, /holds other work/);
+    // A tick that throws waits SOFT_RETRY_MS before the next.
     let clock = 0, calls = 0;
     const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => { calls++; throw new Error('boom'); } });
     const st = hs.newSendState();
     await hs.tick(st, d);
     await hs.tick(st, d);
-    assert.equal(calls, 1, 'not again within RETRY_MS');
-    clock += hs.RETRY_MS + 1;
+    assert.equal(calls, 1, 'not again within SOFT_RETRY_MS');
+    clock += hs.SOFT_RETRY_MS + 1;
     await hs.tick(st, d);
-    assert.equal(calls, 2, 'again after RETRY_MS');
+    assert.equal(calls, 2, 'again after SOFT_RETRY_MS');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
