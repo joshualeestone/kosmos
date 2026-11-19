@@ -58,29 +58,41 @@ function plan(name, panes, platform) {
   if (!status.isClaudeCommand(pane.command)) {
     return refused(`The window called ${clean} is running ${pane.command || 'nothing we can name'}, not Claude. Only a Claude window can be linked for now.`);
   }
-  /* isAgentSession only for a non-native command (`node`, plain `claude`): a native version string is Claude and
-     nothing else, while an unmarked `node` could be any program, so it must look like an agent to the board. */
+  /* And it must look like an agent to the board: a native version string always does, while an unmarked `node` could
+     be any program and is refused here. */
   if (!status.isAgentSession(pane)) return refused(`Kosmos cannot tell that the window called ${clean} is running an agent, so it was not linked.`);
   return { ok: true, session: pane.session, name: clean, command: pane.command };
 }
 
-/** Link the window called `name`. `panes` is the board's roster read; read again here when not given. */
+/** Link the window called `name`. `panes` is the board's tmux look; read again here when not given. */
 function link(name, opts) {
   const o = opts || {};
+  if ((o.platform || process.platform) === 'win32') return refused('Linking a window is not available on Windows yet.');
   const panes = Array.isArray(o.panes) ? o.panes : status.panesWithCommands();
   const p = plan(name, panes, o.platform);
   if (!p.ok) return p;
-  const target = `=${p.session}`;   // exact: never a prefix match onto another session
+  /* `=session:` names exactly that session (its active pane). Measured on tmux 3.6a: `set-option -t =zara` and
+     `display-message -t =zara` do not resolve (an option or message target is a pane), while `=zara:` does, and never
+     reaches `zarah`, nor marks anything when only `zarah` exists. */
+  const target = `=${p.session}:`;
+  const look = () => {
+    const r = run(['display-message', '-p', '-t', target, '#{session_id}\t#{pane_current_command}']);
+    return r && r.ok !== false ? String(r.stdout || '').trim() : '';
+  };
+  /* The session's id and its program, just before the mark and again just after it: the same pair, or the window was
+     replaced (even by another Claude session of the same name) and nothing is linked. */
+  const before = look();
+  const [id, cmd] = before.split('\t');
+  if (!id || !status.isClaudeCommand(cmd)) return refused(`Kosmos could not confirm what runs in the window called ${p.name}, so nothing was linked.`);
   const set = run(['set-option', '-t', target, '@kosmos_agent', p.session]);
   if (!set || set.ok === false) return refused(`Kosmos could not mark the window called ${p.name}. Nothing was changed.`);
   const read = run(['show-options', '-v', '-t', target, '@kosmos_agent']);
   const now = read && read.ok !== false ? String(read.stdout || '').trim() : '';
-  /* And what runs in it is still what was checked: a session closed and another opened under the name between the
-     look and the mark must not keep the mark. If either check fails, the mark is taken off again. */
-  const cmd = run(['display-message', '-p', '-t', target, '#{pane_current_command}']);
-  const still = cmd && cmd.ok !== false ? String(cmd.stdout || '').trim() : '';
-  if (now !== p.session || still !== String(p.command || '')) {
-    run(['set-option', '-u', '-t', target, '@kosmos_agent']);
+  if (now !== p.session || look() !== before) {
+    const off = run(['set-option', '-u', '-t', target, '@kosmos_agent']);
+    if (!off || off.ok === false) {
+      return refused(`Kosmos could not confirm the window called ${p.name} after marking it, and could not take the mark off. Restart that window, or ask for help, before messaging it.`);
+    }
     return refused(`Kosmos could not confirm the window called ${p.name} after marking it, so it took the mark off again and nothing was linked.`);
   }
   return { outcome: OUTCOME.LINKED, session: p.session, name: p.name };

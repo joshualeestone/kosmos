@@ -43,7 +43,7 @@ test.before(async () => {
     calls.push(args);
     if (args[0] === 'set-option') { marks[args[2]] = args[4]; return { ok: true, code: 0, stdout: '' }; }
     if (args[0] === 'show-options') { const v = marks[args[3]]; return v ? { ok: true, code: 0, stdout: v + '\n' } : { ok: false, code: 1, stdout: '' }; }
-    if (args[0] === 'display-message') return { ok: true, code: 0, stdout: fleet.CLAUDE_COMMAND + '\n' };
+    if (args[0] === 'display-message') return { ok: true, code: 0, stdout: '$0\t' + fleet.CLAUDE_COMMAND + '\n' };
     return { ok: false, code: 1, stdout: '' };
   });
   await start(0);
@@ -69,7 +69,7 @@ test('#8719 a confirmed link of a hand-started Claude window marks that session 
   const r = await link('zara', { confirm: true });
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.deepEqual(r.json, { outcome: 'linked', session: 'zara', name: 'zara' });
-  assert.deepEqual(calls[0], ['set-option', '-t', '=zara', '@kosmos_agent', 'zara']);
+  assert.deepEqual(calls[1], ['set-option', '-t', '=zara:', '@kosmos_agent', 'zara']);
 });
 
 test('#8719 without the confirmation nothing is linked; CONTROL: the same window links with it (above)', async () => {
