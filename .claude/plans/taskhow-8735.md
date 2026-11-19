@@ -15,7 +15,8 @@ situation moves, word for word, to a guide printed by the command the agent is a
 
 ## Proof
 - Verbatim: every line that left the rules is in the guide, darwin and win32, but the two intended "as above" lines.
-- Working rules 33,259 -> 30,031 characters (darwin). pm brief 51,670 -> 48,436. Ratchet 48,500.
+- First measured: working rules 33,259 -> 30,031 characters (darwin), pm brief 51,670 -> 48,436. Superseded by the
+  reviews below; current figures are under Review 5.
 - engine/taskguide.test.js: both CLIs print the guide; the moved lines are in the guide and in no platform's rules.
 - Retargeted: defaults.test.js #5152/#4787/#5920 and fileprint-6849 read the guide for what moved; #5152 also pins the
   section's pointer and "one task that repeats".
@@ -47,3 +48,24 @@ wording pass (slice 3), written up on the card before it is built.
 - The kept per-run sentence carries the guide's fallback (if nobody is asking, in the room the task belongs to).
 - Log 53 says what stayed and the real saving (about 2,800; darwin 33,260 to 30,492). The guide names the heading the
   agent sees (How you work, whatever the job). Ratchet 49,000 (pm 48,897).
+
+## Review 4 (Sonnet)
+- No BLOCKER. Kept `task built --commit HEAD` and `--file` in the guide only (decided on #8735: 150 characters against
+  103 of headroom; the pointer names "a code fix built").
+
+## Rebased onto main after #8750 merged (c5b323f401)
+- The size guard now counts the kosmos command path as one fixed path (#8750's CI fix), so pm reads 48,843 here and on
+  CI alike. Ratchet 48,900.
+
+## Review 5 (Opus)
+- WARNING fixed: the per-run sentence names `kosmos report blocked` and `kosmos report clear` (a board was left Blocked
+  after a later good run). Pinned in defaults.test.js; perturbed (the words removed) -> red.
+- To fit the ratchet: "whenever you no longer remember how" -> "whenever you forget how", and the sentence "It is long,
+  so it is not repeated here" dropped (it explained, it did not instruct). darwin block 30,517; pm 48,868; ratchet 48,900.
+- v53 re-pinned (never released, so no bump) and doctrine-past regenerated.
+- WARNING, NOT fixed on this branch, and it blocks shipping: a running agent's changes file marks the 47 moved task
+  lines `-` ("no longer applies"). #8743 builds the "moved to a guide" treatment for the community guide; this branch
+  must extend it to `taskguide.guideText()` when `rules` is named, after #8743 is on main. This branch does not merge
+  before that. Measured by the reviewer (changedLines on v52 vs v53).
+- Nits fixed: log 53's darwin figure; this plan's stale figures.
+

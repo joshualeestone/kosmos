@@ -542,13 +542,13 @@ const LINES = [
   // kosmos#8735 slice 2: the parts for one situation each are printed by `kosmos task --how` (engine/taskguide.js).
   '**The first time you set a task to repeat or record one of its runs, mark a file or a',
   'code fix built, fix a task\'s title or detail, or list open tasks across projects, run',
-  '`kosmos task --how`** (and again whenever you no longer remember how) and follow what',
-  'it prints for that case. It is long, so it is not repeated here; a due run\'s reminder',
-  'from Kosmos names the commands. On every run, three things hold: a run that found',
-  'nothing new is recorded with `--unchanged` and not posted about on your own; a run that',
-  'could not check is not unchanged, so record what stopped it and report it; and when a',
-  'run finds something, tell whoever asked for the check, where they asked (if nobody is',
-  'asking, in the room the task belongs to).',
+  '`kosmos task --how`** (and again whenever you forget how) and follow what it prints',
+  'for that case; a due run\'s reminder from Kosmos names the commands. On every run,',
+  'three things hold: a run that found nothing new is recorded with `--unchanged` and not',
+  'posted about on your own; a run that could not check is not unchanged, so record what',
+  'stopped it and report it (`kosmos report blocked`, and `kosmos report clear` when a',
+  'later run checks); and when a run finds something, tell whoever asked for the check,',
+  'where they asked (if nobody is asking, in the room the task belongs to).',
   '',
   'A question, a quick answer or small talk is not a task. If you are on no',
   'project, or the work belongs to none of yours, do not guess another: write the',
@@ -1324,8 +1324,9 @@ function block() {
  *     file's fingerprint, a code fix's commit, and the repeating-task procedure) moved word for word to `kosmos task
  *     --how` (engine/taskguide.js); the section keeps the rule, the everyday commands, "one task that repeats", one
  *     line naming those situations, and one sentence with the three rules that hold on every run (an unchanged run is
- *     not posted about, a run that could not check is not unchanged, a find goes to whoever asked or the task's room).
- *     About 2,800 characters out of every agent's file (darwin 33,260 to 30,492). No new heading, so as in 32 an
+ *     not posted about, a run that could not check is not unchanged, a find goes to whoever asked or the task's room), naming `kosmos report blocked` and
+ *     `kosmos report clear` for the second (review 5: a board left Blocked after a later good run).
+ *     About 2,700 characters out of every agent's file (darwin 33,260 to 30,517). No new heading, so as in 32 an
  *     agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent runs `kosmos task --how` when one of those situations comes up; the line
  *     names each, and `kosmos task` help names --how too, in both CLIs.
