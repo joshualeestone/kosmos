@@ -6946,7 +6946,9 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
 .tkact { display: flex; gap: 12px; align-items: baseline; padding: 7px 0; }
 .tkact + .tkact { border-top: 1px solid var(--k-rule); }
 .tkact time { flex: 0 0 auto; min-width: 96px; color: var(--label-2); font-size: .8rem; }
-.tkact .tkact-what { flex: 1; min-width: 0; }
+/* kosmos#8731: one unbroken token in a report (a long path, a URL with a query) wraps here instead of running off the
+   page. Guarded by web.task-activity-wrap-8731.test.js and docs/browser-checks/render-tasks.js. */
+.tkact .tkact-what { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 /* kosmos#5643: a run of runs that found nothing new or repeated their note is one row; pressing it shows each. */
 .tkact-roll { border-top: 1px solid var(--k-rule); }
 .tkact-roll:first-child { border-top: 0; }
