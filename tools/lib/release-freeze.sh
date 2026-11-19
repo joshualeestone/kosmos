@@ -204,11 +204,15 @@ release_bundle_expected_files() {
 # without the bundle fails; without it, a bundle that is present is still verified.
 # $6 (optional, #5896): the code requirement the sealed app must satisfy beyond its identifier (a real cut passes our
 # Developer ID team from tools/lib/signing-identity.sh, so an ad-hoc or foreign-signed app fails here).
+# $7 (optional, kosmos#7116): the expected sha256 of app/bin/kosmos-se, the Secure Enclave admin signer this release
+# built (release.sh takes it from the built tarball). Given, the bundle's must equal it; its signature (identifier
+# kosmos-se, plus $6) and executable bit are checked either way, and a sealed bundle from a tree with
+# native-se/main.swift must carry it.
 # Then THE OTHER DIRECTION (#609): every file the tree and the app say the
 # bundle must carry is in it; a missing one is named. 2 when the set could not
 # be derived (not a Kosmos tree, no node for the require walk).
 release_bundle_matches_tree() {
-  local tar="$1" tree="$2" want_tunnel_sha="${3:-}" want_native_app_sha="${4:-}" want_sealed="${5:-}" want_sealed_req="${6:-}" _sealed_ver tmp ver rel src cmpfile got_tunnel_sha saw_tunnel=0 got_native_app_sha saw_native_app=0 saw_sealed=0 saw_se=0 bad=0 expected
+  local tar="$1" tree="$2" want_tunnel_sha="${3:-}" want_native_app_sha="${4:-}" want_sealed="${5:-}" want_sealed_req="${6:-}" want_se_sha="${7:-}" _sealed_ver tmp ver rel src cmpfile got_tunnel_sha saw_tunnel=0 got_native_app_sha saw_native_app=0 saw_sealed=0 saw_se=0 bad=0 expected
   [ -f "$tar" ] && [ -d "$tree" ] || { echo "release_bundle_matches_tree: need a tarball and a tree" >&2; return 2; }
   ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tree/package.json" | head -1)"
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-bundle-cmp.XXXXXX")" || return 2
@@ -294,6 +298,12 @@ release_bundle_matches_tree() {
     codesign --verify --strict "-R=identifier \"kosmos-se\"${want_sealed_req:+ and $want_sealed_req}" "$tmp/app/bin/kosmos-se" >/dev/null 2>&1 \
       || { echo "   the Secure Enclave admin signer's signature does not verify (--strict, identifier kosmos-se): app/bin/kosmos-se"; bad=1; }
     [ -x "$tmp/app/bin/kosmos-se" ] || { echo "   the Secure Enclave admin signer is not executable: app/bin/kosmos-se"; bad=1; }
+    # $7 (optional): the checksum of the kosmos-se THIS release built (release.sh takes it from the built tarball). Given,
+    # the bundle's must be it: a signature alone would pass any earlier team build (review 3, as the sealed app's version).
+    if [ -n "$want_se_sha" ]; then
+      [ "$(shasum -a 256 "$tmp/app/bin/kosmos-se" | awk '{print $1}')" = "$want_se_sha" ] \
+        || { echo "   the Secure Enclave admin signer is not the one this release built: app/bin/kosmos-se"; bad=1; }
+    fi
   elif [ "$want_sealed" = sealed ] && [ -f "$tree/native-se/main.swift" ]; then
     echo "   the bundle carries no Secure Enclave admin signer (app/bin/kosmos-se), but the tree has native-se/main.swift"; bad=1
   fi

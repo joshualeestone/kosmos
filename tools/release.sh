@@ -845,7 +845,7 @@ step "== 1c. the signing key answers, before anything is bumped or built (#3579)
 # here costs about a second and mutates nothing, so a refusal leaves no pushed bump. It also
 # checks the Installer identity and the notary key that 3c's pkg rebuild needs (#3647).
 kosmos_sign_preflight || exit 1
-# #5137: step 4 notarises kosmos-app and kosmos-tunnel. The local-test opt-out and the test seams for
+# #5137: step 4 notarises kosmos-app, kosmos-tunnel and kosmos-se (#7116). The local-test opt-out and the test seams for
 # notarytool and codesign must not reach a cut: a leftover export would ship binaries Gatekeeper
 # rejects, or "notarise" through a stub that never contacted Apple, and print one line about it.
 # KOSMOS_NOTARY_PROBE_BIN is deliberately NOT refused: like KOSMOS_CODESIGN_BIN it replaces only
@@ -1612,13 +1612,24 @@ else
 fi
 rm -f "$_native_app_tmp"
 echo "   native app: kosmos-app $NATIVE_APP_SHA"
+# kosmos#7116: kosmos-se's checksum, the same way and for the same reason (compiled from native-se/main.swift and signed
+# by this build). Empty when the bundle carries none: the comparator then refuses a sealed bundle from a tree that has
+# native-se/main.swift, so a missing helper still stops the cut.
+_se_tmp="$(mktemp)"
+if tar -xzOf "$REPO/dist/kosmos-arm64.tar.gz" app/bin/kosmos-se > "$_se_tmp" 2>/dev/null && [ -s "$_se_tmp" ]; then
+  SE_SHA="$(shasum -a 256 "$_se_tmp" | awk '{print $1}')"
+  echo "   Secure Enclave admin signer: kosmos-se $SE_SHA"
+else
+  SE_SHA=""
+fi
+rm -f "$_se_tmp"
 # 🛑 BEFORE THE FIRST COPY TOWARD THE SITE (#609): the bundle just built carries
 # every file the tree and the app need, and each present file equals the
 # tree's. The same comparator runs at 9b on the SERVED bytes; here it runs on
 # the built ones, so a file the build forgot (#731: the codex bridge, absent
 # from every served bundle for ten versions) stops the cut with nothing
 # published, instead of being caught after step 8 has deployed it.
-_cmp_rc=0; release_bundle_matches_tree "$REPO/dist/kosmos-arm64.tar.gz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA" sealed "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[subject.OU] = \"${KOSMOS_SIGN_TEAM_ID:?signing-identity.sh was not sourced}\"" || _cmp_rc=$?   # sealed: #5896; a cut is Developer ID signed by construction (step 1c's preflight)
+_cmp_rc=0; release_bundle_matches_tree "$REPO/dist/kosmos-arm64.tar.gz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA" sealed "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[subject.OU] = \"${KOSMOS_SIGN_TEAM_ID:?signing-identity.sh was not sourced}\"" "$SE_SHA" || _cmp_rc=$?   # sealed: #5896; a cut is Developer ID signed by construction (step 1c's preflight)
 if [ "$_cmp_rc" -eq 0 ]; then
   echo "   the built bundle carries everything the tree and the app need, and every file in it is the tree's"
 else
@@ -2200,7 +2211,7 @@ for i in 1 2 3 4 5 6; do
     echo "   (attempt $i: $_bundle_cause; waiting)"; sleep 10; continue
   fi
   # `|| _m=$?` keeps this set -e safe AND captures the code the combined `&&` threw away.
-  _m=0; release_bundle_matches_tree "$_served_tgz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA" sealed "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[subject.OU] = \"${KOSMOS_SIGN_TEAM_ID:?signing-identity.sh was not sourced}\"" || _m=$?   # #5896, as at step 4b
+  _m=0; release_bundle_matches_tree "$_served_tgz" "$BUILD" "$TUNNEL_SHA" "$NATIVE_APP_SHA" sealed "anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[subject.OU] = \"${KOSMOS_SIGN_TEAM_ID:?signing-identity.sh was not sourced}\"" "$SE_SHA" || _m=$?   # #5896, as at step 4b
   if [ "$_m" = 0 ]; then _bundle_ok=1; break; fi
   if [ "$_m" = 2 ]; then _bundle_cause="the served tarball is unreadable, malformed, or missing an app/ or bin/ member (see the reason above) - NOT a per-file content mismatch"
   else _bundle_cause="the served bundle's contents differ from the frozen tree (see the per-file diffs above)"; fi
