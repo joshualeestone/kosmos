@@ -54,9 +54,11 @@
  * name unless that name is not a plain segment (then a cleaned form plus a hash); the receiver names the agent from its
  * brief, as a restore does, not from the folder.
  *
- * KNOWN, kosmos#8733: the colleague's one-time key (seal_pub) reaches this computer from Kosmos+ with nothing that ties
- * it to the colleague's computer, so "only the successor's computer can open the pack" rests on Kosmos+ passing it on
- * faithfully. Hand-over is off everywhere until that is closed.
+ * kosmos#8733: the colleague's one-time key (seal_pub) is packed to only when handoverseal.checkSeal holds: the
+ * colleague's computer signed it (seal_sig) with a device key (seal_signer) that escrowd's signed history for the
+ * colleague (seal_history, seal_member) lists as theirs now, enrolled by two admins.
+ * KNOWN, kosmos#8764: WHICH member the colleague is (seal_member) is still Kosmos+'s word, so a breached Kosmos+ could
+ * name another enrolled member. Hand-over is off everywhere until that is closed.
  *
  * KNOWN, for slice 4: the coordinator moves the record to `packed` when it grants the manifest, before the upload. A
  * manifest upload that then fails leaves a `packed` record with no manifest, and a new pack cannot replace it (a new
@@ -225,6 +227,12 @@ function packInput(part, org, deps) {
   // A trial seal (hpke's own rule: 32 bytes, a canonical X25519 point): one that is not would otherwise fail inside the
   // snapshot as "failed unexpectedly".
   if (!pk || pk.length !== 32 || pk.toString('base64') !== part.seal_pub || !sealable(pk)) return { ok: false, final: true, because: 'the key for this hand-over is not one this computer can seal to' };
+  // kosmos#8733: never seal to a key only Kosmos+ vouches for. The successor's computer signed it with its device key,
+  // and that key must be one escrowd's signed history lists for the successor, enrolled by two admins. No history
+  // (escrowd could not be asked) is tried again later; any other refusal is final, and nothing is packed either way.
+  const nowSec = Math.floor(((d.now || Date.now)()) / 1000);
+  const tie = require('./handoverseal').checkSeal({ org, member: part.seal_member, id: part.id, sealPub: part.seal_pub, sig: part.seal_sig, signer: part.seal_signer, history: part.seal_history, now: nowSec });
+  if (!tie.ok) return part.seal_history == null ? { ok: false, retryLater: true, because: tie.because } : { ok: false, final: true, because: tie.because };
   let rows;
   try { const sv = (d.survey || (() => require('./register').survey()))(); if (!sv || !sv.ok) return { ok: false, retryLater: true, because: (sv && sv.because) || 'the agents on this computer could not be read' }; rows = sv.agents; } catch { return { ok: false, retryLater: true, because: 'the agents on this computer could not be read' }; }
   const names = resolveNames(part.agents, rows);

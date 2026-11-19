@@ -54,12 +54,13 @@ test('every substitution is refused: another signer, another key, another hand-o
   }
 });
 
-test('until escrowd\'s history key ships, every check refuses (fails closed)', () => {
+test('without the test key, only escrowd\'s SHIPPED key counts, so a history signed by any other key is refused', () => {
+  // VERIFYING_KEY shipped in #8754, so clearing the test stand-in falls back to it, and this fixture's key is not it.
   hist.setVerifyingKeyForTests(null);
   try {
     const r = seal.checkSeal(base());
     assert.equal(r.ok, false);
-    assert.match(r.because, /cannot check the device key history yet/);
+    assert.match(r.because, /escrowd's signature on the device key history did not check/);
   } finally { hist.setVerifyingKeyForTests(crypto.createPublicKey(escrowd).export({ format: 'der', type: 'spki' }).subarray(-32)); }
 });
 

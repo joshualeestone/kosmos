@@ -24,6 +24,18 @@ const worlds = require('./worlds');
 up.allowHttpForTests(true);
 
 const ORG = 'org1';
+// kosmos#8733: escrowd's history key (a test stand-in) and this (the successor's) computer's device key.
+const seal = require('./handoverseal');
+const dkh = require('./devkeyhist');
+const ESCROWD = crypto.generateKeyPairSync('ed25519');
+dkh.setVerifyingKeyForTests(ESCROWD.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32));
+const SUCC = crypto.generateKeyPairSync('ed25519');
+const SUCC_DK = () => ({ ok: true, privateKey: SUCC.privateKey, publicKey: SUCC.publicKey });
+function signedHistory(org, member, publicKey, extra) {
+  const t = Math.floor(Date.now() / 1000);
+  const entries = [Object.assign({ kind: 'enrol', key: seal.keyHex(publicKey), at: 0, backfill: false }, extra || {})];
+  return { org, member, entries, issuedAt: t, signature: crypto.sign(null, dkh.encodeHead(org, member, entries, t), ESCROWD.privateKey).toString('base64url') };
+}
 const md5 = (b) => crypto.createHash('md5').update(b).digest('base64');
 const sha256b = (b) => crypto.createHash('sha256').update(b).digest('base64');
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -70,12 +82,20 @@ function coordinator(b, id) {
     calls.push([route, body]);
     if (route === hr.MINE_ROUTE) {
       const row = { id, side: 'receive', state: rec.state, agents: rec.agents, seal_pub: rec.seal_pub, sender_pubkey: 'sender_pubkey' in rec ? rec.sender_pubkey : senderB64 };
-      if (rec.manifest && (rec.state === 'packed' || rec.state === 'receiving')) row.manifest = rec.manifest;
+      if (rec.manifest && (rec.state === 'packed' || rec.state === 'receiving')) {
+        row.manifest = rec.manifest;
+        // kosmos#8733: the leaving member and escrowd's signed history for them, as kosmos-relay's /mine gives them.
+        row.sender_member = 'm-leave';
+        row.sender_history = 'sender_history' in rec ? rec.sender_history : signedHistory(ORG, 'm-leave', sender.publicKey);
+      }
       return { ok: true, data: { handovers: [row] } };
     }
     if (route === hr.KEY_ROUTE) {
       if (rec.state !== 'requested') return { ok: false, because: 'refused (HTTP 409 on /v1/mac/org/handover/key, code handover_wrong_state)' };
-      rec.seal_pub = body.pubkey; rec.state = 'packing'; return { ok: true, data: { ok: true, state: 'packing' } };
+      // kosmos#8733: as kosmos-relay's /key does, the key must be signed by this computer's own device key.
+      const msg = seal.sealMessage(id, body.pubkey);
+      if (!msg || typeof body.sig !== 'string' || !crypto.verify(null, msg, SUCC.publicKey, Buffer.from(body.sig, 'base64url'))) return { ok: false, because: 'refused (HTTP 400 on /v1/mac/org/handover/key, code handover_bad_seal_sig)' };
+      rec.seal_pub = body.pubkey; rec.seal_sig = body.sig; rec.state = 'packing'; return { ok: true, data: { ok: true, state: 'packing' } };
     }
     if (route === hr.READ_ROUTE) {
       if (rec.state === 'packed') rec.state = 'receiving';
@@ -125,7 +145,7 @@ test('end to end: key kept before it is sent, the pack received into a "Handed o
   t.after(() => b.close());
   const root = fresh(t, 'data'), base = fresh(t, 'base');
   const c = coordinator(b, 'ho1');
-  const deps = { org: () => ORG, macRequest: c.recv, root, base, member: 'Ann Lee', fetch };
+  const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, member: 'Ann Lee', fetch };
   const st = stateNew();
   // requested: the key is on disk before /key is sent.
   let wroteFirst = null;
@@ -163,13 +183,13 @@ test('a lost /key answer sends the same public half again; a key that cannot be 
     if (route === hr.KEY_ROUTE) { sent.push(body.pubkey); return { ok: false, because: 'no answer' }; }
     return { ok: false };
   };
-  await hr.tick(stateNew(), { org: () => ORG, macRequest: mac, root });
-  await hr.tick(stateNew(), { org: () => ORG, macRequest: mac, root });
+  await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, macRequest: mac, root });
+  await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, macRequest: mac, root });
   assert.equal(sent.length, 2);
   assert.equal(sent[0], sent[1], 'the same key both times');
   // A key that cannot be kept: nothing is sent.
   sent.length = 0;
-  const r = await hr.tick(stateNew(), { org: () => ORG, macRequest: mac, root: fresh(t, 'data2'), writeKey: () => { throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); } });
+  const r = await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, macRequest: mac, root: fresh(t, 'data2'), writeKey: () => { throw Object.assign(new Error('disk full'), { code: 'ENOSPC' }); } });
   assert.match(r.because, /could not be kept on this computer, so none was sent/);
   assert.equal(sent.length, 0);
 });
@@ -182,6 +202,10 @@ test('refusals end the hand-over as failed, once, and leave no Kosmos: a foreign
     ['foreign seal_pub', (c) => { c.rec.seal_pub = Buffer.alloc(32, 7).toString('base64'); }, /sealed to a key this computer does not hold/],
     ['key lost from this computer', (c, root) => { fs.rmSync(path.join(root, 'handover'), { recursive: true, force: true }); }, /no longer on this computer/],
     ['no sender_pubkey', (c) => { c.rec.sender_pubkey = null; }, /no longer known to Kosmos\+/],
+    // kosmos#8733: the packing key checked against escrowd's signed history for the LEAVING member.
+    ['a packing key escrowd does not list for the leaving member', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-leave', crypto.generateKeyPairSync('ed25519').publicKey); }, /not signed by the leaving member's own computer/],
+    ['a history for another member', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-other', c.sender.publicKey); }, /could not be checked/],
+    ['a backfilled entry for the packing key', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-leave', c.sender.publicKey, { backfill: true }); }, /not been enrolled by your company's admins/],
     ['manifest not the recorded one', (c) => { c.rec.manifest.sha256 = sha256b(Buffer.from('other')); }, /not the one Kosmos\+ recorded/],
     ['a chunk that is not what was signed', (c) => { const k = [...b.stored.keys()].find((x) => x.startsWith(c.prefix) && !x.endsWith('manifest')); const v = b.stored.get(k); v.body = Buffer.from(v.body); v.body[v.body.length - 1] ^= 1; }, /not what its sender signed/],
   ];
@@ -189,7 +213,7 @@ test('refusals end the hand-over as failed, once, and leave no Kosmos: a foreign
     const root = fresh(t, 'data'), base = fresh(t, 'base');
     const id = 'h' + crypto.randomBytes(4).toString('hex');
     const c = coordinator(b, id);
-    const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch };
+    const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch };
     const st = stateNew();
     await hr.tick(st, deps);   // keyed
     await pack(c, agentFolder(t));
@@ -207,7 +231,7 @@ test('refusals end the hand-over as failed, once, and leave no Kosmos: a foreign
   const root = fresh(t, 'data'), base = fresh(t, 'base');
   const c = coordinator(b, 'hctl');
   const st = stateNew();
-  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch };
+  const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch };
   await hr.tick(st, deps);
   await pack(c, agentFolder(t));
   assert.equal((await hr.tick(st, deps)).ok, true);
@@ -221,7 +245,7 @@ test('a missing manifest gets MISSING_GRACE_MS before it is final; a lost /done 
   const root = fresh(t, 'data'), base = fresh(t, 'base');
   const c = coordinator(b, 'hmiss');
   const st = stateNew();
-  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+  const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch, now: () => clock };
   await hr.tick(st, deps);
   await pack(c, agentFolder(t));
   const saved = b.stored.get(c.rec.manifest.key);
@@ -266,7 +290,7 @@ test('a chunk that does not arrive is tried again after RETRY_MS, MAX_ATTEMPTS t
   const root = fresh(t, 'data'), base = fresh(t, 'base');
   const c = coordinator(b, 'hretry');
   const st = stateNew();
-  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+  const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch, now: () => clock };
   await hr.tick(st, deps);
   await pack(c, agentFolder(t));
   for (const k of [...b.stored.keys()]) if (k.startsWith(c.prefix) && !k.endsWith('manifest')) b.stored.delete(k);
@@ -347,7 +371,7 @@ test('a read link the rules refuse is never fetched', async () => {
 test('a refused /mine (an older connector) makes no key and reads nothing; off unless KOSMOS_ORG_HANDOVER=1', async (t) => {
   const root = fresh(t, 'data');
   const routes = [];
-  const r = await hr.tick(stateNew(), { org: () => ORG, root, macRequest: async (m, route) => { routes.push(route); return { ok: false, notSent: true, because: 'mac-request does not sign that' }; } });
+  const r = await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, root, macRequest: async (m, route) => { routes.push(route); return { ok: false, notSent: true, because: 'mac-request does not sign that' }; } });
   assert.equal(r.ok, false);
   assert.deepEqual(routes, [hr.MINE_ROUTE]);
   assert.equal(fs.existsSync(path.join(root, 'handover')), false, 'no key was made');
@@ -365,7 +389,7 @@ test('the attempt count survives a restart; a try that stopped part way is taken
   let clock = Date.now();
   const root = fresh(t, 'data'), base = fresh(t, 'base');
   const c = coordinator(b, 'hpers');
-  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+  const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch, now: () => clock };
   await hr.tick(stateNew(), deps);
   await pack(c, agentFolder(t));
   // No base: nothing counted.
@@ -396,7 +420,7 @@ test('a damaged key while still requested is replaced, and later rows are not st
     if (route === hr.KEY_ROUTE) { sent.push(body.id); return { ok: true, data: {} }; }
     return { ok: false };
   };
-  await hr.tick(stateNew(), { org: () => ORG, macRequest: mac, root });
+  await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, macRequest: mac, root });
   assert.deepEqual(sent, ['hbad', 'hnext']);
   assert.equal(hr.readKey('hbad', root).problem, undefined, 'a good key replaced the damaged one');
 });
@@ -416,7 +440,7 @@ test('a refusal is noted, so a /done that fails is sent again alone; a full disk
   const c = coordinator(b, 'hfin');
   let doneFails = true;
   const mac = async (m, route, body) => (route === hr.DONE_ROUTE && doneFails ? { ok: false, because: 'no answer' } : c.recv(m, route, body));
-  const deps = { org: () => ORG, macRequest: mac, root, base, fetch };
+  const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: mac, root, base, fetch };
   await hr.tick(stateNew(), deps);
   await pack(c, agentFolder(t));
   c.rec.manifest.sha256 = sha256b(Buffer.from('other'));
@@ -431,7 +455,7 @@ test('a refusal is noted, so a /done that fails is sent again alone; a full disk
   // No room: not final, said as this computer's.
   const c2 = coordinator(b, 'hroom');
   const root2 = fresh(t, 'data');
-  const d2 = { org: () => ORG, macRequest: c2.recv, root: root2, base, fetch, maxTotalBytes: 1 };
+  const d2 = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c2.recv, root: root2, base, fetch, maxTotalBytes: 1 };
   await hr.tick(stateNew(), d2);
   await pack(c2, agentFolder(t));
   const r = await hr.tick(stateNew(), d2);
@@ -451,7 +475,7 @@ test('cleanup never removes a Kosmos a person put something in: it is hidden, it
   hr.writeKey('hused', require('./hpke').hpkeKeyPair(), root, { restoring: used.world.id, expect: ['ledger'] });   // the person's 'mine' is not the expected 'ledger'
   const kp = hr.readKey('hused', root);
   // The tick's restart cleanup on this key (a packed row, no pack to read: the cleanup runs before the try).
-  await hr.tick(stateNew(), { org: () => ORG, root, base, fetch, macRequest: async (m, route) => (route === hr.MINE_ROUTE
+  await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, root, base, fetch, macRequest: async (m, route) => (route === hr.MINE_ROUTE
     ? { ok: true, data: { handovers: [{ id: 'hused', side: 'receive', state: 'packed', seal_pub: kp.pk.toString('base64'), sender_pubkey: null }] } }
     : { ok: true, data: {} }) });
   assert.equal(fs.readFileSync(path.join(workers, 'mine', 'CLAUDE.md'), 'utf8'), '# You are Mine\n', 'the person\'s agent is still there');
@@ -461,7 +485,7 @@ test('cleanup never removes a Kosmos a person put something in: it is hidden, it
   const clean = rw.prepareRestoreWorld(base, { member: 'y', memberId: 'hclean', kind: 'handover' });
   hr.writeKey('hclean', require('./hpke').hpkeKeyPair(), root, { restoring: clean.world.id });
   const kp2 = hr.readKey('hclean', root);
-  await hr.tick(stateNew(), { org: () => ORG, root, base, fetch, macRequest: async (m, route) => (route === hr.MINE_ROUTE
+  await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, root, base, fetch, macRequest: async (m, route) => (route === hr.MINE_ROUTE
     ? { ok: true, data: { handovers: [{ id: 'hclean', side: 'receive', state: 'packed', seal_pub: kp2.pk.toString('base64'), sender_pubkey: null }] } }
     : { ok: true, data: {} }) });
   assert.equal(fs.existsSync(clean.dir), false);
@@ -491,7 +515,7 @@ test('round 4: an outage spends no attempt; a crash after finish is the received
     const c = coordinator(b, 'hout');
     let down = false;
     const mac = async (m, route, body) => (down && route === hr.READ_ROUTE ? { ok: false, because: 'Kosmos+ did not answer' } : c.recv(m, route, body));
-    const deps = { org: () => ORG, macRequest: mac, root, base, fetch, now: () => clock };
+    const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: mac, root, base, fetch, now: () => clock };
     await hr.tick(stateNew(), deps);
     await pack(c, agentFolder(t));
     down = true;
@@ -503,7 +527,7 @@ test('round 4: an outage spends no attempt; a crash after finish is the received
   {
     const root = fresh(t, 'data'), base = fresh(t, 'base');
     const c = coordinator(b, 'hcrash');
-    const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+    const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch, now: () => clock };
     await hr.tick(stateNew(), deps);
     await pack(c, agentFolder(t));
     assert.equal((await hr.tick(stateNew(), deps)).ok, true);
@@ -521,7 +545,7 @@ test('round 4: an outage spends no attempt; a crash after finish is the received
   {
     const root = fresh(t, 'data'), base = fresh(t, 'base');
     const c = coordinator(b, 'horph');
-    const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+    const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch, now: () => clock };
     await hr.tick(stateNew(), deps);
     await pack(c, agentFolder(t));
     const orphan = require('./restoreworld').prepareRestoreWorld(base, { member: 'a colleague', memberId: 'horph', kind: 'handover' });
@@ -536,7 +560,7 @@ test('round 4: an outage spends no attempt; a crash after finish is the received
     fs.writeFileSync(path.join(p.dir, 'Kosmos', 'chat.json'), '{}');
     hr.writeKey('hdata', require('./hpke').hpkeKeyPair(), root, { restoring: p.world.id, expect: ['ledger'] });
     const kp = hr.readKey('hdata', root);
-    await hr.tick(stateNew(), { org: () => ORG, root, base, fetch, macRequest: async (m, route) => (route === hr.MINE_ROUTE
+    await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, root, base, fetch, macRequest: async (m, route) => (route === hr.MINE_ROUTE
       ? { ok: true, data: { handovers: [{ id: 'hdata', side: 'receive', state: 'packed', seal_pub: kp.pk.toString('base64'), sender_pubkey: null }] } } : { ok: true, data: {} }) });
     assert.ok(fs.existsSync(path.join(p.dir, 'Kosmos', 'chat.json')), 'a person\'s data is kept');
   }
@@ -551,7 +575,7 @@ test('round 4: an outage spends no attempt; a crash after finish is the received
       if (route === hr.KEY_ROUTE) { keyed.push(body.id); return { ok: true, data: {} }; }
       return { ok: false };
     };
-    await hr.tick(stateNew(), { org: () => ORG, macRequest: mac, root, base: fresh(t, 'base') });
+    await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, macRequest: mac, root, base: fresh(t, 'base') });
     assert.deepEqual(keyed, ['hlater']);
   }
 });
@@ -580,7 +604,7 @@ test('round 5: a listed key stays fresh; an unreadable key waits; a day-long out
     fs.chmodSync(f, 0o000);
     t.after(() => { try { fs.chmodSync(f, 0o600); } catch { /* gone */ } });
     let done = 0;
-    await hr.tick(stateNew(), { org: () => ORG, root, base: fresh(t, 'base'), macRequest: async (m, route) => {
+    await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, root, base: fresh(t, 'base'), macRequest: async (m, route) => {
       if (route === hr.MINE_ROUTE) return { ok: true, data: { handovers: [{ id: 'hunread', side: 'receive', state: 'packed' }] } };
       if (route === hr.DONE_ROUTE) done++;
       return { ok: true, data: {} };
@@ -592,7 +616,7 @@ test('round 5: a listed key stays fresh; an unreadable key waits; a day-long out
     const root = fresh(t, 'data'), base = fresh(t, 'base');
     const c = coordinator(b, 'hlong');
     const mac = async (m, route, body) => (route === hr.READ_ROUTE && c.rec.manifest ? { ok: false, because: 'Kosmos+ did not answer' } : c.recv(m, route, body));
-    const deps = { org: () => ORG, macRequest: mac, root, base, fetch, now: () => clock };
+    const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: mac, root, base, fetch, now: () => clock };
     await hr.tick(stateNew(), deps);
     await pack(c, agentFolder(t));
     await hr.tick(stateNew(), deps);
@@ -605,7 +629,7 @@ test('round 5: a listed key stays fresh; an unreadable key waits; a day-long out
   {
     const root = fresh(t, 'data'), base = fresh(t, 'base');
     const c = coordinator(b, 'hrefin');
-    const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+    const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch, now: () => clock };
     await hr.tick(stateNew(), deps);
     await pack(c, agentFolder(t));
     const rw = require('./restoreworld');
@@ -625,7 +649,7 @@ test('round 5: a listed key stays fresh; an unreadable key waits; a day-long out
     const root = fresh(t, 'data'), base = fresh(t, 'base');
     const half = require('./restoreworld').prepareRestoreWorld(base, { member: 'q', memberId: 'hhalf', kind: 'handover' });
     hr.writeKey('hhalf', require('./hpke').hpkeKeyPair(), root, { restoring: half.world.id, expect: ['ledger'] });
-    await hr.tick(stateNew(), { org: () => ORG, root, base, fetch, macRequest: async (m, route) => (route === hr.MINE_ROUTE
+    await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, root, base, fetch, macRequest: async (m, route) => (route === hr.MINE_ROUTE
       ? { ok: true, data: { handovers: [{ id: 'hhalf', side: 'receive', state: 'packed', seal_pub: Buffer.alloc(32, 9).toString('base64') }] } } : { ok: true, data: {} }) });
     assert.equal(fs.existsSync(half.dir), false, 'removed before the hand-over ended');
   }
@@ -639,7 +663,7 @@ test('round 6: an oversize manifest is final; a 4xx spends an attempt; an unread
   {
     const root = fresh(t, 'data'), base = fresh(t, 'base');
     const c = coordinator(b, 'hbig');
-    const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+    const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch, now: () => clock };
     await hr.tick(stateNew(), deps);
     await pack(c, agentFolder(t));
     c.rec.manifest.size -= 1;   // the store serves more than the record says
@@ -650,7 +674,7 @@ test('round 6: an oversize manifest is final; a 4xx spends an attempt; an unread
   {
     const root = fresh(t, 'data'), base = fresh(t, 'base');
     const c = coordinator(b, 'hforb');
-    const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+    const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch, now: () => clock };
     await hr.tick(stateNew(), deps);
     await pack(c, agentFolder(t));
     const real = b.stored.get(c.rec.manifest.key);
@@ -668,7 +692,7 @@ test('round 6: an oversize manifest is final; a 4xx spends an attempt; an unread
     fs.chmodSync(f, 0o000);
     t.after(() => { try { fs.chmodSync(f, 0o600); } catch { /* gone */ } });
     const sent = [];
-    await hr.tick(stateNew(), { org: () => ORG, root, macRequest: async (m, route, body) => {
+    await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, root, macRequest: async (m, route, body) => {
       if (route === hr.MINE_ROUTE) return { ok: true, data: { handovers: [{ id: 'hreq', side: 'receive', state: 'requested' }] } };
       if (route === hr.KEY_ROUTE) sent.push(body.pubkey);
       return { ok: true, data: {} };
@@ -681,7 +705,7 @@ test('round 6: an oversize manifest is final; a 4xx spends an attempt; an unread
     // A finished copy whose received note was lost: the sweep and a final close leave it.
     const root = fresh(t, 'data'), base = fresh(t, 'base');
     const c = coordinator(b, 'hfin2');
-    const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+    const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch, now: () => clock };
     await hr.tick(stateNew(), deps);
     await pack(c, agentFolder(t));
     assert.equal((await hr.tick(stateNew(), deps)).ok, true);
@@ -701,7 +725,7 @@ test('round 7: finishing again keeps failing but the agents are in place: receiv
   t.after(() => b.close());
   const root = fresh(t, 'data'), base = fresh(t, 'base');
   const c = coordinator(b, 'hstuckfin');
-  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch };
+  const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch };
   await hr.tick(stateNew(), deps);
   await pack(c, agentFolder(t));
   assert.equal((await hr.tick(stateNew(), deps)).ok, true);
@@ -713,7 +737,7 @@ test('round 7: finishing again keeps failing but the agents are in place: receiv
   rw.finishRestoreWorld = () => ({ ok: false, because: 'this Kosmos already has files where the restore would put them' });
   let done = null;
   try {
-    await hr.tick(stateNew(), { org: () => ORG, root, base, fetch, macRequest: async (m, route, body) => {
+    await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, root, base, fetch, macRequest: async (m, route, body) => {
       if (route === hr.MINE_ROUTE) return { ok: true, data: { handovers: [{ id: 'hstuck2', side: 'receive', state: 'receiving', seal_pub: kp.pk.toString('base64'), sender_pubkey: null }] } };
       if (route === hr.DONE_ROUTE) { done = body; return { ok: true, data: {} }; }
       return { ok: true, data: {} };
@@ -732,7 +756,7 @@ test('round 8: a restore that throws is a counted try, bounded by the ceiling; a
   let clock = Date.now();
   const root = fresh(t, 'data'), base = fresh(t, 'base');
   const c = coordinator(b, 'hthrow');
-  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+  const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch, now: () => clock };
   await hr.tick(stateNew(), deps);
   await pack(c, agentFolder(t));
   const br = require('./backuprestore');
@@ -747,7 +771,7 @@ test('round 8: a restore that throws is a counted try, bounded by the ceiling; a
   const root2 = fresh(t, 'data');
   hr.writeKey('hthrow2', require('./hpke').hpkeKeyPair(), root2);
   const kp = hr.readKey('hthrow2', root2);
-  await hr.tick(stateNew(), { org: () => ORG, root: root2, base, fetch, receive: async () => { throw new Error('boom'); }, macRequest: async (m, route) => (route === hr.MINE_ROUTE
+  await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, root: root2, base, fetch, receive: async () => { throw new Error('boom'); }, macRequest: async (m, route) => (route === hr.MINE_ROUTE
     ? { ok: true, data: { handovers: [{ id: 'hthrow2', side: 'receive', state: 'packed', seal_pub: kp.pk.toString('base64') }] } } : { ok: true, data: {} }) });
   assert.equal(hr.readKey('hthrow2', root2).attempts, 1);
   hr.allowHttpForTests(false);
@@ -766,7 +790,7 @@ test('round 9: a try that fails after its finish put the agents in place, at the
   let clock = Date.now();
   const root = fresh(t, 'data'), base = fresh(t, 'base');
   const c = coordinator(b, 'hceil');
-  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+  const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch, now: () => clock };
   await hr.tick(stateNew(), deps);
   await pack(c, agentFolder(t));
   hr.updateKey('hceil', root, { attempts: hr.MAX_ATTEMPTS - 1 });   // this is the last try
@@ -786,10 +810,12 @@ test('end to end through BOTH halves: the real packer (handoversend.packInput) p
   const hs = require('./handoversend');
   const root = fresh(t, 'data'), base = fresh(t, 'base');
   const c = coordinator(b, 'hboth');
-  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch };
+  const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch };
   await hr.tick(stateNew(), deps);   // the successor's key
   const dir = agentFolder(t);
-  const p = hs.packInput({ id: 'hboth', seal_pub: c.rec.seal_pub, agents: ['Ledger'] }, ORG, {
+  // kosmos#8733: the sender's REAL tie check, on the signature this computer's REAL key step made.
+  const p = hs.packInput({ id: 'hboth', seal_pub: c.rec.seal_pub, agents: ['Ledger'], seal_sig: c.rec.seal_sig, seal_signer: seal.keyHex(SUCC.publicKey),
+    seal_member: 'm-succ', seal_history: signedHistory(ORG, 'm-succ', SUCC.publicKey) }, ORG, {
     survey: () => ({ ok: true, agents: [{ name: 'ledger', shownAs: 'Ledger', profile: true, removed: false }] }),
     inputsHere: () => ({ protect: [], workersDir: path.dirname(dir), agents: [{ id: 'ledger', dir }], projects: [], sessions: () => [] }),
     workerDir: () => dir,
@@ -806,4 +832,46 @@ test('end to end through BOTH halves: the real packer (handoversend.packInput) p
   const workers = worlds.envOverridesFor(base, w).AGENT_WORKFORCE_WORKERS;
   assert.equal(fs.readFileSync(path.join(workers, 'ledger', 'CLAUDE.md'), 'utf8'), '# You are Ledger\nYou keep the ledger.\n');
   assert.equal(fs.readFileSync(path.join(workers, 'ledger', 'Files', 'q3.txt'), 'utf8'), 'quarter three\n');
+});
+
+test('kosmos#8733: the key step signs with this computer\'s device key, or sends nothing; no sender history waits', async (t) => {
+  hr.allowHttpForTests(true);
+  const b = await bucket();
+  t.after(() => b.close());
+  // No device key here: no key is sent at all.
+  {
+    const c = coordinator(b, 'hnodk');
+    const r = await hr.tick(stateNew(), { org: () => ORG, deviceKey: () => ({ ok: false, because: 'no device key here' }), macRequest: c.recv, root: fresh(t, 'data'), base: fresh(t, 'base'), fetch });
+    assert.match(r.because, /no device key here/);
+    assert.equal(c.calls.filter(([x]) => x === hr.KEY_ROUTE).length, 0, 'nothing sent');
+    assert.equal(c.rec.state, 'requested');
+  }
+  // Signed by a key that is not this computer's: the coordinator (as kosmos-relay's /key) refuses it, so the fake checks.
+  {
+    const c = coordinator(b, 'hwrongdk');
+    const wrong = crypto.generateKeyPairSync('ed25519');
+    await hr.tick(stateNew(), { org: () => ORG, deviceKey: () => ({ ok: true, privateKey: wrong.privateKey }), macRequest: c.recv, root: fresh(t, 'data'), base: fresh(t, 'base'), fetch });
+    assert.equal(c.rec.state, 'requested', 'refused');
+    // CONTROL: this computer's own key is taken.
+    await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root: fresh(t, 'data'), base: fresh(t, 'base'), fetch });
+    assert.equal(c.rec.state, 'packing');
+  }
+  // escrowd could not be asked for the leaving member's history: not final, no /done, nothing restored; tried again.
+  {
+    const root = fresh(t, 'data'), base = fresh(t, 'base');
+    const c = coordinator(b, 'hnohist');
+    const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch };
+    await hr.tick(stateNew(), deps);
+    await pack(c, agentFolder(t));
+    c.rec.sender_history = null;
+    const r = await hr.tick(stateNew(), deps);
+    assert.equal(r.ok, false);
+    assert.equal(c.calls.filter(([x]) => x === hr.DONE_ROUTE).length, 0, 'no /done');
+    assert.equal(worlds.readRegistry(base).worlds.some((x) => /^Handed over/.test(x.name) && !x.hiddenAt), false, 'nothing restored');
+    assert.notEqual(hr.readKey('hnohist', root), null, 'the one-time key is kept for the next try');
+    // CONTROL: the history back, the same hand-over is received.
+    delete c.rec.sender_history;
+    const ok = await hr.tick(stateNew(), deps);
+    assert.equal(ok.ok, true, ok.because);
+  }
 });

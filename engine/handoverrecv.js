@@ -6,7 +6,8 @@
  * (KOSMOS_ORG_HANDOVER=1). For each /v1/mac/org/handover/mine row this computer receives (side 'receive'):
  *
  *   requested   make a one-time key pair, write its secret half to disk FIRST (<store.ROOT>/handover/<id>.key.json,
- *               mode 600, written whole), then POST /key {id, pubkey}. /key moves the record to `packing` once, so a
+ *               mode 600, written whole), then POST /key {id, pubkey, sig}
+ *               (sig: this computer's device key over the key, handoverseal.signSeal, kosmos#8733). /key moves the record to `packing` once, so a
  *               secret lost after its public half was accepted could never open the pack. A row still `requested`
  *               with a key on disk sends the same public half again (an answer that was lost).
  *   packing     wait for the leaving computer. A seal_pub that is not this computer's key (when the row carries one; a
@@ -40,8 +41,10 @@
  * KNOWN: the URL rules refuse a bare IP address and localhost, not a name that resolves to a private address, so a
  * hostile coordinator could still point this computer's reads at its own network; nothing it fetches is trusted.
  *
- * KNOWN, kosmos#8733: the one-time key this computer sends and the packing computer's key it is given both pass through
- * Kosmos+ unauthenticated. Hand-over is off everywhere until that is closed.
+ * kosmos#8733: the one-time key this computer sends is signed with its device key, and the packing computer's key is
+ * opened from only when escrowd's signed history lists it as the leaving member's (handoverseal.checkSender).
+ * KNOWN, kosmos#8764: the leaving member's identity and the pack's time are still Kosmos+'s word or now. Hand-over is
+ * off everywhere until that is closed.
  *
  * One hand-over at a time, never two ticks at once. Never throws.
  */
@@ -291,6 +294,12 @@ async function receive(part, org, kp, deps) {
   const fail = (because) => ({ ok: false, final: true, because });
   const senderPub = senderKeyOf(part.sender_pubkey);
   if (!senderPub) return fail('the computer that packed these agents is no longer known to Kosmos+');
+  // kosmos#8733: the packing key must be the LEAVING member's, by escrowd's signed history, never Kosmos+'s word. The
+  // time it is checked at is now until kosmos#8764 gives a signed pack time: stricter (a key revoked since the pack
+  // was made refuses it), never looser. No history (escrowd could not be asked) is tried again; the rest is final.
+  const nowSec = Math.floor(((d.now || Date.now)()) / 1000);
+  const tie = require('./handoverseal').checkSender({ org, member: part.sender_member, senderPub, history: part.sender_history, at: nowSec, now: nowSec });
+  if (!tie.ok) return part.sender_history == null ? { ok: false, because: tie.because } : fail(tie.because);
   const m = part.manifest || {};
   const prefix = `handover/${org}/${part.id}/`;
   if (typeof m.key !== 'string' || m.key !== `${prefix}manifest` || typeof m.sha256 !== 'string' || !Number.isSafeInteger(m.size) || m.size < 1) return fail('Kosmos+ has no record of this pack\'s manifest');
@@ -488,7 +497,12 @@ async function tick(state, deps) {
           kp = readKey(part.id, d.root);
           if (!kp || kp.problem) { last = { ok: false, id: part.id, because: 'the hand-over key could not be read back, so none was sent' }; continue; }
         }
-        const r = await mac('POST', KEY_ROUTE, { id: part.id, pubkey: b64(kp.pk) });
+        // kosmos#8733: signed with this computer's device key, so the leaving computer can tell it came from here.
+        const dk = (d.deviceKey || (() => require('./backupdevicekey').deviceKey()))();
+        if (!dk || !dk.ok) { last = { ok: false, id: part.id, because: (dk && dk.because) || 'this computer\'s device key could not be read, so no key was sent' }; continue; }
+        const sig = require('./handoverseal').signSeal(part.id, b64(kp.pk), dk.privateKey);
+        if (!sig) { last = { ok: false, id: part.id, because: 'the hand-over key could not be signed, so none was sent' }; continue; }
+        const r = await mac('POST', KEY_ROUTE, { id: part.id, pubkey: b64(kp.pk), sig });
         last = { ok: !!(r && r.ok), id: part.id, because: r && r.ok ? undefined : (r && r.because) };
         continue;
       }
