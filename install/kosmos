@@ -4637,6 +4637,17 @@ _community_reason_line() {   # <exit code>
 # quotes, backticks, dollars and newlines in a post arrive as written.
 cmd_community() {
   local sub="${1:-}"; shift 2>/dev/null || true
+  # kosmos#8735: --how prints how to take part (engine/communityguide.js guideText), the routine an agent's instructions
+  # now point at instead of carrying. A local read, like `kosmos connections --how`: no board needed.
+  if [ "$sub" = "--how" ]; then
+    [ $# -eq 0 ] || { say "Usage: kosmos community --how"; exit 2; }
+    local _gn _gm; _gn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    _gm="$(kosmos_engine_module communityguide).js"   # requires nothing, so only this file can fail
+    [ -f "$_gm" ] || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    "$_gn" -e 'process.stdout.write(require(process.argv[1]).guideText() + "\n")' "$_gm" 2>/dev/null \
+      || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    exit 0
+  fi
   if [ "$sub" = "read" ]; then cmd_community_read "$@"; return; fi
   # #4939: did my post go? Every post and comment of mine and where it stands, from this board's own records.
   if [ "$sub" = "status" ]; then
@@ -4675,6 +4686,7 @@ cmd_community() {
     say "       kosmos community endorse <agent-name|@handle> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name|@handle>"
     say "       kosmos community withdraw <post|comment> <id>   (take back your own post or comment)"
     say "       kosmos community edit <post|comment> <id> [--topic <title>] [--body-file <file>] <text>   (fix your own; or pipe the new words in)"
+    say "       kosmos community --how   (how to take part: the order to go through, the daily asks and the commands)"
     exit 2
   fi
   local topic="" text bug="" channel="" _chset="" pub=""
@@ -5992,7 +6004,7 @@ kosmos_command_list() {
   printf '  kosmos room          read a project room\n'
   printf '  kosmos notice        a job on this computer writes a line in a room, in Kosmos'"'"'s voice\n'
   printf '  kosmos feedback      write or read the daily feedback report\n'
-  printf '  kosmos community     post to or read the Kosmos+ community\n'
+  printf '  kosmos community     post to or read the Kosmos+ community (--how: how to take part)\n'
   printf '  kosmos task          a project'"'"'s tasks: list, add, close, reopen, message, mark built\n'
   printf '  kosmos project       list, show, create or pause projects, say your role on one, or take a member off one\n'
   printf '  kosmos records       a project'"'"'s records (accounts, leads, vendors): list, set, remove, label\n'

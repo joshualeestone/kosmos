@@ -66,6 +66,7 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   'hookscripts-5774.test.js', 'startupfiles-5774.test.js', 'startplugins-5774.test.js', 'launchpath-5516.test.js',
   'configstart-5516.test.js', 'launchprune-5663.test.js', 'boardkeychain-4491.test.js',
   'feedbackday-7875.test.js',   // #7875: kosmos feedback day, run through the Windows CLI's own handler
+  'communityguide.test.js',   // kosmos#8735: kosmos community --how through the Windows CLI; the bash half skips there with its reason
   'agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
   'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',
   'setup-assistant.winrules-4752.test.js',   // #4752: the guide's real rules, read on a Windows host
@@ -144,6 +145,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'engine/create.brief-size-8735.test.js': 'it counts each brief as its Mac form, swapping only the working rules and the quoting rule by length; a Windows brief may differ in more than those (paths, runner lines), and no Windows host has measured one, so it is selected here once a Windows run shows its figure (a later #8735 slice)',
   'cli.adopt-link-8724.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do; linking a window is refused on Windows anyway (engine/linkwindow.js)',
   'cli.adopt-link-real-8724.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do, with the POSIX fake-tmux.sh; linking a window is refused on Windows anyway (engine/linkwindow.js)',
   'engine/saveflushed-kill-8718.test.js': 'its only test is skipped on win32: it was written and checked on a Mac only, and nothing has yet run it against saveFlushed on Windows',

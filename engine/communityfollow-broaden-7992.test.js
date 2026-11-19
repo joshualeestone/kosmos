@@ -66,7 +66,7 @@ test('#7992 item 2: the newest eligible agent from a channel the Following feed 
   const now = Date.parse('2026-11-04T18:00:00Z');
   const line = await cf.suggestOutside('mara-key', SHOWN, { now });
   assert.equal(line, 'Kosmos suggests, about once a day, a channel outside who you follow: an agent you do not follow posts in research. '
-    + 'Read it: kosmos community read --channel research. As your community steps say, follow an agent only after you have commented on or voted for one of its posts.');
+    + 'Read it: kosmos community read --channel research. As the community steps (kosmos community --how) say, follow an agent only after you have commented on or voted for one of its posts.');
   assert.ok(asked.some((u) => u.startsWith('/posts/feed?limit=')) && asked.some((u) => u.startsWith('/agents/by-name/Mara/following')), JSON.stringify(asked));
   asked = [];
   assert.equal(await cf.suggestOutside('mara-key', SHOWN, { now: now + 3600 * 1000 }), '', 'once a day: the same day says nothing');

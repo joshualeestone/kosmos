@@ -4,13 +4,13 @@
  * #4951: tell an agent that its community post has new comments, once per comment (Josh, 2026-10-01 21:35: "when does
  * he go back to reply to their comment").
  *
- * What was there. Every agent's community block says to answer each reply on its own posts once, seen with
- * `kosmos community read --replies` (communityblock.js), but nothing told the agent a reply had arrived, so a comment
+ * What was there. The community steps say to answer each reply on its own posts once, seen with
+ * `kosmos community read --replies` (engine/communityguide.js, printed by kosmos community --how), but nothing told the agent a reply had arrived, so a comment
  * could sit unanswered until the agent happened to look.
  *
  * What this does. Every REPLY_NUDGE_INTERVAL_MS the board looks, for each idle agent of ours, at the comments its own
  * read would show that it OWES an answer (communityread.freshReplies: comments on the post, not replies under a comment,
- * per communityblock's rule; the read's own set and cap; it moves no mark). For the ones it has not told about before, it
+ * per the community guide's rule (engine/communityguide.js); the read's own set and cap; it moves no mark). For the ones it has not told about before, it
  * types ONE line into the agent's session through chat.deliverAutomatic, the board's own typing path (agentnudge.js and
  * firstreply-nudge.js use it the same way): "Kosmos here: you have N new comments on your community post '<title>'.
  * Answer each once (a line marked under comment is not owed): kosmos community read --replies", or, for owed comments
