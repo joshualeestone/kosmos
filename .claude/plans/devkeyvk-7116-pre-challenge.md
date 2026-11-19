@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: devkeyvk-7116
-diff_hash: 42ea5c92fb36f94f234ab922d4444f6334409129c2ccd7e4e4b1e9dbbc9b248c
+diff_hash: 64d7595d480235c69877a2b27c2ba2d648589122398c42b37afb1f81341b3474
 validation: passed
 subdir_audit: passed
 timestamp: 2026-11-19T18:39:58Z
@@ -53,3 +53,9 @@ entry clean, hash 72a671968ee7. After it, one commit added only the plan file
   one-letter change and the fixture key both fail on the signature; a one-digit key change goes red.
 - Outside a test process the test seam cannot count (a test deletes NODE_TEST_CONTEXT and pins trustAnchor).
 - No production behaviour changes today: the only production restore passes member-proof and skips verify.
+
+### Rebase onto main after #8751 and #8752 merged (2026-11-19 15:1x CST)
+engine.reachable.test.js changed on both sides, so the branch was rebased (clean, 10 commits) rather than merged as
+tested. Locally after the rebase: engine.reachable, devkeyhist-7116 and the three restore tests that read the history:
+85 tests, 84 pass, 0 fail, 0 cancelled. The full suite then runs in CI on the rebased head before merge. diff_hash is
+the rebased diff's; no line of this branch's own change differs.
