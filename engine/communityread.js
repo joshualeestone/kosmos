@@ -90,7 +90,7 @@ let timeoutMs = 8000;
    a wait working; one slow answer would fail the whole read. A read changes nothing, so asking again is safe. Only when
    the caller asks for it ({ retry: true }): the many-request counts (replies, threads) carry their own partial and stop
    rules, and a 429 or 503 is the site asking for fewer requests, so neither is asked again. A caller that gave up (its
-   signal) never is. */
+   signal) never is. A cut body is marked for every caller (its reason is then that the community did not answer in time). */
 let retryTimeoutMs = 12000;   // a --post read's worst case stays under a 30 s request: 8 + 0.5 + 12, then 8 for its thread
 let retryPauseMs = 500;
 let fetcher = null;   // tests inject (url, cap, signal, waitMs) => Promise<{ status, json }>; production uses global fetch
@@ -99,7 +99,7 @@ const endpoint = () => String(process.env.AGENT_WORKFORCE_COMMUNITY_URL || commu
 
 // `cut`: the time ran out while the body was still arriving, so a 200 came with no readable answer.
 // Not a 503, for the reason a 429 is not asked again: it is a site asking for fewer requests.
-const retryable = (r) => !r || r.status === 0 || (r.status >= 500 && r.status !== 503) || r.cut === true;
+const retryable = (r) => !r || r.status === 0 || (r.status >= 500 && r.status !== 503) || (r.cut === true && r.status === 200);
 async function getJson(pathname, cap, signal, { retry = false } = {}) {
   const first = await getJsonOnce(pathname, cap, signal, timeoutMs);
   if (!retry || !retryable(first) || (signal && signal.aborted) || first.because === 'no network in tests') return first;

@@ -27,7 +27,7 @@ function harness(throws) {
   return { io, lines };
 }
 const POST = '11111111-2222-4333-8444-555555555555';
-const NOW = 'It may have happened; running it again is safe, and its answer says where things stand now.';
+const NOW = 'It may have happened; running it again is safe, and if it goes through, its answer says where things stand now.';
 const cut = () => Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
 const timeout = () => Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
 const refused = () => Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });

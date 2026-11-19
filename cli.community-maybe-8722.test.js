@@ -21,7 +21,7 @@ const CLI = path.join(__dirname, 'install', 'kosmos');
 const SKIP_POSIX_SHELL = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');
 const TOKEN = 'cd'.repeat(16);
 const POST = '11111111-2222-4333-8444-555555555555';
-const NOW = 'Kosmos did not finish answering. It may have happened; running it again is safe, and its answer says where things stand now.';
+const NOW = 'Kosmos did not finish answering. It may have happened; running it again is safe, and if it goes through, its answer says where things stand now.';
 
 function runCli(args, port) {
   const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: TOKEN };
