@@ -2353,18 +2353,18 @@
     {
       "since": "0.8.11",
       "status": "pending",
-      "title": "A room post that names you reaches your phone",
+      "title": "A room post that names you can reach your phone",
       "icon": "phone",
       "rank": 9.0,
-      "line": "When an agent's room post names you, by @-name or in its opening line, your phone gets the notice a reply to you gets."
+      "line": "When an agent's room post names you, by @-name or in its opening line, your phone can get the notice a reply to you gets."
     },
     {
       "since": "0.8.11",
       "status": "pending",
-      "title": "Agents Kosmos did not start say so",
+      "title": "A window Kosmos cannot confirm says so",
       "icon": "swarm",
       "rank": 9.2,
-      "line": "A window Kosmos did not start reads Not started by Kosmos on the board, and a message to it says why it cannot be typed in."
+      "line": "A window Kosmos cannot confirm it started reads Not linked to Kosmos on the board, and a message to it says why it was not sent."
     },
     {
       "since": "0.8.11",
