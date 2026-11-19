@@ -312,6 +312,9 @@ async function tick(state, deps) {
         // try that uploaded is the earlier try's bytes, not the agents' size.
         let said = FINAL_CODES[code];
         // `spent`: an earlier try was granted bytes (kept on disk), counted or not, so the cap may hold its uploads.
+        // "No longer open" after an earlier try was granted bytes is most likely that try's manifest grant having moved the
+        // record to packed before its upload landed (the KNOWN note below): say so, not that the hand-over closed.
+        if (code === 'handover_wrong_state' && state.spent.has(part.id)) said = 'an earlier try may have left the pack half sent; your company can start the hand-over again';
         if (code === 'handover_too_big' && state.spent.has(part.id)) said = 'an earlier try used up the room Kosmos+ keeps for this hand-over; your company can start the hand-over again';
         let final = null;
         if (r.final || said) final = said || r.because || 'the pack did not finish';
