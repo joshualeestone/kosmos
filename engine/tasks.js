@@ -1368,11 +1368,14 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
     }
     /* kosmos#8734 (feedback): never-run is refused over a record that says it ran: a check reported on it (met or not:
        someone checked the work) or a built mark. Saying so in the close's answer instead would leave the record saying
-       both; a plain close, or a reopen first, is the way to record what happened. */
+       both; a plain close, or a reopen first, is the way to record what happened. A close takes the built mark away, so
+       for a closed task the built evidence is what the close kept: closedHow 'note' or 'change' (closedHowAt), or a
+       landed commit (review 2). */
     if (notRun) {
       const reported = (checkResultsOf(t) || []).filter(Boolean).length;
-      if (reported || t.builtAt) {
-        throw new Error('task ' + t.number + (reported ? ' has ' + (reported === 1 ? 'a check' : reported + ' checks') + ' reported on it' : ' is marked built')
+      const built = !!t.builtAt || t.closedHow === 'note' || t.closedHow === 'change' || (typeof t.landedCommit === 'string' && t.landedCommit !== '');
+      if (reported || built) {
+        throw new Error('task ' + t.number + (reported ? ' has ' + (reported === 1 ? 'a check' : reported + ' checks') + ' reported on it' : ' was marked built')
           + ', so it ran: it cannot be closed as never run. Close it without --not-run');
       }
     }

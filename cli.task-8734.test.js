@@ -169,8 +169,13 @@ test('#8734 item 3: the board refuses closing as never run a task with a check r
   assert.equal(isClosed(checked), false);
   r = await close(built, { notRun: true });
   assert.equal(r.status, 400);
-  assert.match((await r.json()).error, /is marked built, so it ran/);
+  assert.match((await r.json()).error, /was marked built, so it ran/);
   assert.equal(isClosed(built), false);
+  // Review 2: a close takes the built mark away; marking it never run afterwards is still refused.
+  r = await close(built, {});
+  assert.equal(r.status, 200, await r.text());
+  r = await close(built, { notRun: true });
+  assert.equal(r.status, 400, 'a built task, closed, was then marked never run');
   // CONTROL: a task with no record of running still closes as never run, and the checked one still closes plainly.
   r = await close(plain, { notRun: true });
   assert.equal(r.status, 200, await r.text());
