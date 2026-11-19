@@ -154,6 +154,11 @@ test('#7116 step 2 caller review 7: another admin\'s invite for the same member 
   const untied = fresh(); es.keepJoinCode(ORG, MEMBER, mine.code, { dataRoot: untied });
   const [late2] = await queue(Date.now() + 31 * 24 * 60 * 60 * 1000, untied);
   assert.equal(late2.prepared, null, 'an untied code past 30 days is refused too');
+  // Kitty: a record that is there but malformed refuses the entry as damage, never offers it as another admin's.
+  const broken = fresh(); fs.writeFileSync(path.join(broken, 'devkey-join-codes.json'), JSON.stringify({ [JSON.stringify([ORG, MEMBER])]: { code: 'zz', at: Date.now() } }));
+  const [dmg] = await queue(Date.now(), broken);
+  assert.equal(dmg.prepared, null);
+  assert.match(dmg.refused, /invite codes saved on this computer could not be read/);
   // A prepared entry reviewed before this Mac kept its code is refused at sign time: review it again.
   const late = enrolment(); const root3 = fresh();
   const unchecked = es.review(late.bytes, { dataRoot: root3 });

@@ -140,7 +140,11 @@ function forgetJoinCode(org, member, { dataRoot } = {}) {
    this Mac is like any admin without the code: the inviter's own check is then what escrowd relies on. */
 function storedCode(org, member, dataRoot) {
   const hit = readCodes(dataRoot)[keyOf(org, member)];
-  return hit && typeof hit.code === 'string' && /^[0-9a-f]{32}$/.test(hit.code) ? Buffer.from(hit.code, 'hex') : null;
+  if (hit === undefined) return null;
+  // Kitty's read of review 8: a record that is there but not a code is damage, refused, never "no code" (which would
+  // put this Mac back in the second admin's seat for what may be its own invite).
+  if (!hit || typeof hit.code !== 'string' || !/^[0-9a-f]{32}$/.test(hit.code)) throw Object.assign(new Error(DAMAGED), { damaged: true });
+  return Buffer.from(hit.code, 'hex');
 }
 function keptFor(decoded, { dataRoot, now } = {}) {
   const stored = storedCode(decoded.org, decoded.member, dataRoot);
