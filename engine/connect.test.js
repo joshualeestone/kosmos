@@ -2674,6 +2674,24 @@ for (const remote of [true, false]) {
   });
 }
 
+/* kosmos#8728 review 1: the OTHER launch, a bare first-run claude (no credential, no re-auth: needsLogin false), gets
+   the same opener when it was started remotely. Measured 11-19: the onboarding's own browser step honours BROWSER too. */
+driverTest('#8728: a remote-started FIRST-RUN sign-in (bare claude, no auth login) gives claude an opener that opens nothing', async () => {
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    await connect.start({ remoteStarted: true });
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    const made = term.all.find((a) => a[0] === 'new-session');
+    assert.ok(made, 'no sign-in session was launched');
+    assert.ok(!made.includes('auth'), 'this is the bare launch, not auth login: ' + JSON.stringify(made));
+    const at = made.indexOf('BROWSER=/usr/bin/true');
+    assert.ok(at > made.indexOf('env') && at === made.length - 2, 'the assignment sits right before the claude binary: ' + JSON.stringify(made));
+  } finally { subscription.setRunner(null); }
+});
+
 /**
  * ⭐ THE CONTROL. Without it the arm above is satisfied by a change that simply
  * stops short-circuiting for EVERYONE -- which would drag every genuinely

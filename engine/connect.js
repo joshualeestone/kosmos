@@ -1451,7 +1451,9 @@ async function tmux(args, opts) {
 /**
  * WHERE THE SIGN-IN PROGRAM RUNS, as the five things the driver asks of it:
  *
- *   open({ claudeBin, launchDir, needsLogin }) -> { ok, stdout, stderr, because? }
+ *   open({ claudeBin, launchDir, needsLogin, noOpener }) -> { ok, stdout, stderr, because? }
+ *     (noOpener, kosmos#8728: a remote-started sign-in; the Windows host replaces claude's opener for every sign-in
+ *     already, so it ignores the field)
  *   capture()                                  -> { ok, stdout, stderr }
  *   sendCode(code)                             -> { ok, stderr }
  *   sendEnter()                                -> { ok, stderr }
@@ -1608,8 +1610,9 @@ async function start(opts) {
   /* kosmos#8728: a sign-in started from a remote session (Kosmos+) must not open a browser on THIS computer's screen,
      where nobody is looking and where a press of Authorize would sign in whichever claude.ai account that browser
      holds (claude's self-opened link carries a localhost callback). The person uses the link the page shows and pastes
-     the code. Measured on 11-19 with Claude Code 2.1.328 on macOS: claude calls the program named in BROWSER, and
-     `open` only when BROWSER is unset. */
+     the code. Measured on 11-19 with Claude Code 2.1.328 on macOS, for both launches this file makes (`auth login
+     --claudeai` and a bare first-run claude): claude calls the program named in BROWSER, and `open` only when BROWSER
+     is unset; with an opener that exits 0 it still prints the link and reaches "Paste code here if prompted". */
   const remoteStarted = opts != null && opts.remoteStarted === true;
   /* A relative path here is a caller bug, and quietly resolving it against
      an unknowable cwd would sign somebody in to a directory nobody can
@@ -2646,12 +2649,12 @@ async function runFlow(owner, haveBinary) {
   await launchSignin(owner);
 }
 
+// kosmos#8728: what claude runs instead of a browser for a remote-started sign-in: exits 0, opens nothing.
+const TMUX_NO_OP_OPENER = '/usr/bin/true';
 /**
  * The command the tmux host runs in its new session, for one launch
- * (`{ claudeBin, launchDir, needsLogin }`, built by `launchSignin`).
+ * (`{ claudeBin, launchDir, needsLogin, noOpener }`, built by `launchSignin`).
  */
-// kosmos#8728: what claude runs instead of a browser for a remote-started sign-in: exits 0, opens nothing.
-const MAC_NO_OP_OPENER = '/usr/bin/true';
 function tmuxLaunchCommand(launch) {
   /**
    * ⚠️ DELIBERATELY UNQUOTED, and that is a measurement, not an oversight.
@@ -2717,7 +2720,7 @@ function tmuxLaunchCommand(launch) {
     cmd.push('-u', 'CLAUDE_CONFIG_DIR');
   }
   // kosmos#8728: claude's own opener does nothing for a remote-started sign-in (start(), remoteStarted).
-  if (launch.noOpener === true) cmd.push(`BROWSER=${MAC_NO_OP_OPENER}`);
+  if (launch.noOpener === true) cmd.push(`BROWSER=${TMUX_NO_OP_OPENER}`);
   cmd.push(launch.claudeBin);
 
   /* #1937: an EXPLICIT re-auth must run a REAL login, not a bare `claude`. A cold
