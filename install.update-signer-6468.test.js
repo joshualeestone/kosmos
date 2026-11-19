@@ -181,3 +181,24 @@ it('the installer calls it before the new runtime is first run, on the downloade
   assert.ok(fn < call && call < probe, 'the check must sit inside install_kosmos, before the runtime probe');
   assert.match(SETUP.slice(call - 120, call), /"\$from_network" = yes/);
 });
+
+/* kosmos#7116 (review 2 of sebundle-7116): kosmos-se, the Secure Enclave admin signer, is held to the installed signer
+   too (it signs admin approvals). Placed beside the tree's two parts by hand, so tree() stays as it is. */
+function withSe(root, src, adhoc = false) {
+  const dst = path.join(root, 'app/bin/kosmos-se');
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  fs.copyFileSync(src, dst);
+  fs.chmodSync(dst, 0o755);
+  if (adhoc) execFileSync('/usr/bin/codesign', ['--force', '-s', '-', dst], { stdio: 'ignore' });
+  return root;
+}
+it('#7116: an installed kosmos-se holds the update\'s copy to its signer; one signed by someone else is refused', () => {
+  const dest = withSe(tree('/bin/ls', '/bin/cat'), '/bin/cat');
+  // CONTROL: the update's kosmos-se signed like the installed one.
+  assert.equal(check(withSe(tree('/bin/ls', '/bin/cat'), '/bin/cat'), dest).code, 0);
+  const r = check(withSe(tree('/bin/ls', '/bin/cat'), '/bin/ls'), dest);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /kosmos-se is not signed by the same developer/);
+  // An install from before kosmos-se shipped has none, so the first update carrying it is not held (the signed manifest covers its bytes).
+  assert.equal(check(withSe(tree('/bin/ls', '/bin/cat'), '/bin/ls'), tree('/bin/ls', '/bin/cat')).code, 0);
+});

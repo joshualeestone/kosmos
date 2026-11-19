@@ -1175,3 +1175,17 @@ test('the command line end to end, against a copy of the tool that pins a test k
   assert.equal(disagree.status, 1, 'Cargo disagreeing refuses');
   assert.match(disagree.stderr, /^sbom: relay at [0-9a-f]{40}: Cargo does not agree the Cargo\.lock is what the Cargo\.toml files resolve to \(cargo is needed\): error: cannot update the lock file$/m);
 });
+
+/* kosmos#7116 (review 2 of sebundle-7116): build() itself checks the Secure Enclave admin signer's source when the
+   manifest ships app/bin/kosmos-se, so dropping that call from build() fails here, not only in checkSeHelper's own test. */
+test('#7116: a release that ships app/bin/kosmos-se is built only from a native-se source that imports Apple frameworks', () => {
+  const withSe = { ...MANIFEST, files: [...MANIFEST.files, { path: 'app/bin/kosmos-se', sha256: SHA('5') }] };
+  const se = (src) => ({ ...files(), [`K:${'a'.repeat(40)}:native-se/main.swift`]: src });
+  // Passes: CryptoKit, Foundation, LocalAuthentication.
+  assert.doesNotThrow(() => sbom(withSe, se('import CryptoKit\nimport Foundation\nimport LocalAuthentication\n')));
+  // Refused: a module the SBOM does not know, and a release whose app commit has no native-se source.
+  assert.throws(() => sbom(withSe, se('import Foundation\nimport SomePackage\n')), /native-se\/main\.swift imports SomePackage/);
+  assert.throws(() => sbom(withSe, files()), /native-se\/main\.swift is not in the app commit/);
+  // CONTROL: the same broken source is never read for a release that does not ship kosmos-se.
+  assert.doesNotThrow(() => sbom(MANIFEST, se('import SomePackage\n')));
+});
