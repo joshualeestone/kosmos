@@ -435,7 +435,7 @@ test('round 7: a try the board stopped part way counts, and may have used the ro
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('kosmos#8733: never packs to a key the successor\'s computer did not sign; no history waits, the rest is final', () => {
+test('kosmos#8733: never packs to a key the successor\'s computer did not sign; what may pass later waits, the rest is final', () => {
   const w = world();
   try {
     // CONTROL: the tied part packs, so each refusal below is the tie's.
@@ -444,12 +444,10 @@ test('kosmos#8733: never packs to a key the successor\'s computer did not sign; 
     const t = Math.floor(Date.now() / 1000);
     const cases = [
       ['signed by another computer (the coordinator swapping in its own key)', (p) => ({ seal_sig: seal.signSeal(p.id, p.seal_pub, other.privateKey) }), /not signed by the colleague's own computer/],
-      ['another computer named as the signer, with its own history', (p) => ({ seal_sig: seal.signSeal(p.id, p.seal_pub, other.privateKey), seal_signer: seal.keyHex(other.publicKey), seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, t) }), /not signed by the colleague's own computer/],
       ['no signature', () => ({ seal_sig: null }), /did not sign the key/],
       ['a history for another member', () => ({ seal_member: 'm-other' }), /could not be checked/],
       ['a history of another company', () => ({ seal_history: signedHistory('org2', 'm-succ', SUCC.publicKey, t) }), /could not be checked/],
       ['a history escrowd did not sign', (p) => ({ seal_history: Object.assign({}, p.seal_history, { signature: Buffer.alloc(64).toString('base64url') }) }), /could not be checked/],
-      ['a backfilled entry (the coordinator\'s word at the switch-over)', () => ({ seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, t, { backfill: true }) }), /not been enrolled by your company's admins/],
     ];
     for (const [why, patch, re] of cases) {
       const p = part();
@@ -459,8 +457,18 @@ test('kosmos#8733: never packs to a key the successor\'s computer did not sign; 
       assert.equal(r.input, undefined, `${why}: nothing to pack`);
       assert.match(r.because, re, why);
     }
-    // escrowd could not be asked: tried again later, never packed.
-    const r = hs.packInput(part({ seal_history: null }), 'org1', depsFor(w));
-    assert.deepEqual([r.ok, r.retryLater, r.final, r.input], [false, true, undefined, undefined]);
+    // May pass later: a retryLater (bounded by MAX_SOFT), never packed meanwhile.
+    const waits = [
+      ['escrowd could not be asked', () => ({ seal_history: null }), /could not get its device keys/],
+      ['another computer named as the signer, which escrowd does not list for the successor', (p) => ({ seal_sig: seal.signSeal(p.id, p.seal_pub, other.privateKey), seal_signer: seal.keyHex(other.publicKey) }), /not been enrolled by your company's admins yet/],
+      ['a backfilled entry (the coordinator\'s word at the switch-over)', () => ({ seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, t, { backfill: true }) }), /not been enrolled by your company's admins yet/],
+      ['a history dated ahead of this computer\'s clock', () => ({ seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, t + 3600) }), /dated in the future/],
+    ];
+    for (const [why, patch, re] of waits) {
+      const p = part();
+      const r = hs.packInput(Object.assign(p, patch(p)), 'org1', depsFor(w));
+      assert.deepEqual([r.ok, r.retryLater, r.final, r.input], [false, true, undefined, undefined], why);
+      assert.match(r.because, re, why);
+    }
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

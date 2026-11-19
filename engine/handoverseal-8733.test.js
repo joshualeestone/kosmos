@@ -34,24 +34,43 @@ test('a key signed by the successor\'s own computer, in escrowd\'s history, is a
   assert.deepEqual(seal.checkSeal(base()), { ok: true });
 });
 
-test('every substitution is refused: another signer, another key, another hand-over, another member\'s history, a forged history, none', () => {
+test('every substitution is refused, and each says whether it may pass later (wait) or never will', () => {
+  const FINAL = false, WAIT = true;
   const cases = [
-    ['signed by another key, claiming to be the successor', { sig: seal.signSeal('ho1', sealPub, other.privateKey) }, /not signed by the colleague's own computer/],
-    ['signed by another key that names itself', { sig: seal.signSeal('ho1', sealPub, other.privateKey), signer: hex(other) }, /not signed by the colleague's own computer/],
-    ['the one-time key swapped after signing', { sealPub: hpkeKeyPair().pk.toString('base64') }, /not signed by the colleague's own computer/],
-    ['a signature for another hand-over', { sig: seal.signSeal('ho2', sealPub, succ.privateKey) }, /not signed by the colleague's own computer/],
-    ['the leaving member\'s history in place of the successor\'s', { history: history('m-leave', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: false }]) }, /could not be checked/],
-    ['a history signed by someone other than escrowd', { history: history('m-succ', [{ kind: 'enrol', key: hex(other), at: NOW - 900, backfill: false }], { key: other.privateKey }), signer: hex(other), sig: seal.signSeal('ho1', sealPub, other.privateKey) }, /could not be checked/],
-    ['a key revoked before now', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: false }, { kind: 'revoke', key: hex(succ), at: NOW - 100 }]) }, /not signed by the colleague's own computer/],
-    ['no signature', { sig: undefined }, /did not sign/],
-    ['a key the backfill entered (the coordinator\'s word)', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: true }]) }, /not been enrolled by your company's admins/],
-    ['no history', { history: undefined }, /could not be checked/],
+    ['signed by another key, claiming to be the successor', { sig: seal.signSeal('ho1', sealPub, other.privateKey) }, /not signed by the colleague's own computer/, FINAL],
+    // Escrowd does not list that key for the successor at all: maybe an enrolment not finished, so it waits (bounded by
+    // the caller), and nothing is packed meanwhile.
+    ['signed by another key that names itself', { sig: seal.signSeal('ho1', sealPub, other.privateKey), signer: hex(other) }, /not been enrolled by your company's admins yet/, WAIT],
+    ['the one-time key swapped after signing', { sealPub: hpkeKeyPair().pk.toString('base64') }, /not signed by the colleague's own computer/, FINAL],
+    ['a signature for another hand-over', { sig: seal.signSeal('ho2', sealPub, succ.privateKey) }, /not signed by the colleague's own computer/, FINAL],
+    ['the leaving member\'s history in place of the successor\'s', { history: history('m-leave', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: false }]) }, /names a different member/, FINAL],
+    ['another company\'s history', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: false }], { org: 'o2' }) }, /names a different member/, FINAL],
+    ['a history signed by someone other than escrowd', { history: history('m-succ', [{ kind: 'enrol', key: hex(other), at: NOW - 900, backfill: false }], { key: other.privateKey }), signer: hex(other), sig: seal.signSeal('ho1', sealPub, other.privateKey) }, /escrowd's signature on the device key history did not check/, FINAL],
+    ['a key revoked before now', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: false }, { kind: 'revoke', key: hex(succ), at: NOW - 100 }]) }, /no longer the colleague's/, FINAL],
+    ['no signature', { sig: undefined }, /did not sign/, FINAL],
+    ['a key the backfill entered (the coordinator\'s word)', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: true }]) }, /not been enrolled by your company's admins yet/, WAIT],
+    ['no history (escrowd could not be asked)', { history: undefined }, /could not get its device keys/, WAIT],
+    ['a null history', { history: null }, /could not get its device keys/, WAIT],
+    ['a history too old to trust', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 200000, backfill: false }], { issuedAt: NOW - 100000 }) }, /too old/, WAIT],
+    ['a history dated ahead of this computer\'s clock', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: false }], { issuedAt: NOW + 3600 }) }, /dated in the future/, WAIT],
   ];
-  for (const [label, patch, why] of cases) {
+  for (const [label, patch, why, wait] of cases) {
     const r = seal.checkSeal(Object.assign(base(), patch));
     assert.equal(r.ok, false, label);
     assert.match(r.because, why, label);
+    assert.equal(r.wait === true, wait, `${label}: ${wait ? 'waits' : 'final'}`);
   }
+});
+
+// The relay's own vector (kosmos-relay coordinator/src/handover.rs tests): the bytes /key verifies. A change to
+// sealMessage on either side fails here or there, never only in production.
+test('sealMessage matches kosmos-relay handover.rs seal_message byte for byte', () => {
+  const ID = '0123456789abcdef0123456789abcdef';
+  const SEAL_PUB = Buffer.alloc(32, 9).toString('base64');
+  const MSG_HEX = '000000176b6f736d6f732d68616e646f7665722d7365616c207631000000203031323334353637383961626364656630313233343536373839616263646566000000200909090909090909090909090909090909090909090909090909090909090909';
+  assert.equal(seal.sealMessage(ID, SEAL_PUB).toString('hex'), MSG_HEX);
+  const sk = crypto.createPrivateKey({ key: Buffer.concat([PKCS8, Buffer.alloc(32, 7)]), format: 'der', type: 'pkcs8' });
+  assert.equal(seal.signSeal(ID, SEAL_PUB, sk), '03TeUTpwlMzWgCmpCoCTceW-4KHH1kjfD7BpFHgON39FX6AIWDnYK0re1fVYs_bSHqRv1-oan9KeRgufx0eTAQ');
 });
 
 test('without the test key, only escrowd\'s SHIPPED key counts, so a history signed by any other key is refused', () => {
@@ -68,9 +87,17 @@ test('the packing key must be the leaving member\'s at the grant time', () => {
   const lh = history('m-leave', [{ kind: 'enrol', key: hex(leaver), at: NOW - 900, backfill: false }, { kind: 'revoke', key: hex(leaver), at: NOW - 100 }]);
   const o = { org: 'o1', member: 'm-leave', senderPub: leaver.publicKey, history: lh, at: NOW - 200, now: NOW };
   assert.deepEqual(seal.checkSender(o), { ok: true }, 'valid when the pack was granted, though revoked since');
-  assert.match(seal.checkSender(Object.assign({}, o, { at: NOW - 50 })).because, /not signed by the leaving member's own computer/);
-  assert.match(seal.checkSender(Object.assign({}, o, { senderPub: other.publicKey })).because, /not signed by the leaving member's own computer/);
-  assert.match(seal.checkSender(Object.assign({}, o, { member: 'm-succ' })).because, /could not be checked/);
+  const r = (patch) => seal.checkSender(Object.assign({}, o, patch));
+  // Final: listed for the leaving member, but not valid then (revoked); a history for another member.
+  assert.match(r({ at: NOW - 50 }).because, /not signed by the leaving member's own computer/);
+  assert.equal(r({ at: NOW - 50 }).wait, undefined, 'revoked is final');
+  assert.match(r({ member: 'm-succ' }).because, /names a different member/);
+  assert.equal(r({ member: 'm-succ' }).wait, undefined);
+  // Waiting: a packing key escrowd does not list at all (an enrolment not finished), a backfill entry, no history.
+  assert.match(r({ senderPub: other.publicKey }).because, /not been enrolled by your company's admins yet/);
+  assert.equal(r({ senderPub: other.publicKey }).wait, true);
   const bf = history('m-leave', [{ kind: 'enrol', key: hex(leaver), at: NOW - 900, backfill: true }]);
-  assert.match(seal.checkSender(Object.assign({}, o, { history: bf })).because, /not been enrolled by your company's admins/);
+  assert.equal(r({ history: bf }).wait, true);
+  assert.equal(r({ history: null }).wait, true);
+  assert.match(r({ history: null }).because, /could not get its device keys/);
 });

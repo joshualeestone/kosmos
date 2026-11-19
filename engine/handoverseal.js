@@ -16,8 +16,13 @@
  *   checkSender(o)                     the receiving computer, before it opens: the packing key is one of the LEAVING
  *                                      member's keys at the time the pack was granted.
  *
- * Both checks refuse with a sentence, never throw. They refuse every history until escrowd's history key ships in
- * engine/devkeyhist.js (VERIFYING_KEY, #7116): a hand-over then fails closed, said, rather than trusting the coordinator.
+ * Both checks refuse with a sentence, never throw, and say whether the refusal may pass later ({ wait: true }) or never
+ * will. Waiting (nothing is packed or opened meanwhile, and the caller bounds the wait): escrowd could not be asked (no
+ * history), a history too old or dated ahead of this computer's clock, a signer escrowd does not list YET, or one listed
+ * only as a backfill entry (both: an enrolment the company's admins have not finished). Final: a signature that does not
+ * check, a history for another member or company or not signed by escrowd, a key escrowd lists but not as valid then
+ * (revoked). escrowd's history key ships in engine/devkeyhist.js (VERIFYING_KEY), which is the only key trusted outside
+ * a node test process.
  */
 const crypto = require('crypto');
 const devkeyhist = require('./devkeyhist');
@@ -26,6 +31,16 @@ const SEAL_TAG = Buffer.from('kosmos-handover-seal v1');
 const SPKI_ED25519 = Buffer.from('302a300506032b6570032100', 'hex');
 const HEX32 = /^[0-9a-f]{64}$/;
 const PLAIN = /^[A-Za-z0-9_-]{1,64}$/;
+// devkeyhist.verify refusals that a fresh history can pass: freshness and clock, not identity.
+const STALE = /too old to trust|dated in the future/;
+const no = (because) => ({ ok: false, because });
+const later = (because) => ({ ok: false, wait: true, because });
+/* The key's entry valid at t, or why not: { e } | { absent: true } (escrowd does not list it at all) | { invalid: true }. */
+function entryAt(keys, hex, t) {
+  const e = devkeyhist.keyAt(keys, hex, t);
+  if (e) return { e };
+  return Array.isArray(keys) && keys.some((k) => k && k.key === hex) ? { invalid: true } : { absent: true };
+}
 
 function put(b) { const n = Buffer.alloc(4); n.writeUInt32BE(b.length); return Buffer.concat([n, b]); }
 /* The signed message: the tag, the hand-over id and the one-time public key's raw 32 bytes. null for an unusable input. */
@@ -58,34 +73,39 @@ function checkSeal(o) {
   try {
     const x = o || {};
     const msg = sealMessage(x.id, x.sealPub);
-    if (!msg) return { ok: false, because: 'the key for this hand-over is not one this computer can check' };
-    if (typeof x.sig !== 'string' || !/^[A-Za-z0-9_-]+$/.test(x.sig)) return { ok: false, because: 'the colleague\'s computer did not sign the key for this hand-over' };
+    if (!msg) return no('the key for this hand-over is not one this computer can check');
+    if (typeof x.sig !== 'string' || !/^[A-Za-z0-9_-]+$/.test(x.sig)) return no('the colleague\'s computer did not sign the key for this hand-over');
+    if (x.history == null) return later('the colleague\'s computer could not be checked yet: Kosmos+ could not get its device keys from the key service');
     const h = devkeyhist.verify(x.history, { org: x.org, member: x.member, now: x.now });
-    if (!h.ok) return { ok: false, because: `the colleague's computer could not be checked: ${h.because}` };
-    const e = devkeyhist.keyAt(h.keys, x.signer, x.now);
-    if (!e) return { ok: false, because: 'the key for this hand-over was not signed by the colleague\'s own computer' };
-    // A backfilled entry is the coordinator's word at the switch-over: never enough to seal a member's work to.
-    if (e.backfill !== false) return { ok: false, because: 'the colleague\'s computer has not been enrolled by your company\'s admins yet' };
+    if (!h.ok) return (STALE.test(h.because) ? later : no)(`the colleague's computer could not be checked: ${h.because}`);
     const pub = publicKeyOfHex(x.signer);
-    if (!pub || !crypto.verify(null, msg, pub, Buffer.from(x.sig, 'base64url'))) return { ok: false, because: 'the key for this hand-over was not signed by the colleague\'s own computer' };
+    if (!pub || !crypto.verify(null, msg, pub, Buffer.from(x.sig, 'base64url'))) return no('the key for this hand-over was not signed by the colleague\'s own computer');
+    const at = entryAt(h.keys, x.signer, x.now);
+    if (at.absent) return later('the colleague\'s computer has not been enrolled by your company\'s admins yet');
+    if (at.invalid) return no('the key for this hand-over was signed by a computer that is no longer the colleague\'s');
+    // A backfilled entry is the coordinator's word at the switch-over: never enough to seal a member's work to.
+    if (at.e.backfill !== false) return later('the colleague\'s computer has not been enrolled by your company\'s admins yet');
     return { ok: true };
-  } catch { return { ok: false, because: 'the key for this hand-over could not be checked' }; }
+  } catch { return no('the key for this hand-over could not be checked'); }
 }
 
-/* o: { org, member (the leaving member's id), senderPub (an Ed25519 public KeyObject), history, at (the pack's grant
-   time, Unix s), now }. { ok: true } or { ok: false, because }. */
+/* o: { org, member (the leaving member's id), senderPub (an Ed25519 public KeyObject), history, at (when the key must
+   have been valid, Unix s: the receiver passes now until kosmos#8764 gives a signed pack time), now }.
+   { ok: true } or { ok: false, wait?, because }. */
 function checkSender(o) {
   try {
     const x = o || {};
     const hex = keyHex(x.senderPub);
-    if (!hex) return { ok: false, because: 'the computer that packed these agents is not known' };
+    if (!hex) return no('the computer that packed these agents is not known');
+    if (x.history == null) return later('the computer that packed these agents could not be checked yet: Kosmos+ could not get its device keys from the key service');
     const h = devkeyhist.verify(x.history, { org: x.org, member: x.member, now: x.now });
-    if (!h.ok) return { ok: false, because: `the computer that packed these agents could not be checked: ${h.because}` };
-    const e = devkeyhist.keyAt(h.keys, hex, x.at);
-    if (!e) return { ok: false, because: 'the pack was not signed by the leaving member\'s own computer' };
-    if (e.backfill !== false) return { ok: false, because: 'the computer that packed these agents has not been enrolled by your company\'s admins' };
+    if (!h.ok) return (STALE.test(h.because) ? later : no)(`the computer that packed these agents could not be checked: ${h.because}`);
+    const at = entryAt(h.keys, hex, x.at);
+    if (at.absent) return later('the computer that packed these agents has not been enrolled by your company\'s admins yet');
+    if (at.invalid) return no('the pack was not signed by the leaving member\'s own computer');
+    if (at.e.backfill !== false) return later('the computer that packed these agents has not been enrolled by your company\'s admins yet');
     return { ok: true };
-  } catch { return { ok: false, because: 'the computer that packed these agents could not be checked' }; }
+  } catch { return no('the computer that packed these agents could not be checked'); }
 }
 
 module.exports = { SEAL_TAG, sealMessage, signSeal, checkSeal, checkSender, keyHex };

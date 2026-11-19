@@ -31,9 +31,9 @@ const ESCROWD = crypto.generateKeyPairSync('ed25519');
 dkh.setVerifyingKeyForTests(ESCROWD.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32));
 const SUCC = crypto.generateKeyPairSync('ed25519');
 const SUCC_DK = () => ({ ok: true, privateKey: SUCC.privateKey, publicKey: SUCC.publicKey });
-function signedHistory(org, member, publicKey, extra) {
+function signedHistory(org, member, publicKey, extra, more) {
   const t = Math.floor(Date.now() / 1000);
-  const entries = [Object.assign({ kind: 'enrol', key: seal.keyHex(publicKey), at: 0, backfill: false }, extra || {})];
+  const entries = [Object.assign({ kind: 'enrol', key: seal.keyHex(publicKey), at: 0, backfill: false }, extra || {})].concat(more || []);
   return { org, member, entries, issuedAt: t, signature: crypto.sign(null, dkh.encodeHead(org, member, entries, t), ESCROWD.privateKey).toString('base64url') };
 }
 const md5 = (b) => crypto.createHash('md5').update(b).digest('base64');
@@ -203,9 +203,8 @@ test('refusals end the hand-over as failed, once, and leave no Kosmos: a foreign
     ['key lost from this computer', (c, root) => { fs.rmSync(path.join(root, 'handover'), { recursive: true, force: true }); }, /no longer on this computer/],
     ['no sender_pubkey', (c) => { c.rec.sender_pubkey = null; }, /no longer known to Kosmos\+/],
     // kosmos#8733: the packing key checked against escrowd's signed history for the LEAVING member.
-    ['a packing key escrowd does not list for the leaving member', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-leave', crypto.generateKeyPairSync('ed25519').publicKey); }, /not signed by the leaving member's own computer/],
-    ['a history for another member', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-other', c.sender.publicKey); }, /could not be checked/],
-    ['a backfilled entry for the packing key', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-leave', c.sender.publicKey, { backfill: true }); }, /not been enrolled by your company's admins/],
+    ['a packing key escrowd lists for the leaving member but revoked', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-leave', c.sender.publicKey, null, [{ kind: 'revoke', key: seal.keyHex(c.sender.publicKey), at: 1 }]); }, /not signed by the leaving member's own computer/],
+    ['a history for another member', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-other', c.sender.publicKey); }, /names a different member/],
     ['manifest not the recorded one', (c) => { c.rec.manifest.sha256 = sha256b(Buffer.from('other')); }, /not the one Kosmos\+ recorded/],
     ['a chunk that is not what was signed', (c) => { const k = [...b.stored.keys()].find((x) => x.startsWith(c.prefix) && !x.endsWith('manifest')); const v = b.stored.get(k); v.body = Buffer.from(v.body); v.body[v.body.length - 1] ^= 1; }, /not what its sender signed/],
   ];
@@ -856,22 +855,38 @@ test('kosmos#8733: the key step signs with this computer\'s device key, or sends
     await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root: fresh(t, 'data'), base: fresh(t, 'base'), fetch });
     assert.equal(c.rec.state, 'packing');
   }
-  // escrowd could not be asked for the leaving member's history: not final, no /done, nothing restored; tried again.
-  {
+  // May pass later (escrowd not reachable, a packing key not listed yet, a backfill entry): an OUTAGE. No attempt spent
+  // however many ticks, no /done and nothing restored, until OUTAGE_LIMIT_MS; then final, said once.
+  const waits = [
+    ['escrowd could not be asked', () => null],
+    ['a packing key escrowd does not list yet', () => signedHistory(ORG, 'm-leave', crypto.generateKeyPairSync('ed25519').publicKey)],
+    ['a backfilled entry for the packing key', (c) => signedHistory(ORG, 'm-leave', c.sender.publicKey, { backfill: true })],
+  ];
+  for (const [label, hist] of waits) {
     const root = fresh(t, 'data'), base = fresh(t, 'base');
-    const c = coordinator(b, 'hnohist');
-    const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch };
-    await hr.tick(stateNew(), deps);
+    const id = 'hw' + crypto.randomBytes(4).toString('hex');
+    const c = coordinator(b, id);
+    let clock = Date.now();
+    const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, fetch, now: () => clock };
+    const st = stateNew();
+    await hr.tick(st, deps);
     await pack(c, agentFolder(t));
-    c.rec.sender_history = null;
-    const r = await hr.tick(stateNew(), deps);
-    assert.equal(r.ok, false);
-    assert.equal(c.calls.filter(([x]) => x === hr.DONE_ROUTE).length, 0, 'no /done');
-    assert.equal(worlds.readRegistry(base).worlds.some((x) => /^Handed over/.test(x.name) && !x.hiddenAt), false, 'nothing restored');
-    assert.notEqual(hr.readKey('hnohist', root), null, 'the one-time key is kept for the next try');
-    // CONTROL: the history back, the same hand-over is received.
-    delete c.rec.sender_history;
-    const ok = await hr.tick(stateNew(), deps);
-    assert.equal(ok.ok, true, ok.because);
+    c.rec.sender_history = hist(c);
+    // Past MAX_ATTEMPTS hourly ticks, well inside the outage window: still waiting.
+    for (let i = 0; i < hr.MAX_ATTEMPTS + 3; i++) { await hr.tick(st, deps); clock += hr.RETRY_MS + 1; }
+    assert.equal(c.calls.filter(([x]) => x === hr.DONE_ROUTE).length, 0, `${label}: no /done after ${hr.MAX_ATTEMPTS + 3} ticks`);
+    assert.equal(worlds.readRegistry(base).worlds.some((x) => /^Handed over/.test(x.name) && !x.hiddenAt), false, `${label}: nothing restored`);
+    assert.notEqual(hr.readKey(id, root), null, `${label}: the one-time key is kept`);
+    if (label === 'escrowd could not be asked') {
+      // CONTROL: the history back, the same hand-over is received.
+      delete c.rec.sender_history;
+      const ok = await hr.tick(st, deps);
+      assert.equal(ok.ok, true, ok.because);
+    } else {
+      // Bounded: past OUTAGE_LIMIT_MS from the first wait, ended once.
+      clock += 24 * 60 * 60 * 1000;
+      await hr.tick(st, deps);
+      assert.equal(c.calls.filter(([x, body]) => x === hr.DONE_ROUTE && body.ok === false).length, 1, `${label}: ended after the outage window`);
+    }
   }
 });

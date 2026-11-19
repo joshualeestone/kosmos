@@ -229,10 +229,11 @@ function packInput(part, org, deps) {
   if (!pk || pk.length !== 32 || pk.toString('base64') !== part.seal_pub || !sealable(pk)) return { ok: false, final: true, because: 'the key for this hand-over is not one this computer can seal to' };
   // kosmos#8733: never seal to a key only Kosmos+ vouches for. The successor's computer signed it with its device key,
   // and that key must be one escrowd's signed history lists for the successor, enrolled by two admins. No history
-  // (escrowd could not be asked) is tried again later; any other refusal is final, and nothing is packed either way.
+  // (escrowd could not be asked), a stale history or an enrolment not finished yet (checkSeal's wait) is tried again as
+  // a retryLater, bounded by MAX_SOFT; any other refusal is final. Nothing is packed either way.
   const nowSec = Math.floor(((d.now || Date.now)()) / 1000);
   const tie = require('./handoverseal').checkSeal({ org, member: part.seal_member, id: part.id, sealPub: part.seal_pub, sig: part.seal_sig, signer: part.seal_signer, history: part.seal_history, now: nowSec });
-  if (!tie.ok) return part.seal_history == null ? { ok: false, retryLater: true, because: tie.because } : { ok: false, final: true, because: tie.because };
+  if (!tie.ok) return tie.wait ? { ok: false, retryLater: true, because: tie.because } : { ok: false, final: true, because: tie.because };
   let rows;
   try { const sv = (d.survey || (() => require('./register').survey()))(); if (!sv || !sv.ok) return { ok: false, retryLater: true, because: (sv && sv.because) || 'the agents on this computer could not be read' }; rows = sv.agents; } catch { return { ok: false, retryLater: true, because: 'the agents on this computer could not be read' }; }
   const names = resolveNames(part.agents, rows);

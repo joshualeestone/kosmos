@@ -294,12 +294,14 @@ async function receive(part, org, kp, deps) {
   const fail = (because) => ({ ok: false, final: true, because });
   const senderPub = senderKeyOf(part.sender_pubkey);
   if (!senderPub) return fail('the computer that packed these agents is no longer known to Kosmos+');
-  // kosmos#8733: the packing key must be the LEAVING member's, by escrowd's signed history, never Kosmos+'s word. The
-  // time it is checked at is now until kosmos#8764 gives a signed pack time: stricter (a key revoked since the pack
-  // was made refuses it), never looser. No history (escrowd could not be asked) is tried again; the rest is final.
+  // kosmos#8733: the packing key must be the LEAVING member's, by escrowd's signed history, never Kosmos+'s word. It
+  // is checked at now until kosmos#8764 gives a signed pack time. Mostly stricter (a key revoked since the pack was made
+  // refuses it), with one case looser: a key enrolled AFTER the pack would pass. That needs two admins to enrol it,
+  // and is listed on #8764. checkSender's wait (escrowd not reachable, a stale history, an enrolment not finished) is an
+  // outage: no attempt spent, ended after OUTAGE_LIMIT_MS; the rest is final.
   const nowSec = Math.floor(((d.now || Date.now)()) / 1000);
   const tie = require('./handoverseal').checkSender({ org, member: part.sender_member, senderPub, history: part.sender_history, at: nowSec, now: nowSec });
-  if (!tie.ok) return part.sender_history == null ? { ok: false, because: tie.because } : fail(tie.because);
+  if (!tie.ok) return tie.wait ? { ok: false, outage: true, because: tie.because } : fail(tie.because);
   const m = part.manifest || {};
   const prefix = `handover/${org}/${part.id}/`;
   if (typeof m.key !== 'string' || m.key !== `${prefix}manifest` || typeof m.sha256 !== 'string' || !Number.isSafeInteger(m.size) || m.size < 1) return fail('Kosmos+ has no record of this pack\'s manifest');
