@@ -20,12 +20,16 @@ refuse, failed job) with perturbation controls, and a browser-check arm on the r
   (runner from the profile, Qwen/vendor accounts, policy hold), so the job is written exactly as Repair writes it.
 - server.js: `linkedWithoutJob(name)`: the board's card is ours AND its tmux session is exactly the agent's name AND the
   survey row qualifies. POST /api/agent/:name/restart: a no-job refusal on such an agent gets `canWriteJob` and the new
-  sentence; `{ writeJob: true }` re-checks, then writes the job inside the restart (beforeSteps: repair linked, model
-  as Repair reads it), so a refused restart leaves no job. A failed job stops there, with its reason; a job written
+  sentence, only for a caller that sends `offerJob` (the restart dialog; the restart line, Start, Add instructions and
+  the CLI keep the engine sentence); `{ writeJob: true }` re-checks, then writes the job inside the restart
+  (beforeSteps: repair linked, model as Repair reads it), so a restart refused by its quiet-hours, cap, busy or
+  deleting checks leaves no job. A refusal inside restartSteps after that (a session it cannot tie) leaves the job in
+  place, and the answer says it is set up. A failed job stops there, with its reason; a job written
   whose restart did not take says so.
 - web/index.html: RST_WRITE_JOB; on a `canWriteJob` refusal the Restart button reads "Set up and restart" and its next
   press sends writeJob; any other refusal withdraws it (label back to Restart) and a fresh open resets it. While it is
-  offered the hand-off button is hidden (it would send a plain restart). Same rules in the handoff-then-restart path.
+  offered the hand-off button is hidden (it would send a plain restart). The handoff-then-restart path does not ask
+  for the offer (its relabelled press would skip pointing the fresh session at its handoff).
   The link dialog's sentence "the board cannot restart it" now says restarting may first need the set-up.
 
 ## Decided
@@ -39,6 +43,9 @@ refuse, failed job) with perturbation controls, and a browser-check arm on the r
 - Rejected: reusing the notice path (`only` alone): it requires a run record and an unhidden notice, which a
   hand-started window may not have.
 
+- Not on Windows (a link is refused there, and a Scheduled Task's start beside a live agent is unproven), and not on a
+  board in a named world (its sessions carry the world suffix, so none equals the name): both keep the plain refusal.
+
 ## Weakest premise
 That installJob's start, with the linked session already live, adopts it rather than starting a second one.
 supervisor.adopt-linked-8724.test.js runs the real bin/agent-supervisor.sh against a fake tmux reporting a session
@@ -47,7 +54,7 @@ against a real tmux and launchd end to end.
 
 ## Tests
 - engine/register.linked-8724.test.js (4; perturbation of the linked branch: 3 red).
-- server.restart-linkjob-8724.test.js (7; perturbation of the session-name guard: the zara-discord arm red; a gate
+- server.restart-linkjob-8724.test.js (9; callers without offerJob keep the engine sentence; a refused repair; perturbation of the session-name guard: the zara-discord arm red; a gate
   refusal writes no job; a written job whose restart did not take says so).
 - supervisor.adopt-linked-8724.test.js (2; the real supervisor adopts a linked Claude window; control kills a shell).
 - docs/browser-checks/render-restart-kloader-2831.js arm 3 (offer, hand-off hidden, relabel, writeJob body, reopen

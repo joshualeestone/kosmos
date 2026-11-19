@@ -82,9 +82,10 @@ test.after(() => {
   try { server.close(); } catch { /* already down */ }
   fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
+/* The restart dialog's plain press sends { offerJob: true }; `post` sends that unless a body is given. */
 const post = async (name, body) => {
   const r = await fetch(`${base}/api/agent/${encodeURIComponent(name)}/restart`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}),
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || { offerJob: true }),
   });
   return { code: r.status, j: await r.json() };
 };
@@ -98,8 +99,17 @@ test('#8724 a linked window with no job: the refusal offers to set it up, and sa
   assert.match(r.j.because, /different account/);
   /* It says nothing about who started the window: an agent Kosmos once started whose job went missing qualifies too. */
   assert.doesNotMatch(r.j.because, /by hand/);
-  assert.doesNotMatch(r.j.because, /—/);
+  assert.doesNotMatch(r.j.because, /\u2014/);
   assert.deepEqual(repairs, [], 'a plain Restart wrote a job without being asked');
+});
+
+test('#8724 a caller that did not ask for the offer (restart line, Start, the CLI) keeps the engine sentence; CONTROL above', async () => {
+  for (const body of [{}, { cause: 'instructions' }, { offerJob: 'yes' }]) {
+    const r = await post('zara', body);
+    assert.equal(r.code, 400, JSON.stringify(body));
+    assert.notEqual(r.j.canWriteJob, true, JSON.stringify(body) + ': offered: ' + JSON.stringify(r.j));
+    assert.match(r.j.because, /was not started by Kosmos/, JSON.stringify(body));
+  }
 });
 
 test('#8724 no offer for a window that is not linked, one linked under another session name, or a job state we cannot prove', async () => {
@@ -150,10 +160,21 @@ test('#8724 a restart its own checks refuse (quiet hours, cap, busy) writes no j
 });
 
 test('#8724 set up but the restart did not take: the answer says the job is there', async () => {
-  afterJob = { outcome: removal.OUTCOME.PARTIAL, steps: [{ label: 'close its window', ok: false }], because: 'We could not close its window.' };
+  /* The engine's PARTIAL sentence ends with its RESTART_CHANGED_NOTHING tail, which the job has made untrue. */
+  afterJob = { outcome: removal.OUTCOME.PARTIAL, steps: [{ label: 'close its window', ok: false }],
+    because: `We could not close its window, so it is still running. ${removal.RESTART_CHANGED_NOTHING}` };
   const r = await post('zara', { writeJob: true });
   assert.equal(r.j.jobWritten, true, JSON.stringify(r.j));
-  assert.match(r.j.because, /^We could not close its window\. Kosmos did set zara up to start on its own from now on\.$/);
+  assert.match(r.j.because, /^We could not close its window, so it is still running\. Kosmos did set zara up to start on its own from now on\.$/);
+  assert.doesNotMatch(r.j.because, /Nothing was changed/);
+});
+
+test('#8724 a repair that refuses (it no longer needs it) says so, without a contradiction', async () => {
+  repairAnswer = { ok: false, refused: true, because: 'that agent does not need this', results: [] };
+  const r = await post('zara', { writeJob: true });
+  assert.equal(r.code, 400, JSON.stringify(r.j));
+  assert.equal(r.j.because, 'zara does not need setting up, so nothing was changed.');
+  assert.deepEqual(acted, []);
 });
 
 test('#8724 a job that could not be written stops before the restart, with the reason', async () => {

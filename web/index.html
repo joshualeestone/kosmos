@@ -54683,9 +54683,11 @@ document.getElementById('rst-go').addEventListener('click', async () => {
   const restoreConfirm = () => { RST_BUSY = false; clearLoader(); showConfirm(true); go.textContent = wasGo; go.disabled = false; hgo.disabled = false; if (RST_WRITE_JOB) hgo.hidden = true; };
   try {
     /* kosmos#8724: after the engine offered it, this press also writes the agent's launch job first. */
-    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', RST_WRITE_JOB
-      ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ writeJob: true }) }
-      : { method: 'POST' });
+    /* offerJob: this dialog can act on the set-up offer, so the engine may make it (other callers never get it). */
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(RST_WRITE_JOB ? { writeJob: true } : { offerJob: true }),
+    });
     const out = await res.json().catch(() => null);
     /* 🛑 THE OUTCOME, NOT THE STATUS CODE. This asked only whether the response
        was `ok`, and the route answers 400 for a REFUSED restart and 200 for
@@ -54952,16 +54954,6 @@ document.getElementById('rst-handoff-go').addEventListener('click', async () => 
   if (!restartTook(resOk, out)) {
     restoreConfirm();
     setStatus(restartFailureLine(out));
-    /* kosmos#8724: the handoff is written; the plain Restart button, relabelled, now sets the agent up and restarts it. */
-    /* The same rule as the Restart button's own refusal: offered once, withdrawn on any other refusal. */
-    if (out && out.canWriteJob === true && !RST_WRITE_JOB) {
-      RST_WRITE_JOB = true;
-      document.getElementById('rst-go').textContent = 'Set up and restart';
-      hgo.hidden = true;
-    } else if (RST_WRITE_JOB) {
-      RST_WRITE_JOB = false;
-      if (RST_GO_LABEL) document.getElementById('rst-go').textContent = RST_GO_LABEL;
-    }
     return;
   }
   // Hold the loader for the remainder of the floor so the hold plays in full.

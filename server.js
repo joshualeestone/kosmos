@@ -4376,11 +4376,16 @@ function claimantFor(name) {
 // card/askingCard matches had. Single-sourced so the two direct-thread routes do
 // not carry two copies of one derivation.
 /* kosmos#8724: a window the person linked to Kosmos by hand (engine/linkwindow.js) whose agent still has no launch job.
+   On a board running in a named world the agent's sessions carry the world's suffix, so none matches here and those
+   keep the plain refusal (safe: no offer, no job).
    The board's own card for it, marked ours, whose tmux session is exactly the agent's name: the job's supervisor looks
    for `=<name>` (bin/agent-supervisor.sh TARGET) and adopts a marked live session of that name, so a linked `zara-discord`
    would not be found and the job would start a second Zara beside it. Those are left as they are. The job half (profile,
    folder, not removed, a proven absent job) is register.repair's own check, run again when it acts. */
 function linkedWithoutJob(name) {
+  /* Not on Windows: a link is refused there (engine/linkwindow.js), and nothing has shown that a Scheduled Task written
+     and started while the agent's process is live adopts it rather than starting a second one. */
+  if (process.platform === 'win32') return false;
   try {
     const card = paneRoster().find((a) => a && a.sessionName === name);
     if (!card || card.isNamedOurs !== true || card.session !== name) return false;
@@ -11370,6 +11375,9 @@ const server = http.createServer(async (req, res) => {
            any other. A job that could not be written stops here with its reason, and nothing was restarted. */
         const shown = (() => { try { return status.readIdentity(name).displayName || name; } catch { return name; } })();
         const wantsJob = !!(body && body.writeJob === true);
+        /* The offer is made only to a caller that can act on it (the restart dialog sends offerJob); every other caller
+           of this route (the restart line, Add instructions, Start, the CLI) keeps the engine's own sentence. */
+        const offerJob = !!(body && body.offerJob === true);
         if (wantsJob && !linkedWithoutJob(name)) {
           sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, steps: [], because: `${shown} does not need setting up, so nothing was changed.` });
           return;
@@ -11381,6 +11389,9 @@ const server = http.createServer(async (req, res) => {
         const beforeSteps = !wantsJob ? undefined : () => {
           let rep = null;
           try { rep = register.repair({ only: name, linked: true, modelFor: linkedModelFor }); } catch { rep = null; }
+          if (rep && rep.refused === true) {
+            return { outcome: removal.OUTCOME.REFUSED, steps: [], because: `${shown} does not need setting up, so nothing was changed.` };
+          }
           const one = rep && rep.ok && Array.isArray(rep.results) ? rep.results[0] : null;
           if (!one || one.ok !== true) {
             const why = (one && one.because) || (rep && rep.because) || 'something went wrong';
@@ -11398,12 +11409,13 @@ const server = http.createServer(async (req, res) => {
         if (jobWritten) {
           out = { ...out, jobWritten: true };
           /* Set up, but the restart itself did not take: the job is there now and starts the agent at the next login. */
+          /* switchRestartWhy drops the engine's "Nothing was changed." tail, which is no longer true once the job is in. */
           if (out.outcome !== removal.OUTCOME.RESTARTED) {
-            out.because = `${out.because || 'The restart did not finish.'} Kosmos did set ${shown} up to start on its own from now on.`;
+            out.because = `${switchRestartWhy(out) || 'The restart did not finish.'} Kosmos did set ${shown} up to start on its own from now on.`;
           }
         }
         /* kosmos#8724: refused only for want of a job, on a linked window of exactly that name: say what Kosmos can do. */
-        if (out.outcome === removal.OUTCOME.REFUSED && out.noJob === true && !wantsJob && linkedWithoutJob(name)) {
+        if (offerJob && out.outcome === removal.OUTCOME.REFUSED && out.noJob === true && !wantsJob && linkedWithoutJob(name)) {
           out = {
             ...out,
             canWriteJob: true,
