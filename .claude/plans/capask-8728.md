@@ -48,7 +48,10 @@ earlier board's tunnel is being ended the sentence is "still starting", with a c
 3: a restart on the same binary after the budget ran out asks once and no more; pending for no tunnel here, no child,
 and the child's status not yet read, with the control that clears it.
 Mutations, each red: no self-retry (2 red), no starting sentence (1), no longer retry limit (1), no cap (1), no clear in
-forget (1), no foreign-window pending (1, set or read). Existing: server.remotestepup-6595.test.js and
+forget (1), no foreign-window pending (1, set or read); review 3: forget resetting the count (1), the per-binary reset (1),
+the log's per-binary count (1), the status-not-read arm (1). Two separate "no tunnel here" and "no child" lines were
+removed rather than tested: each mutation left every test green because the status-not-read line already returns true
+in both cases, which the comment there now says. Existing: server.remotestepup-6595.test.js and
 server.stepupbutton-6616.test.js unchanged and green (47 with the new file).
 
 ## Known and left
