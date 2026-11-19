@@ -37,7 +37,7 @@ That stopping the Listener cleanly while idle never loses an already-assigned jo
 real behaviour on Mortals is PigeonPete's install check.
 
 ## Tests
-- tools/test-ci-runner-claim-pause-8761.sh (34 checks, in test:shell). Perturbed (15:41 CST, on c9156b8d2e): liveness
+- tools/test-ci-runner-claim-pause-8761.sh (40 checks, in test:shell). Perturbed (15:41 CST, on c9156b8d2e): liveness
   as `kill -0` instead of `ps -p` fails the live-claim checks; restored from HEAD.
 
 ## Decided in review
@@ -46,4 +46,4 @@ real behaviour on Mortals is PigeonPete's install check.
   cut-guard does (cut-guard's caller is the claim's own user; here a permissions change is the likely cause).
 - A loaded KeepAlive true is refused before any stop (read as ci-runner-setup.sh's loaded_always). A runner still
   running within 90 s of this pause's stop is waited on; after 90 s it is refused loudly (no stop loop).
-- Tests: 34 checks.
+- Tests: 40 checks. Round 3: no Listener is waited on (setup refuses the same state); a claim clearing while the stopped runner is still ending keeps the marker (else the runner stays down).

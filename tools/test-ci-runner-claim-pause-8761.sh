@@ -40,6 +40,7 @@ cat > "$T/bin/pgrep" <<EOF
 #!/bin/bash
 echo "\$*" >> "$T/pgrepcalls"
 [ -f "$T/pgrepbroken" ] && exit 3
+case "\$*" in *" -f "*) [ -f "$T/nolistener" ] && exit 1; exit 0 ;; esac
 [ -f "$T/busy" ] && exit 0
 exit 1
 EOF
@@ -58,7 +59,7 @@ tick() {
 rc() { cat "$T/rc"; }
 called() { grep -q -- "$1" "$T/calls"; }
 : > "$T/pgrepcalls"
-reset() { chmod 755 "$T/claims" 2>/dev/null; rm -rf "$CLAIM"; rm -f "$T/insystem" "$T/kaalways" "$T/kasuccess" "$T/daemons/$LABEL.plist" "$T/running" "$T/busy" "$T/notloaded" "$T/killfails" "$T/kickfails" "$T/pgrepbroken" "$T/state/paused-by-claim" "$CLAIM"; : > "$T/running"; }
+reset() { chmod 755 "$T/claims" 2>/dev/null; rm -rf "$CLAIM"; rm -f "$T/nolistener" "$T/insystem" "$T/kaalways" "$T/kasuccess" "$T/daemons/$LABEL.plist" "$T/running" "$T/busy" "$T/notloaded" "$T/killfails" "$T/kickfails" "$T/pgrepbroken" "$T/state/paused-by-claim" "$CLAIM"; : > "$T/running"; }
 
 # Precondition: kill -0 really cannot see pid 1 as this user, so the control below means something.
 if kill -0 1 2>/dev/null; then echo "skip test-ci-runner-claim-pause-8761: kill -0 1 succeeds here (running as root?)"; exit 0; fi
@@ -66,6 +67,7 @@ if kill -0 1 2>/dev/null; then echo "skip test-ci-runner-claim-pause-8761: kill 
 
 # 1. A live claim held by ANOTHER user's live process (pid 1), runner idle: stopped, marker written.
 reset; echo "c1 1 $((NOW + 3600)) mortals 0.8.11 cut" > "$CLAIM"; tick
+grep -qxF -- "-u 501 -f ^$(printf '%s' "$T/home/actions-runner" | sed 's/[.]/[.]/g')/bin[^/]*/Runner[.]Listener( |\$)" "$T/pgrepcalls" && pass "this runner's Listener is looked for by its argv start (-u 501 -f)" || fail "the Listener lookup was asked: $(tr '\n' ';' < "$T/pgrepcalls")"
 grep -qx -- "-u 501 -x Runner.Worker" "$T/pgrepcalls" && pass "a job is looked for as Runner.Worker of this uid (-u 501 -x)" || fail "the process lookup was asked: $(tr '\n' ';' < "$T/pgrepcalls")"
 if [ "$(rc)" = 0 ] && called "kill SIGTERM gui/501/$LABEL" && [ -f "$T/state/paused-by-claim" ]; then pass "live claim (another user's pid), idle: stopped with SIGTERM, marker written"; else fail "live claim, idle: rc $(rc), calls: $(tr '\n' ';' < "$T/calls") out: $(cat "$T/out")"; fi
 grep -q "0.8.11 cut" "$T/out" && pass "says whose claim it is" || fail "the line names the claim: $(cat "$T/out")"
@@ -108,6 +110,12 @@ reset; : > "$T/kaalways"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 1 ] && ! called kill && [ ! -f "$T/state/paused-by-claim" ] && pass "KeepAlive true loaded: not stopped, no marker, exit 1" || fail "keepalive true: rc $(rc) $(cat "$T/out")"
 reset; : > "$T/kasuccess"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 0 ] && called "kill SIGTERM" && pass "CONTROL: KeepAlive {SuccessfulExit: false} loaded: stopped" || fail "keepalive success: rc $(rc) $(cat "$T/out")"
+reset; : > "$T/nolistener"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
+[ "$(rc)" = 0 ] && ! called kill && [ ! -f "$T/state/paused-by-claim" ] && grep -q "no Listener" "$T/out" && pass "service up but no Listener (restarting or updating): waits, no stop" || fail "no listener: rc $(rc) $(cat "$T/out")"
+reset; : > "$T/state/paused-by-claim"; tick
+[ "$(rc)" = 0 ] && ! called kickstart && [ -f "$T/state/paused-by-claim" ] && pass "claim cleared while the stopped runner is still ending: no kickstart yet, marker kept" || fail "clear while ending: rc $(rc) $(tr '\n' ';' < "$T/calls")"
+reset; : > "$T/state/paused-by-claim"; touch -t 202001010000 "$T/state/paused-by-claim"; tick
+[ "$(rc)" = 0 ] && ! called kickstart && [ ! -f "$T/state/paused-by-claim" ] && pass "claim cleared, runner already running long after the stop: marker dropped, no kickstart" || fail "cleared running: rc $(rc)"
 reset; rm -f "$T/running"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 0 ] && ! called kill && [ ! -f "$T/state/paused-by-claim" ] && pass "live claim, stopped by hand, no marker: left alone, no marker written" || fail "hand-stopped under claim: rc $(rc)"
 reset; : > "$T/killfails"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
@@ -117,7 +125,10 @@ reset; rm -f "$CLAIM"; : > "$T/state/paused-by-claim"; rm -f "$T/running"; : > "
 reset; : > "$T/notloaded"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 0 ] && ! called kill && pass "not loaded: nothing to pause" || fail "not loaded: rc $(rc)"
 
-# 6b. A claim this user cannot read: no claim (the runner keeps running), but said, and exit 1.
+# 6b. A claim this user cannot read: nothing changes (a running runner keeps running, a paused one stays paused), said,
+# exit 1.
+reset; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; chmod 000 "$CLAIM"; tick; chmod 644 "$CLAIM"
+[ "$(rc)" = 1 ] && ! called kill && grep -q "cannot read" "$T/out" && pass "claim file unreadable in a readable folder: nothing changes, said, exit 1" || fail "unreadable file: rc $(rc) $(cat "$T/out")"
 reset; mkdir "$CLAIM"; tick
 [ "$(rc)" = 1 ] && ! called kill && grep -q "cannot read" "$T/out" && pass "claim path is a folder: not paused, said, exit 1" || fail "claim dir: rc $(rc) $(cat "$T/out")"
 reset; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; chmod 000 "$T/claims"; tick; chmod 755 "$T/claims"
@@ -140,6 +151,8 @@ cp "$AGENT" "$T/agent.keep"; sed "s|<string>$T/home/actions-runner</string>|<str
 reset; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 2 ] && ! called kill && pass "a plist whose WorkingDirectory is another runner's: not followed, exit 2" || fail "other wd: rc $(rc) $(cat "$T/out")"
 cp "$T/agent.keep" "$AGENT"
+printf '%s\n' "$T/home/Library/LaunchAgents/com.example.other.plist" > "$T/home/actions-runner/.service"; reset; tick
+[ "$(rc)" = 2 ] && pass ".service naming a LaunchAgent that is not actions.runner.*: exit 2" || fail "not a runner plist: rc $(rc)"
 printf '%s\n' "$T/elsewhere/$LABEL.plist" > "$T/home/actions-runner/.service"; reset; tick
 [ "$(rc)" = 2 ] && pass ".service naming a plist outside this home's LaunchAgents: exit 2" || fail "outside: rc $(rc)"
 

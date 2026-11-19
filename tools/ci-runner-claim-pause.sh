@@ -1,22 +1,26 @@
 #!/bin/bash
 # kosmos#8761: a kosmos-ci runner that takes no job while ANOTHER user's machine claim is live (Mortals: a release cut
-# holds the box). One tick: run it every minute from its own LaunchAgent (how, below under "Installing it").
+# holds the box; a queued heavy turn writes the same file, "queued run", and pauses it too, which is wanted: the box is
+# busy either way). One tick: run it every minute from its own LaunchAgent (how, below under "Installing it").
 # Why not wait inside the job: tools/run-tests.sh does wait on the claim, but inside a job whose suite times out at 45
 # minutes, so during a two-hour cut the runner would take queued jobs and time each one out red. Why not refuse in
 # the job-started hook: a hook that exits non-zero fails the job red too. So the runner is stopped between jobs.
 #
 # Each tick:
-#   - claim live, runner running, no job (no Runner.Worker of this user): stop it the way the keepalive stage does,
-#     `launchctl kill SIGTERM`, so the Listener ends its GitHub session. Its KeepAlive {SuccessfulExit: false} does not
-#     restart a clean exit. A marker records that THIS pause stopped it.
-#   - claim live, a job running: leave it; the job finishes and a later tick stops the runner.
-#   - no live claim, marker present: `launchctl kickstart` the runner and remove the marker.
-#   - no live claim, no marker: nothing. A runner someone stopped by hand is never started here.
+#   - claim live, runner running with its Listener up, no job (no Runner.Worker of this user): stop it as the keepalive
+#     stage does, `launchctl kill SIGTERM`, so the Listener ends its GitHub session. Its KeepAlive {SuccessfulExit:
+#     false} does not restart a clean exit. A marker records that THIS pause stopped it. Refused before any stop: a
+#     loaded KeepAlive true (it would restart at once). Waited on: a job running, or no Listener (restarting or
+#     self-updating).
+#   - no live claim, marker present: `launchctl kickstart` the runner and remove the marker (once it has finished
+#     stopping: within 90 s of the stop it may still be ending).
+#   - no live claim, no marker: nothing, and nothing logged. A runner someone stopped by hand is never started here.
+#   - the claim cannot be read (its folder closed, not a file, no read permission): nothing changes, exit 1 every tick.
 #
 # A live claim, read as tools/lib/cut-guard.sh writes it: "<cookie> <pid> <expiry-epoch> <host> <label...>", at least
-# five fields, numeric pid and expiry, expiry in the future, and the holder alive. Anything else is no claim (fail
-# open, as cut-guard does: a garbled file must never park the runner). Two differences from cut-guard, both because
-# this runs as a DIFFERENT user from the claim's holder:
+# five fields, numeric pid and expiry, expiry in the future, and the holder alive. A garbled or stale file is no claim
+# (fail open, as cut-guard does: it must never park the runner). Two differences from cut-guard, both because this
+# runs as a DIFFERENT user from the claim's holder:
 #   - alive is `ps -p <pid>`, not `kill -0`: across users kill -0 says "operation not permitted" (rc 1) for a live
 #     process, the same rc as a dead one, so it would read every live cut as crashed (measured 11-19, pid 1);
 #   - the claim file is never removed here, live or stale: it is the holder's.
@@ -30,7 +34,8 @@
 # Trust boundary: the runner's home is writable by its jobs, so a trusted job (ci-runner-job-guard.sh's model) can
 # rewrite .service or the marker; a rewritten .service must still name a LaunchAgent directly in this home whose
 # WorkingDirectory is the runner dir (as ci-runner-setup.sh's runner_plist), and a planted marker only makes a tick
-# refuse loudly. Neither can make it stop a different job.
+# refuse loudly. A job that rewrites both .service and another runner's plist could aim the SIGTERM at that runner;
+# that gains it nothing, since a job of this user can already run launchctl itself.
 #
 # Installing it (kosmos#8761: the Mortals install is PigeonPete's half, after this lands): as the runner user, a copy
 # fetched and checked exactly as ci-runner-setup.sh's header "HOW kosmos-ci GETS THIS SCRIPT" says (curl the file at a
@@ -63,8 +68,7 @@ claim_live() {
   local line pid exp label now
   [ -f "$CLAIM" ] && [ -r "$CLAIM" ] || return 1
   line="$(cat "$CLAIM" 2>/dev/null)" || return 1
-  # cut-guard counts fields per line of the whole file, so more than one line is no claim there; the same here.
-  [ "$(printf '%s\n' "$line" | wc -l | tr -d ' ')" = 1 ] || return 1
+  # One count per line of the whole file, as cut-guard: more than one line is not a number, so no claim (there too).
   [ "$(printf '%s' "$line" | awk '{print NF}')" -ge 5 ] 2>/dev/null || return 1
   pid="$(printf '%s' "$line" | awk '{print $2}')"
   exp="$(printf '%s' "$line" | awk '{print $3}')"
@@ -118,6 +122,13 @@ if live="$(claim_live)"; then
     [ "$age" -ge 90 ] || { say "$why; $label was told to stop ${age}s ago and is still ending"; exit 0; }
     say "$why, but $label runs again ${age}s after this pause stopped it (started by hand or by launchd, or the stop never happened): not stopping it again; remove $MARK to let the pause act"; exit 1
   fi
+  # The service runs but no Listener of THIS runner does: between Listeners, or self-updating (it moves bin/ while
+  # none runs). A SIGTERM now could end the updater half way (ci-runner-setup.sh's keepalive refuses the same state).
+  # Matched as setup's own_listener_re: this runner dir's bin*/Runner.Listener by its argv start, not the relay's.
+  lre="^$(printf '%s' "$RUNNER_DIR" | sed 's/[.]/[.]/g')/bin[^/]*/Runner[.]Listener( |\$)"
+  lrc=0; "$PGREP" -u "$uid" -f "$lre" >/dev/null 2>&1 || lrc=$?
+  [ "$lrc" -lt 2 ] || { say "$why, but pgrep failed (exit $lrc), so the Listener cannot be checked: not stopping"; exit 1; }
+  [ "$lrc" = 0 ] || { say "$why; $label runs but no Listener of $RUNNER_DIR does (restarting or self-updating): waiting for the next tick"; exit 0; }
   wrc=0; "$PGREP" -u "$uid" -x Runner.Worker >/dev/null 2>&1 || wrc=$?
   [ "$wrc" -lt 2 ] || { say "$why, but pgrep failed (exit $wrc), so a job cannot be ruled out: not stopping"; exit 1; }
   [ "$wrc" = 1 ] || { say "$why; a job is running, so the runner is left to finish it"; exit 0; }
@@ -136,11 +147,20 @@ if [ ! -d "$cdir" ] || [ ! -x "$cdir" ] || { [ -e "$CLAIM" ] && { [ ! -f "$CLAIM
   say "cannot read $CLAIM (missing or closed folder, not a file, or no read permission): nothing changed, the runner stays $([ -f "$MARK" ] && echo paused || echo as it is)"
   exit 1
 fi
+if [ -f "$MARK" ] && [ -n "$rpid" ]; then
+  # The claim cleared while the runner this pause stopped still shows a pid. Within 90 s it is still ending: a
+  # kickstart now would do nothing to a running service, and the old Listener's clean exit would then leave it down
+  # with no marker to bring it back, so keep the marker and wait. Later, it was started some other way: nothing to undo.
+  age=$(( $(date +%s) - $(stat -f %m "$MARK" 2>/dev/null || echo 0) ))
+  [ "$age" -ge 90 ] || { say "no live claim; $label was told to stop ${age}s ago and is still ending: starting it once it has"; exit 0; }
+  rm -f "$MARK"; say "no live claim; $label is already running (started another way)"; exit 0
+fi
 if [ -f "$MARK" ]; then
   "$LAUNCHCTL" kickstart "$dom/$label" >/dev/null 2>&1 || { say "no live claim, but launchctl kickstart $dom/$label failed (if it is not loaded: launchctl bootstrap $dom $plist); the marker stays, so the next tick tries again"; exit 1; }
   rm -f "$MARK"
   say "no live claim; $label was started again (this pause had stopped it)"
   exit 0
 fi
-say "no live claim; nothing to do"
+# Nothing to do is the common case, every minute: say nothing, so the log holds only what changed or went wrong.
+[ -z "${KOSMOS_CI_PAUSE_VERBOSE:-}" ] || say "no live claim; nothing to do"
 exit 0
