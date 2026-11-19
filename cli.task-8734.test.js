@@ -131,6 +131,7 @@ const EXTRA = [
   [['--not-run', '--bogus'], /^\s*--bogus is not an option of kosmos task close/m],
   [['--with-built', '--bogus'], /^\s*--bogus is not an option of kosmos task close/m],
   [['--not-run', 'oops'], /^\s*kosmos task close takes no more words than its usage shows/m],
+  [['oops', '--bogus'], /^\s*--bogus is not an option of kosmos task close/m],   // review 8: an option after a plain word is still named
 ];
 test('#8734 item 2: Mac task close names the extra word, never the valid option before it', { skip: SKIP_POSIX_SHELL }, async () => {
   const n = newTask('Mac extra word');
@@ -222,6 +223,7 @@ test('#8734 item 3: the board refuses closing as never run a task with a check r
   // Marking it never run afterwards is refused too: the check is still on record after the close.
   r = await close(checked, { notRun: true });
   assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /has a check reported met, so it ran: it cannot be marked never run\. It stays closed as it is/);
 });
 const checkedTask = (name) => {
   const n = newTask(name);
@@ -243,6 +245,14 @@ test('#8734 item 3: closing several as never run, one refused: it stays open, th
   assert.match(w.err + w.out, new RegExp('task ' + a + '[^\\n]*cannot be closed as never run'), w.err + w.out);
   assert.equal(isClosed(a), false, 'the refused task closed');
   assert.equal(isClosed(b), true, 'the others did not close: ' + w.err + w.out);
+});
+test('#8734 item 3: the Mac CLI closes the others when one of several is refused never run', { skip: SKIP_POSIX_SHELL }, async () => {
+  const a = checkedTask('Mac bulk checked');
+  const b = newTask('Mac bulk never started');
+  const m = await mac(['task', 'close', pid, String(a), String(b), '--not-run']);
+  assert.match(m.out, new RegExp('task ' + a + '[^\\n]*cannot be closed as never run'), m.out);
+  assert.equal(isClosed(a), false, 'the refused task closed');
+  assert.equal(isClosed(b), true, 'the others did not close: ' + m.out);
 });
 test('#8734 item 3: the Windows CLI says the refusal in the board\'s words', async () => {
   const n = checkedTask('Checked for the Windows CLI');

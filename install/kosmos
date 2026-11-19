@@ -6509,7 +6509,7 @@ cmd_task() {
       else
         # kosmos#7412: several numbers close several tasks, each as one close is. Every word after the first number must
         # be a number too; an option (or --replaced-by after more than one number) is refused before anything closes.
-        local _cw
+        local _cw _cplain=""
         for _cw in "${@:3}"; do
           case "$_cw" in
             --replaced-by) say "--replaced-by takes one task: close the others on their own."; exit 2 ;;
@@ -6517,9 +6517,10 @@ cmd_task() {
             # kosmos#8734 (feedback): an unknown option is named itself, and a plain word blames no option. _no_more_words named
             # the FIRST option after the number, so `close p 3 --not-run x` blamed the valid --not-run.
             --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task close" "$_cusage" "$_cw" target ;;
-            ''|*[!0-9]*) say "kosmos task close takes no more words than its usage shows, so nothing was done. Quote anything of more than one word."; say "$_cusage"; exit 2 ;;
+            ''|*[!0-9]*) _cplain=1 ;;   # review 8: said after the loop, so an unknown option later in the line is still named
           esac
         done
+        [ -z "$_cplain" ] || { say "kosmos task close takes no more words than its usage shows, so nothing was done. Quote anything of more than one word."; say "$_cusage"; exit 2; }
         # The board's own limit for closing several at once (server.js BULK_CLOSE_MAX), refused before anything is sent.
         local _cn=$(($# - 1)) _cf; for _cf in "${@:3}"; do case "$_cf" in --with-built|--not-run) _cn=$((_cn - 1)) ;; esac; done   # the flag is not a task
         [ "$_cn" -le 200 ] || { say "Close up to 200 tasks at a time: run it again with the rest."; exit 2; }
