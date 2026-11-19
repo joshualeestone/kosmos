@@ -8,7 +8,7 @@
  *
  * install() gives stdout and stderr one listener: a closed reader exits with 141 (128 + SIGPIPE, what a shell reports
  * for a program a closed pipe stopped); any other stream error is thrown again, so the program still crashes with the
- * same non-zero exit and its message on stderr (kosmos#8603, pinned in engine/clipipe.test.js); only the trace differs,
+ * same non-zero exit and its message on stderr (kosmos#8603: those two pinned in engine/clipipe.test.js); the trace differs,
  * pointing at the rethrow here rather than at Node's own "Unhandled 'error' event" line.
  * A closed reader is CLOSED_READER_CODES. EPIPE is the measured shell-pipe case; ENOTCONN was seen in its place in
  * macOS CI run 44377549059 (kosmos#8714). ECONNRESET is included by reasoning, not seen.

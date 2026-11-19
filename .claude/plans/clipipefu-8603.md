@@ -4,7 +4,7 @@ Card: kosmos#8603 (left at #8599's 8-round review cap). Was parked needs-event u
 (and #8715 since), so it was unparked 14:0x CST 11-19.
 
 ## Finished means
-1. A test fails if install/kosmos ever gains a line (outside a comment) that could start a tmux server or an agent,
+1. A test fails if install/kosmos ever gains a line (outside a comment) that starts a tmux server or execs claude or codex,
    because the wrapper's NODE_OPTIONS preload would ride into that pane.
 2. engine/clipipe.js says only what is true about a stream error that is not a closed reader, and a test pins it in a
    real process.
@@ -12,8 +12,10 @@ Card: kosmos#8603 (left at #8599's 8-round review cap). Was parked needs-event u
 
 ## How
 - cli.no-tmux-server-8603.test.js: reads install/kosmos and refuses any non-comment line matching new-session,
-  start-server, `tmux`/`$AGENT_WORKFORCE_TMUX_BIN` (with flags, each with or without an argument) followed by new or
-  start, or `exec claude`. Presence first (the script does call tmux, to read); a control proves the matcher fires on
+  start-server, the binary (`tmux`, `"$AGENT_WORKFORCE_TMUX_BIN"`, `"${AGENT_WORKFORCE_TMUX_BIN:-}"`, with flags each
+  with or without an argument) followed by new or start, a bare binary at command position (runs new-session), or
+  `exec claude`/`exec codex`. Not seen, by design and said in the header: verbs built at run time, tmux's short
+  prefixes, an agent started without exec. Presence first (the script does call tmux, to read); a control proves the matcher fires on
   each way of starting one and not on the reads the script makes.
 - engine/clipipe.js header: "still fails as loudly as before" becomes what was measured on 11-19: the same non-zero
   exit and the message on stderr; only the trace differs (it points at the guard's rethrow, not Node's own line).

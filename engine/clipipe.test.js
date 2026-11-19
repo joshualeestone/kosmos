@@ -134,7 +134,7 @@ test('the Windows CLI guards itself before main() runs, checked by source (measu
   assert.ok(guard < entry.indexOf('main(process.argv.slice(2))'), 'before main() starts writing');
 });
 
-/* kosmos#8603 item 2: "still crashes as before" measured in a real process, not on a stand-in emitter: a stream error
+/* kosmos#8603 item 2: "still crashes as before" measured in a real process (the error is emitted by hand): a stream error
    that is not a closed reader still ends the program with a non-zero exit and its message on stderr (CONTROL: Node
    alone does the same). Only the trace differs: it points at this guard's rethrow, not at Node's own line. */
 test('kosmos#8603: a non-closed-reader stream error still crashes, non-zero, with its message (CONTROL: unguarded, the same)', () => {

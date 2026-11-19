@@ -65,10 +65,7 @@ seen="$(env -u NODE_OPTIONS bash "$REPO/install/kosmos" feedback triage --dir "$
 # 4b (kosmos#8603). Guard off (KOSMOS_CLIPIPE_SET=1 before the wrapper, as arm 2): the wrapper adds no preload, so a
 #    child sees the person's NODE_OPTIONS exactly as they set it.
 seen="$(KOSMOS_CLIPIPE_SET=1 NODE_OPTIONS='--max-old-space-size=300' bash "$REPO/install/kosmos" feedback triage --dir "$HOME_DIR/reports" 2>/dev/null)"
-case "$seen" in
-  '["--max-old-space-size=300",'*) ;;
-  *) fail "guard off: a child of the CLI's node saw $seen, want the person's NODE_OPTIONS untouched" ;;
-esac
+[ "$seen" = '["--max-old-space-size=300","1"]' ] || fail "guard off: a child of the CLI's node saw $seen, want the person's NODE_OPTIONS untouched (and the caller's KOSMOS_CLIPIPE_SET=1)"
 
 # 5. A home folder with a space in it is guarded too (the preload path is quoted inside NODE_OPTIONS).
 cat > "$HOME_DIR/app/engine/feedback-triage.js" <<'EOF'
