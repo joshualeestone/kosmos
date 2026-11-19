@@ -41,14 +41,15 @@
  *
  * Fails closed. Unlike orgkeypin.js (where a null VERIFYING_KEY means "check nothing, answer ok"), a missing verifying
  * key here is a refusal: a restore that cannot check the history must fall back to the person confirming the
- * fingerprint (the pilot, #5536), never to the coordinator's word. VERIFYING_KEY is null until escrowd's history key is
- * on the production box; it is derived from the escrow key under its own HKDF label, separate from the org-key signer.
+ * fingerprint (the pilot, #5536), never to the coordinator's word. VERIFYING_KEY is escrowd's history key on the
+ * production box (shipped 11-19, kosmos#7116 step 3); it is derived from the escrow key under its own HKDF label,
+ * separate from the org-key signer.
  *
  * verify(history, opts) never throws. history: { org, member, entries, issuedAt, signature (base64url) }.
  * opts: { org, member (REQUIRED: the member being restored; a genuine history for anyone else is refused),
  *   now (Unix seconds), maxAgeSecs, skewSecs (each can only narrow the default window) }.
  * There is no option for the verifying key: a caller handing one in would become the trust anchor. Tests set one with
- * setVerifyingKeyForTests(), which counts only inside a node test process and never once VERIFYING_KEY ships.
+ * setVerifyingKeyForTests(), which counts only inside a node test process (where it stands in for VERIFYING_KEY).
  * Answers { ok: true, keys } with keys [{ key, from, until (null while valid), backfill }], or { ok: false, because }.
  * keyAt(keys, key, t) answers the entry under which `key` (lowercase hex, as the history holds it) was valid at time `t`,
  * or null.
@@ -58,8 +59,9 @@ const crypto = require('node:crypto');
 
 const HEAD_TAG = Buffer.from('kosmos-escrowd-devkeyhist head v1');
 const CHAIN_TAG = Buffer.from('kosmos-escrowd-devkeyhist chain v1');
-// escrowd's device-key-history verification key (32 raw bytes, hex). null until it ships: verify() then REFUSES.
-const VERIFYING_KEY = null;
+// escrowd's device-key-history verification key (32 raw bytes, hex). Read by Baron Draxum from escrowd's own start line
+// and audit record on the production box (build 90664b5a1, the same in all 8 recorded starts), 11-19 (kosmos#7116 step 3).
+const VERIFYING_KEY = '86855409717f1d2fd1444198e11f40e9b6bfa60d6bd42ccc14d1a971da17e5f1';
 const MAX_AGE_SECS = 24 * 3600;
 const SKEW_SECS = 300;
 const MAX_ENTRIES = 4096;
@@ -151,9 +153,11 @@ function replay(entries, issuedAt) {
 
 function verify(history, opts = {}) {
   try {
-    // The shipped key, once there is one, is the only key. Until then only a test process has one; production REFUSES
-    // (the difference from orgkeypin.js, on purpose).
-    const vk = VERIFYING_KEY != null ? Buffer.from(VERIFYING_KEY, 'hex') : process.env.NODE_TEST_CONTEXT ? verifyingKeyForTests : null;
+    // Outside a node test process the shipped key is the only key. Inside one, a key a test set stands in for it, so
+    // fixtures can sign histories with a test key of their own; production never sets NODE_TEST_CONTEXT, and setting
+    // the key needs code already running here. With neither, verify REFUSES (the difference from orgkeypin.js).
+    const testKey = process.env.NODE_TEST_CONTEXT ? verifyingKeyForTests : null;
+    const vk = testKey || (VERIFYING_KEY != null ? Buffer.from(VERIFYING_KEY, 'hex') : null);
     if (vk == null) return { ok: false, because: 'this version of Kosmos cannot check the device key history yet, so the key was not trusted' };
     // Read every field once, into a copy: what is hashed is exactly what is replayed.
     const h = history && typeof history === 'object' ? history : {};

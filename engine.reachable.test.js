@@ -320,7 +320,7 @@ const SEAMS_5548 = {
   // engine/backupmemberkey-7753.test.js starts clean. Production never calls it.
   _resetResendForTests: 'engine/backupmemberkey.js',
   // #7116 slice 1: the verifying key a test checks escrowd's device-key history with. It counts only while
-  // NODE_TEST_CONTEXT is set and VERIFYING_KEY is null (engine/devkeyhist-7116.test.js shows both); production never sets it.
+  // NODE_TEST_CONTEXT is set, where it stands in for the shipped VERIFYING_KEY (engine/devkeyhist-7116.test.js); production never sets it.
   setVerifyingKeyForTests: 'engine/devkeyhist.js',
   // #6705: engine/communityself.js's name-refresh cache. The first forgets it so each test in
   // engine/communityself-6705.test.js starts clean; the second reads one agent's entry so that test can pin RETRY_MS and
