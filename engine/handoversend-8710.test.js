@@ -23,7 +23,8 @@ const rows = [
 test('names resolve by machine name or shown name, and a missing or doubled one fails with that name', () => {
   assert.deepEqual(hs.resolveNames(['Permit Intake', 'ledger'], rows), { ok: true, names: [{ name: 'permit-intake', label: 'Permit Intake' }, { name: 'ledger', label: 'ledger' }] });
   assert.deepEqual(hs.resolveNames(['Ledger', 'ledger'], rows), { ok: true, names: [{ name: 'ledger', label: 'Ledger' }] });
-  assert.equal(hs.resolveNames(['Old'], rows).final, true);
+  assert.equal(hs.resolveNames(['Old'], rows).final, undefined, 'a missing name may be mid-rename: an ordinary try');
+  assert.equal(hs.resolveNames(['Twin'], rows).final, true, 'an ambiguous one is decided');
   assert.match(hs.resolveNames(['Old'], rows).because, /no agent called Old/);       // removed
   assert.match(hs.resolveNames(['Stray'], rows).because, /no agent called Stray/);   // no profile
   assert.match(hs.resolveNames(['Twin'], rows).because, /more than one agent on this computer is called Twin/);
@@ -79,13 +80,13 @@ const depsFor = (w, extra) => Object.assign({
 }, extra || {});
 const part = (extra) => Object.assign({ id: 'ho1', side: 'send', state: 'packing', seal_pub: sealPub(), agents: ['Ledger'] }, extra || {});
 
-test('a pack input carries the folder, the one profile and the sessions, under the hand-over context', () => {
+test('a pack input carries the folder and the sessions, never the profile, under the hand-over context', () => {
   const w = world();
   try {
     const p = hs.packInput(part(), 'org1', depsFor(w));
     assert.equal(p.ok, true, p.because);
-    assert.deepEqual(p.input.roots.map((r) => r.name), ['workers/ledger', 'profiles/ledger', 'sessions/ledger/claude']);
-    assert.deepEqual(p.input.roots[1].only, ['ledger.json']);
+    assert.deepEqual(p.input.roots.map((r) => r.name), ['workers/ledger', 'sessions/ledger/claude']);
+    assert.equal(p.input.roots.some((r) => r.path === w.profiles || /^profiles\//.test(r.name)), false, 'no profile: it holds the install id');
     assert.deepEqual(p.input.handover, { id: 'ho1', prefix: 'handover/org1/ho1/' });
     assert.equal(p.input.ctx.epoch, 'handover');
     assert.equal(p.input.memberPk.length, 32);
@@ -395,5 +396,26 @@ test('round 6: wrong state after a try that uploaded says the pack may be half s
       await hs.tick(s2, d2);
       assert.equal(hs.notice(s2).stopped, 'the hand-over is no longer open');
     } finally { fs.rmSync(w2.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('round 7: a try the board stopped part way counts, and may have used the room; a missing folder is retried', async () => {
+  const w = world();
+  try {
+    let clock = 0;
+    const one = part({ id: 'hdied' });   // one part: part() makes a new key each call, which would read as a changed part
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [one] } }),
+      takeSnapshot: async () => { throw new Error('the board stopped'); } });
+    // The board dies inside take: the tick's catch stands in for the process ending.
+    await hs.tick(hs.newSendState(), d);
+    const after = hs.newSendState();   // a restart
+    const d2 = Object.assign({}, d, { takeSnapshot: async () => ({ ok: false, because: 'Kosmos+ refused (HTTP 413 on /v1/mac/org/handover/grant, code handover_too_big)' }) });
+    await hs.tick(after, d2);
+    assert.equal(after.attempts.get('hdied'), 2, 'the stopped try counted');
+    assert.match(hs.notice(after).stopped, /an earlier try used up the room/);
+    assert.match(hs.notice(after).stopped, /cancel this hand-over and start a new one/);
+    // A folder that cannot be found now is an ordinary try, not final.
+    const p = hs.packInput(part(), 'org1', depsFor(w, { workerDir: (n) => path.join(w.base, 'unmounted', n) }));
+    assert.equal(p.final, undefined);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
