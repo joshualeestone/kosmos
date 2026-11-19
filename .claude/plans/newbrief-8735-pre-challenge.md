@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: newbrief-8735
-diff_hash: f603c5cadef44b2028ae1477a98bdddddc040872145ce98524ecfe2206a7960f
+diff_hash: a014ea0bfe9b826e8809df83946a664a9f6c33826c10307c283fa3023f46e901
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-19T19:07:27Z
+timestamp: 2026-11-19T19:17:10Z
 iterations: 8
 converged: false
 ---
@@ -21,6 +21,9 @@ Full validation after the loop, on HEAD 0c2f9effd5: PASSED (hash 9d9babd2c5b8), 
 The PR then conflicted with main in engine/communityhome.js (one exports line: this branch added POST_STEP, main added
 shownText and publicFlag). Resolved by merging main (6f5c9680b7), keeping both. Full validation re-run on Mortals on that
 head: PASSED (hash f603c5cadef4, "status":"clean"), 29,909 node tests, 0 failed, all four shell shards status 0.
+Main moved again and conflicted in tools/windows-tests.js (both sides added a Windows exclusion entry; kept all three).
+Merged main again (60c2331691); the affected suites pass locally (96 tests). This head's full validation is the PR's CI,
+which runs the whole suite on the merge with current main.
 
 ### Per-Iteration Breakdown
 
