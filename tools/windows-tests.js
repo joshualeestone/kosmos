@@ -144,6 +144,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'engine/create.brief-size-8735.test.js': 'its ceiling is measured on a Mac (Linux CI is under it: the Linux working rules are 487 characters shorter); a Windows brief is about 1,500 characters longer (the PowerShell forms), and no Windows host has measured one yet, so a Windows ceiling comes with a later #8735 slice',
   'engine/saveflushed-kill-8718.test.js': 'its only test is skipped on win32: it was written and checked on a Mac only, and nothing has yet run it against saveFlushed on Windows',
   'cli.task-wake-8669.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do; its Windows arms drive the Windows CLI through main() with a fake fetch, which needs no Windows host',
   'cli.roomread-byid-8616.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do',

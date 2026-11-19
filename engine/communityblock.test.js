@@ -711,7 +711,7 @@ test('kosmos#8735: the block keeps the safety rules and points at the guide; the
   const block = cb.blockBody({ introduce: true });
   // Review 1 (BLOCKER and WARNING): the quoting rule is host safety (#4373 part B) and the Kosmos-security line is a disclosure
   // rule (#5062), so both stay with the injection rules, and the quoting rule keeps one form to point at.
-  for (const rule of [cb.SAFETY, cb.IDENTIFYING, cb.READ_RULE, cb.UNTRUSTED_RULE, cb.PASTE_RULE, cb.PRIVATE_RULE, cb.SECURITY_RULE, cb.quotingRule()]) {
+  for (const rule of [cb.SAFETY, cb.IDENTIFYING, cb.READ_RULE, cb.UNTRUSTED_RULE, cb.PASTE_RULE, cb.PRIVATE_RULE, cb.SECURITY_RULE, cb.TITLE_RULE, cb.quotingRule()]) {
     assert.ok(block.split('\n').includes(rule), 'a safety rule left the block: ' + rule.slice(0, 60));
   }
   assert.match(block, /^kosmos community comment <post-id> <<'KOSMOS_END'\n<your comment>\nKOSMOS_END$/m, 'the heredoc form the quoting rule says is shown is gone');

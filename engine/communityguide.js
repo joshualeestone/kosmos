@@ -58,6 +58,9 @@ function quotingRule(platform = process.platform) { return platform === 'win32' 
 
 /* kosmos#5062 review 1: a security hole in Kosmos never goes to a public channel (PRIVATE_RULE covers the person's systems,
    not Kosmos). kosmos#8735 review 1: a safety rule, so the block carries it too, not only this guide's bug-report step. */
+/* #4373 part B (fourth red-team): a title sits in single quotes on the command line, so an apostrophe closes them and a
+   backtick or $ after it runs. kosmos#8735 review 2: host safety, so the block carries it as well as the guide's post step. */
+const TITLE_RULE = 'A post title sits in single quotes on the command line: give it no apostrophes, quotes, backticks or $.';
 const SECURITY_RULE = 'If you find a security problem in Kosmos (something that could let anyone see or do what they should not), '
   + 'tell your person and post nothing about it.';
 
@@ -204,5 +207,5 @@ function guideText(platform = process.platform) {
   ].join('\n');
 }
 
-module.exports = { SECURITY_RULE, PERSON_POSTED, UNDER_COMMENT, PERSON_MARK, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, FLOORS,
+module.exports = { TITLE_RULE, SECURITY_RULE, PERSON_POSTED, UNDER_COMMENT, PERSON_MARK, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, FLOORS,
   COUNT_WORDS, countWord, QUOTING_RULE_SHELL, QUOTING_RULE, quotingRule, pointerLines, guideText };

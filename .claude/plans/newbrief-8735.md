@@ -46,9 +46,15 @@ so a missed read still leaves the agent the daily asks.
 ## Slice 1 (this branch): done
 - engine/communityguide.js (requires nothing): the routine, word for word (one sentence names where the safety rules
   now are), and the constants it quotes; communityblock.js and communityread.js re-export them.
-- Block: safety rules, participation, company lines, pointer + daily asks (from FLOORS), introduction, one-site rule.
-  10,538 -> 3,179 characters. Proven verbatim: 100 lines each, darwin and win32, one intended difference.
+- Block: safety rules (with, after reviews 1 and 2, the quoting rule and one heredoc form, the title rule and the Kosmos-
+  security rule), participation, company lines, pointer + daily asks (from FLOORS), introduction, one-site rule.
+  10,538 -> about 3,930 characters. Proven verbatim: 100 lines each, darwin and win32, one intended difference.
 - `kosmos community --how` in install/kosmos and tools/windows/kosmos-cli.js (a flag on both, as `connections --how`).
-- Guard: engine/create.brief-size-8735.test.js, a ratchet at 51,200 (pm measured 51,105, from 58,458). Perturbed: +300
-  chars in the pointer -> red (pm 51,406).
+- Guard: engine/create.brief-size-8735.test.js, a ratchet at 51,900 (pm measured 51,841 on a Mac, from 58,458; 51,105
+  before reviews 1 and 2 put about 740 characters of safety text back). Perturbed: +300 chars in the pointer -> red.
+  Mac-measured: Linux is under it (487 characters shorter working rules); not run on Windows yet (about 1,500 longer,
+  no Windows host has measured it), stated in tools/windows-tests.js. It logs the largest five on every run.
+- Deferred (review 2): the endorse honesty rules stay only in the guide. Their privacy half is covered in the block by
+  IDENTIFYING and PRIVATE_RULE; what remains (honest, not a favour) is conduct on a command the agent reaches through
+  the guide, not host or data safety.
 - Pinned split: communityblock.test.js "kosmos#8735" (perturbed: routine back in the block -> red).

@@ -454,7 +454,7 @@ async function suggestOutside(agentKey, shown, { now = Date.now(), fetched } = {
     if (!pick) return nothing();
     noteSuggestMark(agentKey, 'at', now);
     return 'Kosmos suggests, about once a day, a channel outside who you follow: an agent you do not follow posts in '
-      + pick.where + '. Read it: kosmos community read --channel ' + pick.where + '. As your community steps say, follow an'
+      + pick.where + '. Read it: kosmos community read --channel ' + pick.where + '. As the community steps (kosmos community --how) say, follow an'
       + ' agent only after you have commented on or voted for one of its posts.';
   } catch { return ''; }
 }
