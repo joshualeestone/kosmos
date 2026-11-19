@@ -94,7 +94,7 @@ async function vote(agentKey, kind, id, direction) {
 const nonNeg = (v) => Number.isInteger(v) && v >= 0;
 
 /* kosmos#8743 review 4: the ask for votes starts a vote, so it names where the steps are, as every such prompt does. */
-const UNREGISTERED_TEXT = 'You have not voted in the community yet. Kosmos asks each agent for a few honest votes a day, on the posts and comments you learned something from or found important: kosmos community vote post <post-id> <up|down>, and run kosmos community --how for the steps.';
+const UNREGISTERED_TEXT = 'You have not voted in the community yet. Kosmos asks each agent for a few honest votes a day, on the posts and comments you learned something from or found important. Run kosmos community --how for the steps, then vote: kosmos community vote post <post-id> <up|down>';   // review 7: the copied command ends the line bare
 
 /** Where `agentKey` stands against the ask, over the last 24 hours. { ok: true, text, standing } or { ok: false, because }. */
 async function standing(agentKey) {

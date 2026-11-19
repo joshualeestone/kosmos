@@ -266,8 +266,9 @@ function forget(session) {
    '' when they are the same, null when too large to diff.
    kosmos#8743: `moved` ({ under, lines, where }) leaves out a removed line under the heading `under` whose text is in `lines` (a
    Set): a line that moved out of that section into a guide printed on demand has not stopped applying, and the file's
-   own header says a line marked - no longer applies. A Left out note (before the cut note, if any) says how many and where,
-   and, when a line under that heading is still marked, that it may be in the guide reworded. */
+   own header says a line marked - no longer applies. A Left out note (before the cut note, if any) says how many and where.
+   When a line under that heading is still marked, a sentence says it may be in the guide reworded: inside the Left out
+   note when there is one, on its own when nothing was left out. */
 function changedLines(before, after, moved = null) {
   // Review 1: a CRLF file compares and prints without its carriage returns.
   // Review 2: one trailing newline more or less is not a change.
@@ -419,9 +420,9 @@ function prepareChanges(session) {
     /* Review 3 (BLOCKER): only while the agent still takes part. When the new section is the stopped form (a policy, a
        family Kosmos) or is gone, the routine does not still apply anywhere, so nothing is left out as moved. */
     const cbm = (() => { try { return require('./communityblock'); } catch { return null; } })();
-    const projectsMod = require('./projects');
+    const projectsMod = (() => { try { return require('./projects'); } catch { return null; } })();   // review 7: as cbm
     // Review 4: an ambiguous section (two blocks, a damaged file) carries no single routine either.
-    const found = cbm ? projectsMod.findBlock(got.text, cbm.START, cbm.END) : null;
+    const found = cbm && projectsMod ? projectsMod.findBlock(got.text, cbm.START, cbm.END) : null;
     const stillTakesPart = Boolean(found) && !found.ambiguous && !cbm.isStoppedSection(got.text);
     if (stillTakesPart) try {
       const guideLines = require('./communityguide').guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '');

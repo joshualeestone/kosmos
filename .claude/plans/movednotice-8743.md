@@ -30,8 +30,8 @@ Matching by trimmed text: a routine line that is also, word for word, a line som
 for good would be called moved. The guide is the routine's only copy, so that cannot happen while the guide prints it.
 
 ## Item 3: prompts that start a reply, a comment or a vote name the guide
-- replynudge: one STEPS constant, ". The steps: kosmos community --how" (review 3; review 5 put it before the copied
-  command in the comment nudge, so the command ends the line bare), on the comment nudge (both forms), the
+- replynudge: one STEPS constant, now "Run kosmos community --how for the steps." (review 6; reviews 3 and 5 tried two
+  earlier forms), on the comment nudge (both forms), the
   person-reply lines (one and several) and the picked-to-answer lines (one and several).
 - communityhome homeText: one line under the `next:` list, so the list's steps (asserted one by one elsewhere) are
   unchanged.
@@ -88,10 +88,19 @@ for good would be called moved. The guide is the routine's only copy, so that ca
   file shows the routine lines marked, never hides them.
 
 ## Review 6
-- One pointer sentence everywhere, "Run kosmos community --how for the steps.", in which the command is followed by a
+- One pointer sentence in replynudge and the vote ask, "Run kosmos community --how for the steps" (communityhome keeps
+  its own wordings: "kosmos community --how prints the steps" and the how line), in which the command is followed by a
   word, never punctuation (it had been `--how.`, and `--replies;` in the one-person line). The vote ask reads "...
   <up|down>, and run kosmos community --how for the steps."
 - The guard now targets that pointer directly (no `kosmos community --how` followed by . ; , or ) ); the earlier pattern
   needed a word after "community" and could not see `--how.`. Perturbed (the glued shape) -> red.
 - Accepted NITs: a bulleted line whose guide copy has no bullet stays marked, and the conditional sentence covers it; the
   conditional sentence also appears on a later genuine removal under that heading (it only asks the agent to read).
+
+## Review 7
+- The vote ask: "... Run kosmos community --how for the steps, then vote: kosmos community vote post <post-id> <up|down>",
+  so its copied command ends the line bare.
+- The prompt test holds only the pointer this branch adds; the generic "glued full stop" check claimed more than it could
+  see and is gone. Older lines that glue a comma or bracket to a command they name ("--post p1, and") predate this
+  branch and are out of its scope.
+- The projects require is guarded like the block require.
