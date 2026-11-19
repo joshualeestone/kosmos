@@ -13,8 +13,9 @@
  *     `-discord` or this Kosmos's world suffix stripped). The mark is set on that pane's raw `session`, which is what
  *     launchidentity.paneSessionIsOurs compares it with;
  *   - the session already carries the mark (nothing to do);
- *   - the program in it names no agent runner (a shell after a crash, an editor, a bare node);
- *   - no agent is running in it now (status.isAgentSession);
+ *   - the program in it names no agent runner (a shell after a crash, an editor);
+ *   - for a Claude window, the board would not count it as an agent (status.isAgentSession: a bare `node`, the legacy
+ *     `claude` names);
  *   A Codex, Antigravity or Grok window (kosmos#8724 item 3) is linked only when its program names that runner exactly
  *   and Kosmos's own record of the agent (its profile's provider) says it runs on it; its runner is then recorded too
  *   (`@kosmos_runner`, as the supervisor records it), because an empty runner reads as Claude and would route it
