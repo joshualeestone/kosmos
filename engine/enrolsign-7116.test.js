@@ -115,23 +115,56 @@ test('#7116 step 2 caller: review uses the kept code for the DECODED company and
   assert.throws(() => es.review(other.bytes, { dataRoot: root }), /does not match that enrolment/);
 });
 
-test('#7116 step 2 caller: approve signs with this app\'s helper, refuses with none, keeps the inviter rule, and drops the used code', async () => {
+test('#7116 step 2 caller: approve signs with this app\'s helper (refuses with none), keeps the code; approveAndSend drops it only once escrowd accepts', async () => {
   const root = fresh();
   const e = enrolment();
   es.keepJoinCode(ORG, MEMBER, e.code, { dataRoot: root });
   const h = appWithHelper();
-  // No helper in the app: refused before anything else.
-  await assert.rejects(es.approve(es.review(e.bytes, { dataRoot: root }), { adminId: INVITER, expectedKey: h.expectedKey, keyFile: h.keyFile, dataRoot: root, appDir: fresh() }),
-    /admin key helper is not installed/);
-  const out = await es.approve(es.review(e.bytes, { dataRoot: root }), { adminId: INVITER, expectedKey: h.expectedKey, keyFile: h.keyFile, dataRoot: root, appDir: h.app });
+  const opts = (adminId, extra = {}) => ({ adminId, expectedKey: h.expectedKey, keyFile: h.keyFile, dataRoot: root, appDir: h.app, ...extra });
+  await assert.rejects(es.approve(es.review(e.bytes, { dataRoot: root }), opts(INVITER, { appDir: fresh() })), /admin key helper is not installed/);
+  const out = await es.approve(es.review(e.bytes, { dataRoot: root }), opts(INVITER));
   assert.equal(out.adminId, INVITER);
   assert.ok(crypto.verify('sha256', e.bytes, { key: h.publicKey, dsaEncoding: 'der' }, out.sig), 'the signature is over the enrolment bytes');
-  assert.equal(es.joinCodeFor(ORG, MEMBER, { dataRoot: root }), null, 'the used code is dropped');
-  // Without the code now, the inviter is refused (seadmin.sign's rule); the second admin still signs.
-  await assert.rejects(es.approve(es.review(e.bytes, { dataRoot: root }), { adminId: INVITER, expectedKey: h.expectedKey, keyFile: h.keyFile, dataRoot: root, appDir: h.app }),
-    /you sent this invite/);
-  const second = await es.approve(es.review(e.bytes, { dataRoot: root }), { adminId: OTHER_ADMIN, expectedKey: h.expectedKey, keyFile: h.keyFile, dataRoot: root, appDir: h.app });
-  assert.equal(second.adminId, OTHER_ADMIN);
+  assert.ok(es.joinCodeFor(ORG, MEMBER, { dataRoot: root }), 'review 1: approve alone keeps the code');
+  // A send that says waiting, then one that fails: the code stays; escrowd's accept: it goes.
+  const answers = [{ ok: true, data: { ok: true, waiting: true } }, { ok: false, because: 'no answer' }, { ok: true, data: { ok: true } }];
+  const send = async () => answers.shift();
+  await es.approveAndSend('e1', es.review(e.bytes, { dataRoot: root }), opts(INVITER, { send }));
+  assert.ok(es.joinCodeFor(ORG, MEMBER, { dataRoot: root }), 'still waiting: kept');
+  await assert.rejects(es.approveAndSend('e1', es.review(e.bytes, { dataRoot: root }), opts(INVITER, { send })), /could not send the approval/);
+  assert.ok(es.joinCodeFor(ORG, MEMBER, { dataRoot: root }), 'a lost answer: kept');
+  await es.approveAndSend('e1', es.review(e.bytes, { dataRoot: root }), opts(INVITER, { send }));
+  assert.equal(es.joinCodeFor(ORG, MEMBER, { dataRoot: root }), null, 'accepted: dropped');
+  // Without the code, the inviter is refused (seadmin.sign); the second admin still signs.
+  await assert.rejects(es.approve(es.review(e.bytes, { dataRoot: root }), opts(INVITER)), /you sent this invite/);
+  assert.equal((await es.approve(es.review(e.bytes, { dataRoot: root }), opts(OTHER_ADMIN))).adminId, OTHER_ADMIN);
+});
+
+test('#7116 step 2 caller review 1: holding the code makes this Mac the inviter, whatever the bytes name; a bad entry or store is said, not fatal', async () => {
+  const root = fresh();
+  const code = dk.newJoinCode();
+  es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root });
+  const c = coordinator({ inviter: OTHER_ADMIN });   // the bytes name someone else as inviter
+  const { publicKey } = crypto.generateKeyPairSync('ed25519'); const k = dk.rawPublic(publicKey);
+  const bytes = se.encodeDevkeyEnrol(ORG, MEMBER, k, dk.joinCodeHash(code), dk.joinTag(code, ORG, MEMBER, k), OTHER_ADMIN, '7', Buffer.alloc(32, 0x5a));
+  const h = appWithHelper();
+  await assert.rejects(es.approve(es.review(bytes, { dataRoot: root }), { adminId: INVITER, expectedKey: h.expectedKey, keyFile: h.keyFile, appDir: h.app }),
+    /names another admin as the one who sent it/);
+  void c;
+  // One entry with unreadable bytes is listed as refused; the readable one is still offered.
+  const good = enrolment();
+  const mixed = async (m) => (m === 'GET' ? { ok: true, data: { pending: [{ id: 'e2', bytes: '!!' }, { id: 'e3', bytes: good.bytes.toString('base64url'), signedBy: [] }] } } : { ok: false });
+  const rows = await es.adminQueue({ adminId: OTHER_ADMIN, send: mixed, dataRoot: fresh() });
+  assert.deepEqual(rows.map((r) => [r.id, !!r.prepared]), [['e2', false], ['e3', true]]);
+  assert.match(rows[0].refused, /could not be read/);
+  // A damaged store: the list says it is the store; keeping a new code sets the damaged file aside and works.
+  const bad = fresh();
+  fs.writeFileSync(path.join(bad, 'devkey-join-codes.json'), '{not json');
+  const r2 = await es.adminQueue({ adminId: OTHER_ADMIN, send: mixed, dataRoot: bad });
+  assert.match(r2[1].refused, /invite codes saved on this computer could not be read/);
+  es.keepJoinCode(ORG, MEMBER, code, { dataRoot: bad });
+  assert.ok(es.joinCodeFor(ORG, MEMBER, { dataRoot: bad }).equals(code));
+  assert.ok(fs.readdirSync(bad).some((f) => f.startsWith('devkey-join-codes.json.unreadable-')), 'the damaged file is kept, set aside');
 });
 
 /* ---- the route client (Renet Tilley's pinned interface, #7116 comment 7021733967) ---- */

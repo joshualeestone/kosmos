@@ -49,8 +49,21 @@ function readCodes(dataRoot) {
 }
 function writeCodes(codes, dataRoot) {
   const file = codesFile(dataRoot);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  require('./securewrite').writeSecret(file, JSON.stringify(codes), 0o600, { atomicOnly: true });
+  // Review 1: a write error's message carries the data root's path; a person is shown a fixed sentence instead.
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    require('./securewrite').writeSecret(file, JSON.stringify(codes), 0o600, { atomicOnly: true });
+  } catch { throw new Error('the invite code could not be saved on this computer'); }
+}
+/* Review 1: a store that cannot be read is set aside (renamed, never deleted: it may hold a code a person wants back)
+   when a NEW code is kept, so one damaged file does not stop every later invite. Reading still refuses it, so a
+   check never treats a damaged store as "no code". */
+function readCodesForWrite(dataRoot) {
+  try { return readCodes(dataRoot); } catch {
+    const file = codesFile(dataRoot);
+    try { fs.renameSync(file, file + '.unreadable-' + Date.now()); } catch { throw new Error('the invite code could not be saved on this computer'); }
+    return {};
+  }
 }
 function text(v, what) {
   if (typeof v !== 'string' || !v) throw new Error('an invite names its ' + what);
@@ -61,7 +74,7 @@ function text(v, what) {
 function keepJoinCode(org, member, code, { dataRoot, now = Date.now() } = {}) {
   text(org, 'company'); text(member, 'member');
   if (!(code instanceof Uint8Array) || code.length !== require('./devkeyenrol').CODE_LEN) throw new Error('a join code is 16 bytes');
-  const codes = readCodes(dataRoot);
+  const codes = readCodesForWrite(dataRoot);
   codes[keyOf(org, member)] = { code: Buffer.from(code).toString('hex'), at: now };
   writeCodes(codes, dataRoot);
 }
@@ -99,14 +112,29 @@ function review(bytes, { dataRoot, now } = {}) {
  * Enclave public key, `keyFile` its key file; the helper is this app's own. seadmin.sign refuses the inviter unless
  * the code checked. On success the kept code is dropped. Returns { adminId, sig }.
  */
-async function approve(prepared, { adminId, expectedKey, keyFile, dataRoot, appDir } = {}) {
+async function approve(prepared, { adminId, expectedKey, keyFile, appDir } = {}) {
   const helper = helperPath(appDir);
   if (!helper) throw new Error('this Kosmos cannot sign as an admin: its admin key helper is not installed');
-  const signed = await se.sign(prepared, { helper, keyFile, expectedKey, adminId });
-  if (prepared.inviterChecked === true) {
-    try { forgetJoinCode(prepared.decoded.org, prepared.decoded.member, { dataRoot }); } catch { /* signed either way */ }
+  /* Review 1: this computer holds the invite's code, so it IS the inviter, whatever admin the bytes name; signing as a
+     "second admin" would put the inviter's signature on bytes that name someone else. (seadmin.sign's review 4 note.) */
+  if (prepared && prepared.inviterChecked === true && adminId !== prepared.decoded.inviterAdminId) {
+    throw new Error('you sent this invite, but the enrolment names another admin as the one who sent it');
   }
-  return signed;
+  // The kept code is NOT dropped here (review 1): a refusal, a lost answer or a restarted entry needs it again.
+  return se.sign(prepared, { helper, keyFile, expectedKey, adminId });
+}
+
+/**
+ * Approve and send: sign (approve), post the signature (postAdminSig), and only when escrowd has ACCEPTED the
+ * enrolment (the answer is escrowd's ok, not "waiting") drop the kept code. Returns the route's answer.
+ */
+async function approveAndSend(id, prepared, opts = {}) {
+  const signed = await approve(prepared, opts);
+  const answer = await postAdminSig(id, signed, opts);
+  if (answer && answer.ok === true && answer.waiting !== true && prepared.inviterChecked === true) {
+    try { forgetJoinCode(prepared.decoded.org, prepared.decoded.member, { dataRoot: opts.dataRoot }); } catch { /* accepted either way */ }
+  }
+  return answer;
 }
 
 /* ---- the coordinator routes (Renet Tilley's pinned interface, #7116 comment 7021733967) ----
@@ -157,9 +185,11 @@ async function pending({ send } = {}) {
   const data = answerOf(await sendOf(send)('GET', ROUTE + '/pending'), 'read the computers waiting for approval');
   const list = data && Array.isArray(data.pending) ? data.pending : null;
   if (!list) throw new Error('the coordinator answered without a list');
-  return list.filter((e) => e && idOk(e.id)).map((e) => ({ id: e.id, bytes: unb64(e.bytes, 'enrolment bytes'),
+  // Review 1: one entry's unreadable bytes make THAT entry refused (bytes null), never the whole list unreadable.
+  const bytesOf = (t) => { try { return unb64(t, 'enrolment bytes'); } catch { return null; } };
+  return list.filter((e) => e && idOk(e.id)).map((e) => ({ id: e.id, bytes: bytesOf(e.bytes),
     signedBy: Array.isArray(e.signedBy) ? e.signedBy.filter((x) => typeof x === 'string') : [], keySigned: e.keySigned === true,
-    expiresAt: e.expiresAt || null }));
+    expiresAt: typeof e.expiresAt === 'string' || Number.isFinite(e.expiresAt) ? e.expiresAt : null }));
 }
 
 /** Post one admin's signature (approve()'s { adminId, sig }) for entry `id`, as escrowd's Wire object. */
@@ -184,6 +214,7 @@ async function adminQueue({ adminId, send, dataRoot, now } = {}) {
     if (e.signedBy.includes(adminId)) continue;
     const row = { id: e.id, signedBy: e.signedBy, keySigned: e.keySigned, expiresAt: e.expiresAt };
     try {
+      if (!e.bytes) throw new Error('unreadable');
       const prepared = review(e.bytes, { dataRoot, now });
       Object.assign(row, { prepared, member: prepared.shown.member, fingerprint: prepared.fingerprint,
         inviterChecked: prepared.inviterChecked, unusual: prepared.unusual, refused: null });
@@ -191,8 +222,13 @@ async function adminQueue({ adminId, send, dataRoot, now } = {}) {
       if (prepared.decoded.inviterAdminId === adminId && !prepared.inviterChecked) {
         Object.assign(row, { prepared: null, refused: 'you sent this invite, but its join code is not on this computer' });
       }
+      if (prepared.inviterChecked && prepared.decoded.inviterAdminId !== adminId) {   // review 1: approve() refuses it
+        Object.assign(row, { prepared: null, refused: 'you sent this invite, but it names another admin as the one who sent it' });
+      }
     } catch (err) {
-      const why = /does not match that enrolment/.test(String(err && err.message)) ? 'this enrolment does not match the invite you sent'
+      const m = String(err && err.message);
+      const why = /does not match that enrolment/.test(m) ? 'this enrolment does not match the invite you sent'
+        : /saved invite codes/.test(m) ? 'the invite codes saved on this computer could not be read'   // review 1: the store, not the entry
         : 'this enrolment could not be read';
       Object.assign(row, { prepared: null, member: null, fingerprint: null, inviterChecked: false, unusual: false, refused: why });
     }
@@ -202,4 +238,4 @@ async function adminQueue({ adminId, send, dataRoot, now } = {}) {
 }
 
 module.exports = { CODE_MAX_AGE_MS, helperPath, keepJoinCode, joinCodeFor, forgetJoinCode, review, approve,
-  startAndSign, pending, postAdminSig, adminQueue };
+  startAndSign, pending, postAdminSig, adminQueue, approveAndSend };
