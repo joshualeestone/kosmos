@@ -2643,6 +2643,37 @@ driverTest('#1937: an EXPLICIT re-auth runs a REAL login even when file + auth-s
   } finally { subscription.setRunner(null); }
 });
 
+/* kosmos#8728: a sign-in started from a remote session gets claude's opener replaced by one that opens nothing, so no
+   browser appears on this computer's screen (claude's self-opened link carries a localhost callback, so a press of
+   Authorize there would sign in whichever claude.ai account that browser holds). Measured on 11-19 with Claude Code
+   2.1.328 on macOS: claude calls the program named in BROWSER, and `open` only when BROWSER is unset. The assignment
+   must come BEFORE the claude binary in the `env` argv, or env would pass it to claude as an argument. */
+for (const remote of [true, false]) {
+  driverTest('#8728: a ' + (remote ? 'remote-started' : 'local (CONTROL)') + ' sign-in ' + (remote ? 'gives claude an opener that opens nothing' : 'leaves claude its own opener'), async () => {
+    writeClaudeConfig(CONNECTED_CONFIG);
+    subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+    const term = fakeTerminal();
+    connect.setRunner(term.runner);
+    connect.setDryRun(false);
+    try {
+      await connect.start({ reauth: true, remoteStarted: remote });
+      await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+      const made = term.all.find((a) => a[0] === 'new-session');
+      assert.ok(made, 'no sign-in session was launched');
+      const browser = made.filter((a) => /^BROWSER=/.test(String(a)));
+      if (remote) {
+        assert.deepEqual(browser, ['BROWSER=/usr/bin/true'], 'argv was ' + JSON.stringify(made));
+        const at = made.indexOf('BROWSER=/usr/bin/true');
+        assert.ok(at > made.indexOf('env') && at < made.indexOf('auth') - 1,
+          'the assignment must sit between env and the claude binary: ' + JSON.stringify(made));
+      } else {
+        assert.deepEqual(browser, [], 'a local sign-in keeps the computer\'s own browser: ' + JSON.stringify(made));
+      }
+      assert.deepEqual(made.slice(-3), ['auth', 'login', '--claudeai']);
+    } finally { subscription.setRunner(null); }
+  });
+}
+
 /**
  * ⭐ THE CONTROL. Without it the arm above is satisfied by a change that simply
  * stops short-circuiting for EVERYONE -- which would drag every genuinely

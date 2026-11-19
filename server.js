@@ -18766,6 +18766,7 @@ const server = http.createServer(async (req, res) => {
             configDir: known.isDefault ? null : known.dir,
             requireInstallConfirm: true,
             installConfirmed,
+            remoteStarted: isRemoteRequest(req),   // kosmos#8728: no browser on this computer's screen
             reauth,
           });
         }
@@ -18793,7 +18794,7 @@ const server = http.createServer(async (req, res) => {
             sendJson(res, 500, { error: 'we could not set up the new account to share this computer\'s memory, so we did not start the sign-in' });
             return null;
           }
-          return connect.start({ configDir: prep.dir, requireInstallConfirm: true, installConfirmed });
+          return connect.start({ configDir: prep.dir, requireInstallConfirm: true, installConfirmed, remoteStarted: isRemoteRequest(req) });
         }
         /* #3326: the DEFAULT sign-up start forwards the request's reauth as-is (the sign-up
            client always sends true) and no probe gates it, so sign-up always runs a fresh
@@ -18805,7 +18806,7 @@ const server = http.createServer(async (req, res) => {
            by connect.js's expiryMoved, which assumes a real login moves refreshTokenExpiresAt
            (not yet measured for `auth login` over a working credential). It does not cover
            other platforms, or a forced login the person abandons. See the plan's weakest premise. */
-        return connect.start({ requireInstallConfirm: true, installConfirmed, reauth });
+        return connect.start({ requireInstallConfirm: true, installConfirmed, reauth, remoteStarted: isRemoteRequest(req) });
       })
       .then((st) => { if (st) sendJson(res, 200, st); })
       .catch((err) => sendJson(res, 500, {
