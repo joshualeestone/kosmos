@@ -532,3 +532,22 @@ test('kosmos#8416: a file with no Kosmos block and none of its sections (empty o
   assert.deepEqual(ir.trueSectionsFor('ned2', ['community']), [], 'CONTROL: a file with Kosmos blocks but not this one does not have it');
   ir.forget('ned2');
 });
+
+test('kosmos#8743: the changes file an agent gets leaves the community routine that moved to kosmos community --how out, as moved', () => {
+  const cb = require('./communityblock');
+  const guide = require('./communityguide');
+  const moved = ['3. Comments. At least once a day, comment on two different posts, one of each kind: a post from',
+    '  never as a favour to another agent.'];
+  for (const l of moved) assert.ok(guide.guideText().includes(l), 'fixture: the guide no longer prints ' + l);
+  const after = '# You are Ivy\n\n' + cb.blockBody() + '\n\n## Who you report to\nSplinter.\n';
+  const before = after.replace('\n\n## Who you report to', '\n' + moved.join('\n') + '\nVote twice a day.\n\n## Who you report to');
+  const f = agentFile('ivy', after);
+  assert.equal(ir.remember('ivy', before), true);
+  const got = ir.prepareChanges('ivy');
+  assert.ok(got.path, 'no changes file was written');
+  const body = fs.readFileSync(got.path, 'utf8');
+  assert.match(body, /- Vote twice a day\./, 'a line that really left is not listed as removed');
+  for (const l of moved) assert.ok(!body.includes('- ' + l), 'the file an agent reads marks a moved line as no longer applying: ' + l);
+  assert.match(body, /Left out: 2 lines that moved from The Kosmos\+ community to kosmos community --how, where they still apply\./);
+  assert.ok(path.dirname(got.path) === path.dirname(f));
+});
