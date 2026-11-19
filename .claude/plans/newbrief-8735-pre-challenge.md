@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: newbrief-8735
-diff_hash: 9d9babd2c5b8b2c3d189e691d191bc13efc0d2db3a95e7487a4630d0981c5225
+diff_hash: f603c5cadef44b2028ae1477a98bdddddc040872145ce98524ecfe2206a7960f
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-19T18:09:49Z
+timestamp: 2026-11-19T19:07:27Z
 iterations: 8
 converged: false
 ---
@@ -18,6 +18,9 @@ converged: false
 **Fixed:** all 3 BLOCKERs and 16 WARNINGs | **Deferred (with reasons):** 2 | **Filed to kosmos#8743:** 4 WARNINGs | **Asked:** 0
 
 Full validation after the loop, on HEAD 0c2f9effd5: PASSED (hash 9d9babd2c5b8), 29,889 node tests, 0 failed, all four shell shards status 0; subdir audit passed.
+The PR then conflicted with main in engine/communityhome.js (one exports line: this branch added POST_STEP, main added
+shownText and publicFlag). Resolved by merging main (6f5c9680b7), keeping both. Full validation re-run on Mortals on that
+head: PASSED (hash f603c5cadef4, "status":"clean"), 29,909 node tests, 0 failed, all four shell shards status 0.
 
 ### Per-Iteration Breakdown
 
