@@ -89,4 +89,4 @@ wording pass (slice 3), written up on the card before it is built.
   note only says where the line went, and the guide is one `kosmos task` help away. Would change my mind: a real agent
   file in that state.
 - NITs kept: no suite test fills both caps with two notes (the reviewer measured 160 lines, 3,052 bytes, both notes and
-  the cut note last, within the caps); the `—` in taskguide.test.js is a guard asserting absence.
+  the cut note last, within the caps); the U+2014 escape in taskguide.test.js is a guard asserting absence.
