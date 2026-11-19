@@ -123,7 +123,9 @@ function link(name, opts) {
     /* The session itself gone (the after-look read no id): nothing marked is left, so no alarm. */
     if (!after.id && (!off || off.ok === false)) return refused(`The window called ${p.name} went away while Kosmos was linking it, so nothing was linked.`);
     if (!off || off.ok === false) {
-      return refused(`Kosmos could not confirm the window called ${p.name} after marking it, and could not take the mark off. Restart that window, or ask for help, before messaging it.`);
+      /* kosmos#8724 item 2: the one refusal after which the mark may still be on the session, said as a field so a
+         caller (the CLI's exit status) need not read the sentence. */
+      return { ...refused(`Kosmos could not confirm the window called ${p.name} after marking it, and could not take the mark off. Restart that window, or ask for help, before messaging it.`), markLeft: true };
     }
     return refused(`Kosmos could not confirm the window called ${p.name} after marking it, so it took the mark off again and nothing was linked.`);
   }

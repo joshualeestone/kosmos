@@ -94,6 +94,7 @@ test('#8719: a window whose program changed between the look and the mark is not
   const goneR = linkwindow.link('zara', { panes, platform: 'darwin' });
   assert.match(goneR.because, /went away while Kosmos was linking it, so nothing was linked/);
   assert.doesNotMatch(goneR.because, /could not take the mark off/);
+  assert.notEqual(goneR.markLeft, true, 'kosmos#8724: a window that went away left no mark');
   // A window added to the session after the look: not linked, and the mark comes off.
   const grew = fakeTmux({ paneAdded: true });
   assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /took the mark off again/);
@@ -108,7 +109,9 @@ test('#8719: a window whose program changed between the look and the mark is not
   assert.equal(claimed.filter((c) => c[0] === 'set-option').length, 0);
   // And when the mark cannot be taken off, it says so rather than claiming it did.
   fakeTmux({ nowRunning: 'zsh', unsetFails: true });
-  assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /could not take the mark off/);
+  const stuck = linkwindow.link('zara', { panes, platform: 'darwin' });
+  assert.match(stuck.because, /could not take the mark off/);
+  assert.equal(stuck.markLeft, true, 'kosmos#8724: the refusal that may leave the mark says so as a field');
   // What runs there is checked before any mark: a shell at the first look marks nothing.
   const first = fakeTmux({ firstRunning: 'zsh' });
   assert.match(linkwindow.link('zara', { panes, platform: 'darwin' }).because, /could not confirm what runs in the window called zara, so nothing was linked/);
