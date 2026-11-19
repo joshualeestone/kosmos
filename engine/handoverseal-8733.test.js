@@ -86,17 +86,22 @@ test('without the test key, only escrowd\'s SHIPPED key counts, so a history sig
   } finally { hist.setVerifyingKeyForTests(crypto.createPublicKey(escrowd).export({ format: 'der', type: 'spki' }).subarray(-32)); }
 });
 
-test('the packing key must be the leaving member\'s at the grant time', () => {
+// `at` is the time the key must have been valid. The receiver passes now today; a signed pack time is kosmos#8764.
+test('the packing key must be the leaving member\'s at the time asked (today: now)', () => {
   const lh = history('m-leave', [{ kind: 'enrol', key: hex(leaver), at: NOW - 900, backfill: false }, { kind: 'revoke', key: hex(leaver), at: NOW - 100 }]);
   const o = { org: 'o1', member: 'm-leave', senderPub: leaver.publicKey, history: lh, at: NOW - 200, now: NOW };
   assert.deepEqual(seal.checkSender(o), { ok: true }, 'valid when the pack was granted, though revoked since');
   const r = (patch) => seal.checkSender(Object.assign({}, o, patch));
+  // What the receiver passes today, at = now: a key revoked since the pack was made is refused (final).
+  assert.match(r({ at: NOW }).because, /not signed by the leaving member's own computer/);
+  assert.equal(r({ at: NOW }).wait, undefined);
   // Final: listed for the leaving member, but not valid then (revoked); a history for another member.
   assert.match(r({ at: NOW - 50 }).because, /not signed by the leaving member's own computer/);
   assert.equal(r({ at: NOW - 50 }).wait, undefined, 'revoked is final');
   assert.match(r({ member: 'm-succ' }).because, /names a different member/);
   assert.equal(r({ member: 'm-succ' }).wait, undefined);
-  // Waiting: a packing key escrowd does not list at all (an enrolment not finished), a backfill entry, no history.
+  // Waiting: a packing key escrowd does not list at all (an enrolment not finished), no history. (A backfill entry is
+  // final, below.)
   assert.match(r({ senderPub: other.publicKey }).because, /not been enrolled by your company's admins yet/);
   assert.equal(r({ senderPub: other.publicKey }).wait, true);
   const bf = history('m-leave', [{ kind: 'enrol', key: hex(leaver), at: NOW - 900, backfill: true }]);

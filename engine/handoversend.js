@@ -288,6 +288,7 @@ async function tick(state, deps) {
         if (rec.key === key) {
           if (Number.isSafeInteger(rec.attempts)) state.attempts.set(part.id, rec.attempts);
           if (Number.isSafeInteger(rec.soft)) state.soft.set(part.id, rec.soft);
+          if (Number.isSafeInteger(rec.tieSoft)) state.tieSoft.set(part.id, rec.tieSoft);
           if (rec.spent === true) state.spent.add(part.id);
           if (rec.inflight === true) {   // the board stopped during a try: count it, and its bytes may be on the coordinator
             state.attempts.set(part.id, (state.attempts.get(part.id) || 0) + 1);
@@ -298,7 +299,7 @@ async function tick(state, deps) {
       }
       const f = state.failed.get(part.id);
       if (f && f.key === key) continue;   // decided already; a changed part is tried again
-      if (f) { state.failed.delete(part.id); state.attempts.delete(part.id); state.soft.delete(part.id); state.spent.delete(part.id); dropSend(part.id, d.root); }
+      if (f) { state.failed.delete(part.id); state.attempts.delete(part.id); state.soft.delete(part.id); state.tieSoft.delete(part.id); state.spent.delete(part.id); dropSend(part.id, d.root); }
       if (state.packed.has(part.id)) continue;   // packed in this run; the record moves on its own
       if ((state.retryAt.get(part.id) || 0) > now) continue;
       const p = packInput(part, org, d);
@@ -307,15 +308,15 @@ async function tick(state, deps) {
         const take = d.takeSnapshot || require('./backupsnapshot').takeSnapshot;
         // Noted before the upload: a board that quits part way leaves `inflight`, which the next run reads as a try that
         // counted and may have been granted bytes (it cannot know it was not).
-        // The key checked out (checkSeal), so a run of its waits (an enrolment, escrowd) is over: the retryLater run
-        // starts again. Only a run of the tie's own waits: a network or quota run keeps counting toward MAX_SOFT.
-        if (state.tieWaiting.delete(part.id)) state.soft.delete(part.id);
-        writeSend(part.id, d.root, { key, attempts: state.attempts.get(part.id) || 0, soft: state.soft.get(part.id) || 0, spent: state.spent.has(part.id), inflight: true });
+        // The key checked out (checkSeal), so the run of its waits (an enrolment, escrowd) is over. Those waits have their
+        // own count (tieSoft, kept on disk), so the network or quota run (soft) is never reset by them, nor they by it.
+        state.tieSoft.delete(part.id);
+        writeSend(part.id, d.root, { key, attempts: state.attempts.get(part.id) || 0, soft: state.soft.get(part.id) || 0, tieSoft: 0, spent: state.spent.has(part.id), inflight: true });
         r = await take(p.input, { macRequest: mac });
         if (!r || typeof r !== 'object') r = { ok: false, because: 'the pack failed unexpectedly' };
       }
       state.retryAt.delete(part.id);
-      if (r.ok) { state.packed.add(part.id); state.failed.delete(part.id); state.attempts.delete(part.id); state.soft.delete(part.id); dropSend(part.id, d.root); }
+      if (r.ok) { state.packed.add(part.id); state.failed.delete(part.id); state.attempts.delete(part.id); state.soft.delete(part.id); state.tieSoft.delete(part.id); dropSend(part.id, d.root); }
       else {
         const grantedNow = !!(r.added && r.added.size) || r.grantSpent === true;
         // A network refusal or a quota (retryLater) is not the pack's: tried next tick, not counted.
@@ -334,17 +335,23 @@ async function tick(state, deps) {
         let final = null;
         if (r.final || said) final = said || r.because || 'the pack did not finish';
         else if (tries >= MAX_ATTEMPTS) final = `Kosmos tried ${tries} times and could not finish the pack; your company can cancel this hand-over and start a new one`;
-        else if (r.retryLater) {
+        else if (r.retryLater && r.tieWait) {
+          // kosmos#8733: the key could not be checked yet. Its own count, MAX_SOFT in a row (six hours), reset only when
+          // the key checks out; it leaves the network run alone.
+          const ts = (state.tieSoft.get(part.id) || 0) + 1;
+          state.tieSoft.set(part.id, ts);
+          if (ts >= MAX_SOFT) final = `${r.because}, and that did not change for six hours; your company can cancel this hand-over and start a new one`;
+          else state.retryAt.set(part.id, now + SOFT_RETRY_MS);
+        } else if (r.retryLater) {
           // Not counted as an attempt, but not every tick for ever: backed off, and final past MAX_SOFT in a row.
-          if (r.tieWait) state.tieWaiting.add(part.id);
           const soft = (state.soft.get(part.id) || 0) + 1;
           state.soft.set(part.id, soft);
-          if (soft >= MAX_SOFT) final = r.tieWait ? `${r.because}, and that did not change for six hours; your company can cancel this hand-over and start a new one` : 'Kosmos+ kept asking this computer to wait, so the pack did not finish; your company can cancel this hand-over and start a new one';
+          if (soft >= MAX_SOFT) final = 'Kosmos+ kept asking this computer to wait, so the pack did not finish; your company can cancel this hand-over and start a new one';
           else state.retryAt.set(part.id, now + SOFT_RETRY_MS);
         } else state.retryAt.set(part.id, now + RETRY_MS);
         if (final) state.failed.set(part.id, { key, because: final });
         if (grantedNow) state.spent.add(part.id);
-        writeSend(part.id, d.root, Object.assign({ key, attempts: tries, soft: state.soft.get(part.id) || 0, spent: state.spent.has(part.id) }, final ? { final } : {}));
+        writeSend(part.id, d.root, Object.assign({ key, attempts: tries, soft: state.soft.get(part.id) || 0, tieSoft: state.tieSoft.get(part.id) || 0, spent: state.spent.has(part.id) }, final ? { final } : {}));
       }
       return { ok: r.ok === true, id: part.id, because: r.ok ? undefined : r.because };   // one pack per tick
     }
@@ -355,7 +362,7 @@ async function tick(state, deps) {
   } finally { state.running = false; }
 }
 
-function newSendState() { return { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), soft: new Map(), tieWaiting: new Set(), spent: new Set(), packed: new Set(), loaded: new Set(), open: [] }; }
+function newSendState() { return { running: false, failed: new Map(), retryAt: new Map(), attempts: new Map(), soft: new Map(), tieSoft: new Map(), spent: new Set(), packed: new Set(), loaded: new Set(), open: [] }; }
 
 /* The board's own timer. Never throws. */
 function startTick(deps) {

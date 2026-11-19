@@ -485,12 +485,14 @@ test('kosmos#8733: a run of the tie\'s waits ends when the key checks out, and r
     const st = hs.newSendState();
     // MAX_SOFT - 1 waits for escrowd: not final yet.
     for (let i = 0; i < hs.MAX_SOFT - 1; i++) { await hs.tick(st, d); clock += hs.SOFT_RETRY_MS + 1; }
-    assert.equal(st.soft.get('htie'), hs.MAX_SOFT - 1);
+    assert.equal(st.tieSoft.get('htie'), hs.MAX_SOFT - 1);
+    assert.equal(st.soft.get('htie') || 0, 0, 'the tie\'s waits are not the network run');
     assert.equal(hs.notice(st).stopped, undefined);
     // The key now checks out; the pack then meets a network refusal. Its run starts from one, not from MAX_SOFT.
     rows = [one];
     await hs.tick(st, d);
     assert.equal(st.soft.get('htie'), 1, 'the tie\'s waits do not count against the network run');
+    assert.equal(st.tieSoft.get('htie') || 0, 0, 'the key checked out: its waits are over');
     assert.equal(hs.notice(st).stopped, undefined);
     // CONTROL: a network run alone still ends at MAX_SOFT (the reset is only after the tie's waits).
     for (let i = 1; i < hs.MAX_SOFT; i++) { clock += hs.SOFT_RETRY_MS + 1; await hs.tick(st, d); }
@@ -500,5 +502,43 @@ test('kosmos#8733: a run of the tie\'s waits ends when the key checks out, and r
     const d2 = Object.assign({}, d, { root: path.join(w.base, 'data2'), macRequest: async () => ({ ok: true, data: { handovers: [Object.assign({}, part({ id: 'htie2' }, 0), { seal_history: null })] } }) });
     for (let i = 0; i < hs.MAX_SOFT; i++) { await hs.tick(st2, d2); clock += hs.SOFT_RETRY_MS + 1; }
     assert.match(hs.notice(st2).stopped || '', /could not get its device keys.*did not change for six hours/);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('kosmos#8733 review 3: a restart in a run of the tie\'s waits keeps the count, and the network run starts on its own', async () => {
+  const w = world();
+  try {
+    let clock = 0;
+    const one = part({ id: 'hrst' }, 0);
+    let rows = [Object.assign({}, one, { seal_history: null })];
+    const answer = { ok: false, retryLater: true, because: 'network' };
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: rows } }), takeSnapshot: async () => answer });
+    const st = hs.newSendState();
+    for (let i = 0; i < hs.MAX_SOFT - 2; i++) { await hs.tick(st, d); clock += hs.SOFT_RETRY_MS + 1; }
+    // The board restarts: a new state, read back from the decisions file.
+    const st2 = hs.newSendState();
+    await hs.tick(st2, d);
+    assert.equal(st2.tieSoft.get('hrst'), hs.MAX_SOFT - 1, 'the tie\'s count came back from disk and went on');
+    // The key checks out; two network refusals then count 1 and 2, not 23 and 24.
+    rows = [one];
+    clock += hs.SOFT_RETRY_MS + 1; await hs.tick(st2, d);
+    clock += hs.SOFT_RETRY_MS + 1; await hs.tick(st2, d);
+    assert.equal(st2.soft.get('hrst'), 2);
+    assert.equal(hs.notice(st2).stopped, undefined, 'not ended early');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('kosmos#8733 review 3: waits and passes taking turns still end, at MAX_SOFT network refusals', async () => {
+  const w = world();
+  try {
+    let clock = 0;
+    const one = part({ id: 'halt' }, 0);
+    let n = 0;
+    const d = depsFor(w, { org: () => 'org1', now: () => clock,
+      macRequest: async () => ({ ok: true, data: { handovers: [(n++ % 2) ? one : Object.assign({}, one, { seal_history: null })] } }),
+      takeSnapshot: async () => ({ ok: false, retryLater: true, because: 'network' }) });
+    const st = hs.newSendState();
+    for (let i = 0; i < 2 * hs.MAX_SOFT + 2 && !(hs.notice(st) || {}).stopped; i++) { await hs.tick(st, d); clock += hs.SOFT_RETRY_MS + 1; }
+    assert.match((hs.notice(st) || {}).stopped || '', /kept asking this computer to wait/, 'bounded');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

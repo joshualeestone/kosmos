@@ -856,8 +856,9 @@ test('kosmos#8733: the key step signs with this computer\'s device key, or sends
     await hr.tick(stateNew(), { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root: fresh(t, 'data'), base: fresh(t, 'base'), fetch });
     assert.equal(c.rec.state, 'packing');
   }
-  // May pass later (escrowd not reachable, a packing key not listed yet, a backfill entry): an OUTAGE. No attempt spent
-  // however many ticks, no /done and nothing restored, until OUTAGE_LIMIT_MS; then final, said once.
+  // May pass later (escrowd not reachable, a packing key not listed yet; a backfill entry is FINAL, in the table above):
+  // a tieWait with its own clock (waitSince). No attempt spent however many ticks, no /done and nothing restored, until
+  // OUTAGE_LIMIT_MS; then final, said once.
   const waits = [
     ['escrowd could not be asked', () => null],
     ['a packing key escrowd does not list yet', () => signedHistory(ORG, 'm-leave', crypto.generateKeyPairSync('ed25519').publicKey)],
@@ -881,6 +882,17 @@ test('kosmos#8733: the key step signs with this computer\'s device key, or sends
     assert.ok(Number.isSafeInteger(hr.readKey(id, root).waitSince), `${label}: waitSince kept`);
     assert.equal(Number.isSafeInteger(hr.readKey(id, root).outageSince), false, `${label}: the outage clock untouched`);
     if (label === 'escrowd could not be asked') {
+      // Review 3: the check passing ends its wait (waitSince cleared), even when the step after it waits for another
+      // reason: here the manifest is not in the store yet, which is the missing clock's.
+      delete c.rec.sender_history;
+      const mkey = c.rec.manifest.key;
+      const held = b.stored.get(mkey);
+      b.stored.delete(mkey);
+      await hr.tick(st, deps);
+      assert.equal(Number.isSafeInteger(hr.readKey(id, root).waitSince), false, 'waitSince cleared by the pass');
+      assert.ok(Number.isSafeInteger(hr.readKey(id, root).missingSince), 'the missing clock is the one running now');
+      b.stored.set(mkey, held);
+      clock += hr.MISSING_RECHECK_MS + 1;
       // CONTROL: the history back, the same hand-over is received.
       delete c.rec.sender_history;
       const ok = await hr.tick(st, deps);
