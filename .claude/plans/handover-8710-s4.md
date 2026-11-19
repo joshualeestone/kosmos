@@ -44,7 +44,7 @@ for each `/v1/mac/org/handover/mine` row with `side: 'receive'`:
   prepared world; the files match; the key file is gone after done.
 - the fetcher's URL rules, each with its control.
 
-## Layout fix found while designing this slice (11-19 10:0x CST), carried into slice 3's round 2
+## Layout fix found while designing this slice (11-19 09:3x CST), carried into slice 3's round 2
 `restoreworld.finishRestoreWorld` moves only the `workers` and `projects` roots into the new Kosmos (MOVED), and
 `listRestoredAgents` reads agents from that Kosmos's workers folder. Slice 3 named each agent's root `agents/<seg>`, so
 a received pack would have left every agent in the restore folder, never listed. Slice 3 now names it `workers/<seg>`
