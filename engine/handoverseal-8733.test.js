@@ -44,6 +44,7 @@ test('every substitution is refused: another signer, another key, another hand-o
     ['a history signed by someone other than escrowd', { history: history('m-succ', [{ kind: 'enrol', key: hex(other), at: NOW - 900, backfill: false }], { key: other.privateKey }), signer: hex(other), sig: seal.signSeal('ho1', sealPub, other.privateKey) }, /could not be checked/],
     ['a key revoked before now', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: false }, { kind: 'revoke', key: hex(succ), at: NOW - 100 }]) }, /not signed by the colleague's own computer/],
     ['no signature', { sig: undefined }, /did not sign/],
+    ['a key the backfill entered (the coordinator\'s word)', { history: history('m-succ', [{ kind: 'enrol', key: hex(succ), at: NOW - 900, backfill: true }]) }, /not been enrolled by your company's admins/],
     ['no history', { history: undefined }, /could not be checked/],
   ];
   for (const [label, patch, why] of cases) {
@@ -69,4 +70,6 @@ test('the packing key must be the leaving member\'s at the grant time', () => {
   assert.match(seal.checkSender(Object.assign({}, o, { at: NOW - 50 })).because, /not signed by the leaving member's own computer/);
   assert.match(seal.checkSender(Object.assign({}, o, { senderPub: other.publicKey })).because, /not signed by the leaving member's own computer/);
   assert.match(seal.checkSender(Object.assign({}, o, { member: 'm-succ' })).because, /could not be checked/);
+  const bf = history('m-leave', [{ kind: 'enrol', key: hex(leaver), at: NOW - 900, backfill: true }]);
+  assert.match(seal.checkSender(Object.assign({}, o, { history: bf })).because, /not been enrolled by your company's admins/);
 });

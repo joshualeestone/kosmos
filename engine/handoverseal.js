@@ -11,7 +11,8 @@
  *                                      and the one-time public key (length-prefixed, so no two inputs share bytes).
  *   checkSeal(o)                       the leaving computer, before it packs: escrowd's history for the SUCCESSOR
  *                                      verifies (devkeyhist.verify, which trusts only escrowd's shipped key), the
- *                                      signer is one of that member's keys valid now (keyAt), and the signature holds.
+ *                                      signer is one of that member's keys valid now (keyAt), enrolled by two admins
+ *                                      (not a backfill entry, which is the coordinator's word), and the signature holds.
  *   checkSender(o)                     the receiving computer, before it opens: the packing key is one of the LEAVING
  *                                      member's keys at the time the pack was granted.
  *
@@ -61,7 +62,10 @@ function checkSeal(o) {
     if (typeof x.sig !== 'string' || !/^[A-Za-z0-9_-]+$/.test(x.sig)) return { ok: false, because: 'the colleague\'s computer did not sign the key for this hand-over' };
     const h = devkeyhist.verify(x.history, { org: x.org, member: x.member, now: x.now });
     if (!h.ok) return { ok: false, because: `the colleague's computer could not be checked: ${h.because}` };
-    if (!devkeyhist.keyAt(h.keys, x.signer, x.now)) return { ok: false, because: 'the key for this hand-over was not signed by the colleague\'s own computer' };
+    const e = devkeyhist.keyAt(h.keys, x.signer, x.now);
+    if (!e) return { ok: false, because: 'the key for this hand-over was not signed by the colleague\'s own computer' };
+    // A backfilled entry is the coordinator's word at the switch-over: never enough to seal a member's work to.
+    if (e.backfill !== false) return { ok: false, because: 'the colleague\'s computer has not been enrolled by your company\'s admins yet' };
     const pub = publicKeyOfHex(x.signer);
     if (!pub || !crypto.verify(null, msg, pub, Buffer.from(x.sig, 'base64url'))) return { ok: false, because: 'the key for this hand-over was not signed by the colleague\'s own computer' };
     return { ok: true };
@@ -77,7 +81,9 @@ function checkSender(o) {
     if (!hex) return { ok: false, because: 'the computer that packed these agents is not known' };
     const h = devkeyhist.verify(x.history, { org: x.org, member: x.member, now: x.now });
     if (!h.ok) return { ok: false, because: `the computer that packed these agents could not be checked: ${h.because}` };
-    if (!devkeyhist.keyAt(h.keys, hex, x.at)) return { ok: false, because: 'the pack was not signed by the leaving member\'s own computer' };
+    const e = devkeyhist.keyAt(h.keys, hex, x.at);
+    if (!e) return { ok: false, because: 'the pack was not signed by the leaving member\'s own computer' };
+    if (e.backfill !== false) return { ok: false, because: 'the computer that packed these agents has not been enrolled by your company\'s admins' };
     return { ok: true };
   } catch { return { ok: false, because: 'the computer that packed these agents could not be checked' }; }
 }
