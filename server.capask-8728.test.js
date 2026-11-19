@@ -121,7 +121,7 @@ test('8728 (b) control: a connector that ANSWERED without the capability still g
   } finally { releaseLog(); process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
 
-test('8728: a connector that never answers is asked 1 + 20 times by itself, then left for the next request, and the last line says so', async () => {
+test('8728: a connector that never answers is asked 1 + 20 times by itself, then left for the next request; the last line and the refusal say so', async () => {
   const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
   process.env.AGENT_WORKFORCE_TUNNEL_BIN = slow('never-tunnel', 60 * 1000);
   catchLog();
@@ -132,8 +132,12 @@ test('8728: a connector that never answers is asked 1 + 20 times by itself, then
     await new Promise((r) => setTimeout(r, 500));
     assert.equal(lines.length, 21, 'and then stopped asking by itself');
     assert.match(lines[19], /asking again in 0 s/);
-    assert.match(lines[20], /asked 20 times; asking again at the next remote request/);
+    assert.match(lines[20], /asked 21 times; asking again at the next remote request/);
     assert.equal(kept().size, 0);
+    // Review 2: once the board has stopped asking by itself, "still starting" would be a promise nothing keeps.
+    assert.equal(remote.connectorCapabilitiesPending(), false, 'given up: the update sentence again');
+    const got = await post('/api/accounts/gemini/apikey');
+    assert.equal(got.body.error, REMOTE_STEP_UP_CONNECTOR.error);
   } finally { releaseLog(); process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
 });
 
