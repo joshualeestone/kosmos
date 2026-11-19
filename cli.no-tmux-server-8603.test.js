@@ -12,7 +12,7 @@
    It is a tripwire for what someone writes by mistake, not a parser. Not seen: a verb built at run time; tmux's short
    command prefixes (`st` for start-server); the binary through another variable (`"$_cand" new -d`; a literal
    new-session is still caught); a line continuation splitting the binary from its verb; a bare binary behind any
-   wrapper (`command`, `env`, `nohup`, `sudo`, `setsid`); a quoted flag argument with a space in it (`-L "my sock"`);
+   wrapper (`command`, `env`, `nohup`, `sudo`, `setsid`; the verb forms, `sudo tmux new`, are still caught); a quoted flag argument with a space in it (`-L "my sock"`);
    an agent started without exec, through a wrapper (`exec env X=1 claude`, `exec nohup claude`), with exec's own
    flags (`exec -a name claude`), by a quoted name (`exec "claude"`) or through a variable (`exec "$CLAUDE_BIN"`). Trailing comments, heredocs and
    embedded node programs ARE scanned, on purpose: a false alarm is loud, a miss is silent.
@@ -28,7 +28,7 @@ const CLI = path.join(__dirname, 'install', 'kosmos');
 /* What can start a tmux server or an agent: the verbs, through any spelling of the binary the script uses (a bare
    tmux, "$AGENT_WORKFORCE_TMUX_BIN", ${...}), and an exec of claude. */
 const BIN = String.raw`(?:\btmux|"?\$\{?AGENT_WORKFORCE_TMUX_BIN(?::-[^}]*)?\}?)"?`;   // tmux, "$AGENT_WORKFORCE_TMUX_BIN", "${AGENT_WORKFORCE_TMUX_BIN:-}"
-const FLAGS = String.raw`(?:\s+-\S+(?:\s+[^-\s;&|)]\S*)?)*`;    // flags, each with or without an argument
+const FLAGS = String.raw`(?:\s+-\S+(?:\s+[^-\s;&|)]\S*)?){0,8}`;   // at most 8 flags: bounds backtracking on long lines    // flags, each with or without an argument
 const STARTS = [
   /\b(?:new-session|start-server)\b/,
   new RegExp(BIN + FLAGS + String.raw`\s+(?:new|start)(?![\w-])`),   // new and start themselves, not new-window
@@ -37,7 +37,7 @@ const STARTS = [
      then, do, else, while, until, time.
      -V and -h only read. */
   new RegExp(String.raw`(?:^|[;&|{!\`]|\$\(|^\s*\(|\b(?:exec|if|elif|then|do|else|while|until|time)\b)\s*` + BIN
-    + String.raw`(?:\s+-(?![Vh]\b)\S+(?:\s+[^-\s;&|)<>]\S*)?)*(?:\s+\d*[<>]&?\s*\S*)*\s*(?:$|[;&|)\`])`),
+    + String.raw`(?:\s+-(?![Vh]\b)\S+(?:\s+[^-\s;&|)<>]\S*)?){0,8}(?:\s+\d*[<>]&?\s*\S*){0,4}\s*(?:$|[;&|)\`])`),
   /\bexec\s+(?:\S*\/)?(?:claude|codex)\b/,
 ];
 const offends = (line) => STARTS.some((re) => re.test(line));
