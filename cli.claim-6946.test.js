@@ -232,7 +232,7 @@ function withSilentBoard(mode, fn) {
   });
 }
 
-test('kosmos#8721: a status check cut off (curl 52) exits 1 and says it could not read the claim, not that it may have happened', { skip: SKIP_POSIX_SHELL }, () =>
+test('kosmos#8721: a status check cut off (curl 52) exits 1 and says it could not tell who holds the post, not that it may have happened', { skip: SKIP_POSIX_SHELL }, () =>
   withSilentBoard('hangup', async (port) => {
     const out = await claim(port, [], ['p', 'm3', '--status']);
     assert.equal(out.code, 1, out.stdout + out.stderr);

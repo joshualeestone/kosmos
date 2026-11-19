@@ -4645,7 +4645,8 @@ function react({ project, of, emoji, from, operator, members, claim }) {
        lock bob out of it with no time limit, since a claim, unlike the asked window, does not end on its own. An author
        who means to do the work says so in its post, and the window lets it claim after 30 minutes at most. */
     if (!(asked.length && !asked.includes(who) && !released && leftMs > 0)) return null;
-    return { asked, mins: Math.max(1, Math.ceil(leftMs / 60000)) };
+    return { asked, mins: Math.max(1, Math.ceil(leftMs / 60000)),
+      who: asked.length === 1 ? asked[0] : asked.slice(0, -1).join(', ') + ' or ' + asked[asked.length - 1] };
   };
   /* kosmos#8721: a read. Answered after the same room and post checks as a claim, before anything is written, so a
      check from an agent not on the project, or of a post that is not there, is refused exactly as a claim would be. */
@@ -4653,8 +4654,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
     const askedNow = holder ? null : askedHold(reactor);   // nobody holds it, but it may be someone else's to take first
     return { ok: true, op: 'status', of: postId, mine: holds,
       ...(holder ? { claimedBy: holder.by, claimedAt: holder.at, claimedAge: claimAge(holder.at) } : {}),
-      ...(askedNow ? { askedOf: askedNow.asked, askedMinutes: askedNow.mins,
-        askedWho: askedNow.asked.length === 1 ? askedNow.asked[0] : askedNow.asked.slice(0, -1).join(', ') + ' or ' + askedNow.asked[askedNow.asked.length - 1] } : {}) };
+      ...(askedNow ? { askedOf: askedNow.asked, askedMinutes: askedNow.mins, askedWho: askedNow.who } : {}) };
   }
   const refuse = () => ({ ok: false, claimedBy: holder.by, claimedAt: holder.at,
     because: holder.by + ' claimed that post ' + claimAge(holder.at)
@@ -4693,8 +4693,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
      nobody is open anyway. */
   const hold = askedHold(reactor);   // the rule the comment above describes, in the askedHold helper (kosmos#8721)
   if (hold) {
-    const asked = hold.asked; const mins = hold.mins;
-    const who = asked.length === 1 ? asked[0] : asked.slice(0, -1).join(', ') + ' or ' + asked[asked.length - 1];
+    const asked = hold.asked; const mins = hold.mins; const who = hold.who;
     return { ok: false, askedOf: asked,
       because: 'that post asks ' + who + ', so it is theirs to take for ' + mins + ' more minute' + (mins === 1 ? '' : 's')
         + ': read the room, and ask them if you can help (if they hand it to you, claim the post where they do)' };

@@ -78,6 +78,9 @@ test('a post that asks someone else first: status says so (who, and the minutes 
   assert.equal(c.ok, false, 'CONTROL: bob\'s claim is refused, so the status line above is true');
   assert.deepEqual(c.askedOf, ['ann']);
   const ann = ask('ann', 'status', 'm5');
+  assert.equal(ann.ok, true);
+  assert.equal(ann.op, 'status');
+  assert.equal(ann.mine, false);
   assert.equal(ann.askedOf, undefined, 'the asked member is not told the post asks someone else first');
 });
 

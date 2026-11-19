@@ -4037,7 +4037,7 @@ async function verbClaim(ctx, args) {
   if (!r.reached && status) { if (r.timedOut) { ctx.err('Kosmos was slow to answer and we stopped waiting, so we could not tell who holds that post. Nothing was claimed; run the same command again.'); return 1; } return ctx.unreachable('tell who holds that post'); }
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Run the same command again: it is safe, and it says whether the claim is yours.') : ctx.unreachable('claim');
   if (ctx.wrongWorld(r)) { ctx.err(ctx.outbox().WRONG_WORLD_SENTENCES.notOpen); return 1; }
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not read that claim: ' + ctx.refusedBy(r) + '.'); return 1; }
+  if (ctx.refusedBy(r)) { ctx.err((status ? 'Could not check: ' : 'Kosmos could not read that claim: ') + ctx.refusedBy(r) + '.'); return 1; }
   const op = r.json && r.json.ok ? r.json.op : null;
   if (op === 'add') { ctx.out('Claimed: that post is yours, and the room shows it. Say in the room what you are doing with it.'); return 0; }
   if (op === 'already') { ctx.out('That post is already yours.'); return 0; }

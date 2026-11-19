@@ -5510,7 +5510,7 @@ cmd_claim() {
   case "$body" in
     '{"error":'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
-      say "Kosmos could not read that claim: ${because:-it did not say why}."
+      if [ "$status" = 1 ]; then say "Could not check: ${because:-it did not say why}."; else say "Kosmos could not read that claim: ${because:-it did not say why}."; fi
       exit 1 ;;
     '{"ok":true,"op":"add"'*)     say "Claimed: that post is yours, and the room shows it. Say in the room what you are doing with it." ;;
     '{"ok":true,"op":"already"'*) say "That post is already yours." ;;
