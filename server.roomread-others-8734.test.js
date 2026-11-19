@@ -91,4 +91,7 @@ test('kosmos#8734 item 4: a person\'s post naming others but also @all, or an @-
   assert.equal(listed(mine, unsure), true, 'an @-word that may have meant me was ignored:\n' + mine);
   assert.equal(listed(mine, quoted), false, mine);
   assert.equal(listed(mine, roomAsk), true, 'a named post that asks the room in words was hidden:\n' + mine);
+  // Review 6: one naming only an agent no longer in the room asks nobody here (the claim guard's reading), so it stays.
+  const gone = personPost(pid, '@goneseat can you finish this', ['goneseat']);
+  assert.equal(listed(await unanswered(pid), gone), true, 'an ask to an agent that left was hidden from the room');
 });

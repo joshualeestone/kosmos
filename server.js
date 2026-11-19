@@ -24860,6 +24860,13 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#8734 (feedback): a person's post reaches every member (messages.js: an operator post's recipients are the
            whole room), so one that names only OTHER agents was listed as asked of every reader. Named, and not the reader. */
         const namedOthersOnly = new Set();
+        /* Review 6: the members the claim guard reads it with (react(): the project's agents less removed ones), so a post
+           naming only an agent that has left asks nobody and stays listed. Unreadable: null, and nothing is hidden. */
+        let membersNow = null;
+        try {
+          const now = messages.roomMembersNow(Array.isArray(roomRecord && roomRecord.agents) ? roomRecord.agents : []);
+          membersNow = now.ok === true && Array.isArray(now.members) && now.members.length ? now.members : null;
+        } catch { membersNow = null; }
         if (readerName) {
           for (const m of roomRows) {
             if (!m || m.kind !== 'post') continue;
@@ -24872,7 +24879,7 @@ const server = http.createServer(async (req, res) => {
             else if (named.length && m.operator === true
               && !/(^|[^A-Za-z0-9._-])@(all|everyone)(?![A-Za-z0-9_-])/i.test(String(m.text || '').replace(/`[^`]*`/g, ' '))) {
               let asked = [];
-              try { asked = messages.claimAskedMembers(m, roomRows, id, null); } catch { asked = []; }   // unread: listed, as before
+              try { asked = membersNow ? messages.claimAskedMembers(m, roomRows, id, membersNow) : []; } catch { asked = []; }   // unread: listed, as before
               if (asked.length && !asked.includes(readerName)) namedOthersOnly.add(String(m.id));
             }
             if (onlyUnanswered) namedBy.set(String(m.id), named);

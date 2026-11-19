@@ -207,6 +207,11 @@ test('#8734 item 3: the board refuses closing as never run a task with a check r
   tasks.setCheckResult(pid, unmet, 1, false, 'not started', { by: 'mara' });
   r = await close(unmet, { notRun: true });
   assert.equal(r.status, 200, await r.text());
+  // Review 6, CONTROL: the common path, a plain close then marking it never run, is still allowed (closedHow 'unbuilt').
+  const plainFirst = newTask('Closed, then marked never run');
+  tasks.close(pid, plainFirst);
+  r = await close(plainFirst, { notRun: true });
+  assert.equal(r.status, 200, await r.text());
   // CONTROL: a task with no record of running still closes as never run, and the checked one still closes plainly.
   r = await close(plain, { notRun: true });
   assert.equal(r.status, 200, await r.text());
