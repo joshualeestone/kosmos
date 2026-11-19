@@ -1413,8 +1413,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
        what is missing: a parent whose children did the work, or a person's own plain close, has no sign of work either. */
     /* kosmos#8736: a replaced task whose own record says it ran is "done, then superseded", not "never run": it is
        replaced (the link is kept) without the never-run mark, so a parent's done-count (#8301) does not count it unrun.
-       Replacing finished work is legitimate, so this is not a refusal. --not-run itself is refused over such a record
-       (kosmos#8734). */
+       Replacing finished work is legitimate, so this is not a refusal. */
     if (after && (notRun || (replacedNew && !ranOnRecord(t).any))) changed.closedUnrun = true;
     /* Replaced, and its record says it ran: not "never run". Never over a not-run mark already there: that is the
        closer's word (#8301), and a replace does not take it back. */
