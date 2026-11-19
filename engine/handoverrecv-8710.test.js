@@ -552,3 +552,78 @@ test('round 4: an outage spends no attempt; a crash after finish is the received
     assert.deepEqual(keyed, ['hlater']);
   }
 });
+
+test('round 5: a listed key stays fresh; an unreadable key waits; a day-long outage ends it; a stopped finish is finished again; a final close takes out a half-made Kosmos', async (t) => {
+  hr.allowHttpForTests(true);
+  const b = await bucket();
+  t.after(() => b.close());
+  let clock = Date.now();
+  // Listed keys are touched, so a long packing wait never ages them out.
+  {
+    const root = fresh(t, 'data');
+    hr.writeKey('hwait', require('./hpke').hpkeKeyPair(), root);
+    const f = path.join(root, 'handover', 'hwait.key.json');
+    const old = (clock - 3 * hr.STALE_KEY_MS) / 1000;
+    fs.utimesSync(f, old, old);
+    hr.sweepKeys(new Set(['hwait']), clock, root);
+    hr.sweepKeys(new Set([]), clock + 1000, root);   // one empty answer right after
+    assert.ok(hr.readKey('hwait', root), 'kept: it was listed a moment ago');
+  }
+  // An unreadable key past requested waits instead of ending the hand-over.
+  if (process.getuid && process.getuid() !== 0) {
+    const root = fresh(t, 'data');
+    hr.writeKey('hunread', require('./hpke').hpkeKeyPair(), root);
+    const f = path.join(root, 'handover', 'hunread.key.json');
+    fs.chmodSync(f, 0o000);
+    t.after(() => { try { fs.chmodSync(f, 0o600); } catch { /* gone */ } });
+    let done = 0;
+    await hr.tick(stateNew(), { org: () => ORG, root, base: fresh(t, 'base'), macRequest: async (m, route) => {
+      if (route === hr.MINE_ROUTE) return { ok: true, data: { handovers: [{ id: 'hunread', side: 'receive', state: 'packed' }] } };
+      if (route === hr.DONE_ROUTE) done++;
+      return { ok: true, data: {} };
+    } });
+    assert.equal(done, 0, 'no done for a key that could not be read');
+  }
+  // An outage that lasts a day ends the hand-over.
+  {
+    const root = fresh(t, 'data'), base = fresh(t, 'base');
+    const c = coordinator(b, 'hlong');
+    const mac = async (m, route, body) => (route === hr.READ_ROUTE && c.rec.manifest ? { ok: false, because: 'Kosmos+ did not answer' } : c.recv(m, route, body));
+    const deps = { org: () => ORG, macRequest: mac, root, base, fetch, now: () => clock };
+    await hr.tick(stateNew(), deps);
+    await pack(c, agentFolder(t));
+    await hr.tick(stateNew(), deps);
+    clock += 24 * 60 * 60 * 1000;
+    const r = await hr.tick(stateNew(), deps);
+    assert.match(r.because, /could not give this computer the pack for a day/);
+    assert.equal(c.rec.state, 'failed');
+  }
+  // A finish that stopped part way is finished again in the same Kosmos, not received twice.
+  {
+    const root = fresh(t, 'data'), base = fresh(t, 'base');
+    const c = coordinator(b, 'hrefin');
+    const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+    await hr.tick(stateNew(), deps);
+    await pack(c, agentFolder(t));
+    const rw = require('./restoreworld');
+    const keep = rw.finishRestoreWorld;
+    rw.finishRestoreWorld = () => ({ ok: false, because: 'stopped part way' });
+    try { assert.equal((await hr.tick(stateNew(), deps)).ok, false); } finally { rw.finishRestoreWorld = keep; }
+    assert.ok(hr.readKey('hrefin', root).restoring, 'the unfinished Kosmos is still noted');
+    clock += hr.RETRY_MS + 1;
+    assert.equal((await hr.tick(stateNew(), deps)).ok, true);
+    const live = worlds.readRegistry(base).worlds.filter((x) => /^Handed over/.test(x.name) && !x.hiddenAt);
+    assert.equal(live.length, 1, 'one copy');
+    assert.equal(worlds.readRegistry(base).worlds.filter((x) => /^Handed over/.test(x.name)).length, 1, 'finished in the same Kosmos: no second one made, hidden or not');
+    assert.ok(fs.existsSync(path.join(worlds.envOverridesFor(base, live[0]).AGENT_WORKFORCE_WORKERS, 'ledger', 'CLAUDE.md')));
+  }
+  // A final close takes out a half-made Kosmos noted as restoring.
+  {
+    const root = fresh(t, 'data'), base = fresh(t, 'base');
+    const half = require('./restoreworld').prepareRestoreWorld(base, { member: 'q', memberId: 'hhalf', kind: 'handover' });
+    hr.writeKey('hhalf', require('./hpke').hpkeKeyPair(), root, { restoring: half.world.id, expect: ['ledger'] });
+    await hr.tick(stateNew(), { org: () => ORG, root, base, fetch, macRequest: async (m, route) => (route === hr.MINE_ROUTE
+      ? { ok: true, data: { handovers: [{ id: 'hhalf', side: 'receive', state: 'packed', seal_pub: Buffer.alloc(32, 9).toString('base64') }] } } : { ok: true, data: {} }) });
+    assert.equal(fs.existsSync(half.dir), false, 'removed before the hand-over ended');
+  }
+});
