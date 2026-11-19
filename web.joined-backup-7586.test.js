@@ -59,5 +59,6 @@ test('#7586: a family reads it as its family', () => {
 test('#7586: the joined view\'s sentence carries the backup line after the reporting branch, not inside it', () => {
   const lines = PAGE.split('\n').filter((l) => /^\s*else if \(here\) document\.getElementById\('plus-org-say'\)\.textContent = /.test(l));
   assert.equal(lines.length, 1, 'the joined view sentence moved: ' + lines.length);
-  assert.match(lines[0], /\+ plusOrgRequiredWait\(st\) : ''\) \+ plusOrgBackupLate\(st\)\);$/);
+  // kosmos#8710: the hand-over line follows the backup line, both outside the reporting branch.
+  assert.match(lines[0], /\+ plusOrgRequiredWait\(st\) : ''\) \+ plusOrgBackupLate\(st\) \+ plusOrgHandover\(st\)\);$/);
 });

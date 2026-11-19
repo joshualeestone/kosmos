@@ -130,6 +130,25 @@ test('#7586: /api/org says backupLate from the record\'s backup time and the app
   assert.equal(await late(), null, 'not the enrolled Kosmos here: nothing is said');
 });
 
+test('#8710: /api/org carries the hand-over notice to the screen only, for this world only, and only while there is one', async (t) => {
+  const hs = require('./engine/handoversend');
+  const orig = hs.notice;
+  t.after(() => { hs.notice = orig; fs.rmSync(enrollmentFile(), { force: true }); });
+  const enroll = (w) => fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', world: w, enrolledAt: '2026-10-07T00:00:00.000Z' }));
+  const get = async (headers) => (await call('/api/org', { method: 'GET', headers })).json;
+  enroll(oe.worldId());
+  hs.notice = () => ({ agents: ['Ledger'], stopped: 'no folder' });
+  assert.deepEqual((await get(SCREEN)).handover, { agents: ['Ledger'], stopped: 'no folder' });
+  assert.equal('handover' in (await get({})), false, 'a caller that is not the screen learns nothing of it');
+  hs.notice = () => null;
+  assert.equal('handover' in (await get(SCREEN)), false, 'CONTROL: no hand-over, no field');
+  hs.notice = () => { throw new Error('boom'); };
+  assert.equal((await get(SCREEN)).enrolled, true, 'a notice that throws costs the field, not the answer');
+  hs.notice = () => ({ agents: ['Ledger'] });
+  enroll('f'.repeat(32));
+  assert.equal('handover' in (await get(SCREEN)), false, 'not the enrolled Kosmos here: nothing is said');
+});
+
 test('#5531 review 3: an accepted join needs the ticket a screen got from a preview; without it nothing is sent', async () => {
   const r = await call('/api/org/enroll', { body: { accepted: true }, headers: SCREEN });
   assert.equal(r.json.ok, false);

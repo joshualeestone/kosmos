@@ -57763,7 +57763,7 @@ function plusOrgPaint() {
   // the sentence asks nothing of them.
   if (here && st.wordsNeeded === true && PLUS_ORG.wordsRefused) document.getElementById('plus-org-say').textContent = 'This Kosmos still shows ' + (st.org.name || 'a family account') + ' on this computer, and it reports nothing to the family.';
   else if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.' + (st.reportingRequired === true ? PLUS_ORG_REQUIRED_WAIT_FAMILY : '');   // kosmos#7586 review (Pete): the child card already says so
-  else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') + plusOrgRequiredWait(st) : '') + plusOrgBackupLate(st));
+  else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') + plusOrgRequiredWait(st) : '') + plusOrgBackupLate(st) + plusOrgHandover(st));
   plusOrgReviewers(here ? st : null);   // kosmos#6752
   plusOrgRecoveries(here ? st : null);   // kosmos#5536
   if (here) reviewerNoteSeenList(st);   // kosmos#6817: the list on screen counts as seen
@@ -59789,6 +59789,16 @@ const PLUS_ORG_BACKUP_NEVER = ' Your company requires this computer to be backed
 const PLUS_ORG_BACKUP_LATE = ' Your company requires this computer to be backed up, and its console shows its last backup is older than your company allows.';
 function plusOrgBackupLate(st) {
   return st && st.backupLate === 'never' ? PLUS_ORG_BACKUP_NEVER : st && st.backupLate === 'late' ? PLUS_ORG_BACKUP_LATE : '';
+}
+/* kosmos#8710: the leaving member's computer is packing agents their company hands to a colleague (/api/org handover,
+   from engine/handoversend notice). Said, not asked: the company decided. When a pack stopped, its reason follows. */
+function plusOrgHandover(st) {
+  const h = st && st.handover;
+  const names = h && Array.isArray(h.agents) ? h.agents.filter((x) => typeof x === 'string' && x) : [];
+  if (!names.length) return '';
+  const list = names.length === 1 ? names[0] : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+  const stopped = typeof h.stopped === 'string' && h.stopped ? ' Kosmos could not pack them: ' + h.stopped + '.' : '';
+  return ' Your company is moving ' + list + ' to a colleague\'s computer.' + stopped;
 }
 function plusForgetRequiredLine(st) {
   if (!(st && st.enrolled === true && st.reportingRequired === true)) return '';

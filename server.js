@@ -13707,7 +13707,11 @@ const server = http.createServer(async (req, res) => {
          not meet it: 'never' or 'late', else null (met, not required, company backup off, or an older coordinator). */
       let backupLate = null;
       try { backupLate = here && rec ? require('./engine/orgpolicy').backupLate(rec) : null; } catch { backupLate = null; }
-      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired, backupLate,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
+      // kosmos#8710: agents this computer's member is handing over (engine/handoversend notice), to the screen only and only
+      // while there are some.
+      let handover = null;
+      try { handover = here ? require('./engine/handoversend').notice() : null; } catch { handover = null; }
+      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired, backupLate, ...(handover ? { handover } : {}),   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
        // kosmos#6752: recent reviewer grants, to the screen only and only when there are some (the not-joined shape is unchanged).
        ...(here && rec && Array.isArray(rec.reviewerGrants) && rec.reviewerGrants.length ? { reviewerGrants: oe.cleanReviewerGrants(rec.reviewerGrants),
          ...(Number.isFinite(rec.reviewerGrantsAt) ? { reviewerGrantsAt: rec.reviewerGrantsAt } : {}) } : {}),   // kosmos#6817: when the list was last confirmed
@@ -29517,9 +29521,6 @@ function start(port = PORT) {
      while company backup is off, and the tick then asks again a day later (engine/backuptick.js). Best effort: never a
      reason not to start. */
   try { require('./engine/backuptick').startHere(); } catch { /* best effort */ }
-  /* kosmos#8710: the leaving member's computer packs a company hand-over (engine/handoversend.js). Off unless
-     KOSMOS_ORG_HANDOVER=1. Best effort: never a reason not to start. */
-  try { require('./engine/handoversend').startHere(); } catch { /* best effort */ }
   /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
   try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK, files: require('./engine/storecheck').lastScan() }); rn.startBeating(); } catch { /* best effort */ }
@@ -29543,6 +29544,9 @@ function start(port = PORT) {
   setInterval(() => { try { const oe = require('./engine/orgenroll'); const age = oe.joinUnknownAge(); if (oe.joinUnknown() && age !== null && age < 24 * 60 * 60 * 1000) orgEnrollRefresh();   /* an unreadable time: the hourly pass */ } catch { /* best effort */ } }, ORG_UNSURE_MS).unref();
   /* kosmos#7404: a personal backup's own tick, the same hour, idle unless personalbackup.mayBackUp says yes. */
   try { require('./engine/backuptick').startPersonal(); } catch { /* best effort */ }
+  /* kosmos#8710: the leaving member's computer packs a company hand-over (engine/handoversend.js). Off unless
+     KOSMOS_ORG_HANDOVER=1. Best effort: never a reason not to start. */
+  try { require('./engine/handoversend').startHere(); } catch { /* best effort */ }
   /* #5532: the enrolled work Kosmos's rollup, a minute after start (once the refresh has answered) and then on a tick. */
   setTimeout(orgRollupTick, 60 * 1000).unref();
   setInterval(orgRollupTick, ORG_ROLLUP_TICK_MS).unref();
