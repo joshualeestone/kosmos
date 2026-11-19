@@ -132,7 +132,7 @@ test('8728: a connector that never answers is asked 1 + 20 times by itself, then
     await new Promise((r) => setTimeout(r, 500));
     assert.equal(lines.length, 21, 'and then stopped asking by itself');
     assert.match(lines[19], /asking again in 0 s/);
-    assert.match(lines[20], /asked 21 times; asking again at the next remote request/);
+    assert.match(lines[20], /asked 21 times; asking again only when a remote request finds the answer due/);
     assert.equal(kept().size, 0);
     // Review 2: once the board has stopped asking by itself, "still starting" would be a promise nothing keeps.
     assert.equal(remote.connectorCapabilitiesPending(), false, 'given up: the update sentence again');
@@ -173,4 +173,39 @@ test('8728 review 1: while a tunnel from an earlier board is being ended, the re
     const ok = await post('/api/accounts/gemini/apikey');
     assert.equal(ok.status, 400, JSON.stringify(ok.body));
   } finally { releaseLog(); reset(); await warm(); }
+});
+
+test('8728 review 3: a tunnel that restarts on the same binary does not get a fresh budget of self-retries', async () => {
+  const was = process.env.AGENT_WORKFORCE_TUNNEL_BIN;
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = slow('flap-tunnel', 60 * 1000);
+  catchLog();
+  try {
+    reset({ askMs: 40, retryAskMs: 40, recheckMs: 10 });
+    await warm();
+    assert.ok(await until(() => lines.length >= 21, 15000), 'the budget ran out: ' + lines.length);
+    await new Promise((r) => setTimeout(r, 300));
+    // The tunnel restarts (as startChild does): a new generation, the same binary, asked at once.
+    remote.forgetConnectorCapabilities();
+    assert.ok(await until(() => lines.length >= 22, 5000), 'the restart asks once');
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(lines.length, 22, 'and no fresh run of self-retries: ' + lines.length);
+    assert.match(lines[21], /asked 22 times; asking again only when/);
+    assert.equal(remote.connectorCapabilitiesPending(), false, 'given up: the update sentence, not "still starting"');
+  } finally { releaseLog(); process.env.AGENT_WORKFORCE_TUNNEL_BIN = was; reset(); await warm(); }
+});
+
+test('8728 review 3: pending while this board has no tunnel of its own, no child, or the child has not said yet; not once it has', async () => {
+  const yes = () => warm().then((c) => assert.ok(c.has('session-headers')));
+  remote.resetConnectorCapabilitiesForTests({ startedHere: false, runningPid: TEST_PID, commandOf: () => null });
+  assert.equal(remote.connectorCapabilitiesPending(), true, 'no tunnel started here');
+  remote.resetConnectorCapabilitiesForTests({ runningPid: null, commandOf: () => null });
+  await yes();
+  remote.connectorCapabilities();
+  assert.equal(remote.connectorCapabilitiesPending(), true, 'no child running (a crash backoff)');
+  reset();
+  await yes();
+  assert.equal(remote.connectorCapabilitiesPending(), true, 'the child\'s status not read yet');
+  assert.ok(remote.connectorCapabilities().has('session-headers'));
+  assert.equal(remote.connectorCapabilitiesPending(), false, 'CONTROL: the binary said yes and the child listed it');
+  reset(); await warm();
 });
