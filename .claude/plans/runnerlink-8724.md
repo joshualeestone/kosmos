@@ -52,6 +52,13 @@ real store, and the real supervisor adopting such a window.
   standing window).
 - Runner first, then the agent mark, so the board never sees the window ours with an empty runner (read as Claude).
 
+- Round 5: the board reads a Codex, Antigravity or Grok conversation only from the job Kosmos starts it with
+  (status.js's readers fail closed without one), so for those the CLI promises the conversation once Kosmos starts the
+  agent, not now; a Claude link still says it shows. A record with no provider (some imports cannot tell) is
+  'unstated': a non-Claude window is refused saying the record does not say which program it runs (never "a Claude
+  agent"); a Claude window links. The board look's runner mark is checked at the plan for every runner, so the preview
+  and the act agree. A refusal that leaves this call's runner note says so.
+
 ## Weakest premise
 That nothing else on the board treats a newly marked non-Claude window differently from one the supervisor started.
 The supervisor's own adoption is measured (supervisor.adopt-runner-linked-8724.test.js); the board's classifiers read

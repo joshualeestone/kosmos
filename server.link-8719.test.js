@@ -42,7 +42,8 @@ test.before(async () => {
   linkwindow.setRunner((bin, args) => {
     calls.push(args);
     if (args[0] === 'set-option') { marks[args[2]] = args[4]; return { ok: true, code: 0, stdout: '' }; }
-    if (args[0] === 'show-options') { const v = marks[args[3]]; return v ? { ok: true, code: 0, stdout: v + '\n' } : { ok: false, code: 1, stdout: '' }; }
+    /* By the target after -t (so a -q read finds it as tmux would); -q answers an unset option empty and ok. */
+    if (args[0] === 'show-options') { const v = marks[args[args.indexOf('-t') + 1]]; return v ? { ok: true, code: 0, stdout: v + '\n' } : (args.includes('-q') ? { ok: true, code: 0, stdout: '' } : { ok: false, code: 1, stdout: '' }); }
     if (args[0] === 'display-message') return { ok: true, code: 0, stdout: '$0\t1x1\t' + fleet.CLAUDE_COMMAND + '\t\t' + (marks['$0'] || '') + '\n' };   // kosmos#8724: an empty runner field
     return { ok: false, code: 1, stdout: '' };
   });

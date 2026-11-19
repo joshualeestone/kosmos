@@ -54,6 +54,9 @@ function expectedRunner(name) {
     /* store.readProfile answers {} for a missing record and for one it cannot parse alike, so both read as none. */
     const prof = require('./store').readProfile(name) || {};
     if (!Object.keys(prof).length) return null;
+    /* A record that names no provider (some imports cannot tell) is not a record that says Claude, though
+       providerRunner floors it there: said as unstated, so no refusal claims what the record never said. */
+    if (!prof.provider) return 'unstated';
     return require('./create').providerRunner(prof.provider);
   } catch { return undefined; }   // the record could not be read at all: never taken for "no record"
 }
@@ -107,18 +110,19 @@ function plan(name, panes, platform) {
      a live Claude window as something else. */
   const expected = expectedRunner(clean);
   if (expected === undefined) return refused(`Kosmos could not read its record of ${clean}, so it was not linked.`);
+  /* A runner mark the board's look already shows, for any runner: the act would refuse it, so the preview does too. */
+  const shownRunner = String(pane.runner || '').trim();
+  if (shownRunner && shownRunner !== runner) return refused(`The window called ${clean} carries a runner mark naming ${shownRunner}, so Kosmos did not change it.`);
   const word = (r) => RUNNER_WORD[r] || r;
   if (runner === 'claude') {
     /* And it must look like an agent to the board: a native version string always does; an unmarked `node`, or the
        legacy `claude` / `claude.exe` names, never do (the board gives such a window no card), and are refused here. */
     if (!status.isAgentSession(pane)) return refused(`Kosmos cannot tell that the window called ${clean} is running an agent, so it was not linked.`);
-    if (expected && expected !== 'claude') {
+    if (expected && expected !== 'claude' && expected !== 'unstated') {
       return refused(`The window called ${clean} is running Claude, but Kosmos knows ${clean} as ${aOrAn(word(expected))} agent, so it was not linked.`);
     }
-    /* A runner mark for another program, read by the board's own look: once marked ours, status.js trusts the runner
-       mark over the command, so the window would be read by the wrong classifier. Left alone, as for any runner. */
-    const was = String(pane.runner || '').trim();
-    if (was && was !== 'claude') return refused(`The window called ${clean} carries a runner mark naming ${was}, so Kosmos did not change it.`);
+  } else if (expected === 'unstated') {
+    return refused(`The window called ${clean} is running ${word(runner)}, but Kosmos's record of ${clean} does not say which program it runs, so it was not linked.`);
   } else if (expected !== runner) {
     return refused(`The window called ${clean} is running ${word(runner)}, but `
       + (expected ? `Kosmos knows ${clean} as ${aOrAn(word(expected))} agent, so it was not linked.`
@@ -170,8 +174,9 @@ function link(name, opts) {
      marked at all, and taking a mark off can only touch the session this call marked. */
   const byId = before.id;
   /* kosmos#8724 item 3: a Codex, Antigravity or Grok window gets its runner recorded FIRST, so the board never sees it
-     marked ours with an empty runner (which reads as Claude). A runner mark naming something else is left alone; one
-     already naming this runner is kept (and never taken off below). */
+     marked ours with an empty runner (which reads as Claude). A runner mark the look showed naming something else is
+     refused above; one already naming this runner is kept (and never taken off below). tmux has no compare-and-set,
+     so a value written by someone else between the look and this write is not detected until the read-back. */
   const withRunner = !!p.runner && p.runner !== 'claude';
   let runnerSetHere = false;
   /* -q, measured on tmux 3.6a: an option that is not set answers empty and succeeds (without -q it fails, "invalid
@@ -203,7 +208,8 @@ function link(name, opts) {
     const mark = took && took.ok !== false ? String(took.stdout || '').trim() : null;
     /* Another writer's mark (it was empty at the look) is not this call's to take off: refused as any foreign mark. */
     if (mark !== null && mark !== '' && mark !== p.session) {
-      return refused(`The window called ${p.name} carries a mark naming ${mark}, so Kosmos did not change it.`);
+      return refused(`The window called ${p.name} carries a mark naming ${mark}, so Kosmos did not change it.`
+        + (runnerSetHere ? ' A note of which program runs it, which Kosmos had just written, stayed on the window.' : ''));
     }
     if (mark !== '') {
       const offA = mark === null ? null : run(['set-option', '-u', '-t', byId, '@kosmos_agent']);

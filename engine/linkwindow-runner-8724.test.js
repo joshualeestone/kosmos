@@ -246,6 +246,25 @@ test('#8724 a foreign agent mark that appears after a failed set is left alone, 
   const t = fakeTmux('codex', { setFails: '@kosmos_agent', agentAlwaysReadsAs: 'someone-else' });
   const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
   assert.equal(r.outcome, 'refused');
-  assert.match(r.because, /carries a mark naming someone-else, so Kosmos did not change it/);
+  assert.match(r.because, /carries a mark naming someone-else, so Kosmos did not change it\. A note of which program runs it, which Kosmos had just written, stayed on the window\./);
   assert.ok(!t.calls.some((c) => c[0] === 'set-option' && c[1] === '-u'), 'another writer\'s mark, or the runner beside it, was taken off');
+});
+
+test('#8724 a record that names no program is said as such: a Codex window is refused, a Claude window links', () => {
+  linkwindow.setExpectedSource(() => 'unstated');
+  fakeTmux('codex');
+  const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
+  assert.equal(r.outcome, 'refused');
+  assert.match(r.because, /running Codex, but Kosmos's record of zara does not say which program it runs, so it was not linked/);
+  assert.doesNotMatch(r.because, /as a Claude agent/);
+  fakeTmux(fleet.CLAUDE_COMMAND);
+  const c = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '' }), platform: 'darwin' });
+  assert.equal(c.outcome, 'linked', JSON.stringify(c));
+});
+
+test('#8724 a runner mark the board look shows is refused at the plan, for every runner (preview and act agree)', () => {
+  linkwindow.setExpectedSource(() => 'codex');
+  const p = linkwindow.plan('zara', panesOf({ session: 'zara', claim: '', command: 'codex', runner: 'grok' }), 'darwin');
+  assert.equal(p.ok, undefined);
+  assert.match(p.because, /carries a runner mark naming grok, so Kosmos did not change it/);
 });
