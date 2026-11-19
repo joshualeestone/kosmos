@@ -69,8 +69,19 @@ nothing is changed. Proven by engine, route and page tests (each refusal with a 
   the button off while out, a refusal said only on that agent's page, success never pulling the person back
   (removing the page guard measured red).
 
+- Review 6: the look reads `#{session_windows}x#{window_panes}` and requires 1x1 before and after the mark (measured on
+  tmux 3.6a: there is no session_panes; a split reads 1x2 and a second window 2xN), so a window or split added
+  meanwhile is caught.
+- MEASURED END TO END, 2026-11-18 19:30 CST: a sandboxed board (temp HOME and data roots, AGENT_WORKFORCE_DRY_RUN=1)
+  with AGENT_WORKFORCE_TMUX_BIN pointed at a private tmux socket, and a session `zara` running a compiled idle program
+  named 2.1.212 (so tmux reports Claude's version string). Before: the card had isNamedOurs false, and a message was
+  refused 409 'untied' with part 1's sentence. POST link: 200 linked; the private tmux showed @kosmos_agent=zara. After:
+  the card had isNamedOurs true, and a message was no longer refused for identity; it stopped only at the sandbox's own
+  live-execution switch ("running without permission to touch agents"). Not measured: a supervisor (launch job) adopting
+  a linked session, since no launch job exists in the sandbox.
+
 ## Weakest premise
-That `@kosmos_agent` = session is all Kosmos needs to treat the window as its own for messages and the conversation
-view, and that a supervisor waiting in the not-ours loop (an agent that also has a Kosmos launch job) adopts the marked
-session rather than doing something worse. Reasoned from launchidentity.paneSessionIsOurs and chat.addressable; to be checked end to end on a real
+That a supervisor waiting in the not-ours loop (an agent that also has a Kosmos launch job) adopts the marked session
+rather than doing something worse; read from bin/agent-supervisor.sh (it compares the mark with $SESSION), not run.
+The mark itself making the board treat the window as its own is measured (above). Reasoned from launchidentity.paneSessionIsOurs and chat.addressable; to be checked end to end on a real
 hand-started window before calling the card done.
