@@ -36,10 +36,18 @@ const REAL = { restart: removal.restart, survey: register.survey, repair: regist
 let hasJob = false;          // what the stubbed restart sees
 let repairs = [];
 let repairAnswer = null;     // null: a repair that writes the job
-let restarts = [];
+let restarts = [];           // every call into removal.restart
+let acted = [];              // the ones that got past its checks and beforeSteps, and so acted
 let row = null;              // the survey's row for zara
-removal.restart = (n) => {
+let gate = null;             // a refusal the restart's own checks give (quiet hours, cap, busy), before beforeSteps
+let afterJob = null;         // what the restart answers once it acts (null: restarted)
+/* The real removal.restart's order: its own checks, then opts.beforeSteps, then the steps. */
+removal.restart = (n, cause, opts) => {
   restarts.push(n);
+  if (gate) return gate;
+  if (opts && typeof opts.beforeSteps === 'function') { const stop = opts.beforeSteps(); if (stop) return stop; }
+  acted.push(n);
+  if (afterJob) return afterJob;
   if (!hasJob) {
     return { outcome: removal.OUTCOME.REFUSED, steps: [], cannotStart: true, noJob: true,
       because: `${n} was not started by Kosmos, so we cannot start it again. Whatever launched it is what can restart it.` };
@@ -63,7 +71,7 @@ test.before(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
 });
 test.beforeEach(() => {
-  hasJob = false; repairs = []; repairAnswer = null; restarts = [];
+  hasJob = false; repairs = []; repairAnswer = null; restarts = []; acted = []; gate = null; afterJob = null;
   row = { name: 'zara', shownAs: 'zara', profile: true, folder: true, removed: false, job: false };
   lines = [{ session: 'zara', claim: 'zara' }];   // linked: Kosmos's mark names its own session
 });
@@ -85,9 +93,11 @@ test('#8724 a linked window with no job: the refusal offers to set it up, and sa
   const r = await post('zara');
   assert.equal(r.code, 400, JSON.stringify(r.j));
   assert.equal(r.j.canWriteJob, true, JSON.stringify(r.j));
-  assert.match(r.j.because, /started by hand/);
+  assert.match(r.j.because, /Nothing is set up to start zara again/);
   assert.match(r.j.because, /set zara up to start on its own, then restart it/);
   assert.match(r.j.because, /different account/);
+  /* It says nothing about who started the window: an agent Kosmos once started whose job went missing qualifies too. */
+  assert.doesNotMatch(r.j.because, /by hand/);
   assert.doesNotMatch(r.j.because, /—/);
   assert.deepEqual(repairs, [], 'a plain Restart wrote a job without being asked');
 });
@@ -118,16 +128,32 @@ test('#8724 Set up and restart writes the job for that one agent, then restarts 
   assert.equal(repairs.length, 1);
   assert.equal(repairs[0].only, 'zara');
   assert.equal(repairs[0].linked, true);
-  assert.deepEqual(restarts, ['zara']);
+  assert.deepEqual(acted, ['zara']);
 });
 
 test('#8724 writeJob for an agent that does not qualify changes nothing; CONTROL: the qualifying case (above) does', async () => {
   lines = [{ session: 'zara', claim: '' }];   // not linked
   const r = await post('zara', { writeJob: true });
   assert.equal(r.code, 400, JSON.stringify(r.j));
-  assert.match(r.j.because, /does not need setting up/);
+  assert.match(r.j.because, /does not need setting up, so nothing was changed\.$/);
   assert.deepEqual(repairs, []);
   assert.deepEqual(restarts, [], 'it was restarted anyway');
+});
+
+test('#8724 a restart its own checks refuse (quiet hours, cap, busy) writes no job; CONTROL: an allowed one does (above)', async () => {
+  gate = { outcome: removal.OUTCOME.REFUSED, steps: [], because: 'it was not started: it is quiet hours', quiet: true };
+  const r = await post('zara', { writeJob: true });
+  assert.equal(r.code, 400, JSON.stringify(r.j));
+  assert.match(r.j.because, /quiet hours/);
+  assert.deepEqual(repairs, [], 'a job was written for a restart that was then refused');
+  assert.notEqual(r.j.jobWritten, true);
+});
+
+test('#8724 set up but the restart did not take: the answer says the job is there and starts it at the next login', async () => {
+  afterJob = { outcome: removal.OUTCOME.PARTIAL, steps: [{ label: 'close its window', ok: false }], because: 'We could not close its window.' };
+  const r = await post('zara', { writeJob: true });
+  assert.equal(r.j.jobWritten, true, JSON.stringify(r.j));
+  assert.match(r.j.because, /^We could not close its window\. Kosmos did set zara up to start on its own, so it starts again at the next login\.$/);
 });
 
 test('#8724 a job that could not be written stops before the restart, with the reason', async () => {
@@ -135,5 +161,5 @@ test('#8724 a job that could not be written stops before the restart, with the r
   const r = await post('zara', { writeJob: true });
   assert.equal(r.code, 400, JSON.stringify(r.j));
   assert.match(r.j.because, /could not set zara up to start on its own \(launchd said no\), so it was not restarted/);
-  assert.deepEqual(restarts, [], 'restarted after the job failed');
+  assert.deepEqual(acted, [], 'restarted after the job failed');
 });

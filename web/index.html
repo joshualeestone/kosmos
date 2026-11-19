@@ -54310,6 +54310,7 @@ let RST_BUSY = false;
    engine offered to write one (canWriteJob). The next press of the same button is the person's "Set up and restart",
    and sends writeJob. A fresh open starts without it. */
 let RST_WRITE_JOB = false;
+let RST_GO_LABEL = '';   // kosmos#8724: the Restart button's own label for this open, put back when the offer is withdrawn
 
 function openRestartModal(btn, name, opts) {
   const card = (LAST || []).find((a) => a && a.sessionName === name) || CURRENT;
@@ -54346,6 +54347,7 @@ function openRestartModal(btn, name, opts) {
   go.hidden = false;
   go.disabled = false;
   go.textContent = 'Restart ' + shown;
+  RST_GO_LABEL = go.textContent;   // kosmos#8724
   /* #3492: the third option shares this dialog's lifecycle, so it is un-hidden
      and re-enabled on every open exactly as rst-go is (a prior handoff-restart
      run may have disabled it). Its label is static (a phrase, not "Restart
@@ -54718,12 +54720,15 @@ document.getElementById('rst-go').addEventListener('click', async () => {
          silence is the same picture as either outcome. */
       document.getElementById('rst-msg').textContent = restartFailureLine(out);
       /* kosmos#8724: the engine can set this agent up to start on its own; the sentence above says so, and the button
-         now says what its next press does. Offered once: a second refusal keeps the plain button. */
+         now says what its next press does. Offered once: after any other refusal the button is plain Restart again,
+         label and press alike. The hand-off button would send a plain restart, so it steps aside while offered. */
       if (out && out.canWriteJob === true && !RST_WRITE_JOB) {
         RST_WRITE_JOB = true;
         go.textContent = 'Set up and restart';
-      } else {
+        hgo.hidden = true;
+      } else if (RST_WRITE_JOB) {
         RST_WRITE_JOB = false;
+        if (RST_GO_LABEL) go.textContent = RST_GO_LABEL;
       }
       return;
     }
@@ -54949,6 +54954,7 @@ document.getElementById('rst-handoff-go').addEventListener('click', async () => 
     if (out && out.canWriteJob === true && !RST_WRITE_JOB) {
       RST_WRITE_JOB = true;
       document.getElementById('rst-go').textContent = 'Set up and restart';
+      hgo.hidden = true;
     }
     return;
   }

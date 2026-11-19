@@ -74,9 +74,12 @@ function initStub() {
       if (window.__restartOutcome === 'offer') {
         let b = null;
         try { b = JSON.parse(opts && opts.body ? opts.body : 'null'); } catch { b = null; }
+        if (b && b.writeJob === true && window.__setupFails) {
+          return enc({ outcome: 'refused', steps: [], because: 'Kosmos could not set April up to start on its own (launchd said no), so it was not restarted.' }, 400);
+        }
         if (b && b.writeJob === true) return enc({ outcome: 'restarted', steps: [], jobWritten: true });
         return enc({ outcome: 'refused', steps: [], cannotStart: true, noJob: true, canWriteJob: true,
-          because: 'April was started by hand, so Kosmos has no way to start it again yet. Kosmos can set April up to start on its own, then restart it.' }, 400);
+          because: 'Nothing is set up to start April again, so Kosmos cannot restart it yet. Kosmos can set April up to start on its own, then restart it.' }, 400);
       }
       if (window.__restartOutcome === 'refused') {
         return enc({ outcome: 'refused', because: 'It was not started by Kosmos, so we cannot start it again.',
@@ -329,15 +332,17 @@ function initStub() {
     openRestartModal(document.querySelector('#__ah [data-restart-agent]'), 'april');
   });
   await page.click('#rst-go');
-  await page.waitForFunction(() => /started by hand/.test(document.getElementById('rst-msg').textContent || ''), { timeout: 3000 }).catch(() => {});
+  await page.waitForFunction(() => /Nothing is set up to start April/.test(document.getElementById('rst-msg').textContent || ''), { timeout: 3000 }).catch(() => {});
   const offered = await page.evaluate(() => ({
     line: document.getElementById('rst-msg').textContent || '',
     go: document.getElementById('rst-go').textContent,
     goUsable: document.getElementById('rst-go').hidden === false && document.getElementById('rst-go').disabled === false,
+    handoffHidden: document.getElementById('rst-handoff-go').hidden === true,
     bodies: window.__posted.filter((x) => /\/restart$/.test(x.url)).map((x) => x.body),
   }));
-  check('#8724 OFFER: the refusal says the agent was started by hand and that Kosmos can set it up, then restart it',
-    /started by hand/.test(offered.line) && /set April up to start on its own, then restart it/.test(offered.line), JSON.stringify(offered));
+  check('#8724 OFFER: the refusal says nothing is set up to start it and that Kosmos can set it up, then restart it',
+    /Nothing is set up to start April/.test(offered.line) && /set April up to start on its own, then restart it/.test(offered.line), JSON.stringify(offered));
+  check('#8724 OFFER: the hand-off button steps aside (it would send a plain restart)', offered.handoffHidden, JSON.stringify(offered));
   check('#8724 OFFER: the button now says what its next press does, and is usable',
     offered.go === 'Set up and restart' && offered.goUsable, JSON.stringify(offered));
   check('#8724 OFFER: the first press did not ask for a job (no writeJob without the offer)',
@@ -354,7 +359,22 @@ function initStub() {
   const reopened = await page.evaluate(() => ({ go: document.getElementById('rst-go').textContent, flag: typeof RST_WRITE_JOB !== 'undefined' ? RST_WRITE_JOB : null }));
   check('#8724 REOPEN: a fresh open is a plain Restart again (the offer does not carry over)',
     /^Restart /.test(reopened.go) && reopened.flag === false, JSON.stringify(reopened));
-  await page.evaluate(() => { document.getElementById('rst-keep').click(); });
+  // A set-up that fails: the next refusal withdraws the offer, and the button is plain Restart again, label and press.
+  await page.evaluate(() => { window.__setupFails = true; window.__posted = []; });
+  await page.click('#rst-go');   // plain press on the reopened dialog: the offer again
+  await page.waitForFunction(() => document.getElementById('rst-go').textContent === 'Set up and restart', { timeout: 3000 }).catch(() => {});
+  await page.click('#rst-go');   // Set up and restart, which fails
+  await page.waitForFunction(() => /launchd said no/.test(document.getElementById('rst-msg').textContent || ''), { timeout: 3000 }).catch(() => {});
+  const failedSetup = await page.evaluate(() => ({
+    line: document.getElementById('rst-msg').textContent || '',
+    go: document.getElementById('rst-go').textContent,
+    flag: typeof RST_WRITE_JOB !== 'undefined' ? RST_WRITE_JOB : null,
+    bodies: window.__posted.filter((x) => /\/restart$/.test(x.url)).map((x) => x.body),
+  }));
+  check('#8724 FAILED SET-UP: the reason shows, and the button is plain Restart again (label and press agree)',
+    /launchd said no/.test(failedSetup.line) && /^Restart /.test(failedSetup.go) && failedSetup.flag === false
+      && failedSetup.bodies.length === 2 && JSON.parse(failedSetup.bodies[1] || '{}').writeJob === true, JSON.stringify(failedSetup));
+  await page.evaluate(() => { window.__setupFails = false; document.getElementById('rst-keep').click(); });
   check('#8724 CONTROL: the plain refusal in arm 2 left the button as Restart (only canWriteJob relabels it)',
     refusedGoText !== 'Set up and restart' && /^Restart /.test(refusedGoText), refusedGoText);
 

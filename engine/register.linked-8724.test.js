@@ -2,22 +2,10 @@
 
 /**
  * kosmos#8724: register.repair({ only, linked: true }), the job half of "Set up and restart" for a window the person
- * linked to Kosmos by hand. The sandbox is engine/register.test.js's, copied whole (its notes say why each root is
- * there).
+ * linked to Kosmos by hand. The sandbox roots are engine/register.test.js's (its notes say why each is there); here
+ * `create` runs for real against them, with its launchctl runner stubbed.
  *
  *   node --test engine/register.linked-8724.test.js
- *
- * Which agents survive a restart, and giving the missing ones their job.
- *
- * 🛑 ON JOSH'S MACHINE THIS WAS ONE OUT OF SIXTEEN, and nothing anywhere said
- * so: an agent with a login job and one without are identical on the board and
- * identical in every API. The difference showed up once, at the next login.
- *
- * ⚠️ EVERY TEST HERE RUNS AGAINST A SANDBOXED HOME. `create` is put in dry-run
- * with an injected runner, so no `launchctl` call can reach the real machine —
- * and the plist directory, the worker directory and the data root are all
- * pointed into a temp folder. The one root that has no override is launchd
- * itself, which is why the runner is the belt to those braces.
  */
 
 const test = require('node:test');

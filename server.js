@@ -11368,38 +11368,47 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#8724: { writeJob: true } is the person's "Set up and restart" from the dialog below. Only for a window
            linked by hand that still has no job (linkedWithoutJob); the job is written first, then the restart runs as
            any other. A job that could not be written stops here with its reason, and nothing was restarted. */
+        const shown = (() => { try { return status.readIdentity(name).displayName || name; } catch { return name; } })();
+        const wantsJob = !!(body && body.writeJob === true);
+        if (wantsJob && !linkedWithoutJob(name)) {
+          sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, steps: [], because: `${shown} does not need setting up, so nothing was changed.` });
+          return;
+        }
+        /* The job is written inside the restart, after its own quiet-hours, usage-cap and busy checks (removal.restart's
+           beforeSteps), so a refused restart never leaves a new job behind. A job that could not be written stops there
+           with its reason, and nothing is restarted. */
         let jobWritten = false;
-        if (body && body.writeJob === true) {
-          const shown = (() => { try { return status.readIdentity(name).displayName || name; } catch { return name; } })();
-          if (!linkedWithoutJob(name)) {
-            sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, steps: [], because: `${shown} does not need setting up, so nothing was changed. Try Restart again.` });
-            return;
-          }
+        const beforeSteps = !wantsJob ? undefined : () => {
           let rep = null;
           try { rep = register.repair({ only: name, linked: true, modelFor: linkedModelFor }); } catch { rep = null; }
           const one = rep && rep.ok && Array.isArray(rep.results) ? rep.results[0] : null;
           if (!one || one.ok !== true) {
             const why = (one && one.because) || (rep && rep.because) || 'something went wrong';
-            sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, steps: [], because: `Kosmos could not set ${shown} up to start on its own (${why}), so it was not restarted.` });
-            return;
+            return { outcome: removal.OUTCOME.REFUSED, steps: [], because: `Kosmos could not set ${shown} up to start on its own (${why}), so it was not restarted.` };
           }
           jobWritten = true;
-        }
+          return null;
+        };
         let out;
         // #3410: this IS the "Start this agent" affordance (Mona #3433 reuses this route), so it
         // opts into starting a fully-dead agent (no session) rather than refusing it. The config-
         // switch routes below deliberately do NOT pass startIfDead.
-        try { out = removal.restart(name, cause, { startIfDead: true, quiet: true }); }   // kosmos#6239: quiet hours
+        try { out = removal.restart(name, cause, { startIfDead: true, quiet: true, beforeSteps }); }   // kosmos#6239: quiet hours
         catch (err) { sendJson(res, 500, { error: 'we could not restart this agent', detail: String(err && err.message || err) }); return; }
-        if (jobWritten) out = { ...out, jobWritten: true };
-        /* kosmos#8724: refused only for want of a job, on a window the person linked: say what Kosmos can do instead. */
-        if (out.outcome === removal.OUTCOME.REFUSED && out.noJob === true && !jobWritten && linkedWithoutJob(name)) {
-          const shown = (() => { try { return status.readIdentity(name).displayName || name; } catch { return name; } })();
+        if (jobWritten) {
+          out = { ...out, jobWritten: true };
+          /* Set up, but the restart itself did not take: the job is there now and starts the agent at the next login. */
+          if (out.outcome !== removal.OUTCOME.RESTARTED) {
+            out.because = `${out.because || 'The restart did not finish.'} Kosmos did set ${shown} up to start on its own, so it starts again at the next login.`;
+          }
+        }
+        /* kosmos#8724: refused only for want of a job, on a linked window of exactly that name: say what Kosmos can do. */
+        if (out.outcome === removal.OUTCOME.REFUSED && out.noJob === true && !wantsJob && linkedWithoutJob(name)) {
           out = {
             ...out,
             canWriteJob: true,
-            because: `${shown} was started by hand, so Kosmos has no way to start it again yet. `
-              + `Kosmos can set ${shown} up to start on its own, then restart it. It comes back the way Kosmos starts its own agents, which may be a different account from the one this window was started on.`,
+            because: `Nothing is set up to start ${shown} again, so Kosmos cannot restart it yet. `
+              + `Kosmos can set ${shown} up to start on its own, then restart it. It comes back the way Kosmos starts its own agents, which may be a different account from the one it is running on now.`,
           };
         }
         sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, out);
