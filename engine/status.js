@@ -635,6 +635,9 @@ function attachTmux(baked) {
 function readerTmux() {
   return launcherPick() && LAST_LOOK_PROBLEM === null && TMUX_READ_BY && TMUX_READ_BY === tmuxBin() ? TMUX_READ_BY : null;
 }
+/* kosmos#8719: the tmux a write about a pane the board just listed should use: the one whose last look listed panes,
+   else this module's own choice (as paneFolders reads them), so a link reaches the server the board saw. */
+function boardTmux() { return TMUX_READ_BY || tmuxBin(); }
 /** The tmux this board's launcher picked, or null when the value was a choice (or there was no launcher), AND only
     while the live value is still that pick or one this module switched to itself: an explicit value set later in
     the process (a harness that loaded this module first) is a choice, whatever the environment said at load. */
@@ -8155,6 +8158,17 @@ function paneRoster() {
   // stricter about a PARTIAL answer: see the note below.
   return paneRosterFrom(paneSource ? paneSource() : tmuxPanes());
 }
+/* kosmos#8719: the same look as paneRoster (the test seam honoured, throwing when tmux could not be asked), EVERY pane
+   with every field readPanes keeps (command, claim, runner): linkwindow.js checks each pane carrying a name for a mark,
+   then picks one with onePanePerSession. */
+function panesWithCommands() {
+  const out = paneSource ? paneSource() : tmuxPanes();
+  if (out === null || out === undefined) throw new Error('we could not see what is running on this computer');
+  const { panes, rejected } = readPanes(out);
+  // Fails closed on an answer nobody can read, as paneRosterFrom does: never "there is no window".
+  if (rejected > 0 && panes.length === 0) throw new Error('we could not make sense of what came back');
+  return panes;
+}
 /* #6173: the same roster from a tmux look that does not block the board's thread (an account move's restarts). */
 async function paneRosterAsync() {
   return paneRosterFrom(paneSource ? paneSource() : await tmuxPanesAsync());
@@ -10685,7 +10699,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719 */, isClaudeCommand /* kosmos#8719 */, paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
