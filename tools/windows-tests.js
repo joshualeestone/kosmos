@@ -144,7 +144,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
-  'engine/saveflushed-kill-8718.test.js': 'its only test is skipped on win32: it kills a child with SIGKILL mid-save and reads the file, and Windows has no SIGKILL to send (a timeout there ends the child with TerminateProcess, a different stop the test does not claim to cover)',
+  'engine/saveflushed-kill-8718.test.js': 'its only test is skipped on win32: it was written and checked on a Mac only, and nothing has yet run it against saveFlushed on Windows',
   'cli.task-wake-8669.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do; its Windows arms drive the Windows CLI through main() with a fake fetch, which needs no Windows host',
   'cli.roomread-byid-8616.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do',
   'engine/codexmigration-8597.test.js': 'its only win32 branch skips the file-mode arm, and the file as a whole cannot run there: its fake codex is a #!/bin/sh script run by its shebang line and it runs the supervisor\'s own lines in /bin/bash; the code it covers is the Mac and Linux supervisor\'s launch step (a Windows Codex agent runs codex exec per turn, with no menu)',
