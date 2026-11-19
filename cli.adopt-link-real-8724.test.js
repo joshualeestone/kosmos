@@ -85,3 +85,27 @@ test('#8724 real engine: --link previews a window the link takes, and refuses on
     assert.equal(no.code, 1, no.stdout + no.stderr);
     assert.match(no.stdout, /^The window called otto shares its session with 1 other window/m);
   }));
+
+/* kosmos#8724 item 3: a Codex window, through the real CLI, the real store and create.providerRunner. The profile is
+   written by the real store module in the same sandboxed data root the CLI reads. */
+function writeProfile(env, name, profile) {
+  const store = path.join(__dirname, 'engine', 'store.js');
+  const r = require('node:child_process').spawnSync(process.execPath,
+    ['-e', `require(${JSON.stringify(store)}).writeProfile(${JSON.stringify(name)}, ${JSON.stringify(profile)})`], { env, encoding: 'utf8' });
+  assert.equal(r.status, 0, 'could not write the profile: ' + r.stderr);
+}
+
+test('#8724 real engine: --link previews a Codex window only for an agent whose record says it runs Codex', { skip: SKIP_POSIX_SHELL }, () =>
+  withBoard([{ session: 'zara', claim: '', command: 'codex' }], async (env) => {
+    let out = await run(['--link', 'zara'], env);
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.match(out.stdout, /^The window called zara is running Codex, but Kosmos has no record of an agent called zara that it can read, so it was not linked\. Add zara to Kosmos first/m);
+    writeProfile(env, 'zara', { provider: 'anthropic' });
+    out = await run(['--link', 'zara'], env);
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.match(out.stdout, /Kosmos knows zara as a Claude agent/);
+    writeProfile(env, 'zara', { provider: 'openai' });
+    out = await run(['--link', 'zara'], env);
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /^Kosmos would link the window called zara\. /m);
+  }));

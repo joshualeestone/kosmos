@@ -61,8 +61,8 @@ function makeHome() {
     'module.exports = {',
     '  OUTCOME: { LINKED: "linked", REFUSED: "refused" },',
     /* The real plan returns { ok, session, pane, name, command } or a refusal; link returns linked or a refusal. */
-    '  plan: (name, panes) => { log({ plan: name, panes: Array.isArray(panes) }); return ok().includes(name) ? { ok: true, session: name, pane: "0.0", name, command: "2.1.212" } : { outcome: "refused", because: "There is no window called " + name + " to link." }; },',
-    '  link: (name, opts) => { log({ link: name, panes: Array.isArray(opts && opts.panes) }); if (process.env.T_LINK_THROW) throw new Error("boom"); if (process.env.T_LINK_MARKLEFT) return { outcome: "refused", because: "Kosmos could not confirm the window called " + name + " after marking it, and could not take the mark off.", markLeft: true }; return ok().includes(name) ? { outcome: "linked", session: name, name } : { outcome: "refused", because: "There is no window called " + name + " to link." }; },',
+    '  plan: (name, panes) => { log({ plan: name, panes: Array.isArray(panes) }); return ok().includes(name) ? { ok: true, session: name, pane: "0.0", name, command: "2.1.212", runner: process.env.T_RUNNER || "claude" } : { outcome: "refused", because: "There is no window called " + name + " to link." }; },',
+    '  link: (name, opts) => { log({ link: name, panes: Array.isArray(opts && opts.panes) }); if (process.env.T_LINK_THROW) throw new Error("boom"); if (process.env.T_LINK_MARKLEFT) return { outcome: "refused", because: "Kosmos could not confirm the window called " + name + " after marking it, and could not take the mark off.", markLeft: true }; return ok().includes(name) ? { outcome: "linked", session: name, name, ...(process.env.T_RUNNER && process.env.T_RUNNER !== "claude" ? { runner: process.env.T_RUNNER } : {}) } : { outcome: "refused", because: "There is no window called " + name + " to link." }; },',
     '};',
   ].join('\n'));
   return home;
@@ -224,4 +224,16 @@ test('#8724 the skip hint quotes a name that is not plain, and sends a name star
     assert.match(out.stdout, /^ {2}skip my agent -- not one of ours; if you started it yourself, you can link it \(kosmos adopt --link 'my agent'\), then run kosmos adopt again$/m);
     assert.match(out.stdout, /^ {2}skip -x -- not one of ours; if you started it yourself, you can link it from its page on the board$/m);
     assert.doesNotMatch(out.stdout, /--link -x/, 'a command the parser refuses was offered');
+  }));
+
+test('#8724 a Codex link promises its conversation only once Kosmos starts it; CONTROL: a Claude link says it shows now', { skip: SKIP_POSIX_SHELL }, () =>
+  withHome(async (env) => {
+    const pre = await run(['--link', 'zara'], env({ T_PANES: '[]', T_LINKABLE: 'zara', T_RUNNER: 'codex' }));
+    assert.equal(pre.code, 0, pre.stdout + pre.stderr);
+    assert.match(pre.stdout, /Kosmos would then type your messages into it and\nlook after it as one of its own agents/);
+    assert.doesNotMatch(pre.stdout, /show its/);
+    const done = await run(['--link', 'zara', '--confirm'], env({ T_PANES: '[]', T_LINKABLE: 'zara', T_RUNNER: 'codex' }));
+    assert.match(done.stdout, /the board types your messages into it; its conversation shows on the board once Kosmos starts it\./);
+    const claude = await run(['--link', 'zara', '--confirm'], env({ T_PANES: '[]', T_LINKABLE: 'zara' }));
+    assert.match(claude.stdout, /the board types your messages into it and shows its conversation\./);
   }));

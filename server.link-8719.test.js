@@ -42,8 +42,9 @@ test.before(async () => {
   linkwindow.setRunner((bin, args) => {
     calls.push(args);
     if (args[0] === 'set-option') { marks[args[2]] = args[4]; return { ok: true, code: 0, stdout: '' }; }
-    if (args[0] === 'show-options') { const v = marks[args[3]]; return v ? { ok: true, code: 0, stdout: v + '\n' } : { ok: false, code: 1, stdout: '' }; }
-    if (args[0] === 'display-message') return { ok: true, code: 0, stdout: '$0\t1x1\t' + fleet.CLAUDE_COMMAND + '\t' + (marks['$0'] || '') + '\n' };
+    /* By the target after -t (so a -q read finds it as tmux would); -q answers an unset option empty and ok. */
+    if (args[0] === 'show-options') { const v = marks[args[args.indexOf('-t') + 1]]; return v ? { ok: true, code: 0, stdout: v + '\n' } : (args.includes('-q') ? { ok: true, code: 0, stdout: '' } : { ok: false, code: 1, stdout: '' }); }
+    if (args[0] === 'display-message') return { ok: true, code: 0, stdout: '$0\t1x1\t' + fleet.CLAUDE_COMMAND + '\t\t' + (marks['$0'] || '') + '\n' };   // kosmos#8724: an empty runner field
     return { ok: false, code: 1, stdout: '' };
   });
   await start(0);
@@ -90,7 +91,9 @@ test('#8719 a window that is not plainly that agent is refused 409 with the reas
   lines = [{ session: 'zara', claim: '', command: 'codex' }];
   r = await link('zara', { confirm: true });
   assert.equal(r.status, 409);
-  assert.match(r.json.because, /not Claude/);
+  /* kosmos#8724 item 3: a Codex window links only for an agent Kosmos knows runs Codex; this sandboxed board has no
+     record of zara at all, so the no-record refusal is the only one that can come back. */
+  assert.match(r.json.because, /running Codex, but Kosmos has no record of an agent called zara that it can read/);
   assert.equal(calls.length, 0);
 });
 
