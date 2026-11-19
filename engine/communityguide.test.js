@@ -51,6 +51,6 @@ test('kosmos#8735: the Windows CLI prints the same guide, and the same refusals'
 test('kosmos#8735: the guide comes from a module that requires nothing, and carries no machine state', () => {
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, 'communityguide.js'), 'utf8'), /require\(/);
   assert.equal(guide.guideText('darwin'), guide.guideText('linux'), 'only the quoting rule may follow the platform');
-  assert.doesNotMatch(guide.guideText(), /—|&mdash;|&#8212;|&#x2014;/i, 'an em dash in the guide');
-  assert.doesNotMatch(guide.pointerLines().join('\n'), /—|&mdash;|&#8212;|&#x2014;/i, 'an em dash in the block\'s pointer');
+  assert.doesNotMatch(guide.guideText(), /\u2014|&mdash;|&#8212;|&#x2014;/i, 'an em dash in the guide');
+  assert.doesNotMatch(guide.pointerLines().join('\n'), /\u2014|&mdash;|&#8212;|&#x2014;/i, 'an em dash in the block\'s pointer');
 });
