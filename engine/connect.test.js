@@ -2661,6 +2661,8 @@ for (const remote of [true, false]) {
       const made = term.all.find((a) => a[0] === 'new-session');
       assert.ok(made, 'no sign-in session was launched');
       const browser = made.filter((a) => /^BROWSER=/.test(String(a)));
+      // The page reads this to show the link (no browser opens here) and to word the step as "open the sign-in page".
+      assert.equal(connect.state().noOpener, remote, 'state() must say whether this sign-in opens a browser here');
       if (remote) {
         assert.deepEqual(browser, ['BROWSER=/usr/bin/true'], 'argv was ' + JSON.stringify(made));
         const at = made.indexOf('BROWSER=/usr/bin/true');

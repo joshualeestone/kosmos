@@ -348,6 +348,8 @@ function writeState(next) {
      (their setters re-aim it at the owning flow's dir first). */
   const dirNow = driver ? (driver.configDir || null) : flowDir;
   mem = { ...next, configDir: dirNow, pid: process.pid, updatedAt: new Date().toISOString() };
+  // kosmos#8728: every write of a remote-started flow says so, so the page shows the sign-in link (no browser opens).
+  if (driver && driver.noOpener === true) mem.noOpener = true;
   /* #5018: a sign-in that completes moves the login's date; the login-expiry notice and the Settings date are
      read again on the next poll instead of after their caches run out (which looked stuck until a restart).
      Every write of connected counts, the already-signed-in answer to a start included (a terminal sign-in, then
@@ -666,6 +668,9 @@ function publicView(s, platform = process.platform) {
     before: s.before || null,
     progress: s.progress || null,
     url: s.url || null,
+    /* kosmos#8728: a remote-started sign-in opens no browser on this computer, so the page shows the link Claude
+       printed and words the step as "open the sign-in page", as it does on a cloud machine. */
+    noOpener: s.noOpener === true,
     plan: s.plan || null,
     because: s.because || null,
     tail: s.tail || null,

@@ -967,7 +967,7 @@ function connectHarness(st, { cloud = false } = {}) {
      without `cloud` the function is absent, which the page reads as "not a cloud machine" (the Mac wording). */
   const cloudFns = cloud
     ? 'function onCloudMachine() { return true; }\n'
-      + script.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + pageFunction('signinSay').toString() + '\n'
+      + script.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + pageFunction('signinOpensNoBrowserHere').toString() + '\n' + pageFunction('signinSay').toString() + '\n'
       + pageFunction('frCloudSigninDetail').toString() + '\n'
     : '';
   const realPaintUrl = pageFunction('frConnPaintUrl',
