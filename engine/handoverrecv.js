@@ -123,10 +123,10 @@ function updateKey(id, root, patch) {
   writeKey(id, kp, root, meta);
 }
 
-/* Removed (its bytes overwritten first, best effort only: a copy-on-write disk keeps old blocks). */
+/* Removed. Not overwritten first: on a copy-on-write disk (APFS) an overwrite writes new blocks and the old ones stay,
+   so it would only look like an erase. */
 function deleteKey(id, root) {
   const f = keyFile(id, root);
-  try { const b = fs.readFileSync(f); b.fill(0); fs.writeFileSync(f, b); } catch { /* removed below either way */ }
   try { fs.rmSync(f, { force: true }); } catch { /* left; the next tick finds no open row for it */ }
 }
 
