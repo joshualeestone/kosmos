@@ -9,8 +9,11 @@ would accept that window, the skip line names the command that links it. `kosmos
 linking means and changes nothing; `kosmos adopt --link <name> --confirm` links that one window through the same
 engine and checks as the board's button. It then says what linking gives now (messages typed in, the conversation
 shown) and what waits: the agent speaks as itself and can be restarted from the board only once Kosmos starts it (a
-running window keeps the environment it was started with), and `kosmos adopt` now lists it with the other agents it
-would record (adopt records every eligible running agent, so nothing is said that sounds like adopting this one alone). Proven by CLI tests against
+running window keeps the environment it was started with), and to run `kosmos adopt` to see what it would record now.
+It does not promise adopt will take it: an agent adopted before is skipped for its provenance, and two sessions under
+one board name can leave the roster's chosen pane unmarked. The preview carries the board dialog's caveat (no board
+restart, its own kosmos commands not yet its) before consent, as the dialog does. Names are echoed as the engine read
+them (trimmed). Proven by CLI tests against
 stand-in engine modules, with perturbation controls.
 
 ## How
@@ -49,4 +52,8 @@ board's. Both read the same repick (status.js tmuxRepick); not measured from the
   leaves the review as it was; bad arguments (including a second --link) refused before the roster or windows are
   read. Perturbations: hint off (1 red); --link
   acting without --confirm (1 red).
+- cli.adopt-link-real-8724.test.js (2): this branch's real status.js, adopt.js and linkwindow.js through the real CLI,
+  with test-support/fake-tmux.sh answering reads and every data root in a temp folder: the hint for a lone unmarked
+  Claude window and none for one sharing its session (so the roster row and the link check meet on one name); --link
+  previews one and refuses the other with the engine's reason.
 - Every test that reads install/kosmos (177 files).

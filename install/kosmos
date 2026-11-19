@@ -5871,11 +5871,14 @@ cmd_adopt() {
         try { lp = linkwindow.plan(want, panes); } catch (e) { lp = null; }
         if (!lp) { console.log("Kosmos could not check that window, so nothing was changed."); process.exit(1); }
         if (!lp.ok) { console.log(lp.because); process.exit(1); }
-        console.log("Kosmos would link the window called " + want + ": it would then type your messages into it, show its");
+        const shownName = lp.name || want;
+        console.log("Kosmos would link the window called " + shownName + ": it would then type your messages into it, show its");
         console.log("conversation and look after it as one of its own agents, which can include closing it if the agent");
         console.log("in it has stopped. Only do this if you started that agent yourself in that window.");
+        console.log("Until Kosmos starts this agent itself, the board cannot restart it, and its own kosmos commands do not");
+        console.log("yet speak for it.");
         console.log("");
-        console.log("Nothing was changed. Run: kosmos adopt --link " + want + " --confirm");
+        console.log("Nothing was changed. Run: kosmos adopt --link " + shownName + " --confirm");
         process.exit(0);
       }
       let r = null;
@@ -5884,9 +5887,9 @@ cmd_adopt() {
       if (!r || r.outcome !== linkwindow.OUTCOME.LINKED) { console.log((r && r.because) || "Kosmos could not link that window."); process.exit(1); }
       /* What linking gives now, and what waits: the window keeps the environment it started with, so the agent in it
          speaks as itself (and can be restarted from the board) only once Kosmos starts it. */
-      console.log("Linked the window called " + want + ". Kosmos now types your messages into it and shows its conversation.");
+      console.log("Linked the window called " + (r.name || want) + ". Kosmos now types your messages into it and shows its conversation.");
       console.log("The agent in it speaks as itself, and the board can restart it, only once Kosmos starts it.");
-      console.log("kosmos adopt now lists it with the other agents it would record; nothing is recorded without --confirm.");
+      console.log("Run kosmos adopt to see what it would record now; nothing is recorded without --confirm.");
       process.exit(0);
     }
     let rows;
@@ -5910,8 +5913,8 @@ cmd_adopt() {
     };
     const p = adopt.plan(rows);
     /* kosmos#8724 item 2: a window skipped as not ours that the link would accept is named with the command that links
-       it. The look is read once; a look that fails only leaves the skip lines as they were. */
-    /* Only when something was skipped as not ours: no second look at the windows otherwise. */
+       it. The windows are looked at once, and only when something was skipped as not ours; a look that fails leaves
+       the skip lines as they were. */
     const needHint = p.skipped.some((s) => s.because === "not one of ours");
     const hintLink = needHint ? loadLink() : null;
     let linkPanes = null;

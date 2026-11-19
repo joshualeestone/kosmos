@@ -100,6 +100,8 @@ test('#8724 --link without --confirm says what linking means and changes nothing
     assert.equal(out.code, 0, out.stdout + out.stderr);
     assert.match(out.stdout, /Kosmos would link the window called zara/);
     assert.match(out.stdout, /Only do this if you started that agent yourself in that window\./);
+    /* The board dialog's caveat, before consent as there. */
+    assert.match(out.stdout, /Until Kosmos starts this agent itself, the board cannot restart it, and its own kosmos commands do not\nyet speak for it\./);
     assert.match(out.stdout, /Nothing was changed\. Run: kosmos adopt --link zara --confirm/);
     assert.deepEqual(calls().filter((c) => c.link), [], 'it linked without --confirm');
   }));
@@ -112,7 +114,7 @@ test('#8724 --link <name> --confirm links that one window, in either order; CONT
       assert.equal(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
       assert.match(out.stdout, /Linked the window called zara\. Kosmos now types your messages into it and shows its conversation\./);
       assert.match(out.stdout, /^The agent in it speaks as itself, and the board can restart it, only once Kosmos starts it\.$/m);
-      assert.match(out.stdout, /^kosmos adopt now lists it with the other agents it would record; nothing is recorded without --confirm\.$/m);
+      assert.match(out.stdout, /^Run kosmos adopt to see what it would record now; nothing is recorded without --confirm\.$/m);
       const links = calls().filter((c) => c.link).slice(before);
       assert.deepEqual(links, [{ link: 'zara', panes: true }], args.join(' '));
     }
