@@ -435,7 +435,7 @@ test('a refusal is noted, so a /done that fails is sent again alone; a full disk
   await hr.tick(stateNew(), d2);
   await pack(c2, agentFolder(t));
   const r = await hr.tick(stateNew(), d2);
-  assert.match(r.because, /no room for the agents, or could not write them/);
+  assert.match(r.because, /could not be written on this computer \(no room left/);
   assert.equal(c2.calls.filter(([x]) => x === hr.DONE_ROUTE).length, 0, 'the hand-over is not ended');
   assert.equal(hr.readKey('hroom', root2).attempts, 1);
 });
@@ -455,6 +455,7 @@ test('cleanup never removes a Kosmos a person put something in: it is hidden, it
     ? { ok: true, data: { handovers: [{ id: 'hused', side: 'receive', state: 'packed', seal_pub: kp.pk.toString('base64'), sender_pubkey: null }] } }
     : { ok: true, data: {} }) });
   assert.equal(fs.readFileSync(path.join(workers, 'mine', 'CLAUDE.md'), 'utf8'), '# You are Mine\n', 'the person\'s agent is still there');
+  assert.ok(fs.existsSync(used.restoreDir), 'and its restore folder is kept: something was put in its workers');
   assert.ok(worlds.readRegistry(base).worlds.find((x) => x.id === used.world.id).hiddenAt, 'hidden');
   // CONTROL: an untouched Kosmos is removed.
   const clean = rw.prepareRestoreWorld(base, { member: 'y', memberId: 'hclean', kind: 'handover' });
@@ -692,4 +693,34 @@ test('round 6: an oversize manifest is final; a 4xx spends an attempt; an unread
     assert.equal(worlds.readRegistry(base).worlds.find((x) => x.id === w.id).hiddenAt, undefined, 'the finished copy stays on the list');
     assert.ok(fs.existsSync(path.join(worlds.envOverridesFor(base, w).AGENT_WORKFORCE_WORKERS, 'ledger', 'CLAUDE.md')));
   }
+});
+
+test('round 7: finishing again keeps failing but the agents are in place: received, one copy, nothing hidden', async (t) => {
+  hr.allowHttpForTests(true);
+  const b = await bucket();
+  t.after(() => b.close());
+  const root = fresh(t, 'data'), base = fresh(t, 'base');
+  const c = coordinator(b, 'hstuckfin');
+  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch };
+  await hr.tick(stateNew(), deps);
+  await pack(c, agentFolder(t));
+  assert.equal((await hr.tick(stateNew(), deps)).ok, true);
+  const w = worlds.readRegistry(base).worlds.find((x) => /^Handed over/.test(x.name));
+  const kp = { sk: Buffer.alloc(32, 2), pk: require('./hpke').hpkeKeyPair().pk };
+  hr.writeKey('hstuck2', kp, root, { restoring: w.id, expect: ['ledger'] });
+  const rw = require('./restoreworld');
+  const keep = rw.finishRestoreWorld;
+  rw.finishRestoreWorld = () => ({ ok: false, because: 'this Kosmos already has files where the restore would put them' });
+  let done = null;
+  try {
+    await hr.tick(stateNew(), { org: () => ORG, root, base, fetch, macRequest: async (m, route, body) => {
+      if (route === hr.MINE_ROUTE) return { ok: true, data: { handovers: [{ id: 'hstuck2', side: 'receive', state: 'receiving', seal_pub: kp.pk.toString('base64'), sender_pubkey: null }] } };
+      if (route === hr.DONE_ROUTE) { done = body; return { ok: true, data: {} }; }
+      return { ok: true, data: {} };
+    } });
+  } finally { rw.finishRestoreWorld = keep; }
+  assert.deepEqual(done, { id: 'hstuck2', ok: true });
+  const rows = worlds.readRegistry(base).worlds.filter((x) => /^Handed over/.test(x.name));
+  assert.equal(rows.length, 1, 'no second copy');
+  assert.equal(rows[0].hiddenAt, undefined, 'and it is not hidden');
 });
