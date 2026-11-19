@@ -948,7 +948,7 @@ function pageFunction(name, prelude = '') {
   return new Function(`${prelude}\n${script.slice(start, end)}\nreturn ${name};`)();
 }
 
-function connectHarness(st, { cloud = false } = {}) {
+function connectHarness(st, { cloud = false, words = false } = {}) {
   const raw = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
   const tables = ['FR_SAY', 'FR_GLYPH', 'FR_CONN_SAY'].map((n) => {
@@ -965,11 +965,14 @@ function connectHarness(st, { cloud = false } = {}) {
     + 'const document = { getElementById: () => null };');
   /* kosmos#4903 S5: a cloud machine (the page's onCloudMachine, read from the served meta) is given here as a stub;
      without `cloud` the function is absent, which the page reads as "not a cloud machine" (the Mac wording). */
-  const cloudFns = cloud
-    ? 'function onCloudMachine() { return true; }\n'
-      + script.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + pageFunction('signinOpensNoBrowserHere').toString() + '\n' + pageFunction('signinSay').toString() + '\n'
-      + pageFunction('frCloudSigninDetail').toString() + '\n'
-    : '';
+  /* kosmos#8728: the "no browser opens here" question is always lifted (both painters ask it); `words` lifts the
+     sign-in wording on a Mac too, for a remote-started flow (st.noOpener), without the cloud stub. */
+  const cloudFns = (cloud ? 'function onCloudMachine() { return true; }\n' : '')
+    + pageFunction('signinOpensNoBrowserHere').toString() + '\n'
+    + (cloud || words
+      ? script.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + pageFunction('signinSay').toString() + '\n'
+        + pageFunction('frCloudSigninDetail').toString() + '\n'
+      : '');
   const realPaintUrl = pageFunction('frConnPaintUrl',
     'const esc = ' + realEsc.toString() + ';\n' + cloudFns
     + 'const document = { getElementById: () => null };');
@@ -1063,6 +1066,20 @@ test('the sign-in URL lands in the href escaped', () => {
   assert.ok(out.includes('href="https://claude.com/oauth?a=1&amp;state=&quot;&gt;'),
     'the URL was not escaped into the href');
   assert.ok(!out.includes('"><script>'), 'the URL broke out of its attribute');
+});
+
+test('kosmos#8728: on a Mac, a first-run sign-in started from a remote session leads with the link and never says a browser opened', () => {
+  const URL = 'https://claude.com/cai/oauth/authorize?code=true&x=1';
+  for (const phase of ['signin-browser-open', 'signin-awaiting-code']) {
+    const remote = connectHarness({ phase, url: URL, noOpener: true }, { words: true });
+    const all = remote.els['fr-sub'].innerHTML + remote.els['fr-conn-url'].innerHTML + remote.els['fr-conn-say'].textContent;
+    assert.doesNotMatch(all, /browser has opened|Browser did not open|just opened/i, phase + ': nothing opened, yet the screen said so');
+    assert.match(remote.els['fr-conn-url'].innerHTML, /class="btn uprime" href="https:\/\/claude\.com\/cai\/oauth\/authorize\?code=true&amp;x=1"[^>]*>Open the Claude sign-in page</, phase + ': the link is not the primary button');
+    // CONTROL: the same Mac, a sign-in started at the computer, keeps the Mac words (its browser did open).
+    const local = connectHarness({ phase, url: URL, noOpener: false }, { words: true });
+    assert.match(local.els['fr-sub'].innerHTML, /Your browser has opened/, phase + ': the local Mac wording changed');
+    assert.match(local.els['fr-conn-url'].innerHTML, /Browser did not open\?/, phase);
+  }
 });
 
 test('kosmos#4903 S5: on a cloud machine the sign-in screen leads with the link, and never says a browser opened', () => {

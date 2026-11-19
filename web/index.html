@@ -91510,7 +91510,8 @@ function frPaintConnect(st) {
   /* kosmos#4903 S5 (review 3): the link this paint shows, decided ONCE for every path (the repeat-paint path below
      too, which runs every second): on a cloud machine none while Claude is finishing, since the link is the primary
      button there and the screen says it is finishing. The Mac keeps its fallback link, as before. */
-  const cloud = typeof onCloudMachine === 'function' && onCloudMachine();   // review 4: the cloud fact, read once too
+  // kosmos#8728: "no browser opens here" (a cloud machine, or a sign-in started from a remote session), read once.
+  const cloud = signinOpensNoBrowserHere(st);   // review 4: the cloud fact, read once too
   const shownUrl = phase === 'signin-completing' && cloud ? null : (st && st.url);
   // #2236 (Josh 0.6.42 re-test): Mona Lisa's "Sweep" loading spinner (the dots-trail she
   // designed and Josh chose 2026-09-05; installkosmos.com/design/loading-indicators, variant D).
@@ -91544,7 +91545,7 @@ function frPaintConnect(st) {
     // engine writes it late for exactly that case), and a full rebuild here
     // would empty the code input mid-typing -- so the link gets its own
     // targeted updater, like the progress numbers.
-    frConnPaintUrl(shownUrl);
+    frConnPaintUrl(shownUrl, st);
     return;
   }
   FR_CONN_LAST = paintKey;
@@ -91601,7 +91602,7 @@ function frPaintConnect(st) {
         : cloud ? '<span id="fr-conn-cloudsay-open">' + esc(frCloudSigninDetail('signin-browser-open', !!shownUrl)) + '</span>'
           : 'Sign in to Claude there. This screen will update when it is done.')
       + '</div>' + urlLine;
-    frConnPaintUrl(shownUrl);
+    frConnPaintUrl(shownUrl, st);
     frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
@@ -91636,7 +91637,7 @@ function frPaintConnect(st) {
       // code AND click Continue.
       if (e.key === 'Enter') { e.stopPropagation(); if (!(go && go.disabled)) frConnSubmitCode(); }
     };
-    frConnPaintUrl(shownUrl);
+    frConnPaintUrl(shownUrl, st);
     frActions(null, { label: 'Cancel', go: frConnCancel });
     return;
   }
@@ -91841,18 +91842,21 @@ function frConnBefore(phase) {
  * (that empties the code input mid-typing), but the URL is honestly late
  * sometimes -- the terminal prints it a capture-tick after the prompt.
  */
-function frConnPaintUrl(url) {
+function frConnPaintUrl(url, st) {
   const box = document.getElementById('fr-conn-url');
   if (!box) return;
   // ⚠️ Compared against what WE last set, never against innerHTML read back:
   // serializers may round-trip markup differently, and a permanently-unequal
   // comparison would rebuild the link on every poll tick -- under a person
   // mid-copy of the fallback URL.
+  /* kosmos#4903 S5: on a cloud machine nothing opens a browser, so the link is the way in, not a fallback.
+     kosmos#8728: the same for a sign-in started from a remote session (st.noOpener); part of the key, so a change in
+     it alone repaints. */
+  const cloudNow = signinOpensNoBrowserHere(st);
   const key = url || null;
-  if (box.__frUrl === key) return;
-  box.__frUrl = key;
-  /* kosmos#4903 S5: on a cloud machine nothing opens a browser, so the link is the way in, not a fallback. */
-  const cloudNow = typeof onCloudMachine === 'function' && onCloudMachine();
+  const stamp = (cloudNow ? 'here:' : 'fallback:') + key;
+  if (box.__frUrl === stamp) return;
+  box.__frUrl = stamp;
   // The phase is in the id (one span per phase), so this needs nothing but getElementById.
   for (const [id, phase] of [['fr-conn-cloudsay-open', 'signin-browser-open'], ['fr-conn-cloudsay-code', 'signin-awaiting-code']]) {
     const say = cloudNow && document.getElementById(id);
