@@ -19,8 +19,8 @@ key in the signed manifest, and the device key signs it. Three backup assumption
 
 ## The call: one explicit hand-over layout in the two modules, not a second pack format
 
-`ctx.layout = 'handover'` with `ctx.prefix = handover/<org>/<id>/` (built from the `mine` answer, checked against
-it): keys must be prefix + one plain segment, there is no period or epoch check, and the uploader takes the hand-over
+`ctx.layout = 'handover'` with `ctx.prefix = handover/<org>/<id>/` (built from the enrolled company's id and the
+`mine` row's id; the coordinator's grant refuses any other): keys must be prefix + one plain segment, there is no period or epoch check, and the uploader takes the hand-over
 grant shape and requires the lock headers to be ABSENT (a lock on a transient pack would leave 30 days of undeletable
 objects). Every check that is not about layout (digests, signed headers, https, AWS host, If-None-Match, no repeated
 key or url, the 412 rule) stays exactly as it is for both layouts.

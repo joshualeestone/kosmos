@@ -748,7 +748,8 @@ async function uploadManifestInner(deps, bytes, o, st) {
   for (let grants = 0; grants <= MAX_REGRANTS; grants++) {
     const asked = now();
     st.asked = true;
-    // A hand-over's route takes the digest as standard base64 (it goes into the signed x-amz-checksum-sha256 header).
+    // A hand-over's route takes the digest as standard base64 (it goes into the signed x-amz-checksum-sha256 header):
+    // kosmos-relay coordinator/src/handover.rs mac_manifest refuses anything but b64_32 (handover_bad_hash).
     const g = await askSigned(deps.macRequest, ho ? HANDOVER_MANIFEST_ROUTE : MANIFEST_ROUTE,
       () => (ho ? { id: ho.id, sha256: sha256b64(bytes), size: bytes.length, nonce: crypto.randomBytes(16).toString('hex') }
         : Object.assign({ sha256, size: bytes.length }, snapshot !== undefined ? { snapshot } : {}, { nonce: crypto.randomBytes(16).toString('hex') })),

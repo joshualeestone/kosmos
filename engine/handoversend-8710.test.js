@@ -21,8 +21,9 @@ const rows = [
 ];
 
 test('names resolve by machine name or shown name, and a missing or doubled one fails with that name', () => {
-  assert.deepEqual(hs.resolveNames(['Permit Intake', 'ledger'], rows), { ok: true, names: ['permit-intake', 'ledger'] });
-  assert.deepEqual(hs.resolveNames(['Ledger', 'ledger'], rows), { ok: true, names: ['ledger'] });
+  assert.deepEqual(hs.resolveNames(['Permit Intake', 'ledger'], rows), { ok: true, names: [{ name: 'permit-intake', label: 'Permit Intake' }, { name: 'ledger', label: 'ledger' }] });
+  assert.deepEqual(hs.resolveNames(['Ledger', 'ledger'], rows), { ok: true, names: [{ name: 'ledger', label: 'Ledger' }] });
+  assert.equal(hs.resolveNames(['Old'], rows).final, true);
   assert.match(hs.resolveNames(['Old'], rows).because, /no agent called Old/);       // removed
   assert.match(hs.resolveNames(['Stray'], rows).because, /no agent called Stray/);   // no profile
   assert.match(hs.resolveNames(['Twin'], rows).because, /more than one agent on this computer is called Twin/);
@@ -39,7 +40,9 @@ test('session files are trimmed newest first to the byte cap, across roots', () 
     { name: 'sessions/x/claude', path: '/r/a', only: ['2'] },
     { name: 'sessions/x/codex', path: '/r/b', only: ['1', '2'] },
   ]);
-  assert.deepEqual(hs.trimSessions(roots, 4, { stat }), []);
+  // The newest file is kept even alone over the cap; nothing else then fits.
+  assert.deepEqual(hs.trimSessions(roots, 4, { stat }), [{ name: 'sessions/x/claude', path: '/r/a', only: ['2'] }]);
+  assert.deepEqual(hs.trimSessions([{ name: 'sessions/x/claude', path: '/r/a', only: ['gone'] }], 4, { stat }), []);
 });
 
 test('only a send part in packing with a key is packed', () => {
@@ -103,7 +106,7 @@ test('a pack input is refused for a bad key, a protected folder, a missing folde
     assert.match(hs.packInput(part(), 'org1', depsFor(w, { workerDir: (n) => path.join(w.base, 'data', n) })).because, /holds, or is inside/);
     // The agent folder holding Kosmos's data.
     assert.match(hs.packInput(part(), 'org1', depsFor(w, { workerDir: () => w.base })).because, /holds, or is inside/);
-    assert.match(hs.packInput(part(), 'org1', depsFor(w, { workerDir: (n) => path.join(w.base, 'nowhere', n) })).because, /folder of ledger could not be found/);
+    assert.match(hs.packInput(part(), 'org1', depsFor(w, { workerDir: (n) => path.join(w.base, 'nowhere', n) })).because, /folder of Ledger could not be found/);   // the company's name for it
     const nd = hs.packInput(part(), 'org1', depsFor(w, { deviceKey: () => ({ ok: false, because: 'no key here' }) }));
     assert.equal(nd.because, 'no key here');
     assert.equal(hs.packInput(part(), 'org1', depsFor(w, { inputsHere: () => ({ protect: [], protectIncomplete: true }) })).ok, false);
@@ -124,43 +127,68 @@ test('the real snapshot accepts the pack input and asks the hand-over grant firs
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('a tick packs one part, remembers a final failure, and retries a retryLater one', async () => {
+test('a tick packs one part; a final failure is kept, another waits RETRY_MS, retryLater goes next tick', async () => {
   const w = world();
   try {
     const parts = [part({ id: 'ho1' }), part({ id: 'ho2' })];
     const asked = [];
     const takes = [];
-    let answer = { ok: false, because: 'refused for good' };
+    let clock = 1000;
+    let answer = { ok: false, final: true, because: 'refused for good' };
     const d = depsFor(w, {
       org: () => 'org1',
+      now: () => clock,
       macRequest: async (m, route, body) => { asked.push(route); assert.deepEqual(body, {}); return { ok: true, data: { handovers: parts } }; },
       takeSnapshot: async (input) => { takes.push(input.handover.id); return answer; },
     });
-    const state = { running: false, failed: new Map(), packed: new Set() };
+    const state = { running: false, failed: new Map(), retryAt: new Map(), packed: new Set() };
     assert.deepEqual(await hs.tick(state, d), { ok: false, id: 'ho1', because: 'refused for good' });
     assert.equal(asked[0], hs.MINE_ROUTE);
-    // ho1 failed for good: the next tick moves to ho2.
+    // ho1 is decided: the next tick moves to ho2. A coordinator error (no final, no retryLater) waits RETRY_MS.
+    answer = { ok: false, because: 'HTTP 503' };
+    assert.equal((await hs.tick(state, d)).id, 'ho2');
+    assert.deepEqual(await hs.tick(state, d), { ok: true, none: true }, 'tried again before RETRY_MS');
+    clock += hs.RETRY_MS + 1;
     answer = { ok: false, retryLater: true, because: 'later' };
     assert.equal((await hs.tick(state, d)).id, 'ho2');
-    assert.equal((await hs.tick(state, d)).id, 'ho2');   // retried
+    assert.equal((await hs.tick(state, d)).id, 'ho2', 'retryLater waits for nothing');
     answer = { ok: true };
     assert.equal((await hs.tick(state, d)).ok, true);
     assert.deepEqual(await hs.tick(state, d), { ok: true, none: true });
-    assert.deepEqual(takes, ['ho1', 'ho2', 'ho2', 'ho2']);
+    assert.deepEqual(takes, ['ho1', 'ho2', 'ho2', 'ho2', 'ho2']);
     // A changed part (a new key) is tried again.
     parts[0].seal_pub = sealPub();
     assert.equal((await hs.tick(state, d)).id, 'ho1');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
+test('a tick sends only where orgenroll.mayReport allows: enrolled here with no accepted words asks nothing', async () => {
+  const oe = require('./orgenroll');
+  const keep = { mayReport: oe.mayReport, readEnrollment: oe.readEnrollment };
+  let asked = 0;
+  const macRequest = async () => { asked++; return { ok: true, data: { handovers: [] } }; };
+  try {
+    oe.readEnrollment = () => ({ org: { id: 'org1' }, world: 'w' });
+    oe.mayReport = () => false;   // enrolled, words not accepted here
+    assert.deepEqual(await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), packed: new Set() }, { macRequest }), { ok: true, none: true });
+    assert.equal(asked, 0);
+    oe.mayReport = () => true;    // CONTROL: the same record, words accepted
+    await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), packed: new Set() }, { macRequest });
+    assert.equal(asked, 1);
+  } finally { Object.assign(oe, keep); }
+});
+
 test('a tick asks nothing when this computer is not in a company, and never runs twice at once', async () => {
   let asked = 0;
   const d = { org: () => null, macRequest: async () => { asked++; return { ok: true, data: { handovers: [] } }; } };
-  assert.deepEqual(await hs.tick({ running: false, failed: new Map(), packed: new Set() }, d), { ok: true, none: true });
+  assert.deepEqual(await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), packed: new Set() }, d), { ok: true, none: true });
   assert.equal(asked, 0);
-  assert.deepEqual(await hs.tick({ running: true, failed: new Map(), packed: new Set() }, { org: () => 'org1', macRequest: d.macRequest }), { skipped: true });
+  assert.deepEqual(await hs.tick({ running: true, failed: new Map(), retryAt: new Map(), packed: new Set() }, { org: () => 'org1', macRequest: d.macRequest }), { skipped: true });
   assert.equal(asked, 0);
-  assert.equal((await hs.tick({ running: false, failed: new Map(), packed: new Set() }, { org: () => 'org1', macRequest: async () => ({ ok: false, because: 'down' }) })).because, 'down');
+  // A refused /mine (an older connector, say) packs nothing.
+  let took = 0;
+  assert.equal((await hs.tick({ running: false, failed: new Map(), retryAt: new Map(), packed: new Set() }, { org: () => 'org1', macRequest: async () => ({ ok: false, notSent: true, because: 'down' }), takeSnapshot: async () => { took++; return { ok: true }; } })).because, 'down');
+  assert.equal(took, 0);
 });
 
 test('the tick is off unless KOSMOS_ORG_HANDOVER=1', () => {
@@ -172,7 +200,7 @@ test('the tick is off unless KOSMOS_ORG_HANDOVER=1', () => {
 
 test('the notice lists every open send part\'s agents, with a stopped pack\'s reason', async () => {
   const k = sealPub();
-  const state = { running: false, failed: new Map(), packed: new Set(), open: [] };
+  const state = { running: false, failed: new Map(), retryAt: new Map(), packed: new Set(), open: [] };
   assert.equal(hs.notice(state), null);
   const d = { org: () => 'org1', macRequest: async () => ({ ok: true, data: { handovers: [
     { id: 'h1', side: 'send', state: 'packed', seal_pub: k, agents: ['Ledger'] },
