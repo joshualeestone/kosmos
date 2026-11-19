@@ -43,3 +43,13 @@ shape (and the reverse), so the switch cannot become a way around a backup check
 - The notice to the leaving member (their company is moving these agents to a colleague).
 - Tunnel allowlist for the six paths (crates/tunnel/src/coordinator.rs).
 - Not here: the receiving side (slice 4), the console screen (slice 5).
+
+## The pack's context (decided 09:0x CST 11-19)
+The successor needs the manifest's exact context to open it, and slice 2's `mine` answer carries none. Rather than
+change the coordinator, the context follows from the hand-over: `{ org, member: <handover id>, epoch: 'handover',
+period: 'handover', snapshot: <handover id> }` (backupformat CTX_ID_RE strings). Both computers know it (org from
+the prefix / enrolment, the id from `mine`), it is unique per hand-over so another hand-over's pack cannot be passed
+off as this one, and the leaving computer's device signature over it is checked against `sender_pubkey`.
+Rejected: a new coordinator column holding a context the sender reports (a slice 2 change for information both
+sides already hold). Weakest premise: that nothing in restore treats `period` as a week. Checked: backuprestore.js
+does not read the period; the snapshot's week checks are skipped only under the hand-over layout.

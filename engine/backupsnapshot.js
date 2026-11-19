@@ -177,6 +177,27 @@ function keyProblem(key, ctx) {
   return null;
 }
 
+/* kosmos#8710: a hand-over pack. Its context follows from the hand-over, so both computers know it without the
+   coordinator carrying it: unique per hand-over, so another hand-over's pack cannot pass as this one's. */
+function handoverContext(org, id) { return { org, member: id, epoch: 'handover', period: 'handover', snapshot: id }; }
+const plainSegment = (x) => typeof x === 'string' && /^[A-Za-z0-9._:-]+$/.test(x) && x !== '.' && x !== '..';
+/* input.handover checked against the context: undefined when absent (a backup), a sentence when unusable, else
+   { id, prefix } (prefix `handover/<org>/<id>/`, as the coordinator builds every key of it). */
+function handoverInput(h, ctx) {
+  if (h === undefined) return undefined;
+  const parts = h && typeof h.prefix === 'string' ? h.prefix.split('/') : [];
+  if (!h || !plainSegment(h.id) || parts.length !== 4 || parts[0] !== 'handover' || !plainSegment(parts[1]) || parts[2] !== h.id || parts[3] !== '') {
+    return 'the hand-over given is not { id, prefix } with prefix handover/<org>/<id>/';
+  }
+  const want = handoverContext(parts[1], h.id);
+  for (const k of Object.keys(want)) if (!ctx || ctx[k] !== want[k]) return `a hand-over pack's context must be its own (${k})`;
+  return { id: h.id, prefix: h.prefix };
+}
+/* Why a key is not one of this hand-over's objects (its prefix plus one plain segment), or null. */
+function handoverKeyProblem(key, ho) {
+  return typeof key === 'string' && key.startsWith(ho.prefix) && plainSegment(key.slice(ho.prefix.length)) ? null : `not under this hand-over (${ho.prefix})`;
+}
+
 /* The deny-list, on the path AS RESTORE WILL WRITE IT: restore reads '\\' as a folder separator, so a Mac
    name like ".ssh\\id_rsa" comes back as .ssh/id_rsa; every rule anchors on '/', so the name as written would pass. */
 const asRestored = (rel) => rel.replace(/\\/g, '/');
@@ -660,8 +681,11 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (!deviceKey || deviceKey.type !== 'private' || deviceKey.asymmetricKeyType !== 'ed25519') return fail('the device key must be an Ed25519 private key');
   if (proofKey !== undefined && !isKey32(proofKey)) return fail('the member proof key must be a 32-byte Buffer');
   try { checkBackupContext(ctx); } catch (err) { return fail(err.message); }
+  // kosmos#8710: a hand-over pack has no week and no key epoch; every other rule below is the backup's.
+  const ho = handoverInput(input.handover, ctx);
+  if (typeof ho === 'string') return fail(ho);
   // #5744: ctx.epoch is passed to the uploader, which refuses an epoch it cannot check grants against.
-  if (!isKeyEpoch(ctx.epoch)) return fail(`the context's key epoch (${JSON.stringify(ctx.epoch)}) is not one a grant can name (1, 2, ...)`);
+  if (!ho && !isKeyEpoch(ctx.epoch)) return fail(`the context's key epoch (${JSON.stringify(ctx.epoch)}) is not one a grant can name (1, 2, ...)`);
   const t = now();
   // A Date can hold only about 275,000 years either side of 1970: past that, periodOf reads "NaN-WNaN".
   // And within years -9999 to 9999, outside which the coordinator labels periods differently ("p<start>").
@@ -672,13 +696,17 @@ async function snapshotInner(input, deps, added, state, fail) {
   // The context's period must be this clock's, or a neighbouring one within the tolerated skew (the coordinator's clock
   // decides which period a grant lands in; a wrong-period failure reports it as grantedPeriod, and a context built from
   // that must be accepted, or the retry loops).
-  if (!periodsNear(t).has(ctx.period)) return fail(`the context names period ${ctx.period}, but this computer's clock is in ${period}`, { newPeriod: true });
+  if (!ho && !periodsNear(t).has(ctx.period)) return fail(`the context names period ${ctx.period}, but this computer's clock is in ${period}`, { newPeriod: true });
   // The manifest lock for the CONTEXT's period, which may be a neighbour of this clock's (see periodsNear).
   const tCtx = [t, t - SKEW_MS, t + SKEW_MS].find((x) => periodOf(x) === ctx.period);
-  const ctxManifestLock = manifestLockAt(tCtx);
+  const ctxManifestLock = ho ? null : manifestLockAt(tCtx);
+  // The key and lock rules this snapshot applies: a hand-over's prefix and no lock, or the backup's period path and lock.
+  const keyOf = (key) => (ho ? handoverKeyProblem(key, ho) : keyProblem(key, ctx));
+  const periodOnly = (key) => !ho && onlyPeriodDiffers(key, ctx);
 
   // The index: every entry this period's, with a lock end, under one named bucket. Checked before anything is read.
   const index = input.index instanceof Map ? input.index : new Map();
+  if (ho && index.size) return fail('a hand-over pack is always taken whole, with no index of earlier chunks');
   const mkid = memberKeyIdOf(memberPk);
   if (index.size) {
     if (typeof input.bucket !== 'string' || !input.bucket) return fail('an index of earlier chunks needs the bucket they are stored under', { staleIndex: true });
@@ -803,7 +831,7 @@ async function snapshotInner(input, deps, added, state, fail) {
     if (!pending.size) return null;
     // No size check here: for a company the one check before the walk guarantees the finished manifest fits (see there).
     const batch = [...pending].map(([name, object]) => ({ name, object }));
-    const r = await putChunks(deps, batch, { epoch: ctx.epoch });
+    const r = await putChunks(deps, batch, ho ? { handover: ho } : { epoch: ctx.epoch });
     const stored = (r && r.keys instanceof Map) ? r.keys : new Map();
     const lockOf = (name) => (r && r.lockedUntil instanceof Map ? r.lockedUntil.get(name) : undefined);
     const spent = r && r.grantSpent !== undefined ? { grantSpent: r.grantSpent } : {};
@@ -813,7 +841,8 @@ async function snapshotInner(input, deps, added, state, fail) {
       // bucket are dropped from it (stored, locked, and named by nothing until their lock ends), deliberately.
       added.clear(); state.bucket = r.bucket;
       for (const [name, key] of stored) {
-        if (pending.has(name) && !usedKeys.has(key) && !keyProblem(key, ctx) && (!owner || ownerOf(key) === owner) && Buffer.byteLength(key) <= MAX_KEY_LEN && Number.isSafeInteger(lockOf(name)) && lockOf(name) >= ctxManifestLock) {
+        if (pending.has(name) && !usedKeys.has(key) && !keyOf(key) && (!owner || ownerOf(key) === owner) && Buffer.byteLength(key) <= MAX_KEY_LEN
+          && (ho ? lockOf(name) === null : Number.isSafeInteger(lockOf(name)) && lockOf(name) >= ctxManifestLock)) {
           added.set(name, { key, lockedUntilMs: lockOf(name), memberKeyId: mkid }); usedKeys.add(key);
         }
       }
@@ -832,12 +861,17 @@ async function snapshotInner(input, deps, added, state, fail) {
     for (const [name, key] of stored) {
       if (!pending.has(name)) { badKey = badKey || 'for a chunk this run did not ask to store'; continue; }
       if (usedKeys.has(key)) { badKey = badKey || 'repeats a key already named'; continue; }
-      const kp = keyProblem(key, ctx) || (owner && ownerOf(key) !== owner ? `under account path ${ownerOf(key)}, not ${owner}` : null);
-      if (kp && onlyPeriodDiffers(key, ctx) && (!owner || ownerOf(key) === owner)) { wrongPeriod.push(periodOfKey(key)); continue; }
+      const kp = keyOf(key) || (owner && ownerOf(key) !== owner ? `under account path ${ownerOf(key)}, not ${owner}` : null);
+      if (kp && periodOnly(key) && (!owner || ownerOf(key) === owner)) { wrongPeriod.push(periodOfKey(key)); continue; }
       if (kp) { badKey = badKey || kp; continue; }
-      if (!Number.isSafeInteger(lockOf(name))) { noLock = true; continue; }
-      // A lock shorter than this snapshot's manifest will get: the manifest could never name it.
-      if (lockOf(name) < ctxManifestLock) { shortLock = true; continue; }
+      if (ho) {
+        // A hand-over chunk is stored unlocked; one that came back with a lock end was not granted as one.
+        if (lockOf(name) !== null) { badKey = badKey || 'locked, which no hand-over chunk is'; continue; }
+      } else {
+        if (!Number.isSafeInteger(lockOf(name))) { noLock = true; continue; }
+        // A lock shorter than this snapshot's manifest will get: the manifest could never name it.
+        if (lockOf(name) < ctxManifestLock) { shortLock = true; continue; }
+      }
       if (Buffer.byteLength(key) > MAX_KEY_LEN) { badKey = badKey || `longer than ${MAX_KEY_LEN} characters`; continue; }
       added.set(name, { key, lockedUntilMs: lockOf(name), memberKeyId: mkid });
       usedKeys.add(key);
@@ -944,7 +978,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   // whatever the skew tolerance would allow (review 37). A context accepted as a neighbour at the start is judged by
   // the tolerance; the manifest key is checked after the grant either way.
   const crossed = periodOf(t) === ctx.period && periodOf(tEnd) !== ctx.period;
-  if (crossed || !periodsNear(tEnd).has(ctx.period)) return fail(`a period boundary passed during the snapshot (now ${periodOf(tEnd)}): start again in the new period`, { newPeriod: true });
+  if (!ho && (crossed || !periodsNear(tEnd).has(ctx.period))) return fail(`a period boundary passed during the snapshot (now ${periodOf(tEnd)}): start again in the new period`, { newPeriod: true });
   // Cannot throw on this content: file and redacted paths passed pathProblem, skipped ones are walk paths, every other value is a fixed sentence, a number,
   // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
   // takeSnapshot's catch returns `added` intact.
@@ -953,7 +987,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   const sealed = await sealOffThread(memberPk, deviceKey, ctx, manifest, Object.assign({ report: (how, why) => { sealedHere = how === 'here' ? why : null; } },
     deps.sealWorkerFile ? { workerFile: deps.sealWorkerFile } : {}));   // sealWorkerFile: tests only
   // kosmos#7118: with the snapshot id the manifest is sealed under, so a restore (or the console) can open it.
-  const m = await putManifest(deps, sealed, { bucket: state.bucket, chunks, epoch: ctx.epoch, snapshot: ctx.snapshot });
+  const m = await putManifest(deps, sealed, ho ? { bucket: state.bucket, chunks, handover: ho } : { bucket: state.bucket, chunks, epoch: ctx.epoch, snapshot: ctx.snapshot });
   if (!m || !m.ok) {
     // outlastsChunks: the named chunks lock out too soon for this manifest. Every lock was checked against this period's
     // manifest lock, so in practice Monday passed since (a FRESH reading says so; the one above cannot). Else
@@ -975,9 +1009,9 @@ async function snapshotInner(input, deps, added, state, fail) {
   // The manifest's key must be this context's: Monday 00:00 UTC can pass between the check above and the
   // coordinator signing the grant, and uploadManifest checks only the owner. A key in another period files the manifest
   // where a restore looking it up by period cannot open it; said, not hidden (it is stored and locked either way).
-  const mk = keyProblem(m.key, ctx) || (owner && ownerOf(m.key) !== owner ? 'under another account path' : null);
+  const mk = keyOf(m.key) || (owner && ownerOf(m.key) !== owner ? 'under another account path' : null);
   // newPeriod only when the period is what differs; another org or a malformed key is a plain failure.
-  if (mk && onlyPeriodDiffers(m.key, ctx) && (!owner || ownerOf(m.key) === owner)) return fail(`the manifest was stored under a key ${mk} (a period boundary passed as it was granted): start again in the new period`, { newPeriod: true, grantSpent: true });
+  if (mk && periodOnly(m.key) && (!owner || ownerOf(m.key) === owner)) return fail(`the manifest was stored under a key ${mk} (a period boundary passed as it was granted): start again in the new period`, { newPeriod: true, grantSpent: true });
   if (mk) return fail(`the manifest was stored under a key that is not this snapshot's (${mk})`, { grantSpent: true });
   // sealedInProcess: the seal worker could not be used, so the board waited for the seal (kosmos#7746); its value says
   // which way ('not-sent', 'no-worker', 'worker-ended', 'no-answer').
@@ -1073,4 +1107,5 @@ function indexCapFor(planGb) {
 }
 
 module.exports = {
+  handoverContext,
   indexCapFor, sealOffThread, MANIFEST_JSON_BUDGET, PLAN_MANIFEST_JSON_BUDGET, periodOf, memberKeyIdOf, listFiles, takeSnapshot, rootNameProblem, MAX_FILE, BATCH_BYTES, MAX_FILES };
