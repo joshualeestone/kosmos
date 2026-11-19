@@ -405,3 +405,74 @@ test('a key write that fails leaves no temp file holding the secret', (t) => {
   assert.throws(() => hr.writeKey('hdir', require('./hpke').hpkeKeyPair(), root));
   assert.deepEqual(fs.readdirSync(path.join(root, 'handover')).filter((n) => n.endsWith('.tmp')), []);
 });
+
+test('a refusal is noted, so a /done that fails is sent again alone; a full disk is this computer\'s, retried, never the sender\'s', async (t) => {
+  hr.allowHttpForTests(true);
+  const b = await bucket();
+  t.after(() => b.close());
+  const root = fresh(t, 'data'), base = fresh(t, 'base');
+  const c = coordinator(b, 'hfin');
+  let doneFails = true;
+  const mac = async (m, route, body) => (route === hr.DONE_ROUTE && doneFails ? { ok: false, because: 'no answer' } : c.recv(m, route, body));
+  const deps = { org: () => ORG, macRequest: mac, root, base, fetch };
+  await hr.tick(stateNew(), deps);
+  await pack(c, agentFolder(t));
+  c.rec.manifest.sha256 = sha256b(Buffer.from('other'));
+  await hr.tick(stateNew(), deps);
+  assert.match(hr.readKey('hfin', root).final, /not the one Kosmos\+ recorded/);
+  const reads = c.calls.filter(([x]) => x === hr.READ_ROUTE).length;
+  doneFails = false;
+  await hr.tick(stateNew(), deps);
+  assert.equal(c.calls.filter(([x]) => x === hr.READ_ROUTE).length, reads, 'nothing read again');
+  assert.equal(c.rec.state, 'failed');
+  assert.equal(hr.readKey('hfin', root), null);
+  // No room: not final, said as this computer's.
+  const c2 = coordinator(b, 'hroom');
+  const root2 = fresh(t, 'data');
+  const d2 = { org: () => ORG, macRequest: c2.recv, root: root2, base, fetch, maxTotalBytes: 1 };
+  await hr.tick(stateNew(), d2);
+  await pack(c2, agentFolder(t));
+  const r = await hr.tick(stateNew(), d2);
+  assert.match(r.because, /no room for the agents, or could not write them/);
+  assert.equal(c2.calls.filter(([x]) => x === hr.DONE_ROUTE).length, 0, 'the hand-over is not ended');
+  assert.equal(hr.readKey('hroom', root2).attempts, 1);
+});
+
+test('cleanup never removes a Kosmos a person put something in: it is hidden, its files left', async (t) => {
+  const base = fresh(t, 'base');
+  const rw = require('./restoreworld');
+  const used = rw.prepareRestoreWorld(base, { member: 'x', memberId: 'hused', kind: 'handover' });
+  const workers = worlds.envOverridesFor(base, used.world).AGENT_WORKFORCE_WORKERS;
+  fs.mkdirSync(path.join(workers, 'mine'), { recursive: true });
+  fs.writeFileSync(path.join(workers, 'mine', 'CLAUDE.md'), '# You are Mine\n');
+  const root = fresh(t, 'data');
+  hr.writeKey('hused', require('./hpke').hpkeKeyPair(), root, { restoring: used.world.id });
+  const kp = hr.readKey('hused', root);
+  // The tick's restart cleanup on this key (a packed row, no pack to read: the cleanup runs before the try).
+  await hr.tick(stateNew(), { org: () => ORG, root, base, fetch, macRequest: async (m, route) => (route === hr.MINE_ROUTE
+    ? { ok: true, data: { handovers: [{ id: 'hused', side: 'receive', state: 'packed', seal_pub: kp.pk.toString('base64'), sender_pubkey: null }] } }
+    : { ok: true, data: {} }) });
+  assert.equal(fs.readFileSync(path.join(workers, 'mine', 'CLAUDE.md'), 'utf8'), '# You are Mine\n', 'the person\'s agent is still there');
+  assert.ok(worlds.readRegistry(base).worlds.find((x) => x.id === used.world.id).hiddenAt, 'hidden');
+  // CONTROL: an untouched Kosmos is removed.
+  const clean = rw.prepareRestoreWorld(base, { member: 'y', memberId: 'hclean', kind: 'handover' });
+  hr.writeKey('hclean', require('./hpke').hpkeKeyPair(), root, { restoring: clean.world.id });
+  const kp2 = hr.readKey('hclean', root);
+  await hr.tick(stateNew(), { org: () => ORG, root, base, fetch, macRequest: async (m, route) => (route === hr.MINE_ROUTE
+    ? { ok: true, data: { handovers: [{ id: 'hclean', side: 'receive', state: 'packed', seal_pub: kp2.pk.toString('base64'), sender_pubkey: null }] } }
+    : { ok: true, data: {} }) });
+  assert.equal(fs.existsSync(clean.dir), false);
+});
+
+test('a key whose hand-over is no longer listed is removed once a day old; a listed or recent one is kept', (t) => {
+  const root = fresh(t, 'data');
+  for (const id of ['hold', 'hopen', 'hnew']) hr.writeKey(id, require('./hpke').hpkeKeyPair(), root);
+  const old = (Date.now() - hr.STALE_KEY_MS - 1000) / 1000;
+  for (const id of ['hold', 'hopen']) fs.utimesSync(path.join(root, 'handover', `${id}.key.json`), old, old);
+  fs.writeFileSync(path.join(root, 'handover', 'notes.txt'), 'not a key');
+  hr.sweepKeys(new Set(['hopen']), Date.now(), root);
+  assert.equal(hr.readKey('hold', root), null);
+  assert.ok(hr.readKey('hopen', root));
+  assert.ok(hr.readKey('hnew', root));
+  assert.ok(fs.existsSync(path.join(root, 'handover', 'notes.txt')), 'only key files');
+});
