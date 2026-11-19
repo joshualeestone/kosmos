@@ -102,8 +102,10 @@ static class KosmosCli
         si.hStdInput = InheritableCopy(self, GetStdHandle(STD_INPUT_HANDLE));
         si.hStdOutput = InheritableCopy(self, GetStdHandle(STD_OUTPUT_HANDLE));
         si.hStdError = InheritableCopy(self, GetStdHandle(STD_ERROR_HANDLE));
-        uint flags = CREATE_UNICODE_ENVIRONMENT;
-        if (GetConsoleWindow() == IntPtr.Zero) flags |= CREATE_NO_WINDOW;
+        // No console at all (not merely no window: a console started hidden still counts,
+        // review round 4): node must not get a fresh one of its own.
+        uint flags = 0;
+        if (GetConsoleCP() == 0) flags |= CREATE_NO_WINDOW;
         PROCESS_INFORMATION pi;
         try
         {
@@ -118,7 +120,8 @@ static class KosmosCli
         }
         try
         {
-            WaitForSingleObject(pi.hProcess, INFINITE);
+            if (WaitForSingleObject(pi.hProcess, INFINITE) != WAIT_OBJECT_0)
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
             uint code;
             if (!GetExitCodeProcess(pi.hProcess, out code)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
             return unchecked((int)code);
@@ -130,20 +133,45 @@ static class KosmosCli
         }
     }
 
-    // An inheritable duplicate of a standard handle, or zero when there is none (a
-    // process started with that stream closed). Zero tells CreateProcess "no stream".
+    // An inheritable duplicate of a standard handle. When there is none (a process started
+    // with that stream closed), an inheritable handle to NUL instead, as libuv does for an
+    // ignored stream: with no stream at all, node falls back to a console nobody can see
+    // and reports stdin as a terminal, so a yes/no prompt would wait there for good
+    // (review round 4, measured). Zero only if even NUL cannot be opened.
     static IntPtr InheritableCopy(IntPtr self, IntPtr h)
     {
-        if (h == IntPtr.Zero || h == new IntPtr(-1)) return IntPtr.Zero;
         IntPtr dup;
-        return DuplicateHandle(self, h, self, out dup, 0, true, DUPLICATE_SAME_ACCESS) ? dup : IntPtr.Zero;
+        if (h != IntPtr.Zero && h != new IntPtr(-1) && DuplicateHandle(self, h, self, out dup, 0, true, DUPLICATE_SAME_ACCESS)) return dup;
+        var sa = new SECURITY_ATTRIBUTES();
+        sa.nLength = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES));
+        sa.bInheritHandle = true;
+        IntPtr nul = CreateFile("NUL", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, ref sa, OPEN_EXISTING, 0, IntPtr.Zero);
+        return nul == new IntPtr(-1) ? IntPtr.Zero : nul;
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct SECURITY_ATTRIBUTES
+    {
+        public int nLength;
+        public IntPtr lpSecurityDescriptor;
+        public bool bInheritHandle;
+    }
+
+    const uint GENERIC_READ = 0x80000000, GENERIC_WRITE = 0x40000000;
+    const uint FILE_SHARE_READ = 1, FILE_SHARE_WRITE = 2, OPEN_EXISTING = 3, WAIT_OBJECT_0 = 0;
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr CreateFile(string name, uint access, uint share, ref SECURITY_ATTRIBUTES security,
+        uint creation, uint flags, IntPtr template);
+
+    [DllImport("kernel32.dll")]
+    static extern uint GetConsoleCP();
 
     static void CloseIfSet(IntPtr h) { if (h != IntPtr.Zero) CloseHandle(h); }
 
     const int STD_INPUT_HANDLE = -10, STD_OUTPUT_HANDLE = -11, STD_ERROR_HANDLE = -12;
     const int STARTF_USESTDHANDLES = 0x100;
-    const uint CREATE_UNICODE_ENVIRONMENT = 0x400, CREATE_NO_WINDOW = 0x08000000;
+    const uint CREATE_NO_WINDOW = 0x08000000;
     const uint DUPLICATE_SAME_ACCESS = 2, INFINITE = 0xFFFFFFFF;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -174,9 +202,6 @@ static class KosmosCli
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool DuplicateHandle(IntPtr sourceProcess, IntPtr source, IntPtr targetProcess, out IntPtr target,
         uint access, bool inherit, uint options);
-
-    [DllImport("kernel32.dll")]
-    static extern IntPtr GetConsoleWindow();
 
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
