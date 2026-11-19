@@ -62,7 +62,10 @@ Browser-check-surface trailer.
 connector, fresh session headers, so it passes the step-up gate) hands `remoteStarted: true`, and the CONTROL at the
 computer hands `false`, for the default re-auth, a second account and (review 5) a known account (accountDir, a
 sandbox .claude-<label> folder whose config names its oauth account). Review 5 engine arms: a local start after a
-cancelled remote one carries no flag and no BROWSER; on Windows a remote start does not set the flag.
+cancelled remote one carries no flag and no BROWSER; on Windows a remote start does not set the flag. Mutations, each red:
+dropping remoteStarted from the accountDir call (2), setting the flag on Windows (1). NOT pinned: writeState's
+`else delete mem.noOpener` (removing it leaves every test green, because only a caller spreading an earlier state
+into a write would carry the flag in, and no test path does that); it stays as a guard on that spread.
 
 ## Not covered
 - If neither /usr/bin/true nor /bin/true exists, the opener names /usr/bin/true anyway and what claude does with a
