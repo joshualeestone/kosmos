@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: sebundle-7116
-diff_hash: 31f9d9c04c2f3863f5b0774ee70098b52bebb3b64ea1170ceb05571287efa298
+diff_hash: 6121ed514d22daa5002e7ef2e8a03d3088914c3f4db5ece87e45de5e7b7c8df9
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-19T23:13:00Z
+timestamp: 2026-11-19T23:48:00Z
 iterations: 4
 converged: true
 ---
@@ -16,7 +16,7 @@ converged: true
 **Converged:** Yes: round 4 raised only plan and wording points and one missing test arm, all applied.
 **Fixed:** every finding from rounds 1 to 3 in code or tests | **Asked (awaiting user):** 0
 
-Validation: the full suite at d01041f124 passed on this Mac (30038 node tests, 0 failed; all four shell shards status 0), hash 31f9d9c04c2f. An earlier full run on Mortals at 7bf099278f went red only on tools/test-codesign-retry-5149.sh, whose pinned count of retried signs was 3 and is now 4 (kosmos-se is the fourth binary signed); fixed in d01041f124 after convergence, a test-count change only.
+Validation: after a rebase onto main (conflicts in package.json and tools/shell-macos-only.txt, both adjacent additions, both sides kept; the macOS-only list is now 30), the full suite at 37641c9f06 passed on this Mac (30109 node tests, 0 failed, 0 cancelled; all four shell shards status 0), hash 6121ed514d22. Before the rebase it had passed at d01041f124 (hash 31f9d9c04c2f). An earlier full run on Mortals at 7bf099278f went red only on tools/test-codesign-retry-5149.sh, whose pinned count of retried signs was 3 and is now 4 (kosmos-se is the fourth binary signed); fixed in d01041f124 after convergence, a test-count change only.
 
 ### Per-Iteration Breakdown
 
