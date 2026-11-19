@@ -208,12 +208,12 @@ function scheduleSelfRetry() {
    tunnel's half counts too: started here but its own status not yet written by this child, or a tunnel from an
    earlier board still being ended. */
 function connectorCapabilitiesPending() {
-  if (!tunnelStartedHere) return true;
   if (foreignHolding) return true;
   if (!capabilitiesSeen) return true;
   if (!capabilitiesSeen.answered) return stillSelfRetrying(unansweredInARow);
   const pid = child ? child.pid : (process.env.NODE_TEST_CONTEXT ? runningPidForTests : null);
-  // No child (pid null) lands here too: a kept status is never about a pid that is not running.
+  // No tunnel started here and no child (pid null) both land here: the running half's status is read only once this
+  // board has started a tunnel (runningCapabilities), and a kept status is never about a pid that is not running.
   return !(runningSeen && runningSeen.pid === pid);
 }
 /* Which connector binary an answer came from: its path and when it last changed. */
