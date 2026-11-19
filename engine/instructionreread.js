@@ -264,7 +264,7 @@ function forget(session) {
 /* Pure: the lines that differ between two texts, each line labelled by the heading it sits under (review 9: an added line
    by the newer text, a removed one by the newer text above it, else the older), each run in a diff fence (review 11).
    '' when they are the same, null when too large to diff.
-   kosmos#8743: `moved` ({ under, lines }) leaves out a removed line under the heading `under` whose text is in `lines` (a
+   kosmos#8743: `moved` ({ under, lines, where }) leaves out a removed line under the heading `under` whose text is in `lines` (a
    Set): a line that moved out of that section into a guide printed on demand has not stopped applying, and the file's
    own header says a line marked - no longer applies. One line at the end says how many were left out and where they are. */
 function changedLines(before, after, moved = null) {
@@ -315,6 +315,7 @@ function changedLines(before, after, moved = null) {
   let i = 0;
   let j = 0;
   let movedOut = 0;
+  let shownUnder = 0;   // review 4: lines under that heading still marked -, which the conditional sentence covers
   /* Review 1: any non-blank guide line (a short one such as KOSMOS_END or Also: is the guide's too; the heading keeps the
      match narrow), and every blank line removed under that heading is left out without being counted (a blank line
      carries no rule). Review 2: the heading is the one the removed line had in the OLD text, not the new text above it. */
@@ -335,7 +336,7 @@ function changedLines(before, after, moved = null) {
     if (run && run.head !== head) flush();
     if (!run) run = { head, lines: [] };
     // A removed line before the line that replaced it, as a reader expects.
-    if (removing) { run.lines.push('- ' + A[i]); i += 1; }
+    if (removing) { if (underMoved(headsA[pre + i])) shownUnder += 1; run.lines.push('- ' + A[i]); i += 1; }
     else { run.lines.push('+ ' + B[j]); j += 1; }
   }
   flush();
@@ -361,9 +362,11 @@ function changedLines(before, after, moved = null) {
   /* Review 2: only what the code checks (the line left that section and the guide prints it), and, since a reworded line
      cannot be matched, a conditional any reader can check for the lines still marked there. */
   const where = moved ? moved.under.replace(/^#+ /, '') : '';
+  const mayBe = 'A line marked - under ' + where + ' may be in ' + (moved ? moved.where : '') + ' too, reworded: read it before you treat it as dropped.';
+  // Review 4: the conditional also when nothing was left out but a line under that heading is still marked.
   const movedNote = movedOut ? 'Left out: ' + movedOut + (movedOut === 1 ? ' line' : ' lines') + ' removed from ' + where + ' that '
-    + moved.where + ' prints, where ' + (movedOut === 1 ? 'it still applies' : 'they still apply') + '. A line marked - under ' + where
-    + ' may be there too, reworded: read ' + moved.where + ' before you treat it as dropped.' : '';
+    + moved.where + ' prints, where ' + (movedOut === 1 ? 'it still applies' : 'they still apply') + '.' + (shownUnder ? ' ' + mayBe : '')
+    : (shownUnder ? mayBe : '');
   const lineRoom = CHANGES_LINES_MAX - 2 - (movedNote ? 2 : 0);
   const byteRoom = CHANGES_BYTES_MAX - Buffer.byteLength(NOTE) - 2 - (movedNote ? Buffer.byteLength(movedNote) + 2 : 0);
   const fits = (s) => out.length < lineRoom && bytes + Buffer.byteLength(s) + 1 <= byteRoom;
@@ -416,7 +419,9 @@ function prepareChanges(session) {
        family Kosmos) or is gone, the routine does not still apply anywhere, so nothing is left out as moved. */
     const cbm = (() => { try { return require('./communityblock'); } catch { return null; } })();
     const projectsMod = require('./projects');
-    const stillTakesPart = Boolean(cbm) && projectsMod.findBlock(got.text, cbm.START, cbm.END) && !cbm.isStoppedSection(got.text);
+    // Review 4: an ambiguous section (two blocks, a damaged file) carries no single routine either.
+    const found = cbm ? projectsMod.findBlock(got.text, cbm.START, cbm.END) : null;
+    const stillTakesPart = Boolean(found) && !found.ambiguous && !cbm.isStoppedSection(got.text);
     if (stillTakesPart) try {
       const guideLines = require('./communityguide').guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '');
       // Review 1: the heading from the block itself, not a third spelling. Review 3: it is compared with the heading a

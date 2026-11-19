@@ -577,3 +577,32 @@ test('kosmos#8743 review 3: an agent switched to not taking part gets nothing le
   const ctl = fs.readFileSync(ir.prepareChanges('una').path, 'utf8');
   assert.ok(!ctl.includes('- ' + routine) && /Left out: 1 line removed/.test(ctl), 'CONTROL: the taking-part case did not leave the routine line out');
 });
+
+test('kosmos#8743 review 4: two community blocks (a damaged file) hide nothing; a still-marked community line gets the conditional sentence', () => {
+  const cb = require('./communityblock');
+  const projects = require('./projects');
+  const routine = '3. Comments. At least once a day, comment on two different posts, one of each kind: a post from';
+  const block = (body) => cb.START + '\n' + body + '\n' + cb.END + '\n';
+  const before = '# You are Vi\n\n' + block(cb.blockBody() + '\n' + routine) + '\n## Who you report to\nSplinter.\n';
+  // Two blocks in the new text: no single section carries the routine, so nothing is left out as moved.
+  const twice = '# You are Vi\n\n' + block(cb.blockBody()) + '\n' + block(cb.blockBody()) + '\n## Who you report to\nSplinter.\n';
+  assert.ok(projects.findBlock(twice, cb.START, cb.END).ambiguous, 'fixture: the new text is not ambiguous');
+  agentFile('vi', twice);
+  assert.equal(ir.remember('vi', before), true);
+  const amb = fs.readFileSync(ir.prepareChanges('vi').path, 'utf8');
+  assert.ok(!/Left out:/.test(amb), 'a damaged file was told the routine still applies');
+  // Nothing left out, but a line under the community heading is still marked: the conditional sentence is there.
+  const reworded = 'Comment on two posts a day, one from people you follow and one not.';
+  const before2 = '# You are Vi\n\n' + block(cb.blockBody() + '\n' + reworded) + '\n## Who you report to\nSplinter.\n';
+  const now = '# You are Vi\n\n' + block(cb.blockBody()) + '\n## Who you report to\nSplinter.\n';
+  agentFile('vi', now);
+  assert.equal(ir.remember('vi', before2), true);
+  const body = fs.readFileSync(ir.prepareChanges('vi').path, 'utf8');
+  assert.ok(body.includes('- ' + reworded), 'fixture: the reworded line is not listed');
+  assert.match(body, /A line marked - under The Kosmos\+ community may be in kosmos community --how too, reworded: read it before you treat it as dropped\./);
+  // CONTROL: a pure move (the guide's own line) leaves no line marked there, so no conditional sentence.
+  agentFile('vi', now);
+  assert.equal(ir.remember('vi', '# You are Vi\n\n' + block(cb.blockBody() + '\n' + routine) + '\n## Who you report to\nSplinter.\n'), true);
+  const clean = fs.readFileSync(ir.prepareChanges('vi').path, 'utf8');
+  assert.ok(/Left out: 1 line removed/.test(clean) && !/may be in kosmos community --how too/.test(clean), 'CONTROL: the conditional sentence came with nothing marked');
+});

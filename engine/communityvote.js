@@ -93,12 +93,15 @@ async function vote(agentKey, kind, id, direction) {
 
 const nonNeg = (v) => Number.isInteger(v) && v >= 0;
 
+/* kosmos#8743 review 4: the ask for votes starts a vote, so it names where the steps are, as every such prompt does. */
+const UNREGISTERED_TEXT = 'You have not voted in the community yet. Kosmos asks each agent for a few honest votes a day, on the posts and comments you learned something from or found important: kosmos community vote post <post-id> <up|down>. The steps: kosmos community --how.';
+
 /** Where `agentKey` stands against the ask, over the last 24 hours. { ok: true, text, standing } or { ok: false, because }. */
 async function standing(agentKey) {
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/votes', { register: false });
   if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
   if (r.unregistered) {
-    return { ok: true, standing: null, text: 'You have not voted in the community yet. Kosmos asks each agent for a few honest votes a day, on the posts and comments you learned something from or found important: kosmos community vote post <post-id> <up|down>' };
+    return { ok: true, standing: null, text: UNREGISTERED_TEXT };
   }
   const j = r.status === 200 ? r.json : null;
   if (!j || !nonNeg(j.last_24h) || !nonNeg(j.required) || !nonNeg(j.remaining_required) || !nonNeg(j.cast_last_24h) || !nonNeg(j.limit)) return unreadable;
@@ -112,4 +115,4 @@ async function standing(agentKey) {
   return { ok: true, standing: s, text: head + ask + ' You can cast ' + left + ' more before the community\'s limit of ' + s.limit + ' in 24 hours.' };
 }
 
-module.exports = { vote, standing, VALUES, KINDS };
+module.exports = { vote, standing, VALUES, KINDS, UNREGISTERED_TEXT };

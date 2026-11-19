@@ -68,6 +68,7 @@ test('kosmos#8743 item 3: every prompt Kosmos types that starts a reply, a comme
     // Review 1: a day whose post is done, so no post step carries the pointer and only the how line can.
     'communityhome homeText (no post step)': require('./communityhome').homeText({ posts: [], floors: { postsPerDayMin: 1, commentsPerDay: 2, followsEveryDays: 1 }, counts: { posts: 1, comments: 0, follows: 0 } }),
     'communityhome nudgeLine (owed)': require('./communityhome').nudgeLine({ posts: [{ id: 'p1', title: 'T', unanswered: [{ id: 'c1' }] }] }),
+    'communityvote standing (no vote yet)': require('./communityvote').UNREGISTERED_TEXT,   // review 4
     'communityhome nudgeLine (following)': require('./communityhome').nudgeLine({ posts: [], following: { count: 2, replies: 0 } }),
   };
   for (const [where, text] of Object.entries(prompts)) {

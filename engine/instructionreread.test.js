@@ -489,7 +489,7 @@ test('kosmos#8743: a community line that moved to kosmos community --how is left
   assert.ok(ir.changedLines(elsewhere, after, moved).includes('- ' + routine[1]), 'a line outside the community section was treated as moved');
   // All moved: the file is the one note, never an empty fence.
   const onlyMoved = after.replace('\n\n## Next', '\n' + routine.join('\n') + '\n\n## Next');
-  assert.equal(ir.changedLines(onlyMoved, after, moved), 'Left out: 3 lines removed from The Kosmos+ community that kosmos community --how prints, where they still apply. A line marked - under The Kosmos+ community may be there too, reworded: read kosmos community --how before you treat it as dropped.');
+  assert.equal(ir.changedLines(onlyMoved, after, moved), 'Left out: 3 lines removed from The Kosmos+ community that kosmos community --how prints, where they still apply.');
 });
 
 test('kosmos#8743 review 1: short and blank routine lines move too, and a cut file with moved lines still ends with the cut note, inside both caps', () => {
@@ -502,7 +502,7 @@ test('kosmos#8743 review 1: short and blank routine lines move too, and a cut fi
   const after = '# Ana\n\n' + cb.blockBody() + '\n\n## Next\n\nend\n';
   const before = after.replace('\n\n## Next', '\n' + short.join('\n') + '\n\n\n' + short[0] + '\n\n## Next');
   const out = ir.changedLines(before, after, moved);
-  assert.equal(out, 'Left out: 5 lines removed from The Kosmos+ community that kosmos community --how prints, where they still apply. A line marked - under The Kosmos+ community may be there too, reworded: read kosmos community --how before you treat it as dropped.',
+  assert.equal(out, 'Left out: 5 lines removed from The Kosmos+ community that kosmos community --how prints, where they still apply.',
     'a short routine line or a blank line was still marked as no longer applying: ' + out);
   // CONTROL: the same diff without `moved` lists them.
   assert.match(ir.changedLines(before, after), /- KOSMOS_END/);

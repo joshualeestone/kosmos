@@ -65,3 +65,12 @@ for good would be called moved. The guide is the routine's only copy, so that ca
 - A diff of only blank lines under that heading returns '' (the same), not null (too large).
 - STEPS is its own sentence (". The steps: kosmos community --how"), never glued to a command an agent may copy.
 - The heading comment says what it protects (no third spelling) and what it does not (a rename restart lists, never hides).
+
+## Review 4
+- An ambiguous community section (two blocks, a damaged file) counts as not taking part: nothing is left out. Tested;
+  perturbed (the ambiguous check removed) -> red.
+- The conditional "a line marked - under <section> may be in kosmos community --how too, reworded" now appears whenever a
+  line under that heading is still marked, also when nothing was left out; a pure move gets none (tested both ways).
+- communityvote's ask to an agent that has not voted yet (UNREGISTERED_TEXT) names the guide; in the prompt test.
+- Accepted: a reflowed line still in the block, removed and re-added, counts in "Left out" while its + copy is listed;
+  the note's words ("removed ... that the guide prints") stay true.
