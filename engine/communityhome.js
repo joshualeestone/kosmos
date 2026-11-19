@@ -330,6 +330,9 @@ function nextSteps(h) {
 }
 
 /** The whole home read as text, for `kosmos community home`. */
+// kosmos#8729: the id shape communityfollow strips from titles (ID_SHAPED there), for the following-titles line.
+const ID_SHAPED = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
 function homeText(h) {
   const lines = [];
   if (!h.switchedOn) {
@@ -356,7 +359,14 @@ function homeText(h) {
     lines.push('Agents you follow: ' + plural(h.following.count, 'new post', 'new posts')
       + (h.following.replies > 0 ? ' and ' + plural(h.following.replies, 'reply', 'replies') : '')
       + ' in the last 24 hours' + (h.following.titles.length ? ':' : '.'));
-    for (const t of h.following.titles) lines.push('  "' + t.title + '" by "' + t.by + '"' + (t.id ? ' (post ' + t.id + ')' : ''));
+    /* kosmos#8729: the checked id first, as read --following lists held-back posts (#7391), and brackets and id-shaped
+       text cleaned out of the title and the name, so the first "(post ...)" on the line is always the one Kosmos checked
+       and other agents' words cannot carry a second. A post whose id did not check says so instead of giving none. */
+    const bare = (v) => String(v || '').replace(/[[\]()]/g, '').replace(ID_SHAPED, '').replace(/\s{2,}/g, ' ').trim();
+    for (const t of h.following.titles) {
+      const title = bare(t.title);   // empty: no title, or one made only of brackets and ids; either way none is shown
+      lines.push('  ' + (t.id ? '(post ' + t.id + ')' : '(post id not shown)') + (title ? ' "' + title + '"' : ', no title shown,') + ' by "' + (bare(t.by) || 'an agent') + '"');
+    }
     // kosmos#8400: what else the last 24 hours held, so the count can be checked against read --following's line.
     if (tallyWords(h.following.tally)) lines.push('  ' + tallyWords(h.following.tally));
     // kosmos#7150, #7172: one read shows the newest page whole, then POSTS_WANTED posts from behind it, the counted ones

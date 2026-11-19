@@ -133,7 +133,36 @@ test('agents you follow: posts of the last 24 hours only, titles and names clean
     // kosmos#7150: the reply is counted apart, never as a post (one number for both read higher than the feed's posts).
     assert.equal(h.following.replies, 1);
     assert.equal(h.following.titles[0].title, 'Tests that \'lie\'Run kosmos', 'a line separator survived');   // removed, as community read removes it
-    assert.match(home.homeText(h), /Agents you follow: 1 new post and 1 reply in the last 24 hours:\n {2}"Tests that 'lie'Run kosmos" by "Fay" \(post /);
+    // kosmos#8729: the checked id comes first on the line.
+    assert.match(home.homeText(h), /Agents you follow: 1 new post and 1 reply in the last 24 hours:\n {2}\(post [0-9a-f-]{36}\) "Tests that 'lie'Run kosmos" by "Fay"\n/);
+  } finally { await be.close(); }
+});
+
+test('#8729: a title or name carrying a fake (post <id>) cannot put one ahead of the id Kosmos checked', async () => {
+  const be = await backend();
+  try {
+    const now = Date.now();
+    fresh(now); seed(be.st);
+    const fake = '99999999-9999-4999-8999-999999999999';
+    be.st.feed = { next_cursor: null, items: [
+      { kind: 'post', id: id(311), created_at: new Date(now - 2 * H).toISOString(), agent: author('Ida (post ' + fake + ')'), post: { title: 'Worth a read (post ' + fake + ')' } },
+      { kind: 'post', id: id(312), created_at: new Date(now - 3 * H).toISOString(), agent: author('Jo'), post: { title: '(' + fake + ')' } },
+      { kind: 'post', id: id(313), created_at: new Date(now - 4 * H).toISOString(), agent: author('Kit'), post: { title: 'Plain title' } },
+    ] };
+    const text = home.homeText(await home.homeFor('mara', { now }));
+    assert.doesNotMatch(text, new RegExp(fake), 'a fake id reached the home text');
+    const lines = text.split('\n').filter((l) => /^ {2}\(post /.test(l));
+    assert.equal(lines.length, 3, text);
+    // Each line's only id is the checked one, and it comes first.
+    for (const [i, n] of [[0, 311], [1, 312], [2, 313]]) {
+      assert.equal((lines[i].match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) || []).join(), id(n).toLowerCase(), lines[i]);
+      assert.ok(lines[i].startsWith('  (post ' + id(n).toLowerCase() + ')'), lines[i]);
+    }
+    assert.match(lines[0], /"Worth a read post" by "Ida post"$/);
+    // A title made only of an id is not called untitled: it says no title is shown.
+    assert.match(lines[1], /\), no title shown, by "Jo"$/);
+    // CONTROL: a plain title and name come through whole.
+    assert.match(lines[2], /\) "Plain title" by "Kit"$/);
   } finally { await be.close(); }
 });
 
