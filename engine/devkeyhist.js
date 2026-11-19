@@ -25,6 +25,8 @@
  * c = SHA-256(put(c) put(kind byte: 1 enrol, 2 revoke) put(key) put(at, i64 BE) put(backfill byte: 1 or 0)), where
  * put is a u32 big-endian length then the bytes (as orgkeysig.js). escrowd signs the HEAD:
  * put(HEAD_TAG) put(org) put(member) put(count, u64 BE) put(issuedAt, i64 BE) put(chain).
+ * kosmos#8768: an enrol of a key already enrolled is refused, except one enrol with backfill false over that key's live
+ * backfill entry, which confirms it (replay). escrowd's devkeyhist.rs upholds the same rule when it writes.
  * As JSON, a revoke entry carries no `backfill` (absent or null; both encode as 0), an enrol entry carries true or false.
  *
  * What escrowd must uphold when it WRITES the log (slice 2), because the log is append-only and verify() refuses a
@@ -55,6 +57,7 @@
  * There is no option for the verifying key: a caller handing one in would become the trust anchor. Tests set one with
  * setVerifyingKeyForTests(), which counts only inside a node test process (where it stands in for VERIFYING_KEY).
  * Answers { ok: true, keys } with keys [{ key, from, until (null while valid), backfill }], or { ok: false, because }.
+ * A key whose backfill entry was confirmed (kosmos#8768, replay) also carries `confirmedAt`, and reads backfill false.
  * keyAt(keys, key, t) answers the entry under which `key` (lowercase hex, as the history holds it) was valid at time `t`,
  * or null.
  */
@@ -144,7 +147,18 @@ function replay(entries, issuedAt) {
     const k = keys.get(e.key);
     if (e.kind === 'enrol') {
       // A key enrolled once stays one entry: re-enrolling a revoked key would bring a retired key back to life.
-      if (k) return 'the device key history enrols the same key twice';
+      // kosmos#8768: the one exception CONFIRMS a backfill. Two admins enrol a computer carried over at the
+      // switch-over (devkey_enrol), and escrowd appends an enrol of the SAME key with backfill false over its live
+      // backfill entry. The key keeps its `from` and is no longer a backfill; `confirmedAt` says when. A second
+      // confirm, a confirm of a revoked key, a backfill over anything, or any other repeat is still refused.
+      if (k) {
+        if (k.backfill === true && k.until === null && e.backfill === false && k.confirmedAt === undefined) {
+          k.backfill = false;
+          k.confirmedAt = e.at;
+          continue;
+        }
+        return 'the device key history enrols the same key twice';
+      }
       keys.set(e.key, { key: e.key, from: e.at, until: null, backfill: e.backfill });
     } else {
       if (!k) return 'the device key history revokes a key it never enrolled';
