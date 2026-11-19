@@ -137,7 +137,7 @@ function urlProblem(u, key) {
   try { url = new URL(u); } catch { return 'not a URL'; }
   if (url.protocol !== 'https:' && !(allowHttp && url.protocol === 'http:')) return 'not https';
   const host = url.hostname.replace(/^\[|\]$/g, '').replace(/\.+$/, '');
-  if (!allowHttp && (net.isIP(host) || host === 'localhost' || host.endsWith('.localhost'))) return 'not a named host';
+  if (!allowHttp && (net.isIP(host) || host === 'localhost' || host.endsWith('.localhost') || !host.includes('.') || host.endsWith('.local'))) return 'not a named host';
   let p;
   try { p = decodeURIComponent(url.pathname); } catch { return 'an unreadable path'; }
   if (!p.endsWith(`/${key}`)) return 'a path that is not its key';
@@ -170,7 +170,7 @@ function readFetcher(opts) {
     }
   }
   async function fetchObject(key, o) {
-    state.why = null; state.missing = false;
+    state.why = null; state.missing = false; state.tooBig = false; state.status = null;
     const maxBytes = (o && o.maxBytes) || MAX_CHUNK_BYTES;
     if (typeof key !== 'string' || !key.startsWith(prefix) || !PLAIN.test(key.slice(prefix.length))) { state.why = 'the pack names an object outside this hand-over'; return null; }
     if (!fresh(key)) await ask(key);
@@ -181,7 +181,7 @@ function readFetcher(opts) {
     try {
       const res = await fetchFn(url, { redirect: 'error', signal: ac.signal });
       if (res.status === 404) { state.why = 'part of the pack is not in the store'; state.missing = true; return null; }
-      if (res.status !== 200 || !res.body) { state.why = `the store answered ${res.status} for part of the pack`; return null; }
+      if (res.status !== 200 || !res.body) { state.why = `the store answered ${res.status} for part of the pack`; state.status = res.status; return null; }
       const parts = [];
       let n = 0, over = false;
       for await (const c of res.body) {
@@ -189,7 +189,7 @@ function readFetcher(opts) {
         if (n > maxBytes) { over = true; break; }   // break, not abort: an abort here throws, and would read as an outage
         parts.push(Buffer.from(c));
       }
-      if (over) { ac.abort(); state.why = 'part of the pack is larger than it can be'; return null; }
+      if (over) { ac.abort(); state.why = 'part of the pack is larger than it can be'; state.tooBig = true; return null; }
       done.add(key);
       return Buffer.concat(parts);
     } catch { state.why = 'part of the pack could not be fetched'; return null; } finally { clearTimeout(t); }
@@ -291,14 +291,25 @@ async function receive(part, org, kp, deps) {
   if (m.size > MAX_MANIFEST_OBJECT) return fail('the pack\'s list of files is larger than one can be');
   const fetcher = readFetcher({ macRequest: mac, id: part.id, prefix, fetch: d.fetch, now: d.now });
   const body = await fetcher.fetchObject(m.key, { maxBytes: m.size, timeoutMs: MANIFEST_TIMEOUT_MS });   // up to 256 MB on a slow link
-  // Not there (missing) is counted against the grace; no answer at all (an outage) spends no attempt.
-  if (!body) return { ok: false, missing: fetcher.state.missing === true, outage: fetcher.state.missing !== true, because: fetcher.state.why };
+  if (!body) {
+    const st = fetcher.state;
+    // Larger than the record says: the store is serving something else, final. Not there: counted against the grace.
+    // A 4xx: an attempt. No answer at all, or a 5xx: an outage, which spends no attempt.
+    if (st.tooBig) return fail('the pack in the store is not the one Kosmos+ recorded');
+    if (st.missing) return { ok: false, missing: true, because: st.why };
+    if (Number.isSafeInteger(st.status) && st.status >= 400 && st.status < 500) return { ok: false, because: st.why };
+    return { ok: false, outage: true, because: st.why };
+  }
   if (body.length !== m.size || crypto.createHash('sha256').update(body).digest('base64') !== m.sha256) return fail('the pack is not the one Kosmos+ recorded');
   const snap = require('./backupsnapshot');
   const ctx = snap.handoverContext(org, part.id);
   const opened = require('./backupformat').openManifest(kp.sk, senderPub, ctx, body);
   if (!opened) return fail('the pack could not be opened with this computer\'s key for it');
-  const keys = Object.values(opened.objects || {});
+  const objects = opened.objects && typeof opened.objects === 'object' ? opened.objects : {};
+  // Every chunk a file names must have a stored object: a manifest that does not cover its own chunks can never restore.
+  const covered = Array.isArray(opened.files) && opened.files.every((x) => !x || !Array.isArray(x.chunks) || x.chunks.every((c) => typeof c === 'string' && Object.prototype.hasOwnProperty.call(objects, c)));
+  if (!covered) return fail('the pack\'s list of files names parts it does not hold');
+  const keys = Object.values(objects);
   // A signed manifest naming an object outside this hand-over: the coordinator would refuse every batch holding it.
   if (keys.some((k) => typeof k !== 'string' || !k.startsWith(prefix) || !PLAIN.test(k.slice(prefix.length)))) return fail('the pack names files outside this hand-over');
   const rw = d.restoreworld || require('./restoreworld');
@@ -358,10 +369,10 @@ function refinish(base, id) {
   try {
     const w = require('./worlds');
     const world = w.readRegistry(base).worlds.find((x) => x && x.id === id);
-    if (!world || world.hiddenAt) return;
+    if (!world || world.hiddenAt) return false;
     const rw = require('./restoreworld');
-    rw.finishRestoreWorld({ base, world, restoreDir: path.join(w.worldBaseDir(base, world), rw.RESTORE_DIR), result: { ok: true, result: { restored: [], failed: [] } } });
-  } catch { /* taken out by the caller */ }
+    return rw.finishRestoreWorld({ base, world, restoreDir: path.join(w.worldBaseDir(base, world), rw.RESTORE_DIR), result: { ok: true, result: { restored: [], failed: [] } } }).ok === true;
+  } catch { return false; }
 }
 
 /* A Kosmos this module made for this hand-over that nothing records (the board stopped between making it and noting it):
@@ -401,7 +412,7 @@ function sweepKeys(open, now, root, base) {
     if (open.has(m[1])) { if (now - st.mtimeMs >= SEEN_TOUCH_MS) { try { fs.utimesSync(f, new Date(now), new Date(now)); } catch { /* next tick */ } } continue; }
     if (now - st.mtimeMs < STALE_KEY_MS) continue;
     const kp = readKey(m[1], root);
-    if (kp && kp.restoring && base && !kp.received) undoTry(base, { id: kp.restoring });   // never leave a half-made Kosmos behind it
+    if (kp && kp.restoring && base && !kp.received && !finished(base, { id: kp.restoring }, kp.expect)) undoTry(base, { id: kp.restoring });   // never leave a half-made Kosmos behind it; a finished one is left
     deleteKey(m[1], root);
   }
 }
@@ -433,7 +444,7 @@ async function tick(state, deps) {
       if (!ok) {
         // A half-made Kosmos from an earlier try is taken out before the hand-over ends, never left on the list.
         const k = readKey(part.id, d.root);
-        if (k && k.restoring && !k.received && d.base) undoTry(d.base, { id: k.restoring });
+        if (k && k.restoring && !k.received && d.base && !finished(d.base, { id: k.restoring }, k.expect)) undoTry(d.base, { id: k.restoring });   // a finished copy is the person's now: left
         try { updateKey(part.id, d.root, { final: because || 'the hand-over could not be finished', restoring: null, expect: null }); } catch { /* no key file: nothing to receive again either */ }
       }
       const told = await mac('POST', DONE_ROUTE, { id: part.id, ok });
@@ -453,6 +464,7 @@ async function tick(state, deps) {
       let kp = readKey(part.id, d.root);
       if (part.state === 'requested') {
         // Nothing has been accepted yet, so a damaged key is replaced rather than ending the hand-over.
+        if (kp && kp.transient) { last = { ok: false, id: part.id, because: kp.problem }; continue; }   // may read next time; it may be the key already sent
         if (kp && kp.problem) { deleteKey(part.id, d.root); kp = null; }
         if (!kp) {
           const made = require('./hpke').hpkeKeyPair();
@@ -479,8 +491,9 @@ async function tick(state, deps) {
       if (kp.restoring) {
         // A try that stopped part way. Finished (its agents were moved in) but not noted: it is the received copy.
         // Not finished: take it out before trying again.
-        if (!finished(d.base, { id: kp.restoring }, kp.expect)) refinish(d.base, kp.restoring);
-        if (finished(d.base, { id: kp.restoring }, kp.expect)) {
+        // Finished again first (it carries on whatever an earlier finish left), and received only once that finish is
+        // ok: an agent folder in place alone may be a finish that stopped before the rest.
+        if (refinish(d.base, kp.restoring) && finished(d.base, { id: kp.restoring }, kp.expect)) {
           try { updateKey(part.id, d.root, { received: kp.restoring, restoring: null, expect: null }); } catch { /* restoring still says it */ }
           if ((z = await closing(part, true))) return z;
           continue;

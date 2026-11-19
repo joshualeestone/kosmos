@@ -298,6 +298,8 @@ test('the read links: https on a named host, a path ending in its key, and a cap
   assert.equal(hr.urlProblem(`https://bucket.example/${k}x`, k), 'a path that is not its key');
   assert.equal(hr.urlProblem(`https://bucket.example/other/${k.replace('c1', 'c2')}`, k), 'a path that is not its key');
   assert.equal(hr.urlProblem('nonsense', k), 'not a URL');
+  assert.equal(hr.urlProblem(`https://bucket/${k}`, k), 'not a named host', 'a single-label name');
+  assert.equal(hr.urlProblem(`https://nas.local/${k}`, k), 'not a named host', 'a .local name');
   hr.allowHttpForTests(true);
 });
 
@@ -625,5 +627,69 @@ test('round 5: a listed key stays fresh; an unreadable key waits; a day-long out
     await hr.tick(stateNew(), { org: () => ORG, root, base, fetch, macRequest: async (m, route) => (route === hr.MINE_ROUTE
       ? { ok: true, data: { handovers: [{ id: 'hhalf', side: 'receive', state: 'packed', seal_pub: Buffer.alloc(32, 9).toString('base64') }] } } : { ok: true, data: {} }) });
     assert.equal(fs.existsSync(half.dir), false, 'removed before the hand-over ended');
+  }
+});
+
+test('round 6: an oversize manifest is final; a 4xx spends an attempt; an unreadable key while requested is kept; a finished copy is never tidied away', async (t) => {
+  hr.allowHttpForTests(true);
+  const b = await bucket();
+  t.after(() => b.close());
+  let clock = Date.now();
+  {
+    const root = fresh(t, 'data'), base = fresh(t, 'base');
+    const c = coordinator(b, 'hbig');
+    const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+    await hr.tick(stateNew(), deps);
+    await pack(c, agentFolder(t));
+    c.rec.manifest.size -= 1;   // the store serves more than the record says
+    const r = await hr.tick(stateNew(), deps);
+    assert.match(r.because, /not the one Kosmos\+ recorded/);
+    assert.equal(c.rec.state, 'failed');
+  }
+  {
+    const root = fresh(t, 'data'), base = fresh(t, 'base');
+    const c = coordinator(b, 'hforb');
+    const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+    await hr.tick(stateNew(), deps);
+    await pack(c, agentFolder(t));
+    const real = b.stored.get(c.rec.manifest.key);
+    b.stored.delete(c.rec.manifest.key);
+    const forbid = async (url, o) => (String(url).includes('/manifest') ? { status: 403, body: null } : fetch(url, o));
+    await hr.tick(stateNew(), Object.assign({}, deps, { fetch: forbid }));
+    assert.equal(hr.readKey('hforb', root).attempts, 1, 'a 403 is an attempt');
+    b.stored.set(c.rec.manifest.key, real);
+  }
+  if (process.getuid && process.getuid() !== 0) {
+    const root = fresh(t, 'data');
+    hr.writeKey('hreq', require('./hpke').hpkeKeyPair(), root);
+    const f = path.join(root, 'handover', 'hreq.key.json');
+    const before = fs.readFileSync(f, 'utf8');
+    fs.chmodSync(f, 0o000);
+    t.after(() => { try { fs.chmodSync(f, 0o600); } catch { /* gone */ } });
+    const sent = [];
+    await hr.tick(stateNew(), { org: () => ORG, root, macRequest: async (m, route, body) => {
+      if (route === hr.MINE_ROUTE) return { ok: true, data: { handovers: [{ id: 'hreq', side: 'receive', state: 'requested' }] } };
+      if (route === hr.KEY_ROUTE) sent.push(body.pubkey);
+      return { ok: true, data: {} };
+    } });
+    fs.chmodSync(f, 0o600);
+    assert.equal(fs.readFileSync(f, 'utf8'), before, 'the key was kept, not replaced');
+    assert.deepEqual(sent, []);
+  }
+  {
+    // A finished copy whose received note was lost: the sweep and a final close leave it.
+    const root = fresh(t, 'data'), base = fresh(t, 'base');
+    const c = coordinator(b, 'hfin2');
+    const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch, now: () => clock };
+    await hr.tick(stateNew(), deps);
+    await pack(c, agentFolder(t));
+    assert.equal((await hr.tick(stateNew(), deps)).ok, true);
+    const w = worlds.readRegistry(base).worlds.find((x) => /^Handed over/.test(x.name) && !x.hiddenAt);
+    hr.writeKey('hgone', require('./hpke').hpkeKeyPair(), root, { restoring: w.id, expect: ['ledger'] });
+    const old = (clock - 2 * hr.STALE_KEY_MS) / 1000;
+    fs.utimesSync(path.join(root, 'handover', 'hgone.key.json'), old, old);
+    hr.sweepKeys(new Set(), clock, root, base);
+    assert.equal(worlds.readRegistry(base).worlds.find((x) => x.id === w.id).hiddenAt, undefined, 'the finished copy stays on the list');
+    assert.ok(fs.existsSync(path.join(worlds.envOverridesFor(base, w).AGENT_WORKFORCE_WORKERS, 'ledger', 'CLAUDE.md')));
   }
 });
