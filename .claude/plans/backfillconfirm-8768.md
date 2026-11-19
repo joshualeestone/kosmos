@@ -16,4 +16,7 @@ No new entry kind: a confirm is an `enrol` of the same key with backfill false o
 - handoverseal's checkSeal/checkSender test with a confirmed key: handoverseal.js is on Kitty's sealkey-8733, not yet on main; added after it merges. Its `backfill !== false` check needs no change.
 
 ## Weakest premise
-That a confirm keeping the ORIGINAL `from` is right (a pre-confirm snapshot is then trusted under the confirmed key). The alternative, trusted only from `confirmedAt`, is one line in keyAt.
+That a confirm keeping the ORIGINAL `from` is right (a pre-confirm snapshot is then trusted under the confirmed key, and that `from` is the coordinator's recorded time). Review 1's reasoning: restore checks the key at the manifest's grant time, also the coordinator's record, so trusting only from `confirmedAt` would not stop a breached coordinator either; the manifest must still verify under the key, which only the confirmed computer holds. The alternative is one line in keyAt.
+
+## Review
+- Round 1: no blocker, no way found to make an untrusted key trusted. Fixed: the escrowd-must-uphold list states the exception; the header no longer says devkeyhist.rs already upholds it; a backfill's `at` is said to be the coordinator's; a restore-level test (backfill control, then confirmed reads backfill false; the mutation fails it); a comment on the belt-and-braces confirmedAt check.

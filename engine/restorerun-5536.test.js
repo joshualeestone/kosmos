@@ -205,3 +205,22 @@ test('#5536: snapshotTimeOf reads only newSnapshotId\'s shape', () => {
     assert.equal(rr.snapshotTimeOf(bad), null, String(bad));
   }
 });
+
+test('#8768: a snapshot under a carried-over key restores as a backfill until two admins confirm it, then as admin-enrolled', async () => {
+  const s = await oneSnapshot();
+  try {
+    const run = (entries) => rr.runRestore({ org: 'o1', member: 'm1', epoch: '1', manifest: s.record, memberSk: s.member.sk,
+      history: history('o1', 'm1', entries, GRANTED + 60), now: GRANTED + 120, fetchObject: s.fetchObject, sink: memorySink(), maxTotalBytes: 2 ** 30 });
+    const k = rawPub(s.dev.publicKey);
+    const carried = { kind: 'enrol', key: k, at: GRANTED - 86400, backfill: true };
+    // The control: carried over, never confirmed, so the restore says it trusted a backfilled key.
+    let r = await run([carried]);
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.backfill, true);
+    // Confirmed AFTER the snapshot was granted: the same key, now admin-enrolled from its original time.
+    r = await run([carried, { kind: 'enrol', key: k, at: GRANTED + 30, backfill: false }]);
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.backfill, false);
+    assert.equal(r.deviceKey, k);
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
