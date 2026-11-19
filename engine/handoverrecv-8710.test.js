@@ -778,3 +778,32 @@ test('round 9: a try that fails after its finish put the agents in place, at the
   assert.equal(c.rec.state, 'done', 'received, not failed');
   assert.equal(worlds.readRegistry(base).worlds.filter((x) => /^Handed over/.test(x.name) && !x.hiddenAt).length, 1);
 });
+
+test('end to end through BOTH halves: the real packer (handoversend.packInput) packs, the receiver receives, and the agent lands with its files', async (t) => {
+  hr.allowHttpForTests(true);
+  const b = await bucket();
+  t.after(() => b.close());
+  const hs = require('./handoversend');
+  const root = fresh(t, 'data'), base = fresh(t, 'base');
+  const c = coordinator(b, 'hboth');
+  const deps = { org: () => ORG, macRequest: c.recv, root, base, fetch };
+  await hr.tick(stateNew(), deps);   // the successor's key
+  const dir = agentFolder(t);
+  const p = hs.packInput({ id: 'hboth', seal_pub: c.rec.seal_pub, agents: ['Ledger'] }, ORG, {
+    survey: () => ({ ok: true, agents: [{ name: 'ledger', shownAs: 'Ledger', profile: true, removed: false }] }),
+    inputsHere: () => ({ protect: [], workersDir: path.dirname(dir), agents: [{ id: 'ledger', dir }], projects: [], sessions: () => [] }),
+    workerDir: () => dir,
+    deviceKey: () => ({ ok: true, privateKey: c.sender.privateKey }),
+  });
+  assert.equal(p.ok, true, p.because);
+  assert.deepEqual(p.input.roots.map((r) => r.name), ['workers/ledger']);
+  const r = await snap.takeSnapshot(p.input, { macRequest: c.send, fetch, sleep: async () => {} });
+  assert.equal(r.ok, true, r.because);
+  const got = await hr.tick(stateNew(), deps);
+  assert.equal(got.ok, true, got.because);
+  assert.equal(c.rec.state, 'done');
+  const w = worlds.readRegistry(base).worlds.find((x) => /^Handed over/.test(x.name) && !x.hiddenAt);
+  const workers = worlds.envOverridesFor(base, w).AGENT_WORKFORCE_WORKERS;
+  assert.equal(fs.readFileSync(path.join(workers, 'ledger', 'CLAUDE.md'), 'utf8'), '# You are Ledger\nYou keep the ledger.\n');
+  assert.equal(fs.readFileSync(path.join(workers, 'ledger', 'Files', 'q3.txt'), 'utf8'), 'quarter three\n');
+});

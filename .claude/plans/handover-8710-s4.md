@@ -32,7 +32,7 @@ for each `/v1/mac/org/handover/mine` row with `side: 'receive'`:
 ## Not here
 - #8733: the one-time key and `sender_pubkey` both come from the coordinator unauthenticated (residual named in the
   module header, as in slice 3). Hand-over stays off until it is closed.
-- Profiles: the pack carries `profiles/<seg>/<name>.json`; the restore world gets files only, as a restore does. The
+- Profiles: no longer in the pack (slice 3 round 7); formerly `profiles/<seg>/<name>.json`; the restore world gets files only, as a restore does. The
   review screen reads the agent from its folder (its brief). Whether the profile file is used to recover the model and
   provider is decided after reading `listRestoredAgents`' enable path.
 - The leaving computer archiving its copies after done (plan step 4's second half): its own piece, sender side.
@@ -49,4 +49,5 @@ for each `/v1/mac/org/handover/mine` row with `side: 'receive'`:
 `listRestoredAgents` reads agents from that Kosmos's workers folder. Slice 3 named each agent's root `agents/<seg>`, so
 a received pack would have left every agent in the restore folder, never listed. Slice 3 now names it `workers/<seg>`
 (checked: `rootNameProblem('workers/ledger')` is null; 50 agents a hand-over, under the snapshot's 64 required roots).
-`profiles/<seg>` and `sessions/<seg>/...` stay in the restore folder, as a backup's transcripts do after a restore.
+`sessions/<seg>/...` stay in the restore folder, as a backup's transcripts do after a restore. (Slice 3 no longer packs
+`profiles/<seg>` at all: a profile holds the install id, kosmos#5995; the receiver names agents from folder and brief.)
