@@ -56,7 +56,16 @@ const CEILING = 51700;          // the ratchet (see above): lowered by each slic
    figure is then the same on every host and under every runner. Both spellings, since macOS can name a temp folder by
    its /private path. A real agent's own paths vary by user name the same way and are not what the guard is about. */
 const SANDBOX_SPELLINGS = [...new Set([fs.realpathSync(SANDBOX), SANDBOX])].sort((a, b) => b.length - a.length);
-const chars = (s) => [...SANDBOX_SPELLINGS.reduce((acc, p) => acc.split(p).join('<root>'), s)].length;
+/* kosmos#8735, CI red on PR #8750: the brief also names the kosmos command by the path engine/clipath.js finds, which in
+   a source checkout is <repo>/install/kosmos, six times in the pm brief. That path is as long as the checkout's folder
+   (13 characters longer on the CI runner than in a worktree here, so every brief was 78 over there and not here). It is
+   counted as one fixed path, the installed form under an ordinary home, so the figure is the same in every checkout and
+   close to what a real agent's brief carries. Both spellings, as for the sandbox. */
+const CLI_STANDIN = '/Users/person/.local/share/kosmos/bin/kosmos';
+const CLI = require('./clipath').kosmosCli();
+const CLI_SPELLINGS = CLI === 'kosmos' ? [] : [...new Set([fs.realpathSync(CLI), CLI])].sort((a, b) => b.length - a.length);
+const chars = (s) => [...CLI_SPELLINGS.reduce((acc, p) => acc.split(p).join(CLI_STANDIN),
+  SANDBOX_SPELLINGS.reduce((acc, p) => acc.split(p).join('<root>'), s))].length;
 /* Review 7: the working rules and the community quoting rule differ by platform (Linux 487 characters shorter, Windows
    longer), so a Mac-measured ceiling went red on a Mac while Linux CI stayed green on the same change. Each brief is
    counted as its Mac form: this platform's two platform texts swapped for the Mac's by length. So CI and every
