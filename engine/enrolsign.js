@@ -37,14 +37,22 @@ function helperPath(appDir = path.join(__dirname, '..')) {
 
 function codesFile(dataRoot) { return path.join(dataRoot || require('./store').root(), CODES_FILE); }
 const keyOf = (org, member) => JSON.stringify([org, member]);   // no separator a name can contain can collide
+const DAMAGED = 'the saved invite codes are not readable';   // the one state a new code may set aside (review 2)
 function readCodes(dataRoot) {
+  const file = codesFile(dataRoot);
   let raw;
-  try { raw = fs.readFileSync(codesFile(dataRoot), 'utf8'); } catch (err) {
+  try {
+    // Review 2: a link or anything but a plain file is damage, never followed.
+    const st = fs.lstatSync(file);
+    if (!st.isFile()) throw Object.assign(new Error(DAMAGED), { damaged: true });
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (err) {
     if (err && err.code === 'ENOENT') return {};
+    if (err && err.damaged) throw err;
     throw new Error('the saved invite codes could not be read');
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { throw new Error('the saved invite codes are not readable'); }
+  try { parsed = JSON.parse(raw); } catch { throw Object.assign(new Error(DAMAGED), { damaged: true }); }
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
 }
 function writeCodes(codes, dataRoot) {
@@ -59,7 +67,8 @@ function writeCodes(codes, dataRoot) {
    when a NEW code is kept, so one damaged file does not stop every later invite. Reading still refuses it, so a
    check never treats a damaged store as "no code". */
 function readCodesForWrite(dataRoot) {
-  try { return readCodes(dataRoot); } catch {
+  try { return readCodes(dataRoot); } catch (err) {
+    if (!err || !err.damaged) throw new Error('the invite code could not be saved on this computer');   // review 2: a read error is not damage
     const file = codesFile(dataRoot);
     try { fs.renameSync(file, file + '.unreadable-' + Date.now()); } catch { throw new Error('the invite code could not be saved on this computer'); }
     return {};
@@ -79,12 +88,25 @@ function keepJoinCode(org, member, code, { dataRoot, now = Date.now() } = {}) {
   writeCodes(codes, dataRoot);
 }
 
-/** The kept code for (org, member), or null: none kept, or one older than CODE_MAX_AGE_MS. */
-function joinCodeFor(org, member, { dataRoot, now = Date.now() } = {}) {
+/** The kept code for (org, member), or null: none kept, or one older than CODE_MAX_AGE_MS. With `forKey`, a code
+ * already used for ANOTHER computer's key (bindJoinCode) is refused: one invite enrols one computer (review 2). */
+function joinCodeFor(org, member, { dataRoot, now = Date.now(), forKey } = {}) {
   const hit = readCodes(dataRoot)[keyOf(org, member)];
   if (!hit || typeof hit.code !== 'string' || !/^[0-9a-f]{32}$/.test(hit.code) || !Number.isFinite(hit.at)) return null;
   if (now - hit.at > CODE_MAX_AGE_MS || hit.at > now + 60000) return null;
+  if (forKey && typeof hit.key === 'string' && hit.key !== Buffer.from(forKey).toString('hex')) {
+    throw new Error('this invite was already used for another computer');
+  }
   return Buffer.from(hit.code, 'hex');
+}
+/** After the inviter's signature is posted: the kept code is tied to that computer's key from then on. */
+function bindJoinCode(org, member, key, { dataRoot } = {}) {
+  const codes = readCodes(dataRoot);
+  const hit = codes[keyOf(org, member)];
+  if (!hit) return false;
+  hit.key = Buffer.from(key).toString('hex');
+  writeCodes(codes, dataRoot);
+  return true;
 }
 
 /** Drop the kept code for (org, member), once its enrolment is signed (or the invite withdrawn). */
@@ -103,7 +125,7 @@ function forgetJoinCode(org, member, { dataRoot } = {}) {
  */
 function review(bytes, { dataRoot, now } = {}) {
   const decoded = se.decodeDevkeyEnrol(bytes);
-  const code = joinCodeFor(decoded.org, decoded.member, { dataRoot, now });
+  const code = joinCodeFor(decoded.org, decoded.member, { dataRoot, now, forKey: decoded.key });
   return se.prepare('devkeyEnrol', bytes, code ? { joinCode: code } : {});
 }
 
@@ -131,8 +153,12 @@ async function approve(prepared, { adminId, expectedKey, keyFile, appDir } = {})
 async function approveAndSend(id, prepared, opts = {}) {
   const signed = await approve(prepared, opts);
   const answer = await postAdminSig(id, signed, opts);
-  if (answer && answer.ok === true && answer.waiting !== true && prepared.inviterChecked === true) {
-    try { forgetJoinCode(prepared.decoded.org, prepared.decoded.member, { dataRoot: opts.dataRoot }); } catch { /* accepted either way */ }
+  if (prepared.inviterChecked === true) {
+    const { org, member, key } = prepared.decoded;
+    try {
+      if (answer && answer.ok === true && answer.waiting !== true) forgetJoinCode(org, member, { dataRoot: opts.dataRoot });
+      else bindJoinCode(org, member, key, { dataRoot: opts.dataRoot });   // review 2: still waiting or refused: this key only
+    } catch { /* posted either way */ }
   }
   return answer;
 }
@@ -148,8 +174,15 @@ const unb64 = (t, what) => {
   return Buffer.from(t, 'base64url');
 };
 const sendOf = (send) => send || ((...a) => require('./remote').macRequest(...a));
+/* Review 2: a person sees only fixed sentences; macRequest's `because` can carry a tunnel's line or a spawn error. A
+   coordinator refusal's public code (letters, digits, _) is kept on the error for the screen. */
 const answerOf = (r, doing) => {
-  if (!r || r.ok !== true) throw new Error('could not ' + doing + ': ' + ((r && r.because) || 'no answer'));
+  if (!r || r.ok !== true) {
+    const why = r && r.notSent ? 'this computer is not connected to Kosmos+' : 'Kosmos+ did not answer';
+    const err = new Error('could not ' + doing + ': ' + why);
+    if (r && r.refusal && typeof r.refusal.code === 'string') err.code = r.refusal.code;
+    throw err;
+  }
   return r.data;
 };
 const idOk = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id);
@@ -164,7 +197,7 @@ async function startAndSign({ org, member, joinCode, inviterAdminId, deviceKey, 
   text(org, 'company'); text(member, 'member'); text(inviterAdminId, 'inviting admin');
   const dk = require('./devkeyenrol');
   const key = deviceKey || require('./backupdevicekey').deviceKey();
-  if (!key || key.ok !== true) throw new Error((key && key.because) || 'this computer\'s device key could not be read');
+  if (!key || key.ok !== true) throw new Error('this computer\'s device key could not be read');   // review 2: fixed
   const k = dk.rawPublic(key.publicKey);
   const go = sendOf(send);
   // The body never names the org (the coordinator uses the caller's own), but the join tag binds it, so a Mac that
@@ -177,7 +210,8 @@ async function startAndSign({ org, member, joinCode, inviterAdminId, deviceKey, 
   if (decoded.inviterAdminId !== inviterAdminId) throw new Error('the enrolment names a different inviting admin from the one asked');
   const { signature } = dk.deviceSign(bytes, { org, member, deviceKey: key, joinCode });
   const answer = answerOf(await go('POST', ROUTE + '/' + started.id + '/sign', { keySig: b64(signature) }), 'send this computer\'s signature');
-  return { id: started.id, decoded, expiresAt: started.expiresAt || null, answer };
+  const exp = (typeof started.expiresAt === 'string' && started.expiresAt.length <= 64) || Number.isFinite(started.expiresAt) ? started.expiresAt : null;
+  return { id: started.id, decoded, expiresAt: exp, answer };
 }
 
 /** An admin's list of what waits: [{ id, bytes, signedBy, keySigned, expiresAt }], each entry's bytes decoded later. */
@@ -189,7 +223,7 @@ async function pending({ send } = {}) {
   const bytesOf = (t) => { try { return unb64(t, 'enrolment bytes'); } catch { return null; } };
   return list.filter((e) => e && idOk(e.id)).map((e) => ({ id: e.id, bytes: bytesOf(e.bytes),
     signedBy: Array.isArray(e.signedBy) ? e.signedBy.filter((x) => typeof x === 'string') : [], keySigned: e.keySigned === true,
-    expiresAt: typeof e.expiresAt === 'string' || Number.isFinite(e.expiresAt) ? e.expiresAt : null }));
+    expiresAt: (typeof e.expiresAt === 'string' && e.expiresAt.length <= 64) || Number.isFinite(e.expiresAt) ? e.expiresAt : null }));
 }
 
 /** Post one admin's signature (approve()'s { adminId, sig }) for entry `id`, as escrowd's Wire object. */
@@ -229,6 +263,7 @@ async function adminQueue({ adminId, send, dataRoot, now } = {}) {
       const m = String(err && err.message);
       const why = /does not match that enrolment/.test(m) ? 'this enrolment does not match the invite you sent'
         : /saved invite codes/.test(m) ? 'the invite codes saved on this computer could not be read'   // review 1: the store, not the entry
+        : /already used for another computer/.test(m) ? 'your invite was already used for another computer'   // review 2
         : 'this enrolment could not be read';
       Object.assign(row, { prepared: null, member: null, fingerprint: null, inviterChecked: false, unusual: false, refused: why });
     }

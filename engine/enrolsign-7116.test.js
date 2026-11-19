@@ -144,13 +144,11 @@ test('#7116 step 2 caller review 1: holding the code makes this Mac the inviter,
   const root = fresh();
   const code = dk.newJoinCode();
   es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root });
-  const c = coordinator({ inviter: OTHER_ADMIN });   // the bytes name someone else as inviter
   const { publicKey } = crypto.generateKeyPairSync('ed25519'); const k = dk.rawPublic(publicKey);
   const bytes = se.encodeDevkeyEnrol(ORG, MEMBER, k, dk.joinCodeHash(code), dk.joinTag(code, ORG, MEMBER, k), OTHER_ADMIN, '7', Buffer.alloc(32, 0x5a));
   const h = appWithHelper();
   await assert.rejects(es.approve(es.review(bytes, { dataRoot: root }), { adminId: INVITER, expectedKey: h.expectedKey, keyFile: h.keyFile, appDir: h.app }),
     /names another admin as the one who sent it/);
-  void c;
   // One entry with unreadable bytes is listed as refused; the readable one is still offered.
   const good = enrolment();
   const mixed = async (m) => (m === 'GET' ? { ok: true, data: { pending: [{ id: 'e2', bytes: '!!' }, { id: 'e3', bytes: good.bytes.toString('base64url'), signedBy: [] }] } } : { ok: false });
@@ -226,7 +224,7 @@ test('#7116 step 2 caller: pending decodes each entry\'s bytes, drops a malforme
   await es.postAdminSig('e1', { adminId: OTHER_ADMIN, sig: Buffer.from('3045', 'hex') }, { send: c.send });
   assert.deepEqual(c.calls.at(-1).body, { sig: { adminId: OTHER_ADMIN, se: Buffer.from('3045', 'hex').toString('base64url') } });
   await assert.rejects(es.postAdminSig('../x', { adminId: 'a', sig: Buffer.alloc(1) }, { send: c.send }), /not an enrolment id/);
-  await assert.rejects(es.pending({ send: async () => ({ ok: false, because: 'this computer is not connected to Kosmos+' }) }), /not connected/);
+  await assert.rejects(es.pending({ send: async () => ({ ok: false, notSent: true, because: 'raw tunnel line /Users/x' }) }), /not connected/);
 });
 
 test('#7116 step 2 caller: adminQueue lists what an admin can sign, says why it cannot sign the rest, and leaves out what it signed', async () => {
@@ -256,4 +254,46 @@ test('#7116 step 2 caller: adminQueue lists what an admin can sign, says why it 
   // An admin who already signed it does not see it again.
   const signedSend = async (m, r, b) => (m === 'GET' ? { ok: true, data: { pending: [{ id: 'e1', bytes: (await c.send(m, r, b)).data.pending[0].bytes, signedBy: [OTHER_ADMIN], keySigned: true }] } } : c.send(m, r, b));
   assert.equal((await es.adminQueue({ adminId: OTHER_ADMIN, send: signedSend, dataRoot: root })).length, 0);
+});
+
+test('#7116 step 2 caller review 2: one invite enrols one computer; the queue refuses an inviter in disguise; a second admin leaves the codes; errors are fixed sentences', async () => {
+  const root = fresh(); const code = dk.newJoinCode();
+  es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root });
+  const mk = (inviter) => { const { publicKey } = crypto.generateKeyPairSync('ed25519'); const k = dk.rawPublic(publicKey);
+    return se.encodeDevkeyEnrol(ORG, MEMBER, k, dk.joinCodeHash(code), dk.joinTag(code, ORG, MEMBER, k), inviter, '7', Buffer.alloc(32, 0x5a)); };
+  const first = mk(INVITER);
+  const h = appWithHelper();
+  const opts = (adminId, send) => ({ adminId, expectedKey: h.expectedKey, keyFile: h.keyFile, dataRoot: root, appDir: h.app, send });
+  // A second admin's send never touches the inviter's code.
+  await es.approveAndSend('e1', es.review(first, { dataRoot: fresh() }), opts(OTHER_ADMIN, async () => ({ ok: true, data: { ok: true } })));
+  assert.ok(es.joinCodeFor(ORG, MEMBER, { dataRoot: root }), 'a second admin\'s accept left the inviter\'s code');
+  // The inviter signs first: waiting, so the code is kept but bound to that key; a restart with ANOTHER key is refused.
+  await es.approveAndSend('e1', es.review(first, { dataRoot: root }), opts(INVITER, async () => ({ ok: true, data: { ok: true, waiting: true } })));
+  assert.throws(() => es.review(mk(INVITER), { dataRoot: root }), /already used for another computer/);
+  assert.equal(es.review(first, { dataRoot: root }).inviterChecked, true, 'the same computer can still be signed again');
+  // The queue never offers an enrolment naming another inviter to the Mac holding the code.
+  const disguised = mk(OTHER_ADMIN);
+  const root2 = fresh(); es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root2 });
+  const rows = await es.adminQueue({ adminId: INVITER, dataRoot: root2, send: async () => ({ ok: true, data: { pending: [{ id: 'e9', bytes: disguised.toString('base64url'), signedBy: [] }] } }) });
+  assert.equal(rows[0].prepared, null);
+  assert.match(rows[0].refused, /names another admin/);
+  // A refusal's public code reaches the caller; the person's sentence is fixed.
+  const err = await es.pending({ send: async () => ({ ok: false, because: '/Users/x/tunnel: boom', refusal: { code: 'devkey_history_full' } }) }).catch((e) => e);
+  assert.equal(err.code, 'devkey_history_full');
+  assert.doesNotMatch(err.message, /\/Users\//);
+});
+
+test('#7116 step 2 caller review 2: a store that cannot be READ is never set aside; a link is refused, not followed', () => {
+  const root = fresh(); const code = dk.newJoinCode();
+  es.keepJoinCode(ORG, MEMBER, code, { dataRoot: root });
+  const file = path.join(root, 'devkey-join-codes.json');
+  fs.chmodSync(file, 0o000);
+  try {
+    assert.throws(() => es.keepJoinCode(ORG, 'member-8', dk.newJoinCode(), { dataRoot: root }), /could not be saved/);
+  } finally { fs.chmodSync(file, 0o600); }
+  assert.ok(es.joinCodeFor(ORG, MEMBER, { dataRoot: root }).equals(code), 'the good store was kept');
+  const linked = fresh(); const target = path.join(linked, 'elsewhere.json');
+  fs.writeFileSync(target, JSON.stringify({ [JSON.stringify([ORG, MEMBER])]: { code: code.toString('hex'), at: Date.now() } }));
+  fs.symlinkSync(target, path.join(linked, 'devkey-join-codes.json'));
+  assert.throws(() => es.joinCodeFor(ORG, MEMBER, { dataRoot: linked }), /not readable/);
 });
