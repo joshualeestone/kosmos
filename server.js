@@ -25345,7 +25345,7 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#8769 item 3: agents read this view before they post, so a room whose agent wake-ups are paused says so here,
            not only in the answer to a post already sent (roomloop.readerNote reads; it never starts or moves a pause). */
         let loopLine = '';
-        try { const n = require('./engine/roomloop').readerNote(id); loopLine = n ? n + '\n' : ''; } catch { loopLine = ''; }
+        try { const n = require('./engine/roomloop').readerNote(id, Date.now(), (ms) => messages.roomClock(new Date(ms).toISOString(), zone)); loopLine = n ? n + '\n' : ''; } catch { loopLine = ''; }
         res.end(shared + onHold + loopLine + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + coveredLine + agedLine);
         return;
       }

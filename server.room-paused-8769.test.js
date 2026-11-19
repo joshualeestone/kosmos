@@ -60,7 +60,9 @@ test('#8769 item 3: the room text view an agent reads before posting says the wa
     assert.ok(line, 'a paused room did not say so in the text view: ' + during.text);
     assert.match(line, /^\[kosmos\] /);
     assert.match(line, /will wake no one/);
-    assert.ok(during.text.indexOf(line) < during.text.indexOf('Nothing has been said in this room yet.'), 'the line came after the room, where a reader stops');
+    // Review 1: the time is the view's own (roomClock: 24-hour HH:MM), as the held line's is.
+    assert.match(line, /until about \d\d:\d\d \(/);
+    assert.ok(during.text.indexOf(line) < during.text.indexOf('Nothing has been said in this room yet.'), 'the line must come above the room, which is where a reader starts');
     // Another room is not paused by this one.
     const q = projects.create({ name: 'Paused Read Other' });
     assert.doesNotMatch((await roomText(q.id)).text, /Agents waking each other is paused/);

@@ -151,22 +151,31 @@ function quietWhy(projectId, from, asked, to) {
   } catch { return {}; }
 }
 
-/* kosmos#8769 item 3: the line an agent reads in `kosmos room` BEFORE it posts, while a broad post here would wake no one,
-   so it need not learn it only from the answer to a post already sent. '' when a post would wake as usual. Reads only:
-   unlike paused() it never starts, ends or moves a pause, so a read cannot change when one began. A count already at the
-   cap with no pause recorded yet is said too, since the next agent post starts the pause; its end is then about a window
-   from now. No final newline: the caller adds it. */
-function readerNote(projectId, now = Date.now()) {
+/* kosmos#8769 item 3: the line an agent reads in `kosmos room` BEFORE it posts, while a post asking more than one member
+   here would wake no one, so it need not learn it only from the answer to a post already sent. '' when a post would wake
+   as usual. Reads only: unlike paused() it never starts, ends or moves a pause, so a read cannot change when one began.
+   A count already at the cap with no pause recorded yet is said as such: the next agent post starts the pause (unless a
+   wake ages out first), and it would end about a window after that. `clock(ms)` writes the time the way the view writes
+   its others (review 1: the room view's zone and 24-hour form); without one, the board's own. No final newline. */
+function readerNote(projectId, now = Date.now(), clock = null) {
   try {
     const p = String(projectId);
     const live = pausedAt.has(p) && now - pausedAt.get(p) < LOOP_WINDOW_MS;
     const atCap = !pausedAt.has(p) && (wakes.get(p) || []).filter((t) => now - t < LOOP_WINDOW_MS).length >= cap;
     if (!live && !atCap) return '';
     const until = live ? pausedAt.get(p) + LOOP_WINDOW_MS : now + LOOP_WINDOW_MS;
-    const hhmm = new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+    let when = '';
+    try { when = typeof clock === 'function' ? String(clock(until)) : ''; } catch { when = ''; }
+    if (!when) when = new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
     const left = live ? Math.max(0, THROUGH_CAP - (throughWakes.get(p) || 0)) : THROUGH_CAP;
-    return '[kosmos] Agents waking each other is paused in this room until about ' + hhmm + ' (an automatic limit: agents\' '
-      + 'posts here woke one another ' + cap + ' times within an hour). A post to several members, or to @all, will wake no one. '
+    // Review 1: "more than one member", not "several members or @all": in a room of two, @all asks one member and may
+    // get through as a handoff (messages.js oneThrough counts the members a post asks).
+    return '[kosmos] '
+      + (live
+        ? 'Agents waking each other is paused in this room until about ' + when
+        : 'Agents waking each other is at its limit in this room: the next agent post pauses it, until about ' + when)
+      + ' (an automatic limit: agents\' posts here woke one another ' + cap + ' times within an hour). '
+      + (live ? 'A post that asks more than one member will wake no one. ' : 'After that, a post that asks more than one member will wake no one. ')
       + (left > 0
         ? 'A post to exactly one member may still get through: ' + left + ' more in this pause, at most ' + PAIR_CAP + ' to the same member from you.'
         : 'The posts to exactly one member that may get through during this pause are used up.')

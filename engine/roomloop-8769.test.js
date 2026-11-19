@@ -27,8 +27,8 @@ test('a count at the cap is said before any post starts the pause, and the read 
   const now = 1_000_000_000_000;
   for (const d of [30, 20, 10]) roomloop.noteWake('p', now - d);
   const note = roomloop.readerNote('p', now);
-  assert.match(note, /^\[kosmos\] Agents waking each other is paused in this room until about /);
-  assert.match(note, /will wake no one/);
+  assert.match(note, /^\[kosmos\] Agents waking each other is at its limit in this room: the next agent post pauses it, until about /);
+  assert.match(note, /a post that asks more than one member will wake no one/);
   assert.match(note, /exactly one member may still get through: 10 more in this pause/);
   assert.equal(roomloop.freesAt('p', now + 5), now + 5, 'the read started the pause (freesAt moved off "no pause")');
   // The next agent post starts it, at its own time, not the read's.
@@ -48,7 +48,7 @@ test('during a pause: said with what is left of the one-member allowance; used u
   assert.doesNotMatch(spent, /more in this pause/);
   // Past the window: nothing said, and the read leaves the record for paused() to clear (it changes nothing).
   assert.equal(roomloop.readerNote('p', now + HOUR + 1), '');
-  assert.notEqual(roomloop.freesAt('p', now + HOUR + 1), now + HOUR + 1, 'the read cleared the expired pause itself');
+  assert.notEqual(roomloop.freesAt('p', now + HOUR + 1), now + HOUR + 1, 'the read cleared the expired record (it must leave that to paused())');
 });
 
 test('a person\'s post ends it, and the line goes with it', () => {
@@ -66,4 +66,18 @@ test('per project: a paused room says nothing about another', () => {
   roomloop.paused('a', now);
   assert.notEqual(roomloop.readerNote('a', now + 1), '');
   assert.equal(roomloop.readerNote('b', now + 1), '');
+});
+
+test('review 1: during a pause it says "paused", and the time is written by the caller\'s clock when given', () => {
+  const now = 1_000_000_000_000;
+  for (const d of [30, 20, 10]) roomloop.noteWake('p', now - d);
+  roomloop.paused('p', now);
+  const seen = [];
+  const note = roomloop.readerNote('p', now + 1, (ms) => { seen.push(ms); return '17:42'; });
+  assert.deepEqual(seen, [now + HOUR], 'the clock was not given the pause\'s end');
+  assert.match(note, /^\[kosmos\] Agents waking each other is paused in this room until about 17:42 /);
+  assert.match(note, /A post that asks more than one member will wake no one\./);
+  assert.doesNotMatch(note, /@all/, '@all can get through in a room of two');
+  // A clock that throws or answers nothing falls back to the board's own time, never an empty time.
+  assert.match(roomloop.readerNote('p', now + 1, () => { throw new Error('x'); }), /until about \S/);
 });
