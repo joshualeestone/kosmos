@@ -203,6 +203,13 @@ function rootsFor(names, inputs, deps) {
     if (roots0.some((q) => inside(q, rd)) || others.some((q) => inside(q, rd) || inside(rd, q))) {
       return { ok: false, final: true, because: `the folder of ${label} holds other work (the workers or projects folder, or another agent's), so it is not handed over` };
     }
+    // kosmos#8738: the folder must be the one this agent is registered with (backuptick.inputsHere agents), not only
+    // wherever workerDir resolves. Checked whenever the list is given (it always is outside tests).
+    if (Array.isArray(inputs.agents)) {
+      const mine = inputs.agents.find((a) => a && a.id === name && typeof a.dir === 'string' && path.isAbsolute(a.dir));
+      if (!mine) return { ok: false, because: `the folder of ${label} is not one this computer has registered for it` };
+      if (real(mine.dir) !== rd) return { ok: false, final: true, because: `the folder of ${label} is not the one it was set up with, so it is not handed over` };
+    }
     const size = folderBytes(rd);
     if (size === null) return { ok: false, final: true, because: `the folder of ${label} holds more files than one hand-over can carry` };
     total += size;
@@ -273,6 +280,8 @@ function sendable(data) {
 async function tick(state, deps) {
   const d = deps || {};
   if (state.running) return { skipped: true };
+  // kosmos#8738: a tick that threw (a step documented never to) waits RETRY_MS before the next, never every tick.
+  if ((state.thrownUntil || 0) > (d.now || Date.now)()) return { ok: false, because: 'the hand-over could not be checked' };
   state.running = true;
   try {
     const org = (d.org || (() => { const oe = require('./orgenroll'); const r = oe.mayReport() ? oe.readEnrollment() : null; return r && r.org ? r.org.id : null; }))();
@@ -366,6 +375,7 @@ async function tick(state, deps) {
     return { ok: true, none: true };
   } catch {
     state.open = [];   // nothing known: say nothing rather than an old line
+    state.thrownUntil = (d.now || Date.now)() + RETRY_MS;
     return { ok: false, because: 'the hand-over could not be checked' };
   } finally { state.running = false; }
 }

@@ -909,3 +909,26 @@ test('kosmos#8733: the key step signs with this computer\'s device key, or sends
     }
   }
 });
+
+test('kosmos#8738: the link rules can only be loosened inside a node test process; a thrown tick backs off', async (t) => {
+  const { execFileSync } = require('node:child_process');
+  // Outside a test process (no NODE_TEST_CONTEXT), allowHttpForTests changes nothing.
+  const env = Object.assign({}, process.env);
+  delete env.NODE_TEST_CONTEXT;
+  const mod = JSON.stringify(path.join(__dirname, 'handoverrecv.js'));
+  const out = execFileSync(process.execPath, ['-e', `const hr = require(${mod}); hr.allowHttpForTests(true); process.stdout.write(String(hr.urlProblem('http://127.0.0.1:9/x', 'x')))`], { env, encoding: 'utf8' });
+  assert.equal(out, 'not https', 'still refused outside a test');
+  // CONTROL: inside this test process it does loosen them (so the child's refusal is the gate, not the URL).
+  hr.allowHttpForTests(true);
+  assert.equal(hr.urlProblem('http://127.0.0.1:9/x', 'x'), null);
+  // A tick that throws waits RETRY_MS before the next.
+  let clock = 0, calls = 0;
+  const st = stateNew();
+  const deps = { org: () => { calls++; throw new Error('boom'); }, deviceKey: SUCC_DK, now: () => clock, macRequest: async () => ({ ok: false }), root: fresh(t, 'data') };
+  await hr.tick(st, deps);
+  await hr.tick(st, deps);
+  assert.equal(calls, 1, 'not again within RETRY_MS');
+  clock += hr.RETRY_MS + 1;
+  await hr.tick(st, deps);
+  assert.equal(calls, 2, 'again after RETRY_MS');
+});
