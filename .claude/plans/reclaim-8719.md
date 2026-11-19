@@ -41,6 +41,15 @@ nothing is changed. Proven by engine and route tests (each refusal with a contro
   The dialog joins the shared Tab trap and gives focus back; a stale message clears when the page shows another agent;
   success is said in the composer's message line, which stays.
 
+- Review 2: MEASURED on tmux 3.6a (a private socket, nothing else reachable): `set-option -t =zara` and
+  `display-message -t =zara` do not resolve; `=zara:` does, marks exactly zara, never zarah, and marks nothing when only
+  zarah exists. link() now reads the session's id and program before marking and compares the same pair after (a
+  same-named Claude session swapped in is caught), checks the unmark's own result, and refuses Windows before reading
+  tmux. A test drives link() through a real tmux on a private socket and fails on the old `=zara` form (measured).
+- Who can link: the board's person, and any local process that can reach the board's loopback port, as for every other
+  board write (restart, remove). It is not in AGENT_TOKEN_ROUTES, so a remote caller with only an agent token cannot.
+  That is the board's existing trust model, not something this change widens.
+
 ## Weakest premise
 That `@kosmos_agent` = session is all Kosmos needs to treat the window as its own for messages and the conversation
 view, and that a supervisor waiting in the not-ours loop (an agent that also has a Kosmos launch job) adopts the marked
