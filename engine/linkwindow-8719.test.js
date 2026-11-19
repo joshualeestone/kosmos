@@ -110,7 +110,13 @@ test('#8719: on a real tmux, link() marks exactly the named session and never a 
     /* A real session called zara. No Claude runs on a test box, so the program the look reports ("sleep") is read as
        Claude's version string by the runner; every other call is real tmux, with link()'s own arguments. */
     t('new-session', '-d', '-s', 'zara', 'sleep 60');
-    assert.match(t('display-message', '-p', '-t', '=zara:', '#{session_id}\t#{pane_current_command}').stdout, /^\$\d+\tsleep/, 'premise: the look reads id and program');
+    // The pane reports its shell for a moment before `sleep` starts: wait (bounded) until it shows the program.
+    let seen = '';
+    for (let i = 0; i < 40 && !/\tsleep/.test(seen); i++) {
+      seen = t('display-message', '-p', '-t', '=zara:', '#{session_id}\t#{pane_current_command}').stdout;
+      if (!/\tsleep/.test(seen)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+    assert.match(seen, /^\$\d+\tsleep/, 'premise: the look reads id and program');
     linkwindow.setRunner((bin, args) => {
       const r = t(...args);
       const out = args[0] === 'display-message' ? String(r.stdout || '').replace(/\tsleep/, '\t' + fleet.CLAUDE_COMMAND) : String(r.stdout || '');
