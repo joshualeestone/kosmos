@@ -18,8 +18,9 @@
  * The format. Per (org, member), escrowd keeps an append-only list of entries, each one of:
  *   { kind: 'enrol',  key, at, backfill }   a Mac key accepted for this member from time `at`
  *   { kind: 'revoke', key, at }             that key stops counting from time `at` (retired or lost)
- * `key` is the 32-byte Ed25519 public key in hex; `at` is Unix seconds on escrowd's own clock, never a time a Mac
- * supplied, except a backfill entry's, which is the time the coordinator recorded the key (relay devkeyhist.rs). `backfill` marks a key escrowd took from the coordinator's record at the switch-over, before
+ * `key` is the 32-byte Ed25519 public key in hex; `at` is Unix seconds on escrowd's own clock, never a time a Mac or
+ * the coordinator supplied, except a backfill entry's, which is the time the coordinator recorded the key (relay
+ * devkeyhist.rs). `backfill` marks a key escrowd took from the coordinator's record at the switch-over, before
  * authenticated enrolment existed: true there, false otherwise, so a restore can say which kind it trusted.
  * The entries are chained: c0 = SHA-256(put(CHAIN_TAG) put(org) put(member)), then for each entry
  * c = SHA-256(put(c) put(kind byte: 1 enrol, 2 revoke) put(key) put(at, i64 BE) put(backfill byte: 1 or 0)), where
@@ -29,7 +30,10 @@
  * backfill entry, which confirms it (replay). The key keeps that `from` (a time the coordinator recorded): a manifest
  * must still verify under the key, which only the confirmed computer holds, and restore checks the key at the
  * manifest's own grant time, also the coordinator's record, so dating trust from the confirm would stop nothing more.
- * escrowd's write side (relay devkeyhist.rs, which still answers AlreadyEnrolled to any repeat) is #8768's relay half.
+ * escrowd's side is #8768's relay half, and it is in TWO places in devkeyhist.rs: append(), which answers
+ * AlreadyEnrolled to any repeat today, and well_formed(), which open_record runs on every start and which refuses any
+ * second enrol of a key. Changing only append() would write confirms that escrowd then refuses to open on its next
+ * start, losing every member's history in that file.
  * As JSON, a revoke entry carries no `backfill` (absent or null; both encode as 0), an enrol entry carries true or false.
  *
  * What escrowd must uphold when it WRITES the log (slice 2), because the log is append-only and verify() refuses a
@@ -37,7 +41,7 @@
  *   - an entry's `at` is never earlier than the entry before it (clamp to it after a clock step back);
  *   - no entry is dated after the head that signs it;
  *   - a key is enrolled at most once, and revoked at most once and only after its enrol (refuse both at write time),
-     except one enrol with backfill false over that key's live, unconfirmed backfill entry (kosmos#8768, a confirm).
+ *     except one enrol with backfill false over that key's live, unconfirmed backfill entry (kosmos#8768, a confirm).
  *
  * What the head stops, and why it carries both a count and a fresh time:
  *   - the chain makes the entries one signed object, so a coordinator cannot hand over a subset (hiding a revoke);

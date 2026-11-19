@@ -11,8 +11,8 @@ No new entry kind: a confirm is an `enrol` of the same key with backfill false o
 - engine/devkeyhist-8768.test.js: confirm accepted and read by keyAt; unconfirmed backfill stays (control); revoke after confirm; six repeats refused against the honest confirm. Mutation control: removing the exception fails 3 tests.
 
 ## Not here
-- The relay half (escrowd devkeyhist.rs write rule, rosterops accepting devkey_enrol over a live backfill): Ice Cream Kitty's escrowd, asked on #8768.
-- A shared vector (backfill then confirm, with its head hash): pinned on both sides once the relay half exists.
+- The relay half: escrowd devkeyhist.rs in TWO places, append() (the AlreadyEnrolled write rule) and well_formed() (run by open_record on every start; it refuses any second enrol, so changing append() alone would make escrowd refuse its own record on restart), plus rosterops accepting devkey_enrol over a live backfill. Ice Cream Kitty's escrowd, asked on #8768.
+- A shared vector (backfill then confirm, with its head hash): pinned on both sides once the relay half exists, and the relay's test reopens the record after a confirm.
 - handoverseal's checkSeal/checkSender test with a confirmed key: handoverseal.js is on Kitty's sealkey-8733, not yet on main; added after it merges. Its `backfill !== false` check needs no change.
 
 ## Weakest premise
@@ -20,3 +20,4 @@ That a confirm keeping the ORIGINAL `from` is right (a pre-confirm snapshot is t
 
 ## Review
 - Round 1: no blocker, no way found to make an untrusted key trusted. Fixed: the escrowd-must-uphold list states the exception; the header no longer says devkeyhist.rs already upholds it; a backfill's `at` is said to be the coordinator's; a restore-level test (backfill control, then confirmed reads backfill false; the mutation fails it); a comment on the belt-and-braces confirmedAt check.
+- Round 2: no blocker. Fixed: the relay half names well_formed() as well as append(); the header wording and wrapping; restorerun's doc says backfill is the key's standing now.
