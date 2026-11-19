@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: newbrief-8735
-diff_hash: a014ea0bfe9b826e8809df83946a664a9f6c33826c10307c283fa3023f46e901
+diff_hash: b41b81ec85fe036327130d746b25edf1a3ae72a426018e6d0ccd7f6147e69b40
 validation: passed
 subdir_audit: passed
 timestamp: 2026-11-19T19:17:10Z
@@ -24,6 +24,11 @@ head: PASSED (hash f603c5cadef4, "status":"clean"), 29,909 node tests, 0 failed,
 Main moved again and conflicted in tools/windows-tests.js (both sides added a Windows exclusion entry; kept all three).
 Merged main again (60c2331691); the affected suites pass locally (96 tests). This head's full validation is the PR's CI,
 which runs the whole suite on the merge with current main.
+That CI run went red in one test, this branch's own size guard: every brief measured 78 characters more on the runner,
+because the brief names the kosmos command by the checkout's <repo>/install/kosmos path six times and the runner's checkout
+path is 13 characters longer. Fixed in 926dba1d78 (the guard counts that path as one fixed installed path). Control: from a
+34-character-longer checkout, the old guard read pm 51,874 (over) and the fixed one 51,610, the same as in this worktree.
+No review round for it: the loop had already stopped at the fleet's 8-round cap; it is a test-only change.
 
 ### Per-Iteration Breakdown
 
