@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: followrest-7391
-diff_hash: d22c89e555314756ebba494e32ed8e191bb556f1eb312c12926a589a849d7c62
+diff_hash: 112580a8d57944d29ebe39d91d218f51f54f61e5a55c7190c63211013bc57249
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-19T16:28:05Z
+timestamp: 2026-11-19T17:40:58Z
 iterations: 5
 converged: true
 ---
@@ -17,7 +17,7 @@ converged: true
 **Total findings:** 10 actionable (0 BLOCKERs, 7 WARNINGs, 3 CONVENTIONs), 21 NITs, counted from the five reviewers' reports as tagged
 **Fixed:** 9 in code, 1 by filing #8729 | **Deferred:** 0 | **Asked (awaiting user):** 0
 
-Validation: the full suite at 043813e430 passed on 2026-11-19 (29841 tests, 0 failed, 582 skipped; all four shell shards green), hash d22c89e55531. The run before it failed on two shell tests outside this change (test-ssh-keychain-note-2600.sh, test-queued-heavy-4977.sh) under load 9.7; both passed alone, and both passed in this run.
+Validation: the full suite on the branch rebased onto main (after #8722 merged into the same test file; the conflict kept both tests) passed on 2026-11-19 (29885 tests, 0 failed, 582 skipped; all four shell shards green), hash 112580a8d579. Two earlier full runs failed only on tests outside this change under heavy load (load 9 to 20, other suites running); every failing file passed alone.
 
 ### Per-Iteration Breakdown
 
