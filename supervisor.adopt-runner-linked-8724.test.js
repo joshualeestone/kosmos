@@ -54,6 +54,8 @@ test('#8724: a job started for a linked Codex, Antigravity or Grok window adopts
     assert.equal(out.killed, false, `the linked ${cmd} window was closed: ${out.calls}`);
     assert.equal(out.launched, false, `a second agent was started beside the linked ${cmd} window: ${out.calls}`);
     assert.equal(out.adopted, true, `the linked ${cmd} window was not adopted: ${out.r.stderr}`);
+    /* And it records the job's runner on the window, the same value the link wrote (create.providerRunner's word). */
+    assert.match(out.calls, new RegExp(`^set-option -t zara @kosmos_runner ${runner}$`, 'm'), `the adopting supervisor did not record ${runner}: ${out.calls}`);
   }
 });
 

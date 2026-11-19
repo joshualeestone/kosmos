@@ -37,7 +37,14 @@ real store, and the real supervisor adopting such a window.
   so no extra tmux call is made.
 - Only the agent mark failing to come off is `markLeft` (the window would be Kosmos's). A runner note left behind alone
   is said in the sentence, and the agent-mark-write failure says so when its runner note could not come back.
-- The no-record refusal names the next step: add the agent to Kosmos first (Import an agent you already have).
+- The no-record refusal names the next step: add the agent to Kosmos first (Import an agent you already have). A
+  record that cannot be read at all (a throw) is refused as unreadable, never as "no record" (store.readProfile answers
+  {} for a missing and an unparseable record alike, so those two read as none).
+- Round 3: the runner mark is read in the link's own look (one display-message, the runner field just before the
+  agent mark, which stays last), so a mark set after the board's look, or a word the board does not know (parsePanes
+  maps those to ''), is still seen and left alone. A set of the agent mark that reports failure is checked with
+  `show-options -q` before the runner note comes off (it may have applied); a runner note read back as another value
+  is another writer's and is left alone.
 - Rejected: inferring the runner from the window alone. The record decides; the program must agree with it.
 - Rejected: a bare `node` (npm codex and every dev server front as node), Gemini and Muse (one turn at a time, no
   standing window).
@@ -49,12 +56,12 @@ The supervisor's own adoption is measured (supervisor.adopt-runner-linked-8724.t
 the same two marks the supervisor writes.
 
 ## Tests
-- engine/linkwindow-runner-8724.test.js (9): codex / agy / grok-native linked with the runner first; refused for a
+- engine/linkwindow-runner-8724.test.js (17): codex / agy / grok-native linked with the runner first; refused for a
   Claude record, a Grok record, no record (tmux untouched); bare node refused; a foreign runner mark kept, a matching
   one not rewritten; a runner that reads back wrong takes both off; one that cannot come off is markLeft; a Claude
   window links as before without touching the runner mark.
 - engine/linkwindow-8719.test.js and server.link-8719.test.js: the refusal sentences updated for the new rule.
 - cli.adopt-link-real-8724.test.js: the real CLI, real store and create.providerRunner: no record refused, a Claude
   record refused, an OpenAI record accepted.
-- supervisor.adopt-runner-linked-8724.test.js (2): the real supervisor adopts a linked codex, codex.exe and agy window;
-  control: a shell is closed.
+- supervisor.adopt-runner-linked-8724.test.js (2): the real supervisor adopts a linked codex, codex.exe, agy and
+  grok-native window and records the job's runner on it; control: a shell is closed.

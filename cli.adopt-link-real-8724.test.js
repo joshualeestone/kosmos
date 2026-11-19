@@ -99,7 +99,7 @@ test('#8724 real engine: --link previews a Codex window only for an agent whose 
   withBoard([{ session: 'zara', claim: '', command: 'codex' }], async (env) => {
     let out = await run(['--link', 'zara'], env);
     assert.equal(out.code, 1, out.stdout + out.stderr);
-    assert.match(out.stdout, /^The window called zara is running Codex, but Kosmos has no record of an agent called zara, so it was not linked\. Add zara to Kosmos first/m);
+    assert.match(out.stdout, /^The window called zara is running Codex, but Kosmos has no record of an agent called zara that it can read, so it was not linked\. Add zara to Kosmos first/m);
     writeProfile(env, 'zara', { provider: 'anthropic' });
     out = await run(['--link', 'zara'], env);
     assert.equal(out.code, 1, out.stdout + out.stderr);

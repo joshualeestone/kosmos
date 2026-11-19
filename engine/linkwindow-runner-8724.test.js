@@ -25,12 +25,13 @@ function fakeTmux(cmd, opts) {
   linkwindow.setRunner((bin, args) => {
     calls.push(args);
     const [verb] = args;
-    if (verb === 'display-message') return { ok: true, code: 0, stdout: `$0\t1x1\t${cmd}\t${marks['@kosmos_agent']}\n` };
+    if (verb === 'display-message') return { ok: true, code: 0, stdout: `$0\t1x1\t${cmd}\t${marks['@kosmos_runner']}\t${marks['@kosmos_agent']}\n` };
     if (verb === 'show-options') {
       const key = args[args.length - 1];
       if (key === '@kosmos_runner' && o.readFails) return { ok: false, code: 1, stdout: '' };
       let v = marks[key];
       if (key === '@kosmos_runner' && o.readRunnerAs !== undefined && v) v = o.readRunnerAs;
+      if (key === '@kosmos_agent' && o.readAgentAs !== undefined && v) v = o.readAgentAs;
       /* As tmux: with -q an option that is not set answers empty and succeeds; without it, it fails. */
       if (!v) return args.includes('-q') ? { ok: true, code: 0, stdout: '' } : { ok: false, code: 1, stdout: '' };
       return { ok: true, code: 0, stdout: v + '\n' };
@@ -42,7 +43,9 @@ function fakeTmux(cmd, opts) {
     }
     if (verb === 'set-option') {
       if (o.setFails === args[3]) return { ok: false, code: 1, stdout: '' };
-      marks[args[3]] = args[4]; return { ok: true, code: 0, stdout: '' };
+      marks[args[3]] = args[4];
+      if (o.setReportsFail === args[3]) return { ok: false, code: null, stdout: '' };   // applied, but answered late
+      return { ok: true, code: 0, stdout: '' };
     }
     return { ok: false, code: 1, stdout: '' };
   });
@@ -66,7 +69,7 @@ for (const [cmd, runner] of [['codex', 'codex'], ['agy', 'antigravity'], ['grok-
 test('#8724 refused when Kosmos knows the agent as another runner, or has no record of it; nothing is changed', () => {
   for (const [expected, why] of [['claude', /running Codex, but Kosmos knows zara as a Claude agent/], ['grok', /knows zara as a Grok agent/],
     ['antigravity', /knows zara as an Antigravity agent/], ['gemini', /knows zara as a Gemini agent/],
-    [null, /Kosmos has no record of an agent called zara, so it was not linked\. Add zara to Kosmos first/]]) {
+    [null, /Kosmos has no record of an agent called zara that it can read, so it was not linked\. Add zara to Kosmos first/]]) {
     linkwindow.setExpectedSource(() => expected);
     const t = fakeTmux('codex');
     const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
@@ -97,14 +100,23 @@ test('#8724 a runner mark naming something else is left alone; one already namin
   assert.ok(!t.calls.some((c) => c[0] === 'set-option' && c[3] === '@kosmos_runner'), 'a runner mark already right was rewritten');
 });
 
-test('#8724 a runner that does not read back takes both marks off; CONTROL: the plain case above links', () => {
+test('#8724 an agent mark that does not read back takes both marks off; CONTROL: the plain case above links', () => {
+  linkwindow.setExpectedSource(() => 'codex');
+  const t = fakeTmux('codex', { readAgentAs: 'someone-else' });
+  const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
+  assert.equal(r.outcome, 'refused', JSON.stringify(r));
+  assert.match(r.because, /took the mark off again and nothing was linked\.$/);
+  assert.deepEqual(t.marks, { '@kosmos_agent': '', '@kosmos_runner': '' });
+  assert.notEqual(r.markLeft, true);
+});
+
+test('#8724 a runner that reads back as another value: the agent mark comes off, that value is left alone', () => {
   linkwindow.setExpectedSource(() => 'codex');
   const t = fakeTmux('codex', { readRunnerAs: 'claude' });
   const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
-  assert.equal(r.outcome, 'refused', JSON.stringify(r));
-  assert.match(r.because, /took the mark off again/);
-  assert.deepEqual(t.marks, { '@kosmos_agent': '', '@kosmos_runner': '' });
-  assert.notEqual(r.markLeft, true);
+  assert.equal(r.outcome, 'refused');
+  assert.equal(t.marks['@kosmos_agent'], '');
+  assert.ok(!t.calls.some((c) => c[0] === 'set-option' && c[1] === '-u' && c.includes('@kosmos_runner')), 'another writer\'s runner value was taken off');
 });
 
 test('#8724 an agent mark that will not come off keeps its runner (never ours with an empty runner), and is markLeft', () => {
@@ -117,13 +129,42 @@ test('#8724 an agent mark that will not come off keeps its runner (never ours wi
   assert.ok(!t.calls.some((c) => c[0] === 'set-option' && c[1] === '-u' && c.includes('@kosmos_runner')));
 });
 
-test('#8724 a runner read that fails is not taken for no mark: nothing is written', () => {
+test('#8724 a runner mark the board does not know (another tool) is seen at the look and left alone', () => {
+  for (const [cmd, expected] of [['codex', 'codex'], [fleet.CLAUDE_COMMAND, null]]) {
+    linkwindow.setExpectedSource(() => expected);
+    const t = fakeTmux(cmd, { runner: 'sometool' });
+    const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: cmd }), platform: 'darwin' });
+    assert.equal(r.outcome, 'refused', cmd);
+    assert.match(r.because, /carries a runner mark naming sometool, so Kosmos did not change it/, cmd);
+    assert.ok(!t.calls.some((c) => c[0] === 'set-option'), cmd + ': a mark was written over another tool\'s');
+  }
+});
+
+test('#8724 an agent mark that applied but answered as failed is taken off before the runner note; nothing is left', () => {
   linkwindow.setExpectedSource(() => 'codex');
-  const t = fakeTmux('codex', { readFails: true });
+  const t = fakeTmux('codex', { setReportsFail: '@kosmos_agent' });
   const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
   assert.equal(r.outcome, 'refused');
-  assert.match(r.because, /could not read the window called zara, so nothing was linked/);
-  assert.ok(!t.calls.some((c) => c[0] === 'set-option'), 'a mark was written after a failed read');
+  assert.deepEqual(t.marks, { '@kosmos_agent': '', '@kosmos_runner': '' });
+  assert.match(r.because, /Nothing was changed/);
+  const unsets = t.calls.filter((c) => c[0] === 'set-option' && c[1] === '-u').map((c) => c[c.length - 1]);
+  assert.deepEqual(unsets, ['@kosmos_agent', '@kosmos_runner'], 'the agent mark must come off before the runner note');
+});
+
+test('#8724 an agent mark that applied and will not come off keeps its runner, and is markLeft', () => {
+  linkwindow.setExpectedSource(() => 'codex');
+  const t = fakeTmux('codex', { setReportsFail: '@kosmos_agent', unsetFails: '@kosmos_agent' });
+  const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
+  assert.equal(r.markLeft, true, JSON.stringify(r));
+  assert.equal(t.marks['@kosmos_runner'], 'codex', 'a window marked ours lost its runner');
+});
+
+test('#8724 an unreadable record is refused as unreadable, never as "no record"', () => {
+  linkwindow.setExpectedSource(() => undefined);
+  fakeTmux('codex');
+  const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
+  assert.equal(r.outcome, 'refused');
+  assert.match(r.because, /^Kosmos could not read its record of zara, so it was not linked\.$/);
 });
 
 test('#8724 an agent mark that cannot be taken off is reported as a mark left on the window', () => {
@@ -137,7 +178,7 @@ test('#8724 an agent mark that cannot be taken off is reported as a mark left on
 
 test('#8724 only the runner note left behind is said, not reported as the mark left on the window', () => {
   linkwindow.setExpectedSource(() => 'codex');
-  const t = fakeTmux('codex', { readRunnerAs: 'claude', unsetFails: '@kosmos_runner' });
+  const t = fakeTmux('codex', { readAgentAs: 'someone-else', unsetFails: '@kosmos_runner' });
   const r = linkwindow.link('zara', { panes: panesOf({ session: 'zara', claim: '', command: 'codex' }), platform: 'darwin' });
   assert.equal(r.outcome, 'refused');
   assert.notEqual(r.markLeft, true, 'a runner note alone does not make the window ours');

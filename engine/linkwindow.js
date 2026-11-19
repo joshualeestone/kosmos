@@ -13,7 +13,7 @@
  *     `-discord` or this Kosmos's world suffix stripped). The mark is set on that pane's raw `session`, which is what
  *     launchidentity.paneSessionIsOurs compares it with;
  *   - the session already carries the mark (nothing to do);
- *   - the program in it is not Claude (a shell after a crash, an editor, Codex);
+ *   - the program in it names no agent runner (a shell after a crash, an editor, a bare node);
  *   - no agent is running in it now (status.isAgentSession);
  *   A Codex, Antigravity or Grok window (kosmos#8724 item 3) is linked only when its program names that runner exactly
  *   and Kosmos's own record of the agent (its profile's provider) says it runs on it; its runner is then recorded too
@@ -51,10 +51,11 @@ function setExpectedSource(fn) { expectedSource = typeof fn === 'function' ? fn 
 function expectedRunner(name) {
   if (expectedSource) return expectedSource(name);
   try {
+    /* store.readProfile answers {} for a missing record and for one it cannot parse alike, so both read as none. */
     const prof = require('./store').readProfile(name) || {};
     if (!Object.keys(prof).length) return null;
     return require('./create').providerRunner(prof.provider);
-  } catch { return null; }
+  } catch { return undefined; }   // the record could not be read at all: never taken for "no record"
 }
 
 let runner = null;   // tests: (bin, args) -> { ok, code, stdout }
@@ -105,6 +106,7 @@ function plan(name, panes, platform) {
      runner is refused, because a launch job written later records THAT runner on the window and the board would read
      a live Claude window as something else. */
   const expected = expectedRunner(clean);
+  if (expected === undefined) return refused(`Kosmos could not read its record of ${clean}, so it was not linked.`);
   const word = (r) => RUNNER_WORD[r] || r;
   if (runner === 'claude') {
     /* And it must look like an agent to the board: a native version string always does; an unmarked `node`, or the
@@ -120,7 +122,7 @@ function plan(name, panes, platform) {
   } else if (expected !== runner) {
     return refused(`The window called ${clean} is running ${word(runner)}, but `
       + (expected ? `Kosmos knows ${clean} as ${aOrAn(word(expected))} agent, so it was not linked.`
-        : `Kosmos has no record of an agent called ${clean}, so it was not linked. Add ${clean} to Kosmos first (in Kosmos, "Import an agent you already have").`));
+        : `Kosmos has no record of an agent called ${clean} that it can read, so it was not linked. Add ${clean} to Kosmos first (in Kosmos, "Import an agent you already have").`));
   }
   return { ok: true, session: pane.session, pane: pane.pane, name: clean, command: pane.command, runner };
 }
@@ -137,11 +139,12 @@ function link(name, opts) {
   const named = `=${p.session}:`;
   const paneOf = /^\d+\.\d+$/.test(String(p.pane || '')) ? p.pane : '';
   const lookAt = (target) => {
-    const r = run(['display-message', '-p', '-t', target, '#{session_id}\t#{session_windows}x#{window_panes}\t#{pane_current_command}\t#{@kosmos_agent}']);
+    /* kosmos#8724 item 3: the runner mark is read in the same look, just before the mark, whatever its word. */
+    const r = run(['display-message', '-p', '-t', target, '#{session_id}\t#{session_windows}x#{window_panes}\t#{pane_current_command}\t#{@kosmos_runner}\t#{@kosmos_agent}']);
     const line = r && r.ok !== false ? String(r.stdout || '').replace(/\n$/, '') : '';
     const parts = line.split('\t');
     // The mark is the last field and joins the rest, so a value holding a tab is read whole, never as empty.
-    return { id: parts[0] || '', panes: parts[1] || '', cmd: parts[2] || '', claim: parts.slice(3).join('\t').trim() };
+    return { id: parts[0] || '', panes: parts[1] || '', cmd: parts[2] || '', runner: (parts[3] || '').trim(), claim: parts.slice(4).join('\t').trim() };
   };
   const before = lookAt(named + paneOf);
   if (before.claim) {
@@ -154,6 +157,11 @@ function link(name, opts) {
   /* One window with one pane (measured on tmux 3.6a: there is no session_panes; session_windows and window_panes are
      real), as plan() required, at the look and again after the mark: a window or split added meanwhile would be
      covered by the mark too. */
+  /* A runner mark for another program, read at the look itself: a Claude window keeps none but claude, and any other
+     runner keeps only its own (the board trusts this mark over the command once the window is ours). */
+  if (before.runner && before.runner !== p.runner && !(p.runner === 'claude' && before.runner === 'claude')) {
+    return refused(`The window called ${p.name} carries a runner mark naming ${before.runner}, so Kosmos did not change it.`);
+  }
   if (!/^\$\d+$/.test(before.id) || before.panes !== '1x1' || before.cmd !== String(p.command || '') || runnerOfCommand(before.cmd) !== p.runner) {
     return refused(`Kosmos could not confirm what runs in the window called ${p.name}, so nothing was linked.`);
   }
@@ -174,10 +182,7 @@ function link(name, opts) {
     return r && r.ok !== false ? String(r.stdout || '').trim() : null;
   };
   if (withRunner) {
-    const was = readRunner();
-    /* A read that failed is not "no mark": another program's mark could be there, and it is never overwritten. */
-    if (was === null) return refused(`Kosmos could not read the window called ${p.name}, so nothing was linked.`);
-    if (was && was !== p.runner) return refused(`The window called ${p.name} carries a runner mark naming ${was}, so Kosmos did not change it.`);
+    const was = before.runner;   // read at the look; one naming another runner was refused above
     if (!was) {
       const setR = run(['set-option', '-t', byId, '@kosmos_runner', p.runner]);
       if (!setR || setR.ok === false) return refused(`Kosmos could not record which program runs the window called ${p.name}, so nothing was linked.`);
@@ -187,6 +192,16 @@ function link(name, opts) {
   const unsetRunner = () => (runnerSetHere ? run(['set-option', '-u', '-t', byId, '@kosmos_runner']) : { ok: true });
   const set = run(['set-option', '-t', byId, '@kosmos_agent', p.session]);
   if (!set || set.ok === false) {
+    /* A set that reports failure may still have applied (a tmux that answered late): look before taking the runner
+       note off, so a window marked ours never loses its runner. */
+    const took = run(['show-options', '-q', '-v', '-t', byId, '@kosmos_agent']);
+    const mark = took && took.ok !== false ? String(took.stdout || '').trim() : null;
+    if (mark !== '') {
+      const offA = mark === null ? null : run(['set-option', '-u', '-t', byId, '@kosmos_agent']);
+      if (!offA || offA.ok === false) {
+        return { ...refused(`Kosmos could not confirm whether it marked the window called ${p.name}, and could not make sure the mark is off. Restart that window, or ask for help, before messaging it.`), markLeft: true };
+      }
+    }
     const offR = unsetRunner();
     if (!offR || offR.ok === false) {
       /* Not marked ours, so Kosmos still will not type into it; only the note of its program stayed. */
@@ -202,7 +217,9 @@ function link(name, opts) {
     const offAgent = run(['set-option', '-u', '-t', byId, '@kosmos_agent']);
     /* The runner note comes off only once the agent mark has: a window still marked ours keeps its runner, or the
        board would read it as Claude (the state the runner-first order exists to prevent). */
-    const offRunner = (!offAgent || offAgent.ok === false) ? { ok: true } : unsetRunner();
+    /* And only a runner note that is still this call's (or empty): another writer's value read back is left alone. */
+    const runnerOurs = !withRunner || runnerNow === p.runner || runnerNow === '' || runnerNow === null;   // null: unread, still ours
+    const offRunner = (!offAgent || offAgent.ok === false || !runnerOurs) ? { ok: true } : unsetRunner();
     /* Only the agent mark makes the window Kosmos's, so only it failing to come off is the mark left on the window
        (markLeft). A runner note left behind alone is said, not alarmed about. */
     const off = offAgent;
@@ -216,7 +233,8 @@ function link(name, opts) {
          caller (the CLI's exit status) need not read the sentence. */
       return { ...refused(`Kosmos could not confirm the window called ${p.name} after marking it, and could not take the mark off. Restart that window, or ask for help, before messaging it.`), markLeft: true };
     }
-    return refused(`Kosmos could not confirm the window called ${p.name} after marking it, so it took the mark off again and nothing was linked.`);
+    return refused(`Kosmos could not confirm the window called ${p.name} after marking it, so it took the mark off again and nothing was linked.`
+      + ((!offRunner || offRunner.ok === false) ? ' A note of which program runs it stayed on the window, which does not make it Kosmos\'s.' : ''));
   }
   return { outcome: OUTCOME.LINKED, session: p.session, name: p.name, ...(withRunner ? { runner: p.runner } : {}) };
 }

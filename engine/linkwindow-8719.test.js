@@ -31,8 +31,11 @@ function fakeTmux(opts) {
     }
     if (args[0] === 'show-options') {
       if (o.readWrong) return { ok: true, code: 0, stdout: 'someone-else\n' };
-      const v = options[args[3] + ' ' + args[4]];
-      return v === undefined ? { ok: false, code: 1, stdout: '' } : { ok: true, code: 0, stdout: v + '\n' };
+      /* By the target after -t and the option last, so a -q read finds the same option (kosmos#8724). As tmux 3.6a:
+         with -q an option that is not set answers empty and succeeds; without it, it fails. */
+      const v = options[args[args.indexOf('-t') + 1] + ' ' + args[args.length - 1]];
+      if (v === undefined) return args.includes('-q') ? { ok: true, code: 0, stdout: '' } : { ok: false, code: 1, stdout: '' };
+      return { ok: true, code: 0, stdout: v + '\n' };
     }
     if (args[0] === 'display-message') {
       o.looks = (o.looks || 0) + 1;
@@ -42,7 +45,7 @@ function fakeTmux(opts) {
       const cmd = after && o.nowRunning ? o.nowRunning : (o.firstRunning || fleet.CLAUDE_COMMAND);
       const claim = !after && o.claimedAtLook ? o.claimedAtLook : (options['$0 @kosmos_agent'] || '');
       const count = after && o.paneAdded ? '1x2' : '1x1';
-      return { ok: true, code: 0, stdout: id + '\t' + count + '\t' + cmd + '\t' + claim + '\n' };
+      return { ok: true, code: 0, stdout: id + '\t' + count + '\t' + cmd + '\t' + '\t' + claim + '\n' };   // kosmos#8724: an empty runner field
     }
     return { ok: false, code: 1, stdout: '' };
   });
@@ -57,7 +60,7 @@ test('#8719: a hand-started Claude window is linked, with an exact target, and o
   const calls = fakeTmux();
   const r = linkwindow.link('zara', { panes, platform: 'darwin' });
   assert.deepEqual(r, { outcome: 'linked', session: 'zara', name: 'zara' });
-  const fmt = '#{session_id}\t#{session_windows}x#{window_panes}\t#{pane_current_command}\t#{@kosmos_agent}';
+  const fmt = '#{session_id}\t#{session_windows}x#{window_panes}\t#{pane_current_command}\t#{@kosmos_runner}\t#{@kosmos_agent}';   // kosmos#8724: the runner too
   assert.deepEqual(calls[0], ['display-message', '-p', '-t', '=zara:0.0', fmt], 'first, the very pane by its exact name');
   assert.deepEqual(calls[1], ['set-option', '-t', '$0', '@kosmos_agent', 'zara'], 'the mark, on that session by its id');
   assert.deepEqual(calls[2], ['show-options', '-v', '-t', '$0', '@kosmos_agent'], 'then read back, by id');
