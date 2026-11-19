@@ -103,7 +103,7 @@ test('#8724 --link without --confirm says what linking means and changes nothing
   withHome(async (env, calls) => {
     const out = await run(['--link', 'zara'], env({ T_PANES: '[]', T_LINKABLE: 'zara' }));
     assert.equal(out.code, 0, out.stdout + out.stderr);
-    assert.match(out.stdout, /Kosmos would link the window called zara/);
+    assert.match(out.stdout, /Kosmos would link the window called zara\. Kosmos would then type your messages into it/);
     assert.match(out.stdout, /Only do this if you started that agent yourself in that window\./);
     /* The board dialog's caveat, before consent as there. */
     assert.match(out.stdout, /Until Kosmos starts this agent itself, the board cannot restart it, and its own kosmos commands do not\nyet speak for it\./);
@@ -118,7 +118,7 @@ test('#8724 --link <name> --confirm links that one window, in either order; CONT
       const out = await run(args, env({ T_PANES: '[]', T_LINKABLE: 'zara' }));
       assert.equal(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
       assert.match(out.stdout, /Linked the window called zara\. Kosmos now treats it as its own: the board types your messages into it and shows its conversation\./);
-      assert.match(out.stdout, /^The agent in it speaks as itself, and the board can restart it, only once Kosmos starts it\.$/m);
+      assert.match(out.stdout, /^The agent in it speaks as itself, and the board can restart it, only once Kosmos starts it; adopting does not change that\.$/m);
       assert.match(out.stdout, /^Run kosmos adopt to see what it would record now; nothing is recorded without --confirm\.$/m);
       const links = calls().filter((c) => c.link).slice(before);
       assert.deepEqual(links, [{ link: 'zara', panes: true }], args.join(' '));
@@ -139,7 +139,7 @@ test('#8724 --link with a window list that cannot be read stops (1, not done) an
   withHome(async (env, calls) => {
     const out = await run(['--link', 'zara', '--confirm'], env({ T_PANES_THROW: '1', T_LINKABLE: 'zara' }));
     assert.equal(out.code, 1, out.stdout + out.stderr);
-    assert.match(out.stdout, /^could not read the windows on this computer, so nothing was linked\.$/m);
+    assert.match(out.stdout, /^Kosmos could not read the windows on this computer, so nothing was linked\.$/m);
     assert.deepEqual(calls().filter((c) => c.link || c.plan), []);
   }));
 
@@ -177,7 +177,7 @@ test('#8724 a link module that cannot load leaves the adoption review as it was,
     assert.match(review.stdout, /^ {2}skip zara -- not one of ours$/m);
     const link = await run(['--link', 'zara', '--confirm'], env({ T_PANES: '[]', T_LINKABLE: 'zara' }));
     assert.equal(link.code, 1, link.stdout + link.stderr);
-    assert.match(link.stdout, /^this Kosmos cannot link windows, so nothing was linked\.$/m);
+    assert.match(link.stdout, /^This Kosmos cannot link windows, so nothing was linked\.$/m);
   }));
 
 test('#8724 --link needs one name, and an unknown flag is refused before anything is read', { skip: SKIP_POSIX_SHELL }, () =>
@@ -204,4 +204,14 @@ test('#8724 a name that is not plain is printed in single quotes (nothing in it 
     assert.equal(back.stdout, nasty, 'the printed argument does not paste back as the name: ' + m[1]);
     const plain = await run(['--link', 'zara'], env({ T_PANES: '[]', T_LINKABLE: 'zara' }));
     assert.match(plain.stdout, /Nothing was changed\. Run: kosmos adopt --link zara --confirm/);
+  }));
+
+test('#8724 the skip hint quotes a name that is not plain, and sends a name starting with - to the board', { skip: SKIP_POSIX_SHELL }, () =>
+  withHome(async (env) => {
+    const rows = JSON.stringify([{ sessionName: 'my agent', isNamedOurs: false }, { sessionName: '-x', isNamedOurs: false }]);
+    const out = await run([], env({ T_ROWS: rows, T_PANES: '[]', T_LINKABLE: 'my agent,-x' }));
+    assert.equal(out.code, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /^ {2}skip my agent -- not one of ours; if you started it yourself, you can link it \(kosmos adopt --link 'my agent'\), then run kosmos adopt again$/m);
+    assert.match(out.stdout, /^ {2}skip -x -- not one of ours; if you started it yourself, you can link it from its page on the board$/m);
+    assert.doesNotMatch(out.stdout, /--link -x/, 'a command the parser refuses was offered');
   }));

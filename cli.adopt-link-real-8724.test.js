@@ -79,7 +79,7 @@ test('#8724 real engine: --link previews a window the link takes, and refuses on
   withBoard(BOARD, async (env) => {
     const yes = await run(['--link', 'zara'], env);
     assert.equal(yes.code, 0, yes.stdout + yes.stderr);
-    assert.match(yes.stdout, /^Kosmos would link the window called zara: /m);
+    assert.match(yes.stdout, /^Kosmos would link the window called zara\. Kosmos would then type /m);
     assert.match(yes.stdout, /Nothing was changed\. Run: kosmos adopt --link zara --confirm/);
     const no = await run(['--link', 'otto'], env);
     assert.equal(no.code, 1, no.stdout + no.stderr);

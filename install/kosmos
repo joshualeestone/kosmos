@@ -5867,17 +5867,17 @@ cmd_adopt() {
     const want = process.env.KOSMOS_ADOPT_LINK || "";
     if (want) {
       const linkwindow = loadLink();
-      if (!linkwindow) { console.log("this Kosmos cannot link windows, so nothing was linked."); process.exit(1); }
+      if (!linkwindow) { console.log("This Kosmos cannot link windows, so nothing was linked."); process.exit(1); }
       let panes;
       try { panes = status.panesWithCommands(); }
-      catch (e) { console.log("could not read the windows on this computer, so nothing was linked."); process.exit(1); }
+      catch (e) { console.log("Kosmos could not read the windows on this computer, so nothing was linked."); process.exit(1); }
       if (process.env.KOSMOS_ADOPT_CONFIRM !== "1") {
         let lp = null;
         try { lp = linkwindow.plan(want, panes); } catch (e) { lp = null; }
         if (!lp) { console.log("Kosmos could not check that window, so nothing was changed."); process.exit(1); }
         if (!lp.ok) { console.log(lp.because); process.exit(1); }
         const shownName = lp.name || want;
-        console.log("Kosmos would link the window called " + shownName + ": it would then type your messages into it, show its");
+        console.log("Kosmos would link the window called " + shownName + ". Kosmos would then type your messages into it, show its");
         console.log("conversation and look after it as one of its own agents, which can include closing it if the agent");
         console.log("in it has stopped. Only do this if you started that agent yourself in that window.");
         console.log("Until Kosmos starts this agent itself, the board cannot restart it, and its own kosmos commands do not");
@@ -5894,7 +5894,7 @@ cmd_adopt() {
       /* What linking gives now, and what waits: the window keeps the environment it started with, so the agent in it
          speaks as itself (and can be restarted from the board) only once Kosmos starts it. */
       console.log("Linked the window called " + (r.name || want) + ". Kosmos now treats it as its own: the board types your messages into it and shows its conversation.");
-      console.log("The agent in it speaks as itself, and the board can restart it, only once Kosmos starts it.");
+      console.log("The agent in it speaks as itself, and the board can restart it, only once Kosmos starts it; adopting does not change that.");
       console.log("Run kosmos adopt to see what it would record now; nothing is recorded without --confirm.");
       process.exit(0);
     }
@@ -5930,7 +5930,9 @@ cmd_adopt() {
       if (s.because === "not one of ours" && linkPanes) {
         let lp = null;
         try { lp = hintLink.plan(s.name, linkPanes); } catch (e) { lp = null; }
-        if (lp && lp.ok) line += "; if you started it yourself, you can link it (kosmos adopt --link " + asArg(s.name) + "), then run kosmos adopt again";
+        /* A name starting with - would read as a flag (the argument parser refuses it), so it is linked from the board. */
+        if (lp && lp.ok && String(s.name).startsWith("-")) line += "; if you started it yourself, you can link it from its page on the board";
+        else if (lp && lp.ok) line += "; if you started it yourself, you can link it (kosmos adopt --link " + asArg(s.name) + "), then run kosmos adopt again";
       }
       return line;
     };
