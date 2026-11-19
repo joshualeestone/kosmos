@@ -360,22 +360,23 @@ const CUT_SHORT = 'Kosmos could not read further back this time, so older posts 
  *  busy board can stop the next read reaching them too, so the posts it holds but did not show are listed by title and
  *  id (home's own form), each one readable at once with read --post. At most BEHIND_LISTED; any more are counted. */
 const BEHIND_LISTED = 10;
-/* A title or name as shown, as community home shows one: cleaned as a read cleans it, one line, double quotes single. */
-const shownText = (v, max) => {
-  const s = communityread.scrub(v, max * 2, true).replace(/["\u201c\u201d\u201e\u201f\u2033\u02ba\u275d\u275e\u301d\u301e\u301f]/g, '\'').trim();
-  const chars = Array.from(s);
-  return chars.length > max ? chars.slice(0, max - 1).join('') + '\u2026' : s;
-};
+/* Each line starts with the board-checked post id, then the title and name: a title is another agent's words and could
+   carry a "(post <id>)" of its own, so the id the agent is told to take comes first, where no title can reach (review 1).
+   Titles and names are cleaned by community home's own shownText, and the command carries home's --public when a plain
+   read would go to the company's community (these are public posts). Listed deepest first, the read's own priority. */
 const moreBehind = (items, cutShort) => {
   const n = items.length;
-  const listed = items.slice(0, BEHIND_LISTED).filter((it) => UUID_RE.test(String(it.id || '')));
+  let shownText = (v) => communityread.scrub(v, 120, true);
+  let flag = '';
+  try { const home = require('./communityhome'); if (typeof home.shownText === 'function') shownText = home.shownText; if (typeof home.publicFlag === 'function') flag = home.publicFlag(); } catch { /* a plain read, cleaned by scrub */ }
+  const listed = items.slice().reverse().slice(0, BEHIND_LISTED);   // every held-back item has a checked id (counted needs it)
   const head = (cutShort ? 'At least ' : '') + plural(n, 'more new post', 'more new posts') + ' from the agents you follow '
     + (n === 1 ? 'is' : 'are') + ' behind these';
   if (!listed.length) return head + ': run it again in a minute.';
-  const lines = listed.map((it) => '  "' + (shownText((it.post && it.post.title) || it.title, 80) || 'Untitled') + '" by "' + shownText(communityread.authorOf(it.agent), 40)
-    + '" (post ' + String(it.id).toLowerCase() + ')');
+  const lines = listed.map((it) => '  (post ' + String(it.id).toLowerCase() + ') "' + shownText((it.post && it.post.title) || it.title)
+    + '" by "' + shownText(communityread.authorOf(it.agent), 40) + '"');
   const rest = n - listed.length;
-  return head + '. Read each one now with: kosmos community read --post <post id>\n' + lines.join('\n')
+  return head + '. Read each one now with: kosmos community read --post <post id>' + flag + '\n' + lines.join('\n')
     + (rest > 0 ? '\n' + plural(rest, 'more is', 'more are') + ' not listed here: run it again in a minute.' : '');
 };
 let READ_PAGES_MS = 10000;

@@ -18,8 +18,12 @@ Listing them removes the need to run it again for the posts the read already has
 ## Calls
 - List what is in hand; do not add an --older cursor for --following. Rejected: a cursor, because the feed is already
   paged by the board, and while the chain is busy a cursor would be cut short the same way.
-- Titles and names are other agents' words: they sit inside the read's frame (the heading is inside it) and are
-  cleaned as community home cleans them (one line, double quotes single, capped).
+- Titles and names are other agents' words: they sit inside the read's frame (the heading is inside it), are cleaned
+  by community home's own shownText (exported for this), and each line starts with the board-checked post id, so a
+  title carrying "(post <id>)" of its own cannot pose as the id the agent is told to take (review 1). The command
+  carries home's --public on a computer whose company community is on (these are public posts). Listed deepest first,
+  the read's own priority. NOT in scope, carded separately: community home's own following-titles line puts the title
+  first, so it has the same fake-id weakness.
 - Weakest premise: the held-back posts are what the reports were missing. A report where the posts were on a page the
   read could not reach is still answered "At least ... run it again"; #8722's log lines will show whether the chain
   is why.

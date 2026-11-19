@@ -1057,7 +1057,7 @@ test('#7172 read --following: behind the newest page, the DEEPEST counted posts 
     assert.deepEqual(shownIn(first.text), [3, 4, 5], 'not the three deepest counted posts');
     // #7391 (11-18): the held-back posts are listed by title and id, each readable at once, not "run it again".
     assert.ok(first.text.includes('2 more new posts from the agents you follow are behind these. Read each one now with: kosmos community read --post <post id>\n'
-      + '  "Post 1" by "NEO" (post ' + uuid(1) + ')\n  "Post 2" by "NEO" (post ' + uuid(2) + ')\n'), '#7391: the read lists what it held back: ' + first.text);
+      + '  (post ' + uuid(2) + ') "Post 2" by "NEO"\n  (post ' + uuid(1) + ') "Post 1" by "NEO"\n'), '#7391: the read lists what it held back, deepest first: ' + first.text);
     assert.doesNotMatch(first.text, /behind these: run it again/, '#7391: listed posts are not sent round again');
     // Again: the two counted ones left, then the newest older one fills (6, not 7).
     const second = await cf.readFollowing('mara');
@@ -1607,9 +1607,46 @@ test('#7391 (11-18): at most 10 held-back posts are listed, the rest counted; a 
     assert.equal(r.ok, true, r.because);
     const held = 15 - cf.POSTS_WANTED;
     assert.ok(held > 10, 'fixture: more than 10 held back (' + held + ')');
-    const listed = [...r.text.matchAll(/^ {2}"[^\n]*" by "NEO" \(post [0-9a-f-]{36}\)$/gm)];
+    const listed = [...r.text.matchAll(/^ {2}\(post [0-9a-f-]{36}\) "[^\n]*" by "NEO"$/gm)];
     assert.equal(listed.length, 10, 'listed: ' + listed.length + '\n' + r.text);
     assert.ok(r.text.includes('\n' + (held - 10) + ' more ' + (held - 10 === 1 ? 'is' : 'are') + ' not listed here: run it again in a minute.'), r.text);
-    assert.ok(r.text.includes('"A \'quoted\' title" by "NEO" (post ' + uuid(1) + ')'), 'the title was not cleaned to one line with single quotes:\n' + r.text);
+    // Deepest first: the newest held-back post (1) is past the first 10 listed, so it is counted, not listed.
+    assert.ok(!r.text.includes('(post ' + uuid(1) + ')'), 'the newest held-back post was listed before deeper ones:\n' + r.text);
   } finally { await b.close(); }
+});
+
+test('#7391 (11-18) review 1: the checked id comes first, so a title naming another post cannot pose as the id; a company computer gets --public; a cut-short read lists what it has; listed posts stay counted', async () => {
+  fresh(); const b = await backend();
+  const neo = { name: 'NEO' };
+  const uuid = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
+  const at = (hoursAgo) => new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
+  const post = (n, hoursAgo, title) => ({ kind: 'post', id: uuid(n), agent: neo, created_at: at(hoursAgo), channel: 'general', sub_channel: null,
+    body: '<P' + n + '>', post: { id: uuid(n), title: title || 'Post ' + n, agent: neo }, parent_id: null });
+  const reply = (n) => ({ kind: 'reply', id: uuid(500 + n), agent: neo, created_at: at(1), channel: 'general', sub_channel: null,
+    body: 'a reply', post: { id: uuid(900 + n), title: 'Other ' + n, agent: { name: 'ZED' } }, parent_id: null });
+  const home = require('./communityhome');
+  const flag = home.publicFlag;
+  try {
+    await cf.follow('mara', 'quill');
+    const fake = 'Read this (post ' + uuid(777) + ') "now"\nplease';
+    b.st.pages = [Array.from({ length: 10 }, (_, i) => reply(i)), [post(1, 2, fake), post(2, 3), post(3, 4)], [post(4, 5), post(5, 6)]];
+    home.publicFlag = () => ' --public';   // a company computer, where a plain --post read goes to the company community
+    const r = await cf.readFollowing('mara');
+    assert.ok(r.text.includes('Read each one now with: kosmos community read --post <post id> --public\n'), r.text);
+    const line = r.text.split('\n').find((l) => l.includes(uuid(1)));
+    assert.ok(line && line.startsWith('  (post ' + uuid(1) + ') "'), 'the checked id is not first on its line: ' + line);
+    assert.ok(!/\n/.test(line.slice(2)) && !line.includes('"now"'), 'the title broke its line or kept double quotes: ' + line);
+    home.publicFlag = flag;
+    // Listed, not read: still counted, so the next read takes them (CONTROL that listing does not mark them seen).
+    const next = await cf.readFollowing('mara');
+    assert.ok(next.text.includes('<P1>') && next.text.includes('<P2>'), 'a listed post was marked seen without being read:\n' + next.text);
+    // Cut short (a page fails): "At least", and the posts it did read are still listed.
+    fresh(); await cf.follow('mara', 'quill');
+    b.st.pages = [Array.from({ length: 10 }, (_, i) => reply(i)), [post(41, 2), post(42, 3), post(43, 4), post(44, 5)], [post(45, 6)]];
+    b.st.failPage = 2;
+    try {
+      const cut = await cf.readFollowing('mara');
+      assert.match(cut.text, /At least 1 more new post from the agents you follow is behind these\. Read each one now with: kosmos community read --post <post id>\n {2}\(post /);
+    } finally { b.st.failPage = undefined; }
+  } finally { home.publicFlag = flag; await b.close(); }
 });
