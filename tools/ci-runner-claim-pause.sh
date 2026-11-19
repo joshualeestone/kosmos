@@ -1,7 +1,6 @@
 #!/bin/bash
 # kosmos#8761: a kosmos-ci runner that takes no job while ANOTHER user's machine claim is live (Mortals: a release cut
-# holds the box). One tick: run it every minute from its own LaunchAgent (tools/ci-runner-setup.sh claim-pause installs
-# that). Why not wait inside the job: tools/run-tests.sh does wait on the claim, but inside a job whose suite times out
+# holds the box). One tick: run it every minute from its own LaunchAgent (how, below under "Installing it"). Why not wait inside the job: tools/run-tests.sh does wait on the claim, but inside a job whose suite times out
 # at 45 minutes, so during a two-hour cut the runner would take queued jobs and time each one out red. Why not refuse in
 # the job-started hook: a hook that exits non-zero fails the job red too. So the runner is stopped between jobs.
 #
@@ -21,9 +20,16 @@
 #     process, the same rc as a dead one, so it would read every live cut as crashed (measured 11-19, pid 1);
 #   - the claim file is never removed here, live or stale: it is the holder's.
 #
-# Not closed, said so: a job the Listener accepts between the Runner.Worker check and the SIGTERM is cancelled and
-# needs a re-run (the keepalive stage accepts the same window). A runner run as a LaunchDaemon (the daemon stage) is in
-# the system domain, which this user cannot stop: refused, exit 1.
+# Not closed, said so: a job the Listener has accepted but not yet handed to a Runner.Worker is not seen, and the SIGTERM
+# cancels it (a red job, re-run by hand). How long that window is has NOT been measured (it spans the Listener's own
+# round trips to GitHub), and it is armed at the start of every cut, not once by an operator as in the keepalive stage.
+# Not handled: a runner run as a LaunchDaemon (the daemon stage) is in the system domain, which this user cannot stop:
+# refused, exit 1, every tick. Out of scope: a kosmos-relay runner under the same user is never stopped (its jobs do
+# delay the pause, since pgrep cannot tell the two runners' Workers apart).
+# Trust boundary: the runner's home is writable by its jobs, so a trusted job (ci-runner-job-guard.sh's model) can
+# rewrite .service or the marker; a rewritten .service must still name a LaunchAgent directly in this home whose
+# WorkingDirectory is the runner dir (as ci-runner-setup.sh's runner_plist), and a planted marker only makes a tick
+# refuse loudly. Neither can make it stop a different job.
 #
 # Installing it (kosmos#8761: the Mortals install is PigeonPete's half, after this lands): as the runner user, a copy
 # pinned like ci-runner-setup.sh (same <commit>, shasum checked), and a LaunchAgent ~/Library/LaunchAgents/
@@ -34,7 +40,7 @@
 # Settings: KOSMOS_CI_CLAIM_FILE (required: the claim to watch, e.g.
 #   /Users/mortalkombat/.cache/kosmos-run-markers/machine-claim), KOSMOS_CI_RUNNER_DIR (default ~/actions-runner),
 #   KOSMOS_CI_PAUSE_STATE (default ~/.kosmos-ci/claim-pause, holds the marker).
-# Test seams: KOSMOS_CI_LAUNCHCTL, KOSMOS_CI_PGREP, KOSMOS_CI_PS, KOSMOS_CI_NOW, KOSMOS_CI_UID.
+# Test seams: KOSMOS_CI_LAUNCHCTL, KOSMOS_CI_PGREP, KOSMOS_CI_PS, KOSMOS_CI_NOW, KOSMOS_CI_UID, KOSMOS_CI_DAEMON_DIR.
 # Exit: 0 a tick done (whatever it did), 1 it could not act (said why), 2 not set up (no claim file setting, no runner).
 PATH=/usr/bin:/bin
 set -u
@@ -47,14 +53,16 @@ STATE="${KOSMOS_CI_PAUSE_STATE:-$HOME/.kosmos-ci/claim-pause}"
 uid="${KOSMOS_CI_UID:-$(id -u)}"
 MARK="$STATE/paused-by-claim"
 
-say() { printf 'claim-pause %s: %s\n' "$(date '+%H:%M:%S')" "$*"; }
+say() { printf 'claim-pause %s: %s\n' "$(date '+%F %T %Z')" "$*"; }
 [ -n "$CLAIM" ] || { say "not set up: KOSMOS_CI_CLAIM_FILE is empty"; exit 2; }
 
 # The claim, or nothing. Prints "<pid> <expiry> <label>" when live.
 claim_live() {
   local line pid exp label now
   [ -f "$CLAIM" ] && [ -r "$CLAIM" ] || return 1
-  line="$(head -n 1 "$CLAIM" 2>/dev/null)" || return 1
+  line="$(cat "$CLAIM" 2>/dev/null)" || return 1
+  # cut-guard counts fields per line of the whole file, so more than one line is no claim there; the same here.
+  [ "$(printf '%s\n' "$line" | wc -l | tr -d ' ')" = 1 ] || return 1
   [ "$(printf '%s' "$line" | awk '{print NF}')" -ge 5 ] 2>/dev/null || return 1
   pid="$(printf '%s' "$line" | awk '{print $2}')"
   exp="$(printf '%s' "$line" | awk '{print $3}')"
@@ -71,9 +79,18 @@ claim_live() {
 svc="$RUNNER_DIR/.service"
 [ -f "$svc" ] && [ ! -L "$svc" ] || { say "not set up: no $svc (is the runner installed with svc.sh?)"; exit 2; }
 plist="$(head -n 1 "$svc")"
+AGENTS="$HOME/Library/LaunchAgents"
+case "${plist#"$AGENTS"/}" in */*) say "not set up: $svc names $plist, not a LaunchAgent directly in $AGENTS"; exit 2 ;; esac
+case "$plist" in "$AGENTS"/actions.runner.*.plist) ;; *) say "not set up: $svc names $plist, not an actions.runner LaunchAgent"; exit 2 ;; esac
 label="$(basename "$plist" .plist)"
-case "$label" in actions.runner.*) ;; *) say "not set up: $svc names $plist, not an actions.runner LaunchAgent"; exit 2 ;; esac
-case "$plist" in /Library/LaunchDaemons/*) say "refused: $label is a LaunchDaemon (system domain), which this user cannot stop"; exit 1 ;; esac
+# The daemon stage moves the agent plist away and leaves .service naming it, so a daemon is found by its own plist or
+# by launchd's system domain, never by .service.
+if [ -e "${KOSMOS_CI_DAEMON_DIR:-/Library/LaunchDaemons}/$label.plist" ] || "$LAUNCHCTL" print "system/$label" >/dev/null 2>&1; then
+  say "refused: $label runs as a LaunchDaemon (system domain), which this user cannot stop; the pause does nothing for it"; exit 1
+fi
+[ -f "$plist" ] && [ ! -L "$plist" ] || { say "not set up: $plist is not a regular file"; exit 2; }
+wd="$(/usr/bin/plutil -extract WorkingDirectory raw -o - "$plist" 2>/dev/null)"
+[ "$wd" = "$RUNNER_DIR" ] || { say "not set up: $plist runs in ${wd:-?}, not $RUNNER_DIR (another runner's?)"; exit 2; }
 dom="gui/$uid"
 
 printed="$("$LAUNCHCTL" print "$dom/$label" 2>/dev/null)"; prc=$?
@@ -96,11 +113,21 @@ if live="$(claim_live)"; then
   exit 0
 fi
 
+# A claim this user cannot read reads as none (fail open, as cut-guard), but says so: a permissions change on the
+# holder's home would otherwise disarm the pause with a log saying all is well.
+cdir="$(dirname "$CLAIM")"
+if [ ! -d "$cdir" ] || [ ! -x "$cdir" ] || { [ -e "$CLAIM" ] && { [ ! -f "$CLAIM" ] || [ ! -r "$CLAIM" ]; }; }; then
+  unread="cannot read $CLAIM (missing or closed folder, not a file, or no read permission), so it counts as no claim; "
+else
+  unread=""
+fi
 if [ -f "$MARK" ]; then
-  "$LAUNCHCTL" kickstart "$dom/$label" >/dev/null 2>&1 || { say "no live claim, but launchctl kickstart $dom/$label failed; the marker stays, so the next tick tries again"; exit 1; }
+  "$LAUNCHCTL" kickstart "$dom/$label" >/dev/null 2>&1 || { say "${unread}no live claim, but launchctl kickstart $dom/$label failed (if it is not loaded: launchctl bootstrap $dom $plist); the marker stays, so the next tick tries again"; exit 1; }
   rm -f "$MARK"
-  say "no live claim; $label was started again (this pause had stopped it)"
+  say "${unread}no live claim; $label was started again (this pause had stopped it)"
+  [ -z "$unread" ] || exit 1
   exit 0
 fi
-say "no live claim; nothing to do"
+say "${unread}no live claim; nothing to do"
+[ -z "$unread" ] || exit 1
 exit 0

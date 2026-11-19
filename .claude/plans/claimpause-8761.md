@@ -29,13 +29,13 @@ Mortals install (kosmos-ci user, install, register, keepalive, before/after meas
   so the Listener ends its GitHub session, KeepAlive {SuccessfulExit:false} does not restart a clean exit). Start with
   launchctl kickstart of the gui/<uid> label. LaunchAgent mode only first; daemon mode (system domain, root) cannot be
   stopped by kosmos-ci: refuse or document.
-- Race: a job assigned between the Runner.Worker check and the stop. Window is milliseconds; such a job fails and is
-  re-run. Document; do not claim it is closed.
+- Race: a job the Listener accepted but has not handed to a Worker yet is cancelled by the stop. Its length is NOT measured;
+  it is armed at the start of every cut. Documented in the header as open.
 
 ## Weakest premise
 That stopping the Listener cleanly while idle never loses an already-assigned job. To measure in the test only by stand-in;
 real behaviour on Mortals is PigeonPete's install check.
 
 ## Tests
-- tools/test-ci-runner-claim-pause-8761.sh (21 checks, in test:shell). Perturbed (15:41 CST, on c9156b8d2e): liveness
+- tools/test-ci-runner-claim-pause-8761.sh (29 checks, in test:shell). Perturbed (15:41 CST, on c9156b8d2e): liveness
   as `kill -0` instead of `ps -p` fails the live-claim checks; restored from HEAD.
