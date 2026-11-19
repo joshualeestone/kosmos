@@ -59,7 +59,7 @@ tick() {
 rc() { cat "$T/rc"; }
 called() { grep -q -- "$1" "$T/calls"; }
 : > "$T/pgrepcalls"
-reset() { chmod 755 "$T/claims" 2>/dev/null; rm -rf "$CLAIM"; rm -f "$T/nolistener" "$T/insystem" "$T/kaalways" "$T/kasuccess" "$T/daemons/$LABEL.plist" "$T/running" "$T/busy" "$T/notloaded" "$T/killfails" "$T/kickfails" "$T/pgrepbroken" "$T/state/paused-by-claim" "$T/state/claim-cleared-once" "$CLAIM"; : > "$T/running"; }
+reset() { chmod 755 "$T/claims" 2>/dev/null; rm -rf "$CLAIM"; rm -f "$T/nolistener" "$T/insystem" "$T/kaalways" "$T/kasuccess" "$T/daemons/$LABEL.plist" "$T/running" "$T/busy" "$T/notloaded" "$T/killfails" "$T/kickfails" "$T/pgrepbroken" "$T/state/paused-by-claim" "$T/state/claim-cleared-once" "$T/state/last-said" "$CLAIM"; : > "$T/running"; }
 
 # Precondition: kill -0 really cannot see pid 1 as this user, so the control below means something.
 if kill -0 1 2>/dev/null; then echo "skip test-ci-runner-claim-pause-8761: kill -0 1 succeeds here (running as root?)"; exit 0; fi
@@ -82,7 +82,7 @@ rm -f "$CLAIM"; tick
 [ "$(rc)" = 0 ] && ! called kickstart && [ -f "$T/state/claim-cleared-once" ] && pass "claim gone once: not started yet" || fail "first clear: rc $(rc) $(tr '\n' ';' < "$T/calls")"
 echo "c1 1 $((NOW + 3600)) mortals next phase" > "$CLAIM"; tick
 [ ! -f "$T/state/claim-cleared-once" ] && ! called kickstart && pass "claim back between phases: the clear is forgotten, still paused" || fail "re-claim: $(tr '\n' ';' < "$T/calls")"
-rm -f "$CLAIM"; tick; tick
+rm -f "$CLAIM"; tick; NOW=$((NOW + 30)); tick; [ "$(rc)" = 0 ] && ! called kickstart && pass "gone again 30 s later (a tick run by hand): not started yet" || fail "early second clear: $(tr '\n' ';' < "$T/calls")"; NOW=$((NOW + 30)); tick; NOW=$((NOW - 60))
 if [ "$(rc)" = 0 ] && called "kickstart gui/501/$LABEL" && [ ! -f "$T/state/paused-by-claim" ] && [ -f "$T/running" ]; then pass "claim cleared: kickstarted, marker removed"; else fail "cleared: rc $(rc) $(tr '\n' ';' < "$T/calls")"; fi
 
 # 4. No claim, no marker, runner stopped by hand: never started here.
@@ -108,9 +108,10 @@ done
 # 7. Refusals that must not stop the runner.
 reset; : > "$T/pgrepbroken"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 1 ] && ! called kill && pass "pgrep failed: not stopped, exit 1" || fail "pgrep broken: rc $(rc) $(tr '\n' ';' < "$T/calls")"
+tick; [ "$(rc)" = 1 ] && [ ! -s "$T/out" ] && pass "the same refusal on the next tick: said once, not every minute" || fail "repeat logged: $(cat "$T/out")"
 reset; echo 1111 > "$T/state/paused-by-claim"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 1 ] && ! called kill && pass "running again as a NEW pid after this pause stopped another: not stopped again, exit 1" || fail "restart loop: rc $(rc) $(tr '\n' ';' < "$T/calls")"
-reset; echo 4242 > "$T/state/paused-by-claim"; touch -t 202001010000 "$T/state/paused-by-claim"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
+reset; echo 4242 > "$T/state/paused-by-claim"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 0 ] && ! called kill && grep -q "still ending" "$T/out" && pass "the SAME pid still running, however long after the stop: waits, exit 0" || fail "fresh marker: rc $(rc) $(cat "$T/out")"
 reset; : > "$T/kaalways"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 1 ] && ! called kill && [ ! -f "$T/state/paused-by-claim" ] && pass "KeepAlive true loaded: not stopped, no marker, exit 1" || fail "keepalive true: rc $(rc) $(cat "$T/out")"
@@ -118,7 +119,7 @@ reset; : > "$T/kasuccess"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 0 ] && called "kill SIGTERM" && pass "CONTROL: KeepAlive {SuccessfulExit: false} loaded: stopped" || fail "keepalive success: rc $(rc) $(cat "$T/out")"
 reset; : > "$T/nolistener"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 0 ] && ! called kill && [ ! -f "$T/state/paused-by-claim" ] && grep -q "no Listener" "$T/out" && pass "service up but no Listener (restarting or updating): waits, no stop" || fail "no listener: rc $(rc) $(cat "$T/out")"
-reset; echo 4242 > "$T/state/paused-by-claim"; touch -t 202001010000 "$T/state/paused-by-claim"; tick
+reset; echo 4242 > "$T/state/paused-by-claim"; tick
 [ "$(rc)" = 0 ] && ! called kickstart && [ -f "$T/state/paused-by-claim" ] && pass "claim cleared while the stopped pid is still ending (long after): no kickstart yet, marker kept" || fail "clear while ending: rc $(rc) $(tr '\n' ';' < "$T/calls")"
 reset; echo 1111 > "$T/state/paused-by-claim"; tick
 [ "$(rc)" = 0 ] && ! called kickstart && [ ! -f "$T/state/paused-by-claim" ] && pass "claim cleared, runner already running as a new pid: marker dropped, no kickstart" || fail "cleared running: rc $(rc)"
@@ -126,7 +127,7 @@ reset; rm -f "$T/running"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 0 ] && ! called kill && [ ! -f "$T/state/paused-by-claim" ] && pass "live claim, stopped by hand, no marker: left alone, no marker written" || fail "hand-stopped under claim: rc $(rc)"
 reset; : > "$T/killfails"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 1 ] && [ ! -f "$T/state/paused-by-claim" ] && pass "SIGTERM failed: exit 1, no marker left" || fail "kill fails: rc $(rc)"
-reset; rm -f "$CLAIM"; : > "$T/state/paused-by-claim"; : > "$T/state/claim-cleared-once"; rm -f "$T/running"; : > "$T/kickfails"; tick
+reset; rm -f "$CLAIM"; : > "$T/state/paused-by-claim"; echo $((NOW - 60)) > "$T/state/claim-cleared-once"; rm -f "$T/running"; : > "$T/kickfails"; tick
 [ "$(rc)" = 1 ] && [ -f "$T/state/paused-by-claim" ] && pass "kickstart failed: exit 1, marker kept for the next tick" || fail "kick fails: rc $(rc)"
 reset; : > "$T/notloaded"; echo "c1 1 $((NOW + 3600)) m cut" > "$CLAIM"; tick
 [ "$(rc)" = 0 ] && ! called kill && pass "not loaded: nothing to pause" || fail "not loaded: rc $(rc)"

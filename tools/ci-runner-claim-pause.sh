@@ -38,8 +38,9 @@
 # delay the pause, since pgrep cannot tell the two runners' Workers apart).
 # Trust boundary: the runner's home is writable by its jobs, so a trusted job (ci-runner-job-guard.sh's model) can
 # rewrite .service or the marker; a rewritten .service must still name a LaunchAgent directly in this home whose
-# WorkingDirectory is the runner dir (as ci-runner-setup.sh's runner_plist), and a planted marker only makes a tick
-# refuse loudly. A job that rewrites both .service and another runner's plist could aim the SIGTERM at that runner;
+# WorkingDirectory is the runner dir (as ci-runner-setup.sh's runner_plist). A planted marker can quietly hold off
+# the pause for a claim (one naming the running pid reads as "still ending") or start a runner stopped by hand once no
+# claim is live. A job that rewrites both .service and another runner's plist could aim the SIGTERM at that runner;
 # that gains it nothing, since a job of this user can already run launchctl itself.
 #
 # Installing it (kosmos#8761: the Mortals install is PigeonPete's half, after this lands): as the runner user, a copy
@@ -66,7 +67,15 @@ uid="${KOSMOS_CI_UID:-$(id -u)}"
 MARK="$STATE/paused-by-claim"      # holds the pid this pause stopped
 CLEARED="$STATE/claim-cleared-once" # the claim was gone on the last tick
 
-say() { printf 'claim-pause %s: %s\n' "$(date '+%F %T %Z')" "$*"; }
+# One line per change: a state that holds (a refusal, still ending) is said once, not every minute, so the log stays
+# readable without rotation. The last line said is kept in $STATE.
+say() {
+  local last=""; [ -f "$STATE/last-said" ] && last="$(cat "$STATE/last-said" 2>/dev/null)"
+  [ "$*" != "$last" ] || return 0
+  printf 'claim-pause %s: %s\n' "$(date '+%F %T %Z')" "$*"
+  mkdir -p "$STATE" 2>/dev/null && printf '%s' "$*" > "$STATE/last-said" 2>/dev/null
+  return 0
+}
 [ -n "$CLAIM" ] || { say "not set up: KOSMOS_CI_CLAIM_FILE is empty"; exit 2; }
 
 # The claim, or nothing. Prints "<pid> <expiry> <label>" when live.
@@ -111,7 +120,7 @@ rpid="$(printf '%s\n' "$printed" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/
 if live="$(claim_live)"; then
   rm -f "$CLEARED"   # the claim is live: a "gone once" from an earlier tick no longer counts
   hexp="$(printf '%s' "$live" | awk '{print $2}')"
-  why="a live claim ($(printf '%s' "$live" | cut -d' ' -f3-), until $(date -r "$hexp" '+%H:%M' 2>/dev/null || echo "$hexp"))"
+  why="a live claim ($(printf '%s' "$live" | cut -d' ' -f3-), until $(date -r "$hexp" '+%H:%M %Z' 2>/dev/null || echo "$hexp"))"
   [ "$prc" = 0 ] || { say "$why, but $label is not loaded in $dom: nothing to pause"; exit 0; }
   [ -n "$rpid" ] || { say "$why; $label is already stopped"; exit 0; }
   # A loaded KeepAlive true restarts even a clean exit, so a SIGTERM would only cut the Listener's GitHub session and
@@ -163,11 +172,14 @@ if [ -f "$MARK" ] && [ -n "$rpid" ]; then
   [ "$stopped" != "$rpid" ] || { say "no live claim; $label (pid $rpid) is still ending: starting it once it has"; exit 0; }
   rm -f "$MARK" "$CLEARED"; say "no live claim; $label is already running as pid $rpid (started another way)"; exit 0
 fi
-if [ -f "$MARK" ] && [ ! -f "$CLEARED" ]; then
-  # Absent on two ticks in a row before starting it: a cut can release its claim and claim again between phases, and
-  # a start in that gap could take a job a minute before the next tick pauses it again.
-  : > "$CLEARED" 2>/dev/null || { say "no live claim, but $CLEARED cannot be written: not starting $label yet"; exit 1; }
-  say "no live claim; starting $label next tick if the claim is still gone"; exit 0
+now="${KOSMOS_CI_NOW:-$(date +%s)}"
+seen="$(head -n 1 "$CLEARED" 2>/dev/null)"; case "$seen" in ''|*[!0-9]*) seen="" ;; esac
+if [ -f "$MARK" ] && { [ -z "$seen" ] || [ $((now - seen)) -lt 50 ]; }; then
+  # Absent on two ticks at least 50 s apart before starting it: a cut can release its claim and claim again between
+  # phases, and a start in that gap could take a job a minute before the next tick pauses it again. 50 s, not "two
+  # ticks", because a tick run by hand or launchd catching up after sleep can land seconds after the last one.
+  [ -n "$seen" ] || { printf '%s\n' "$now" > "$CLEARED" 2>/dev/null || { say "no live claim, but $CLEARED cannot be written: not starting $label yet"; exit 1; }; }
+  say "no live claim; starting $label once the claim has stayed gone 50 s"; exit 0
 fi
 if [ -f "$MARK" ]; then
   "$LAUNCHCTL" kickstart "$dom/$label" >/dev/null 2>&1 || { say "no live claim, but launchctl kickstart $dom/$label failed (if it is not loaded: launchctl bootstrap $dom $plist); the marker stays, so the next tick tries again"; exit 1; }
