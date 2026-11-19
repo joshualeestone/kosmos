@@ -152,3 +152,13 @@ test('#8736 a ran-then-replaced task replaced again by another task stays not "n
   assert.equal(b.stored(n).replacedBy, other);
   assert.equal(b.stored(n).closedUnrun, false);
 });
+
+test('#8736 under one parent, a ran-then-replaced child is done and a replaced child with nothing on record is unrun', () => {
+  const b = board();
+  const ran = b.kid('ran, then replaced');
+  const empty = b.kid('replaced with nothing done');
+  tasks.setBuilt(b.id, ran, { by: 'rex' });
+  tasks.close(b.id, ran, { replacedBy: b.instead });
+  tasks.close(b.id, empty, { replacedBy: b.instead });
+  assert.deepEqual(b.count(), { done: 2, built: 0, held: 0, unrun: 1, total: 2 });
+});

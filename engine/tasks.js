@@ -302,7 +302,7 @@ function treeOf(p) {
      task's done-when checks. */
   const isBuilt = isBuiltOpen;   // held reads held (taskState); one definition, shared with kosmos#7514's closesWithParent
   /* kosmos#8140: `held` counts the open children on hold, so a parent can show them apart from the ones not done yet
-     (a built parent with most pieces held read as finished). kosmos#8301: `unrun` counts the children closed as never run or replaced (closedUnrun), so "done" can mean done: they stay in `done`, which every reader of "all closed" needs. */
+     (a built parent with most pieces held read as finished). kosmos#8301: `unrun` counts the children closed as never run, or replaced with nothing on their record that says they ran (closedUnrunOf, kosmos#8736), so "done" can mean done: they stay in `done`, which every reader of "all closed" needs. */
   const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, held: k.filter((t) => !progressOf(t).closed && isOnHold(t)).length, unrun: k.filter(closedUnrunOf).length, total: k.length }; };
   return { byNum, up, under, progress };
 }
@@ -1412,9 +1412,10 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
     /* kosmos#8736: a replaced task whose own record says it ran is "done, then superseded", not "never run": it is
        replaced (the link is kept) without the never-run mark, so a parent's done-count (#8301) does not count it unrun.
        Replacing finished work is legitimate, so this is not a refusal. */
-    if (after && (notRun || (replacedNew && !ranOnRecord(t).any))) changed.closedUnrun = true;
-    /* Replaced, and its record says it ran: not "never run". Never over a not-run mark already there: that is the
-       closer's word (#8301), and a replace does not take it back. */
+    const ranAny = replacedNew && ranOnRecord(t).any;
+    if (after && (notRun || (replacedNew && !ranAny))) changed.closedUnrun = true;
+    /* Replaced, and its record says it ran: not "never run". Never over a not-run mark already there (from --not-run,
+       or from an earlier replace): a replace does not take one back. */
     else if (after && replacedNew && t.closedUnrun !== true) changed.closedUnrun = false;
     if (!after || closedAt === null) delete changed.closedUnrun;   // a reopen clears it, also when the parts still read closed
     if (!before && after) setClosedHow(changed, t, p);   // kosmos#8552: read before the built mark goes (below)
