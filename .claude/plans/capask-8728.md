@@ -52,7 +52,9 @@ Mutations, each red: no self-retry (2 red), no starting sentence (1), no longer 
 forget (1), no foreign-window pending (1, set or read); review 3: forget resetting the count (1), the per-binary reset (1),
 the log's per-binary count (1), the status-not-read arm (1). Two separate "no tunnel here" and "no child" lines were
 removed rather than tested: each mutation left every test green because the status-not-read line already returns true
-in both cases, which the comment there now says. Existing: server.remotestepup-6595.test.js and
+in both cases, which the comment there now says. Review 4: a stop keeping the generation (1). NOT pinned: the one line
+in stopChild that calls retireCapabilityAsks (removing it leaves every test green). The only exported way to reach
+stopChild here is setOn(false), which also tells the coordinator; that is not a call to make from this sandbox. Existing: server.remotestepup-6595.test.js and
 server.stepupbutton-6616.test.js unchanged and green (48 with the new file).
 
 ## Known and left
