@@ -46,6 +46,7 @@ const JOBS = {
   sonyablade: { configDir: null, runner: 'claude' },
   twina: { configDir: null, runner: 'claude' },
   twinb: { configDir: null, runner: 'claude' },
+  codyc: { configDir: null, runner: 'codex' },
 };
 accounts.list = () => ROWS;
 create.readJob = (n) => (Object.prototype.hasOwnProperty.call(JOBS, n) ? JOBS[n] : null);
@@ -163,4 +164,15 @@ test('a resolver that throws: a listed name is a failed read (503), never "no ag
   } finally { removal.resolve = real; }
   // CONTROL: with the real resolver the same request plans.
   assert.equal((await plan({ name: 'Sub-Zero', account: 'spare', resolve: '1' })).j.name, 'subzero');
+});
+
+test('a listed name whose agent does not run on Claude is refused under the name that was listed, and names the agent', async () => {
+  folderAgent('codyc', 'Cody Codex');
+  const r = await plan({ name: 'Cody Codex', account: 'spare', resolve: '1' });
+  assert.equal(r.code, 409, r.text.slice(0, 200));
+  assert.deepEqual([r.j.ok, r.j.name, r.j.shown, r.j.dir], [false, 'codyc', 'Cody Codex', undefined], r.text.slice(0, 300));
+  assert.equal(r.j.because, 'Cody Codex does not run on a Claude account, so it cannot be moved to one');
+  // CONTROL: by its own name and without resolve=1, the sentence names it as sent (what main answered).
+  const own = await plan({ name: 'codyc', account: 'spare' });
+  assert.deepEqual([own.code, own.j.because], [409, 'codyc does not run on a Claude account, so it cannot be moved to one']);
 });

@@ -17471,10 +17471,9 @@ const server = http.createServer(async (req, res) => {
     if (!said && !dir) { sendJson(res, 400, { ok: false, because: 'we need the account to move it to' }); return; }   // review 2: never a silent default
     /* kosmos#8839: ONLY when the caller asks (`resolve=1`, which both CLIs send), a name as `kosmos agent list` prints it
        ("Sub-Zero", "Sonya Blade") is taken to the one agent it names (subzero, sonyablade), by kosmos#8109's
-       remove.resolve over the same cards, as the removal plan and the model route do. The plan, and each answer
-       given once the agent's job is found, carries that `name`, which is what the CLI then sends to
-       POST /api/agents/account (that route is not resolved, as remove's DELETE is not), and the card's `shown` name
-       when it has one. A name two agents answer to is refused,
+       remove.resolve over the same cards, as the removal plan and the model route do. The plan carries that `name`, which is
+       what the CLI then sends to POST /api/agents/account (that route is not resolved, as remove's DELETE is not),
+       and the card's `shown` name when it has one. A name two agents answer to is refused,
        never guessed. Without resolve=1 the name is taken exactly as sent. */
     let name = asked; let shownAs = null; let unresolved = false;   // unresolved: asked to resolve, and could not try
     if (q.get('resolve') === '1') {
@@ -17520,7 +17519,7 @@ const server = http.createServer(async (req, res) => {
     if (!job) { sendJson(res, 404, { ok: false, because: `there is no agent called ${name} on this computer` }); return; }
     let provider = null;
     try { provider = create.jobProvider(job); } catch { provider = null; }
-    if (provider !== 'anthropic') { sendJson(res, 409, { ok: false, ...who, because: `${name} does not run on a Claude account, so it cannot be moved to one` }); return; }
+    if (provider !== 'anthropic') { sendJson(res, 409, { ok: false, ...who, because: `${shownAs || name} does not run on a Claude account, so it cannot be moved to one` }); return; }
     /* Real folders on both sides: the default account's row carries its own folder (accounts.list), so nothing here
        falls back to this process's home, which a board's own home can differ from. */
     const defaultRow = known.find((a) => a.isDefault === true);

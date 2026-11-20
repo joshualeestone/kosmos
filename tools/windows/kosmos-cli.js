@@ -3244,7 +3244,7 @@ async function agentMove(ctx, args) {
      which is what the move below is sent; the move route itself resolves nothing, as remove's does not. The agent is
      said by its card and its own name whenever those differ (as agent model does), so a word that is one agent's folder
      and another's display name never reads as the agent the person meant. */
-  const plain = (v) => (typeof v === 'string' ? v.replace(/[\t\r\n]+/g, ' ') : '');   // as the Mac CLI's one()
+  const plain = (v) => (typeof v === 'string' ? v.replace(/[\t\r\n]+/g, ' ') : '');
   const agent = plain(plan.name) || typed;
   const shown = plain(plan.shown);
   if (shown && shown !== agent) name = shown + ' (' + agent + ')'; else if (agent !== typed) name = agent;
