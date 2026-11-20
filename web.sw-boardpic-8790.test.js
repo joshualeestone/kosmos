@@ -50,6 +50,7 @@ test('kosmos#8790: a refused board picture (401) is asked for once more with X-K
   assert.equal(w.asked[1].url, ORIGIN + '/api/agent/max/avatar?v=3', 'the same address');
   assert.equal(w.asked[1].header, '1');
   assert.equal(w.asked[1].init.credentials, 'same-origin');
+  assert.equal(w.asked[1].init.redirect, 'error', 'the header never follows a redirect');
 });
 
 test('kosmos#8790: a 403 refusal is retried the same way', async () => {
@@ -80,8 +81,9 @@ test('kosmos#8790: when the retry is refused too, or fails, the first answer sta
 
 test('kosmos#8790: not a picture, not this origin, not /api/, a navigation or a write: the worker does not touch it', async () => {
   const w = worker(connector);
-  assert.equal(await run(w, req('/api/status', { destination: '' })), 'not handled', 'a page fetch (destination "")');
-  assert.equal(await run(w, req('/api/status', { destination: '', headers: new Headers({ accept: 'image/png' }) })), 'not handled', 'a page fetch asking for an image type is still a fetch');
+  assert.equal(await run(w, req('/api/status', { destination: '', mode: 'cors' })), 'not handled', 'a page fetch (destination "", cors)');
+  assert.equal(await run(w, req('/api/status', { destination: '', mode: 'cors', headers: new Headers({ accept: 'image/png' }) })), 'not handled', 'a page fetch asking for an image type is still a fetch');
+  assert.equal(await run(w, req('/api/x.js', { destination: 'script' })), 'not handled', 'a script');
   assert.equal(await run(w, req('/api/agent/max/avatar', { destination: 'document', mode: 'navigate' })), 'not handled', 'a navigation');
   assert.equal(await run(w, req('/api/agent/max/avatar', { method: 'POST' })), 'not handled', 'a write');
   assert.equal(await run(w, { method: 'GET', url: 'https://other.kosmosplus.com/api/agent/max/avatar', mode: 'no-cors', destination: 'image', headers: new Headers() }), 'not handled', 'another computer\'s board');
@@ -96,6 +98,25 @@ test('kosmos#8790: a browser without Request.destination is told a picture by th
   assert.equal(res.status, 200);
   const plain = req('/api/status', { destination: undefined, headers: new Headers({ accept: '*/*' }) });
   assert.equal(await run(w, plain), 'not handled');
+  const oldWebKit = req('/api/agent/max/avatar', { destination: '', headers: new Headers({ accept: 'image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5' }) });
+  assert.equal((await run(w, oldWebKit)).status, 200, 'an engine that leaves destination empty on an image load (no-cors, image Accept)');
+});
+
+test('kosmos#8790: the page can ask a ready worker to take charge of it ("claim"); any other message is ignored', async () => {
+  const w = worker(connector);
+  let claimed = 0;
+  const handlers = {};
+  const self = { addEventListener: (k, f) => { handlers[k] = f; }, location: { origin: ORIGIN, hostname: 'hers.kosmosplus.com' }, skipWaiting() {}, clients: { claim: async () => { claimed++; } } };
+  // eslint-disable-next-line no-new-func
+  new Function('self', 'caches', 'fetch', src)(self, { open: async () => ({}), keys: async () => [], match: async () => null }, async () => PIC());
+  assert.equal(typeof handlers.message, 'function', 'the worker listens for messages');
+  const waits = [];
+  handlers.message({ data: 'something else', waitUntil: (p) => waits.push(p) });
+  assert.equal(claimed, 0);
+  handlers.message({ data: 'claim', waitUntil: (p) => waits.push(p) });
+  await Promise.all(waits);
+  assert.equal(claimed, 1);
+  assert.ok(w);
 });
 
 test('kosmos#8790: the page notes pictures that failed before the worker was in charge, and asks for them again at the same address', () => {
@@ -103,7 +124,10 @@ test('kosmos#8790: the page notes pictures that failed before the worker was in 
   const at = page.indexOf("sw.addEventListener('controllerchange'");
   assert.ok(at > -1, 'the first-visit reloader is gone');
   const block = page.slice(page.lastIndexOf('(() => {', at), page.indexOf('})();', at));
-  assert.match(block, /if \(!sw \|\| sw\.controller/, 'it must do nothing on a page the worker already controls');
   assert.doesNotMatch(block, /stopImmediatePropagation|stopPropagation|preventDefault/, 'it must hold back no error from the other listeners');
-  assert.match(block, /el\.setAttribute\('src', raw\)/, 'it asks again at the element\'s own address');
+  assert.match(block, /el\.setAttribute\(attr, raw\)/, 'it asks again at the element\'s own address');
+  assert.match(block, /'image' \? 'href'/, 'SVG <image href> avatars are covered too');
+  assert.match(block, /LPV_FAILED\.clear\(\)/, 'kosmos#8636\'s failed preview list is emptied, so previews draw again');
+  assert.match(block, /setTimeout\(stop, 120000\)/, 'it stops listening after two minutes');
+  assert.match(block, /postMessage\('claim'\)/, 'it asks a ready worker to take charge');
 });

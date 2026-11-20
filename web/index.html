@@ -21510,8 +21510,9 @@ window.addEventListener('unhandledrejection', (e) => {
      force a preflight. A Request object passes as it is (the page makes none). Note: a same-origin init's headers
      reach the native fetch as a Headers object, whatever shape the caller gave them.
      Not covered, and refused on such a browser (fail closed): everything the page loads as a navigation or a
-     subresource rather than through fetch: file downloads, folder zips and the diagnostics download. The board's
-     pictures (agent avatars, image and PDF-page previews) are asked for again by the service worker (kosmos#8790).
+     subresource rather than through fetch: file downloads, folder zips, the diagnostics download, and the service
+     worker's own fetches (web/sw.js). The one exception is the worker's second ask for a refused board picture (agent
+     avatars, image and PDF-page previews), which carries the header itself (kosmos#8790).
      🛑 It rests on one rule this page must keep: no route the page's own fetches reach redirects them OFF this origin.
      fetch keeps this header across a redirect, so such a route, bounced back, would arrive with it. Two guards would
      then stand, both by the spec and neither measured on a browser with no Sec-Fetch-Site: the preflight a redirected
@@ -21553,27 +21554,45 @@ window.addEventListener('unhandledrejection', (e) => {
   };
 })();
 /* kosmos#8790: on a browser that sends no Sec-Fetch-Site, the board's pictures load through the service worker
-   (web/sw.js isImageRequest), which asks again with X-Kosmos-Board-Page when one is refused. On the very first visit
-   the worker is not yet in charge of the page, so the pictures drawn before it is fail. Those are noted here, and when
-   the worker takes charge each one still on the page is asked for again, at the same address. Nothing else: no address
-   is changed and no error is held back, so every other error listener (kosmos#8636's included) sees each failure as
-   before. On a page the worker already controls this notes nothing. */
+   (web/sw.js isImageRequest), which asks again with X-Kosmos-Board-Page when one is refused. A page the worker (this
+   version of it) is not yet in charge of misses that: the very first visit, a hard reload, and the first visit after
+   the worker is updated (an older worker is in charge until the new one takes over). So for the first two minutes the
+   board pictures that fail (<img src> and the SVG <image href> avatars) are noted, and when a worker takes charge each
+   one still on the page and not shown is asked for again, at the same address, and kosmos#8636's list of failed
+   link-preview pictures is emptied so their cards draw them again. If no worker has taken charge once it is ready,
+   it is asked to (the 'claim' message). Nothing else: no address is changed and no error is held back, so every other
+   error listener sees each failure as before. */
 (() => {
   const sw = typeof navigator !== 'undefined' && navigator.serviceWorker;
-  if (!sw || sw.controller || typeof document === 'undefined') return;
+  if (!sw || typeof document === 'undefined') return;
   const failed = new Set();
+  const attrOf = (el) => (el.tagName === 'IMG' ? 'src' : String(el.tagName).toLowerCase() === 'image' ? 'href' : null);
   const onError = (e) => {
     const el = e && e.target;
-    if (!el || el.tagName !== 'IMG' || sw.controller) return;
-    const raw = el.getAttribute('src');
-    try { if (new URL(raw, location.href).origin === location.origin && new URL(raw, location.href).pathname.startsWith('/api/')) failed.add(el); } catch { /* not an address: nothing to ask again */ }
+    const attr = el && el.tagName ? attrOf(el) : null;
+    if (!attr || failed.size >= 500) return;
+    const raw = el.getAttribute(attr);
+    try {
+      const u = new URL(raw, location.href);
+      if (u.origin === location.origin && u.pathname.startsWith('/api/')) failed.add(el);
+    } catch { /* not an address: nothing to ask again */ }
   };
+  const stop = () => { document.removeEventListener('error', onError, true); failed.clear(); };
   document.addEventListener('error', onError, true);
   sw.addEventListener('controllerchange', () => {
-    document.removeEventListener('error', onError, true);
-    for (const el of failed) { const raw = el.getAttribute('src'); if (el.isConnected && raw) el.setAttribute('src', raw); }
+    for (const el of failed) {
+      const attr = attrOf(el);
+      const raw = attr && el.getAttribute(attr);
+      if (!raw || !el.isConnected || (el.tagName === 'IMG' && el.complete && el.naturalWidth > 0)) continue;
+      el.setAttribute(attr, raw);
+    }
     failed.clear();
-  }, { once: true });
+    try { if (typeof LPV_FAILED !== 'undefined') LPV_FAILED.clear(); } catch { /* declared further down; never fatal */ }
+  });
+  setTimeout(stop, 120000);
+  if (sw.ready && typeof sw.ready.then === 'function') {
+    sw.ready.then((reg) => { if (!sw.controller && reg && reg.active) reg.active.postMessage('claim'); }).catch(() => {});
+  }
 })();
 /* kosmos#6616 (R01b): a remote session's refusal that says this computer's connector can take a fresh sign-in
    (`signInAgain`, server.js REMOTE_STEP_UP_SIGNIN) shows the Sign in again ask, whichever page made the request. The
