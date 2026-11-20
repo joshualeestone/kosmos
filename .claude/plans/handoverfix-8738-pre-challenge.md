@@ -16,16 +16,25 @@ converged: true
 **Converged:** Yes. Each part's round 2 found only minors, fixed in that round's commit.
 **Validation:** the full kosmos validation on Agent1s at 278b1b931 (rebased onto main after #8775 merged), 2026-11-19 20:44 CST: 30120 node tests, 0 failed, 0 cancelled; test:shell as 4 shards, all green; the subdir CLAUDE.md audit passed.
 
-### Part 1: three of #8710's deferred sender items (ccfd0b571f)
-- Round 1 (e24a404b34): the registered-folder check compared workerDir with itself --> FIXED (dropped, replaced by the agent's own folder); a mixed-case agent's own folder is its own --> FIXED; the whole-tick backoff was too long --> FIXED (shorter)
-- Round 2 (9855b850dc), converged, minor: a wait the clock was set back past --> FIXED (dropped)
+### Per-Iteration Breakdown
 
-### Part 2: the sender's stop (7438c3cc41)
-- Round 1 (6ea13170da): the stop must be answered only by an accept or "already past this" --> FIXED
-- Round 2 (278b1b931), converged: a dead not_open arm --> FIXED (removed); the notice ending with the part --> decided, written in the commit
+#### Iteration 1 (part 1: three deferred sender items, ccfd0b571f)
+- [WARNING] the registered-folder check compared workerDir with itself, so it passed every folder --> FIXED (e24a404b34): dropped, the agent's own folder is the rule
+- [WARNING] a mixed-case agent's own folder was not read as its own --> FIXED (e24a404b34)
+- [NIT] the whole-tick backoff was longer than it needed to be --> FIXED (e24a404b34)
 
-### Left open, recorded on #8738 (not fixed here, each with its reason)
-- Keep the sealed manifest across tries: a try whose manifest grant moved the record to packed cannot be finished by a new try; the receiver ends it failed after an hour today
-- Whole pack per try: no index is kept, so every try uploads everything and the 500 MB cap counts every granted byte
-- folderBytes walks up to 200,000 entries synchronously on the board's event loop; it should yield every few thousand
+#### Iteration 2 (part 1)
+- [NIT] a wait the clock was set back past stayed waiting --> FIXED (9855b850dc): dropped. Converged (minors only).
+
+#### Iteration 1 (part 2: the sender's stop, 7438c3cc41)
+- [WARNING] the stop could be answered by something other than an accept or "already past this" --> FIXED (6ea13170da)
+
+#### Iteration 2 (part 2)
+- [NIT] a dead not_open arm --> FIXED (278b1b931): removed
+- [NIT] whether the notice ends with the part --> decided in 278b1b931 (it does). Converged.
+
+### Left open, recorded on #8738 (not fixed here)
+- [WARNING] keep the sealed manifest across tries: a try whose manifest grant moved the record to packed cannot be finished by a new try; the receiver ends it failed after an hour today
+- [WARNING] whole pack per try: no index is kept, so every try uploads everything and the 500 MB cap counts every granted byte
+- [NIT] folderBytes walks up to 200,000 entries synchronously on the board's event loop; it should yield every few thousand
 - tidyOrphans: closed as not applicable (nothing it would tidy can exist with the registered-folder rule)
