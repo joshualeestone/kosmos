@@ -10,7 +10,7 @@ right and only silent. Rejected (review round 1, BLOCKER): counting a reaction a
 contradicted that rule and the nudge, and a 👀 ("looking at it") cleared a person's request.
 
 Weakest premise: that the reporter's confirmation named them (only a post that asked the reader is listed at all).
-Items 2 and 3 of #8828 are separate slices, not in this branch.
+Items 2 and 3 of #8828 were first planned as separate slices; from 2026-11-20 all three are on this branch (below).
 
 ## 2026-11-20 (Mona Lisa, after restart)
 - Item 1, review 2 fixes (90367a1762): runnable command (post id when one, project id, answer), set built only under
@@ -30,3 +30,9 @@ Items 2 and 3 of #8828 are separate slices, not in this branch.
   double-quote fix would have broken it), printed whole (3 x 200 max), unreachable "(none)" dropped; item 2 "reported
   work" not "working time". Rejected: a new item 2 test for a working-now seat (the wallClock path, #8298's own tests);
   a positive case in item 1 test 3 (test 1 is that control). Quote-replacement mutation fails the test. 160/160.
+- Review 4 (blind, whole branch), taken: BLOCKER, the confirmation sentence showed under the person's reacted post
+  (defaults.js:653, a reaction never answers the person; :658 covers colleagues). Now only when a named post is a
+  colleague's; new test with a person's post; forcing the clause on fails it. Item 2 scoped to "for this seat" (the
+  same screen can flag a working seat by the clock, #8298). "stays listed for now" became "it still shows here".
+  Rejected NITs: a backslash prints doubled in the macOS CLI (cosmetic, no truncation, and checks with one are rare);
+  results vs doneWhen count (the two arrays are kept the same length by every writer). 161/161.
