@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: pollWaiting asSentence fr-conn-url fr-conn-cloudsay-code fr-conn-cloudsay-open frCloudSigninDetail frConnPaintUrl fr-conn-code data-cloud-hide data-cloud-copy boardEmpty d-rename-hint import-folder fr-pane-5
+// Browser-check-surface: pollWaiting asSentence fr-conn-url fr-conn-cloudsay-code fr-conn-cloudsay-open frCloudSigninDetail frConnPaintUrl fr-conn-code data-cloud-hide data-cloud-copy boardEmpty d-rename-hint import-folder fr-pane-5 auto-row autoHint data-linux-hide-unless-cloud
 /**
  * kosmos#4903 S5 design (Mona Lisa, card comment 6433522198), first run's Claude sign-in on a Kosmos cloud machine:
  *   1. the sign-in link is the PRIMARY button, gold and filled, no underline, full width on a phone. It used to lose to
@@ -96,7 +96,12 @@ async function hideArm(browser, cloud) {
     const folder = document.getElementById('import-folder');
     for (let n = folder; n; n = n.parentElement) n.removeAttribute('hidden');
     const hint = document.getElementById('d-rename-hint');
+    // kosmos#8786 S2: the Updates switch row, its ancestors un-hidden so its own display is what is read.
+    const autoRow = document.getElementById('auto-row');
+    for (let n = autoRow && autoRow.parentElement; n; n = n.parentElement) { n.removeAttribute('hidden'); if (getComputedStyle(n).display === 'none') n.style.display = 'block'; }
     return {
+      autoShown: !!autoRow && getComputedStyle(autoRow).display !== 'none',
+      autoHint: autoRow ? (autoRow.querySelector('p.dhint') || {}).textContent || '' : 'NO ROW',
       rows,
       ages: [...pane.querySelectorAll('p.fr-age')].filter((p) => getComputedStyle(p).display !== 'none').map((p) => p.textContent),
       msgs: ['fr-openai-msg', 'fr-gemini-msg', 'fr-grok-msg'].map((id) => getComputedStyle(document.getElementById(id)).display !== 'none'),
@@ -173,6 +178,8 @@ async function hideArm(browser, cloud) {
     check('cloud: No agents yet says the agent runs on your cloud machine', /runs on your cloud machine and keeps going while you are away/.test(hc.empty), hc.empty.slice(0, 160));
     check('CONTROL mac: No agents yet keeps "this computer"', /runs on this computer/.test(hm.empty), hm.empty.slice(0, 160));
     check('cloud: the rename hint says your cloud machine', /where they live on your cloud machine,/.test(hc.hint), hc.hint);
+    check('cloud (kosmos#8786): the Update Kosmos automatically switch is shown, with the nightly words', hc.autoShown && /^On by default\. Once a night, while no agent is working,/.test(hc.autoHint), `${hc.autoShown} ${hc.autoHint.slice(0, 80)}`);
+    check('CONTROL mac (kosmos#8786): the switch is shown with the Mac words', hm.autoShown && /^On by default\. New versions install themselves/.test(hm.autoHint), `${hm.autoShown} ${hm.autoHint.slice(0, 80)}`);
     check('CONTROL mac: the rename hint says this computer', /where they live on this computer,/.test(hm.hint), hm.hint);
     // kosmos#7640 (the 10-30 Cloud walk, items 2 and 6).
     check('cloud: every subscription sentence says your cloud machine', hc.subs.length >= 4 && hc.subs.every((w) => w === 'your cloud machine'), JSON.stringify(hc.subs));
