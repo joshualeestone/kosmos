@@ -71,6 +71,11 @@ test('a renamed welcome project is the person\'s own, and a test project keeps i
   assert.ok(!renamed.includes(projects.STARTER_PROJECT_LINE), 'a renamed welcome project is still called the starter project');
   assert.match(renamed, /No tasks set for this project yet\. Add one with/);
 
+  // A project the person made and happened to call "Getting started" is theirs: only the seed's mark counts.
+  const theirs = projects.blockBody([{ ...w, made: { via: 'screen', by: null } }], 'newagent');
+  assert.ok(!theirs.includes(projects.STARTER_PROJECT_LINE), 'a person-made "Getting started" was called the starter project');
+  assert.equal(projects.isStarter({ ...w, testOnly: true }), false, 'a test project still counts as the starter project');
+
   const tested = linesFor(projects.blockBody([{ ...w, testOnly: true }], 'newagent'), w.name);
   assert.ok(tested.includes('A test project: do only what you are asked here.'), 'the test line is gone');
   assert.ok(!tested.includes(projects.STARTER_PROJECT_LINE), 'a test project carries both lines');
