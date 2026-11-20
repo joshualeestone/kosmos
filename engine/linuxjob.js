@@ -48,11 +48,18 @@ function setSystemdDirForTests(fn) {
 /* #4918 review 12/13: systemctl --user finds the user manager through XDG_RUNTIME_DIR, which a board started from cron or
    after its login session ended does not have. The standard place is /run/user/<uid>: set it on this process when it
    is unset and exists, so EVERY Linux path's systemctl inherits it, including the ones that run through create's,
-   remove's and delete-leftover's own run(). Linux only; a no-op elsewhere. */
-function ensureRuntimeDir() {
-  if (process.platform !== 'linux' || process.env.XDG_RUNTIME_DIR || typeof process.getuid !== 'function') return;
-  const rd = '/run/user/' + process.getuid();
-  try { if (fs.statSync(rd).isDirectory()) process.env.XDG_RUNTIME_DIR = rd; } catch { /* none: as before */ }
+   remove's and delete-leftover's own run(). Linux only; a no-op elsewhere.
+   kosmos#8786: an inherited value is kept only when it is THIS user's own folder. A root login's /run/user/0 passed
+   through `runuser` (measured on a Cloud box) sends every `systemctl --user` to root's bus, which fails. The arguments
+   are test seams; every caller passes none. */
+function ensureRuntimeDir({ platform = process.platform, env = process.env, statSync = fs.statSync,
+  uid = typeof process.getuid === 'function' ? process.getuid() : null } = {}) {
+  if (platform !== 'linux' || uid === null) return;
+  if (env.XDG_RUNTIME_DIR) {
+    try { const st = statSync(env.XDG_RUNTIME_DIR); if (st.isDirectory() && st.uid === uid) return; } catch { /* not ours */ }
+  }
+  const rd = '/run/user/' + uid;
+  try { if (statSync(rd).isDirectory()) env.XDG_RUNTIME_DIR = rd; } catch { /* none: as before */ }
 }
 
 /* 30 s: a stop waits on the supervisor's sleep (up to 10 s; review 6). The one timeout for every systemctl --user
