@@ -8930,7 +8930,9 @@ const server = http.createServer(async (req, res) => {
         /* installOffer() is the [Update] offer: something newer is published AND this board can take
            it in place. Null on a source run (both platforms) and, on win32, null for a bundle in a
            location the updater refuses (OneDrive / Program Files) -- that install gets the manual
-           offer below instead. One derivation, so the button, the route and the auto path agree. */
+           offer below instead. kosmos#8786: on Linux it is null unless the board's unit survives the press
+           (engine/update.js canPressUpdate); otherwise the command rides in updateManual.
+           One derivation, so the button, the route and the auto path agree. */
         update: updates.installOffer(), updateLook: updates.lastLook(),
         /* win32 (S4): a bundle the in-app updater refuses UP FRONT -- one under OneDrive or Program
            Files (the one named location rule) -- rides here as the MANUAL offer ({version, download})

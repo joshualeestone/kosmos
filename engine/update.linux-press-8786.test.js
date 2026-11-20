@@ -91,7 +91,7 @@ test('#8786: the press on Linux goes past the platform refusal to the reviewed s
     'the Linux press did not reach the live-execution gate in front of the spawn');
   update.resetCache();
   await look('linux', 'x64', false);
-  assert.throws(() => update.beginInstall({}), /cannot update itself here: this board's service could not be confirmed/, 'CONTROL: the refusal no longer fires on a unit that would not survive');
+  assert.throws(() => update.beginInstall({}), /cannot update itself here: this board could not be confirmed to run as a service/, 'CONTROL: the refusal no longer fires on a unit that would not survive');
 });
 
 test('#8786: a source checkout on Linux is offered nothing even when the unit reads right', async () => {
@@ -135,7 +135,7 @@ test('#8786: the real readers say no for a test process that runs in no kosmos-b
 
 /* The real comparison, through the reader seam: everything below linuxUnitTakesPress runs for real. */
 const BOARD_CG = (unit) => '0::/user.slice/user-1001.slice/user@1001.service/app.slice/' + unit + '\n';
-function readers({ inUnit = true, status = 0, stdout = 'process\n', calls = [], unitName = 'kosmos-board.service' } = {}) {
+function readers({ inUnit = true, status = 0, stdout = `KillMode=process\nMainPID=${process.pid}\n`, calls = [], unitName = 'kosmos-board.service' } = {}) {
   return {
     cgroup: () => (inUnit ? BOARD_CG(unitName) : '0::/user.slice/user-1001.slice/session-3.scope\n'),
     killMode: (unit) => { calls.push(unit); return { status, stdout }; },
@@ -158,11 +158,13 @@ test('#8786: KillMode=process inside the board unit is the only reading that off
   assert.equal(update.canPressUpdate('linux'), true, 'a non-default home\'s board was refused');
   assert.deepEqual(calls2, ['kosmos-board.1a2b3c4d.service'], 'systemctl was not asked about the unit the cgroup names');
   for (const [why, r] of [
-    ['control-group (the measured failure)', readers({ stdout: 'control-group\n' })],
-    ['mixed', readers({ stdout: 'mixed\n' })],
+    ['control-group (the measured failure)', readers({ stdout: `KillMode=control-group\nMainPID=${process.pid}\n` })],
+    ['mixed', readers({ stdout: `KillMode=mixed\nMainPID=${process.pid}\n` })],
     ['systemctl failed', readers({ status: 1 })],
     ['systemctl gave nothing', readers({ stdout: '' })],
-    ['systemctl timed out (status null)', readers({ status: null, stdout: 'process\n' })],
+    ['another process is the unit\'s MainPID (a board started by hand inside the cgroup)', readers({ stdout: `KillMode=process\nMainPID=${process.pid + 1}\n` })],
+    ['no MainPID (the unit is inactive)', readers({ stdout: 'KillMode=process\nMainPID=0\n' })],
+    ['systemctl timed out (status null)', readers({ status: null, stdout: `KillMode=process\nMainPID=${process.pid}\n` })],
     ['not inside the board unit', readers({ inUnit: false })],
   ]) {
     update.setLinuxPressReaders(r);
@@ -178,17 +180,17 @@ test('#8786: outside the board unit, systemctl is never asked', async () => {
 });
 
 test('#8786: a reader that throws reads as no press, never as a crash', async () => {
-  await lookReal({ cgroup: () => { throw new Error('ENOENT'); }, killMode: () => ({ status: 0, stdout: 'process' }) });
+  await lookReal({ cgroup: () => { throw new Error('ENOENT'); }, killMode: () => ({ status: 0, stdout: `KillMode=process\nMainPID=${process.pid}\n` }) });
   assert.equal(update.canPressUpdate('linux'), false);
 });
 
 test('#8786: the card trusts its five-minute reading, the press reads afresh, and one press reads once', async () => {
   const calls = [];
-  let mode = 'process\n';
+  let mode = `KillMode=process\nMainPID=${process.pid}\n`;
   await lookReal({ cgroup: readers().cgroup, killMode: (u) => { calls.push(u); return { status: 0, stdout: mode }; } });
   assert.ok(update.installOffer(), 'CONTROL: the first reading offers the button');
   assert.equal(calls.length, 1);
-  mode = 'control-group\n';
+  mode = `KillMode=control-group\nMainPID=${process.pid}\n`;
   assert.ok(update.installOffer(), 'the card re-read inside its five-minute window');
   assert.equal(calls.length, 1, 'the poll ran systemctl again inside the window');
   // The press: the route's refusal, then beginInstall's. Fresh means inside a few seconds, so a reading this new
@@ -206,7 +208,7 @@ test('#8786: the card trusts its five-minute reading, the press reads afresh, an
 test('#8786: a systemctl that gave no answer is asked again after 30 s, not five minutes', async () => {
   let status = 1;
   const calls = [];
-  await lookReal({ cgroup: readers().cgroup, killMode: (u) => { calls.push(u); return { status, stdout: status === 0 ? 'process\n' : '' }; } });
+  await lookReal({ cgroup: readers().cgroup, killMode: (u) => { calls.push(u); return { status, stdout: status === 0 ? `KillMode=process\nMainPID=${process.pid}\n` : '' }; } });
   assert.equal(update.manualOffer() !== null, true, 'CONTROL: a failed reading keeps the command');
   assert.equal(calls.length, 1);
   status = 0;
@@ -219,7 +221,7 @@ test('#8786: a systemctl that gave no answer is asked again after 30 s, not five
     assert.ok(update.installOffer(), 'the failed reading was kept past 30 s');
     assert.equal(calls.length, 2);
     // CONTROL: an ANSWERED "no" (control-group) is kept for the full window.
-    update.setLinuxPressReaders({ cgroup: readers().cgroup, killMode: (u) => { calls.push(u); return { status: 0, stdout: 'control-group\n' }; } });
+    update.setLinuxPressReaders({ cgroup: readers().cgroup, killMode: (u) => { calls.push(u); return { status: 0, stdout: `KillMode=control-group\nMainPID=${process.pid}\n` }; } });
     assert.equal(update.installOffer(), null);
     const n = calls.length;
     Date.now = () => realNow() + 31 * 1000 + 60 * 1000;
@@ -231,7 +233,7 @@ test('#8786: a systemctl that gave no answer is asked again after 30 s, not five
 test('#8786: the Linux refusal says why (the service), and gives the command', async () => {
   await look('linux', 'x64', false);
   const said = update.selfInstallRefusal('linux');
-  assert.match(said, /this board's service could not be confirmed to keep the installer running/);
+  assert.match(said, /this board could not be confirmed to run as a service that keeps the installer running/);
   assert.ok(said.endsWith(update.manualOffer().command), 'the command is not the refusal\'s last words: ' + said);
   assert.doesNotMatch(said, /on this platform/, 'it still says Linux can never update itself');
 });
