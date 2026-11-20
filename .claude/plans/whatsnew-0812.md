@@ -16,6 +16,9 @@ the cut's version and built from the pool. Nothing merged since 0.8.11 added a p
 - No `platforms` tag on the two Linux items: the window accepts only mac and windows, and a Linux board shows the
   untagged list. The lines name Linux or Kosmos Cloud, so a Mac reader knows they are not about them.
 - The Linux Update line is for PR #8805, which merged (91b52becda) before this branch was finished.
+- The sign-in line says the sign-in "counts for as long as it lasts", not "until you sign out": a sign-in also ends at
+  its own expiry, Sign out everywhere, or removing the device. Two reviews asked for opposite wordings; this one is
+  true of every ending, so it stays.
 - Left out on purpose: the iPhone app's empty Agents tab (#8793), which ships with the iPhone app, not in this
   release; and changes with nothing to see (the sign-in redirect hardening, the enrolment engine side, hand-over
   internals, the new agent's brief text).
