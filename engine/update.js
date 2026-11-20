@@ -298,20 +298,22 @@ function installOffer() {
  *     kosmos-board.<8 hex>.service), so systemd is what restarts it. The unit is named FROM that line, not from the
  *     home, so a home spelled differently from the way setup.sh named the unit cannot hide it;
  *   - `systemctl --user show <that unit> -p KillMode` reads `process`.
- * A host with no cgroup v2 line (v1 or hybrid) never gets the button: it keeps the command.
+ * A pure cgroup v1 host (no `0::` line) never gets the button: it keeps the command.
  * Otherwise the card keeps today's command (manualOffer), and a stray press is refused with it.
  * 🛑 NOT SELF_INSTALL, ON PURPOSE. canSelfInstall also gates the UNATTENDED install (autoInstallWouldStart), and a
  * Linux entry there would install automatically on every Linux board, following its own channel; Kosmos Cloud boxes
  * are created on staging. That path stays off on Linux (slice 2 brings a prod-only schedule of its own).
- * Read at most every five minutes for the card (the status poll asks often), fresh at a press. A press asks twice
+ * Read at most every five minutes for the card (the status poll asks often), or after 30 s when systemctl itself
+ * failed (a user manager still starting after boot), and fresh at a press. A press asks twice
  * (the route, then beginInstall), so a reading taken in the last few seconds serves both.
  * The button (installOffer) and the command (manualOffer) read the SAME memo, so the card never shows both.
  * systemctl runs synchronously on the board's event loop, bounded at 2 s, at most once per memo window or press. */
 const LINUX_PRESS_TTL_MS = 5 * 60 * 1000;
 const LINUX_PRESS_FRESH_MS = 3000;
+const LINUX_PRESS_RETRY_MS = 30 * 1000;
 let linuxPressFn = null;       // test seam: () => boolean (the whole decision)
 let linuxPressReaders = null;  // test seam: { cgroup: () => string, killMode: (unit) => { status, stdout } }
-let linuxPressMemo = null;     // { at, ok }
+let linuxPressMemo = null;     // { at, ok, ttl }
 const BOARD_UNIT_RE = /^kosmos-board(\.[0-9a-f]{8})?\.service$/;
 /** The board unit named by the cgroup v2 line of /proc/self/cgroup (its last path part), or null. Pure. */
 function boardUnitInCgroup(text) {
@@ -322,12 +324,14 @@ function boardUnitInCgroup(text) {
   }
   return null;
 }
-/** The decision itself, from what the two readers returned. Pure apart from the readers it is handed. */
+/** The decision from what the two readers returned: { ok, asked } where `asked` is false when systemctl was asked and
+    gave no answer (so the "no" is worth asking again soon). Pure apart from the readers it is handed. */
 function pressVerdict(cgroupText, readKillMode) {
   const unit = boardUnitInCgroup(cgroupText);
-  if (!unit) return false;
+  if (!unit) return { ok: false, asked: true };
   const r = readKillMode(unit);
-  return Boolean(r) && r.status === 0 && String(r.stdout || '').trim() === 'process';
+  if (!r || r.status !== 0) return { ok: false, asked: false };
+  return { ok: String(r.stdout || '').trim() === 'process', asked: true };
 }
 const REAL_PRESS_READERS = {
   cgroup: () => fs.readFileSync('/proc/self/cgroup', 'utf8'),
@@ -337,15 +341,15 @@ const REAL_PRESS_READERS = {
 function linuxUnitTakesPress({ fresh = false } = {}) {
   if (linuxPressFn) return Boolean(linuxPressFn());
   const now = Date.now();
-  const window = fresh ? LINUX_PRESS_FRESH_MS : LINUX_PRESS_TTL_MS;
+  const window = fresh ? LINUX_PRESS_FRESH_MS : (linuxPressMemo && linuxPressMemo.ttl) || LINUX_PRESS_TTL_MS;
   if (linuxPressMemo && now - linuxPressMemo.at < window) return linuxPressMemo.ok;
   const readers = linuxPressReaders || REAL_PRESS_READERS;
-  let ok = false;
+  let v = { ok: false, asked: true };
   try {
-    ok = pressVerdict(readers.cgroup(), readers.killMode);
-  } catch { ok = false; }
-  linuxPressMemo = { at: now, ok };
-  return ok;
+    v = pressVerdict(readers.cgroup(), readers.killMode);
+  } catch { v = { ok: false, asked: true }; }
+  linuxPressMemo = { at: now, ok: v.ok, ttl: v.asked ? LINUX_PRESS_TTL_MS : LINUX_PRESS_RETRY_MS };
+  return v.ok;
 }
 /** Can a press on this board install in place? The SELF_INSTALL platforms, or an installed Linux board whose unit
     survives the press (above). Never read by the unattended path. */
@@ -858,7 +862,9 @@ function setupUrl() {
  * (platform.canSelfInstall('win32') is now true, so this returns null for it
  * before reaching the generic arm), and beginInstall routes it to
  * win32update.begin() rather than to `/bin/sh`. The generic sentence remains for
- * every OTHER platform off SELF_INSTALL.
+ * every OTHER platform off SELF_INSTALL, with one exception: kosmos#8786, a Linux
+ * board whose unit survives the press (canPressUpdate), gets null; one whose unit
+ * would not gets a sentence that says so, with the command.
  *
  * ⚠️ THE POLISHED WORDING IS THE OPERATOR'S TO REFINE, same as runners.js's and
  * connect.js's refusals (see engine/platform.js). What is load-bearing here is
@@ -871,6 +877,10 @@ function selfInstallRefusal(platform = updatePlatform()) {
   // kosmos#8786: read fresh, because this is the press (the route and beginInstall), not the card's poll.
   if (canPressUpdate(platform, { fresh: true })) return null;
   const command = updateCommand(platform);
+  if (platform === 'linux' && command) {
+    return "Kosmos cannot update itself here: this board's service would stop the installer partway through."
+      + ' To update, run this in a terminal: ' + command;
+  }
   return 'Kosmos cannot update itself on this platform (' + String(platform) + ').'
     + (command ? ' To update, run this in a terminal: ' + command : '');
 }

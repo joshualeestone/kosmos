@@ -192,3 +192,16 @@ test('#7935: a command replaced while the copy runs says nothing about the old o
   await pending;
   assert.equal(r.msg.textContent, '', 'a result was written for a command no longer shown');
 });
+
+test('#8786: a Linux board whose unit survives the press paints [Update], and never the command beside it', async () => {
+  await linuxLook();
+  update.setLinuxPress(() => true);
+  const offer = update.installOffer();
+  const manual = update.manualOffer();
+  assert.ok(offer && offer.version === NEWER, 'CONTROL: the engine made no [Update] offer for a press it can take');
+  assert.equal(manual, null, 'the engine sent the command as well as the offer');
+  const els = paint(offer, manual);
+  assert.equal(els['upd-btn'].textContent, 'Update', 'the card did not offer [Update]');
+  assert.equal(els['upd-btn'].hidden, false);
+  assert.equal(els['upd-command-row'].hidden, true, 'the command row shows beside the button');
+});
