@@ -5583,7 +5583,7 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
    with the second factor. The Kosmos+ gate states the session it admitted in two headers it writes over any client
    value and strips on every other path (kosmos-relay sessioniat-6595): x-kosmos-session-iat, the decimal second the
    session's email code was proven, and x-kosmos-session-second, 1 when the second factor was. Missing or malformed
-   counts as NOT fresh. A tunnel older than sessioniat-6595 does not strip client copies, so its headers are trusted
+   counts as not a full sign-in. A tunnel older than sessioniat-6595 does not strip client copies, so its headers are trusted
    only when the bundled connector says it does (`kosmos-tunnel capabilities` lists session-headers; asked by
    remote.connectorCapabilities, in the background) AND the tunnel this board runs lists it in its own status file
    (kosmos#6616): an older connector, on any platform, makes every gated remote request refused with
@@ -5599,8 +5599,9 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
    gate session without the second factor (a gate set not to require one), a request whose headers this board cannot
    vouch for, a sign-in time from the future, and a full sign-in too old for a time-bounded route (below).
    It is NOT a boundary against a STOLEN full session: one can make an agent, and an agent's shell reaches every route
-   here over loopback, which is never asked. What ends a stolen session is the gate: its expiry (a year), Log out,
-   Sign out everywhere (the cutoffs the gate hears) and Remove of the device. The residual risk is on kosmos#8785.
+   here over loopback, which is never asked. What ends a stolen session is the gate: its expiry, Log out, Sign out
+   everywhere and Remove of the device. Those are kosmos-relay's, measured there on 2026-11-19 and recorded with the
+   residual risk on kosmos#8785 (the session then lived a year); this file cannot check them.
    The routes kept on a time bound (REMOTE_RECENT_ONLY, REMOTE_RECENT_PATTERNS) are the ones that let ANOTHER PARTY in,
    or replace who the account is, the new-device exception the ruling keeps: resetting the account's second factor
    (the thief's own factor then passes every sign-in), signing this computer in to a Kosmos+ account or forgetting its
