@@ -43,3 +43,11 @@ everywhere: agents, keys and tokens, updates, personal backups. Those are the ow
 which is what the ruling is for. The test names all 13 paths and the webhook pattern, and checks the left-out kinds pass.
 Deferred: the fresh-signin branch offering Sign in again before it looks at the second factor (older than this card,
 reached by no connector today, noted on the test).
+
+## Review round 5: the bound is friction, not a boundary
+A full session of any age can make an agent, and an agent's shell reaches every route over loopback, which the
+step-up never asks. So the time bound on the identity-change routes slows a thief holding a full session and does not
+stop one; it keeps those rare acts behind a recent sign-in in the page and the apps. The comment now says so. What
+ends a stolen session is the gate (expiry, Log out, Sign out everywhere, Remove). Kept because it is cheap and those
+acts are rare. Deferred: REMOTE_STEP_UP_RECENT uses the log-out button even where a connector lists fresh-signin
+(none does today).
