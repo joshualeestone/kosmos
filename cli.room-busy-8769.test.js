@@ -246,6 +246,7 @@ test('#8776 follow-up 1: a board NOT RUNNING or UNREACHABLE shows no copy (nothi
   for (const state of ['down', 'unreachable', 'stranger']) {
     const r = await cmdRoomWithHealth(state, 'proj', envFor(port, home));
     assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /the room cannot be read/, state + ': presence first, its refusal was said');
     assert.doesNotMatch(r.out, /NOT the room now|first look|has not answered a read/, state);
   }
   const dir = path.join(home, 'state', 'room-copies');

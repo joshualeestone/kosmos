@@ -5719,6 +5719,7 @@ _records_field() {   # <field> <json>
 # Follow-up 2: the header and the copy go to STDERR, so `kosmos room p | grep ...` in a script that does not read the
 # exit code finds nothing, never an old room taken for the room now. A person or an agent reading the command sees both.
 # (With no copy held, the refusal is said on stdout as before; exit 1 is the signal either way.)
+# Call it only as `_room_busy_copy && exit 1` (or in an if): errexit is off there, so its `return 1` falls through.
 _room_busy_copy() {
   # Review 1: every step here is allowed to fail (a sandbox, a read-only home): the busy sentence must still be said.
   # The mark is "<first failed read> <last failed read>". Review 3: a spell whose last failure is over 30 minutes
