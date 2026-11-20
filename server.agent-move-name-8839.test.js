@@ -111,3 +111,21 @@ test('#8839: a name no agent has is refused as not found, spelled as asked', asy
   assert.equal(r.code, 404, r.text.slice(0, 200));
   assert.match(r.json.because, /there is no agent called Nobody 8839 on this computer/);
 });
+
+test('#8839 review 1: when the agents cannot be read, a listed name is a read that failed, never "no agent called"', async () => {
+  agent('subzero', 'Sub-Zero');
+  const register = require('./engine/register');
+  const realSurvey = register.survey;
+  register.survey = () => ({ ok: false, because: 'stubbed: could not read', agents: [], missing: [] });
+  try {
+    const r = await plan({ name: 'Sub-Zero', account: 'spare', resolve: '1' });
+    assert.equal(r.code, 503, r.text.slice(0, 200));
+    assert.equal(r.json.readFailed, true);
+    assert.match(r.json.because, /could not tell which agent that name is/);
+    assert.doesNotMatch(r.json.because, /no agent called/);
+    // CONTROL: the id needs no resolving, so it is still planned while the cards cannot be read.
+    const id = await plan({ name: 'subzero', account: 'spare', resolve: '1' });
+    assert.equal(id.code, 200, id.text.slice(0, 200));
+    assert.equal(id.json.name, 'subzero');
+  } finally { register.survey = realSurvey; }
+});

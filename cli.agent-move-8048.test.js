@@ -313,3 +313,13 @@ test('kosmos#8839 Windows: --yes asks the plan to resolve, and moves the agent i
   assert.deepEqual(JSON.parse(posts(seen)[0].body).names, ['subzero'], 'the typed name was sent, not the resolved agent');
   assert.match(r.out, /Moving restarts Sonya Blade on spare/);
 }));
+const AMBIG = [409, { ok: false, ambiguous: true, because: 'more than one agent is called Twin (twina; twinb); name it by one of those names' }];
+test('kosmos#8839 Mac and Windows: an ambiguous name is refused in the board\'s words and nothing is moved', () => withStub({ plan: AMBIG }, async (port, seen) => {
+  const r = await cli(port, ['agent', 'move', 'Twin', 'spare', '--yes']);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /Kosmos will not move Twin: more than one agent is called Twin \(twina; twinb\)/);
+  const w = await winRun(port, ['agent', 'move', 'Twin', 'spare', '--yes']);
+  assert.equal(w.code, 1, w.err);
+  assert.match(w.err, /Kosmos will not move Twin: more than one agent is called Twin/);
+  assert.equal(posts(seen).length, 0, 'an ambiguous name moved something');
+}));

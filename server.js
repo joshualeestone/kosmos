@@ -17476,8 +17476,9 @@ const server = http.createServer(async (req, res) => {
        guessed. Every answer carries `name` (the agent this plan is about, which the CLI then moves and polls) so the move
        goes to the agent planned, not the typed words again. Settings asks by the exact machine name and does not ask. */
     let name = asked;
+    let cards;   // undefined: not asked to resolve; null: asked, but the cards could not be read
     if (q.get('resolve') === '1') {
-      const cards = await cardsForResolve();
+      cards = await cardsForResolve();
       let r = { name: asked, ambiguous: [], shown: {} };
       try { r = removal.resolve(asked, process.platform, cards); } catch { /* as given */ }
       if (r.ambiguous && r.ambiguous.length) {
@@ -17509,10 +17510,13 @@ const server = http.createServer(async (req, res) => {
     if (!target) { sendJson(res, 404, { ok: false, because: 'that is not one of the Claude accounts on this computer' }); return; }
     let job = null;
     try { job = create.readJob(name); } catch { job = null; }
+    /* Review 1: the cards could not be read, so a name as the list prints it was not resolved and reads as no agent's
+       name at all. That is a read that failed, never "no agent called" (the agent model route's Review 6, the same case). */
+    if (!job && cards === null) { sendJson(res, 503, { ok: false, readFailed: true, name, because: 'we could not read the agents just now, so we could not tell which agent that name is' }); return; }
     if (!job) { sendJson(res, 404, { ok: false, name, because: `there is no agent called ${asked} on this computer` }); return; }
     let provider = null;
     try { provider = create.jobProvider(job); } catch { provider = null; }
-    if (provider !== 'anthropic') { sendJson(res, 409, { ok: false, because: `${name} does not run on a Claude account, so it cannot be moved to one` }); return; }
+    if (provider !== 'anthropic') { sendJson(res, 409, { ok: false, name, because: `${asked} does not run on a Claude account, so it cannot be moved to one` }); return; }
     /* Real folders on both sides: the default account's row carries its own folder (accounts.list), so nothing here
        falls back to this process's home, which a board's own home can differ from. */
     const defaultRow = known.find((a) => a.isDefault === true);
@@ -17520,7 +17524,7 @@ const server = http.createServer(async (req, res) => {
     const to = target.dir;
     if (!from) { sendJson(res, 200, { ok: false, name, dir: to, label: labelOf(target), because: 'we could not tell which account it is on' }); return; }
     const where = { name, dir: target.dir, label: labelOf(target) };
-    if (real(from) === real(to)) { sendJson(res, 200, { ok: true, same: true, ...where, skills: [], hooks: [], sentence: `${name} is already on that account.` }); return; }
+    if (real(from) === real(to)) { sendJson(res, 200, { ok: true, same: true, ...where, skills: [], hooks: [], sentence: `${asked} is already on that account.` }); return; }
     /* ~ in a hook is the board's own home; a relative or $CLAUDE_PROJECT_DIR hook is the agent's own folder (#8063). */
     const l = require('./engine/accountcarry').losses(from, to, { home: accounts.homeDir(), project: create.workerDir(name) });
     if (l.ok !== true) { sendJson(res, 200, { ...l, ...where }); return; }
