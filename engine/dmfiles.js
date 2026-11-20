@@ -164,8 +164,8 @@ function blockBody(dir) {
      where it happens. A file asked for in a direct conversation goes in the agent's Files; one that
      belongs to a project's work goes in that project, even when asked for here, and the agent says
      which project; and when it is unclear it saves it here, says so and asks which project in the same
-     line: no project is guessed and no
-     file waits unsaved on an answer that may never come (a turn ends when it asks). */
+     line: no project is guessed and no file waits unsaved on an answer that may never come (a turn
+     ends when it asks). */
   return [
     '## Where to save files you make for the person',
     '',

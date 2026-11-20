@@ -1323,11 +1323,12 @@ function block() {
  *     WEAKEST PREMISE, NAMED: that an agent reading only "Answering the person who messaged you" also reads the earlier
  *     section, where the rest of the rule now lives once.
  *  55. kosmos#8735: "Where the files you make go" says only what the Files block ("Where to save files you make for
- *     the person", which every agent carries and the boot sweep re-writes) does not: a file for the person goes where
- *     that block says, never in your own folder and never only in this chat; working notes go in your own folder; a
- *     project's files go in the obvious spot inside its folder; for any other file, ask rather than guess (the Files
- *     block says save-then-ask for a file for the person). The reason paragraph is gone. About 650 characters. No new heading, so as in 32
- *     an agent's EDITED copy is not re-offered it.
+ *     the person", which every agent carries and the boot sweep re-writes) does not: a file for the person goes in
+ *     your Files folder or a project's, as that block says, never in your own folder and never only in this chat;
+ *     working notes go in your own folder; a project's files go in the obvious spot inside its folder; for any other
+ *     file, ask rather than guess (the Files block says save-then-ask for a file for the person). The reason
+ *     paragraph is gone. The section is 531 characters (from 1,138). No new heading, so as in 32 an agent's EDITED
+ *     copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that the Files block is in the file. It is non-gating at creation (a failure is reported)
  *     and the boot sweep adds it again; an agent whose Files block failed both times loses the exact path either way.
  */
