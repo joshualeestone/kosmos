@@ -36,6 +36,11 @@ function signedHistory(org, member, publicKey, extra, more) {
   const entries = [Object.assign({ kind: 'enrol', key: seal.keyHex(publicKey), at: 0, backfill: false }, extra || {})].concat(more || []);
   return { org, member, entries, issuedAt: t, signature: crypto.sign(null, dkh.encodeHead(org, member, entries, t), ESCROWD.privateKey).toString('base64url') };
 }
+/* escrowd's record for hand-over `id`, issued a minute ago (before any pack a test makes), m-leave -> m-succ. */
+function signedRecord(id, agents, over) {
+  const r = Object.assign({ org: ORG, id, from: 'm-leave', to: 'm-succ', agents, issuedAt: Math.floor(Date.now() / 1000) - 60 }, over || {});
+  return Object.assign(r, { signature: crypto.sign(null, seal.encodeRecord(r), ESCROWD.privateKey).toString('base64url') });
+}
 const md5 = (b) => crypto.createHash('md5').update(b).digest('base64');
 const sha256b = (b) => crypto.createHash('sha256').update(b).digest('base64');
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
@@ -82,6 +87,8 @@ function coordinator(b, id) {
     calls.push([route, body]);
     if (route === hr.MINE_ROUTE) {
       const row = { id, side: 'receive', state: rec.state, agents: rec.agents, seal_pub: rec.seal_pub, sender_pubkey: 'sender_pubkey' in rec ? rec.sender_pubkey : senderB64 };
+      // kosmos#8764: escrowd's signed record (an admin approved m-leave -> m-succ for these agents), on both sides.
+      row.record = 'record' in rec ? rec.record : signedRecord(id, rec.agents);
       if (rec.manifest && (rec.state === 'packed' || rec.state === 'receiving')) {
         row.manifest = rec.manifest;
         // kosmos#8733: the leaving member and escrowd's signed history for them, as kosmos-relay's /mine gives them.
@@ -818,7 +825,13 @@ test('end to end through BOTH halves: the real packer (handoversend.packInput) p
   const dir = agentFolder(t);
   // kosmos#8733: the sender's REAL tie check, on the signature this computer's REAL key step made.
   const p = hs.packInput({ id: 'hboth', seal_pub: c.rec.seal_pub, agents: ['Ledger'], seal_sig: c.rec.seal_sig, seal_signer: seal.keyHex(SUCC.publicKey),
-    seal_member: 'm-succ', seal_history: signedHistory(ORG, 'm-succ', SUCC.publicKey) }, ORG, {
+    seal_member: 'm-succ', seal_history: signedHistory(ORG, 'm-succ', SUCC.publicKey),
+    // kosmos#8764: escrowd's record (an admin approved m-leave -> m-succ for Ledger) and the leaving member's own history.
+    record: (() => {
+      const r = { org: ORG, id: 'hboth', from: 'm-leave', to: 'm-succ', agents: ['Ledger'], issuedAt: Math.floor(Date.now() / 1000) };
+      return Object.assign(r, { signature: crypto.sign(null, seal.encodeRecord(r), ESCROWD.privateKey).toString('base64url') });
+    })(),
+    own_history: signedHistory(ORG, 'm-leave', c.sender.publicKey) }, ORG, {
     survey: () => ({ ok: true, agents: [{ name: 'ledger', shownAs: 'Ledger', profile: true, removed: false }] }),
     inputsHere: () => ({ protect: [], workersDir: path.dirname(dir), agents: [{ id: 'ledger', dir }], projects: [], sessions: () => [] }),
     workerDir: () => dir,
@@ -931,4 +944,64 @@ test('kosmos#8738: the link rules can only be loosened inside a node test proces
   clock += hr.MISSING_RECHECK_MS + 1;
   await hr.tick(st, deps);
   assert.equal(calls, 2, 'again after MISSING_RECHECK_MS');
+});
+
+test('kosmos#8764: the leaving member is escrowd\'s record\'s, and the packing key is checked at the pack\'s own signed time', async (t) => {
+  hr.allowHttpForTests(true);
+  const b = await bucket();
+  t.after(() => b.close());
+  /* One hand-over packed for real, then received once with `tweak` applied to /mine's receive row. */
+  async function run(id, tweak, gapMs = 0) {
+    const root = fresh(t, 'data'), base = fresh(t, 'base');
+    const c = coordinator(b, id);
+    const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, member: 'Ann Lee', fetch };
+    const st = stateNew();
+    await hr.tick(st, deps);
+    await pack(c, agentFolder(t));
+    if (gapMs) await new Promise((res) => setTimeout(res, gapMs));   // so "after the pack" is a later second than it
+    const recv = async (m, route, body) => {
+      const r = await c.recv(m, route, body);
+      if (route === hr.MINE_ROUTE && r.ok) Object.assign(r.data.handovers[0], tweak(c));
+      return r;
+    };
+    const r = await hr.tick(st, Object.assign({}, deps, { macRequest: recv }));
+    return { r, c, root };
+  }
+  // CONTROL: unchanged, it is received.
+  assert.equal((await run('hctl', () => ({}))).r.ok, true);
+  // Kosmos+ renaming the sender changes nothing: the record's `from` is what is checked.
+  assert.equal((await run('hren', () => ({ sender_member: 'm-someone' }))).r.ok, true);
+  // No record yet: a wait, nothing fetched, nothing ended.
+  {
+    const { r, c } = await run('hnone', () => ({ record: null }));
+    assert.equal(r.ok, false);
+    assert.equal(r.final, undefined);
+    assert.match(r.because, /not been signed/);
+    assert.equal(c.calls.filter(([x]) => x === hr.READ_ROUTE).length, 0, 'nothing fetched');
+  }
+  // A record naming another leaving member: their history does not list this packing key.
+  {
+    const { r } = await run('hother', (c) => ({ record: signedRecord('hother', c.rec.agents, { from: 'm-someone' }), sender_history: signedHistory(ORG, 'm-someone', c.sender.publicKey) }));
+    assert.equal(r.ok, true, 'escrowd lists this key for m-someone too, so the RECORD decides whose it is');
+  }
+  // The pack is made after the admin's start; a record issued an hour AFTER the pack says the pack predates the hand-over.
+  {
+    const { r, c } = await run('hlate', (c) => ({ record: signedRecord('hlate', c.rec.agents, { issuedAt: Math.floor(Date.now() / 1000) + 3600 }) }));
+    assert.equal(r.ok, false);
+    // A record dated an hour ahead of this clock waits first (escrowd's clock or ours may be off), never opens.
+    assert.match(r.because, /dated ahead/);
+    assert.notEqual(c.rec.state, 'done');
+  }
+  // THE FIX FOR "now": the packing key revoked AFTER the pack (an off-boarded computer) still opens it ...
+  {
+    const { r } = await run('hrevlate', (c) => ({ sender_history: signedHistory(ORG, 'm-leave', c.sender.publicKey, undefined, [{ kind: 'revoke', key: seal.keyHex(c.sender.publicKey), at: Math.floor(Date.now() / 1000) }]) }), 2100);
+    assert.equal(r.ok, true, r.because);
+  }
+  // ... and one revoked BEFORE the pack does not (CONTROL for the arm above: the same revocation, earlier).
+  {
+    const { r, c } = await run('hrevearly', (c) => ({ sender_history: signedHistory(ORG, 'm-leave', c.sender.publicKey, undefined, [{ kind: 'revoke', key: seal.keyHex(c.sender.publicKey), at: 1 }]) }));
+    assert.equal(r.ok, false);
+    assert.match(r.because, /no longer the leaving member's/);
+    assert.equal(c.rec.state, 'failed', 'final: the hand-over is ended as failed');
+  }
 });

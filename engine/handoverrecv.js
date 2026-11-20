@@ -48,6 +48,8 @@
  *
  * One hand-over at a time, never two ticks at once. Never throws.
  */
+// kosmos#8764: how far a pack's signed time may sit from escrowd's start or this computer's clock.
+const PACK_SKEW_SECS = 300;
 const crypto = require('crypto');
 const fs = require('fs');
 const net = require('net');
@@ -297,15 +299,17 @@ async function receive(part, org, kp, deps) {
   const fail = (because) => ({ ok: false, final: true, because });
   const senderPub = senderKeyOf(part.sender_pubkey);
   if (!senderPub) return fail('the computer that packed these agents is no longer known to Kosmos+');
-  // kosmos#8733: the packing key must be the LEAVING member's, by escrowd's signed history, never Kosmos+'s word. It
-  // is checked at now until kosmos#8764 gives a signed pack time. Mostly stricter (a key revoked since the pack was made
-  // refuses it), with one case looser: a key enrolled AFTER the pack would pass. That needs two admins to enrol it,
-  // and is listed on #8764. checkSender's wait (escrowd not reachable, a stale history, an enrolment not finished)
-  // spends no attempt and has its own clock (waitSince), ended after OUTAGE_LIMIT_MS; the rest is final. A pass ends
-  // that wait, so a later outage of another kind starts its own day.
+  // kosmos#8764: WHO is leaving comes from escrowd's signed hand-over record (an admin signed the start), never from
+  // Kosmos+'s sender_member. Checked before anything is fetched.
   const nowSec = Math.floor(((d.now || Date.now)()) / 1000);
-  const tie = require('./handoverseal').checkSender({ org, member: part.sender_member, senderPub, history: part.sender_history, at: nowSec, now: nowSec });
-  if (!tie.ok) return tie.wait ? { ok: false, tieWait: true, because: tie.because } : fail(tie.because);
+  const hs = require('./handoverseal');
+  const rec = hs.checkRecordSender({ org, id: part.id, agents: part.agents, record: part.record, now: nowSec });
+  if (!rec.ok) return rec.wait ? { ok: false, tieWait: true, because: rec.because } : fail(rec.because);
+  // Before fetching anything: the history at this computer's clock, acted on only when it WAITS (escrowd not reachable, a
+  // stale history, the key not listed yet). Passing ends that wait (waitSince). Its other refusals are not final here: a
+  // key revoked since the pack still opens it, so the full check is below, at the pack's own time.
+  const pre = hs.checkSender({ org, member: rec.from, senderPub, history: part.sender_history, at: nowSec, now: nowSec });
+  if (!pre.ok && pre.wait) return { ok: false, tieWait: true, because: pre.because };
   if (kp && Number.isSafeInteger(kp.waitSince)) { try { updateKey(part.id, d.root, { waitSince: null }); } catch { /* cleared next pass */ } }
   const m = part.manifest || {};
   const prefix = `handover/${org}/${part.id}/`;
@@ -327,6 +331,21 @@ async function receive(part, org, kp, deps) {
   const ctx = snap.handoverContext(org, part.id);
   const opened = require('./backupformat').openManifest(kp.sk, senderPub, ctx, body);
   if (!opened) return fail('the pack could not be opened with this computer\'s key for it');
+  // kosmos#8733 + #8764: the packing key must be the LEAVING member's, by escrowd's signed history, AT THE TIME THE PACK
+  // WAS MADE: the manifest's own takenAt, which the packing key signed (openManifest checked that signature), never a
+  // time from Kosmos+. It may be no earlier than the admin's start (escrowd's issuedAt, so a key can never be used to
+  // backdate a pack before the hand-over existed) and no later than this computer's clock. A key revoked AFTER the pack
+  // (an off-boarded computer) still opens it; one revoked before does not. checkSender's wait (escrowd not reachable, a
+  // stale history, an enrolment not finished) is taken above, before the fetch.
+  const takenMs = typeof opened.takenAt === 'string' ? Date.parse(opened.takenAt) : NaN;
+  const packedAt = Number.isFinite(takenMs) ? Math.floor(takenMs / 1000) : null;
+  if (packedAt === null) return fail('the pack does not say when it was made');
+  if (packedAt < rec.issuedAt - PACK_SKEW_SECS) return fail('the pack says it was made before the hand-over was started');
+  if (packedAt > nowSec + PACK_SKEW_SECS) return fail('the pack says it was made later than this computer\'s clock');
+  // The same history passed the check above, so a wait here can only be a key escrowd lists from AFTER the pack was made
+  // (enrolled later, which a backdated pack would need): final.
+  const tie = hs.checkSender({ org, member: rec.from, senderPub, history: part.sender_history, at: Math.min(packedAt, nowSec), now: nowSec });
+  if (!tie.ok) return fail(tie.wait ? 'the computer that packed these agents was not the leaving member\'s when the pack was made' : tie.because);
   const objects = opened.objects && typeof opened.objects === 'object' ? opened.objects : {};
   // Every chunk a file names must have a stored object: a manifest that does not cover its own chunks can never restore.
   const covered = Array.isArray(opened.files) && opened.files.every((x) => !x || !Array.isArray(x.chunks) || x.chunks.every((c) => typeof c === 'string' && Object.prototype.hasOwnProperty.call(objects, c)));

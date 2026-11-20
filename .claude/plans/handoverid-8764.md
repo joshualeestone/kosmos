@@ -38,3 +38,29 @@ That escrowd is independent enough of the coordinator to be the second party: if
 nothing. The card's threat is a breached COORDINATOR; escrowd runs separately with its own key (devkeyhist relies on
 the same premise). Second: whether an admin start should also need the departing member's own consent is a product
 question, recorded, not decided here.
+
+## Built (04:1x CST 11-20), against the design above
+- kosmos-relay handoverrecord-8764: new roster op `handover_start` (one admin, its own tag and nonce purpose), signed bytes
+  = org, hand-over id, from, to, the AGENTS (count then names), generation, nonce. escrowd then signs a record (org, id,
+  from, to, agents, issuedAt) with the device-key history's key under its own tag, so the Mac keeps ONE anchor
+  (devkeyhist VERIFYING_KEY). Coordinator: POST /v1/mac/org/handover/sign ({id} -> bytes; {id, sig} -> relay, keep the
+  record only if it names this hand-over); /mine passes `record` to both sides and `own_history` (the leaving member's own
+  escrowd history) to the sender.
+- kosmos (this branch): handoverseal.checkRecord (leaving Mac): verifies the record, this org/id, exactly these agents,
+  age <= 30 days, and that `from` is THIS computer (its own device key valid now in escrowd's history for `from`); checkSeal
+  then runs for record.to, never seal_member. handoverrecv: the leaving member is the record's `from`; the packing key is
+  checked at the manifest's own signed takenAt, no earlier than the record's issuedAt, so a key revoked AFTER the pack
+  opens it and one revoked before does not.
+- Added beyond the card: the agents in the signature (a breached coordinator could otherwise widen the list an admin
+  approved), and the from-is-me check (otherwise a record for another departing member could be replayed here).
+- The record vector is computed independently with Node's crypto and pinned on both sides.
+
+## Weakest premises (as built)
+1. escrowd and the coordinator do not fall in one breach (as devkeyhist already assumes).
+2. The admin signs over account ids; what name the admin's screen shows for an id comes from the coordinator. The same
+   gap devkey-enrol has; a console screen (slice 5 of #8710, not built) must show escrowd-attested names to close it.
+3. One admin, not two: starting a hand-over always needed one admin, and an admin can already remove members.
+4. Replay: a record from an EARLIER hand-over of the same member (its own id, agents, successor) can be replayed within
+   30 days; the worst it does is complete a hand-over an admin once approved.
+5. The receiver does not check that the record's `to` is itself (the pack is sealed to its own one-time key, which checkSeal
+   tied to the successor's computer on the other side).
