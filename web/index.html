@@ -21569,7 +21569,8 @@ window.addEventListener('unhandledrejection', (e) => {
    'claim' message). Nothing else: no address is changed and no error is held back, so every other error listener
    sees each failure as before. After the two minutes nothing here listens. */
 (() => {
-  const sw = typeof navigator !== 'undefined' && navigator.serviceWorker;
+  let sw = null;
+  try { sw = typeof navigator !== 'undefined' && navigator.serviceWorker; } catch { sw = null; }   // a sandboxed page throws
   if (!sw || typeof document === 'undefined') return;
   const failed = new Set();
   const addresses = new Set();

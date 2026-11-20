@@ -37,6 +37,13 @@ Nothing a person sees in the ordinary case. The costs, all bounded:
 Downloads, folder zips, the diagnostics download and the service worker's fetches: they need a board-minted single-use
 key (kosmos#8790 design note), a separate step. The relay side of the header is kosmos-relay PR 854.
 
+## Review record: 8 rounds (the cap), the last with no blocker
+Blockers found and fixed: round 4 (a refusal after the takeover was never asked again), round 5 (any later failure
+was asked again). Round 8's two open points, both reasoned and not measured, kept here rather than a ninth round:
+- the line that leaves alone a failure that went through the worker, and the once-per-picture guard, matter only when
+  a second worker takeover (a worker update) lands within the two minutes; no check runs a second takeover.
+- a picture already broken whose error event has not fired at the moment of takeover is not asked again (one task).
+
 ## Weakest premise
 That old Safari (15.x) runs the worker's fetch handler for image loads and re-requests on a same-value setAttribute.
 Measured in Chromium and Playwright WebKit (a current engine), not on Safari 15, which cannot be run here. The worker's
