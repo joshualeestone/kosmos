@@ -28,3 +28,18 @@ pm brief 51,610 -> 51,098 (512 characters). The size ratchet is not lowered here
 
 Weakest premise: the cut commentary sentences change no agent's behaviour. What would change my mind: an agent leaving a
 file unsaved while it asks which project.
+
+## Review 1 (Opus)
+- No BLOCKER. Cuts 1 to 3 judged genuine repeats or commentary from the source and the history (cut 1 was added for
+  #3614's "Nothing here yet" failure before #4420's sentence covered the same failure).
+- WARNING, MEASURED: cut 4 changed wording that #3759 had measured with real runs. Re-measured, both arms, one case
+  (the landlord email, an agent on two projects, the full working rules, a brief made by createAgent): 2 runs on this
+  branch's wording, 2 on main's. All 4 saved the file directly in Files first, said "under Files on your page in
+  Kosmos", and asked which project it belongs to, offering to move it. No difference between the arms.
+  - Two measurement traps found on the way, both recorded so nobody trusts such a run: `claude -p` (2.1.329) does not
+    read a CLAUDE.md under /private/tmp at all (a marker probe answered NONE for a 68-character file); and
+    `--setting-sources project,local` no longer keeps the operator's global ~/.claude/CLAUDE.md out (#3759 relied on
+    it). The 5 runs made under /private/tmp are void. The 4 valid runs had the global file loaded in BOTH arms; it says
+    nothing about where an agent saves a person's files.
+- NIT fixed: the code comment that named the cut sentence now names the kept one.
+- NIT kept: the subfolder assertion may duplicate one in the #4420 test file (harmless).

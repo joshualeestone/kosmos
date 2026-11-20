@@ -197,8 +197,8 @@ function blockBody(dir) {
     'invisible to the person. Never tell them a file is under Files unless you',
     'saved it at that exact path.',
     '',
-    /* "Kosmos lists what is in it on your page": the Files list on the agent page (April's
-       half of #3614) shipped in the same change as that sentence, so promise and page agree. */
+    /* "Only files there appear on your page" (above) is the promise the Files list on the agent page (April's half of
+       #3614) keeps; kosmos#8735 slice 3 cut the sentence here that restated it. */
     'Tell them in one line where you saved it, in words that mean something to them:',
     'the file\'s name, and that it is under Files on your page in Kosmos (to them it',
     'is not "your Files folder"). This Files folder is only for files made for the',
