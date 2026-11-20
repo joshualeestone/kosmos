@@ -1,33 +1,30 @@
 {
-  "version": "0.8.11",
+  "version": "0.8.12",
   "highlights": [
     {
       "icon": "phone",
-      "title": "A remote Claude sign-in stays on your screen",
-      "line": "From a laptop or phone, a Claude sign-in opens no browser on the far computer, and Sign in again reopens its dialog after a Kosmos+ sign-in."
+      "title": "Older Safari opens your board",
+      "line": "Opening a computer through Kosmos+ in Safari older than 16.4 now shows its board, not a signed-out page. Pictures and downloads come later."
     },
     {
       "icon": "shield",
-      "title": "A restarted computer says it is still starting",
-      "line": "After a restart, a protected action sent through Kosmos+ may say Kosmos+ is still starting: try again in a minute, not update Kosmos."
+      "title": "Update Kosmos from the board on Linux",
+      "line": "An installed Linux computer can press Update to install a newer Kosmos when its service keeps the installer running."
     },
     {
-      "icon": "phone",
-      "title": "A room post that names you can reach your phone",
-      "line": "When an agent's room post names you, by @-name or in its opening line, your phone can get the notice a reply to you gets."
+      "icon": "shield",
+      "title": "Kosmos Cloud machines stay up to date",
+      "line": "A Kosmos Cloud machine installs the newest release once a night, skipping a night when an agent is working. Settings, Updates turns it off."
     },
     {
       "icon": "swarm",
-      "title": "A window Kosmos cannot confirm says so",
-      "line": "A window Kosmos cannot confirm it started reads Not linked to Kosmos on the board, and a message to it says why it was not sent."
+      "title": "An agent's name can hold an apostrophe",
+      "line": "A name like O'Brien's helper now works when you make an agent: the name you see keeps the apostrophe."
     },
     {
       "icon": "shield",
-      "title": "A refused download asks where to save",
-      "line": "When macOS refuses a download into Downloads, the Mac app says why and where to allow Kosmos, and offers Choose Where to Save.",
-      "platforms": [
-        "mac"
-      ]
+      "title": "A full sign-in on Kosmos Cloud lasts the day",
+      "line": "On a Kosmos Cloud machine a full sign-in now lasts as long as it says, so making an agent stops asking you to sign in again."
     }
   ]
 }
