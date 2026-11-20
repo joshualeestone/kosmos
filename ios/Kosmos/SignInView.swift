@@ -15,6 +15,9 @@ final class SignInModel: ObservableObject {
         didSet { if step == .denied(asking: false), oldValue != .denied(asking: false) { failures += 1 } }
     }
     @Published var email = ""
+    /// kosmos#8791/#8795 (Mona Lisa, 11-19): a fresh sign-in for the account already signed in. Its address is shown and
+    /// cannot be changed, so no "Use a different email": that would sign into another account mid-action.
+    @Published var fixedEmail = false
     @Published var code = ""
     // kosmos#8246: every message written into the error line counts (refusals, an unreachable service, and the person's
     // own input checks), the same words twice included (a value watch would miss the second); the person cancelling the
@@ -497,7 +500,7 @@ struct SignInView: View {
             VStack(spacing: 0) {
                 if model.companyURL != nil { link("Sign in with your company's account instead", action: model.companySignIn).disabled(model.busy) }
                 link("Send the code again", action: model.sendCode).disabled(model.busy)
-                link("Use a different email", action: model.differentEmail)
+                if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
             }
         case .password:
             title("Sign in with a password")
@@ -520,7 +523,7 @@ struct SignInView: View {
             codeField(submit: model.verifySecond)
             errorLine
             primary("Sign in", action: model.verifySecond)
-            link("Use a different email", action: model.differentEmail)
+            if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
         case .allow(let matchCode, let hasComputer):
             title(hasComputer ? "Allow this iPhone on your Mac" : "Signed in")
             if hasComputer {
@@ -543,12 +546,12 @@ struct SignInView: View {
             } else {
                 line("Your Mac did not let this iPhone in. If that was a mistake, sign in again and it will ask again.")
             }
-            link("Use a different email", action: model.differentEmail)
+            if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
         case .web(let reason):
             title(SignIn.webTitle(reason: reason))
             line(reason)
             primary("Continue", action: useWeb)
-            link("Use a different email", action: model.differentEmail)
+            if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
         case .setup(_, let sms):
             title("Set up a second step")
             line(SignIn.setupWords)
@@ -556,7 +559,7 @@ struct SignInView: View {
             primary("Set up an authenticator app", action: model.startSetup)
             VStack(spacing: 0) {
                 if sms { link("Use text messages instead", action: useWeb) }
-                link("Use a different email", action: model.differentEmail)
+                if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
             }
         case .setupConfirm(_, let otpauth, let secret):
             title("Add your key")   // one short word per line at the largest sizes, no hyphen inside one
@@ -579,7 +582,7 @@ struct SignInView: View {
             codeField(submit: model.confirmSetup)
             errorLine
             primary("Confirm", action: model.confirmSetup)
-            link("Use a different email", action: model.differentEmail)
+            if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
         case .done:
             HStack(spacing: 8) { SweepDots(scales: false); Text("Signed in").font(.footnote).foregroundColor(Palette.secondary) }
         }
