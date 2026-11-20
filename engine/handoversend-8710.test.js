@@ -9,6 +9,21 @@ const crypto = require('crypto');
 const hs = require('./handoversend');
 const { hpkeKeyPair } = require('./hpke');
 const sealPub = () => hpkeKeyPair().pk.toString('base64');
+// kosmos#8733: escrowd's history key (a test stand-in), the successor's computer, and the fields /mine carries for it.
+const seal = require('./handoverseal');
+const dkh = require('./devkeyhist');
+const ESCROWD = crypto.generateKeyPairSync('ed25519');
+dkh.setVerifyingKeyForTests(ESCROWD.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32));
+const SUCC = crypto.generateKeyPairSync('ed25519');
+function signedHistory(org, member, publicKey, t, extra) {
+  const entries = [Object.assign({ kind: 'enrol', key: seal.keyHex(publicKey), at: 0, backfill: false }, extra || {})];
+  return { org, member, entries, issuedAt: t, signature: crypto.sign(null, dkh.encodeHead(org, member, entries, t), ESCROWD.privateKey).toString('base64url') };
+}
+/* A send part's seal fields for its seal_pub, issued at t (Unix s; the test's clock): what the coordinator relays. */
+const tie = (p, t = Math.floor(Date.now() / 1000)) => Object.assign({
+  seal_sig: seal.signSeal(p.id, p.seal_pub, SUCC.privateKey), seal_signer: seal.keyHex(SUCC.publicKey), seal_member: 'm-succ',
+  seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, t),
+}, p);
 const up = require('./backupupload');
 
 const rows = [
@@ -78,7 +93,7 @@ const depsFor = (w, extra) => Object.assign({
   profilesDir: w.profiles,
   deviceKey: () => ({ ok: true, privateKey: crypto.generateKeyPairSync('ed25519').privateKey }),
 }, extra || {});
-const part = (extra) => Object.assign({ id: 'ho1', side: 'send', state: 'packing', seal_pub: sealPub(), agents: ['Ledger'] }, extra || {});
+const part = (extra, t) => tie(Object.assign({ id: 'ho1', side: 'send', state: 'packing', seal_pub: sealPub(), agents: ['Ledger'] }, extra || {}), t);
 
 test('a pack input carries the folder and the sessions, never the profile, under the hand-over context', () => {
   const w = world();
@@ -132,7 +147,7 @@ test('the real snapshot accepts the pack input and asks the hand-over grant firs
 test('a tick packs one part; a final failure is kept, another waits RETRY_MS, retryLater waits SOFT_RETRY_MS', async () => {
   const w = world();
   try {
-    const parts = [part({ id: 'ho1' }), part({ id: 'ho2' })];
+    const parts = [part({ id: 'ho1' }, 0), part({ id: 'ho2' }, 0)];
     const asked = [];
     const takes = [];
     let clock = 1000;
@@ -162,7 +177,7 @@ test('a tick packs one part; a final failure is kept, another waits RETRY_MS, re
     assert.deepEqual(await hs.tick(state, d), { ok: true, none: true });
     assert.deepEqual(takes, ['ho1', 'ho2', 'ho2', 'ho2', 'ho2']);
     // A changed part (a new key) is tried again.
-    parts[0].seal_pub = sealPub();
+    parts[0] = part({ id: 'ho1' }, 0);
     assert.equal((await hs.tick(state, d)).id, 'ho1');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
@@ -172,7 +187,7 @@ test('a coordinator refusal no retry can change is final, in this module\'s word
   try {
     let clock = 0;
     let answer = { ok: false, because: 'Kosmos+ refused (HTTP 413 on /v1/mac/org/handover/grant, code handover_too_big)' };
-    const parts = [part({ id: 'ho1' })];
+    const parts = [part({ id: 'ho1' }, 0)];
     const d = depsFor(w, { org: () => 'org1', now: () => clock,
       macRequest: async () => ({ ok: true, data: { handovers: parts } }),
       takeSnapshot: async () => answer });
@@ -188,7 +203,7 @@ test('a coordinator refusal no retry can change is final, in this module\'s word
     await hs.tick(s2, d2);
     assert.match(hs.notice(s2).stopped, /tried 8 times/);
     // A changed part starts again from nothing.
-    parts[0].seal_pub = sealPub();
+    parts[0] = part({ id: 'ho1' }, 0);
     answer = { ok: true };
     assert.equal((await hs.tick(s2, d2)).ok, true);
     assert.equal(hs.notice(s2).stopped, undefined);
@@ -289,7 +304,7 @@ test('round 3: retryLater is not counted; "too big" after a try that uploaded sa
   try {
     let clock = 0;
     let answer = { ok: false, retryLater: true, because: 'network' };
-    const parts = [part({ id: 'ho9' })];
+    const parts = [part({ id: 'ho9' }, 0)];
     const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: parts } }), takeSnapshot: async () => answer });
     const fresh = () => (hs.newSendState());
     let st = fresh();
@@ -321,7 +336,7 @@ test('round 4: memory notes survive the transcript cap; retryLater ends after MA
   const w = world();
   try {
     let clock = 0;
-    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hsoft' })] } }),
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hsoft' }, 0)] } }),
       takeSnapshot: async () => ({ ok: false, retryLater: true, because: 'quota' }) });
     const s1 = hs.newSendState();
     for (let i = 1; i < hs.MAX_SOFT; i++) { await hs.tick(s1, d); assert.equal(hs.notice(s1) && hs.notice(s1).stopped, undefined, 'soft ' + i); clock += hs.SOFT_RETRY_MS + 1; }
@@ -335,7 +350,7 @@ test('round 5: a counted failure ends a retryLater run; old decision files are s
   try {
     let clock = 0;
     let answer = { ok: false, retryLater: true, because: 'quota' };
-    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hrun' })] } }), takeSnapshot: async () => answer });
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hrun' }, 0)] } }), takeSnapshot: async () => answer });
     const st = hs.newSendState();
     for (let i = 1; i < hs.MAX_SOFT; i++) { await hs.tick(st, d); clock += hs.RETRY_MS + 1; }
     answer = { ok: false, because: 'HTTP 503' };   // counted: the run of waits ends
@@ -365,7 +380,7 @@ test('round 5: too big after an uncounted try that uploaded says the earlier try
   try {
     let clock = 0;
     let answer = { ok: false, retryLater: true, because: 'network', added: new Map([['c1', {}]]) };   // uploaded, then a network refusal
-    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hspent' })] } }), takeSnapshot: async () => answer });
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hspent' }, 0)] } }), takeSnapshot: async () => answer });
     const st = hs.newSendState();
     await hs.tick(st, d);
     clock += hs.SOFT_RETRY_MS + 1;
@@ -381,7 +396,7 @@ test('round 6: wrong state after a try that uploaded says the pack may be half s
   try {
     let clock = 0;
     let answer = { ok: false, because: 'HTTP 503', added: new Map([['c1', {}]]) };
-    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hhalf' })] } }), takeSnapshot: async () => answer });
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hhalf' }, 0)] } }), takeSnapshot: async () => answer });
     const st = hs.newSendState();
     await hs.tick(st, d);
     clock += hs.RETRY_MS + 1;
@@ -391,7 +406,7 @@ test('round 6: wrong state after a try that uploaded says the pack may be half s
     // CONTROL: with nothing granted before, it is the hand-over that is no longer open.
     const w2 = world();
     try {
-      const d2 = depsFor(w2, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hclosed' })] } }), takeSnapshot: async () => answer });
+      const d2 = depsFor(w2, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [part({ id: 'hclosed' }, 0)] } }), takeSnapshot: async () => answer });
       const s2 = hs.newSendState();
       await hs.tick(s2, d2);
       assert.equal(hs.notice(s2).stopped, 'the hand-over is no longer open');
@@ -403,7 +418,7 @@ test('round 7: a try the board stopped part way counts, and may have used the ro
   const w = world();
   try {
     let clock = 0;
-    const one = part({ id: 'hdied' });   // one part: part() makes a new key each call, which would read as a changed part
+    const one = part({ id: 'hdied' }, 0);   // one part: part() makes a new key each call, which would read as a changed part
     const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: [one] } }),
       takeSnapshot: async () => { throw new Error('the board stopped'); } });
     // The board dies inside take: the tick's catch stands in for the process ending.
@@ -417,5 +432,135 @@ test('round 7: a try the board stopped part way counts, and may have used the ro
     // A folder that cannot be found now is an ordinary try, not final.
     const p = hs.packInput(part(), 'org1', depsFor(w, { workerDir: (n) => path.join(w.base, 'unmounted', n) }));
     assert.equal(p.final, undefined);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('kosmos#8733: never packs to a key the successor\'s computer did not sign; what may pass later waits, the rest is final', () => {
+  const w = world();
+  try {
+    // CONTROL: the tied part packs, so each refusal below is the tie's.
+    assert.equal(hs.packInput(part(), 'org1', depsFor(w)).ok, true);
+    const other = crypto.generateKeyPairSync('ed25519');
+    const t = Math.floor(Date.now() / 1000);
+    const cases = [
+      ['signed by another computer (the coordinator swapping in its own key)', (p) => ({ seal_sig: seal.signSeal(p.id, p.seal_pub, other.privateKey) }), /not signed by the colleague's own computer/],
+      ['no signature', () => ({ seal_sig: null }), /did not sign the key/],
+      ['a history for another member', () => ({ seal_member: 'm-other' }), /could not be checked/],
+      ['a history of another company', () => ({ seal_history: signedHistory('org2', 'm-succ', SUCC.publicKey, t) }), /could not be checked/],
+      ['a history escrowd did not sign', (p) => ({ seal_history: Object.assign({}, p.seal_history, { signature: Buffer.alloc(64).toString('base64url') }) }), /could not be checked/],
+      ['a backfilled entry (escrowd never upgrades it)', () => ({ seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, t, { backfill: true }) }), /carried over from before/],
+    ];
+    for (const [why, patch, re] of cases) {
+      const p = part();
+      const r = hs.packInput(Object.assign(p, patch(p)), 'org1', depsFor(w));
+      assert.equal(r.ok, false, why);
+      assert.equal(r.final, true, why);
+      assert.equal(r.input, undefined, `${why}: nothing to pack`);
+      assert.match(r.because, re, why);
+    }
+    // May pass later: a retryLater (bounded by MAX_SOFT), never packed meanwhile.
+    const waits = [
+      ['escrowd could not be asked', () => ({ seal_history: null }), /could not get its device keys/],
+      ['another computer named as the signer, which escrowd does not list for the successor', (p) => ({ seal_sig: seal.signSeal(p.id, p.seal_pub, other.privateKey), seal_signer: seal.keyHex(other.publicKey) }), /not been enrolled by your company's admins yet/],
+      ['a history dated ahead of this computer\'s clock', () => ({ seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, t + 3600) }), /dated in the future/],
+    ];
+    for (const [why, patch, re] of waits) {
+      const p = part();
+      const r = hs.packInput(Object.assign(p, patch(p)), 'org1', depsFor(w));
+      assert.deepEqual([r.ok, r.retryLater, r.final, r.input], [false, true, undefined, undefined], why);
+      assert.match(r.because, re, why);
+    }
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('kosmos#8733: a run of the tie\'s waits ends when the key checks out, and running out says why', async () => {
+  const w = world();
+  try {
+    let clock = 0;
+    const one = part({ id: 'htie' }, 0);
+    const waiting = Object.assign({}, one, { seal_history: null });
+    let rows = [waiting];
+    let answer = { ok: false, retryLater: true, because: 'network' };
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: rows } }), takeSnapshot: async () => answer });
+    const st = hs.newSendState();
+    // MAX_TIE_SOFT - 1 waits for escrowd: not final yet.
+    for (let i = 0; i < hs.MAX_TIE_SOFT - 1; i++) { await hs.tick(st, d); clock += hs.SOFT_RETRY_MS + 1; }
+    assert.equal(st.tieSoft.get('htie'), hs.MAX_TIE_SOFT - 1);
+    assert.equal(st.soft.get('htie') || 0, 0, 'the tie\'s waits are not the network run');
+    assert.equal(hs.notice(st).stopped, undefined);
+    // The key now checks out; the pack then meets a network refusal. Its run starts from one, not from MAX_SOFT.
+    rows = [Object.assign({}, one, { seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, Math.floor(clock / 1000)) })];   // escrowd answers now; the history made at 0 has aged a day
+    await hs.tick(st, d);
+    assert.equal(st.soft.get('htie'), 1, 'the tie\'s waits do not count against the network run');
+    assert.equal(st.tieSoft.get('htie') || 0, 0, 'the key checked out: its waits are over');
+    assert.equal(hs.notice(st).stopped, undefined);
+    // CONTROL: a network run alone still ends at MAX_SOFT (the reset is only after the tie's waits).
+    for (let i = 1; i < hs.MAX_SOFT; i++) { clock += hs.SOFT_RETRY_MS + 1; await hs.tick(st, d); }
+    assert.match(hs.notice(st).stopped || '', /kept asking this computer to wait/);
+    // Running out of tie waits says the cause, not "kept asking".
+    const st2 = hs.newSendState();
+    const d2 = Object.assign({}, d, { root: path.join(w.base, 'data2'), macRequest: async () => ({ ok: true, data: { handovers: [Object.assign({}, part({ id: 'htie2' }, 0), { seal_history: null })] } }) });
+    for (let i = 0; i < hs.MAX_TIE_SOFT; i++) { await hs.tick(st2, d2); clock += hs.SOFT_RETRY_MS + 1; }
+    assert.match(hs.notice(st2).stopped || '', /could not get its device keys.*did not change for a day/);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('kosmos#8733 review 3: a restart in a run of the tie\'s waits keeps the count, and the network run starts on its own', async () => {
+  const w = world();
+  try {
+    let clock = 0;
+    const one = part({ id: 'hrst' }, 0);
+    let rows = [Object.assign({}, one, { seal_history: null })];
+    const answer = { ok: false, retryLater: true, because: 'network' };
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: rows } }), takeSnapshot: async () => answer });
+    const st = hs.newSendState();
+    for (let i = 0; i < hs.MAX_TIE_SOFT - 2; i++) { await hs.tick(st, d); clock += hs.SOFT_RETRY_MS + 1; }
+    // The board restarts: a new state, read back from the decisions file.
+    const st2 = hs.newSendState();
+    await hs.tick(st2, d);
+    assert.equal(st2.tieSoft.get('hrst'), hs.MAX_TIE_SOFT - 1, 'the tie\'s count came back from disk and went on');
+    // The key checks out; two network refusals then count 1 and 2, not 23 and 24.
+    rows = [one];
+    clock += hs.SOFT_RETRY_MS + 1; await hs.tick(st2, d);
+    clock += hs.SOFT_RETRY_MS + 1; await hs.tick(st2, d);
+    assert.equal(st2.soft.get('hrst'), 2);
+    assert.equal(hs.notice(st2).stopped, undefined, 'not ended early');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('kosmos#8733 review 3: waits and passes taking turns still end, at MAX_SOFT network refusals', async () => {
+  const w = world();
+  try {
+    let clock = 0;
+    const one = part({ id: 'halt' }, 0);
+    let n = 0;
+    const d = depsFor(w, { org: () => 'org1', now: () => clock,
+      macRequest: async () => ({ ok: true, data: { handovers: [(n++ % 2) ? one : Object.assign({}, one, { seal_history: null })] } }),
+      takeSnapshot: async () => ({ ok: false, retryLater: true, because: 'network' }) });
+    const st = hs.newSendState();
+    for (let i = 0; i < 2 * hs.MAX_SOFT + 2 && !(hs.notice(st) || {}).stopped; i++) { await hs.tick(st, d); clock += hs.SOFT_RETRY_MS + 1; }
+    assert.match((hs.notice(st) || {}).stopped || '', /kept asking this computer to wait/, 'bounded');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('kosmos#8733 review 4: the key checking out ends its waits even when a later step then fails', async () => {
+  const w = world();
+  try {
+    let clock = 0;
+    const one = part({ id: 'hlater' }, 0);
+    let rows = [Object.assign({}, one, { seal_history: null })];
+    let survey = { ok: true, agents: [] };
+    const d = depsFor(w, { org: () => 'org1', now: () => clock, macRequest: async () => ({ ok: true, data: { handovers: rows } }),
+      takeSnapshot: async () => ({ ok: true }) });
+    const st = hs.newSendState();
+    for (let i = 0; i < 5; i++) { await hs.tick(st, d); clock += hs.SOFT_RETRY_MS + 1; }
+    assert.equal(st.tieSoft.get('hlater'), 5);
+    // The key checks out; the agents on this computer then cannot be read (a retryLater after the check).
+    rows = [one];
+    const d2 = Object.assign({}, d, { survey: () => ({ ok: false, because: 'busy' }) });
+    await hs.tick(st, d2);
+    assert.equal(st.tieSoft.get('hlater') || 0, 0, 'the check passed, so its waits are over');
+    assert.equal(st.soft.get('hlater'), 1, 'the survey refusal counts in the network run');
+    void survey;
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

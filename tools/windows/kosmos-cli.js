@@ -529,7 +529,7 @@ function keepPipedCopy(ctx, text, maybe) {   // maybe (#4934): a first try may h
 }
 
 async function verbMsg(ctx, args) {
-  /* #2909: --stdin (leading) reads the message from standard input, shared with post via
+  /* #2909: --stdin (leading, or alone after the agent: kosmos#8769) reads the message from standard input, shared with post via
      readPipedMessage, and every failure after the read keeps it in a private file. */
   /* #7886 item 3: --in-reply-to <id> (leading, in any order with --stdin) answers a direct message, as install/kosmos. */
   let fromStdin = false;
@@ -560,6 +560,8 @@ async function verbMsg(ctx, args) {
   const beforeEscape = args.indexOf('--') === -1 ? args : args.slice(0, args.indexOf('--'));
   const late = beforeEscape.find((a) => a === '--no-reply' || a === '--in-reply-to' || (typeof a === 'string' && a.startsWith('--in-reply-to=')));
   if (late) { const f = late.split('=')[0]; ctx.err(f + ' must come before the agent name: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>' + (fromStdin || args.includes('--stdin') ? '' : '  (to say ' + f + ' in the message, put -- before it)')); return 2; }
+  /* kosmos#8769, as install/kosmos: a lone --stdin after the agent has one reading only, so it is the flag. */
+  if (!fromStdin && args.length === 1 && args[0] === '--stdin') { fromStdin = true; args.shift(); }
   // After the scan, as install/kosmos orders it (#7893 round 5): a late --stdin is checked last.
   if (!fromStdin && args.includes('--stdin')) { ctx.err('--stdin must come before the agent name: kosmos msg --stdin <agent>, with the message piped in.'); return 2; }
   if (!fromStdin) { const t = textArgs(ctx, 'msg', USAGE.msg, args); if (!t) return 2; args = t; text = t.join(' '); }
@@ -790,7 +792,7 @@ async function verbPost(ctx, args) {
     ctx.err('Text only for now: kosmos post <project-id> <text>');
     return 2;
   }
-  // #2908 --no-reply, #3224 --in-reply-to and #2909 --stdin are LEADING flags in any order, matching
+  // #2908 --no-reply, #3224 --in-reply-to and #2909 --stdin are LEADING flags (--stdin also alone after the project, kosmos#8769) in any order, matching
   // install/kosmos (the parity this second CLI must keep). --no-reply marks a post an
   // acknowledgement (reply_expected:false); --in-reply-to <id> binds the answer to the
   // room the cited message came from, so the server refuses if the target project
@@ -828,8 +830,10 @@ async function verbPost(ctx, args) {
   // #3224: a reply is already bound to its room, so --new has nothing to say about it (parity with install/kosmos).
   if (newPost && inReplyTo) { ctx.err('Use --new or --in-reply-to, not both: a reply is already bound to the room its message came from.'); return 2; }
   const project = args.shift();
+  /* kosmos#8769, as install/kosmos: a lone --stdin after the project has one reading only, so it is the flag. */
+  if (!fromStdin && args.length === 1 && args[0] === '--stdin') { fromStdin = true; args.shift(); }
   let text = args.join(' ');
-  /* #2909: a --stdin after the project would post the literal word and drop the piped message. */
+  /* #2909: a --stdin after the project, beside other words, would post the literal word and drop the piped message. */
   if (!fromStdin && args.includes('--stdin')) { ctx.err('--stdin must come before the project id: kosmos post --stdin <project-id>, with the message piped in.'); return 2; }
   /* kosmos#4889, as install/kosmos. */
   if (project && /^--[A-Za-z]/.test(project)) { refuseOption(ctx, 'post', USAGE.post, project, 'target'); return 2; }
