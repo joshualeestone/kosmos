@@ -22,7 +22,8 @@ it. Measured on 11-19: April's, Angel's and Splinter's token files hold only the
 runs read 'gone'.
 What sits under the run of blocks is read with the existing #6209 rule: a block that covered a deliberate wait, or
 an unreadable record, keeps the block. For this case the walk steps over that gone run's automatic provider blocks of
-any kind, and stops at another run's block (`lineUnderProviderBlock(sessionName, goneInstance)`).
+any kind, and stops at another run's block (`lineUnderProviderBlock(sessionName, goneInstance)`). A transient block
+keeps #6209's walk, so a gone run never makes a block harder to clear than main does.
 
 Unchanged: the same run keeps #6209's rule ("an api error" stays within a session); a mid-turn `working` never
 clears a provider block; deliberate blocks and automatic blocks that are not about the provider are untouched; an
@@ -52,10 +53,11 @@ restart for those agents. That is a separate question about #8548.
 
 ## Tests
 
-- `engine/selfreport.anotherrun-8782.test.js`, 11 tests: the 11-19 case; a same-run control; a new run's working
+- `engine/selfreport.anotherrun-8782.test.js`, 13 tests: the 11-19 case; a same-run control; a new run's working
   vs its idle; any kind, and a run of several; a deliberate question under the block; unknown instances on either
   side; deliberate and non-provider blocks; two live runs overlapping (with a flip to gone as the control); no token
-  file; the new run's own block over the old one (the residual); a live sibling's block under the gone run's.
+  file; the new run's own block over the old one (the residual); a live sibling's block under the gone run's; a gone run's
+  transient block over a live run's transient block (cleared, as on main); a `legacy` instance (kept).
 - Mutation checks: main's `selfreport.js` fails the clear cases; the token check removed fails the overlap and
   no-token-file tests.
 - The existing `engine/selfreport.autoclear-2456.test.js` and `engine/selfreport.test.js` pass.

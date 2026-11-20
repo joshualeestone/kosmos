@@ -378,7 +378,10 @@ function record(sessionName, entry) {
     const fromGoneRun = state === 'idle' && isAutoProviderBlockFromAGoneRun(sessionName, standing, entry);   // kosmos#8782
     const providerBlockEnds = state === 'idle' && (isAutoProviderBlock(standing) || fromGoneRun);
     if (providerBlockEnds) {
-      const under = lineUnderProviderBlock(sessionName, fromGoneRun ? standing.instance : null);
+      /* kosmos#8782: the gone run's walk only for a kind #6209 keeps; a transient block keeps #6209's walk, so a gone
+         run never makes a block harder to clear than main does. */
+      const goneWalk = fromGoneRun && !isAutoProviderBlock(standing);
+      const under = lineUnderProviderBlock(sessionName, goneWalk ? standing.instance : null);
       if (under.unknown) {
         return { recorded: false, skipped: 'waiting', because: 'it is blocked on the provider and Kosmos could not tell what that block replaced, so an automatic idle did not overwrite it' };
       }
