@@ -83,7 +83,7 @@ test('kosmos#8790: not a picture, not this origin, not /api/, a navigation or a 
   const w = worker(connector);
   assert.equal(await run(w, req('/api/status', { destination: '', mode: 'cors' })), 'not handled', 'a page fetch (destination "", cors)');
   assert.equal(await run(w, req('/api/status', { destination: '', mode: 'cors', headers: new Headers({ accept: 'image/png' }) })), 'not handled', 'a page fetch asking for an image type is still a fetch');
-  assert.equal(await run(w, req('/api/x.js', { destination: 'script' })), 'not handled', 'a script');
+  assert.equal(await run(w, req('/api/x.js', { destination: 'script', headers: new Headers({ accept: 'image/png' }) })), 'not handled', 'a script, even asking for an image type');
   assert.equal(await run(w, req('/api/agent/max/avatar', { destination: 'document', mode: 'navigate' })), 'not handled', 'a navigation');
   assert.equal(await run(w, req('/api/agent/max/avatar', { method: 'POST' })), 'not handled', 'a write');
   assert.equal(await run(w, { method: 'GET', url: 'https://other.kosmosplus.com/api/agent/max/avatar', mode: 'no-cors', destination: 'image', headers: new Headers() }), 'not handled', 'another computer\'s board');
@@ -103,7 +103,6 @@ test('kosmos#8790: a browser without Request.destination is told a picture by th
 });
 
 test('kosmos#8790: the page can ask a ready worker to take charge of it ("claim"); any other message is ignored', async () => {
-  const w = worker(connector);
   let claimed = 0;
   const handlers = {};
   const self = { addEventListener: (k, f) => { handlers[k] = f; }, location: { origin: ORIGIN, hostname: 'hers.kosmosplus.com' }, skipWaiting() {}, clients: { claim: async () => { claimed++; } } };
@@ -116,18 +115,36 @@ test('kosmos#8790: the page can ask a ready worker to take charge of it ("claim"
   handlers.message({ data: 'claim', waitUntil: (p) => waits.push(p) });
   await Promise.all(waits);
   assert.equal(claimed, 1);
-  assert.ok(w);
 });
 
-test('kosmos#8790: the page notes pictures that failed before the worker was in charge, and asks for them again at the same address', () => {
+test('kosmos#8790: a discarded refusal has its body cancelled, and the kept answer does not', async () => {
+  const made = [];
+  const w = worker((rec, n) => {
+    const r = n === 1 ? REFUSED(401)() : PIC();
+    let cancelled = false;
+    const real = r.body;
+    Object.defineProperty(r, 'body', { value: { cancel: async () => { cancelled = true; }, real } });
+    made.push(() => cancelled);
+    return r;
+  });
+  await run(w, req('/api/agent/max/avatar'));
+  assert.equal(made[0](), true, 'the first refusal, replaced by the picture, is freed');
+  assert.equal(made[1](), false, 'the picture handed to the page is not');
+});
+
+test('kosmos#8790: the reloader\'s source keeps its promises (its behaviour is in docs/browser-checks/render-boardpic-8790.js)', () => {
   const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
-  const at = page.indexOf("sw.addEventListener('controllerchange'");
+  const at = page.indexOf('/* kosmos#8790: on a browser that sends no Sec-Fetch-Site, the board\'s pictures load through the service worker');
   assert.ok(at > -1, 'the first-visit reloader is gone');
-  const block = page.slice(page.lastIndexOf('(() => {', at), page.indexOf('})();', at));
+  const block = page.slice(at, page.indexOf('\n})();', at));
+  assert.ok(block.includes("sw.addEventListener('controllerchange', onTakeover)") && block.includes('setTimeout(stop, 120000)'), 'the reloader could not be cut out whole');
   assert.doesNotMatch(block, /stopImmediatePropagation|stopPropagation|preventDefault/, 'it must hold back no error from the other listeners');
   assert.match(block, /el\.setAttribute\(attr, raw\)/, 'it asks again at the element\'s own address');
   assert.match(block, /'image' \? 'href'/, 'SVG <image href> avatars are covered too');
-  assert.match(block, /LPV_FAILED\.clear\(\)/, 'kosmos#8636\'s failed preview list is emptied, so previews draw again');
+  assert.match(block, /LPV_FAILED\.delete\(raw\)/, 'only the addresses it noted leave kosmos#8636\'s failed list');
+  assert.doesNotMatch(block, /LPV_FAILED\.clear\(/, 'it never empties kosmos#8636\'s whole list');
+  assert.match(block, /sw\.removeEventListener\('controllerchange', onTakeover\)/, 'after two minutes it stops listening for a takeover too');
   assert.match(block, /setTimeout\(stop, 120000\)/, 'it stops listening after two minutes');
   assert.match(block, /postMessage\('claim'\)/, 'it asks a ready worker to take charge');
+  assert.ok(block.indexOf('askToClaim();') > block.indexOf('failed.add(el)'), 'and only after a board picture has failed');
 });

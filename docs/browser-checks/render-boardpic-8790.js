@@ -17,7 +17,7 @@
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const playwright = require('playwright');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const SW = fs.readFileSync(path.join(ROOT, 'web', 'sw.js'), 'utf8');
@@ -31,13 +31,17 @@ const chk = (ok, label, extra) => {
 
 // The page's real first-visit reloader, as it ships.
 const at = PAGE_SRC.indexOf('/* kosmos#8790: on a browser that sends no Sec-Fetch-Site');
-const reloader = at < 0 ? '' : PAGE_SRC.slice(at, PAGE_SRC.indexOf('})();', at) + 5);
+const reloader = at < 0 ? '' : PAGE_SRC.slice(at, PAGE_SRC.indexOf('\n})();', at) + 6);
 chk(!!reloader, 'the page\'s first-visit reloader was found in web/index.html');
 
 const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==', 'base64');
 const HTML = `<!doctype html><html><head><meta charset="utf-8"><title>boardpic</title></head><body>
 <div class="pics"></div>
 <script>${reloader}</script>
+<script>
+  // After the reloader has noted it (its listener is registered first), a refused "gone" picture is taken off the page.
+  document.addEventListener('error', (e) => { const t = e.target; if (t && t.getAttribute && t.getAttribute('src') === '/api/agent/gone/avatar') t.remove(); }, true);
+</script>
 <script>
   window.drawPics = (list) => { document.querySelector('.pics').innerHTML = list.map((u) => '<img src="' + u + '" alt="">').join(''); };
   window.drawSvg = (u) => { document.querySelector('.pics').insertAdjacentHTML('beforeend', '<svg width="10" height="10"><image href="' + u + '" width="10" height="10"/></svg>'); };
@@ -63,55 +67,75 @@ const server = http.createServer((req, res) => {
 (async () => {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = 'http://127.0.0.1:' + server.address().port;
-  const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
-  try {
-    const ctx = await browser.newContext();
-    const page = await ctx.newPage();
-    const errs = [];
-    page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
-    const count = (p, marked) => asked.filter((a) => a.path === p && (marked === undefined || a.marked === marked)).length;
+  for (const engine of ['chromium', 'webkit']) {
+    const tag = '[' + engine + '] ';
+    asked.length = 0;
+    const browser = await playwright[engine].launch({ headless: process.env.HEADED === '0' });
+    try {
+      const ctx = await browser.newContext();
+      const page = await ctx.newPage();
+      const errs = [];
+      page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
+      const count = (p, marked) => asked.filter((a) => a.path === p && (marked === undefined || a.marked === marked)).length;
 
-    // 1. First visit: drawn before the worker is in charge.
-    await page.goto(base + '/');
-    const before = await page.evaluate(() => !!(navigator.serviceWorker && navigator.serviceWorker.controller));
-    const drawnBefore = await page.evaluate(() => { window.drawPics(['/api/agent/first/avatar?v=1']); window.drawSvg('/api/agent/firstsvg/avatar'); return !!navigator.serviceWorker.controller; });
-    await page.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 15000 }).catch(() => {});
-    await page.waitForTimeout(800);
-    const first = await page.evaluate(() => window.readPics());
-    chk(!before && !drawnBefore, 'first visit: the pictures were drawn before a worker was in charge', String(before) + ' ' + String(drawnBefore));
-    chk(asked.some((a) => a.path === '/api/agent/first/avatar?v=1' && a.dest === 'image' && !a.marked), 'and the browser asked for it itself (Sec-Fetch-Dest: image), so the worker did not handle it', JSON.stringify(asked));
-    chk(count('/api/agent/first/avatar?v=1', false) >= 1, 'CONTROL: the picture was first refused (asked without the header)', JSON.stringify(asked));
-    chk(first[0] && first[0].loaded, 'first visit: once the worker took charge, the refused picture shows', JSON.stringify(first));
-    chk(first[0] && first[0].src === '/api/agent/first/avatar?v=1', 'and its address on the page is unchanged', JSON.stringify(first));
-    chk(count('/api/agent/first/avatar?v=1', true) >= 1, 'the reloader asked again, through the worker (with the header)', JSON.stringify(asked.filter((a) => a.path.includes('first'))));
-    chk(count('/api/agent/firstsvg/avatar', true) >= 1, 'first visit: an SVG <image> avatar is asked for again too', JSON.stringify(asked.filter((a) => a.path.includes('firstsvg'))));
+      // 1. First visit: drawn before the worker is in charge.
+      await page.goto(base + '/');
+      const before = await page.evaluate(() => !!(navigator.serviceWorker && navigator.serviceWorker.controller));
+      const drawnBefore = await page.evaluate(() => { window.drawPics(['/api/agent/first/avatar?v=1', '/api/open/avatar', '/api/agent/gone/avatar']); window.drawSvg('/api/agent/firstsvg/avatar'); return !!navigator.serviceWorker.controller; });
+      await page.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(800);
+      const first = await page.evaluate(() => window.readPics());
+      chk(!before && !drawnBefore, tag + 'first visit: the pictures were drawn before a worker was in charge', String(before) + ' ' + String(drawnBefore));
+      chk(asked.some((a) => a.path === '/api/agent/first/avatar?v=1' && a.dest === 'image' && !a.marked), tag + 'and the browser asked for it itself (Sec-Fetch-Dest: image), so the worker did not handle it', JSON.stringify(asked));
+      chk(first[0] && first[0].loaded, tag + 'first visit: once the worker took charge, the refused picture shows', JSON.stringify(first));
+      chk(first[0] && first[0].src === '/api/agent/first/avatar?v=1', tag + 'and its address on the page is unchanged', JSON.stringify(first));
+      chk(count('/api/agent/first/avatar?v=1', true) >= 1, tag + 'the reloader asked again, through the worker (with the header)', JSON.stringify(asked.filter((a) => a.path.includes('first'))));
+      chk(count('/api/agent/firstsvg/avatar', true) >= 1, tag + 'first visit: an SVG <image> avatar is asked for again too', JSON.stringify(asked.filter((a) => a.path.includes('firstsvg'))));
+      chk(count('/api/open/avatar') === 1, tag + 'a picture that loaded is not asked for again', JSON.stringify(asked.filter((a) => a.path.includes('open'))));
+      chk(count('/api/agent/gone/avatar') >= 1 && count('/api/agent/gone/avatar', true) === 0, tag + 'a refused picture taken off the page after it failed is not asked for again', JSON.stringify(asked.filter((a) => a.path.includes('gone'))));
 
-    // 2 to 4. A page the worker controls from the start.
-    await page.reload();
-    const controlled = await page.evaluate(() => !!navigator.serviceWorker.controller);
-    chk(controlled, 'after a reload the worker is in charge of the page');
-    const pics = ['/api/agent/max/avatar?v=3', '/api/gone/avatar', '/api/open/avatar'];
-    await page.evaluate((l) => window.drawPics(l), pics);
-    await page.waitForTimeout(1200);
-    const got = await page.evaluate(() => window.readPics());
-    chk(got[0].loaded, 'a refused picture shows', JSON.stringify(got[0]));
-    chk(got[0].src === pics[0], 'at its own address (src unchanged)', JSON.stringify(got[0]));
-    chk(count(pics[0], true) === 1, 'it was asked for again once, with X-Kosmos-Board-Page: 1', JSON.stringify(asked.filter((a) => a.path === pics[0])));
-    chk(!got[1].loaded && count(pics[1]) === 1, 'CONTROL: a picture that answers 404 stays failed and is asked for once', JSON.stringify(asked.filter((a) => a.path === pics[1])));
-    chk(got[2].loaded && count(pics[2]) === 1 && count(pics[2], true) === 0, 'CONTROL: a picture that loads is asked for once, without the header', JSON.stringify(asked.filter((a) => a.path === pics[2])));
+      // 2 to 4. A page the worker controls from the start.
+      await page.reload();
+      const controlled = await page.evaluate(() => !!navigator.serviceWorker.controller);
+      chk(controlled, tag + 'after a reload the worker is in charge of the page');
+      const pics = ['/api/agent/max/avatar?v=3', '/api/gone/avatar', '/api/open/avatar?v=2'];
+      await page.evaluate((l) => window.drawPics(l), pics);
+      await page.waitForTimeout(1200);
+      const got = await page.evaluate(() => window.readPics());
+      chk(got[0].loaded, tag + 'a refused picture shows', JSON.stringify(got[0]));
+      chk(got[0].src === pics[0], tag + 'at its own address (src unchanged)', JSON.stringify(got[0]));
+      chk(count(pics[0], true) === 1, tag + 'it was asked for again once, with X-Kosmos-Board-Page: 1', JSON.stringify(asked.filter((a) => a.path === pics[0])));
+      chk(!got[1].loaded && count(pics[1]) === 1, tag + 'CONTROL: a picture that answers 404 stays failed and is asked for once', JSON.stringify(asked.filter((a) => a.path === pics[1])));
+      chk(got[2].loaded && count(pics[2]) === 1 && count(pics[2], true) === 0, tag + 'CONTROL: a picture that loads is asked for once, without the header', JSON.stringify(asked.filter((a) => a.path === pics[2])));
+      const n = count(pics[0], true);
+      await page.evaluate((l) => window.drawPics(l), pics);
+      await page.waitForTimeout(800);
+      const again = await page.evaluate(() => window.readPics());
+      chk(again[0].loaded, tag + 'after a redraw the refused picture still shows', JSON.stringify(again[0]));
+      chk(count(pics[0], true) <= n + 1, tag + 'and a redraw costs at most one more ask with the header', JSON.stringify(asked.filter((a) => a.path === pics[0])));
 
-    // A redraw with the same markup: the refused picture is asked for the way the browser does, still through the worker.
-    const n = count(pics[0], true);
-    await page.evaluate((l) => window.drawPics(l), pics);
-    await page.waitForTimeout(800);
-    const again = await page.evaluate(() => window.readPics());
-    chk(again[0].loaded, 'after a redraw the refused picture still shows', JSON.stringify(again[0]));
-    chk(count(pics[0], true) <= n + 1, 'and a redraw costs at most one more ask with the header', JSON.stringify(asked.filter((a) => a.path === pics[0])));
-    chk(errs.length === 0, 'no page errors', JSON.stringify(errs));
-  } finally {
-    await browser.close();
-    server.close();
+      // 5. A hard reload (the worker stands aside for it): Chromium only, which can force one.
+      if (engine === 'chromium') {
+        const cdp = await ctx.newCDPSession(page);
+        await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), cdp.send('Page.reload', { ignoreCache: true })]);
+        await page.waitForTimeout(300);
+        const hardCtl = await page.evaluate(() => !!navigator.serviceWorker.controller);
+        chk(!hardCtl, tag + 'a hard reload: the page starts with no worker in charge', String(hardCtl));
+        await page.evaluate(() => window.drawPics(['/api/open/avatar?v=3']));
+        await page.waitForTimeout(1200);
+        chk(!(await page.evaluate(() => !!navigator.serviceWorker.controller)), tag + 'CONTROL: with no picture failed, the page does not ask the worker to take charge');
+        await page.evaluate(() => window.drawPics(['/api/agent/hard/avatar?v=9']));
+        await page.waitForTimeout(2500);
+        const hard = await page.evaluate(() => ({ ctl: !!navigator.serviceWorker.controller, pics: window.readPics() }));
+        chk(hard.ctl, tag + 'a hard reload: once a picture failed, the worker was asked to take charge and did', JSON.stringify(hard));
+        chk(hard.pics[0] && hard.pics[0].loaded, tag + 'and the refused picture shows', JSON.stringify(asked.filter((a) => a.path.includes('hard'))));
+      }
+      chk(errs.length === 0, tag + 'no page errors', JSON.stringify(errs));
+    } finally {
+      await browser.close();
+    }
   }
+  server.close();
   console.log(fail.length ? `\n${fail.length} FAILED` : '\nall passed');
   process.exit(fail.length ? 1 : 0);
 })().catch((e) => { console.error(e); server.close(); process.exit(1); });

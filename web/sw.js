@@ -131,17 +131,22 @@ self.addEventListener('fetch', (event) => {
      more with that header (kosmos-relay proxy.rs same_origin_without_fetch_site), and that answer is the picture.
      The page's elements keep their own addresses, so its "only redraw when it changed" checks still match. A worker
      sees only the requests of this origin's own pages, never another site's image of this board, so another site
-     cannot get the header put on its request. Any other answer (a picture, a 404, a network error) is the browser's
-     as it was. On a browser that sends Sec-Fetch-Site the connector gives the token to a picture already, so a 401 or
+     cannot get the header put on its request. Any other answer (a picture, a 404, a network error) is the network's
+     own answer, passed through (the request now reaches the board through the worker, so it says Sec-Fetch-Dest
+     "empty" rather than "image"; nothing on the relay or the board reads that). On a browser that sends Sec-Fetch-Site the connector gives the token to a picture already, so a 401 or
      403 there is a real refusal and the second ask is refused the same way. Never cached here. */
   if (req.mode !== 'navigate' && url.pathname.startsWith('/api/') && isImageRequest(req)) {
     event.respondWith((async () => {
       const res = await fetch(req);
       if (!res || (res.status !== 401 && res.status !== 403)) return res;
+      // A discarded answer's body is cancelled, so it does not hold its request open (kosmos#6192's finding on the page).
+      const drop = (r) => { try { if (r && r.body && typeof r.body.cancel === 'function') r.body.cancel().catch(() => {}); } catch (_e) { /* nothing to free */ } };
       try {
         // redirect 'error': the header must never follow a redirect off this board (the #8781 rule, held by code here).
         const again = await fetch(url.href, { headers: { 'X-Kosmos-Board-Page': '1' }, credentials: 'same-origin', redirect: 'error' });
-        return again && again.ok ? again : res;
+        if (again && again.ok) { drop(res); return again; }
+        drop(again);
+        return res;
       } catch (_e) {
         return res;   // the first answer stands
       }
