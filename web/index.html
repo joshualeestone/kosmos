@@ -21557,16 +21557,24 @@ window.addEventListener('unhandledrejection', (e) => {
    (web/sw.js isImageRequest), which asks again with X-Kosmos-Board-Page when one is refused. A page the worker (this
    version of it) is not yet in charge of misses that: the very first visit, a hard reload, and the first visit after
    the worker is updated (an older worker is in charge until the new one takes over). So for the first two minutes the
-   board pictures that fail (<img src> and the SVG <image href> avatars) are noted, and when a worker takes charge each
-   one still on the page and not shown is asked for again, at the same address, and kosmos#8636's list of failed
-   link-preview pictures is emptied so their cards draw them again. If no worker has taken charge once it is ready,
-   it is asked to (the 'claim' message). Nothing else: no address is changed and no error is held back, so every other
-   error listener sees each failure as before. */
+   board pictures that fail (<img src> and the SVG <image href> avatars) are noted, and when a worker takes charge in
+   that time each one still on the page and not shown is asked for again, at the same address, and those addresses
+   leave kosmos#8636's list of failed link-preview pictures so their cards draw them again (only those: a preview that
+   failed for its own reasons stays left out). Only when a picture has failed on a page no worker is in charge of is
+   a ready worker asked to take charge (the 'claim' message). Nothing else: no address is changed and no error is held
+   back, so every other error listener sees each failure as before. After the two minutes nothing here listens. */
 (() => {
   const sw = typeof navigator !== 'undefined' && navigator.serviceWorker;
   if (!sw || typeof document === 'undefined') return;
   const failed = new Set();
+  const addresses = new Set();
+  let asked = false;
   const attrOf = (el) => (el.tagName === 'IMG' ? 'src' : String(el.tagName).toLowerCase() === 'image' ? 'href' : null);
+  const askToClaim = () => {
+    if (asked || sw.controller || !sw.ready || typeof sw.ready.then !== 'function') return;
+    asked = true;
+    sw.ready.then((reg) => { if (!sw.controller && reg && reg.active) reg.active.postMessage('claim'); }).catch(() => {});
+  };
   const onError = (e) => {
     const el = e && e.target;
     const attr = el && el.tagName ? attrOf(el) : null;
@@ -21574,25 +21582,33 @@ window.addEventListener('unhandledrejection', (e) => {
     const raw = el.getAttribute(attr);
     try {
       const u = new URL(raw, location.href);
-      if (u.origin === location.origin && u.pathname.startsWith('/api/')) failed.add(el);
-    } catch { /* not an address: nothing to ask again */ }
+      if (u.origin !== location.origin || !u.pathname.startsWith('/api/')) return;
+    } catch { return; }   // not an address: nothing to ask again
+    failed.add(el);
+    addresses.add(raw);
+    askToClaim();
   };
-  const stop = () => { document.removeEventListener('error', onError, true); failed.clear(); };
-  document.addEventListener('error', onError, true);
-  sw.addEventListener('controllerchange', () => {
+  const onTakeover = () => {
     for (const el of failed) {
       const attr = attrOf(el);
       const raw = attr && el.getAttribute(attr);
       if (!raw || !el.isConnected || (el.tagName === 'IMG' && el.complete && el.naturalWidth > 0)) continue;
       el.setAttribute(attr, raw);
     }
+    try { if (typeof LPV_FAILED !== 'undefined') for (const raw of addresses) LPV_FAILED.delete(raw); } catch { /* declared further down; never fatal */ }
     failed.clear();
-    try { if (typeof LPV_FAILED !== 'undefined') LPV_FAILED.clear(); } catch { /* declared further down; never fatal */ }
-  });
+    addresses.clear();
+    asked = false;
+  };
+  const stop = () => {
+    document.removeEventListener('error', onError, true);
+    sw.removeEventListener('controllerchange', onTakeover);
+    failed.clear();
+    addresses.clear();
+  };
+  document.addEventListener('error', onError, true);
+  sw.addEventListener('controllerchange', onTakeover);
   setTimeout(stop, 120000);
-  if (sw.ready && typeof sw.ready.then === 'function') {
-    sw.ready.then((reg) => { if (!sw.controller && reg && reg.active) reg.active.postMessage('claim'); }).catch(() => {});
-  }
 })();
 /* kosmos#6616 (R01b): a remote session's refusal that says this computer's connector can take a fresh sign-in
    (`signInAgain`, server.js REMOTE_STEP_UP_SIGNIN) shows the Sign in again ask, whichever page made the request. The
@@ -78965,7 +78981,8 @@ function pjRich(text) {
    in small type; description clamped by CSS. Same new-tab, no-referrer
    treatment as the inline link. Escaped field by field. */
 /* kosmos#8636: pictures that failed in this page, so a redrawn card does not ask for them again. Kept until the page
-   reloads (the newest 500), so a picture that failed only for a moment stays away until then. */
+   reloads (the newest 500), so a picture that failed only for a moment stays away until then. One exception: a board
+   picture that failed before the service worker took charge leaves the list when it does (kosmos#8790). */
 const LPV_FAILED = new Set();
 function pjPreviewCard(preview) {
   const p = preview && typeof preview === 'object' ? preview : null;
