@@ -91,7 +91,7 @@ test('#8786: the press on Linux goes past the platform refusal to the reviewed s
     'the Linux press did not reach the live-execution gate in front of the spawn');
   update.resetCache();
   await look('linux', 'x64', false);
-  assert.throws(() => update.beginInstall({}), /cannot update itself here: this board's service would stop the installer/, 'CONTROL: the refusal no longer fires on a unit that would not survive');
+  assert.throws(() => update.beginInstall({}), /cannot update itself here: this board's service could not be confirmed/, 'CONTROL: the refusal no longer fires on a unit that would not survive');
 });
 
 test('#8786: a source checkout on Linux is offered nothing even when the unit reads right', async () => {
@@ -231,7 +231,7 @@ test('#8786: a systemctl that gave no answer is asked again after 30 s, not five
 test('#8786: the Linux refusal says why (the service), and gives the command', async () => {
   await look('linux', 'x64', false);
   const said = update.selfInstallRefusal('linux');
-  assert.match(said, /this board's service would stop the installer partway through/);
+  assert.match(said, /this board's service could not be confirmed to keep the installer running/);
   assert.ok(said.endsWith(update.manualOffer().command), 'the command is not the refusal\'s last words: ' + said);
   assert.doesNotMatch(said, /on this platform/, 'it still says Linux can never update itself');
 });
@@ -268,8 +268,8 @@ test('#8786: a press while `kosmos update` is installing (a fresh marker this bo
   fs.mkdirSync(path.join(ROOT, 'logs'), { recursive: true });
   const marker = path.join(ROOT, 'logs', 'install.started');
   fs.writeFileSync(marker, new Date().toISOString() + '\n');
-  assert.equal(update.selfInstallRefusal('linux'), 'an update is already being installed on this computer');
-  assert.throws(() => update.beginInstall({}), /already being installed/, 'beginInstall started a second installer');
+  assert.match(update.selfInstallRefusal('linux'), /^an update started on this computer less than 30 minutes ago and has not finished/);
+  assert.throws(() => update.beginInstall({}), /less than 30 minutes ago and has not finished/, 'beginInstall started a second installer');
   // An old marker (an interrupted run, over 30 minutes) does not hold the press for good.
   const old = (Date.now() - 31 * 60 * 1000) / 1000;
   fs.utimesSync(marker, old, old);
