@@ -1933,7 +1933,7 @@ test('kosmos#8783: the cloud code step brings the sign-in box into view when dra
   assert.equal(waiting.reveals, 0, 'CONTROL: a step with no code field does not scroll');
 });
 
-test('kosmos#8783: the late link (a tick after the code step) brings the box into view again, once per new link', () => {
+test('kosmos#8783: the late link (a tick after the code step) brings the box into view again, once per new link (never on a repeat poll)', () => {
   const raw = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
   let reveals = 0;

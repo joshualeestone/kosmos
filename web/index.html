@@ -92143,7 +92143,7 @@ function frConnPaintUrl(url, st) {
       : '<div class="fr-cdetail">Browser did not open?</div>'
         + '<a class="btn" href="' + esc(key) + '" target="_blank" rel="noopener">Open the sign-in page</a>';
   /* kosmos#8783: the link arrives a tick AFTER the code step was drawn (on a cloud machine the sign-in link,
-     on a Mac the "Browser did not open?" fallback), and pushes the field down again; so the box is brought into view again now (once per new link, never on a repeat poll). */
+     on a Mac the "Browser did not open?" fallback), and pushes the field down again; so the box is brought into view again now (each time this link's stamp changes: a new link, or where it opens; never on a repeat poll). */
   if (key && document.getElementById('fr-conn-code')) frConnRevealCode();
 }
 /* kosmos#8783: on a phone the wizard body scrolls and the sign-in box (the link to open, then the code field) can sit
