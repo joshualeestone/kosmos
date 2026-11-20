@@ -2161,6 +2161,32 @@ cmd_board_revive() {
   fi
 }
 
+# kosmos#8786 S2: internal, run once a night by the Cloud box's own systemd user timer (engine/linuxboard.js
+# cloudUpdateUnitsFor), outside the board's unit, so the installer's stop of the board cannot kill this run. The node
+# side (engine/cloudnightly.js) decides; every skip it says, and the result, go to install.log with a cloud-update:
+# prefix. A "run" is the existing update look and install, on the PROD pointer whatever channel the box was created
+# on: KOSMOS_UPDATE_CHANNEL=prod wins in update.js updateChannel. That also stamps the box's source channel prod.
+# Without --install, so the Updates switch still decides (decide() already skipped when it is off).
+cmd_cloud_update() {
+  local _node _said _verdict _how _why _out _rc=0
+  _cloud_log() { ( mkdir -p "$LOG_DIR" && printf '%s cloud-update: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >> "$LOG_DIR/install.log" ) >/dev/null 2>&1 || true; }
+  _node="$(kosmos_engine_node)" || { _cloud_log "skipped: Kosmos could not find its own runtime"; exit 0; }
+  _said="$("$_node" "$(kosmos_engine_module cloudnightly).js" decide 2>/dev/null)" || true
+  IFS="$(printf '\t')" read -r _verdict _how _why <<EOF
+$_said
+EOF
+  case "$_verdict" in
+    run) ;;
+    skip) [ "$_how" = quiet ] || _cloud_log "skipped tonight: $_why"; exit 0 ;;
+    *) _cloud_log "skipped tonight: the nightly check gave no answer"; exit 0 ;;
+  esac
+  _cloud_log "looking for a newer prod build"
+  # A subshell, because cmd_update ends with exit. Its last line is the answer (current/newer/updated/failed/...).
+  _out="$( KOSMOS_UPDATE_CHANNEL=prod cmd_update --if-newer 2>&1 )" || _rc=$?
+  _cloud_log "$(printf '%s' "$_out" | tail -n 1 | tr '\t' ' ') (exit $_rc)"
+  exit "$_rc"
+}
+
 # #2956: the SUPERVISED foreground entry. A launchd (or Task Scheduler) job runs
 # `kosmos board-run` instead of `kosmos start`, so the supervisor OWNS the node
 # process directly and its own KeepAlive relaunches a crash -- replacing the
@@ -9044,6 +9070,7 @@ case "${1:-}" in
   restart) agent_board_guard "$@"; cmd_restart ;;
   board-run) cmd_board_run ;;   # #2956: internal supervised foreground entry (launchd/Task Scheduler), not for people
   board-revive) cmd_board_revive ;;   # kosmos#6667: internal, the Linux pause check's timer, not for people
+  cloud-update) cmd_cloud_update ;;   # kosmos#8786: internal, the Cloud box's nightly timer, not for people
   keep-copy) shift; cmd_keep_copy "$@" ;;   # #5153: internal, the report hook's copy before an edit, not for people
   tool-failed) shift; cmd_tool_failed "$@" ;;   # #6071: internal, the report hook's digest of a failed tool call, not for people
   status)  cmd_status ;;
