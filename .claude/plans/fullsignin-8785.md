@@ -28,3 +28,10 @@ outlives every other bound (a new sign-in with that factor passes Sign out every
 ruling's new-device exception keeps. Every other gated route takes a full sign-in of any age. Verified in the relay:
 the gate requires the second factor by default (gate.rs require_second_from_env), and the iat header is the verified
 token's own sign-in time (proxy.rs SESSION_IAT_HEADER), never refreshed.
+
+## Review round 3: the time-bounded set widened to every identity change
+REMOTE_RECENT_ONLY now also holds signing this computer in to a Kosmos+ account (signin-start, signin-register,
+setup-start, setup-complete, company/start) and forgetting its enrolment, joining a company or family (org/enroll),
+and handing a sealed room's key to another computer (federation own-allow, own-confirm). Each outlives Sign out
+everywhere on the owner's account, the same reason as second-reset. Matched by path for POST, PUT and PATCH, as
+needsRemoteStepUp matches. Too-old refusals there get REMOTE_STEP_UP_RECENT, which says "within 10 minutes".
