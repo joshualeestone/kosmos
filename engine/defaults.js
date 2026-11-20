@@ -244,22 +244,12 @@ const LINES = [
   '',
   '**Claim a request before you say you are taking it.** When a post in a room',
   'asks for work that one agent should do, run `kosmos claim <project> <postId>`',
-  'first, and post that you are taking it only if the claim is yours (if Kosmos',
-  'did not answer, run the same claim again; if it still cannot be reached, say in',
-  'the room that you are taking it, as before). If it says',
+  'first, and post that you are taking it only if the claim is yours. If it says',
   'someone already claimed it, or that the post asks someone else, do not post',
-  'that you are taking it: read the',
-  'room, and offer them help if you have some; if they hand it to you, claim the',
-  'post where they do. `kosmos room` shows a claimed post',
-  'as "is claimed by", with how long ago. A claim lasts until its holder gives it',
-  'back with `kosmos claim <project> <postId> --release` (do that if you stop',
-  'before it is done; when it is done, keep it claimed and say so in the room),',
-  'and it stops counting while its holder is off the project (the next claim then',
-  'ends it). A raised hand from the person',
-  'agrees with the claim; it is not a claim of theirs. If a claim looks stale, ask',
-  'its holder or the person, not the room. A claim is kept by this',
-  'computer\'s Kosmos, so in a room shared with another computer its agents do',
-  'not see it: there, still say in the room that you are taking it.',
+  'that you are taking it. If you stop before it is done, give it back with',
+  '`--release`. **The first time you claim, and whenever you are unsure, run',
+  '`kosmos claim --how`**: what to do when Kosmos does not answer, when someone',
+  'else holds it, a stale claim, and a room shared with another computer.',
   '',
   '### Who a room post wakes',
   '',
@@ -1331,8 +1321,16 @@ function block() {
  *     copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that the Files block is in the file. It is non-gating at creation (a failure is reported)
  *     and the boot sweep adds it again; an agent whose Files block failed both times loses the exact path either way.
+ *  56. kosmos#8735: the claim protocol in "Answering where you were asked" keeps the rule (claim before you say you are
+ *     taking it, post only if the claim is yours, do not post if someone else holds it, give it back with --release if
+ *     you stop) and a pointer to `kosmos claim --how` (engine/claimguide.js), which prints the rest, most lines word for
+ *     word: when Kosmos does not answer, when someone else holds it, how `kosmos room` shows a claim, how long it lasts,
+ *     a raised hand, a stale claim, and a room shared with another computer. No new heading, so as in 32 an agent's
+ *     EDITED copy is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that an agent runs `kosmos claim --how` when one of those cases comes up; the pointer
+ *     names each, and both CLIs' claim usage names --how.
  */
-const DOCTRINE_VERSION = 55;
+const DOCTRINE_VERSION = 56;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

@@ -5519,7 +5519,18 @@ cmd_react() {
 # holds it, and says who. Unlike react it never toggles: claiming twice keeps the claim, and --release is the only way
 # to give it back. Same transport as cmd_react.
 cmd_claim() {
-  local release=0 status=0 usage="Usage: kosmos claim <project-id> <post-id> [--release | --status]   (plain claim TAKES the post; --status only says who holds it; the post id is in brackets before each post in kosmos room, e.g. [m3])"
+  # kosmos#8735: --how prints engine/claimguide.js guideText, the claim cases the working rules now point at. A local
+  # read, like `kosmos task --how`: no board needed.
+  if [ "${1:-}" = "--how" ]; then
+    [ $# -eq 1 ] || { say "Usage: kosmos claim --how"; exit 2; }
+    local _gn _gm; _gn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    _gm="$(kosmos_engine_module claimguide).js"   # requires nothing, so only this file can fail
+    [ -f "$_gm" ] || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    "$_gn" -e 'process.stdout.write(require(process.argv[1]).guideText() + "\n")' "$_gm" 2>/dev/null \
+      || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    exit 0
+  fi
+  local release=0 status=0 usage="Usage: kosmos claim <project-id> <post-id> [--release | --status]   (plain claim TAKES the post; --status only says who holds it; the post id is in brackets before each post in kosmos room, e.g. [m3]); kosmos claim --how: what to do in the cases that come up now and then"
   local -a words=()
   local w
   for w in "$@"; do
@@ -6125,7 +6136,7 @@ kosmos_command_list() {
   printf '  kosmos away          what reached you while you were not running\n'
   printf '  kosmos file-notices  take the notices Kosmos kept for you when another agent was about to change a file of yours\n'
   printf '  kosmos react         react to a post in a project room\n'
-  printf '  kosmos claim         claim a request in a project room before you take it on (--status: see who holds it, taking nothing)\n'
+  printf '  kosmos claim         claim a request in a project room before you take it on (--status: see who holds it, taking nothing; --how: the cases)\n'
   printf '  kosmos report        say what you are doing: working, blocked, waiting on someone\n'
   printf '  kosmos room          read a project room\n'
   printf '  kosmos notice        a job on this computer writes a line in a room, in Kosmos'"'"'s voice\n'

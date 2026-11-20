@@ -94,7 +94,7 @@ const USAGE = {
   reply: 'Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and $ arrive as written)',
   post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624).',
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
-  claim: 'Usage: kosmos claim <project-id> <post-id> [--release | --status]   (plain claim TAKES the post; --status only says who holds it; the post id is in brackets before each post in kosmos room, e.g. [m3])',
+  claim: 'Usage: kosmos claim <project-id> <post-id> [--release | --status]   (plain claim TAKES the post; --status only says who holds it; the post id is in brackets before each post in kosmos room, e.g. [m3]); kosmos claim --how: what to do in the cases that come up now and then',
   records: 'Usage: kosmos records <project-id> | kosmos records set <project-id> "<name>" [--status "<status>"] [--confirmed YYYY-MM-DD] [--source "<link or file>"] | kosmos records remove <project-id> "<name>" | kosmos records label <project-id> "<what the rows are>". A name can be up to 200 characters, a status 80, a source 500 and a label 40.',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--held] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear [why]    (take your needs_you or blocked off the board: the same as reporting working; over a question, your why stays in your chat with the person)\n  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC).\n  --until in words ("the owner says"): no stale reminder at all. Anything else with a number in it: as if no --until.\n  --held (needs_you only): the person asked you to hold questions until they are back. Nothing buzzes; you are told when they next message you directly.',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
@@ -4142,6 +4142,14 @@ function subcommandRequired(verb) {
 
 /* #6946: install/kosmos cmd_claim's twin. A claim never toggles, so a timed-out one is safe to run again. */
 async function verbClaim(ctx, args) {
+  // kosmos#8735, as install/kosmos cmd_claim: --how prints engine/claimguide.js guideText, a local read.
+  if (args && args[0] === '--how') {
+    if (args.length > 1) { ctx.err('Usage: kosmos claim --how'); return 2; }
+    let guide;
+    try { guide = ctx.engine('claimguide').guideText(); } catch { ctx.err('Kosmos could not find its own runtime to print this.'); return 1; }
+    ctx.out(guide);
+    return 0;
+  }
   const release = args.includes('--release');
   const status = args.includes('--status');   // kosmos#8721: reads who holds it, never takes it
   const words = args.filter((a) => a !== '--release' && a !== '--status');
@@ -4325,7 +4333,7 @@ const DESCRIBE = {
   away: 'what reached you while you were not running',
   post: 'post in a project room',
   react: 'react to a post in a project room',
-  claim: 'claim a request in a project room before you take it on (--status: see who holds it, taking nothing)',
+  claim: 'claim a request in a project room before you take it on (--status: see who holds it, taking nothing; --how: the cases)',
   report: 'say what you are doing: working, blocked, waiting on someone',
   whoami: 'say which agent you are and which account you are on',
   handoff: 'print facts for your handoff: your live state, artifact fingerprints, instruction and git status',

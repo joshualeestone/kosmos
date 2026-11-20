@@ -483,7 +483,18 @@ function prepareChanges(session) {
         movedFiles = { under: FILES_HEAD, lines: new Set(), where: 'the section "Where to save files you make for the person", in this file' };
       }
     } catch { movedFiles = null; }
-    const diff = changedLines(seen, got.text, [moved, movedTask, movedAnswer, movedFiles]);
+    /* kosmos#8735 (doctrine 56): the claim protocol's cases moved from "Answering where you were asked" to `kosmos claim
+       --how` (engine/claimguide.js), most lines word for word, so those are left out as moved, as the task guide's are.
+       The one condition is that the new file still has that heading. */
+    let movedClaim = null;
+    try {
+      const claimHead = (require('./defaults').sections().find((x) => x.heading === '### Answering where you were asked') || {}).heading;
+      if (claimHead && got.text.split('\n').some((l) => l.replace(/\r$/, '') === claimHead)) {
+        const claimLines = require('./claimguide').guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '');
+        movedClaim = { under: claimHead, lines: new Set(claimLines), where: 'kosmos claim --how' };
+      }
+    } catch { movedClaim = null; }
+    const diff = changedLines(seen, got.text, [moved, movedTask, movedAnswer, movedFiles, movedClaim]);
     // A path with a double quote is not named: the #5304 reader takes quoted text in the line for section headings.
     // Review 2: nor one with whitespace or a control character, which would make the unquoted path in the line ambiguous.
     if (!diff || !p || /["\s\u0000-\u001f\u007f]/.test(p)) return none();

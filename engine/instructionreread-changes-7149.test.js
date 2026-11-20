@@ -795,3 +795,55 @@ test('kosmos#8735 doctrine 55: a Files block without its heading gets no note na
   assert.ok(body.includes('- ' + REASON), 'fixture: the removed line is not in the changes file');
   assert.ok(!body.includes(FILES_NOTE), 'the note named a heading that is not in the file');
 });
+
+/* kosmos#8735 (doctrine 56): the claim protocol's cases moved from "Answering where you were asked" to `kosmos claim
+   --how`. A running agent re-reading its file must not be told the moved lines no longer apply. The old text is the
+   current working rules with v55's claim paragraph put back, word for word. */
+const V55_CLAIM = [
+  '**Claim a request before you say you are taking it.** When a post in a room',
+  'asks for work that one agent should do, run `kosmos claim <project> <postId>`',
+  'first, and post that you are taking it only if the claim is yours (if Kosmos',
+  'did not answer, run the same claim again; if it still cannot be reached, say in',
+  'the room that you are taking it, as before). If it says',
+  'someone already claimed it, or that the post asks someone else, do not post',
+  'that you are taking it: read the',
+  'room, and offer them help if you have some; if they hand it to you, claim the',
+  'post where they do. `kosmos room` shows a claimed post',
+  'as "is claimed by", with how long ago. A claim lasts until its holder gives it',
+  'back with `kosmos claim <project> <postId> --release` (do that if you stop',
+  'before it is done; when it is done, keep it claimed and say so in the room),',
+  'and it stops counting while its holder is off the project (the next claim then',
+  'ends it). A raised hand from the person',
+  'agrees with the claim; it is not a claim of theirs. If a claim looks stale, ask',
+  'its holder or the person, not the room. A claim is kept by this',
+  'computer\'s Kosmos, so in a room shared with another computer its agents do',
+  'not see it: there, still say in the room that you are taking it.',
+].join('\n');
+function withClaimParagraphBack() {
+  const block = require('./defaults').blockFor(process.platform);
+  const start = block.indexOf('**Claim a request before you say you are taking it.**');
+  const end = block.indexOf('\n\n### Who a room post wakes');
+  assert.ok(start > 0 && end > start, 'fixture: the claim paragraph is not where it was');
+  return { block, before: block.slice(0, start) + V55_CLAIM + block.slice(end) };
+}
+const MOVED_LINE = 'agrees with the claim; it is not a claim of theirs. If a claim looks stale, ask';
+
+test('kosmos#8735 doctrine 56: the claim lines that moved to kosmos claim --how are left out, as moved', () => {
+  const { block, before } = withClaimParagraphBack();
+  agentFile('tca', '# You are Tca\n\n' + block + '\n');
+  assert.equal(ir.remember('tca', '# You are Tca\n\n' + before + '\n'), true);
+  const body = fs.readFileSync(ir.prepareChanges('tca').path, 'utf8');
+  assert.ok(!body.includes('- ' + MOVED_LINE), 'a moved claim line is marked as no longer applying');
+  assert.match(body, /Left out: \d+ lines removed from Answering where you were asked that kosmos claim --how prints, where they still apply\./);
+});
+
+test('kosmos#8735 doctrine 56: a file whose section heading is gone hides nothing as moved (CONTROL)', () => {
+  const { before } = withClaimParagraphBack();
+  const head = '### Answering where you were asked';
+  const gone = before.split('\n').filter((l) => l !== head).join('\n').replace(V55_CLAIM, '');
+  agentFile('tcb', '# You are Tcb\n\n' + gone + '\n');
+  assert.equal(ir.remember('tcb', '# You are Tcb\n\n' + before + '\n'), true);
+  const body = fs.readFileSync(ir.prepareChanges('tcb').path, 'utf8');
+  assert.ok(body.includes('- ' + MOVED_LINE), 'a line of a deleted section was hidden');
+  assert.ok(!/that kosmos claim --how prints/.test(body), 'a deleted section was told it still applies');
+});
