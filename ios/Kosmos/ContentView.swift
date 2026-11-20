@@ -93,6 +93,8 @@ struct ContentView: View {
     // (what the native screens cannot do, such as a company sign-in before iOS 17.4) turns it off for this launch.
     @State private var nativeSignIn = ContentView.startsSignedOut
     @StateObject private var signIn = SignInModel(client: SignInClient())
+    /// kosmos#8791/#8795: the fresh sign-in a step-up refusal asks for (FreshSignInCenter), given to every tab.
+    @StateObject private var fresh = FreshSignInCenter()
     private static var startsSignedOut: Bool {
         #if KOSMOS_STORE_SHOTS
         return false
@@ -215,7 +217,9 @@ struct ContentView: View {
             // kosmos#7418 review 1: a chat or room a notice asked for belonged to the account that was signed in.
             agentRequest = nil; roomRequest = nil
             pendingTells = [:]   // kosmos#7488: a tell names a project on the computer of the account that made it
-            newAgentOpen = false   // kosmos#7488: the sheet sits above the tabs, so it never outlives the account
+            // kosmos#7488: the sheet sits above the tabs, so it never outlives the account. kosmos#8791: a fresh sign-in of
+            // the same account (its address fixed) keeps it through its own change, once, so the sheet can try again.
+            if !fresh.passes.spendAccount(signedOut: pushManager.lastChangeSignedOut || SessionKeychain.live.load() == nil) { newAgentOpen = false }
             // kosmos#7042 review round 5: signed out later in the launch (on the account page, a session that ended),
             // the next sign-in is the native one too, or the web page's own device key would make this iPhone a second
             // device on the Mac. Recorded gap: the Mac's "fresh sign-in" link then lands here, not on the page.
@@ -277,7 +281,26 @@ struct ContentView: View {
         // A sheet shown from a tab goes with it; a tab change must not leave it set to come back by itself.
         .onChange(of: tab) { _ in newProjectOpen = false }
         // kosmos#7488: another computer: the sheet's roles, managers and projects were the last one's.
-        .onChange(of: board.chatEpoch) { _ in newAgentOpen = false }
+        .onChange(of: board.chatEpoch) { _ in if !fresh.passes.spendEpoch() { newAgentOpen = false } }
+        // kosmos#8795: opened (live), or signed out: a later refusal of the cloud Open is a new one, offered again.
+        .onChange(of: board.phase) { phase in
+            switch phase { case .live, .signedOut: fresh.openSettled(); default: break }
+        }
+        // kosmos#8791/#8795: the fresh sign-in's new session goes to the app as the main sign-in's does; a session it
+        // issued and then dropped (it ended before the Mac answered) is signed out as the main one's is.
+        .onAppear {
+            fresh.onIssued = { token in pushManager.signedInNatively(token); web.signedInNatively() }
+            fresh.onAbandoned = { token in pushManager.signedOutNatively(); if let token { web.forget(token) } }
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FRESH"] == "1" { fresh.showSample(at: .root) }
+            #endif
+        }
+        .environmentObject(fresh)
+        .fullScreenCover(isPresented: Binding(get: { fresh.model != nil && fresh.place == .root }, set: { if !$0 { fresh.end() } })) {
+            if let m = fresh.model {
+                SignInView(model: m, useWeb: { fresh.end(); showBoardToday() }, notNow: { fresh.end() }).tint(Palette.primary)
+            }
+        }
         // kosmos#7488: New Agent is shown from here, above the tabs, so a tab change (a notification's room, say) never
         // takes it away in the middle of making a team.
         .sheet(isPresented: $newAgentOpen) {
@@ -294,6 +317,7 @@ struct ContentView: View {
                 pendingTells[session] = (host, projects, picture, Date())
                 sendTells(board.agents)
             }, teamBusy: $newTeamBusy)
+            .environmentObject(fresh)
         }
         .onChange(of: board.agents) { rows in sendTells(rows) }
         // kosmos#8055: the other things that can draw the tabs again, in the device log beside the chat's own close lines.

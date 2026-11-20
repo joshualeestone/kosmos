@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import AuthenticationServices
+import Combine
 
 // kosmos#7042 (iPhone slice 5a, #6838): the native sign-in. Email, the code, the second step, then "Allow this iPhone on
 // your Mac" with the match code until the Mac answers. The steps are SignIn.next (SignInLogic.swift, proven in
@@ -441,6 +442,8 @@ struct SignInView: View {
     @ObservedObject var model: SignInModel
     /// Today's web sign-in page, for what this screen does not do yet (and for making an account).
     let useWeb: () -> Void
+    /// kosmos#8791/#8795: a fresh sign-in (model.fixedEmail) closes with Not now; the session held now was never ended.
+    var notNow: (() -> Void)? = nil
     @FocusState private var focused: Bool
     @Environment(\.openURL) private var openURL
 
@@ -470,6 +473,13 @@ struct SignInView: View {
 
     @ViewBuilder private var content: some View {
         switch model.step {
+        case .email where model.fixedEmail:
+            // kosmos#8791/#8795 (Mona Lisa's words and buttons, 11-19): no address field, nothing sent until Send code.
+            title("Sign in again")
+            line(SignIn.Fresh.offer(email: model.email))
+            errorLine
+            primary("Send code", action: model.sendCode)
+            notNowLink
         case .email:
             title("Sign in to Kosmos+").task { async let passkeys: Void = model.checkPasskeys(); await model.checkReviewDoor(); await passkeys }
             line("Use the email address of your Kosmos+ account. We will send you a six-digit code.")
@@ -503,6 +513,7 @@ struct SignInView: View {
                 if model.companyURL != nil { link("Sign in with your company's account instead", action: model.companySignIn).disabled(model.busy) }
                 link("Send the code again", action: model.sendCode).disabled(model.busy)
                 if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
+                notNowLink
             }
         case .password:
             title("Sign in with a password")
@@ -526,6 +537,7 @@ struct SignInView: View {
             errorLine
             primary("Sign in", action: model.verifySecond)
             if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
+            notNowLink
         case .allow(let matchCode, let hasComputer):
             title(hasComputer ? "Allow this iPhone on your Mac" : "Signed in")
             if hasComputer {
@@ -590,6 +602,11 @@ struct SignInView: View {
         }
     }
 
+    /// kosmos#8791/#8795: only on a fresh sign-in (one with a way out that ends nothing).
+    @ViewBuilder private var notNowLink: some View {
+        if model.fixedEmail, let notNow { link("Not now", action: notNow).disabled(model.busy) }
+    }
+
     private func title(_ text: String) -> some View {
         Text(text).font(.largeTitle.weight(.bold)).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
     }
@@ -643,4 +660,90 @@ private extension View {
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.separator))
             .foregroundColor(Palette.primary)
     }
+}
+
+/// kosmos#8791/#8795: the fresh sign-in a step-up refusal asks for (SignIn.Fresh). A second SignInModel, its address the
+/// signed-in account's own (read from Kosmos+, fixed), shown over whatever asked for it. Nothing is ended before Kosmos+
+/// issues the new session (Mona Lisa, 11-19): Not now just closes it. The new session goes to the app the way the main
+/// sign-in's does (`onIssued`), so the usual account change follows; the screen goes once the step is done, and `taken`
+/// moves so the refused action is tried once more.
+@MainActor
+final class FreshSignInCenter: ObservableObject {
+    enum Place: Equatable { case root, newAgent }
+    @Published private(set) var model: SignInModel?
+    @Published private(set) var place: Place = .root
+    /// Bumped once a fresh sign-in has finished (issued and done): the action that asked tries again, once.
+    @Published private(set) var taken = 0
+    @Published private(set) var opening = false
+    var passes = SignIn.FreshPasses()
+    /// kosmos#8795: the cloud machine's Open (BoardStates .signInAgain). A fresh sign-in finished for it already, so a
+    /// refusal before it ever opened says so, with no second offer; and why none could be offered.
+    @Published private(set) var openTried = false
+    @Published private(set) var openWhy: String?
+    var onIssued: (String) -> Void = { _ in }
+    var onAbandoned: (String?) -> Void = { _ in }
+    private let client = SignInClient()
+    private var watching: [AnyCancellable] = []
+    private var issuedOne = false
+
+    /// nil when the fresh sign-in shows; otherwise the sentence to say instead.
+    func begin(at place: Place) async -> String? {
+        guard model == nil, !opening else { return nil }
+        guard let token = SessionKeychain.live.load() else { return SignIn.Fresh.noAddress }
+        opening = true
+        defer { opening = false }
+        guard let email = await client.accountEmail(token: token) else { return SignIn.Fresh.noAddress }
+        show(email: email, client: client, at: place)
+        return nil
+    }
+
+    private func show(email: String, client: SignInClient?, at place: Place) {
+        let m = SignInModel(client: client)
+        m.email = email
+        m.fixedEmail = true
+        issuedOne = false
+        watching = [
+            m.$issued.dropFirst().sink { [weak self] token in
+                guard let self, let token else { return }
+                self.issuedOne = true
+                self.passes.arm()
+                self.onIssued(token)
+            },
+            m.$abandoned.dropFirst().sink { [weak self, weak m] _ in self?.onAbandoned(m?.lastAbandoned) },
+            m.$step.dropFirst().sink { [weak self] step in
+                guard let self, step == .done else { return }
+                // Published before the value is set: the next turn of the run loop sees it done.
+                DispatchQueue.main.async { self.finish() }
+            },
+        ]
+        self.place = place
+        model = m
+    }
+
+    private func finish() {
+        let did = issuedOne
+        let forOpen = place == .root
+        close()
+        if did { if forOpen { openTried = true; openWhy = nil }; taken += 1 }
+    }
+
+    /// The cloud Open's Sign in again: the account change the fresh sign-in makes connects the board again
+    /// (BoardClient.accountChanged), which is its one retry.
+    func beginOpen() async { openWhy = await begin(at: .root) }
+
+    /// Opened, or signed out: a later refusal of the Open is a new one.
+    func openSettled() { openTried = false; openWhy = nil }
+
+    /// Not now, or the screen dismissed: nothing was ended. Passes not yet spent go too unless a session was issued.
+    func end() {
+        if !issuedOne { passes.clear() }
+        close()
+    }
+
+    private func close() { watching = []; model = nil; issuedOne = false }
+
+    #if DEBUG
+    /// Design shots (KOSMOS_SAMPLE_FRESH=1): the first step, with a sample address and no client (nothing is sent).
+    func showSample(at place: Place) { show(email: "ada@example.com", client: nil, at: place) }
+    #endif
 }

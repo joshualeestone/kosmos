@@ -365,6 +365,40 @@ enum SignIn {
         return t.contains("@") ? t : nil
     }
 
+    /// kosmos#8791/#8795: a fresh sign-in, asked for by a step-up refusal (Kosmos+ wants a recent sign-in for this). Mona
+    /// Lisa's ruling (11-19): the account's own address, shown and fixed; Send code and Not now; the session held now is
+    /// kept until the new one is issued; the refused thing is tried once more; a second refusal says so, with no loop.
+    enum Fresh {
+        static func offer(email: String) -> String { "This needs you to sign in again. We will send a code to \(email)." }
+        /// The relay page's FRESH_STILL (#850), for the app: a fresh sign-in was done for this and it was still refused.
+        static let still = "Kosmos+ still sees an older sign-in, so this cannot be done right now. Log out under Settings, Kosmos+, sign in again, then try it straight away."
+        /// The account's address could not be read, so no code can be sent to it (a typed address could be another account's).
+        static let noAddress = "This needs you to sign in again, and Kosmos+ could not be reached to send the code. Check your connection and try again."
+        enum Next: Equatable { case offer, still }
+        /// After a step-up refusal: offer a fresh sign-in, or, one already done for this same action, say so (no loop).
+        static func afterRefusal(alreadyFresh: Bool) -> Next { alreadyFresh ? .still : .offer }
+    }
+
+    /// kosmos#8791: a fresh sign-in issues a NEW session for the SAME account (its address was fixed), and the app's usual
+    /// account change follows (the kept Mac session forgotten, the board connected again: what a recent sign-in needs).
+    /// The New Agent sheet normally closes on that change, so it never outlives an account; it may stay through exactly
+    /// the one change this fresh sign-in makes, once for the account change and once for the board's chats moving on,
+    /// and never through a sign-out.
+    struct FreshPasses: Equatable {
+        private(set) var account = false
+        private(set) var epoch = false
+        mutating func arm() { account = true; epoch = true }
+        mutating func clear() { account = false; epoch = false }
+        /// true: this account change is the fresh sign-in's own, and the sheet stays.
+        mutating func spendAccount(signedOut: Bool) -> Bool {
+            if signedOut { clear(); return false }
+            defer { account = false }
+            return account
+        }
+        /// true: the board's chats moved on because of the fresh sign-in, and the sheet stays.
+        mutating func spendEpoch() -> Bool { defer { epoch = false }; return epoch }
+    }
+
     /// Kosmos+'s refusal as a sentence on screen: one line, as cleanMessage, then a capital and a closing stop. Kosmos+
     /// writes its errors lowercase and unstopped ("that code is not right; 4 tries left"); the password door already
     /// tidied them (`sentence`), and the code sign-in showed them raw (found on a real sign-in, 11-05).

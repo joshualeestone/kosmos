@@ -5007,6 +5007,23 @@ check(SignIn.allowRead(status: 503, json: nil) == .unknown && SignIn.allowRead(s
 check(SignIn.accountEmail(status: 200, json: ["email": "  ada@example.com\n"]) == "ada@example.com", "account email: read and trimmed")
 check(SignIn.accountEmail(status: 200, json: ["email": "not-an-address"]) == nil && SignIn.accountEmail(status: 200, json: ["email": ""]) == nil, "account email: only an address counts")
 check(SignIn.accountEmail(status: 401, json: ["email": "ada@example.com"]) == nil && SignIn.accountEmail(status: nil, json: nil) == nil && SignIn.accountEmail(status: 200, json: [String: Any]()) == nil, "CONTROL: no 2xx, no answer or no field gives nil (then no inline code step)")
+// kosmos#8791/#8795: the fresh sign-in's words, its no-loop rule, and the one account change the sheet may stay through.
+check(SignIn.Fresh.offer(email: "ada@example.com") == "This needs you to sign in again. We will send a code to ada@example.com.", "fresh: Mona Lisa's words, with the account's address")
+check(!SignIn.Fresh.offer(email: "a@b.c").contains("\u{2014}") && !SignIn.Fresh.still.contains("\u{2014}") && !SignIn.Fresh.noAddress.contains("\u{2014}"), "fresh: no em dash in any of its words")
+check(SignIn.Fresh.afterRefusal(alreadyFresh: false) == .offer, "fresh: a first step-up refusal offers the fresh sign-in")
+check(SignIn.Fresh.afterRefusal(alreadyFresh: true) == .still, "CONTROL: a refusal after a fresh sign-in for the same action says so, and offers no second one")
+do {
+    var p = SignIn.FreshPasses()
+    check(!p.spendAccount(signedOut: false) && !p.spendEpoch(), "fresh passes: none until a fresh sign-in arms them (the sheet closes as before)")
+    p.arm()
+    check(p.spendAccount(signedOut: false), "fresh passes: the fresh sign-in's own account change keeps the sheet")
+    check(!p.spendAccount(signedOut: false), "CONTROL: a second account change closes it (spent once)")
+    check(p.spendEpoch() && !p.spendEpoch(), "fresh passes: the chats moving on keeps it once, then closes it")
+    var q = SignIn.FreshPasses(); q.arm()
+    check(!q.spendAccount(signedOut: true) && !q.spendEpoch(), "CONTROL: a sign-out never keeps the sheet, and spends both passes")
+    var r = SignIn.FreshPasses(); r.arm(); r.clear()
+    check(r == SignIn.FreshPasses(), "fresh passes: Not now (or a fresh sign-in that issued nothing) clears them")
+}
 
 section("sign-in: the steps")
 let s1 = SignIn.Session(token: "t", deviceStatus: .pending, matchCode: "AB12", hasComputer: true)
