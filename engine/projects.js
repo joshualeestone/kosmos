@@ -3577,8 +3577,8 @@ function isTestOnly(record) {
    so a new agent had to guess from the brief which it was, and an idle one was asked daily to draft tasks for its seeded
    goal. Matched on the seed's own mark (made.via 'kosmos' is written by the seed alone) and its name, so a person who
    renames it has made it their own. A test project keeps its own line instead. */
-const STARTER_PROJECT_LINE = 'The starter project Kosmos made to show your person around: it has no work of its own. '
-  + 'Work here only on what your person gives you, and add no tasks or posts just to fill it.';
+const STARTER_PROJECT_LINE = 'The starter project Kosmos made to show your person around. Its only work is what your '
+  + 'person gives you here: add no tasks or posts just to fill it.';
 function isStarter(record) {
   return Boolean(record && record.name === WELCOME_NAME && record.made && record.made.via === 'kosmos'
     && !isTestOnly(record));
