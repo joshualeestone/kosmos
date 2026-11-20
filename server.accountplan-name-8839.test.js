@@ -133,3 +133,21 @@ test('a name two agents are shown by is refused, naming both, and neither is pla
   // CONTROL: each is still reachable by its own name.
   assert.equal((await plan({ name: 'twina', account: 'spare', resolve: '1' })).j.name, 'twina');
 });
+
+test('cards that cannot be read: a listed name is a failed read (503), never "no agent"; the agent\'s own name still plans', async () => {
+  const removal = require('./engine/remove');
+  const before = fs.existsSync(removal.REMOVED_FILE) ? fs.readFileSync(removal.REMOVED_FILE) : null;
+  fs.mkdirSync(path.dirname(removal.REMOVED_FILE), { recursive: true });
+  fs.writeFileSync(removal.REMOVED_FILE, '{ not json');
+  try {
+    const r = await plan({ name: 'Sub-Zero', account: 'spare', resolve: '1' });
+    assert.equal(r.code, 503, 'an unread board answered as if it knew: ' + r.text.slice(0, 200));
+    assert.deepEqual([r.j.ok, r.j.readFailed, r.j.dir], [false, true, undefined], r.text.slice(0, 200));
+    assert.doesNotMatch(r.j.because, /no agent called/);
+    assert.equal((await plan({ name: 'subzero', account: 'spare', resolve: '1' })).code, 200, 'the exact name needs no cards');
+  } finally {
+    if (before === null) fs.rmSync(removal.REMOVED_FILE, { force: true }); else fs.writeFileSync(removal.REMOVED_FILE, before);
+  }
+  // CONTROL: the same name resolves again once the cards read.
+  assert.equal((await plan({ name: 'Sub-Zero', account: 'spare', resolve: '1' })).j.name, 'subzero');
+});
