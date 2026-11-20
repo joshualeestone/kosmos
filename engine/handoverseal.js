@@ -106,9 +106,6 @@ function publicKeyOfHex(hex) {
   try { return crypto.createPublicKey({ key: Buffer.concat([SPKI_ED25519, Buffer.from(hex, 'hex')]), format: 'der', type: 'spki' }); } catch { return null; }
 }
 
-/* o: { org, id (this hand-over), agents (the names this computer was asked to pack), record (escrowd's, from /mine),
-   ownHistory (escrowd's history for the record's `from`), ownKeyHex (this computer's device key, hex), now }.
-   { ok: true, to } (the successor's member id, for checkSeal) or { ok: false, wait?, because }. */
 /* escrowd's record, verified and read once: { ok: true, c } (a copy of its fields) or a refusal. Shared by both sides. */
 function readRecord(x) {
   const r = x.record;
@@ -137,6 +134,9 @@ function readRecord(x) {
   return { ok: true, c };
 }
 
+/* o: { org, id (this hand-over), agents (the names this computer was asked to pack), record (escrowd's, from /mine),
+   ownHistory (escrowd's history for the record's `from`), ownKeyHex (this computer's device key, hex), now }.
+   { ok: true, to } (the successor's member id, for checkSeal) or { ok: false, wait?, because }. */
 function checkRecord(o) {
   try {
     const x = o || {};
@@ -152,6 +152,9 @@ function checkRecord(o) {
     // colleague never will, and the bounded wait ends it.
     const mine = entryAt(h.keys, x.ownKeyHex, x.now);
     if (mine.revoked) return no('this computer is no longer the leaving member\'s, so it cannot hand their agents over');
+    // A carried-over (backfill) key is final on the receiving side before it fetches anything; refused here first, so
+    // nothing is packed or uploaded for a pack that can never open.
+    if (!mine.absent && mine.e.backfill !== false) return no('this computer was only carried over from before your company\'s admins enrolled computers, so it has to be enrolled again before it can hand agents over');
     if (mine.absent) return later('the hand-over record is for a member this computer is not enrolled as (yet): it is for a colleague, or this computer\'s enrolment is not finished');
     return { ok: true, to: c.to };
   } catch { return no('the hand-over record could not be checked'); }

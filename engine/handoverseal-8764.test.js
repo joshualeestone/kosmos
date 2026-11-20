@@ -56,6 +56,7 @@ test('every substitution is refused, and says whether it may pass later', () => 
     ['not a record at all', { record: 'nope' }, /not in the form/],
     ['from and to the same member', { record: Object.assign(record(), { to: 'm-leave' }) }, /not in the form/],
     ['no own key', { ownKeyHex: null }, /own device key could not be read/],
+    ['this computer only carried over (backfill)', { ownHistory: (() => { const entries = [{ kind: 'enrol', key: seal.keyHex(ME.publicKey), at: 0, backfill: true }]; return { org: 'org1', member: 'm-leave', entries, issuedAt: T, signature: crypto.sign(null, hist.encodeHead('org1', 'm-leave', entries, T), ESCROWD.privateKey).toString('base64url') }; })() }, /only carried over/],
   ];
   for (const [why, over, re] of finals) {
     const r = ask(over);

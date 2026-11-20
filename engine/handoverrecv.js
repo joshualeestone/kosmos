@@ -43,8 +43,8 @@
  *
  * kosmos#8733: the one-time key this computer sends is signed with its device key, and the packing computer's key is
  * opened from only when escrowd's signed history lists it as the leaving member's (handoverseal.checkSender).
- * KNOWN, kosmos#8764: the leaving member's identity and the pack's time are still Kosmos+'s word or now. Hand-over is
- * off everywhere until that is closed.
+ * kosmos#8764: the leaving member is escrowd's signed record's `from` (handoverseal.checkRecordSender), never
+ * sender_member, and the packing key is checked at the pack's own signed time, bounded by the record's start.
  *
  * One hand-over at a time, never two ticks at once. Never throws.
  */
@@ -313,6 +313,12 @@ async function receive(part, org, kp, deps) {
   const pre = hs.checkSender({ org, member: rec.from, senderPub, history: part.sender_history, at: nowSec, now: nowSec });
   if (!pre.ok && pre.wait) return { ok: false, tieWait: true, because: pre.because };
   if (!pre.ok && !pre.revoked) return fail(pre.because);
+  // Revoked now: it can still open only if the pack was made before the revocation, and a pack cannot be dated before
+  // the start (less the allowance), so a key already revoked THEN is final now, before the fetch.
+  if (!pre.ok) {
+    const atStart = hs.checkSender({ org, member: rec.from, senderPub, history: part.sender_history, at: Math.max(0, rec.issuedAt - PACK_SKEW_SECS), now: nowSec });
+    if (!atStart.ok && atStart.revoked) return fail(atStart.because);
+  }
   if (kp && Number.isSafeInteger(kp.waitSince)) { try { updateKey(part.id, d.root, { waitSince: null }); } catch { /* cleared next pass */ } }
   const m = part.manifest || {};
   const prefix = `handover/${org}/${part.id}/`;
@@ -348,7 +354,9 @@ async function receive(part, org, kp, deps) {
   const packedAt = Number.isFinite(takenMs) ? Math.floor(takenMs / 1000) : null;
   if (packedAt === null) return fail('the pack does not say when it was made');
   if (packedAt < rec.issuedAt - PACK_SKEW_SECS) return fail('the pack says it was made before the hand-over was started');
-  if (packedAt > nowSec + PACK_SKEW_SECS) return fail('the pack says it was made later than this computer\'s clock');
+  // Ahead of this clock: either clock may be off, as for a record dated ahead (a wait there too), so wait, bounded by
+  // the same one-day limit, rather than end a hand-over a correct clock would take.
+  if (packedAt > nowSec + PACK_SKEW_SECS) return { ok: false, tieWait: true, because: 'the pack says it was made later than this computer\'s clock' };
   if (packedAt - rec.issuedAt > hs.RECORD_MAX_AGE_SECS) return fail('the pack was made more than a month after the hand-over was started; an admin has to start it again');
   // The same history passed the check above, so a wait here can only be a key escrowd lists from AFTER the pack was made
   // (enrolled later, which a backdated pack would need): final.
