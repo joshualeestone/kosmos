@@ -708,6 +708,9 @@ final class FreshSignInCenter: ObservableObject {
                 guard let self, let token else { return }
                 self.issuedOne = true
                 self.passes.arm()
+                // Review 2: the cloud Open counts as tried from here, before the board reconnects and reaches .live
+                // (which clears it), so the order of the two never leaves it set over an Open that worked.
+                if self.place == .root { self.openTried = true; self.openWhy = nil }
                 self.onIssued(token)
             },
             // An issued session that then ended before the Mac answered (watchAllow's .ended): signed out, as the main
@@ -725,9 +728,8 @@ final class FreshSignInCenter: ObservableObject {
 
     private func finish() {
         let did = issuedOne
-        let forOpen = place == .root
         close()
-        if did { if forOpen { openTried = true; openWhy = nil }; taken += 1 }
+        if did { taken += 1 }
     }
 
     /// The cloud Open's Sign in again: the account change the fresh sign-in makes connects the board again

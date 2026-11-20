@@ -599,8 +599,9 @@ struct BoardStates<Empty: View>: View {
                     message("Sign in again to open \(mac).",
                             detail: fresh.openWhy ?? "Your cloud machine takes only a recent sign-in. We will send a code to your email.",
                             retry: false)
-                    Button { Task { await fresh.beginOpen() } } label: { Text("Sign in again") }
-                        .buttonStyle(.borderedProminent).disabled(fresh.opening || fresh.model != nil)
+                    // Review 2: the card colour on ink, as Try again (the tint is near-white in dark); a 44 pt target.
+                    Button { Task { await fresh.beginOpen() } } label: { Text("Sign in again").foregroundColor(Palette.card) }
+                        .buttonStyle(.borderedProminent).controlSize(.large).disabled(fresh.opening || fresh.model != nil)
                 }
             case .still:
                 message("Sign in again to open \(mac).", detail: SignIn.Fresh.still, retry: true)

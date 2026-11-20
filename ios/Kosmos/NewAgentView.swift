@@ -621,6 +621,7 @@ struct NewAgentView: View {
     // teamRunning is set here, before the task starts, so a second tap in between starts nothing.
     private func runTeam() {
         guard !teamRunning, !teamBusy else { return }
+        freshWaiting = nil   // review 2, as create()
         teamRunning = true
         teamBusy = true
         Task { @MainActor in
@@ -646,7 +647,8 @@ struct NewAgentView: View {
         }
     }
 
-    /// Signed in again and the board live again: the refused create, once.
+    /// Signed in again and the board live again: the refused create, once. Known gap (review 2): a session the Keychain
+    /// could not save is held only in memory, so heldNow reads nil and no retry runs; the sheet then says to press Create.
     private func retryAfterFresh() {
         guard let which = freshWaiting,
               SignIn.Fresh.retryNow(finished: fresh.taken > freshTakenAtStart, startedUnder: freshStartedUnder,
@@ -663,6 +665,8 @@ struct NewAgentView: View {
         if freshOffer == which {
             Section {
                 if let freshWhy { Text(freshWhy).foregroundColor(Palette.dangerWord) }
+                // Review 2: say what the wait is for (the computer connecting again under the new sign-in).
+                if freshWaiting == which && fresh.model == nil { Text(NewTeam.Words.freshWaiting).foregroundColor(Palette.secondary) }
                 Button(NewTeam.Words.signInAgain) { startFresh(which) }.disabled(fresh.opening || freshWaiting != nil)
             }
         }
@@ -1037,6 +1041,7 @@ struct NewAgentView: View {
 
     private func create() async {
         guard !sending, let c = catalogue, NewAgent.canCreate(draft, c) else { return }
+        freshWaiting = nil   // review 2: pressed by hand meanwhile, so no retry follows it (a second agent)
         sending = true
         message = nil
         let sent = draft

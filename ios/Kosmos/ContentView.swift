@@ -284,7 +284,14 @@ struct ContentView: View {
         // kosmos#7488: another computer: the sheet's roles, managers and projects were the last one's.
         .onChange(of: board.chatEpoch) { _ in if !fresh.passes.spendEpoch() { newAgentOpen = false } }
         // Review 1: the sheet gone (closed, or by any reset above), its fresh sign-in goes with it.
-        .onChange(of: newAgentOpen) { open in if !open, fresh.place == .newAgent, fresh.model != nil { fresh.end() } }
+        // Review 2: a sheet opened later never inherits a pass from an earlier fresh sign-in.
+        .onChange(of: newAgentOpen) { open in
+            if open { fresh.passes.clear() } else if fresh.place == .newAgent, fresh.model != nil { fresh.end() }
+        }
+        // Review 2: the board let in again means the fresh sign-in's account change and its chats moving on are both
+        // past (accountChanged runs before the reconnect), so any pass not spent goes and cannot keep the sheet up
+        // through a later, real change.
+        .onChange(of: board.admissions) { _ in fresh.passes.clear() }
         // kosmos#8795: opened (live), or signed out: a later refusal of the cloud Open is a new one, offered again.
         .onChange(of: board.phase) { phase in
             switch phase { case .live, .signedOut: fresh.openSettled(); default: break }
