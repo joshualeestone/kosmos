@@ -597,6 +597,17 @@ function teamBlockBody(brief) {
   return (/^#{1,6} /.test(body) ? '' : '## Your team\n\n') + body + '\n';
 }
 
+/* kosmos#8784: the name a "that name is taken" refusal gives. The existing agent's own display name when it has one (a
+   second spelling, "Taylors Coach", is told about "Taylor's Coach", the name the board shows); otherwise what was typed,
+   so a leftover folder with no profile keeps the person's capitals ("Josh", not the machine's "josh"). readIdentity
+   defaults the display name to the session name, so only a different one counts as the agent's own. */
+function takenName(name, shown) {
+  try {
+    const d = status.readIdentity(name).displayName;
+    return d && d !== name ? d : shown;
+  } catch { return shown; }
+}
+
 function spokenName(clean) {
   try { return status.readIdentity(clean).displayName || clean; }
   catch { return clean; }
@@ -6355,7 +6366,7 @@ function createAgentInner(opts) {
   if (hasFolder && hasJob) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `there is already an agent called ${spokenName(name)}. If it never came up, it is half made rather than missing. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
+      because: `there is already an agent called ${takenName(name, shown)}. If it never came up, it is half made rather than missing. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
       field: 'name', // #2606
       steps,
     };
@@ -6378,7 +6389,7 @@ function createAgentInner(opts) {
   if (hasFolder) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `there is already a folder for an agent called ${spokenName(name)}. If you removed that agent, its folder was left behind. Pick another name, or delete what was left of it, from its page under Agents or from "Show removed agents" at the bottom of the Agents tab, which frees the name.`,
+      because: `there is already a folder for an agent called ${takenName(name, shown)}. If you removed that agent, its folder was left behind. Pick another name, or delete what was left of it, from its page under Agents or from "Show removed agents" at the bottom of the Agents tab, which frees the name.`,
       field: 'name', // #2606
       steps,
     };
