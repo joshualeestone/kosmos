@@ -1124,3 +1124,31 @@ test('#7893: Windows msg tells a leading flag typed after the agent where it goe
   assert.doesNotMatch(bogus.err, /must come before the agent name/);
   assert.match(bogus.err, /--bogus is not an option/);
 });
+
+// kosmos#8769 item 4, as install/kosmos cmd_room: a busy board's room read shows the last copy held, with its age.
+test('kosmos#8769 item 4: room on a busy board shows the kept copy (exit 1); none kept refuses; a filtered read keeps none', async () => {
+  const home = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'kosmos-win-roombusy-8769-'));
+  try {
+    const env = { KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_HOME: home };
+    const busy = () => { const e = new Error('timed out'); e.name = 'TimeoutError'; throw e; };
+    const none = await run(['room', 'proj-1'], busy, env);
+    assert.equal(none.code, 1);
+    assert.match(none.err, /no earlier copy of this room to show/);
+    assert.doesNotMatch(none.err, /NOT the room now/);
+    const good = await run(['room', 'proj-1'], () => ({ body: 'm1 leo: first look\n' }), env);
+    assert.equal(good.code, 0, good.err);
+    const dir = path.join(home, 'state', 'room-copies');
+    assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.busy-since')).length, 0, 'a good read ends the failing spell');
+    const held = await run(['room', 'proj-1'], busy, env);
+    assert.equal(held.code, 1);
+    assert.match(held.err, /this is NOT the room now: it is the last copy this computer read, 0 minute\(s\) ago/);
+    assert.match(held.err, /has not answered a room read here since/);
+    assert.match(held.out, /first look/);
+    const copies = fs.readdirSync(dir).filter((f) => f.endsWith('.txt'));
+    assert.equal(copies.length, 1);
+    assert.ok(!fs.readFileSync(path.join(dir, copies[0]), 'utf8').includes(AGENT), 'no token kept');
+    const filtered = await run(['room', 'proj-1', '-n', '5'], busy, env);
+    assert.equal(filtered.code, 1);
+    assert.doesNotMatch(filtered.err, /NOT the room now/, 'a filtered read is not answered with the plain copy');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});

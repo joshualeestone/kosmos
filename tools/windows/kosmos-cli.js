@@ -1182,6 +1182,23 @@ async function verbAway(ctx, args) {
   return 0;
 }
 
+/* kosmos#8769 item 4: where a room's last plain read is kept for this reader (a hash of the token, never the token).
+   KOSMOS_HOME when set, as on the Mac; otherwise the Windows user's own LOCALAPPDATA. */
+function roomCopyPaths(ctx, project) {
+  try {
+    const env = ctx.env || {};
+    const os = require('os');
+    const base = env.KOSMOS_HOME ? path.join(env.KOSMOS_HOME, 'state', 'room-copies')
+      : path.join(env.LOCALAPPDATA || os.tmpdir(), 'Kosmos', 'state', 'room-copies');
+    const tok = /^[0-9a-f]+$/.test(String(env.KOSMOS_AGENT_TOKEN || '')) ? String(env.KOSMOS_AGENT_TOKEN) : 'board';
+    const key = require('crypto').createHash('sha256').update(String(project) + '|' + tok).digest('hex').slice(0, 24);
+    return { dir: base, file: path.join(base, key + '.txt'), since: path.join(base, key + '.busy-since') };
+  } catch (_) { return null; }
+}
+function roomCopyClock(epoch) {
+  try { return new Date(epoch * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }); } catch (_) { return 'a while ago'; }
+}
+
 async function verbRoom(ctx, args) {
   /* #4891 N8, as install/kosmos cmd_room: -n N / --limit N / --limit=N, either side of the project id. */
   let project = '';
@@ -1205,9 +1222,40 @@ async function verbRoom(ctx, args) {
   if (given && !(/^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200)) { ctx.err('-n takes a whole number from 1 to 200.'); return 2; }
   // #4491 slice 4: the agent's own token rides too (the default), as on the Mac, so the read works without the board token.
   const r = await ctx.call('GET', '/api/project/' + projectSlug(project) + '/room?as=text' + (given ? '&n=' + n : '') + (unanswered ? '&unanswered=1' + (all ? '&all=1' : '') : ''));
-  if (!r.reached) return ctx.unreachable('read that room');
+  /* kosmos#8769 item 4, as install/kosmos cmd_room: a plain read keeps a private copy per room and reader; a read the
+     board is too busy to answer shows that copy, headed with its age and since when reads have failed, and exits 1. */
+  const copy = given || unanswered ? null : roomCopyPaths(ctx, project);
+  if (!r.reached) {
+    if (copy && r.timedOut) {
+      let first = NaN;
+      try { first = Number(fs.readFileSync(copy.since, 'utf8').trim()); } catch (_) { /* none yet */ }
+      if (!Number.isInteger(first)) { first = Math.floor(Date.now() / 1000); try { fs.mkdirSync(copy.dir, { recursive: true, mode: 0o700 }); fs.writeFileSync(copy.since, String(first), { mode: 0o600 }); } catch (_) { /* best effort */ } }
+      const since = ' Kosmos has not answered a room read here since ' + roomCopyClock(first) + '.';
+      let held = null;
+      try { held = { text: fs.readFileSync(copy.file, 'utf8'), at: fs.statSync(copy.file).mtimeMs }; } catch (_) { /* no copy */ }
+      if (held && held.text) {
+        ctx.err('Kosmos is running but did not answer in time, so this is NOT the room now: it is the last copy this computer read, '
+          + Math.floor((Date.now() - held.at) / 60000) + ' minute(s) ago.' + since + ' Read again in a minute for the room as it is.');
+        ctx.out(held.text.replace(/\n$/, ''));
+        return 1;
+      }
+      const rc = ctx.unreachable('read that room');
+      ctx.err(since.trim().replace(/\.$/, '') + ', and this computer has no earlier copy of this room to show.');
+      return rc;
+    }
+    return ctx.unreachable('read that room');
+  }
   ctx.out(String(r.text || '').replace(/\n$/, ''));
   if (r.status >= 400) return 1;
+  if (copy) {
+    try { fs.rmSync(copy.since, { force: true }); } catch (_) { /* best effort */ }
+    try {
+      fs.mkdirSync(copy.dir, { recursive: true, mode: 0o700 });
+      const tmp = copy.file + '.' + process.pid + '.tmp';
+      fs.writeFileSync(tmp, String(r.text || ''), { mode: 0o600 });
+      fs.renameSync(tmp, copy.file);
+    } catch (_) { /* a copy is a convenience: never fail the read for it */ }
+  }
   // #4926, as install/kosmos: without the board's filtered-view line, the board ignored the flag and sent the whole room.
   if (unanswered && !/^Waiting on an answer from you: /m.test(String(r.text || ''))) {
     ctx.err('This Kosmos does not know --unanswered yet, so what is above is the whole room, not only what is waiting on you. Update Kosmos to use it.');
