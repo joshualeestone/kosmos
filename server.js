@@ -25462,12 +25462,13 @@ const server = http.createServer(async (req, res) => {
           for (const m of tail) {
             if (!m) continue;
             const byEmoji = new Map();
+            let handUp = false;   // review 7: the reader's own live raised hand: it said "mine", so it is not told nothing is needed
             for (const x of (reactionRowsOf.get(String(m.id)) || NO_REACTIONS)) {
-              if (x.project !== id || x.operator === true || x.from !== readerName) continue;
-              if (typeof x.emoji !== 'string' || messages.isClaimEmoji(x.emoji)) continue;
+              if (x.project !== id || x.operator === true || x.from !== readerName || typeof x.emoji !== 'string') continue;
+              if (messages.isClaimEmoji(x.emoji)) { handUp = x.op !== 'remove'; continue; }
               byEmoji.set(x.emoji, x.op === 'remove' ? 'remove' : 'add');
             }
-            if ([...byEmoji.values()].includes('add')) (m.operator === true ? reactedPerson : reactedColleague).push(String(m.id));
+            if (!handUp && [...byEmoji.values()].includes('add')) (m.operator === true ? reactedPerson : reactedColleague).push(String(m.id));
           }
         }
         const reactedCmd = (ids) => 'kosmos post --in-reply-to ' + (ids.length === 1 ? ids[0] : '<its id>') + ' ' + id + ' <your answer>';
@@ -25478,7 +25479,7 @@ const server = http.createServer(async (req, res) => {
           : '')
           + (reactedColleague.length
             ? '[kosmos] You reacted to ' + reactedIds(reactedColleague) + ', but a reaction does not take a post off this list. If '
-              + (reactedColleague.length === 1 ? 'it' : 'one') + ' still needs an answer, post one that cites it: ' + reactedCmd(reactedColleague)
+              + (reactedColleague.length === 1 ? 'it' : 'one') + ' still needs an answer, answer with a post that cites it: ' + reactedCmd(reactedColleague)
               + '. If ' + (reactedColleague.length === 1 ? 'it' : 'one') + ' was only confirming something already settled, your reaction answered that and nothing more is needed.\n'
             : '');
         const shownClaimed = claimedAsks.slice(-textRows);

@@ -834,8 +834,8 @@ test('#5635 F2: a working member woken after a quiet stretch reads current for t
     readHistory: () => { const a = [{ state: 'idle', at: NOW - 320 * 60000 }]; a.truncated = false; return a; } });
   const cxText = v.renderShow({ project: cx }).join('\n');
   assert.equal(cx.members[0].summary.turnsOnly, true, JSON.stringify(cx.members[0].summary));
-  assert.match(cxText, /summary: not due yet: past 4 hours by the clock, but for this seat the rhythm counts time working or waiting, and no later turn has ended since it was written/, cxText);
-  assert.match(turns, /summary: not due yet: past 4 hours by the clock, but for this seat the rhythm counts time working or waiting, and no later turn has ended since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, turns);
+  assert.match(cxText, /summary: not due yet: past 4 hours by the clock, but this seat reports only when a turn ends, and no later turn has ended since it was written/, cxText);
+  assert.match(turns, /summary: not due yet: past 4 hours by the clock, but this seat reports only when a turn ends, and no later turn has ended since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, turns);
   assert.ok(![0x2014, 0x2013].some((c) => text.includes(String.fromCharCode(c))), 'a dash in product copy');
 });
 

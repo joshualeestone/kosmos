@@ -21,7 +21,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const projects = require('../engine/projects');
 const tasks = require('../engine/tasks');
-const taskchat = require('../engine/taskchat');
 
 test.after(() => {
   fs.rmSync(DATA, { recursive: true, force: true });

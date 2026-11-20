@@ -1,6 +1,6 @@
 # reactanswer-8828: --unanswered says why a post you reacted to stays listed (kosmos#8828 item 1)
 
-(Superseded: see "Finished means" at the end, which covers all three items.) First slice, item 1: on `kosmos room <id> --unanswered`, a listed post the reader has a live reaction on (latest add per emoji;
+(Superseded: see the "## Finished means" section further down, which covers all three items.) First slice, item 1: on `kosmos room <id> --unanswered`, a listed post the reader has a live reaction on (latest add per emoji;
 not the 🙋 claim; this room only) is named on a line under the list saying a reaction does not answer a post addressed
 to you, so it stays until answered with --in-reply-to. Nothing leaves the list because of a reaction.
 
@@ -58,3 +58,11 @@ not-due line reads as above; a "no check N" refusal lists the checks, through bo
   above that quote "not due yet: the 4-hour rhythm counts working time" are history; the current wording is in the code.
   Rejected: an apostrophe in a check can look like an extra check boundary (the numbering "2. '" still marks each one).
   168/168.
+
+- Review 7 (blind, whole branch), no blocker. Taken: a turn-ends-only seat (turnsOnly) gets its own clause ("this seat
+  reports only when a turn ends, and no later turn has ended"), not the working-or-waiting one; a post the reader also
+  has a live raised hand on is left off the reaction lines (its hand said "mine"; it is not told nothing is needed),
+  with a test and a hand-down control; "answer with a post that cites it" on the colleague line; a CLI test pushes the
+  listed-checks refusal through install/kosmos whole; unused require dropped. Rejected: guillemets fold to single
+  quotes (harmless, matches taskactphrase's folding); "your reaction answered that" vs the head line (the sentence is
+  conditional on a confirmation, which defaults.js:658 says a reaction answers). 170/170, tree guards 28/28.
