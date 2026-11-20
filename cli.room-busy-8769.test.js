@@ -30,7 +30,7 @@ function runCli(args, env) {
   return new Promise((resolve, reject) => {
     const child = execFile(CLI, args, { env, timeout: 30000 }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('no exit code: ' + (err.signal || err.code))); return; }
-      resolve({ code: err ? err.code : 0, out: (stdout || '') + (stderr || '') });
+      resolve({ code: err ? err.code : 0, out: (stdout || '') + (stderr || ''), stdout: stdout || '' });
     });
     child.stdin.end('');
   });
@@ -38,11 +38,15 @@ function runCli(args, env) {
 
 /* The room route answers `room.text` while `room.stall` is false; while true it never answers (a busy board). */
 function withBoard(fn) {
-  const room = { text: 'm1 leo: first look\n', stall: false, hits: 0 };
+  /* Baron's #8776 follow-ups: `health` stalls the health route too (the board busy before the read), and `status`
+     answers the room with that HTTP status (a refusal). */
+  const room = { text: 'm1 leo: first look\n', stall: false, hits: 0, health: false, status: 200 };
   const server = http.createServer((req, res) => {
+    if (room.health && req.url.startsWith('/api/health')) return;   // never answered: the health check reads busy
     if (req.url.startsWith('/api/project/') && req.url.includes('/room')) {
       room.hits += 1;
       if (room.stall) return;   // never answered: the CLI's own time limit ends the read
+      if (room.status !== 200) { res.writeHead(room.status, { 'content-type': 'text/plain' }); res.end('refused\n'); return; }
       res.writeHead(200, { 'content-type': 'text/plain' });
       res.end(room.text);
       return;
@@ -202,4 +206,92 @@ test('kosmos#8769 item 4: the age is said in hours past two hours, and a copy no
   await runCli(['room', 'proj'], envFor(port, home));
   assert.ok(!fs.existsSync(stale), 'a copy not refreshed for 7 days is pruned');
   assert.ok(fs.existsSync(copy), 'CONTROL: the fresh copy stays');
+}));
+
+/* Baron's #8776 follow-up 1: the health check finding the board busy is the same busy board, so the copy shows there too.
+   A real busy reading needs a Kosmos server.js listening (_health_no_answer reads anything else as a stranger), so the
+   check's answer is stubbed by sourcing the CLI, as cli.busy-health-4466.test.js does; the room route stays the stub's. */
+function cmdRoomWithHealth(state, project, env) {
+  return new Promise((resolve, reject) => {
+    // Through the environment, not $1..$3: sourcing the CLI resets the positional arguments.
+    const script = 'source "$T_CLI"; healthy() { HEALTH_STATE="$T_STATE"; return 1; }; cmd_room "$T_PROJECT"';
+    execFile('/bin/bash', ['-c', script], { env: { ...env, T_CLI: CLI, T_STATE: state, T_PROJECT: project }, timeout: 30000 }, (err, stdout, stderr) => {
+      if (err && typeof err.code !== 'number') { reject(new Error('no exit code: ' + (err.signal || err.code))); return; }
+      resolve({ code: err ? err.code : 0, out: (stdout || '') + (stderr || ''), stdout: stdout || '' });
+    });
+  });
+}
+
+test('#8776 follow-up 1: a board the HEALTH CHECK finds busy shows the kept copy (on stderr), exit 1', { skip: SKIP }, () => withBoard(async (port, room) => {
+  const home = mkHome('k-');
+  const good = await runCli(['room', 'proj'], envFor(port, home));
+  assert.equal(good.code, 0, good.out);
+  const hits = room.hits;
+  const busy = await cmdRoomWithHealth('busy', 'proj', envFor(port, home));
+  assert.equal(busy.code, 1, busy.out);
+  assert.equal(room.hits, hits, 'presence first: the room route was never asked (the health check refused)');
+  assert.match(busy.out, /this is NOT the room now: it is the last copy this computer read/);
+  assert.match(busy.out, /first look/);
+  assert.equal(busy.stdout, '', 'follow-up 2 here too: nothing on stdout');
+  const none = await cmdRoomWithHealth('busy', 'other', envFor(port, home));
+  assert.equal(none.code, 1, none.out);
+  assert.match(none.out, /too busy to answer/, 'CONTROL: no copy of that room, so the health refusal as before');
+  assert.match(none.out, /no earlier copy of this room to show/);
+  assert.doesNotMatch(none.out, /NOT the room now/);
+}));
+
+test('#8776 follow-up 1: a board NOT RUNNING or UNREACHABLE shows no copy (nothing is busy), and leaves no mark', { skip: SKIP }, () => withBoard(async (port) => {
+  const home = mkHome('l-');
+  assert.equal((await runCli(['room', 'proj'], envFor(port, home))).code, 0);
+  for (const state of ['down', 'unreachable', 'stranger']) {
+    const r = await cmdRoomWithHealth(state, 'proj', envFor(port, home));
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /the room cannot be read/, state + ': presence first, its refusal was said');
+    assert.doesNotMatch(r.out, /NOT the room now|first look|has not answered a read/, state);
+  }
+  const dir = path.join(home, 'state', 'room-copies');
+  assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.busy-since')).length, 0, 'no failing mark for a board that is not busy');
+}));
+
+/* Baron's #8776 follow-up 2: the header and the copy on stderr, so a script reading stdout takes nothing for the room. */
+test('#8776 follow-up 2: the kept copy is on stderr, and stdout is empty', { skip: SKIP }, () => withBoard(async (port, room) => {
+  const home = mkHome('m-');
+  const good = await runCli(['room', 'proj'], envFor(port, home));
+  assert.match(good.stdout, /first look/, 'CONTROL: a good read is on stdout');
+  room.stall = true;
+  const busy = await runCli(['room', 'proj'], envFor(port, home));
+  assert.match(busy.out, /first look/, 'presence first: the copy was shown');
+  assert.equal(busy.stdout, '', 'nothing on stdout');
+}));
+
+/* Baron's #8776 follow-up 3: a refused read drops the copy; the board failing (5xx) keeps it. */
+test('#8776 follow-up 3: a 401, 403 or 404 drops the kept copy (a filtered read too); a 503 keeps it', { skip: SKIP }, () => withBoard(async (port, room) => {
+  const home = mkHome('n-');
+  const dir = path.join(home, 'state', 'room-copies');
+  const copies = () => (fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.txt')) : []);
+  await runCli(['room', 'proj'], envFor(port, home));
+  room.status = 503;
+  assert.equal((await runCli(['room', 'proj'], envFor(port, home))).code, 1);
+  assert.equal(copies().length, 1, 'CONTROL: a 503 is the board, not the reader: the copy stays');
+  for (const status of [401, 403, 404]) {
+    room.status = 200; room.stall = false;
+    await runCli(['room', 'proj'], envFor(port, home));
+    assert.equal(copies().length, 1, 'presence first: a copy is held');
+    room.status = status;
+    assert.equal((await runCli(['room', 'proj', '-n', '5'], envFor(port, home))).code, 1);
+    assert.equal(copies().length, 0, status + ' dropped the copy');
+    room.stall = true;
+    const busy = await runCli(['room', 'proj'], envFor(port, home));
+    assert.doesNotMatch(busy.out, /NOT the room now|first look/, status + ': a later busy read shows no copy');
+  }
+  /* Review 1: a 404 to --post is a post id the room lacks, not the room refused: the copy stays (control: a 403 to
+     the same read drops it). */
+  room.status = 200; room.stall = false;
+  await runCli(['room', 'proj'], envFor(port, home));
+  room.status = 404;
+  assert.equal((await runCli(['room', 'proj', '--post', 'm999'], envFor(port, home))).code, 1);
+  assert.equal(copies().length, 1, 'a by-id 404 keeps the copy');
+  room.status = 403;
+  await runCli(['room', 'proj', '--post', 'm999'], envFor(port, home));
+  assert.equal(copies().length, 0, 'CONTROL: a by-id 403 drops it');
 }));
