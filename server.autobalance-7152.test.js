@@ -282,7 +282,7 @@ test('kosmos#8841: a switch kept on from an earlier start reaches Settings on th
   const keptswitch = require('./engine/keptswitch');
   const record = path.join(SANDBOX, 'kept-switches-8841.json');
   const at = Date.UTC(2026, 10, 6, 9, 17);
-  fs.writeFileSync(record, JSON.stringify({ host: os.hostname(), usagePoll: { on: true, at } }));
+  fs.writeFileSync(record, JSON.stringify({ computer: keptswitch.markOf(os.hostname()), usagePoll: { on: true, at } }));
   const had = process.env.AGENT_WORKFORCE_USAGE_POLL;
   delete process.env.AGENT_WORKFORCE_USAGE_POLL;
   try {
@@ -297,7 +297,7 @@ test('kosmos#8841: a switch kept on from an earlier start reaches Settings on th
     const plain = await call('GET', '/api/accounts');
     assert.equal('kept' in plain.json, false, 'only Settings (?agents=1) is told');
     // A record written under another computer name: nothing kept, and Settings is told it was not applied.
-    fs.writeFileSync(record, JSON.stringify({ host: 'some-other-mac.invalid', usagePoll: { on: true, at } }));
+    fs.writeFileSync(record, JSON.stringify({ computer: keptswitch.markOf('some-other-mac.invalid'), usagePoll: { on: true, at } }));
     keptswitch.applyAtStart(process.env, { live: true, file: record });
     const other = await call('GET', '/api/accounts?agents=1');
     assert.deepEqual([other.json.kept, other.json.keptNotApplied], [{}, true]);

@@ -11,7 +11,8 @@
  * The default does not change: a board nobody switched on has no record and stays off.
  *
  *   NAME=1               on, and recorded
- *   NAME=0               off, and the record of it is removed (the way to switch it off for good)
+ *   NAME=0               off, and the record of it is removed (the way to switch it off for good), whichever
+ *                        computer name the record was written under
  *   NAME unset or empty  as recorded: on if a start recorded it, off otherwise
  *   any other value      off at this start; the record is left alone
  *   NAME_OFF=1           the brake, as before: off while it is set, whatever is recorded; the record is left alone
@@ -20,11 +21,13 @@
  * environment, so nothing the board starts (an agent's shell, a test run from it) inherits a switch.
  * Never under a test or a dry run: nothing is read, written or kept.
  *
- * The record names the computer that wrote it. A backup takes the board's data folder, so the file can arrive on
- * another computer with a restore; there it keeps nothing, because nobody switched anything on at that computer.
+ * The record is marked with the computer that wrote it (a short hash of its name without the network's suffix, so
+ * the name itself is not in the file). A backup takes the board's data folder, so the file can arrive on another
+ * computer with a restore; there it keeps nothing, because nobody switched anything on at that computer.
  */
 const fs = require('node:fs');
 const os = require('node:os');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const store = require('./store');
 
@@ -42,7 +45,12 @@ let kept = {};
 let keptFor = null;
 let notApplied = false;
 
+/* The computer's name as it stays across networks: lower case, without the suffix a network adds (.local, .lan, a
+   company's domain). '' when it cannot be read. */
 const thisComputer = () => { try { return String(os.hostname() || ''); } catch { return ''; } };
+const plainName = (host) => String(host || '').trim().toLowerCase().split('.')[0];
+/* What the record carries for a computer: not its name (a Mac's often holds a person's). '' for no name. */
+const markOf = (host) => { const n = plainName(host); return n ? crypto.createHash('sha256').update('kosmos-kept-switches:' + n).digest('hex').slice(0, 16) : ''; };
 
 /** @returns {{ok:boolean, on:Object<string,{at:number}>, elsewhere?:boolean}} missing file: ok, nothing kept;
  *  unreadable or corrupt: not ok, nothing kept; written under another computer name (or naming none, or this
@@ -59,8 +67,10 @@ function read(from = file(), host = thisComputer()) {
     const v = parsed[s.key];
     if (v && typeof v === 'object' && v.on === true) on[s.key] = { at: Number.isFinite(v.at) && v.at > 0 && v.at < 8.64e15 ? v.at : 0 };   // 0: no day a Date can say
   }
-  if (!host || parsed.host !== host) return { ok: true, on: {}, elsewhere: Object.keys(on).length > 0 };
-  return { ok: true, on };
+  const mark = markOf(host);
+  /* `held`: what the file holds under any computer's mark, for an explicit off, which is honoured wherever it was written. */
+  if (!mark || parsed.computer !== mark) return { ok: true, on: {}, held: on, elsewhere: Object.keys(on).length > 0 };
+  return { ok: true, on, held: on };
 }
 
 /** Whether `key`'s switch is on for `env`: its variable is 1, or it is unset and this board kept it at start. */
@@ -101,15 +111,18 @@ function applyAtStart(env, { live, file: given, nowMs = Date.now(), host = thisC
   for (const s of SWITCHES) {
     const v = env[s.name];
     if (v === '1') { if (!next[s.key]) { next[s.key] = { at: nowMs }; out.recorded.push(s.key); } }
-    else if (v === '0') { if (next[s.key]) { delete next[s.key]; out.cleared.push(s.key); } }
+    else if (v === '0') { if (next[s.key] || (rec.held && rec.held[s.key])) { delete next[s.key]; out.cleared.push(s.key); } }
     else if (unset(v) && next[s.key]) out.kept.push(s.key);
     else if (!unset(v) && next[s.key]) out.odd = (out.odd || []).concat(s.key);   // neither 1, 0 nor unset: off at this start, record untouched
   }
   /* A record that could not be read is never written over: it may hold a choice this start knows nothing about, and
      a file that is unreadable for a moment must not be replaced by a partial one. This start still does what its own
      environment says; only the keeping is lost, and the line below says so. */
-  if (rec.ok && host && (out.recorded.length || out.cleared.length)) {
-    const body = { host };
+  /* An explicit off is written even when this computer's name cannot be read: the record then carries no mark, which
+     no computer matches, so nothing is kept from it anywhere. Switching on needs the mark. */
+  const mark = markOf(host);
+  if (rec.ok && ((mark && out.recorded.length) || out.cleared.length)) {
+    const body = { computer: mark };
     for (const s of SWITCHES) if (next[s.key]) body[s.key] = { on: true, at: next[s.key].at };
     try {
       fs.mkdirSync(path.dirname(to), { recursive: true });
@@ -119,6 +132,9 @@ function applyAtStart(env, { live, file: given, nowMs = Date.now(), host = thisC
   }
   for (const k of out.kept) kept[k] = next[k];
   keptFor = env;
+  /* A record from elsewhere that this start replaced is no longer "found and not applied". */
+  const replaced = rec.elsewhere === true && out.wrote === true;
+  if (replaced) notApplied = false;
 
   const of = (keys) => SWITCHES.filter((s) => keys.includes(s.key));
   const said = (keys) => of(keys).map((s) => s.said).join(' and ');
@@ -137,8 +153,9 @@ function applyAtStart(env, { live, file: given, nowMs = Date.now(), host = thisC
     out.lines.push(`kept-switches: ${said(out.cleared)} ${be(out.cleared)} switched off, ${out.wrote === true ? 'and will stay off at later starts' : 'but that could not be written down, so a later start may switch it on again'}`);
   }
   if (out.odd) out.lines.push(`kept-switches: ${said(out.odd)} ${be(out.odd)} recorded as switched on, but ${of(out.odd).map((s) => s.name + '=' + env[s.name]).join(' and ')} is neither 1 nor 0, so ${out.odd.length > 1 ? 'they are' : 'it is'} off at this start`);
-  if (rec.elsewhere) {
-    out.lines.push(host
+  if (replaced) out.lines.push('kept-switches: the record written under another computer name was replaced by what this start was told');
+  else if (rec.elsewhere) {
+    out.lines.push(mark
       ? 'kept-switches: the record of what was switched on was written under another computer name (a restored backup, or this computer was renamed), so nothing was kept from it; a start with the variable set to 1 switches it on here'
       : 'kept-switches: this computer\'s name could not be read, so the record of what was switched on was not applied');
   }
@@ -160,4 +177,4 @@ function atBoardStart(env, { liveExecutionAllowed, ...opts } = {}) {
   return applyAtStart(env, { ...opts, live });
 }
 
-module.exports = { file, SWITCHES, read, on, keptNow, ignoredElsewhere, applyAtStart, atBoardStart };
+module.exports = { file, SWITCHES, read, on, keptNow, ignoredElsewhere, applyAtStart, atBoardStart, markOf };

@@ -69,10 +69,47 @@ test('a record written on another computer (a restored backup) keeps nothing her
   // A computer whose own name cannot be read applies nothing either, and says that, not "another computer".
   const unnamed = start({}, file, 3500, '');
   assert.deepEqual([unnamed.kept, unnamed.lines], [[], ['kept-switches: this computer\'s name could not be read, so the record of what was switched on was not applied']]);
-  // Switched on here, the record becomes this computer's.
-  start({ [POLL]: '1' }, file, 4000, 'new-mac.local');
+  // Switched on here, the record becomes this computer's (the other computer's switches are not carried into it),
+  // and it is no longer reported as found and not applied.
+  const again = start({ [POLL]: '1' }, file, 4000, 'new-mac.local');
+  assert.deepEqual(again.lines, ['kept-switches: the usage poll is switched on at this start, and will stay switched on at later starts',
+    'kept-switches: the record written under another computer name was replaced by what this start was told']);
+  assert.equal(keptswitch.ignoredElsewhere(), false, 'a record this start replaced is still reported as not applied');
   assert.deepEqual(keptswitch.read(file, 'new-mac.local').on, { usagePoll: { at: 4000 } });
   assert.deepEqual(keptswitch.read(file, 'old-mac.local').on, {});
+});
+
+test('an explicit off sticks whatever name the record was written under, and when the name changes back', () => {
+  const file = fresh();
+  start({ [POLL]: '1', [MOVE]: '1' }, file, T1, 'old-name.local');
+  // The computer reads under another name (a new network), and the person switches the poll off for good.
+  const off = { [POLL]: '0' };
+  const r = start(off, file, 2000, 'other-name.local');
+  assert.deepEqual([r.cleared, r.wrote, usagePoll.enabled(off)], [['usagePoll'], true, false]);
+  // The old name comes back: nothing is kept from the record that name wrote.
+  const back = {};
+  const b = start(back, file, 3000, 'old-name.local');
+  assert.deepEqual([b.kept, usagePoll.enabled(back), automove.movesOn(back)], [[], false, false], 'a switch switched off came back when the computer name did');
+  // And with no name readable at all, an off is still written down.
+  const file2 = fresh();
+  start({ [POLL]: '1' }, file2, T1, 'old-name.local');
+  assert.deepEqual(start({ [POLL]: '0' }, file2, 2000, '').wrote, true);
+  assert.deepEqual(start({}, file2, 3000, 'old-name.local').kept, []);
+  // CONTROL: without the off, the old name keeps it.
+  const file3 = fresh();
+  start({ [POLL]: '1' }, file3, T1, 'old-name.local');
+  start({}, file3, 2000, 'other-name.local');
+  assert.deepEqual(start({}, file3, 3000, 'old-name.local').kept, ['usagePoll']);
+});
+
+test('the same computer on another network (a new suffix, other letter case) is the same computer; its name is not in the file', () => {
+  const file = fresh();
+  start({ [POLL]: '1' }, file, T1, 'Mortals-Mac-mini.local');
+  for (const name of ['mortals-mac-mini.lan', 'MORTALS-MAC-MINI', 'Mortals-Mac-mini.corp.example.test']) {
+    assert.deepEqual(start({}, file, 2000, name).kept, ['usagePoll'], name + ' read as another computer');
+  }
+  assert.deepEqual(start({}, file, 2000, 'Mortals-Mac-mini-2.local').kept, [], 'CONTROL: a different name is a different computer');
+  assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /mortals/i, 'the computer\'s name is written in the record');
 });
 
 test('the kept switch is the board\'s alone: the environment is not changed, and no other environment reads as on', () => {
@@ -186,7 +223,7 @@ test('the board makes the one call at start, with nothing of its own decided the
 
 test('a recorded time no date can say reads as no day, not as an invalid one', () => {
   const file = fresh();
-  fs.writeFileSync(file, JSON.stringify({ host: HOST, usagePoll: { on: true, at: 9e15 }, automove: { on: true, at: -5 } }));
+  fs.writeFileSync(file, JSON.stringify({ computer: keptswitch.markOf(HOST), usagePoll: { on: true, at: 9e15 }, automove: { on: true, at: -5 } }));
   assert.deepEqual(keptswitch.read(file, HOST).on, { usagePoll: { at: 0 }, automove: { at: 0 } });
   const r = start({}, file);
   assert.match(r.lines[0], /kept from the start of an earlier day;/);

@@ -44,15 +44,18 @@ The default does not change: a board nobody switched on has no record, writes no
   would have inherited the switch for good (review round 1). Kept in the module instead.
 - **A record that cannot be read is never written over**, even to record what this start was told: it may hold the
   other switch. This start still does what its own environment says, and the log says the keeping was lost.
-- **The record belongs to the computer that wrote it, by host name.** A backup takes the board's data folder, so the
-  file can arrive on another computer with a restore (review round 4). The record carries the host name; under any
-  other name it keeps nothing. Review round 5 pointed out a host name can change on a Mac (a new network, a name
-  clash), which turns a kept switch off again. Decided: keep the host name, and make that case loud instead of
-  silent: the log says so and names the fix, and Settings says a record was found and not applied.
+- **The record belongs to the computer that wrote it, by name.** A backup takes the board's data folder, so the file
+  can arrive on another computer with a restore (review round 4). The record carries a short hash of the computer's
+  name, lower-cased and without the suffix a network adds, so the same Mac on another network is the same computer
+  and the name itself is not in the file (rounds 5 and 7). Under any other name it keeps nothing, the log says so and
+  names the fix, and Settings says a record was found and not applied.
+  **An explicit off (`=0`) is honoured whatever name the record was written under** (round 7's blocker: an off given
+  while the name differed did not touch the record, so the switch came back when the name did).
   Rejected: the hardware id (engine/computerprint.js). Its rule 1 forbids storing the id, or anything a copied folder
   could replay, under a data root, and that rule was settled over many review rounds on #5532; a kept-switch record is
   not a reason to reopen it. Rejected: keeping the file outside the data root; there is no per-install state folder
   with a helper today, and inventing one is a larger change than this card.
+  Known limit: a Mac set up from another with Migration Assistant often keeps the name, so it would keep the switch.
 - **The wording on the page describes the present** ("That switch is still on."), not the time between, since a start
   under the brake or with an odd value was off in between. Later wording-only objections to these two lines are
   treated as settled here.
@@ -73,16 +76,19 @@ before. What is new against that: the page now says when a switch is kept and si
 switch each time.
 
 ## Checks
-- `engine/keptswitch.test.js` (12, with a record from another computer keeping nothing and being reported, a computer whose name cannot be read, an odd value's log line, and controls): nothing kept by default (control); on at one start, kept at the next, with the
+- `engine/keptswitch.test.js` (14, with an off that sticks across names, the same computer on another network, with a record from another computer keeping nothing and being reported, a computer whose name cannot be read, an odd value's log line, and controls): nothing kept by default (control); on at one start, kept at the next, with the
   exact log lines; the environment is not changed and no other environment reads as on; `=0` off for good; odd and
   empty values; the brake, its wording, and that a braked switch is not reported as kept; no effect under a test, a
   dry run or without live execution (with a live control); an unreadable record never written over; an unwritable
   record; a time no date can say; the board's one call, placed before the start decides whether to make the mover.
 - `server.autobalance-7152.test.js`: `kept` reaches the Settings read after a start keeps a switch, is empty before
   (control), and is not sent to other readers.
-- `docs/browser-checks/render-autobalance-7152.js`: kept with two accounts (each with its own day), with one account
-  (row hidden), with auto-balance off, and a control (nothing kept, and a failed read). NOT RUN locally (the machine
-  was reserved for a release); CI runs it.
+- `web.kept-switch-8841.test.js` (6): `paintKept` lifted from the page and run: nothing kept (control), each switch
+  with its own day, a time no date can say, a record not applied, no place to draw, and the read's three calls.
+- `docs/browser-checks/render-autobalance-7152.js`: the same lines in a real page, with one account, with
+  auto-balance off, and a failed read taking them away. NOT RUN: the machine was reserved for a release, and this
+  check is not in the set a pull request runs (`KOSMOS_BC_CI_ALLOWLIST`), which is why the unit test above exists.
+  It is owed a run on a free machine before the merge.
 - Run locally: every test file that reads the two switches or lifts the page's accounts painter (333 of 333 at round
   3), and at the final code the unit, route and neighbour tests with the guards for Windows coupling, raw writes,
   reachable engine modules and fixture discipline (213 of 213).
