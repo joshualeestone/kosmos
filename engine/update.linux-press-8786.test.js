@@ -277,3 +277,15 @@ test('#8786: a press while `kosmos update` is installing (a fresh marker this bo
   fs.utimesSync(marker, old, old);
   assert.equal(update.selfInstallRefusal('linux'), null, 'a stale marker refused the press');
 });
+
+test('#8786: a systemctl that is not installed (ENOENT) is not re-asked every 30 s', async () => {
+  const calls = [];
+  await lookReal({ cgroup: readers().cgroup, killMode: (u) => { calls.push(u); return { status: null, error: Object.assign(new Error('spawnSync systemctl ENOENT'), { code: 'ENOENT' }) }; } });
+  assert.equal(update.installOffer(), null);
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 60 * 1000;
+    update.installOffer();
+    assert.equal(calls.length, 1, 'a missing systemctl was asked again inside five minutes');
+  } finally { Date.now = realNow; }
+});

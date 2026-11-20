@@ -340,7 +340,7 @@ function boardUnitInCgroup(text) {
    installStarted) means an installer is running. Thirty minutes, as the verb's own guard reads the same marker. */
 const EXTERNAL_INSTALL_MS = 30 * 60 * 1000;
 // Said of the marker's age, not of a live process: an interrupted run leaves the same marker (readStartedRecord).
-const EXTERNAL_INSTALL_SENTENCE = 'an update started on this computer less than 30 minutes ago and has not finished, so this one waits; try again when it ends';
+const EXTERNAL_INSTALL_SENTENCE = 'an update started on this computer less than 30 minutes ago and has not finished (or was interrupted), so this one waits; try again in 30 minutes';
 function externalInstallUnderWay() {
   if (installStarted) return false;
   const file = installStartedFile();
@@ -354,7 +354,8 @@ function pressVerdict(cgroupText, readKillMode) {
   if (!unit) return { ok: false, asked: true };
   const r = readKillMode(unit);
   // A timeout is an answer for this purpose: re-asking a hung user manager every 30 s would stall the board each time.
-  if (r && r.error && r.error.code === 'ETIMEDOUT') return { ok: false, asked: true };
+  // So is a systemctl that is not there at all (ENOENT): asking again cannot change it.
+  if (r && r.error && (r.error.code === 'ETIMEDOUT' || r.error.code === 'ENOENT')) return { ok: false, asked: true };
   if (!r || r.status !== 0) return { ok: false, asked: false };
   const props = {};
   for (const line of String(r.stdout || '').split('\n')) {
@@ -414,9 +415,9 @@ function rollbackOffer() {
 }
 
 /** kosmos#7935, kosmos#8786: the command for a Linux board that cannot take the press. It is this install's own
-    `kosmos update`, which works out the channel, the subscription and the base as beginInstall does, checks the installer against its signed manifest
-    (never curl | sh, #6468), and runs it over THIS home. --install because the person running it has chosen to. The
-    home is quoted, a quote inside it escaped, so the line can be pasted as it is. */
+    `kosmos update`, which works out the channel, the subscription and the base as beginInstall does, checks the
+    installer against its signed manifest (never curl | sh, #6468), and runs it over THIS home. --install because the
+    person running it has chosen to. The home is quoted, a quote inside it escaped, so the line can be pasted as it is. */
 function updateCommand(platform = updatePlatform()) {
   if (platform !== 'linux') return null;   // install/kosmos waives its board guards for Linux only
   const home = installedHomeAsInstalled();
