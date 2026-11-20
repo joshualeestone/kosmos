@@ -1267,10 +1267,10 @@ function downloadKeyOk(req) {
   const key = m ? m[1] : null;
   if (!key) return false;
   if (boardauth.presentsCredential(req, ROUTING_BASE)) return false;   // a key never rides beside another credential
-  // A browser that says the click came from another site (or a sibling one) is refused: only the page's own link uses
-  // a key, and a browser that says anything here says same-origin. Old Safari says nothing.
-  const site = req.headers['sec-fetch-site'];
-  if (site && site !== 'same-origin' && site !== 'none') return false;
+  // A key is made only for a browser that sends no Sec-Fetch-Site (the mint gives others none), so a request that
+  // carries one, whatever it says, is not the page's own keyed download: refused, so a copied key opens nothing in a
+  // current browser. Old Safari says nothing.
+  if (req.headers['sec-fetch-site']) return false;
   const target = downloadKeyTarget(req.url);
   if (!target || !boardauth.redeemDownloadKey(key, target)) return false;
   DL_KEY_REQS.add(req);
@@ -7956,7 +7956,7 @@ const server = http.createServer(async (req, res) => {
      the nonce it returns is inert there: `bootstrap`'s redeem arm runs only inside
      the `if (boardAuthState.on)` gate, so a nonce is never redeemed on a board that
      is not enforcing. */
-  /* kosmos#8790: mint a download key for one download address (see downloadKeyTarget). Like the nonce below, it takes
+  /* kosmos#8790: mint a download key for one download address (see downloadKeyTarget). Like the board nonce, it takes
      the board token itself (the header the connector adds to the page's marked fetch), never a session cookie alone,
      and never a key: a key cannot mint its successor. Answered no-store. */
   if (pathname === '/api/download-key' && req.method === 'POST') {

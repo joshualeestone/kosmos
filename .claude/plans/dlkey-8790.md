@@ -34,6 +34,17 @@ on a current browser the download still works (one extra small request first).
 - Not done here, on purpose: a walk through the real relay on old Safari. That needs a release with the connector
   rebuilt; it is the card's last check before closing (#8790).
 
+## Round 3 review changes
+- A refused load-time look (403, or 404 on a board without the route) counts as "no key needed", so a board that
+  cannot give keys leaves current browsers' downloads in the click.
+- A key is refused on any request carrying Sec-Fetch-Site (only old Safari is ever given one), so a copied key opens
+  nothing in a current browser.
+- Only Cmd and Ctrl clicks are left to the browser; Option-click (Safari: download linked file) takes a key.
+- Known and accepted: the attachment route and the gate's own 403 still answer JSON rather than 204; a refused keyed
+  attachment on old Safari can still be saved as a small JSON file (the same as before this branch, where every such
+  click was refused). Untested premise: WebKit asking for a keyed file twice (an iOS confirm sheet, a Range resume)
+  would find the key spent; to measure in the real old-Safari walk.
+
 ## Baron's conditions, where each is held
 1. first use, a real GET only; a probe or HEAD neither burns nor reads: redeemDownloadKey, downloadKeyOk (GET only),
    downloadKeyTarget (?check=1 is no target). Tests: server HEAD and ?check=1 cases.
