@@ -11,8 +11,12 @@
 - projects.js: isStarter(record) = name WELCOME_NAME and made.via 'kosmos' (only the seed writes that), not a test
   project. STARTER_PROJECT_LINE under its name, in #8236's slot. Its empty list says "When your person gives you work
   here, add it with ..." instead of "Add one with ...". The subtask and --who lines stay: they say how, not whether.
-- assigner.js: at the one place goals are collected, drop the goal while isStarterGoal (still the seeded words,
-  whitespace-normalised as goalFrom does). A goal the person wrote there is asked as usual.
+- assigner.js: goalProject skips the starter project while isStarterGoal (still the seeded words,
+  whitespace-normalised as goalFrom does), so tick, step and runOnce share one gate (review 1). A goal the person
+  wrote there is asked as usual.
+- The starter line is fixed words, not tied to the brief: the block is rewritten on a task or membership change,
+  never when a brief changes, so a line that depended on the goal would go stale. Instead it counts a goal the
+  person writes in the brief as work they gave (review 3: otherwise the line and the goal ask disagree).
 
 ## Rejected
 - Changing WELCOME_DESCRIPTION: existing installs keep their seeded brief, so only the block reaches them.
