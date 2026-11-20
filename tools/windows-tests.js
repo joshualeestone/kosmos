@@ -66,7 +66,7 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   'hookscripts-5774.test.js', 'startupfiles-5774.test.js', 'startplugins-5774.test.js', 'launchpath-5516.test.js',
   'configstart-5516.test.js', 'launchprune-5663.test.js', 'boardkeychain-4491.test.js',
   'feedbackday-7875.test.js',   // #7875: kosmos feedback day, run through the Windows CLI's own handler
-  'communityguide.test.js', 'taskguide.test.js', 'claimguide.test.js',   // kosmos#8735: kosmos community --how and kosmos task --how through the Windows CLI; their bash halves skip there with a reason
+  'communityguide.test.js', 'taskguide.test.js', 'claimguide.test.js',   // kosmos#8735: kosmos community --how, kosmos task --how and kosmos claim --how through the Windows CLI; their bash halves skip there with a reason
   'agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
   'create.test.js', 'create.apostrophe-8784.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',
   'setup-assistant.winrules-4752.test.js',   // #4752: the guide's real rules, read on a Windows host

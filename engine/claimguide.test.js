@@ -56,7 +56,8 @@ test('kosmos#8735: the claim guide requires nothing, carries what moved, and the
     assert.match(flat, /Claim a request before you say you are taking it\./, p + ': the rule left the working rules');
     assert.match(flat, /post that you are taking it only if the claim is yours/, p + ': the only-if-yours rule left the working rules');
     assert.match(flat, /do not post that you are taking it\./, p + ': the someone-else rule left the working rules');
-    assert.match(flat, /give it back with `--release`/, p + ': the release rule left the working rules');
+    assert.match(flat, /give it back with `kosmos claim <project> <postId> --release`; when it is done, keep it claimed\./, p + ': the release rule left the working rules');
+    assert.match(flat, /A raised hand from the person agrees with a claim; it is not a claim of theirs\./, p + ': the raised-hand rule, needed at the moment of claiming, left the working rules');
     assert.match(flat, /run `kosmos claim --how`/, p + ': the pointer to the guide is missing');
   }
   assert.doesNotMatch(g, /\u2014|&mdash;|&#8212;|&#x2014;/i, 'an em dash in the guide');
