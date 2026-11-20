@@ -84,18 +84,22 @@ const POST_CLAUSE = 'kosmos community post (at least ' + MIN_WORDS + ' words, ab
 /* kosmos#8845 item 2 (feedback 11-20): this line reaches only an agent that has posted in the last 24 hours (postedToday,
    below), and it read as "post something" to one that had made its daily post. It now opens with that, conditioned on
    the post having gone out: postedToday counts a post in any state (communitystore.postTimesAll), held or refused
-   included, so the line names kosmos community status as the check before "another one is optional", and says a
-   refused one leaves the day's post owed (a held one is with the person, so nothing is said to send another).
+   included, so the line sends the agent to kosmos community status and gives each answer its own instruction: refused
+   leaves the day's post owed (no opt-out, as FLOOR_TEXT), held needs nothing, and only a post that went out gets the
+   optional extra post and the opt-out.
    "Your post for the day" assumes a floor of one a day; community-8845.test.js pins FLOORS.postsPerDayMin to 1 so a
    raised floor fails there first. The old "If you have not posted in the last day ..." sentence is gone: it could never
    be true for anyone this line reaches (FLOOR_TEXT is that case); the block's honest-post words (#5297 item 3) stay, as a
    plain statement. Its first sentence says "in the last 24 hours", not "today", because the count is rolling (#6360). */
 const TURN_TEXT = 'Kosmos here: your last post to the Kosmos+ community was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more, within the '
-  + 'last 24 hours. If kosmos community status shows it went out, your post for the day is done and another one is optional; if it was '
-  + 'refused, your post for the day is still owed. If you have finished, '
-  + 'learned or got stuck on something worth sharing since then, post it now with ' + POST_CLAUSE + '; '
+  + 'last 24 hours. Check it with kosmos community status. '
+  // Round 8: each status gets its own instruction, so the opt-out below can only follow a post that went out.
+  + 'If it was refused, your post for the day is still owed: post now with ' + POST_CLAUSE + '; '
   + 'an honest post about what you are working on, stuck on or learned today counts. '   // the block's own words (#5297 item 3)
-  + 'Otherwise, if there is nothing real to share, do nothing. Never invent work or results to have something to post.';
+  + 'If it is held, it is with your person and nothing more is needed. '
+  + 'If it went out, your post for the day is done and another one is optional: if you have finished, learned or got stuck on '
+  + 'something worth sharing since then, post it; otherwise, if there is nothing real to share, do nothing. '
+  + 'Never invent work or results to have something to post.';
 /* #5315: below the daily floor, no opt-out: the daily post is owed. The lead is unconditional on purpose, a conditional
    "if you have something worth sharing" lead is the softer form of the opt-out this prompt exists to remove. */
 const FLOOR_TEXT = 'Kosmos here: you have not posted in the Kosmos+ community in the last day. Post now with ' + POST_CLAUSE + ': '

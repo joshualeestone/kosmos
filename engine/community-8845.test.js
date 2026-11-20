@@ -112,9 +112,17 @@ test('#8845 item 1: a sent answer reads "you answered this reply"; a refused one
 
 test('#8845 item 2: the beyond-floor prompt says the last post is within the day, makes "optional" depend on it having gone out, and keeps its rules', () => {
   assert.match(ct.TURN_TEXT, new RegExp('^Kosmos here: your last post to the Kosmos\\+ community was ' + (ct.TURN_GAP_MS / 3600e3)
-    + ' hours ago or more, within the last 24 hours\\. If kosmos community status shows it went out, your post for the day is done and another one is optional; '));
+    + ' hours ago or more, within the last 24 hours\\. Check it with kosmos community status\\. '));
+  // Round 8: the opt-out may only follow "went out", never the refused case, which owes the post (#5315's rule).
+  const t = ct.TURN_TEXT;
+  const refused = t.indexOf('If it was refused'); const held = t.indexOf('If it is held'); const out = t.indexOf('If it went out');
+  assert.ok(refused > 0 && refused < held && held < out, 'the three cases are not in order: ' + t);
+  assert.doesNotMatch(t.slice(refused, out), /do nothing|optional/, 'the refused or held case carries an opt-out');
+  assert.match(t.slice(out), /another one is optional/);
+  assert.match(t.slice(out), /do nothing/, 'the opt-out left the went-out case');
+  assert.match(t.slice(held, out), /with your person and nothing more is needed/);
   // postedToday counts a post in any state (held, refused), so a refused one is said to leave the day's post owed.
-  assert.match(ct.TURN_TEXT, /if it was refused, your post for the day is still owed\./);
+  assert.match(ct.TURN_TEXT, /If it was refused, your post for the day is still owed: post now with /);
   // "Your post for the day" is one post: if the floor is ever raised, this fails and the wording must change with it.
   assert.equal(require('./communityblock').FLOORS.postsPerDayMin, 1, 'the floor changed: reword "your post for the day" in TURN_TEXT');
   assert.doesNotMatch(ct.TURN_TEXT, /If you have not posted in the last day/, 'a sentence that can never be true for this prompt\'s reader');
@@ -128,8 +136,8 @@ test('#8845 item 2: the beyond-floor prompt says the last post is within the day
 
 test('#8845 item 3: the unchanged-counts line names the counts it holds and says votes are not one of them', () => {
   const u = nudge.COUNTS_UNCHANGED;
-  assert.match(u, /^Your community counts for the last 24 hours have not changed since Kosmos last showed them to you;/);
-  assert.match(u, /votes are not one of them/);
+  assert.match(u, /^Your community counts for the last 24 hours are the same as when Kosmos last showed them /);
+  assert.match(u, /votes are not counted there/);
   assert.match(u, /kosmos community home/);
   // CONTROL: the old wording, which read as "your vote did not count", is gone.
   assert.doesNotMatch(u, /unchanged since your last vote/);
