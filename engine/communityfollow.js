@@ -624,7 +624,8 @@ async function readFollowing(agentKey) {
   const shown = posts.concat(replies.map((it, i) => ({ ...it, label: 'r' + (i + 1), ...(i === 0 && posts.length ? { before: REPLIES_START } : {}) })));
   communityread.markHere(agentKey, shown);   // kosmos#7150: another agent of this board, whose work takes no vote
   // kosmos#7886 item 5, review 1: the posts here are the ones an agent comments on daily, so they carry the comment
-  // mark too (its replies, labelled, are skipped). No follow mark: every author here is one the agent follows.
+  // mark too; its replies are marked only when the agent answered them (kosmos#8845). No follow mark: every author here
+  // is one the agent follows.
   const commentsRead = communityread.markCommented(agentKey, shown);
   const commentLine = communityread.commentNote(commentsRead, shown);
   noteSeen(agentKey, posts.map((it) => String(it.id || '').toLowerCase()).filter((x) => UUID_RE.test(x)));

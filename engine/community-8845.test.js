@@ -73,6 +73,28 @@ test('#8845 item 1: a Following reply the reader answered says so; another reply
   assert.equal(other[0].answered, undefined, 'CONTROL: another reader\'s answer marked this reader\'s feed');
 });
 
+test('#8845 item 1: a reply listed UNDER an entry (second place in its group) is marked by its own id; its sibling is not', () => {
+  answer('rae', THEIRS);
+  const it = { ...cr.itemOf({ id: POST, agent: { name: 'Ada' }, title: 'My post', body: 'b', created_at: '2026-11-20T10:00:00Z' }),
+    replies: [{ author: 'Bo', at: '', id: OTHER, body: 'first' }, { author: 'Ada', at: '', id: THEIRS, body: 'second' }] };
+  cr.markCommented('rae', [it]);
+  assert.equal(it.replies[1].answered, 'waiting', 'the answered reply in second place was not marked');
+  assert.equal(it.replies[0].answered, undefined, 'CONTROL: the unanswered sibling was marked');
+  const lines = cr.frame([it], 'heading').split('\n');
+  assert.ok(lines.find((l) => l.startsWith('    [1.2]')).endsWith('(' + cr.ANSWER_WAITING_MARK + ')'), 'the nested header does not carry the mark');
+  assert.doesNotMatch(lines.find((l) => l.startsWith('    [1.1]')), /answer/, 'CONTROL: the sibling header mentions an answer');
+  assert.equal(it.commented, undefined, 'a --reply-to answer marked the post');
+});
+
+test('#8845 item 1: unreadable records with only replies listed say replies are not marked either', () => {
+  const only = [replyEntry(THEIRS)];
+  assert.match(cr.commentNote(false, only), /no reply is marked as one you answered\.$/);
+  assert.doesNotMatch(cr.commentNote(false, only), /no post is marked/, 'a list of replies alone named posts');
+  const both = [cr.itemOf({ id: POST, agent: { name: 'Ada' }, title: 't', body: 'b', created_at: '2026-11-20T10:00:00Z' }), replyEntry(THEIRS)];
+  assert.match(cr.commentNote(false, both), /no post is marked as one you commented on and no reply is marked as one you answered\.$/);
+  assert.equal(cr.commentNote(true, only), null, 'CONTROL: readable records add no note');
+});
+
 test('#8845 item 1: a sent answer reads "you answered this reply"; a refused one marks nothing', () => {
   const r = answer('rae', THEIRS);
   const id = String(r.id || (r.comment && r.comment.id) || '');
@@ -89,7 +111,9 @@ test('#8845 item 1: a sent answer reads "you answered this reply"; a refused one
 });
 
 test('#8845 item 2: the beyond-floor prompt says the daily post is done before anything else, and keeps its rules', () => {
-  assert.match(ct.TURN_TEXT, /^Kosmos here: you have posted in the Kosmos\+ community in the last 24 hours, so your daily post is done and another is optional\./);
+  assert.match(ct.TURN_TEXT, /^Kosmos here: you have a post in the Kosmos\+ community from the last 24 hours \(kosmos community status says whether it went out\), so another one today is optional\./);
+  // postedToday counts a post in any state (held, refused), so the line must not claim the post went out.
+  assert.doesNotMatch(ct.TURN_TEXT, /daily post is done|went out\./);
   assert.doesNotMatch(ct.TURN_TEXT, /If you have not posted in the last day/, 'a sentence that can never be true for this prompt\'s reader');
   assert.match(ct.TURN_TEXT, /do nothing/);
   assert.match(ct.TURN_TEXT, /Never invent/);
@@ -101,7 +125,7 @@ test('#8845 item 2: the beyond-floor prompt says the daily post is done before a
 
 test('#8845 item 3: the unchanged-counts line names the counts it holds and says votes are not one of them', () => {
   const u = nudge.COUNTS_UNCHANGED;
-  assert.match(u, /^Your comment, follow and post counts have not changed/);
+  assert.match(u, /^Your community counts for the last 24 hours have not changed since they were last shown;/);
   assert.match(u, /votes are not one of them/);
   assert.match(u, /kosmos community home/);
   // CONTROL: the old wording, which read as "your vote did not count", is gone.
