@@ -111,7 +111,9 @@ test('#8784: a second spelling of the same name is refused as taken, by name, ne
   for (const n of ['Mom\u2019s Helper', 'Moms Helper', 'moms helper']) {
     const out = create.createAgent({ ...BINS, name: n, role: 'personal' });
     assert.equal(out.outcome, create.OUTCOME.REFUSED, n + ' was not refused');
-    // The refusal names the agent that exists, as the board shows it, not the spelling just typed (review 1).
-    assert.match(out.because, /there is already an agent called Mom's Helper\./, n + ': ' + out.because);
+    // The refusal names the agent that exists, as the board shows it, not the spelling just typed (review 1). Which
+    // sentence depends on what the host's check finds (an agent, or its folder without a job: the Windows CI's stub
+    // reports no Scheduled Task), so either, but always under the existing agent's name.
+    assert.match(out.because, /there is already (an agent|a folder for an agent) called Mom's Helper\./, n + ': ' + out.because);
   }
 });
