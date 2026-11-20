@@ -1,6 +1,6 @@
 # reactanswer-8828: --unanswered says why a post you reacted to stays listed (kosmos#8828 item 1)
 
-Finished means: on `kosmos room <id> --unanswered`, a listed post the reader has a live reaction on (latest add per emoji;
+(Superseded: see "Finished means" at the end, which covers all three items.) First slice, item 1: on `kosmos room <id> --unanswered`, a listed post the reader has a live reaction on (latest add per emoji;
 not the 🙋 claim; this room only) is named on a line under the list saying a reaction does not answer a post addressed
 to you, so it stays until answered with --in-reply-to. Nothing leaves the list because of a reaction.
 
@@ -48,3 +48,13 @@ Items 2 and 3 of #8828 were first planned as separate slices; from 2026-11-20 al
 ## Finished means
 All three items on a served (prod) build: room --unanswered names a reacted post with both ways out; project show's
 not-due line reads as above; a "no check N" refusal lists the checks, through both CLIs. Card closes only then.
+
+- Review 6 (blind, whole branch), no blocker. Taken: the reacted line is split by whose post it is. The person's post
+  gets an unconditional line ("a reaction never answers the person ... Answer with a post that cites it"), since
+  defaults.js says it always needs a post and the person's direct posts do not age off. A colleague's gets both ways
+  out ("If it still needs an answer ... If it was only confirming ..."), and neither claims a time (wrong under --all).
+  New test with both kinds in one room; folding the person's into the colleague line fails it. Item 2 now says
+  "counts time working or waiting" (worked includes waits and unknown stretches, projectview.js:352). The item 2 lines
+  above that quote "not due yet: the 4-hour rhythm counts working time" are history; the current wording is in the code.
+  Rejected: an apostrophe in a check can look like an extra check boundary (the numbering "2. '" still marks each one).
+  168/168.

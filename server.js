@@ -25453,8 +25453,11 @@ const server = http.createServer(async (req, res) => {
            from the listed posts' own reaction rows (reactionRowsOf, grouped once per request; kosmos#7365), this room's
            only. Live: the reader's latest op per emoji, any still added. Every raised hand is left out, marked as a claim
            or not, since a 🙋 says "mine", not an answer. */
-        const reactedListed = [];
-        let reactedColleague = false;   // review 4: a reaction answers only a colleague's confirmation, never the person's post
+        /* Review 6: two lines, by whose post it is. The person's post always needs a post (defaults.js), so its line says
+           so without an "if". A colleague's may have been only a confirmation, which a reaction does answer, so its line
+           gives both ways out. Neither claims how long the post stays listed: --all lists older posts too. */
+        const reactedPerson = [];
+        const reactedColleague = [];
         if (onlyUnanswered && readerName) {
           for (const m of tail) {
             if (!m) continue;
@@ -25464,18 +25467,20 @@ const server = http.createServer(async (req, res) => {
               if (typeof x.emoji !== 'string' || messages.isClaimEmoji(x.emoji)) continue;
               byEmoji.set(x.emoji, x.op === 'remove' ? 'remove' : 'add');
             }
-            if ([...byEmoji.values()].includes('add')) { reactedListed.push(String(m.id)); if (m.operator !== true) reactedColleague = true; }
+            if ([...byEmoji.values()].includes('add')) (m.operator === true ? reactedPerson : reactedColleague).push(String(m.id));
           }
         }
-        const reactedLine = reactedListed.length
-          ? '[kosmos] You reacted to ' + reactedListed.map((x) => '[' + x + ']').join(', ')
-            + ', but a reaction does not take a post off this list. If ' + (reactedListed.length === 1 ? 'it' : 'one')
-            + ' asked you something, answer with a post that cites it: kosmos post --in-reply-to '
-            + (reactedListed.length === 1 ? reactedListed[0] : '<its id>') + ' ' + id + ' <your answer>.'
-            + (reactedColleague ? ' If a colleague was only confirming something already settled, your reaction answered that and nothing more is needed;'
-              + ' it can stay listed for up to ' + UNANSWERED_DAYS + ' days.' : '')
-            + '\n'
-          : '';
+        const reactedCmd = (ids) => 'kosmos post --in-reply-to ' + (ids.length === 1 ? ids[0] : '<its id>') + ' ' + id + ' <your answer>';
+        const reactedIds = (ids) => ids.map((x) => '[' + x + ']').join(', ');
+        const reactedLine = (reactedPerson.length
+          ? '[kosmos] You reacted to the person\'s ' + reactedIds(reactedPerson) + ', but a reaction never answers the person, so '
+            + (reactedPerson.length === 1 ? 'it is' : 'each is') + ' still listed. Answer with a post that cites it: ' + reactedCmd(reactedPerson) + '\n'
+          : '')
+          + (reactedColleague.length
+            ? '[kosmos] You reacted to ' + reactedIds(reactedColleague) + ', but a reaction does not take a post off this list. If '
+              + (reactedColleague.length === 1 ? 'it' : 'one') + ' still needs an answer, post one that cites it: ' + reactedCmd(reactedColleague)
+              + '. If ' + (reactedColleague.length === 1 ? 'it' : 'one') + ' was only confirming something already settled, your reaction answered that and nothing more is needed.\n'
+            : '');
         const shownClaimed = claimedAsks.slice(-textRows);
         const moreClaimed = claimedAsks.length - shownClaimed.length;
         const claimedLine = claimedAsks.length
