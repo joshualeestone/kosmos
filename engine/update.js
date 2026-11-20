@@ -318,14 +318,29 @@ let linuxPressFn = null;       // test seam: () => boolean (the whole decision)
 let linuxPressReaders = null;  // test seam: { cgroup: () => string, killMode: (unit) => { status, stdout } }
 let linuxPressMemo = null;     // { at, ok, ttl }
 const BOARD_UNIT_RE = /^kosmos-board(\.[0-9a-f]{8})?\.service$/;
-/** The board unit named by the cgroup v2 line of /proc/self/cgroup (its last path part), or null. Pure. */
+/** The board unit named by the cgroup v2 line of /proc/self/cgroup (its last path part), or null. Only a unit under a
+    user manager (a `user@<uid>.service` part), because the KillMode question goes to `systemctl --user`: a system unit
+    of the same name would be answered about a different unit. Pure. */
 function boardUnitInCgroup(text) {
   for (const l of String(text || '').split('\n')) {
     if (!l.startsWith('0::')) continue;
-    const last = l.trim().split('/').pop();
+    const parts = l.trim().slice(3).split('/');
+    const last = parts.pop();
+    if (!parts.some((x) => /^user@\d+\.service$/.test(x))) return null;
     return BOARD_UNIT_RE.test(last) ? last : null;
   }
   return null;
+}
+/* kosmos#8786 review 5: on Linux the person can also type `kosmos update` (install/kosmos waives its "the board installs
+   for itself" refusal there), and the press must not start a second installer beside it. That verb writes
+   logs/install.started for the length of its run; a fresh one this board did not write (its own single-flight is
+   installStarted) means an installer is running. Thirty minutes, as the verb's own guard reads the same marker. */
+const EXTERNAL_INSTALL_MS = 30 * 60 * 1000;
+function externalInstallUnderWay() {
+  if (installStarted) return false;
+  const file = installStartedFile();
+  if (!file) return false;
+  try { return Date.now() - fs.statSync(file).mtimeMs < EXTERNAL_INSTALL_MS; } catch { return false; }
 }
 /** The decision from what the two readers returned: { ok, asked } where `asked` is false when systemctl was asked and
     gave no answer (so the "no" is worth asking again soon). Pure apart from the readers it is handed. */
@@ -388,7 +403,7 @@ function rollbackOffer() {
   } catch { return null; }
 }
 
-/** kosmos#7935: the command that updates a board off SELF_INSTALL: this install's own `kosmos update`, which works out
+/** kosmos#7935: the command that updates a Linux board that cannot take the press (kosmos#8786): this install's own `kosmos update`, which works out
     the channel, the subscription and the base as beginInstall does, checks the installer against its signed manifest
     (never curl | sh, #6468), and runs it over THIS home. --install because the person running it has chosen to. The
     home is quoted, a quote inside it escaped, so the line can be pasted as it is. */
@@ -408,7 +423,7 @@ function manualOffer() {
     const newer = available();
     if (!newer || canPressUpdate('linux')) return null;
     const command = updateCommand();
-    return newer && command ? { version: newer.version, command } : null;
+    return command ? { version: newer.version, command } : null;
   }
   const avail = available();
   if (!avail) return null;
@@ -882,7 +897,10 @@ function setupUrl() {
  */
 function selfInstallRefusal(platform = updatePlatform()) {
   // kosmos#8786: read fresh, because this is the press (the route and beginInstall), not the card's poll.
-  if (canPressUpdate(platform, { fresh: true })) return null;
+  if (canPressUpdate(platform, { fresh: true })) {
+    if (platform === 'linux' && externalInstallUnderWay()) return 'an update is already being installed on this computer';
+    return null;
+  }
   const command = updateCommand(platform);
   if (platform === 'linux' && command) {
     return "Kosmos cannot update itself here: this board's service would stop the installer partway through."
@@ -1450,6 +1468,8 @@ function beginInstallOnce(opts) {
   // installer racing the first through the stage-and-swap. One per server
   // lifetime; the flag dies with the process the installer restarts.
   if (installStarted) return;
+  // kosmos#8786 review 5: read BEFORE this press takes the single-flight, which externalInstallUnderWay reads as its own.
+  if (updatePlatform() === 'linux' && externalInstallUnderWay()) throw new Error('an update is already being installed on this computer');
   installStarted = true;
   installLaunched = false;
   inFlightKindVar = 'update';

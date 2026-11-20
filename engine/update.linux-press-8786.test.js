@@ -118,6 +118,7 @@ test('#8786: boardUnitInCgroup names a board unit only from the cgroup v2 line, 
   assert.equal(update.boardUnitInCgroup(cg('kosmos-board.subzero.service')), null, 'an agent-shaped unit passed');
   assert.equal(update.boardUnitInCgroup(cg('kosmos-board.servicex')), null, 'trailing junk passed');
   assert.equal(update.boardUnitInCgroup('1:name=systemd:/app.slice/kosmos-board.service\n'), null, 'a v1 line passed');
+  assert.equal(update.boardUnitInCgroup('0::/system.slice/kosmos-board.service\n'), null, 'a SYSTEM unit passed, though systemctl --user would be asked about another one');
   assert.equal(update.boardUnitInCgroup(''), null);
 });
 
@@ -259,4 +260,18 @@ test('#8786: a systemctl that timed out is not re-asked every 30 s', async () =>
     update.installOffer();
     assert.equal(calls.length, 1, 'a hung user manager was asked again inside five minutes');
   } finally { Date.now = realNow; }
+});
+
+test('#8786: a press while `kosmos update` is installing (a fresh marker this board did not write) is refused', async () => {
+  await look('linux', 'x64', true);
+  assert.equal(update.selfInstallRefusal('linux'), null, 'CONTROL: no marker, the press is taken');
+  fs.mkdirSync(path.join(ROOT, 'logs'), { recursive: true });
+  const marker = path.join(ROOT, 'logs', 'install.started');
+  fs.writeFileSync(marker, new Date().toISOString() + '\n');
+  assert.equal(update.selfInstallRefusal('linux'), 'an update is already being installed on this computer');
+  assert.throws(() => update.beginInstall({}), /already being installed/, 'beginInstall started a second installer');
+  // An old marker (an interrupted run, over 30 minutes) does not hold the press for good.
+  const old = (Date.now() - 31 * 60 * 1000) / 1000;
+  fs.utimesSync(marker, old, old);
+  assert.equal(update.selfInstallRefusal('linux'), null, 'a stale marker refused the press');
 });
