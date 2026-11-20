@@ -1202,7 +1202,7 @@ function roomCopyAge(ms) {
 function roomCopyClock(epoch) {
   try {
     const d = new Date(epoch * 1000);
-    const t = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZoneName: 'short' });   // "18:02 CST", as the Mac's date
+    const t = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short' });   // "18:02 CST", as the Mac's date
     return d.toDateString() === new Date().toDateString() ? t : d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }) + ' ' + t;
   } catch (_) { return 'a while ago'; }
 }

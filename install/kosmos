@@ -5802,7 +5802,7 @@ cmd_room() {
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
   # kosmos#8769 item 4: KOSMOS_ROOM_TIMEOUT_S (digits) is a test seam for the 15 s limit, so a busy board is tested fast.
-  local _rmt=15; case "${KOSMOS_ROOM_TIMEOUT_S:-}" in ''|*[!0-9]*|0|00|000) ;; *) _rmt=$((10#${KOSMOS_ROOM_TIMEOUT_S:0:3})) ;; esac
+  local _rmt=15; case "${KOSMOS_ROOM_TIMEOUT_S:-}" in ''|*[!0-9]*) ;; *) [ $((10#${KOSMOS_ROOM_TIMEOUT_S:0:3})) -lt 1 ] || _rmt=$((10#${KOSMOS_ROOM_TIMEOUT_S:0:3})) ;; esac
   _body=$(kosmos_curl "$_bt" "$_tok" -sS -m "$_rmt" -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text${_n:+&n=$_n}${_unans}${_byid:+&$_byid=$_byidval}" 2>/dev/null) || _rc=$?
   # kosmos#8769 item 4: the last copy of a PLAIN read (no -n, --unanswered or by-id: those answer other questions) is
   # kept per room and per reader (a hash of the token, never the token), mode 600, so a read that Kosmos is too busy to
@@ -5824,7 +5824,7 @@ cmd_room() {
           # The mark is "<first failed read> <last failed read>". Review 3: a spell whose last failure is over 30 minutes
           # old is over (nobody read in between, so nothing says the board stayed stuck): this read starts a new one.
           local _rb_first="" _rb_last="" _rb_now; _rb_now="$(date +%s)"
-          read -r _rb_first _rb_last < "$_rb_since" 2>/dev/null || true
+          { read -r _rb_first _rb_last < "$_rb_since"; } 2>/dev/null || true   # review 4: braces, so a missing mark says nothing
           case "$_rb_first" in ''|*[!0-9]*) _rb_first="" ;; *) _rb_first=$((10#$_rb_first)) ;; esac
           case "$_rb_last" in ''|*[!0-9]*) _rb_last="$_rb_first" ;; *) _rb_last=$((10#$_rb_last)) ;; esac
           if [ -z "$_rb_first" ] || [ $((_rb_now - ${_rb_last:-0})) -gt 1800 ]; then _rb_first="$_rb_now"; fi

@@ -77,6 +77,7 @@ test('kosmos#8769 item 4: busy with a copy held prints that copy, headed NOT the
   assert.match(busy.out, /first look/, 'the kept copy is shown');
   assert.doesNotMatch(busy.out, /something newer/, 'sanity: the stalled board sent nothing new');
   assert.ok(busy.out.indexOf('NOT the room now') < busy.out.indexOf('first look'), 'the warning comes before the copy');
+  assert.match(busy.out, /^\s*Kosmos is running but did not answer in time, so this is NOT the room now/, 'review 4: the header is the very first thing');
   const copies = fs.readdirSync(path.join(home, 'state', 'room-copies')).filter((f) => f.endsWith('.txt'));
   assert.equal(copies.length, 1);
   assert.equal(fs.statSync(path.join(home, 'state', 'room-copies', copies[0])).mode & 0o777, 0o600, 'the copy is private');
@@ -91,6 +92,7 @@ test('kosmos#8769 item 4: busy with NO copy held refuses as before, and says sin
   assert.match(busy.out, /Kosmos is running but did not answer in time, so we could not read that room/);
   assert.match(busy.out, /no earlier copy of this room to show/);
   assert.doesNotMatch(busy.out, /NOT the room now/);
+  assert.doesNotMatch(busy.out, /No such file|line \d+:/, 'review 4: no shell error leaks into what the reader sees');
 }));
 
 test('kosmos#8769 item 4: a good read after a busy one replaces the copy and ends the failing spell', { skip: SKIP }, () => withBoard(async (port, room) => {
