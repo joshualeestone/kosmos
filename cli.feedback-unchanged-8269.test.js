@@ -94,7 +94,8 @@ test('kosmos#8269 (Windows): the refusal names another agent\'s newest day when 
   const engine = { feedback: { write: () => { throw new Error('nothing may be saved'); }, writer: () => null, unchanged: () => u } };
   const go = async () => {
     const err = [];
-    const code = await cli.main(['feedback', 'write', '--unchanged'], { env: {}, engine, readStdin: () => { throw new Error('stdin was read'); },
+    const code = await cli.main(['feedback', 'write', '--unchanged'], { env: {}, engine, readStdin: async () => ({ text: '', ended: true }),   // kosmos#8844: no words reads stdin (nothing piped here)
+     
       out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call expected'); } });
     return { code, err: err.join('\n') };
   };

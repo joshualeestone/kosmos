@@ -18,7 +18,7 @@ const fb = require('./engine/feedback');
 const OLD = '2020-01-02';
 async function go(argv) {
   const out = []; const err = [];
-  const code = await cli.main(argv, { env: {}, readStdin: () => { throw new Error('stdin was read'); },
+  const code = await cli.main(argv, { env: {}, readStdin: async () => { if (argv.some((a) => !['feedback', 'write', '--unchanged'].includes(a))) throw new Error('stdin was read'); return { text: '', ended: true }; },   // kosmos#8844: no words reads stdin (nothing piped here)
     out: (s) => out.push(s), err: (s) => err.push(s), fetch: async () => { throw new Error('no board call'); } });
   return { code, out: out.join('\n'), err: err.join('\n') };
 }
