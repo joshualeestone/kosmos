@@ -1297,7 +1297,8 @@ enum NewProject {
     }
 
     static let fallback = "We could not make that project."
-    static let stepUpWords = "This needs a fresh sign-in first. Sign in again, and Kosmos tries it once more."
+    // kosmos#8837: New Agent's own sentence, one string, so the two sheets cannot drift apart.
+    static let stepUpWords = NewAgent.stepUpWords
     static let unsureWords = "Kosmos could not tell whether that went through. Look in Projects before you try again."
 
     // Any 2xx with the new project's id is made; otherwise the Mac's own sentence; a server error with none, or no answer,
@@ -1312,7 +1313,8 @@ enum NewProject {
         }
         let said = (obj?["error"] as? String).flatMap { trimmed($0).isEmpty ? nil : $0 }
         if status == 403, Board.isStepUpRequired(body) { return .signInAgain(said ?? stepUpWords) }
-        if let said { return .refused(said) }
+        // kosmos#8837: tidied as New Agent's and New Team's refusals are (a capital, one full stop).
+        if let said { return .refused(NewTeam.sentence(said)) }
         return status >= 500 ? .unknown : .refused(fallback)
     }
 
