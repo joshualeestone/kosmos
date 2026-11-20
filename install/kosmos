@@ -5812,8 +5812,8 @@ cmd_room() {
   # Review 2: shasum (macOS) or sha256sum (most Linux); neither means no copy, the refusal as before.
   _rb_key="$(printf '%s|%s|%s' "$URL" "$project" "${_tok:-${_bt:+board}}" | { shasum -a 256 2>/dev/null || sha256sum 2>/dev/null; } | cut -c1-24 || true)"
   case "$_rb_key" in *[!0-9a-f]*|e3b0c44298fc1c149afbf4c8) _rb_key="" ;; esac   # review 3: the empty-input hash would share one key
-  # The failing mark is per room and reader for EVERY read (a good filtered read ends a spell too, review 2); the copy is
-  # kept and shown for plain reads only.
+  # The failing mark is per room and reader: any answered read clears it (a filtered one too, review 2), and a failed
+  # PLAIN read starts or extends it. The copy is kept and shown for plain reads only.
   # Review 5: only in an installed Kosmos (its app/ folder), never a checkout or a test that did not ask for it.
   [ -d "$KOSMOS_HOME/app" ] || _rb_key=""
   [ -z "$_rb_key" ] || _rb_mark="$_rb_dir/$_rb_key.busy-since"

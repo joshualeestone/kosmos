@@ -184,3 +184,20 @@ test('kosmos#8769 item 4: outside an installed Kosmos (no app folder) no copy is
   assert.equal(good.code, 0, good.out);
   assert.ok(!fs.existsSync(path.join(home, 'state')), 'nothing written without app/');
 }));
+
+test('kosmos#8769 item 4: the age is said in hours past two hours, and a copy not refreshed for 7 days is pruned', { skip: SKIP }, () => withBoard(async (port, room) => {
+  const home = mkHome('i-');
+  await runCli(['room', 'proj'], envFor(port, home));
+  const dir = path.join(home, 'state', 'room-copies');
+  const copy = path.join(dir, fs.readdirSync(dir).find((f) => f.endsWith('.txt')));
+  const threeH = (Date.now() - 3 * 3600000) / 1000; fs.utimesSync(copy, threeH, threeH);
+  room.stall = true;
+  const busy = await runCli(['room', 'proj'], envFor(port, home));
+  assert.match(busy.out, /last copy this computer read, 3 hour\(s\) ago/);
+  const stale = path.join(dir, 'stale-from-a-deleted-room.txt'); fs.writeFileSync(stale, 'x');
+  const nineD = (Date.now() - 9 * 86400000) / 1000; fs.utimesSync(stale, nineD, nineD);
+  room.stall = false;
+  await runCli(['room', 'proj'], envFor(port, home));
+  assert.ok(!fs.existsSync(stale), 'a copy not refreshed for 7 days is pruned');
+  assert.ok(fs.existsSync(copy), 'CONTROL: the fresh copy stays');
+}));

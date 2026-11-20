@@ -38,3 +38,10 @@ the FIRST line and the exit code is non-zero.
 - tools/windows/kosmos-cli.js verbRoom: same; copy at KOSMOS_HOME or %LOCALAPPDATA%\Kosmos\state\room-copies.
 - Tests: cli.room-busy-8769.test.js (4, real CLI vs a stalling stub board; perturbed, fallback off: 2 fail) and one
   Windows test in tools.windows-kosmos-cli-570.test.js (perturbed: fails). Listed in tools/windows-tests.js.
+
+## Decided in review
+- Busy: the Mac counts curl 18/28/52/56 (timeout, or an answer cut off after the request went); Windows counts a
+  timeout only, because its fetch error carries no code that separates a cut-off answer from any other failure, and
+  "did not answer in time" must be true when said. A deliberate difference: Windows shows the copy in fewer cases.
+- Copies only in an installed Kosmos (an app folder under KOSMOS_HOME, or %LOCALAPPDATA%\Kosmos on Windows), so no
+  checkout, test or profile that did not set one up is written to.

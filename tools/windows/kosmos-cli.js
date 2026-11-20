@@ -1187,12 +1187,11 @@ async function verbAway(ctx, args) {
 function roomCopyPaths(ctx, project) {
   try {
     const env = ctx.env || {};
-    const os = require('os');
-    /* Review 5: only where a real install keeps its state, never a shared temp folder (a test with neither keeps none). */
-    if (!env.KOSMOS_HOME && !env.LOCALAPPDATA) return null;
-    void os;
-    const base = env.KOSMOS_HOME ? path.join(env.KOSMOS_HOME, 'state', 'room-copies')
-      : path.join(env.LOCALAPPDATA, 'Kosmos', 'state', 'room-copies');
+    /* Review 5 and 6, as the Mac's $KOSMOS_HOME/app check: only in an installed Kosmos (its app folder), never a shared
+       temp folder or a profile a test did not set up. */
+    const home = env.KOSMOS_HOME || (env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, 'Kosmos') : '');
+    if (!home || !fs.existsSync(path.join(home, 'app'))) return null;
+    const base = path.join(home, 'state', 'room-copies');
     const tok = /^[0-9a-f]+$/.test(String(env.KOSMOS_AGENT_TOKEN || '')) ? String(env.KOSMOS_AGENT_TOKEN) : 'board';
     const key = require('crypto').createHash('sha256').update(String(ctx.url || env.KOSMOS_PORT || '') + '|' + String(project) + '|' + tok).digest('hex').slice(0, 24);   // which board too, as the Mac's $URL
     return { dir: base, file: path.join(base, key + '.txt'), since: path.join(base, key + '.busy-since') };

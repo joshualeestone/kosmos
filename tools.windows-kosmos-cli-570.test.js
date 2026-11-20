@@ -1130,6 +1130,7 @@ test('#7893: Windows msg tells a leading flag typed after the agent where it goe
 test('kosmos#8769 item 4: room on a busy board shows the kept copy (exit 1); none kept refuses; a filtered read keeps none', async () => {
   const home = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'kosmos-win-roombusy-8769-'));
   try {
+    fs.mkdirSync(path.join(home, 'app'));   // an installed layout: copies are kept only there
     const env = { KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_HOME: home };
     const busy = () => { const e = new Error('timed out'); e.name = 'TimeoutError'; throw e; };
     const none = await run(['room', 'proj-1'], busy, env);
@@ -1152,6 +1153,26 @@ test('kosmos#8769 item 4: room on a busy board shows the kept copy (exit 1); non
     const copies = fs.readdirSync(dir).filter((f) => f.endsWith('.txt'));
     assert.equal(copies.length, 1);
     assert.ok(!fs.readFileSync(path.join(dir, copies[0]), 'utf8').includes(AGENT), 'no token kept');
+    /* The 30-minute rule, as the Mac's: an old last failure starts a new spell; a recent one keeps it (control). */
+    for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.busy-since'))) fs.rmSync(path.join(dir, f));   // the other reader's too
+    await run(['room', 'proj-1'], busy, env);   // this reader's mark only
+    const mark = path.join(dir, fs.readdirSync(dir).find((f) => f.endsWith('.busy-since')));
+    const old = Math.floor(Date.now() / 1000) - 7200;
+    fs.writeFileSync(mark, old + ' ' + (old + 60));
+    await run(['room', 'proj-1'], busy, env);
+    assert.ok(Number(fs.readFileSync(mark, 'utf8').split(' ')[0]) > old + 3600, 'an old spell is not carried on');
+    fs.writeFileSync(mark, (old + 7000) + ' ' + Math.floor(Date.now() / 1000));
+    await run(['room', 'proj-1'], busy, env);
+    assert.equal(Number(fs.readFileSync(mark, 'utf8').split(' ')[0]), old + 7000, 'CONTROL: a recent last failure keeps the spell');
+    /* The age in hours, and the 7-day prune on the next good read. */
+    const copyFile = path.join(dir, copies[0]);
+    const threeH = (Date.now() - 3 * 3600000) / 1000; fs.utimesSync(copyFile, threeH, threeH);
+    assert.match((await run(['room', 'proj-1'], busy, env)).out, /last copy this computer read, 3 hour\(s\) ago/);
+    const stale = path.join(dir, 'stale-from-a-deleted-room.txt'); fs.writeFileSync(stale, 'x');
+    const eightD = (Date.now() - 8 * 86400000) / 1000; fs.utimesSync(stale, eightD, eightD);
+    await run(['room', 'proj-1'], () => ({ body: 'm1 leo: fresh\n' }), env);
+    assert.ok(!fs.existsSync(stale), 'a copy not refreshed for 7 days is pruned');
+    assert.ok(fs.existsSync(copyFile), 'CONTROL: the fresh copy stays');
     const filtered = await run(['room', 'proj-1', '-n', '5'], busy, env);
     assert.equal(filtered.code, 1);
     assert.doesNotMatch(filtered.out + filtered.err, /NOT the room now|first look/, 'a filtered read is not answered with the plain copy');
