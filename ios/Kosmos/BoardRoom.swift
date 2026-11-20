@@ -1297,6 +1297,16 @@ enum NewProject {
     }
 
     static let fallback = "We could not make that project."
+    // The board's refusals are lower-case clauses ("give the Writer a name"): the desktop's tcSay capitalises them and ends
+    // them with a full stop. kosmos#8837: here so this file stands alone; NewTeam.sentence is this function.
+    static func sentence(_ s: String) -> String {
+        let t = trimmed(s)
+        guard let first = t.first else { return t }
+        let up = first.uppercased() + t.dropFirst()
+        return [".", "!", "?"].contains(String(up.last!)) ? up : up + "."
+    }
+    // kosmos#8837: the one step-up sentence; NewAgent.stepUpWords is this string. It lives here, not in NewAgentLogic.swift,
+    // because run-newtask.sh, run-files.sh and run-taskpage.sh compile this file without that one (review 1).
     static let stepUpWords = "This needs a fresh sign-in first. Sign in again, and Kosmos tries it once more."
     static let unsureWords = "Kosmos could not tell whether that went through. Look in Projects before you try again."
 
@@ -1312,7 +1322,8 @@ enum NewProject {
         }
         let said = (obj?["error"] as? String).flatMap { trimmed($0).isEmpty ? nil : $0 }
         if status == 403, Board.isStepUpRequired(body) { return .signInAgain(said ?? stepUpWords) }
-        if let said { return .refused(said) }
+        // kosmos#8837: tidied as New Agent's and New Team's refusals are (a capital, one full stop).
+        if let said { return .refused(sentence(said)) }
         return status >= 500 ? .unknown : .refused(fallback)
     }
 

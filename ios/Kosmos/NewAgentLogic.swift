@@ -300,7 +300,7 @@ enum NewAgent {
         case signInAgain(String)
         case unknown   // no answer, or one that does not say: it may have been made
     }
-    static let stepUpWords = "This needs a fresh sign-in first. Sign in again, and Kosmos tries it once more."
+    static let stepUpWords = NewProject.stepUpWords   // kosmos#8837: one sentence for both sheets
     static let fallback = "We could not make it, and we cannot tell you why."
     static let unsureWords = "Kosmos could not tell whether that went through. Look in Agents before you try again."
 
@@ -501,14 +501,9 @@ enum NewTeam {
         return r
     }
 
-    // The board's refusals here are lower-case clauses ("give the Writer a name"): the desktop's tcSay capitalises them
-    // and ends them with a full stop.
-    static func sentence(_ s: String) -> String {
-        let t = NewProject.trimmed(s)
-        guard let first = t.first else { return t }
-        let up = first.uppercased() + t.dropFirst()
-        return [".", "!", "?"].contains(String(up.last!)) ? up : up + "."
-    }
+    // The board's refusals here are lower-case clauses ("give the Writer a name"): capitalised and ended with a full stop,
+    // by the one function New Project uses too (kosmos#8837).
+    static func sentence(_ s: String) -> String { NewProject.sentence(s) }
 
     enum State: Equatable { case waiting, making, made(session: String, shownAs: String), failed(String), afterLead }
 }

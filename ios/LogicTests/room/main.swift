@@ -431,6 +431,10 @@ check(NewProject.result(sent: true, status: 0, body: nil) == .unknown && NewProj
 check(NewProject.result(sent: true, status: 403, body: Data(#"{"code":"step_up_required","error":"Sign in again first."}"#.utf8)) == .signInAgain("Sign in again first."), "new project: step-up with Kosmos+'s words")
 check(NewProject.result(sent: true, status: 403, body: Data(#"{"code":"step_up_required"}"#.utf8)) == .signInAgain(NewProject.stepUpWords), "new project: step-up with no words: ours")
 check(NewProject.result(sent: true, status: 403, body: Data(#"{"error":"Not allowed."}"#.utf8)) == .refused("Not allowed."), "CONTROL: a 403 without the step-up code stays a plain refusal")
+// kosmos#8837: a plain refusal is tidied as New Agent's is; one already a sentence (line above, and the 400 case) is unchanged.
+check(NewProject.result(sent: true, status: 400, body: Data(#"{"error":"a project with that name already exists"}"#.utf8)) == .refused("A project with that name already exists."), "#8837: a lower-case refusal reads as a sentence")
+check(NewProject.result(sent: true, status: 400, body: Data(#"{"error":"  give the project a name  "}"#.utf8)) == .refused("Give the project a name."), "#8837: and its spaces are trimmed")
+check(NewProject.stepUpWords == NewAgent.stepUpWords, "#8837: one step-up sentence for both sheets")
 check(NewProject.result(sent: false, status: 0, body: nil) == .refused(NewProject.fallback), "nothing sent: certainly not made")
 let firsts = Board.firstProjects(Board.parseProjects(Data(#"{"projects":[{"id":"z","name":"Zeta","agents":[{"sessionName":"a"}]},{"id":"b","name":"beta","agents":[{"sessionName":"a"},{"sessionName":"c"}]}]}"#.utf8)))
 let agentsSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AgentsView.swift"), encoding: .utf8)) ?? ""
