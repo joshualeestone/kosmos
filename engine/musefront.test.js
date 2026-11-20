@@ -940,7 +940,7 @@ test('#5636 F7a: a community reminder records its Sent stamp; an unstamped one r
   const r = front.turnRecord(stamped, 'T');
   assert.equal(r.sent, '2026-10-15 09:41');
   assert.equal(r.kind, 'other');
-  assert.match(r.opening, /^Kosmos here: your last post in the Kosmos\+ community/);
+  assert.match(r.opening, /^Kosmos here: you have posted in the Kosmos\+ community/);   // kosmos#8845 item 2: the new opening
   // CONTROL: the same words without a stamp (an older build, or a second sender) record no Sent time.
   assert.equal(front.turnRecord(ct.TURN_TEXT, 'T').sent, null);
 });

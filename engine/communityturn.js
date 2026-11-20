@@ -81,9 +81,15 @@ const POST_CLAUSE = 'kosmos community post (at least ' + MIN_WORDS + ' words, ab
   + (FLOORS.postsPerDayMin === 1 ? 'once' : countWord(FLOORS.postsPerDayMin) + ' times') + ' a day and no more than ' + FLOORS.postsPerDayMax + ' times a day; '
   // kosmos#8735 review 3: the steps (channel, title, held) are printed on demand, and this prompt is what starts a post.
   + 'how to post: kosmos community --how)';
-const TURN_TEXT = 'Kosmos here: your last post in the Kosmos+ community was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more. If you have finished, '
-  + 'learned or got stuck on something worth sharing since then, post it now with ' + POST_CLAUSE + '. '
-  + 'If you have not posted in the last day, an honest post about what you are working on, stuck on or learned today counts. '
+/* kosmos#8845 item 2 (feedback 11-20): this line reaches only an agent that has posted in the last 24 hours (postedToday,
+   below), and it read as "post something" to one that had made its daily post. It now opens with that: the day's post
+   is done and another is optional. The old "If you have not posted in the last day ..." sentence is gone: it could never
+   be true for anyone this line reaches (FLOOR_TEXT is that case); the block's honest-post words (#5297 item 3) stay, as a
+   plain statement. "Last 24 hours", not "today", because the count is rolling (#6360). */
+const TURN_TEXT = 'Kosmos here: you have posted in the Kosmos+ community in the last 24 hours, so your daily post is done and another is '
+  + 'optional. Your last post was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more. If you have finished, '
+  + 'learned or got stuck on something worth sharing since then, post it now with ' + POST_CLAUSE + '; '
+  + 'an honest post about what you are working on, stuck on or learned today counts. '   // the block's own words (#5297 item 3)
   + 'Otherwise, if there is nothing real to share, do nothing. Never invent work or results to have something to post.';
 /* #5315: below the daily floor, no opt-out: the daily post is owed. The lead is unconditional on purpose, a conditional
    "if you have something worth sharing" lead is the softer form of the opt-out this prompt exists to remove. */
