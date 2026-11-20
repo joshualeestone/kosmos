@@ -21501,9 +21501,10 @@ window.addEventListener('unhandledrejection', (e) => {
      Not covered, and refused on such a browser (fail closed): everything the page loads as a navigation or a
      subresource rather than through fetch: agent avatars, file downloads, folder zips, the diagnostics download, PDF
      page and image previews, and the service worker's own fetches (web/sw.js).
-     🛑 It rests on one rule this page must keep: no board route redirects OFF this origin. fetch keeps this header across
-     a redirect, so a route that sent the page away and was bounced back would arrive with it; the connector's refusal of
-     that request's Origin: null is then the only guard. Add such a redirect, and refuse it there. */
+     🛑 It rests on one rule this page must keep: no route the page's own fetches reach redirects them OFF this origin.
+     fetch keeps this header across a redirect, so such a route, bounced back, would arrive with it; the connector's
+     refusal of that request's Origin: null is then the only guard. web.boardpage-header-8781.test.js lists the board's
+     redirects; add one, and check it there. */
   function withBoardPageHeader(args) {
     try {
       const input = args[0];
