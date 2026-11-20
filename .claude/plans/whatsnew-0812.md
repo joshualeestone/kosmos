@@ -9,7 +9,7 @@ version. The highlights are the same; their pool entries keep since 0.8.12, the 
 ## Done
 - release/whats-new-pool.json: `tools/whats-new-pool.js build 0.8.12` first recorded prod 0.8.11 (its five window
   highlights marked shown, lastProd 0.8.11). Then 0.8.12 entries: seven for the window's pool (ranks 8.0 to 8.4 make
-  the window: old Safari #8781, apostrophe #8784, remote sign-in #8785, Linux Update #8786 S1, Cloud nightly #8786 S2;
+  the window: old Safari #8781 with #8790's pictures and previews (merged after the 0.8.12 cut, so in 0.8.13), apostrophe #8784, remote sign-in #8785, Linux Update #8786 S1, Cloud nightly #8786 S2;
   below it: crashed session #8782 at 9.7 and the phone first-run #8787 at 9.8, both behind Starring at 9.6), and five
   notes-only entries (#8777, #8776, #8771, #8773 for Windows, and kosmos task --how).
 - web/whats-new.json: built by the tool for 0.8.13, not by hand.
@@ -24,6 +24,8 @@ version. The highlights are the same; their pool entries keep since 0.8.12, the 
 - The two Linux and Kosmos Cloud items (8.3, 8.4) rank above the crashed-session fix (9.7), which every platform
   gets: getting paying Cloud machines to update was tonight's priority (kosmos#8786), and the crashed-session fix is in
   every build's release notes either way.
+- The Safari line says nothing about downloads: #8790's download key (#8816) may or may not land before the next cut,
+  and a line about it would be wrong one way or the other. If it lands, it gets its own entry.
 - Left out on purpose: the iPhone app's empty Agents tab (#8793), which ships with the iPhone app, not in this
   release; and changes with nothing to see (the sign-in redirect hardening, the enrolment engine side, hand-over
   internals, the new agent's brief text).
