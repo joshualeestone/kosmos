@@ -22,7 +22,8 @@
  * 45,761 after two cuts in "You do not stop"; 45,382 after cuts in the formatting and reporting sections;
  * 45,054 after the render list and the stop history; 44,103 after the wording pass's first two slices (lines
  * that repeat a rule stated elsewhere in the block); 43,474 after slices 3 and 4 (the render list to `kosmos post --how`);
- * 43,348 after slice 6 (the colleagues block's eleven-minutes anecdote).
+ * 43,348 after slice 6 (the colleagues block's eleven-minutes anecdote); SLICE5_FIGURE
+ * after slice 5 (held, react, moved-to).
  * Every platform counts a brief as its Mac form (PLATFORM_DELTA, below), so one ceiling holds
  * everywhere, Linux CI and Windows included.
  *

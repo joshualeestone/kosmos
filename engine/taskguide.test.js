@@ -56,3 +56,16 @@ test('kosmos#8735 slice 2: the task guide requires nothing, and carries what mov
   assert.doesNotMatch(g, /Add it as above|`needs_you` as above/, 'the guide points "above" at text that is not in it');
   assert.match(g, /Add it as your working rules say/);
 });
+
+test('kosmos#8735 slice 5: --moved-to moved word for word from the working rules to the task guide', () => {
+  const d = require('./defaults');
+  const g = require('./taskguide').guideText();
+  for (const line of ["When an unmet check's part goes to another task, add `--moved-to <that task's number>`",
+    'after the words, so both tasks show where it went.']) {
+    assert.ok(g.split('\n').includes(line), 'the task guide lost, or reworded, the moved line: ' + line);
+    for (const p of d.PLATFORMS) assert.ok(!d.blockFor(p).includes(line), p + ': back in the working rules: ' + line);
+  }
+  for (const p of d.PLATFORMS) {
+    assert.match(d.blockFor(p).replace(/\s+/g, ' '), /move an unmet check to another task, or list open tasks across projects, run `kosmos task --how`/, p + ': the pointer does not name the case');
+  }
+});

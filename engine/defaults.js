@@ -140,16 +140,11 @@ const LINES = [
   '  decide it, do it, and tell them as a Decided. Ask only for what fails that',
   '  test, or for what only they have: a sign-in, a payment, a preference about',
   '  their own business.',
-  '  **If the person asked you to hold questions until they are back**, put',
-  '  `--held` before your question: it stays on the board, nothing buzzes or',
-  '  chases it, and you are told when they next message you directly.',
+  '  **If the person asked you to hold questions until they are back**, add',
+  '  `--held` (`kosmos report --help` says what it does).',
   '',
   '⚠️ **Neither of these means you have stopped. There is no command for having',
   'stopped, because there is no such state.**',
-  '',
-  '**Kosmos sees every other state for itself. It cannot see blocked or needs_you**,',
-  'because nothing on your screen tells a question you are waiting on from a',
-  'sentence you happened to write.',
   '',
   '**Clear it when it is answered** (`kosmos report clear`), **wherever the answer',
   'came**: a message here, a room, another app. A card reading needs_you after you have the',
@@ -218,11 +213,8 @@ const LINES = [
   ]),
   '',
   '**You can also react to a room post** with `kosmos react <project> <postId>',
-  '<emoji>`, the way a thumbs up or a fire works in a chat. Each post in `kosmos',
-  'room` shows its id in brackets (for example `[m3]`); that id is the',
-  '`<postId>`. Reacting again with the same emoji takes it back. A raised hand',
-  '(🙋) is not an ordinary reaction: it is a claim (below), so do not raise a hand',
-  'to say you are available.',
+  '<emoji>` (the id in brackets before each post in `kosmos room`, such as `[m3]`).',
+  'A raised hand (🙋) is a claim (below), never a way to say you are available.',
   '',
   '**The same applies to the four events above.** A Stopped nobody receives is',
   'not a Stopped.',
@@ -476,9 +468,6 @@ const LINES = [
   '`kosmos task check <project-id> <task-number> 1 met "<how you checked it>"`',
   '`kosmos task check <project-id> <task-number> 2 unmet "<what is still wrong>"`',
   '',
-  'When an unmet check\'s part goes to another task, add `--moved-to <that task\'s number>`',
-  'after the words, so both tasks show where it went.',
-  '',
   'Then mark it built with a short note (it holds 1000 characters; say what is covered',
   'and what is not).',
   'Once every check is reported met, the note is optional:',
@@ -490,7 +479,8 @@ const LINES = [
   '',
   // kosmos#8735 slice 2: the parts for one situation each are printed by `kosmos task --how` (engine/taskguide.js).
   '**The first time you set a task to repeat or record one of its runs, mark a file or a',
-  'code fix built, fix a task\'s title or detail, or list open tasks across projects, run',
+  'code fix built, fix a task\'s title or detail, move an unmet check to another task,',
+  'or list open tasks across projects, run',
   '`kosmos task --how`** (and again whenever you forget how) and follow what it prints',
   'for that case; a due run\'s reminder from Kosmos names the commands. On every run,',
   'three things hold: a run that found nothing new is recorded with `--unchanged` and not',
@@ -1345,8 +1335,16 @@ function block() {
  *     `kosmos reply --stdin <<'KOSMOS_MSG'` opener (#4582) in place of the second example.
  *     WEAKEST PREMISE, NAMED: that an agent in a room reaches for raw HTML or a `>` line often enough to pay about
  *     200 characters for the kept sentence; a room history with neither would move it to the guide too.
+ * 62. kosmos#8735 slice 5 (Mona Lisa's read on the card, 21:43Z). "You do not stop": `--held` keeps one line and
+ *     points at `kosmos report --help`, which both CLIs already print with the whole of it; "Kosmos sees every other
+ *     state for itself" goes, since "And tell the board" already says the board is a separate listener. The react
+ *     paragraph keeps the command, where the post id is, and that a raised hand is a claim. `--moved-to` moves word
+ *     for word to `kosmos task --how`, and the pointer names that case. Not built: P4 ("stops passing on
+ *     agreement-only" is pinned so agents expect the refusal) and P2 (the browser mechanics need a guide verb).
+ *     WEAKEST PREMISE, NAMED: that an agent asked to hold questions reads `kosmos report --help` before using
+ *     `--held`; the flag is named, so a wrong guess costs one refused or plain report, not a buzz.
  */
-const DOCTRINE_VERSION = 61;
+const DOCTRINE_VERSION = 62;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
