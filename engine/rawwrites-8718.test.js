@@ -61,7 +61,7 @@ const BASELINE = {
   "engine/invitestep.js": 1,
   "engine/kosmos-report-hook.js": 6,
   "engine/kosmos-statusline.js": 1,
-  "engine/linuxboard.js": 3,
+  "engine/linuxboard.js": 5,   // kosmos#8786: the Cloud nightly service and timer unit files, written as the pause check's are
   "engine/linuxjob.js": 1,
   "engine/liveness.js": 1,
   "engine/messages.js": 1,

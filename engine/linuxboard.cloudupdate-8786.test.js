@@ -88,6 +88,7 @@ test('setup.sh\'s uninstall removes the nightly units it names, and is called be
     assert.equal(r.status, 0, r.stderr);
     for (const f of [n.timer, n.service, path.join('timers.target.wants', n.timer)]) assert.equal(fs.existsSync(path.join(tmp, f)), false, f + ' was left');
     assert.equal(fs.existsSync(path.join(tmp, 'kosmos-board.keep.service')), true, 'nothing else is touched');
+    fs.rmSync(empty, { recursive: true, force: true });
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
