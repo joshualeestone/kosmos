@@ -51,3 +51,5 @@ regenerate doctrine-past, validate, PR.
 (both paragraphs) and asserts 8; a rewording of the guide's "does not" paragraph turns it red (perturbed, restored).
 5 version log: about 200 characters (the sentence measures 197). 6 the guide's last line points at "Formatted
 messages need line breaks" without naming a form, so it is true on PowerShell too.
+
+## Round 3 (sonnet, whole branch, blind): nothing at all. Converged at 1bf9e29048.
