@@ -1010,12 +1010,15 @@ function connectHarness(st, { cloud = false, words = false } = {}) {
     function frConnectStart() {}
     function frConnCancel() {}
     function frConnSubmitCode() {}
+    let __reveals = 0;
+    function frConnRevealCode() { __reveals += 1; }   // kosmos#8783: counted here; the real one is tested on its own below
     globalThis.__els = __els;
     globalThis.__actions = () => __actions;
+    globalThis.__reveals = () => __reveals;
   `;
   const paint = pageFunction('frPaintConnect', prelude);
   paint(st);
-  return { paint, els: globalThis.__els, actions: globalThis.__actions() };
+  return { paint, els: globalThis.__els, actions: globalThis.__actions(), reveals: globalThis.__reveals() };
 }
 
 test('every phase the server can answer renders a panel with a way onward', () => {
@@ -1132,16 +1135,6 @@ test('kosmos#4903 S5 design: a cloud machine says "below" once the link is there
   assert.doesNotMatch(code, /If Claude gives you a code to paste/, 'the code step still asks twice');
   assert.match(code, /<input id="fr-conn-code"[^>]*placeholder="Paste the code from Claude"/);
   assert.match(code, /<input id="fr-conn-code"[^>]*aria-describedby="fr-conn-cloudsay-code"/, 'the code field lost its description');
-  /* kosmos#8783: the field is brought into view (it sat below the fold on a phone), and not focused (the keyboard would
-     cover the sign-in link). Read from the awaiting-code branch of the page itself. */
-  {
-    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, 'web', 'index.html'), 'utf8');
-    const at = html.indexOf("if (phase === 'signin-awaiting-code') {\n    box.innerHTML");
-    assert.ok(at > 0, 'the awaiting-code branch was not found');
-    const branch = html.slice(at, html.indexOf('\n    return;\n  }', at));
-    assert.match(branch, /getElementById\('fr-conn-code'\)[\s\S]*parentNode[\s\S]*scrollIntoView\(\{ block: 'nearest' \}\)/, 'kosmos#8783: the code field is not brought into view');
-    assert.doesNotMatch(branch, /fr-conn-code'\)\.focus\(/, 'the field must not be focused (the keyboard covers the sign-in link)');
-  }
   assert.match(code, /<span id="fr-conn-cloudsay-code">/, 'the field is described by an element that is not there');
   // CONTROL: the Mac keeps its label (a code is the exception there) and has no placeholder, and its words are unchanged.
   const mac = connectHarness({ phase: 'signin-awaiting-code', url: URL }).els['fr-sub'].innerHTML;
@@ -1931,4 +1924,47 @@ test('win32-signin-web-copy MAC UNCHANGED: the stuck card note is byte-identical
 /* #4309: no sweep in this file may have started the host's gh or vercel (a writer the test cannot stop). */
 test('#4309: no host gh or vercel ran with this sandbox as its home', () => {
   hostClis.assertNoHostCli(assert, HOME);
+});
+
+test('kosmos#8783: the cloud code step brings the sign-in box into view when drawn, and not on the waiting step', () => {
+  const code = connectHarness({ phase: 'signin-awaiting-code', progress: null }, { cloud: true });
+  assert.equal(code.reveals, 1, 'the code step was drawn without bringing it into view');
+  const waiting = connectHarness({ phase: 'signin-launching', progress: null }, { cloud: true });
+  assert.equal(waiting.reveals, 0, 'CONTROL: a step with no code field does not scroll');
+});
+
+test('kosmos#8783: the late link (a tick after the code step) brings the box into view again, once per new link', () => {
+  const raw = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
+  let reveals = 0;
+  const els = { 'fr-conn-url': { innerHTML: '' }, 'fr-conn-code': {} };
+  globalThis.__rv = () => { reveals += 1; };
+  globalThis.__els8783 = els;
+  const paintUrl = pageFunction('frConnPaintUrl', 'const esc = ' + pageFunction('esc').toString() + ';\n'
+    + 'function onCloudMachine() { return true; }\n' + pageFunction('signinOpensNoBrowserHere').toString() + '\n'
+    + script.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + pageFunction('frCloudSigninDetail').toString() + '\n'
+    + 'const document = { getElementById: (id) => globalThis.__els8783[id] || null };\n'
+    + 'function frConnRevealCode() { globalThis.__rv(); }');
+  const st = { phase: 'signin-awaiting-code' };
+  paintUrl('https://claude.ai/oauth/a', st);
+  assert.equal(reveals, 1, 'the link arrived and the box was not brought into view');
+  paintUrl('https://claude.ai/oauth/a', st);
+  assert.equal(reveals, 1, 'a repeat poll with the same link must not scroll again (it would fight the person)');
+  paintUrl('https://claude.ai/oauth/b', st);
+  assert.equal(reveals, 2, 'a new link scrolls once more');
+  delete els['fr-conn-code'];
+  paintUrl('https://claude.ai/oauth/c', st);
+  assert.equal(reveals, 2, 'CONTROL: with no code field on screen (another step) nothing scrolls');
+});
+
+test('kosmos#8783: frConnRevealCode scrolls the whole sign-in box (link and field) with nearest, and never focuses', () => {
+  const calls = [];
+  globalThis.__box8783 = { scrollIntoView: (o) => calls.push(o) };
+  const reveal = pageFunction('frConnRevealCode', 'const document = { getElementById: (id) => id === "fr-sub" ? globalThis.__box8783 : null };\n'
+    + 'const requestAnimationFrame = (f) => f();');
+  reveal();
+  assert.deepEqual(calls, [{ block: 'nearest' }]);
+  const raw = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const fn = raw.slice(raw.indexOf('function frConnRevealCode()'), raw.indexOf('\n}\n', raw.indexOf('function frConnRevealCode()')));
+  assert.doesNotMatch(fn, /\.focus\(/, 'the field must not be focused (the keyboard covers the sign-in link)');
 });

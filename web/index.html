@@ -91873,11 +91873,7 @@ function frPaintConnect(st) {
     /* kosmos#8783: on a phone the wizard body scrolls and this field lands below its fold, under the pinned footer,
        with nothing to say more is there (a customer's first setup, 11-19). Bring it into view, without focusing it:
        a focused field raises the keyboard over the sign-in link the person must open first. */
-    { const field = document.getElementById('fr-conn-code');
-      const row = field && field.parentNode;
-      if (row && typeof row.scrollIntoView === 'function' && typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(() => { try { row.scrollIntoView({ block: 'nearest' }); } catch (_) { /* old engines */ } });
-      } }
+    frConnRevealCode();
     return;
   }
 
@@ -92111,6 +92107,18 @@ function frConnPaintUrl(url, st) {
       ? '<a class="btn uprime" href="' + esc(key) + '" target="_blank" rel="noopener">Open the Claude sign-in page</a>'
       : '<div class="fr-cdetail">Browser did not open?</div>'
         + '<a class="btn" href="' + esc(key) + '" target="_blank" rel="noopener">Open the sign-in page</a>';
+  /* kosmos#8783 review 1: on a cloud machine the link arrives a tick AFTER the code step was drawn, and pushes the
+     field down again; so the box is brought into view again now (once per new link, never on a repeat poll). */
+  if (key && document.getElementById('fr-conn-code')) frConnRevealCode();
+}
+/* kosmos#8783: on a phone the wizard body scrolls and the sign-in box (the link to open, then the code field) can sit
+   below its fold, under the pinned footer, with nothing to say more is there (a customer's first setup, 11-19). Bring
+   the WHOLE box into view, so the link and the field are both on screen; never focus the field (the keyboard would
+   cover the link the person must open first). Called when the code step is drawn and when its link arrives. */
+function frConnRevealCode() {
+  const box = document.getElementById('fr-sub');
+  if (!box || typeof box.scrollIntoView !== 'function' || typeof requestAnimationFrame !== 'function') return;
+  requestAnimationFrame(() => { try { box.scrollIntoView({ block: 'nearest' }); } catch (_) { /* old engines */ } });
 }
 
 function frConnPaintProgress(progress) {
