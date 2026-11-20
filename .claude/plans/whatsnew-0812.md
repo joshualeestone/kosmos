@@ -29,3 +29,6 @@ the build.
 The lead line (older Safari) is not yet tried on a real Safari before 16.4: the board's header was proven with a recording
 stub, and the connector half reaches the build only through the cut's rebuild from relay main (step 1d refuses a stale one).
 The first real check is the customer's iMac (kosmos#8781).
+Checked by content: the relay half, kosmos-relay #854, is on relay main at 5fd421b1c0 (the board-page arm in
+crates/tunnel/src/proxy.rs there, absent in its parent). The cut wrapper builds the connector from relay main and aborts
+if it is not current, so this line cannot ship without it.
