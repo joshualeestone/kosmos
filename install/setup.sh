@@ -216,6 +216,23 @@ _kosmos_linux_remove_pause_check() {
   if command -v systemctl >/dev/null 2>&1; then systemctl --user daemon-reload 2>/dev/null || true; fi
   return 0
 }
+# kosmos#8786 S2: the Cloud box's nightly update (linuxboard.cloudUpdateNames), named as the pause check is:
+# kosmos-cloud-update[.<hash>].service and .timer. Pure shell, as the pause check's.
+_kosmos_linux_cloud_update_base() {
+  _kcu_base="$(_kosmos_linux_unit_name)"; _kcu_base="kosmos-cloud-update${_kcu_base#kosmos-board}"
+  printf '%s' "${_kcu_base%.service}"
+}
+# kosmos#8786 S2: removed in the uninstall beside the pause check, whatever the box's latch says now. Only the timer is
+# stopped: an uninstall has no nightly install of its own to protect, but the service's files go, so it cannot run again.
+_kosmos_linux_remove_cloud_update() {
+  _kcr_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
+  _kcr_base="$(_kosmos_linux_cloud_update_base)"; _kcr_timer="$_kcr_base.timer"; _kcr_service="$_kcr_base.service"
+  [ -f "$_kcr_dir/$_kcr_timer" ] || [ -f "$_kcr_dir/$_kcr_service" ] || return 0
+  if command -v systemctl >/dev/null 2>&1; then systemctl --user disable --now "$_kcr_timer" 2>/dev/null || true; fi
+  rm -f "$_kcr_dir/$_kcr_timer" "$_kcr_dir/$_kcr_service" "$_kcr_dir/timers.target.wants/$_kcr_timer"
+  if command -v systemctl >/dev/null 2>&1; then systemctl --user daemon-reload 2>/dev/null || true; fi
+  return 0
+}
 # #4920 review 11: a unit an earlier release wrote (0.7.27) has no KillMode=, so systemd's default control-group kill
 # applies: stopping the board kills every process in its cgroup, and an in-app update runs this script there, beside
 # the agents' tmux server. Before the update pauses the board, give that unit KillMode=process, as linuxboard's unit
@@ -2325,6 +2342,7 @@ uninstall() {
     # AGENT_WORKFORCE_SYSTEMD_DIR); with a units folder of its own a run still talks to real systemd, as linuxboard does.
     if [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] || [ -n "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then
       _kosmos_linux_remove_pause_check
+      _kosmos_linux_remove_cloud_update
     fi
     if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then
       # A sandboxed run never touches real systemd (linuxboard refuses it by design): said as what it is.

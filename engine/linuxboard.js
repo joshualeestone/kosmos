@@ -121,6 +121,63 @@ WantedBy=timers.target
   return { names, service, timer };
 }
 
+/* kosmos#8786 S2: the Cloud box's nightly update, named as the pause check is (kosmos-board[.<hash>].service ->
+   kosmos-cloud-update[.<hash>].service and .timer), and kept apart from kosmos-board* for the same reason.
+   setup.sh's _kosmos_linux_cloud_update_names derives the same. */
+function cloudUpdateNames(kosmosHome) {
+  const base = boardUnitName(kosmosHome).replace(/^kosmos-board/, 'kosmos-cloud-update').replace(/\.service$/, '');
+  return { service: base + '.service', timer: base + '.timer' };
+}
+
+/* kosmos#8786 S2: a oneshot that runs `kosmos cloud-update` once a night. Its own unit, outside the board's, so the
+   installer's stop of the board cannot kill the run that started it (S1 to S2 interface, point 2). It carries the
+   board's port, so the run reads this board's /api/status. The time is 08:00 UTC (02:00 Central, 03:00 Eastern), plus
+   up to two hours at random so a fleet of boxes does not fetch at once. Persistent=false: a box that was off at that
+   time skips the night rather than updating when it comes back, which may be while its person is using it. */
+function cloudUpdateUnitsFor(kosmosHome, port) {
+  const home = path.resolve(kosmosHome || process.env.KOSMOS_HOME || defaultKosmosHome());
+  const kosmosBin = path.join(home, 'bin', 'kosmos');
+  const p = Number(port) || require('./create').boardPort();
+  if (!Number.isInteger(p) || p < 1 || p > 65535) throw new Error('the board port is not a port number');
+  const userHome = os.homedir();
+  const { unitSafe } = require('./linuxjob');
+  for (const [v, what] of [[home, 'the Kosmos folder'], [userHome, 'the home folder']]) unitSafe(v, what);
+  const names = cloudUpdateNames(home);
+  const service = `[Unit]
+Description=Kosmos: install the newest Kosmos once a night on a Kosmos Cloud computer (kosmos#8786)
+# A Kosmos folder deleted by hand leaves a timer that skips quietly instead of failing.
+ConditionPathExists=${kosmosBin}
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash "${kosmosBin}" cloud-update
+WorkingDirectory=${home}
+Environment="HOME=${userHome}"
+Environment="KOSMOS_HOME=${home}"
+Environment="PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+Environment="LANG=C.UTF-8"
+Environment="KOSMOS_PORT=${p}"
+Environment="PORT=${p}"
+`;
+  const timer = `[Unit]
+Description=Kosmos: once a night, look for a newer Kosmos on this Cloud computer (kosmos#8786)
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 UTC
+RandomizedDelaySec=2h
+Persistent=false
+Unit=${names.service}
+
+[Install]
+WantedBy=timers.target
+`;
+  return { names, service, timer };
+}
+
+/* Test seam: whether installBoard treats this computer as a Kosmos Cloud box. The board passes nothing. */
+let isCloudFn = () => require('./cloudmachine').isCloudMachine();
+function setCloudForTests(fn) { isCloudFn = typeof fn === 'function' ? fn : () => require('./cloudmachine').isCloudMachine(); }
+
 function boardUnitFor(kosmosHome, port) {
   const home = path.resolve(kosmosHome || process.env.KOSMOS_HOME || defaultKosmosHome());
   const kosmosBin = path.join(home, 'bin', 'kosmos');
@@ -195,6 +252,14 @@ function installBoard(kosmosHome, port) {
   fs.writeFileSync(target, content, 'utf8');
   fs.writeFileSync(path.join(path.dirname(target), check.names.service), check.service, 'utf8');
   fs.writeFileSync(path.join(path.dirname(target), check.names.timer), check.timer, 'utf8');
+  /* kosmos#8786 S2: the nightly update, only on a Kosmos Cloud box. Anything that cannot be read is "not one". */
+  let cloud = false;
+  try { cloud = Boolean(isCloudFn()); } catch { cloud = false; }
+  const nightly = cloud ? cloudUpdateUnitsFor(kosmosHome, port) : null;
+  if (nightly) {
+    fs.writeFileSync(path.join(path.dirname(target), nightly.names.service), nightly.service, 'utf8');
+    fs.writeFileSync(path.join(path.dirname(target), nightly.names.timer), nightly.timer, 'utf8');
+  }
   const reload = runner('systemctl', ['--user', 'daemon-reload']);
   if (!reload || !reload.ok) return { ok: false, because: 'systemd did not reload its user units: ' + ((reload && (reload.stderr || reload.because)) || '').trim() };
   const unit = boardUnitName(kosmosHome);
@@ -207,12 +272,21 @@ function installBoard(kosmosHome, port) {
   const pauseCheck = ten && ten.ok
     ? { ok: true }
     : { ok: false, because: 'systemd did not enable the board\'s pause check (' + check.names.timer + '): ' + ((ten && (ten.stderr || ten.because)) || '').trim() };
+  /* kosmos#8786 S2: as the pause check, a refusal does not fail the install: the box is then as it was before this
+     timer existed, and says so (cloudUpdate) rather than failing the board. Absent (null) off a Cloud box. */
+  let cloudUpdate = null;
+  if (nightly) {
+    const cen = runner('systemctl', ['--user', 'enable', '--now', nightly.names.timer]);
+    cloudUpdate = cen && cen.ok
+      ? { ok: true }
+      : { ok: false, because: 'systemd did not enable the nightly update (' + nightly.names.timer + '): ' + ((cen && (cen.stderr || cen.because)) || '').trim() };
+  }
   /* #4918 review 12: without linger the board stops at logout and does not start at boot, the property this unit
      exists for. Read back, as for agents; the caller (piece D's installer) says so when it is off. */
   let lingering = false;
   const lj = require('./linuxjob');
   try { lingering = lj.runWith((c, a) => runner(c, a), () => lj.enableLinger()).lingering; } catch { lingering = false; }
-  return { ok: true, lingering, pauseCheck };
+  return { ok: true, lingering, pauseCheck, cloudUpdate };
 }
 
 /* Stops, disables and deletes the board's unit. { ok } is true only when every step held (#4918 review 3), so the
@@ -227,9 +301,15 @@ function removeBoard(kosmosHome) {
   const check = pauseCheckNames(kosmosHome);
   runner('systemctl', ['--user', 'disable', '--now', check.timer]);
   runner('systemctl', ['--user', 'stop', check.service]);
+  /* kosmos#8786 S2: the nightly update too, whether or not this is (still) a Cloud box: a latch removed after the
+     install must not leave a timer behind. Only the TIMER is stopped, never the service: an install the nightly run
+     started is a child of that service, and setup.sh may come through here while it runs. */
+  const nightly = cloudUpdateNames(kosmosHome);
+  runner('systemctl', ['--user', 'disable', '--now', nightly.timer]);
   try {
     // The timer's enable link too, which a refused disable (no user bus) leaves behind, as setup.sh's helper does.
-    for (const f of [check.timer, check.service, path.join('timers.target.wants', check.timer)]) {
+    for (const f of [check.timer, check.service, path.join('timers.target.wants', check.timer),
+      nightly.timer, nightly.service, path.join('timers.target.wants', nightly.timer)]) {
       const p = path.join(systemdDir(), f);
       if (fs.lstatSync(p, { throwIfNoEntry: false })) fs.unlinkSync(p);   // lstat: a dangling link counts
     }
@@ -298,6 +378,9 @@ module.exports = {
   boardUnitFor,
   pauseCheckNames,
   pauseCheckUnitsFor,
+  cloudUpdateNames,
+  cloudUpdateUnitsFor,
+  setCloudForTests,
   installBoard,
   removeBoard,
   loadedBoardJob,

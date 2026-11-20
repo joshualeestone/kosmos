@@ -122,8 +122,8 @@ test('removeBoard stops, disables, deletes unit and reloads daemon', () => {
     linuxboard.removeBoard(home);
 
     assert.equal(fs.existsSync(unitFile), false);
-    // kosmos#6667: the pause check goes first (engine/linuxboard.pausecheck-6667.test.js covers it).
-    const board = calls.filter((c) => !c.args.some((a) => /^kosmos-pause-check/.test(a)));
+    // kosmos#6667 and #8786: the pause check and the Cloud nightly timer go first (their own test files cover them).
+    const board = calls.filter((c) => !c.args.some((a) => /^kosmos-(pause-check|cloud-update)/.test(a)));
     assert.deepEqual(board[0], {
       cmd: 'systemctl',
       args: ['--user', 'stop', linuxboard.boardUnitName(home)],
