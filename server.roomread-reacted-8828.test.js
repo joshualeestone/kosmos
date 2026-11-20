@@ -87,8 +87,8 @@ test('kosmos#8828: a post I reacted to stays listed, and the list says why', asy
   const line = reactedLine(r.text);
   assert.ok(line.includes('[' + confirm + ']') && !line.includes('[' + plain + ']'), 'the line does not name exactly the post I reacted to:\n' + r.text);
   assert.match(line, /a reaction does not take a post off this list/);
-  assert.ok(line.includes('kosmos post --in-reply-to ' + confirm + ' ' + pid + ' <your answer>. '), 'the command is not runnable as printed:\n' + line);
-  assert.match(line, /only confirmed something already settled, your reaction was the answer/, 'a confirmation is told to post "agreed":\n' + line);
+  assert.ok(line.includes('kosmos post --in-reply-to ' + confirm + ' ' + pid + ' <your answer>.'), 'the command is not runnable as printed:\n' + line);
+  assert.match(line, /a colleague was only confirming something already settled, your reaction answered that/, 'a confirmation is told to post "agreed":\n' + line);
   const plainRead = await room(pid, ME, '');
   assert.equal(plainRead.status, 200, plainRead.text);
   assert.equal(reactedLine(plainRead.text), '', 'a plain read carries the line:\n' + plainRead.text);
@@ -107,7 +107,7 @@ test('kosmos#8828: several emojis, one removed, still named; two posts get the p
   let r = await room(pid, ME, '&unanswered=1');
   let line = reactedLine(r.text);
   assert.ok([cut, multi, second].every((x) => line.includes('[' + x + ']')), 'a post with a live reaction is not named:\n' + r.text);
-  assert.ok(line.includes('kosmos post --in-reply-to <its id> ' + pid + ' <your answer>. If one only confirmed'), 'several posts: the command is not the placeholder form:\n' + line);
+  assert.ok(line.includes('kosmos post --in-reply-to <its id> ' + pid + ' <your answer>. If a colleague was only confirming'), 'several posts: the command is not the placeholder form:\n' + line);
   r = await room(pid, ME, '&unanswered=1&n=1');
   assert.ok(listed(r.text, second) && !listed(r.text, cut), 'fixture: -n 1 lists only the newest:\n' + r.text);
   line = reactedLine(r.text);
@@ -133,4 +133,18 @@ test('kosmos#8828: a claim, a reaction taken back, another agent\'s, or one in a
   const r = await room(pid, ME, '&unanswered=1');
   assert.equal(reactedLine(r.text), '', 'one of these was named as my reaction:\n' + r.text);
   assert.ok([claimed, takenBack, others, elsewhere].every((x) => listed(r.text, x)), 'fixture: these stay listed:\n' + r.text);
+});
+
+test('kosmos#8828 review 4: the person\'s post I reacted to is named, but never as answered by the reaction', async () => {
+  const pid = newRoom('Reacted8828e');
+  clock += 1000;
+  const mine = 'm' + (88280 + (++seq));
+  append({ id: mine, kind: 'post', from: 'you', operator: true, to: [ME], project: pid, text: '@readerseat thanks, that is settled.', mentioned: [ME], at: new Date(clock).toISOString(), outcomes: { [ME]: 'typed' } });
+  react(pid, mine, ME, '\u{1F44D}');
+  const r = await room(pid, ME, '&unanswered=1');
+  assert.equal(r.status, 200, r.text);
+  const line = reactedLine(r.text);
+  assert.ok(line.includes('[' + mine + ']'), 'fixture: the person\'s post I reacted to is named:\n' + r.text);
+  assert.ok(line.includes('kosmos post --in-reply-to ' + mine + ' ' + pid + ' <your answer>.'), 'no way to answer it:\n' + line);
+  assert.ok(!/reaction answered|nothing more is owed|confirming/.test(line), 'the person\'s post reads as answered by a reaction:\n' + line);
 });
