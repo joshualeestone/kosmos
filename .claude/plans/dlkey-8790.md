@@ -16,6 +16,15 @@ on a current browser the download still works (one extra small request first).
 - web/index.html: one capture-phase click listener on <a download> links to those routes, on a Kosmos+ address only:
   mint with the page's marked fetch, then open the same address plus bdl. No key: the link opens as before.
 
+## Round 1 review changes
+- The page listener is on window in the bubble phase and leaves any click another handler took (an attachment card
+  opening its preview; the Mac app viewer's own kdl link) and modifier clicks. Round 1's capture-phase listener made
+  an attachment card download instead of opening its preview (BLOCKER, measured).
+- A browser that sends Sec-Fetch-Site is answered {key: null, needed: false}, and the page leaves its links alone
+  after that: no key is left live on a current browser, and no extra wait after the first download.
+- A key counts only as a literal bdl= (an encoded name, which safeLogUrl would not redact, opens nothing), and only on
+  a request that presents no other credential (a wrong token header or a live session beside it).
+
 ## Baron's conditions, where each is held
 1. first use, a real GET only; a probe or HEAD neither burns nor reads: redeemDownloadKey, downloadKeyOk (GET only),
    downloadKeyTarget (?check=1 is no target). Tests: server HEAD and ?check=1 cases.

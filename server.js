@@ -1230,8 +1230,11 @@ function boardCookieHere(req, state = boardAuthState, check = boardTokenOk) {
    16.4) a Kosmos+ computer's connector gives no board token to a navigation, so the board's downloads were refused
    there. The page asks for a key with its own marked fetch (POST /api/download-key, which needs the board token) and
    opens the download with ?bdl=<key>. A key opens ONE response: a GET (never a HEAD) of the exact path and query it
-   was minted for, without bdl, on one of these routes, once, within a minute. It is checked last at the gate, only
-   when the request presents nothing else, and it sets no cookie and starts no session. */
+   was minted for, without bdl, on one of these routes, once, within a minute. It is checked last at the gate, and
+   only for a request that presents no other credential (a token, a header, a live session), so a key never rides
+   beside one. Only a literal `bdl=` counts (an encoded name such as %62dl, which safeLogUrl would not redact, opens
+   nothing). It sets no cookie and starts no session. A browser that sends Sec-Fetch-Site needs no key (the connector
+   gives its navigations the token), so the mint gives it none. */
 const DL_KEY_ROUTES = [
   /^\/api\/agent\/[^/]+\/files\/(?:download|download-folder)$/,
   /^\/api\/project\/[^/]+\/file-download$/,
@@ -1258,9 +1261,11 @@ const DL_KEY_REQS = new WeakSet();   // the requests a key opened: boardTokenOk 
 function downloadKeyOk(req) {
   if (!req || req.method !== 'GET') return false;
   if (DL_KEY_REQS.has(req)) return true;
-  let key = null;
-  try { key = new URL(req.url, ROUTING_BASE).searchParams.get(DL_KEY_PARAM); } catch { key = null; }
+  const raw = String(req.url || '');
+  const m = /[?&]bdl=([0-9a-f]{64})(?=[&#]|$)/.exec(raw.split('#')[0]);
+  const key = m ? m[1] : null;
   if (!key) return false;
+  if (boardauth.presentsCredential(req, ROUTING_BASE)) return false;   // a key never rides beside another credential
   const target = downloadKeyTarget(req.url);
   if (!target || !boardauth.redeemDownloadKey(key, target)) return false;
   DL_KEY_REQS.add(req);
@@ -7958,6 +7963,8 @@ const server = http.createServer(async (req, res) => {
       try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
       const target = body && typeof body.path === 'string' ? downloadKeyTarget(body.path) : null;
       if (!target) { sendJson(res, 400, { ok: false, because: 'that is not a download on this computer' }); return; }
+      // A browser that sends Sec-Fetch-Site gets the token on its downloads already: no key, so none is left live.
+      if (req.headers['sec-fetch-site']) { sendJson(res, 200, { ok: true, key: null, needed: false }); return; }
       sendJson(res, 200, { ok: true, key: boardauth.mintDownloadKey(target) });   // sendJson answers no-store
     }).catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
     return;

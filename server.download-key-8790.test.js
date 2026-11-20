@@ -150,3 +150,29 @@ test('kosmos#8790: the page keys exactly the routes the board accepts a key on',
   assert.equal(board.length, 5, 'CONTROL: the board lists five routes');
   assert.deepEqual(read(path.join('web', 'index.html'), 'DL_KEY_LINK_ROUTES'), board);
 });
+
+test('kosmos#8790: a key never rides beside another credential: a wrong token or a live session with it refuses', async () => {
+  const m = await mint(FILE);
+  assert.equal((await get(withKey(FILE, m.key), 'GET', { 'x-kosmos-board-token': 'not-the-token-0123456789abcdef' })).code, 403, 'a wrong token header and a key');
+  const signIn = await get('/?token=' + TOK);
+  const sid = ((signIn.setCookie || '').match(/kosmos_board=([0-9a-f]{64})/) || [])[1];
+  assert.ok(sid);
+  const both = await get(withKey(FILE, m.key), 'GET', { cookie: 'kosmos_board=' + sid });
+  assert.equal(both.code, 200, 'CONTROL: a live session opens it on its own');
+  assert.equal((await get(withKey(FILE, m.key))).code, 200, 'and the key was not spent by that request (the session opened it, not the key)');
+});
+
+test('kosmos#8790: only a literal bdl= counts: an encoded name opens nothing', async () => {
+  const m = await mint(FILE);
+  assert.equal((await get(FILE + '&%62dl=' + m.key)).code, 403, '%62dl');
+  assert.equal((await get(FILE + '&BDL=' + m.key)).code, 403, 'another case');
+  assert.equal((await get(withKey(FILE, m.key))).code, 200, 'CONTROL: the literal name opens it');
+});
+
+test('kosmos#8790: a browser that sends Sec-Fetch-Site is told it needs no key, and none is made', async () => {
+  const res = await fetch(base + '/api/download-key', { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-board-token': TOK, 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ path: FILE }) });
+  const b = await res.json();
+  assert.equal(res.status, 200);
+  assert.equal(b.key, null);
+  assert.equal(b.needed, false);
+});

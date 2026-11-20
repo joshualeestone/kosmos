@@ -29,17 +29,27 @@ const chk = (ok, label, extra) => {
 };
 
 const START = '/* kosmos#8790: over Kosmos+, a browser that sends no Sec-Fetch-Site';
-const END = "document.addEventListener('click', dlKeyClick, true);";
+const END = "window.addEventListener('click', dlKeyClick);";
 const at = PAGE_SRC.indexOf(START);
 const listener = at < 0 ? '' : PAGE_SRC.slice(at, PAGE_SRC.indexOf(END, at) + END.length);
 chk(!!listener, 'the page\'s download-link listener was found in web/index.html');
+// The attachment card's own click handler, as it ships: a plain click opens the preview (preventDefault).
+const CARD = '/* A plain click on a file card opens the preview; a modifier-click (or a middle click) keeps the download. */';
+const cat = PAGE_SRC.indexOf(CARD);
+const card = cat < 0 ? '' : PAGE_SRC.slice(cat, PAGE_SRC.indexOf('});', cat) + 3);
+chk(!!card, 'the attachment card\'s click handler was found in web/index.html');
 
 const html = (remote) => `<!doctype html><html><head><meta charset="utf-8"><title>dlkey</title></head><body>
 <a class="diag" href="/api/diagnostics" download>Save diagnostics</a>
 <a class="exp" href="/api/agent/max/export" download>Export</a>
 <a class="plain" href="/api/status" download>Not a download route</a>
-<script>function kplusRemote() { return ${remote ? 'true' : 'false'}; }</script>
+<a class="att" data-att="0123456789abcdef01234567" href="/api/attachment/0123456789abcdef01234567" download="report.pdf">An attachment card</a>
+<a class="att nopv" data-att="fedcba9876543210fedcba98" href="/api/attachment/fedcba9876543210fedcba98" download="data.bin">A card with no preview</a>
+<script>function kplusRemote() { return ${remote ? 'true' : 'false'}; }
+  window.previews = [];
+  function pvOpen(id, el) { window.previews.push(id); return !el.classList.contains('nopv'); }</script>
 <script>${listener}</script>
+<script>${card}</script>
 <script>
   window.scriptDownload = () => {   // the kplusDownload way: a link made, clicked and removed in one go
     const a = document.createElement('a');
@@ -50,6 +60,7 @@ const html = (remote) => `<!doctype html><html><head><meta charset="utf-8"><titl
 </script></body></html>`;
 
 const keys = new Map();   // key -> target
+let MODERN = false;       // the board's rule: a mint from a browser that sends Sec-Fetch-Site needs no key
 const seen = [];
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
@@ -61,6 +72,7 @@ const server = http.createServer((req, res) => {
       let p = '';
       try { p = JSON.parse(body).path; } catch { p = ''; }
       seen.push({ mint: p });
+      if (MODERN && req.headers['sec-fetch-site']) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true,"key":null,"needed":false}'); return; }
       if (p.startsWith('/api/agent/max/export')) { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"an older board"}'); return; }
       const k = crypto.randomBytes(32).toString('hex');
       keys.set(k, p);
@@ -122,6 +134,27 @@ async function saved(page, act) {
       seen.length = 0;
       await saved(page, () => page.click('a.plain'));
       chk(!seen.some((s) => 'mint' in s), tag + 'a link that is not a download route asks for no key', JSON.stringify(seen));
+
+      seen.length = 0;
+      const pv = await saved(page, () => page.click('a.att:not(.nopv)'));
+      chk(pv === null && (await page.evaluate(() => window.previews.slice())).includes('0123456789abcdef01234567') && !seen.some((x) => 'mint' in x),
+        tag + 'a plain click on an attachment card opens its preview: no key, no download', JSON.stringify({ pv, seen }));
+      seen.length = 0;
+      const np = await saved(page, () => page.click('a.att.nopv'));
+      chk(np === 'file for /api/attachment/fedcba9876543210fedcba98', tag + 'a card with no preview downloads, through a key', JSON.stringify({ np, seen }));
+      seen.length = 0;
+      await saved(page, () => page.click('a.diag', { modifiers: ['Shift'] }));
+      chk(!seen.some((x) => 'mint' in x), tag + 'a click with a modifier key is left to the browser', JSON.stringify(seen));
+
+      // A current browser (it sends Sec-Fetch-Site): told no key is needed once, then its links are left alone.
+      MODERN = true;
+      await page.goto(base + '/remote');
+      seen.length = 0;
+      const m1 = await saved(page, () => page.click('a.exp'));
+      const m2 = await saved(page, () => page.click('a.exp'));
+      chk(m1 === 'file for /api/agent/max/export' && m2 === 'file for /api/agent/max/export', tag + 'a current browser: both downloads save', JSON.stringify({ m1, m2 }));
+      chk(seen.filter((x) => 'mint' in x).length === 1 && !seen.some((x) => x.key), tag + 'asked once, given no key, and the second click asks nothing', JSON.stringify(seen));
+      MODERN = false;
 
       await page.goto(base + '/local');
       seen.length = 0;
