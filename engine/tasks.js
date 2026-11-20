@@ -1806,6 +1806,14 @@ function setDoneWhen(projectId, n, doneWhen, opts = {}) {
 /* #7990: change one check by its number, leaving the others as they are, so a colleague who marked against them can see
    which one moved. The number is read inside the write, against the checks as they are then. Nothing here touches a
    built mark: its note is free text, tied to no check by number. The transcript says which check changed and from what. */
+/* kosmos#8828 item 3: a task's checks as one line for an error, "1. <words>; 2. <words>", each cut to 60 characters. */
+function checksListed(checks) {
+  const list = (Array.isArray(checks) ? checks : []).map((c, i) => {
+    const w = Array.from(String(c == null ? '' : c).replace(/\s+/g, ' ').trim());
+    return (i + 1) + '. ' + (w.length > 60 ? w.slice(0, 60).join('') + '...' : w.join(''));
+  });
+  return list.length ? list.join('; ') : '(none)';
+}
 function setDoneWhenCheck(projectId, n, check, text, opts = {}) {
   const number = check;
   if (typeof number !== 'number' || !Number.isInteger(number) || number < 1) throw new Error('the check number has to be 1 or more, as kosmos task list shows them');
@@ -1820,7 +1828,8 @@ function setDoneWhenCheck(projectId, n, check, text, opts = {}) {
       throw e;
     }
     if (number > before.length) {
-      const e = new Error(`that task has ${before.length} done-when ${before.length === 1 ? 'check' : 'checks'}, so there is no check ${number}`);
+      // kosmos#8828 item 3: name the checks it does have, so the right number is in the error itself.
+      const e = new Error(`that task has ${before.length} done-when ${before.length === 1 ? 'check' : 'checks'}, so there is no check ${number}: ${checksListed(before)}`);
       e.status = 409;
       throw e;
     }
@@ -1917,7 +1926,8 @@ function setCheckResult(projectId, n, check, met, how, { by = null, movedTo = nu
     if (progressOf(t).closed) throw fail('that task is done, so its checks can no longer be reported; reopen it first', 409);
     const results = checkResultsOf(t);
     if (!results) throw fail('that task has no done-when checks to report on', 409);
-    if (check > results.length) throw fail(`that task has ${results.length} done-when ${results.length === 1 ? 'check' : 'checks'}, so there is no check ${check}`, 409);
+    // kosmos#8828 item 3: name the checks it does have, so the right number is in the error itself.
+    if (check > results.length) throw fail(`that task has ${results.length} done-when ${results.length === 1 ? 'check' : 'checks'}, so there is no check ${check}: ${checksListed(Array.isArray(t.doneWhen) ? t.doneWhen : [])}`, 409);
     if (moved !== null && moved === t.number) throw fail('a check cannot be moved to its own task; name the task the unmet part went to');
     if (moved !== null && !byNumber(p, moved)) throw fail('there is no task ' + moved + ' on this project for the unmet part to have moved to', 409);
     const was = results[check - 1];
