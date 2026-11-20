@@ -151,7 +151,7 @@ test('kosmos#8790: the page keys exactly the routes the board accepts a key on',
   assert.deepEqual(read(path.join('web', 'index.html'), 'DL_KEY_LINK_ROUTES'), board);
 });
 
-test('kosmos#8790: a key never rides beside another credential: a wrong token or a live session with it refuses', async () => {
+test('kosmos#8790: a key never rides beside another credential: a wrong token with it refuses; a live session opens on its own and spends no key', async () => {
   const m = await mint(FILE);
   assert.equal((await get(withKey(FILE, m.key), 'GET', { 'x-kosmos-board-token': 'not-the-token-0123456789abcdef' })).code, 403, 'a wrong token header and a key');
   const signIn = await get('/?token=' + TOK);
@@ -175,4 +175,41 @@ test('kosmos#8790: a browser that sends Sec-Fetch-Site is told it needs no key, 
   assert.equal(res.status, 200);
   assert.equal(b.key, null);
   assert.equal(b.needed, false);
+});
+
+test('kosmos#8790: a keyed download the board refuses is answered 204 with nothing to save (old Safari sends no Sec-Fetch-Mode)', async () => {
+  const gone = '/api/agent/max/files/download?name=not-there.txt';
+  const m = await mint(gone);
+  assert.equal(m.code, 200);
+  const r = await get(withKey(gone, m.key));
+  assert.equal(r.code, 204, 'not a JSON body a browser could save as the file');
+  assert.equal(r.body, '');
+});
+
+test('kosmos#8790: a key on a request that says it came from another site refuses, and the key is not spent', async () => {
+  const m = await mint(FILE);
+  assert.equal((await get(withKey(FILE, m.key), 'GET', { 'sec-fetch-site': 'cross-site' })).code, 403, 'cross-site');
+  assert.equal((await get(withKey(FILE, m.key), 'GET', { 'sec-fetch-site': 'same-site' })).code, 403, 'same-site');
+  assert.equal((await get(withKey(FILE, m.key), 'GET', { 'sec-fetch-site': 'same-origin' })).code, 200, 'CONTROL: same-origin opens');
+});
+
+test('kosmos#8790: a key in the path, not the query, opens nothing', async () => {
+  const m = await mint(FILE);
+  assert.equal((await get('/api/agent/max/files/download/bdl=' + m.key + '?name=a.txt')).code, 403);
+  assert.equal((await get(withKey(FILE, m.key))).code, 200, 'CONTROL: the key itself was not spent');
+});
+
+test('kosmos#8790: the page\'s one look at load says whether keys are needed, and needs the board token', async () => {
+  const ask = async (headers) => {
+    const res = await fetch(base + '/api/download-key', { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, headers), body: JSON.stringify({ ask: true }) });
+    const text = await res.text();
+    let b = {}; try { b = JSON.parse(text); } catch { /* leave {} */ }
+    return { code: res.status, b };
+  };
+  const old = await ask({ 'x-kosmos-board-token': TOK });
+  assert.equal(old.code, 200);
+  assert.deepEqual([old.b.needed, old.b.key], [true, null], 'no Sec-Fetch-Site: keys are needed, and the look makes none');
+  const cur = await ask({ 'x-kosmos-board-token': TOK, 'sec-fetch-site': 'same-origin' });
+  assert.deepEqual([cur.b.needed, cur.b.key], [false, null]);
+  assert.equal((await ask({})).code, 403, 'no credential');
 });

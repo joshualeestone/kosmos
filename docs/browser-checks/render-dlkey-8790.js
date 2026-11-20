@@ -29,7 +29,7 @@ const chk = (ok, label, extra) => {
 };
 
 const START = '/* kosmos#8790: over Kosmos+, a browser that sends no Sec-Fetch-Site';
-const END = "window.addEventListener('click', dlKeyClick);";
+const END = "if (b && b.needed === false) DL_KEY_NOT_NEEDED = true; }).catch(() => {});\n}";   // the load-time look included
 const at = PAGE_SRC.indexOf(START);
 const listener = at < 0 ? '' : PAGE_SRC.slice(at, PAGE_SRC.indexOf(END, at) + END.length);
 chk(!!listener, 'the page\'s download-link listener was found in web/index.html');
@@ -69,8 +69,15 @@ const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
-      let p = '';
-      try { p = JSON.parse(body).path; } catch { p = ''; }
+      let b = {};
+      try { b = JSON.parse(body) || {}; } catch { b = {}; }
+      if (b.ask === true) {   // the page's one look at load: no key made
+        seen.push({ ask: true });
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, key: null, needed: !(MODERN && req.headers['sec-fetch-site']) }));
+        return;
+      }
+      const p = typeof b.path === 'string' ? b.path : '';
       seen.push({ mint: p });
       if (MODERN && req.headers['sec-fetch-site']) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true,"key":null,"needed":false}'); return; }
       if (p.startsWith('/api/agent/max/export')) { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"an older board"}'); return; }
@@ -148,12 +155,15 @@ async function saved(page, act) {
 
       // A current browser (it sends Sec-Fetch-Site): told no key is needed once, then its links are left alone.
       MODERN = true;
+      seen.length = 0;
       await page.goto(base + '/remote');
+      await page.waitForTimeout(300);
+      chk(seen.filter((x) => x.ask).length === 1, tag + 'a page over Kosmos+ asks once, at load, whether keys are needed', JSON.stringify(seen));
       seen.length = 0;
       const m1 = await saved(page, () => page.click('a.exp'));
       const m2 = await saved(page, () => page.click('a.exp'));
       chk(m1 === 'file for /api/agent/max/export' && m2 === 'file for /api/agent/max/export', tag + 'a current browser: both downloads save', JSON.stringify({ m1, m2 }));
-      chk(seen.filter((x) => 'mint' in x).length === 1 && !seen.some((x) => x.key), tag + 'asked once, given no key, and the second click asks nothing', JSON.stringify(seen));
+      chk(!seen.some((x) => 'mint' in x) && !seen.some((x) => x.key), tag + 'told at load that no key is needed, so neither click asks for one (the download starts in the click)', JSON.stringify(seen));
       MODERN = false;
 
       await page.goto(base + '/local');
