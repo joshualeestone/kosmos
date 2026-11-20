@@ -6078,6 +6078,13 @@ BOARDEOF
       if [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ] && [ "$(systemctl --user is-enabled "$_kpc_timer" 2>/dev/null)" != enabled ]; then
         info "note: systemd did not enable $_kpc_timer, so if an update is ever stopped partway, Kosmos stays off until you run: kosmos start"
       fi
+      # kosmos#8786 S2: on a Kosmos Cloud computer installBoard writes the nightly update's timer; its unit file is there
+      # only then. A timer systemd would not enable never runs, so say so, as for the pause check.
+      _kcu_timer="$(_kosmos_linux_cloud_update_base).timer"
+      if [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ] && [ -f "$HOME/.config/systemd/user/$_kcu_timer" ] \
+         && [ "$(systemctl --user is-enabled "$_kcu_timer" 2>/dev/null)" != enabled ]; then
+        info "note: systemd did not enable $_kcu_timer, so this Cloud computer will not update itself at night; it updates when you run: kosmos update --if-newer"
+      fi
       _kosmos_board_decide
       # The first hand-over (loose) only with linger on: without it the unit dies at logout, while the board setup.sh
       # started survives it (logind keeps user processes by default), so handing over would make a no-linger server less

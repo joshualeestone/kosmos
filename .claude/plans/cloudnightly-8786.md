@@ -14,9 +14,9 @@ S2 interface (issuecomment by Baron, 23:38).
   `autoInstallWouldStart` stay as they are.
 
 ## Read in code before building (premise, posted on the card 23:5x)
-- `engine/update.js updateChannel()`: an explicit `KOSMOS_UPDATE_CHANNEL` wins ("'staging' is staging, ANY other
-  value is prod"). So S2 sets `KOSMOS_UPDATE_CHANNEL=prod` and runs the existing `kosmos update --if-newer`; no
-  channel-logic change.
+- `engine/update.js updateChannel()`: on Linux an explicit `AGENT_WORKFORCE_UPDATE_CHANNEL`, then
+  `KOSMOS_UPDATE_CHANNEL`, wins ("'staging' is staging, ANY other value is prod"). So S2 sets both to prod and runs the
+  existing `kosmos update --if-newer`; no channel-logic change.
 - Side effect, decided: `cmd_update` then passes `KOSMOS_SOURCE_CHANNEL=prod`, and setup.sh rewrites the box's
   `source-channel` stamp to prod. A Cloud box created on staging is on prod for good after its first nightly install.
 - The Cloud signal is `engine/cloudmachine.js isCloudMachine()` (the tunnel's `hosted` latch), not `KOSMOS_CLOUD=1`,
@@ -33,8 +33,13 @@ S2 interface (issuecomment by Baron, 23:38).
    every skip and the result go to logs/install.log with a `cloud-update:` prefix.
 3. `engine/linuxboard.js`: `cloudUpdateNames()` and `cloudUpdateUnitsFor()` (kosmos-cloud-update[.<hash>].service and
    .timer), written and enabled by `installBoard` only when `isCloudMachine()`; removed by `removeBoard`; names kept
-   apart from kosmos-board* as the pause check's are. Timer: once a night in the box's quiet hours, with a randomized
-   delay so the fleet does not all fetch at once, Persistent=false (a missed night is simply skipped).
+   apart from kosmos-board* as the pause check's are. Timer: 08:00 UTC, fixed in UTC because a Cloud box's clock says
+   nothing about where its person is (the small hours across the Americas; daytime in Europe and Asia, where the busy
+   check is what protects the person), plus up to 2h at random so the fleet does not all fetch at once,
+   Persistent=false (a missed night is simply skipped). The service carries the board unit's PATH, port and carried
+   values (setup.sh rewrites the board unit from the environment it runs in), KillMode=process (a board the installer
+   starts outside systemd lands in this cgroup), and TimeoutStartSec=3h. installBoard on a box that is no longer a
+   Cloud box removes earlier nightly units. setup.sh says when systemd would not enable the timer.
 4. setup.sh's Linux uninstall and its own unit-name helper learn the new names, as they do the pause check's.
 
 ## Known limit, stated on the card
