@@ -21600,14 +21600,19 @@ window.addEventListener('unhandledrejection', (e) => {
   const settle = (el) => { const pic = isBoardPic(el); if (pic && el.tagName !== 'IMG') settled.set(el, pic.raw); };
   const onLoad = (e) => { if (e && e.target && e.target.tagName) settle(e.target); };
   // Loading now, at this address: an <img> says so itself (an image element not complete is fetching or waiting to);
-  // an SVG <image> is loading when it has not yet settled at its current address. A lazy picture outside the viewport
-  // has asked for nothing yet, so it is not counted (its later failure goes through the worker like any other).
+  // an SVG <image> is loading when it has not yet settled at its current address. A lazy <img> is counted only when
+  // it is laid out (a hidden one has asked for nothing) and within 3000 px of the screen (wider than the margin at
+  // which a browser starts a lazy load, so one already loading is never missed; one in that band that had not
+  // started yet costs at most one more ask if it later really fails).
+  const LAZY_BAND = 3000;
   const loadingNow = (el, raw) => {
     if (el.tagName === 'IMG') {
       if (el.complete) return false;
       if (el.loading === 'lazy') {
+        if (!el.getClientRects().length) return false;
         const r = el.getBoundingClientRect();
-        if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) return false;
+        const h = window.innerHeight, w = window.innerWidth;
+        if (r.bottom < -LAZY_BAND || r.top > h + LAZY_BAND || r.right < -LAZY_BAND || r.left > w + LAZY_BAND) return false;
       }
       return true;
     }

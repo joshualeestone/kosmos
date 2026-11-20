@@ -123,7 +123,9 @@ const server = http.createServer((req, res) => {
       // Still loading when the worker takes charge, refused only after: an SVG avatar, and the reused <img>.
       await page.evaluate(() => {
         // Off screen and lazy: it has asked for nothing yet when the worker takes charge.
-        document.body.insertAdjacentHTML('beforeend', '<div style="height:6000px"></div><img class="lpv lazy" loading="lazy" src="/api/gone/lazypv" alt="" style="width:20px;height:20px">');
+        // Far beyond the 3000 px band, and one hidden (display:none): neither has asked for anything yet.
+        document.body.insertAdjacentHTML('beforeend', '<div style="height:9000px"></div><img class="lpv lazy" loading="lazy" src="/api/gone/lazypv" alt="" style="width:20px;height:20px">'
+          + '<div class="hid" style="display:none"><img class="lpv lazyhid" loading="lazy" src="/api/gone/lazyhid" alt="" style="width:20px;height:20px"></div>');
         window.drawSvg('/api/agent/slowsvg/avatar');
         document.querySelector('img.reuse').setAttribute('src', '/api/agent/slowreuse/avatar');
         window.registerWorker();
@@ -147,6 +149,10 @@ const server = http.createServer((req, res) => {
       await page.waitForTimeout(1200);
       chk(count('/api/gone/lazypv') === 1 && (await page.evaluate(() => window.lpvFailed())).includes('/api/gone/lazypv'),
         tag + 'CONTROL: a lazy 404 preview off screen at the takeover, loaded later through the worker, is asked for once and stays on kosmos#8636\'s failed list', JSON.stringify(asked.filter((a) => a.path.includes('lazypv'))));
+      await page.evaluate(() => { document.querySelector('.hid').style.display = 'block'; document.querySelector('img.lazyhid').scrollIntoView(); });
+      await page.waitForTimeout(1200);
+      chk(count('/api/gone/lazyhid') === 1 && (await page.evaluate(() => window.lpvFailed())).includes('/api/gone/lazyhid'),
+        tag + 'CONTROL: a lazy 404 preview hidden at the takeover, shown later, is asked for once and stays on kosmos#8636\'s failed list', JSON.stringify(asked.filter((a) => a.path.includes('lazyhid'))));
       await page.evaluate(() => window.scrollTo(0, 0));
       chk(reuse.loaded && count('/api/agent/slowreuse/avatar', true) === 1, tag + 'a reused <img> loading a new board address at the takeover, refused after it, is asked for again and shows', JSON.stringify({ reuse, asked: asked.filter((a) => a.path.includes('slowreuse')) }));
       chk(count('/api/open/avatar') === 1, tag + 'a picture that loaded is not asked for again', JSON.stringify(asked.filter((a) => a.path.includes('open'))));
@@ -197,7 +203,9 @@ const server = http.createServer((req, res) => {
           window.drawPics(['/api/agent/hard/avatar?v=9', '/api/agent/slow/avatar', '/api/agent/never/avatar']);
           document.querySelector('.pics').insertAdjacentHTML('beforeend', '<img class="lpv" src="/api/agent/slowpv/pic" alt="">');
         });
-        await page.waitForTimeout(3500);
+        // Wait for the late-refused picture itself (it loads at about 3 s), not a fixed time.
+        await page.waitForFunction(() => { const i = document.querySelectorAll('.pics img')[1]; return i && i.complete && i.naturalWidth > 0; }, null, { timeout: 9000 }).catch(() => {});
+        await page.waitForTimeout(500);
         const hard = await page.evaluate(() => ({ ctl: !!navigator.serviceWorker.controller, pics: window.readPics() }));
         chk(hard.ctl, tag + 'a hard reload: once a picture failed, the worker was asked to take charge and did', JSON.stringify(hard));
         chk(hard.pics[0] && hard.pics[0].loaded, tag + 'and the refused picture shows', JSON.stringify(asked.filter((a) => a.path.includes('hard'))));

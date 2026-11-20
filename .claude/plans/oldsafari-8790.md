@@ -28,7 +28,9 @@ Nothing a person sees in the ordinary case. The costs, all bounded:
 - In the two minutes after a takeover (a first visit, a hard reload, a worker update): a board picture that was
   loading at the takeover and then really fails is asked for once more, and its address leaves kosmos#8636's
   failed-preview list, so a later redraw of that card asks for it once more too. A picture noted as failed before a
-  worker update is asked for once more at the update. A lazy picture off screen at the takeover is not counted.
+  worker update is asked for once more at the update. A lazy picture hidden, or more than 3000 px from the
+  screen, at the takeover is not counted; one within that band is (it may already be loading), so if it then really
+  fails it is asked for once more.
 - After the two minutes nothing here listens.
 
 ## Not in this step
