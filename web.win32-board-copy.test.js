@@ -687,7 +687,7 @@ test('MAC UNCHANGED: every static Mac string this branch keyed or hid still read
     />Turning on accessibility lets Kosmos agents work in your other applications on this computer\.<\/p>/,
     />Open Accessibility settings<\/button>/,
     /<h3 class="dlab">If you see a box asking about &ldquo;tmux&rdquo;<\/h3>/,
-    /<b>Update Kosmos automatically<\/b>\s*<p class="dhint" style="margin:2px 0 0;">On by default\. New versions install themselves, which takes a few seconds and reloads this board\. Agents keep running throughout\.<\/p>/,
+    /<b>Update Kosmos automatically<\/b>\s*<p class="dhint" style="margin:2px 0 0;" data-cloud-copy="autoHint">On by default\. New versions install themselves, which takes a few seconds and reloads this board\. Agents keep running throughout\.<\/p>/,
     />Advanced<\/button>/,  // #2916 renamed the nav pill Mac label Terminal -> Advanced
     />This agent&rsquo;s Terminal<\/h3>/,
     />Open Terminal<\/button>/,
@@ -792,12 +792,12 @@ test('#5865: Settings on Linux has no Dock line, app icon, Accessibility or tmux
     'its hint': /data-linux-hide>One folder for every project, with a file for each conversation\./,
     'task: Show me where the task conversations live': /id="tk-chats-reveal" data-remote-hide type="button" style="margin-top:12px;" data-linux-hide>/,
     'its hint (task)': /data-linux-hide>One folder, with a file for each task's conversation\./,
-    // kosmos#7935: a Linux board cannot replace itself (platform.js SELF_INSTALL), so update.js autoInstallWouldStart
-    // is false there and the update card gives the command instead; the automatic-update switch would promise
-    // installs that never happen.
-    'Update Kosmos automatically': /<div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide data-linux-hide>/,
-    'its status line (auto-update)': /<p class="dhint" id="auto-msg"[^>]*data-win-hide data-linux-hide>/,
   };
+  // kosmos#7935: a Linux board cannot replace itself (platform.js SELF_INSTALL), so the automatic-update switch would
+  // promise installs that never happen; kosmos#8786: except on a Kosmos Cloud computer, whose nightly update it turns
+  // off. So it carries the Cloud-aware twin of the attribute (web.cloudupdate-switch-8786.test.js runs it).
+  assert.match(PAGE, /<div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide data-linux-hide-unless-cloud>/, 'the auto-update switch shows on plain Linux');
+  assert.match(PAGE, /<p class="dhint" id="auto-msg"[^>]*data-win-hide data-linux-hide-unless-cloud>/, 'its status line shows on plain Linux');
   for (const [name, re] of Object.entries(HIDDEN_ON_LINUX)) assert.match(PAGE, re, name + ' shows on Linux');
   const markup = PAGE.replace(/<script\b[\s\S]*?<\/script>/g, '').replace(/<style\b[\s\S]*?<\/style>/g, '').replace(/<!--[\s\S]*?-->/g, '');
   assert.equal((markup.match(/\sdata-linux-hide[\s>]/g) || []).length, Object.keys(HIDDEN_ON_LINUX).length,

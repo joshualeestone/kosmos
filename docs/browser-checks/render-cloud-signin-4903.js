@@ -178,7 +178,7 @@ async function hideArm(browser, cloud) {
     check('cloud: No agents yet says the agent runs on your cloud machine', /runs on your cloud machine and keeps going while you are away/.test(hc.empty), hc.empty.slice(0, 160));
     check('CONTROL mac: No agents yet keeps "this computer"', /runs on this computer/.test(hm.empty), hm.empty.slice(0, 160));
     check('cloud: the rename hint says your cloud machine', /where they live on your cloud machine,/.test(hc.hint), hc.hint);
-    check('cloud (kosmos#8786): the Update Kosmos automatically switch is shown, with the nightly words', hc.autoShown && /^On by default\. Once a night, while no agent is working,/.test(hc.autoHint), `${hc.autoShown} ${hc.autoHint.slice(0, 80)}`);
+    check('cloud (kosmos#8786): the Update Kosmos automatically switch is shown, with the nightly words', hc.autoShown && /^On by default\. Once a night, while no agent is working,.*Turn this off and it stops updating itself\.$/.test(hc.autoHint), `${hc.autoShown} ${hc.autoHint.slice(0, 80)}`);
     check('CONTROL mac (kosmos#8786): the switch is shown with the Mac words', hm.autoShown && /^On by default\. New versions install themselves/.test(hm.autoHint), `${hm.autoShown} ${hm.autoHint.slice(0, 80)}`);
     check('CONTROL mac: the rename hint says this computer', /where they live on this computer,/.test(hm.hint), hm.hint);
     // kosmos#7640 (the 10-30 Cloud walk, items 2 and 6).

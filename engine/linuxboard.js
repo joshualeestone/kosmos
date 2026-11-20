@@ -344,8 +344,9 @@ function removeBoard(kosmosHome) {
   runner('systemctl', ['--user', 'disable', '--now', check.timer]);
   runner('systemctl', ['--user', 'stop', check.service]);
   /* kosmos#8786 S2: the nightly update too, whether or not this is (still) a Cloud box: a latch removed after the
-     install must not leave a timer behind. Only the TIMER is stopped, never the service: an install the nightly run
-     started is a child of that service, and setup.sh may come through here while it runs. */
+     install must not leave a timer behind. Only the timer is stopped here: setup.sh's uninstall, this function's one
+     caller, stops a nightly run in flight itself first (_kosmos_linux_remove_cloud_update), and knows whether it is
+     running inside one. */
   const nightly = cloudUpdateNames(kosmosHome);
   runner('systemctl', ['--user', 'disable', '--now', nightly.timer]);
   try {

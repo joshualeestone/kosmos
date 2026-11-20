@@ -260,3 +260,26 @@ test('a latch that cannot be read (not gone) keeps an earlier install\'s nightly
     }
   }
 });
+
+test('setup.sh\'s uninstall stops a nightly run in flight, after disabling its timer (a stub systemctl records the calls)', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudupdate-uninstall-stop-'));
+  try {
+    const kh = '/srv/kosmos-y';
+    const n = linuxboard.cloudUpdateNames(kh);
+    fs.writeFileSync(path.join(tmp, n.timer), 'x');
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudupdate-stubbin-'));
+    const log = path.join(bin, 'calls');
+    fs.writeFileSync(path.join(bin, 'systemctl'), '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "' + log + '"\nexit 0\n', { mode: 0o755 });
+    const fns = shellFns(['_kosmos_linux_unit_name', '_kosmos_linux_cloud_update_base', '_kosmos_linux_remove_cloud_update']);
+    const r = spawnSync('/bin/bash', ['-c', fns + '\n_kosmos_linux_remove_cloud_update'], {
+      env: { PATH: bin + ':/bin:/usr/bin', KOSMOS_HOME: kh, _kosmos_home_default: '/nowhere', AGENT_WORKFORCE_SYSTEMD_DIR: tmp }, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    const calls = fs.readFileSync(log, 'utf8').trim().split('\n');
+    const dis = calls.indexOf('--user disable --now ' + n.timer);
+    const stop = calls.indexOf('--user stop ' + n.service);
+    assert.ok(dis >= 0 && stop > dis, calls.join(' | '));
+    fs.rmSync(bin, { recursive: true, force: true });
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

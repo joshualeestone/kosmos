@@ -222,13 +222,17 @@ _kosmos_linux_cloud_update_base() {
   _kcu_base="$(_kosmos_linux_unit_name)"; _kcu_base="kosmos-cloud-update${_kcu_base#kosmos-board}"
   printf '%s' "${_kcu_base%.service}"
 }
-# kosmos#8786 S2: removed in the uninstall beside the pause check, whatever the box's latch says now. Only the timer is
-# stopped: an uninstall has no nightly install of its own to protect, but the service's files go, so it cannot run again.
+# kosmos#8786 S2: removed in the uninstall beside the pause check, whatever the box's latch says now. A nightly run in
+# flight is stopped too, so it cannot install into a folder this uninstall is deleting, unless this uninstall is running
+# inside that very service (its cgroup names it), where stopping it would end the uninstall itself.
 _kosmos_linux_remove_cloud_update() {
   _kcr_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
   _kcr_base="$(_kosmos_linux_cloud_update_base)"; _kcr_timer="$_kcr_base.timer"; _kcr_service="$_kcr_base.service"
   [ -f "$_kcr_dir/$_kcr_timer" ] || [ -f "$_kcr_dir/$_kcr_service" ] || return 0
-  if command -v systemctl >/dev/null 2>&1; then systemctl --user disable --now "$_kcr_timer" 2>/dev/null || true; fi
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user disable --now "$_kcr_timer" 2>/dev/null || true
+    grep -qF "/$_kcr_service" /proc/self/cgroup 2>/dev/null || systemctl --user stop "$_kcr_service" 2>/dev/null || true
+  fi
   rm -f "$_kcr_dir/$_kcr_timer" "$_kcr_dir/$_kcr_service" "$_kcr_dir/timers.target.wants/$_kcr_timer"
   if command -v systemctl >/dev/null 2>&1; then systemctl --user daemon-reload 2>/dev/null || true; fi
   return 0
