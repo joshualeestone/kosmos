@@ -17,6 +17,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const linuxboard = require('./linuxboard');
 
@@ -47,10 +48,48 @@ test('the nightly units are named from the board unit, and never as a board unit
   assert.doesNotMatch(linuxboard.cloudUpdateNames(other).service, /^kosmos-(board|pause-check)/);
 });
 
-test('setup.sh derives the same nightly unit name as linuxboard (the uninstall removes what the install wrote)', () => {
+/* The helpers are lifted out of setup.sh (it cannot be sourced: it installs) and RUN, as tools/test-board-revive-6667.sh
+   does for the pause check's, so a broken derivation fails here rather than passing a reading of its text. */
+function shellFns(names) {
   const src = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
-  assert.match(src, /_kosmos_linux_cloud_update_base\(\) \{\n {2}_kcu_base="\$\(_kosmos_linux_unit_name\)"; _kcu_base="kosmos-cloud-update\$\{_kcu_base#kosmos-board\}"/);
-  assert.match(src, /_kosmos_linux_remove_pause_check\n {6}_kosmos_linux_remove_cloud_update\n/, 'the uninstall calls it beside the pause check');
+  return names.map((n) => {
+    const m = src.match(new RegExp('^' + n + '\\(\\) \\{\\n[\\s\\S]*?^\\}$', 'm'));
+    assert.ok(m, 'premise: ' + n + ' is in setup.sh');
+    return m[0];
+  }).join('\n');
+}
+
+test('setup.sh names the nightly units the way linuxboard does, for the default home and another', () => {
+  const fns = shellFns(['_kosmos_linux_unit_name', '_kosmos_linux_cloud_update_base']);
+  const def = path.join(os.homedir(), '.local', 'share', 'kosmos');
+  for (const kh of [def, '/srv/kosmos other home']) {
+    const r = spawnSync('bash', ['-c', fns + '\nb="$(_kosmos_linux_cloud_update_base)"; printf "%s\\n%s" "$b.timer" "$b.service"'],
+      { env: { PATH: process.env.PATH, KOSMOS_HOME: kh, _kosmos_home_default: def }, encoding: 'utf8' });
+    const n = linuxboard.cloudUpdateNames(kh);
+    assert.equal(r.stdout, n.timer + '\n' + n.service, kh + ': ' + r.stderr);
+  }
+});
+
+test('setup.sh\'s uninstall removes the nightly units it names, and is called beside the pause check', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'install', 'setup.sh'), 'utf8');
+  assert.match(src, /_kosmos_linux_remove_pause_check\n {6}_kosmos_linux_remove_cloud_update\n/);
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudupdate-uninstall-'));
+  try {
+    const kh = '/srv/kosmos-x';
+    const n = linuxboard.cloudUpdateNames(kh);
+    fs.mkdirSync(path.join(tmp, 'timers.target.wants'));
+    for (const f of [n.timer, n.service, path.join('timers.target.wants', n.timer), 'kosmos-board.keep.service']) fs.writeFileSync(path.join(tmp, f), 'x');
+    const fns = shellFns(['_kosmos_linux_unit_name', '_kosmos_linux_cloud_update_base', '_kosmos_linux_remove_cloud_update']);
+    // No systemctl on this PATH (an empty folder): the files and the enable link go by themselves.
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'cloudupdate-nopath-'));
+    const r = spawnSync('/bin/bash', ['-c', fns + '\n_kosmos_linux_remove_cloud_update'], {
+      env: { PATH: empty + ':/bin:/usr/bin', KOSMOS_HOME: kh, _kosmos_home_default: '/nowhere', AGENT_WORKFORCE_SYSTEMD_DIR: tmp }, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    for (const f of [n.timer, n.service, path.join('timers.target.wants', n.timer)]) assert.equal(fs.existsSync(path.join(tmp, f)), false, f + ' was left');
+    assert.equal(fs.existsSync(path.join(tmp, 'kosmos-board.keep.service')), true, 'nothing else is touched');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 });
 
 test('the nightly service runs kosmos cloud-update once a night, outside the board, on this board\'s port', () => {
@@ -64,6 +103,9 @@ test('the nightly service runs kosmos cloud-update once a night, outside the boa
   assert.doesNotMatch(service, /^Restart=/m);
   assert.doesNotMatch(service, /^\[Install\]/m, 'only the timer is enabled');
   assert.doesNotMatch(service, /PartOf=|BindsTo=|kosmos-board/, 'not tied to the board unit, whose stop must not end it');
+  assert.match(service, /^KillMode=process$/m, 'a board the installer starts outside systemd survives the run ending');
+  assert.match(service, /^TimeoutStartSec=3h$/m, 'a run that never ends does not swallow every later night');
+  assert.match(service, new RegExp('^Environment="PATH=' + home + '/tmux/bin:/usr/local/bin:', 'm'), 'the board unit\'s PATH');
   assert.match(timer, /^OnCalendar=\*-\*-\* 08:00:00 UTC$/m);
   assert.match(timer, /^RandomizedDelaySec=2h$/m);
   assert.match(timer, /^Persistent=false$/m);
@@ -156,6 +198,43 @@ test('removeBoard removes the nightly units even off a Cloud box, stopping the t
     assert.ok(timer >= 0 && board > timer, 'the timer goes before the board stops: ' + calls.join(' | '));
     assert.equal(calls.some((c) => c.includes('stop ' + names.service)), false,
       'an install the nightly run started is that service\'s child, and setup.sh can come through here while it runs');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('the nightly service carries what the board unit carries, so setup.sh rewrites the board unit with it', () => {
+  const was = { t: process.env.AGENT_WORKFORCE_TMUX_BIN, u: process.env.AGENT_WORKFORCE_CREATED_URL };
+  try {
+    process.env.AGENT_WORKFORCE_TMUX_BIN = '/usr/bin/tmux';
+    process.env.AGENT_WORKFORCE_CREATED_URL = 'http://127.0.0.1:9/created';
+    const { service } = linuxboard.cloudUpdateUnitsFor('/home/user/k', 17000);
+    const board = linuxboard.boardUnitFor('/home/user/k', 17000);
+    for (const re of [/^Environment="AGENT_WORKFORCE_TMUX_BIN=\/usr\/bin\/tmux"$/m, /^Environment="AGENT_WORKFORCE_CREATED_URL=http:\/\/127\.0\.0\.1:9\/created"$/m]) {
+      assert.match(service, re); assert.match(board, re);
+    }
+    assert.equal(service.match(/^Environment="PATH=.*$/m)[0], board.match(/^Environment="PATH=.*$/m)[0]);
+    delete process.env.AGENT_WORKFORCE_TMUX_BIN; delete process.env.AGENT_WORKFORCE_CREATED_URL;
+    assert.doesNotMatch(linuxboard.cloudUpdateUnitsFor('/home/user/k', 17000).service, /AGENT_WORKFORCE_/, 'CONTROL: unset, nothing is carried');
+  } finally {
+    for (const [k, v] of [['AGENT_WORKFORCE_TMUX_BIN', was.t], ['AGENT_WORKFORCE_CREATED_URL', was.u]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+});
+
+test('installBoard on a box that is no longer a Cloud box removes an earlier install\'s nightly units', () => {
+  const calls = [];
+  linuxboard.setRunnerForTests(record(calls));
+  linuxboard.setCloudForTests(() => false);
+  const { tmp, home } = sandbox('cloudupdate-stale-');
+  try {
+    const names = linuxboard.cloudUpdateNames(home);
+    fs.mkdirSync(path.join(tmp, 'timers.target.wants'));
+    for (const f of [names.service, names.timer, path.join('timers.target.wants', names.timer)]) fs.writeFileSync(path.join(tmp, f), 'x');
+    const r = linuxboard.installBoard(home, 17000);
+    assert.equal(r.ok, true);
+    for (const f of [names.service, names.timer, path.join('timers.target.wants', names.timer)]) assert.equal(fs.existsSync(path.join(tmp, f)), false, f + ' was left');
+    assert.ok(calls.includes('--user disable --now ' + names.timer), calls.join(' | '));
+    assert.equal(calls.some((c) => c.includes('stop ' + names.service)), false, 'never the service');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

@@ -23,16 +23,18 @@ function home() {
   fs.mkdirSync(path.join(h, 'app', 'engine'), { recursive: true });
   fs.writeFileSync(path.join(h, 'app', 'engine', 'cloudnightly.js'),
     "if (process.argv[2] === 'decide') process.stdout.write(process.env.STUB_DECIDE + '\\n');\n");
-  // The update look answers `current <the channel it was handed>`, so the log shows which pointer the run asked for.
+  // The update look answers `current <KOSMOS_UPDATE_CHANNEL>/<AGENT_WORKFORCE_UPDATE_CHANNEL>`, so the log shows which
+  // pointer the run asked for under both names update.js reads.
   fs.writeFileSync(path.join(h, 'app', 'engine', 'update-ifnewer.js'),
-    "process.stdout.write('current\\t' + (process.env.KOSMOS_UPDATE_CHANNEL || 'none') + '\\n');\n");
+    "const e = process.env; process.stdout.write('current\\t' + (e.KOSMOS_UPDATE_CHANNEL || 'none') + '/' + (e.AGENT_WORKFORCE_UPDATE_CHANNEL || 'none') + '\\n');\n");
   return h;
 }
 
-function run(h, decide) {
+function run(h, decide, extra = {}) {
   const env = { ...process.env, KOSMOS_HOME: h, KOSMOS_PLATFORM: 'Linux', STUB_DECIDE: decide };
   // Not an agent: a test run inside an agent's pane would be refused as one (and must not touch the live session).
   for (const k of ['TMUX', 'TMUX_PANE', 'KOSMOS_AGENT_SESSION', 'KOSMOS_AGENT_TOKEN', 'KOSMOS_UPDATE_CHANNEL', 'AGENT_WORKFORCE_UPDATE_CHANNEL']) delete env[k];
+  Object.assign(env, extra);
   return spawnSync('bash', [KOSMOS, 'cloud-update'], { env, encoding: 'utf8', timeout: 30000 });
 }
 const log = (h) => { try { return fs.readFileSync(path.join(h, 'logs', 'install.log'), 'utf8'); } catch { return ''; } };
@@ -59,20 +61,20 @@ test('no answer from the check is a said skip, not a run', () => {
   assert.doesNotMatch(log(h), /current/);
 });
 
-test('a run reaches the update look on the PROD channel and logs its answer', () => {
+test('a run reaches the update look on the PROD channel and logs its answer, whatever channel the caller had', () => {
   const h = home();
-  const r = run(h, 'run');
+  const r = run(h, 'run', { KOSMOS_UPDATE_CHANNEL: 'staging', AGENT_WORKFORCE_UPDATE_CHANNEL: 'staging' });
   assert.equal(r.status, 0, r.stderr);
   const l = log(h);
   assert.match(l, /cloud-update: looking for a newer prod build\n/);
-  assert.match(l, /cloud-update: current prod \(exit 0\)\n$/, 'the look was handed KOSMOS_UPDATE_CHANNEL=prod: ' + l);
+  assert.match(l, /cloud-update: current prod\/prod \(exit 0\)\n$/, 'the look was handed prod under both names: ' + l);
 });
 
 test('CONTROL: the channel stub can show another channel, so the prod line above is not a constant', () => {
   const h = home();
-  const env = { ...process.env, KOSMOS_HOME: h, KOSMOS_UPDATE_CHANNEL: 'staging' };
+  const env = { ...process.env, KOSMOS_HOME: h, KOSMOS_UPDATE_CHANNEL: 'staging', AGENT_WORKFORCE_UPDATE_CHANNEL: 'staging' };
   const r = spawnSync(process.execPath, [path.join(h, 'app', 'engine', 'update-ifnewer.js')], { env, encoding: 'utf8' });
-  assert.equal(r.stdout, 'current\tstaging\n');
+  assert.equal(r.stdout, 'current\tstaging/staging\n');
 });
 
 test('a run while another install is under way logs the refusal and its exit', () => {

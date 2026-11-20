@@ -2182,7 +2182,9 @@ EOF
   esac
   _cloud_log "looking for a newer prod build"
   # A subshell, because cmd_update ends with exit. Its last line is the answer (current/newer/updated/failed/...).
-  _out="$( KOSMOS_UPDATE_CHANNEL=prod cmd_update --if-newer 2>&1 )" || _rc=$?
+  # Both names: on Linux update.js reads AGENT_WORKFORCE_UPDATE_CHANNEL first, so a staging value from the user
+  # manager's environment would otherwise win over ours.
+  _out="$( AGENT_WORKFORCE_UPDATE_CHANNEL=prod KOSMOS_UPDATE_CHANNEL=prod cmd_update --if-newer 2>&1 )" || _rc=$?
   _cloud_log "$(printf '%s' "$_out" | tail -n 1 | tr '\t' ' ') (exit $_rc)"
   exit "$_rc"
 }

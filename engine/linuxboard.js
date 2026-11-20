@@ -131,17 +131,23 @@ function cloudUpdateNames(kosmosHome) {
 
 /* kosmos#8786 S2: a oneshot that runs `kosmos cloud-update` once a night. Its own unit, outside the board's, so the
    installer's stop of the board cannot kill the run that started it (S1 to S2 interface, point 2). It carries the
-   board's port, so the run reads this board's /api/status. The time is 08:00 UTC (02:00 Central, 03:00 Eastern), plus
-   up to two hours at random so a fleet of boxes does not fetch at once. Persistent=false: a box that was off at that
-   time skips the night rather than updating when it comes back, which may be while its person is using it. */
+   board's port, so the run reads this board's /api/status, and the board unit's PATH and carried values, because the
+   update re-runs setup.sh from this unit's environment and setup.sh rewrites the board's unit from it.
+   KillMode=process, as the board's: a board the installer starts outside systemd (no enabled unit, or no linger)
+   lands in this unit's cgroup, and the default would kill it when the run exits.
+   The hour is fixed in UTC on purpose: a Cloud box's own clock says nothing about where its person is. 08:00 UTC is
+   the small hours across the Americas; the random two hours stop a fleet of boxes fetching at once. Persistent=false:
+   a box that was off then skips the night rather than updating when it comes back, which may be while its person is
+   using it. TimeoutStartSec bounds a run that never ends, which would otherwise swallow every later night quietly. */
 function cloudUpdateUnitsFor(kosmosHome, port) {
   const home = path.resolve(kosmosHome || process.env.KOSMOS_HOME || defaultKosmosHome());
   const kosmosBin = path.join(home, 'bin', 'kosmos');
   const p = Number(port) || require('./create').boardPort();
   if (!Number.isInteger(p) || p < 1 || p > 65535) throw new Error('the board port is not a port number');
   const userHome = os.homedir();
+  const carried = carriedEnv();
   const { unitSafe } = require('./linuxjob');
-  for (const [v, what] of [[home, 'the Kosmos folder'], [userHome, 'the home folder']]) unitSafe(v, what);
+  for (const [v, what] of [[home, 'the Kosmos folder'], [userHome, 'the home folder'], [carried.sysTmux, 'the tmux path']]) unitSafe(v, what);
   const names = cloudUpdateNames(home);
   const service = `[Unit]
 Description=Kosmos: install the newest Kosmos once a night on a Kosmos Cloud computer (kosmos#8786)
@@ -154,10 +160,12 @@ ExecStart=/bin/bash "${kosmosBin}" cloud-update
 WorkingDirectory=${home}
 Environment="HOME=${userHome}"
 Environment="KOSMOS_HOME=${home}"
-Environment="PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+Environment="PATH=${unitPathValue(home, carried.sysTmux)}"
 Environment="LANG=C.UTF-8"
 Environment="KOSMOS_PORT=${p}"
 Environment="PORT=${p}"
+${carriedEnvLines(carried)}KillMode=process
+TimeoutStartSec=3h
 `;
   const timer = `[Unit]
 Description=Kosmos: once a night, look for a newer Kosmos on this Cloud computer (kosmos#8786)
@@ -178,6 +186,23 @@ WantedBy=timers.target
 let isCloudFn = () => require('./cloudmachine').isCloudMachine();
 function setCloudForTests(fn) { isCloudFn = typeof fn === 'function' ? fn : () => require('./cloudmachine').isCloudMachine(); }
 
+/* The two values an install carries from its own environment into the board's unit (#4918 review 2, #5519), in one
+   place: an update re-runs setup.sh from the environment of whatever ran it, and the nightly service (kosmos#8786) must
+   hand setup.sh the same values the board's unit would, or the rewritten board unit loses them. */
+function carriedEnv() {
+  const sysTmux = typeof process.env.AGENT_WORKFORCE_TMUX_BIN === 'string' && path.isAbsolute(process.env.AGENT_WORKFORCE_TMUX_BIN)
+    ? process.env.AGENT_WORKFORCE_TMUX_BIN : '';
+  const rawBeacon = process.env.AGENT_WORKFORCE_CREATED_URL;
+  const beaconUrl = typeof rawBeacon === 'string' && /^https?:\/\/[^\s"'\\%]+$/.test(rawBeacon) ? rawBeacon : '';
+  return { sysTmux, beaconUrl };
+}
+function carriedEnvLines({ sysTmux, beaconUrl }) {
+  return `${sysTmux ? `Environment="AGENT_WORKFORCE_TMUX_BIN=${sysTmux}"\n` : ''}${beaconUrl ? `Environment="AGENT_WORKFORCE_CREATED_URL=${beaconUrl}"\n` : ''}`;
+}
+function unitPathValue(home, sysTmux) {
+  return `${path.join(home, 'tmux', 'bin')}:${sysTmux ? path.dirname(sysTmux) + ':' : ''}/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
+}
+
 function boardUnitFor(kosmosHome, port) {
   const home = path.resolve(kosmosHome || process.env.KOSMOS_HOME || defaultKosmosHome());
   const kosmosBin = path.join(home, 'bin', 'kosmos');
@@ -186,21 +211,18 @@ function boardUnitFor(kosmosHome, port) {
   if (!Number.isInteger(p) || p < 1 || p > 65535) throw new Error('the board port is not a port number');
   const userHome = os.homedir();
   const stopMarker = path.join(home, 'board.stopped');
-  const tmuxBinDir = path.join(home, 'tmux', 'bin');
   /* #4918 review 2: a Linux install may use the system tmux (no bundled one). The installer's board-run accepts it
      through AGENT_WORKFORCE_TMUX_BIN, so the unit carries that, or a board started by systemd would refuse as
      "incomplete" and restart every 5 seconds. */
-  const sysTmux = typeof process.env.AGENT_WORKFORCE_TMUX_BIN === 'string' && path.isAbsolute(process.env.AGENT_WORKFORCE_TMUX_BIN)
-    ? process.env.AGENT_WORKFORCE_TMUX_BIN : '';
   /* #5519 (Josh 10-07: do not count our own Linux installs): an install made with AGENT_WORKFORCE_CREATED_URL set (our
      CI and test runs point it at a dead local address) keeps it in the unit, so the board's install beacon
      (engine/createdbeacon.js) never reaches the live counter, across restarts and updates (an update re-runs setup
      from the board's own environment). Unset, which every real install is, the unit is unchanged. Only a plain
      http(s) URL is carried: no whitespace, quotes, backslash or % (systemd's specifier); anything else is left out
      rather than failing an install. */
-  const rawBeacon = process.env.AGENT_WORKFORCE_CREATED_URL;
-  const beaconUrl = typeof rawBeacon === 'string' && /^https?:\/\/[^\s"'\\%]+$/.test(rawBeacon) ? rawBeacon : '';
-  const pathVal = `${tmuxBinDir}:${sysTmux ? path.dirname(sysTmux) + ':' : ''}/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`;
+  const carried = carriedEnv();
+  const { sysTmux } = carried;
+  const pathVal = unitPathValue(home, sysTmux);
   const { unitSafe } = require('./linuxjob');
   for (const [v, what] of [[home, 'the Kosmos folder'], [userHome, 'the home folder'], [sysTmux, 'the tmux path']]) unitSafe(v, what);
 
@@ -217,7 +239,7 @@ Environment="PATH=${pathVal}"
 Environment="LANG=C.UTF-8"
 Environment="KOSMOS_PORT=${p}"
 Environment="PORT=${p}"
-${sysTmux ? `Environment="AGENT_WORKFORCE_TMUX_BIN=${sysTmux}"\n` : ''}${beaconUrl ? `Environment="AGENT_WORKFORCE_CREATED_URL=${beaconUrl}"\n` : ''}# The board writes where install/kosmos says it does (BOARD_LOG = $KOSMOS_HOME/logs/board.log), as on the Mac,
+${carriedEnvLines(carried)}# The board writes where install/kosmos says it does (BOARD_LOG = $KOSMOS_HOME/logs/board.log), as on the Mac,
 # never only to the journal: kosmos start sends the person to that file when the board does not come up (review 16).
 StandardOutput=append:${path.join(home, 'logs', 'board.log')}
 StandardError=append:${path.join(home, 'logs', 'board.log')}
@@ -259,6 +281,13 @@ function installBoard(kosmosHome, port) {
   if (nightly) {
     fs.writeFileSync(path.join(path.dirname(target), nightly.names.service), nightly.service, 'utf8');
     fs.writeFileSync(path.join(path.dirname(target), nightly.names.timer), nightly.timer, 'utf8');
+  } else {
+    // No longer a Cloud box (the latch was removed): an earlier install's nightly units go, as removeBoard removes them.
+    const stale = cloudUpdateNames(kosmosHome);
+    if (fs.existsSync(path.join(path.dirname(target), stale.timer))) runner('systemctl', ['--user', 'disable', '--now', stale.timer]);
+    for (const f of [stale.timer, stale.service, path.join('timers.target.wants', stale.timer)]) {
+      try { const sp = path.join(path.dirname(target), f); if (fs.lstatSync(sp, { throwIfNoEntry: false })) fs.unlinkSync(sp); } catch { /* the next install tries again */ }
+    }
   }
   const reload = runner('systemctl', ['--user', 'daemon-reload']);
   if (!reload || !reload.ok) return { ok: false, because: 'systemd did not reload its user units: ' + ((reload && (reload.stderr || reload.because)) || '').trim() };
@@ -314,7 +343,7 @@ function removeBoard(kosmosHome) {
       if (fs.lstatSync(p, { throwIfNoEntry: false })) fs.unlinkSync(p);   // lstat: a dangling link counts
     }
   } catch (err) {
-    return { ok: false, because: 'the board\'s pause check could not be deleted: ' + ((err && err.message) || String(err)) };
+    return { ok: false, because: 'the board\'s pause check or nightly update could not be deleted: ' + ((err && err.message) || String(err)) };
   }
   const st = runner('systemctl', ['--user', 'stop', unit]);
   if (failed(st)) return { ok: false, because: 'systemd could not stop the board: ' + String(st.stderr || st.because || '').trim() };
