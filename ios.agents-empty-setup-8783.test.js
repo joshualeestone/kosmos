@@ -20,10 +20,12 @@ function noAgentsView() {
   return SRC.slice(at, SRC.indexOf('\n    }\n', at));
 }
 
-test('kosmos#8783: the empty Agents tab offers "Set up Kosmos", which opens the board (its setup)', () => {
+test('kosmos#8783: the empty Agents tab offers "Make an agent", which opens the BOARD\'s New agent form', () => {
   const view = noAgentsView();
   assert.match(view, /accessibilityIdentifier\("agents-empty"\)/, 'CONTROL: this is the empty state');
-  assert.match(view, /Button \{ openBoard\(\) \} label: \{ Text\("Set up Kosmos"\)/, 'no button into setup');
+  assert.match(view, /Button \{ createOnBoard\(\) \} label: \{ Text\("Make an agent"\)/, 'no button that makes an agent');
+  const content = fs.readFileSync(path.join(__dirname, 'ios', 'Kosmos', 'ContentView.swift'), 'utf8');
+  assert.match(content, /createOnBoard: \{ openCreate\(\.agent\) \}/, 'createOnBoard must open the board form, never the native sheet');
   assert.match(view, /accessibilityIdentifier\("agents-empty-setup"\)/, 'the button has no identifier for a UI test');
   assert.match(view, /Text\("It takes a few steps, and you can stop at any point\."\)/, 'Mona Lisa\'s line under the heading (11-19)');
 });

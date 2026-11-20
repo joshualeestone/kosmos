@@ -525,7 +525,7 @@ struct ContentView: View {
         if which == .agents {
             AgentsView(client: board, push: pushManager, agentRequest: $agentRequest, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, openBoard: { showBoardToday() }, create: {
+            }, openBoard: { showBoardToday() }, createOnBoard: { openCreate(.agent) }, create: {
                 // kosmos#7488: the native New Agent flow posts to the computer this phone is connected to; before that
                 // computer has let the phone in there is none, so the board page is used, as New project does.
                 if board.macURL != nil { newAgentOpen = true } else { openCreate(.agent) }

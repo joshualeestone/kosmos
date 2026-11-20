@@ -13,6 +13,9 @@ struct AgentsView: View {
     @Binding var agentRequest: PushBridge.AgentTarget?
     let openChat: (URL) -> Void
     let openBoard: () -> Void
+    /* kosmos#8783 (Mona Lisa, 11-19): the empty state's one button opens the BOARD's New agent form, never the native
+       sheet: a person not yet set up then meets the board's first-run setup, and one who is lands on the form. */
+    var createOnBoard: () -> Void = {}
     // kosmos#7266: the + at the top right, the board's own new-agent form (ContentView.openCreate).
     var create: () -> Void = {}
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -395,7 +398,7 @@ struct AgentsView: View {
                (connecting a model) is the board's own setup, so this offers the way in instead of sending them to
                Settings to find it (a customer's first setup, 11-19). One tap, never an automatic jump. */
             Text("It takes a few steps, and you can stop at any point.").font(.subheadline).foregroundColor(Palette.secondary)
-            Button { openBoard() } label: { Text("Set up Kosmos").foregroundColor(Palette.card) }
+            Button { createOnBoard() } label: { Text("Make an agent").foregroundColor(Palette.card) }
                 .buttonStyle(.borderedProminent)
                 .padding(.top, 6)
                 .accessibilityIdentifier("agents-empty-setup")
