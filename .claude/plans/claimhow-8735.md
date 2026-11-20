@@ -1,13 +1,16 @@
 # claimhow-8735: #8735, the claim protocol's cases print on demand with `kosmos claim --how`
 
 ## Call
-Ranked #2 on #8735. "Answering where you were asked" kept a 1,242-character claim paragraph. It now keeps the rule
-(claim before you say you are taking it; post only if the claim is yours; do not post if someone else holds it; give it
-back with --release if you stop, keep it when done; a raised hand from the person agrees with a claim, round 1: decided
-at the moment of claiming; and round 2: what to do when Kosmos does not answer) and a pointer naming the cases. The cases print from engine/claimguide.js through
-`kosmos claim --how` in both CLIs, most lines word for word: Kosmos not answering, someone else holding it, how
-`kosmos room` shows a claim, how long it lasts, a raised hand, a stale claim, a room shared with another computer; plus
-`--status`. Doctrine 56. Same pattern as slice 2's `kosmos task --how`.
+Ranked #2 on #8735. "Answering where you were asked" kept a 1,242-character claim paragraph. It now keeps every rule an
+agent needs at the moment of claiming: claim before you say you are taking it; post only if the claim is yours, and
+what to do when Kosmos does not answer; do not post if someone else holds it or the post asks someone else; give it back
+with --release if you stop, keep it when done; a raised hand from the person agrees with a claim. A pointer names the
+rest, which prints from engine/claimguide.js through `kosmos claim --how` in both CLIs, most lines word for word: someone
+else holding it, how `kosmos room` shows a claim, how long it lasts, a stale claim, a room shared with another computer;
+plus `--status`. Doctrine 56. Same pattern as slice 2's `kosmos task --how`.
+
+Review rounds 1 and 2 each put a moved rule back (the raised hand; Kosmos not answering): both are decided at the moment
+of claiming, which is the test for what stays.
 
 ## Stacked, deliberately
 Branched from PR #8814's final head (42c0c34694, all CI green, waiting only on the 0.8.12 merge hold) so the work did

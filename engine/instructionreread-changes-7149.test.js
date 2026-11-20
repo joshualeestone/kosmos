@@ -834,7 +834,8 @@ test('kosmos#8735 doctrine 56: the claim lines that moved to kosmos claim --how 
   assert.equal(ir.remember('tca', '# You are Tca\n\n' + before + '\n'), true);
   const body = fs.readFileSync(ir.prepareChanges('tca').path, 'utf8');
   assert.ok(!body.includes('- ' + MOVED_LINE), 'a moved claim line is marked as no longer applying');
-  assert.match(body, /Left out: \d+ lines removed from Answering where you were asked that kosmos claim --how prints, where they still apply\./);
+  // Exactly the ten word-for-word lines: a count that could grow would let the entry hide the rules the brief kept.
+  assert.match(body, /Left out: 10 lines removed from Answering where you were asked that kosmos claim --how prints, where they still apply\./);
   // A re-wrapped line cannot be matched, so it stays marked, and the conditional sentence says where it may be.
   assert.ok(body.includes('- room, and offer them help if you have some; if they hand it to you, claim the'), 'fixture: the re-wrapped line is not marked');
   assert.match(body, /A line marked - under Answering where you were asked may be in kosmos claim --how too, reworded/);
