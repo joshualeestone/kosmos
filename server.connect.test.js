@@ -1969,7 +1969,7 @@ test('kosmos#8783: frConnRevealCode scrolls the whole sign-in box (link and fiel
   const reveal2 = pageFunction('frConnRevealCode', 'const document = { getElementById: (id) => id === "fr-sub" ? globalThis.__box8783 : id === "fr-conn-code" ? globalThis.__field8783 : null };\n'
     + 'const requestAnimationFrame = (f) => f();');
   reveal2();
-  assert.deepEqual(rowCalls, [{ block: 'nearest' }], 'review 3: the field row is scrolled last, so a tall box cannot leave it under the footer');
+  assert.deepEqual(rowCalls, [{ block: 'nearest' }], 'the field row is scrolled last, so a tall box cannot leave it under the footer');
   const raw = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   const fn = raw.slice(raw.indexOf('function frConnRevealCode()'), raw.indexOf('\n}\n', raw.indexOf('function frConnRevealCode()')));
   assert.doesNotMatch(fn, /\.focus\(/, 'the field must not be focused (the keyboard covers the sign-in link)');

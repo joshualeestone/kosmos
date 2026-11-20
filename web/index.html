@@ -92140,7 +92140,7 @@ function frConnPaintUrl(url, st) {
       ? '<a class="btn uprime" href="' + esc(key) + '" target="_blank" rel="noopener">Open the Claude sign-in page</a>'
       : '<div class="fr-cdetail">Browser did not open?</div>'
         + '<a class="btn" href="' + esc(key) + '" target="_blank" rel="noopener">Open the sign-in page</a>';
-  /* kosmos#8783 review 1: the link arrives a tick AFTER the code step was drawn (on a cloud machine the sign-in link,
+  /* kosmos#8783: the link arrives a tick AFTER the code step was drawn (on a cloud machine the sign-in link,
      on a Mac the "Browser did not open?" fallback), and pushes the field down again; so the box is brought into view again now (once per new link, never on a repeat poll). */
   if (key && document.getElementById('fr-conn-code')) frConnRevealCode();
 }
@@ -92154,7 +92154,7 @@ function frConnRevealCode() {
   requestAnimationFrame(() => {
     try {
       box.scrollIntoView({ block: 'nearest' });
-      /* Review 3: a box taller than the visible body (a short phone, landscape, a "that code did not work" note) is
+      /* A box taller than the visible body (a short phone, landscape, a "that code did not work" note) is
          lined up by its top, which can leave the field under the footer; so the field's row last, also nearest. */
       const field = document.getElementById('fr-conn-code');
       const row = field && field.parentNode;
