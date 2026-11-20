@@ -3573,6 +3573,22 @@ function isTestOnly(record) {
   return Boolean(record && record.testOnly === true);
 }
 
+/* kosmos#8832: the welcome project Kosmos seeds (seedWelcomeHome). An empty one read exactly like an empty real project,
+   so a new agent had to guess from the brief which it was, and an idle one was asked daily to draft tasks for its seeded
+   goal. Matched on the seed's own mark (made.via 'kosmos' is written by the seed alone) and its name, so a person who
+   renames it has made it their own. A test project keeps its own line instead. */
+const STARTER_PROJECT_LINE = 'The starter project Kosmos made to show your person around: it has no work of its own. '
+  + 'Work here only on what your person gives you, and add no tasks or posts just to fill it.';
+function isStarter(record) {
+  return Boolean(record && record.name === WELCOME_NAME && record.made && record.made.via === 'kosmos'
+    && !isTestOnly(record));
+}
+/* The goal the Assigner would put to an idle member of the starter project, while it is still the seeded words: Kosmos's
+   own sentence, not work the person asked for. A goal the person wrote there is theirs, so it is asked as usual. */
+function isStarterGoal(record, goal) {
+  return isStarter(record) && typeof goal === 'string' && goal.trim().replace(/\s+/g, ' ') === WELCOME_DESCRIPTION;
+}
+
 /**
  * #3564: swarms switched OFF in a project. An Off swarm stays a member, but work in
  * that project does not reach it: room posts skip it unless it is @-named, and a
@@ -3981,10 +3997,14 @@ function blockBody(projects, sessionName) {
       ? (hasTasks ? `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them` : '\n  - No tasks set for this project yet.')
       : (hasTasks
         ? `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them, \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` to add one (use this, not a hand-rolled task-board file)`
-        : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`)
+        : isStarter(p)
+          // kosmos#8832: the starter project's empty list is not an invitation to fill it.
+          ? `\n  - No tasks set for this project yet. When your person gives you work here, add it with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`
+          : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`)
         + subtaskLine + whoLine;
     // kosmos#8236: first under the name. Review 1: and the lines that invite new tasks are left out for a test project.
-    const testLine = isTestOnly(p) ? '\n  - ' + TEST_PROJECT_LINE : '';
+    // kosmos#8832: the starter project says what it is in the same place.
+    const testLine = isTestOnly(p) ? '\n  - ' + TEST_PROJECT_LINE : isStarter(p) ? '\n  - ' + STARTER_PROJECT_LINE : '';
     const head = `- **${oneLine(p.name)}**: \`${oneLine(p.folder)}\`` + testLine + (p.id
       ? `\n  - Post to the room (it wakes only the members it addresses: start with 'YourName -> Name:', @-name them, or use @all): \`${cliShown}${projectPostKey(p.id)}\``   // kosmos#7246 slice 2: an agent's post wakes only who it addresses
         + taskLine
@@ -4508,7 +4528,7 @@ module.exports = { heldOwnQuestion /* #7916 */, exactPathStat, windowsProjectFol
   NOTIFY_LEVELS, notifyLevel,
   changedFileTimes,
   offWriteIsQuiet, WROTE_WHY,
-  joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isTestOnly, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
+  joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isTestOnly, isStarter, isStarterGoal, STARTER_PROJECT_LINE, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, CARRIED_NOTES_START, CARRIED_NOTES_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, needsYouReason, needsYouReasonPastUsage, dismissNeeds, NEEDS_REASONS, andList, setRoleHere, ROLE_HERE_MAX, roleHereOf, reviewOnlyHere,
   list, get, projectsFor, namesFor, create, edit, moveFolder, renameFolderToName, folderRenameTarget, rename, addAgent, removeAgent, remove, mutate,
