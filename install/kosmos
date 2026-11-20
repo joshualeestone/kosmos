@@ -1487,6 +1487,8 @@ LAUNCHCTL="${KOSMOS_LAUNCHCTL:-/bin/launchctl}"
 SYSTEMCTL="${KOSMOS_SYSTEMCTL:-systemctl}"
 # #4918 review 13: systemctl --user needs XDG_RUNTIME_DIR, which a kosmos run from cron or after logout lacks.
 # kosmos#8786: and one inherited from another user (a root login's /run/user/0 through runuser) is not ours either.
+# Unlike setup.sh's _kosmos_own_runtime_dir it switches only when /run/user/<uid> exists, as before: this runs on every
+# Linux CLI call, where a folder that does not exist would only move the failure.
 if [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Linux ] && { [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -O "$XDG_RUNTIME_DIR" ]; } && [ -d "/run/user/$(id -u 2>/dev/null)" ]; then
   export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 fi
