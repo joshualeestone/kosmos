@@ -12,8 +12,13 @@ const boardauth = require('./engine/boardauth');
 
 const BASE = 'http://localhost';
 const nav = (url) => ({ url, headers: {} });
-// A single leading slash, and nothing a browser would read as a host after it.
-const sameOrigin = (loc) => typeof loc === 'string' && loc.startsWith('/') && !/^[/\\]{2}/.test(loc);
+// Read as a browser reads it: resolved against the board's own address, it keeps the board's protocol and host, and
+// it is spelled as a path (one leading slash, not two, not a backslash after it).
+const sameOrigin = (loc) => {
+  if (typeof loc !== 'string' || !loc.startsWith('/') || /^[/\\]{2}/.test(loc)) return false;
+  const r = new URL(loc, 'https://board.example:8443/start');
+  return r.protocol === 'https:' && r.host === 'board.example:8443';
+};
 
 test('CONTROL: the input below really normalises to a path with two leading slashes', () => {
   assert.strictEqual(new URL('/a/..//x.test/y?boot=N', BASE).pathname, '//x.test/y', 'the case is real, so the next test can fail');
@@ -30,11 +35,14 @@ test('a path that normalises to two leading slashes is answered as a path on thi
 
 test('an absolute URL of another scheme still answers a path on this board', () => {
   // These have no leading slash at all once parsed; a server would refuse most of them, the helper does not rely on it.
-  for (const url of ['foo:http://x.test/?token=T', 'blob:http://x.test/y?token=T', 'foo:https:x.test?token=T', 'foo://x.test?token=T']) {
+  // A backslash survives parsing only for a scheme that is not http(s): 'foo:/\\x.test/y' parses to the path '/\\x.test/y'.
+  for (const url of ['foo:http://x.test/?token=T', 'blob:http://x.test/y?token=T', 'foo:https:x.test?token=T', 'foo://x.test?token=T', 'foo:/\\x.test/y?token=T']) {
     const loc = boardauth.pathWithoutToken(nav(url), BASE);
     assert.ok(sameOrigin(loc), url + ' -> ' + loc);
   }
   assert.strictEqual(boardauth.pathWithoutToken(nav('foo://x.test?token=T'), BASE), '/', 'an empty path answers the board root');
+  assert.strictEqual(new URL('foo:/\\x.test/y', BASE).pathname, '/\\x.test/y', 'CONTROL: the backslash really survives parsing');
+  assert.strictEqual(boardauth.pathWithoutToken(nav('foo:/\\x.test/y?token=T'), BASE), '/x.test/y', 'a leading backslash is removed');
 });
 
 test('bootstrap answers the same path: a valid token on that input signs in and stays on this board', () => {

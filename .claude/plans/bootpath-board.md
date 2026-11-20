@@ -12,3 +12,4 @@ That pathWithoutParam is the only builder of that address. server.js 7751 sends 
 
 ## Review
 - Round 1: no blocker. Fixed: the path is '/' plus the pathname with every leading slash or backslash removed, so even an absolute URL of another scheme (no leading slash once parsed) answers a path on this board, without relying on Node's request parser refusing it; an empty path answers '/'. Tests: those inputs, and bootstrap end to end with a real ?boot= nonce. The backslash row (always green: URL parsing already turns it into a slash) is replaced by them. Round 0's version fails the new test.
+- Round 2 (converged): no blocker, 29 inputs checked, none leaves the board. Fixed in the test only: a backslash row that can fail (a non-http scheme keeps a leading backslash; a slashes-only rule fails it), and the check resolves the answer against the board's address and requires the same protocol and host.
