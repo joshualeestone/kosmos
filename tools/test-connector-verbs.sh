@@ -198,6 +198,11 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # Kosmos (mayReport), and enrolling needs a connector with the org routes. An older connector refuses to sign; the tick
 # reads that as a failed send and keeps the events queued (at most 500, 7 days), sending nothing. Reporting refusals
 # never worked before, so nothing that works today breaks.
+# kosmos#7116 step 2 re-decided for engine/enrolsign.js (two-admin device-key enrolment, the caller): it calls the three
+# /v1/org/devkey-enrol routes, which only a connector carrying them (kosmos-relay devkeyroutes-7116) signs, and only when
+# a person starts an enrolment or an admin opens the queue (no screen calls it yet). An older connector refuses to sign;
+# answerOf turns that into a fixed sentence ("Kosmos+ did not answer") and nothing is signed or kept. Enrolment never
+# worked before these connectors, so nothing that works today breaks.
 # kosmos#5744 re-decided for engine/backupmemberkey.js (a member's backup key, slice 2b): it calls /v1/org/backup-key and
 # /v1/org/backup/member-key, which only a connector carrying the backup routes signs (kosmos-relay #358 and #375). An older
 # connector refuses backup-key first ("mac-request does not sign"); ensureMemberKey answers ok:false with no key written.
@@ -259,7 +264,7 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # (engine/handoverrecv-8710.test.js). Hand-over is off on the coordinator and the board (KOSMOS_ORG_HANDOVER), so
 # nothing that works today breaks.
 callers="$(grep -l "macRequest(" engine/*.js 2>/dev/null | grep -v -e "engine/remote.js" -e "\.test\.js$" | sort | tr '\n' ' ')"
-[ "$callers" = "engine/account-computers.js engine/agentevents.js engine/backupmemberkey.js engine/backuprun.js engine/backupupload.js engine/communitysend.js engine/companycommunity.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/handoverrecv.js engine/handoversend.js engine/invitestep.js engine/mac-standing.js engine/orgenroll.js engine/orgrollup.js engine/personalbackup.js engine/personalbackupkey.js engine/personalrestore-child.js engine/personalrestore.js engine/personalrestorejob.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the ones the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
+[ "$callers" = "engine/account-computers.js engine/agentevents.js engine/backupmemberkey.js engine/backuprun.js engine/backupupload.js engine/communitysend.js engine/companycommunity.js engine/enrolsign.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/handoverrecv.js engine/handoversend.js engine/invitestep.js engine/mac-standing.js engine/orgenroll.js engine/orgrollup.js engine/personalbackup.js engine/personalbackupkey.js engine/personalrestore-child.js engine/personalrestore.js engine/personalrestorejob.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the ones the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
 
 # The real connector on this Mac, when it is there: an integration line, reported but never failed.
 R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"
