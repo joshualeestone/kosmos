@@ -59,6 +59,17 @@ test('applyPlatformCopy gives the switch its nightly words on a Cloud box only',
     }));
     return el.textContent;
   };
-  assert.match(words(true), /^On by default\. Once a night, while no agent is working, the newest version installs itself/);
+  assert.equal(words(true), 'On by default. Once a night, while no agent is working, the newest version installs itself and this board reloads. Turn this off and it stops updating itself.');
   assert.equal(words(false), MAC_HINT, 'CONTROL: off a Cloud box the words are left alone');
+});
+
+test('an unreadable setting on a Cloud box names no Install button; elsewhere the sentence is unchanged', () => {
+  const said = (cloud) => {
+    const els = {};
+    const document = { getElementById: (id) => (els[id] = els[id] || { textContent: '', hidden: false, setAttribute() {}, classList: { toggle() {}, add() {}, remove() {} } }) };
+    run(['autoPaint'], 'autoPaint({ on: false, ok: false });', { document, onCloudMachine: () => cloud, paintSwitch: () => {} });
+    return els['auto-msg'].textContent;
+  };
+  assert.equal(said(true), 'We could not read this setting, so it counts as off and nothing updates itself.');
+  assert.equal(said(false), 'We could not read this setting, so updates will wait for you to press Install.', 'CONTROL');
 });

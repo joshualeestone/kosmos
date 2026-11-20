@@ -21858,7 +21858,8 @@ function applyPlatformCopy(root) {
     root.querySelectorAll('[data-cloud-copy]').forEach((el) => {
       if (el.getAttribute('data-cloud-copy') === 'thisMachine') el.textContent = thisMachine();
       // kosmos#8786 S2: what the switch does on a Cloud computer (engine/cloudnightly.js decides each night).
-      else if (el.getAttribute('data-cloud-copy') === 'autoHint') el.textContent = 'On by default. Once a night, while no agent is working, the newest version installs itself and this board reloads. Turn this off and Kosmos waits for you.';
+      // Off means off: a Cloud computer has no terminal for the Linux update card's command, so the words promise no other way.
+      else if (el.getAttribute('data-cloud-copy') === 'autoHint') el.textContent = 'On by default. Once a night, while no agent is working, the newest version installs itself and this board reloads. Turn this off and it stops updating itself.';
     });
   }
   if (onLinux() && root && typeof root.querySelectorAll === 'function') {
@@ -38558,7 +38559,10 @@ function autoPaint(r) {
   paintSwitch('auto-toggle', unread ? null : r.on === true);
   document.getElementById('auto-msg').textContent = unread
     ? 'We could not read this setting just now.'
-    : (r.ok === false ? 'We could not read this setting, so updates will wait for you to press Install.' : '');
+    : (r.ok === false
+      // kosmos#8786: a Cloud computer shows this switch and has no Install button; its nightly update counts this as off.
+      ? ((typeof onCloudMachine === 'function' && onCloudMachine()) ? 'We could not read this setting, so it counts as off and nothing updates itself.' : 'We could not read this setting, so updates will wait for you to press Install.')
+      : '');
 }
 async function refreshAutoUpdate() {
   const mine = ++AUTO_EPOCH;
