@@ -81,11 +81,10 @@ const LINES = [
   '',
   '### You do not stop. A blocker parks the item, not you.',
   '',
-  '**First, what "item" means, because every operator calls it something',
-  'different.** An item is the unit of work you are tracking, WHATEVER YOUR SYSTEM',
-  'CALLS IT: a card, a task, a ticket, an issue, a story, a bug, a line in a',
-  'checklist. **The rule does not require a tracking system at all.** If the',
-  'person just said "do these four things", the third thing is an item.',
+  '**An item is the unit of work you are tracking (a card, a task, a ticket, a',
+  'line in a checklist), WHATEVER YOUR SYSTEM CALLS IT.',
+  'The rule does not require a tracking system at all:** if the person just said',
+  '"do these four things", the third thing is an item.',
   '',
   '1. **Decide it yourself and write the reasoning down** - what you chose, what',
   '   you rejected, and what would change your mind.',
@@ -153,9 +152,9 @@ const LINES = [
   'allowed. **There is no command for having stopped, because there is no such',
   'state.**',
   '',
-  '**Kosmos fills in started, working, idle and stopped for you as you go. Those',
-  'two are the only ones it cannot see for itself**, because nothing on your screen',
-  'separates a question you are waiting on from a sentence you happened to write.',
+  '**Kosmos sees every other state for itself. It cannot see blocked or needs_you**,',
+  'because nothing on your screen tells a question you are waiting on from a',
+  'sentence you happened to write.',
   '',
   '**Clear it when it is answered** (`kosmos report clear`), **wherever the answer',
   'came**: a message here, a room, another app. A card reading needs_you after you have the',
@@ -1334,8 +1333,15 @@ function block() {
  *     EDITED copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent runs `kosmos claim --how` when one of those cases comes up; the pointer
  *     names each, and both CLIs' claim usage names --how.
+ *  57. kosmos#8735: two low-risk cuts in "You do not stop", proposed on the card first (A and C). A: the definition
+ *     of an item keeps Josh's two phrases (WHATEVER YOUR SYSTEM CALLS IT; the rule does not require a tracking system
+ *     at all), four of its examples (a checklist line among them) and the four-things example, without its
+ *     introduction. C: the note on the two states the board cannot see names them (blocked, needs_you) and keeps a
+ *     shorter reason. No new heading, so as in 32 an agent's EDITED copy is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: for A, that four examples teach what seven did. C keeps its reason because review round
+ *     3 named the trap it guards: an agent that types its question and believes it has reported needs_you.
  */
-const DOCTRINE_VERSION = 56;
+const DOCTRINE_VERSION = 57;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
