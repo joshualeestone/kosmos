@@ -37,6 +37,7 @@ test('a count at the cap is said before any post starts the pause, and the read 
   assert.match(note, /a post that asks more than one member wakes no one/);
   assert.match(note, /exactly one member may still get through \(10 in the pause, at most 3/);
   assert.doesNotMatch(note, /After that/, 'reads as "after my own next post"');
+  assert.match(note, /Your person's post here starts the count over\.$/, 'at the cap there is no pause to end');
   // Above the cap, the moment is when enough have aged out to leave the count below it.
   roomloop.noteWake('p', now - 1);
   const seen2 = [];
@@ -98,4 +99,16 @@ test('review 1: during a pause it says "paused", and the time is written by the 
     const n = roomloop.readerNote('p', now + 1, () => odd);
     assert.doesNotMatch(n, /until about (undefined|null|1742) /, String(odd));
   }
+});
+
+test('review 4: a cap of 0 with no wake says nothing (never "Invalid Date"); wakes out of order still name the right moment', () => {
+  const now = 1_000_000_000_000;
+  roomloop.setCapForTests(0);
+  assert.equal(roomloop.readerNote('p', now), '');
+  roomloop.setCapForTests(2);
+  // A wall clock stepped back: the later wake is recorded first.
+  roomloop.noteWake('q', now - 10); roomloop.noteWake('q', now - 40); roomloop.noteWake('q', now - 20);
+  const seen = [];
+  roomloop.readerNote('q', now, (ms) => { seen.push(ms); return 'x'; });
+  assert.deepEqual(seen, [now - 20 + HOUR], 'three wakes over a cap of two drop below it when the two oldest (-40, -20) have aged out');
 });

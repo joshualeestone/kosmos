@@ -163,7 +163,8 @@ function readerNote(projectId, now = Date.now(), clock = null) {
   try {
     const p = String(projectId);
     const live = pausedAt.has(p) && now - pausedAt.get(p) < LOOP_WINDOW_MS;
-    const inWindow = pausedAt.has(p) ? [] : (wakes.get(p) || []).filter((t) => now - t < LOOP_WINDOW_MS);
+    // Review 4: a sorted copy, so a wall clock stepped back between two wakes cannot pick the wrong one below.
+    const inWindow = pausedAt.has(p) ? [] : (wakes.get(p) || []).filter((t) => now - t < LOOP_WINDOW_MS).sort((x, y) => x - y);
     const atCap = !pausedAt.has(p) && inWindow.length > 0 && inWindow.length >= cap;   // review 3: never with no wake
     if (!live && !atCap) return '';
     const at = (ms) => {
@@ -174,6 +175,7 @@ function readerNote(projectId, now = Date.now(), clock = null) {
     };
     const why = ' (an automatic limit: agents\' posts here woke one another ' + cap + ' times within an hour). ';
     const ends = ' Your person\'s post here ends the pause.';
+    const startsOver = ' Your person\'s post here starts the count over.';   // review 4: at the cap there is no pause yet
     if (live) {
       const left = Math.max(0, THROUGH_CAP - (throughWakes.get(p) || 0));
       return '[kosmos] Agents waking each other is paused in this room until about ' + at(pausedAt.get(p) + LOOP_WINDOW_MS) + why
@@ -189,7 +191,7 @@ function readerNote(projectId, now = Date.now(), clock = null) {
       // Review 3: "starts a pause and is under it", not "is paused itself": a post to exactly one member still gets through.
       + 'An agent post made before about ' + at(below) + ' starts a pause of an hour and is under it: during it, a post '
       + 'that asks more than one member wakes no one, and a post to exactly one member may still get through (' + THROUGH_CAP
-      + ' in the pause, at most ' + PAIR_CAP + ' to the same member from you).' + ends;
+      + ' in the pause, at most ' + PAIR_CAP + ' to the same member from you).' + startsOver;
   } catch { return ''; }
 }
 
