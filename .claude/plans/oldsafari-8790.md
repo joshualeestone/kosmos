@@ -20,10 +20,16 @@ browser that sends Sec-Fetch-Site; a picture that really fails still fails the w
   changed" comparisons (header picture, swarm SVG avatars, the guide's avatar), raced on concurrent rows, and held up
   to 25 MB previews in memory.
 
-## What changes on a browser that sends Sec-Fetch-Site (measured, round 4)
-Nothing a person sees. Every board picture under /api/ now reaches the board through the worker, so it says
-Sec-Fetch-Dest "empty" rather than "image" (nothing on the relay or board reads it); a real 401 or 403 costs one
-more request; on a hard-reloaded page a failed board picture (a 404 too) asks the worker to take charge.
+## What changes on a browser that sends Sec-Fetch-Site (measured, rounds 4 to 6)
+Nothing a person sees in the ordinary case. The costs, all bounded:
+- Every board picture under /api/ reaches the board through the worker, so it says Sec-Fetch-Dest "empty" rather
+  than "image" (nothing on the relay or board reads it); a real 401 or 403 costs one more request.
+- On a hard-reloaded page, a failed board picture (a 404 too) asks the worker to take charge.
+- In the two minutes after a takeover (a first visit, a hard reload, a worker update): a board picture that was
+  loading at the takeover and then really fails is asked for once more, and its address leaves kosmos#8636's
+  failed-preview list, so a later redraw of that card asks for it once more too. A picture noted as failed before a
+  worker update is asked for once more at the update. A lazy picture off screen at the takeover is not counted.
+- After the two minutes nothing here listens.
 
 ## Not in this step
 Downloads, folder zips, the diagnostics download and the service worker's fetches: they need a board-minted single-use
