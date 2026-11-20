@@ -25,6 +25,8 @@ on a current browser the download still works (one extra small request first).
   after that: no key is left live on a current browser, and no extra wait after the first download.
 - A key counts only as a literal bdl= (an encoded name, which safeLogUrl would not redact, opens nothing), and only on
   a request that presents no other credential (a wrong token header or a live session beside it).
+- (Round 4 removed what round 1 added here: boardTokenOk no longer answers yes for a key-opened request. A key opens
+  the gate and nothing after it; a handler that later asks boardTokenOk refuses, failing closed.)
 
 ## Round 2 review changes
 - refuseDownload answers a key-opened request 204 with nothing to save, as it does a navigation (old Safari sends no
@@ -44,6 +46,18 @@ on a current browser the download still works (one extra small request first).
   attachment on old Safari can still be saved as a small JSON file (the same as before this branch, where every such
   click was refused). Untested premise: WebKit asking for a keyed file twice (an iOS confirm sheet, a Range resume)
   would find the key spent; to measure in the real old-Safari walk.
+
+## Round 4 review changes
+- boardTokenOk no longer answers yes for a key-opened request (that line did nothing today and would silently grant
+  the person's standing to any later check); a key opens the gate only.
+- A keyed GET on a download route that the gate refuses (a spent, expired or unknown key) answers 204 with nothing to
+  save, and so does a keyed request for an attachment that is gone; without a key, and for a ?check=1 look, the
+  refusal is the JSON it was. WebKit saved the JSON as the file (measured by the reviewer).
+- Shift-click is left to the browser (Safari: Reading List); Option-click takes a key.
+- Measured, the reviewer's open premise: the relay copies Sec-Fetch-Site to the board (proxy.rs, the header copy loop
+  drops only hop-by-hop, Host, the board token and session headers, and the board page header).
+- Open, reasoned: the relay's own request logs; the key is single use and a minute long, and the relay logs a
+  refused path, not its query, as far as read. To confirm with the relay owner.
 
 ## Baron's conditions, where each is held
 1. first use, a real GET only; a probe or HEAD neither burns nor reads: redeemDownloadKey, downloadKeyOk (GET only),

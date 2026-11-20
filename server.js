@@ -1256,7 +1256,20 @@ function downloadKeyTarget(rawUrl) {
   const q = u.searchParams.toString();
   return u.pathname + (q ? '?' + q : '');
 }
-const DL_KEY_REQS = new WeakSet();   // the requests a key opened: boardTokenOk answers yes for that request, and only it
+/* The requests a key opened, at the gate. A key opens the gate and nothing after it: boardTokenOk still answers no for
+   such a request, so a handler that later asks it (none on the five routes does today) refuses, failing closed. Used
+   by downloadKeyOk (one redeem per request) and refuseDownload (a refusal saves nothing). */
+const DL_KEY_REQS = new WeakSet();
+/* A GET that carries a literal bdl= for one of the download routes (not a ?check=1 look): the browser's own keyed
+   download. Refused, it gets refuseDownload's 204 with nothing to save, never a JSON body WebKit could save as the
+   file (a spent or expired key, a board restarted since the key was made). */
+function keyedDownloadAttempt(req) {
+  if (!req || req.method !== 'GET') return false;
+  const raw = String(req.url || '').split('#')[0];
+  const qAt = raw.indexOf('?');
+  if (qAt < 0 || !/(?:^|&)bdl=/.test(raw.slice(qAt + 1))) return false;
+  return downloadKeyTarget(raw) !== null;
+}
 /* Redeems the request's key, once per request (the gate and the handlers below may ask boardTokenOk more than once). */
 function downloadKeyOk(req) {
   if (!req || req.method !== 'GET') return false;
@@ -1277,7 +1290,6 @@ function downloadKeyOk(req) {
   return true;
 }
 function boardTokenOk(req) {
-  if (DL_KEY_REQS.has(req)) return true;   // kosmos#8790: this one request was opened by a download key, at the gate
   // A tokenless request is a 403 either way (no candidate can match nothing), so
   // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
   // filesystem-free for the unauthenticated case, not only the active-token one.
@@ -7907,6 +7919,7 @@ const server = http.createServer(async (req, res) => {
     // token never pays for the token-store scan.
     const exemptAgentToken = () => agentTokenRoute(`${req.method} ${pathname}`) && agentTokenOk(req);
     if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptProof && !exemptHook && !boardTokenOk(req) && !exemptAgentToken() && !downloadKeyOk(req)) {   // kosmos#8790: a download key last, only when nothing else is presented  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
+      if (keyedDownloadAttempt(req)) { res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }   // kosmos#8790: saves nothing
       sendJson(res, 403, { error: boardTokenRefusal(req, '') });
       return;
     }
@@ -22828,6 +22841,7 @@ const server = http.createServer(async (req, res) => {
   const attachGet = pathname.match(/^\/api\/attachment\/([0-9a-f]{24})(\/preview|\/sheet)?$/);
   if (attachGet && (req.method === 'GET' || req.method === 'HEAD')) {
     const rec = attachments.read(attachGet[1]);
+    if (!rec && DL_KEY_REQS.has(req)) { refuseDownload(req, res, 'no such attachment', 404); return; }   // kosmos#8790: saves nothing
     if (!rec) { sendJson(res, 404, { error: 'no such attachment' }); return; }
     /* kosmos#8122: an attached spreadsheet's read-only grid, as JSON (sheetpreview.fromFile: one handle, no link
        followed, the size checked before a byte is read, saved values only). A refusal is a 200 the viewer says in

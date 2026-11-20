@@ -3,7 +3,9 @@
  * navigation, so the board's downloads were refused there. The page's real download-link listener (lifted from
  * web/index.html, dlKeyClick and its helpers) asks the board for a key first and opens the same address with ?bdl=.
  *
- * A local server plays the board: a download opens only with a key it minted for that exact address. The page is a
+ * A local server plays the board: a download opens only with a key it minted for that exact address. It does not
+ * apply the real board's rule that refuses a key on a request carrying Sec-Fetch-Site (both engines here send one);
+ * that rule is tested in server.download-key-8790.test.js. The page is a
  * small one carrying the real listener, with kplusRemote() answering true (a Kosmos+ address) or false. Run in
  * Chromium and in WebKit, the engine old Safari is made of, because the download is opened after the key's fetch
  * returns, outside the click itself, and an engine could refuse a download started that way.
@@ -62,6 +64,7 @@ const html = (remote) => `<!doctype html><html><head><meta charset="utf-8"><titl
 const keys = new Map();   // key -> target
 let MODERN = false;       // the board's rule: a mint from a browser that sends Sec-Fetch-Site needs no key
 let REFUSE_ASK = false;   // a board that refuses the load-time look (403)
+let LATE_NOT_NEEDED = false;   // the look said keys are needed, but a mint answers needed:false (a click before the look)
 const seen = [];
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
@@ -81,7 +84,7 @@ const server = http.createServer((req, res) => {
       }
       const p = typeof b.path === 'string' ? b.path : '';
       seen.push({ mint: p });
-      if (MODERN && req.headers['sec-fetch-site']) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true,"key":null,"needed":false}'); return; }
+      if ((MODERN && req.headers['sec-fetch-site']) || LATE_NOT_NEEDED) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true,"key":null,"needed":false}'); return; }
       if (p.startsWith('/api/agent/max/export')) { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"an older board"}'); return; }
       const k = crypto.randomBytes(32).toString('hex');
       keys.set(k, p);
@@ -155,6 +158,9 @@ async function saved(page, act) {
       await saved(page, () => page.click('a.diag', { modifiers: ['Meta'] }));
       chk(!seen.some((x) => 'mint' in x), tag + 'a Cmd-click is left to the browser', JSON.stringify(seen));
       seen.length = 0;
+      await saved(page, () => page.click('a.diag', { modifiers: ['Shift'] }));
+      chk(!seen.some((x) => 'mint' in x), tag + 'a Shift-click is left to the browser (Safari: Reading List)', JSON.stringify(seen));
+      seen.length = 0;
       const alt = await saved(page, () => page.click('a.diag', { modifiers: ['Alt'] }));
       chk(alt === 'file for /api/diagnostics' && seen.some((x) => x.mint === '/api/diagnostics'), tag + 'an Option-click (Safari: download linked file) still takes a key', JSON.stringify({ alt, seen }));
 
@@ -180,6 +186,18 @@ async function saved(page, act) {
       await saved(page, () => page.click('a.exp'));
       chk(!seen.some((x) => 'mint' in x), tag + 'a board that refused the look: a click asks for no key', JSON.stringify(seen));
       REFUSE_ASK = false;
+
+      // The look said keys are needed, but the first click's mint says not (a click before the look, say): from then on
+      // the links are left alone.
+      LATE_NOT_NEEDED = true;
+      await page.goto(base + '/remote');
+      await page.waitForTimeout(300);
+      seen.length = 0;
+      const l1 = await saved(page, () => page.click('a.exp'));
+      const l2 = await saved(page, () => page.click('a.exp'));
+      chk(l1 === 'file for /api/agent/max/export' && l2 === 'file for /api/agent/max/export' && seen.filter((x) => 'mint' in x).length === 1,
+        tag + 'a mint answered "not needed" stops the next click asking', JSON.stringify({ l1, l2, seen }));
+      LATE_NOT_NEEDED = false;
 
       await page.goto(base + '/local');
       seen.length = 0;
