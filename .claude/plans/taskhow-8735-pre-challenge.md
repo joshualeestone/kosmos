@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: taskhow-8735
-diff_hash: a0815de7cf40c9d8686e88bc9b3ba6366507b11135e29b58d5678ecbbdf62ef1
+diff_hash: 59c3027dcbd88f59e00a9f2bc9abf4b1c176a900bedee5b0da0cd42032bae8d1
 validation: passed
 subdir_audit: passed
 timestamp: 2026-11-19T23:54:51Z
@@ -27,3 +27,8 @@ converged: false
 - The bare `kosmos report blocked` in the per-run sentence.
 
 Full validation on this Mac (Agent1s), not Mortals, because Baron's 0.8.11 cut held Mortals. Head ba4e1f692b, base 993d9ab0d4: PASSED, "status":"clean", hash 45275cfeaec7, 30,111 node tests, 0 failed, 0 cancelled, all four shell shards status 0; subdir audit passed (rc 0). The one commit after it (e038c5f2a8) changes only this branch's plan file (review 8 recorded).
+
+Merged main again after the 0.8.11 hold lifted (5799fc115d): #8771 had changed tools/windows/kosmos-cli.js and
+install/kosmos beside this branch's `task --how`. Clean merge; the shared-file suites pass on the merged tree
+(Windows CLI verbs parity 12, Windows CLI 65, taskguide 3, instructionreread-changes 50, brief size 1, defaults 30,
+doctrine 32). This head's full validation is the PR's CI, which runs the whole suite on the merge with main.
