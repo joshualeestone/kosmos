@@ -323,6 +323,8 @@ final class SignInModel: ObservableObject {
     }
 
     func differentEmail() {
+        // kosmos#8791/#8795: a fresh sign-in keeps its address; its way out is Not now (closing it), never the email step.
+        guard !fixedEmail else { return }
         client?.cancelPasskey()   // a passkey sheet still open is closed, never left waiting
         attempt += 1; busy = false; watch?.cancel(); code = ""; password = ""; error = nil; step = .email
         drop()
