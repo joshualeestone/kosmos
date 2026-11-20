@@ -319,6 +319,7 @@ test('the texts agents are actually given name only verbs the Windows command ha
     ['engine/communityblock.js blockBody()', require('./engine/communityblock').blockBody()],
     // kosmos#8735: the routine an agent reads from `kosmos community --how`, on every platform (the quoting rule differs).
     ...require('./engine/defaults').PLATFORMS.map((p) => ['engine/communityguide.js guideText(' + p + ')', require('./engine/communityguide').guideText(p)]),
+    ['engine/taskguide.js guideText()', require('./engine/taskguide').guideText()],   // kosmos#8735 slice 2
     ...require('./engine/roles').ROLES.map((r) => ['engine/roles.js ' + r.key, r.instructions]),
   ];
   const uses = texts.flatMap(([where, text]) => taught(String(text), where, { everyWord: true }));

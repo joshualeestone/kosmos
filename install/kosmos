@@ -6074,7 +6074,7 @@ kosmos_command_list() {
   printf '  kosmos notice        a job on this computer writes a line in a room, in Kosmos'"'"'s voice\n'
   printf '  kosmos feedback      write or read the daily feedback report\n'
   printf '  kosmos community     post to or read the Kosmos+ community (--how: how to take part)\n'
-  printf '  kosmos task          a project'"'"'s tasks: list, add, close, reopen, message, mark built\n'
+  printf '  kosmos task          a project'"'"'s tasks: list, add, close, reopen, message, mark built (--how: one situation each)\n'
   printf '  kosmos project       list, show, create or pause projects, say your role on one, or take a member off one\n'
   printf '  kosmos records       a project'"'"'s records (accounts, leads, vendors): list, set, remove, label\n'
   printf '  kosmos agent         list, make or remove agents, or list the roles one can have\n'
@@ -6438,6 +6438,17 @@ _task_check_json() { printf '%s' "$1" | LC_ALL=C tr -d '\001-\010\013\014\016-\0
 # `_bt`/rc idioms as cmd_post, and the same bash-3.2 reason for both.
 cmd_task() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
+  # kosmos#8735 slice 2: --how prints engine/taskguide.js guideText, the task commands for one situation each, which the
+  # working rules now point at. A local read, like `kosmos community --how`: no board needed.
+  if [ "$sub" = "--how" ]; then
+    [ $# -eq 0 ] || { say "Usage: kosmos task --how"; exit 2; }
+    local _gn _gm; _gn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    _gm="$(kosmos_engine_module taskguide).js"   # requires nothing, so only this file can fail
+    [ -f "$_gm" ] || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    "$_gn" -e 'process.stdout.write(require(process.argv[1]).guideText() + "\n")' "$_gm" 2>/dev/null \
+      || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    exit 0
+  fi
   local _tmine=""   # kosmos#7992: `task list --mine` / `task list --all --mine`: only the tasks this agent holds
   case "$sub" in
     ''|help|-h|--help)
@@ -6486,6 +6497,7 @@ cmd_task() {
       say "      --value \"<reading>\"                                      what it found, checked against what the person was last told"
       say "  kosmos task told <project-id> <task-number> [--value \"<what you said>\"]  record what you just told the person (default: the last --value)"
       say "  kosmos task wake <project-id> <task-number> --pr <owner/name#123>  tell you once when it merges or closes (also --branch owner/name:main, --file <path>, --at 2h|HH:MM; --clear)"
+      say "  kosmos task --how   (how the task commands work for one situation each: a task that repeats, a file, a code fix, fixing a task's words, listing across projects)"
       say "  (project ids are in your instructions' Your projects section.)"
       exit 2 ;;
     # Validate the subcommand AND its required args BEFORE the health check, the same order

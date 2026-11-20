@@ -151,6 +151,7 @@ const USAGE = {
     '      --value "<reading>"                                      what it found, checked against what the person was last told',
     '  kosmos task told <project-id> <task-number> [--value "<what you said>"]  record what you just told the person (default: the last --value)',
     '  kosmos task wake <project-id> <task-number> --pr <owner/name#123>  tell you once when it merges or closes (also --branch owner/name:main, --file <path>, --at 2h|HH:MM; --clear)',
+    '  kosmos task --how   (how the task commands work for one situation each: a task that repeats, a file, a code fix, fixing a task\'s words, listing across projects)',
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
@@ -4093,6 +4094,19 @@ async function verbConnect(ctx, args) {
   return 1;
 }
 
+/* kosmos#8735 slice 2, as install/kosmos cmd_task: --how prints engine/taskguide.js guideText, the task commands for one
+   situation each. A flag, not a subcommand, on both commands; anything else is subcommandRequired's answer, as before. */
+async function verbTask(ctx, args) {
+  if (args && args[0] === '--how') {
+    if (args.length > 1) { ctx.err('Usage: kosmos task --how'); return 2; }
+    let guide;
+    try { guide = ctx.engine('taskguide').guideText(); } catch { ctx.err('Kosmos could not find its own runtime to print this.'); return 1; }
+    ctx.out(guide);
+    return 0;
+  }
+  return subcommandRequired('task')(ctx, args);
+}
+
 /* kosmos#8735, as install/kosmos cmd_community: --how prints how to take part (engine/communityguide.js guideText), the
    routine an agent's instructions point at. A local read; communityguide requires nothing, so only that one file can fail.
    A flag, not a subcommand, on both commands (the parity test reads `-`-led words as flags). Reached only when the first
@@ -4252,7 +4266,7 @@ const VERB_HANDLERS = {
   away: verbAway,
   room: verbRoom,
   notice: verbNotice,
-  task: subcommandRequired('task'),
+  task: verbTask,   // kosmos#8735 slice 2: --how, as install/kosmos; anything else not a subcommand is the usage
   project: subcommandRequired('project'),
   agent: subcommandRequired('agent'),
   feedback: subcommandRequired('feedback'),
@@ -4312,7 +4326,7 @@ const DESCRIBE = {
   fingerprint: 'print the fingerprint of a file, or compare one with it, to check a handed-off copy (the dates and ID inside a PDF are left out)',
   room: 'read a project room',
   notice: "a job on this computer writes a line in a room, in Kosmos's voice",
-  task: "a project's tasks: list, add, close, reopen, message, mark built",
+  task: "a project's tasks: list, add, close, reopen, message, mark built (--how: one situation each)",
   project: 'list, show, create or pause projects, say your role on one, or take a member off one',
   records: "a project's records (accounts, leads, vendors): list, set, remove, label",
   agent: 'list, make or remove agents, or list the roles one can have',
