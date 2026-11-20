@@ -306,7 +306,8 @@ struct ContentView: View {
             #endif
         }
         .environmentObject(fresh)
-        .fullScreenCover(isPresented: Binding(get: { fresh.model != nil && fresh.place == .root }, set: { if !$0 { fresh.end() } })) {
+        // Review 4: the setter ends only a fresh sign-in still showing, never one finish() has already closed.
+        .fullScreenCover(isPresented: Binding(get: { fresh.model != nil && fresh.place == .root }, set: { if !$0, fresh.model != nil { fresh.end() } })) {
             if let m = fresh.model {
                 SignInView(model: m, useWeb: { fresh.end(); showBoardToday() }, notNow: { fresh.end() }).tint(Palette.primary)
             }

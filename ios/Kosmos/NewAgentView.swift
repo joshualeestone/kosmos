@@ -124,7 +124,7 @@ struct NewAgentView: View {
         .interactiveDismissDisabled(sending || (made != nil && !seen && !timedOut) || teamRunning)
         .onChange(of: client.agents) { rows in agentsChanged(rows) }
         // kosmos#8791: the fresh sign-in shows over this sheet (a cover from the root cannot show above a sheet).
-        .fullScreenCover(isPresented: Binding(get: { fresh.model != nil && fresh.place == .newAgent }, set: { if !$0 { fresh.end() } })) {
+        .fullScreenCover(isPresented: Binding(get: { fresh.model != nil && fresh.place == .newAgent }, set: { if !$0, fresh.model != nil { fresh.end() } })) {
             // Review 1: the web page's steps cannot run over this sheet, so it closes and says why.
             if let m = fresh.model { SignInView(model: m, useWeb: { fresh.end(); freshWaiting = nil; freshWhy = SignIn.Fresh.notHere }, notNow: { fresh.end() }).tint(Palette.primary) }
         }
