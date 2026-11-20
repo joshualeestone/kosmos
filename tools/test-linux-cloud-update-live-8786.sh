@@ -1,0 +1,138 @@
+#!/bin/bash
+# kosmos#8786 S2: the Cloud box's nightly update units on REAL systemd (GitHub's ubuntu runner, linux-systemd.yml).
+# Measures, with the real engine/linuxboard.js installBoard and removeBoard, the real Cloud latch and the real
+# install/kosmos cloud-update:
+#   1. CONTROL: with no latch, installBoard writes no nightly unit;
+#   2. with the latch, it writes both units, systemd accepts them (systemd-analyze verify) and the timer is enabled;
+#   3. the service, started by systemd, runs the real chain (unit -> install/kosmos cloud-update -> cloudnightly.js)
+#      and logs why it skipped: here the signed check, since this home has no installed verifier;
+#   4. with the Updates switch off it logs that reason instead (the off switch reaches the nightly run);
+#   5. with the latch gone it skips QUIETLY: no new line;
+#   6. removeBoard takes both units away.
+# It installs nothing: no case here reaches the update look. The board is the #4918 test's stub.
+set -uo pipefail
+[ -n "${CI:-}" ] && [ -n "${GITHUB_ACTIONS:-}" ] || { echo "refusing: this test changes the real user systemd; it runs on GitHub Actions only (CI and GITHUB_ACTIONS set)" >&2; exit 2; }
+
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO" || exit 1   # every node -e requires ./engine/..., relative to here
+fails=0
+ok()  { echo "PASS  $1"; }
+bad() { echo "FAIL  $1"; fails=1; }
+
+U="$(id -u)"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$U}"
+_um_state="$(systemctl --user is-system-running 2>/dev/null || true)"
+if [ "$_um_state" != "running" ] && [ "$_um_state" != "degraded" ]; then
+  echo "FAIL  no systemd user manager ($_um_state); the workflow's linger step sets it up"; exit 1
+fi
+
+ROOT="$(mktemp -d "${TMPDIR:-/tmp}/test-cloud-update-8786.XXXXXXXXXX")" || { echo "FAIL  no temp dir"; exit 1; }
+[ -n "$ROOT" ] && [ -d "$ROOT" ] || { echo "FAIL  no temp dir"; exit 1; }
+H="$ROOT/kosmos-home"
+STATE="$ROOT/tunnel-state"   # the tunnel's state folder, where the Cloud latch lives (cloudmachine.js)
+DATA="$ROOT/data"            # the board's data root (the Updates switch, the board token)
+mkdir -p "$H/bin" "$H/logs" "$H/runtime/bin" "$STATE" "$DATA"
+# The unit runs node from the home's runtime, as an install's would; here it is the runner's node.
+ln -s "$(command -v node)" "$H/runtime/bin/node"
+# The engine the CLI finds (kosmos_engine_module falls back to $KOSMOS_HOME/engine): this checkout's.
+ln -s "$REPO/engine" "$H/engine"
+cat > "$H/bin/kosmos" <<SH
+#!/bin/bash
+if [ "\${1:-}" = "board-run" ]; then
+  [ -f "\$KOSMOS_HOME/board.stopped" ] && exit 0
+  while true; do sleep 1; done
+fi
+exec /bin/bash "$REPO/install/kosmos" "\$@"
+SH
+chmod +x "$H/bin/kosmos"
+
+# The services see the user manager's environment: point the latch and the data root at this test's folders.
+systemctl --user set-environment AGENT_WORKFORCE_TUNNEL_STATE="$STATE" AGENT_WORKFORCE_DATA="$DATA"
+export AGENT_WORKFORCE_TUNNEL_STATE="$STATE" AGENT_WORKFORCE_DATA="$DATA"
+
+BOARD="$(node -e 'console.log(require("./engine/linuxboard").boardUnitName(process.argv[1]))' "$H")"
+TIMER="$(node -e 'console.log(require("./engine/linuxboard").cloudUpdateNames(process.argv[1]).timer)' "$H")"
+SVC="$(node -e 'console.log(require("./engine/linuxboard").cloudUpdateNames(process.argv[1]).service)' "$H")"
+DIR="$HOME/.config/systemd/user"
+cleanup() {
+  node -e 'require("./engine/linuxboard").removeBoard(process.argv[1])' "$H" >/dev/null 2>&1 || true
+  for u in "$TIMER" "$SVC" "$BOARD"; do
+    systemctl --user disable --now "$u" >/dev/null 2>&1 || true
+    rm -f "$DIR/$u"
+  done
+  systemctl --user unset-environment AGENT_WORKFORCE_TUNNEL_STATE AGENT_WORKFORCE_DATA >/dev/null 2>&1 || true
+  systemctl --user daemon-reload >/dev/null 2>&1 || true
+  rm -rf "${ROOT:?}"
+}
+trap cleanup EXIT
+
+install_board() {
+  node -e '
+    const r = require("./engine/linuxboard").installBoard(process.argv[1], 18890);
+    console.log(JSON.stringify(r && r.cloudUpdate));
+    if (!r || r.ok !== true) process.exit(3);
+  ' "$H"
+}
+
+# --- 1. CONTROL: no latch, no nightly unit ------------------------------------------------------------------------
+out="$(install_board)" || bad "installBoard failed without the latch: $out"
+[ "$out" = null ] && [ ! -e "$DIR/$TIMER" ] && [ ! -e "$DIR/$SVC" ] \
+  && ok "CONTROL: without the Cloud latch installBoard writes no nightly unit" \
+  || bad "without the latch: cloudUpdate=$out, timer file $([ -e "$DIR/$TIMER" ] && echo present || echo absent)"
+
+# --- 2. The latch: both units, accepted by systemd, the timer enabled -----------------------------------------------
+: > "$STATE/hosted"
+out="$(install_board)" || bad "installBoard failed with the latch: $out"
+[ "$out" = '{"ok":true}' ] && [ -f "$DIR/$TIMER" ] && [ -f "$DIR/$SVC" ] \
+  && ok "with the latch installBoard writes the nightly service and timer ($SVC, $TIMER)" \
+  || bad "with the latch: cloudUpdate=$out"
+[ "$(systemctl --user is-enabled "$TIMER" 2>/dev/null)" = enabled ] && systemctl --user is-active "$TIMER" >/dev/null 2>&1 \
+  && ok "the nightly timer is enabled and running" || bad "the nightly timer is not enabled and running"
+if command -v systemd-analyze >/dev/null 2>&1; then
+  v="$(systemd-analyze --user verify "$DIR/$SVC" "$DIR/$TIMER" 2>&1)"; vrc=$?
+  [ "$vrc" = 0 ] && ok "systemd-analyze verify accepts both units" || bad "systemd-analyze verify (rc $vrc): $v"
+else
+  bad "systemd-analyze is not installed, so the units were not verified"
+fi
+next="$(systemctl --user show -p NextElapseUSecRealtime --value "$TIMER" 2>/dev/null)"
+[ -n "$next" ] && ok "the timer has a next firing ($next)" || bad "the timer has no next firing"
+
+# run_service: start the oneshot and wait for it to finish; prints the result systemd records.
+run_service() {
+  systemctl --user start "$SVC" 2>/dev/null   # a oneshot: start returns when it has finished
+  systemctl --user show -p Result --value "$SVC"
+}
+LOG="$H/logs/install.log"
+lines() { [ -f "$LOG" ] && grep -c 'cloud-update:' "$LOG" || echo 0; }
+
+# --- 3. Started by systemd, the real chain runs and says why it skipped ---------------------------------------------
+res="$(run_service)"
+[ "$res" = success ] && ok "the nightly service ran to completion under systemd" || bad "the nightly service result: $res"
+grep -q 'cloud-update: skipped tonight: the signature check is not available' "$LOG" 2>/dev/null \
+  && ok "it logged the skip: no signed check in this home" \
+  || bad "no signed-check skip line; install.log: $(tail -3 "$LOG" 2>/dev/null | tr '\n' '|')"
+
+# --- 4. The Updates switch off reaches the nightly run ---------------------------------------------------------------
+node -e 'const r = require("./engine/autoupdate").write({ on: false }); if (!r.ok) process.exit(3)' || bad "could not turn the Updates switch off"
+res="$(run_service)"
+[ "$res" = success ] && grep -q 'cloud-update: skipped tonight: updates are turned off in Settings' "$LOG" 2>/dev/null \
+  && ok "with the Updates switch off it logged that reason" \
+  || bad "the switch-off run: result $res, install.log: $(tail -2 "$LOG" 2>/dev/null | tr '\n' '|')"
+
+# --- 5. The latch gone: a quiet skip ---------------------------------------------------------------------------------
+rm -f "$STATE/hosted"
+before="$(lines)"
+res="$(run_service)"
+after="$(lines)"
+[ "$res" = success ] && [ "$after" = "$before" ] \
+  && ok "without the latch the run skips quietly (no new line)" \
+  || bad "the latch-gone run: result $res, cloud-update lines $before -> $after"
+
+# --- 6. removeBoard takes both units away ----------------------------------------------------------------------------
+node -e 'const r = require("./engine/linuxboard").removeBoard(process.argv[1]); if (!r.ok) { console.error(JSON.stringify(r)); process.exit(3); }' "$H" \
+  || bad "removeBoard refused"
+[ ! -e "$DIR/$TIMER" ] && [ ! -e "$DIR/$SVC" ] && ! systemctl --user is-active "$TIMER" >/dev/null 2>&1 \
+  && ok "removeBoard took the nightly timer and service away" || bad "the nightly units are still there after removeBoard"
+
+[ "$fails" = 0 ] && echo "ALL PASS (kosmos#8786 S2 on real systemd)" || echo "SOME FAILED"
+exit "$fails"
