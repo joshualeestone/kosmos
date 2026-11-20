@@ -143,3 +143,16 @@ test('kosmos#8769 item 4: a state folder that cannot be written still says the b
   assert.equal(busy.code, 1, busy.out);
   assert.match(busy.out, /Kosmos is running but did not answer in time, so we could not read that room/);
 }));
+
+test('kosmos#8769 item 4: a good FILTERED read also ends the failing spell (the since line stays true)', { skip: SKIP }, () => withBoard(async (port, room) => {
+  const home = fs.mkdtempSync(path.join(HOME, 'f-'));
+  await runCli(['room', 'proj'], envFor(port, home));
+  room.stall = true;
+  await runCli(['room', 'proj'], envFor(port, home));
+  const dir = path.join(home, 'state', 'room-copies');
+  assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.busy-since')).length, 1, 'presence first: the mark is there');
+  room.stall = false;
+  const filtered = await runCli(['room', 'proj', '-n', '5'], envFor(port, home));
+  assert.equal(filtered.code, 0, filtered.out);
+  assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.busy-since')).length, 0, 'the answered filtered read cleared it');
+}));

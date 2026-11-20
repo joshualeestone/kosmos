@@ -5808,11 +5808,14 @@ cmd_room() {
   # kept per room and per reader (a hash of the token, never the token), mode 600, so a read that Kosmos is too busy to
   # answer can still show what this reader last saw, headed with its age. `_rb_since` marks the first failed read since
   # the last good one, so a one-minute spell and a stuck board can be told apart; it is what THIS computer saw.
-  local _rb_dir="$KOSMOS_HOME/state/room-copies" _rb_key="" _rb_copy="" _rb_since=""
-  if [ -z "${_n}${_unans}${_byid}" ]; then
-    _rb_key="$(printf '%s|%s|%s' "$URL" "$project" "${_tok:-${_bt:+board}}" | shasum -a 256 2>/dev/null | cut -c1-24 || true)"
-    if [ -n "$_rb_key" ]; then _rb_copy="$_rb_dir/$_rb_key.txt"; _rb_since="$_rb_dir/$_rb_key.busy-since"; fi
-  fi
+  local _rb_dir="$KOSMOS_HOME/state/room-copies" _rb_key="" _rb_copy="" _rb_since="" _rb_mark=""
+  # Review 2: shasum (macOS) or sha256sum (most Linux); neither means no copy, the refusal as before.
+  _rb_key="$(printf '%s|%s|%s' "$URL" "$project" "${_tok:-${_bt:+board}}" | { shasum -a 256 2>/dev/null || sha256sum 2>/dev/null; } | cut -c1-24 || true)"
+  case "$_rb_key" in *[!0-9a-f]*) _rb_key="" ;; esac
+  # The failing mark is per room and reader for EVERY read (a good filtered read ends a spell too, review 2); the copy is
+  # kept and shown for plain reads only.
+  [ -z "$_rb_key" ] || _rb_mark="$_rb_dir/$_rb_key.busy-since"
+  if [ -n "$_rb_key" ] && [ -z "${_n}${_unans}${_byid}" ]; then _rb_copy="$_rb_dir/$_rb_key.txt"; _rb_since="$_rb_mark"; fi
   if [ "$_rc" -ne 0 ]; then
     case "$_rc" in
       18|28|52|56)
@@ -5832,7 +5835,11 @@ cmd_room() {
             # Review 1: BSD stat first, then GNU, and only a number counts (GNU stat -f prints file-system text first).
             _rb_at="$(stat -f %m "$_rb_copy" 2>/dev/null || true)"
             case "$_rb_at" in ''|*[!0-9]*) _rb_at="$(stat -c %Y "$_rb_copy" 2>/dev/null || true)" ;; esac
-            case "$_rb_at" in ''|*[!0-9]*) _rb_age="at an unknown time" ;; *) _rb_age="$(( (_rb_now - _rb_at) < 0 ? 0 : (_rb_now - _rb_at) / 60 )) minute(s) ago" ;; esac
+            case "$_rb_at" in ''|*[!0-9]*) _rb_age="at an unknown time" ;; *)
+              local _rb_m=$(( (_rb_now - _rb_at) < 0 ? 0 : (_rb_now - _rb_at) / 60 ))
+              if [ "$_rb_m" -lt 120 ]; then _rb_age="$_rb_m minute(s) ago"
+              elif [ "$_rb_m" -lt 2880 ]; then _rb_age="$((_rb_m / 60)) hour(s) ago"
+              else _rb_age="$((_rb_m / 1440)) day(s) ago"; fi ;; esac
             say "Kosmos is running but did not answer in time, so this is NOT the room now: it is the last copy this computer read, ${_rb_age}.${_rb_hhmm:+ Kosmos has not answered a read of this room here since ${_rb_hhmm}.} Read again in a minute for the room as it is."
             cat "$_rb_copy" 2>/dev/null || true
             exit 1
@@ -5856,8 +5863,8 @@ cmd_room() {
     4??|5??) exit 1 ;;
   esac
   # kosmos#8769 item 4: a good plain read becomes the copy kept for a busy board, and ends any failing spell.
+  [ -z "$_rb_mark" ] || rm -f "$_rb_mark" 2>/dev/null || true   # review 2: any good read ends the spell; never fails the read
   if [ -n "$_rb_copy" ]; then
-    rm -f "$_rb_since" 2>/dev/null
     if mkdir -p "$_rb_dir" 2>/dev/null && chmod 700 "$_rb_dir" 2>/dev/null; then
       local _rb_tmp=""
       _rb_tmp="$(mktemp "$_rb_dir/.copy.XXXXXX" 2>/dev/null)" && chmod 600 "$_rb_tmp" && printf '%s' "$_body" > "$_rb_tmp" \

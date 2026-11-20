@@ -1195,6 +1195,10 @@ function roomCopyPaths(ctx, project) {
     return { dir: base, file: path.join(base, key + '.txt'), since: path.join(base, key + '.busy-since') };
   } catch (_) { return null; }
 }
+function roomCopyAge(ms) {
+  const m = Math.max(0, Math.floor(ms / 60000));
+  return m < 120 ? m + ' minute(s) ago' : m < 2880 ? Math.floor(m / 60) + ' hour(s) ago' : Math.floor(m / 1440) + ' day(s) ago';
+}
 function roomCopyClock(epoch) {
   try {
     const d = new Date(epoch * 1000);
@@ -1228,7 +1232,8 @@ async function verbRoom(ctx, args) {
   const r = await ctx.call('GET', '/api/project/' + projectSlug(project) + '/room?as=text' + (given ? '&n=' + n : '') + (unanswered ? '&unanswered=1' + (all ? '&all=1' : '') : ''));
   /* kosmos#8769 item 4, as install/kosmos cmd_room: a plain read keeps a private copy per room and reader; a read the
      board is too busy to answer shows that copy, headed with its age and since when reads have failed, and exits 1. */
-  const copy = given || unanswered ? null : roomCopyPaths(ctx, project);
+  const paths = roomCopyPaths(ctx, project);
+  const copy = given || unanswered ? null : paths;   // the copy is for plain reads; the failing mark is for every read
   if (!r.reached) {
     /* Review 1: busy as the Mac counts it (curl 18/28/52/56): a timeout, or an answer cut off after the request went. */
     if (copy && (r.timedOut || (!r.notConnected && !r.refused))) {
@@ -1236,27 +1241,30 @@ async function verbRoom(ctx, args) {
       try { first = Number(fs.readFileSync(copy.since, 'utf8').trim()); } catch (_) { /* none yet */ }
       const nowS = Math.floor(Date.now() / 1000);
       if (Number.isInteger(first) && nowS - first > 86400) first = NaN;   // a mark over a day old says nothing about now
-      if (!Number.isInteger(first)) { first = nowS; try { fs.mkdirSync(copy.dir, { recursive: true, mode: 0o700 }); fs.writeFileSync(copy.since, String(first), { mode: 0o600 }); } catch (_) { /* best effort */ } }
-      const since = ' Kosmos has not answered a read of this room here since ' + roomCopyClock(first) + '.';
+      if (!Number.isInteger(first)) {
+        /* Review 2: a mark that cannot be written says nothing, as on the Mac, never "since now". */
+        try { fs.mkdirSync(copy.dir, { recursive: true, mode: 0o700 }); fs.writeFileSync(copy.since, String(nowS), { mode: 0o600 }); first = nowS; } catch (_) { first = NaN; }
+      }
+      const since = Number.isInteger(first) ? ' Kosmos has not answered a read of this room here since ' + roomCopyClock(first) + '.' : '';
       let held = null;
       try { held = { text: fs.readFileSync(copy.file, 'utf8'), at: Math.floor(fs.statSync(copy.file).mtimeMs) }; } catch (_) { /* no copy */ }
       if (held && held.text) {
         /* Review 1: on the same stream as the copy and first, so nothing that keeps only stdout reads it as the room now. */
         ctx.out('Kosmos is running but did not answer in time, so this is NOT the room now: it is the last copy this computer read, '
-          + Math.max(0, Math.floor((Date.now() - held.at) / 60000)) + ' minute(s) ago.' + since + ' Read again in a minute for the room as it is.');
+          + roomCopyAge(Date.now() - held.at) + '.' + since + ' Read again in a minute for the room as it is.');
         ctx.out(held.text.replace(/\n$/, ''));
         return 1;
       }
       const rc = ctx.unreachable('read that room');
-      ctx.err(since.trim().replace(/\.$/, '') + ', and this computer has no earlier copy of this room to show.');
+      if (since) ctx.err(since.trim().replace(/\.$/, '') + ', and this computer has no earlier copy of this room to show.');
       return rc;
     }
     return ctx.unreachable('read that room');
   }
   ctx.out(String(r.text || '').replace(/\n$/, ''));
   if (r.status >= 400) return 1;
+  if (paths) { try { fs.rmSync(paths.since, { force: true }); } catch (_) { /* best effort */ } }   // review 2: any good read ends the spell
   if (copy) {
-    try { fs.rmSync(copy.since, { force: true }); } catch (_) { /* best effort */ }
     try {
       fs.mkdirSync(copy.dir, { recursive: true, mode: 0o700 });
       const tmp = copy.file + '.' + process.pid + '.tmp';
