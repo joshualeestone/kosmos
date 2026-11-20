@@ -22,6 +22,10 @@ repeats, one of which said the command sits at the FRONT of the bracket (it is a
 ## Weakest premise
 That one statement of "answer by command" holds as well as three did. The repeats were added after real misses.
 
-## Not handled
-A running agent's re-read notice will show the removed working-rules lines as no longer applying; the rules they carried
-are still in the colleagues block in the same file, so the notice is accurate, not misleading. No moved-lines entry.
+## Re-read notice
+A running agent whose unedited working rules are rewritten to v54 gets a changes file marking the removed lines with -,
+and its header says a - line no longer applies. For "Answering in your own session sends nothing" that is the wrong
+lesson. engine/instructionreread.js now adds a moved entry with an EMPTY line set for each of the two headings (nothing
+hidden), so the note says a removed line may be in "Answering" under "Talking to your colleagues" in this file,
+reworded. Only while the file has the heading and one whole colleagues block. Tested both arms in
+engine/instructionreread-changes-7149.test.js; the positive test perturbed red.

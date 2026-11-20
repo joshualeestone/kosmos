@@ -671,3 +671,38 @@ test('kosmos#8735 slice 2 review 6: a file with Windows line endings still leave
   const body = fs.readFileSync(ir.prepareChanges('tiw').path, 'utf8');
   assert.match(body, /Left out: \d+ lines removed from Put the work on a task first that kosmos task --how prints/);
 });
+
+/* kosmos#8735 slice 3, item 1: doctrine 54 took the repeats of how to answer out of "Answering the person who messaged
+   you". A running agent re-reading its file must be told the rule is in the colleagues block, reworded, not left to read
+   "- Answering in your own session sends nothing" as a rule that no longer applies. Nothing is hidden: the line stays
+   marked. The old text is the current block with that v53 paragraph back. */
+function withAnsweringRepeatBack() {
+  const defaults = require('./defaults');
+  const block = defaults.blockFor(process.platform);
+  const anchor = 'wrote to you.\n';
+  assert.equal(block.split(anchor).length, 2, 'fixture: the anchor line is not unique in the working rules');
+  const repeat = '**Answering in your own session sends nothing.** It looks like a finished';
+  return { block, repeat, before: block.replace(anchor, anchor + '\n' + repeat + '\n') };
+}
+
+test('kosmos#8735 slice 3: a removed answering repeat stays marked and the note names the colleagues block', () => {
+  const projects = require('./projects');
+  const msgs = require('./messages');
+  const { block, repeat, before } = withAnsweringRepeatBack();
+  const tail = projects.spliceBlock('', msgs.blockBody(), msgs.START, msgs.END) + '\n';
+  agentFile('tan', '# You are Tan\n\n' + block + '\n' + tail);
+  assert.equal(ir.remember('tan', '# You are Tan\n\n' + before + '\n' + tail), true);
+  const body = fs.readFileSync(ir.prepareChanges('tan').path, 'utf8');
+  assert.ok(body.includes('- ' + repeat), 'the removed line was hidden; nothing should be left out');
+  assert.ok(body.includes('A line marked - under Answering the person who messaged you may be in "Answering" under "Talking to your colleagues" in this file too, reworded'),
+    'the note naming the colleagues block is missing');
+});
+
+test('kosmos#8735 slice 3: with no colleagues block in the file, no note claims the rule is there (CONTROL)', () => {
+  const { block, repeat, before } = withAnsweringRepeatBack();
+  agentFile('tao', '# You are Tao\n\n' + block + '\n');
+  assert.equal(ir.remember('tao', '# You are Tao\n\n' + before + '\n'), true);
+  const body = fs.readFileSync(ir.prepareChanges('tao').path, 'utf8');
+  assert.ok(body.includes('- ' + repeat), 'fixture: the removed line is not in the changes file');
+  assert.ok(!body.includes('"Talking to your colleagues" in this file'), 'a file with no colleagues block was pointed at one');
+});

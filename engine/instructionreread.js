@@ -450,7 +450,22 @@ function prepareChanges(session) {
         movedTask = { under: taskHead, lines: new Set(taskLines), where: 'kosmos task --how' };
       }
     } catch { movedTask = null; }
-    const diff = changedLines(seen, got.text, [moved, movedTask]);
+    /* kosmos#8735 slice 3, item 1: doctrine 54 took the repeats of how to answer out of two working-rules sections; the
+       rules are in the colleagues block's "Answering", in this same file, reworded. Nothing is left out (an empty set):
+       every removed line stays marked, and the note says where it may be. Only while the file still has that heading
+       and one whole colleagues block; otherwise the plain diff is the truth. */
+    const movedAnswer = [];
+    try {
+      const msgs = require('./messages');
+      const blk = projectsMod ? projectsMod.findBlock(got.text, msgs.START, msgs.END) : null;
+      if (blk && !blk.ambiguous && /^### Answering$/m.test(msgs.blockBody())) {
+        const fileLines = new Set(got.text.split('\n').map((l) => l.replace(/\r$/, '')));
+        for (const h of ['### Answering where you were asked', '### Answering the person who messaged you']) {
+          if (fileLines.has(h)) movedAnswer.push({ under: h, lines: new Set(), where: '"Answering" under "Talking to your colleagues" in this file' });
+        }
+      }
+    } catch { movedAnswer.length = 0; }
+    const diff = changedLines(seen, got.text, [moved, movedTask, ...movedAnswer]);
     // A path with a double quote is not named: the #5304 reader takes quoted text in the line for section headings.
     // Review 2: nor one with whitespace or a control character, which would make the unquoted path in the line ambiguous.
     if (!diff || !p || /["\s\u0000-\u001f\u007f]/.test(p)) return none();
