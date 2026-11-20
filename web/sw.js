@@ -99,13 +99,25 @@ self.addEventListener('activate', (event) => {
 });
 
 /* kosmos#8790: a request for a picture. `destination` says so where the browser has it; an older one is told by the
-   Accept header an image load sends. A page's own fetch has destination '' and is not a picture. */
+   Accept header an image load sends, on a no-cors request (an image load is no-cors; a page's own fetch is cors, so it
+   is never taken for a picture whatever it asks to accept). */
 function isImageRequest(req) {
-  if (typeof req.destination === 'string') return req.destination === 'image';
+  if (req.destination === 'image') return true;
+  if (req.destination) return false;   // another kind: a script, a style, a document
+  if (req.mode !== 'no-cors') return false;
   let accept = '';
   try { accept = String((req.headers && req.headers.get && req.headers.get('accept')) || ''); } catch (_e) { accept = ''; }
   return /^image\//i.test(accept);
 }
+
+/* kosmos#8790: the page asks a worker that is ready but not yet in charge of it to take charge, so its pictures get
+   the second ask (a hard reload, or the first visit). */
+self.addEventListener('message', (event) => {
+  if (event && event.data === 'claim' && self.clients && self.clients.claim) {
+    const p = self.clients.claim().catch(() => {});
+    if (event.waitUntil) event.waitUntil(p);
+  }
+});
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
@@ -120,13 +132,15 @@ self.addEventListener('fetch', (event) => {
      The page's elements keep their own addresses, so its "only redraw when it changed" checks still match. A worker
      sees only the requests of this origin's own pages, never another site's image of this board, so another site
      cannot get the header put on its request. Any other answer (a picture, a 404, a network error) is the browser's
-     as it was, and on a browser that sends Sec-Fetch-Site a picture is never refused this way. Never cached here. */
+     as it was. On a browser that sends Sec-Fetch-Site the connector gives the token to a picture already, so a 401 or
+     403 there is a real refusal and the second ask is refused the same way. Never cached here. */
   if (req.mode !== 'navigate' && url.pathname.startsWith('/api/') && isImageRequest(req)) {
     event.respondWith((async () => {
       const res = await fetch(req);
       if (!res || (res.status !== 401 && res.status !== 403)) return res;
       try {
-        const again = await fetch(url.href, { headers: { 'X-Kosmos-Board-Page': '1' }, credentials: 'same-origin' });
+        // redirect 'error': the header must never follow a redirect off this board (the #8781 rule, held by code here).
+        const again = await fetch(url.href, { headers: { 'X-Kosmos-Board-Page': '1' }, credentials: 'same-origin', redirect: 'error' });
         return again && again.ok ? again : res;
       } catch (_e) {
         return res;   // the first answer stands

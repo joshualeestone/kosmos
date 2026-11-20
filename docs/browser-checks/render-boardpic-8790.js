@@ -40,6 +40,7 @@ const HTML = `<!doctype html><html><head><meta charset="utf-8"><title>boardpic</
 <script>${reloader}</script>
 <script>
   window.drawPics = (list) => { document.querySelector('.pics').innerHTML = list.map((u) => '<img src="' + u + '" alt="">').join(''); };
+  window.drawSvg = (u) => { document.querySelector('.pics').insertAdjacentHTML('beforeend', '<svg width="10" height="10"><image href="' + u + '" width="10" height="10"/></svg>'); };
   window.readPics = () => [...document.querySelectorAll('.pics img')].map((i) => ({ src: i.getAttribute('src'), loaded: i.complete && i.naturalWidth > 0 }));
   if (navigator.serviceWorker) navigator.serviceWorker.register('/sw.js');
 </script></body></html>`;
@@ -51,7 +52,7 @@ const server = http.createServer((req, res) => {
   if (u.pathname === '/sw.js') { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(SW); return; }
   if (u.pathname === '/') { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(HTML); return; }
   if (u.pathname.startsWith('/api/')) {
-    asked.push({ path: u.pathname + u.search, marked });
+    asked.push({ path: u.pathname + u.search, marked, dest: req.headers['sec-fetch-dest'] || '' });
     if (u.pathname === '/api/gone/avatar') { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"no such agent"}'); return; }
     if (u.pathname === '/api/open/avatar' || marked) { res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' }); res.end(PNG_1X1); return; }
     res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"error":"sign in to this computer"}'); return;
@@ -73,14 +74,17 @@ const server = http.createServer((req, res) => {
     // 1. First visit: drawn before the worker is in charge.
     await page.goto(base + '/');
     const before = await page.evaluate(() => !!(navigator.serviceWorker && navigator.serviceWorker.controller));
-    await page.evaluate(() => window.drawPics(['/api/agent/first/avatar?v=1']));
+    const drawnBefore = await page.evaluate(() => { window.drawPics(['/api/agent/first/avatar?v=1']); window.drawSvg('/api/agent/firstsvg/avatar'); return !!navigator.serviceWorker.controller; });
     await page.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(800);
     const first = await page.evaluate(() => window.readPics());
-    chk(!before, 'first visit: the page started without a worker in charge', String(before));
+    chk(!before && !drawnBefore, 'first visit: the pictures were drawn before a worker was in charge', String(before) + ' ' + String(drawnBefore));
+    chk(asked.some((a) => a.path === '/api/agent/first/avatar?v=1' && a.dest === 'image' && !a.marked), 'and the browser asked for it itself (Sec-Fetch-Dest: image), so the worker did not handle it', JSON.stringify(asked));
     chk(count('/api/agent/first/avatar?v=1', false) >= 1, 'CONTROL: the picture was first refused (asked without the header)', JSON.stringify(asked));
     chk(first[0] && first[0].loaded, 'first visit: once the worker took charge, the refused picture shows', JSON.stringify(first));
     chk(first[0] && first[0].src === '/api/agent/first/avatar?v=1', 'and its address on the page is unchanged', JSON.stringify(first));
+    chk(count('/api/agent/first/avatar?v=1', true) >= 1, 'the reloader asked again, through the worker (with the header)', JSON.stringify(asked.filter((a) => a.path.includes('first'))));
+    chk(count('/api/agent/firstsvg/avatar', true) >= 1, 'first visit: an SVG <image> avatar is asked for again too', JSON.stringify(asked.filter((a) => a.path.includes('firstsvg'))));
 
     // 2 to 4. A page the worker controls from the start.
     await page.reload();
@@ -102,7 +106,7 @@ const server = http.createServer((req, res) => {
     await page.waitForTimeout(800);
     const again = await page.evaluate(() => window.readPics());
     chk(again[0].loaded, 'after a redraw the refused picture still shows', JSON.stringify(again[0]));
-    chk(count(pics[0], true) <= n + 1, 'and a redraw costs at most one more ask', JSON.stringify(asked.filter((a) => a.path === pics[0])));
+    chk(count(pics[0], true) <= n + 1, 'and a redraw costs at most one more ask with the header', JSON.stringify(asked.filter((a) => a.path === pics[0])));
     chk(errs.length === 0, 'no page errors', JSON.stringify(errs));
   } finally {
     await browser.close();
