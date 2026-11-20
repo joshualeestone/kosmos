@@ -5814,6 +5814,8 @@ cmd_room() {
   case "$_rb_key" in *[!0-9a-f]*|e3b0c44298fc1c149afbf4c8) _rb_key="" ;; esac   # review 3: the empty-input hash would share one key
   # The failing mark is per room and reader for EVERY read (a good filtered read ends a spell too, review 2); the copy is
   # kept and shown for plain reads only.
+  # Review 5: only in an installed Kosmos (its app/ folder), never a checkout or a test that did not ask for it.
+  [ -d "$KOSMOS_HOME/app" ] || _rb_key=""
   [ -z "$_rb_key" ] || _rb_mark="$_rb_dir/$_rb_key.busy-since"
   if [ -n "$_rb_key" ] && [ -z "${_n}${_unans}${_byid}" ]; then _rb_copy="$_rb_dir/$_rb_key.txt"; _rb_since="$_rb_mark"; fi
   if [ "$_rc" -ne 0 ]; then
@@ -5861,16 +5863,17 @@ cmd_room() {
   # trailing newline, which survived the split above -- a '%s\n' would double it
   # and leave a spurious blank line after every `kosmos room`.
   printf '%s' "$_body"
+  # kosmos#8769 item 4: any ANSWERED read, an error answer too (review 5), ends a failing spell; never fails the read.
+  [ -z "$_rb_mark" ] || rm -f "$_rb_mark" 2>/dev/null || true
   case "$_code" in
     4??|5??) exit 1 ;;
   esac
-  # kosmos#8769 item 4: a good plain read becomes the copy kept for a busy board, and ends any failing spell.
-  [ -z "$_rb_mark" ] || rm -f "$_rb_mark" 2>/dev/null || true   # review 2: any good read ends the spell; never fails the read
+  # A good plain read becomes the copy kept for a busy board.
   if [ -n "$_rb_copy" ]; then
     if mkdir -p "$_rb_dir" 2>/dev/null && chmod 700 "$_rb_dir" 2>/dev/null; then
       local _rb_tmp=""
-      _rb_tmp="$(mktemp "$_rb_dir/.copy.XXXXXX" 2>/dev/null)" && chmod 600 "$_rb_tmp" && printf '%s' "$_body" > "$_rb_tmp" \
-        && mv -f "$_rb_tmp" "$_rb_copy" || { [ -z "$_rb_tmp" ] || rm -f "$_rb_tmp" || true; }
+      { _rb_tmp="$(mktemp "$_rb_dir/.copy.XXXXXX")" && chmod 600 "$_rb_tmp" && printf '%s' "$_body" > "$_rb_tmp" \
+        && mv -f "$_rb_tmp" "$_rb_copy"; } 2>/dev/null || { [ -z "$_rb_tmp" ] || rm -f "$_rb_tmp" 2>/dev/null || true; }
       # Review 3: copies are not kept for ever: any not refreshed for 7 days (a room deleted, a token changed) goes.
       find "$_rb_dir" -maxdepth 1 -type f -mtime +7 -delete 2>/dev/null || true
     fi

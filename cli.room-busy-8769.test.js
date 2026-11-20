@@ -60,11 +60,13 @@ function withBoard(fn) {
   });
 }
 
+/* An installed layout: copies are kept only where $KOSMOS_HOME/app exists (review 5). */
+const mkHome = (prefix) => { const h = fs.mkdtempSync(path.join(HOME, prefix)); fs.mkdirSync(path.join(h, 'app')); return h; };
 const envFor = (port, home) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), KOSMOS_HOME: home,
   KOSMOS_ROOM_TIMEOUT_S: '1', KOSMOS_AGENT_TOKEN: 'abc123', TMUX_PANE: '%42' });
 
 test('kosmos#8769 item 4: busy with a copy held prints that copy, headed NOT the room now, its age and since when, exit 1', { skip: SKIP }, () => withBoard(async (port, room) => {
-  const home = fs.mkdtempSync(path.join(HOME, 'a-'));
+  const home = mkHome('a-');
   const good = await runCli(['room', 'proj'], envFor(port, home));
   assert.equal(good.code, 0, good.out);
   assert.match(good.out, /first look/);
@@ -85,7 +87,7 @@ test('kosmos#8769 item 4: busy with a copy held prints that copy, headed NOT the
 }));
 
 test('kosmos#8769 item 4: busy with NO copy held refuses as before, and says since when', { skip: SKIP }, () => withBoard(async (port, room) => {
-  const home = fs.mkdtempSync(path.join(HOME, 'b-'));
+  const home = mkHome('b-');
   room.stall = true;
   const busy = await runCli(['room', 'proj'], envFor(port, home));
   assert.equal(busy.code, 1, busy.out);
@@ -96,7 +98,7 @@ test('kosmos#8769 item 4: busy with NO copy held refuses as before, and says sin
 }));
 
 test('kosmos#8769 item 4: a good read after a busy one replaces the copy and ends the failing spell', { skip: SKIP }, () => withBoard(async (port, room) => {
-  const home = fs.mkdtempSync(path.join(HOME, 'c-'));
+  const home = mkHome('c-');
   await runCli(['room', 'proj'], envFor(port, home));
   room.stall = true;
   await runCli(['room', 'proj'], envFor(port, home));
@@ -112,7 +114,7 @@ test('kosmos#8769 item 4: a good read after a busy one replaces the copy and end
 }));
 
 test('kosmos#8769 item 4: a filtered read (-n) neither keeps a copy nor shows one', { skip: SKIP }, () => withBoard(async (port, room) => {
-  const home = fs.mkdtempSync(path.join(HOME, 'd-'));
+  const home = mkHome('d-');
   const filtered = await runCli(['room', 'proj', '-n', '5'], envFor(port, home));
   assert.equal(filtered.code, 0, filtered.out);
   assert.ok(!fs.existsSync(path.join(home, 'state', 'room-copies')) || fs.readdirSync(path.join(home, 'state', 'room-copies')).filter((f) => f.endsWith('.txt')).length === 0, 'no copy from a filtered read');
@@ -124,7 +126,7 @@ test('kosmos#8769 item 4: a filtered read (-n) neither keeps a copy nor shows on
 }));
 
 test('kosmos#8769 item 4: one reader never sees another reader\'s copy of the same room', { skip: SKIP }, () => withBoard(async (port, room) => {
-  const home = fs.mkdtempSync(path.join(HOME, 'e-'));
+  const home = mkHome('e-');
   room.text = 'm1 seen-by-reader-a\n';
   const a = await runCli(['room', 'proj'], { ...envFor(port, home), KOSMOS_AGENT_TOKEN: 'aaaa1111' });
   assert.equal(a.code, 0, a.out);
@@ -147,7 +149,7 @@ test('kosmos#8769 item 4: a state folder that cannot be written still says the b
 }));
 
 test('kosmos#8769 item 4: a good FILTERED read also ends the failing spell (the since line stays true)', { skip: SKIP }, () => withBoard(async (port, room) => {
-  const home = fs.mkdtempSync(path.join(HOME, 'f-'));
+  const home = mkHome('f-');
   await runCli(['room', 'proj'], envFor(port, home));
   room.stall = true;
   await runCli(['room', 'proj'], envFor(port, home));
@@ -160,7 +162,7 @@ test('kosmos#8769 item 4: a good FILTERED read also ends the failing spell (the 
 }));
 
 test('kosmos#8769 item 4: a spell whose last failed read is over 30 minutes old starts again (no false "stuck since")', { skip: SKIP }, () => withBoard(async (port, room) => {
-  const home = fs.mkdtempSync(path.join(HOME, 'g-'));
+  const home = mkHome('g-');
   await runCli(['room', 'proj'], envFor(port, home));
   room.stall = true;
   await runCli(['room', 'proj'], envFor(port, home));
@@ -174,4 +176,11 @@ test('kosmos#8769 item 4: a spell whose last failed read is over 30 minutes old 
   fs.writeFileSync(mark, (old + 7000) + ' ' + Math.floor(Date.now() / 1000) + '\n');
   await runCli(['room', 'proj'], envFor(port, home));
   assert.equal(Number(fs.readFileSync(mark, 'utf8').trim().split(/\s+/)[0]), old + 7000, 'CONTROL: a recent last failure keeps the spell');
+}));
+
+test('kosmos#8769 item 4: outside an installed Kosmos (no app folder) no copy is kept, so a checkout or a test is never written to', { skip: SKIP }, () => withBoard(async (port) => {
+  const home = fs.mkdtempSync(path.join(HOME, 'h-'));
+  const good = await runCli(['room', 'proj'], envFor(port, home));
+  assert.equal(good.code, 0, good.out);
+  assert.ok(!fs.existsSync(path.join(home, 'state')), 'nothing written without app/');
 }));

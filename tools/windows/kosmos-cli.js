@@ -1188,8 +1188,11 @@ function roomCopyPaths(ctx, project) {
   try {
     const env = ctx.env || {};
     const os = require('os');
+    /* Review 5: only where a real install keeps its state, never a shared temp folder (a test with neither keeps none). */
+    if (!env.KOSMOS_HOME && !env.LOCALAPPDATA) return null;
+    void os;
     const base = env.KOSMOS_HOME ? path.join(env.KOSMOS_HOME, 'state', 'room-copies')
-      : path.join(env.LOCALAPPDATA || os.tmpdir(), 'Kosmos', 'state', 'room-copies');
+      : path.join(env.LOCALAPPDATA, 'Kosmos', 'state', 'room-copies');
     const tok = /^[0-9a-f]+$/.test(String(env.KOSMOS_AGENT_TOKEN || '')) ? String(env.KOSMOS_AGENT_TOKEN) : 'board';
     const key = require('crypto').createHash('sha256').update(String(ctx.url || env.KOSMOS_PORT || '') + '|' + String(project) + '|' + tok).digest('hex').slice(0, 24);   // which board too, as the Mac's $URL
     return { dir: base, file: path.join(base, key + '.txt'), since: path.join(base, key + '.busy-since') };
@@ -1235,8 +1238,9 @@ async function verbRoom(ctx, args) {
   const paths = roomCopyPaths(ctx, project);
   const copy = given || unanswered ? null : paths;   // the copy is for plain reads; the failing mark is for every read
   if (!r.reached) {
-    /* Review 1: busy as the Mac counts it (curl 18/28/52/56): a timeout, or an answer cut off after the request went. */
-    if (copy && (r.timedOut || (!r.notConnected && !r.refused))) {
+    /* Review 5: busy is a timeout only. The fetch error carries no code that tells a cut-off answer (the Mac's curl
+       52/56) from any other failure, and "did not answer in time" must be true when it is said. */
+    if (copy && r.timedOut) {
       /* As install/kosmos: the mark is "<first failed read> <last failed read>"; a spell whose last failure is over 30
          minutes old is over (review 3), and a mark that cannot be written says nothing, never "since now" (review 2). */
       let first = NaN; let last = NaN;
@@ -1261,8 +1265,8 @@ async function verbRoom(ctx, args) {
     return ctx.unreachable('read that room');
   }
   ctx.out(String(r.text || '').replace(/\n$/, ''));
+  if (paths) { try { fs.rmSync(paths.since, { force: true }); } catch (_) { /* best effort */ } }   // any ANSWERED read ends the spell (review 5)
   if (r.status >= 400) return 1;
-  if (paths) { try { fs.rmSync(paths.since, { force: true }); } catch (_) { /* best effort */ } }   // review 2: any good read ends the spell
   if (copy) {
     try {
       fs.mkdirSync(copy.dir, { recursive: true, mode: 0o700 });
