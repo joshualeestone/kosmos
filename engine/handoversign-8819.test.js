@@ -103,6 +103,7 @@ test('bytes naming anything but the hand-over shown are refused before anything 
   // Parts that disagree: a nonce or generation other than the bytes hold.
   await assert.rejects(hs.review(SHOWN, { send: coordinator(bytesOf(), { nonce: Buffer.alloc(16, 9).toString('base64url') }).send }), /do not agree/);
   await assert.rejects(hs.review(SHOWN, { send: coordinator(bytesOf(), { generation: 8 }).send }), /do not agree/);
+  await assert.rejects(hs.review(SHOWN, { send: coordinator(bytesOf(), { generation: undefined }).send }), /do not agree/);
   // Not a hand-over at all (another action's bytes).
   const enrol = se.encodeReviewerRevoke('org1', Buffer.from('cred'));
   await assert.rejects(hs.review(SHOWN, { send: coordinator(enrol).send }), /not a hand-over/);
@@ -114,8 +115,20 @@ test('bytes naming anything but the hand-over shown are refused before anything 
 
 test('already signed is said, and nothing is signed; only what review returned is approved', async () => {
   const send = async () => ({ ok: true, data: { ok: true, signed: true } });
-  assert.deepEqual(await hs.review(SHOWN, { send }), { signed: true });
+  assert.deepEqual(await hs.review(SHOWN, { send }), { signed: true, kosmosSays: true });
   await assert.rejects(hs.approveAndSend({ signed: true }, {}), /approve only what review returned/);
+  // Review 1 (Mona Lisa's probe): a hand-built object holding seadmin.prepare() of bytes to ANOTHER successor, shaped
+  // like review()'s answer, is refused and nothing is posted.
+  const h = appWithHelper();
+  const c = coordinator(bytesOf());
+  const forged = { signed: false, prepared: se.prepare('handoverStart', bytesOf({ to: 'acct-other' })), nonce: NONCE.toString('base64url') };
+  await assert.rejects(hs.approveAndSend(forged, { adminId: 'a1', expectedKey: h.expectedKey, keyFile: h.keyFile, appDir: h.app, send: c.send }), /approve only what review returned/);
+  assert.equal(c.posts.length, 0, 'nothing posted');
+  // CONTROL, and spent once: review()'s own answer signs, then the same one is refused.
+  const r = await hs.review(SHOWN, { send: c.send });
+  await hs.approveAndSend(r, { adminId: 'a1', expectedKey: h.expectedKey, keyFile: h.keyFile, appDir: h.app, send: c.send });
+  await assert.rejects(hs.approveAndSend(r, { adminId: 'a1', expectedKey: h.expectedKey, keyFile: h.keyFile, appDir: h.app, send: c.send }), /approve only what review returned/);
+  assert.equal(c.posts.filter(([, , b]) => b.sig).length, 1, 'signed and posted once');
   // A coordinator refusal reads as a fixed sentence, never its own words.
   await assert.rejects(hs.review(SHOWN, { send: async () => ({ ok: false, because: 'tunnel line /Users/x' }) }), (e) => /did not give the hand-over to sign/.test(e.message) && !/Users/.test(e.message));
 });

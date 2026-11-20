@@ -21,6 +21,9 @@
 const se = require('./seadmin');
 
 const ROUTE = '/v1/mac/org/handover/sign';
+// Review 1 (Mona Lisa): what review() returned, and only that, may be signed, once. A hand-built object holding
+// se.prepare() of other bytes is not in here, so it is never signed.
+const REVIEWED = new WeakSet();
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const sendOf = (send) => send || ((...a) => require('./remote').macRequest(...a));
 const b64 = (b) => Buffer.from(b).toString('base64url');
@@ -54,7 +57,8 @@ async function review(expect, { send } = {}) {
   const want = expectOf(expect);
   if (!ID.test(want.id)) throw new Error('not a hand-over id');
   const data = answerOf(await sendOf(send)('POST', ROUTE, { id: want.id }), 'give the hand-over to sign');
-  if (data && data.signed === true) return { signed: true };
+  // Kosmos+'s word, not escrowd's: a screen says it as "Kosmos+ says" (review 1). Nothing is signed either way.
+  if (data && data.signed === true) return { signed: true, kosmosSays: true };
   const bytes = unb64(data && data.bytes, 'hand-over bytes');
   const nonceText = data && data.nonce;
   const nonce = unb64(nonceText, 'a nonce');
@@ -66,8 +70,11 @@ async function review(expect, { send } = {}) {
     && d.agents.length === want.agents.length && d.agents.every((a, i) => a === want.agents[i]);
   if (!same) throw new Error('Kosmos+ asked you to sign a different hand-over from the one shown, so nothing was signed');
   if (!d.nonce.equals(nonce)) throw new Error('Kosmos+ sent a hand-over whose parts do not agree, so nothing was signed');
-  if (data.generation !== undefined && String(data.generation) !== String(d.generation)) throw new Error('Kosmos+ sent a hand-over whose parts do not agree, so nothing was signed');
-  return { signed: false, prepared, nonce: nonceText, expiresAt: Number.isFinite(data.expiresAt) ? data.expiresAt : null };
+  // Review 1: the route always answers the generation; an answer without it is refused, not trusted by default.
+  if (data.generation === undefined || String(data.generation) !== String(d.generation)) throw new Error('Kosmos+ sent a hand-over whose parts do not agree, so nothing was signed');
+  const reviewed = Object.freeze({ signed: false, prepared, nonce: nonceText, expiresAt: Number.isFinite(data.expiresAt) ? data.expiresAt : null });
+  REVIEWED.add(reviewed);
+  return reviewed;
 }
 
 /**
@@ -76,7 +83,9 @@ async function review(expect, { send } = {}) {
  * answer; `signed: true` there means escrowd's record is kept.
  */
 async function approveAndSend(reviewed, opts = {}) {
-  if (!reviewed || reviewed.signed !== false || !reviewed.prepared) throw new Error('approve only what review returned');
+  if (!REVIEWED.has(reviewed)) throw new Error('approve only what review returned');
+  // Spent before the Enclave is asked, so one review signs at most once (a retry reviews again, with a fresh nonce).
+  REVIEWED.delete(reviewed);
   const helper = require('./enrolsign').helperPath(opts.appDir);
   if (!helper) throw new Error('this Kosmos cannot sign as an admin: its admin key helper is not installed');
   const signed = await se.sign(reviewed.prepared, { helper, keyFile: opts.keyFile, expectedKey: opts.expectedKey, adminId: opts.adminId });
