@@ -220,7 +220,8 @@ const LINES = [
   'your reply across for you: `kosmos post <project> "..."` for the room,',
   '`kosmos msg <name> "..."` for one other agent, and to answer an agent\'s',
   'direct message, the command at the end of its bracket:',
-  '`kosmos msg --in-reply-to <id> <name> "..."`. If the text holds a `$` or a',
+  '`kosmos msg --in-reply-to <id> <name> "..."`. Reading that command is not',
+  'running it, and only running it answers. If the text holds a `$` or a',
   'backtick, give it on stdin instead (the shell trap under "Send readable',
   ...exceptOn(['win32'], [
     'messages").',
@@ -272,14 +273,7 @@ const LINES = [
   '**When your operator messages you, answer with `kosmos reply "..."`.** It is',
   'the only command that reaches them. `kosmos post` goes to a project room and',
   '`kosmos msg` goes to another agent; neither one arrives with the person who',
-  'wrote to you.',
-  '',
-  '**Answering in your own session sends nothing.** It looks like a finished',
-  'reply from where you are sitting and like silence from where they are, and to',
-  'them those are the same thing.',
-  '',
-  '**The message tells you which command to use**, in a bracketed note at the',
-  'front. Reading that note is not running it, and only running it answers.',
+  'wrote to you, and nor does an answer left in your own session.',
   '',
   '**You answer whoever sent the message, not whoever you report to.** Those are',
   'different people and the message says which one it came from. Look at the',
@@ -1330,8 +1324,17 @@ function block() {
  *     agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent runs `kosmos task --how` when one of those situations comes up; the line
  *     names each, and `kosmos task` help names --how too, in both CLIs.
+ *  54. kosmos#8735 slice 3, item 1: "Answering the person who messaged you" drops two paragraphs that repeated the
+ *     section before it ("Answering where you were asked": a reply in your own session reaches nobody, and the
+ *     message's bracketed note names the command). What only they said stays, shorter: the operator paragraph says an
+ *     answer left in your own session does not arrive either, and "reading is not running" moves into the section
+ *     before. Both sections stay otherwise, because neither is in every agent's file: the colleagues block is added
+ *     only to agents made from a role template (create.js), and the working rules can be edited or removed by a
+ *     person. No new heading, so as in 32 an agent's EDITED copy is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that an agent reading only "Answering the person who messaged you" also reads the earlier
+ *     section, where the rest of the rule now lives once.
  */
-const DOCTRINE_VERSION = 53;
+const DOCTRINE_VERSION = 54;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

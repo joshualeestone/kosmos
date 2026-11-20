@@ -450,7 +450,22 @@ function prepareChanges(session) {
         movedTask = { under: taskHead, lines: new Set(taskLines), where: 'kosmos task --how' };
       }
     } catch { movedTask = null; }
-    const diff = changedLines(seen, got.text, [moved, movedTask]);
+    /* kosmos#8735 slice 3, item 1: doctrine 54 took two repeats out of "Answering the person who messaged you"; the rule
+       they stated is in "Answering where you were asked", reworded. No rule line is left out (an empty set): the removed lines
+       stay marked, and the note says where the rule may be. Only for that removal: the agent's last-read copy holds the
+       first v53 line, and the new file has both headings. */
+    let movedAnswer = null;
+    try {
+      const PERSON_HEAD = '### Answering the person who messaged you';
+      const V53_REPEAT = '**Answering in your own session sends nothing.** It looks like a finished';
+      const lineSet = (t) => new Set(String(t).split('\n').map((l) => l.replace(/\r$/, '')));
+      const was = lineSet(seen);
+      const now = lineSet(got.text);
+      if (was.has(V53_REPEAT) && !now.has(V53_REPEAT) && now.has(PERSON_HEAD) && now.has('### Answering where you were asked')) {
+        movedAnswer = { under: PERSON_HEAD, lines: new Set(), where: 'the section "Answering where you were asked", earlier in this file' };
+      }
+    } catch { movedAnswer = null; }
+    const diff = changedLines(seen, got.text, [moved, movedTask, movedAnswer]);
     // A path with a double quote is not named: the #5304 reader takes quoted text in the line for section headings.
     // Review 2: nor one with whitespace or a control character, which would make the unquoted path in the line ambiguous.
     if (!diff || !p || /["\s\u0000-\u001f\u007f]/.test(p)) return none();
@@ -458,7 +473,7 @@ function prepareChanges(session) {
       + 'Kosmos wrote this when it told you the file changed. A line starting with - was removed, one starting with + was added.\n'
       /* Reviews 14-17: a pointer, ranking nothing, and never calling a removed line current: an added line anywhere is part
          of your instructions now, a removed one is not. Complete unless it ends with the more-changed note. */
-      + 'This is a pointer only: read the sections the notice named. It lists the changes since you last read the file, changes elsewhere in it included: a line marked + is in your instructions now, wherever it is, and a line marked - no longer applies, unless a Left out note in this file says where it went. If it ends with a note that more changed, it is not complete.\n'
+      + 'This is a pointer only: read the sections the notice named. It lists the changes since you last read the file, changes elsewhere in it included: a line marked + is in your instructions now, wherever it is, and a line marked - no longer applies, unless a note in this file says where it went. If it ends with a note that more changed, it is not complete.\n'
       + diff + '\n';
     // Review 1 BLOCKER: through securewrite, so a link planted in the agent's folder is never followed; 0600.
     require('./securewrite').writeSecret(p, body, 0o600, { atomicOnly: true, ownTempsOnly: true });
@@ -665,7 +680,7 @@ function lineFor(sections, { communityStopped = false, changesAt = null } = {}) 
         + 'read it there before you next take part. ';
   // kosmos#7149: where the changed lines are, so the agent need not re-read a long block to find a short change.
   const changes = typeof changesAt === 'string' && changesAt
-    ? 'To help you find what changed, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves; a line it marks + elsewhere is current too, and a line it marks - no longer applies, unless a Left out note in it says where it went). '
+    ? 'To help you find what changed, the changed lines are listed in ' + changesAt + ' (a pointer only: still read the sections themselves; a line it marks + elsewhere is current too, and a line it marks - no longer applies, unless a note in it says where it went). '
     : '';
   // Review 5: after the replaces sentence, so its "it" stays the instructions file, not the changes file.
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '

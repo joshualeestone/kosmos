@@ -80,8 +80,8 @@ test('lineFor names the changes file when there is one, and is unchanged without
   const plain = ir.lineFor(['community']);
   assert.equal(ir.lineFor(['community'], { changesAt: null }), plain);
   const named = ir.lineFor(['community'], { changesAt: '/w/ada/.kosmos-instructions-changed.md' });
-  assert.match(named, /the changed lines are listed in \/w\/ada\/\.kosmos-instructions-changed\.md \(a pointer only: still read the sections themselves; a line it marks \+ elsewhere is current too, and a line it marks - no longer applies, unless a Left out note in it says where it went\)/);
-  assert.equal(named.replace(/To help you find what changed, the changed lines are listed in \S+ \(a pointer only: still read the sections themselves; a line it marks \+ elsewhere is current too, and a line it marks - no longer applies, unless a Left out note in it says where it went\)\. /, ''), plain);
+  assert.match(named, /the changed lines are listed in \/w\/ada\/\.kosmos-instructions-changed\.md \(a pointer only: still read the sections themselves; a line it marks \+ elsewhere is current too, and a line it marks - no longer applies, unless a note in it says where it went\)/);
+  assert.equal(named.replace(/To help you find what changed, the changed lines are listed in \S+ \(a pointer only: still read the sections themselves; a line it marks \+ elsewhere is current too, and a line it marks - no longer applies, unless a note in it says where it went\)\. /, ''), plain);
   // Review 5: after the replaces sentence; review 6: the sections are still read, the file only points.
   assert.ok(named.indexOf('What it says now replaces') < named.indexOf('To help you find'));
   assert.match(plain, /Read the section headed "The Kosmos\+ community" in it now\./);
@@ -396,7 +396,7 @@ test('review 14: the changes file says it is a pointer and the named sections ar
   const f = agentFile('jo', AFTER);
   ir.remember('jo', BEFORE);
   const body = fs.readFileSync(ir.prepareChanges('jo').path, 'utf8');
-  assert.match(body, /This is a pointer only: read the sections the notice named\. It lists the changes since you last read the file, changes elsewhere in it included: a line marked \+ is in your instructions now, wherever it is, and a line marked - no longer applies, unless a Left out note in this file says where it went\. If it ends with a note that more changed, it is not complete\./);
+  assert.match(body, /This is a pointer only: read the sections the notice named\. It lists the changes since you last read the file, changes elsewhere in it included: a line marked \+ is in your instructions now, wherever it is, and a line marked - no longer applies, unless a note in this file says where it went\. If it ends with a note that more changed, it is not complete\./);
   // Review 17: what - and + mean is said, and nothing calls a removed line current.
   assert.match(body, /A line starting with - was removed, one starting with \+ was added\./);
   assert.doesNotMatch(body, /those are your current instructions too/);
@@ -670,4 +670,45 @@ test('kosmos#8735 slice 2 review 6: a file with Windows line endings still leave
   assert.equal(ir.remember('tiw', crlf('# You are Tiw\n\n' + before + '\n')), true);
   const body = fs.readFileSync(ir.prepareChanges('tiw').path, 'utf8');
   assert.match(body, /Left out: \d+ lines removed from Put the work on a task first that kosmos task --how prints/);
+});
+
+/* kosmos#8735 slice 3, item 1: doctrine 54 took two repeats out of "Answering the person who messaged you". A running
+   agent re-reading its file must be told the rule is in "Answering where you were asked", reworded, not left to read
+   "- Answering in your own session sends nothing" as a rule that no longer applies. Nothing is hidden: the line stays
+   marked. The old text is the current block with that v53 paragraph back. */
+const V53_REPEAT = '**Answering in your own session sends nothing.** It looks like a finished';
+/* The two paragraphs exactly as v53 had them after "wrote to you." and a blank line. */
+const V53_PARAS = [V53_REPEAT,
+  'reply from where you are sitting and like silence from where they are, and to',
+  'them those are the same thing.',
+  '',
+  '**The message tells you which command to use**, in a bracketed note at the',
+  'front. Reading that note is not running it, and only running it answers.'].join('\n');
+function withAnsweringRepeatBack(line = V53_PARAS) {
+  const block = require('./defaults').blockFor(process.platform);
+  const anchor = 'wrote to you, and nor does an answer left in your own session.\n';
+  assert.equal(block.split(anchor).length, 2, 'fixture: the anchor line is not unique in the working rules');
+  /* v53's line read "wrote to you."; the old text carries it, so the diff is the real v53 to v54 one. */
+  return { block, before: block.replace(anchor, 'wrote to you.\n\n' + line + '\n') };
+}
+const ANSWER_NOTE = 'A line marked - under Answering the person who messaged you may be in the section "Answering where you were asked", earlier in this file too, reworded';
+
+test('kosmos#8735 slice 3: the removed v53 answering repeat stays marked and the note names the earlier section', () => {
+  const { block, before } = withAnsweringRepeatBack();
+  agentFile('tan', '# You are Tan\n\n' + block + '\n');
+  assert.equal(ir.remember('tan', '# You are Tan\n\n' + before + '\n'), true);
+  const body = fs.readFileSync(ir.prepareChanges('tan').path, 'utf8');
+  assert.ok(body.includes('- ' + V53_REPEAT), 'the removed line was hidden; nothing should be left out');
+  assert.ok(body.includes(ANSWER_NOTE), 'the note naming the earlier section is missing');
+  assert.match(body, /a line marked - no longer applies, unless a note in this file says where it went/, 'the header still excepts only a Left out note');
+});
+
+test('kosmos#8735 slice 3: a different line removed from that section gets no such note (CONTROL)', () => {
+  const other = 'A rule a person wrote under this heading and later deleted.';
+  const { block, before } = withAnsweringRepeatBack(other);
+  agentFile('tao', '# You are Tao\n\n' + block + '\n');
+  assert.equal(ir.remember('tao', '# You are Tao\n\n' + before + '\n'), true);
+  const body = fs.readFileSync(ir.prepareChanges('tao').path, 'utf8');
+  assert.ok(body.includes('- ' + other), 'fixture: the removed line is not in the changes file');
+  assert.ok(!body.includes(ANSWER_NOTE), 'a removal that is not the v54 one was pointed at the earlier section');
 });
