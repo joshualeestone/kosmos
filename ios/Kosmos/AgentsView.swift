@@ -391,7 +391,14 @@ struct AgentsView: View {
         VStack(spacing: 6) {
             Text("No agents yet").font(.headline).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("agents-empty")   // kosmos#7559: the board answered, with no agents
-            Text("Make your first one on your computer.").font(.subheadline).foregroundColor(Palette.secondary)
+            /* kosmos#8783: a cloud-only customer has no computer of their own to "make one on", and the first step
+               (connecting a model) is the board's own setup, so this offers the way in instead of sending them to
+               Settings to find it (a customer's first setup, 11-19). One tap, never an automatic jump. */
+            Text("Set up Kosmos to make your first one.").font(.subheadline).foregroundColor(Palette.secondary)
+            Button { openBoard() } label: { Text("Set up Kosmos").foregroundColor(Palette.card) }
+                .buttonStyle(.borderedProminent)
+                .padding(.top, 6)
+                .accessibilityIdentifier("agents-empty-setup")
         }
         .multilineTextAlignment(.center)
         .padding()
