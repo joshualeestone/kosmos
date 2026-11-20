@@ -17471,15 +17471,17 @@ const server = http.createServer(async (req, res) => {
     if (!said && !dir) { sendJson(res, 400, { ok: false, because: 'we need the account to move it to' }); return; }   // review 2: never a silent default
     /* kosmos#8839: ONLY when the caller asks (`resolve=1`, which both CLIs send), a name as `kosmos agent list` prints it
        ("Sub-Zero", "Sonya Blade") is taken to the one agent it names (subzero, sonyablade), by kosmos#8109's
-       remove.resolve over the same cards, as the removal plan and the model route do. Every answer past this point
-       carries that `name`, which is what the CLI then sends to POST /api/agents/account (that route is not resolved,
-       as remove's DELETE is not), and the card's `shown` name when it has one. A name two agents answer to is refused,
+       remove.resolve over the same cards, as the removal plan and the model route do. The plan, and each answer
+       given once the agent's job is found, carries that `name`, which is what the CLI then sends to
+       POST /api/agents/account (that route is not resolved, as remove's DELETE is not), and the card's `shown` name
+       when it has one. A name two agents answer to is refused,
        never guessed. Without resolve=1 the name is taken exactly as sent. */
-    let name = asked; let shownAs = null; let cards; const resolving = q.get('resolve') === '1';
-    if (resolving) {
-      cards = await cardsForResolve();
+    let name = asked; let shownAs = null; let unresolved = false;   // unresolved: asked to resolve, and could not try
+    if (q.get('resolve') === '1') {
+      const cards = await cardsForResolve();
+      unresolved = cards === null;
       let r = { name: asked, ambiguous: [], shown: {} };
-      try { r = removal.resolve(asked, process.platform, cards); } catch { /* as given */ }
+      try { r = removal.resolve(asked, process.platform, cards); } catch { unresolved = true; }
       if (r.ambiguous && r.ambiguous.length) {
         const seen = (f) => (r.shown && r.shown[f] && r.shown[f] !== f ? `${f}, shown as ${r.shown[f]}` : f);
         sendJson(res, 409, { ok: false, ambiguous: true, because: `more than one agent is called ${asked} (${r.ambiguous.map(seen).join('; ')}); name it by one of those names` });
@@ -17511,9 +17513,10 @@ const server = http.createServer(async (req, res) => {
     if (!target) { sendJson(res, 404, { ok: false, because: 'that is not one of the Claude accounts on this computer' }); return; }
     let job = null;
     try { job = create.readJob(name); } catch { job = null; }
-    /* kosmos#8839: the cards could not be read, so a name as the list prints it was not resolved and has no job of its
-       own. That is a read that failed, said as one, never "no agent" (which a caller reads as the agent being gone). */
-    if (!job && resolving && cards === null) { sendJson(res, 503, { ok: false, readFailed: true, because: `Kosmos could not read its agents just now, so it cannot tell which agent ${name} is; try again` }); return; }
+    /* kosmos#8839: the cards could not be read (or the resolver threw), so a name as the list prints it was not
+       resolved and has no job of its own. That is a read that failed, said as one, never "no agent" (which a caller
+       reads as the agent being gone). */
+    if (!job && unresolved) { sendJson(res, 503, { ok: false, readFailed: true, because: `Kosmos could not read its agents just now, so it cannot tell which agent ${name} is; try again` }); return; }
     if (!job) { sendJson(res, 404, { ok: false, because: `there is no agent called ${name} on this computer` }); return; }
     let provider = null;
     try { provider = create.jobProvider(job); } catch { provider = null; }

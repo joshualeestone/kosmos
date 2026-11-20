@@ -38,8 +38,9 @@ it, and it could only turn an exact miss into another agent.
   they name; the agent's own name still plans (control, green on main too); no `resolve=1` resolves nothing; an unknown
   name is still "no agent"; an ambiguous name is refused and names both. Cards that cannot be read answer 503 for a
   listed name, and the agent's own name still plans. On main's `server.js` the hyphen, space and
-  ambiguous tests fail and the controls pass (run by hand: main's `server.js` at 14c4a37364 under the test file as of
-  54b322d325, 4 of 6 failed, the fourth being a control that then asserted the new `name` field and was corrected).
+  ambiguous tests fail (run by hand: main's `server.js` at 14c4a37364 under the test file as of 54b322d325). The
+  no-`resolve=1` and unknown-name tests passed there. The own-name control also failed there, because it then asserted
+  the new `name` field; it now asserts only what main already answered.
 - `cli.agent-move-8048.test.js`: both CLIs send `resolve=1`, post the resolved name, and refuse an ambiguous one with
   nothing posted; controls for the agent's own name and for an older board.
 

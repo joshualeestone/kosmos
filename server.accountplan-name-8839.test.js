@@ -151,3 +151,16 @@ test('cards that cannot be read: a listed name is a failed read (503), never "no
   // CONTROL: the same name resolves again once the cards read.
   assert.equal((await plan({ name: 'Sub-Zero', account: 'spare', resolve: '1' })).j.name, 'subzero');
 });
+
+test('a resolver that throws: a listed name is a failed read (503), never "no agent"', async () => {
+  const removal = require('./engine/remove');
+  const real = removal.resolve;
+  removal.resolve = () => { throw new Error('boom'); };
+  try {
+    const r = await plan({ name: 'Sub-Zero', account: 'spare', resolve: '1' });
+    assert.deepEqual([r.code, r.j.readFailed], [503, true], r.text.slice(0, 200));
+    assert.doesNotMatch(r.j.because, /no agent called/);
+  } finally { removal.resolve = real; }
+  // CONTROL: with the real resolver the same request plans.
+  assert.equal((await plan({ name: 'Sub-Zero', account: 'spare', resolve: '1' })).j.name, 'subzero');
+});
