@@ -81,8 +81,8 @@ const LINES = [
   '',
   '### You do not stop. A blocker parks the item, not you.',
   '',
-  '**An item is the unit of work you are tracking (a card, a task, a ticket),',
-  'WHATEVER YOUR SYSTEM CALLS IT.',
+  '**An item is the unit of work you are tracking (a card, a task, a ticket, a',
+  'line in a checklist), WHATEVER YOUR SYSTEM CALLS IT.',
   'The rule does not require a tracking system at all:** if the person just said',
   '"do these four things", the third thing is an item.',
   '',
@@ -1333,10 +1333,10 @@ function block() {
  *     names each, and both CLIs' claim usage names --how.
  *  57. kosmos#8735: two low-risk cuts in "You do not stop", proposed on the card first (A and C): the definition of
  *     an item keeps Josh's two phrases (WHATEVER YOUR SYSTEM CALLS IT; the rule does not require a tracking system at
- *     all), three of its examples and the four-things example, without its introduction; the note on the two states
+ *     all), four of its examples (a checklist line among them) and the four-things example, without its introduction; the note on the two states
  *     the board cannot see names them (blocked, needs_you) and drops the explanation of why. No new heading, so as in
  *     32 an agent's EDITED copy is not re-offered it.
- *     WEAKEST PREMISES, NAMED: for A, that three examples teach what seven did; for C, that "the board is a separate
+ *     WEAKEST PREMISES, NAMED: for A, that four examples teach what seven did; for C, that "the board is a separate
  *     listener and it is not reading either one", earlier in the section, carries the reason the board cannot see
  *     these two.
  */

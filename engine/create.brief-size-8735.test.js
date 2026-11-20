@@ -19,7 +19,7 @@
  * below); 47,580 after slice 3 item 3 (the Project Manager's daily feedback routine left to the board's daily ask,
  * kosmos#7374); 46,912 after slice 3 item 1 (the person section's answering repeats); 46,305 after the working rules'
  * files section kept only what the Files block does not say; 45,919 after the claim cases moved to `kosmos claim --how`;
- * 45,632 after two cuts in "You do not stop".
+ * 45,655 after two cuts in "You do not stop".
  * Every platform counts a brief as its Mac form (PLATFORM_DELTA, below), so one ceiling holds
  * everywhere, Linux CI and Windows included.
  *
