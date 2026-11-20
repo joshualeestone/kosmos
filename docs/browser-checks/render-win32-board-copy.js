@@ -1,4 +1,4 @@
-// Browser-check-surface: data-win-copy data-win-hide data-kosmos-platform fr-cmd-row fr-copy fr-hatch fr-note
+// Browser-check-surface: data-win-copy data-win-hide data-kosmos-platform fr-cmd-row fr-copy fr-hatch fr-note data-linux-hide-unless-cloud
 /**
  * win32-board-copy: the board page on Windows, rendered, and the same page on a Mac.
  *
@@ -113,6 +113,8 @@ const LINUX_HIDDEN = {
   'Settings reveal message': '#set-reveal-msg',
   'project conversations hint': '#pjs-chats-reveal + p.fhint',
   'task conversations hint': '#tk-chats-reveal + p.fhint',
+  // kosmos#8786: shown only on a Kosmos Cloud board (render-cloud-signin-4903.js checks that arm); this page is not one.
+  'Update Kosmos automatically': '#auto-row',
 };
 const LINUX_OPEN_LINE = 'If Kosmos stops, run kosmos restart in a terminal on the computer it is installed on (over SSH on a headless server).';
 
