@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: reactanswer-8828
 diff_hash: e58ddbf7e3cc28717461512d2c8a083914debf48e10c1a361a223892cfc4788f
-validation: PENDING (full suite on Mortals via mortals-validate.sh at 7f4f2207f7); affected suites locally 170/170, tree guards 28/28
+validation: passed (Mortals, mortals-validate.sh, b9103bbc1e, hash e58ddbf7e3cc, status clean, 2026-11-20T18:01:56Z): node 30335 tests 0 failed, shell shards 4/4
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-20T17:00:28Z
 iterations: 8
