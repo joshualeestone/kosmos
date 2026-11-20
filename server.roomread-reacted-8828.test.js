@@ -167,3 +167,19 @@ test('kosmos#8828 review 6: the person\'s post and a colleague\'s, both reacted 
   assert.ok(lines[0].includes('the person\'s [' + persons + ']') && !lines[0].includes(colleague), lines[0]);
   assert.ok(lines[1].includes('[' + colleague + ']') && !lines[1].includes(persons) && /only confirming/.test(lines[1]), lines[1]);
 });
+
+test('kosmos#8828 review 7: a post I claimed and also reacted to is not told nothing more is needed', async () => {
+  const pid = newRoom('Reacted8828g');
+  const mine = post(pid, { text: '@readerseat can you redo the deposit figures?', mentioned: [ME] });
+  const plain = post(pid, { text: '@readerseat noted, the rent clause is yours.', mentioned: [ME] });
+  claim(pid, mine, ME);
+  react(pid, mine, ME, '\u{1F440}');
+  react(pid, plain, ME, '\u{1F44D}');
+  let r = await room(pid, ME, '&unanswered=1');
+  let line = reactedLine(r.text);
+  assert.ok(line.includes('[' + plain + ']') && !line.includes('[' + mine + ']'), 'a post I claimed is named on the reaction line:\n' + r.text);
+  claim(pid, mine, ME, 'remove');
+  r = await room(pid, ME, '&unanswered=1');
+  line = reactedLine(r.text);
+  assert.ok(line.includes('[' + mine + ']'), 'CONTROL: once the hand is down, the reaction names it again:\n' + r.text);
+});

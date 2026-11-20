@@ -310,3 +310,15 @@ test('task list prints how many checks were reported met, the same on both CLIs,
     });
   } finally { LISTED.tasks.pop(); }
 });
+
+// kosmos#8828: the board's "no check N" refusal now lists the checks (single-quoted, with no double quote, since this
+// CLI lifts the error with a sed that stops at the first one); it reaches the person whole.
+test('install/kosmos prints the listed-checks refusal whole', { skip: SKIP_POSIX_SHELL }, async () => {
+  const home = makeHome();
+  const error = "that task has 2 done-when checks, so there is no check 3: 1. 'the page says 'Saved''; 2. 'it builds'";
+  await withStub(async (port) => {
+    const r = await sh(port, home, ['task', 'check', 'p5152', '3', '3', 'met', 'x']);
+    assert.equal(r.code, 1);
+    assert.ok(r.out.includes('Kosmos did not report check 3 on task 3: ' + error + '. Nothing was recorded'), r.out);
+  }, { status: 409, error });
+});
