@@ -32,8 +32,9 @@ function helperPath(appDir = path.join(__dirname, '..')) {
   try {
     const st = fs.lstatSync(p);
     if (!st.isFile()) return null;   // a link or anything else is not the bundle's own binary
-    fs.accessSync(p, fs.constants.X_OK);
-    return p;
+    // engine.runnable-not-directory: the codebase's one executable check (a bare execute-permission test passes on a
+    // directory; lstat above already refuses one, and this keeps one rule).
+    return require('./runners').isRunnable(p) ? p : null;
   } catch { return null; }
 }
 
