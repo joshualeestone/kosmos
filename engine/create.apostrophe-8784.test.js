@@ -37,6 +37,26 @@ const winBin = (posix, exe) => (process.platform === 'win32'
   ? nodePath.join(process.env.SystemRoot || 'C:\\Windows', 'System32', exe) : posix);
 const BINS = { claudeBin: winBin('/bin/echo', 'where.exe'), tmuxBin: winBin('/bin/echo', 'where.exe') };
 
+/* On a Windows host createAgent takes the win32 arm, which create.setRunner does not guard: without these seams it would
+   register a real Scheduled Task and /Run it. The same block as engine/create.test.js (see its #570 7c-2 note): the /Run
+   arm writes the ownership row a real supervisor writes before it spawns, so the create completes as CREATED. */
+if (process.platform === 'win32') {
+  const win32job = require('./win32job');
+  const win32create = require('./win32create');
+  const win32sessions = require('./win32sessions');
+  let seq = 0;
+  win32create.setPark(() => {});
+  win32job.setAnchorer(() => ({ ok: true, node: 'C:\\Anchor\\node.exe', boot: 'C:\\Anchor\\supervisor-boot.js' }));
+  win32job.setRunner((args) => {
+    if (args && args[0] === '/Query') return { ok: false, out: 'ERROR: The system cannot find the file specified.' };
+    if (args && args[0] === '/Run') {
+      const name = String(args[2] || '').replace(/^.*\\agent-/, '');
+      if (name) win32sessions.record('ap-session-' + (++seq), { name, runner: 'claude' });
+    }
+    return { ok: true, out: '' };
+  });
+}
+
 test.beforeEach(() => { status.setPaneSource(() => ''); create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false); });
 test.afterEach(() => { create.setRunner(null); status.setPaneSource(null); });
 
