@@ -36,18 +36,23 @@ test.beforeEach(() => { status.setPaneSource(() => ''); create.setRunner(() => (
 test.afterEach(() => { create.setRunner(null); status.setPaneSource(null); });
 
 test('#8784: an apostrophe, straight or curly, is dropped from the machine name and kept in the display name', () => {
-  for (const n of [STRAIGHT, CURLY, OPENING]) {
+  for (const n of [STRAIGHT, CURLY, OPENING, 'Taylor\u02BCs Coach', 'Taylor\uFF07s Coach']) {
     assert.equal(create.slugFor(n), 'taylors-coach', n);
     assert.equal(create.nameProblem(n), null, n + ': refused');
   }
   // Only the apostrophe goes: the period and the space keep their #2605 and #740 folds, and nothing else is stripped.
   assert.equal(create.slugFor("Dr. O'Neil"), 'dr-oneil');
   assert.equal(create.slugFor('Ca.sey'), 'ca-sey', 'a period is still a hyphen, never removed');
+  assert.equal(create.slugFor('Hawai\u02BBi Guide'), 'hawaii-guide', 'the okina is an apostrophe here too');
+  // Look-alikes that are NOT apostrophes stay refused: the backtick runs in a shell, the prime and acute are not typed as one.
+  for (const n of ['Taylor`s Coach', 'Taylor\u2032s Coach', 'Taylor\u00B4s Coach']) {
+    assert.match(String(create.nameProblem(n)), /use letters, numbers, spaces, periods, apostrophes/, n + ' was accepted');
+  }
   assert.match(create.nameProblem('Taylor!s Coach'), /use letters, numbers, spaces, periods, apostrophes, hyphens and underscores/,
     'any other punctuation is still refused, by the sentence that names what a name may hold');
   // A name starts with a letter or number in the file an agent boots from, so a LEADING apostrophe is refused (as a
   // leading period is, #2605), though the machine name without it would pass.
-  for (const lead of ["'Til Done", '\u2019Til Done']) {
+  for (const lead of ["'Til Done", '\u2019Til Done', '\u02BCTil Done']) {
     assert.match(create.nameProblem(lead), /starting with a letter or number/, lead + ' was accepted');
   }
   // A name that is only apostrophes and a letter is too short, said as such, not as a character rule.
@@ -75,9 +80,13 @@ test('#8784: an agent named with an apostrophe is created, and its apostrophe re
 });
 
 test('#8784: a second spelling of the same name is refused as taken, by name, never filed beside the first', () => {
-  for (const n of [CURLY, 'Taylors Coach', 'taylors coach']) {
+  // Its own first agent (review 1: it leaned on the test above), under another name so the two tests never collide.
+  const first = create.createAgent({ ...BINS, name: "Mom's Helper", role: 'personal' });
+  assert.equal(first.outcome, create.OUTCOME.CREATED, first.because);
+  for (const n of ['Mom\u2019s Helper', 'Moms Helper', 'moms helper']) {
     const out = create.createAgent({ ...BINS, name: n, role: 'personal' });
     assert.equal(out.outcome, create.OUTCOME.REFUSED, n + ' was not refused');
-    assert.match(out.because, /there is already an agent called/, n + ': refused for another reason: ' + out.because);
+    // The refusal names the agent that exists, as the board shows it, not the spelling just typed (review 1).
+    assert.match(out.because, /there is already an agent called Mom's Helper\./, n + ': ' + out.because);
   }
 });

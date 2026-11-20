@@ -602,6 +602,13 @@ function spokenName(clean) {
   catch { return clean; }
 }
 
+/* kosmos#8784: the apostrophes a keyboard types, all dropped from the machine name and all inert in the markdown the
+   display name goes into: straight ', the curly pair U+2018 U+2019 (what an iPhone types), U+02BC (the modifier letter
+   apostrophe some layouts type, Ukrainian among them), U+02BB (the Hawaiian okina), U+FF07 (the fullwidth one from CJK
+   input). NOT the backtick (shell-active), the prime U+2032 or the acute accent U+00B4: those are refused. */
+const APOSTROPHES = /['\u2018\u2019\u02BC\u02BB\uFF07]/g;
+const LEADING_APOSTROPHE = /^['\u2018\u2019\u02BC\u02BB\uFF07]/;
+
 /**
  * The name the MACHINERY uses: the tmux session, the launchd label, the folder,
  * every key in the store.
@@ -617,11 +624,13 @@ function spokenName(clean) {
  * `casey`, the label is still `com.kosmos.agent.casey`, and every existing agent
  * keeps every path it has.
  *
- * ⚠️ `toLowerCase` and NOTHING ELSE. It is not `safeKey`, deliberately.
- * `safeKey` STRIPS, so `Ca.sey` would become `casey` — a different agent's name,
+ * ⚠️ It is not `safeKey`, deliberately. `safeKey` STRIPS every character it
+ * does not like, so `Ca.sey` would become `casey`, a different agent's name,
  * arrived at silently, which is the exact hole this repo has closed three times
- * on other routes. Lowercasing changes case and nothing else, and `nameProblem`
- * then refuses anything the result is not made of.
+ * on other routes. This lowercases, folds runs of whitespace and periods to a
+ * hyphen, and drops ONE kind of character, the apostrophe (kosmos#8784, see the
+ * body: every spelling lands on one name, so a second is refused as taken, by
+ * name). `nameProblem` then refuses anything the result is not made of.
  */
 function slugFor(raw) {
   /* #740 (Josh, 2026-08-24 21:17: "I've got to be able to have capitals.
@@ -643,12 +652,12 @@ function slugFor(raw) {
      leading hyphen, which NAME_RE rejects, so `.Net` is refused rather than
      becoming `net`. Only the period joins whitespace here; every other
      character still survives unchanged to be caught by NAME_RE.
-     kosmos#8784 (Josh, 2026-11-19: "we need to be able to support apostrophes in agent names"): an apostrophe,
-     straight or curly (' U+2018 U+2019), is DROPPED, so "Taylor's Coach" is shown as typed and is `taylors-coach` to
+     kosmos#8784 (Josh, 2026-11-19: "we need to be able to support apostrophes in agent names"): an apostrophe
+     (APOSTROPHES, above) is DROPPED, so "Taylor's Coach" is shown as typed and is `taylors-coach` to
      the machinery. Dropped, not folded to a hyphen like the period: it sits inside a word ("taylor-s-coach" names no
      one), and it cannot collide in silence, because every spelling of the name ("Taylor's", "Taylor's" curly,
      "Taylors") lands on one machine name and createAgent refuses the second as already taken, by name. */
-  return cleanName(raw).toLowerCase().replace(/['\u2018\u2019]/g, '').replace(/[\s.]+/g, '-');
+  return cleanName(raw).toLowerCase().replace(APOSTROPHES, '').replace(/[\s.]+/g, '-');
 }
 
 function nameProblem(raw) {
@@ -668,7 +677,7 @@ function nameProblem(raw) {
   /* kosmos#8784: slugFor DROPS an apostrophe, so a name that starts with one ("'ab") would pass NAME_RE as `ab` while its
      display name starts with a quote. A leading apostrophe is refused, as a leading period is (#2605), so a name still
      starts with a letter or number in the file an agent boots from. */
-  if (!NAME_RE.test(name) || /^['\u2018\u2019]/.test(cleanName(raw))) {
+  if (!NAME_RE.test(name) || LEADING_APOSTROPHE.test(cleanName(raw))) {
     // kosmos#8784: the sentence names every character a name may hold (spaces #740, periods #2605, apostrophes #8784).
     return 'use letters, numbers, spaces, periods, apostrophes, hyphens and underscores, starting with a letter or number';
   }
@@ -6346,7 +6355,7 @@ function createAgentInner(opts) {
   if (hasFolder && hasJob) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `there is already an agent called ${shown}. If it never came up, it is half made rather than missing. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
+      because: `there is already an agent called ${spokenName(name)}. If it never came up, it is half made rather than missing. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
       field: 'name', // #2606
       steps,
     };

@@ -38,3 +38,22 @@ Weakest premise: that dropping is better than refusing for a name whose meaning 
 exists in practice beyond possessives. What would change my mind: a person who wants "Taylor's" and "Taylors" as two
 agents.
 Not done here: seeing it on a served build from the board and the iPhone app, messaging it and restarting it.
+
+## Review 1 (Opus)
+- No BLOCKER. Measured by the reviewer: no lookup that now drops an apostrophe can reach a different agent (every caller
+  of slugFor/nameProblem traced); the typed name reaches no runner call; reserved names stay refused.
+- WARNING fixed: the boot-file invariant in create.test.js did not try the curly forms, so it no longer covered what
+  the code accepts. Its alphabet now has U+2018 U+2019 U+02BC U+02BB U+FF07 (accepted) and U+2032 U+00B4 (refused).
+- WARNING fixed: apostrophes a keyboard types beyond the three were refused with a sentence that says apostrophes are
+  allowed. One set, APOSTROPHES, now drops ' U+2018 U+2019 U+02BC (Ukrainian layouts) U+02BB (okina) U+FF07
+  (fullwidth); the backtick (shell-active), the prime and the acute stay refused, pinned both ways.
+- WARNING fixed: the second-spelling test made its own first agent (it leaned on the test above; it now passes alone).
+- NIT fixed: "there is already an agent called X" names the existing agent as the board shows it (spokenName), not the
+  spelling typed. The three sibling leftover sentences (a folder, a job, a running session) keep the typed name: those
+  leftovers usually have no profile, so there is no other name to give.
+- NIT fixed: the slugFor docblock no longer says it strips nothing.
+- NITs kept: "'" alone reads "give the agent a name"; a long run of apostrophes is as accepted as a long run of spaces
+  already was (create has no display-name cap, rename caps at 80: not new here); the org chart's client-side
+  suggestion folds to "taylor-s-coach" (a suggestion the server rules on); the no-shell-file check covers the
+  platform the test runs on.
+- Ran the 13 test files that pin the "already an agent called" wording, create.test.js included: 452 tests, 0 failed.

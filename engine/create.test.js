@@ -430,8 +430,9 @@ test('the display name and the machine name differ only in case and folded white
    * and a run of periods (#2605), each to a hyphen. Every OTHER character
    * survives `slugFor` unchanged and is then caught by `NAME_RE`, which admits
    * only `[a-z0-9_-]`. So an accepted display name is made of exactly
-   * `[A-Za-z0-9 ._'-]` (the alnum/underscore/hyphen NAME_RE passes, plus the
-   * space and period slugFor folds, and the apostrophe it drops, kosmos#8784),
+   * `[A-Za-z0-9 ._'-]` plus the other apostrophes create.js drops (U+2018 U+2019
+   * U+02BC U+02BB U+FF07) (the alnum/underscore/hyphen NAME_RE passes, plus the
+   * space and period slugFor folds, and the apostrophes it drops, kosmos#8784),
    * starting with an alnum. Asserted as a
    * property over the whole dangerous alphabet, rather than trusted.
    *
@@ -444,7 +445,7 @@ test('the display name and the machine name differ only in case and folded white
    * use the period-free SLUG (`plistFor(clean, …)`), and the display name goes
    * only to the markdown file, the profile JSON, and HTML-escaped UI.
    */
-  const alphabet = ' \t\n\'"`$();|&<>*?![]{}\\/#~^%+=:,.@abzAZ09_-*';
+  const alphabet = ' \t\n\'"`$();|&<>*?![]{}\\/#~^%+=:,.@abzAZ09_-*\u2018\u2019\u02BC\u02BB\uFF07\u2032\u00B4';
   let accepted = 0;
   for (const ch of alphabet) {
     for (const candidate of [`a${ch}b`, `${ch}ab`, `ab${ch}`, `A${ch}B`]) {
@@ -473,7 +474,7 @@ test('the display name and the machine name differ only in case and folded white
          spelling is refused as taken, by name, never filed beside the first in silence.
          It reaches the boot file only as literal markdown prose, like the period. Any
          other character a slugFor started to strip still fails this line. */
-      assert.equal(create.slugFor(candidate), candidate.trim().toLowerCase().replace(/'/g, '').replace(/[\s.]+/g, '-'),
+      assert.equal(create.slugFor(candidate), candidate.trim().toLowerCase().replace(/['\u2018\u2019\u02BC\u02BB\uFF07]/g, '').replace(/[\s.]+/g, '-'),
         `'${candidate}' is shown as something that is not just the machine name in another case (spaces and periods folded)`);
       /* #2605: the boot-file alphabet gains the period and NOTHING else. The
          period is inert as markdown prose (see the header); every other
@@ -481,7 +482,7 @@ test('the display name and the machine name differ only in case and folded white
          this assertion. The leading anchor is unchanged, so a name still starts
          with an alnum. kosmos#8784 adds the apostrophe, inert as markdown prose for
          the same reason, and nothing else. */
-      assert.match(shown, /^[A-Za-z0-9][A-Za-z0-9 ._'-]*$/,
+      assert.match(shown, /^[A-Za-z0-9][A-Za-z0-9 ._'\u2018\u2019\u02BC\u02BB\uFF07-]*$/,
         `'${candidate}' would put something other than a name into the file an agent boots from`);
     }
   }
