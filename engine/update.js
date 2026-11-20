@@ -336,6 +336,8 @@ function boardUnitInCgroup(text) {
    logs/install.started for the length of its run; a fresh one this board did not write (its own single-flight is
    installStarted) means an installer is running. Thirty minutes, as the verb's own guard reads the same marker. */
 const EXTERNAL_INSTALL_MS = 30 * 60 * 1000;
+// Said of the marker's age, not of a live process: an interrupted run leaves the same marker (readStartedRecord).
+const EXTERNAL_INSTALL_SENTENCE = 'an update started on this computer less than 30 minutes ago and has not finished, so this one waits; try again when it ends';
 function externalInstallUnderWay() {
   if (installStarted) return false;
   const file = installStartedFile();
@@ -403,8 +405,8 @@ function rollbackOffer() {
   } catch { return null; }
 }
 
-/** kosmos#7935: the command that updates a Linux board that cannot take the press (kosmos#8786): this install's own `kosmos update`, which works out
-    the channel, the subscription and the base as beginInstall does, checks the installer against its signed manifest
+/** kosmos#7935, kosmos#8786: the command for a Linux board that cannot take the press. It is this install's own
+    `kosmos update`, which works out the channel, the subscription and the base as beginInstall does, checks the installer against its signed manifest
     (never curl | sh, #6468), and runs it over THIS home. --install because the person running it has chosen to. The
     home is quoted, a quote inside it escaped, so the line can be pasted as it is. */
 function updateCommand(platform = updatePlatform()) {
@@ -898,12 +900,12 @@ function setupUrl() {
 function selfInstallRefusal(platform = updatePlatform()) {
   // kosmos#8786: read fresh, because this is the press (the route and beginInstall), not the card's poll.
   if (canPressUpdate(platform, { fresh: true })) {
-    if (platform === 'linux' && externalInstallUnderWay()) return 'an update is already being installed on this computer';
+    if (platform === 'linux' && externalInstallUnderWay()) return EXTERNAL_INSTALL_SENTENCE;
     return null;
   }
   const command = updateCommand(platform);
   if (platform === 'linux' && command) {
-    return "Kosmos cannot update itself here: this board's service would stop the installer partway through."
+    return "Kosmos cannot update itself here: this board's service could not be confirmed to keep the installer running."
       + ' To update, run this in a terminal: ' + command;
   }
   return 'Kosmos cannot update itself on this platform (' + String(platform) + ').'
@@ -1469,7 +1471,7 @@ function beginInstallOnce(opts) {
   // lifetime; the flag dies with the process the installer restarts.
   if (installStarted) return;
   // kosmos#8786 review 5: read BEFORE this press takes the single-flight, which externalInstallUnderWay reads as its own.
-  if (updatePlatform() === 'linux' && externalInstallUnderWay()) throw new Error('an update is already being installed on this computer');
+  if (updatePlatform() === 'linux' && externalInstallUnderWay()) throw new Error(EXTERNAL_INSTALL_SENTENCE);
   installStarted = true;
   installLaunched = false;
   inFlightKindVar = 'update';
