@@ -73,3 +73,8 @@ third copy of a routine the board already delivers).
 - NITs kept: the sending-off trade-off is recorded in Decided; "first" means first among agents that worked (#8572),
   which is fine for a brief; feedback-triage.test.js:200's comment about how roles.js wrapped the question; a long line
   in feedbacknudge.js's header.
+
+## Review 4 (Sonnet, whole branch)
+- No BLOCKER, no WARNING; converged. Every repointed test has a control that can fail. NITs kept: the header line
+  length in feedbacknudge.js; the intended trade (a PM not asked, or sending off, has no feedback routine); 78
+  characters of headroom under the ceiling, which is the ratchet working.
