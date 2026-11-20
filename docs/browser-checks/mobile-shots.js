@@ -2832,6 +2832,40 @@ const SCREENS = [
       if (row) row.closest('.llm').scrollIntoView({ block: 'center' });
     });
   } },
+  /* kosmos#8783: first run's Model step on a CLOUD machine, at the Claude sign-in step waiting for a code, with the
+     link already there. The page is made a cloud machine the way it reads it (the served kosmos-cloud-machine meta,
+     then applyPlatformCopy), and the step is drawn by the page's own painter, frPaintConnect. */
+  { name: 'firstrun-claude-code-8783', owner: 'Angel', go: async (page) => {
+    await at(page, '?first-run=1&fr-step=5');
+    await page.waitForSelector('#fr-pane-5', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => {
+      const meta = document.querySelector('meta[name="kosmos-cloud-machine"]');
+      if (meta) meta.setAttribute('content', '1');
+      applyPlatformCopy(document);
+      FR_CONN_LAST = null;
+      frPaintConnect({ phase: 'signin-awaiting-code', url: 'https://claude.ai/oauth/authorize?example' });
+    });
+    await page.waitForSelector('#fr-conn-code', { state: 'visible', timeout: 5000 });
+    await page.waitForTimeout(600);   // the reveal scroll (the reveal's animation frame, then the edge script's frame) and the edge fade settle
+  },
+  verify: async (page) => {
+    if (!(await page.isVisible('#fr-conn-code'))) throw new Error('the code field is not drawn');
+    /* kosmos#8783: "visible" also counts a field scrolled under the pinned footer, so check the field and the
+       Use code button lie inside the scrolling body's visible box (what the fix is for). */
+    const r = await page.evaluate(() => {
+      const body = document.querySelector('#firstrun .fr-body');
+      const go = document.getElementById('fr-conn-code-go');
+      const field = document.getElementById('fr-conn-code');
+      if (!body || !go || !field) return null;
+      const b = body.getBoundingClientRect();
+      const f = field.getBoundingClientRect(); const gb = go.getBoundingClientRect();
+      const g = { top: Math.min(f.top, gb.top), bottom: Math.max(f.bottom, gb.bottom) };   // the field and Use code together
+      // While the bottom fade is on (content below), the button must also sit clear of the fade's 32px band.
+      const fade = body.dataset.edge === 'b' ? 32 : 0;
+      return { inside: g.top >= b.top - 1 && g.bottom <= b.bottom - fade + 1 };
+    });
+    if (!r || !r.inside) throw new Error('the code field and Use code are not inside the visible wizard body (kosmos#8783)');
+  } },
   { name: 'agent-files', owner: 'unowned', go: async (page, data) => {
     await at(page, '?tab=detail&agent=' + data.chatAgent);
     /* On a phone the agent page opens on its conversation, which hides this short Files list

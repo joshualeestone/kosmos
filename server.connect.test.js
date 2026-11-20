@@ -1010,12 +1010,15 @@ function connectHarness(st, { cloud = false, words = false } = {}) {
     function frConnectStart() {}
     function frConnCancel() {}
     function frConnSubmitCode() {}
+    let __reveals = 0;
+    function frConnRevealCode() { __reveals += 1; }   // kosmos#8783: counted here; the real one is tested on its own below
     globalThis.__els = __els;
     globalThis.__actions = () => __actions;
+    globalThis.__reveals = () => __reveals;
   `;
   const paint = pageFunction('frPaintConnect', prelude);
   paint(st);
-  return { paint, els: globalThis.__els, actions: globalThis.__actions() };
+  return { paint, els: globalThis.__els, actions: globalThis.__actions(), reveals: globalThis.__reveals() };
 }
 
 test('every phase the server can answer renders a panel with a way onward', () => {
@@ -1921,4 +1924,88 @@ test('win32-signin-web-copy MAC UNCHANGED: the stuck card note is byte-identical
 /* #4309: no sweep in this file may have started the host's gh or vercel (a writer the test cannot stop). */
 test('#4309: no host gh or vercel ran with this sandbox as its home', () => {
   hostClis.assertNoHostCli(assert, HOME);
+});
+
+test('kosmos#8783: the cloud code step brings the sign-in box into view when drawn, and not on the waiting step', () => {
+  const code = connectHarness({ phase: 'signin-awaiting-code', progress: null }, { cloud: true });
+  assert.equal(code.reveals, 1, 'the code step was drawn without bringing it into view');
+  const waiting = connectHarness({ phase: 'signin-launching', progress: null }, { cloud: true });
+  assert.equal(waiting.reveals, 0, 'CONTROL: a step with no code field does not scroll');
+});
+
+test('kosmos#8783: the late link (a tick after the code step) brings the box into view again, once per new link (never on a repeat poll)', () => {
+  const raw = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
+  let reveals = 0;
+  const els = { 'fr-conn-url': { innerHTML: '' }, 'fr-conn-code': {} };
+  globalThis.__rv = () => { reveals += 1; };
+  globalThis.__els8783 = els;
+  const paintUrl = pageFunction('frConnPaintUrl', 'const esc = ' + pageFunction('esc').toString() + ';\n'
+    + 'function onCloudMachine() { return true; }\n' + pageFunction('signinOpensNoBrowserHere').toString() + '\n'
+    + script.match(/const CLOUD_SIGNIN_SAY = \{[^}]*\};/)[0] + '\n' + pageFunction('frCloudSigninDetail').toString() + '\n'
+    + 'const document = { getElementById: (id) => globalThis.__els8783[id] || null };\n'
+    + 'function frConnRevealCode() { globalThis.__rv(); }');
+  const st = { phase: 'signin-awaiting-code' };
+  paintUrl('https://claude.ai/oauth/a', st);
+  assert.equal(reveals, 1, 'the link arrived and the box was not brought into view');
+  paintUrl('https://claude.ai/oauth/a', st);
+  assert.equal(reveals, 1, 'a repeat poll with the same link must not scroll again (it would fight the person)');
+  paintUrl('https://claude.ai/oauth/b', st);
+  assert.equal(reveals, 2, 'a new link scrolls once more');
+  delete els['fr-conn-code'];
+  paintUrl('https://claude.ai/oauth/c', st);
+  assert.equal(reveals, 2, 'CONTROL: with no code field on screen (another step) nothing scrolls');
+});
+
+test('kosmos#8783: frConnRevealCode scrolls the whole sign-in box, then the field row (in that order), and never focuses', () => {
+  const order = [];
+  globalThis.__box8783 = { scrollIntoView: (o) => order.push(['box', o.block]) };
+  const reveal = pageFunction('frConnRevealCode', 'const document = { getElementById: (id) => id === "fr-sub" ? globalThis.__box8783 : null };\n'
+    + 'const requestAnimationFrame = (f) => f();');
+  reveal();
+  assert.deepEqual(order, [['box', 'nearest']], 'with no field drawn only the box is scrolled');
+  order.length = 0;
+  globalThis.__field8783 = { parentNode: { scrollIntoView: (o) => order.push(['row', o.block]) } };
+  const reveal2 = pageFunction('frConnRevealCode', 'const document = { getElementById: (id) => id === "fr-sub" ? globalThis.__box8783 : id === "fr-conn-code" ? globalThis.__field8783 : null };\n'
+    + 'const requestAnimationFrame = (f) => f();');
+  reveal2();
+  assert.deepEqual(order, [['box', 'nearest'], ['row', 'nearest']], 'the box first, then the field row, so a tall box cannot leave the field under the footer');
+  const raw = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const fn = raw.slice(raw.indexOf('function frConnRevealCode()'), raw.indexOf('\n}\n', raw.indexOf('function frConnRevealCode()')));
+  assert.doesNotMatch(fn, /\.focus\(/, 'the field must not be focused (the keyboard covers the sign-in link)');
+});
+
+test('kosmos#8783: the wizard body fades its bottom edge only while content sits below (Mona Lisa\'s design)', () => {
+  const raw = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(raw, /#firstrun \.fr-body\[data-edge="b"\] \{ -webkit-mask-image: linear-gradient\(to bottom, #000 calc\(100% - 32px\), transparent\);/,
+    'the fade CSS is missing or changed');
+  assert.match(raw, /#firstrun \.fr-body\[data-edge="b"\][^}]*[;\s]mask-image: linear-gradient\(to bottom, #000 calc\(100% - 32px\), transparent\);/,
+    'the unprefixed mask-image line is missing');
+  const margin = raw.match(/#firstrun \.fr-code-row \{ scroll-margin-bottom: (\d+)px; \}/);
+  assert.ok(margin && Number(margin[1]) > 32, 'the code row must stop clear of the 32px fade when brought into view');
+  const start = raw.indexOf('(function frBodyEdge() {');
+  assert.ok(start > 0, 'the edge script is missing');
+  const iife = raw.slice(start, raw.indexOf('})();', start) + 5);
+  let onScroll = null;
+  const body = { scrollHeight: 900, clientHeight: 500, scrollTop: 0, dataset: {},
+    addEventListener: (ev, fn) => { if (ev === 'scroll') onScroll = fn; } };
+  const run = new Function('document', 'window', 'ResizeObserver', 'MutationObserver', 'requestAnimationFrame', iife);
+  const observers = [];
+  class FakeObserver { constructor(cb) { this.cb = cb; observers.push(this); } observe(target, opts) { this.target = target; this.opts = opts; } }
+  run({ querySelector: (q) => (q === '#firstrun .fr-body' ? body : null) }, { addEventListener() {} }, FakeObserver, FakeObserver, (f) => f());
+  const mo = observers.find((o) => o.opts && o.opts.childList);
+  assert.ok(mo, 'a MutationObserver watches the body');
+  assert.ok(!mo.opts.attributeFilter.includes('data-edge'), 'its own data-edge write must not wake it (a loop)');
+  assert.ok(observers.some((o) => !o.opts), 'a ResizeObserver watches the body');
+  assert.equal(body.dataset.edge, 'b', 'content below the fold: the fade is on');
+  body.scrollTop = 400; onScroll();
+  assert.equal(body.dataset.edge, '', 'scrolled to the bottom: the fade is gone');
+  body.scrollTop = 100; onScroll();
+  assert.equal(body.dataset.edge, 'b', 'scrolled back up: on again');
+  body.scrollTop = 400; onScroll(); assert.equal(body.dataset.edge, '');
+  body.scrollHeight = 1400; mo.cb();   // a step redraws and grows after it appeared (the late sign-in link)
+  assert.equal(body.dataset.edge, 'b', 'a redraw that adds content below re-marks the edge');
+  const short = { scrollHeight: 400, clientHeight: 500, scrollTop: 0, dataset: {}, addEventListener() {} };
+  run({ querySelector: () => short }, { addEventListener() {} }, undefined, undefined, (f) => f());
+  assert.equal(short.dataset.edge, '', 'CONTROL: nothing to scroll, no fade');
 });
