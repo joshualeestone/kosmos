@@ -21558,17 +21558,32 @@ window.addEventListener('unhandledrejection', (e) => {
    version of it) is not yet in charge of misses that: the very first visit, a hard reload, and the first visit after
    the worker is updated (an older worker is in charge until the new one takes over). So for the first two minutes the
    board pictures that fail (<img src> and the SVG <image href> avatars) are noted, and when a worker takes charge in
-   that time each one still on the page and not shown is asked for again, at the same address, and those addresses
-   leave kosmos#8636's list of failed link-preview pictures so their cards draw them again (only those: a preview that
-   failed for its own reasons stays left out). Only when a picture has failed on a page no worker is in charge of is
-   a ready worker asked to take charge (the 'claim' message). Nothing else: no address is changed and no error is held
-   back, so every other error listener sees each failure as before. After the two minutes nothing here listens. */
+   that time each one still on the page and not shown is asked for again, at the same address. A picture whose
+   refusal comes only after a worker took charge (it was asked for before, and answered late) is asked for again at
+   once, the same way. Each element is asked again at most once, so a picture that really fails does not loop. The
+   addresses asked again leave kosmos#8636's list of failed link-preview pictures, so a card drawn again draws them
+   (a card is drawn again when its thread next repaints; a preview box already removed is not put back by this).
+   Only when a picture has failed on a page no worker is in charge of is a ready worker asked to take charge (the
+   'claim' message). Nothing else: no address is changed and no error is held back, so every other error listener
+   sees each failure as before. After the two minutes nothing here listens. */
 (() => {
   const sw = typeof navigator !== 'undefined' && navigator.serviceWorker;
   if (!sw || typeof document === 'undefined') return;
   const failed = new Set();
   const addresses = new Set();
+  const askedAgain = new WeakSet();   // each element is asked again at most once
   let asked = false;
+  let tookOver = false;   // a worker took charge during this page's life
+  const forgetPreviewFailure = (raw) => {
+    // After kosmos#8636's own listener has run for this error (it adds the address), so the delete is the last word.
+    setTimeout(() => { try { if (typeof LPV_FAILED !== 'undefined') LPV_FAILED.delete(raw); } catch { /* never fatal */ } }, 0);
+  };
+  const askAgain = (el, attr, raw) => {
+    if (askedAgain.has(el)) return;
+    askedAgain.add(el);
+    el.setAttribute(attr, raw);
+    forgetPreviewFailure(raw);
+  };
   const attrOf = (el) => (el.tagName === 'IMG' ? 'src' : String(el.tagName).toLowerCase() === 'image' ? 'href' : null);
   const askToClaim = () => {
     if (asked || sw.controller || !sw.ready || typeof sw.ready.then !== 'function') return;
@@ -21584,18 +21599,20 @@ window.addEventListener('unhandledrejection', (e) => {
       const u = new URL(raw, location.href);
       if (u.origin !== location.origin || !u.pathname.startsWith('/api/')) return;
     } catch { return; }   // not an address: nothing to ask again
+    if (tookOver && sw.controller) { if (el.isConnected) askAgain(el, attr, raw); return; }   // refused late: ask now
     failed.add(el);
     addresses.add(raw);
     askToClaim();
   };
   const onTakeover = () => {
+    tookOver = true;
     for (const el of failed) {
       const attr = attrOf(el);
       const raw = attr && el.getAttribute(attr);
       if (!raw || !el.isConnected || (el.tagName === 'IMG' && el.complete && el.naturalWidth > 0)) continue;
-      el.setAttribute(attr, raw);
+      askAgain(el, attr, raw);
     }
-    try { if (typeof LPV_FAILED !== 'undefined') for (const raw of addresses) LPV_FAILED.delete(raw); } catch { /* declared further down; never fatal */ }
+    for (const raw of addresses) forgetPreviewFailure(raw);
     failed.clear();
     addresses.clear();
     asked = false;

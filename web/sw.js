@@ -106,7 +106,9 @@ function isImageRequest(req) {
   if (req.destination) return false;   // another kind: a script, a style, a document
   if (req.mode !== 'no-cors') return false;
   let accept = '';
-  try { accept = String((req.headers && req.headers.get && req.headers.get('accept')) || ''); } catch (_e) { accept = ''; }
+  try {
+    accept = String((req.headers && req.headers.get && req.headers.get('accept')) || '');
+  } catch (_e) { accept = ''; }
   return /^image\//i.test(accept);
 }
 
@@ -133,17 +135,25 @@ self.addEventListener('fetch', (event) => {
      sees only the requests of this origin's own pages, never another site's image of this board, so another site
      cannot get the header put on its request. Any other answer (a picture, a 404, a network error) is the network's
      own answer, passed through (the request now reaches the board through the worker, so it says Sec-Fetch-Dest
-     "empty" rather than "image"; nothing on the relay or the board reads that). On a browser that sends Sec-Fetch-Site the connector gives the token to a picture already, so a 401 or
+     "empty" rather than "image"; nothing on the relay or the board reads that). On a browser that sends
+     Sec-Fetch-Site the connector gives the token to a picture already, so a 401 or
      403 there is a real refusal and the second ask is refused the same way. Never cached here. */
   if (req.mode !== 'navigate' && url.pathname.startsWith('/api/') && isImageRequest(req)) {
     event.respondWith((async () => {
       const res = await fetch(req);
       if (!res || (res.status !== 401 && res.status !== 403)) return res;
-      // A discarded answer's body is cancelled, so it does not hold its request open (kosmos#6192's finding on the page).
-      const drop = (r) => { try { if (r && r.body && typeof r.body.cancel === 'function') r.body.cancel().catch(() => {}); } catch (_e) { /* nothing to free */ } };
+      // A discarded answer's body is cancelled, so it does not hold its request open
+      // (kosmos#6192's finding on the page).
+      const drop = (r) => {
+        try {
+          if (r && r.body && typeof r.body.cancel === 'function') r.body.cancel().catch(() => {});
+        } catch (_e) { /* nothing to free */ }
+      };
       try {
         // redirect 'error': the header must never follow a redirect off this board (the #8781 rule, held by code here).
-        const again = await fetch(url.href, { headers: { 'X-Kosmos-Board-Page': '1' }, credentials: 'same-origin', redirect: 'error' });
+        const again = await fetch(url.href, {
+          headers: { 'X-Kosmos-Board-Page': '1' }, credentials: 'same-origin', redirect: 'error',
+        });
         if (again && again.ok) { drop(res); return again; }
         drop(again);
         return res;

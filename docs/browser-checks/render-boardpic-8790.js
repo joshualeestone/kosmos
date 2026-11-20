@@ -37,7 +37,13 @@ chk(!!reloader, 'the page\'s first-visit reloader was found in web/index.html');
 const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==', 'base64');
 const HTML = `<!doctype html><html><head><meta charset="utf-8"><title>boardpic</title></head><body>
 <div class="pics"></div>
+<script>const LPV_FAILED = new Set();   // kosmos#8636's list, as the board keeps it</script>
 <script>${reloader}</script>
+<script>
+  // A stand-in for kosmos#8636's listener (registered after the reloader, as on the board): a failed preview picture
+  // is recorded and its box taken away.
+  document.addEventListener('error', (e) => { const t = e.target; if (t && t.classList && t.classList.contains('lpv')) { LPV_FAILED.add(t.getAttribute('src')); t.remove(); } }, true);
+</script>
 <script>
   // After the reloader has noted it (its listener is registered first), a refused "gone" picture is taken off the page.
   document.addEventListener('error', (e) => { const t = e.target; if (t && t.getAttribute && t.getAttribute('src') === '/api/agent/gone/avatar') t.remove(); }, true);
@@ -46,7 +52,12 @@ const HTML = `<!doctype html><html><head><meta charset="utf-8"><title>boardpic</
   window.drawPics = (list) => { document.querySelector('.pics').innerHTML = list.map((u) => '<img src="' + u + '" alt="">').join(''); };
   window.drawSvg = (u) => { document.querySelector('.pics').insertAdjacentHTML('beforeend', '<svg width="10" height="10"><image href="' + u + '" width="10" height="10"/></svg>'); };
   window.readPics = () => [...document.querySelectorAll('.pics img')].map((i) => ({ src: i.getAttribute('src'), loaded: i.complete && i.naturalWidth > 0 }));
-  if (navigator.serviceWorker) navigator.serviceWorker.register('/sw.js');
+  // The check registers the worker itself on the first visit, once the pictures have failed, so the first-visit case
+  // never depends on how fast an engine starts a worker. A reload registers at once, as the board does.
+  window.registerWorker = () => navigator.serviceWorker.register('/sw.js');
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) window.registerWorker();
+  window.allFailed = () => [...document.querySelectorAll('.pics img')].every((i) => i.complete && i.naturalWidth === 0);
+  window.lpvFailed = () => [...LPV_FAILED];
 </script></body></html>`;
 
 const asked = [];
@@ -58,6 +69,10 @@ const server = http.createServer((req, res) => {
   if (u.pathname.startsWith('/api/')) {
     asked.push({ path: u.pathname + u.search, marked, dest: req.headers['sec-fetch-dest'] || '' });
     if (u.pathname === '/api/gone/avatar') { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"no such agent"}'); return; }
+    if (u.pathname === '/api/agent/slow/avatar' && !marked) {   // a refusal that arrives late (after the takeover)
+      setTimeout(() => { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"error":"sign in"}'); }, 1500);
+      return;
+    }
     if (u.pathname === '/api/open/avatar' || marked) { res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' }); res.end(PNG_1X1); return; }
     res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"error":"sign in to this computer"}'); return;
   }
@@ -81,7 +96,15 @@ const server = http.createServer((req, res) => {
       // 1. First visit: drawn before the worker is in charge.
       await page.goto(base + '/');
       const before = await page.evaluate(() => !!(navigator.serviceWorker && navigator.serviceWorker.controller));
-      const drawnBefore = await page.evaluate(() => { window.drawPics(['/api/agent/first/avatar?v=1', '/api/open/avatar', '/api/agent/gone/avatar']); window.drawSvg('/api/agent/firstsvg/avatar'); return !!navigator.serviceWorker.controller; });
+      const drawnBefore = await page.evaluate(() => {
+        window.drawPics(['/api/agent/first/avatar?v=1', '/api/open/avatar', '/api/agent/gone/avatar']);
+        window.drawSvg('/api/agent/firstsvg/avatar');
+        document.querySelector('.pics').insertAdjacentHTML('beforeend', '<img class="lpv" src="/api/agent/preview/pic" alt="">');
+        return !!navigator.serviceWorker.controller;
+      });
+      await page.waitForTimeout(600);
+      const lpvBefore = await page.evaluate(() => window.lpvFailed());
+      await page.evaluate(() => window.registerWorker());
       await page.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 15000 }).catch(() => {});
       await page.waitForTimeout(800);
       const first = await page.evaluate(() => window.readPics());
@@ -92,6 +115,8 @@ const server = http.createServer((req, res) => {
       chk(count('/api/agent/first/avatar?v=1', true) >= 1, tag + 'the reloader asked again, through the worker (with the header)', JSON.stringify(asked.filter((a) => a.path.includes('first'))));
       chk(count('/api/agent/firstsvg/avatar', true) >= 1, tag + 'first visit: an SVG <image> avatar is asked for again too', JSON.stringify(asked.filter((a) => a.path.includes('firstsvg'))));
       chk(count('/api/open/avatar') === 1, tag + 'a picture that loaded is not asked for again', JSON.stringify(asked.filter((a) => a.path.includes('open'))));
+      const lpvAfter = await page.evaluate(() => window.lpvFailed());
+      chk(lpvBefore.includes('/api/agent/preview/pic') && !lpvAfter.includes('/api/agent/preview/pic'), tag + 'kosmos#8636 recorded the preview as failed and took its box away, and the takeover took it off that list (so a redrawn card draws it)', JSON.stringify({ lpvBefore, lpvAfter }));
       chk(count('/api/agent/gone/avatar') >= 1 && count('/api/agent/gone/avatar', true) === 0, tag + 'a refused picture taken off the page after it failed is not asked for again', JSON.stringify(asked.filter((a) => a.path.includes('gone'))));
 
       // 2 to 4. A page the worker controls from the start.
@@ -124,11 +149,12 @@ const server = http.createServer((req, res) => {
         await page.evaluate(() => window.drawPics(['/api/open/avatar?v=3']));
         await page.waitForTimeout(1200);
         chk(!(await page.evaluate(() => !!navigator.serviceWorker.controller)), tag + 'CONTROL: with no picture failed, the page does not ask the worker to take charge');
-        await page.evaluate(() => window.drawPics(['/api/agent/hard/avatar?v=9']));
-        await page.waitForTimeout(2500);
+        await page.evaluate(() => window.drawPics(['/api/agent/hard/avatar?v=9', '/api/agent/slow/avatar']));
+        await page.waitForTimeout(3500);
         const hard = await page.evaluate(() => ({ ctl: !!navigator.serviceWorker.controller, pics: window.readPics() }));
         chk(hard.ctl, tag + 'a hard reload: once a picture failed, the worker was asked to take charge and did', JSON.stringify(hard));
         chk(hard.pics[0] && hard.pics[0].loaded, tag + 'and the refused picture shows', JSON.stringify(asked.filter((a) => a.path.includes('hard'))));
+        chk(hard.pics[1] && hard.pics[1].loaded && count('/api/agent/slow/avatar', true) === 1, tag + 'a picture refused only after the worker took charge is asked for again, once, and shows', JSON.stringify(asked.filter((a) => a.path.includes('slow'))));
       }
       chk(errs.length === 0, tag + 'no page errors', JSON.stringify(errs));
     } finally {
