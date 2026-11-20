@@ -139,11 +139,16 @@ after="$(lines)"
   && ok "without the latch the run skips quietly (no new line)" \
   || bad "the latch-gone run: result $res, cloud-update lines $before -> $after"
 
-# --- 5b. A FOREIGN XDG_RUNTIME_DIR (kosmos#8786, measured on a Hetzner box): an install run with another user's runtime ---
-# folder, as a root login passes it through `runuser`, must still enable the timer. Before the fix installBoard reached the
-# wrong bus ("Failed to connect to bus") and left the units written but disabled. The folder is made by root (sudo).
+# --- 5b. A FOREIGN XDG_RUNTIME_DIR (kosmos#8786, measured on a Hetzner box): an install run with a root-owned folder in ---
+# XDG_RUNTIME_DIR, as a root login passes its own through `runuser`, must still enable the timer. Before the fix installBoard
+# reached no bus ("Failed to connect to bus") and left the units written but disabled. The CONTROL below proves this runner's
+# systemctl --user really fails with that folder, so a pass here is the fix and not a bus found some other way.
 FOREIGN="$ROOT/foreign-rt"
-if sudo -n mkdir -p "$FOREIGN" 2>/dev/null && sudo -n chown root:root "$FOREIGN" 2>/dev/null; then
+if [ "$(id -u)" = 0 ]; then echo "SKIP  5b: run as root, a root-owned folder is this user's own"
+elif sudo -n mkdir -p "$FOREIGN" 2>/dev/null && sudo -n chown root:root "$FOREIGN" 2>/dev/null; then
+  XDG_RUNTIME_DIR="$FOREIGN" systemctl --user is-system-running >/dev/null 2>&1 \
+    && bad "CONTROL: systemctl --user still reaches a bus with the root-owned folder, so 5b cannot show the fix" \
+    || ok "CONTROL: with the root-owned folder, systemctl --user reaches no bus (the measured failure)"
   : > "$STATE/hosted"
   systemctl --user disable --now "$TIMER" >/dev/null 2>&1 || true
   [ "$(systemctl --user is-enabled "$TIMER" 2>/dev/null)" != enabled ] || bad "premise: the timer is still enabled before the foreign-folder install"
