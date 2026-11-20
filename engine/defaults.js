@@ -81,10 +81,8 @@ const LINES = [
   '',
   '### You do not stop. A blocker parks the item, not you.',
   '',
-  '**First, what "item" means, because every operator calls it something',
-  'different.** An item is the unit of work you are tracking, WHATEVER YOUR SYSTEM',
-  'CALLS IT: a card, a task, a ticket, an issue, a story, a bug, a line in a',
-  'checklist. **The rule does not require a tracking system at all.** If the',
+  '**An item is the unit of work you are tracking, WHATEVER YOUR SYSTEM',
+  'CALLS IT. The rule does not require a tracking system at all:** if the',
   'person just said "do these four things", the third thing is an item.',
   '',
   '1. **Decide it yourself and write the reasoning down** - what you chose, what',
@@ -153,9 +151,7 @@ const LINES = [
   'allowed. **There is no command for having stopped, because there is no such',
   'state.**',
   '',
-  '**Kosmos fills in started, working, idle and stopped for you as you go. Those',
-  'two are the only ones it cannot see for itself**, because nothing on your screen',
-  'separates a question you are waiting on from a sentence you happened to write.',
+  '**Kosmos sees every other state for itself; those two it cannot see.**',
   '',
   '**Clear it when it is answered** (`kosmos report clear`), **wherever the answer',
   'came**: a message here, a room, another app. A card reading needs_you after you have the',
@@ -1334,8 +1330,14 @@ function block() {
  *     EDITED copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent runs `kosmos claim --how` when one of those cases comes up; the pointer
  *     names each, and both CLIs' claim usage names --how.
+ *  57. kosmos#8735: two low-risk cuts in "You do not stop", proposed on the card first (A and C): the definition of
+ *     an item keeps Josh's two phrases (WHATEVER YOUR SYSTEM CALLS IT; the rule does not require a tracking system at
+ *     all) and the four-things example, without its introduction and list of names; the note on the two states the
+ *     board cannot see keeps the rule, not the explanation of why. No new heading, so as in 32 an agent's EDITED copy
+ *     is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that the list of names (card, task, ticket...) taught nothing the phrase does not.
  */
-const DOCTRINE_VERSION = 56;
+const DOCTRINE_VERSION = 57;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
