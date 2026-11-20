@@ -596,3 +596,44 @@ test('kosmos#8738: a mixed-case agent\'s own folder is not "another agent\'s"; a
     assert.equal(calls, 3, 'a clock set back does not hold the wait');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('kosmos#8738: a part this computer gave up on is ended on Kosmos+ once; no answer is asked again, a refusal is not', async () => {
+  const w = world();
+  try {
+    let clock = 0;
+    const parts = [part({ id: 'hgive' }, 0)];
+    let doneAnswer = null;   // null: no answer at all
+    const dones = [];
+    const d = depsFor(w, { org: () => 'org1', now: () => clock,
+      macRequest: async (m, route, body) => {
+        if (route === hs.MINE_ROUTE) return { ok: true, data: { handovers: parts } };
+        if (route === '/v1/mac/org/handover/done') { dones.push(body); if (!doneAnswer) throw new Error('offline'); return doneAnswer; }
+        return { ok: false };
+      },
+      takeSnapshot: async () => ({ ok: false, final: true, because: 'refused for good' }) });
+    const st = hs.newSendState();
+    await hs.tick(st, d);                    // the pack fails for good
+    assert.equal(dones.length, 0, 'the stop waits for the next tick');
+    await hs.tick(st, d);                    // no answer: asked again next tick
+    assert.deepEqual(dones, [{ id: 'hgive', ok: false }]);
+    doneAnswer = { ok: true, data: { ok: true, state: 'failed' } };
+    await hs.tick(st, d);
+    assert.equal(dones.length, 2);
+    await hs.tick(st, d);
+    assert.equal(dones.length, 2, 'ended once: not sent again');
+    // A restart reads it back: still not sent again.
+    const st2 = hs.newSendState();
+    await hs.tick(st2, d);
+    assert.equal(dones.length, 2, 'a restart sent the stop again');
+    // An older Kosmos+ (or a part already packed) refuses: as good as an answer, not asked again.
+    const w2parts = [part({ id: 'hold' }, 0)];
+    const d2 = Object.assign({}, d, { root: path.join(w.base, 'data2'), macRequest: async (m, route, body) => {
+      if (route === hs.MINE_ROUTE) return { ok: true, data: { handovers: w2parts } };
+      if (route === '/v1/mac/org/handover/done') { dones.push(body); return { ok: false, because: 'Kosmos+ refused (HTTP 404 on /v1/mac/org/handover/done, code handover_not_yours)' }; }
+      return { ok: false };
+    } });
+    const st3 = hs.newSendState();
+    await hs.tick(st3, d2); await hs.tick(st3, d2); await hs.tick(st3, d2);
+    assert.equal(dones.filter((x) => x.id === 'hold').length, 1, 'a refusal was asked again');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});

@@ -70,6 +70,7 @@ const fs = require('fs');
 const path = require('path');
 
 const MINE_ROUTE = '/v1/mac/org/handover/mine';
+const DONE_ROUTE = '/v1/mac/org/handover/done';   // kosmos#8738: the leaving computer ends a part it gave up ({ok: false})
 const SESSION_BYTES = 50 * 1024 * 1024;
 const EVERY_MS = 5 * 60 * 1000;
 const RETRY_MS = 60 * 60 * 1000;
@@ -307,11 +308,27 @@ async function tick(state, deps) {
             state.attempts.set(part.id, (state.attempts.get(part.id) || 0) + 1);
             state.spent.add(part.id);
           }
-          if (typeof rec.final === 'string') state.failed.set(part.id, { key, because: rec.final });
+          if (typeof rec.final === 'string') state.failed.set(part.id, { key, because: rec.final, stopped: rec.stopped === true });
         }
       }
       const f = state.failed.get(part.id);
-      if (f && f.key === key) continue;   // decided already; a changed part is tried again
+      if (f && f.key === key) {
+        // kosmos#8738: decided already. Tell Kosmos+ once that this computer gave up, so the record ends `failed` and the
+        // company can start a new hand-over (it stayed `packing` before). A refusal (an older Kosmos+ without the step,
+        // or a part already past packing) is as good as an answer: nothing more this side can do. No answer at all is
+        // asked again next tick.
+        if (!f.stopped) {
+          let r = null;
+          try { r = await mac('POST', DONE_ROUTE, { id: part.id, ok: false }); } catch { r = null; }
+          const answered = Boolean(r && (r.ok || (typeof r.because === 'string' && /HTTP 4\d\d/.test(r.because))));
+          if (answered) {
+            f.stopped = true;
+            const rec = readSend(part.id, d.root);
+            writeSend(part.id, d.root, Object.assign({}, rec, { key, final: f.because, stopped: true }));
+          }
+        }
+        continue;   // a changed part is tried again
+      }
       if (f) { state.failed.delete(part.id); state.attempts.delete(part.id); state.soft.delete(part.id); state.tieSoft.delete(part.id); state.spent.delete(part.id); dropSend(part.id, d.root); }
       if (state.packed.has(part.id)) continue;   // packed in this run; the record moves on its own
       if ((state.retryAt.get(part.id) || 0) > now) continue;
