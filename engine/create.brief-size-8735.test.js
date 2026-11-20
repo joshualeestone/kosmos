@@ -57,7 +57,7 @@ const BINS = { claudeBin: winBin('/bin/echo', 'where.exe'), tmuxBin: winBin('/bi
 
 const CLAUDE_CODE_LIMIT = 40000;
 const NEW_AGENT_GOAL = 36000;   // headroom under the limit for the blocks a brief gains after birth (projects, team)
-const CEILING = 44400;          // the ratchet (see above): lowered by each slice of #8735 until it reaches NEW_AGENT_GOAL
+const CEILING = 44100;          // the ratchet (see above): lowered by each slice of #8735 until it reaches NEW_AGENT_GOAL
 /* Review 3: a brief names its own folders (the Files folder, twice), and this sandbox's path is as long as the host's
    TMPDIR makes it (tools/run-tests.sh adds a kt<pid> folder), so it is counted as one fixed word, not its length: the
    figure is then the same on every host and under every runner. Both spellings, since macOS can name a temp folder by
