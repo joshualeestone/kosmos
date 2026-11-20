@@ -220,7 +220,8 @@ const LINES = [
   'your reply across for you: `kosmos post <project> "..."` for the room,',
   '`kosmos msg <name> "..."` for one other agent, and to answer an agent\'s',
   'direct message, the command at the end of its bracket:',
-  '`kosmos msg --in-reply-to <id> <name> "..."`. If the text holds a `$` or a',
+  '`kosmos msg --in-reply-to <id> <name> "..."`. Reading that command is not',
+  'running it, and only running it answers. If the text holds a `$` or a',
   'backtick, give it on stdin instead (the shell trap under "Send readable',
   ...exceptOn(['win32'], [
     'messages").',
@@ -1326,9 +1327,10 @@ function block() {
  *  54. kosmos#8735 slice 3, item 1: "Answering the person who messaged you" drops two paragraphs that repeated the
  *     section above it ("Answering where you were asked": a reply in your own session reaches nobody, and the command
  *     sits at the end of the message's bracket). One of them said the note sat at the FRONT of the bracket, which was
- *     wrong. Both sections stay otherwise, because neither is in every agent's file: the colleagues block is added only
- *     to agents made from a role template (create.js), and the working rules can be edited or removed by a person. No
- *     new heading, so as in 32 an agent's EDITED copy is not re-offered it.
+ *     wrong; its "reading is not running" sentence moves into the section above. Both sections stay otherwise, because
+ *     neither is in every agent's file: the colleagues block is added only to agents made from a role template
+ *     (create.js), and the working rules can be edited or removed by a person. No new heading, so as in 32 an agent's
+ *     EDITED copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent reading only "Answering the person who messaged you" also reads the section
  *     just above it, where the rule now lives once.
  */

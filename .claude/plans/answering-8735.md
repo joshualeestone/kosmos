@@ -3,7 +3,8 @@
 ## Call (after review round 1)
 "Answering the person who messaged you" (engine/defaults.js) drops two paragraphs that repeated the section above it,
 "Answering where you were asked": a reply in your own session reaches nobody, and the command sits in the message's
-bracket. One of them said the note sat at the FRONT of the bracket; it is at the end. Everything else stays.
+bracket. One of them said the note sat at the FRONT of the bracket; it is at the end. Its "reading is not running"
+sentence moves into the section above (round 2: custom agents have no colleagues block to carry it). Everything else stays.
 
 ## Rejected
 - The card's design table: one home for every answering rule, in the working rules. And my first build: one home in
@@ -14,7 +15,7 @@ bracket. One of them said the note sat at the FRONT of the bracket; it is at the
 - Moving the claim protocol to a `kosmos claim --how` guide: its own slice (new guide, both CLIs, moved-lines handling).
 
 ## Measured
-- pm brief about 47,070 on main -> 46,794 (darwin). Ratchet 47,600 -> 46,800. The saving is about 340, not the 3,300
+- pm brief about 47,070 on main -> 46,863 (darwin). Ratchet 47,600 -> 46,900. The saving is about 200, not the 3,300
   the design table estimated, because the table's premise (one home reaches everyone) was false.
 - 53 test files that read defaults, doctrine, messages or instructionreread: 1,625 pass, 0 fail.
 - engine/answering-once-8735.test.js: both homes state how to answer; an agent from a person's own words (doctrine.atBirth)

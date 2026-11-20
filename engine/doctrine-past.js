@@ -5,9 +5,9 @@
    first line, and the sha256 of exactly those characters. doctrine.planFor uses it to tell an unedited copy from one
    a person changed. `sections` holds the sha256 of every section of every one of them, for a span holding some. */
 const blocks = [
-  { version: 54, length: 31185, sha256: '6279d2802861de155a4bcf7fc8673dd2aca5f025fde3611d27374c5ac565ecf7' },
-  { version: 54, length: 30185, sha256: 'fa1df7f0f0b842db5db10a9f8134313a428b12e369fc7602371fcd02d1323118' },
-  { version: 54, length: 29698, sha256: 'd23250bfa62217c6b75f1eb3c56b441942f155617ee8d2c5d4c65e01eb6e6929' },
+  { version: 54, length: 31254, sha256: 'e33e9cdc62f8b2f9124b505b07cc5f84de592696366ef8a33a608d4e354ab279' },
+  { version: 54, length: 30254, sha256: '7fbece771ad799ed4816b4bf12403d463549cfd07a3645812a40ffefbdb80a15' },
+  { version: 54, length: 29767, sha256: '7399651c0ef76aaa64434eb12a7b464f20c84f458f1c9ffbbebf8fe92d7a795a' },
   { version: 53, length: 31518, sha256: 'aefdf8da05eaa4cd84125afdc173547ece90d9464a5d1655ce1c4c880187249e' },
   { version: 53, length: 30518, sha256: 'b8e34d38eb98cdeac8bf01b30951857908f5c95b119551931a28a350f2e08b87' },
   { version: 53, length: 30031, sha256: '96e063236923f24d16841979ec5c66a55d4fa79be4f6ed0155152c2e2366320f' },
@@ -161,6 +161,7 @@ blocks.sections = [
   '850accd6f1a0f3c06bc7ef1e07bd94ffff0b6c31466e1e331e4a555d3ab15b1a',
   '88e446b477b04c752f732f80adb334759b969fb425097a9bc1e1c42932cf7f7e',
   '8ce2fa0d27021979ea956f9fd6ad227a3f223154a948e621592ca35fa43ca2c5',
+  '8e6e47e997e308a92cc5057d481818e800250d192f01fe9c7b169da7a5cba25d',
   '9143d4c47752e3cf9edaa58919e85b088510ac7fd4f6ee7df4925551c9d92d39',
   '936a8f3a69b4dc978ad8d5456d19b795aab115f4de6ec7c3042312bf48b19a06',
   '97b4982294a856d25c35fe83b2f3051032c6ed57804918a0963f65a71a6151d1',
@@ -189,6 +190,7 @@ blocks.sections = [
   'd6a31c8f12c2bbe8eccad81422dabfa4e087ee1b6a57b4dd22a94b6b75f99fdb',
   'd80f0fb3e012e5f6337fcee336d03db1a927abe40a5bdaf147f8e56bb3e629ca',
   'dd5a2db581810c02f98f8dcc6e54f76eb75f934e9895808e4a3eecf5b6b21220',
+  'de5c8b301cdad152511912dfadf07de266fcb1b2ccd636f924298342f42019e0',
   'e2ee3e07cc1f000975515d0b0048ef0b40407736a288b427f15de7a7faece4f0',
   'e466755e2336cdaa9a71fc4c11cb9cadba38c04619b37da69213583faa031a75',
   'ec18433f76a55e066677735b6758a6cf1e4fcfe40727ef2e1656250d207a491f',

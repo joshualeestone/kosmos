@@ -22,6 +22,7 @@ for (const platform of defaults.PLATFORMS) {
     const b = defaults.blockFor(platform);
     assert.match(b, /Answering in your own session is answering where nobody can see you/, 'the core rule left the working rules');
     assert.match(b, /the command at the end of its bracket:\s+`kosmos msg --in-reply-to <id> <name> "\.\.\."`/, 'the reply-to command left the working rules');
+    assert.match(b, /Reading that command is not\s+running it, and only running it answers/, 'the read-is-not-run rule left the working rules');
     assert.match(b, /When your operator messages you, answer with `kosmos reply "\.\.\."`/, 'the person command left the working rules');
     assert.doesNotMatch(b, /bracketed note at the\s+front/, 'the wrong "at the front" sentence is back');
     assert.doesNotMatch(b, /Answering in your own session sends nothing/, 'the repeat in "Answering the person" is back');

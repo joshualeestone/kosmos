@@ -451,7 +451,7 @@ function prepareChanges(session) {
       }
     } catch { movedTask = null; }
     /* kosmos#8735 slice 3, item 1: doctrine 54 took two repeats out of "Answering the person who messaged you"; the rule
-       they stated is in "Answering where you were asked", reworded. Nothing is left out (an empty set): the removed lines
+       they stated is in "Answering where you were asked", reworded. No rule line is left out (an empty set): the removed lines
        stay marked, and the note says where the rule may be. Only for that removal: the agent's last-read copy holds the
        first v53 line, and the new file has both headings. */
     let movedAnswer = null;
