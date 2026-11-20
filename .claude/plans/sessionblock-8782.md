@@ -52,6 +52,8 @@ another run, so it is bounded to that rare moment. A run whose token was replace
 That a turn ending normally in a new run means the old failure needs nobody. For a usage limit or a sign-in, the
 new turn could only end normally if the limit or sign-in was already resolved, so the block is stale either way.
 If the new run hits it again, StopFailure writes a fresh block.
+Not every automatic idle is a turn end (a front's startup idle, an agent running `report idle --auto` itself). #6209
+already accepted that within a run; across runs this widens it to every kind, only when the old run's token is gone.
 
 ## Not in scope (noted on the card)
 
@@ -60,12 +62,13 @@ restart for those agents. That is a separate question about #8548.
 
 ## Tests
 
-- `engine/selfreport.anotherrun-8782.test.js`, 14 tests: the 11-19 case; a same-run control; a new run's working
+- `engine/selfreport.anotherrun-8782.test.js`, 16 tests: the 11-19 case; a same-run control; a new run's working
   vs its idle; any kind, and a run of several; a deliberate question under the block; unknown instances on either
   side; deliberate and non-provider blocks; two live runs overlapping (with a flip to gone as the control); no token
   file; the new run's own block over the old one (the residual); a live sibling's block under the gone run's; a gone run's
   transient block over a live run's transient block (cleared, as on main); a `legacy` instance (kept); two gone runs
-  in a row (cleared).
+  in a row (cleared); the old run's permission prompt under its block (cleared); a live run's transient block under
+  a gone run's (cleared).
 - Mutation checks: main's `selfreport.js` fails the clear cases; the token check removed fails the overlap and
   no-token-file tests.
 - The existing `engine/selfreport.autoclear-2456.test.js` and `engine/selfreport.test.js` pass.

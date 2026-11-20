@@ -21,7 +21,8 @@
 #   Stop              -> idle     (never erases a DELIBERATE blocked/needs_you; DOES
 #                        clear a standing auto needs_you, a permission prompt, once
 #                        the turn moves on, and (#6209) an auto provider blocked,
-#                        of a passing kind (a server error), unless it covered a wait; #900/#1949/#2456)
+#                        of a passing kind (a server error), or (kosmos#8782) of any kind from
+#                        another run whose token is gone, unless it covered a wait; #900/#1949/#2456)
 #   StopFailure       -> blocked --on "provider api (<kind>)" --owner provider
 #   SessionEnd        -> stopped
 #   PostToolUseFailure -> no report: `kosmos tool-failed`, a digest of the failed call the
@@ -41,7 +42,8 @@
 # 'needs_you')` (#900 refused `idle`; #1949 added `working`; #2456 added an auto
 # `needs_you` clobber-guard). It refuses those over a standing PROTECTED wait --
 # a deliberate blocked/needs_you, a legacy unmarked line, or an auto `blocked`
-# (#6209: the Stop idle clears a passing provider block that covered no wait) --
+# (#6209: the Stop idle clears a passing provider block that covered no wait;
+# kosmos#8782: any kind, when it came from another run whose token is gone) --
 # but NOT over a standing auto `needs_you`, which a permission prompt writes and
 # which the following auto idle/working is meant to clear. What --auto also
 # changes is that the record can now say who wrote a line.

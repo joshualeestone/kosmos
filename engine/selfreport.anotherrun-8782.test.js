@@ -181,3 +181,21 @@ test('kosmos#8782: two gone runs in a row (a second crash before any normal turn
   assert.equal(selfreport.record(who, idle(NEW)).recorded, true, 'an older gone run\'s block stopped the walk');
   assert.equal(selfreport.read(who).state, 'idle');
 });
+
+test('kosmos#8782: the old run\'s automatic permission prompt under its block does not keep it', () => {
+  const who = 'permission-under-8782';
+  liveRuns(who, [NEW]);
+  assert.equal(selfreport.record(who, { state: 'needs_you', because: 'asking permission to use Bash: ls', auto: true, instance: OLD }).recorded, true);
+  assert.equal(selfreport.record(who, block('an api error', OLD)).recorded, true);
+  assert.equal(selfreport.record(who, idle(NEW)).recorded, true, 'a passed permission prompt kept a gone run\'s block');
+  assert.equal(selfreport.read(who).state, 'idle');
+});
+
+test('kosmos#8782: a live run\'s transient block under a gone run\'s block is stepped over, as #6209 would', () => {
+  const who = 'transient-under-gone-8782';
+  liveRuns(who, [NEW]);
+  assert.equal(selfreport.record(who, { state: 'working', because: 'running Bash', auto: true, instance: NEW }).recorded, true);
+  assert.equal(selfreport.record(who, block('server_error', NEW)).recorded, true);
+  assert.equal(selfreport.record(who, block('an api error', OLD)).recorded, true);
+  assert.equal(selfreport.record(who, idle(NEW)).recorded, true, 'a transient block stopped the gone-run walk');
+});

@@ -227,18 +227,17 @@ function lineUnderProviderBlock(sessionName, goneRuns) {
   const tail = readTail(sessionName);
   if (!tail.rows) return { unknown: true };
   const rows = tail.rows;
-  /* kosmos#8782: with goneRuns, the rows stepped over are automatic provider blocks of any kind from runs whose token is
-     gone (a block from a run still holding one, or of unknown standing, stops the walk); otherwise (#6209) the
-     transient kinds. One token-store answer per instance. */
+  /* kosmos#8782: the rows stepped over are #6209's transient blocks, and with goneRuns also automatic provider blocks of
+     any kind from runs whose token is gone (another non-transient block stops the walk). One token-store answer per
+     instance. */
   const asked = new Map();
   const gone = (inst) => {
     if (typeof inst !== 'string' || inst === '') return false;
     if (!asked.has(inst)) asked.set(inst, sendertoken.instanceState(sessionName, inst) === 'gone');
     return asked.get(inst);
   };
-  const inRun = goneRuns
-    ? (r) => isAnyAutoProviderBlockRow(r) && gone(r.instance)
-    : (r) => isAutoProviderBlock({ found: true, ...r });
+  const transient = (r) => isAutoProviderBlock({ found: true, ...r });
+  const inRun = goneRuns ? (r) => transient(r) || (isAnyAutoProviderBlockRow(r) && gone(r.instance)) : transient;
   let i = rows.length - 1;
   while (i >= 0 && inRun(rows[i])) i -= 1;
   if (i < 0) return tail.cut ? { unknown: true } : { wait: { found: false } };
@@ -382,13 +381,13 @@ function record(sessionName, entry) {
        is over and an automatic idle clears it, unless the block had replaced a wait on a person (anything but an
        automatic permission prompt) or what it replaced is unknown (an unreadable record, a run of blocks past the tail
        read): then the block stays, as before #6209. */
-    const fromGoneRun = state === 'idle' && isAutoProviderBlockFromAGoneRun(sessionName, standing, entry);   // kosmos#8782
+    const fromGoneRun = state === 'idle' && !isAutoProviderBlock(standing)
+      && isAutoProviderBlockFromAGoneRun(sessionName, standing, entry);   // kosmos#8782: no token read for a transient kind
     const providerBlockEnds = state === 'idle' && (isAutoProviderBlock(standing) || fromGoneRun);
     if (providerBlockEnds) {
       /* kosmos#8782: the gone run's walk only for a kind #6209 keeps; a transient block keeps #6209's walk, so a gone
          run never makes a block harder to clear than main does. */
-      const goneWalk = fromGoneRun && !isAutoProviderBlock(standing);
-      const under = lineUnderProviderBlock(sessionName, goneWalk);
+      const under = lineUnderProviderBlock(sessionName, fromGoneRun);
       if (under.unknown) {
         return { recorded: false, skipped: 'waiting', because: 'it is blocked on the provider and Kosmos could not tell what that block replaced, so an automatic idle did not overwrite it' };
       }
