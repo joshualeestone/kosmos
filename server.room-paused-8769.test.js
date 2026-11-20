@@ -116,3 +116,28 @@ test('review 5 (Kitty): a room both HELD and paused shows the hold line and a pa
     roomloop.resetForTests();
   }
 });
+
+test('review 6: held for a big post but NOT for a one-member post, the pause line still offers the one-member way', async () => {
+  const p = madeLongAgo('Held Big Only');
+  projects.addAgent(p.id, 'ann');
+  const now = Date.now();
+  const n = limits.caps().roomArrivalsPerWindow;
+  assert.ok(n > 2, 'the budget is too small for this fixture: ' + n);
+  // One post reaching n - 1 members: the next post its size would pass the budget (held), one of size 1 would not.
+  append({ kind: 'post', id: 'm' + (++seq), from: 'ann', project: p.id, text: 'x', at: iso(now - 12 * MIN),
+    to: Array.from({ length: n - 1 }, (_, i) => 'mem' + i), outcomes: Object.fromEntries(Array.from({ length: n - 1 }, (_, i) => ['mem' + i, 'placed'])) });
+  assert.ok(messages.roomHeld(p.id, Date.now()), 'CONTROL: the room is not held at the latest post\'s size');
+  assert.equal(messages.roomHeldForOne(p.id, Date.now()), null, 'CONTROL: a one-member post would be held too, so this tests nothing');
+  roomloop.resetForTests();
+  roomloop.setCapForTests(2);
+  try {
+    roomloop.noteWake(p.id, now - 2000); roomloop.noteWake(p.id, now - 1000);
+    assert.equal(roomloop.paused(p.id, now), true);
+    const { text } = await roomText(p.id);
+    const line = text.split('\n').find((l) => /Agents waking each other is paused/.test(l));
+    assert.ok(line, text);
+    assert.match(line, /A post to exactly one member may still get through/, 'a one-member post the valve would pass was not offered');
+  } finally {
+    roomloop.resetForTests();
+  }
+});
