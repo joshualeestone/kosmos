@@ -59,12 +59,14 @@ test.beforeEach(() => {
   update.setFetcher(null);
   update.setPlatform('linux', 'x64');
   update.setInstalledRoot(() => null);
+  update.setLinuxPress(() => false);   // kosmos#8786: never the Linux press here, chosen on purpose
   update.setAutoPref(() => ({ on: false, ok: true }));
   update.setRecordedChannel(() => 'prod');
 });
 test.afterEach(() => {
   for (const k of ENV_KEYS) { if (savedEnv[k] === undefined) delete process.env[k]; else process.env[k] = savedEnv[k]; }
   update.setPlatform(null);
+  update.setLinuxPress(null);
   update.setFetcher(null);
   update.setInstalledRoot(null);
   update.setAutoPref(null);
