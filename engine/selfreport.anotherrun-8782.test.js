@@ -170,3 +170,14 @@ test('kosmos#8782: a block from a pre-#570 token (instance "legacy") is not take
   assert.equal(selfreport.record(who, block('an api error', 'legacy')).recorded, true);
   assert.equal(selfreport.record(who, idle(NEW)).recorded, false, 'a legacy instance was read as a run whose token is gone');
 });
+
+test('kosmos#8782: two gone runs in a row (a second crash before any normal turn) are both stepped over', () => {
+  const who = 'two-gone-runs-8782';
+  const OLDER = 'd0d0d0d0d004';
+  liveRuns(who, [NEW]);
+  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true, instance: OLDER }).recorded, true);
+  assert.equal(selfreport.record(who, block('an api error', OLDER)).recorded, true);
+  assert.equal(selfreport.record(who, block('an api error', OLD)).recorded, true);
+  assert.equal(selfreport.record(who, idle(NEW)).recorded, true, 'an older gone run\'s block stopped the walk');
+  assert.equal(selfreport.read(who).state, 'idle');
+});
