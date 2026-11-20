@@ -314,15 +314,17 @@ async function tick(state, deps) {
       const f = state.failed.get(part.id);
       if (f && f.key === key) {
         // kosmos#8738: decided already. Tell Kosmos+ once that this computer gave up, so the record ends `failed` and the
-        // company can start a new hand-over (it stayed `packing` before). Answered only by an accept, or by a refusal
-        // that says the part is already past this (wrong state, no longer open). Anything else is asked again next tick:
+        // company can start a new hand-over (it stayed `packing` before). Answered only by an accept, or by the refusal
+        // that says the part is already past this (handover_wrong_state). Anything else is asked again next tick:
         // no answer, a 5xx, a rate limit or clock refusal, and not_yours too (an older Kosmos+ without the step answers
         // that, and must still get the stop once it has it). The part stays listed only while it is open, so this ends.
+        // Once it ends, /mine no longer lists it and the leaving member's notice goes with it: nothing is moving any
+        // more, and the company's audit list keeps the record (review 2: decided, not an omission).
         if (!f.stopped) {
           let r = null;
           try { r = await mac('POST', DONE_ROUTE, { id: part.id, ok: false }); } catch { r = null; }
           const code = r && !r.ok ? ((r.refusal && r.refusal.code) || require('./backupupload').refusalOf(r.because).code) : null;
-          const answered = Boolean(r && (r.ok || code === 'handover_wrong_state' || code === 'handover_not_open'));
+          const answered = Boolean(r && (r.ok || code === 'handover_wrong_state'));
           if (answered) {
             f.stopped = true;
             const rec = readSend(part.id, d.root);
