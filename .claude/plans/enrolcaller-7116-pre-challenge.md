@@ -20,7 +20,24 @@ Validation: the full suite passed on Mortals (mortals-validate.sh) at 7dc795477d
 Checked against Renet Tilley's pushed routes (kosmos-relay devkeyroutes-7116 7d94d023c): paths, answer fields, ended on 200 answers and ok/code all match.
 
 ### Per-Iteration Breakdown
-- Rounds 1 to 5: the kept code (owner-only store, tie before signing, one invite one computer, drop on accept only if still the checked code), the route client, adminQueue (see the plan's last sections and the commit messages).
-- Round 6: a refused sign carries the entry id; ended only on sign calls; every stays and ending code tested.
-- Round 7: a kept code applies only to the entry whose codeHash it hashes to; a tie's hour before its other-computer refusal; approve re-checks an unchecked entry; the accept guard tested.
-- Round 8: the hash is compared with the code on disk before its age and tie filters, so a stale code's own entry is refused as expired.
+
+#### Iteration 1 to 5 (before the rebase onto main)
+- [WARNING] the kept code, the route client and adminQueue findings across five rounds (owner-only store, tie before signing, one invite one computer, drop on accept only if still the checked code) --> FIXED; detail in the plan's later sections and the commit messages
+
+#### Iteration 6
+- [WARNING] a refused sign did not carry the entry id --> FIXED
+- [WARNING] ended was set on start and pending refusals --> FIXED
+- [NIT] the stays and ending code lists not fully tested; the member's sign body shape --> FIXED
+
+#### Iteration 7
+- [WARNING] one admin's kept code blocked another admin's invite for the same member --> FIXED: a kept code applies only to the entry whose codeHash it hashes to
+- [WARNING] the review-5 accept guard was untested --> FIXED
+- [NIT] endedOf for a refusal with no code; approve re-checks an unchecked entry; remote.busy() sentences --> FIXED
+
+#### Iteration 8
+- [WARNING] a stale kept code let this Mac sign its own invite's entry as a second admin --> FIXED: the hash is compared with the code on disk before its age and tie filters
+- [NIT] the header's tie wording and the plan --> FIXED
+
+#### After the cap
+- [WARNING] Ice Cream Kitty's read of ed6a2d2626: a malformed kept-code record read as no code --> FIXED: refused as damage
+- [WARNING] full validation guards outside the change: the helper check and the mac-request caller list --> FIXED
