@@ -11,6 +11,9 @@ Cuts (all repeat a rule stated elsewhere in the block, no heading changed):
 6. "Use their name": why the lines say "the person", in one clause.
 7. Copied reference: the room-name gloss removed.
 
-DOCTRINE_VERSION 59 -> 60, fingerprints pinned, doctrine-past regenerated, ratchet 45,100 -> 44,300.
+DOCTRINE_VERSION 59 -> 60, fingerprints pinned, doctrine-past regenerated, ratchet 45,100 -> 44,400.
 Tests: 141 related files (defaults/doctrine/instructionreread/dmfiles/claimguide + cli-verbs parity): 4360, 0 failed.
 Weakest premise: the Blocked pointer in "Telling people" did work for an agent reading that section alone.
+
+Round 1 (sonnet, blind): no blocker. should-fix: Blocked pointer (taken, one line on the bullet); nit: needs_you line re-wrapped (taken).
+Mona Lisa's read: take 1,4,5,6,7; cut 2 keep "a preference about their own business" (taken); cut 3 pointer "under You do not stop" (taken).
