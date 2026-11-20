@@ -133,6 +133,17 @@ test('already signed is said, and nothing is signed; only what review returned i
   await assert.rejects(hs.review(SHOWN, { send: async () => ({ ok: false, because: 'tunnel line /Users/x' }) }), (e) => /did not give the hand-over to sign/.test(e.message) && !/Users/.test(e.message));
 });
 
+test('review 2 (April): a repeated agent in what is shown is refused; a failed signature says to ask again', async () => {
+  await assert.rejects(hs.review(Object.assign({}, SHOWN, { agents: ['helper', 'helper'] }), { send: coordinator(bytesOf()).send }), /listed twice/);
+  const h = appWithHelper();
+  const c = coordinator(bytesOf());
+  const r = await hs.review(SHOWN, { send: c.send });
+  // A key file holding another key: the Enclave step fails; the review is spent; the error says ask again.
+  const other = appWithHelper();
+  await assert.rejects(hs.approveAndSend(r, { adminId: 'a1', expectedKey: other.expectedKey, keyFile: h.keyFile, appDir: h.app, send: c.send }), (e) => e.askAgain === true && /ask again/.test(e.message));
+  assert.equal(c.posts.filter(([, , b]) => b.sig).length, 0, 'nothing posted');
+});
+
 test('an admin id is required to sign a hand-over start', async () => {
   const h = appWithHelper();
   const r = await hs.review(SHOWN, { send: coordinator(bytesOf()).send });

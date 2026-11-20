@@ -45,6 +45,8 @@ function expectOf(e) {
   const x = e || {};
   for (const k of ['org', 'id', 'from', 'to']) if (typeof x[k] !== 'string' || !x[k]) throw new Error('say which hand-over is being approved');
   if (!Array.isArray(x.agents) || x.agents.length < 1 || !x.agents.every((a) => typeof a === 'string' && a)) throw new Error('say which agents are being handed over');
+  // Review 2 (April): a repeat in what the screen shows is the screen's mistake, said as one.
+  if (new Set(x.agents).size !== x.agents.length) throw new Error('the same agent is listed twice');
   return { org: x.org, id: x.id, from: x.from, to: x.to, agents: x.agents.slice() };
 }
 
@@ -84,11 +86,17 @@ async function review(expect, { send } = {}) {
  */
 async function approveAndSend(reviewed, opts = {}) {
   if (!REVIEWED.has(reviewed)) throw new Error('approve only what review returned');
-  // Spent before the Enclave is asked, so one review signs at most once (a retry reviews again, with a fresh nonce).
+  // Spent before the Enclave is asked, so one review signs at most once. A cancelled Touch ID therefore needs a new
+  // review (review 2, April): the error says so, and the screen asks again (a new review takes a fresh nonce).
   REVIEWED.delete(reviewed);
   const helper = require('./enrolsign').helperPath(opts.appDir);
   if (!helper) throw new Error('this Kosmos cannot sign as an admin: its admin key helper is not installed');
-  const signed = await se.sign(reviewed.prepared, { helper, keyFile: opts.keyFile, expectedKey: opts.expectedKey, adminId: opts.adminId });
+  let signed;
+  try {
+    signed = await se.sign(reviewed.prepared, { helper, keyFile: opts.keyFile, expectedKey: opts.expectedKey, adminId: opts.adminId });
+  } catch (err) {
+    throw Object.assign(new Error(`${err && err.message ? err.message : 'it was not signed'}; ask again to sign it`), { askAgain: true });
+  }
   const id = reviewed.prepared.decoded.id;
   return answerOf(await sendOf(opts.send)('POST', ROUTE, { id, sig: { adminId: signed.adminId, se: b64(signed.sig) }, nonce: reviewed.nonce }),
     'take the signature');
