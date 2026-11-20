@@ -209,10 +209,9 @@ test('#7875: the Mac/Linux CLI\'s own day script runs: with nobody identified it
   assert.equal(r.stdout, '');
 });
 
-test('#7875: the daily ask and the Project Manager\'s instructions both name kosmos feedback day', () => {
+// kosmos#8735 slice 3: the daily ask is the one copy of the routine; the PM's instructions say only that the ask comes.
+test('#7875: the daily ask names kosmos feedback day', () => {
   assert.match(require('./feedbacknudge').nudgeText(), /first run `kosmos feedback day`/);
-  const pm = JSON.stringify(require('./roles').byKey('pm'));
-  assert.match(pm, /kosmos feedback day/);
 });
 
 test('#7875: the Windows CLI runs feedback day: refuses nobody, extra words, and prints the asking agent\'s day', async () => {

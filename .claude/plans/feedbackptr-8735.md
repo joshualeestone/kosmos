@@ -26,8 +26,28 @@ drift check reads nudgeText. Perturbed: "bad or ugly" removed from the ask -> re
 pm brief 51,610 -> 50,365 (1,245). Other roles unchanged; director is 49,337, so the next slices must cut across roles.
 
 ## Decided
-The one behaviour change: the board asks only while sending is on (#7374), so a PM on an install with sending switched
-off no longer writes a local daily report from its brief. Taken as consistent with #7374's own rule (an install that
-said no is not spent a turn on a report it will not send). Weakest premise: nobody reads local-only reports from such
-installs. What would change my mind: a triage or support path that does. Rejected: a `kosmos feedback --how` verb (a
+A report now exists only when the board's ask reaches an agent. Before, a PM could also write one on its own initiative,
+so these cases lose it (review 1 listed them from feedbacknudge.js plan() and makeTick()):
+- sending switched off, or its setting unreadable: nobody is asked;
+- the operator brake AGENT_WORKFORCE_FEEDBACK_NUDGE_OFF, or live execution not yet allowed;
+- a board that is closed every evening (the ask goes at NUDGE_HOUR, 17:00 local, or later);
+- every agent that worked is busy at every tick, or quiet hours cover the evening;
+- every delivery refused for MAX_TRIES ticks.
+Taken because #7374 exists for exactly this: its telemetry (8 installs in 7 days sent nothing) shows the PM's own
+initiative rarely produced a report, and the ask is the mechanism that does. The PM brief now says the ask comes "while
+sending is on", so it is true on every install.
+Local triage (`kosmos feedback triage` with no pulled folder, engine/feedback.js) does read this computer's own reports,
+so an install with sending off that triages locally loses them. Kept anyway: that install chose not to send, the ask
+would not run there either way after #7374, and the fleet's own triage reads pulled reports from installs that send.
+What would change my mind: a person who runs local triage with sending off. Rejected: a `kosmos feedback --how` verb (a
 third copy of a routine the board already delivers).
+
+## Review 1 (Opus)
+- BLOCKER fixed: three test files I had not run pinned removed PM text (defaults.platform-8506, feedbackday-7875,
+  cli.feedback-unchanged-8269). Found every test reading a removed phrase and ran each; exactly those three failed.
+  #8506's per-platform form now lives in the ask on every platform, so its test pins that and that no PM brief names a
+  feedback command; #7875 and #8269 keep their ask halves.
+- WARNINGs answered in Decided above (the full list of lost cases; the local triage reader).
+- NIT fixed: the brief says the ask comes "while sending is on". pm now 50,321.
+- NIT kept: "a note about the product, not about who did what" and "the value is never what makes the report useful"
+  are dropped; the names and secrets rule stays in both places.

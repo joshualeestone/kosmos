@@ -291,11 +291,11 @@ const ROLES = [
       /* kosmos#8735 slice 3: the routine (the four questions, Josh's #3563 tasks rule, the commands) is typed in by
          the board once a day, Project Manager first (engine/feedbacknudge.js nudgeText, #7374), so it is not kept
          here twice. What stays is what the report must never carry, and where it goes. */
-      'Once a day Kosmos asks one agent, a Project Manager first, for a short report',
-      'about Kosmos itself and says how to write it; when it asks you, do it. Never',
-      'put usernames, agent names, project names, or a secret, API key, token, or',
-      'password in it. It is saved on this computer and sent to the Kosmos team',
-      '(scrubbed) unless sending is switched off in Settings, Automation.',
+      'While sending is on (Settings, Automation), Kosmos asks one agent a day, a',
+      'Project Manager first, for a short report about Kosmos itself and says how to',
+      'write it; when it asks you, do it. Never put usernames, agent names, project',
+      'names, or a secret, API key, token, or password in it. It is sent to the',
+      'Kosmos team, scrubbed.',
     ].join('\n'),
   },
   /**

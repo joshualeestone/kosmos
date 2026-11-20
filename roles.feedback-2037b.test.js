@@ -36,12 +36,12 @@ test('the PM role says the daily product-feedback ask comes, what it is about, a
   const pm = roles.byKey('pm');
   assert.ok(pm, 'the pm role exists');
   const i = pm.instructions;
-  assert.match(i, /Once a day Kosmos asks one agent, a Project Manager first, for a short report\s+about Kosmos itself/, 'the PM knows the ask comes and that it is about Kosmos itself');
+  assert.match(i, /While sending is on \(Settings, Automation\), Kosmos asks one agent a day, a\s+Project Manager first, for a short report about Kosmos itself/, 'the PM knows the ask comes, when, and that it is about Kosmos itself');
   assert.match(i, /when it asks you, do it/, 'the PM is told to answer the ask');
   // #2037 revision: the privacy rule stays in the brief as safety text, beside the ask's own copy.
-  assert.match(i, /Never\s+put usernames, agent names, project names, or a secret, API key, token, or\s+password in it/,
+  assert.match(i, /Never put usernames, agent names, project\s+names, or a secret, API key, token, or password in it/,
     'the brief carries the no-identifiers and no-secrets rule');
-  assert.match(i, /sent to the Kosmos team\s+\(scrubbed\) unless sending is switched off in Settings, Automation/);
+  assert.match(i, /It is sent to the\s+Kosmos team, scrubbed\./);
 });
 
 test('#2037: the board\'s daily ask carries the write path, the self-check and the questions', () => {
