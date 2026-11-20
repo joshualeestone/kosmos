@@ -88,6 +88,12 @@ async function openPage(engine, origin, platform) {
       if (u.searchParams.get('check') === '1') return route.fulfill({ status: 204, body: '' });
       return route.fulfill({ status: 200, headers: { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename="f.bin"' }, body: 'PK' });
     }
+    // kosmos#8790: the download-key route, answered as the board answers a browser that sends Sec-Fetch-Site (both
+    // engines here do; a route does not see Sec-Fetch-* headers, which the browser adds below it, so it is not read
+    // here): no key is needed. Not a POST that opens anything, so it is not counted in `asked`.
+    if (req.method() === 'POST' && u.pathname === '/api/download-key') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"key":null,"needed":false}' });
+    }
     if (req.method() !== 'GET' && req.method() !== 'HEAD' && u.pathname.startsWith('/api/')) {
       asked.push(req.method() + ' ' + u.pathname);
       return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
