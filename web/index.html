@@ -21574,7 +21574,7 @@ window.addEventListener('unhandledrejection', (e) => {
   const failed = new Set();
   const addresses = new Set();
   const askedAgain = new WeakSet();   // each element is asked again at most once
-  const settled = new WeakSet();      // pictures that have loaded or failed (an SVG <image> has no .complete)
+  const settled = new WeakMap();      // SVG <image> -> the address it last loaded or failed (it has no .complete)
   const loadingAtTakeover = new WeakMap();   // element -> the address it was loading when a worker took charge
   let asked = false;
   let takenBy = null;   // the worker that took charge of this page while this listened
@@ -21597,7 +21597,22 @@ window.addEventListener('unhandledrejection', (e) => {
     if (!raw) return null;
     try { const u = new URL(raw, location.href); return u.origin === location.origin && u.pathname.startsWith('/api/') ? { attr, raw } : null; } catch { return null; }
   };
-  const onLoad = (e) => { if (e && e.target && e.target.tagName) settled.add(e.target); };
+  const settle = (el) => { const pic = isBoardPic(el); if (pic && el.tagName !== 'IMG') settled.set(el, pic.raw); };
+  const onLoad = (e) => { if (e && e.target && e.target.tagName) settle(e.target); };
+  // Loading now, at this address: an <img> says so itself (an image element not complete is fetching or waiting to);
+  // an SVG <image> is loading when it has not yet settled at its current address. A lazy picture outside the viewport
+  // has asked for nothing yet, so it is not counted (its later failure goes through the worker like any other).
+  const loadingNow = (el, raw) => {
+    if (el.tagName === 'IMG') {
+      if (el.complete) return false;
+      if (el.loading === 'lazy') {
+        const r = el.getBoundingClientRect();
+        if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) return false;
+      }
+      return true;
+    }
+    return settled.get(el) !== raw;
+  };
   const attrOf = (el) => (el.tagName === 'IMG' ? 'src' : String(el.tagName).toLowerCase() === 'image' ? 'href' : null);
   const askToClaim = () => {
     if (asked || sw.controller || !sw.ready || typeof sw.ready.then !== 'function') return;
@@ -21606,12 +21621,13 @@ window.addEventListener('unhandledrejection', (e) => {
   };
   const onError = (e) => {
     const el = e && e.target;
-    if (el && el.tagName) settled.add(el);
     const pic = isBoardPic(el);
     if (!pic || failed.size >= 500) return;
     const { attr, raw } = pic;
     // Loading when a worker took charge, and failing only now: its answer never passed through the worker.
     if (loadingAtTakeover.get(el) === raw) { loadingAtTakeover.delete(el); askAgain(el, attr, raw); return; }
+    if (loadingAtTakeover.has(el)) loadingAtTakeover.delete(el);   // it was loading another address then
+    settle(el);
     if (sw.controller && sw.controller === takenBy) return;   // asked through the worker: its failure is its own
     failed.add(el);
     addresses.add(raw);
@@ -21621,9 +21637,9 @@ window.addEventListener('unhandledrejection', (e) => {
     takenBy = sw.controller;
     // The board pictures still loading now were asked for before this worker: note them, by the address they load.
     for (const el of document.querySelectorAll('img, image')) {
-      if (failed.has(el) || settled.has(el) || (el.tagName === 'IMG' && el.complete)) continue;
+      if (failed.has(el)) continue;
       const pic = isBoardPic(el);
-      if (pic) loadingAtTakeover.set(el, pic.raw);
+      if (pic && loadingNow(el, pic.raw)) loadingAtTakeover.set(el, pic.raw);
     }
     for (const el of failed) {
       const attr = attrOf(el);

@@ -5,7 +5,8 @@
  * again for the pictures drawn before the worker was in charge.
  *
  * A local server plays the connector: every /api/ picture is refused (401) unless the request carries
- * X-Kosmos-Board-Page: 1. It serves the real web/sw.js and a small page carrying the real reloader. Checked:
+ * X-Kosmos-Board-Page: 1. It serves the real web/sw.js and a small page carrying the real reloader. Checked (see
+ * each chk line for the full list):
  *   1. first visit: a picture drawn before the worker is in charge shows once the worker takes charge;
  *   2. a page the worker controls: a refused picture shows, asked for with the header, at its own address (the element's
  *      src never changes, so the board's "only redraw when it changed" checks still match);
@@ -73,6 +74,11 @@ const server = http.createServer((req, res) => {
       setTimeout(() => { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"error":"sign in"}'); }, 1500);
       return;
     }
+    if ((u.pathname === '/api/agent/slowsvg/avatar' || u.pathname === '/api/agent/slowreuse/avatar') && !marked) {
+      // refused only after the worker has taken charge (the check takes charge well inside these 3 s)
+      setTimeout(() => { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"error":"sign in"}'); }, 3000);
+      return;
+    }
     if (u.pathname === '/api/agent/slowpv/pic' && !marked) {   // a preview whose refusal arrives late
       setTimeout(() => { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{"error":"sign in"}'); }, 1500);
       return;
@@ -110,9 +116,18 @@ const server = http.createServer((req, res) => {
         document.querySelector('.pics').insertAdjacentHTML('beforeend', '<img class="lpv" src="/api/agent/preview/pic" alt="">');
         return !!navigator.serviceWorker.controller;
       });
+      // An <img> that already showed a picture, reused for another board address (the guide's avatar, the agent image).
+      await page.evaluate(() => document.querySelector('.pics').insertAdjacentHTML('beforeend', '<img class="reuse" src="/api/open/avatar?r=1" alt="">'));
       await page.waitForTimeout(600);
       const lpvBefore = await page.evaluate(() => window.lpvFailed());
-      await page.evaluate(() => window.registerWorker());
+      // Still loading when the worker takes charge, refused only after: an SVG avatar, and the reused <img>.
+      await page.evaluate(() => {
+        // Off screen and lazy: it has asked for nothing yet when the worker takes charge.
+        document.body.insertAdjacentHTML('beforeend', '<div style="height:6000px"></div><img class="lpv lazy" loading="lazy" src="/api/gone/lazypv" alt="" style="width:20px;height:20px">');
+        window.drawSvg('/api/agent/slowsvg/avatar');
+        document.querySelector('img.reuse').setAttribute('src', '/api/agent/slowreuse/avatar');
+        window.registerWorker();
+      });
       await page.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 15000 }).catch(() => {});
       await page.waitForTimeout(800);
       const first = await page.evaluate(() => window.readPics());
@@ -122,6 +137,18 @@ const server = http.createServer((req, res) => {
       chk(first[0] && first[0].src === '/api/agent/first/avatar?v=1', tag + 'and its address on the page is unchanged', JSON.stringify(first));
       chk(count('/api/agent/first/avatar?v=1', true) >= 1, tag + 'the reloader asked again, through the worker (with the header)', JSON.stringify(asked.filter((a) => a.path.includes('first'))));
       chk(count('/api/agent/firstsvg/avatar', true) >= 1, tag + 'first visit: an SVG <image> avatar is asked for again too', JSON.stringify(asked.filter((a) => a.path.includes('firstsvg'))));
+      // The late refusal comes at 3 s; the re-ask goes through the worker, whose own first try is refused late too (3 s
+      // more), then its second ask with the header loads.
+      await page.waitForFunction(() => { const i = document.querySelector('img.reuse'); return i && i.complete && i.naturalWidth > 0; }, null, { timeout: 9000 }).catch(() => {});
+      await page.waitForTimeout(500);
+      chk(count('/api/agent/slowsvg/avatar', true) === 1, tag + 'an SVG avatar still loading at the takeover and refused after it is asked for again, once', JSON.stringify(asked.filter((a) => a.path.includes('slowsvg'))));
+      const reuse = await page.evaluate(() => { const i = document.querySelector('img.reuse'); return { src: i.getAttribute('src'), loaded: i.complete && i.naturalWidth > 0 }; });
+      await page.evaluate(() => document.querySelector('img.lazy').scrollIntoView());
+      await page.waitForTimeout(1200);
+      chk(count('/api/gone/lazypv') === 1 && (await page.evaluate(() => window.lpvFailed())).includes('/api/gone/lazypv'),
+        tag + 'CONTROL: a lazy 404 preview off screen at the takeover, loaded later through the worker, is asked for once and stays on kosmos#8636\'s failed list', JSON.stringify(asked.filter((a) => a.path.includes('lazypv'))));
+      await page.evaluate(() => window.scrollTo(0, 0));
+      chk(reuse.loaded && count('/api/agent/slowreuse/avatar', true) === 1, tag + 'a reused <img> loading a new board address at the takeover, refused after it, is asked for again and shows', JSON.stringify({ reuse, asked: asked.filter((a) => a.path.includes('slowreuse')) }));
       chk(count('/api/open/avatar') === 1, tag + 'a picture that loaded is not asked for again', JSON.stringify(asked.filter((a) => a.path.includes('open'))));
       const lpvAfter = await page.evaluate(() => window.lpvFailed());
       // CONTROLS, after the takeover: a picture drawn now goes through the worker, and its real failure is left as it was.
