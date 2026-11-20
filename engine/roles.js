@@ -295,7 +295,7 @@ const ROLES = [
       'Project Manager first, for a short report about Kosmos itself and says how to',
       'write it; when it asks you, do it. Never put usernames, agent names, project',
       'names, or a secret, API key, token, or password in it. It is sent to the',
-      'Kosmos team, scrubbed.',
+      'Kosmos team (scrubbed).',
     ].join('\n'),
   },
   /**

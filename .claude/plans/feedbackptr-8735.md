@@ -51,3 +51,15 @@ third copy of a routine the board already delivers).
 - NIT fixed: the brief says the ask comes "while sending is on". pm now 50,321.
 - NIT kept: "a note about the product, not about who did what" and "the value is never what makes the report useful"
   are dropped; the names and secrets rule stays in both places.
+
+## Review 2 (Sonnet)
+- BLOCKER fixed: my round 1 claim "exactly those three failed" was false. Two more failed:
+  - feedbacknudge-7374's "the role and the ask agree that the report is sent" test. My round 1 rewording broke it, and I
+    had not re-run that file. The brief says "sent to the Kosmos team (scrubbed)" again.
+  - The Windows verbs parity sweep. It read the feedback verbs from the PM role only, so moving them left the daily ask,
+    now the one text that teaches them, unchecked. The ask is in the sweep, and its control now requires `feedback
+    write` to be read from the ask.
+- Then ran every test file that loads roles or feedbacknudge, or mentions `kosmos feedback` (39 files) one by one. Only
+  two failed, and both fail the same way on main when run outside the checkout's root (web.role-picker reads
+  web/index.html by a relative path; server.test's #1304 probe resolves engine/ from the cwd); full validation runs them
+  from the root.

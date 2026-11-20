@@ -41,7 +41,7 @@ test('the PM role says the daily product-feedback ask comes, what it is about, a
   // #2037 revision: the privacy rule stays in the brief as safety text, beside the ask's own copy.
   assert.match(i, /Never put usernames, agent names, project\s+names, or a secret, API key, token, or password in it/,
     'the brief carries the no-identifiers and no-secrets rule');
-  assert.match(i, /It is sent to the\s+Kosmos team, scrubbed\./);
+  assert.match(i, /It is sent to the\s+Kosmos team \(scrubbed\)\./);
 });
 
 test('#2037: the board\'s daily ask carries the write path, the self-check and the questions', () => {
