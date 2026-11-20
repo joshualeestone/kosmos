@@ -97,7 +97,7 @@ test('kosmos#8781: a URL or a header the wrapper cannot read, and another origin
   assert.equal(header(w.sent[3]), '1');
 });
 
-test('kosmos#8781: the board makes exactly one redirect, its boot redirect, which the page\'s own fetches never reach', () => {
+test('kosmos#8781: the board writes exactly one writeHead redirect, its boot redirect, which the page\'s own fetches never reach', () => {
   // fetch keeps X-Kosmos-Board-Page across a redirect, so a board route the page's own fetches reach, that sent them off
   // this origin and was bounced back, would arrive with it. Today the only 3xx the board writes is the boot redirect
   // (engine/boardauth.js), which answers only a request carrying ?boot= or ?token=, and the page's fetches carry
@@ -111,7 +111,8 @@ test('kosmos#8781: the board makes exactly one redirect, its boot redirect, whic
   }
   // A tripwire for redirects written with writeHead(30x, ...), by file and code only, so an edit to the one known line
   // does not trip it. It cannot see a redirect made another way (setHeader('location') with a 3xx statusCode, or one
-  // outside server.js and engine/); the board makes none today, and that stays the rule the wrapper's comment names.
+  // outside server.js and engine/, including a subfolder of engine/, which it does not read); the board makes none
+  // today, and that stays the rule the wrapper's comment names.
   assert.deepEqual(found, ['server.js 302'],
     'the board writes a redirect this rule has not checked: make sure the page\'s own fetches cannot reach it off this origin, then list it here');
 });
