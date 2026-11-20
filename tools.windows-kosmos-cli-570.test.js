@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope');   // kosmos#8769 item 4: a room read keeps a copy; keep test copies out of the real temp folder
 /**
  * #570: the Windows agent's `kosmos` command (tools/windows/kosmos-cli.js).
  *
@@ -97,8 +98,13 @@ test('#2909: msg --stdin sends the piped text as written; refusals send nothing;
   assert.deepEqual(r.calls[0].body, { to: 'mara', text: 'run `x` and $y', from_pane: '' });
   const mixed = await run(['msg', '--stdin', 'mara', 'also'], placed, undefined, async () => ({ text: 'x', ended: true }));
   assert.equal(mixed.code, 2); assert.equal(mixed.calls.length, 0);
-  const trailing = await run(['msg', 'mara', '--stdin'], placed, undefined, async () => { throw new Error('stdin read for a trailing --stdin'); });
-  assert.equal(trailing.code, 2); assert.equal(trailing.calls.length, 0);
+  /* kosmos#8769: a lone --stdin after the agent is the flag; beside other words it is still refused (#2909). */
+  const trailing = await run(['msg', 'mara', '--stdin'], placed, undefined, async () => ({ text: 'late flag msg\n', ended: true }));
+  assert.equal(trailing.code, 0, trailing.err); assert.deepEqual(trailing.calls[0].body, { to: 'mara', text: 'late flag msg', from_pane: '' });
+  for (const args of [['msg', 'mara', '--stdin', 'also'], ['msg', 'mara', 'also', '--stdin']]) {
+    const beside = await run(args, placed, undefined, async () => { throw new Error('stdin read for --stdin beside words'); });
+    assert.equal(beside.code, 2, args.join(' ')); assert.equal(beside.calls.length, 0);
+  }
   const empty = await run(['msg', '--stdin', 'mara'], placed, undefined, async () => ({ text: '', ended: false }));
   assert.equal(empty.code, 2); assert.match(empty.err, /nothing was piped in: kosmos msg --stdin <agent>/);
   const declined = await run(['msg', '--stdin', 'mara'], () => ({ body: { delivery: { state: 'could_not', because: 'mara is not running.' } } }), undefined, async () => ({ text: 'keep this msg', ended: true }));
@@ -378,9 +384,15 @@ test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines)
   fs.rmSync(path.dirname(boomSaved[1]), { recursive: true });
   const argRefused = await run(['post', 'proj-1', 'typed'], () => ({ status: 403, body: { error: 'no such room' } }));
   assert.doesNotMatch(argRefused.err, /saved at/, 'argument-mode text is still on the command line; nothing is saved');
-  const trailing = await run(['post', 'proj-1', '--stdin'], placed, undefined, async () => { throw new Error('stdin read for a trailing --stdin'); });
-  assert.equal(trailing.code, 2, 'a --stdin after the project is refused');
-  assert.equal(trailing.calls.length, 0);
+  /* kosmos#8769: a lone --stdin after the project is the flag; beside other words it is still refused (#2909). */
+  const trailing = await run(['post', 'proj-1', '--stdin'], placed, undefined, async () => ({ text: 'late flag post\n', ended: true }));
+  assert.equal(trailing.code, 0, trailing.err);
+  assert.equal(trailing.calls[0].body.text, 'late flag post');
+  assert.equal(trailing.calls[0].body.project, 'proj-1', 'posted to the project named before the flag');
+  for (const args of [['post', 'proj-1', '--stdin', 'typed'], ['post', 'proj-1', 'typed', '--stdin']]) {
+    const beside = await run(args, placed, undefined, async () => { throw new Error('stdin read for --stdin beside words'); });
+    assert.equal(beside.code, 2, args.join(' ')); assert.equal(beside.calls.length, 0);
+  }
   const t0 = Date.now();
   const runs = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: '\n'.repeat(200000) + 'x\n', ended: true }));
   assert.equal(runs.calls[0].body.text, '\n'.repeat(200000) + 'x', 'inner newline runs are kept, the trailing one trimmed');
@@ -1123,4 +1135,57 @@ test('#7893: Windows msg tells a leading flag typed after the agent where it goe
   assert.equal(bogus.code, 2);
   assert.doesNotMatch(bogus.err, /must come before the agent name/);
   assert.match(bogus.err, /--bogus is not an option/);
+});
+
+// kosmos#8769 item 4, as install/kosmos cmd_room: a busy board's room read shows the last copy held, with its age.
+test('kosmos#8769 item 4: room on a busy board shows the kept copy (exit 1); none kept refuses; a filtered read keeps none', async () => {
+  const home = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'kosmos-win-roombusy-8769-'));
+  try {
+    fs.mkdirSync(path.join(home, 'app'));   // an installed layout: copies are kept only there
+    const env = { KOSMOS_AGENT_TOKEN: AGENT, KOSMOS_HOME: home };
+    const busy = () => { const e = new Error('timed out'); e.name = 'TimeoutError'; throw e; };
+    const none = await run(['room', 'proj-1'], busy, env);
+    assert.equal(none.code, 1);
+    assert.match(none.err, /no earlier copy of this room to show/);
+    assert.doesNotMatch(none.out + none.err, /NOT the room now/);
+    const good = await run(['room', 'proj-1'], () => ({ body: 'm1 leo: first look\n' }), env);
+    assert.equal(good.code, 0, good.err);
+    const dir = path.join(home, 'state', 'room-copies');
+    assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.busy-since')).length, 0, 'a good read ends the failing spell');
+    const held = await run(['room', 'proj-1'], busy, env);
+    assert.equal(held.code, 1);
+    assert.match(held.out, /this is NOT the room now: it is the last copy this computer read, 0 minute\(s\) ago/);
+    assert.match(held.out, /has not answered a read of this room here since \d\d:\d\d/);
+    assert.match(held.out, /first look/);
+    assert.ok(held.out.indexOf('NOT the room now') < held.out.indexOf('first look'), 'warning first, on the same stream as the copy');
+    assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.busy-since')).length, 1, 'presence first: the busy read left its mark');
+    const other = await run(['room', 'proj-1'], busy, { KOSMOS_AGENT_TOKEN: 'feedbeef', KOSMOS_HOME: home });
+    assert.doesNotMatch(other.out, /first look/, 'another reader is not shown this reader\'s copy');
+    const copies = fs.readdirSync(dir).filter((f) => f.endsWith('.txt'));
+    assert.equal(copies.length, 1);
+    assert.ok(!fs.readFileSync(path.join(dir, copies[0]), 'utf8').includes(AGENT), 'no token kept');
+    /* The 30-minute rule, as the Mac's: an old last failure starts a new spell; a recent one keeps it (control). */
+    for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.busy-since'))) fs.rmSync(path.join(dir, f));   // the other reader's too
+    await run(['room', 'proj-1'], busy, env);   // this reader's mark only
+    const mark = path.join(dir, fs.readdirSync(dir).find((f) => f.endsWith('.busy-since')));
+    const old = Math.floor(Date.now() / 1000) - 7200;
+    fs.writeFileSync(mark, old + ' ' + (old + 60));
+    await run(['room', 'proj-1'], busy, env);
+    assert.ok(Number(fs.readFileSync(mark, 'utf8').split(' ')[0]) > old + 3600, 'an old spell is not carried on');
+    fs.writeFileSync(mark, (old + 7000) + ' ' + Math.floor(Date.now() / 1000));
+    await run(['room', 'proj-1'], busy, env);
+    assert.equal(Number(fs.readFileSync(mark, 'utf8').split(' ')[0]), old + 7000, 'CONTROL: a recent last failure keeps the spell');
+    /* The age in hours, and the 7-day prune on the next good read. */
+    const copyFile = path.join(dir, copies[0]);
+    const threeH = (Date.now() - 3 * 3600000) / 1000; fs.utimesSync(copyFile, threeH, threeH);
+    assert.match((await run(['room', 'proj-1'], busy, env)).out, /last copy this computer read, 3 hour\(s\) ago/);
+    const stale = path.join(dir, 'stale-from-a-deleted-room.txt'); fs.writeFileSync(stale, 'x');
+    const eightD = (Date.now() - 7.5 * 86400000) / 1000; fs.utimesSync(stale, eightD, eightD);   // 7.5 days, as the Mac test
+    await run(['room', 'proj-1'], () => ({ body: 'm1 leo: fresh\n' }), env);
+    assert.ok(!fs.existsSync(stale), 'a copy not refreshed for 7 days is pruned');
+    assert.ok(fs.existsSync(copyFile), 'CONTROL: the fresh copy stays');
+    const filtered = await run(['room', 'proj-1', '-n', '5'], busy, env);
+    assert.equal(filtered.code, 1);
+    assert.doesNotMatch(filtered.out + filtered.err, /NOT the room now|first look/, 'a filtered read is not answered with the plain copy');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });

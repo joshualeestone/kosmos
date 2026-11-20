@@ -11008,6 +11008,15 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   display: flex; flex-direction: column;
 }
 #firstrun .fr-body { padding: 40px 44px 36px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+/* kosmos#8783 (Mona Lisa's design, 11-19): while content sits below the visible part of the wizard body (on a phone the
+   sign-in code field did, under the pinned footer, with nothing to say so), its bottom 32px fades out. A mask, as
+   #s-nav's edge (#5303): nothing is drawn over the content, so no colour token and nothing covers a tap target. Driven
+   by data-edge, set by the script beside it on scroll and on any size change; gone at the bottom and when nothing
+   scrolls (so at the very end nothing is faded). The code row's scroll margin below keeps it clear of the fade when
+   frConnRevealCode brings it into view without reaching the end. */
+#firstrun .fr-body[data-edge="b"] { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent); }
+#firstrun .fr-code-row { scroll-margin-bottom: 44px; }   /* kosmos#8783: a reveal stops 44px above the edge, clear of the 32px fade */
 #firstrun .fc-head { display: flex; align-items: center; gap: 12px; justify-content: center; margin-bottom: 26px; }
 #firstrun .fc-k { width: 42px; height: 42px; flex: 0 0 42px; display: block; border-radius: 10px; }
 #firstrun .fr-segs { gap: 8px; margin-bottom: 34px; }
@@ -49080,6 +49089,30 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
   if (!b) return;
   settingsOpen(b.dataset.go);
 });
+/* kosmos#8783: the wizard body's bottom fade (CSS beside #firstrun .fr-body), marked while content sits below the visible
+   part. Re-marked on scroll, when the body changes size, and when a step redraws its contents (a step that grows after
+   it appears, as the sign-in link does a tick later, would otherwise never show the cue). */
+(function frBodyEdge() {
+  const body = document.querySelector && document.querySelector('#firstrun .fr-body');
+  // Only on a real, laid-out page: the page-text tests run this script against a stub document.
+  if (!body || typeof body.scrollHeight !== 'number' || typeof body.addEventListener !== 'function') return;
+  const mark = () => {
+    const below = body.scrollHeight - body.clientHeight - body.scrollTop > 2;
+    const edge = below ? 'b' : '';
+    if (body.dataset.edge !== edge) body.dataset.edge = edge;
+  };
+  body.addEventListener('scroll', mark, { passive: true });
+  // One pending frame at a time: a busy step (a progress bar's style on every tick) cannot pile frames up.
+  let pending = false;
+  const soon = () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; mark(); }); };
+  // The body's own box, and every child's (fonts or images loading grow the content with no DOM change).
+  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(soon); ro.observe(body); for (const c of Array.from(body.children || [])) ro.observe(c); }
+  // data-edge is NOT in the filter, so this script's own write never wakes it again.
+  if (typeof MutationObserver === 'function') new MutationObserver(soon).observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'style', 'class'] });
+  window.addEventListener('resize', mark);
+  mark();
+})();
+
 /* #5303: which edges of the Settings row have more beyond them, for the phone rule's fade and its "More sections"
    chevron. Recomputed on scroll, on a resize of the window or the nav, when a pill's dot or visibility changes, and once
    the fonts have loaded; a row that does not scroll (desktop) has no edge, so nothing shows. */
@@ -91870,6 +91903,12 @@ function frPaintConnect(st) {
     };
     frConnPaintUrl(shownUrl, st);
     frActions(null, { label: 'Cancel', go: frConnCancel });
+    /* kosmos#8783: on a phone the wizard body scrolls and this field lands below its fold, under the pinned footer,
+       with nothing to say more is there (a customer's first setup, 11-19). Bring it into view, without focusing it:
+       a focused field raises the keyboard over the sign-in link the person must open first. */
+    /* Runs on every platform; it only moves anything where the wizard body scrolls (a phone). When the link is already
+       known, frConnPaintUrl above has revealed too: a second, harmless call (nearest does nothing once in view). */
+    frConnRevealCode();
     return;
   }
 
@@ -92103,6 +92142,27 @@ function frConnPaintUrl(url, st) {
       ? '<a class="btn uprime" href="' + esc(key) + '" target="_blank" rel="noopener">Open the Claude sign-in page</a>'
       : '<div class="fr-cdetail">Browser did not open?</div>'
         + '<a class="btn" href="' + esc(key) + '" target="_blank" rel="noopener">Open the sign-in page</a>';
+  /* kosmos#8783: the link arrives a tick AFTER the code step was drawn (on a cloud machine the sign-in link,
+     on a Mac the "Browser did not open?" fallback), and pushes the field down again; so the box is brought into view again now (each time this link's stamp changes: a new link, or where it opens; never on a repeat poll). */
+  if (key && document.getElementById('fr-conn-code')) frConnRevealCode();
+}
+/* kosmos#8783: on a phone the wizard body scrolls and the sign-in box (the link to open, then the code field) can sit
+   below its fold, under the pinned footer, with nothing to say more is there (a customer's first setup, 11-19). Bring
+   the WHOLE box into view, so the link and the field are both on screen; never focus the field (the keyboard would
+   cover the link the person must open first). Called when the code step is drawn and when its link arrives. */
+function frConnRevealCode() {
+  const box = document.getElementById('fr-sub');
+  if (!box || typeof box.scrollIntoView !== 'function' || typeof requestAnimationFrame !== 'function') return;
+  requestAnimationFrame(() => {
+    try {
+      box.scrollIntoView({ block: 'nearest' });
+      /* A box taller than the visible body (a short phone, landscape, a "that code did not work" note) is
+         lined up by its top, which can leave the field under the footer; so the field's row last, also nearest. */
+      const field = document.getElementById('fr-conn-code');
+      const row = field && field.parentNode;
+      if (row && typeof row.scrollIntoView === 'function') row.scrollIntoView({ block: 'nearest' });
+    } catch (_) { /* old engines */ }
+  });
 }
 
 function frConnPaintProgress(progress) {

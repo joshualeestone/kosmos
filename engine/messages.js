@@ -4803,6 +4803,21 @@ function roomHeld(project, now, roomRecipients) {
   HELD_MEMO.set(projectId, { t: at, rows: rec.rows.length, stamp, size, out });
   return out;
 }
+/* kosmos#8769 review 6: whether a post asking exactly ONE member would be held now, charged 1 as the valve charges it
+   (roomHeld charges the latest post's size, which can read held when a one-member post would pass). For the room view's
+   pause line, which offers that post. No memo: the text view is not polled. Unreadable, or the limit off: null. */
+function roomHeldForOne(project, now, roomRecipients) {
+  try {
+    const projectId = String(project == null ? '' : project).trim();
+    if (!projectId) return null;
+    const lim = limits.caps();
+    if (!lim.on) return null;
+    const rec = record();
+    if (!rec || rec.ok !== true || !Array.isArray(rec.rows)) return null;
+    const size = Number.isInteger(roomRecipients) && roomRecipients > 0 ? roomRecipients : null;
+    return roomHeldRead(projectId, Number.isFinite(now) ? now : Date.now(), lim, rec.rows, 1, undefined, size);
+  } catch { return null; }
+}
 /* `charge`: the size of the post asking (#6420, a refused post's own recipients); without it, the latest post's.
    `progressFrom`: the allowance as the caller already read it for this same moment (#6420: sendPost's refusal, so a
    refused post reads the task and file times once); without it, read here.
@@ -5238,7 +5253,7 @@ module.exports = {
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
   suspectedMisrouteCount, confirmedNewPostCount,
-  resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, roomHeld, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
+  resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, roomHeld, roomHeldForOne, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests, mentionedMembers, addressedMembers, reachedCount, ambiguousNote, outsidersNote, unmatchedNote,
 };

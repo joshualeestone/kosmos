@@ -37,8 +37,9 @@ const BOTH = new Set(['session-headers', 'fresh-signin']);
 
 test('R01b: a stale remote session is offered Sign in again only when the connector lists fresh-signin', () => {
   const t = now();
-  // A stale session the gate forwarded: it writes both headers, here with a sign-in an hour old.
-  const stale = { 'x-kosmos-session-iat': String(t - 3600), 'x-kosmos-session-second': '1' };
+  // kosmos#8785: a full sign-in of any age passes /api/agents, so the stale case here is one vouched with no readable
+  // time. Today's gate never sends that shape (both headers or neither); it keeps the two button kinds tested.
+  const stale = { 'x-kosmos-session-second': '1' };
   const got = remoteStepUpRefusal(req(stale), '/api/agents', t, BOTH);
   assert.equal(got, REMOTE_STEP_UP_SIGNIN);
   assert.equal(got.code, 'remote_step_up', 'the code changed, so every page reading it would miss it');
@@ -46,15 +47,21 @@ test('R01b: a stale remote session is offered Sign in again only when the connec
   assert.match(got.error, /Press Sign in again/);
   // The fallback stays in the sentence: the button may be closed, or the running tunnel older than the binary.
   assert.match(got.error, /Sign out of Kosmos\+ on this page and on the Kosmos\+ sign-in site/);
-  // CONTROL: the same request through a connector without fresh-signin gets the log-out kind (kosmos#7625), not this one.
+  // CONTROL: the same request through a connector without fresh-signin gets the log-out kind (kosmos#7625).
   const plain = remoteStepUpRefusal(req(stale), '/api/agents', t, new Set(['session-headers']));
   assert.equal(plain, REMOTE_STEP_UP_LOGOUT);
-  assert.notEqual(plain.via, REMOTE_STEP_UP_SIGNIN.via);
+  // kosmos#8785 review 6: a session WITHOUT the second factor gets no button through either connector, since signing in
+  // again would be refused the same way.
+  const noSecond = { 'x-kosmos-session-iat': String(t - 30), 'x-kosmos-session-second': '0' };
+  assert.equal(remoteStepUpRefusal(req(noSecond), '/api/agents', t, BOTH), REMOTE_STEP_UP);
+  assert.equal(remoteStepUpRefusal(req(noSecond), '/api/agents', t, new Set(['session-headers'])), REMOTE_STEP_UP);
 });
 
 test('kosmos#7625: through the gate, a connector without fresh-signin still gets Sign in again, by logging out', () => {
   const t = now();
-  const stale = { 'x-kosmos-session-iat': String(t - 3600), 'x-kosmos-session-second': '1' };
+  // kosmos#8785: this kind now needs the second factor vouched with no readable time, which today's gate never sends
+  // (both headers or neither, kosmos-relay proxy.rs). Kept so its sentence stays tested if a gate ever does.
+  const stale = { 'x-kosmos-session-second': '1' };
   const got = remoteStepUpRefusal(req(stale), '/api/agents', t, new Set(['session-headers']));
   assert.equal(got, REMOTE_STEP_UP_LOGOUT);
   assert.equal(got.code, 'remote_step_up', 'the code changed, so every page reading it would miss it');
@@ -78,9 +85,11 @@ test('kosmos#7625: through the gate, a connector without fresh-signin still gets
 test('R01b: no button for a request that did not come through the gate (no session header: a proxy, or an old session)', () => {
   const t = now();
   assert.equal(remoteStepUpRefusal(req(), '/api/agents', t, BOTH), REMOTE_STEP_UP, 'a forwarded request with no gate header got the button');
-  // Either header alone marks the gate (second=0 is still the gate's own word).
-  assert.equal(remoteStepUpRefusal(req({ 'x-kosmos-session-second': '0' }), '/api/agents', t, BOTH), REMOTE_STEP_UP_SIGNIN);
-  assert.equal(remoteStepUpRefusal(req({ 'x-kosmos-session-iat': String(t - 3600) }), '/api/agents', t, BOTH), REMOTE_STEP_UP_SIGNIN);
+  // kosmos#8785 review 6: through the gate, the button needs the second factor vouched, since signing in again cannot
+  // help a session without one. A time alone, or second=0, gets the plain refusal.
+  assert.equal(remoteStepUpRefusal(req({ 'x-kosmos-session-second': '1' }), '/api/agents', t, BOTH), REMOTE_STEP_UP_SIGNIN);
+  assert.equal(remoteStepUpRefusal(req({ 'x-kosmos-session-second': '0' }), '/api/agents', t, BOTH), REMOTE_STEP_UP);
+  assert.equal(remoteStepUpRefusal(req({ 'x-kosmos-session-iat': String(t - 3600) }), '/api/agents', t, BOTH), REMOTE_STEP_UP);
 });
 
 test('R01b: fresh-signin vouches for nothing by itself, and changes no other refusal', () => {

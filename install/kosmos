@@ -2753,7 +2753,7 @@ EOF
 
 cmd_msg() {
   local to text body verdict state because _a
-  # #2909: --stdin (leading) reads the message from standard input, so backticks and $ reach the
+  # #2909: --stdin (leading, or alone after the agent: kosmos#8769) reads the message from standard input, so backticks and $ reach the
   # agent as written; the shared _read_piped_message does the read. from_stdin also arms
   # _keep_piped, so every failure after the read keeps the message in a private file.
   local from_stdin=0 _orig="" _trimmed _keep in_reply_to="" no_reply=0 _tip=""
@@ -2786,6 +2786,9 @@ cmd_msg() {
         exit 2 ;;
     esac
   done
+  # kosmos#8769: a lone --stdin after the agent name has one reading only (the message is on stdin), so it is taken as the
+  # flag. With any other word beside it the intent is unclear, and it is refused as before (#2909).
+  if [ "$from_stdin" = 0 ] && [ $# -eq 1 ] && [ "$1" = "--stdin" ]; then from_stdin=1; shift; fi
   if [ "$from_stdin" = 1 ]; then
     if [ -n "$to" ] && [ $# -gt 0 ]; then
       say "Give the message on stdin OR as arguments, not both: kosmos msg --stdin <agent> < message.md"
@@ -2793,8 +2796,8 @@ cmd_msg() {
     fi
     [ -n "$to" ] && _read_piped_message sent "kosmos msg --stdin <agent> < message.md"
   else
-    # A --stdin AFTER the agent would send the literal word and silently drop the pipe, so it is
-    # refused. Tradeoff, same as cmd_post's --file scan: a standalone unquoted `--stdin` word in a
+    # A --stdin AFTER the agent, beside other words, would send the literal word and silently drop the pipe, so it is
+    # refused (alone, #8769 takes it above). Tradeoff, same as cmd_post's --file scan: a standalone unquoted `--stdin` word in a
     # typed message is refused too; recoverable by quoting the message as one argument.
     for _a in "$@"; do
       if [ "$_a" = "--stdin" ]; then
@@ -3342,8 +3345,9 @@ cmd_post() {
   # recipient reads it in the foreground but is NOT told to answer -- this is what breaks the
   # ack-of-an-ack loop. Leading flag only (kosmos post --no-reply <project> <text>); anywhere else
   # it is treated as message text, the same recoverable tradeoff the --file scan above takes.
-  # #2908 --no-reply, #3224 --in-reply-to and #2909 --stdin are LEADING flags, in any order, the
-  # same recoverable tradeoff as the --file scan: anywhere but the front they are message text.
+  # #2908 --no-reply, #3224 --in-reply-to and #2909 --stdin are LEADING flags, in any order. After the project,
+  # --no-reply and --in-reply-to are message text (the same recoverable tradeoff as the --file scan); a late --stdin
+  # is never text: alone it is taken as the flag (kosmos#8769), beside other words it is refused (#2909).
   # --in-reply-to <id> binds the answer to the room the cited message came from; the server
   # refuses if the target project differs (the misroute this fix catches).
   # --stdin reads the message from standard input instead of the args, so backticks and $
@@ -3372,6 +3376,9 @@ cmd_post() {
   project="${1:-}"
   case "$project" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option post "Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>" "$project" target ;; esac   # kosmos#4889
   shift 2>/dev/null || true
+  # kosmos#8769: a lone --stdin after the project id has one reading only (the message is on stdin), so it is taken as the
+  # flag. With any other word beside it the intent is unclear, and it is refused as before (#2909).
+  if [ "$from_stdin" = 0 ] && [ $# -eq 1 ] && [ "$1" = "--stdin" ]; then from_stdin=1; shift; fi
   if [ "$from_stdin" = 1 ]; then
     if [ -n "$project" ] && [ $# -gt 0 ]; then
       say "Give the message on stdin OR as arguments, not both: kosmos post --stdin <project-id> < message.md"
@@ -3381,8 +3388,8 @@ cmd_post() {
       _read_piped_message posted "kosmos post --stdin <project-id> < message.md"
     fi
   else
-    # #2909: a --stdin AFTER the project would post the literal word and silently drop the
-    # piped message; refuse it, the same recoverable tradeoff as the --file scan above.
+    # #2909: a --stdin AFTER the project, beside other words, would post the literal word and silently drop the
+    # piped message; refuse it, the same recoverable tradeoff as the --file scan above. (Alone, #8769 takes it above.)
     for _a in "$@"; do
       if [ "$_a" = "--stdin" ]; then
         say "--stdin must come before the project id: kosmos post --stdin <project-id> < message.md"
@@ -5801,8 +5808,58 @@ cmd_room() {
   # once the CLI stops holding the person's board token.
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
-  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text${_n:+&n=$_n}${_unans}${_byid:+&$_byid=$_byidval}" 2>/dev/null) || _rc=$?
+  # kosmos#8769 item 4: KOSMOS_ROOM_TIMEOUT_S (digits) is a test seam for the 15 s limit, so a busy board is tested fast.
+  local _rmt=15; case "${KOSMOS_ROOM_TIMEOUT_S:-}" in ''|*[!0-9]*) ;; *) [ $((10#${KOSMOS_ROOM_TIMEOUT_S:0:3})) -lt 1 ] || _rmt=$((10#${KOSMOS_ROOM_TIMEOUT_S:0:3})) ;; esac
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m "$_rmt" -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text${_n:+&n=$_n}${_unans}${_byid:+&$_byid=$_byidval}" 2>/dev/null) || _rc=$?
+  # kosmos#8769 item 4: the last copy of a PLAIN read (no -n, --unanswered or by-id: those answer other questions) is
+  # kept per room and per reader (a hash of the token, never the token), mode 600, so a read that Kosmos is too busy to
+  # answer can still show what this reader last saw, headed with its age. `_rb_since` marks the first failed read since
+  # the last good one, so a one-minute spell and a stuck board can be told apart; it is what THIS computer saw.
+  local _rb_dir="$KOSMOS_HOME/state/room-copies" _rb_key="" _rb_copy="" _rb_since="" _rb_mark=""
+  # Review 2: shasum (macOS) or sha256sum (most Linux); neither means no copy, the refusal as before.
+  _rb_key="$(printf '%s|%s|%s' "$URL" "$project" "${_tok:-${_bt:+board}}" | { shasum -a 256 2>/dev/null || sha256sum 2>/dev/null; } | cut -c1-24 || true)"
+  case "$_rb_key" in *[!0-9a-f]*|e3b0c44298fc1c149afbf4c8) _rb_key="" ;; esac   # review 3: the empty-input hash would share one key
+  # The failing mark is per room and reader: any answered read clears it (a filtered one too, review 2), and a failed
+  # PLAIN read starts or extends it. The copy is kept and shown for plain reads only.
+  # Review 5: only in an installed Kosmos (its app/ folder), never a checkout or a test that did not ask for it.
+  [ -d "$KOSMOS_HOME/app" ] || _rb_key=""
+  [ -z "$_rb_key" ] || _rb_mark="$_rb_dir/$_rb_key.busy-since"
+  if [ -n "$_rb_key" ] && [ -z "${_n}${_unans}${_byid}" ]; then _rb_copy="$_rb_dir/$_rb_key.txt"; _rb_since="$_rb_mark"; fi
   if [ "$_rc" -ne 0 ]; then
+    case "$_rc" in
+      18|28|52|56)
+        if [ -n "$_rb_since" ]; then
+          # Review 1: every step here is allowed to fail (a sandbox, a read-only home): the busy sentence must still be said.
+          # The mark is "<first failed read> <last failed read>". Review 3: a spell whose last failure is over 30 minutes
+          # old is over (nobody read in between, so nothing says the board stayed stuck): this read starts a new one.
+          local _rb_first="" _rb_last="" _rb_now; _rb_now="$(date +%s)"
+          { read -r _rb_first _rb_last < "$_rb_since"; } 2>/dev/null || true   # review 4: braces, so a missing mark says nothing
+          case "$_rb_first" in ''|*[!0-9]*) _rb_first="" ;; *) _rb_first=$((10#$_rb_first)) ;; esac
+          case "$_rb_last" in ''|*[!0-9]*) _rb_last="$_rb_first" ;; *) _rb_last=$((10#$_rb_last)) ;; esac
+          if [ -z "$_rb_first" ] || [ $((_rb_now - ${_rb_last:-0})) -gt 1800 ]; then _rb_first="$_rb_now"; fi
+          { mkdir -p "$_rb_dir" && chmod 700 "$_rb_dir" && printf '%s %s\n' "$_rb_first" "$_rb_now" > "$_rb_since"; } 2>/dev/null || _rb_first=""
+          local _rb_hhmm="" _rb_fmt='+%H:%M %Z'
+          [ "$(date -r "${_rb_first:-0}" +%F 2>/dev/null || date -d "@${_rb_first:-0}" +%F 2>/dev/null || true)" = "$(date +%F)" ] || _rb_fmt='+%b %d %H:%M %Z'
+          [ -z "$_rb_first" ] || _rb_hhmm="$(date -r "$_rb_first" "$_rb_fmt" 2>/dev/null || date -d "@$_rb_first" "$_rb_fmt" 2>/dev/null || true)"
+          if [ -n "$_rb_copy" ] && [ -s "$_rb_copy" ]; then
+            local _rb_at _rb_age
+            # Review 1: BSD stat first, then GNU, and only a number counts (GNU stat -f prints file-system text first).
+            _rb_at="$(stat -f %m "$_rb_copy" 2>/dev/null || true)"
+            case "$_rb_at" in ''|*[!0-9]*) _rb_at="$(stat -c %Y "$_rb_copy" 2>/dev/null || true)" ;; esac
+            case "$_rb_at" in ''|*[!0-9]*) _rb_age="at an unknown time" ;; *)
+              local _rb_m=$(( (_rb_now - _rb_at) < 0 ? 0 : (_rb_now - _rb_at) / 60 ))
+              if [ "$_rb_m" -lt 120 ]; then _rb_age="$_rb_m minute(s) ago"
+              elif [ "$_rb_m" -lt 2880 ]; then _rb_age="$((_rb_m / 60)) hour(s) ago"
+              else _rb_age="$((_rb_m / 1440)) day(s) ago"; fi ;; esac
+            say "Kosmos is running but did not answer in time, so this is NOT the room now: it is the last copy this computer read, ${_rb_age}.${_rb_hhmm:+ Kosmos has not answered a read of this room here since ${_rb_hhmm}.} Read again in a minute for the room as it is."
+            cat "$_rb_copy" 2>/dev/null || true
+            exit 1
+          fi
+          say_unreached "read that room" "$_rc"
+          [ -z "$_rb_hhmm" ] || say "Kosmos has not answered a read of this room here since ${_rb_hhmm}, and this computer has no earlier copy of this room to show."
+          exit 1
+        fi ;;
+    esac
     say_unreached "read that room" "$_rc"
     exit 1
   fi
@@ -5813,9 +5870,21 @@ cmd_room() {
   # trailing newline, which survived the split above -- a '%s\n' would double it
   # and leave a spurious blank line after every `kosmos room`.
   printf '%s' "$_body"
+  # kosmos#8769 item 4: any ANSWERED read, an error answer too (review 5), ends a failing spell; never fails the read.
+  [ -z "$_rb_mark" ] || rm -f "$_rb_mark" 2>/dev/null || true
   case "$_code" in
     4??|5??) exit 1 ;;
   esac
+  # A good plain read becomes the copy kept for a busy board.
+  if [ -n "$_rb_copy" ]; then
+    if mkdir -p "$_rb_dir" 2>/dev/null && chmod 700 "$_rb_dir" 2>/dev/null; then
+      local _rb_tmp=""
+      { _rb_tmp="$(mktemp "$_rb_dir/.copy.XXXXXX")" && chmod 600 "$_rb_tmp" && printf '%s' "$_body" > "$_rb_tmp" \
+        && mv -f "$_rb_tmp" "$_rb_copy"; } 2>/dev/null || { [ -z "$_rb_tmp" ] || rm -f "$_rb_tmp" 2>/dev/null || true; }
+      # Review 3: copies are not kept for ever: any not refreshed for 7 days (a room deleted, a token changed) goes.
+      find "$_rb_dir" -maxdepth 1 -type f -mtime +6 -delete 2>/dev/null || true   # +6: more than 7 whole days (find rounds up)
+    fi
+  fi
   # #4926: a filtered answer has a line starting with this; without one, this board does not know --unanswered and
   # what printed is the whole room.
   # kosmos#7969: matched in the shell, not by piping the body into grep -q: under pipefail grep -q exiting at its first
@@ -6005,7 +6074,7 @@ kosmos_command_list() {
   printf '  kosmos notice        a job on this computer writes a line in a room, in Kosmos'"'"'s voice\n'
   printf '  kosmos feedback      write or read the daily feedback report\n'
   printf '  kosmos community     post to or read the Kosmos+ community (--how: how to take part)\n'
-  printf '  kosmos task          a project'"'"'s tasks: list, add, close, reopen, message, mark built\n'
+  printf '  kosmos task          a project'"'"'s tasks: list, add, close, reopen, message, mark built (--how: one situation each)\n'
   printf '  kosmos project       list, show, create or pause projects, say your role on one, or take a member off one\n'
   printf '  kosmos records       a project'"'"'s records (accounts, leads, vendors): list, set, remove, label\n'
   printf '  kosmos agent         list, make or remove agents, or list the roles one can have\n'
@@ -6369,6 +6438,17 @@ _task_check_json() { printf '%s' "$1" | LC_ALL=C tr -d '\001-\010\013\014\016-\0
 # `_bt`/rc idioms as cmd_post, and the same bash-3.2 reason for both.
 cmd_task() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
+  # kosmos#8735 slice 2: --how prints engine/taskguide.js guideText, the task commands for one situation each, which the
+  # working rules now point at. A local read, like `kosmos community --how`: no board needed.
+  if [ "$sub" = "--how" ]; then
+    [ $# -eq 0 ] || { say "Usage: kosmos task --how"; exit 2; }
+    local _gn _gm; _gn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    _gm="$(kosmos_engine_module taskguide).js"   # requires nothing, so only this file can fail
+    [ -f "$_gm" ] || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    "$_gn" -e 'process.stdout.write(require(process.argv[1]).guideText() + "\n")' "$_gm" 2>/dev/null \
+      || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    exit 0
+  fi
   local _tmine=""   # kosmos#7992: `task list --mine` / `task list --all --mine`: only the tasks this agent holds
   case "$sub" in
     ''|help|-h|--help)
@@ -6417,6 +6497,7 @@ cmd_task() {
       say "      --value \"<reading>\"                                      what it found, checked against what the person was last told"
       say "  kosmos task told <project-id> <task-number> [--value \"<what you said>\"]  record what you just told the person (default: the last --value)"
       say "  kosmos task wake <project-id> <task-number> --pr <owner/name#123>  tell you once when it merges or closes (also --branch owner/name:main, --file <path>, --at 2h|HH:MM; --clear)"
+      say "  kosmos task --how   (how the task commands work for one situation each: a task that repeats, a file, a code fix, fixing a task's words, listing across projects)"
       say "  (project ids are in your instructions' Your projects section.)"
       exit 2 ;;
     # Validate the subcommand AND its required args BEFORE the health check, the same order

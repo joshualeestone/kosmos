@@ -35,7 +35,7 @@ process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_SECS } = require('./server');
+const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_RECENT, REMOTE_STEP_UP_RECENT_SIGNIN, REMOTE_RECENT_SECS, REMOTE_RECENT_ONLY } = require('./server');
 /* kosmos#7625: a stale request the gate forwarded (it wrote a session header) is offered Sign in again by logging out;
    one with no gate header (a proxy the owner set up), or with no second factor (signing in again cannot help:
    review 1), keeps the plain refusal. */
@@ -94,7 +94,7 @@ test('R01: PUT /api/autoupdate from a stale remote session is refused (on the fu
 const STALE = [
   ['no session headers', {}],
   ['a fresh time but no second factor', { 'x-kosmos-session-iat': String(now() - 30), 'x-kosmos-session-second': '0' }],
-  ['the second factor but a stale time', { 'x-kosmos-session-iat': String(now() - REMOTE_STEP_UP_SECS - 5), 'x-kosmos-session-second': '1' }],
+  ['an old time and no second factor', { 'x-kosmos-session-iat': String(now() - 40 * 24 * 3600), 'x-kosmos-session-second': '0' }],
   ['a malformed time', { 'x-kosmos-session-iat': '1e9', 'x-kosmos-session-second': '1' }],
 ];
 /* 🛑 Only these routes are sent real requests, and with an unreadable body: each reads and parses its body before it
@@ -129,6 +129,9 @@ test('R01 CONTROL: a fresh remote sign-in, and a local request, pass the gate (a
     const remoteFresh = await post(route, { ...VIA_PLUS, ...fresh() }, 'not json');
     assert.notEqual(remoteFresh.body && remoteFresh.body.code, 'remote_step_up', route + ' refused a fresh remote session');
     assert.equal(remoteFresh.status, 400, route + ' fresh remote: ' + JSON.stringify(remoteFresh.body));
+    // kosmos#8785: a full sign-in from yesterday, over HTTP too.
+    const dayOld = await post(route, { ...VIA_PLUS, 'x-kosmos-session-iat': String(now() - 24 * 3600), 'x-kosmos-session-second': '1' }, 'not json');
+    assert.equal(dayOld.status, 400, route + ' a day-old full sign-in: ' + JSON.stringify(dayOld.body));
     const local = await post(route, PAGE, 'not json');
     assert.notEqual(local.body && local.body.code, 'remote_step_up', route + ' refused a local request');
     assert.equal(local.status, 400, route + ' local: ' + JSON.stringify(local.body));
@@ -151,12 +154,14 @@ test('R01: taking things away is not gated (forget a token, sign a provider out)
   assert.equal(needsRemoteStepUp('/api/org/leave', 'POST'), false, 'leaving takes away');
 });
 
-test('R01: freshness needs the second factor and a time within the window, bounded both sides', () => {
+test('R01 (kosmos#8785): a full sign-in counts at any age; the second factor and a well-formed time are still needed', () => {
   const t = 1_800_000_000;
   const h = (iat, second) => ({ 'x-kosmos-session-iat': iat, 'x-kosmos-session-second': second });
   assert.equal(remoteSessionFresh(h(String(t - 30), '1'), t), true);
-  assert.equal(remoteSessionFresh(h(String(t - REMOTE_STEP_UP_SECS), '1'), t), true, 'the edge of the window');
-  assert.equal(remoteSessionFresh(h(String(t - REMOTE_STEP_UP_SECS - 1), '1'), t), false, 'one second past it');
+  // Josh 11-19: "A full sign in should basically hold forever". Was false past 12 minutes.
+  assert.equal(remoteSessionFresh(h(String(t - 12 * 60 - 1), '1'), t), true, 'past the old 12-minute window');
+  assert.equal(remoteSessionFresh(h(String(t - 364 * 24 * 3600), '1'), t), true, 'a sign-in near the end of its year');
+  assert.equal(remoteSessionFresh(h(String(t - 364 * 24 * 3600), '0'), t), false, 'old and without the second factor');
   assert.equal(remoteSessionFresh(h(String(t + 60), '1'), t), true, 'a minute of clock drift');
   assert.equal(remoteSessionFresh(h(String(t + 61), '1'), t), false, 'further ahead is not fresh');
   assert.equal(remoteSessionFresh(h(String(t - 30), '0'), t), false, 'no second factor');
@@ -169,11 +174,56 @@ test('R01: freshness needs the second factor and a time within the window, bound
   assert.equal(remoteSessionFresh(undefined, t), false);
 });
 
+test('kosmos#8785: the identity-change routes still need a RECENT full sign-in; every other gated route takes one of any age', () => {
+  const t = now();
+  const caps = new Set(['session-headers']);
+  const full = (age) => ({ ...VIA_PLUS, 'x-kosmos-session-iat': String(t - age), 'x-kosmos-session-second': '1' });
+  assert.equal(REMOTE_RECENT_SECS, 12 * 60);
+  // The members, named: the second factor, this computer's enrolment, a company, another computer, another Kosmos.
+  for (const path of ['/api/remote/second-reset', '/api/remote/signin-start', '/api/remote/signin-register',
+    '/api/remote/setup-start', '/api/remote/setup-complete', '/api/remote/company/start', '/api/remote/forget',
+    '/api/org/enroll', '/api/federation/own-allow', '/api/federation/own-confirm', '/api/federation/join',
+    '/api/federation/invite', '/api/federation/own-code']) assert.ok(REMOTE_RECENT_ONLY.has(path), path + ' is no longer time-bounded');
+  assert.equal(REMOTE_RECENT_ONLY.size, 13, 'a route was added to or dropped from the time-bounded set; name it above');
+  for (const path of [...REMOTE_RECENT_ONLY, '/api/project/p1/webhooks']) {
+    assert.equal(needsRemoteStepUp(path, 'POST'), true, path + ' is time-bounded but not gated at all');
+    for (const method of ['POST', 'PUT', 'PATCH']) {
+      const req = (headers) => ({ method, headers });
+      assert.equal(remoteStepUpRefusal(req(full(30)), path, t, caps), null, `${method} ${path}: half a minute old`);
+      assert.equal(remoteStepUpRefusal(req(full(REMOTE_RECENT_SECS)), path, t, caps), null, `${method} ${path}: the edge`);
+      // Too old for these: its own sentence, which says the time, with the log-out button.
+      assert.equal(remoteStepUpRefusal(req(full(REMOTE_RECENT_SECS + 1)), path, t, caps), REMOTE_STEP_UP_RECENT, `${method} ${path}: just past`);
+      assert.equal(remoteStepUpRefusal(req(full(24 * 3600)), path, t, caps), REMOTE_STEP_UP_RECENT, `${method} ${path}: a day old`);
+      // From the future is still a clock problem.
+      assert.equal(remoteStepUpRefusal(req(full(-600)), path, t, caps), REMOTE_STEP_UP_CLOCK, `${method} ${path}: ahead`);
+      // Vouched with no readable time: not the too-old sentence (its time is unknown), the log-out kind.
+      assert.equal(remoteStepUpRefusal(req({ ...VIA_PLUS, 'x-kosmos-session-second': '1' }), path, t, caps), REMOTE_STEP_UP_LOGOUT, `${method} ${path}: no time`);
+    }
+  }
+  assert.match(REMOTE_STEP_UP_RECENT.error, /within 10 minutes/);
+  // Through a connector that serves the one-press fresh sign-in, the same refusal uses that button (no via: logout).
+  const both = new Set(['session-headers', 'fresh-signin']);
+  const viaFresh = remoteStepUpRefusal({ method: 'POST', headers: full(24 * 3600) }, '/api/org/enroll', t, both);
+  assert.equal(viaFresh, REMOTE_STEP_UP_RECENT_SIGNIN);
+  assert.equal(viaFresh.signInAgain, true);
+  assert.equal('via' in viaFresh, false);
+  assert.match(viaFresh.error, /within 10 minutes/);
+  assert.equal(REMOTE_STEP_UP_RECENT.signInAgain, true);
+  // CONTROL: the same day-old sign-in makes an agent, updates, enters a key and makes a backup key: the owner's own work.
+  const post = (headers) => ({ method: 'POST', headers });
+  for (const route of ['/api/agents', '/api/update', '/api/accounts/gemini/apikey', '/api/svc/brave-search/token', '/api/personal-backup/key']) {
+    assert.equal(remoteStepUpRefusal(post(full(24 * 3600)), route, t, caps), null, route);
+  }
+});
+
 test('R01: the gate passes update and agent creation for a fresh remote session and for a local one (function only)', () => {
   const t = now();
   const req = (headers) => ({ method: 'POST', headers });
   for (const route of ['/api/update', '/api/agents', '/api/team', '/api/connect-agent', '/api/connect/start']) {
     assert.equal(remoteStepUpRefusal(req({ ...VIA_PLUS, ...fresh() }), route, t), null, route + ' fresh remote');
+    // kosmos#8785: a cloud owner's evening. A full sign-in from yesterday still makes agents.
+    const dayOld = { ...VIA_PLUS, 'x-kosmos-session-iat': String(t - 24 * 3600), 'x-kosmos-session-second': '1' };
+    assert.equal(remoteStepUpRefusal(req(dayOld), route, t), null, route + ' a day-old full sign-in');
     assert.equal(remoteStepUpRefusal(req(PAGE), route, t), null, route + ' local');
     assert.equal(remoteStepUpRefusal(req(VIA_PLUS), route, t), REMOTE_STEP_UP, route + ' stale remote');
   }

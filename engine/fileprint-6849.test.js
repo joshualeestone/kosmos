@@ -170,13 +170,15 @@ test('#6849: a direct /Length is used when the body holds the word endstream, an
 
 test('#6849: the cap is the 64 MB the help and the instruction name', () => {
   assert.equal(fp.PDF_MAX, 64000000);
-  const said = require('./defaults').block();
+  // kosmos#8735 slice 2: the fingerprint paragraph is in `kosmos task --how` (engine/taskguide.js); what an agent is told is both.
+  const said = require('./defaults').block() + '\n' + require('./taskguide').guideText();
   assert.match(said, /a PDF over 64 MB is hashed as plain/);
 });
 
 /* Review 7: the bare Get-FileHash prints a table that cuts the hash short (builtsha-6330 review 7 fixed that once). */
 test('#6849: the instruction gives the Windows command that prints the whole hash', () => {
-  const said = require('./defaults').block();
+  // kosmos#8735 slice 2: the fingerprint paragraph is in `kosmos task --how` (engine/taskguide.js); what an agent is told is both.
+  const said = require('./defaults').block() + '\n' + require('./taskguide').guideText();
   assert.match(said, /`\(Get-FileHash <file>\)\.Hash`/);
   assert.doesNotMatch(said, /`Get-FileHash <file>`/, 'the bare Get-FileHash prints a cut-off table');
 });

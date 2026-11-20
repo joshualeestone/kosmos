@@ -485,7 +485,12 @@ function pathWithoutParam(req, routingBase, param) {
     const u = new URL(req.url, routingBase);
     u.searchParams.delete(param);
     const q = u.searchParams.toString();
-    return u.pathname + (q ? `?${q}` : '');
+    // The address it answers is always a path on this board: exactly one leading slash, whatever the pathname
+    // normalises to (several slashes or a backslash at its start, or none at all for an absolute URL of another scheme),
+    // so a browser reads it as a path, never as a host. Node's request parser refuses most such requests first; this
+    // does not rely on that.
+    const pathname = '/' + u.pathname.replace(/^[\/\\]+/, '');
+    return pathname + (q ? `?${q}` : '');
   } catch {
     return '/';
   }
