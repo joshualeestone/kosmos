@@ -88,7 +88,8 @@ test('kosmos#8828: a post I reacted to stays listed, and the list says why', asy
   assert.ok(line.includes('[' + confirm + ']') && !line.includes('[' + plain + ']'), 'the line does not name exactly the post I reacted to:\n' + r.text);
   assert.match(line, /a reaction does not take a post off this list/);
   assert.ok(line.includes('kosmos post --in-reply-to ' + confirm + ' ' + pid + ' <your answer>.'), 'the command is not runnable as printed:\n' + line);
-  assert.match(line, /a colleague was only confirming something already settled, your reaction answered that/, 'a confirmation is told to post "agreed":\n' + line);
+  assert.match(line, /If it was only confirming something already settled, your reaction answered that/, 'a confirmation is told to post "agreed":\n' + line);
+  assert.ok(!/days/.test(line), 'the line claims how long the post stays listed (wrong under --all):\n' + line);
   const plainRead = await room(pid, ME, '');
   assert.equal(plainRead.status, 200, plainRead.text);
   assert.equal(reactedLine(plainRead.text), '', 'a plain read carries the line:\n' + plainRead.text);
@@ -107,7 +108,7 @@ test('kosmos#8828: several emojis, one removed, still named; two posts get the p
   let r = await room(pid, ME, '&unanswered=1');
   let line = reactedLine(r.text);
   assert.ok([cut, multi, second].every((x) => line.includes('[' + x + ']')), 'a post with a live reaction is not named:\n' + r.text);
-  assert.ok(line.includes('kosmos post --in-reply-to <its id> ' + pid + ' <your answer>. If a colleague was only confirming'), 'several posts: the command is not the placeholder form:\n' + line);
+  assert.ok(line.includes('kosmos post --in-reply-to <its id> ' + pid + ' <your answer>. If one was only confirming'), 'several posts: the command is not the placeholder form:\n' + line);
   r = await room(pid, ME, '&unanswered=1&n=1');
   assert.ok(listed(r.text, second) && !listed(r.text, cut), 'fixture: -n 1 lists only the newest:\n' + r.text);
   line = reactedLine(r.text);
@@ -145,6 +146,24 @@ test('kosmos#8828 review 4: the person\'s post I reacted to is named, but never 
   assert.equal(r.status, 200, r.text);
   const line = reactedLine(r.text);
   assert.ok(line.includes('[' + mine + ']'), 'fixture: the person\'s post I reacted to is named:\n' + r.text);
-  assert.ok(line.includes('kosmos post --in-reply-to ' + mine + ' ' + pid + ' <your answer>.'), 'no way to answer it:\n' + line);
-  assert.ok(!/reaction answered|nothing more is owed|confirming/.test(line), 'the person\'s post reads as answered by a reaction:\n' + line);
+  assert.ok(line.startsWith(REACTED + 'the person\'s [' + mine + '], but a reaction never answers the person'), 'the person\'s line:\n' + line);
+  assert.ok(line.endsWith('Answer with a post that cites it: kosmos post --in-reply-to ' + mine + ' ' + pid + ' <your answer>'), 'no way to answer it:\n' + line);
+  assert.ok(!/\bIf\b|reaction answered|nothing more is needed|confirming/.test(line), 'the person\'s post reads as maybe answered by a reaction:\n' + line);
+  const colleagues = r.text.split('\n').filter((l) => l.startsWith(REACTED));
+  assert.equal(colleagues.length, 1, 'CONTROL: only the person\'s line, no colleague line:\n' + r.text);
+});
+
+test('kosmos#8828 review 6: the person\'s post and a colleague\'s, both reacted to, get one line each', async () => {
+  const pid = newRoom('Reacted8828f');
+  const colleague = post(pid, { text: '@readerseat noted, the rent clause is yours.', mentioned: [ME] });
+  clock += 1000;
+  const persons = 'm' + (88280 + (++seq));
+  append({ id: persons, kind: 'post', from: 'you', operator: true, to: [ME], project: pid, text: '@readerseat thanks, settled.', mentioned: [ME], at: new Date(clock).toISOString(), outcomes: { [ME]: 'typed' } });
+  react(pid, colleague, ME, '\u{1F44D}');
+  react(pid, persons, ME, '\u{1F44D}');
+  const r = await room(pid, ME, '&unanswered=1');
+  const lines = r.text.split('\n').filter((l) => l.startsWith(REACTED));
+  assert.equal(lines.length, 2, r.text);
+  assert.ok(lines[0].includes('the person\'s [' + persons + ']') && !lines[0].includes(colleague), lines[0]);
+  assert.ok(lines[1].includes('[' + colleague + ']') && !lines[1].includes(persons) && /only confirming/.test(lines[1]), lines[1]);
 });

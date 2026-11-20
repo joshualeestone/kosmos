@@ -645,10 +645,10 @@ const SUMMARY_WORDS = {
   // it is not plainly "current", though it is not overdue, since the rhythm counts work. A reader who knows the rhythm is four
   // hours read "current" on a fifteen-hour file as wrong.
   // kosmos#8828 item 2 (feedback 11-19): "not overdue, though past the rhythm" on a 21-hour file read as a seat hidden by
-  // the rule. The line now says why nothing is owed, first: the rhythm counts reported work, and this is how much there was.
+  // the rule. The line now says why nothing is owed, first: the rhythm counts time working or waiting (review 6: waits too), and this is how much there was.
   // Review 4: scoped to this seat, since the same screen can flag a seat that is working now by the clock (#8298).
-  worked: (s) => 'not due yet: past ' + SUMMARY_RHYTHM_HOURS + ' hours by the clock, but for this seat the rhythm counts reported work, and '
-    + (s.turnsOnly ? 'no later turn has ended' : s.workMinutes > 0 ? 'there has been ' + span(s.workMinutes) + ' of reported work' : 'no work has been reported')
+  worked: (s) => 'not due yet: past ' + SUMMARY_RHYTHM_HOURS + ' hours by the clock, but for this seat the rhythm counts time working or waiting, and '
+    + (s.turnsOnly ? 'no later turn has ended' : s.workMinutes > 0 ? 'there has been ' + span(s.workMinutes) + ' of it' : 'there has been none')
     + ' since it was written (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   // #4581 R9: the project has no open task; this summary was current when its last task ended.
   quiet: (s) => (s.quietKind === 'own' ? 'current when its own tasks here ended' : 'current when work on the project\'s tasks ended')
