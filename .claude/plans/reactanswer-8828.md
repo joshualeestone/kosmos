@@ -11,3 +11,16 @@ contradicted that rule and the nudge, and a 👀 ("looking at it") cleared a per
 
 Weakest premise: that the reporter's confirmation named them (only a post that asked the reader is listed at all).
 Items 2 and 3 of #8828 are separate slices, not in this branch.
+
+## 2026-11-20 (Mona Lisa, after restart)
+- Item 1, review 2 fixes (90367a1762): runnable command (post id when one, project id, answer), set built only under
+  --unanswered from reactionRowsOf for listed posts, every raised hand dropped; tests for unmarked/skin-tone 🙋, claimed
+  still listed, several emojis one removed, two posts, -n cut, plain read. Six mutations each fail. roomread 88/88.
+- Item 3 (1e46230f04): both "no check N" errors list the checks (numbered, 60-char cut). The earlier failing test was my
+  fixture: an agent who does not own the task is refused 403 by design (server.task-donewhen-5152); person: true fixes it.
+  Mutations on each path fail. Siblings 32/32.
+- Item 2: decided wording, not behaviour. The rhythm counts reported work (#5635 F2) and a seat working now already
+  reads stale by wallClock (#8298), so nothing is owed. The line now leads with "not due yet: the 4-hour rhythm counts
+  working time, not the clock, and ...". Rejected: "current" (11-05 feedback said it read wrong on a 15-hour file).
+  Weakest premise: the 11-19 install's seat really had no unreported work (a runner reporting only turn ends is
+  turnsOnly, covered). projectview 40/40.

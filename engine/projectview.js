@@ -644,8 +644,11 @@ const SUMMARY_WORDS = {
   // #5635 (feedback 11-05): this state only follows a summary past the rhythm by the clock (workExcused runs on a stale one), so
   // it is not plainly "current", though it is not overdue, since the rhythm counts work. A reader who knows the rhythm is four
   // hours read "current" on a fifteen-hour file as wrong.
-  worked: (s) => 'not overdue, though past the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm by the clock: ' + (s.turnsOnly ? 'no later turn has ended' : s.workMinutes > 0 ? span(s.workMinutes) + ' of reported work' : 'no reported work') + ' since it was written ('
-    + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
+  // kosmos#8828 item 2 (feedback 11-19): "not overdue, though past the rhythm" on a 21-hour file read as a seat hidden by
+  // the rule. The line now says why nothing is owed, first: the rhythm counts working time, and this is how much there was.
+  worked: (s) => 'not due yet: the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm counts working time, not the clock, and '
+    + (s.turnsOnly ? 'no later turn has ended' : s.workMinutes > 0 ? 'there has been ' + span(s.workMinutes) + ' of reported work' : 'no work has been reported')
+    + ' since it was written (' + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   // #4581 R9: the project has no open task; this summary was current when its last task ended.
   quiet: (s) => (s.quietKind === 'own' ? 'current when its own tasks here ended' : 'current when work on the project\'s tasks ended')
     + ' (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; work ended ' + ago(s.quietMinutes) + ')',
