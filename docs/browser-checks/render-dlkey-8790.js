@@ -61,6 +61,7 @@ const html = (remote) => `<!doctype html><html><head><meta charset="utf-8"><titl
 
 const keys = new Map();   // key -> target
 let MODERN = false;       // the board's rule: a mint from a browser that sends Sec-Fetch-Site needs no key
+let REFUSE_ASK = false;   // a board that refuses the load-time look (403)
 const seen = [];
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
@@ -73,6 +74,7 @@ const server = http.createServer((req, res) => {
       try { b = JSON.parse(body) || {}; } catch { b = {}; }
       if (b.ask === true) {   // the page's one look at load: no key made
         seen.push({ ask: true });
+        if (REFUSE_ASK) { res.writeHead(403, { 'content-type': 'application/json' }); res.end('{"error":"sign in"}'); return; }
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ ok: true, key: null, needed: !(MODERN && req.headers['sec-fetch-site']) }));
         return;
@@ -150,8 +152,11 @@ async function saved(page, act) {
       const np = await saved(page, () => page.click('a.att.nopv'));
       chk(np === 'file for /api/attachment/fedcba9876543210fedcba98', tag + 'a card with no preview downloads, through a key', JSON.stringify({ np, seen }));
       seen.length = 0;
-      await saved(page, () => page.click('a.diag', { modifiers: ['Shift'] }));
-      chk(!seen.some((x) => 'mint' in x), tag + 'a click with a modifier key is left to the browser', JSON.stringify(seen));
+      await saved(page, () => page.click('a.diag', { modifiers: ['Meta'] }));
+      chk(!seen.some((x) => 'mint' in x), tag + 'a Cmd-click is left to the browser', JSON.stringify(seen));
+      seen.length = 0;
+      const alt = await saved(page, () => page.click('a.diag', { modifiers: ['Alt'] }));
+      chk(alt === 'file for /api/diagnostics' && seen.some((x) => x.mint === '/api/diagnostics'), tag + 'an Option-click (Safari: download linked file) still takes a key', JSON.stringify({ alt, seen }));
 
       // A current browser (it sends Sec-Fetch-Site): told no key is needed once, then its links are left alone.
       MODERN = true;
@@ -165,6 +170,16 @@ async function saved(page, act) {
       chk(m1 === 'file for /api/agent/max/export' && m2 === 'file for /api/agent/max/export', tag + 'a current browser: both downloads save', JSON.stringify({ m1, m2 }));
       chk(!seen.some((x) => 'mint' in x) && !seen.some((x) => x.key), tag + 'told at load that no key is needed, so neither click asks for one (the download starts in the click)', JSON.stringify(seen));
       MODERN = false;
+
+      // A board that refuses the look (403): it cannot give keys either, so the links are left as they were.
+      REFUSE_ASK = true;
+      seen.length = 0;
+      await page.goto(base + '/remote');
+      await page.waitForTimeout(300);
+      seen.length = 0;
+      await saved(page, () => page.click('a.exp'));
+      chk(!seen.some((x) => 'mint' in x), tag + 'a board that refused the look: a click asks for no key', JSON.stringify(seen));
+      REFUSE_ASK = false;
 
       await page.goto(base + '/local');
       seen.length = 0;

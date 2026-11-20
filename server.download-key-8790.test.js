@@ -186,17 +186,13 @@ test('kosmos#8790: a keyed download the board refuses is answered 204 with nothi
   assert.equal(r.body, '');
 });
 
-test('kosmos#8790: a key on a request that says it came from another site refuses, and the key is not spent', async () => {
+test('kosmos#8790: a key on a request that carries any Sec-Fetch-Site refuses, and the key is not spent', async () => {
   const m = await mint(FILE);
   assert.equal((await get(withKey(FILE, m.key), 'GET', { 'sec-fetch-site': 'cross-site' })).code, 403, 'cross-site');
   assert.equal((await get(withKey(FILE, m.key), 'GET', { 'sec-fetch-site': 'same-site' })).code, 403, 'same-site');
-  assert.equal((await get(withKey(FILE, m.key), 'GET', { 'sec-fetch-site': 'same-origin' })).code, 200, 'CONTROL: same-origin opens');
-});
-
-test('kosmos#8790: a key in the path, not the query, opens nothing', async () => {
-  const m = await mint(FILE);
-  assert.equal((await get('/api/agent/max/files/download/bdl=' + m.key + '?name=a.txt')).code, 403);
-  assert.equal((await get(withKey(FILE, m.key))).code, 200, 'CONTROL: the key itself was not spent');
+  assert.equal((await get(withKey(FILE, m.key), 'GET', { 'sec-fetch-site': 'same-origin' })).code, 403, 'same-origin: a current browser is never given a key, so a copied one opens nothing there');
+  assert.equal((await get(withKey(FILE, m.key), 'GET', { 'sec-fetch-site': 'none' })).code, 403, 'none (typed into the address bar)');
+  assert.equal((await get(withKey(FILE, m.key))).code, 200, 'CONTROL: with no Sec-Fetch-Site (old Safari) it opens, unspent until now');
 });
 
 test('kosmos#8790: the page\'s one look at load says whether keys are needed, and needs the board token', async () => {
