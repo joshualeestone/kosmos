@@ -686,6 +686,9 @@ final class FreshSignInCenter: ObservableObject {
     private let client = SignInClient()
     private var watching: [AnyCancellable] = []
     private var issuedOne = false
+    /// Review 3: bumped by end() and close(), so a begin() whose address read outlived a Not now, a closed sheet or
+    /// another sign-in shows nothing.
+    private var gen = 0
 
     /// nil when the fresh sign-in shows; otherwise the sentence to say instead.
     func begin(at place: Place) async -> String? {
@@ -693,7 +696,10 @@ final class FreshSignInCenter: ObservableObject {
         guard let token = SessionKeychain.live.load() else { return SignIn.Fresh.signedOut }
         opening = true
         defer { opening = false }
+        let mine = gen
         guard let email = await client.accountEmail(token: token) else { return SignIn.Fresh.noAddress }
+        // Review 3: still the same request, and still the account the address was read for.
+        guard mine == gen, model == nil, SessionKeychain.live.load() == token else { return nil }
         show(email: email, client: client, at: place)
         return nil
     }
@@ -745,7 +751,7 @@ final class FreshSignInCenter: ObservableObject {
         close()
     }
 
-    private func close() { watching = []; model = nil; issuedOne = false }
+    private func close() { watching = []; model = nil; issuedOne = false; gen &+= 1 }
 
     #if DEBUG
     /// Design shots (KOSMOS_SAMPLE_FRESH=1): the first step, with a sample address and no client (nothing is sent).

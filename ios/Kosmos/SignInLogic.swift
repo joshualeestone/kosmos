@@ -385,6 +385,17 @@ enum SignIn {
             guard finished, let admittedUnder, admittedUnder == heldNow else { return false }
             return admittedUnder != startedUnder
         }
+
+        /// Review 3: once retryNow holds, where the board was let in decides it. The reconnect after an account change
+        /// picks a computer afresh (the remembered one is forgotten), so it may be another: the sheet, built from the
+        /// refused computer's roles and projects, never sends there; it closes, as for any change of computer.
+        enum Landing: Equatable { case retry, otherComputer, edited }
+        static func landing(refusedOn: String?, admittedOn: String?, unchangedForm: Bool) -> Landing {
+            guard let refusedOn, refusedOn == admittedOn else { return .otherComputer }
+            return unchangedForm ? .retry : .edited
+        }
+        /// The form was changed while signing in: not sent unseen.
+        static let edited = "You are signed in again. Press Create to make it as it is now."
         enum Next: Equatable { case offer, still }
         /// After a step-up refusal: offer a fresh sign-in, or, one already done for this same action, say so (no loop).
         static func afterRefusal(alreadyFresh: Bool) -> Next { alreadyFresh ? .still : .offer }

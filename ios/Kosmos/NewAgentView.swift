@@ -35,6 +35,9 @@ struct NewAgentView: View {
     @State private var freshWhy: String?
     @State private var freshTakenAtStart = 0        // fresh.taken when this sheet's fresh sign-in opened
     @State private var freshStartedUnder: String?   // the session held then: the retry waits for a board let in under another
+    @State private var freshMac: String?            // review 3: the computer that refused; the retry goes only there
+    @State private var freshForm: NewAgent.Draft?   // review 3: the form as refused; an edited one is not sent unseen
+    @State private var freshNames: [String: String] = [:]
     @State private var made: (session: String, shownAs: String)?
     @State private var seen = false
     @State private var timedOut = false          // 30 s and the board still cannot see it (the desktop's "has not come up")
@@ -574,6 +577,7 @@ struct NewAgentView: View {
                 tellLater(session, NewAgent.addedProjects(got?.0), portraitFor(s.slot, name: shown, team: d))
                 announce(shown + ": " + NewTeam.Words.made)
             case .refused(let why):
+                freshTried = false   // review 3: answered otherwise, so a later step-up refusal is a new one
                 states[s.slot] = .failed(NewTeam.sentence(why))
                 announce(s.name + ": " + NewTeam.sentence(why))
             case .signInAgain(let why):
@@ -583,6 +587,7 @@ struct NewAgentView: View {
             case .unknown:
                 // Sent, and no answer: it may be on the board soon. Only a name checked free can be taken as this member
                 // when it turns up (the desktop's firstName rule); a renamed one may be someone else's agent.
+                freshTried = false
                 if s.name == checkedNames[s.slot] { maybeMade[s.slot] = s.session }
                 states[s.slot] = .failed(NewAgent.unsureWords)
                 announce(s.name + ": " + NewAgent.unsureWords)
@@ -642,6 +647,8 @@ struct NewAgentView: View {
         Task { @MainActor in
             freshTakenAtStart = fresh.taken
             freshStartedUnder = SessionKeychain.live.load()
+            freshMac = client.admittedAddress
+            freshForm = draft; freshNames = names
             if let why = await fresh.begin(at: .newAgent) { freshWhy = why }
             else if fresh.model != nil, fresh.place == .newAgent { freshWaiting = which }
         }
@@ -653,7 +660,16 @@ struct NewAgentView: View {
         guard let which = freshWaiting,
               SignIn.Fresh.retryNow(finished: fresh.taken > freshTakenAtStart, startedUnder: freshStartedUnder,
                                     admittedUnder: client.admittedUnder, heldNow: SessionKeychain.live.load()) else { return }
-        freshWaiting = nil; freshOffer = nil; freshTried = true
+        freshWaiting = nil; freshOffer = nil
+        let same = which == .single ? draft == freshForm : names == freshNames
+        switch SignIn.Fresh.landing(refusedOn: freshMac, admittedOn: client.admittedAddress, unchangedForm: same) {
+        case .otherComputer: dismiss(); return   // #7488: the sheet never outlives its computer
+        case .edited:
+            if which == .single { message = SignIn.Fresh.edited } else { teamMessage = SignIn.Fresh.edited }
+            return
+        case .retry: break
+        }
+        freshTried = true
         switch which {
         case .single: Task { await create() }
         case .team: runTeam()
@@ -1073,6 +1089,7 @@ struct NewAgentView: View {
             path.append(.made)
             tellLater(session, NewAgent.addedProjects(got?.0), .init(photo: sent.photo, name: sent.name))
         case .refused(let why):
+            freshTried = false   // review 3, as the team's
             message = NewTeam.sentence(why)
             announce(NewTeam.sentence(why))
         case .signInAgain(let why):
@@ -1080,6 +1097,7 @@ struct NewAgentView: View {
             announce(message ?? "")
         case .unknown:
             // It may have been made: the same name is not sent again until it is changed (a second agent otherwise).
+            freshTried = false
             unsureName = NewProject.trimmed(sent.name)
             message = NewAgent.unsureWords
             announce(NewAgent.unsureWords)

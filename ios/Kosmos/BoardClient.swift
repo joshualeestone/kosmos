@@ -365,6 +365,8 @@ final class BoardClient: ObservableObject {
     /// before the account change: accountChanged does not reset it).
     @Published private(set) var admissions = 0
     var admittedUnder: String? { admitted?.session }
+    /// Review 3: which computer it was let in on, so a retry never goes to another one.
+    var admittedAddress: String? { admitted?.mac.address }
     private var failedRefreshes = 0
     private var skipSaved = false
     // The Mac answers 401 for a moment after it starts, while keeping the session (kosmos-relay proxy.rs
