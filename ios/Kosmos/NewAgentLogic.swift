@@ -295,8 +295,12 @@ enum NewAgent {
     enum Result: Equatable {
         case made(session: String, shownAs: String)
         case refused(String)
+        // kosmos#8791: Kosmos+ wants a fresh sign-in first (a 403 with code step_up_required, Board.isStepUpRequired). The
+        // board page offers Sign in again for this (showStepUpAsk); the sheet does the same instead of only saying it.
+        case signInAgain(String)
         case unknown   // no answer, or one that does not say: it may have been made
     }
+    static let stepUpWords = "This needs a fresh sign-in first. Sign in again, and Kosmos tries it once more."
     static let fallback = "We could not make it, and we cannot tell you why."
     static let unsureWords = "Kosmos could not tell whether that went through. Look in Agents before you try again."
 
@@ -311,6 +315,7 @@ enum NewAgent {
             let shown = (obj?["shownAs"] as? String).flatMap { NewProject.trimmed($0).isEmpty ? nil : $0 } ?? session
             return .made(session: session, shownAs: shown)
         }
+        if status == 403, Board.isStepUpRequired(body) { return .signInAgain(said ?? stepUpWords) }
         if let said { return .refused(said) }
         if ["refused", "partial"].contains(obj?["outcome"] as? String ?? "") { return .refused(fallback) }
         return status >= 500 || (200...299).contains(status) ? .unknown : .refused(fallback)

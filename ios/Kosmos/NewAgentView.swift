@@ -553,7 +553,7 @@ struct NewAgentView: View {
                 maybeMade[s.slot] = nil
                 tellLater(session, NewAgent.addedProjects(got?.0), portraitFor(s.slot, name: shown, team: d))
                 announce(shown + ": " + NewTeam.Words.made)
-            case .refused(let why):
+            case .refused(let why), .signInAgain(let why):   // kosmos#8791: the Sign in again action is the next slice
                 states[s.slot] = .failed(NewTeam.sentence(why))
                 announce(s.name + ": " + NewTeam.sentence(why))
             case .unknown:
@@ -1001,7 +1001,7 @@ struct NewAgentView: View {
             }
             path.append(.made)
             tellLater(session, NewAgent.addedProjects(got?.0), .init(photo: sent.photo, name: sent.name))
-        case .refused(let why):
+        case .refused(let why), .signInAgain(let why):   // kosmos#8791: the Sign in again action is the next slice
             message = NewTeam.sentence(why)
             announce(NewTeam.sentence(why))
         case .unknown:

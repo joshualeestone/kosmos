@@ -1604,6 +1604,10 @@ check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"created"
 check(NewAgent.result(sent: true, status: 400, body: Data(#"{"outcome":"refused","because":"There is already an agent called Ada."}"#.utf8)) == .refused("There is already an agent called Ada."), "refused: the board's own sentence")
 check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"partial","because":"It could not start."}"#.utf8)) == .refused("It could not start."), "partial is rolled back by the engine: its sentence")
 check(NewAgent.result(sent: true, status: 0, body: nil) == .unknown && NewAgent.result(sent: true, status: 502, body: nil) == .unknown, "no answer may have made it")
+// kosmos#8791: a step-up refusal is its own outcome, so the sheet can offer Sign in again; a plain 403 stays a refusal.
+check(NewAgent.result(sent: true, status: 403, body: Data(#"{"code":"step_up_required","because":"From a remote session this needs a fresh sign-in."}"#.utf8)) == .signInAgain("From a remote session this needs a fresh sign-in."), "step-up: its own outcome, with the board's words")
+check(NewAgent.result(sent: true, status: 403, body: Data(#"{"code":"step_up_required"}"#.utf8)) == .signInAgain(NewAgent.stepUpWords), "step-up with no words: ours")
+check(NewAgent.result(sent: true, status: 403, body: Data(#"{"outcome":"refused","because":"Not allowed."}"#.utf8)) == .refused("Not allowed."), "CONTROL: a 403 without step_up_required stays a refusal")
 check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"partial"}"#.utf8)) == .refused(NewAgent.fallback), "a partial with no sentence is still rolled back: refused, never \"look for it\"")
 check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"created","name":"../x"}"#.utf8)) == .unknown, "a made answer with no usable session is unknown, never guessed")
 check(NewAgent.result(sent: false, status: 0, body: nil) == .refused(NewAgent.fallback), "nothing sent is certainly not made")
