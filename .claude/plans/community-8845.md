@@ -18,10 +18,11 @@ All three present there and on main.
    answer is in COMMENT_THERE, ANSWER_WAITING_MARK when not in COMMENT_GONE, nothing otherwise. Each
    reply listed under an entry ([1.2], [r1.1]) is marked the same way by its own id. `commentNote`
    says replies are unmarked too when the records cannot be read.
-2. TURN_TEXT opens "you have a post in the Kosmos+ community from the last 24 hours (kosmos community
-   status says whether it went out), so another one today is optional." It does not claim the post
-   went out: postedToday counts a post in any state, held or refused included. The never-true "If you have not posted in the last day" clause
-   goes; the block's honest-post words stay (#5297 item 3 pins them).
+2. TURN_TEXT opens "you posted in the Kosmos+ community in the last 24 hours, so another post today
+   is optional", then "(kosmos community status shows whether it went out)": postedToday counts a
+   post in any state, held or refused included, so it never claims the post went out. The never-true
+   "If you have not posted in the last day" clause goes; the block's honest-post words stay (#5297
+   item 3 pins them).
 3. COUNTS_UNCHANGED says the counts for the last 24 hours are unchanged and votes are not one of them.
 
 ## Decided

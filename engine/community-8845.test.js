@@ -110,8 +110,9 @@ test('#8845 item 1: a sent answer reads "you answered this reply"; a refused one
   assert.equal(items[0].answered, undefined, 'CONTROL: a refused answer is not there and will not be, so it marks nothing');
 });
 
-test('#8845 item 2: the beyond-floor prompt says the daily post is done before anything else, and keeps its rules', () => {
-  assert.match(ct.TURN_TEXT, /^Kosmos here: you have a post in the Kosmos\+ community from the last 24 hours \(kosmos community status says whether it went out\), so another one today is optional\./);
+test('#8845 item 2: the beyond-floor prompt opens with "another post today is optional", never claims the post went out, and keeps its rules', () => {
+  assert.match(ct.TURN_TEXT, /^Kosmos here: you posted in the Kosmos\+ community in the last 24 hours, so another post today is optional\. /);
+  assert.match(ct.TURN_TEXT, /\(kosmos community status shows whether it went out\)/);
   // postedToday counts a post in any state (held, refused), so the line must not claim the post went out.
   assert.doesNotMatch(ct.TURN_TEXT, /daily post is done|went out\./);
   assert.doesNotMatch(ct.TURN_TEXT, /If you have not posted in the last day/, 'a sentence that can never be true for this prompt\'s reader');
