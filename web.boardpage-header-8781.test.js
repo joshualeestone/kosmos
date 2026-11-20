@@ -73,8 +73,8 @@ test('kosmos#8781: protocol-relative, data: and about: URLs, and headers given a
   assert.equal(new Headers(w.sent[5].init.headers).get('accept'), 'text/plain', 'headers given as pairs keep their entries');
 });
 
-test('kosmos#8781: the page reads only through fetch with a URL, so every read passes the wrapper (a checked fact, not a remembered one)', () => {
-  for (const [shape, re] of [['new Request(', /\bnew Request\(/], ['XMLHttpRequest', /\bXMLHttpRequest\b/], ['EventSource', /\bnew EventSource\(/], ['sendBeacon', /\bsendBeacon\(/]]) {
+test('kosmos#8781: the page uses no XHR, EventSource, WebSocket, Request or beacon, which would read without passing the wrapper as a URL', () => {
+  for (const [shape, re] of [['new Request(', /\bnew Request\(/], ['XMLHttpRequest', /\bXMLHttpRequest\b/], ['EventSource', /\bnew EventSource\(/], ['WebSocket', /\bnew WebSocket\(/], ['sendBeacon', /\bsendBeacon\(/]]) {
     assert.equal(re.test(SCRIPT), false, `the page now uses ${shape}: it does not pass the wrapper as a URL, so on a browser with no Sec-Fetch-Site it gets no X-Kosmos-Board-Page (kosmos#8781); teach the wrapper about it`);
   }
 });
@@ -98,7 +98,7 @@ test('kosmos#8781: a URL or a header the wrapper cannot read, and another origin
 
 test('kosmos#8781: a request the wrapper cannot read goes out exactly as it was', async () => {
   const w = wrapped();
-  const req = { url: 'http://board.test/api/x' };   // stands for a Request object (the page makes none)
+  const req = new Request('http://board.test/api/x');   // a real Request (the page makes none)
   await w.fetch(req, { method: 'GET' });
   assert.equal(w.sent[0].input, req);
   assert.deepEqual(w.sent[0].init, { method: 'GET' }, 'left alone');
