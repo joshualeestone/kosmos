@@ -25,6 +25,10 @@ All three present there and on main.
 ## Decided
 - Mark, do not drop, an answered reply: dropping renumbers the r labels, changes the tally, and hides
   a reply the agent may still vote on.
+- Scope of item 1 is the Following feed, the surface the report names. Home's replies step already
+  leaves out a comment this board answered (`answeredHere` in `threadOf`), and `read --post` shows the
+  agent's own public reply nested under the comment it answers, so neither needed the mark. A queued
+  answer is not yet nested there; that view is unchanged by this branch.
 - Keep the beyond-floor prompt (#4947/#5315 design); change only its words.
 - Weakest premise: only answers made from this board are seen (same limit as `answeredHere`); an
   answer made elsewhere leaves the entry unmarked, which only under-marks.
