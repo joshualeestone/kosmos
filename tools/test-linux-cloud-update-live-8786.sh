@@ -146,7 +146,8 @@ after="$(lines)"
 FOREIGN="$ROOT/foreign-rt"
 if [ "$(id -u)" = 0 ]; then echo "SKIP  5b: run as root, a root-owned folder is this user's own"
 elif sudo -n mkdir -p "$FOREIGN" 2>/dev/null && sudo -n chown root:root "$FOREIGN" 2>/dev/null; then
-  XDG_RUNTIME_DIR="$FOREIGN" systemctl --user is-system-running >/dev/null 2>&1 \
+  # show-environment exits 0 whenever the bus answers (is-system-running would also fail on a merely degraded manager).
+  XDG_RUNTIME_DIR="$FOREIGN" systemctl --user show-environment >/dev/null 2>&1 \
     && bad "CONTROL: systemctl --user still reaches a bus with the root-owned folder, so 5b cannot show the fix" \
     || ok "CONTROL: with the root-owned folder, systemctl --user reaches no bus (the measured failure)"
   : > "$STATE/hosted"
@@ -156,7 +157,7 @@ elif sudo -n mkdir -p "$FOREIGN" 2>/dev/null && sudo -n chown root:root "$FOREIG
   [ "$out" = '{"ok":true}' ] && [ "$(systemctl --user is-enabled "$TIMER" 2>/dev/null)" = enabled ] \
     && ok "with another user's XDG_RUNTIME_DIR the install still enables the nightly timer" \
     || bad "foreign XDG_RUNTIME_DIR: cloudUpdate=$out, timer $(systemctl --user is-enabled "$TIMER" 2>/dev/null)"
-  sudo -n rm -rf "${FOREIGN:?}" 2>/dev/null || true
+  sudo -n rm -rf "${FOREIGN:?}" 2>/dev/null || true   # if not, the EXIT trap removes it: an empty folder in our own $ROOT
 else
   bad "premise: could not make a root-owned folder with sudo -n (the runner has passwordless sudo)"
 fi
