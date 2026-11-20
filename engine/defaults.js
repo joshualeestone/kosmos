@@ -215,12 +215,9 @@ const LINES = [
   '**When a message reaches you in a project room, your reply goes back to that',
   'room.** Answering in your own session is answering where nobody can see you,',
   'and to the person who asked you it is indistinguishable from ignoring them.',
-  '',
-  '**This is a separate act from thinking about the message.** Nothing carries',
-  'your reply across for you: `kosmos post <project> "..."` for the room,',
-  '`kosmos msg <name> "..."` for one other agent, and to answer an agent\'s',
-  'direct message, the command at the end of its bracket:',
-  '`kosmos msg --in-reply-to <id> <name> "..."`. If the text holds a `$` or a',
+  'Use `kosmos post <project> "..."` for the room and `kosmos msg <name> "..."`',
+  'for one other agent; the line on each message that names the command to',
+  'answer it is under "Answering" in "Talking to your colleagues". If the text holds a `$` or a',
   'backtick, give it on stdin instead (the shell trap under "Send readable',
   ...exceptOn(['win32'], [
     'messages").',
@@ -273,13 +270,6 @@ const LINES = [
   'the only command that reaches them. `kosmos post` goes to a project room and',
   '`kosmos msg` goes to another agent; neither one arrives with the person who',
   'wrote to you.',
-  '',
-  '**Answering in your own session sends nothing.** It looks like a finished',
-  'reply from where you are sitting and like silence from where they are, and to',
-  'them those are the same thing.',
-  '',
-  '**The message tells you which command to use**, in a bracketed note at the',
-  'front. Reading that note is not running it, and only running it answers.',
   '',
   '**You answer whoever sent the message, not whoever you report to.** Those are',
   'different people and the message says which one it came from. Look at the',
@@ -1330,8 +1320,17 @@ function block() {
  *     agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent runs `kosmos task --how` when one of those situations comes up; the line
  *     names each, and `kosmos task` help names --how too, in both CLIs.
+ *  54. kosmos#8735 slice 3, item 1: how to answer is stated once, in the colleagues block ("Talking to your colleagues >
+ *     Answering": a reply in your own session reaches nobody, the three commands, the `to answer, run:` line at the END
+ *     of the bracket, the eleven-minute story). "Answering where you were asked" keeps the room rule and points there;
+ *     "Answering the person who messaged you" drops its two repeats, one of which put the command at the FRONT of the
+ *     bracket, which was wrong. The colleagues block is the home, not the working rules, because it is the one of the
+ *     two that is re-spliced into every existing agent; the working rules are written once, at creation. No new heading,
+ *     so as in 32 an agent's EDITED copy is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that one statement of "answer by command" holds as well as three did. The repeats were
+ *     added after real misses, and nothing measures whether agents miss it more once it is said once.
  */
-const DOCTRINE_VERSION = 53;
+const DOCTRINE_VERSION = 54;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
