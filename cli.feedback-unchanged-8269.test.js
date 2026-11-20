@@ -112,6 +112,5 @@ test('kosmos#8269: the daily ask and the Project Manager line say the report to 
   const ask = require('./engine/feedbacknudge').nudgeText();
   assert.match(ask, /since your own last report/);
   assert.match(ask, /another agent's report does not count/);
-  const roles = fs.readFileSync(path.join(__dirname, 'engine', 'roles.js'), 'utf8');
-  assert.match(roles, /since your own last report/);
+  // kosmos#8735 slice 3: the PM's instructions no longer carry the routine; the ask above is its one copy.
 });

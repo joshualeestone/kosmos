@@ -16,8 +16,9 @@
  * (the community routine moved to `kosmos community --how`, the quoting, title and Kosmos-security rules kept in the
  * brief as safety text); 48,843 after slice 2 (the task commands for one situation each moved to `kosmos task --how`,
  * with the three per-run rules kept in the brief; measured with the kosmos command path also counted as one fixed path,
- * below). Every platform counts a brief as its Mac form (PLATFORM_DELTA, below),
- * so one ceiling holds everywhere, Linux CI and Windows included.
+ * below); 47,580 after slice 3 item 3 (the Project Manager's daily feedback routine left to the board's daily ask,
+ * kosmos#7374). Every platform counts a brief as its Mac form (PLATFORM_DELTA, below), so one ceiling holds
+ * everywhere, Linux CI and Windows included.
  *
  *   node --test engine/create.brief-size-8735.test.js
  */
@@ -52,7 +53,7 @@ const BINS = { claudeBin: winBin('/bin/echo', 'where.exe'), tmuxBin: winBin('/bi
 
 const CLAUDE_CODE_LIMIT = 40000;
 const NEW_AGENT_GOAL = 36000;   // headroom under the limit for the blocks a brief gains after birth (projects, team)
-const CEILING = 48900;          // the ratchet (see above): lowered by each slice of #8735 until it reaches NEW_AGENT_GOAL
+const CEILING = 47600;          // the ratchet (see above): lowered by each slice of #8735 until it reaches NEW_AGENT_GOAL
 /* Review 3: a brief names its own folders (the Files folder, twice), and this sandbox's path is as long as the host's
    TMPDIR makes it (tools/run-tests.sh adds a kt<pid> folder), so it is counted as one fixed word, not its length: the
    figure is then the same on every host and under every runner. Both spellings, since macOS can name a temp folder by

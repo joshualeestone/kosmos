@@ -17,7 +17,7 @@
  *    is asked yet: a later tick asks once one is idle. Who was seen working today is kept on disk (`workers`, by session
  *    name, while sending is on), so a restart later in the day does not forget them;
  *  - not the setup guide (it runs hands-off instructions, and its thread is masked on the page);
- *  - a Project Manager first (its instructions already carry the four questions), then a Project Director (it holds the
+ *  - a Project Manager first (its instructions say this ask comes and what the report must never carry), then a Project Director (it holds the
  *    picture across projects), else roster order. A card's role is the one its instruction file states ("You are
  *    **X**, a project manager."), so the match ignores case and a leading article;
  *  - an agent whose delivery is held (a menu, a usage limit, signed out, text in its box) or refused passes the ask to
@@ -104,8 +104,8 @@ function rankOf(card, labels) {
   return i < 0 ? labels.length : i;
 }
 
-/* The line typed into the agent. The four questions and the rules about names and secrets are the Project Manager's own
-   (engine/roles.js), so every agent asked writes the same report. */
+/* The line typed into the agent. Since kosmos#8735 slice 3 it is the one copy of the four questions and the commands: the
+   Project Manager's instructions (engine/roles.js) keep only that the ask comes, and the names and secrets rule. */
 function nudgeText() {
   return [
     'Kosmos here, once a day: please write today\'s product-feedback report about Kosmos itself. It takes one turn on',
@@ -116,7 +116,9 @@ function nudgeText() {
     '1. What bugs did you hit today, or what did your user ask for that is not wired up yet?',
     '2. Is anything broken?',
     '3. What would make the app better, on the technical side or for the people using it?',
-    '4. How are tasks going? In your own words; no task counts, titles or contents.',
+    // kosmos#8735 slice 3: Josh's #3563 wording in full, now that this message is the only copy of the questions.
+    '4. How are tasks going? In your own words: what went well, what was bad or ugly, how tasks are being used, and',
+    'anything that is stuck. Describe tasks, do not count them: no task tallies, and no task titles or what a task says.',
     'No usernames, agent names or project names, and never a key, token or password (redact any in an error you quote).',
     'If `kosmos feedback show` prints a note for today, leave it; if it says there is no report yet, write one.',
     'If nothing has changed since your own last report (`kosmos feedback list --mine` lists the days that hold yours; another agent\'s',

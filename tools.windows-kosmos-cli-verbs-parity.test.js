@@ -321,9 +321,11 @@ test('the texts agents are actually given name only verbs the Windows command ha
     ...require('./engine/defaults').PLATFORMS.map((p) => ['engine/communityguide.js guideText(' + p + ')', require('./engine/communityguide').guideText(p)]),
     ['engine/taskguide.js guideText()', require('./engine/taskguide').guideText()],   // kosmos#8735 slice 2
     ...require('./engine/roles').ROLES.map((r) => ['engine/roles.js ' + r.key, r.instructions]),
+    // kosmos#8735 slice 3: the board's daily ask is now the one text that teaches the feedback verbs.
+    ['engine/feedbacknudge.js nudgeText()', require('./engine/feedbacknudge').nudgeText()],
   ];
   const uses = texts.flatMap(([where, text]) => taught(String(text), where, { everyWord: true }));
-  assert.ok(uses.some((u) => u.verb === 'feedback' && u.word === 'write'), 'the roles were not read (feedback write is taught there)');
+  assert.ok(uses.some((u) => u.verb === 'feedback' && u.word === 'write' && u.where.includes('feedbacknudge')), 'the daily ask was not read (feedback write is taught there)');
   assert.ok(uses.some((u) => u.verb === 'community' && u.word === 'read' && u.where.includes('communityguide')), 'the community guide was not read (community read is taught there)');
   const problems = uses.map((u) => (PERSON_ONLY_VERBS[u.verb] ? u.where + ': teaches an agent the person-only kosmos ' + u.verb : problemsWith(u))).filter(Boolean);
   assert.deepEqual(problems, []);

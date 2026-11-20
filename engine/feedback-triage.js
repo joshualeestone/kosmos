@@ -98,9 +98,9 @@ function failedTo(clauseWords) {
   return false;
 }
 
-/** kosmos#4415: the report form's own questions (engine/roles.js, the daily report block), which come back as items
- *  of their own. Matched exactly, not by shape: a short line ending in "?" is often a real report ("Why does export
- *  crash?"). feedback-triage.test.js holds this list equal to roles.js. */
+/** kosmos#4415: the report form's own questions (the board's daily ask, engine/feedbacknudge.js nudgeText, since
+ *  kosmos#8735 slice 3), which come back as items of their own. Matched exactly, not by shape: a short line ending in
+ *  "?" is often a real report ("Why does export crash?"). feedback-triage.test.js holds this list equal to that ask. */
 const FORM_QUESTIONS = [
   'What bugs did you hit today, or what did your user ask for that is not wired up yet?',
   'Is anything broken?',

@@ -74,15 +74,17 @@ test('a platform the file does not name gets every line not kept for a named pla
   assert.doesNotMatch(other, /\n\n\n/);
 });
 
-test('the PM role names the PowerShell feedback form on Windows only (kosmos#8506)', () => {
+/* kosmos#8735 slice 3: the PM role no longer carries the feedback commands, so it has no per-platform form to name.
+   The board's daily ask (feedbacknudge.nudgeText) carries the PowerShell form for every platform; this pins that the
+   PM brief names no feedback command on any platform, and that the ask names the PowerShell form. */
+test('the PM role names no feedback command on any platform; the daily ask carries the PowerShell form (kosmos#8506, #8735)', () => {
   const pm = (platform) => JSON.parse(execFileSync(process.execPath, ['-e', `Object.defineProperty(process, 'platform', { value: ${JSON.stringify(platform)} });
     const r = require(${JSON.stringify(path.join(__dirname, 'roles.js'))});
     process.stdout.write(JSON.stringify(r.byKey('pm').instructions));`], { encoding: 'utf8' }));
-  const win = pm('win32');
-  assert.match(win, /in PowerShell,\nsave it in a file and run `kosmos feedback write --body-file <file>`/);
-  for (const p of ['darwin', 'linux']) {
+  assert.match(require('./feedbacknudge').nudgeText(), /in PowerShell, save it in a file and run `kosmos feedback write --body-file <file>`/);
+  for (const p of ['win32', 'darwin', 'linux']) {
     const t = pm(p);
-    assert.doesNotMatch(t, /PowerShell/, p + ': a PM was written the PowerShell form');
-    assert.match(t, /`kosmos feedback write` \(type it, or pipe it in on stdin\)\. If this session\nstarted after your day's work,\nrun `kosmos feedback day` first/, p + ': the feedback sentence does not read whole');
+    assert.doesNotMatch(t, /kosmos feedback write/, p + ': the PM brief names a feedback command again');
+    assert.match(t, /Kosmos asks one agent a day/, p + ': the PM brief lost the daily-ask line (control)');
   }
 });
