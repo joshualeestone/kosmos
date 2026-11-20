@@ -8020,8 +8020,9 @@ module.exports = {
   createdLog, createdLogFile, createdCount, disabledJobs, disabledJobsResult, runningJobs,
   isAutoGuideBirth,   // kosmos#8484: setup-assistant adopts a guide whose marker was never written by its birth line
 
-  /* ⚠️ Exported as the ONE machine-name rule. `slugFor` lower-cases and folds
-     whitespace and periods to hyphens — it is a converter, not a gate — so
+  /* ⚠️ Exported as the ONE machine-name rule. `slugFor` lower-cases, folds
+     whitespace and periods to hyphens and drops apostrophes (kosmos#8784): it is a
+     converter, not a gate, so
      anything asking "is this a name we can act on" has to reach this, or it
      grows a weaker second copy. */
   NAME_RE,

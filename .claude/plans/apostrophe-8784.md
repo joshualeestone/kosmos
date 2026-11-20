@@ -57,3 +57,8 @@ Not done here: seeing it on a served build from the board and the iPhone app, me
   suggestion folds to "taylor-s-coach" (a suggestion the server rules on); the no-shell-file check covers the
   platform the test runs on.
 - Ran the 13 test files that pin the "already an agent called" wording, create.test.js included: 452 tests, 0 failed.
+
+## Review 2 (Sonnet)
+- No BLOCKER, no WARNING; converged. Confirmed by search: slugFor is the only copy of the fold in engine/, server.js,
+  web/, ios/ and tools/windows/; takenKey refuses every spelling before any folder lookup; spokenName names the right
+  agent and cannot throw. NIT fixed: the NAME_RE export comment now says slugFor drops apostrophes.
