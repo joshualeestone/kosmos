@@ -12,7 +12,7 @@ No new entry kind: a confirm is an `enrol` of the same key with backfill false o
 
 ## Not here
 - The relay half: escrowd devkeyhist.rs in TWO places, append() (the AlreadyEnrolled write rule) and well_formed() (run by open_record on every start; it refuses any second enrol, so changing append() alone would make escrowd refuse its own record on restart), plus rosterops accepting devkey_enrol over a live backfill. Ice Cream Kitty's escrowd, asked on #8768.
-- Deploy order: no confirm is written by escrowd until this board half is served on prod. A Kosmos without it refuses a member's whole history once it holds a confirm (fail closed: restore and hand-over refused for that member until the computer updates).
+- Deploy order: escrowd writes a confirm only with KOSMOS_ESCROWD_DEVKEY_CONFIRM=1 (relay half, off by default); set it only after this board half is served on prod. A Kosmos without it refuses a member's whole history once it holds a confirm (fail closed: restore and hand-over refused for that member until the computer updates).
 - handoverseal.js (on sealkey-8733): its comment "a backfilled key never becomes admin-enrolled" goes false once both halves land; fix it with the checkSeal/checkSender test after it merges.
 - A shared vector (backfill then confirm, with its head hash): pinned on both sides once the relay half exists, and the relay's test reopens the record after a confirm.
 - handoverseal's checkSeal/checkSender test with a confirmed key: handoverseal.js is on Kitty's sealkey-8733, not yet on main; added after it merges. Its `backfill !== false` check needs no change.
