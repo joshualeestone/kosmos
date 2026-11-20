@@ -50,8 +50,9 @@ function setSystemdDirForTests(fn) {
    is unset and exists, so EVERY Linux path's systemctl inherits it, including the ones that run through create's,
    remove's and delete-leftover's own run(). Linux only; a no-op elsewhere.
    kosmos#8786: an inherited value is kept only when it is THIS user's own folder. A root login's /run/user/0 passed
-   through `runuser` (measured on a Cloud box) sends every `systemctl --user` to root's bus, which fails. The arguments
-   are test seams; every caller passes none. */
+   through `runuser` (measured on a Cloud box) sends every `systemctl --user` to root's bus, which fails. "This user" is
+   the real uid (process.getuid); setup.sh's test -O uses the effective one, the same for anything but a setuid process.
+   The arguments are test seams; every caller passes none. */
 function ensureRuntimeDir({ platform = process.platform, env = process.env, statSync = fs.statSync,
   uid = typeof process.getuid === 'function' ? process.getuid() : null } = {}) {
   if (platform !== 'linux' || uid === null) return;
@@ -77,7 +78,8 @@ const userctl = (...rest) => ['--user', ...rest];
 function realRunner(cmd, args) {
   if (require('./live-execution').inTestProcess()) require('./live-execution').refuseOrWarn('engine/linuxjob.js', cmd, args);
   /* #4918 review 12: systemctl --user finds the user manager through XDG_RUNTIME_DIR, which a board started from cron
-     or after its login session ended does not have. The standard place is /run/user/<uid>; use it when it exists. */
+     or after its login session ended does not have, or inherited from another user (kosmos#8786). ensureRuntimeDir says
+     which value it keeps. */
   ensureRuntimeDir();
   try {
     const stdout = execFileSync(cmd, args, { encoding: 'utf8', timeout: SYSTEMCTL_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });

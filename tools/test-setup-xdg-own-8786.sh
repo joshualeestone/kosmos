@@ -30,7 +30,7 @@ unset XDG_RUNTIME_DIR; _kosmos_own_runtime_dir; printf "%s" "$XDG_RUNTIME_DIR"';
 [ "$(run_unset)" = "$WANT" ] && ok "unset: this user's /run/user/<uid>" || bad "unset gave '$(run_unset)'"
 [ "$(run "$OWN")" = "$OWN" ] && ok "CONTROL: this user's own folder is kept" || bad "own folder became '$(run "$OWN")'"
 # Someone else's folder: / is owned by root, and this test does not run as root (refused below if it does).
-if [ "$(id -u)" = 0 ]; then bad "run this test as a normal user: / is root's, so as root it is not another user's folder"
+if [ "$(id -u)" = 0 ]; then echo "SKIP  another user's folder: run as root, / is this user's own (the other cases still run)"
 else
   [ "$(run /)" = "$WANT" ] && ok "another user's folder (as a root login's /run/user/0) is replaced" || bad "another user's folder kept: '$(run /)'"
 fi
