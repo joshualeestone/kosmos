@@ -20,3 +20,12 @@ is a hardening, not a release blocker (said on #8786).
 ## Weakest premise
 That `/run/user/<uid>` is the user manager's folder on every Linux we support. It is systemd's fixed layout (pam_systemd),
 and setup.sh already assumed it for su and cron.
+
+## Review rounds 1 and 2
+- A third copy of the unset-only default lived in engine/linuxjob.js ensureRuntimeDir (every node path's systemctl);
+  it now keeps an inherited value only when it is a folder owned by this uid, tested in
+  engine/linuxjob.runtimedir-8786.test.js with a stand-in filesystem.
+- The test lifts install/kosmos's block too and points its fixed /run/user/<uid> at a folder it makes, so the CLI case
+  runs on every OS (it used to SKIP where /run/user is missing); a mutation back to unset-only reds it.
+- Deferred, with reason: a CI step that runs setup.sh with a foreign XDG_RUNTIME_DIR on real systemd. The only
+  end-to-end proof today is the Hetzner measurement on #8786; worth a follow-up, not needed for this change.

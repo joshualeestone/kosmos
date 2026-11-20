@@ -24,8 +24,8 @@ OWN="$ROOT/own"; mkdir -p "$OWN"
 WANT="/run/user/$(id -u)"
 run() { XDG_RUNTIME_DIR="$1" sh -c "$fn"'
 _kosmos_own_runtime_dir; printf "%s" "$XDG_RUNTIME_DIR"'; }
-run_unset() { env -u XDG_RUNTIME_DIR sh -c "$fn"'
-_kosmos_own_runtime_dir; printf "%s" "$XDG_RUNTIME_DIR"'; }
+run_unset() { sh -c "$fn"'
+unset XDG_RUNTIME_DIR; _kosmos_own_runtime_dir; printf "%s" "$XDG_RUNTIME_DIR"'; }
 
 [ "$(run_unset)" = "$WANT" ] && ok "unset: this user's /run/user/<uid>" || bad "unset gave '$(run_unset)'"
 [ "$(run "$OWN")" = "$OWN" ] && ok "CONTROL: this user's own folder is kept" || bad "own folder became '$(run "$OWN")'"
@@ -36,18 +36,18 @@ else
 fi
 [ "$(run "$ROOT/gone")" = "$WANT" ] && ok "a folder that does not exist is replaced" || bad "a missing folder kept: '$(run "$ROOT/gone")'"
 
-# install/kosmos's own default (#4918 review 13): the same ownership rule, lifted and run under bash. It only switches
-# when this user's /run/user/<uid> exists, which is true on a Linux runner and not on a Mac (said, not passed).
+# install/kosmos's own default (#4918 review 13): the same ownership rule, lifted and run under bash. Its fixed
+# /run/user/<uid> is pointed at a folder this test makes (in the lifted text only), so it runs on every OS.
 cli="$(awk '/^# kosmos#8786: and one inherited/,/^fi$/' "$REPO/install/kosmos")"
 [ -n "$cli" ] || bad "premise: install/kosmos's XDG_RUNTIME_DIR block was not found"
-runcli() { XDG_RUNTIME_DIR="$1" KOSMOS_PLATFORM=Linux bash -c "$cli"'
+FAKE="$ROOT/run-user-me"; mkdir -p "$FAKE"
+cli_t="$(printf '%s' "$cli" | sed -e "s#/run/user/\$(id -u 2>/dev/null)#$FAKE#g" -e "s#/run/user/\$(id -u)#$FAKE#g")"
+[ "$cli_t" != "$cli" ] && ! printf '%s' "$cli_t" | grep -q '/run/user/\$(' || bad "premise: the lifted block still computes /run/user/<uid>"
+runcli() { XDG_RUNTIME_DIR="$1" KOSMOS_PLATFORM=Linux bash -c "$cli_t"'
 printf "%s" "${XDG_RUNTIME_DIR:-}"'; }
-if [ -d "$WANT" ]; then
-  [ "$(runcli /)" = "$WANT" ] && ok "install/kosmos: another user's folder is replaced" || bad "install/kosmos kept '$(runcli /)'"
-  [ "$(runcli "$OWN")" = "$OWN" ] && ok "install/kosmos CONTROL: its own folder is kept" || bad "install/kosmos replaced its own folder"
-else
-  echo "SKIP  install/kosmos cases: $WANT does not exist here (not Linux); the Linux CI shard runs them"
-fi
+[ "$(runcli /)" = "$FAKE" ] && ok "install/kosmos: another user's folder is replaced" || bad "install/kosmos kept '$(runcli /)'"
+[ "$(runcli "$OWN")" = "$OWN" ] && ok "install/kosmos CONTROL: its own folder is kept" || bad "install/kosmos replaced its own folder"
+[ "$(runcli "")" = "$FAKE" ] && ok "install/kosmos: unset takes this user's folder" || bad "install/kosmos unset gave '$(runcli "")'"
 
 [ "$fails" = 0 ] && echo "ALL PASS" || echo "SOME FAILED"
 exit "$fails"
