@@ -21510,8 +21510,9 @@ window.addEventListener('unhandledrejection', (e) => {
      force a preflight. A Request object passes as it is (the page makes none). Note: a same-origin init's headers
      reach the native fetch as a Headers object, whatever shape the caller gave them.
      Not covered, and refused on such a browser (fail closed): everything the page loads as a navigation or a
-     subresource rather than through fetch: agent avatars, file downloads, folder zips, the diagnostics download, PDF
-     page and image previews, and the service worker's own fetches (web/sw.js).
+     subresource rather than through fetch: file downloads, folder zips, the diagnostics download, and the service
+     worker's own fetches (web/sw.js). The board's pictures (avatars, image and PDF-page previews) are retried through
+     this fetch when they fail (boardPicFailed, kosmos#8790).
      🛑 It rests on one rule this page must keep: no route the page's own fetches reach redirects them OFF this origin.
      fetch keeps this header across a redirect, so such a route, bounced back, would arrive with it. Two guards would
      then stand, both by the spec and neither measured on a browser with no Sec-Fetch-Site: the preflight a redirected
@@ -21552,6 +21553,53 @@ window.addEventListener('unhandledrejection', (e) => {
     });
   };
 })();
+/* kosmos#8790: the board's own pictures (agent avatars, your picture, image and PDF-page previews) are loaded by the
+   browser as images, so they carry no X-Kosmos-Board-Page, and a browser that sends no Sec-Fetch-Site (Safari before
+   16.4) is refused them by the computer's connector. When one of this board's /api/ pictures fails to load, it is
+   fetched ONCE more through the page's own fetch (which adds the header, above) and shown from that reply. Listens in
+   the capture phase, since an error does not bubble, and is registered before every other error listener on the page,
+   so a picture that is being retried is not yet treated as failed (lpvImageFailed, kosmos#8636). If the retry fails as
+   well, the same error is raised again and every other listener sees it as before. On a browser that sends
+   Sec-Fetch-Site nothing fails, so nothing here runs. Pictures only: downloads, zips and the service worker are not
+   covered here (they need a single-use key, kosmos#8790). */
+const BOARD_PIC_BLOBS = new Map();   // this board's picture URL -> the blob: URL made from its retried reply
+function boardPicUrl(el) {
+  const tag = String(el.tagName || '').toLowerCase();
+  const raw = tag === 'img' ? el.getAttribute('src') : tag === 'image' ? (el.getAttribute('href') || el.getAttribute('xlink:href')) : null;
+  if (!raw) return null;
+  try {
+    const u = new URL(raw, location.href);
+    return u.origin === location.origin && u.pathname.startsWith('/api/') ? { raw, href: u.href, tag } : null;
+  } catch { return null; }
+}
+function boardPicShow(el, tag, blobUrl) {
+  if (tag === 'img') el.setAttribute('src', blobUrl); else el.setAttribute('href', blobUrl);
+}
+function boardPicFailed(e) {
+  const el = e && e.target;
+  if (!el || el.nodeType !== 1) return;
+  const pic = boardPicUrl(el);
+  if (!pic || el.__kbpRetried === pic.raw) return;   // retried once already: this failure is real
+  el.__kbpRetried = pic.raw;
+  e.stopImmediatePropagation();   // not failed yet: the retry decides
+  const known = BOARD_PIC_BLOBS.get(pic.href);
+  if (known) { boardPicShow(el, pic.tag, known); return; }
+  fetch(pic.href).then((res) => (res && res.ok ? res.blob() : null)).catch(() => null).then((blob) => {
+    // The picture was changed while the retry ran: the new one is its own load, so this reply is not shown.
+    const now = boardPicUrl(el);
+    if (!now || now.raw !== pic.raw) return;
+    if (!blob || !/^image\//.test(blob.type || '')) { el.dispatchEvent(new Event('error')); return; }
+    const url = URL.createObjectURL(blob);
+    BOARD_PIC_BLOBS.set(pic.href, url);
+    if (BOARD_PIC_BLOBS.size > 300) {
+      const oldest = BOARD_PIC_BLOBS.keys().next().value;
+      URL.revokeObjectURL(BOARD_PIC_BLOBS.get(oldest));   // a picture already drawn from it stays drawn
+      BOARD_PIC_BLOBS.delete(oldest);
+    }
+    boardPicShow(el, pic.tag, url);
+  });
+}
+document.addEventListener('error', boardPicFailed, true);
 /* kosmos#6616 (R01b): a remote session's refusal that says this computer's connector can take a fresh sign-in
    (`signInAgain`, server.js REMOTE_STEP_UP_SIGNIN) shows the Sign in again ask, whichever page made the request. The
    page that asked still shows the refusal its own way; this adds the one button. The words are the server's own
