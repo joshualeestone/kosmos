@@ -39,6 +39,5 @@ update.test, update.win32-570, update.win32-check, engine.reachable, fixture-dis
 check-frozen-roots. Full suite through the Mortals queue (one heavy run at a time on Agent1s).
 
 ## Not tested here, on purpose
-- POST /api/update through server.js: the route reads only selfInstallRefusal(), which the engine tests drive both
-  ways; booting the server for one arm is left to the real-box measurement after merge.
+- POST /api/update through server.js on a Linux board: left to the real-box measurement after merge.
 - The press end to end on a real board: the live-execution gate stops a test before /bin/sh by design.
