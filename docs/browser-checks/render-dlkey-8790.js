@@ -55,8 +55,8 @@ const html = (remote) => `<!doctype html><html><head><meta charset="utf-8"><titl
 <script>
   window.scriptDownload = () => {   // the kplusDownload way: a link made, clicked and removed in one go
     const a = document.createElement('a');
-    a.href = '/api/agent/max/files/download?name=' + encodeURIComponent('a b.txt');
-    a.download = 'a b.txt'; a.hidden = true;
+    a.href = '/api/agent/max/files/download?name=' + encodeURIComponent('my notes.txt');
+    a.download = 'my notes.txt'; a.hidden = true;
     document.body.appendChild(a); a.click(); a.remove();
   };
 </script></body></html>`;
@@ -64,9 +64,9 @@ const html = (remote) => `<!doctype html><html><head><meta charset="utf-8"><titl
 const keys = new Map();   // key -> target
 let MODERN = false;       // the board's rule: a mint from a browser that sends Sec-Fetch-Site needs no key
 let REFUSE_ASK = false;   // a board that refuses the load-time look (403)
-let LATE_NOT_NEEDED = false;
+let LATE_NOT_NEEDED = false;   // the look said keys are needed, but a mint answers needed:false (a click before the look)
 let MINT_DELAY_MS = 0;    // a slow board: the key comes back long after the click
-let MINT_HANG = false;    // a board that never answers the mint   // the look said keys are needed, but a mint answers needed:false (a click before the look)
+let MINT_HANG = false;    // a board that never answers the mint
 const seen = [];
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
@@ -141,7 +141,7 @@ async function saved(page, act, timeout = 5000) {
 
       seen.length = 0;
       const b = await saved(page, () => page.evaluate(() => window.scriptDownload()));
-      chk(b === 'file for /api/agent/max/files/download?name=a+b.txt', tag + 'a link a script makes and clicks saves the file too', JSON.stringify({ b, seen }));
+      chk(b === 'file for /api/agent/max/files/download?name=my+notes.txt', tag + 'a link a script makes and clicks saves the file too', JSON.stringify({ b, seen }));
 
       seen.length = 0;
       const c = await saved(page, () => page.click('a.exp'));
