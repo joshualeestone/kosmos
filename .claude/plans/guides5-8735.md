@@ -32,3 +32,5 @@ Weakest premise: that an agent asked to hold questions reads `kosmos report --he
   plus a CONTROL); perturbing the marker turns the main test red.
 - nit 3 taken (taskguide header names --moved-to). nits 4, 5 not taken: the repeated lead is the cost of moving the
   text word for word, and the react parenthetical still says where the id is.
+
+## Round 2 (sonnet, whole branch, blind): nothing above nit (a ragged header wrap; V61_SEES is version-specific on purpose). Converged.
