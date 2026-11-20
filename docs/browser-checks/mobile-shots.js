@@ -2858,7 +2858,9 @@ const SCREENS = [
       const go = document.getElementById('fr-conn-code-go');
       if (!body || !go) return null;
       const b = body.getBoundingClientRect(); const g = go.getBoundingClientRect();
-      return { inside: g.top >= b.top - 1 && g.bottom <= b.bottom + 1 };
+      // While the bottom fade is on (content below), the button must also sit clear of the fade's 32px band.
+      const fade = body.dataset.edge === 'b' ? 32 : 0;
+      return { inside: g.top >= b.top - 1 && g.bottom <= b.bottom - fade + 1 };
     });
     if (!r || !r.inside) throw new Error('the code field and Use code are not inside the visible wizard body (kosmos#8783)');
   } },

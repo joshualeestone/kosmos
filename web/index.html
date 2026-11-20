@@ -11012,9 +11012,11 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    sign-in code field did, under the pinned footer, with nothing to say so), its bottom 32px fades out. A mask, as
    #s-nav's edge (#5303): nothing is drawn over the content, so no colour token and nothing covers a tap target. Driven
    by data-edge, set by the script beside it on scroll and on any size change; gone at the bottom and when nothing
-   scrolls. The 36px bottom padding above lets the last control scroll clear of the fade. */
+   scrolls. The 36px bottom padding lets the last control clear the fade once scrolled to the end; the code row's
+   scroll margin below keeps it clear when frConnRevealCode brings it into view without reaching the end. */
 #firstrun .fr-body[data-edge="b"] { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent); }
+#firstrun .fr-code-row { scroll-margin-bottom: 44px; }   /* kosmos#8783: a reveal stops 44px above the edge, clear of the 32px fade */
 #firstrun .fc-head { display: flex; align-items: center; gap: 12px; justify-content: center; margin-bottom: 26px; }
 #firstrun .fc-k { width: 42px; height: 42px; flex: 0 0 42px; display: block; border-radius: 10px; }
 #firstrun .fr-segs { gap: 8px; margin-bottom: 34px; }

@@ -1981,6 +1981,8 @@ test('kosmos#8783: the wizard body fades its bottom edge only while content sits
     'the fade CSS is missing or changed');
   assert.match(raw, /#firstrun \.fr-body\[data-edge="b"\][^}]*[;\s]mask-image: linear-gradient\(to bottom, #000 calc\(100% - 32px\), transparent\);/,
     'the unprefixed mask-image line is missing');
+  const margin = raw.match(/#firstrun \.fr-code-row \{ scroll-margin-bottom: (\d+)px; \}/);
+  assert.ok(margin && Number(margin[1]) > 32, 'the code row must stop clear of the 32px fade when brought into view');
   const start = raw.indexOf('(function frBodyEdge() {');
   assert.ok(start > 0, 'the edge script is missing');
   const iife = raw.slice(start, raw.indexOf('})();', start) + 5);
