@@ -625,15 +625,27 @@ test('kosmos#8738: a part this computer gave up on is ended on Kosmos+ once; no 
     const st2 = hs.newSendState();
     await hs.tick(st2, d);
     assert.equal(dones.length, 2, 'a restart sent the stop again');
-    // An older Kosmos+ (or a part already packed) refuses: as good as an answer, not asked again.
-    const w2parts = [part({ id: 'hold' }, 0)];
-    const d2 = Object.assign({}, d, { root: path.join(w.base, 'data2'), macRequest: async (m, route, body) => {
-      if (route === hs.MINE_ROUTE) return { ok: true, data: { handovers: w2parts } };
-      if (route === '/v1/mac/org/handover/done') { dones.push(body); return { ok: false, because: 'Kosmos+ refused (HTTP 404 on /v1/mac/org/handover/done, code handover_not_yours)' }; }
-      return { ok: false };
-    } });
-    const st3 = hs.newSendState();
-    await hs.tick(st3, d2); await hs.tick(st3, d2); await hs.tick(st3, d2);
-    assert.equal(dones.filter((x) => x.id === 'hold').length, 1, 'a refusal was asked again');
+    // What is asked again, and what counts as an answer (review 1: a status regex took a rate limit as final).
+    const arms = [
+      ['a 503', { ok: false, because: 'Kosmos+ refused (HTTP 503 on /v1/mac/org/handover/done)' }, 'again'],
+      ['Kosmos+ unreachable', { ok: false, because: 'Kosmos+ unreachable for 30 s' }, 'again'],
+      ['a rate limit (429)', { ok: false, because: 'Kosmos+ refused (HTTP 429 on /v1/mac/org/handover/done, code rate_limited)' }, 'again'],
+      ['an older Kosmos+ without the step (not_yours)', { ok: false, because: 'Kosmos+ refused (HTTP 404 on /v1/mac/org/handover/done, code handover_not_yours)' }, 'again'],
+      ['already past packing (wrong_state)', { ok: false, because: 'Kosmos+ refused (HTTP 409 on /v1/mac/org/handover/done, code handover_wrong_state)' }, 'once'],
+      ['a structured refusal code, no text', { ok: false, because: 'refused', refusal: { status: 409, code: 'handover_wrong_state' } }, 'once'],
+    ];
+    for (const [label, answer, want] of arms) {
+      const id = 'h' + label.replace(/[^a-z0-9]/gi, '').slice(0, 20);
+      const ps = [part({ id }, 0)];
+      const sent = [];
+      const dd = Object.assign({}, d, { root: path.join(w.base, 'data-' + id), macRequest: async (m, route, body) => {
+        if (route === hs.MINE_ROUTE) return { ok: true, data: { handovers: ps } };
+        if (route === '/v1/mac/org/handover/done') { sent.push(body); return answer; }
+        return { ok: false };
+      } });
+      const s3 = hs.newSendState();
+      for (let k = 0; k < 4; k += 1) await hs.tick(s3, dd);   // final, then three stop attempts
+      assert.equal(sent.length, want === 'once' ? 1 : 3, `${label}: sent ${sent.length} times`);
+    }
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

@@ -314,13 +314,15 @@ async function tick(state, deps) {
       const f = state.failed.get(part.id);
       if (f && f.key === key) {
         // kosmos#8738: decided already. Tell Kosmos+ once that this computer gave up, so the record ends `failed` and the
-        // company can start a new hand-over (it stayed `packing` before). A refusal (an older Kosmos+ without the step,
-        // or a part already past packing) is as good as an answer: nothing more this side can do. No answer at all is
-        // asked again next tick.
+        // company can start a new hand-over (it stayed `packing` before). Answered only by an accept, or by a refusal
+        // that says the part is already past this (wrong state, no longer open). Anything else is asked again next tick:
+        // no answer, a 5xx, a rate limit or clock refusal, and not_yours too (an older Kosmos+ without the step answers
+        // that, and must still get the stop once it has it). The part stays listed only while it is open, so this ends.
         if (!f.stopped) {
           let r = null;
           try { r = await mac('POST', DONE_ROUTE, { id: part.id, ok: false }); } catch { r = null; }
-          const answered = Boolean(r && (r.ok || (typeof r.because === 'string' && /HTTP 4\d\d/.test(r.because))));
+          const code = r && !r.ok ? ((r.refusal && r.refusal.code) || require('./backupupload').refusalOf(r.because).code) : null;
+          const answered = Boolean(r && (r.ok || code === 'handover_wrong_state' || code === 'handover_not_open'));
           if (answered) {
             f.stopped = true;
             const rec = readSend(part.id, d.root);
