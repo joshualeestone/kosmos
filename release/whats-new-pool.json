@@ -2452,10 +2452,10 @@
     {
       "since": "0.8.12",
       "status": "pending",
-      "title": "A remote sign-in lasts until it ends",
+      "title": "A remote sign-in lasts until you sign out",
       "icon": "shield",
       "rank": 8.2,
-      "line": "From a phone or another computer, a sign-in with your authenticator code now lasts until it ends, so making an agent stops asking again."
+      "line": "From a phone or another computer, a sign-in with your authenticator code lasts until you sign out, so making an agent stops asking again."
     },
     {
       "since": "0.8.12",
@@ -2479,15 +2479,15 @@
       "title": "A crashed session no longer blocks an agent",
       "icon": "swarm",
       "rank": 9.7,
-      "line": "An agent blocked by its provider after a session crashed now clears when the next session first finishes a reply, not hours later."
+      "line": "An agent shown as blocked by its provider after a session crashed now clears when the next session first finishes a reply."
     },
     {
       "since": "0.8.12",
       "status": "pending",
-      "title": "The iPhone first-run shows the code field",
+      "title": "A phone's first-run shows the code box",
       "icon": "phone",
       "rank": 9.8,
-      "line": "On an iPhone, a Kosmos Cloud machine's first Claude sign-in scrolls the box for the Claude code into view, with a fade while more is below."
+      "line": "On a phone, a Kosmos Cloud machine's first Claude sign-in scrolls the box for the Claude code into view, with a fade while more is below."
     },
     {
       "since": "0.8.12",
@@ -2527,6 +2527,15 @@
         "windows"
       ],
       "line": "Windows has kosmos.exe, so cmd, scheduled tasks and scripts can run kosmos instead of failing as not recognized."
+    },
+    {
+      "since": "0.8.12",
+      "status": "pending",
+      "title": "kosmos task --how",
+      "icon": "tasks",
+      "rank": 138,
+      "notesOnly": true,
+      "line": "kosmos task --how prints the task commands for one situation at a time, on demand."
     }
   ]
 }
