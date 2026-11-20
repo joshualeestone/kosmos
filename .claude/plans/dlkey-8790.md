@@ -9,10 +9,11 @@ on a current browser the download still works (one extra small request first).
   single use, at most 200 live. A key presented for another address is NOT burned.
 - server.js: POST /api/download-key {path} mints one, only with the board token itself (boardTokenOkWithoutCookie:
   never a session cookie alone, never a key), only for one of five download routes (DL_KEY_ROUTES), never for a
-  ?check=1 look. The central gate accepts ?bdl=<key> LAST, only when nothing else is presented, on a GET (not HEAD) of
-  exactly the address it was minted for (path, and the query without bdl, written the URLSearchParams way). The
-  request it opens is the only one boardTokenOk then says yes to (a WeakSet). No cookie, no session. safeLogUrl
-  redacts bdl like token and boot.
+  ?check=1 look, and never for a browser that sends Sec-Fetch-Site (it is told {key: null, needed: false}). The
+  central gate accepts a literal ?bdl=<key> LAST, only on a request that presents no other credential and no
+  Sec-Fetch-Site, on a GET (not HEAD) of exactly the address it was minted for (path, and the query without bdl,
+  written the URLSearchParams way). The key opens the gate only: boardTokenOk still says no for that request. A
+  refused keyed download answers 204 with nothing to save. No cookie, no session. safeLogUrl redacts bdl.
 - web/index.html: one click listener (on window, bubble phase, see round 1) on <a download> links to those routes, on
   a Kosmos+ address only: mint with the page's marked fetch, then open the same address plus bdl. No key: the link
   opens as before. At load the page asks once ({ask: true}, no key made) whether this browser needs keys at all.
@@ -42,7 +43,7 @@ on a current browser the download still works (one extra small request first).
 - A key is refused on any request carrying Sec-Fetch-Site (only old Safari is ever given one), so a copied key opens
   nothing in a current browser.
 - Only Cmd and Ctrl clicks are left to the browser; Option-click (Safari: download linked file) takes a key.
-- Known and accepted: the attachment route and the gate's own 403 still answer JSON rather than 204; a refused keyed
+- (Superseded in round 4: the gate's refusal and a gone attachment now answer 204.) Was: the attachment route and the gate's own 403 still answer JSON rather than 204; a refused keyed
   attachment on old Safari can still be saved as a small JSON file (the same as before this branch, where every such
   click was refused). Untested premise: WebKit asking for a keyed file twice (an iOS confirm sheet, a Range resume)
   would find the key spent; to measure in the real old-Safari walk.
@@ -58,6 +59,14 @@ on a current browser the download still works (one extra small request first).
   drops only hop-by-hop, Host, the board token and session headers, and the board page header).
 - Open, reasoned: the relay's own request logs; the key is single use and a minute long, and the relay logs a
   refused path, not its query, as far as read. To confirm with the relay owner.
+
+## Round 5 review (converged: no blocker, no SHOULD)
+- Applied: a key that does not come within 8 s is given up and the link opens as it always did; the check proves a
+  key 6.5 s after the click still saves, and a mint that never answers falls back (both engines; a mutation fails it).
+- Accepted, written down: a keyed attachment whose record exists but whose file cannot be opened still answers
+  sendFileStream's JSON (rare; the class round 4 closed, one layer down); on a board that is not enforcing, a refused
+  keyed download answers JSON (not reached in the product: Kosmos+ boards enforce); no test pins round 4's removal
+  from boardTokenOk (no handler on the five routes asks it, so a test has nothing to observe).
 
 ## Baron's conditions, where each is held
 1. first use, a real GET only; a probe or HEAD neither burns nor reads: redeemDownloadKey, downloadKeyOk (GET only),
