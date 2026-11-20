@@ -196,6 +196,8 @@ test('kosmos#8785: the identity-change routes still need a RECENT full sign-in; 
       assert.equal(remoteStepUpRefusal(req(full(24 * 3600)), path, t, caps), REMOTE_STEP_UP_RECENT, `${method} ${path}: a day old`);
       // From the future is still a clock problem.
       assert.equal(remoteStepUpRefusal(req(full(-600)), path, t, caps), REMOTE_STEP_UP_CLOCK, `${method} ${path}: ahead`);
+      // Vouched with no readable time: not the too-old sentence (its time is unknown), the log-out kind.
+      assert.equal(remoteStepUpRefusal(req({ ...VIA_PLUS, 'x-kosmos-session-second': '1' }), path, t, caps), REMOTE_STEP_UP_LOGOUT, `${method} ${path}: no time`);
     }
   }
   assert.match(REMOTE_STEP_UP_RECENT.error, /within 10 minutes/);
