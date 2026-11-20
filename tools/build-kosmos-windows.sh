@@ -219,6 +219,44 @@ mkdir -p "$STAGE/bin"
 cp "$REPO/tools/windows/kosmos-cli.js" "$STAGE/bin/kosmos-cli.js"
 cp "$REPO/tools/windows/kosmos.ps1" "$STAGE/bin/kosmos.ps1"
 tr -d '\r' < "$REPO/tools/windows/kosmos.sh" > "$STAGE/bin/kosmos"
+# 🔑 #8770: AND ONE FOR EVERYTHING THAT IS NOT A SHELL WITH ITS OWN SHIM. cmd.exe, a
+# scheduled task and node's spawn('kosmos', args) without a shell found neither file
+# above ("'kosmos' is not recognized"). bin\kosmos.exe answers them: a small console
+# program that hands its argv to kosmos-cli.js in the same JSON file kosmos.ps1 uses.
+# Measured with all three in one folder: PowerShell 5.1 and 7 still pick kosmos.ps1 and
+# Git Bash the shim, so no agent's command changes. NOT a .cmd: cmd re-parses %* in a
+# batch file, so a correctly escaped `a^&calc` runs calc (measured on the box).
+# Committed and signed like Kosmos.exe (tools/windows/README.md); the same two checks.
+KOSMOS_CLI_EXE="$REPO/tools/windows/cli/kosmos.exe"
+[ -f "$KOSMOS_CLI_EXE" ] || { echo "the committed kosmos command is missing: tools/windows/cli/kosmos.exe" >&2; exit 1; }
+if [ "$(git -C "$REPO" rev-parse --is-shallow-repository 2>/dev/null)" = "false" ]; then
+  _cli_src_at="$(git -C "$REPO" log -1 --format=%H -- tools/windows/cli/KosmosCli.cs 2>/dev/null || true)"
+  _cli_exe_at="$(git -C "$REPO" log -1 --format=%H -- tools/windows/cli/kosmos.exe 2>/dev/null || true)"
+  if [ -n "$_cli_src_at" ] && [ -n "$_cli_exe_at" ]; then
+    _cli_order=0
+    git -C "$REPO" merge-base --is-ancestor "$_cli_src_at" "$_cli_exe_at" || _cli_order=$?
+    if [ "$_cli_order" = 1 ]; then
+      echo "tools/windows/cli/kosmos.exe is older than tools/windows/cli/KosmosCli.cs (changed in $_cli_src_at, exe last rebuilt in $_cli_exe_at)." >&2
+      echo "Rebuild and re-sign it on the Windows box (tools/windows/README.md), and commit it." >&2
+      exit 1
+    elif [ "$_cli_order" != 0 ]; then
+      echo "git could not compare the kosmos command's commits (merge-base exit $_cli_order), so the cut stops here (#8770)." >&2
+      exit 1
+    fi
+  fi
+fi
+_cli_why="$(pe_signature_present "$KOSMOS_CLI_EXE" 2>&1 >/dev/null)" || {
+  echo "tools/windows/cli/kosmos.exe is not signed: ${_cli_why#pe_signature_present: }" >&2
+  echo "Sign it on the Windows box (tools/windows/README.md) and commit it." >&2
+  exit 1
+}
+if [ "$_on_windows" = 1 ]; then
+  _cli_why="$(KOSMOS_WIN_SIGNER="Kosmos Agent Manager, Inc." pe_authenticode "$KOSMOS_CLI_EXE" kosmos.exe 2>&1 >/dev/null)" || {
+    echo "Windows does not accept tools/windows/cli/kosmos.exe's signature: ${_cli_why#pe_authenticode: }" >&2
+    exit 1
+  }
+fi
+cp "$KOSMOS_CLI_EXE" "$STAGE/bin/kosmos.exe"
 
 # 🔑 THE VERSION IS BAKED INTO THE PAGE, same as the Mac builder and for the same
 # reason (#269): a fact about the bundle must not require the bundle's API. The
@@ -639,6 +677,13 @@ esac
 case "$LISTING" in
   *" runtime/WebView2Loader.dll"$'\n'*) ;;
   *) refuse "the zip is missing runtime/WebView2Loader.dll (Kosmos's own window)" ;;
+esac
+# kosmos#8770: the kosmos command for cmd, scheduled tasks and node's spawn without a shell.
+# Not in the list above for the WebView2 loader's reason: that list is win32update's
+# REQUIRED_ENTRIES, and a build from before #8770 lacks it but is still a whole build.
+case "$LISTING" in
+  *" bin/kosmos.exe"$'\n'*) ;;
+  *) refuse "the zip is missing bin/kosmos.exe (the kosmos command for cmd and other launchers)" ;;
 esac
 # kosmos#4597: the Plus connector, without which Kosmos Plus cannot sign in on Windows.
 case "$LISTING" in

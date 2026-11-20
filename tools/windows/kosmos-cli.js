@@ -241,7 +241,7 @@ const USAGE = {
    install/kosmos matches it, so a message that merely mentions --help still goes. */
 const HELP_FLAGS = new Set(['-h', '--help']);
 
-/* kosmos.ps1 passes the agent's arguments as JSON in a private temp file, never on
+/* kosmos.ps1 and kosmos.exe (#8770) pass the arguments as JSON in a private temp file, never on
    a command line (see that file), and names it after this flag. Only then is a
    file read, so nothing stale can ever replace real arguments. */
 const ARGV_FILE_FLAG = '--kosmos-argv-file';
@@ -261,9 +261,9 @@ function argvFrom(argv, readFile) {
   const read = readFile || ((f) => { const s = fs.readFileSync(f, 'utf8'); try { fs.unlinkSync(f); } catch { /* the shim's finally is the backstop */ } return s; });
   let parsed;
   try { parsed = JSON.parse(String(read(String(a[1] || ''))).replace(BYTE_ORDER_MARK_AT_START, '')); } catch (e) {
-    throw new Error('kosmos could not read the arguments PowerShell passed (' + ((e && e.message) || e) + ').');
+    throw new Error('kosmos could not read the arguments its launcher passed (' + ((e && e.message) || e) + ').');
   }
-  if (!Array.isArray(parsed)) throw new Error('kosmos could not read the arguments PowerShell passed (not a list).');
+  if (!Array.isArray(parsed)) throw new Error('kosmos could not read the arguments its launcher passed (not a list).');
   return parsed.map((x) => {
     if (x == null) return '';
     if (typeof x === 'object') throw new Error('One of the arguments reached kosmos as a PowerShell list or table, not text, so its words would change. Put that part in quotes and run it again.');
