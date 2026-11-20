@@ -1,8 +1,10 @@
 # whatsnew-0812: What's New for the 0.8.12 staging cut
 
 ## Goal
-main had run past staging 0.8.11 beyond the gap alarm's limit (#1050). The cut's step 1b-ii requires web/whats-new.json to be for
-the cut's version and built from the pool. Nothing merged since 0.8.11 added a pool entry.
+The What's New window for the next cut. It was written for 0.8.12, but 0.8.12 was cut at 04:07 without it
+(KOSMOS_CUT_NO_WHATS_NEW: this PR's CI rerun sat 30 minutes with no runner, and two unrelated tests flaked, #8812).
+So the window is built for 0.8.13, the next cut: the cut's step 1b-ii requires web/whats-new.json to be for the cut's
+version. The highlights are the same; their pool entries keep since 0.8.12, the version they first shipped in.
 
 ## Done
 - release/whats-new-pool.json: `tools/whats-new-pool.js build 0.8.12` first recorded prod 0.8.11 (its five window
@@ -10,7 +12,7 @@ the cut's version and built from the pool. Nothing merged since 0.8.11 added a p
   the window: old Safari #8781, apostrophe #8784, remote sign-in #8785, Linux Update #8786 S1, Cloud nightly #8786 S2;
   below it: crashed session #8782 at 9.7 and the phone first-run #8787 at 9.8, both behind Starring at 9.6), and five
   notes-only entries (#8777, #8776, #8771, #8773 for Windows, and kosmos task --how).
-- web/whats-new.json: built by the tool, not by hand.
+- web/whats-new.json: built by the tool for 0.8.13, not by hand.
 
 ## Decided
 - No `platforms` tag on the two Linux items: the window accepts only mac and windows, and a Linux board shows the
