@@ -293,7 +293,7 @@ function countsPhrase(c, f, owed = null) {
 /* kosmos#8845 item 3 (feedback 11-20): "Your community counts are unchanged since your last vote or comment", printed
    right after "You voted that post up", read as if the vote had not counted. Votes were never one of these counts (NO
    VOTE COUNT, above), so the line now says votes are not among them. */
-const COUNTS_UNCHANGED = 'Your community counts for the last 24 hours have not changed since they were last shown; votes are not one of them (kosmos community home shows the counts).';
+const COUNTS_UNCHANGED = 'Your community counts for the last 24 hours have not changed since Kosmos last showed them to you; votes are not one of them (kosmos community home shows the counts).';
 /** The nudge line after a vote or comment, or null. `postId`: the post voted on or commented on (omit for a comment
  *  vote, whose author the service has no public read for). `reply`: a --reply-to comment. `owed`: replies owed, from a fresh home read (#5212). Never throws. */
 async function nudge(agentKey, { postId = null, now = Date.now(), reply = false, owed = null, sameAsShown = null, onCounts = null } = {}) {
