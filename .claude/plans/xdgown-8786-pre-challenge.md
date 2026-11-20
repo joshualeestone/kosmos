@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: xdgown-8786
 diff_hash: e94ebe1359593025f045fa3cd2accf4ce1ab5eef065d9b07ad779bb65dde2eb8
-validation: pending (Mortals full validation queued after this proof; the targeted tests pass locally: the shell test, install.linux-board-4920, linuxjob, linuxjob.runtimedir-8786, every-test-runs, 57 node tests)
+validation: passed (Mortals, full kosmos suite, 11:07 CST 11-20, hash e94ebe135959, status clean)
 subdir_audit: passed
 timestamp: 2026-11-20T14:14:00Z
 iterations: 4
@@ -17,7 +17,7 @@ converged: true
 **Total findings:** 18 (0 BLOCKERs, 6 WARNINGs, 1 CONVENTION, 11 NITs)
 **Fixed:** 11 | **Deferred:** 7 | **Asked (awaiting user):** 0
 
-Validation note: the full suite is run on Mortals through the fleet's queue after this proof (the fleet's rule); this file is updated with its result before the PR merges.
+Validation note: the full suite ran on Mortals through the fleet's queue and passed (11:07 CST).
 
 ### Per-Iteration Breakdown
 
