@@ -234,6 +234,7 @@ test('#8776 follow-up 1: a board the HEALTH CHECK finds busy shows the kept copy
   assert.match(busy.out, /first look/);
   assert.equal(busy.stdout, '', 'follow-up 2 here too: nothing on stdout');
   const none = await cmdRoomWithHealth('busy', 'other', envFor(port, home));
+  assert.equal(none.code, 1, none.out);
   assert.match(none.out, /too busy to answer/, 'CONTROL: no copy of that room, so the health refusal as before');
   assert.match(none.out, /no earlier copy of this room to show/);
   assert.doesNotMatch(none.out, /NOT the room now/);
@@ -282,4 +283,14 @@ test('#8776 follow-up 3: a 401, 403 or 404 drops the kept copy (a filtered read 
     const busy = await runCli(['room', 'proj'], envFor(port, home));
     assert.doesNotMatch(busy.out, /NOT the room now|first look/, status + ': a later busy read shows no copy');
   }
+  /* Review 1: a 404 to --post is a post id the room lacks, not the room refused: the copy stays (control: a 403 to
+     the same read drops it). */
+  room.status = 200; room.stall = false;
+  await runCli(['room', 'proj'], envFor(port, home));
+  room.status = 404;
+  assert.equal((await runCli(['room', 'proj', '--post', 'm999'], envFor(port, home))).code, 1);
+  assert.equal(copies().length, 1, 'a by-id 404 keeps the copy');
+  room.status = 403;
+  await runCli(['room', 'proj', '--post', 'm999'], envFor(port, home));
+  assert.equal(copies().length, 0, 'CONTROL: a by-id 403 drops it');
 }));

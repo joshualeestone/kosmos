@@ -1238,7 +1238,9 @@ async function verbRoom(ctx, args) {
   // #4491 slice 4: the agent's own token rides too (the default), as on the Mac, so the read works without the board token.
   const r = await ctx.call('GET', '/api/project/' + projectSlug(project) + '/room?as=text' + (given ? '&n=' + n : '') + (unanswered ? '&unanswered=1' + (all ? '&all=1' : '') : ''));
   /* kosmos#8769 item 4, as install/kosmos cmd_room: a plain read keeps a private copy per room and reader; a read the
-     board is too busy to answer shows that copy, headed with its age and since when reads have failed, and exits 1. */
+     board is too busy to answer shows that copy, headed with its age and since when reads have failed, and exits 1.
+     (Baron's #8776 follow-up 1, the Mac's busy HEALTH CHECK showing the copy, has no twin here: this read has no health
+     check before it.) */
   const paths = roomCopyPaths(ctx, project);
   const copy = given || unanswered ? null : paths;   // the copy is for plain reads; the failing mark is for every read
   if (!r.reached) {

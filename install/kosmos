@@ -5718,6 +5718,7 @@ _records_field() {   # <field> <json>
 # the kept copy (so the caller exits 1), 1 when there is none (the caller says its own refusal, with _rb_hhmm).
 # Follow-up 2: the header and the copy go to STDERR, so `kosmos room p | grep ...` in a script that does not read the
 # exit code finds nothing, never an old room taken for the room now. A person or an agent reading the command sees both.
+# (With no copy held, the refusal is said on stdout as before; exit 1 is the signal either way.)
 _room_busy_copy() {
   # Review 1: every step here is allowed to fail (a sandbox, a read-only home): the busy sentence must still be said.
   # The mark is "<first failed read> <last failed read>". Review 3: a spell whose last failure is over 30 minutes
@@ -5921,8 +5922,11 @@ cmd_room() {
   # Baron's #8776 follow-up 3: refused (not signed in, not allowed, or no such room), so a copy kept from before is not
   # this reader's to see any more: a later busy read must not show it. A 5xx, 408 or 429 is the board, not the reader:
   # the copy stays.
+  # Review 1: a 404 to --post / --since is a post id this room does not have (a typo, an archived post), not the room
+  # refused, so only a plain or -n / --unanswered read's 404 drops it.
   case "$_code" in
-    401|403|404) [ -z "$_rb_key" ] || rm -f "$_rb_dir/$_rb_key.txt" 2>/dev/null || true ;;   # a filtered read refused too
+    401|403) [ -z "$_rb_key" ] || rm -f "$_rb_dir/$_rb_key.txt" 2>/dev/null || true ;;   # a filtered read refused too
+    404) [ -n "$_byid" ] || [ -z "$_rb_key" ] || rm -f "$_rb_dir/$_rb_key.txt" 2>/dev/null || true ;;
   esac
   case "$_code" in
     4??|5??) exit 1 ;;
