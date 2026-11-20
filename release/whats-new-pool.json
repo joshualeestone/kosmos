@@ -2452,10 +2452,10 @@
     {
       "since": "0.8.12",
       "status": "pending",
-      "title": "A remote sign-in lasts until you sign out",
+      "title": "Fewer sign-in asks from a phone",
       "icon": "shield",
       "rank": 8.2,
-      "line": "From a phone or another computer, a sign-in with your authenticator code lasts until you sign out, so making an agent stops asking again."
+      "line": "From a phone or another computer, a sign-in with your authenticator code counts for as long as it lasts, so making an agent stops asking."
     },
     {
       "since": "0.8.12",
