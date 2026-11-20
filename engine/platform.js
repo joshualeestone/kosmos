@@ -179,7 +179,9 @@ function canDownloadClaude(platform = process.platform) {
 /** True only where Kosmos can replace its own running copy. Same fail-closed
  *  shape as its two siblings: anything not on the list is false. Both darwin (the
  *  `/bin/sh` installer) and win32 (the in-app updater, engine/win32update.js +
- *  engine/win32apply.js) can; every other OS refuses through this gate. */
+ *  engine/win32apply.js) can; every other OS refuses through this gate. It is also
+ *  the gate for the UNATTENDED install. kosmos#8786: an installed Linux board can still
+ *  take a person's press, through engine/update.js canPressUpdate, not through this list. */
 function canSelfInstall(platform = process.platform) {
   return SELF_INSTALL.includes(platform);
 }

@@ -300,7 +300,9 @@ function installOffer() {
  *   - this board process sits in a board unit's cgroup (/proc/self/cgroup's v2 line ends in kosmos-board.service or
  *     kosmos-board.<8 hex>.service), so systemd is what restarts it. The unit is named FROM that line, not from the
  *     home, so a home spelled differently from the way setup.sh named the unit cannot hide it;
- *   - `systemctl --user show <that unit> -p KillMode` reads `process`.
+ *   - `systemctl --user show <that unit> -p KillMode -p MainPID` reads KillMode=process AND MainPID=this process (a
+ *     board started by hand from a shell inside that cgroup is in it too, and systemd does not restart that one).
+ *     MainPID is node itself: install/kosmos board-run execs it (measured on the #8786 box: MainPID was server.js).
  * A pure cgroup v1 host (no `0::` line) never gets the button: it keeps the command.
  * Otherwise the card keeps today's command (manualOffer), and a stray press is refused with it.
  * 🛑 NOT SELF_INSTALL, ON PURPOSE. canSelfInstall also gates the UNATTENDED install (autoInstallWouldStart), and a
@@ -309,7 +311,8 @@ function installOffer() {
  * Read at most every five minutes for the card (the status poll asks often), or after 30 s when systemctl itself
  * failed (a user manager still starting after boot), and fresh at a press. A press asks twice
  * (the route, then beginInstall), so a reading taken in the last few seconds serves both.
- * The button (installOffer) and the command (manualOffer) read the SAME memo, so the card never shows both.
+ * The button (installOffer) and the command (manualOffer) read the same memo, so one poll shows one of them (a reading
+ * that expires between the two calls can show both or neither for that one poll; the next poll corrects it).
  * systemctl runs synchronously on the board's event loop, bounded at 2 s, at most once per memo window or press. */
 const LINUX_PRESS_TTL_MS = 5 * 60 * 1000;
 const LINUX_PRESS_FRESH_MS = 3000;
@@ -353,11 +356,16 @@ function pressVerdict(cgroupText, readKillMode) {
   // A timeout is an answer for this purpose: re-asking a hung user manager every 30 s would stall the board each time.
   if (r && r.error && r.error.code === 'ETIMEDOUT') return { ok: false, asked: true };
   if (!r || r.status !== 0) return { ok: false, asked: false };
-  return { ok: String(r.stdout || '').trim() === 'process', asked: true };
+  const props = {};
+  for (const line of String(r.stdout || '').split('\n')) {
+    const eq = line.indexOf('=');
+    if (eq > 0) props[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+  }
+  return { ok: props.KillMode === 'process' && props.MainPID === String(process.pid), asked: true };
 }
 const REAL_PRESS_READERS = {
   cgroup: () => fs.readFileSync('/proc/self/cgroup', 'utf8'),
-  killMode: (unit) => require('node:child_process').spawnSync('systemctl', ['--user', 'show', unit, '-p', 'KillMode', '--value'],
+  killMode: (unit) => require('node:child_process').spawnSync('systemctl', ['--user', 'show', unit, '-p', 'KillMode', '-p', 'MainPID'],
     { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }),
 };
 function linuxUnitTakesPress({ fresh = false } = {}) {
@@ -905,7 +913,7 @@ function selfInstallRefusal(platform = updatePlatform()) {
   }
   const command = updateCommand(platform);
   if (platform === 'linux' && command) {
-    return "Kosmos cannot update itself here: this board's service could not be confirmed to keep the installer running."
+    return 'Kosmos cannot update itself here: this board could not be confirmed to run as a service that keeps the installer running.'
       + ' To update, run this in a terminal: ' + command;
   }
   return 'Kosmos cannot update itself on this platform (' + String(platform) + ').'
@@ -1623,7 +1631,7 @@ function installPointer() {
   return cache && cache.channel === sub && (cache.pointer === 'prod' || cache.pointer === 'staging') ? cache.pointer : sub;
 }
 function setRecordedChannel(f) { recordedChannelFn = f; }   // #2969: null restores the real stamp
-function resetCache() { cache = emptyCache(); inFlight = null; installStarted = false; inFlightKindVar = null; autoFailedAt = 0; lastAttempt = null; }
+function resetCache() { cache = emptyCache(); inFlight = null; installStarted = false; inFlightKindVar = null; autoFailedAt = 0; lastAttempt = null; linuxPressMemo = null; }
 
 /**
  * #2934: has the build this box is RUNNING been published on prod?
