@@ -24,7 +24,7 @@ Mona Lisa's read: issuecomment-7050465958 (slices 3 and 4, against 7a5733ad4f).
   stays in the brief's test, since the sentence stays.
 
 ## Numbers
-pm 44,103 -> 43,489. Ratchet 44,200 -> 43,500. Fingerprint 61 pinned.
+pm 44,103 -> 43,474 (43,489 before round 1 cut "it does not do"). Ratchet 44,200 -> 43,500. Fingerprint 61 pinned.
 doctrine-past: regenerated, then the v60 rows restored by hand (the generator reads origin/main and drops the
 base branch's unmerged rows; known trap).
 
@@ -42,6 +42,12 @@ Review rounds (alternate models, max 8, last whole-branch), then wait for slices
 regenerate doctrine-past, validate, PR.
 
 ## Round 1 (sonnet, blind): nothing above nit
-- nit 2 taken: "Two things it does not do fail silently" had "it" read as the guide; now "Two things fail silently". Re-pinned 61, doctrine-past rows regenerated (draft 61 rows kept, as the generator keeps rows). 141 files, 4,365 tests, 0 failed.
+- nit 2 taken: "Two things it does not do fail silently" had "it" read as the guide; now "Two things fail silently". Re-pinned 61; the generator replaced the three draft 61 rows, and one draft section hash my hand-merge carried (b2940647) was removed in round 2. 141 files, 4,365 tests, 0 failed.
 - nit 1 not taken, MEASURED false: main's v59 holds the exact marker line, and movedPost keys on the line, not the version.
 - nit 3 not taken: the reply route stays in prose; listing the old example's opener as removed is accurate.
+
+## Round 2 (opus, whole branch, blind): nothing above nit, all six taken
+1-2 plan figures corrected (above). 3 size-test history gets 43,474. 4 the moved test carries all 8 moved lines
+(both paragraphs) and asserts 8; a rewording of the guide's "does not" paragraph turns it red (perturbed, restored).
+5 version log: about 200 characters (the sentence measures 197). 6 the guide's last line points at "Formatted
+messages need line breaks" without naming a form, so it is true on PowerShell too.

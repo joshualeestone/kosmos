@@ -1344,7 +1344,7 @@ function block() {
  *     (defaults.test.js runs it, #6653). "Formatted messages need line breaks" keeps one heredoc example and the
  *     `kosmos reply --stdin <<'KOSMOS_MSG'` opener (#4582) in place of the second example.
  *     WEAKEST PREMISE, NAMED: that an agent in a room reaches for raw HTML or a `>` line often enough to pay about
- *     250 characters for the kept sentence; a room history with neither would move it to the guide too.
+ *     200 characters for the kept sentence; a room history with neither would move it to the guide too.
  */
 const DOCTRINE_VERSION = 61;
 

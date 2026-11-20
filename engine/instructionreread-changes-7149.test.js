@@ -856,7 +856,12 @@ test('kosmos#8735 doctrine 56: a file whose section heading is gone hides nothin
 const V60_RENDER = ['**What a room shows you:** short paragraphs with a blank line between them,',
   'headings written with `#` to `######`, **bold**, *italic*, ~~strikethrough~~,',
   '`code` and fenced blocks, lists, tables and emoji. An address starting `http://` or `https://` becomes a link, and a',
-  '`[label](address)` link shows its address after the label.'];
+  '`[label](address)` link shows its address after the label.', '',
+  // Round 2: the "does not" paragraph moved word for word too, so a rewording of it in the guide turns this red.
+  '**What it does not, so do not reach for these:** anything written as raw',
+  'HTML is shown the way you typed it, not turned into a page. And a line that',
+  'starts with `>` becomes a quote in your dialogue with the person but stays',
+  'literal text in a project room, so lean on it only there, never in a room.'];
 function withRenderListBack() {
   const block = require('./defaults').blockFor(process.platform);
   const at = block.indexOf('**What a room shows you is listed by');
@@ -869,8 +874,8 @@ test('kosmos#8735 doctrine 61: the render list that moved to kosmos post --how i
   agentFile('tpa', '# You are Tpa\n\n' + block + '\n');
   assert.equal(ir.remember('tpa', '# You are Tpa\n\n' + before + '\n'), true);
   const body = fs.readFileSync(ir.prepareChanges('tpa').path, 'utf8');
-  for (const l of V60_RENDER) assert.ok(!body.includes('- ' + l), 'a moved render line is marked as no longer applying: ' + l);
-  assert.match(body, /Left out: 4 lines removed from Send readable messages, not a wall of text that kosmos post --how prints, where they still apply\./);
+  for (const l of V60_RENDER.filter((x) => x !== '')) assert.ok(!body.includes('- ' + l), 'a moved render line is marked as no longer applying: ' + l);
+  assert.match(body, /Left out: 8 lines removed from Send readable messages, not a wall of text that kosmos post --how prints, where they still apply\./);
 });
 
 test('kosmos#8735 doctrine 61: without the moved list in the last-read copy, nothing is pointed at kosmos post --how (CONTROL)', () => {

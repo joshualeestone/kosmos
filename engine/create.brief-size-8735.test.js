@@ -21,7 +21,7 @@
  * files section kept only what the Files block does not say; 45,919 after the claim cases moved to `kosmos claim --how`;
  * 45,761 after two cuts in "You do not stop"; 45,382 after cuts in the formatting and reporting sections;
  * 45,054 after the render list and the stop history; 44,103 after the wording pass's first two slices (lines
- * that repeat a rule stated elsewhere in the block).
+ * that repeat a rule stated elsewhere in the block); 43,474 after slices 3 and 4 (the render list to `kosmos post --how`).
  * Every platform counts a brief as its Mac form (PLATFORM_DELTA, below), so one ceiling holds
  * everywhere, Linux CI and Windows included.
  *

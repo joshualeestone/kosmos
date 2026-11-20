@@ -13,7 +13,7 @@ function guideText() {
     'What a Kosmos room and your dialogue with the person render. The rule is in your instructions, under',
     '"Send readable messages, not a wall of text".',
     '',
-    // Lines from "**What a room shows you:**" to the label line are word for word from doctrine 60, so a running
+    // Both paragraphs, from "**What a room shows you:**" to "never in a room.", are word for word from doctrine 60, so a running
     // agent's changes file leaves them out as moved (engine/instructionreread.js, movedPost).
     '**What a room shows you:** short paragraphs with a blank line between them,',
     'headings written with `#` to `######`, **bold**, *italic*, ~~strikethrough~~,',
@@ -26,7 +26,7 @@ function guideText() {
     'literal text in a project room, so lean on it only there, never in a room.',
     '',
     'Each part of a heading or a list shows as one only when it starts on its own line, so give anything with',
-    'structure on stdin in a quoted heredoc (your instructions, "Formatted messages need line breaks").',
+    'structure in the form your instructions give under "Formatted messages need line breaks".',
   ].join('\n');
 }
 
