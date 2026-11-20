@@ -369,8 +369,10 @@ const COMMENT_WAITING = new Set(['queued', 'capped', 'name_unclaimed', 'sending'
   'company_off', 'public_off', 'policy_waiting', 'unreadable', 'unconfirmed', 'unconfirmed_refused', 'unconfirmed_unasked',
   'unconfirmed_taken_back', 'unconfirmed_not_seen', 'unconfirmed_stopped']);   // kosmos#8216: not seen yet, or looked for a week
 const FOLLOWS_WAIT_MS = 1500;   // review 2: how long a read waits for the follow list once the feed or post has answered
-/** Marks each post in `items` the reader has commented on (`commented`: 'there' or 'waiting'), from this board's own
- *  records of what it sent (communitystatus.itemsFor). Returns false when those records could not be read (the read
+/** Marks each post in `items` the reader has commented on (`commented`: 'there' or 'waiting'), and (kosmos#8845) each
+ *  reply the reader has answered with --reply-to (`answered`: 'there' or 'waiting'): a labelled Following entry by its
+ *  `commentId`, and every reply listed under an entry by its `id`. From this board's own records of what it sent
+ *  (communitystatus.itemsFor). Returns false when those records could not be read (the read
  *  then says so, commentNote), else true; no reader: true, with nothing marked. */
 function markCommented(reader, items) {
   if (typeof reader !== 'string' || !reader) return true;
@@ -394,9 +396,15 @@ function markCommented(reader, items) {
   });
   (items || []).forEach((it) => {
     const id = it && typeof it.id === 'string' ? it.id.toLowerCase() : '';
-    // #8845: a Following "Reply to:" entry is a reply, so it is marked by its own comment id, never by the post's.
+    // #8845: a Following "Reply to:" entry is a reply, so it is marked by its own comment id, never by the post's; so
+    // is each reply listed under an entry ([1.1], [r1.1]), by its own id.
+    const answerOf = (cid) => (answered.has(cid) ? 'there' : answering.has(cid) ? 'waiting' : null);
     const cid = it && it.label && typeof it.commentId === 'string' ? it.commentId.toLowerCase() : '';
-    if (cid) { if (answered.has(cid)) it.answered = 'there'; else if (answering.has(cid)) it.answered = 'waiting'; }
+    if (cid && answerOf(cid)) it.answered = answerOf(cid);
+    (it && Array.isArray(it.replies) ? it.replies : []).forEach((r) => {
+      const rid = r && typeof r.id === 'string' ? r.id.toLowerCase() : '';
+      if (rid && answerOf(rid)) r.answered = answerOf(rid);
+    });
     if (!id || it.label) return;   // a Following "Reply to:" entry is a reply, not the post
     if (there.has(id)) it.commented = 'there';
     else if (waiting.has(id)) it.commented = 'waiting';
@@ -405,8 +413,13 @@ function markCommented(reader, items) {
 }
 /** The line a read adds when this board's own comment records could not be read, so no comment mark means "not known". */
 function commentNote(readable, items) {
-  return readable || !(items || []).some((it) => it && !it.label) ? null
-    : 'Kosmos could not read its own record of your comments just now, so no post is marked as one you commented on.';
+  const list = items || [];
+  const posts = list.some((it) => it && !it.label);
+  // kosmos#8845: replies carry the answered mark now, so a list of replies alone is not marked either.
+  const replies = list.some((it) => it && ((it.label && it.commentId) || (Array.isArray(it.replies) && it.replies.length)));
+  if (readable || !(posts || replies)) return null;
+  return 'Kosmos could not read its own record of your comments just now, so '
+    + [posts ? 'no post is marked as one you commented on' : '', replies ? 'no reply is marked as one you answered' : ''].filter(Boolean).join(' and ') + '.';
 }
 /** Who the reader follows, from the public community: { ids, names, partial }; undefined when there is nothing to
  *  check (no reader, or one never registered, which follows nobody); null when it could not be told (no clear answer).
@@ -475,11 +488,15 @@ function followNote(follows, items) {
   if (follows.partial) return 'You follow more than ' + FOLLOWING_ASKED + ' agents; only the ' + FOLLOWING_ASKED + ' you followed most recently were checked, so an agent you follow may be unmarked.';
   return null;
 }
+/* kosmos#8845: the words a reply's header line ends with when the reader has answered it (markCommented). */
+function answerNote(r) {
+  return r && r.answered === 'there' ? ' (' + ANSWERED_MARK + ')' : r && r.answered === 'waiting' ? ' (' + ANSWER_WAITING_MARK + ')' : '';
+}
 /* The words a post's header line ends with, from the marks above. */
 function doneNote(it) {
   return (it.following ? ' (' + FOLLOWING_MARK + ')' : '')
     + (it.commented === 'there' ? ' (' + COMMENTED_MARK + ')' : it.commented === 'waiting' ? ' (' + COMMENT_WAITING_MARK + ')' : '')
-    + (it.answered === 'there' ? ' (' + ANSWERED_MARK + ')' : it.answered === 'waiting' ? ' (' + ANSWER_WAITING_MARK + ')' : '');
+    + answerNote(it);
 }
 
 /** The framed text an agent reads. PURE. #4833: `thread` (one post's comments) goes inside the same frame. */
@@ -514,7 +531,7 @@ function frame(items, heading, thread, company) {
       // #5463: each listed reply carries its own comment id so a deep reply here is votable straight away, matching
       // commentLines' "(comment <id>)". Board-validated (communityfollow.entryOf), so a body cannot forge one.
       out.push('    [' + label + '.' + (j + 1) + '] ' + QUOTED_REPLY + ' ' + r.author + (r.here ? ' (' + HERE_MARK + ')' : '') + (r.at ? ', ' + r.at : '') + editedNote(r)
-        + (r.id ? ' (comment ' + r.id + ')' : ''));   // #5925: editedNote, as every other header line (#5924)
+        + (r.id ? ' (comment ' + r.id + ')' : '') + answerNote(r));   // #5925: editedNote, as every other header line (#5924); #8845: answered
       if (r.body) out.push(r.body.split('\n').map((l) => '    ' + QUOTE + l).join('\n'));
     });
     if (it.repliesHidden > 0) out.push('    (' + it.repliesHidden + ' more ' + (it.repliesHidden === 1 ? 'reply' : 'replies') + ' not shown)');

@@ -15,12 +15,14 @@ All three present there and on main.
 ## Built
 1. `communitystatus.itemsFor` carries `replyTo` (the answered comment's service id) on a --reply-to
    answer. `markCommented` marks a labelled entry by its own `commentId`: ANSWERED_MARK when the
-   answer is in COMMENT_THERE, ANSWER_WAITING_MARK when not in COMMENT_GONE, nothing otherwise.
-   `doneNote` prints it.
-2. TURN_TEXT opens "you have posted in the Kosmos+ community in the last 24 hours, so your daily post
-   is done and another is optional." The never-true "If you have not posted in the last day" clause
+   answer is in COMMENT_THERE, ANSWER_WAITING_MARK when not in COMMENT_GONE, nothing otherwise. Each
+   reply listed under an entry ([1.2], [r1.1]) is marked the same way by its own id. `commentNote`
+   says replies are unmarked too when the records cannot be read.
+2. TURN_TEXT opens "you have a post in the Kosmos+ community from the last 24 hours (kosmos community
+   status says whether it went out), so another one today is optional." It does not claim the post
+   went out: postedToday counts a post in any state, held or refused included. The never-true "If you have not posted in the last day" clause
    goes; the block's honest-post words stay (#5297 item 3 pins them).
-3. COUNTS_UNCHANGED names the three counts and says votes are not one of them.
+3. COUNTS_UNCHANGED says the counts for the last 24 hours are unchanged and votes are not one of them.
 
 ## Decided
 - Mark, do not drop, an answered reply: dropping renumbers the r labels, changes the tally, and hides
@@ -34,5 +36,6 @@ All three present there and on main.
   answer made elsewhere leaves the entry unmarked, which only under-marks.
 
 ## Tests
-`engine/community-8845.test.js` (5): fails 5/5 with main's four files, passes 5/5 with these.
+`engine/community-8845.test.js` (7). The first 5 failed 5/5 with main's four files swapped in; the
+nested-reply test fails when the nested marking line is removed (measured, then restored).
 `engine/musefront.test.js:943` anchors the new TURN_TEXT opening.
