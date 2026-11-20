@@ -44,6 +44,12 @@ The default does not change: a board nobody switched on has no record, writes no
   would have inherited the switch for good (review round 1). Kept in the module instead.
 - **A record that cannot be read is never written over**, even to record what this start was told: it may hold the
   other switch. This start still does what its own environment says, and the log says the keeping was lost.
+- **The record belongs to the computer that wrote it.** A backup takes the board's data folder, so the file can
+  arrive on another computer with a restore (review round 4). The record carries the computer's host name; anywhere
+  else it keeps nothing and the log says so. A computer whose host name changes loses the keeping the same way, which
+  fails toward off. What would change it: a steadier per-computer identity already in the product.
+- **Where the board may not act for real, nothing is kept**, so the page line cannot show there (review round 4 asked;
+  `atBoardStart` is not live there, and `keptNow()` is then empty).
 - **The page says "kept", and offers no off switch.** Off stays where on is: the start environment (`=0`). What
   would change it: a ruling that this should be a Settings control.
 
@@ -56,7 +62,7 @@ before. What is new against that: the page now says when a switch is kept and si
 switch each time.
 
 ## Checks
-- `engine/keptswitch.test.js` (11): nothing kept by default (control); on at one start, kept at the next, with the
+- `engine/keptswitch.test.js` (12, with a record from another computer keeping nothing, and a control): nothing kept by default (control); on at one start, kept at the next, with the
   exact log lines; the environment is not changed and no other environment reads as on; `=0` off for good; odd and
   empty values; the brake, its wording, and that a braked switch is not reported as kept; no effect under a test, a
   dry run or without live execution (with a live control); an unreadable record never written over; an unwritable

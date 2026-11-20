@@ -22,7 +22,8 @@ let n = 0;
 const fresh = () => path.join(DIR, `kept-${++n}.json`);
 const POLL = 'AGENT_WORKFORCE_USAGE_POLL';
 const MOVE = 'AGENT_WORKFORCE_AUTOMOVE';
-const start = (env, file, nowMs = 1000) => keptswitch.applyAtStart(env, { live: true, file, nowMs });
+const HOST = 'this-mac.local';
+const start = (env, file, nowMs = 1000, host = HOST) => keptswitch.applyAtStart(env, { live: true, file, nowMs, host });
 const T1 = Date.UTC(2026, 10, 6, 9, 17);
 
 test('CONTROL: a board nobody switched on stays off, writes nothing and says nothing', () => {
@@ -50,7 +51,22 @@ test('switched on at one start, both are on at the next start that leaves the va
   assert.deepEqual(b.lines, ['kept-switches: the usage poll and the mover are switched on, kept from the start of 2026-11-06T09:17:00.000Z; start once with AGENT_WORKFORCE_USAGE_POLL=0 and AGENT_WORKFORCE_AUTOMOVE=0 to switch them off']);
   // The date kept is the first start's, however many starts repeat it.
   start({ [POLL]: '1' }, file, Date.UTC(2026, 10, 12));
-  assert.equal(keptswitch.read(file).on.usagePoll.at, T1);
+  assert.equal(keptswitch.read(file, HOST).on.usagePoll.at, T1);
+});
+
+test('a record written on another computer (a restored backup) keeps nothing here, and says so', () => {
+  const file = fresh();
+  start({ [POLL]: '1', [MOVE]: '1' }, file, T1, 'old-mac.local');
+  const here = {};
+  const r = start(here, file, 2000, 'new-mac.local');
+  assert.deepEqual([r.kept, r.readOk, r.wrote, usagePoll.enabled(here), automove.movesOn(here), keptswitch.keptNow()], [[], true, null, false, false, {}]);
+  assert.deepEqual(r.lines, ['kept-switches: the record of what was switched on was written on another computer, so nothing was kept from it']);
+  // CONTROL: on the computer that wrote it, the same file keeps both.
+  assert.deepEqual(start({}, file, 3000, 'old-mac.local').kept, ['usagePoll', 'automove']);
+  // Switched on here, the record becomes this computer's.
+  start({ [POLL]: '1' }, file, 4000, 'new-mac.local');
+  assert.deepEqual(keptswitch.read(file, 'new-mac.local').on, { usagePoll: { at: 4000 } });
+  assert.deepEqual(keptswitch.read(file, 'old-mac.local').on, {});
 });
 
 test('the kept switch is the board\'s alone: the environment is not changed, and no other environment reads as on', () => {
@@ -112,7 +128,7 @@ test('under a test or a dry run nothing is read, written or kept', () => {
   const file = fresh();
   start({ [POLL]: '1' }, file);
   const before = fs.readFileSync(file, 'utf8');
-  const board = (extra) => keptswitch.atBoardStart({ ...extra }, { liveExecutionAllowed: true, file });
+  const board = (extra) => keptswitch.atBoardStart({ ...extra }, { liveExecutionAllowed: true, file, host: HOST });
   assert.deepEqual(board({}).kept, ['usagePoll'], 'CONTROL: a live board start keeps it');
   for (const r of [board({ NODE_TEST_CONTEXT: 'child' }), board({ AGENT_WORKFORCE_DRY_RUN: '1' }),
     keptswitch.atBoardStart({}, { liveExecutionAllowed: false, file }), keptswitch.atBoardStart({ [MOVE]: '1' }, { file })]) {
@@ -163,8 +179,8 @@ test('the board makes the one call at start, with nothing of its own decided the
 
 test('a recorded time no date can say reads as no day, not as an invalid one', () => {
   const file = fresh();
-  fs.writeFileSync(file, JSON.stringify({ usagePoll: { on: true, at: 9e15 }, automove: { on: true, at: -5 } }));
-  assert.deepEqual(keptswitch.read(file).on, { usagePoll: { at: 0 }, automove: { at: 0 } });
+  fs.writeFileSync(file, JSON.stringify({ host: HOST, usagePoll: { on: true, at: 9e15 }, automove: { on: true, at: -5 } }));
+  assert.deepEqual(keptswitch.read(file, HOST).on, { usagePoll: { at: 0 }, automove: { at: 0 } });
   const r = start({}, file);
   assert.match(r.lines[0], /kept from the start of an earlier day;/);
 });

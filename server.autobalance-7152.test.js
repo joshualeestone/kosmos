@@ -282,7 +282,7 @@ test('kosmos#8841: a switch kept on from an earlier start reaches Settings on th
   const keptswitch = require('./engine/keptswitch');
   const record = path.join(SANDBOX, 'kept-switches-8841.json');
   const at = Date.UTC(2026, 10, 6, 9, 17);
-  fs.writeFileSync(record, JSON.stringify({ usagePoll: { on: true, at } }));
+  fs.writeFileSync(record, JSON.stringify({ host: os.hostname(), usagePoll: { on: true, at } }));
   const had = process.env.AGENT_WORKFORCE_USAGE_POLL;
   delete process.env.AGENT_WORKFORCE_USAGE_POLL;
   try {

@@ -19,8 +19,12 @@
  * The kept choice lives in this module, for the environment the board started with. It is NOT written into that
  * environment, so nothing the board starts (an agent's shell, a test run from it) inherits a switch.
  * Never under a test or a dry run: nothing is read, written or kept.
+ *
+ * The record names the computer that wrote it. A backup takes the board's data folder, so the file can arrive on
+ * another computer with a restore; there it keeps nothing, because nobody switched anything on at that computer.
  */
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const store = require('./store');
 
@@ -36,14 +40,18 @@ const unset = (v) => v === undefined || v === '';
 let kept = {};
 let keptFor = null;
 
-/** @returns {{ok:boolean, on:Object<string,{at:number}>}} missing file: ok, nothing kept; unreadable or corrupt: not ok, nothing kept. */
-function read(from = file()) {
+const thisComputer = () => { try { return String(os.hostname() || ''); } catch { return ''; } };
+
+/** @returns {{ok:boolean, on:Object<string,{at:number}>, elsewhere?:boolean}} missing file: ok, nothing kept;
+ *  unreadable or corrupt: not ok, nothing kept; written on another computer (or naming none): ok, nothing kept, elsewhere. */
+function read(from = file(), host = thisComputer()) {
   let raw;
   try { raw = fs.readFileSync(from, 'utf8'); }
   catch (err) { return { ok: !!(err && err.code === 'ENOENT'), on: {} }; }
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return { ok: false, on: {} }; }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ok: false, on: {} };
+  if (!host || parsed.host !== host) return { ok: true, on: {}, elsewhere: true };
   const on = {};
   for (const s of SWITCHES) {
     const v = parsed[s.key];
@@ -74,12 +82,12 @@ function keptNow() {
  *   kept: switches on from the record; recorded / cleared: changes to the record; wrote: null when nothing was
  *   written; lines: what to print in the board log (none when there is nothing to say).
  */
-function applyAtStart(env, { live, file: given, nowMs = Date.now() } = {}) {
+function applyAtStart(env, { live, file: given, nowMs = Date.now(), host = thisComputer() } = {}) {
   const out = { kept: [], recorded: [], cleared: [], readOk: true, wrote: null, lines: [] };
   kept = {}; keptFor = null;
   if (live !== true || !env) return out;
   const to = given || file();
-  const rec = read(to);
+  const rec = read(to, host);
   out.readOk = rec.ok;
   const next = { ...rec.on };
   for (const s of SWITCHES) {
@@ -91,8 +99,8 @@ function applyAtStart(env, { live, file: given, nowMs = Date.now() } = {}) {
   /* A record that could not be read is never written over: it may hold a choice this start knows nothing about, and
      a file that is unreadable for a moment must not be replaced by a partial one. This start still does what its own
      environment says; only the keeping is lost, and the line below says so. */
-  if (rec.ok && (out.recorded.length || out.cleared.length)) {
-    const body = {};
+  if (rec.ok && host && (out.recorded.length || out.cleared.length)) {
+    const body = { host };
     for (const s of SWITCHES) if (next[s.key]) body[s.key] = { on: true, at: next[s.key].at };
     try {
       fs.mkdirSync(path.dirname(to), { recursive: true });
@@ -119,6 +127,7 @@ function applyAtStart(env, { live, file: given, nowMs = Date.now() } = {}) {
   if (out.cleared.length) {
     out.lines.push(`kept-switches: ${said(out.cleared)} ${be(out.cleared)} switched off, ${out.wrote === true ? 'and will stay off at later starts' : 'but that could not be written down, so a later start may switch it on again'}`);
   }
+  if (rec.elsewhere) out.lines.push('kept-switches: the record of what was switched on was written on another computer, so nothing was kept from it');
   if (!rec.ok) {
     const told = of(SWITCHES.map((s) => s.key)).filter((s) => env[s.name] === '1' || env[s.name] === '0');
     out.lines.push('kept-switches: the record of what was switched on could not be read, so nothing was kept from an earlier start'
