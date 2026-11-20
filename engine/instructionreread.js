@@ -515,7 +515,22 @@ function prepareChanges(session) {
         movedPost = { under: postHead, lines: new Set(postLines), where: 'kosmos post --how' };
       }
     } catch { movedPost = null; }
-    const diff = changedLines(seen, got.text, [moved, movedTask, movedAnswer, movedFiles, movedClaim, movedPost]);
+    /* kosmos#8735 slice 5 (doctrine 62, review 1): "You do not stop" dropped the --held detail and "Kosmos sees every other
+       state for itself". Both still hold: `kosmos report --help` prints the first, "And tell the board" says the second.
+       Nothing is hidden (an empty set, as doctrine 54's movedAnswer); the note says where they are, only for that removal
+       (the last-read copy holds the v61 line and the new file does not) and only while the section is there. */
+    let movedHeld = null;
+    try {
+      const V61_SEES = '**Kosmos sees every other state for itself. It cannot see blocked or needs_you**,';
+      const heldLineSet = (t) => new Set(String(t).split('\n').map((l) => l.replace(/\r$/, '')));
+      const heldWas = heldLineSet(seen);
+      const heldNow = heldLineSet(got.text);
+      const stopHead = (require('./defaults').sections().find((x) => x.heading.startsWith('### You do not stop')) || {}).heading;
+      if (stopHead && heldNow.has(stopHead) && heldWas.has(V61_SEES) && !heldNow.has(V61_SEES)) {
+        movedHeld = { under: stopHead, lines: new Set(), where: '`kosmos report --help` and the rest of that section' };
+      }
+    } catch { movedHeld = null; }
+    const diff = changedLines(seen, got.text, [moved, movedTask, movedAnswer, movedFiles, movedClaim, movedPost, movedHeld]);
     // A path with a double quote is not named: the #5304 reader takes quoted text in the line for section headings.
     // Review 2: nor one with whitespace or a control character, which would make the unquoted path in the line ambiguous.
     if (!diff || !p || /["\s\u0000-\u001f\u007f]/.test(p)) return none();

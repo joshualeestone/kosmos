@@ -20,6 +20,15 @@ Proposals: issuecomment-7051293772. Mona Lisa's read: the 21:43Z comment.
 - P2: the browser mechanics need a guide verb that does not exist; its own slice.
 
 ## Numbers
-pm 43,474 -> 42,927. Ratchet 43,500 -> 43,000. 141 related files, 4,365 tests, 0 failed (from the worktree root).
+pm 43,474 -> 42,963 (42,927 before review 1 put the react toggle back). Ratchet 43,500 -> 43,000. 141 related files, 4,365 tests, 0 failed (from the worktree root).
 
 Weakest premise: that an agent asked to hold questions reads `kosmos report --help` before using `--held`.
+
+## Round 1 (opus, blind): two should-fix, three nits
+- should-fix 1, taken two ways: the react toggle ("the same emoji again takes it back") goes back in the brief, since
+  no guide states it and an agent reacting twice would undo itself; the two "You do not stop" removals get a note
+  (movedHeld, an empty set as doctrine 54's movedAnswer) pointing at `kosmos report --help` and the rest of that section.
+- should-fix 2 taken: a doctrine 62 pair in instructionreread-changes-7149 (moved-to left out, the note present,
+  plus a CONTROL); perturbing the marker turns the main test red.
+- nit 3 taken (taskguide header names --moved-to). nits 4, 5 not taken: the repeated lead is the cost of moving the
+  text word for word, and the react parenthetical still says where the id is.

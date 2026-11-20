@@ -5,7 +5,8 @@
  * in a module that requires nothing, as engine/communityguide.js and engine/connectionsguide.js are. The working rules
  * (engine/defaults.js, "Put the work on a task first") keep the rule and the everyday commands (add, list, done-when,
  * check, built) and one line naming these situations; this is the rest, moved word for word: fixing a task's words,
- * listing across projects, a file's fingerprint, a code fix's commit, and a task that repeats on a schedule. Two "as
+ * listing across projects, a file's fingerprint, a code fix's commit, and a task that repeats on a schedule, and (slice 5) moving an unmet check's part to another task
+ * (--moved-to). Two "as
  * above" pointers now say "as your working rules say", since the text they pointed at stayed there.
  * Why: a new agent's instructions were over Claude Code's 40,000-character warning (kosmos#8735).
  */
