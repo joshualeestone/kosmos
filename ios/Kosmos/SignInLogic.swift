@@ -356,6 +356,15 @@ enum SignIn {
         return .status(known, matchCode: match, hasComputer: !((body?["addresses"] as? [Any]) ?? []).isEmpty)
     }
 
+    /// kosmos#8791/#8795: the signed-in account's own address, from the same GET /v1/account/me (its `email`), for the
+    /// fresh sign-in that sends a code to it. Only a 2xx with a non-empty address counts; anything else is nil, and the
+    /// caller then offers no inline code step (the person signs in again from Settings, as before).
+    static func accountEmail(status: Int?, json: Any?) -> String? {
+        guard let status, (200..<300).contains(status), let e = (json as? [String: Any])?["email"] as? String else { return nil }
+        let t = e.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.contains("@") ? t : nil
+    }
+
     /// Kosmos+'s refusal as a sentence on screen: one line, as cleanMessage, then a capital and a closing stop. Kosmos+
     /// writes its errors lowercase and unstopped ("that code is not right; 4 tries left"); the password door already
     /// tidied them (`sentence`), and the code sign-in showed them raw (found on a real sign-in, 11-05).

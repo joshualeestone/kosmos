@@ -5003,6 +5003,10 @@ check(SignIn.allowRead(status: 200, json: jsonBody(#"{"device_status":"acked"}"#
 check(SignIn.allowRead(status: 200, json: jsonBody(#"{"device_status":"pending","match_code":"K7Q2","addresses":["mini.kosmosplus.com"]}"#)) == .status(.pending, matchCode: "K7Q2", hasComputer: true), "a computer connected meanwhile, and its code")
 check(SignIn.allowRead(status: 401, json: jsonBody(#"{"device_status":"acked"}"#)) == .ended, "a refused session ends the watch, whatever else the answer says")
 check(SignIn.allowRead(status: 503, json: nil) == .unknown && SignIn.allowRead(status: nil, json: nil) == .unknown && SignIn.allowRead(status: 200, json: jsonBody(#"{"device_status":"new"}"#)) == .unknown, "no answer, a server error, or a status not known: asked again")
+// kosmos#8791/#8795: the account's own address from GET /v1/account/me, for a fresh sign-in's code step.
+check(SignIn.accountEmail(status: 200, json: ["email": "  ada@example.com\n"]) == "ada@example.com", "account email: read and trimmed")
+check(SignIn.accountEmail(status: 200, json: ["email": "not-an-address"]) == nil && SignIn.accountEmail(status: 200, json: ["email": ""]) == nil, "account email: only an address counts")
+check(SignIn.accountEmail(status: 401, json: ["email": "ada@example.com"]) == nil && SignIn.accountEmail(status: nil, json: nil) == nil && SignIn.accountEmail(status: 200, json: [String: Any]()) == nil, "CONTROL: no 2xx, no answer or no field gives nil (then no inline code step)")
 
 section("sign-in: the steps")
 let s1 = SignIn.Session(token: "t", deviceStatus: .pending, matchCode: "AB12", hasComputer: true)
