@@ -91,7 +91,7 @@ test('#8786: the press on Linux goes past the platform refusal to the reviewed s
     'the Linux press did not reach the live-execution gate in front of the spawn');
   update.resetCache();
   await look('linux', 'x64', false);
-  assert.throws(() => update.beginInstall({}), /cannot update itself on this platform \(linux\)/, 'CONTROL: the refusal no longer fires on a unit that would not survive');
+  assert.throws(() => update.beginInstall({}), /cannot update itself here: this board's service would stop the installer/, 'CONTROL: the refusal no longer fires on a unit that would not survive');
 });
 
 test('#8786: a source checkout on Linux is offered nothing even when the unit reads right', async () => {
@@ -121,7 +121,12 @@ test('#8786: boardUnitInCgroup names a board unit only from the cgroup v2 line, 
   assert.equal(update.boardUnitInCgroup(''), null);
 });
 
-test('#8786: the real readers say no for a test process (it runs in no kosmos-board unit)', async () => {
+test('#8786: the real readers say no for a test process that runs in no kosmos-board unit', async (t) => {
+  // An agent's shell on a Linux Kosmos box can sit in the board unit's cgroup (the board's tmux server); there the
+  // real answer is legitimately yes, so this arm is about a process outside one, and says so.
+  let own = '';
+  try { own = fs.readFileSync('/proc/self/cgroup', 'utf8'); } catch { own = ''; }
+  if (update.boardUnitInCgroup(own)) { t.skip('this test process runs inside a kosmos-board unit'); return; }
   await look('linux', 'x64', true);
   update.setLinuxPress(null);   // the real reading: /proc/self/cgroup (absent on a Mac) and systemctl
   assert.equal(update.canPressUpdate('linux'), false, 'a test process read as a board inside its own unit');
@@ -195,4 +200,37 @@ test('#8786: the card trusts its five-minute reading, the press reads afresh, an
     update.selfInstallRefusal('linux');
     assert.equal(calls.length, 2, 'the second check of the same press ran systemctl again');
   } finally { Date.now = realNow; }
+});
+
+test('#8786: a systemctl that gave no answer is asked again after 30 s, not five minutes', async () => {
+  let status = 1;
+  const calls = [];
+  await lookReal({ cgroup: readers().cgroup, killMode: (u) => { calls.push(u); return { status, stdout: status === 0 ? 'process\n' : '' }; } });
+  assert.equal(update.manualOffer() !== null, true, 'CONTROL: a failed reading keeps the command');
+  assert.equal(calls.length, 1);
+  status = 0;
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 10 * 1000;
+    assert.equal(update.installOffer(), null, 'the failed reading was dropped inside 30 s');
+    assert.equal(calls.length, 1);
+    Date.now = () => realNow() + 31 * 1000;
+    assert.ok(update.installOffer(), 'the failed reading was kept past 30 s');
+    assert.equal(calls.length, 2);
+    // CONTROL: an ANSWERED "no" (control-group) is kept for the full window.
+    update.setLinuxPressReaders({ cgroup: readers().cgroup, killMode: (u) => { calls.push(u); return { status: 0, stdout: 'control-group\n' }; } });
+    assert.equal(update.installOffer(), null);
+    const n = calls.length;
+    Date.now = () => realNow() + 31 * 1000 + 60 * 1000;
+    update.installOffer();
+    assert.equal(calls.length, n, 'an answered "no" was re-asked inside five minutes');
+  } finally { Date.now = realNow; }
+});
+
+test('#8786: the Linux refusal says why (the service), and gives the command', async () => {
+  await look('linux', 'x64', false);
+  const said = update.selfInstallRefusal('linux');
+  assert.match(said, /this board's service would stop the installer partway through/);
+  assert.ok(said.endsWith(update.manualOffer().command), 'the command is not the refusal\'s last words: ' + said);
+  assert.doesNotMatch(said, /on this platform/, 'it still says Linux can never update itself');
 });

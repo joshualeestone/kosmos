@@ -33,6 +33,12 @@ Both run manifest-verify.js run-setup from inside the board's cgroup; the env di
 after merge.
 
 ## Validation
-Targeted: engine/update.linux-press-8786.test.js (new, 8 tests, two mutants red), update.linux-manual-7935,
+Targeted: engine/update.linux-press-8786.test.js (new; mutants of the comparison, the status check, the fresh
+window, the retry window and the unit shape each go red), web.linux-update-7935 (engine to page), update.linux-manual-7935,
 update.test, update.win32-570, update.win32-check, engine.reachable, fixture-discipline, tools.every-test-runs,
 check-frozen-roots. Full suite through the Mortals queue (one heavy run at a time on Agent1s).
+
+## Not tested here, on purpose
+- POST /api/update through server.js: the route reads only selfInstallRefusal(), which the engine tests drive both
+  ways; booting the server for one arm is left to the real-box measurement after merge.
+- The press end to end on a real board: the live-execution gate stops a test before /bin/sh by design.
