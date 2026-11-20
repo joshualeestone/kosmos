@@ -17,7 +17,7 @@ on the same grounds.
 
 Rejected: widening the test's window (4 ms against 5 ms pages). Still timing-dependent, only less often.
 
-## Checks
+## Checks (both at 4bc12899bb, the fix commit; nothing but this plan changed since)
 - New test `kosmos#8812: round 2's first wave runs however long the clock takes...` stubs `Date.now()` to advance 1 ms
   per read; passes with the fix, fails without it (run by hand).
 - Every test file that names communityread (30 files, 765 tests): 0 failed.
