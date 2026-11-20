@@ -234,3 +234,29 @@ test('#8786: the Linux refusal says why (the service), and gives the command', a
   assert.ok(said.endsWith(update.manualOffer().command), 'the command is not the refusal\'s last words: ' + said);
   assert.doesNotMatch(said, /on this platform/, 'it still says Linux can never update itself');
 });
+
+test('#8786: a board with nothing on offer never asks systemd', async () => {
+  const calls = [];
+  await lookReal(readers({ calls }));
+  update.setFetcher(async () => ({ ok: true, json: async () => ({ ...manifest('linux', 'x64'), version: '0.0.1' }) }));
+  update.resetCache();
+  update.setLinuxPressReaders(readers({ calls }));
+  await update.refresh();
+  assert.equal(update.available(), null, 'CONTROL: the look still offers something');
+  assert.equal(update.installOffer(), null);
+  assert.equal(update.manualOffer(), null);
+  assert.deepEqual(calls, [], 'the poll ran systemctl with no update on offer');
+});
+
+test('#8786: a systemctl that timed out is not re-asked every 30 s', async () => {
+  const calls = [];
+  await lookReal({ cgroup: readers().cgroup, killMode: (u) => { calls.push(u); return { status: null, error: Object.assign(new Error('spawnSync systemctl ETIMEDOUT'), { code: 'ETIMEDOUT' }) }; } });
+  assert.equal(update.installOffer(), null);
+  assert.equal(calls.length, 1);
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 60 * 1000;
+    update.installOffer();
+    assert.equal(calls.length, 1, 'a hung user manager was asked again inside five minutes');
+  } finally { Date.now = realNow; }
+});

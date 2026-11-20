@@ -281,8 +281,11 @@ function installOffer() {
   if (windowsLocationRefusal()) return null;
   // kosmos#7935: a platform that cannot replace itself in place never gets an [Update] button, which only led to a
   // refusal; it gets manualOffer()'s command instead. kosmos#8786: a Linux board whose unit survives the press can.
+  // available() first, so a board with nothing on offer never asks systemd.
+  const newer = available();
+  if (!newer) return null;
   if (!canPressUpdate()) return null;
-  return available();
+  return newer;
 }
 
 /* ---- kosmos#8786 slice 1: the person's press on an installed Linux board. ----
@@ -330,12 +333,14 @@ function pressVerdict(cgroupText, readKillMode) {
   const unit = boardUnitInCgroup(cgroupText);
   if (!unit) return { ok: false, asked: true };
   const r = readKillMode(unit);
+  // A timeout is an answer for this purpose: re-asking a hung user manager every 30 s would stall the board each time.
+  if (r && r.error && r.error.code === 'ETIMEDOUT') return { ok: false, asked: true };
   if (!r || r.status !== 0) return { ok: false, asked: false };
   return { ok: String(r.stdout || '').trim() === 'process', asked: true };
 }
 const REAL_PRESS_READERS = {
   cgroup: () => fs.readFileSync('/proc/self/cgroup', 'utf8'),
-  killMode: (unit) => require('child_process').spawnSync('systemctl', ['--user', 'show', unit, '-p', 'KillMode', '--value'],
+  killMode: (unit) => require('node:child_process').spawnSync('systemctl', ['--user', 'show', unit, '-p', 'KillMode', '--value'],
     { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }),
 };
 function linuxUnitTakesPress({ fresh = false } = {}) {
@@ -399,8 +404,9 @@ function manualOffer() {
     // kosmos#7935: an installed Linux board that cannot take a press is told the command, not offered a button.
     // Linux by name, because install/kosmos waives its board guards for Linux only; a source checkout gets nothing.
     // kosmos#8786: one whose unit survives the press gets the button (installOffer) instead.
-    if (updatePlatform() !== 'linux' || canPressUpdate('linux') || !installedRoot()) return null;
+    if (updatePlatform() !== 'linux' || !installedRoot()) return null;
     const newer = available();
+    if (!newer || canPressUpdate('linux')) return null;
     const command = updateCommand();
     return newer && command ? { version: newer.version, command } : null;
   }
@@ -633,6 +639,7 @@ function autoInstallWouldStart() {
   if (!installedRoot()) return false;
   // kosmos#7935: a board that cannot replace itself (Linux) never starts an install of its own, so it neither asks the
   // coordinator about a pause nor records a refusal as its last attempt on every look; its card gives the command.
+  // kosmos#8786: canSelfInstall, NOT canPressUpdate: swapping them would install automatically on every Linux board.
   if (!platformGate.canSelfInstall(updatePlatform())) return false;
   if (!(autoPref() || {}).on) return false;
   if (autoFailedAt && Date.now() - autoFailedAt < AUTO_RETRY_AFTER) return false;
