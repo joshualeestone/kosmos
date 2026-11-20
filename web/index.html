@@ -22067,8 +22067,9 @@ function kplusRemote() {
    so one listener takes them all: the click first asks the board for a download key with the page's own marked fetch,
    then opens the same address with ?bdl=<key>, which the board accepts once, for that address only, within a minute
    (server.js downloadKeyTarget, the same list of routes). If no key comes (an older board, a refusal), the link opens
-   as it always did. A browser that sends Sec-Fetch-Site is told no key is needed, and from then on its links are left
-   alone. Listens on window in the bubble phase and leaves a click another handler took (an attachment card opening its preview,
+   as it always did. At load the page asks the board once whether this browser needs keys at all (it makes none): a
+   browser that sends Sec-Fetch-Site is told no, and its links are left alone from the first click, so its downloads
+   still start in the click itself. Listens on window in the bubble phase and leaves a click another handler took (an attachment card opening its preview,
    the viewer's own Mac-app link) alone, and a click with a modifier key. At the computer itself nothing here runs. */
 const DL_KEY_LINK_ROUTES = [
   /^\/api\/agent\/[^/]+\/files\/(?:download|download-folder)$/,
@@ -22122,6 +22123,10 @@ function dlKeyClick(e) {
 // On window, in the bubble phase: a click reaches window after every listener on document, so any handler there that
 // takes the click (it calls preventDefault) has already run, whatever order the page registered them in.
 if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('click', dlKeyClick);
+if (typeof fetch === 'function' && kplusRemote()) {
+  fetch('/api/download-key', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ask: true }) })
+    .then((res) => (res && res.ok ? res.json() : null)).then((b) => { if (b && b.needed === false) DL_KEY_NOT_NEEDED = true; }).catch(() => {});
+}
 /* #6724: the stamp the data-remote-hide rule keys on, set once at load (a page's own address does not change). */
 if (typeof document !== 'undefined' && document.documentElement && kplusRemote()) document.documentElement.setAttribute('data-kplus-remote', '');
 /* #5165 (a Kosmos+ user on a Windows laptop clicked a .pptx in a project's Files and it tried to open on the HOST):
@@ -22132,7 +22137,8 @@ const KPLUS_FOLDER_ELSEWHERE = 'That folder is on the computer Kosmos runs on, n
 const KPLUS_TERMINAL_ELSEWHERE = 'The Terminal window opens on the computer Kosmos runs on, not on this device.';
 const KPLUS_SETTINGS_ELSEWHERE = 'Those settings open on the computer Kosmos runs on, not on this device.';
 /* The download starts IN the person's click (an anchor clicked synchronously), so no browser can treat it as a
-   download nobody asked for. Alongside it the page looks at the same file with ?check=1 (the route's gates, then
+   download nobody asked for. (One exception, kosmos#8790: over Kosmos+ on a browser that sends no Sec-Fetch-Site,
+   dlKeyClick holds the click for a one-use key and starts it when the key comes back.) Alongside it the page looks at the same file with ?check=1 (the route's gates, then
    204 with no body, so the look never moves the file again): on a refusal the board's own sentence is shown through
    `say` (a kplusSayer), rather than left to the browser's downloads. At the click `say` gets `after` (a sentence
    the line was already showing, such as a cut-short list), which a refusal then replaces. `kind` is 'agent' (an agent's Files) or 'project'; the addresses are

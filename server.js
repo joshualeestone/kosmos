@@ -1261,11 +1261,16 @@ const DL_KEY_REQS = new WeakSet();   // the requests a key opened: boardTokenOk 
 function downloadKeyOk(req) {
   if (!req || req.method !== 'GET') return false;
   if (DL_KEY_REQS.has(req)) return true;
-  const raw = String(req.url || '');
-  const m = /[?&]bdl=([0-9a-f]{64})(?=[&#]|$)/.exec(raw.split('#')[0]);
+  const raw = String(req.url || '').split('#')[0];
+  const qAt = raw.indexOf('?');
+  const m = qAt < 0 ? null : /(?:^|&)bdl=([0-9a-f]{64})(?=&|$)/.exec(raw.slice(qAt + 1));   // the query only, never the path
   const key = m ? m[1] : null;
   if (!key) return false;
   if (boardauth.presentsCredential(req, ROUTING_BASE)) return false;   // a key never rides beside another credential
+  // A browser that says the click came from another site (or a sibling one) is refused: only the page's own link uses
+  // a key, and a browser that says anything here says same-origin. Old Safari says nothing.
+  const site = req.headers['sec-fetch-site'];
+  if (site && site !== 'same-origin' && site !== 'none') return false;
   const target = downloadKeyTarget(req.url);
   if (!target || !boardauth.redeemDownloadKey(key, target)) return false;
   DL_KEY_REQS.add(req);
@@ -6422,7 +6427,8 @@ function isDownloadCheck(req) {
 function refuseDownload(req, res, because, status = 404) {
   // #7686 review 1: the diagnostics route writes its head before it serialises, so its catch can land here late.
   if (answeredAlready(res, 'refuseDownload ' + status)) return;
-  if (req.headers['sec-fetch-mode'] === 'navigate' && !isDownloadCheck(req)) {
+  // kosmos#8790: a request a download key opened is the browser's own download too (old Safari sends no Sec-Fetch-Mode).
+  if ((req.headers['sec-fetch-mode'] === 'navigate' || DL_KEY_REQS.has(req)) && !isDownloadCheck(req)) {
     res.writeHead(204, { 'cache-control': 'no-store' });
     res.end();
     return;
@@ -7961,6 +7967,8 @@ const server = http.createServer(async (req, res) => {
     readBody(req, 4096).then((buf) => {
       let body = null;
       try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+      // The page's one look at load ({ ask: true }): does this browser need keys at all? It makes no key.
+      if (body && body.ask === true) { sendJson(res, 200, { ok: true, key: null, needed: !req.headers['sec-fetch-site'] }); return; }
       const target = body && typeof body.path === 'string' ? downloadKeyTarget(body.path) : null;
       if (!target) { sendJson(res, 400, { ok: false, because: 'that is not a download on this computer' }); return; }
       // A browser that sends Sec-Fetch-Site gets the token on its downloads already: no key, so none is left live.

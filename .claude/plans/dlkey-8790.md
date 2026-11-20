@@ -13,8 +13,9 @@ on a current browser the download still works (one extra small request first).
   exactly the address it was minted for (path, and the query without bdl, written the URLSearchParams way). The
   request it opens is the only one boardTokenOk then says yes to (a WeakSet). No cookie, no session. safeLogUrl
   redacts bdl like token and boot.
-- web/index.html: one capture-phase click listener on <a download> links to those routes, on a Kosmos+ address only:
-  mint with the page's marked fetch, then open the same address plus bdl. No key: the link opens as before.
+- web/index.html: one click listener (on window, bubble phase, see round 1) on <a download> links to those routes, on
+  a Kosmos+ address only: mint with the page's marked fetch, then open the same address plus bdl. No key: the link
+  opens as before. At load the page asks once ({ask: true}, no key made) whether this browser needs keys at all.
 
 ## Round 1 review changes
 - The page listener is on window in the bubble phase and leaves any click another handler took (an attachment card
@@ -24,6 +25,14 @@ on a current browser the download still works (one extra small request first).
   after that: no key is left live on a current browser, and no extra wait after the first download.
 - A key counts only as a literal bdl= (an encoded name, which safeLogUrl would not redact, opens nothing), and only on
   a request that presents no other credential (a wrong token header or a live session beside it).
+
+## Round 2 review changes
+- refuseDownload answers a key-opened request 204 with nothing to save, as it does a navigation (old Safari sends no
+  Sec-Fetch-Mode, so a refused keyed download was JSON that WebKit can save as the file).
+- The page asks once at load whether keys are needed, so a current browser's downloads start in the click itself.
+- A key is refused on a request that says Sec-Fetch-Site cross-site or same-site, and is read from the query only.
+- Not done here, on purpose: a walk through the real relay on old Safari. That needs a release with the connector
+  rebuilt; it is the card's last check before closing (#8790).
 
 ## Baron's conditions, where each is held
 1. first use, a real GET only; a probe or HEAD neither burns nor reads: redeemDownloadKey, downloadKeyOk (GET only),
