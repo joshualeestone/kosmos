@@ -21490,7 +21490,27 @@ window.addEventListener('unhandledrejection', (e) => {
 (() => {
   const nativeFetch = window.fetch;
   if (typeof nativeFetch !== 'function') return;
+  /* kosmos#8781: the board page's own requests say so with X-Kosmos-Board-Page: 1. A browser that sends no
+     Sec-Fetch-Site (Safari before 16.4) is otherwise refused the board token by the computer's connector on every read,
+     and the page shows "signed out" forever. Another site cannot put a custom header on a link, an image or a redirect,
+     and a fetch from another site that asks to is preflighted, which nothing approves; so the connector gives the token
+     to a request with no Sec-Fetch-Site and no Origin only when this header is on it (kosmos-relay proxy.rs
+     same_origin_without_fetch_site). Same-origin requests only: on a request to another computer's board it would
+     force a preflight. A Request object passes as it is (the page makes none). */
+  function withBoardPageHeader(args) {
+    try {
+      const input = args[0];
+      if (typeof location === 'undefined' || (typeof input !== 'string' && !(input instanceof URL))) return args;
+      if (new URL(String(input), location.href).origin !== location.origin) return args;
+      const init = Object.assign({}, args[1] || {});
+      const h = new Headers(init.headers || {});
+      if (!h.has('X-Kosmos-Board-Page')) h.set('X-Kosmos-Board-Page', '1');
+      init.headers = h;
+      return [input, init, ...args.slice(2)];
+    } catch { return args; }   // a URL or a header this cannot read: the request goes out exactly as it was
+  }
   window.fetch = function fetchReadingRefusals(...args) {
+    args = withBoardPageHeader(args);
     return nativeFetch.apply(window, args).then((res) => {
       if (res && res.ok === false && typeof res.clone === 'function') {
         // kosmos#6616: a 403 is read as JSON, which drains it just the same, to see whether it asks for a fresh sign-in.
