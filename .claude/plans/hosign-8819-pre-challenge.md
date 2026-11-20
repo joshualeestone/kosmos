@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: hosign-8819
-diff_hash: 0b87a8d5f612c52801a16c43bafb9848ced6d8b10e9ea48e06066686e3a8f178
+diff_hash: 1bdce5738e6fdca88913469456ef27166a2e42069db0feab3e5be82dae8031c5
 validation: local: engine/handoversign-8819 + seadmin-7116 + enrolsign-7116, 41/41 on the branch at origin/main. The comparison and the review guard each shown red with the check removed. The full suite runs on the PR's CI.
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-20T13:05:27Z
-iterations: 2
+iterations: 3
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 2
-**Converged:** Yes. Round 2 (Mona Lisa's re-read, her probe re-run) found nothing.
+**Iterations:** 3
+**Converged:** Yes. Round 2 (Mona Lisa's re-read) found nothing; round 3 (April's independent blind review) found one BLOCKER (the reachability guard) and two NITs, all fixed with the suite rerun; Mona Lisa's and April's reads together cover the final code.
 **Total actionable findings:** 1 SHOULD, 3 NITs
 **Fixed:** 1 SHOULD, 2 NITs | **Documented / accepted:** 1 NIT | **Asked:** 0
 
@@ -30,3 +30,10 @@ converged: true
 #### Iteration 2
 **Reviewer:** Mona Lisa, re-read at 3d7cf5d67f, her probe re-run (refused, 0 posts)
 **New findings:** none.
+
+#### Iteration 3
+**Reviewer:** April, independent blind review at e3e17478d0, bytes checked against escrowd's encoder on the relay branch
+**New findings:** 1 BLOCKER, 2 NITs
+- [BLOCKER] engine.reachable.test.js red: encodeHandoverStart exported and used only by a test --> FIXED (excused by name with its reason, as encodeChange)
+- [NIT] a cancelled Touch ID spends the review --> FIXED (the error carries askAgain and says ask again; test)
+- [NIT] a repeated agent in what is shown --> FIXED (refused; test)
