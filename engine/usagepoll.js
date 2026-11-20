@@ -125,6 +125,7 @@ const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
    AGENT_WORKFORCE_USAGE_POLL=0 at a start switches it off for good. */
 /* Review 20: whether the reader is switched on at all, which also decides whether its records are shown, so a board
    switched off shows nothing it measured earlier. */
+/* A kept switch counts only for the board's own process.env object (keptswitch.test.js: a copy reads off). */
 function enabled(env = process.env) { return require('./keptswitch').on('usagePoll', env) && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1'; }
 
 function liveAllowed(env = process.env) {

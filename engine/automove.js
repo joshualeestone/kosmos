@@ -51,6 +51,7 @@ const SKIP_SAID_MS = 60 * 60 * 1000;   // a skipped line for one agent at most o
    the next candidate gets its turn (the first candidate is always tried first, so one such agent blocked every move). */
 const RECHECK_HOLD_MS = 10 * 60 * 1000;   // review 3: long enough for the next candidate, short for one bad roster read
 
+/* A kept switch counts only for the board's own process.env object (keptswitch.test.js: a copy reads off). */
 function movesOn(env = process.env) { return require('./keptswitch').on('automove', env) && env.AGENT_WORKFORCE_AUTOMOVE_OFF !== '1'; }
 
 /**
