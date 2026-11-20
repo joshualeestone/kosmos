@@ -39,10 +39,11 @@ function run(args, { home, data }) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: '9',
       AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback', KOSMOS_AGENT_TOKEN: '', TMUX: '', TMUX_PANE: '' };
-    execFile('bash', [CLI, ...args], { env, timeout: 30000 }, (err, stdout, stderr) => {
+    const child = execFile('bash', [CLI, ...args], { env, timeout: 30000 }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + ')')); return; }
       resolve({ code: err ? err.code : 0, both: `${stdout}${stderr}` });
     });
+    child.stdin.end();   // kosmos#8844: nothing piped, so a no-words --unchanged reads an ended stdin at once
   });
 }
 
@@ -95,7 +96,6 @@ test('kosmos#8269 (Windows): the refusal names another agent\'s newest day when 
   const go = async () => {
     const err = [];
     const code = await cli.main(['feedback', 'write', '--unchanged'], { env: {}, engine, readStdin: async () => ({ text: '', ended: true }),   // kosmos#8844: no words reads stdin (nothing piped here)
-     
       out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call expected'); } });
     return { code, err: err.join('\n') };
   };

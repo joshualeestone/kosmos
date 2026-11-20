@@ -52,11 +52,12 @@ function run(args, { home, data }, stdin) {
     child.stderr.on('data', (d) => { both += d; });
     const killer = setTimeout(() => child.kill('SIGKILL'), 20000);
     child.on('error', reject);
-    child.on('close', (code, signal) => {
+    child.on('close', (exitCode, signal) => {
       clearTimeout(killer);
       try { child.stdin.destroy(); } catch {}
-      if (signal) { reject(new Error('the CLI was killed (' + signal + ') after ' + (Date.now() - started) + ' ms: it hung')); return; }
-      resolve({ code, both, ms: Date.now() - started });
+      const res = { code: exitCode, both, ms: Date.now() - started };
+      if (typeof res.code !== 'number') { reject(new Error('the CLI gave no exit code (' + signal + ') after ' + res.ms + ' ms: it hung')); return; }
+      resolve(res);
     });
     child.stdin.on('error', () => {});
     if (typeof stdin === 'string') child.stdin.end(stdin);
@@ -145,4 +146,40 @@ test('kosmos#8844 (Windows): the piped line is added, a cut line is refused, and
   assert.equal((await go(['feedback', 'write', '--unchanged', 'the', 'words'], { text: 'piped\n', ended: true })).code, 0);
   assert.equal(reads, before, 'stdin was read although words were given');
   assert.equal(written[2], 'Nothing new since my report of ' + OLD + ', except: the words');
+});
+
+test('kosmos#8844 (Mac): more than one line piped in is refused and nothing is saved', async () => {
+  const h = makeHome();
+  const r = await run(['feedback', 'write', '--unchanged'], h, 'first line\nsecond line\n');
+  assert.equal(r.code, 2, r.both);
+  assert.match(r.both, /Nothing was saved: --unchanged takes one line, and more than one was piped in/);
+  assert.deepEqual(todays(h.data), [], 'a many-line pipe was saved as the note');
+});
+
+test('kosmos#8844 (Windows): more than one line is refused, and a PowerShell pipeline is refused with the words form, no file', async () => {
+  const written = [];
+  const engine = { feedback: { write: (b) => { written.push(b); return { ok: true }; }, writer: () => null,
+    unchanged: (from, note) => ({ ok: true, since: OLD, day: '2026-11-03', body: 'Nothing new since my report of ' + OLD + (note ? ', except: ' + note : '.') }) } };
+  const go = async (argv, piped) => {
+    const err = [];
+    const code = await cli.main(argv, { env: {}, engine, readStdin: async () => piped,
+      out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call'); } });
+    return { code, err: err.join('\n') };
+  };
+  const many = await go(['feedback', 'write', '--unchanged'], { text: 'first line\r\nsecond line\r\n', ended: true });
+  assert.equal(many.code, 2);
+  assert.match(many.err, /Nothing was saved: --unchanged takes one line, and more than one was piped in/);
+  assert.deepEqual(written, []);
+  // The PowerShell launcher passes the words in a file and says a pipeline was used (kosmos.ps1).
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-fbstdin-argv-')), 'argv.json');
+  fs.writeFileSync(f, JSON.stringify(['feedback', 'write', '--unchanged']));
+  const ps = await go([cli.ARGV_FILE_FLAG, f, '--kosmos-ps-pipeline'], { text: 'never read', ended: true });
+  assert.equal(ps.code, 2, ps.err);
+  assert.match(ps.err, /text piped into kosmos in PowerShell does not reach it\. Give the one new thing as words instead: kosmos feedback write --unchanged "the one new thing"/);
+  assert.doesNotMatch(ps.err, /file/, 'the refusal sends the person to a file, which --unchanged refuses');
+  assert.deepEqual(written, []);
+  // CONTROL: the same launcher path without the pipeline flag saves the pointer, so the refusal above is the flag's.
+  fs.writeFileSync(f, JSON.stringify(['feedback', 'write', '--unchanged']));
+  assert.equal((await go([cli.ARGV_FILE_FLAG, f], { text: '', ended: true })).code, 0);
+  assert.deepEqual(written, ['Nothing new since my report of ' + OLD + '.']);
 });

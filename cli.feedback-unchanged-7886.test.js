@@ -35,14 +35,16 @@ function run(args, { home, data }) {
   return new Promise((resolve, reject) => {
     const env = { ...process.env, KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: '9',
       AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback', KOSMOS_AGENT_TOKEN: '', TMUX: '', TMUX_PANE: '' };
-    execFile('bash', [CLI, ...args], { env, timeout: 30000 }, (err, stdout, stderr) => {
+    const child = execFile('bash', [CLI, ...args], { env, timeout: 30000 }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + ')')); return; }
       resolve({ code: err ? err.code : 0, both: `${stdout}${stderr}` });
     });
+    child.stdin.end();   // kosmos#8844: nothing piped, so a no-words --unchanged reads an ended stdin at once
   });
 }
 
-// kosmos#8844: with no words, --unchanged reads its one line from stdin (here: nothing piped); with words it must not read it.
+// kosmos#8844: with no words, --unchanged reads its one line from stdin (this Windows stub: nothing piped); with words it must
+// not read it. The same check is inlined in cli.feedback-unchanged-win32-7886.test.js; keep the two alike.
 const stdinFor = (argv) => async () => {
   if (argv.some((a) => !['feedback', 'write', '--unchanged'].includes(a))) throw new Error('stdin was read on a write that has words');
   return { text: '', ended: true };

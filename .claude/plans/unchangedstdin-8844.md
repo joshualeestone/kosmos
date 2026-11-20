@@ -21,7 +21,16 @@ pinned a reader that throws).
   after 3 s of quiet (Windows: the existing `readStandardInput` with `STDIN_QUIET_LIMIT_MS`; Mac: the same logic inside
   the node snippet `--unchanged` already runs). A line that stops without ending is refused, nothing saved (exit 2).
 - With words, the words are the line and stdin is not read, exactly as a plain `feedback write` treats words + stdin.
-- Windows PowerShell pipeline (text does not reach kosmos): refused with the words form as the example.
+- More than one line piped in is refused, nothing saved (Mac exit 8 inside node, then exit 2; Windows exit 2). The help
+  and the nudge both say one line, and this stops a whole report, or unrelated data on an inherited stdin, from being
+  saved and sent as the note (review round 1).
+- A stdin read error with data is its own refusal (Mac exit 7), not the "stopped arriving" sentence.
+- Windows PowerShell pipeline (text does not reach kosmos): refused with its own sentence pointing at the words form. The
+  shared psPipelineRefused says "save the text in a file", which --unchanged refuses (review round 1).
+
+Known residual: a script that runs a plain `--unchanged` inside `while read ...; do ...; done < list` now consumes the
+loop's input (as `cat`, or a plain `feedback write`, would). A one-line list item is then saved as the note; more lines
+are refused. Accepted: the nudge tells agents to type the command, not to loop it.
 - Help line on both CLIs: "any text, as words or piped in, is added to it".
 
 Rejected:
