@@ -1,5 +1,6 @@
 'use strict';
 /**
+ * The page's location is fixed at http://board.test here, so "this board" means that origin in every case below.
  * kosmos#8781: the board page's own fetches carry X-Kosmos-Board-Page: 1, so a computer's connector can give the board
  * token to a browser that sends no Sec-Fetch-Site (Safari before 16.4) on the page's own reads, and to nothing another
  * site starts (kosmos-relay proxy.rs same_origin_without_fetch_site). Runs the page's real fetch wrapper, sliced from
@@ -94,6 +95,22 @@ test('kosmos#8781: a URL or a header the wrapper cannot read, and another origin
   assert.equal(w.sent[3].init.keepalive, true);
   assert.equal(w.sent[3].init.cache, 'no-store');
   assert.equal(header(w.sent[3]), '1');
+});
+
+test('kosmos#8781: the board makes exactly one redirect, its same-origin boot redirect (the header rule rests on no off-origin redirect)', () => {
+  // fetch keeps X-Kosmos-Board-Page across a redirect, so a board route that sent the page off this origin and was
+  // bounced back would arrive with it. Today the only 3xx the board writes is the boot redirect, whose location is a
+  // path built from the request's own (engine/boardauth.js pathWithoutParam / pathWithoutToken). A new redirect fails
+  // here so its author checks it stays on this origin, and then adds it to this list.
+  const files = ['server.js', ...fs.readdirSync(path.join(__dirname, 'engine')).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js')).map((f) => path.join('engine', f))];
+  const found = [];
+  for (const f of files) {
+    const text = fs.readFileSync(path.join(__dirname, f), 'utf8');
+    // The redirect codes only: 301, 302, 303, 307, 308 (a 304 is "not modified", not a redirect).
+    for (const m of text.matchAll(/writeHead\(\s*30[12378]\b[^\n]*/g)) found.push(f + ': ' + m[0].trim());
+  }
+  assert.deepEqual(found, ["server.js: writeHead(302, { location: boot.location, 'set-cookie': boot.setCookie, 'cache-control': 'no-store' });"],
+    'the board writes a redirect this rule has not checked: make sure it stays on this origin, then list it here');
 });
 
 test('kosmos#8781: a request the wrapper cannot read goes out exactly as it was', async () => {
