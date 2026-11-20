@@ -300,27 +300,42 @@ function installOffer() {
  * 🛑 NOT SELF_INSTALL, ON PURPOSE. canSelfInstall also gates the UNATTENDED install (autoInstallWouldStart), and a
  * Linux entry there would install automatically on every Linux board, following its own channel; Kosmos Cloud boxes
  * are created on staging. That path stays off on Linux (slice 2 brings a prod-only schedule of its own).
- * Read at most every five minutes for the card (the status poll asks often), fresh at a press. */
+ * Read at most every five minutes for the card (the status poll asks often), fresh at a press. A press asks twice
+ * (the route, then beginInstall), so a reading taken in the last few seconds serves both.
+ * systemctl runs synchronously on the board's event loop, bounded at 2 s, at most once per memo window or press.
+ * Known gap, on the safe side: the unit name is derived from the home as this board names it; if setup.sh named
+ * the unit from a different spelling of the same folder, the cgroup never matches and the command stays. */
 const LINUX_PRESS_TTL_MS = 5 * 60 * 1000;
-let linuxPressFn = null;     // test seam: () => boolean
-let linuxPressMemo = null;   // { at, ok }
+const LINUX_PRESS_FRESH_MS = 3000;
+let linuxPressFn = null;       // test seam: () => boolean (the whole decision)
+let linuxPressReaders = null;  // test seam: { cgroup: () => string, killMode: (unit) => { status, stdout } }
+let linuxPressMemo = null;     // { at, ok }
 /** The cgroup v2 line of /proc/self/cgroup names this unit as the process's own (".../app.slice/<unit>"). Pure. */
 function cgroupIsUnit(text, unit) {
   if (!unit) return false;
   return String(text || '').split('\n').some((l) => l.startsWith('0::') && l.trim().endsWith('/' + unit));
 }
+/** The decision itself, from what the two readers returned. Pure apart from the readers it is handed. */
+function pressVerdict(cgroupText, unit, readKillMode) {
+  if (!cgroupIsUnit(cgroupText, unit)) return false;
+  const r = readKillMode(unit);
+  return Boolean(r) && r.status === 0 && String(r.stdout || '').trim() === 'process';
+}
+const REAL_PRESS_READERS = {
+  cgroup: () => fs.readFileSync('/proc/self/cgroup', 'utf8'),
+  killMode: (unit) => require('child_process').spawnSync('systemctl', ['--user', 'show', unit, '-p', 'KillMode', '--value'],
+    { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }),
+};
 function linuxUnitTakesPress({ fresh = false } = {}) {
   if (linuxPressFn) return Boolean(linuxPressFn());
   const now = Date.now();
-  if (!fresh && linuxPressMemo && now - linuxPressMemo.at < LINUX_PRESS_TTL_MS) return linuxPressMemo.ok;
+  const window = fresh ? LINUX_PRESS_FRESH_MS : LINUX_PRESS_TTL_MS;
+  if (linuxPressMemo && now - linuxPressMemo.at < window) return linuxPressMemo.ok;
+  const readers = linuxPressReaders || REAL_PRESS_READERS;
   let ok = false;
   try {
     const unit = require('./linuxboard').boardUnitName(installedHomeAsInstalled() || undefined);
-    if (cgroupIsUnit(fs.readFileSync('/proc/self/cgroup', 'utf8'), unit)) {
-      const r = require('child_process').spawnSync('systemctl', ['--user', 'show', unit, '-p', 'KillMode', '--value'],
-        { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
-      ok = Boolean(r) && r.status === 0 && String(r.stdout || '').trim() === 'process';
-    }
+    ok = pressVerdict(readers.cgroup(), unit, readers.killMode);
   } catch { ok = false; }
   linuxPressMemo = { at: now, ok };
   return ok;
@@ -332,6 +347,7 @@ function canPressUpdate(platform = updatePlatform(), opts) {
   return platform === 'linux' && Boolean(installedRoot()) && linuxUnitTakesPress(opts);
 }
 function setLinuxPress(f) { linuxPressFn = typeof f === 'function' ? f : null; linuxPressMemo = null; }
+function setLinuxPressReaders(r) { linuxPressReaders = r && typeof r.cgroup === 'function' && typeof r.killMode === 'function' ? r : null; linuxPressMemo = null; }
 
 /**
  * 🪟 S5: the "Roll back" offer -- the kept previous build a person can restore, `{ version }`, or null.
@@ -1629,7 +1645,7 @@ async function pauseRefusalNow({ fetchImpl } = {}) {
 }
 
 module.exports = {
-  canPressUpdate, cgroupIsUnit, setLinuxPress, // kosmos#8786 slice 1: the Linux press
+  canPressUpdate, cgroupIsUnit, setLinuxPress, setLinuxPressReaders, // kosmos#8786 slice 1: the Linux press
   noteAutoUpdateAtBoot, setAutoLog, // kosmos#8421: the board log says an automatic update started, and how it ended
   paused, pauseRefusalNow, // kosmos#6620
   PAUSED_SENTENCE: manifestVerify.PAUSED_SENTENCE, // kosmos#6620

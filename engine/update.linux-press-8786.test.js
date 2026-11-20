@@ -51,7 +51,7 @@ test.beforeEach(() => { saved = {}; for (const k of ENV_KEYS) { saved[k] = proce
 test.afterEach(() => {
   for (const k of ENV_KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
   update.setPlatform(null); update.setInstalledRoot(null); update.setFetcher(null); update.setLinuxPress(null);
-  update.setAutoPref(null); update.setInstallRunner(null); update.resetCache();
+  update.setAutoPref(null); update.setInstallRunner(null); update.setLinuxPressReaders(null); update.resetCache();
 });
 
 test('#8786: a Linux board whose unit survives the press gets [Update], and no command', async () => {
@@ -87,8 +87,8 @@ test('#8786: SELF_INSTALL is unchanged, so the unattended install stays off on L
 test('#8786: the press on Linux goes past the platform refusal to the reviewed spawn (stopped there by the test gate)', async () => {
   await look('linux', 'x64', true);
   // installRunner null: the real wiring. In a test process the live-execution gate THROWS before /bin/sh runs.
-  assert.throws(() => update.beginInstall({}), (e) => !/cannot update itself/.test(String(e && e.message)),
-    'the Linux press still reached the platform refusal');
+  assert.throws(() => update.beginInstall({}), (e) => Boolean(e) && e.code === 'LIVE_EXECUTION_REFUSED',
+    'the Linux press did not reach the live-execution gate in front of the spawn');
   update.resetCache();
   await look('linux', 'x64', false);
   assert.throws(() => update.beginInstall({}), /cannot update itself on this platform \(linux\)/, 'CONTROL: the refusal no longer fires on a unit that would not survive');
@@ -120,8 +120,73 @@ test('#8786: cgroupIsUnit reads the cgroup v2 line, and only an exact unit name 
   assert.equal(update.cgroupIsUnit(mine, ''), false);
 });
 
-test('#8786: off Linux, or outside any unit, the real reading says no (this test process is in no board unit)', async () => {
+test('#8786: the real readers say no here (no /proc on a Mac; on Linux the temp root names a unit this process is not in)', async () => {
   await look('linux', 'x64', true);
   update.setLinuxPress(null);   // the real reading: /proc/self/cgroup (absent on a Mac) and systemctl
   assert.equal(update.canPressUpdate('linux'), false, 'a test process read as a board inside its own unit');
+});
+
+/* The real comparison, through the reader seam: everything below linuxUnitTakesPress runs for real. */
+const BOARD_CG = (unit) => '0::/user.slice/user-1001.slice/user@1001.service/app.slice/' + unit + '\n';
+function readers({ inUnit = true, status = 0, stdout = 'process\n', calls = [] } = {}) {
+  return {
+    cgroup: () => (inUnit ? BOARD_CG(require('./linuxboard').boardUnitName(ROOT)) : '0::/user.slice/user-1001.slice/session-3.scope\n'),
+    killMode: (unit) => { calls.push(unit); return { status, stdout }; },
+  };
+}
+async function lookReal(r) {
+  await look('linux', 'x64', true);
+  update.setLinuxPress(null);
+  update.setLinuxPressReaders(r);
+}
+
+test('#8786: KillMode=process inside the board unit is the only reading that offers the press', async () => {
+  const calls = [];
+  await lookReal(readers({ calls }));
+  assert.equal(update.canPressUpdate('linux'), true, 'the reading that was measured safe on a real box was refused');
+  assert.deepEqual(calls, [require('./linuxboard').boardUnitName(ROOT)], 'systemctl was asked about another unit');
+  for (const [why, r] of [
+    ['control-group (the measured failure)', readers({ stdout: 'control-group\n' })],
+    ['mixed', readers({ stdout: 'mixed\n' })],
+    ['systemctl failed', readers({ status: 1 })],
+    ['systemctl gave nothing', readers({ stdout: '' })],
+    ['systemctl timed out (status null)', readers({ status: null, stdout: 'process\n' })],
+    ['not inside the board unit', readers({ inUnit: false })],
+  ]) {
+    update.setLinuxPressReaders(r);
+    assert.equal(update.canPressUpdate('linux'), false, 'offered the press when ' + why);
+  }
+});
+
+test('#8786: outside the board unit, systemctl is never asked', async () => {
+  const calls = [];
+  await lookReal(readers({ inUnit: false, calls }));
+  assert.equal(update.canPressUpdate('linux'), false);
+  assert.deepEqual(calls, [], 'systemctl was run for a process outside the unit');
+});
+
+test('#8786: a reader that throws reads as no press, never as a crash', async () => {
+  await lookReal({ cgroup: () => { throw new Error('ENOENT'); }, killMode: () => ({ status: 0, stdout: 'process' }) });
+  assert.equal(update.canPressUpdate('linux'), false);
+});
+
+test('#8786: the card trusts its five-minute reading, the press reads afresh, and one press reads once', async () => {
+  const calls = [];
+  let mode = 'process\n';
+  await lookReal({ cgroup: readers().cgroup, killMode: (u) => { calls.push(u); return { status: 0, stdout: mode }; } });
+  assert.ok(update.installOffer(), 'CONTROL: the first reading offers the button');
+  assert.equal(calls.length, 1);
+  mode = 'control-group\n';
+  assert.ok(update.installOffer(), 'the card re-read inside its five-minute window');
+  assert.equal(calls.length, 1, 'the poll ran systemctl again inside the window');
+  // The press: the route's refusal, then beginInstall's. Fresh means inside a few seconds, so a reading this new
+  // serves it; age the memo past that and the press must see the changed unit.
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 10 * 1000;
+    assert.match(update.selfInstallRefusal('linux'), /run this in a terminal/, 'the press trusted a stale "process"');
+    assert.equal(calls.length, 2, 'the press did not read afresh');
+    update.selfInstallRefusal('linux');
+    assert.equal(calls.length, 2, 'the second check of the same press ran systemctl again');
+  } finally { Date.now = realNow; }
 });

@@ -37,6 +37,7 @@ let ROOT = null;
 async function look(platform, arch, channel) {
   update.resetCache();
   update.setPlatform(platform, arch);
+  update.setLinuxPress(() => false);   // kosmos#8786: these tests assert the command arm, chosen on purpose
   const root = installedRoot();
   ROOT = root;
   update.setInstalledRoot(() => root);
@@ -48,7 +49,7 @@ async function look(platform, arch, channel) {
 test.beforeEach(() => { saved = {}; for (const k of ENV_KEYS) { saved[k] = process.env[k]; delete process.env[k]; } });
 test.afterEach(() => {
   for (const k of ENV_KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
-  update.setPlatform(null); update.setInstalledRoot(null); update.setFetcher(null); update.resetCache();
+  update.setPlatform(null); update.setInstalledRoot(null); update.setFetcher(null); update.setLinuxPress(null); update.resetCache();
 });
 
 test('#7935: a Linux board with a newer release gets the installer command, not an [Update] button', async () => {

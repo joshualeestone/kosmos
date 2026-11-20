@@ -45,6 +45,7 @@ function paint(offer, manual, kept, focusedId, remote = false) {
 async function linuxLook() {
   update.resetCache();
   update.setPlatform('linux', 'x64');
+  update.setLinuxPress(() => false);   // kosmos#8786: these tests assert the command arm, chosen on purpose
   const root = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-linuxroot-'));
   fs.mkdirSync(nodePath.join(root, 'runtime', 'bin'), { recursive: true });
   fs.mkdirSync(nodePath.join(root, 'app'), { recursive: true });
@@ -55,7 +56,7 @@ async function linuxLook() {
     artifact: 'kosmos-linux-x64.tar.gz', versioned: `kosmos-${NEWER}-linux-x64.tar.gz`, arch: 'x64' }) }));
   await update.refresh();
 }
-test.afterEach(() => { update.setPlatform(null); update.setInstalledRoot(null); update.setFetcher(null); update.resetCache(); });
+test.afterEach(() => { update.setPlatform(null); update.setInstalledRoot(null); update.setFetcher(null); update.setLinuxPress(null); update.resetCache(); });
 
 test('#7935: a Linux board shows the installer command and no [Update] button', async () => {
   await linuxLook();
