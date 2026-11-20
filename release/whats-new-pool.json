@@ -2439,7 +2439,7 @@
       "title": "Older Safari opens your board",
       "icon": "phone",
       "rank": 8.0,
-      "line": "An older Safari (before 16.4) shows your board through Kosmos+, not a signed-out page. Agent pictures, downloads and previews do not load."
+      "line": "An older Safari (before 16.4) now shows your board through Kosmos+, its pictures and previews included, not a signed-out page."
     },
     {
       "since": "0.8.12",
