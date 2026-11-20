@@ -27,45 +27,51 @@ require('./test-support/catalogue-fixture').sandboxWithCatalogue('roles-feedback
 const assert = require('node:assert/strict');
 const roles = require('./engine/roles');
 
-test('the PM role carries the daily product-feedback instruction (write path + self-check + Kosmos-scoped)', () => {
+/* kosmos#8735 slice 3: since #7374 the board itself asks one agent a day, Project Manager first, and its message
+   (engine/feedbacknudge.js nudgeText) carries the questions and the commands. The PM's instructions keep that the ask
+   comes, what it is about, and what the report must never carry; the questions and #3563 are pinned on the ask. */
+const nudge = () => require('./engine/feedbacknudge').nudgeText();
+
+test('the PM role says the daily product-feedback ask comes, what it is about, and what it must never carry', () => {
   const pm = roles.byKey('pm');
   assert.ok(pm, 'the pm role exists');
   const i = pm.instructions;
-  assert.match(i, /kosmos feedback write/, 'the PM is told the write command (the slice-2a verb)');
-  assert.match(i, /kosmos feedback show/, 'the PM is told to self-check today first (the cadence, since no scheduler exists)');
-  assert.match(i, /about Kosmos itself/, 'the note is product feedback about Kosmos itself, not the operator\'s own work');
-  assert.match(i, /once a day/i, 'the cadence is daily');
-  // #2037 revision: the note is a structured question prompt, not a free write-up
-  // (three questions then; #3563 added a fourth, on tasks).
-  assert.match(i, /bugs did you hit today|not\s+[\s\S]*wired up/i, 'Q1: bugs / not-wired-up');
-  assert.match(i, /is anything broken/i, 'Q2: anything broken');
-  assert.match(i, /make the app better/i, 'Q3: suggestions to improve');
-  // #2037 revision: an explicit privacy rule lives inside the prompt itself.
-  assert.match(i, /do not share usernames, agent names, or project names/i,
-    'the prompt carries the explicit no-identifiers rule');
+  assert.match(i, /Once a day Kosmos asks one agent, a Project Manager first, for a short report\s+about Kosmos itself/, 'the PM knows the ask comes and that it is about Kosmos itself');
+  assert.match(i, /when it asks you, do it/, 'the PM is told to answer the ask');
+  // #2037 revision: the privacy rule stays in the brief as safety text, beside the ask's own copy.
+  assert.match(i, /Never\s+put usernames, agent names, project names, or a secret, API key, token, or\s+password in it/,
+    'the brief carries the no-identifiers and no-secrets rule');
+  assert.match(i, /sent to the Kosmos team\s+\(scrubbed\) unless sending is switched off in Settings, Automation/);
 });
 
-test('#3563: the report asks for a qualitative tasks note, in words, never counts', () => {
-  const i = roles.byKey('pm').instructions;
-  // Josh, 2026-09-24: tasks go INSIDE the existing report as the agent's own
-  // words ("good, bad, or ugly"), "not as a separate actual numerical call".
-  assert.match(i, /how are tasks going\?/i, 'Q4: the tasks question is asked');
-  assert.match(i, /bad or\s+ugly/i, 'Q4 invites the bad and the ugly, not only the good');
-  assert.match(i, /anything that is stuck/i, 'Q4 asks what is stuck');
-  assert.match(i, /do not count them: no task\s+tallies/i, 'Q4 forbids task counts (no numerical task telemetry)');
-  // Scoped to tasks: a bare "no numbers" would read as banning a version or an
-  // error code from Q1-Q3, which is what makes those reports useful.
-  assert.doesNotMatch(i, /no numbers/i, 'the no-counts rule names tasks, not every number in the report');
-  assert.match(i, /no task titles or what\s+a task says/i, 'Q4 forbids lifting task titles or contents');
-  // The lead-in names how many questions there are; it must agree with the list,
-  // or adding Q4 without updating "three" reads as a report with a stray extra.
-  const section = i.slice(i.indexOf('## Once a day: help make Kosmos better'));
-  const numbered = section.match(/^\d+\. /gm) || [];
+test('#2037: the board\'s daily ask carries the write path, the self-check and the questions', () => {
+  const t = nudge();
+  assert.match(t, /kosmos feedback write/, 'the write command (the slice-2a verb)');
+  assert.match(t, /kosmos feedback show/, 'the self-check, so a report already written is left alone');
+  assert.match(t, /about Kosmos itself/, 'product feedback about Kosmos itself, not the operator\'s own work');
+  assert.match(t, /once a day/i, 'the cadence is daily');
+  assert.match(t, /bugs did you hit today/i, 'Q1: bugs / not-wired-up');
+  assert.match(t, /is anything broken/i, 'Q2: anything broken');
+  assert.match(t, /make the app better/i, 'Q3: suggestions to improve');
+  assert.match(t, /No usernames, agent names or project names, and never a key, token or password/, 'the no-identifiers rule');
+});
+
+test('#3563: the board\'s ask asks for a qualitative tasks note, in words, never counts', () => {
+  const t = nudge();
+  // Josh, 2026-09-24: tasks go INSIDE the existing report as the agent's own words ("good, bad, or ugly"), "not as a
+  // separate actual numerical call".
+  assert.match(t, /how are tasks going\?/i, 'Q4: the tasks question is asked');
+  assert.match(t, /bad or ugly/i, 'Q4 invites the bad and the ugly, not only the good');
+  assert.match(t, /anything that is stuck/i, 'Q4 asks what is stuck');
+  assert.match(t, /do not count them: no task tallies/i, 'Q4 forbids task counts (no numerical task telemetry)');
+  assert.doesNotMatch(t, /no numbers/i, 'the no-counts rule names tasks, not every number in the report');
+  assert.match(t, /no task titles or what a task says/i, 'Q4 forbids lifting task titles or contents');
+  // The lead-in names how many questions there are; it must agree with the list.
+  const numbered = t.match(/(?:^| )\d\. /g) || [];
   const words = { 4: 'four', 5: 'five', 6: 'six', 7: 'seven' };
-  assert.ok(numbered.length >= 4, 'the section lists at least the four questions');
+  assert.ok(numbered.length >= 4, 'the ask lists at least the four questions');
   assert.ok(words[numbered.length], 'extend the words map when a question is added');
-  assert.match(section, new RegExp('these ' + words[numbered.length] + ' questions'),
-    'the lead-in count agrees with the numbered list');
+  assert.match(t, new RegExp('these ' + words[numbered.length] + ' questions'), 'the lead-in count agrees with the numbered list');
 });
 
 test('the daily-feedback instruction is PM-scoped, not fleet-wide', () => {
@@ -73,11 +79,11 @@ test('the daily-feedback instruction is PM-scoped, not fleet-wide', () => {
   // single designated author avoids clobbering. Targeting the PM matches the
   // plan's recorded decision and Josh's "probably the PM".
   for (const r of roles.ROLES.filter((r) => r.key !== 'pm')) {
-    assert.doesNotMatch(r.instructions, /kosmos feedback write/,
-      `role '${r.key}' must NOT carry the daily-feedback instruction; it is PM-scoped`);
+    assert.doesNotMatch(r.instructions, /Once a day: help make Kosmos better/,
+      `role '${r.key}' must NOT carry the daily-feedback section; it is PM-scoped`);
   }
   // Positive control: the pm role DOES carry it, so the negative sweep above is
   // meaningful rather than passing because the string appears in no role at all.
-  assert.match(roles.byKey('pm').instructions, /kosmos feedback write/,
+  assert.match(roles.byKey('pm').instructions, /Once a day: help make Kosmos better/,
     'the pm role must carry it (control for the negative sweep)');
 });

@@ -288,49 +288,13 @@ const ROLES = [
       '',
       '## Once a day: help make Kosmos better',
       '',
-      'Kosmos gets better when its agents say what is rough. Once a day, answer',
-      'these four questions about Kosmos itself and save it with',
-      /* #5946: piped text never reaches kosmos in PowerShell, so the form that works there is named too. kosmos#8506:
-         on Windows only, where PowerShell is; the board writes its agents' instructions on their own platform. */
-      ...(process.platform === 'win32' ? [
-        '`kosmos feedback write` (type it, or pipe it in on stdin; in PowerShell,',
-        'save it in a file and run `kosmos feedback write --body-file <file>`,',
-        'because piped text never arrives there and an apostrophe ends a',
-        'single-quoted argument). If this session started after your day\'s work,',
-      ] : [
-        '`kosmos feedback write` (type it, or pipe it in on stdin). If this session',
-        'started after your day\'s work,',
-      ]),
-      'run `kosmos feedback day` first to see what you and your person said today',
-      'and which tasks you changed. (If nothing has changed since your own last report,',
-      'which `kosmos feedback list --mine` lists, not another agent\'s,',
-      'run `kosmos feedback write --unchanged` instead of repeating it.) The questions:',
-      '',
-      '1. What bugs did you hit today, or what did your user ask for that is not',
-      '   wired up yet?',
-      '2. Is anything broken?',
-      '3. What would make the app better, on the technical side or for the people',
-      '   using it?',
-      /* #3563, Josh 2026-09-24 06:50: tasks get a qualitative note INSIDE this
-         report, "not as a separate actual numerical call". No counts, no new
-         ping, no task titles or contents lifted out; the three-ping telemetry
-         ruling (2026-09-14) still stands. Words in an existing report only. */
-      '4. How are tasks going? In your own words: what went well, what was bad or',
-      '   ugly, how tasks are being used, and anything that is stuck. Describe',
-      '   tasks, do not count them: no task tallies, and no task titles or what',
-      '   a task says.',
-      '',
-      'Do not share usernames, agent names, or project names in the report. It is',
-      'a note about the product, not about who did what: keep it to what is rough',
-      'and what would help. Never paste a secret, API key, token, or password --',
-      'if you quote an error, a log line, or a config to show what broke, redact any',
-      'key or token in it first. The value is never what makes the report useful.',
-      '',
-      'Check first with `kosmos feedback show`: if it prints a note for today, leave',
-      /* #7374 review 4: sending is on by default (#2037/#2013), so "saved here" alone told the agent its note stays
-         private; the board's own daily ask says it is sent, and the two must agree. kosmos#8462: it says when there
-         is no report yet, so "prints a note", not "has output". */
-      'it; if it says there is no report yet, write one. It is saved here, on this computer, and sent to the Kosmos team',
+      /* kosmos#8735 slice 3: the routine (the four questions, Josh's #3563 tasks rule, the commands) is typed in by
+         the board once a day, Project Manager first (engine/feedbacknudge.js nudgeText, #7374), so it is not kept
+         here twice. What stays is what the report must never carry, and where it goes. */
+      'Once a day Kosmos asks one agent, a Project Manager first, for a short report',
+      'about Kosmos itself and says how to write it; when it asks you, do it. Never',
+      'put usernames, agent names, project names, or a secret, API key, token, or',
+      'password in it. It is saved on this computer and sent to the Kosmos team',
       '(scrubbed) unless sending is switched off in Settings, Automation.',
     ].join('\n'),
   },

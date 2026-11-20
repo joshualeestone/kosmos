@@ -191,10 +191,10 @@ test('#4415: a negation reaches only within its own clause, and a negated word i
 
 test('#4415: the report form\'s own questions are not items, matched exactly, and a real question still scores', () => {
   const t = require('./feedback-triage');
-  const roles = require('fs').readFileSync(require('path').join(__dirname, 'roles.js'), 'utf8');
-  const flat = roles.replace(/'\s*,\s*\n\s*'/g, ' ').replace(/\s+/g, ' ');
+  // kosmos#8735 slice 3: the questions live in the board's daily ask (feedbacknudge.nudgeText), their one copy.
+  const flat = require('./feedbacknudge').nudgeText().replace(/\s+/g, ' ');
   for (const q of t.FORM_QUESTIONS) {
-    assert.ok(flat.includes(q.replace(/\?$/, '')), 'FORM_QUESTIONS has drifted from roles.js: ' + q);
+    assert.ok(flat.includes(q.replace(/\?$/, '')), 'FORM_QUESTIONS has drifted from the daily ask (feedbacknudge.nudgeText): ' + q);
     assert.equal(t.classify(q).score, 0, q);
   }
   assert.equal(t.classify('What bugs did you hit today, or what did your user ask').score, 0, 'the first line of a wrapped question');
