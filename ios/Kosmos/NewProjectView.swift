@@ -88,7 +88,8 @@ struct NewProjectView: View {
         }
     }
 
-    /// As NewAgentView.retryAfterFresh: once, on the computer that refused, with the form as it was refused.
+    /// As NewAgentView.retryAfterFresh: once, on the computer that refused, with the form as it was refused. Known gap,
+    /// as there: a session the Keychain could not save never satisfies retryNow, so no retry runs (press Create).
     private func retryAfterFresh() {
         guard freshWaiting,
               SignIn.Fresh.retryNow(finished: fresh.taken > freshTakenAtStart, startedUnder: freshStartedUnder,
@@ -131,7 +132,7 @@ struct NewProjectView: View {
             UIAccessibility.post(notification: .announcement, argument: why)
         case .signInAgain(let why):
             switch SignIn.Fresh.afterRefusal(alreadyFresh: freshTried) {
-            case .offer: freshOffer = true; freshWhy = nil; message = why
+            case .offer: freshOffer = true; freshWhy = nil; message = NewTeam.sentence(why)   // review: tidied, as New Agent
             case .still: freshOffer = false; message = SignIn.Fresh.still
             }
             UIAccessibility.post(notification: .announcement, argument: message ?? "")
