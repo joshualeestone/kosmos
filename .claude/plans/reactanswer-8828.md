@@ -24,3 +24,9 @@ Items 2 and 3 of #8828 are separate slices, not in this branch.
   working time, not the clock, and ...". Rejected: "current" (11-05 feedback said it read wrong on a 15-hour file).
   Weakest premise: the 11-19 install's seat really had no unreported work (a runner reporting only turn ends is
   turnsOnly, covered). projectview 40/40.
+- Review 3 (blind, whole branch), taken: item 1 line now gives both ways out (a confirmation IS answered by a reaction,
+  defaults.js), never asks for an "agreed" post; item 3 checks quoted, in single quotes with double-quote-like
+  characters made one (install/kosmos reads a refusal with a sed that stops at the first double quote; the reviewer's
+  double-quote fix would have broken it), printed whole (3 x 200 max), unreachable "(none)" dropped; item 2 "reported
+  work" not "working time". Rejected: a new item 2 test for a working-now seat (the wallClock path, #8298's own tests);
+  a positive case in item 1 test 3 (test 1 is that control). Quote-replacement mutation fails the test. 160/160.

@@ -86,8 +86,9 @@ test('kosmos#8828: a post I reacted to stays listed, and the list says why', asy
   assert.ok(listed(r.text, confirm) && listed(r.text, plain), 'a reaction answered a post addressed to me:\n' + r.text);
   const line = reactedLine(r.text);
   assert.ok(line.includes('[' + confirm + ']') && !line.includes('[' + plain + ']'), 'the line does not name exactly the post I reacted to:\n' + r.text);
-  assert.match(line, /does not answer a post that asked you something/);
-  assert.ok(line.endsWith('kosmos post --in-reply-to ' + confirm + ' ' + pid + ' <your answer>'), 'the command is not runnable as printed:\n' + line);
+  assert.match(line, /a reaction does not take a post off this list/);
+  assert.ok(line.includes('kosmos post --in-reply-to ' + confirm + ' ' + pid + ' <your answer>. '), 'the command is not runnable as printed:\n' + line);
+  assert.match(line, /only confirmed something already settled, your reaction was the answer/, 'a confirmation is told to post "agreed":\n' + line);
   const plainRead = await room(pid, ME, '');
   assert.equal(plainRead.status, 200, plainRead.text);
   assert.equal(reactedLine(plainRead.text), '', 'a plain read carries the line:\n' + plainRead.text);
@@ -106,7 +107,7 @@ test('kosmos#8828: several emojis, one removed, still named; two posts get the p
   let r = await room(pid, ME, '&unanswered=1');
   let line = reactedLine(r.text);
   assert.ok([cut, multi, second].every((x) => line.includes('[' + x + ']')), 'a post with a live reaction is not named:\n' + r.text);
-  assert.ok(line.endsWith('kosmos post --in-reply-to <its id> ' + pid + ' <your answer>'), 'several posts: the command is not the placeholder form:\n' + line);
+  assert.ok(line.includes('kosmos post --in-reply-to <its id> ' + pid + ' <your answer>. If one only confirmed'), 'several posts: the command is not the placeholder form:\n' + line);
   r = await room(pid, ME, '&unanswered=1&n=1');
   assert.ok(listed(r.text, second) && !listed(r.text, cut), 'fixture: -n 1 lists only the newest:\n' + r.text);
   line = reactedLine(r.text);

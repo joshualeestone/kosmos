@@ -25446,8 +25446,9 @@ const server = http.createServer(async (req, res) => {
         // kosmos#7969: a claimed ask more than UNANSWERED_DAYS old whose claim ends comes back into the count of older
         // posts below, not the list; "comes back here" stays as it is, since that count is part of this same view.
         /* kosmos#8828 item 1: a listed post the reader has a live reaction on is named under the list, so the reaction
-           is not read as lost. A reaction does not answer a post that asked the reader something (engine/defaults.js: "A
-           reaction never answers a message addressed to you"), so the post stays listed. Only under --unanswered, and only
+           is not read as lost. A reaction does not take a post off the list (engine/defaults.js: "A reaction never answers a
+           message addressed to you"), so the post stays listed; but a confirmation IS answered by a reaction (defaults.js,
+           "A confirmation is answered by a reaction"), so the line gives both ways out and never asks for an "agreed" post. Only under --unanswered, and only
            from the listed posts' own reaction rows (reactionRowsOf, grouped once per request; kosmos#7365), this room's
            only. Live: the reader's latest op per emoji, any still added. Every raised hand is left out, marked as a claim
            or not, since a 🙋 says "mine", not an answer. */
@@ -25466,9 +25467,11 @@ const server = http.createServer(async (req, res) => {
         }
         const reactedLine = reactedListed.length
           ? '[kosmos] You reacted to ' + reactedListed.map((x) => '[' + x + ']').join(', ')
-            + ', but a reaction does not answer a post that asked you something, so ' + (reactedListed.length === 1 ? 'it is' : 'each is')
-            + ' still listed. Answer with a post that cites it: kosmos post --in-reply-to '
-            + (reactedListed.length === 1 ? reactedListed[0] : '<its id>') + ' ' + id + ' <your answer>\n'
+            + ', but a reaction does not take a post off this list. If ' + (reactedListed.length === 1 ? 'it' : 'one')
+            + ' asked you something, answer with a post that cites it: kosmos post --in-reply-to '
+            + (reactedListed.length === 1 ? reactedListed[0] : '<its id>') + ' ' + id + ' <your answer>. If '
+            + (reactedListed.length === 1 ? 'it' : 'one') + ' only confirmed something already settled, your reaction was the answer and'
+            + ' nothing more is owed, though it stays listed for now.\n'
           : '';
         const shownClaimed = claimedAsks.slice(-textRows);
         const moreClaimed = claimedAsks.length - shownClaimed.length;

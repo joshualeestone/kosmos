@@ -1806,13 +1806,13 @@ function setDoneWhen(projectId, n, doneWhen, opts = {}) {
 /* #7990: change one check by its number, leaving the others as they are, so a colleague who marked against them can see
    which one moved. The number is read inside the write, against the checks as they are then. Nothing here touches a
    built mark: its note is free text, tied to no check by number. The transcript says which check changed and from what. */
-/* kosmos#8828 item 3: a task's checks as one line for an error, "1. <words>; 2. <words>", each cut to 60 characters. */
+/* kosmos#8828 item 3: a task's checks as one line for an error, "1. 'words'; 2. 'words'", whole (at most DONE_WHEN_MAX of
+   DONE_CHECK_MAX characters). Quoted, so a check's words never read as Kosmos's own (taskactphrase.js, review 2), and in
+   single quotes with every double-quote-like character made one: install/kosmos lifts a refusal out of the JSON with a
+   sed that stops at the first double quote (see doneWhenProblem), so one inside a check would cut the error short. */
 function checksListed(checks) {
-  const list = (Array.isArray(checks) ? checks : []).map((c, i) => {
-    const w = Array.from(String(c == null ? '' : c).replace(/\s+/g, ' ').trim());
-    return (i + 1) + '. ' + (w.length > 60 ? w.slice(0, 60).join('') + '...' : w.join(''));
-  });
-  return list.length ? list.join('; ') : '(none)';
+  return (Array.isArray(checks) ? checks : []).map((c, i) => (i + 1) + ". '"
+    + String(c == null ? '' : c).replace(/\s+/g, ' ').trim().replace(/["\u02BA\u02EE\u2032\u2035\u05F4\u3003\u275D\u275E\p{Pi}\p{Pf}]/gu, "'") + "'").join('; ');
 }
 function setDoneWhenCheck(projectId, n, check, text, opts = {}) {
   const number = check;
