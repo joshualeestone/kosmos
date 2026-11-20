@@ -24,7 +24,7 @@ fs.mkdirSync(DATA); fs.mkdirSync(HOME);
 process.on('exit', () => { try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
-const SKIP = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot');
+const SKIP = require('./test-support/skip-on-win32').skipOnWin32('it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do');
 
 function runCli(args, env) {
   return new Promise((resolve, reject) => {
