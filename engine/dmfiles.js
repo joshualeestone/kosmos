@@ -197,17 +197,14 @@ function blockBody(dir) {
     'invisible to the person. Never tell them a file is under Files unless you',
     'saved it at that exact path.',
     '',
-    /* "Kosmos lists what is in it on your page": the Files list on the agent page (April's
-       half of #3614) shipped in the same change as that sentence, so promise and page agree. */
+    /* "Only files there appear on your page" (above) is the promise the Files list on the agent page (April's half of
+       #3614) keeps; kosmos#8735 slice 3 cut the sentence here that restated it. */
     'Tell them in one line where you saved it, in words that mean something to them:',
     'the file\'s name, and that it is under Files on your page in Kosmos (to them it',
     'is not "your Files folder"). This Files folder is only for files made for the',
     'person: your running summaries and other working',
     'files stay where your instructions put them. Create the folder if it is not',
-    'there yet. Keeping what you make in a direct conversation in one place means',
-    'they always know where to find it: Kosmos lists what is in it on your page,',
-    'where they can open it. Save files directly in it, not in subfolders: the page',
-    'lists only what sits at the top of the folder.',
+    'there yet.',
     '',
     ...ATTACH_PARAGRAPH,
     'When the conversation is about one of your projects (the person names it, or the',
@@ -224,10 +221,7 @@ function blockBody(dir) {
     'When you cannot tell whether the file belongs to a project, or to which one, do',
     'not guess a project. Save it in your Files folder. In the same line where you',
     'tell them it is under Files on your page, ask which project it belongs to, so',
-    'they can have you move it. That is not guessing: your Files folder is where it',
-    'goes by default. Never wait with the file unsaved. If your instructions also say',
-    'to ask one short question rather than guess, this is how that applies to a file',
-    'made for the person in a direct conversation: save here and ask.',
+    'they can have you move it. Never wait with the file unsaved.',
     '',
     'When the conversation itself happens inside a project, not in a direct',
     'conversation, keep using that project\'s own folder, as you already do there.',

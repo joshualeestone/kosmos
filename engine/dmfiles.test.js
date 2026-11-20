@@ -49,8 +49,9 @@ test('#3614: the block names the REAL path, and says to create it and to keep pr
   assert.match(flat, /This Files folder is only for files made for the person: your running summaries and other working files stay where your instructions put them/);
   assert.doesNotMatch(flat, /Files folder is inside your own folder/);
   assert.doesNotMatch(flat, /wherever else these instructions use that phrase/);   // round 7's wider redirect, removed in round 12, must not come back
-  assert.match(flat, /Kosmos lists what is in it on your page, where they can open it/, 'the block does not tell the agent the person sees its Files on its page (#3614 item 2 ships with it)');
-  assert.match(flat, /Save files directly in it, not in subfolders: the page lists only what sits at the top of the folder/, 'the agent is not told the list skips subfolders, so tidied work reads as "Nothing here yet"');
+  // kosmos#8735 slice 3: the two sentences that restated these facts were cut; each is now pinned on its one statement.
+  assert.match(flat, /Only files there appear on your page; a file anywhere else is invisible to the person/, 'the block does not tell the agent the person sees its Files on its page (#3614 item 2 ships with it)');
+  assert.match(flat, /Directly inside that folder: not in your own folder above it, and not in a subfolder\./, 'the agent is not told the list skips subfolders, so tidied work reads as "Nothing here yet"');
   // #2245: a PROJECT's list walks subfolders, so the block must not tell the agent otherwise.
   assert.doesNotMatch(flat, /lists only the top of a project/, 'the block still says a project list shows only its top level');
   assert.match(flat, /Kosmos lists a project's subfolders too, a few folders deep/);
@@ -67,13 +68,13 @@ test('#3759: the block names BOTH destinations and when each applies, says where
   // An agent on no projects has no "Your projects" section at all (projects.tellAgent removes it); the pointer says so.
   assert.match(flat, /a section you have only while you are on a project\)/);
   assert.match(flat, /If they name a project you are not on, do not guess another: save it in your Files folder, say you are not on that project, and say it can move there once you are added to it/);
-  assert.match(flat, /That is not guessing: your Files folder is where it goes by default/);
   assert.match(flat, /tell them in one line where you put it: which project, the file's name, and the folder inside the project if it is not at the top/);
   // Unsure: no project is guessed (the doctrine's "not a licence to guess") and nothing waits unsaved:
   // save it here, say so, and ask which project in the same line.
   assert.match(flat, /When you cannot tell whether the file belongs to a project, or to which one, do not guess a project\. Save it in your Files folder\. In the same line where you tell them it is under Files on your page, ask which project it belongs to/);
-  // The doctrine's general "ask, do not guess" is carried out this way for these files (round 15).
-  assert.match(flat, /Never wait with the file unsaved\. If your instructions also say to ask one short question rather than guess, this is how that applies to a file made for the person in a direct conversation: save here and ask/);
+  // The doctrine's general "ask, do not guess" is carried out this way for these files (round 15): kosmos#8735 slice 3 cut
+  // the sentence that said so and kept the rule it described, so the save comes before the question and nothing waits.
+  assert.match(flat, /ask which project it belongs to, so they can have you move it\. Never wait with the file unsaved\./);
   // Conditional on purpose: an agent without the doctrine section must not be told a rule is in its file (round 17).
   assert.doesNotMatch(flat, /wherever it appears in your instructions/);
   // The project rule is its own paragraph, not folded into the first one (which an agent may act on
