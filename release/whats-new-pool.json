@@ -2438,48 +2438,95 @@
       "status": "pending",
       "title": "Older Safari opens your board",
       "icon": "phone",
-      "rank": 8,
-      "line": "Opening a computer through Kosmos+ in Safari older than 16.4 now shows its board, not a signed-out page. Pictures and downloads come later."
-    },
-    {
-      "since": "0.8.12",
-      "status": "pending",
-      "title": "Update Kosmos from the board on Linux",
-      "icon": "shield",
-      "rank": 8.1,
-      "line": "An installed Linux computer can press Update to install a newer Kosmos when its service keeps the installer running."
-    },
-    {
-      "since": "0.8.12",
-      "status": "pending",
-      "title": "Kosmos Cloud machines stay up to date",
-      "icon": "shield",
-      "rank": 8.2,
-      "line": "A Kosmos Cloud machine installs the newest release once a night, skipping a night when an agent is working. Settings, Updates turns it off."
+      "rank": 8.0,
+      "line": "In Safari older than 16.4, a computer opened through Kosmos+ shows its board, not a signed-out page. Pictures and downloads do not load yet."
     },
     {
       "since": "0.8.12",
       "status": "pending",
       "title": "An agent's name can hold an apostrophe",
       "icon": "swarm",
-      "rank": 8.3,
+      "rank": 8.1,
       "line": "A name like O'Brien's helper now works when you make an agent: the name you see keeps the apostrophe."
     },
     {
       "since": "0.8.12",
       "status": "pending",
-      "title": "A full sign-in on Kosmos Cloud lasts the day",
+      "title": "A remote sign-in lasts until it ends",
       "icon": "shield",
-      "rank": 8.4,
-      "line": "On a Kosmos Cloud machine a full sign-in now lasts as long as it says, so making an agent stops asking you to sign in again."
+      "rank": 8.2,
+      "line": "From a phone or another computer, a sign-in with your authenticator code now lasts until it ends, so making an agent stops asking again."
     },
     {
       "since": "0.8.12",
       "status": "pending",
-      "title": "A crashed session's block clears",
+      "title": "Update Kosmos from the board on Linux",
+      "icon": "shield",
+      "rank": 8.3,
+      "line": "On an installed Linux computer, Update on the board now installs a newer Kosmos, with no command to type."
+    },
+    {
+      "since": "0.8.12",
+      "status": "pending",
+      "title": "Kosmos Cloud machines stay up to date",
+      "icon": "shield",
+      "rank": 8.4,
+      "line": "A Kosmos Cloud machine installs the newest release each night, skipping a night when an agent is working. Settings can turn it off."
+    },
+    {
+      "since": "0.8.12",
+      "status": "pending",
+      "title": "A crashed session no longer blocks an agent",
       "icon": "swarm",
-      "rank": 8.6,
-      "line": "A provider block left by a crashed session now clears at the next session's first normal turn, not hours later."
+      "rank": 9.7,
+      "line": "An agent blocked by its provider after a session crashed now clears when the next session first finishes a reply, not hours later."
+    },
+    {
+      "since": "0.8.12",
+      "status": "pending",
+      "title": "The iPhone first-run shows the code field",
+      "icon": "phone",
+      "rank": 9.8,
+      "line": "On an iPhone, a Kosmos Cloud machine's first Claude sign-in scrolls the code field into view, with a fade while more is below."
+    },
+    {
+      "since": "0.8.12",
+      "status": "pending",
+      "title": "kosmos room says a room is paused",
+      "icon": "chat",
+      "rank": 134,
+      "notesOnly": true,
+      "line": "kosmos room says when a room is paused, before an agent posts there."
+    },
+    {
+      "since": "0.8.12",
+      "status": "pending",
+      "title": "kosmos room on a busy board",
+      "icon": "chat",
+      "rank": 135,
+      "notesOnly": true,
+      "line": "On a busy board, kosmos room shows the last copy it held, with its age, instead of failing."
+    },
+    {
+      "since": "0.8.12",
+      "status": "pending",
+      "title": "--stdin after the target",
+      "icon": "chat",
+      "rank": 136,
+      "notesOnly": true,
+      "line": "kosmos post and kosmos msg read the message from the pipe when --stdin comes after the project or agent."
+    },
+    {
+      "since": "0.8.12",
+      "status": "pending",
+      "title": "kosmos.exe on Windows",
+      "icon": "list",
+      "rank": 137,
+      "notesOnly": true,
+      "platforms": [
+        "windows"
+      ],
+      "line": "Windows has kosmos.exe, so cmd, scheduled tasks and scripts can run kosmos instead of failing as not recognized."
     }
   ]
 }

@@ -4,17 +4,7 @@
     {
       "icon": "phone",
       "title": "Older Safari opens your board",
-      "line": "Opening a computer through Kosmos+ in Safari older than 16.4 now shows its board, not a signed-out page. Pictures and downloads come later."
-    },
-    {
-      "icon": "shield",
-      "title": "Update Kosmos from the board on Linux",
-      "line": "An installed Linux computer can press Update to install a newer Kosmos when its service keeps the installer running."
-    },
-    {
-      "icon": "shield",
-      "title": "Kosmos Cloud machines stay up to date",
-      "line": "A Kosmos Cloud machine installs the newest release once a night, skipping a night when an agent is working. Settings, Updates turns it off."
+      "line": "In Safari older than 16.4, a computer opened through Kosmos+ shows its board, not a signed-out page. Pictures and downloads do not load yet."
     },
     {
       "icon": "swarm",
@@ -23,8 +13,18 @@
     },
     {
       "icon": "shield",
-      "title": "A full sign-in on Kosmos Cloud lasts the day",
-      "line": "On a Kosmos Cloud machine a full sign-in now lasts as long as it says, so making an agent stops asking you to sign in again."
+      "title": "A remote sign-in lasts until it ends",
+      "line": "From a phone or another computer, a sign-in with your authenticator code now lasts until it ends, so making an agent stops asking again."
+    },
+    {
+      "icon": "shield",
+      "title": "Update Kosmos from the board on Linux",
+      "line": "On an installed Linux computer, Update on the board now installs a newer Kosmos, with no command to type."
+    },
+    {
+      "icon": "shield",
+      "title": "Kosmos Cloud machines stay up to date",
+      "line": "A Kosmos Cloud machine installs the newest release each night, skipping a night when an agent is working. Settings can turn it off."
     }
   ]
 }
