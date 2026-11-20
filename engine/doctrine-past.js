@@ -5,9 +5,9 @@
    first line, and the sha256 of exactly those characters. doctrine.planFor uses it to tell an unedited copy from one
    a person changed. `sections` holds the sha256 of every section of every one of them, for a span holding some. */
 const blocks = [
-  { version: 54, length: 31254, sha256: 'e33e9cdc62f8b2f9124b505b07cc5f84de592696366ef8a33a608d4e354ab279' },
-  { version: 54, length: 30254, sha256: '7fbece771ad799ed4816b4bf12403d463549cfd07a3645812a40ffefbdb80a15' },
-  { version: 54, length: 29767, sha256: '7399651c0ef76aaa64434eb12a7b464f20c84f458f1c9ffbbebf8fe92d7a795a' },
+  { version: 54, length: 31303, sha256: 'c520c87f567a29cfeb10fe27ddcbf317016eabc1369ad4078312dff8c2a9a496' },
+  { version: 54, length: 30303, sha256: 'f919b39ec73cb49fa53538a0c6ca85ac629cde10d031aad680cca0af287dcec3' },
+  { version: 54, length: 29816, sha256: '49df382d950cba9ede175a0b84882cd9877ab63175aaa24553904cd55af24fce' },
   { version: 53, length: 31518, sha256: 'aefdf8da05eaa4cd84125afdc173547ece90d9464a5d1655ce1c4c880187249e' },
   { version: 53, length: 30518, sha256: 'b8e34d38eb98cdeac8bf01b30951857908f5c95b119551931a28a350f2e08b87' },
   { version: 53, length: 30031, sha256: '96e063236923f24d16841979ec5c66a55d4fa79be4f6ed0155152c2e2366320f' },
@@ -165,7 +165,6 @@ blocks.sections = [
   '9143d4c47752e3cf9edaa58919e85b088510ac7fd4f6ee7df4925551c9d92d39',
   '936a8f3a69b4dc978ad8d5456d19b795aab115f4de6ec7c3042312bf48b19a06',
   '97b4982294a856d25c35fe83b2f3051032c6ed57804918a0963f65a71a6151d1',
-  '97c6adaad8cfc579271c8a1056ec0c4f42903f7f817f4435080ca03d58e1fd25',
   '989e323abe3f1643e39e471d09e5b43b38b7cd0af768d750f6a9b7633f4f286f',
   '9f1e335be7925a8ba2b5e94363e3fb7e5c2b487662d61363cceb836cb65ee244',
   'a139dc53994bcd809e68829f2e7e0afed6566a38318ba06a691c8c5d8f53b506',
@@ -181,6 +180,7 @@ blocks.sections = [
   'c0863a501e68a8e2fc18c9953e065c598caddb89226264a9839d4a6d3065c7df',
   'c3aac55ebfd14ee0c5454e939e115ded9cce240a6512eb1748949e205b8b57cb',
   'c52f93295076b20fde7dfcf5d53609e9b486732b78df94e0f46344b115e3ed10',
+  'c6a0191466da24b34a3efe1615ff2f676b371ac5c4d9f4dcc5b9b9b167a6516a',
   'c99d16d097c49aee511e0b75a0e25830c69a9082e2dba8f4a395e12510093092',
   'cbc142e16af7b3efbe4980e4fb8a05a0ee50e2b02b9feae6d9e91fcf2ad3628e',
   'cc9c0bb7fc814d37ad9294eb17dde9cb598cbd857e4aa9493267eff5534ad327',

@@ -1,8 +1,8 @@
 'use strict';
-/* kosmos#8735 slice 3, item 1: "Answering the person who messaged you" no longer repeats the section above it. Neither
+/* kosmos#8735 slice 3, item 1: "Answering the person who messaged you" no longer repeats an earlier section. Neither
    the colleagues block nor the working rules is in every agent's file (the colleagues block is added only to agents made
-   from a role template), so each must still state how to answer on its own. These pin that, and that the wrong
-   "bracketed note at the front" sentence does not come back. */
+   from a role template), so each must still state how to answer on its own. These pin that, and that the two repeats
+   do not come back. */
 const test = require('node:test');
 const assert = require('node:assert');
 const defaults = require('./defaults');
@@ -18,13 +18,14 @@ test('#8735: the colleagues block still states how to answer on its own', () => 
 });
 
 for (const platform of defaults.PLATFORMS) {
-  test('#8735: the working rules on ' + platform + ' state how to answer once, with the command at the end of the bracket', () => {
+  test('#8735: the working rules on ' + platform + ' state how to answer, the repeats gone', () => {
     const b = defaults.blockFor(platform);
     assert.match(b, /Answering in your own session is answering where nobody can see you/, 'the core rule left the working rules');
     assert.match(b, /the command at the end of its bracket:\s+`kosmos msg --in-reply-to <id> <name> "\.\.\."`/, 'the reply-to command left the working rules');
     assert.match(b, /Reading that command is not\s+running it, and only running it answers/, 'the read-is-not-run rule left the working rules');
     assert.match(b, /When your operator messages you, answer with `kosmos reply "\.\.\."`/, 'the person command left the working rules');
-    assert.doesNotMatch(b, /bracketed note at the\s+front/, 'the wrong "at the front" sentence is back');
+    assert.match(b, /wrote to you, and nor does an answer left in your own session\./, 'the operator case lost the own-session rule');
+    assert.doesNotMatch(b, /The message tells you which command to use/, 'the second repeat in "Answering the person" is back');
     assert.doesNotMatch(b, /Answering in your own session sends nothing/, 'the repeat in "Answering the person" is back');
   });
 }

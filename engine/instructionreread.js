@@ -462,7 +462,7 @@ function prepareChanges(session) {
       const was = lineSet(seen);
       const now = lineSet(got.text);
       if (was.has(V53_REPEAT) && !now.has(V53_REPEAT) && now.has(PERSON_HEAD) && now.has('### Answering where you were asked')) {
-        movedAnswer = { under: PERSON_HEAD, lines: new Set(), where: '"Answering where you were asked", just above it in this file' };
+        movedAnswer = { under: PERSON_HEAD, lines: new Set(), where: 'the section "Answering where you were asked", earlier in this file' };
       }
     } catch { movedAnswer = null; }
     const diff = changedLines(seen, got.text, [moved, movedTask, movedAnswer]);

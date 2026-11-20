@@ -677,21 +677,29 @@ test('kosmos#8735 slice 2 review 6: a file with Windows line endings still leave
    "- Answering in your own session sends nothing" as a rule that no longer applies. Nothing is hidden: the line stays
    marked. The old text is the current block with that v53 paragraph back. */
 const V53_REPEAT = '**Answering in your own session sends nothing.** It looks like a finished';
-function withAnsweringRepeatBack(line = V53_REPEAT) {
+/* The two paragraphs exactly as v53 had them after "wrote to you." and a blank line. */
+const V53_PARAS = [V53_REPEAT,
+  'reply from where you are sitting and like silence from where they are, and to',
+  'them those are the same thing.',
+  '',
+  '**The message tells you which command to use**, in a bracketed note at the',
+  'front. Reading that note is not running it, and only running it answers.'].join('\n');
+function withAnsweringRepeatBack(line = V53_PARAS) {
   const block = require('./defaults').blockFor(process.platform);
-  const anchor = 'wrote to you.\n';
+  const anchor = 'wrote to you, and nor does an answer left in your own session.\n';
   assert.equal(block.split(anchor).length, 2, 'fixture: the anchor line is not unique in the working rules');
-  return { block, before: block.replace(anchor, anchor + '\n' + line + '\n') };
+  /* v53's line read "wrote to you."; the old text carries it, so the diff is the real v53 to v54 one. */
+  return { block, before: block.replace(anchor, 'wrote to you.\n\n' + line + '\n') };
 }
-const ANSWER_NOTE = 'A line marked - under Answering the person who messaged you may be in "Answering where you were asked", just above it in this file too, reworded';
+const ANSWER_NOTE = 'A line marked - under Answering the person who messaged you may be in the section "Answering where you were asked", earlier in this file too, reworded';
 
-test('kosmos#8735 slice 3: the removed v53 answering repeat stays marked and the note names the section above it', () => {
+test('kosmos#8735 slice 3: the removed v53 answering repeat stays marked and the note names the earlier section', () => {
   const { block, before } = withAnsweringRepeatBack();
   agentFile('tan', '# You are Tan\n\n' + block + '\n');
   assert.equal(ir.remember('tan', '# You are Tan\n\n' + before + '\n'), true);
   const body = fs.readFileSync(ir.prepareChanges('tan').path, 'utf8');
   assert.ok(body.includes('- ' + V53_REPEAT), 'the removed line was hidden; nothing should be left out');
-  assert.ok(body.includes(ANSWER_NOTE), 'the note naming the section above it is missing');
+  assert.ok(body.includes(ANSWER_NOTE), 'the note naming the earlier section is missing');
   assert.match(body, /a line marked - no longer applies, unless a note in this file says where it went/, 'the header still excepts only a Left out note');
 });
 
@@ -702,5 +710,5 @@ test('kosmos#8735 slice 3: a different line removed from that section gets no su
   assert.equal(ir.remember('tao', '# You are Tao\n\n' + before + '\n'), true);
   const body = fs.readFileSync(ir.prepareChanges('tao').path, 'utf8');
   assert.ok(body.includes('- ' + other), 'fixture: the removed line is not in the changes file');
-  assert.ok(!body.includes(ANSWER_NOTE), 'a removal that is not the v54 one was pointed at the section above');
+  assert.ok(!body.includes(ANSWER_NOTE), 'a removal that is not the v54 one was pointed at the earlier section');
 });
