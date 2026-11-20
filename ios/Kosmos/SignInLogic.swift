@@ -369,7 +369,8 @@ enum SignIn {
     /// Lisa's ruling (11-19): the account's own address, shown and fixed; Send code and Not now; the session held now is
     /// kept until the new one is issued; the refused thing is tried once more; a second refusal says so, with no loop.
     enum Fresh {
-        static func offer(email: String) -> String { "This needs you to sign in again. We will send a code to \(email)." }
+        // Mona Lisa's trim (m5173, 11-20): the title already says Sign in again, so the line does not echo it.
+        static func offer(email: String) -> String { "This needs a fresh sign-in. We will send a code to \(email)." }
         /// The relay page's FRESH_STILL (#850), for the app: a fresh sign-in was done for this and it was still refused.
         static let still = "Kosmos+ still sees an older sign-in, so this cannot be done right now. Log out under Settings, Kosmos+, sign in again, then try it straight away."
         /// The account's address could not be read, so no code can be sent to it (a typed address could be another account's).

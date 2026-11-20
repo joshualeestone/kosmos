@@ -220,7 +220,7 @@ struct ContentView: View {
             // kosmos#7488: the sheet sits above the tabs, so it never outlives the account. kosmos#8791: a fresh sign-in of
             // the same account (its address fixed) keeps it through its own change, once, so the sheet can try again.
             // Review 1: any other change also ends a fresh sign-in still showing, so it never outlives its account.
-            if !fresh.passes.spendAccount(signedOut: pushManager.lastChangeSignedOut || SessionKeychain.live.load() == nil) { newAgentOpen = false; fresh.end() }
+            if !fresh.passes.spendAccount(signedOut: pushManager.lastChangeSignedOut || SessionKeychain.live.load() == nil) { newAgentOpen = false; newProjectOpen = false; fresh.end() }
             // kosmos#7042 review round 5: signed out later in the launch (on the account page, a session that ended),
             // the next sign-in is the native one too, or the web page's own device key would make this iPhone a second
             // device on the Mac. Recorded gap: the Mac's "fresh sign-in" link then lands here, not on the page.
@@ -282,7 +282,12 @@ struct ContentView: View {
         // A sheet shown from a tab goes with it; a tab change must not leave it set to come back by itself.
         .onChange(of: tab) { _ in newProjectOpen = false }
         // kosmos#7488: another computer: the sheet's roles, managers and projects were the last one's.
-        .onChange(of: board.chatEpoch) { _ in if !fresh.passes.spendEpoch() { newAgentOpen = false } }
+        // kosmos#8791 slice 4: New Project now closes on another account or computer too (as New Agent, #7488), except
+        // through its own fresh sign-in's change.
+        .onChange(of: board.chatEpoch) { _ in if !fresh.passes.spendEpoch() { newAgentOpen = false; newProjectOpen = false } }
+        .onChange(of: newProjectOpen) { open in
+            if open { fresh.passes.clear() } else if fresh.place == .newProject, fresh.model != nil { fresh.end() }
+        }
         // Review 1: the sheet gone (closed, or by any reset above), its fresh sign-in goes with it.
         // Review 2: a sheet opened later never inherits a pass from an earlier fresh sign-in.
         .onChange(of: newAgentOpen) { open in
@@ -589,6 +594,7 @@ struct ContentView: View {
                     // Review 2: the computer the request went to (macURL), not the switcher's, which can differ.
                     if let host = board.macURL?.host { roomRequest = PushBridge.RoomTarget(host: host, project: id) }
                 }
+                .environmentObject(fresh)
             }
         } else if which == .tasks {
             // kosmos#7031: native Tasks. A task's page is native too (kosmos#7074, TaskPageView); its info button opens

@@ -427,6 +427,10 @@ check(NewProject.request(mac: npMac, draft: NewProject.Draft(name: "")) == nil, 
 check(NewProject.result(sent: true, status: 200, body: Data(#"{"id":"henderson-lease","project":{}}"#.utf8)) == .made(id: "henderson-lease"), "made: the new project's id")
 check(NewProject.result(sent: true, status: 400, body: Data(#"{"error":"A project with that name already exists."}"#.utf8)) == .refused("A project with that name already exists."), "a refusal is the board's own sentence")
 check(NewProject.result(sent: true, status: 0, body: nil) == .unknown && NewProject.result(sent: true, status: 502, body: nil) == .unknown, "no answer, or a server error with no sentence, may have made it: unknown")
+// kosmos#8791: a step-up refusal is its own outcome (Sign in again), with Kosmos+'s words or ours.
+check(NewProject.result(sent: true, status: 403, body: Data(#"{"code":"step_up_required","error":"Sign in again first."}"#.utf8)) == .signInAgain("Sign in again first."), "new project: step-up with Kosmos+'s words")
+check(NewProject.result(sent: true, status: 403, body: Data(#"{"code":"step_up_required"}"#.utf8)) == .signInAgain(NewProject.stepUpWords), "new project: step-up with no words: ours")
+check(NewProject.result(sent: true, status: 403, body: Data(#"{"error":"Not allowed."}"#.utf8)) == .refused("Not allowed."), "CONTROL: a 403 without the step-up code stays a plain refusal")
 check(NewProject.result(sent: false, status: 0, body: nil) == .refused(NewProject.fallback), "nothing sent: certainly not made")
 let firsts = Board.firstProjects(Board.parseProjects(Data(#"{"projects":[{"id":"z","name":"Zeta","agents":[{"sessionName":"a"}]},{"id":"b","name":"beta","agents":[{"sessionName":"a"},{"sessionName":"c"}]}]}"#.utf8)))
 let agentsSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AgentsView.swift"), encoding: .utf8)) ?? ""

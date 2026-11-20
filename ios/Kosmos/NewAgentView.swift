@@ -529,6 +529,7 @@ struct NewAgentView: View {
                 switch NewProject.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
                 case .made(let id): project = id; madeProject = id; newProjectName = want
                 case .refused(let why): say(NewTeam.sentence(why)); return
+                case .signInAgain(let why): say(stepUp(why, for: .team)); return   // kosmos#8791: the team's project, as its members
                 case .unknown: projectUnsure = true; newProjectName = want; say(NewProject.unsureWords); return   // looked for by this name
                 }
                 break

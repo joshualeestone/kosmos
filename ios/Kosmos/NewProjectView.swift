@@ -11,6 +11,17 @@ struct NewProjectView: View {
     @State private var sending = false
     @State private var message: String?
     @FocusState private var nameFocused: Bool
+    /// kosmos#8791 slice 4: a step-up refusal offers a fresh sign-in, then the create once more, under the same rules as
+    /// New Agent (SignIn.Fresh.retryNow and .landing: the new session, the computer that refused, the form as refused).
+    @EnvironmentObject private var fresh: FreshSignInCenter
+    @State private var freshOffer = false
+    @State private var freshWaiting = false
+    @State private var freshTried = false
+    @State private var freshWhy: String?
+    @State private var freshTakenAtStart = 0
+    @State private var freshStartedUnder: String?
+    @State private var freshMac: String?
+    @State private var freshForm: NewProject.Draft?
 
     var body: some View {
         NavigationView {
@@ -29,6 +40,13 @@ struct NewProjectView: View {
                 } header: { Text(NewProject.Words.description) } footer: { Text(NewProject.Words.descriptionHint) }
                 if let message {
                     Section { Text(message).foregroundColor(Palette.dangerWord) }
+                }
+                if freshOffer {
+                    Section {
+                        if let freshWhy { Text(freshWhy).foregroundColor(Palette.dangerWord) }
+                        if freshWaiting && fresh.model == nil { Text(NewTeam.Words.freshWaiting).foregroundColor(Palette.secondary) }
+                        Button(NewTeam.Words.signInAgain) { startFresh() }.disabled(fresh.opening || freshWaiting)
+                    }
                 }
             }
             .navigationTitle(NewProject.Words.title)
@@ -49,10 +67,45 @@ struct NewProjectView: View {
         }
         .navigationViewStyle(.stack)
         .interactiveDismissDisabled(sending)   // never closed mid-send, so an answer always has a sheet to land on
+        .fullScreenCover(isPresented: Binding(get: { fresh.model != nil && fresh.place == .newProject }, set: { if !$0, fresh.model != nil { fresh.end() } })) {
+            if let m = fresh.model {
+                SignInView(model: m, useWeb: { fresh.end(); freshWaiting = false; freshWhy = SignIn.Fresh.notHere }, notNow: { fresh.end() }).tint(Palette.primary)
+            }
+        }
+        .onChange(of: fresh.taken) { _ in retryAfterFresh() }
+        .onChange(of: client.admissions) { _ in retryAfterFresh() }
+        .onChange(of: fresh.model == nil) { closed in if closed && fresh.taken == freshTakenAtStart { freshWaiting = false } }
+    }
+
+    private func startFresh() {
+        Task { @MainActor in
+            freshTakenAtStart = fresh.taken
+            freshStartedUnder = SessionKeychain.live.load()
+            freshMac = client.admittedAddress
+            freshForm = draft
+            if let why = await fresh.begin(at: .newProject) { freshWhy = why }
+            else if fresh.model != nil, fresh.place == .newProject { freshWaiting = true; freshWhy = nil }
+        }
+    }
+
+    /// As NewAgentView.retryAfterFresh: once, on the computer that refused, with the form as it was refused.
+    private func retryAfterFresh() {
+        guard freshWaiting,
+              SignIn.Fresh.retryNow(finished: fresh.taken > freshTakenAtStart, startedUnder: freshStartedUnder,
+                                    admittedUnder: client.admittedUnder, heldNow: SessionKeychain.live.load()) else { return }
+        freshWaiting = false; freshOffer = false
+        switch SignIn.Fresh.landing(refusedOn: freshMac, admittedOn: client.admittedAddress, unchangedForm: draft == freshForm) {
+        case .otherComputer: dismiss(); return
+        case .edited: message = SignIn.Fresh.edited; return
+        case .retry: break
+        }
+        freshTried = true
+        Task { await create() }
     }
 
     private func create() async {
         guard !sending, NewProject.canCreate(draft) else { return }
+        freshWaiting = false   // pressed by hand meanwhile: no retry follows it
         sending = true
         message = nil
         let sent = draft
@@ -73,9 +126,17 @@ struct NewProjectView: View {
             dismiss()
             opened(id)
         case .refused(let why):
+            freshTried = false
             message = why
             UIAccessibility.post(notification: .announcement, argument: why)
+        case .signInAgain(let why):
+            switch SignIn.Fresh.afterRefusal(alreadyFresh: freshTried) {
+            case .offer: freshOffer = true; freshWhy = nil; message = why
+            case .still: freshOffer = false; message = SignIn.Fresh.still
+            }
+            UIAccessibility.post(notification: .announcement, argument: message ?? "")
         case .unknown:
+            freshTried = false
             message = NewProject.unsureWords
             UIAccessibility.post(notification: .announcement, argument: NewProject.unsureWords)
         }

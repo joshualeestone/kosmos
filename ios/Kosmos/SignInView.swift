@@ -670,7 +670,7 @@ private extension View {
 /// moves so the refused action is tried once more.
 @MainActor
 final class FreshSignInCenter: ObservableObject {
-    enum Place: Equatable { case root, newAgent }
+    enum Place: Equatable { case root, newAgent, newProject }
     @Published private(set) var model: SignInModel?
     @Published private(set) var place: Place = .root
     /// Bumped once a fresh sign-in has finished (issued and done): the action that asked tries again, once.
