@@ -25098,10 +25098,10 @@ const server = http.createServer(async (req, res) => {
             answeredBy.set(m.replyTo, list);
           }
         }
-        /* kosmos#8828 item 1: the working rules (engine/defaults.js) say a confirmation is answered with a reaction, not
-           another post. So a post the reader has a reaction on (its latest add, never the claim 🙋, which says "mine")
-           counts as answered when the post asks no question: it has no "?". A question still needs a post, so a reaction
-           never hides one. From the stored reaction rows, this room's only (roomRows leaves reactions out). */
+        /* kosmos#8828 item 1: the posts the reader has a live reaction on (its latest add per emoji; never the claim 🙋,
+           which says "mine"), from the stored reaction rows, this room's only (roomRows leaves reactions out). A reaction
+           does not answer a post addressed to the reader (engine/defaults.js: "A reaction never answers a message
+           addressed to you"), so such a post stays listed; the list says why, below, so a reaction is not read as lost. */
         const reactedBy = new Set();
         if (readerName) {
           const latest = new Map();   // post id -> Map(emoji -> 'add'|'remove'), the reader's own reactions, in order
@@ -25114,7 +25114,6 @@ const server = http.createServer(async (req, res) => {
           }
           for (const [of, byEmoji] of latest) if ([...byEmoji.values()].includes('add')) reactedBy.add(of);
         }
-        const answeredByReaction = (m) => !!m && reactedBy.has(String(m.id)) && !String(m.text || '').includes('?');
         /* Asked of the reader: it named the reader (an @name, or an agent's `Sender -> Name:` header; messages.namedIn,
            the claim guard's own reading), or the person posted and it reached the reader, unless the claim guard reads it
            as asking only other agents (kosmos#8734, see namedOthersOnly below). A colleague's post that only
@@ -25259,7 +25258,7 @@ const server = http.createServer(async (req, res) => {
           /* #4926: --unanswered walks the whole live room, not just the last N rows, so an ask further back that is still
              open is found; N then caps how many are listed (the newest), and the count says how many there are. */
           if (onlyUnanswered) {
-            if (askedOfReader(rows[i]) && !answeredBy.has(String(rows[i].id)) && !answeredByReaction(rows[i])) {
+            if (askedOfReader(rows[i]) && !answeredBy.has(String(rows[i].id))) {
               const c = claimedByOther(rows[i]);
               if (c) { claimedAsks.unshift({ id: String(rows[i].id), by: c.by, at: c.at }); continue; }
               // kosmos#7969: after the claim check on purpose: a claimed ask is named on the claimed line whatever its age.
@@ -25462,6 +25461,13 @@ const server = http.createServer(async (req, res) => {
            the list entry comes back by itself if the claim goes, a dropped reminder never does. */
         // kosmos#7969: a claimed ask more than UNANSWERED_DAYS old whose claim ends comes back into the count of older
         // posts below, not the list; "comes back here" stays as it is, since that count is part of this same view.
+        // kosmos#8828 item 1: a listed post the reader only reacted to, named, so the reaction is not read as lost.
+        const reactedListed = onlyUnanswered ? tail.filter((m) => m && reactedBy.has(String(m.id))).map((m) => String(m.id)) : [];
+        const reactedLine = reactedListed.length
+          ? '[kosmos] You reacted to ' + reactedListed.map((x) => '[' + x + ']').join(', ')
+            + ', but a reaction does not answer a post addressed to you, so ' + (reactedListed.length === 1 ? 'it stays' : 'each stays')
+            + ' here until you answer it with a post: kosmos post --in-reply-to <id>.\n'
+          : '';
         const shownClaimed = claimedAsks.slice(-textRows);
         const moreClaimed = claimedAsks.length - shownClaimed.length;
         const claimedLine = claimedAsks.length
@@ -25502,7 +25508,7 @@ const server = http.createServer(async (req, res) => {
            line's reading at the latest post's size, which can be held while a one-member post passes. */
         let loopLine = '';
         try { const n = require('./engine/roomloop').readerNote(id, Date.now(), (ms) => messages.roomClock(new Date(ms).toISOString(), zone), { held: () => Boolean(held && messages.roomHeldForOne(id, Date.now(), roomRecord ? messages.roomRecipientsOf(roomRecord.agents) : undefined)), from: readerName, members: membersNow }); loopLine = n ? n + '\n' : ''; } catch { loopLine = ''; }
-        res.end(shared + onHold + loopLine + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + coveredLine + agedLine);
+        res.end(shared + onHold + loopLine + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + reactedLine + claimedLine + coveredLine + agedLine);
         return;
       }
       if (jsonRows !== null) {   // kosmos#7032: a page (see the cursor note where n is read)

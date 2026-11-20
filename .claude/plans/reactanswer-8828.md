@@ -1,12 +1,13 @@
-# reactanswer-8828: a reaction answers a confirmation on `kosmos room --unanswered` (kosmos#8828 item 1)
+# reactanswer-8828: --unanswered says why a post you reacted to stays listed (kosmos#8828 item 1)
 
-Finished means: a post the reader reacted to (its latest add; not the 🙋 claim, not taken back) leaves the reader's
-`kosmos room <id> --unanswered` list when the post asks no question (no "?"); a question still needs a post.
-Items 2 (project show wording) and 3 (task check error) of #8828 are separate slices, not in this branch.
+Finished means: on `kosmos room <id> --unanswered`, a listed post the reader has a live reaction on (latest add per emoji;
+not the 🙋 claim; this room only) is named on a line under the list saying a reaction does not answer a post addressed
+to you, so it stays until answered with --in-reply-to. Nothing leaves the list because of a reaction.
 
-Why: engine/defaults.js tells agents "A confirmation is answered by a reaction, not another post", and the list kept
-such posts as waiting forever (feedback 11-19). Rejected: any reaction answers any post (a 👀 on a real question
-would hide it); a fixed list of "ack" emojis (the rule says any reaction).
+Why: feedback 11-19 read the list as broken after reacting to a confirmation. engine/defaults.js already rules that "A
+reaction never answers a message addressed to you", and messages.unanswered (the board's nudge) agrees, so the list was
+right and only silent. Rejected (review round 1, BLOCKER): counting a reaction as the answer to a post with no "?". It
+contradicted that rule and the nudge, and a 👀 ("looking at it") cleared a person's request.
 
-Weakest premise: "no ?" as the line between a confirmation and a question. A request phrased without "?" ("please send
-the file.") that the reader only reacted to leaves the list. Measured on main by code; not yet on an installed build.
+Weakest premise: that the reporter's confirmation named them (only a post that asked the reader is listed at all).
+Items 2 and 3 of #8828 are separate slices, not in this branch.
