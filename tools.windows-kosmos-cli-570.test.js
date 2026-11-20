@@ -97,8 +97,13 @@ test('#2909: msg --stdin sends the piped text as written; refusals send nothing;
   assert.deepEqual(r.calls[0].body, { to: 'mara', text: 'run `x` and $y', from_pane: '' });
   const mixed = await run(['msg', '--stdin', 'mara', 'also'], placed, undefined, async () => ({ text: 'x', ended: true }));
   assert.equal(mixed.code, 2); assert.equal(mixed.calls.length, 0);
-  const trailing = await run(['msg', 'mara', '--stdin'], placed, undefined, async () => { throw new Error('stdin read for a trailing --stdin'); });
-  assert.equal(trailing.code, 2); assert.equal(trailing.calls.length, 0);
+  /* kosmos#8769: a lone --stdin after the agent is the flag; beside other words it is still refused (#2909). */
+  const trailing = await run(['msg', 'mara', '--stdin'], placed, undefined, async () => ({ text: 'late flag msg\n', ended: true }));
+  assert.equal(trailing.code, 0, trailing.err); assert.deepEqual(trailing.calls[0].body, { to: 'mara', text: 'late flag msg', from_pane: '' });
+  for (const args of [['msg', 'mara', '--stdin', 'also'], ['msg', 'mara', 'also', '--stdin']]) {
+    const beside = await run(args, placed, undefined, async () => { throw new Error('stdin read for --stdin beside words'); });
+    assert.equal(beside.code, 2, args.join(' ')); assert.equal(beside.calls.length, 0);
+  }
   const empty = await run(['msg', '--stdin', 'mara'], placed, undefined, async () => ({ text: '', ended: false }));
   assert.equal(empty.code, 2); assert.match(empty.err, /nothing was piped in: kosmos msg --stdin <agent>/);
   const declined = await run(['msg', '--stdin', 'mara'], () => ({ body: { delivery: { state: 'could_not', because: 'mara is not running.' } } }), undefined, async () => ({ text: 'keep this msg', ended: true }));
@@ -378,9 +383,15 @@ test('#2909: post --stdin sends the piped text verbatim (backticks, $, newlines)
   fs.rmSync(path.dirname(boomSaved[1]), { recursive: true });
   const argRefused = await run(['post', 'proj-1', 'typed'], () => ({ status: 403, body: { error: 'no such room' } }));
   assert.doesNotMatch(argRefused.err, /saved at/, 'argument-mode text is still on the command line; nothing is saved');
-  const trailing = await run(['post', 'proj-1', '--stdin'], placed, undefined, async () => { throw new Error('stdin read for a trailing --stdin'); });
-  assert.equal(trailing.code, 2, 'a --stdin after the project is refused');
-  assert.equal(trailing.calls.length, 0);
+  /* kosmos#8769: a lone --stdin after the project is the flag; beside other words it is still refused (#2909). */
+  const trailing = await run(['post', 'proj-1', '--stdin'], placed, undefined, async () => ({ text: 'late flag post\n', ended: true }));
+  assert.equal(trailing.code, 0, trailing.err);
+  assert.equal(trailing.calls[0].body.text, 'late flag post');
+  assert.equal(trailing.calls[0].body.project, 'proj-1', 'posted to the project named before the flag');
+  for (const args of [['post', 'proj-1', '--stdin', 'typed'], ['post', 'proj-1', 'typed', '--stdin']]) {
+    const beside = await run(args, placed, undefined, async () => { throw new Error('stdin read for --stdin beside words'); });
+    assert.equal(beside.code, 2, args.join(' ')); assert.equal(beside.calls.length, 0);
+  }
   const t0 = Date.now();
   const runs = await run(['post', '--stdin', 'proj-1'], placed, undefined, async () => ({ text: '\n'.repeat(200000) + 'x\n', ended: true }));
   assert.equal(runs.calls[0].body.text, '\n'.repeat(200000) + 'x', 'inner newline runs are kept, the trailing one trimmed');
