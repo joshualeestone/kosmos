@@ -41,15 +41,17 @@ test('kosmos#8828: reporting a check the task does not have names the checks it 
   const { id, n } = withChecks(['the page loads', 'the test passes']);
   const [code, msg] = status(() => tasks.setCheckResult(id, n, 3, true, 'ran it', { by: 'checker' }));
   assert.equal(code, 409);
-  assert.match(msg, /has 2 done-when checks, so there is no check 3: 1\. the page loads; 2\. the test passes$/);
+  assert.match(msg, /has 2 done-when checks, so there is no check 3: 1\. 'the page loads'; 2\. 'the test passes'$/);
 });
 
-test('kosmos#8828: changing a check the task does not have names the checks it has, a long one cut', () => {
-  const long = 'x'.repeat(80);
-  const { id, n } = withChecks(['the page loads', long]);
+test('kosmos#8828: changing a check the task does not have names the checks it has, whole, with no double quote', () => {
+  const long = 'x'.repeat(200);
+  const { id, n } = withChecks(['the page says "Saved"', long]);
   const [code, msg] = status(() => tasks.setDoneWhenCheck(id, n, 3, 'new words', { by: 'x', person: true }));
   assert.equal(code, 409);
-  assert.match(msg, /so there is no check 3: 1\. the page loads; 2\. x{60}\.\.\.$/);
+  assert.match(msg, /so there is no check 3: 1\. 'the page says 'Saved''; 2\. 'x{200}'$/);
+  // install/kosmos reads the refusal with a sed that stops at the first double quote (doneWhenProblem).
+  assert.ok(!msg.includes('"'), 'a double quote in the error cuts the CLI\'s reading of it: ' + msg);
   // CONTROL: a check the task has is changed, with no error.
   assert.equal(status(() => tasks.setDoneWhenCheck(id, n, 1, 'the page loads fast', { by: 'x', person: true }))[0], 200);
 });
