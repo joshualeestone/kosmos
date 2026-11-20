@@ -15308,6 +15308,9 @@ const server = http.createServer(async (req, res) => {
              tick does not ask, so a board can move while `moving` is false. A throw reads armed if a mover was made: this
              only takes away the page's flat "Nothing is moved". */
           try { autobalance.armed = !!automoveRun && automove.movesOn(); } catch { autobalance.armed = !!automoveRun; }
+          /* kosmos#8841: the switches this board has on from an earlier start, with when each was first switched on
+             ({ usagePoll, automove }: a time, absent when not kept), so the page can say so. */
+          try { autobalance.kept = require('./engine/keptswitch').keptNow(); } catch { autobalance.kept = {}; }
           /* Review round 6: why a moving board moves nobody now (lines its record could not take yet), so the page says so. */
           try { autobalance.movePaused = autobalance.moving === true ? automoveRun.paused() : null; } catch { autobalance.movePaused = null; }
           autobalance.recent = [];
@@ -30306,17 +30309,14 @@ function start(port = PORT) {
       if (accountSweep && typeof accountSweep.unref === 'function') accountSweep.unref();
       /* kosmos#7152 slice 1: read every Claude account's weekly and five-hour usage from the usage endpoint
          (engine/usagepoll.js), idle accounts included, into each account folder, where accountsweekly reads it. Same
-         gating as the sweeps above, OFF unless AGENT_WORKFORCE_USAGE_POLL=1 (review 19), brake AGENT_WORKFORCE_USAGE_POLL_OFF=1, own 10-min timer, unref'd,
+         gating as the sweeps above, OFF unless AGENT_WORKFORCE_USAGE_POLL=1 at this start or kept from an earlier one (review 19, kosmos#8841), brake AGENT_WORKFORCE_USAGE_POLL_OFF=1, own 10-min timer, unref'd,
          asynchronous (one account at a time, never on the board's request path), best-effort. accounts.list() is the
          cheap read: listLive() checks every account live and must not run on a timer. */
-      /* kosmos#8841: before anything below reads them, a switch an earlier start recorded and this start left unset is
-         turned on again (engine/keptswitch.js), so a restart does not silently undo the operator's choice. Nothing is
-         read or changed under a test or a dry run. */
+      /* kosmos#8841: a switch an earlier start recorded and this start left unset is kept (engine/keptswitch.js), so a
+         restart does not silently undo the operator's choice. */
       try {
-        const kept = require('./engine/keptswitch').applyAtStart(process.env, {
-          live: liveExecution.liveExecutionAllowed() && !process.env.NODE_TEST_CONTEXT && process.env.AGENT_WORKFORCE_DRY_RUN !== '1',
-        });
-        for (const line of kept.lines) process.stdout.write(line + '\n');
+        const keptAtStart = require('./engine/keptswitch').atBoardStart(process.env, { liveExecutionAllowed: liveExecution.liveExecutionAllowed() });
+        for (const line of keptAtStart.lines) process.stdout.write(line + '\n');
       } catch (err) { process.stdout.write(`kept-switches: not applied (${String((err && err.message) || err)})\n`); }
       const usagePoll = require('./engine/usagepoll');
       let usagePollBusy = 0;   // when the running sweep started, or 0

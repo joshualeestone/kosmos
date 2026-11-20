@@ -83,6 +83,9 @@ const CASES = {
     { kind: 'held-loss', at: now - 1 * 60e3, pairs: [{ from: '/home/.claude-full', to: '/home/.claude-spare' }, { from: '/home/.claude-full', to: '/home/.claude-x', toLabel: '<b>X</b>' }] }] } },
   /* CONTROL: the same record with moving left out says nothing moves on its own. */
   armedNotRecording: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: false, moving: false, armed: true, recent: [] } },
+  /* kosmos#8841: on only because an earlier start switched it on; the page says so and since when. */
+  keptBoth: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, moving: true, armed: true, kept: { usagePoll: Date.UTC(2026, 10, 6, 15), automove: Date.UTC(2026, 10, 8, 15) }, recent: [] } },
+  keptPoll: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, kept: { usagePoll: 0 }, recent: [] } },
   movingOff: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, recent: [] } },
   /* Review round 6: moves switched off after a run: the mover's lines are still in the record. */
   movedThenOff: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, recent: [
@@ -252,6 +255,15 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         tag + ' pressing the switch sends off once and draws the next read', JSON.stringify(r.pressed));
       say(r.beforeFail && r.beforeFail.lines.length === 2 && r.failed && !r.failed.shown && r.failed.lines.length === 0, tag + ' a failed read takes the earlier lines away (shown before it: the control)', JSON.stringify(r.failed));
       say(Object.values(r).filter((x) => x && 'sideways' in x).length >= 10 && Object.values(r).every((x) => !x || x.sideways !== true), tag + ' nothing scrolls sideways (in every state drawn)', '');
+      /* kosmos#8841. */
+      const kb = r.keptBoth && r.keptBoth.recent;
+      say(kb && /^Usage readings and automatic moves were switched on when Kosmos started on .*\b6\b.*2026.*, and Kosmos has kept them on through every restart since\.$/.test(kb[kb.length - 1]),
+        tag + ' kept from an earlier start: says both are on since the earlier of the two days', JSON.stringify(kb));
+      const kp = r.keptPoll && r.keptPoll.recent;
+      say(kp && kp[kp.length - 1] === 'Usage readings were switched on when Kosmos started on an earlier day, and Kosmos has kept that on through every restart since.',
+        tag + ' kept with no date: says an earlier day, and only what is kept', JSON.stringify(kp));
+      say(r.movingOff && r.movingOff.recent.every((x) => x.indexOf('has kept') === -1) && r.moving && r.moving.recent.every((x) => x.indexOf('has kept') === -1),
+        tag + ' CONTROL: switched on at this start, or not on, nothing is said to be kept', JSON.stringify(r.movingOff && r.movingOff.recent));
       /* Slice 3. */
       const NONE = 'Kosmos does not move agents on its own yet. It keeps a record of what it would have moved.';
       const nr = r.notRecording && r.notRecording.recent;
