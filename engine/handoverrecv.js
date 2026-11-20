@@ -50,6 +50,8 @@
  */
 // kosmos#8764: how far a pack's signed time may sit from escrowd's start or this computer's clock.
 const PACK_SKEW_SECS = 300;
+// kosmos#8764 review 3: a pack dated further ahead than this is final, so its wait cannot outlive a day.
+const PACK_AHEAD_MAX_SECS = 24 * 3600;
 const crypto = require('crypto');
 const fs = require('fs');
 const net = require('net');
@@ -354,10 +356,12 @@ async function receive(part, org, kp, deps) {
   const packedAt = Number.isFinite(takenMs) ? Math.floor(takenMs / 1000) : null;
   if (packedAt === null) return fail('the pack does not say when it was made');
   if (packedAt < rec.issuedAt - PACK_SKEW_SECS) return fail('the pack says it was made before the hand-over was started');
-  // Ahead of this clock: either clock may be off, as for a record dated ahead (a wait there too), so wait, bounded by
-  // the same one-day limit, rather than end a hand-over a correct clock would take.
-  if (packedAt > nowSec + PACK_SKEW_SECS) return { ok: false, tieWait: true, because: 'the pack says it was made later than this computer\'s clock' };
   if (packedAt - rec.issuedAt > hs.RECORD_MAX_AGE_SECS) return fail('the pack was made more than a month after the hand-over was started; an admin has to start it again');
+  // Ahead of this clock: either clock may be off, as for a record dated ahead, so up to a day ahead waits: real time
+  // reaches it within that day, so the wait ends by itself (no stored clock: the check before the fetch clears waitSince
+  // on every pass, review 3). Further ahead than a day is no clock error worth waiting for: final.
+  if (packedAt > nowSec + PACK_AHEAD_MAX_SECS) return fail('the pack says it was made more than a day later than this computer\'s clock');
+  if (packedAt > nowSec + PACK_SKEW_SECS) return { ok: false, tieWait: true, because: 'the pack says it was made later than this computer\'s clock' };
   // The same history passed the check above, so a wait here can only be a key escrowd lists from AFTER the pack was made
   // (enrolled later, which a backdated pack would need): final.
   const tie = hs.checkSender({ org, member: rec.from, senderPub, history: part.sender_history, at: Math.min(packedAt, nowSec), now: nowSec });

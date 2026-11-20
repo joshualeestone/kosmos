@@ -1005,12 +1005,19 @@ test('kosmos#8764: the leaving member is escrowd\'s record\'s, and the packing k
   }
   // ... and no later than this computer's clock.
   {
-    // A wait (round 2: either clock may be off), bounded by the one-day limit; nothing received, nothing ended.
+    // A wait (round 2: either clock may be off); real time reaches it within a day (the case below bounds it).
     const { r, c } = await run('hfuture', () => ({}), 0, Date.now() + 3600 * 1000);
     assert.equal(r.ok, false);
     assert.match(r.because, /later than this computer's clock/);
     assert.notEqual(c.rec.state, 'failed');
     assert.notEqual(c.rec.state, 'done');
+  }
+  // Review 3: dated more than a day ahead is final (its wait could otherwise never end), once.
+  {
+    const { r, c } = await run('hfar', () => ({}), 0, Date.now() + 2 * 86400 * 1000);
+    assert.equal(r.ok, false);
+    assert.match(r.because, /more than a day later/);
+    assert.equal(c.rec.state, 'failed');
   }
   // A key already revoked before the hand-over started is final BEFORE anything is fetched (no pack could predate the
   // start). CONTROL: the key revoked after the pack (hrevlate, below) is fetched and opens.
