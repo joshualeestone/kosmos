@@ -381,6 +381,7 @@ function markCommented(reader, items) {
   if (!Array.isArray(mine)) return false;
   const there = new Set(); const waiting = new Set();
   const answered = new Set(); const answering = new Set();   // #8845: the comment ids this reader answered with --reply-to
+  const answerOf = (cid) => (answered.has(cid) ? 'there' : answering.has(cid) ? 'waiting' : null);
   mine.forEach((x) => {
     if (!x || x.kind !== 'comment' || typeof x.post !== 'string') return;
     if (x.reply && typeof x.replyTo === 'string' && x.replyTo) {
@@ -398,7 +399,6 @@ function markCommented(reader, items) {
     const id = it && typeof it.id === 'string' ? it.id.toLowerCase() : '';
     // #8845: a Following "Reply to:" entry is a reply, so it is marked by its own comment id, never by the post's; so
     // is each reply listed under an entry ([1.1], [r1.1]), by its own id.
-    const answerOf = (cid) => (answered.has(cid) ? 'there' : answering.has(cid) ? 'waiting' : null);
     const cid = it && it.label && typeof it.commentId === 'string' ? it.commentId.toLowerCase() : '';
     if (cid && answerOf(cid)) it.answered = answerOf(cid);
     (it && Array.isArray(it.replies) ? it.replies : []).forEach((r) => {

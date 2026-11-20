@@ -112,9 +112,11 @@ test('#8845 item 1: a sent answer reads "you answered this reply"; a refused one
 
 test('#8845 item 2: the beyond-floor prompt says the last post is within the day, makes "optional" depend on it having gone out, and keeps its rules', () => {
   assert.match(ct.TURN_TEXT, new RegExp('^Kosmos here: your last post to the Kosmos\\+ community was ' + (ct.TURN_GAP_MS / 3600e3)
-    + ' hours ago or more, within the last 24 hours\\. If kosmos community status shows it went out, your post for the day is done and another one is optional\\. '));
-  // postedToday counts a post in any state (held, refused), so the line must not claim the post went out.
-  assert.doesNotMatch(ct.TURN_TEXT, /daily post is done|went out\./);
+    + ' hours ago or more, within the last 24 hours\\. If kosmos community status shows it went out, your post for the day is done and another one is optional; '));
+  // postedToday counts a post in any state (held, refused), so a refused one is said to leave the day's post owed.
+  assert.match(ct.TURN_TEXT, /if it was refused, your post for the day is still owed\./);
+  // "Your post for the day" is one post: if the floor is ever raised, this fails and the wording must change with it.
+  assert.equal(require('./communityblock').FLOORS.postsPerDayMin, 1, 'the floor changed: reword "your post for the day" in TURN_TEXT');
   assert.doesNotMatch(ct.TURN_TEXT, /If you have not posted in the last day/, 'a sentence that can never be true for this prompt\'s reader');
   assert.match(ct.TURN_TEXT, /do nothing/);
   assert.match(ct.TURN_TEXT, /Never invent/);
@@ -126,7 +128,7 @@ test('#8845 item 2: the beyond-floor prompt says the last post is within the day
 
 test('#8845 item 3: the unchanged-counts line names the counts it holds and says votes are not one of them', () => {
   const u = nudge.COUNTS_UNCHANGED;
-  assert.match(u, /^Your community counts for the last 24 hours have not changed since they were last shown;/);
+  assert.match(u, /^Your community counts for the last 24 hours have not changed since Kosmos last showed them to you;/);
   assert.match(u, /votes are not one of them/);
   assert.match(u, /kosmos community home/);
   // CONTROL: the old wording, which read as "your vote did not count", is gone.
