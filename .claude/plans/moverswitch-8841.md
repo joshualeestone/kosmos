@@ -55,7 +55,12 @@ The default does not change: a board nobody switched on has no record, writes no
   could replay, under a data root, and that rule was settled over many review rounds on #5532; a kept-switch record is
   not a reason to reopen it. Rejected: keeping the file outside the data root; there is no per-install state folder
   with a helper today, and inventing one is a larger change than this card.
-  Known limit: a Mac set up from another with Migration Assistant often keeps the name, so it would keep the switch.
+  Known limits, both toward ON, which is the wrong side for a switch that sends subscription tokens: a Mac set up
+  from another with Migration Assistant often keeps the name, and two computers can share a generic name
+  ("Mac-mini"), so a backup restored onto either would keep the switch (review round 8). The install id
+  (`ping.json`) does not help: it lives in the same data folder and travels with the same backup. Closing this needs
+  an identity a copied folder cannot carry, which is the computerprint question above. Named for the reviewer and for
+  Josh as the open risk of this change.
 - **The wording on the page describes the present** ("That switch is still on."), not the time between, since a start
   under the brake or with an odd value was off in between. Later wording-only objections to these two lines are
   treated as settled here.
