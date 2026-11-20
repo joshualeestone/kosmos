@@ -17,7 +17,8 @@
  * brief as safety text); 48,843 after slice 2 (the task commands for one situation each moved to `kosmos task --how`,
  * with the three per-run rules kept in the brief; measured with the kosmos command path also counted as one fixed path,
  * below); 47,580 after slice 3 item 3 (the Project Manager's daily feedback routine left to the board's daily ask,
- * kosmos#7374). Every platform counts a brief as its Mac form (PLATFORM_DELTA, below), so one ceiling holds
+ * kosmos#7374); 46,912 after slice 3 item 1 (the person section's answering repeats); 46,305 after the working rules'
+ * files section kept only what the Files block does not say. Every platform counts a brief as its Mac form (PLATFORM_DELTA, below), so one ceiling holds
  * everywhere, Linux CI and Windows included.
  *
  *   node --test engine/create.brief-size-8735.test.js

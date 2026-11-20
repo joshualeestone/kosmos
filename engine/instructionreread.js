@@ -477,7 +477,9 @@ function prepareChanges(session) {
       const now = lineSet(got.text);
       const dm = require('./dmfiles');
       const blk = projectsMod ? projectsMod.findBlock(got.text, dm.START, dm.END) : null;
-      if (was.has(V54_FIRST) && !now.has(V54_FIRST) && now.has(FILES_HEAD) && blk && !blk.ambiguous) {
+      // The note names the Files block's heading, so that heading must be in the file, inside one whole block.
+      const named = blk && !blk.ambiguous && now.has(String(dm.blockBody('x')).split('\n')[0]);
+      if (was.has(V54_FIRST) && !now.has(V54_FIRST) && now.has(FILES_HEAD) && named) {
         movedFiles = { under: FILES_HEAD, lines: new Set(), where: 'the section "Where to save files you make for the person", in this file' };
       }
     } catch { movedFiles = null; }

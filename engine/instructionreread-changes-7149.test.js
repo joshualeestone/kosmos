@@ -752,7 +752,7 @@ test('kosmos#8735 doctrine 55: the removed files lines stay marked and the note 
   const projects = require('./projects');
   const dm = require('./dmfiles');
   const { block, before } = withFilesSectionBack();
-  const tail = projects.spliceBlock('', 'the Files block', dm.START, dm.END) + '\n';
+  const tail = projects.spliceBlock('', dm.blockBody('/x/Files'), dm.START, dm.END) + '\n';
   agentFile('tfa', '# You are Tfa\n\n' + block + '\n' + tail);
   assert.equal(ir.remember('tfa', '# You are Tfa\n\n' + before + '\n' + tail), true);
   const body = fs.readFileSync(ir.prepareChanges('tfa').path, 'utf8');
@@ -776,10 +776,22 @@ test('kosmos#8735 doctrine 55: a different line removed from the files section g
   const head = '### Where the files you make go\n';
   const other = 'A rule a person wrote under this heading and later deleted.';
   assert.equal(block.split(head).length, 2, 'fixture: the files heading is not unique');
-  const tail = projects.spliceBlock('', 'the Files block', dm.START, dm.END) + '\n';
+  const tail = projects.spliceBlock('', dm.blockBody('/x/Files'), dm.START, dm.END) + '\n';
   agentFile('tfc', '# You are Tfc\n\n' + block + '\n' + tail);
   assert.equal(ir.remember('tfc', '# You are Tfc\n\n' + block.replace(head, head + '\n' + other + '\n') + '\n' + tail), true);
   const body = fs.readFileSync(ir.prepareChanges('tfc').path, 'utf8');
   assert.ok(body.includes('- ' + other), 'fixture: the removed line is not in the changes file');
   assert.ok(!body.includes(FILES_NOTE), 'a removal that is not the v55 one was pointed at the Files block');
+});
+
+test('kosmos#8735 doctrine 55: a Files block without its heading gets no note naming that heading (CONTROL)', () => {
+  const projects = require('./projects');
+  const dm = require('./dmfiles');
+  const { block, before } = withFilesSectionBack();
+  const tail = projects.spliceBlock('', 'a Files block a person rewrote, without its heading', dm.START, dm.END) + '\n';
+  agentFile('tfd', '# You are Tfd\n\n' + block + '\n' + tail);
+  assert.equal(ir.remember('tfd', '# You are Tfd\n\n' + before + '\n' + tail), true);
+  const body = fs.readFileSync(ir.prepareChanges('tfd').path, 'utf8');
+  assert.ok(body.includes('- ' + REASON), 'fixture: the removed line is not in the changes file');
+  assert.ok(!body.includes(FILES_NOTE), 'the note named a heading that is not in the file');
 });
