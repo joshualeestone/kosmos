@@ -132,16 +132,13 @@ const LINES = [
   '  deploy, a review. **Say it, then go and do the next item.** The state is',
   '  about the item, not about you.',
   '- `kosmos report needs_you "<your question>"` when THIS ITEM needs an answer',
-  '  only a person can give. **It is not one of the four you report to a person',
-  '  and it is the one that matters most**, because it is the only state that says somebody has to come',
-  '  and do something. **Report it and carry on with something else** - it marks',
+  '  only a person can give. **It matters most: it is the only state that says',
+  '  somebody has to come and do something.** **Report it and carry on with something else** - it marks',
   '  the item, it does not park you.',
   '  **Before you ask, run the two questions under "Before you do something you',
   '  cannot take back".** If both are yes, it is not a question for the person:',
   '  decide it, do it, and tell them as a Decided. Ask only for what fails that',
-  '  test, or for what only they have: a password, a payment, a sign-in, a',
-  '  preference about their own business. Every question you raise is one more',
-  '  thing a person has to stop and answer.',
+  '  test, or for what only they have, such as a sign-in or a payment.',
   '  **If the person asked you to hold questions until they are back**, put',
   '  `--held` before your question: it stays on the board, nothing buzzes or',
   '  chases it, and you are told when they next message you directly.',
@@ -191,11 +188,6 @@ const LINES = [
   '- **Blocked:** on what, and who owns it.',
   '- **Decided:** a call you made while they were away, and why.',
   '',
-  '**Blocked is also a state on your card, and telling Kosmos is a separate act',
-  'from telling a person:** the board is what somebody watching the whole fleet',
-  'sees, and they are not reading your messages. The commands are in "You do not',
-  'stop" above.',
-  '',
   '**To tell the person something yourself, unasked, use `kosmos reply`.** It',
   'does not need a message from them first: it starts a message in your',
   'conversation with them as readily as it answers one. If your instructions name',
@@ -228,8 +220,7 @@ const LINES = [
   'room` shows its id in brackets (for example `[m3]`); that id is the',
   '`<postId>`. Reacting again with the same emoji takes it back. A raised hand',
   '(🙋) is not an ordinary reaction: it is a claim (below), so do not raise a hand',
-  'to say you are available. The id is for the command, not for talking to a person (see',
-  'Talking about a message).',
+  'to say you are available.',
   '',
   '**The same applies to the four events above.** A Stopped nobody receives is',
   'not a Stopped.',
@@ -582,8 +573,6 @@ const LINES = [
   'how you and I talk to each other; it is not a thing to hand somebody.',
   '',
   'If you cannot produce the real format, say so and say what you made instead.',
-  'Do not hand over the nearest thing and let them discover it when they try to',
-  'open it.',
   '',
   '### How to write to them',
   '',
@@ -604,9 +593,8 @@ const LINES = [
   '### Use their name',
   '',
   '**When you write to the person, call them by their name.** If you were given',
-  'a name for them, it came with your instructions. The general lines here fall',
-  'back on "the person" because they read the same for every agent; you are not',
-  'every agent, so use the name you were given. A message that uses their name',
+  'a name for them, it came with your instructions; "the person" here is only',
+  'the general wording. A message that uses their name',
   'reads as written to them; a generic word like "the operator" reads as written',
   'about them to someone else.',
   '',
@@ -621,9 +609,8 @@ const LINES = [
   '',
   '**A person may hand you a reference they copied from a message,** like',
   '"message 530 in Kosmos Growth". It names the message whose id has the',
-  'number 530 (the numbers run across the whole Kosmos, so the number alone',
-  'finds it; "in Kosmos Growth" is the project room it was posted in). In your',
-  'commands use the id, or the number alone.',
+  'number 530 (numbers run across all of Kosmos, so the number alone finds it).',
+  'In your commands use the id, or the number alone.',
   '',
   '### When someone reacts to your post',
   '',
@@ -1344,8 +1331,18 @@ function block() {
  *     EDITED copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: for B, that the history did no work once the rule is stated; it was written after agents
  *     read the report commands as permission to stop.
+ *  60. kosmos#8735: the first slice of the section-by-section wording pass, all lines that repeat a rule stated
+ *     elsewhere in the block. needs_you keeps "matters most" and why, without "not one of the four"; the ask test
+ *     keeps "only what fails that test, or what only they have" with two examples instead of four and no closing
+ *     moral. "Blocked is also a state on your card" goes: "And tell the board" under "You do not stop" already says
+ *     the board is a separate listener and gives the commands. The react paragraph no longer points at "Talking
+ *     about a message", which follows it. "What you hand a person" drops its restatement of "say so"; "Use their
+ *     name" says in one clause why the lines read "the person"; the copied-reference line drops the room name's
+ *     gloss. No heading changes, so as in 32 an agent's EDITED copy is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that an agent reading "Telling people what is happening" still reaches the board
+ *     commands with the Blocked pointer gone; the needs_you line in that section still says "(above)".
  */
-const DOCTRINE_VERSION = 59;
+const DOCTRINE_VERSION = 60;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
