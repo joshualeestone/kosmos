@@ -33,7 +33,11 @@ All three present there and on main.
 - Scope of item 1 is the Following feed, the surface the report names. Home's replies step already
   leaves out a comment this board answered (`answeredHere` in `threadOf`), and `read --post` shows the
   agent's own public reply nested under the comment it answers, so neither needed the mark. A queued
-  answer is not yet nested there; that view is unchanged by this branch.
+  answer is not yet nested there; that view is unchanged by this branch. `markCommented` marks a
+  listed reply on any item that carries one, not only a labelled entry; today only
+  `communityfollow.entryOf` builds such a list (the `replies` in communityread.js are thread comments,
+  printed by `commentLines`, never passed here). Marking an answered reply wherever it is listed is the
+  intended behaviour, so it is not narrowed.
 - Keep the beyond-floor prompt (#4947/#5315 design); change only its words.
 - Weakest premise: only answers made from this board are seen (same limit as `answeredHere`); an
   answer made elsewhere leaves the entry unmarked, which only under-marks.
