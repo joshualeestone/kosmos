@@ -3223,12 +3223,13 @@ async function agentMove(ctx, args) {
   const acceptLoss = args.includes('--accept-loss');
   const words = args.filter((a) => a !== '--yes' && a !== '--accept-loss');
   const account = words[1];
-  const name = typeof words[0] === 'string' ? words[0].trim() : words[0];   // review 2: as the board trims it (create.cleanName)
-  if (!name || !account) { ctx.err(AGENT_MOVE_USAGE); return 2; }
-  for (const w of [name, account]) if (/^--[A-Za-z]/.test(w)) { refuseOption(ctx, 'agent move', AGENT_MOVE_USAGE, w, 'target'); return 2; }
+  const typed = typeof words[0] === 'string' ? words[0].trim() : words[0];   // review 2: as the board trims it (create.cleanName)
+  if (!typed || !account) { ctx.err(AGENT_MOVE_USAGE); return 2; }
+  for (const w of [typed, account]) if (/^--[A-Za-z]/.test(w)) { refuseOption(ctx, 'agent move', AGENT_MOVE_USAGE, w, 'target'); return 2; }
   if (tooManyWords(ctx, 'agent move', 2, AGENT_MOVE_USAGE, words)) return 2;
-  if (!yes && !ctx.canAsk()) { ctx.err('Nothing was moved: there is no terminal here to confirm on. To move ' + name + ' without being asked, add --yes.'); return 2; }
-  const p = await ctx.call('GET', '/api/agents/account-plan?' + new URLSearchParams({ name, account }).toString(), undefined, { person: true });
+  if (!yes && !ctx.canAsk()) { ctx.err('Nothing was moved: there is no terminal here to confirm on. To move ' + typed + ' without being asked, add --yes.'); return 2; }
+  let name = typed;
+  const p = await ctx.call('GET', '/api/agents/account-plan?' + new URLSearchParams({ name, account, resolve: '1' }).toString(), undefined, { person: true });
   if (!p.reached) return ctx.unreachable('read what moving ' + name + ' would do');
   if (!p.json) { ctx.err('Kosmos gave an answer we could not read when asked about moving ' + name + '.'); return 1; }   // review 3: as the Mac says it
   const plan = p.json;
@@ -3237,6 +3238,13 @@ async function agentMove(ctx, args) {
     ctx.err('Kosmos will not move ' + name + ': ' + (why || 'it did not say why') + (/[?!]$/.test(why) ? '' : '.'));
     return 1;
   }
+  /* kosmos#8839: the plan resolved the name as kosmos agent list prints it (Sub-Zero) to the agent's own name (subzero),
+     which is what the move below is sent; the move route itself resolves nothing, as remove's does not. The agent is
+     said by its card and its own name whenever those differ (as agent model does), so a word that is one agent's folder
+     and another's display name never reads as the agent the person meant. */
+  const agent = typeof plan.name === 'string' && plan.name ? plan.name : typed;
+  const shown = typeof plan.shown === 'string' ? plan.shown.replace(/[\u0000-\u001f\u007f]+/g, ' ') : '';
+  if (shown && shown !== agent) name = shown + ' (' + agent + ')'; else if (agent !== typed) name = agent;
   const label = plan.label || account;
   if (plan.same === true) { ctx.out(name + ' is already on ' + label + '. Nothing was moved.'); return 0; }
   if (plan.ok !== true) ctx.out('Kosmos could not check what ' + name + ' would lose on ' + label + ': ' + (clause(plan.because || '') || 'it did not say why') + '.');
@@ -3252,7 +3260,7 @@ async function agentMove(ctx, args) {
     if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was moved.'); return 1; }
   }
   // Review 1: Settings' own route, sent as the person (token-only mode would refuse it after the confirm).
-  const r = await ctx.call('POST', '/api/agents/account', { dir: plan.dir, names: [name] }, { timeoutMs: POST_TIMEOUT_MS, person: true });
+  const r = await ctx.call('POST', '/api/agents/account', { dir: plan.dir, names: [agent] }, { timeoutMs: POST_TIMEOUT_MS, person: true });
   if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + name + ' may be moving; look at Settings, AI Models before trying again.') : ctx.unreachable('move ' + name);
   const first = r.json || {};
   let a = (Array.isArray(first.agents) ? first.agents : [])[0] || {};

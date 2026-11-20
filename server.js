@@ -17464,11 +17464,32 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/agents/account-plan' && (req.method === 'GET' || req.method === 'HEAD')) {
     let q;
     try { q = new URL(req.url, ROUTING_BASE).searchParams; } catch { q = new URLSearchParams(); }
-    const name = create.cleanName(String(q.get('name') || ''));
+    const asked = create.cleanName(String(q.get('name') || ''));
     const dir = String(q.get('dir') || '');
     const said = String(q.get('account') || '').trim();
-    if (!name) { sendJson(res, 400, { ok: false, because: 'we need the agent to move' }); return; }
+    if (!asked) { sendJson(res, 400, { ok: false, because: 'we need the agent to move' }); return; }
     if (!said && !dir) { sendJson(res, 400, { ok: false, because: 'we need the account to move it to' }); return; }   // review 2: never a silent default
+    /* kosmos#8839: ONLY when the caller asks (`resolve=1`, which both CLIs send), a name as `kosmos agent list` prints it
+       ("Sub-Zero", "Sonya Blade") is taken to the one agent it names (subzero, sonyablade), by kosmos#8109's
+       remove.resolve over the same cards, as the removal plan and the model route do. Every answer past this point
+       carries that `name`, which is what the CLI then sends to POST /api/agents/account (that route is not resolved,
+       as remove's DELETE is not), and the card's `shown` name when it has one. A name two agents answer to is refused,
+       never guessed. Settings sends the card's own name and no resolve=1, so nothing changes for it. */
+    let name = asked; let shownAs = null; let cards; const resolving = q.get('resolve') === '1';
+    if (resolving) {
+      cards = await cardsForResolve();
+      let r = { name: asked, ambiguous: [], shown: {} };
+      try { r = removal.resolve(asked, process.platform, cards); } catch { /* as given */ }
+      if (r.ambiguous && r.ambiguous.length) {
+        const seen = (f) => (r.shown && r.shown[f] && r.shown[f] !== f ? `${f}, shown as ${r.shown[f]}` : f);
+        sendJson(res, 409, { ok: false, ambiguous: true, because: `more than one agent is called ${asked} (${r.ambiguous.map(seen).join('; ')}); name it by one of those names` });
+        return;
+      }
+      name = r.name;
+      const card = Array.isArray(cards) ? cards.find((c) => c && c.name === name) : null;
+      shownAs = card && card.shown ? String(card.shown) : null;
+    }
+    const who = { name, ...(shownAs ? { shown: shownAs } : {}) };
     let known = [];
     try { known = (accounts.list() || []).filter((a) => a && typeof a.dir === 'string' && a.dir); } catch { known = []; }
     const real = (d) => { try { return fs.realpathSync(d); } catch { return require('node:path').resolve(d); } };
@@ -17490,17 +17511,20 @@ const server = http.createServer(async (req, res) => {
     if (!target) { sendJson(res, 404, { ok: false, because: 'that is not one of the Claude accounts on this computer' }); return; }
     let job = null;
     try { job = create.readJob(name); } catch { job = null; }
+    /* kosmos#8839: the cards could not be read, so a name as the list prints it was not resolved and has no job of its
+       own. That is a read that failed, said as one, never "no agent" (which a caller reads as the agent being gone). */
+    if (!job && resolving && cards === null) { sendJson(res, 503, { ok: false, readFailed: true, because: `Kosmos could not read its agents just now, so it cannot tell which agent ${name} is; try again` }); return; }
     if (!job) { sendJson(res, 404, { ok: false, because: `there is no agent called ${name} on this computer` }); return; }
     let provider = null;
     try { provider = create.jobProvider(job); } catch { provider = null; }
-    if (provider !== 'anthropic') { sendJson(res, 409, { ok: false, because: `${name} does not run on a Claude account, so it cannot be moved to one` }); return; }
+    if (provider !== 'anthropic') { sendJson(res, 409, { ok: false, ...who, because: `${name} does not run on a Claude account, so it cannot be moved to one` }); return; }
     /* Real folders on both sides: the default account's row carries its own folder (accounts.list), so nothing here
        falls back to this process's home, which a board's own home can differ from. */
     const defaultRow = known.find((a) => a.isDefault === true);
     const from = job.configDir || (defaultRow && defaultRow.dir) || null;
     const to = target.dir;
-    if (!from) { sendJson(res, 200, { ok: false, dir: to, label: labelOf(target), because: 'we could not tell which account it is on' }); return; }
-    const where = { dir: target.dir, label: labelOf(target) };
+    if (!from) { sendJson(res, 200, { ok: false, ...who, dir: to, label: labelOf(target), because: 'we could not tell which account it is on' }); return; }
+    const where = { ...who, dir: target.dir, label: labelOf(target) };
     if (real(from) === real(to)) { sendJson(res, 200, { ok: true, same: true, ...where, skills: [], hooks: [], sentence: `${name} is already on that account.` }); return; }
     /* ~ in a hook is the board's own home; a relative or $CLAUDE_PROJECT_DIR hook is the agent's own folder (#8063). */
     const l = require('./engine/accountcarry').losses(from, to, { home: accounts.homeDir(), project: create.workerDir(name) });
