@@ -26,8 +26,9 @@ Mortals' board; part 1, switching the poll back on there, stays with Josh).
 environment object the board started with. It is not written into the environment, so nothing the board starts (an
 agent's shell, a test run from one) inherits a switch.
 
-Settings, AI Models says when usage readings or moves are on only because an earlier start switched them on, and since
-which day (`autobalance.kept` on the accounts read).
+Settings, AI Models says when usage readings or moves are on only because an earlier start switched them on, each on
+its own line with its own day (`autobalance.kept` on the accounts read). A switch the brake is holding off is not
+said to be kept on.
 
 The default does not change: a board nobody switched on has no record, writes none, and stays off.
 
@@ -35,6 +36,8 @@ The default does not change: a board nobody switched on has no record, writes no
 - **The choice sticks from one `=1` start.** The alternative was a separate command or file to make it durable. The
   card's case is an operator who switched it on and expected it to stay; a second step they did not know about would
   reproduce the failure. What would change it: if `=1` is used for one-off trial starts that must not stick.
+  Liu Kang's direction for this part (2026-11-20): "a restart should not silently undo the poll setting". Review round
+  2 raised the trial-start risk again; it stays as decided, and is the first thing named for the reviewer.
 - **Not in the environment.** The first version set `process.env`, so every shell and test run the board started
   would have inherited the switch for good (review round 1). Kept in the module instead.
 - **A record that cannot be read is never written over**, even to record what this start was told: it may hold the
@@ -51,7 +54,7 @@ before. What is new against that: the page now says when a switch is kept and si
 switch each time.
 
 ## Checks
-- `engine/keptswitch.test.js` (10): nothing kept by default (control); on at one start, kept at the next, with the
+- `engine/keptswitch.test.js` (11): nothing kept by default (control); on at one start, kept at the next, with the
   exact log lines; the environment is not changed and no other environment reads as on; `=0` off for good; odd and
   empty values; the brake and its wording; no effect under a test, a dry run or without live execution (with a live
   control); an unreadable record never written over; an unwritable record; the board's one call.

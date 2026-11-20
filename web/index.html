@@ -31188,12 +31188,11 @@ function paintAutobalance(ab, list) {
     /* kosmos#8841: usage readings or moves that are on only because an earlier start switched them on. The board kept
        that through its restarts, so the page says so, and since when. */
     const kept = ab.kept && typeof ab.kept === 'object' ? ab.kept : {};
-    const keptPoll = Number.isFinite(kept.usagePoll); const keptMove = Number.isFinite(kept.automove);
-    if (keptPoll || keptMove) {
-      const since = Math.min(keptPoll ? kept.usagePoll : Infinity, keptMove ? kept.automove : Infinity);
-      const day = since > 0 ? 'on ' + new Date(since).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : 'on an earlier day';
-      recentBox.innerHTML += line((keptPoll && keptMove ? 'Usage readings and automatic moves were' : keptPoll ? 'Usage readings were' : 'Automatic moves were')
-        + ' switched on when Kosmos started ' + esc(day) + ', and Kosmos has kept ' + (keptPoll && keptMove ? 'them' : 'that') + ' on through every restart since.');
+    for (const [key, what] of [['usagePoll', 'Usage readings were'], ['automove', 'Automatic moves were']]) {
+      if (!Number.isFinite(kept[key])) continue;
+      const when = new Date(kept[key]);
+      const day = kept[key] > 0 && !Number.isNaN(when.getTime()) ? 'on ' + when.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : 'on an earlier day';
+      recentBox.innerHTML += line(what + ' switched on when Kosmos started ' + esc(day) + ', and Kosmos has kept that on through every restart since.');
     }
   }
   if (lines) lines.innerHTML = html;

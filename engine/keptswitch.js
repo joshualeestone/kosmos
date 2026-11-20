@@ -47,7 +47,7 @@ function read(from = file()) {
   const on = {};
   for (const s of SWITCHES) {
     const v = parsed[s.key];
-    if (v && typeof v === 'object' && v.on === true) on[s.key] = { at: Number.isFinite(v.at) ? v.at : 0 };
+    if (v && typeof v === 'object' && v.on === true) on[s.key] = { at: Number.isFinite(v.at) && v.at > 0 && v.at < 8.64e15 ? v.at : 0 };   // 0: no day a Date can say
   }
   return { ok: true, on };
 }
@@ -59,10 +59,11 @@ function on(key, env = process.env) {
   return env[s.name] === '1' || (unset(env[s.name]) && env === keptFor && !!kept[key]);
 }
 
-/** The switches this board has on from an earlier start (not from this start's own environment): { key: at }. */
+/** The switches this board has on from an earlier start (not from this start's own environment, and not while the
+ *  brake holds one off): { key: at }. */
 function keptNow() {
   const out = {};
-  for (const s of SWITCHES) if (keptFor && unset(keptFor[s.name]) && kept[s.key]) out[s.key] = kept[s.key].at;
+  for (const s of SWITCHES) if (keptFor && unset(keptFor[s.name]) && kept[s.key] && keptFor[s.name + '_OFF'] !== '1') out[s.key] = kept[s.key].at;
   return out;
 }
 

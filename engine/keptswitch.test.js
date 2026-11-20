@@ -101,9 +101,11 @@ test('the brake still wins while it is set, the log says so, and the record surv
   const b = start(braked, file);
   assert.equal(usagePoll.enabled(braked), false, 'the brake did not hold the kept usage poll off');
   assert.deepEqual(b.lines, ['kept-switches: the usage poll is switched on, kept from the start of 2026-11-06T09:17:00.000Z; held off for now by AGENT_WORKFORCE_USAGE_POLL_OFF=1; start once with AGENT_WORKFORCE_USAGE_POLL=0 to switch it off']);
+  assert.deepEqual(keptswitch.keptNow(), {}, 'a switch the brake holds off was reported as kept on, which the page would say');
   const after = {};
   start(after, file);
   assert.equal(usagePoll.enabled(after), true, 'taking the brake off did not bring the kept switch back');
+  assert.deepEqual(keptswitch.keptNow(), { usagePoll: T1 });
 });
 
 test('under a test or a dry run nothing is read, written or kept', () => {
@@ -152,4 +154,12 @@ test('the board makes the one call at start, with nothing of its own decided the
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.equal(src.split("require('./engine/keptswitch').atBoardStart(process.env, { liveExecutionAllowed: liveExecution.liveExecutionAllowed() })").length, 2,
     'server.js does not make exactly one atBoardStart call for its own environment');
+});
+
+test('a recorded time no date can say reads as no day, not as an invalid one', () => {
+  const file = fresh();
+  fs.writeFileSync(file, JSON.stringify({ usagePoll: { on: true, at: 9e15 }, automove: { on: true, at: -5 } }));
+  assert.deepEqual(keptswitch.read(file).on, { usagePoll: { at: 0 }, automove: { at: 0 } });
+  const r = start({}, file);
+  assert.match(r.lines[0], /kept from the start of an earlier day;/);
 });

@@ -257,10 +257,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(Object.values(r).filter((x) => x && 'sideways' in x).length >= 10 && Object.values(r).every((x) => !x || x.sideways !== true), tag + ' nothing scrolls sideways (in every state drawn)', '');
       /* kosmos#8841. */
       const kb = r.keptBoth && r.keptBoth.recent;
-      say(kb && /^Usage readings and automatic moves were switched on when Kosmos started on .*\b6\b.*2026.*, and Kosmos has kept them on through every restart since\.$/.test(kb[kb.length - 1]),
-        tag + ' kept from an earlier start: says both are on since the earlier of the two days', JSON.stringify(kb));
+      say(kb && kb.length >= 2 && /^Usage readings were switched on when Kosmos started on .*\b6\b.*2026.*, and Kosmos has kept that on through every restart since\.$/.test(kb[kb.length - 2])
+        && /^Automatic moves were switched on when Kosmos started on .*\b8\b.*2026.*, and Kosmos has kept that on through every restart since\.$/.test(kb[kb.length - 1]),
+        tag + ' kept from an earlier start: each is said with its own day', JSON.stringify(kb));
       const kp = r.keptPoll && r.keptPoll.recent;
-      say(kp && kp[kp.length - 1] === 'Usage readings were switched on when Kosmos started on an earlier day, and Kosmos has kept that on through every restart since.',
+      say(kp && kp.filter((x) => x.indexOf('has kept') !== -1).length === 1 && kp[kp.length - 1] === 'Usage readings were switched on when Kosmos started on an earlier day, and Kosmos has kept that on through every restart since.',
         tag + ' kept with no date: says an earlier day, and only what is kept', JSON.stringify(kp));
       say(r.movingOff && r.movingOff.recent.every((x) => x.indexOf('has kept') === -1) && r.moving && r.moving.recent.every((x) => x.indexOf('has kept') === -1),
         tag + ' CONTROL: switched on at this start, or not on, nothing is said to be kept', JSON.stringify(r.movingOff && r.movingOff.recent));
