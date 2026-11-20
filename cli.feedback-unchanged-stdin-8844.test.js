@@ -152,7 +152,7 @@ test('kosmos#8844 (Mac): more than one line piped in is refused and nothing is s
   const h = makeHome();
   const r = await run(['feedback', 'write', '--unchanged'], h, 'first line\nsecond line\n');
   assert.equal(r.code, 2, r.both);
-  assert.match(r.both, /Nothing was saved: --unchanged takes one line, and more than one was piped in/);
+  assert.match(r.both, /Nothing was saved: --unchanged takes one short line, and more than that was piped in/);
   assert.deepEqual(todays(h.data), [], 'a many-line pipe was saved as the note');
 });
 
@@ -168,7 +168,7 @@ test('kosmos#8844 (Windows): more than one line is refused, and a PowerShell pip
   };
   const many = await go(['feedback', 'write', '--unchanged'], { text: 'first line\r\nsecond line\r\n', ended: true });
   assert.equal(many.code, 2);
-  assert.match(many.err, /Nothing was saved: --unchanged takes one line, and more than one was piped in/);
+  assert.match(many.err, /Nothing was saved: --unchanged takes one short line, and more than that was piped in/);
   assert.deepEqual(written, []);
   // The PowerShell launcher passes the words in a file and says a pipeline was used (kosmos.ps1).
   const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-fbstdin-argv-')), 'argv.json');
@@ -182,4 +182,31 @@ test('kosmos#8844 (Windows): more than one line is refused, and a PowerShell pip
   fs.writeFileSync(f, JSON.stringify(['feedback', 'write', '--unchanged']));
   assert.equal((await go([cli.ARGV_FILE_FLAG, f], { text: '', ended: true })).code, 0);
   assert.deepEqual(written, ['Nothing new since my report of ' + OLD + '.']);
+});
+
+test('kosmos#8844 (Mac): a piped line over 64 KB is refused unsaved', async () => {
+  const h = makeHome();
+  const big = await run(['feedback', 'write', '--unchanged'], h, 'x'.repeat(65537) + '\n');
+  assert.equal(big.code, 2, big.both);
+  assert.match(big.both, /Nothing was saved: --unchanged takes one short line, and more than that was piped in/);
+  assert.deepEqual(todays(h.data), []);
+  // CONTROL: exactly 64 KB, one line, is still saved, so the cap is where it says.
+  const at = await run(['feedback', 'write', '--unchanged'], h, 'y'.repeat(65536));
+  assert.equal(at.code, 0, at.both);
+  assert.match(savedBody(h.data), /, except: y{65536}\n$/);
+});
+
+test('kosmos#8844 (Windows): a piped line over the cap is refused unsaved', async () => {
+  const written = [];
+  const engine = { feedback: { write: (b) => { written.push(b); return { ok: true }; }, writer: () => null,
+    unchanged: (from, note) => ({ ok: true, since: OLD, day: '2026-11-03', body: 'x' + note }) } };
+  let cap = null;
+  const err = [];
+  const code = await cli.main(['feedback', 'write', '--unchanged'], { env: {}, engine,
+    readStdin: async (quietMs, maxBytes) => { cap = maxBytes; return { text: '', ended: false, overflow: true }; },
+    out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call'); } });
+  assert.equal(code, 2);
+  assert.equal(cap, 65536, 'the reader was not given the cap');
+  assert.match(err.join('\n'), /Nothing was saved: --unchanged takes one short line, and more than that was piped in/);
+  assert.deepEqual(written, []);
 });

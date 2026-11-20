@@ -24,7 +24,13 @@ pinned a reader that throws).
 - More than one line piped in is refused, nothing saved (Mac exit 8 inside node, then exit 2; Windows exit 2). The help
   and the nudge both say one line, and this stops a whole report, or unrelated data on an inherited stdin, from being
   saved and sent as the note (review round 1).
-- A stdin read error with data is its own refusal (Mac exit 7), not the "stopped arriving" sentence.
+- More than 64 KB piped in is refused the same way, so a stream nobody meant as the note is never held whole (review
+  round 2). Mac `_u_max`, Windows `FEEDBACK_UNCHANGED_MAX_BYTES`, both 65536; tested at 65536 (saved) and 65537 (refused).
+- A stdin read error is its own refusal on the Mac (exit 7), with or without data. NOT TESTED: no harness here makes
+  node's process.stdin emit an error (a directory as stdin, the obvious try, emits only "end", measured). Windows'
+  shared readStandardInput answers an error and a quiet pipe alike ({ ended: false }), so there an error with no data
+  is read as "nothing piped" and saves the pointer alone; telling them apart would change a reader other commands
+  share, so it is left (review round 2).
 - Windows PowerShell pipeline (text does not reach kosmos): refused with its own sentence pointing at the words form. The
   shared psPipelineRefused says "save the text in a file", which --unchanged refuses (review round 1).
 
