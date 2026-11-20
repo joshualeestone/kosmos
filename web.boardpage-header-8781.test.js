@@ -35,7 +35,7 @@ test('kosmos#8781: the page\'s own requests carry X-Kosmos-Board-Page: 1, and re
   const w = wrapped();
   await w.fetch('/api/status');
   await w.fetch('http://board.test/api/projects');
-  await w.fetch(new URL('/api/agents', 'http://board.test/'));
+  await w.fetch(new URL('/api/status', 'http://board.test/'));
   await w.fetch('https://other.kosmos.test/api/status', { credentials: 'include' });
   assert.equal(header(w.sent[0]), '1', 'a relative read');
   assert.equal(header(w.sent[1]), '1', 'an absolute read of this board');
@@ -97,11 +97,11 @@ test('kosmos#8781: a URL or a header the wrapper cannot read, and another origin
   assert.equal(header(w.sent[3]), '1');
 });
 
-test('kosmos#8781: the board makes exactly one redirect, its same-origin boot redirect (the header rule rests on no off-origin redirect)', () => {
-  // fetch keeps X-Kosmos-Board-Page across a redirect, so a board route that sent the page off this origin and was
-  // bounced back would arrive with it. Today the only 3xx the board writes is the boot redirect, whose location is a
-  // path built from the request's own (engine/boardauth.js pathWithoutParam / pathWithoutToken). A new redirect fails
-  // here so its author checks it stays on this origin, and then adds it to this list.
+test('kosmos#8781: the board makes exactly one redirect, its boot redirect, which the page\'s own fetches never reach', () => {
+  // fetch keeps X-Kosmos-Board-Page across a redirect, so a board route the page's own fetches reach, that sent them off
+  // this origin and was bounced back, would arrive with it. Today the only 3xx the board writes is the boot redirect
+  // (engine/boardauth.js), which answers only a request carrying ?boot= or ?token=, and the page's fetches carry
+  // neither. A new redirect fails here so its author checks the same for it, and then adds it to this list.
   const files = ['server.js', ...fs.readdirSync(path.join(__dirname, 'engine')).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js')).map((f) => path.join('engine', f))];
   const found = [];
   for (const f of files) {
