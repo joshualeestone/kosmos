@@ -294,30 +294,38 @@ function installOffer() {
  * drop-in forcing control-group the stop killed the installer mid-install and left the computer with NO board.
  * So the press is offered only when both hold, read from the system and not from the unit file (a drop-in or a hand
  * edit overrides the file, and setup.sh's own check reads only the file):
- *   - this board process is in its own unit's cgroup (/proc/self/cgroup), so systemd is what restarts it;
- *   - `systemctl --user show <unit> -p KillMode` reads `process`.
+ *   - this board process sits in a board unit's cgroup (/proc/self/cgroup's v2 line ends in kosmos-board.service or
+ *     kosmos-board.<8 hex>.service), so systemd is what restarts it. The unit is named FROM that line, not from the
+ *     home, so a home spelled differently from the way setup.sh named the unit cannot hide it;
+ *   - `systemctl --user show <that unit> -p KillMode` reads `process`.
+ * A host with no cgroup v2 line (v1 or hybrid) never gets the button: it keeps the command.
  * Otherwise the card keeps today's command (manualOffer), and a stray press is refused with it.
  * 🛑 NOT SELF_INSTALL, ON PURPOSE. canSelfInstall also gates the UNATTENDED install (autoInstallWouldStart), and a
  * Linux entry there would install automatically on every Linux board, following its own channel; Kosmos Cloud boxes
  * are created on staging. That path stays off on Linux (slice 2 brings a prod-only schedule of its own).
  * Read at most every five minutes for the card (the status poll asks often), fresh at a press. A press asks twice
  * (the route, then beginInstall), so a reading taken in the last few seconds serves both.
- * systemctl runs synchronously on the board's event loop, bounded at 2 s, at most once per memo window or press.
- * Known gap, on the safe side: the unit name is derived from the home as this board names it; if setup.sh named
- * the unit from a different spelling of the same folder, the cgroup never matches and the command stays. */
+ * The button (installOffer) and the command (manualOffer) read the SAME memo, so the card never shows both.
+ * systemctl runs synchronously on the board's event loop, bounded at 2 s, at most once per memo window or press. */
 const LINUX_PRESS_TTL_MS = 5 * 60 * 1000;
 const LINUX_PRESS_FRESH_MS = 3000;
 let linuxPressFn = null;       // test seam: () => boolean (the whole decision)
 let linuxPressReaders = null;  // test seam: { cgroup: () => string, killMode: (unit) => { status, stdout } }
 let linuxPressMemo = null;     // { at, ok }
-/** The cgroup v2 line of /proc/self/cgroup names this unit as the process's own (".../app.slice/<unit>"). Pure. */
-function cgroupIsUnit(text, unit) {
-  if (!unit) return false;
-  return String(text || '').split('\n').some((l) => l.startsWith('0::') && l.trim().endsWith('/' + unit));
+const BOARD_UNIT_RE = /^kosmos-board(\.[0-9a-f]{8})?\.service$/;
+/** The board unit named by the cgroup v2 line of /proc/self/cgroup (its last path part), or null. Pure. */
+function boardUnitInCgroup(text) {
+  for (const l of String(text || '').split('\n')) {
+    if (!l.startsWith('0::')) continue;
+    const last = l.trim().split('/').pop();
+    return BOARD_UNIT_RE.test(last) ? last : null;
+  }
+  return null;
 }
 /** The decision itself, from what the two readers returned. Pure apart from the readers it is handed. */
-function pressVerdict(cgroupText, unit, readKillMode) {
-  if (!cgroupIsUnit(cgroupText, unit)) return false;
+function pressVerdict(cgroupText, readKillMode) {
+  const unit = boardUnitInCgroup(cgroupText);
+  if (!unit) return false;
   const r = readKillMode(unit);
   return Boolean(r) && r.status === 0 && String(r.stdout || '').trim() === 'process';
 }
@@ -334,8 +342,7 @@ function linuxUnitTakesPress({ fresh = false } = {}) {
   const readers = linuxPressReaders || REAL_PRESS_READERS;
   let ok = false;
   try {
-    const unit = require('./linuxboard').boardUnitName(installedHomeAsInstalled() || undefined);
-    ok = pressVerdict(readers.cgroup(), unit, readers.killMode);
+    ok = pressVerdict(readers.cgroup(), readers.killMode);
   } catch { ok = false; }
   linuxPressMemo = { at: now, ok };
   return ok;
@@ -1645,7 +1652,7 @@ async function pauseRefusalNow({ fetchImpl } = {}) {
 }
 
 module.exports = {
-  canPressUpdate, cgroupIsUnit, setLinuxPress, setLinuxPressReaders, // kosmos#8786 slice 1: the Linux press
+  canPressUpdate, boardUnitInCgroup, setLinuxPress, setLinuxPressReaders, // kosmos#8786 slice 1: the Linux press
   noteAutoUpdateAtBoot, setAutoLog, // kosmos#8421: the board log says an automatic update started, and how it ended
   paused, pauseRefusalNow, // kosmos#6620
   PAUSED_SENTENCE: manifestVerify.PAUSED_SENTENCE, // kosmos#6620

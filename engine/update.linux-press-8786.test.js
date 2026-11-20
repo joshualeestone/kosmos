@@ -109,18 +109,19 @@ test('#8786: the press is Linux by name: freebsd stays refused whatever the unit
   assert.equal(update.installOffer(), null);
 });
 
-test('#8786: cgroupIsUnit reads the cgroup v2 line, and only an exact unit name at its end', () => {
-  const mine = '0::/user.slice/user-1001.slice/user@1001.service/app.slice/kosmos-board.service\n';
-  assert.equal(update.cgroupIsUnit(mine, 'kosmos-board.service'), true);
-  assert.equal(update.cgroupIsUnit(mine, 'kosmos-board.1a2b3c4d.service'), false, 'another home\'s unit matched');
-  assert.equal(update.cgroupIsUnit('0::/user.slice/user-1001.slice/session-3.scope\n', 'kosmos-board.service'), false, 'an ssh session matched');
-  assert.equal(update.cgroupIsUnit('0::/user.slice/x/app.slice/not-kosmos-board.service\n', 'kosmos-board.service'), false, 'a suffix match passed');
-  assert.equal(update.cgroupIsUnit('1:name=systemd:/app.slice/kosmos-board.service\n', 'kosmos-board.service'), false, 'a v1 line passed');
-  assert.equal(update.cgroupIsUnit('', 'kosmos-board.service'), false);
-  assert.equal(update.cgroupIsUnit(mine, ''), false);
+test('#8786: boardUnitInCgroup names a board unit only from the cgroup v2 line, by its exact shape', () => {
+  const cg = (u) => '0::/user.slice/user-1001.slice/user@1001.service/app.slice/' + u + '\n';
+  assert.equal(update.boardUnitInCgroup(cg('kosmos-board.service')), 'kosmos-board.service');
+  assert.equal(update.boardUnitInCgroup(cg('kosmos-board.1a2b3c4d.service')), 'kosmos-board.1a2b3c4d.service', 'a non-default home\'s unit was not recognised');
+  assert.equal(update.boardUnitInCgroup('0::/user.slice/user-1001.slice/session-3.scope\n'), null, 'an ssh session read as the board');
+  assert.equal(update.boardUnitInCgroup(cg('not-kosmos-board.service')), null, 'a lookalike unit passed');
+  assert.equal(update.boardUnitInCgroup(cg('kosmos-board.subzero.service')), null, 'an agent-shaped unit passed');
+  assert.equal(update.boardUnitInCgroup(cg('kosmos-board.servicex')), null, 'trailing junk passed');
+  assert.equal(update.boardUnitInCgroup('1:name=systemd:/app.slice/kosmos-board.service\n'), null, 'a v1 line passed');
+  assert.equal(update.boardUnitInCgroup(''), null);
 });
 
-test('#8786: the real readers say no here (no /proc on a Mac; on Linux the temp root names a unit this process is not in)', async () => {
+test('#8786: the real readers say no for a test process (it runs in no kosmos-board unit)', async () => {
   await look('linux', 'x64', true);
   update.setLinuxPress(null);   // the real reading: /proc/self/cgroup (absent on a Mac) and systemctl
   assert.equal(update.canPressUpdate('linux'), false, 'a test process read as a board inside its own unit');
@@ -128,9 +129,9 @@ test('#8786: the real readers say no here (no /proc on a Mac; on Linux the temp 
 
 /* The real comparison, through the reader seam: everything below linuxUnitTakesPress runs for real. */
 const BOARD_CG = (unit) => '0::/user.slice/user-1001.slice/user@1001.service/app.slice/' + unit + '\n';
-function readers({ inUnit = true, status = 0, stdout = 'process\n', calls = [] } = {}) {
+function readers({ inUnit = true, status = 0, stdout = 'process\n', calls = [], unitName = 'kosmos-board.service' } = {}) {
   return {
-    cgroup: () => (inUnit ? BOARD_CG(require('./linuxboard').boardUnitName(ROOT)) : '0::/user.slice/user-1001.slice/session-3.scope\n'),
+    cgroup: () => (inUnit ? BOARD_CG(unitName) : '0::/user.slice/user-1001.slice/session-3.scope\n'),
     killMode: (unit) => { calls.push(unit); return { status, stdout }; },
   };
 }
@@ -144,7 +145,12 @@ test('#8786: KillMode=process inside the board unit is the only reading that off
   const calls = [];
   await lookReal(readers({ calls }));
   assert.equal(update.canPressUpdate('linux'), true, 'the reading that was measured safe on a real box was refused');
-  assert.deepEqual(calls, [require('./linuxboard').boardUnitName(ROOT)], 'systemctl was asked about another unit');
+  assert.deepEqual(calls, ['kosmos-board.service'], 'systemctl was asked about another unit');
+  // A non-default home's board: the unit comes from the cgroup line, whatever this board calls its home.
+  const calls2 = [];
+  update.setLinuxPressReaders(readers({ calls: calls2, unitName: 'kosmos-board.1a2b3c4d.service' }));
+  assert.equal(update.canPressUpdate('linux'), true, 'a non-default home\'s board was refused');
+  assert.deepEqual(calls2, ['kosmos-board.1a2b3c4d.service'], 'systemctl was not asked about the unit the cgroup names');
   for (const [why, r] of [
     ['control-group (the measured failure)', readers({ stdout: 'control-group\n' })],
     ['mixed', readers({ stdout: 'mixed\n' })],
