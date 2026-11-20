@@ -52,9 +52,16 @@ const TAGS = {
   devkeyEnrol: 'kosmos-escrowd-devkeyhist-enrol v1',
   // A hash input, never signed: what the member's Mac and each admin's screen show for K (engine/devkeyenrol.js).
   devkeyFingerprint: 'kosmos-escrowd-devkey-fingerprint v1',
+  // kosmos#8819 (#8764): one admin starts a hand-over of a leaving member's agents to a successor; escrowd then signs the
+  // record the leaving computer checks. The tag and layout are escrowd's (roster.rs encode_handover_start), pinned by the
+  // vector in engine/handoversign-8819.test.js.
+  handoverStart: 'kosmos-escrowd-handover-start v1',
 };
 // The tags an admin key signs. Fingerprint tags are hash inputs, never signed.
-const SIGNED = ['change', 'cancel', 'reviewerEnrol', 'reviewerRevoke', 'devkeyEnrol'];
+const SIGNED = ['change', 'cancel', 'reviewerEnrol', 'reviewerRevoke', 'devkeyEnrol', 'handoverStart'];
+// kosmos#8819: as escrowd's handoverrec.rs (MAX_AGENTS, MAX_AGENT_BYTES) and kosmos-relay handover.rs agent_name_ok.
+const HANDOVER_MAX_AGENTS = 50;
+const HANDOVER_NAME = /^[A-Za-z0-9._-]{1,64}$/;
 const KEY_TYPES = ['se-p256', 'webauthn-p256'];
 const CANCEL_KINDS = ['roster-change', 'reviewer-enrol'];
 const HELPER_TIMEOUT_MS = 120000;
@@ -121,6 +128,14 @@ function encodeDevkeyEnrol(org, member, k, codeHash, joinTag, inviterAdminId, ge
   return Buffer.concat([utf8(TAGS.devkeyEnrol), field(utf8(org)), field(utf8(member)), field(raw32(k, 'a Mac key')),
     field(raw32(codeHash, 'a code hash')), field(raw32(joinTag, 'a join tag')), field(utf8(inviterAdminId)),
     field(generationBytes(generation)), field(nonce)]);
+}
+/* kosmos#8819, as roster.rs encode_handover_start: org, hand-over id, from, to (account ids), the agents as a u32
+   big-endian count then each name, the roster generation, the nonce. */
+function encodeHandoverStart(org, id, from, to, agents, generation, nonce) {
+  if (!Array.isArray(agents)) throw new Error('the agents are a list');
+  const count = Buffer.alloc(4); count.writeUInt32BE(agents.length);
+  return Buffer.concat([utf8(TAGS.handoverStart), field(utf8(org)), field(utf8(id)), field(utf8(from)), field(utf8(to)),
+    field(count), ...agents.map((a) => field(utf8(a))), field(generationBytes(generation)), field(nonce)]);
 }
 function encodeReviewerRevoke(org, credentialId) {
   return Buffer.concat([utf8(TAGS.reviewerRevoke), field(utf8(org)), field(credentialId)]);
@@ -208,6 +223,25 @@ function decodeDevkeyEnrol(bytes) {
   for (const [k, what] of [['org', 'company'], ['member', 'member'], ['inviterAdminId', 'inviting admin']]) {
     if (!out[k]) throw new Error('an enrolment must name its ' + what);
   }
+  return out;
+}
+function decodeHandoverStart(bytes) {
+  const r = new Reader(bytes, TAGS.handoverStart);
+  const out = { org: r.text(), id: r.text(), from: r.text(), to: r.text() };
+  const c = r.take();
+  if (c.length !== 4) throw new Error('the agent count is the wrong length');
+  const n = c.readUInt32BE(0);
+  if (n < 1 || n > HANDOVER_MAX_AGENTS) throw new Error('a hand-over names between 1 and ' + HANDOVER_MAX_AGENTS + ' agents');
+  out.agents = [];
+  for (let i = 0; i < n; i++) out.agents.push(r.text());
+  out.generation = r.generation();
+  out.nonce = r.take();
+  r.end();
+  for (const [k, what] of [['org', 'company'], ['id', 'hand-over'], ['from', 'leaving member'], ['to', 'successor']]) {
+    if (!out[k]) throw new Error('a hand-over must name its ' + what);
+  }
+  if (out.from === out.to) throw new Error('a hand-over goes from one member to another');
+  if (!out.agents.every((a) => HANDOVER_NAME.test(a))) throw new Error('a hand-over names agents by their machine names');
   return out;
 }
 function decodeReviewerRevoke(bytes) {
@@ -377,7 +411,7 @@ function shownFields(decoded) {
 }
 
 const DECODERS = { change: decodeChange, cancel: decodeCancel, reviewerEnrol: decodeReviewerEnrol,
-  reviewerRevoke: decodeReviewerRevoke, devkeyEnrol: decodeDevkeyEnrol };
+  reviewerRevoke: decodeReviewerRevoke, devkeyEnrol: decodeDevkeyEnrol, handoverStart: decodeHandoverStart };
 
 // The objects prepare() made, each with its own copy of the bytes. sign() takes nothing else.
 const PREPARED = new WeakMap();
@@ -510,6 +544,8 @@ async function signOne(prepared, { helper, keyFile, expectedKey, adminId }) {
      names the wrong admin here produces a signature escrowd refuses. That is step 1's rule; asked on #7116. The caller
      slice should also refuse to sign as second admin bytes whose code_hash matches a code this device holds (it is the
      inviter then, whatever the bytes name; review 4). */
+  // kosmos#8819: a hand-over start is posted beside the admin id it was signed as, so it is said, and returned with it.
+  if (prepared.action === 'handoverStart' && (typeof adminId !== 'string' || !adminId)) throw new Error('say which admin is starting this hand-over');
   if (prepared.action === 'devkeyEnrol') {
     if (typeof adminId !== 'string' || !adminId) throw new Error('say which admin is signing this enrolment');
     if (adminId === prepared.decoded.inviterAdminId && prepared.inviterChecked !== true) {
@@ -527,14 +563,14 @@ async function signOne(prepared, { helper, keyFile, expectedKey, adminId }) {
   }
   // kosmos#7116 step 2 review 2: an enrolment's signature comes back WITH the admin id the rule above checked, as one
   // object, so the id a caller later posts beside it (devkeyenrol.request takes this shape) is the id that was checked.
-  if (prepared.action === 'devkeyEnrol') return Object.freeze({ adminId, sig: der });
+  if (prepared.action === 'devkeyEnrol' || prepared.action === 'handoverStart') return Object.freeze({ adminId, sig: der });
   return der;
 }
 
 module.exports = {
   TAGS, SIGNED,
-  encodeChange, encodeCancel, encodeReviewerEnrol, encodeReviewerRevoke, encodeDevkeyEnrol,
-  decodeChange, decodeCancel, decodeReviewerEnrol, decodeReviewerRevoke, decodeDevkeyEnrol,
+  encodeChange, encodeCancel, encodeReviewerEnrol, encodeReviewerRevoke, encodeDevkeyEnrol, encodeHandoverStart,
+  decodeChange, decodeCancel, decodeReviewerEnrol, decodeReviewerRevoke, decodeDevkeyEnrol, decodeHandoverStart,
   adminFingerprint, reviewerFingerprint, devkeyFingerprint, fingerprintDisplay,
   prepare, createKey, publicKey, sign, HELPER_SAYS, HELPER_SAYS_PREFIX,
 };
