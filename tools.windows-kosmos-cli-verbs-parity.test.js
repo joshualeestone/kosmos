@@ -72,8 +72,8 @@ function macVerbsFromDispatch(text) {
 
 /* Dispatched, but not for people: the supervised board entry (#2956), the report hook's copy (#5153), its digest of
    a failed tool call (#6071; the Windows hook posts that itself) and the Linux pause check's command (kosmos#6667; a
-   systemd timer runs it). No help row and no Windows twin, by design. */
-const MAC_INTERNAL_VERBS = new Set(['board-run', 'keep-copy', 'tool-failed', 'board-revive']);
+   systemd timer runs it) and the Cloud box's nightly update (kosmos#8786; also a timer's). No help row and no Windows twin, by design. */
+const MAC_INTERNAL_VERBS = new Set(['board-run', 'keep-copy', 'tool-failed', 'board-revive', 'cloud-update']);
 
 /* The verbs its help lists: #4785 made it one row per command (`printf '  kosmos start   start Kosmos...'`)
    inside kosmos_command_list(), where it had been one `kosmos start | stop | ...` line. */
