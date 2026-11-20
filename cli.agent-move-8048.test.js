@@ -79,7 +79,7 @@ async function cli(port, args, extra = {}) {
 test('kosmos#8048 Mac: --yes reads the plan by the account\'s name, moves to its folder, and says how it ended', () => withStub({ plan: CLEAN }, async (port, seen) => {
   const r = await cli(port, ['agent', 'move', 'ada', 'Spare', '--yes']);
   assert.equal(r.code, 0, r.out);
-  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agents/account-plan?name=ada&account=Spare', 'POST /api/agents/account', 'GET /api/agents/account-moves/mv1']);
+  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agents/account-plan?name=ada&account=Spare&resolve=1', 'POST /api/agents/account', 'GET /api/agents/account-moves/mv1']);
   assert.deepEqual(JSON.parse(posts(seen)[0].body), { dir: '/u/.claude-spare', names: ['ada'] }, 'the move was not sent to the plan\'s folder');
   assert.match(r.out, /On spare it keeps every skill and hook script it has now \(each skill compared by its whole folder; plugins are not checked\)\./);
   assert.match(r.out, /Moving restarts ada on spare\. Anything it has running stops\./);
@@ -171,7 +171,7 @@ async function winRun(port, argv, seams) {
 test('kosmos#8048 Windows: --yes reads the plan, moves to its folder, waits on the move, and says how it ended', () => withStub({ plan: CLEAN }, async (port, seen) => {
   const r = await winRun(port, ['agent', 'move', 'ada', 'Spare', '--yes']);
   assert.equal(r.code, 0, r.err);
-  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agents/account-plan?name=ada&account=Spare', 'POST /api/agents/account', 'GET /api/agents/account-moves/mv1']);
+  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agents/account-plan?name=ada&account=Spare&resolve=1', 'POST /api/agents/account', 'GET /api/agents/account-moves/mv1']);
   assert.deepEqual(JSON.parse(posts(seen)[0].body), { dir: '/u/.claude-spare', names: ['ada'] });
   assert.deepEqual(r.slept, [3000], 'the progress was not waited for between reads');
   assert.equal(r.asked.length, 0, '--yes still asked');
@@ -290,3 +290,111 @@ test('kosmos#8048 review 5 Mac: a progress answer with no outcome for the agent 
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /ada runs on spare now/);
 }));
+
+/* ── kosmos#8839: the name kosmos agent list prints ─────────────────────────────── */
+
+/* The plan as the board answers it for a listed name: the agent's own name, and the name its card shows. */
+const planFor = (name, shown) => [200, { ok: true, name, shown, dir: '/u/.claude-spare', label: 'spare', skills: [], hooks: [], sentence: null }];
+const planUrl = (seen) => new URL(seen[0].url, 'http://x').searchParams;
+
+test('kosmos#8839 Mac: --yes with a listed name (a hyphen, a space) asks the board to resolve it and moves the agent it names', async () => {
+  for (const [typed, own] of [['Sub-Zero', 'subzero'], ['Sonya Blade', 'sonyablade']]) {
+    await withStub({ plan: planFor(own, typed) }, async (port, seen) => {
+      const r = await cli(port, ['agent', 'move', typed, 'spare', '--yes']);
+      assert.equal(r.code, 0, r.out);
+      assert.deepEqual([planUrl(seen).get('name'), planUrl(seen).get('resolve')], [typed, '1'], 'the plan was not asked to resolve the listed name');
+      assert.deepEqual(JSON.parse(posts(seen)[0].body), { dir: '/u/.claude-spare', names: [own] }, 'the move was sent the typed name, not the agent the plan named');
+      assert.ok(r.out.includes('Moving restarts ' + typed + ' (' + own + ') on spare.'), 'the agent was not said by its card and its own name: ' + r.out);
+    });
+  }
+});
+
+test('kosmos#8839 Mac CONTROL: the agent\'s own name moves that agent, and a board that names no agent leaves the typed name', async () => {
+  await withStub({ plan: planFor('subzero', 'Sub-Zero') }, async (port, seen) => {
+    const r = await cli(port, ['agent', 'move', 'subzero', 'spare', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.deepEqual(JSON.parse(posts(seen)[0].body).names, ['subzero']);
+  });
+  await withStub({ plan: CLEAN }, async (port, seen) => {   // an older board: no name in the plan
+    const r = await cli(port, ['agent', 'move', 'subzero', 'spare', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.deepEqual(JSON.parse(posts(seen)[0].body).names, ['subzero']);
+    assert.match(r.out, /Moving restarts subzero on spare\./);
+  });
+});
+
+test('kosmos#8839 Mac: a name two agents answer to is refused in the board\'s words, and nothing is moved', () => withStub({
+  plan: [409, { ok: false, ambiguous: true, because: 'more than one agent is called Twin Name (twina, shown as Twin Name; twinb, shown as Twin Name); name it by one of those names' }],
+}, async (port, seen) => {
+  const r = await cli(port, ['agent', 'move', 'Twin Name', 'spare', '--yes']);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /Kosmos will not move Twin Name: more than one agent is called Twin Name \(twina, shown as Twin Name; twinb, shown as Twin Name\); name it by one of those names\./);
+  assert.equal(posts(seen).length, 0, 'an ambiguous name was moved');
+}));
+
+test('kosmos#8839 Windows: --yes with a listed name (a hyphen, a space) asks the board to resolve it and moves the agent it names', async () => {
+  for (const [typed, own] of [['Sub-Zero', 'subzero'], ['Sonya Blade', 'sonyablade']]) {
+    await withStub({ plan: planFor(own, typed) }, async (port, seen) => {
+      const r = await winRun(port, ['agent', 'move', typed, 'spare', '--yes']);
+      assert.equal(r.code, 0, r.err);
+      assert.deepEqual([planUrl(seen).get('name'), planUrl(seen).get('resolve')], [typed, '1'], 'the plan was not asked to resolve the listed name');
+      assert.deepEqual(JSON.parse(posts(seen)[0].body), { dir: '/u/.claude-spare', names: [own] }, 'the move was sent the typed name, not the agent the plan named');
+      assert.ok(r.out.includes('Moving restarts ' + typed + ' (' + own + ') on spare.'), 'the agent was not said by its card and its own name: ' + r.out);
+    });
+  }
+});
+
+test('kosmos#8839 Windows CONTROL: the agent\'s own name moves that agent; an ambiguous name is refused and nothing is moved', async () => {
+  await withStub({ plan: planFor('subzero', 'Sub-Zero') }, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'move', 'subzero', 'spare', '--yes']);
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(JSON.parse(posts(seen)[0].body).names, ['subzero']);
+  });
+  await withStub({ plan: [409, { ok: false, ambiguous: true, because: 'more than one agent is called Twin Name (twina; twinb); name it by one of those names' }] }, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'move', 'Twin Name', 'spare', '--yes']);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /Kosmos will not move Twin Name: more than one agent is called Twin Name \(twina; twinb\); name it by one of those names\./);
+    assert.equal(posts(seen).length, 0, 'an ambiguous name was moved');
+  });
+});
+
+const UNREAD = [503, { ok: false, readFailed: true, because: 'Kosmos could not read its agents just now, so it cannot tell which agent Sub-Zero is; try again' }];
+const sameFor = (name, shown) => [200, { ok: true, same: true, name, shown, dir: '/u/.claude-spare', label: 'spare', skills: [], hooks: [] }];
+
+test('kosmos#8839 Mac: a board that could not read its agents is said as that, not as a refusal; "already there" names the agent', async () => {
+  await withStub({ plan: UNREAD }, async (port, seen) => {
+    const r = await cli(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /Kosmos could not read its agents just now, so it cannot tell which agent Sub-Zero is; try again\. Nothing was moved\./);
+    assert.doesNotMatch(r.out, /will not move/);
+    assert.equal(posts(seen).length, 0);
+  });
+  await withStub({ plan: sameFor('subzero', 'Sub-Zero') }, async (port, seen) => {
+    const r = await cli(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Sub-Zero \(subzero\) is already on spare\. Nothing was moved\./);
+    assert.equal(posts(seen).length, 0);
+  });
+});
+
+test('kosmos#8839 Windows: the same two answers, and an older board (no name in the plan) leaves the typed name', async () => {
+  await withStub({ plan: UNREAD }, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /Kosmos could not read its agents just now, so it cannot tell which agent Sub-Zero is; try again\. Nothing was moved\./);
+    assert.doesNotMatch(r.err, /will not move/);
+    assert.equal(posts(seen).length, 0);
+  });
+  await withStub({ plan: sameFor('subzero', 'Sub-Zero') }, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.out, /Sub-Zero \(subzero\) is already on spare\. Nothing was moved\./);
+    assert.equal(posts(seen).length, 0);
+  });
+  await withStub({ plan: CLEAN }, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'move', 'subzero', 'spare', '--yes']);
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(JSON.parse(posts(seen)[0].body).names, ['subzero']);
+    assert.match(r.out, /Moving restarts subzero on spare\./);
+  });
+});
