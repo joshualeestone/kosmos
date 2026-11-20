@@ -1957,19 +1957,19 @@ test('kosmos#8783: the late link (a tick after the code step) brings the box int
   assert.equal(reveals, 2, 'CONTROL: with no code field on screen (another step) nothing scrolls');
 });
 
-test('kosmos#8783: frConnRevealCode scrolls the whole sign-in box (link and field) with nearest, and never focuses', () => {
-  const calls = [];
-  globalThis.__box8783 = { scrollIntoView: (o) => calls.push(o) };
+test('kosmos#8783: frConnRevealCode scrolls the whole sign-in box, then the field row (in that order), and never focuses', () => {
+  const order = [];
+  globalThis.__box8783 = { scrollIntoView: (o) => order.push(['box', o.block]) };
   const reveal = pageFunction('frConnRevealCode', 'const document = { getElementById: (id) => id === "fr-sub" ? globalThis.__box8783 : null };\n'
     + 'const requestAnimationFrame = (f) => f();');
   reveal();
-  assert.deepEqual(calls, [{ block: 'nearest' }], 'with no field drawn only the box is scrolled');
-  const rowCalls = [];
-  globalThis.__field8783 = { parentNode: { scrollIntoView: (o) => rowCalls.push(o) } };
+  assert.deepEqual(order, [['box', 'nearest']], 'with no field drawn only the box is scrolled');
+  order.length = 0;
+  globalThis.__field8783 = { parentNode: { scrollIntoView: (o) => order.push(['row', o.block]) } };
   const reveal2 = pageFunction('frConnRevealCode', 'const document = { getElementById: (id) => id === "fr-sub" ? globalThis.__box8783 : id === "fr-conn-code" ? globalThis.__field8783 : null };\n'
     + 'const requestAnimationFrame = (f) => f();');
   reveal2();
-  assert.deepEqual(rowCalls, [{ block: 'nearest' }], 'the field row is scrolled last, so a tall box cannot leave it under the footer');
+  assert.deepEqual(order, [['box', 'nearest'], ['row', 'nearest']], 'the box first, then the field row, so a tall box cannot leave the field under the footer');
   const raw = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   const fn = raw.slice(raw.indexOf('function frConnRevealCode()'), raw.indexOf('\n}\n', raw.indexOf('function frConnRevealCode()')));
   assert.doesNotMatch(fn, /\.focus\(/, 'the field must not be focused (the keyboard covers the sign-in link)');

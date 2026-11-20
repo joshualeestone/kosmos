@@ -2846,7 +2846,7 @@ const SCREENS = [
       frPaintConnect({ phase: 'signin-awaiting-code', url: 'https://claude.ai/oauth/authorize?example' });
     });
     await page.waitForSelector('#fr-conn-code', { state: 'visible', timeout: 5000 });
-    await page.waitForTimeout(600);   // the reveal scroll (one animation frame, after the reveal's animation frame) and the edge fade settle
+    await page.waitForTimeout(600);   // the reveal scroll (the reveal's animation frame, then the edge script's frame) and the edge fade settle
   },
   verify: async (page) => {
     if (!(await page.isVisible('#fr-conn-code'))) throw new Error('the code field is not drawn');
@@ -2855,8 +2855,11 @@ const SCREENS = [
     const r = await page.evaluate(() => {
       const body = document.querySelector('#firstrun .fr-body');
       const go = document.getElementById('fr-conn-code-go');
-      if (!body || !go) return null;
-      const b = body.getBoundingClientRect(); const g = go.getBoundingClientRect();
+      const field = document.getElementById('fr-conn-code');
+      if (!body || !go || !field) return null;
+      const b = body.getBoundingClientRect();
+      const f = field.getBoundingClientRect(); const gb = go.getBoundingClientRect();
+      const g = { top: Math.min(f.top, gb.top), bottom: Math.max(f.bottom, gb.bottom) };   // the field and Use code together
       // While the bottom fade is on (content below), the button must also sit clear of the fade's 32px band.
       const fade = body.dataset.edge === 'b' ? 32 : 0;
       return { inside: g.top >= b.top - 1 && g.bottom <= b.bottom - fade + 1 };
