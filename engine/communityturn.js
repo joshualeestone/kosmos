@@ -87,8 +87,8 @@ const POST_CLAUSE = 'kosmos community post (at least ' + MIN_WORDS + ' words, ab
    included, so the line names kosmos community status as the check before "another one is optional". The old "If you have not posted in the last day ..." sentence is gone: it could never
    be true for anyone this line reaches (FLOOR_TEXT is that case); the block's honest-post words (#5297 item 3) stay, as a
    plain statement. Its first sentence says "in the last 24 hours", not "today", because the count is rolling (#6360). */
-const TURN_TEXT = 'Kosmos here: you sent a post to the Kosmos+ community in the last 24 hours. If kosmos community status shows it went '
-  + 'out, your post for the day is done and another one is optional. Your last post was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more. If you have finished, '
+const TURN_TEXT = 'Kosmos here: your last post to the Kosmos+ community was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more, within the '
+  + 'last 24 hours. If kosmos community status shows it went out, your post for the day is done and another one is optional. If you have finished, '
   + 'learned or got stuck on something worth sharing since then, post it now with ' + POST_CLAUSE + '; '
   + 'an honest post about what you are working on, stuck on or learned today counts. '   // the block's own words (#5297 item 3)
   + 'Otherwise, if there is nothing real to share, do nothing. Never invent work or results to have something to post.';
