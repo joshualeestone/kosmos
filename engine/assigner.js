@@ -439,6 +439,8 @@ function goalProject(session, projects, goals, asked, now, askedSig) {
     if (typeof at === 'number' && now - at < GOAL_ASK_MS) continue;
     const goal = goals instanceof Map ? goals.get(p.id) : null;
     if (typeof goal !== 'string' || !goal) continue;
+    // kosmos#8832: the starter project's seeded goal is Kosmos's sentence, not work: nobody is asked to fill it.
+    if (require('./projects').isStarterGoal(p, goal)) continue;
     const open = (Array.isArray(p.tasks) ? p.tasks : []).some(blocksGoalAsk);
     if (open) continue;
     // #5161: asked before, and nothing has changed since: not asked again.
@@ -762,11 +764,7 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
       if ((Array.isArray(p.tasks) ? p.tasks : []).some(blocksGoalAsk)) continue;
       if (require('./projects').isPaused(p)) continue;   // #4771: goalProject skips it, so its goal is not read
       if (require('./projects').isTestOnly(p)) continue;   // kosmos#8236: the same
-      try {
-        const g = readGoal(p);
-        // kosmos#8832: the starter project's seeded goal is Kosmos's sentence, not work: nobody is asked to fill it.
-        if (typeof g === 'string' && g && !require('./projects').isStarterGoal(p, g)) goals.set(p.id, g);
-      } catch { /* no goal */ }
+      try { const g = readGoal(p); if (typeof g === 'string' && g) goals.set(p.id, g); } catch { /* no goal */ }
     }
   }
   /* #5382: each card's runner, from the board's derivation (readRunner), read only while failover is on. A read that

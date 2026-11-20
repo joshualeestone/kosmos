@@ -90,11 +90,11 @@ test('the seeded goal is not put to an idle member; control: a goal the person w
   try {
     const card = board.agents.find((c) => (c.sessionName || '').startsWith('starternew'));
     projects.addAgent(w.id, card.sessionName, board.agents);
-    const run = (readGoal) => {
+    const run = (readGoal, id = w.id) => {
       const asked = [];
       const o = {
         readSetting: () => ({ on: true }), readRoster: () => status.snapshot().agents,
-        readRecords: () => projects.readAll().filter((p) => p.id === w.id),
+        readRecords: () => projects.readAll().filter((p) => p.id === id),
         readCommitment: (s) => commitments.read(s), readGoal,
         give: () => ({ ok: true }), ask: (session) => { asked.push(session); return { state: DELIVERY.PLACED }; }, DELIVERY,
       };
@@ -107,9 +107,13 @@ test('the seeded goal is not put to an idle member; control: a goal the person w
     assert.deepEqual(run((p) => brief.readGoal(p.folder)), [], 'an idle member was asked to draft tasks for the seeded goal');
     // Control: the person wrote a goal there, so it is real work.
     assert.deepEqual(run(() => 'plan the spring fundraiser'), [card.sessionName], 'a goal the person wrote was not asked');
+    // Control: the seeded words on a real project are asked as usual, so only the starter project is exempt.
+    const real = projects.create({ name: 'Real goal 8832', made: { via: 'screen', by: null } });
+    projects.addAgent(real.id, card.sessionName, board.agents);
+    assert.deepEqual(run(() => seededGoal, real.id), [card.sessionName], 'the seeded words were skipped on a real project');
   } finally { board.restore(); }
 
-  // Control: the same seeded words on a project that is not the starter project are asked as usual.
+  // The predicate itself: a renamed project is not the starter, and spacing does not change the match.
   assert.equal(projects.isStarterGoal({ ...w, name: 'Q4 launch' }, seededGoal), false);
   assert.equal(projects.isStarterGoal(w, seededGoal), true);
   assert.equal(projects.isStarterGoal(w, '  ' + seededGoal.replace(/ /g, '\n') + ' '), true, 'spacing changed the match');
