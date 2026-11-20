@@ -1968,3 +1968,25 @@ test('kosmos#8783: frConnRevealCode scrolls the whole sign-in box (link and fiel
   const fn = raw.slice(raw.indexOf('function frConnRevealCode()'), raw.indexOf('\n}\n', raw.indexOf('function frConnRevealCode()')));
   assert.doesNotMatch(fn, /\.focus\(/, 'the field must not be focused (the keyboard covers the sign-in link)');
 });
+
+test('kosmos#8783: the wizard body fades its bottom edge only while content sits below (Mona Lisa\'s design)', () => {
+  const raw = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(raw, /#firstrun \.fr-body\[data-edge="b"\] \{ -webkit-mask-image: linear-gradient\(to bottom, #000 calc\(100% - 32px\), transparent\);/,
+    'the fade CSS is missing or changed');
+  const start = raw.indexOf('(function frBodyEdge() {');
+  assert.ok(start > 0, 'the edge script is missing');
+  const iife = raw.slice(start, raw.indexOf('})();', start) + 5);
+  let onScroll = null;
+  const body = { scrollHeight: 900, clientHeight: 500, scrollTop: 0, dataset: {},
+    addEventListener: (ev, fn) => { if (ev === 'scroll') onScroll = fn; } };
+  const run = new Function('document', 'window', 'ResizeObserver', 'MutationObserver', 'requestAnimationFrame', iife);
+  run({ querySelector: (q) => (q === '#firstrun .fr-body' ? body : null) }, { addEventListener() {} }, undefined, undefined, (f) => f());
+  assert.equal(body.dataset.edge, 'b', 'content below the fold: the fade is on');
+  body.scrollTop = 400; onScroll();
+  assert.equal(body.dataset.edge, '', 'scrolled to the bottom: the fade is gone');
+  body.scrollTop = 100; onScroll();
+  assert.equal(body.dataset.edge, 'b', 'scrolled back up: on again');
+  const short = { scrollHeight: 400, clientHeight: 500, scrollTop: 0, dataset: {}, addEventListener() {} };
+  run({ querySelector: () => short }, { addEventListener() {} }, undefined, undefined, (f) => f());
+  assert.equal(short.dataset.edge, '', 'CONTROL: nothing to scroll, no fade');
+});

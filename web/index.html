@@ -11008,6 +11008,13 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
   display: flex; flex-direction: column;
 }
 #firstrun .fr-body { padding: 40px 44px 36px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+/* kosmos#8783 (Mona Lisa's design, 11-19): while content sits below the visible part of the wizard body (on a phone the
+   sign-in code field did, under the pinned footer, with nothing to say so), its bottom 32px fades out. A mask, as
+   #s-nav's edge (#5303): nothing is drawn over the content, so no colour token and nothing covers a tap target. Driven
+   by data-edge, set by the script beside it on scroll and on any size change; gone at the bottom and when nothing
+   scrolls. The 36px bottom padding above lets the last control scroll clear of the fade. */
+#firstrun .fr-body[data-edge="b"] { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent); }
 #firstrun .fc-head { display: flex; align-items: center; gap: 12px; justify-content: center; margin-bottom: 26px; }
 #firstrun .fc-k { width: 42px; height: 42px; flex: 0 0 42px; display: block; border-radius: 10px; }
 #firstrun .fr-segs { gap: 8px; margin-bottom: 34px; }
@@ -49083,6 +49090,25 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
 /* #5303: which edges of the Settings row have more beyond them, for the phone rule's fade and its "More sections"
    chevron. Recomputed on scroll, on a resize of the window or the nav, when a pill's dot or visibility changes, and once
    the fonts have loaded; a row that does not scroll (desktop) has no edge, so nothing shows. */
+/* kosmos#8783: the wizard body's bottom fade (CSS beside #firstrun .fr-body), marked while content sits below the visible
+   part. Re-marked on scroll, when the body changes size, and when a step redraws its contents (a step that grows after
+   it appears, as the sign-in link does a tick later, would otherwise never show the cue). */
+(function frBodyEdge() {
+  const body = document.querySelector && document.querySelector('#firstrun .fr-body');
+  // Only on a real, laid-out page: the page-text tests run this script against a stub document.
+  if (!body || typeof body.scrollHeight !== 'number' || typeof body.addEventListener !== 'function') return;
+  const mark = () => {
+    const below = body.scrollHeight - body.clientHeight - body.scrollTop > 2;
+    const edge = below ? 'b' : '';
+    if (body.dataset.edge !== edge) body.dataset.edge = edge;
+  };
+  body.addEventListener('scroll', mark, { passive: true });
+  if (typeof ResizeObserver === 'function') new ResizeObserver(mark).observe(body);
+  if (typeof MutationObserver === 'function') new MutationObserver(() => requestAnimationFrame(mark)).observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'style', 'class'] });
+  window.addEventListener('resize', mark);
+  mark();
+})();
+
 (function snavEdges() {
   const nav = document.getElementById('s-nav');
   const more = document.getElementById('s-nav-more');
