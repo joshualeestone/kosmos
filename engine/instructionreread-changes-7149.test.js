@@ -852,6 +852,39 @@ test('kosmos#8735 doctrine 56: a file whose section heading is gone hides nothin
   assert.ok(!/that kosmos claim --how prints/.test(body), 'a deleted section was told it still applies');
 });
 
+// kosmos#8735 doctrine 61: the render list moved from "Send readable messages" to kosmos post --how, word for word.
+const V60_RENDER = ['**What a room shows you:** short paragraphs with a blank line between them,',
+  'headings written with `#` to `######`, **bold**, *italic*, ~~strikethrough~~,',
+  '`code` and fenced blocks, lists, tables and emoji. An address starting `http://` or `https://` becomes a link, and a',
+  '`[label](address)` link shows its address after the label.'];
+function withRenderListBack() {
+  const block = require('./defaults').blockFor(process.platform);
+  const at = block.indexOf('**What a room shows you is listed by');
+  assert.ok(at > 0, 'fixture: the render pointer is not where it was');
+  return { block, before: block.slice(0, at) + V60_RENDER.join('\n') + '\n\n' + block.slice(at) };
+}
+
+test('kosmos#8735 doctrine 61: the render list that moved to kosmos post --how is left out, as moved', () => {
+  const { block, before } = withRenderListBack();
+  agentFile('tpa', '# You are Tpa\n\n' + block + '\n');
+  assert.equal(ir.remember('tpa', '# You are Tpa\n\n' + before + '\n'), true);
+  const body = fs.readFileSync(ir.prepareChanges('tpa').path, 'utf8');
+  for (const l of V60_RENDER) assert.ok(!body.includes('- ' + l), 'a moved render line is marked as no longer applying: ' + l);
+  assert.match(body, /Left out: 4 lines removed from Send readable messages, not a wall of text that kosmos post --how prints, where they still apply\./);
+});
+
+test('kosmos#8735 doctrine 61: without the moved list in the last-read copy, nothing is pointed at kosmos post --how (CONTROL)', () => {
+  const { block } = withRenderListBack();
+  const line = '**You can also react to a room post** with `kosmos react <project> <postId>';
+  assert.ok(block.split('\n').includes(line), 'fixture: the react line is not in the working rules');
+  const before = block.replace(line + '\n', line + '\nA rule about reacting that a later version removed.\n');
+  agentFile('tpb', '# You are Tpb\n\n' + block + '\n');
+  assert.equal(ir.remember('tpb', '# You are Tpb\n\n' + before + '\n'), true);
+  const body = fs.readFileSync(ir.prepareChanges('tpb').path, 'utf8');
+  assert.ok(body.includes('- A rule about reacting that a later version removed.'), 'fixture: the removed line is not in the changes file');
+  assert.ok(!/kosmos post --how/.test(body), 'a removal unrelated to the render move was pointed at the post guide');
+});
+
 test('kosmos#8735 doctrine 56: a later change to a non-claim line in that section is not pointed at the claim guide (CONTROL)', () => {
   const block = require('./defaults').blockFor(process.platform);
   const line = '**You can also react to a room post** with `kosmos react <project> <postId>';

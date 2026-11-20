@@ -790,6 +790,14 @@ async function verbReply(ctx, args) {
 }
 
 async function verbPost(ctx, args) {
+  // kosmos#8735 slice 4, as install/kosmos cmd_post: --how prints engine/postguide.js guideText, a local read.
+  if (args && args[0] === '--how') {
+    if (args.length > 1) { ctx.err('Usage: kosmos post --how'); return 2; }
+    let guide;
+    try { guide = ctx.engine('postguide').guideText(); } catch { ctx.err('Kosmos could not find its own runtime to print this.'); return 1; }
+    ctx.out(guide);
+    return 0;
+  }
   if (args.some((a) => /^--(file|attach)(=|$)/.test(a))) {
     ctx.err('Attaching a file to a room post is not supported yet (kosmos#1955).');
     ctx.err('Paste the document\'s content inline as the message, or share its path with the operator.');
@@ -4351,7 +4359,7 @@ const DESCRIBE = {
   inbox: 'read your recent messages with the person (a notice can arrive without them)',
   'file-notices': 'take the notices Kosmos kept for you when another agent was about to change a file of yours',
   away: 'what reached you while you were not running',
-  post: 'post in a project room',
+  post: 'post in a project room (--how: what a room shows)',
   react: 'react to a post in a project room',
   claim: 'claim a request in a project room before you take it on (--status: see who holds it, taking nothing; --how: the cases)',
   report: 'say what you are doing: working, blocked, waiting on someone',

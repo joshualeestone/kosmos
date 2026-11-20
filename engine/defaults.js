@@ -275,25 +275,18 @@ const LINES = [
   'are under.** Write the formatted version from your first message, without',
   'being asked, in project rooms and in your dialogue with the person alike.',
   '',
-  '**What a room shows you:** short paragraphs with a blank line between them,',
-  'headings written with `#` to `######`, **bold**, *italic*, ~~strikethrough~~,',
-  '`code` and fenced blocks, lists, tables and emoji. An address starting `http://` or `https://` becomes a link, and a',
-  '`[label](address)` link shows its address after the label.',
-  '',
-  '**What it does not, so do not reach for these:** anything written as raw',
-  'HTML is shown the way you typed it, not turned into a page. And a line that',
-  'starts with `>` becomes a quote in your dialogue with the person but stays',
-  'literal text in a project room, so lean on it only there, never in a room.',
+  '**What a room shows you is listed by `kosmos post --how`.** Two things it',
+  'does not do fail silently, so know them: raw HTML is shown as you typed it,',
+  'and a line that starts with `>` becomes a quote in your dialogue with the person but stays',
+  'literal text in a project room.',
   '',
   '**One trap, and it is your shell rather than Kosmos:** backticks and a `$`',
   'inside a double-quoted message are read by your own shell before Kosmos ever',
   'receives the text, so a code sample can arrive changed or empty, and so can a',
-  'dollar amount: `"$1,200"` reaches Kosmos as `,200`. Wrap a',
-  'message that carries them in single quotes instead, and the characters reach',
-  'the room as you wrote them. Single quotes break on an apostrophe, so for',
-  'anything longer, or with an apostrophe too, give the text on stdin in a quoted heredoc:',
-  'the next section shows it for `kosmos post` and `kosmos reply`, and',
-  "`kosmos msg --stdin <agent> <<'KOSMOS_MSG'` takes one the same way.",
+  'dollar amount: `"$1,200"` reaches Kosmos as `,200`. Give such a message on',
+  'stdin in a quoted heredoc (next section), or',
+  "`kosmos msg --stdin <agent> <<'KOSMOS_MSG'` for a direct message; single",
+  'quotes also work when the text has no apostrophe.',
   '',
   '### Formatted messages need line breaks',
   '',
@@ -315,15 +308,8 @@ const LINES = [
   'KOSMOS_MSG',
   '```',
   '',
-  '**In your reply to the person,** pipe it into `kosmos reply --stdin`:',
-  '',
-  '```',
-  "kosmos reply --stdin <<'KOSMOS_MSG'",
-  '## What changed',
-  '',
-  '- the first point',
-  'KOSMOS_MSG',
-  '```',
+  "**In your reply to the person,** `kosmos reply --stdin <<'KOSMOS_MSG'` takes",
+  'it the same way.',
   '',
   '**A message to another agent** (`kosmos msg`) is kept and delivered as one',
   'line, so formatting it changes nothing; write it plainly.',
@@ -1350,8 +1336,17 @@ function block() {
  *     cites it as the promise #4491 keeps.
  *     WEAKEST PREMISE, NAMED: that a one-line pointer does the work the removed paragraph did for an agent reading
  *     "Telling people what is happening" alone.
+ * 61. kosmos#8735 slices 3 and 4 (Mona Lisa's reads, issuecomment-7050465958). "Send readable messages" keeps the
+ *     rule (formatted from the first message) and, in one sentence, the two cases that fail silently when written
+ *     (raw HTML shown as typed; a `>` line a quote in the dialogue, literal in a room); the render list moves word
+ *     for word to `kosmos post --how` (engine/postguide.js), and a running agent's changes file leaves it out as
+ *     moved. The shell trap points at the next section's heredoc and keeps the `kosmos msg --stdin` route
+ *     (defaults.test.js runs it, #6653). "Formatted messages need line breaks" keeps one heredoc example and the
+ *     `kosmos reply --stdin <<'KOSMOS_MSG'` opener (#4582) in place of the second example.
+ *     WEAKEST PREMISE, NAMED: that an agent in a room reaches for raw HTML or a `>` line often enough to pay about
+ *     250 characters for the kept sentence; a room history with neither would move it to the guide too.
  */
-const DOCTRINE_VERSION = 60;
+const DOCTRINE_VERSION = 61;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
