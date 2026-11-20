@@ -39,7 +39,8 @@
  * -- and an automatic needs_you -- over a standing DELIBERATE wait, and an
  * automatic idle/working/needs_you over an auto `blocked` (a provider outage),
  * except (#6209) the Stop idle of a turn that ended normally over a provider
- * block of a passing kind (a server error), which clears it unless it had
+ * block of a passing kind (a server error), or (kosmos#8782) of any kind when
+ * it came from an earlier run whose token is gone, which clears it unless it had
  * covered a wait on a person or what it covered is unknown (server-side);
  * but it lets an auto idle/working CLEAR a standing auto `needs_you` (this
  * PermissionRequest prompt), so the prompt stops sticking once the turn moves

@@ -16,14 +16,25 @@ process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const selfreport = require('./selfreport');
+const sendertoken = require('./sendertoken');
+const store = require('./store');
 
-const OLD = 'run-old-0001';
-const NEW = 'run-new-0002';
+/* The token store as the board keeps it: one file per agent, its live runs' instances. A run whose instance is not in
+   the file has ended (instanceState 'gone'); no file at all is 'unknown'. */
+function liveRuns(who, instances) {
+  fs.mkdirSync(sendertoken.DIR, { recursive: true });
+  fs.writeFileSync(path.join(sendertoken.DIR, store.safeKey(who) + '.json'),
+    JSON.stringify({ tokens: instances.map((instance, i) => ({ token: 'test-token-' + i, instance })) }));
+}
+
+const OLD = 'a0a0a0a0a001';
+const NEW = 'b0b0b0b0b002';
 const idle = (instance) => ({ state: 'idle', because: 'finished responding', auto: true, instance });
 const block = (kind, instance) => ({ state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider', auto: true, instance });
 
 test('kosmos#8782: an automatic idle from a NEW run clears the old run\'s "an api error" block (the 11-19 case)', () => {
   const who = 'crash-api-error-8782';
+  liveRuns(who, [NEW]);
   assert.equal(selfreport.record(who, { state: 'working', because: 'answering a prompt', auto: true, instance: OLD }).recorded, true);
   assert.equal(selfreport.record(who, block('an api error', OLD)).recorded, true);
   const r = selfreport.record(who, idle(NEW));
@@ -34,6 +45,7 @@ test('kosmos#8782: an automatic idle from a NEW run clears the old run\'s "an ap
 
 test('kosmos#8782 CONTROL: the SAME run\'s idle still keeps "an api error" (#6209\'s residual is unchanged)', () => {
   const who = 'same-run-api-error-8782';
+  liveRuns(who, [NEW]);
   assert.equal(selfreport.record(who, block('an api error', OLD)).recorded, true);
   const r = selfreport.record(who, idle(OLD));
   assert.equal(r.recorded, false, 'the same run cleared a kind #6209 keeps');
@@ -43,6 +55,7 @@ test('kosmos#8782 CONTROL: the SAME run\'s idle still keeps "an api error" (#620
 
 test('kosmos#8782: a NEW run\'s mid-turn working does not clear the block; its turn end does', () => {
   const who = 'new-run-working-8782';
+  liveRuns(who, [NEW]);
   assert.equal(selfreport.record(who, block('an api error', OLD)).recorded, true);
   const hb = selfreport.record(who, { state: 'working', because: 'running Bash', auto: true, instance: NEW });
   assert.equal(hb.recorded, false, 'a mid-turn heartbeat cleared a provider block');
@@ -54,11 +67,13 @@ test('kosmos#8782: a NEW run\'s mid-turn working does not clear the block; its t
 test('kosmos#8782: any provider kind from the old run ends at the new run\'s turn end, a run of several included', () => {
   for (const kind of ['rate_limit', 'authentication_failed', 'billing_error', 'unknown']) {
     const who = 'new-run-' + kind + '-8782';
+    liveRuns(who, [NEW]);
     assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true, instance: OLD }).recorded, true);
     assert.equal(selfreport.record(who, block(kind, OLD)).recorded, true);
     assert.equal(selfreport.record(who, idle(NEW)).recorded, true, kind + ' outlived the run that wrote it');
   }
   const run = 'new-run-several-8782';
+  liveRuns(run, [NEW]);
   assert.equal(selfreport.record(run, { state: 'idle', because: 'finished responding', auto: true, instance: OLD }).recorded, true);
   assert.equal(selfreport.record(run, block('an api error', OLD)).recorded, true);
   assert.equal(selfreport.record(run, block('server_error', OLD)).recorded, true);
@@ -69,6 +84,7 @@ test('kosmos#8782: any provider kind from the old run ends at the new run\'s tur
 
 test('kosmos#8782: a block over a DELIBERATE question keeps it, even for a new run', () => {
   const who = 'question-under-block-8782';
+  liveRuns(who, [NEW]);
   assert.equal(selfreport.record(who, { state: 'needs_you', because: 'which account should this use?', instance: OLD }).recorded, true);
   assert.equal(selfreport.record(who, block('an api error', OLD)).recorded, true);
   const r = selfreport.record(who, idle(NEW));
@@ -78,19 +94,50 @@ test('kosmos#8782: a block over a DELIBERATE question keeps it, even for a new r
 
 test('kosmos#8782: an unknown instance on either side is not a new run (the block stays)', () => {
   const noOld = 'no-old-instance-8782';
+  liveRuns(noOld, [NEW]);
   assert.equal(selfreport.record(noOld, block('an api error', undefined)).recorded, true);
   assert.equal(selfreport.record(noOld, idle(NEW)).recorded, false, 'a block with no instance was taken as another run\'s');
   const noNew = 'no-new-instance-8782';
+  liveRuns(noNew, [NEW]);
   assert.equal(selfreport.record(noNew, block('an api error', OLD)).recorded, true);
   assert.equal(selfreport.record(noNew, idle(undefined)).recorded, false, 'a report with no instance was taken as a new run');
 });
 
 test('kosmos#8782: a DELIBERATE blocked, or an automatic one not about the provider, is not ended by a new run', () => {
   const mine = 'deliberate-blocked-8782';
+  liveRuns(mine, [NEW]);
   assert.equal(selfreport.record(mine, { state: 'blocked', on: 'provider api (an api error)', owner: 'provider', instance: OLD }).recorded, true);
   assert.equal(selfreport.read(mine).by, 'agent');
   assert.equal(selfreport.record(mine, idle(NEW)).recorded, false, 'a new run cleared an agent\'s own deliberate block');
   const other = 'auto-blocked-other-8782';
+  liveRuns(other, [NEW]);
   assert.equal(selfreport.record(other, { state: 'blocked', on: 'the build server', owner: 'ops', auto: true, instance: OLD }).recorded, true);
   assert.equal(selfreport.record(other, idle(NEW)).recorded, false, 'a new run cleared an automatic block that is not the provider');
+});
+
+test('kosmos#8782: two LIVE runs overlap (#570): one run\'s turn end does not end the other\'s block', () => {
+  const who = 'overlap-8782';
+  liveRuns(who, [OLD, NEW]);
+  assert.equal(selfreport.record(who, block('invalid_request', OLD)).recorded, true);
+  const r = selfreport.record(who, idle(NEW));
+  assert.equal(r.recorded, false, 'a live run\'s block was cleared by its sibling run');
+  assert.equal(selfreport.read(who).state, 'blocked');
+  // CONTROL: once the old run's token is gone, the same idle ends it.
+  liveRuns(who, [NEW]);
+  assert.equal(selfreport.record(who, idle(NEW)).recorded, true);
+});
+
+test('kosmos#8782: no token file for the agent (unknown) keeps the block', () => {
+  const who = 'no-token-file-8782';
+  assert.equal(selfreport.record(who, block('an api error', OLD)).recorded, true);
+  assert.equal(selfreport.record(who, idle(NEW)).recorded, false, 'an unreadable token store was taken as the run ended');
+});
+
+test('kosmos#8782: a NEW run\'s own block over the old run\'s keeps #6209\'s same-run rule (the stated residual)', () => {
+  // The standing block is the new run's own, so the same-run rule decides: a non-transient kind keeps it.
+  const who = 'mixed-runs-8782';
+  liveRuns(who, [NEW]);
+  assert.equal(selfreport.record(who, block('an api error', OLD)).recorded, true);
+  assert.equal(selfreport.record(who, block('rate_limit', NEW)).recorded, true);
+  assert.equal(selfreport.record(who, idle(NEW)).recorded, false, 'the new run\'s own rate_limit was cleared by its own idle');
 });

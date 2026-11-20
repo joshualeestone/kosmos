@@ -15,7 +15,11 @@ report clears it, and the agent never sees that it needs one.
 ## Change
 
 In `selfreport.record`, an automatic `idle` also ends an automatic provider block (any `provider api (...)` kind)
-when the block was written by a DIFFERENT run: both rows carry an `instance` (from the launch token) and they differ.
+when the block was written by a run that has ENDED: both rows carry an `instance` (from the launch token), they
+differ, and the token store says the old run's token is gone (`sendertoken.instanceState` = 'gone'). Two live runs of
+one agent can overlap (#570), so a sibling run's turn end must not end the other's block; 'held' or 'unknown' keeps
+it. Measured on 11-19: April's, Angel's and Splinter's token files hold only their new instances, so their crashed
+runs read 'gone'.
 What sits under the run of blocks is read with the existing #6209 rule: a block that covered a deliberate wait, or
 an unreadable record, keeps the block. For this case the walk steps over every automatic provider block, not only
 the transient ones (`lineUnderProviderBlock(sessionName, anyKind)`).
@@ -30,6 +34,11 @@ unknown instance on either side is not treated as a new run.
 - Clearing on any report from a new run (`working` too): a mid-turn heartbeat does not prove a turn succeeded.
 - Sending `started` on a resumed session: #1058 chose not to, so a resume does not wipe a deliberate wait.
 
+## Stated residual
+
+A block from the old run followed by the NEW run's own non-transient block: the standing block is the new run's, so
+the same-run rule decides and keeps it (pinned by a test). Rare, and it fails toward keeping the block.
+
 ## Weakest premise
 
 That a turn ending normally in a new run means the old failure needs nobody. For a usage limit or a sign-in, the
@@ -43,8 +52,10 @@ restart for those agents. That is a separate question about #8548.
 
 ## Tests
 
-- `engine/selfreport.anotherrun-8782.test.js`: 7 tests (the 11-19 case; same-run control; new-run working vs idle;
+- `engine/selfreport.anotherrun-8782.test.js`: 10 tests (with overlapping live runs, no token file, and the mixed
+  residual added in review 1); first version 7 tests (the 11-19 case; same-run control; new-run working vs idle;
   any kind and a run of several; a deliberate question under the block; unknown instances; deliberate and
   non-provider blocks).
-- Mutations: main's `selfreport.js` fails 3 of the 7 (the three clear cases); the transient-only walk fails 3.
+- Mutations: main's `selfreport.js` fails 3 of the 7 (the three clear cases); the transient-only walk fails 3; without
+  the token gate, the overlap and no-token-file tests fail (2).
 - Existing: `engine/selfreport.autoclear-2456.test.js` and `engine/selfreport.test.js` pass (64 tests together).
