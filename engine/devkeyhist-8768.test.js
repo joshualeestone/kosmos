@@ -63,3 +63,9 @@ test('#8768: every other repeat of a key is still refused, each against the hone
   assert.strictEqual(hist.verify(signed([backfill, confirm]), opts).ok, true, 'control: the honest confirm');
   for (const [name, entries] of cases) assert.match(hist.verify(signed(entries), opts).because || '', /enrols the same key twice/, name);
 });
+
+test('#8768 interop: the confirm history\'s head is pinned on both sides (kosmos-relay devkeyhist.rs the_macs_confirm_vector_is_reproduced)', () => {
+  const entries = [{ kind: 'enrol', key: OLD, at: NOW - 900, backfill: true }, { kind: 'enrol', key: OLD, at: NOW - 300, backfill: false }];
+  const msg = hist.encodeHead('o1', 'm1', entries, NOW - 60);
+  assert.strictEqual(crypto.createHash('sha256').update(msg).digest('hex'), '6967f73b184cfb3cbd4dff3992357d07f2a3befc7f13dea013b14a98097e1046');
+});
