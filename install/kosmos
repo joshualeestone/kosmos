@@ -2180,7 +2180,7 @@ EOF
     skip) [ "$_how" = quiet ] || _cloud_log "skipped tonight: $_why"; exit 0 ;;
     *) _cloud_log "skipped tonight: the nightly check gave no answer"; exit 0 ;;
   esac
-  _cloud_log "looking for a newer prod build"
+  _cloud_log "looking for a newer prod build (a Kosmos Cloud computer always updates from prod, so after an install it stays on prod, whatever channel it was created on)"
   # A subshell, because cmd_update ends with exit. Its last line is the answer (current/newer/updated/failed/...).
   # Both names: on Linux update.js reads AGENT_WORKFORCE_UPDATE_CHANNEL first, so a staging value from the user
   # manager's environment would otherwise win over ours.

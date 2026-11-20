@@ -25,6 +25,7 @@ test.afterEach(() => {
   linuxboard.setRunnerForTests(null);
   linuxboard.setSystemdDirForTests(null);
   linuxboard.setCloudForTests(null);
+  linuxboard.setLatchGoneForTests(null);
 });
 
 function sandbox(prefix) {
@@ -225,6 +226,7 @@ test('installBoard on a box that is no longer a Cloud box removes an earlier ins
   const calls = [];
   linuxboard.setRunnerForTests(record(calls));
   linuxboard.setCloudForTests(() => false);
+  linuxboard.setLatchGoneForTests(() => true);
   const { tmp, home } = sandbox('cloudupdate-stale-');
   try {
     const names = linuxboard.cloudUpdateNames(home);
@@ -237,5 +239,24 @@ test('installBoard on a box that is no longer a Cloud box removes an earlier ins
     assert.equal(calls.some((c) => c.includes('stop ' + names.service)), false, 'never the service');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('a latch that cannot be read (not gone) keeps an earlier install\'s nightly units', () => {
+  for (const gone of [() => false, () => { throw new Error('EACCES'); }]) {
+    const calls = [];
+    linuxboard.setRunnerForTests(record(calls));
+    linuxboard.setCloudForTests(() => false);
+    linuxboard.setLatchGoneForTests(gone);
+    const { tmp, home } = sandbox('cloudupdate-keep-');
+    try {
+      const names = linuxboard.cloudUpdateNames(home);
+      for (const f of [names.service, names.timer]) fs.writeFileSync(path.join(tmp, f), 'x');
+      assert.equal(linuxboard.installBoard(home, 17000).ok, true);
+      for (const f of [names.service, names.timer]) assert.equal(fs.existsSync(path.join(tmp, f)), true, f + ' was removed');
+      assert.equal(calls.some((c) => c.includes('kosmos-cloud-update')), false, calls.join(' | '));
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   }
 });

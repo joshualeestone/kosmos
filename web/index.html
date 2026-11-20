@@ -10724,6 +10724,7 @@ html:has(> body > #fr-choice:not([hidden])) { overflow: hidden; scrollbar-gutter
    on Windows (win32) and, since #5865, on Linux (linux); on a Mac it stamps nothing, so neither rule matches. */
 html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
 html[data-kosmos-platform="linux"] [data-linux-hide] { display: none !important; }   /* #5865 */
+html[data-kosmos-platform="linux"]:not([data-kosmos-cloud]) [data-linux-hide-unless-cloud] { display: none !important; }   /* kosmos#8786 */
 /* kosmos#4903 seam H: on a cloud machine, anything asking for a path on it, a login to it or a terminal on it. */
 html[data-kosmos-cloud] [data-cloud-hide] { display: none !important; }
 html:not([data-kosmos-cloud]) [data-cloud-only] { display: none !important; }
@@ -20332,13 +20333,14 @@ window.kosmosMeasureScrollbarWidth();
            (engine/update.js maybeAutoInstall returns without an installedRoot); the manual
            offer above is the Windows update path. -->
       <!-- kosmos#7935: hidden on Linux too, where the board never installs on its own (update.js autoInstallWouldStart);
-           its card gives the command instead. -->
-      <div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide data-linux-hide>
+           its card gives the command instead. kosmos#8786 S2: except on a Kosmos Cloud computer, which installs the
+           newest version once a night (engine/cloudnightly.js) unless this switch is off, so there it is the off switch. -->
+      <div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide data-linux-hide-unless-cloud>
         <div><b>Update Kosmos automatically</b>
-          <p class="dhint" style="margin:2px 0 0;">On by default. New versions install themselves, which takes a few seconds and reloads this board. Agents keep running throughout.</p></div>
+          <p class="dhint" style="margin:2px 0 0;" data-cloud-copy="autoHint">On by default. New versions install themselves, which takes a few seconds and reloads this board. Agents keep running throughout.</p></div>
         <button class="toggle" id="auto-toggle" role="switch" aria-label="Update Kosmos automatically" hidden><i></i></button>
       </div>
-      <p class="dhint" id="auto-msg" role="status" style="margin:8px 0 0;" data-win-hide data-linux-hide></p>
+      <p class="dhint" id="auto-msg" role="status" style="margin:8px 0 0;" data-win-hide data-linux-hide-unless-cloud></p>
     </section>
   </section>
   <!-- ============ PLUS ACCOUNT (#Josh 19:15, the relay service's home) ====
@@ -21874,7 +21876,8 @@ function platformCopy(key, macCopy, platform) {
    than looking at it (the first-run gate poll must not wait on a hidden Mac gate). */
 function platformHides(el) {
   if (!el || typeof el.closest !== 'function') return false;
-  return (onWindows() && Boolean(el.closest('[data-win-hide]'))) || (onLinux() && Boolean(el.closest('[data-linux-hide]')));   // #5865
+  return (onWindows() && Boolean(el.closest('[data-win-hide]'))) || (onLinux() && Boolean(el.closest('[data-linux-hide]')))   // #5865
+    || (onLinux() && !(typeof onCloudMachine === 'function' && onCloudMachine()) && Boolean(el.closest('[data-linux-hide-unless-cloud]')));   // kosmos#8786
 }
 function applyPlatformCopy(root) {
   /* kosmos#4903 seam H: a cloud machine (always Linux) first, so its words win over the Linux ones: data-cloud-hide (CSS
@@ -21883,6 +21886,8 @@ function applyPlatformCopy(root) {
     document.documentElement.setAttribute('data-kosmos-cloud', '1');
     root.querySelectorAll('[data-cloud-copy]').forEach((el) => {
       if (el.getAttribute('data-cloud-copy') === 'thisMachine') el.textContent = thisMachine();
+      // kosmos#8786 S2: what the switch does on a Cloud computer (engine/cloudnightly.js decides each night).
+      else if (el.getAttribute('data-cloud-copy') === 'autoHint') el.textContent = 'On by default. Once a night, while no agent is working, the newest version installs itself and this board reloads. Turn this off and Kosmos waits for you.';
     });
   }
   if (onLinux() && root && typeof root.querySelectorAll === 'function') {
