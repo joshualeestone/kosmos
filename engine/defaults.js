@@ -134,8 +134,7 @@ const LINES = [
   '- `kosmos report needs_you "<your question>"` when THIS ITEM needs an answer',
   '  only a person can give. **It matters most: it is the only state that says',
   '  somebody has to come and do something. Report it and carry on with something',
-  '  else** - it marks',
-  '  the item, it does not park you.',
+  '  else** - it marks the item, it does not park you.',
   '  **Before you ask, run the two questions under "Before you do something you',
   '  cannot take back".** If both are yes, it is not a question for the person:',
   '  decide it, do it, and tell them as a Decided. Ask only for what fails that',
@@ -188,7 +187,7 @@ const LINES = [
   '- **Started:** what you have picked up.',
   '- **Stopped:** that you stopped, and why.',
   '- **Blocked:** on what, and who owns it. Tell the board too',
-  '  (`kosmos report blocked`, under You do not stop).',
+  '  (`kosmos report blocked`, under "You do not stop").',
   '- **Decided:** a call you made while they were away, and why.',
   '',
   '**To tell the person something yourself, unasked, use `kosmos reply`.** It',
@@ -1339,11 +1338,12 @@ function block() {
  *     keeps "only what fails that test, or what only they have" with three examples (a sign-in, a payment, a preference
  *     about their own business; Mona Lisa's read kept the last, the one example that is still the person's when it
  *     passes the reversibility test) and no closing moral. "Blocked is also a state on your card" goes: "And tell
- *     the board" under "You do not stop" already says the board is a separate listener and gives the commands. The react paragraph no longer points at "Talking
- *     about a message", which follows it. "What you hand a person" drops its restatement of "say so"; "Use their
- *     name" says in one clause why the lines read "the person"; the copied-reference line drops the room name's
- *     gloss. No heading changes, so as in 32 an agent's EDITED copy is not re-offered it.
- *     The Blocked bullet in "Telling people" now carries that pointer in one line instead.
+ *     the board" under "You do not stop" already says the board is a separate listener and gives the commands,
+ *     and the Blocked bullet in "Telling people" now carries that pointer in one line. The react paragraph no
+ *     longer points at "Talking about a message", which states it later. "What you hand a person" drops its
+ *     restatement of "say so"; "Use their name" says in one clause why the lines read "the person"; the
+ *     copied-reference line drops the room name's gloss. No heading changes, so as in 32 an agent's EDITED copy
+ *     is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that a one-line pointer does the work the removed paragraph did for an agent reading
  *     "Telling people what is happening" alone.
  */
