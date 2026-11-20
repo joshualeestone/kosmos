@@ -642,8 +642,13 @@ function slugFor(raw) {
      ⚠️ A LEADING period is still refused, not silently dropped: it folds to a
      leading hyphen, which NAME_RE rejects, so `.Net` is refused rather than
      becoming `net`. Only the period joins whitespace here; every other
-     character still survives unchanged to be caught by NAME_RE. */
-  return cleanName(raw).toLowerCase().replace(/[\s.]+/g, '-');
+     character still survives unchanged to be caught by NAME_RE.
+     kosmos#8784 (Josh, 2026-11-19: "we need to be able to support apostrophes in agent names"): an apostrophe,
+     straight or curly (' U+2018 U+2019), is DROPPED, so "Taylor's Coach" is shown as typed and is `taylors-coach` to
+     the machinery. Dropped, not folded to a hyphen like the period: it sits inside a word ("taylor-s-coach" names no
+     one), and it cannot collide in silence, because every spelling of the name ("Taylor's", "Taylor's" curly,
+     "Taylors") lands on one machine name and createAgent refuses the second as already taken, by name. */
+  return cleanName(raw).toLowerCase().replace(/['\u2018\u2019]/g, '').replace(/[\s.]+/g, '-');
 }
 
 function nameProblem(raw) {
@@ -660,8 +665,12 @@ function nameProblem(raw) {
   // one.
   if (name.length < 2) return 'use at least two characters, so the name is something you can pick out';
   if (name.length > 32) return 'keep it to 32 characters or fewer';
-  if (!NAME_RE.test(name)) {
-    return 'use letters, numbers, hyphens and underscores, starting with a letter or number';
+  /* kosmos#8784: slugFor DROPS an apostrophe, so a name that starts with one ("'ab") would pass NAME_RE as `ab` while its
+     display name starts with a quote. A leading apostrophe is refused, as a leading period is (#2605), so a name still
+     starts with a letter or number in the file an agent boots from. */
+  if (!NAME_RE.test(name) || /^['\u2018\u2019]/.test(cleanName(raw))) {
+    // kosmos#8784: the sentence names every character a name may hold (spaces #740, periods #2605, apostrophes #8784).
+    return 'use letters, numbers, spaces, periods, apostrophes, hyphens and underscores, starting with a letter or number';
   }
   /* ⚠️ NOT `<something>-discord`, and this is not cosmetic.
    *

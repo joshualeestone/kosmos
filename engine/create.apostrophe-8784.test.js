@@ -1,0 +1,83 @@
+'use strict';
+/**
+ * kosmos#8784 (Josh, 2026-11-19 20:39: "we need to be able to support apostrophes in agent names"): a new user's first
+ * agent, named in the possessive ("<Name>'s Coach"), was refused at create with "use letters, numbers, hyphens and
+ * underscores", although spaces were already allowed. The display name keeps the apostrophe; the machine name (folder,
+ * session, launch script) drops it, so "Taylor's Coach" is `taylors-coach`. Every spelling lands on one machine name,
+ * so a second spelling is refused as taken, by name, never filed in silence beside the first.
+ */
+require('../test-support/tmpscope');
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'apostrophe-8784-'));
+for (const [k, d] of Object.entries({ WORKERS: 'workers', LAUNCH: 'LaunchAgents', SYSTEMD_DIR: 'systemd-user', HOME: 'home',
+  DATA: 'support', PROJECTS: 'projects', CLAUDE_CONFIG: 'claude.json', CONFIG_ROOT: 'config-root' })) {
+  process.env['AGENT_WORKFORCE_' + k] = nodePath.join(SANDBOX, d);
+}
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+const create = require('./create');
+const status = require('./status');
+require('../test-support/catalogue-fixture').install(SANDBOX);
+
+const STRAIGHT = "Taylor's Coach";
+const CURLY = 'Taylor\u2019s Coach';
+const OPENING = 'Taylor\u2018s Coach';
+
+const winBin = (posix, exe) => (process.platform === 'win32'
+  ? nodePath.join(process.env.SystemRoot || 'C:\\Windows', 'System32', exe) : posix);
+const BINS = { claudeBin: winBin('/bin/echo', 'where.exe'), tmuxBin: winBin('/bin/echo', 'where.exe') };
+
+test.beforeEach(() => { status.setPaneSource(() => ''); create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false); });
+test.afterEach(() => { create.setRunner(null); status.setPaneSource(null); });
+
+test('#8784: an apostrophe, straight or curly, is dropped from the machine name and kept in the display name', () => {
+  for (const n of [STRAIGHT, CURLY, OPENING]) {
+    assert.equal(create.slugFor(n), 'taylors-coach', n);
+    assert.equal(create.nameProblem(n), null, n + ': refused');
+  }
+  // Only the apostrophe goes: the period and the space keep their #2605 and #740 folds, and nothing else is stripped.
+  assert.equal(create.slugFor("Dr. O'Neil"), 'dr-oneil');
+  assert.equal(create.slugFor('Ca.sey'), 'ca-sey', 'a period is still a hyphen, never removed');
+  assert.match(create.nameProblem('Taylor!s Coach'), /use letters, numbers, spaces, periods, apostrophes, hyphens and underscores/,
+    'any other punctuation is still refused, by the sentence that names what a name may hold');
+  // A name starts with a letter or number in the file an agent boots from, so a LEADING apostrophe is refused (as a
+  // leading period is, #2605), though the machine name without it would pass.
+  for (const lead of ["'Til Done", '\u2019Til Done']) {
+    assert.match(create.nameProblem(lead), /starting with a letter or number/, lead + ' was accepted');
+  }
+  // A name that is only apostrophes and a letter is too short, said as such, not as a character rule.
+  assert.match(create.nameProblem("'a'"), /at least two characters/);
+});
+
+test('#8784: an agent named with an apostrophe is created, and its apostrophe reaches no file the machinery reads as a name', () => {
+  const out = create.createAgent({ ...BINS, name: STRAIGHT, role: 'personal' });
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  // The iPhone app takes the session from `name` and checks it is a session name (PushBridge.isAgentSession: a-z, 0-9,
+  // - and _), then shows `shownAs`; the board route acts on `name` too. So `name` is the machine name, `shownAs` the typed.
+  assert.equal(out.name, 'taylors-coach');
+  assert.match(out.name, /^[a-z0-9][a-z0-9_-]*$/, 'the iPhone app would read this result as unknown');
+  assert.equal(out.shownAs, STRAIGHT);
+  const file = create.instructionFile('taylors-coach');
+  assert.ok(file && fs.existsSync(file), 'the agent folder is not the dropped-apostrophe machine name');
+  assert.match(fs.readFileSync(file, 'utf8'), /You are \*\*Taylor's Coach\*\*/, 'the agent is not told its name as typed');
+  // Every file the create wrote: the typed name may be in JSON records and the agent's own instructions, nowhere else
+  // (a launch script, a plist, a systemd unit, a PowerShell file: the places a quote would break a shell).
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(nodePath.join(d, e.name)) : [nodePath.join(d, e.name)]));
+  const carrying = walk(SANDBOX).filter((f) => fs.readFileSync(f, 'utf8').includes(STRAIGHT));
+  assert.ok(carrying.length > 0, 'control: the typed name was written somewhere');
+  const unsafe = carrying.filter((f) => !f.endsWith('.json') && !f.endsWith('.jsonl') && !f.endsWith('CLAUDE.md') && !f.endsWith('AGENTS.md') && !f.endsWith('GEMINI.md'));
+  assert.deepEqual(unsafe.map((f) => nodePath.relative(SANDBOX, f)), [], 'the typed name, apostrophe and all, reached a file a shell may read');
+});
+
+test('#8784: a second spelling of the same name is refused as taken, by name, never filed beside the first', () => {
+  for (const n of [CURLY, 'Taylors Coach', 'taylors coach']) {
+    const out = create.createAgent({ ...BINS, name: n, role: 'personal' });
+    assert.equal(out.outcome, create.OUTCOME.REFUSED, n + ' was not refused');
+    assert.match(out.because, /there is already an agent called/, n + ': refused for another reason: ' + out.because);
+  }
+});
