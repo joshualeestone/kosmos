@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: taskhow-8735
-diff_hash: 59c3027dcbd88f59e00a9f2bc9abf4b1c176a900bedee5b0da0cd42032bae8d1
+diff_hash: 3e86e0826b3e1523134f62a8be77127fa322842afaad251bb4133ae2b14e2e1b
 validation: passed
 subdir_audit: passed
 timestamp: 2026-11-19T23:54:51Z
@@ -32,3 +32,6 @@ Merged main again after the 0.8.11 hold lifted (5799fc115d): #8771 had changed t
 install/kosmos beside this branch's `task --how`. Clean merge; the shared-file suites pass on the merged tree
 (Windows CLI verbs parity 12, Windows CLI 65, taskguide 3, instructionreread-changes 50, brief size 1, defaults 30,
 doctrine 32). This head's full validation is the PR's CI, which runs the whole suite on the merge with main.
+Merged main a third time (afc2df4add): #8773 (kosmos.exe on Windows) had changed install/kosmos, tools/windows/kosmos-cli.js
+and tools/windows-tests.js again. Clean merge; Windows CLI verbs parity 12, Windows CLI 66, taskguide 3 and brief size 1
+pass on the merged tree. CI on this head is the full run.
