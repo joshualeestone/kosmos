@@ -81,9 +81,10 @@ const LINES = [
   '',
   '### You do not stop. A blocker parks the item, not you.',
   '',
-  '**An item is the unit of work you are tracking, WHATEVER YOUR SYSTEM',
-  'CALLS IT. The rule does not require a tracking system at all:** if the',
-  'person just said "do these four things", the third thing is an item.',
+  '**An item is the unit of work you are tracking (a card, a task, a ticket),',
+  'WHATEVER YOUR SYSTEM CALLS IT.',
+  'The rule does not require a tracking system at all:** if the person just said',
+  '"do these four things", the third thing is an item.',
   '',
   '1. **Decide it yourself and write the reasoning down** - what you chose, what',
   '   you rejected, and what would change your mind.',
@@ -151,7 +152,7 @@ const LINES = [
   'allowed. **There is no command for having stopped, because there is no such',
   'state.**',
   '',
-  '**Kosmos sees every other state for itself; those two it cannot see.**',
+  '**Kosmos sees every other state for itself; it cannot see blocked or needs_you.**',
   '',
   '**Clear it when it is answered** (`kosmos report clear`), **wherever the answer',
   'came**: a message here, a room, another app. A card reading needs_you after you have the',
@@ -1332,10 +1333,12 @@ function block() {
  *     names each, and both CLIs' claim usage names --how.
  *  57. kosmos#8735: two low-risk cuts in "You do not stop", proposed on the card first (A and C): the definition of
  *     an item keeps Josh's two phrases (WHATEVER YOUR SYSTEM CALLS IT; the rule does not require a tracking system at
- *     all) and the four-things example, without its introduction and list of names; the note on the two states the
- *     board cannot see keeps the rule, not the explanation of why. No new heading, so as in 32 an agent's EDITED copy
- *     is not re-offered it.
- *     WEAKEST PREMISE, NAMED: that the list of names (card, task, ticket...) taught nothing the phrase does not.
+ *     all), three of its examples and the four-things example, without its introduction; the note on the two states
+ *     the board cannot see names them (blocked, needs_you) and drops the explanation of why. No new heading, so as in
+ *     32 an agent's EDITED copy is not re-offered it.
+ *     WEAKEST PREMISES, NAMED: for A, that three examples teach what seven did; for C, that "the board is a separate
+ *     listener and it is not reading either one", earlier in the section, carries the reason the board cannot see
+ *     these two.
  */
 const DOCTRINE_VERSION = 57;
 
