@@ -2850,6 +2850,17 @@ const SCREENS = [
   },
   verify: async (page) => {
     if (!(await page.isVisible('#fr-conn-code'))) throw new Error('the code field is not drawn');
+    /* kosmos#8783 review 2: "visible" also counts a field scrolled under the pinned footer, so check the field and the
+       Use code button lie inside the scrolling body's visible box (what the fix is for). On origin/main this fails at a
+       small phone size, as it should. */
+    const r = await page.evaluate(() => {
+      const body = document.querySelector('#firstrun .fr-body');
+      const go = document.getElementById('fr-conn-code-go');
+      if (!body || !go) return null;
+      const b = body.getBoundingClientRect(); const g = go.getBoundingClientRect();
+      return { inside: g.top >= b.top - 1 && g.bottom <= b.bottom + 1, edge: body.dataset.edge || '' };
+    });
+    if (!r || !r.inside) throw new Error('the code field and Use code are not inside the visible wizard body (kosmos#8783)');
   } },
   { name: 'agent-files', owner: 'unowned', go: async (page, data) => {
     await at(page, '?tab=detail&agent=' + data.chatAgent);

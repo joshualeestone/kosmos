@@ -1973,6 +1973,8 @@ test('kosmos#8783: the wizard body fades its bottom edge only while content sits
   const raw = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   assert.match(raw, /#firstrun \.fr-body\[data-edge="b"\] \{ -webkit-mask-image: linear-gradient\(to bottom, #000 calc\(100% - 32px\), transparent\);/,
     'the fade CSS is missing or changed');
+  assert.match(raw, /#firstrun \.fr-body\[data-edge="b"\][^}]*\bmask-image: linear-gradient\(to bottom, #000 calc\(100% - 32px\), transparent\);/,
+    'the unprefixed mask-image line is missing');
   const start = raw.indexOf('(function frBodyEdge() {');
   assert.ok(start > 0, 'the edge script is missing');
   const iife = raw.slice(start, raw.indexOf('})();', start) + 5);
@@ -1980,12 +1982,21 @@ test('kosmos#8783: the wizard body fades its bottom edge only while content sits
   const body = { scrollHeight: 900, clientHeight: 500, scrollTop: 0, dataset: {},
     addEventListener: (ev, fn) => { if (ev === 'scroll') onScroll = fn; } };
   const run = new Function('document', 'window', 'ResizeObserver', 'MutationObserver', 'requestAnimationFrame', iife);
-  run({ querySelector: (q) => (q === '#firstrun .fr-body' ? body : null) }, { addEventListener() {} }, undefined, undefined, (f) => f());
+  const observers = [];
+  class FakeObserver { constructor(cb) { this.cb = cb; observers.push(this); } observe(target, opts) { this.target = target; this.opts = opts; } }
+  run({ querySelector: (q) => (q === '#firstrun .fr-body' ? body : null) }, { addEventListener() {} }, FakeObserver, FakeObserver, (f) => f());
+  const mo = observers.find((o) => o.opts && o.opts.childList);
+  assert.ok(mo, 'a MutationObserver watches the body');
+  assert.ok(!mo.opts.attributeFilter.includes('data-edge'), 'its own data-edge write must not wake it (a loop)');
+  assert.ok(observers.some((o) => !o.opts), 'a ResizeObserver watches the body');
   assert.equal(body.dataset.edge, 'b', 'content below the fold: the fade is on');
   body.scrollTop = 400; onScroll();
   assert.equal(body.dataset.edge, '', 'scrolled to the bottom: the fade is gone');
   body.scrollTop = 100; onScroll();
   assert.equal(body.dataset.edge, 'b', 'scrolled back up: on again');
+  body.scrollTop = 400; onScroll(); assert.equal(body.dataset.edge, '');
+  body.scrollHeight = 1400; mo.cb();   // a step redraws and grows after it appeared (the late sign-in link)
+  assert.equal(body.dataset.edge, 'b', 'a redraw that adds content below re-marks the edge');
   const short = { scrollHeight: 400, clientHeight: 500, scrollTop: 0, dataset: {}, addEventListener() {} };
   run({ querySelector: () => short }, { addEventListener() {} }, undefined, undefined, (f) => f());
   assert.equal(short.dataset.edge, '', 'CONTROL: nothing to scroll, no fade');

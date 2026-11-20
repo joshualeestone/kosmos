@@ -49087,9 +49087,6 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
   if (!b) return;
   settingsOpen(b.dataset.go);
 });
-/* #5303: which edges of the Settings row have more beyond them, for the phone rule's fade and its "More sections"
-   chevron. Recomputed on scroll, on a resize of the window or the nav, when a pill's dot or visibility changes, and once
-   the fonts have loaded; a row that does not scroll (desktop) has no edge, so nothing shows. */
 /* kosmos#8783: the wizard body's bottom fade (CSS beside #firstrun .fr-body), marked while content sits below the visible
    part. Re-marked on scroll, when the body changes size, and when a step redraws its contents (a step that grows after
    it appears, as the sign-in link does a tick later, would otherwise never show the cue). */
@@ -49103,12 +49100,20 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
     if (body.dataset.edge !== edge) body.dataset.edge = edge;
   };
   body.addEventListener('scroll', mark, { passive: true });
-  if (typeof ResizeObserver === 'function') new ResizeObserver(mark).observe(body);
-  if (typeof MutationObserver === 'function') new MutationObserver(() => requestAnimationFrame(mark)).observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'style', 'class'] });
+  // One pending frame at a time: a busy step (a progress bar's style on every tick) cannot pile frames up.
+  let pending = false;
+  const soon = () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; mark(); }); };
+  // The body's own box, and its content's (fonts or images loading grow it with no DOM change).
+  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(soon); ro.observe(body); if (body.firstElementChild) ro.observe(body.firstElementChild); }
+  // data-edge is NOT in the filter, so this script's own write never wakes it again.
+  if (typeof MutationObserver === 'function') new MutationObserver(soon).observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'style', 'class'] });
   window.addEventListener('resize', mark);
   mark();
 })();
 
+/* #5303: which edges of the Settings row have more beyond them, for the phone rule's fade and its "More sections"
+   chevron. Recomputed on scroll, on a resize of the window or the nav, when a pill's dot or visibility changes, and once
+   the fonts have loaded; a row that does not scroll (desktop) has no edge, so nothing shows. */
 (function snavEdges() {
   const nav = document.getElementById('s-nav');
   const more = document.getElementById('s-nav-more');
