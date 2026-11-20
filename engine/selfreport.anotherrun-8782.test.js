@@ -152,3 +152,21 @@ test('kosmos#8782: a live sibling\'s block under the gone run\'s block stops the
   assert.equal(r.recorded, false, 'the gone run\'s idle-clear also swept a live sibling\'s block');
   assert.equal(selfreport.read(who).state, 'blocked');
 });
+
+test('kosmos#8782: a transient block from a gone run is cleared as main clears it, over a live run\'s transient block', () => {
+  // Main (#6209) steps over every transient block; the gone-run walk must not make this harder to clear.
+  const who = 'transient-over-sibling-8782';
+  liveRuns(who, [NEW]);
+  assert.equal(selfreport.record(who, { state: 'working', because: 'running Bash', auto: true, instance: NEW }).recorded, true);
+  assert.equal(selfreport.record(who, block('server_error', NEW)).recorded, true);
+  assert.equal(selfreport.record(who, block('server_error', OLD)).recorded, true);
+  assert.equal(selfreport.record(who, idle(NEW)).recorded, true, 'a gone run\'s transient block outlived a normal turn end');
+  assert.equal(selfreport.read(who).state, 'idle');
+});
+
+test('kosmos#8782: a block from a pre-#570 token (instance "legacy") is not taken as a gone run', () => {
+  const who = 'legacy-instance-8782';
+  liveRuns(who, [NEW]);
+  assert.equal(selfreport.record(who, block('an api error', 'legacy')).recorded, true);
+  assert.equal(selfreport.record(who, idle(NEW)).recorded, false, 'a legacy instance was read as a run whose token is gone');
+});
