@@ -16,6 +16,10 @@
  *     nobody watches.
  *   - the board cannot be read (stopped, or not answering): a person may have stopped it, and an install restarts it
  *   - an agent is working, at the first look or at a second look a few minutes later
+ *   - another install started during the wait between the two looks
+ *
+ * What that guarantees, exactly: no agent read as working at either look, the last one moments before the update look
+ * starts. An agent that starts work after it, while the new version downloads, is not seen.
  *
  * ⚠️ BUSY MEANS STATE 'working' ON /api/status, the board's own reading. An agent that is asking the person
  * (needs_you) is waiting, not working, and does not hold the night: the install restarts the board, not the agent's
@@ -89,7 +93,7 @@ async function decide({
   isCloud = () => require('./cloudmachine').isCloudMachine(),
   updatesOn = () => require('./autoupdate').read(),
   home = kosmosHome(),
-  now = Date.now(),
+  clock = () => Date.now(),
   startedAge = (h, n) => installStartedAge(h, n),
   signed = (h) => signedCheck(h),
   status = () => readStatus({ port: require('./create').boardPort(), token: require('./boardauth').readToken() }),
@@ -107,8 +111,8 @@ async function decide({
     return { run: false, why: pref.ok === false ? 'the Updates setting could not be read, so it counts as off' : 'updates are turned off in Settings' };
   }
 
-  const age = startedAge(home, now);
-  if (age !== null && age < INSTALL_FRESH_MS) return { run: false, why: 'another update started on this computer less than 30 minutes ago' };
+  const freshInstall = () => { const age = startedAge(home, clock()); return age !== null && age < INSTALL_FRESH_MS; };
+  if (freshInstall()) return { run: false, why: 'another update started on this computer less than 30 minutes ago' };
 
   let sc;
   try { sc = signed(home) || { ok: false, because: 'no answer' }; } catch (err) { sc = { ok: false, because: (err && err.message) || String(err) }; }
@@ -122,6 +126,8 @@ async function decide({
     }
     if (busy.length) return { run: false, why: 'an agent is working (' + busy.join(', ') + ')' + (look === 'second' ? ', at the second look' : '') };
   }
+  // Again after the wait: a person who started an update by hand meanwhile holds the marker, and two installers must not run.
+  if (freshInstall()) return { run: false, why: 'another update started on this computer while it was checking' };
   return { run: true };
 }
 

@@ -66,7 +66,7 @@ test('a run reaches the update look on the PROD channel and logs its answer, wha
   const r = run(h, 'run', { KOSMOS_UPDATE_CHANNEL: 'staging', AGENT_WORKFORCE_UPDATE_CHANNEL: 'staging' });
   assert.equal(r.status, 0, r.stderr);
   const l = log(h);
-  assert.match(l, /cloud-update: looking for a newer prod build\n/);
+  assert.match(l, /cloud-update: looking for a newer prod build \(a Kosmos Cloud computer always updates from prod/);
   assert.match(l, /cloud-update: current prod\/prod \(exit 0\)\n$/, 'the look was handed prod under both names: ' + l);
 });
 

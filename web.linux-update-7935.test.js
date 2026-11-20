@@ -130,9 +130,11 @@ test('#7935: the markup: a read-only field described by the status line, a Copy 
   assert.match(PAGE, /<button class="btn-quiet" type="button" id="upd-command-copy" aria-label="Copy the update command">Copy<\/button>/);
   assert.match(PAGE, /<p class="dhint" id="upd-command-msg" role="status" data-remote-hide><\/p>/);
   assert.match(SCRIPT, /getElementById\('upd-command-copy'\)\.addEventListener\('click', updCopyCommand\)/);
-  // The automatic-update switch promises installs a Linux board never makes, so it is hidden there (as on Windows).
-  assert.match(PAGE, /<div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide data-linux-hide>/);
-  assert.match(PAGE, /<p class="dhint" id="auto-msg" role="status" style="margin:8px 0 0;" data-win-hide data-linux-hide><\/p>/);
+  // The automatic-update switch promises installs a Linux board never makes, so it is hidden there (as on Windows),
+  // except on a Kosmos Cloud computer, whose nightly update it turns off (kosmos#8786 S2).
+  assert.match(PAGE, /<div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide data-linux-hide-unless-cloud>/);
+  assert.match(PAGE, /<p class="dhint" id="auto-msg" role="status" style="margin:8px 0 0;" data-win-hide data-linux-hide-unless-cloud><\/p>/);
+  assert.match(PAGE, /html\[data-kosmos-platform="linux"\]:not\(\[data-kosmos-cloud\]\) \[data-linux-hide-unless-cloud\] \{ display: none !important; \}/);
   assert.match(PAGE, /html\[data-kosmos-platform="linux"\] \[data-linux-hide\] \{ display: none !important; \}/, 'CONTROL: the Linux hide rule');
   // Empty, it takes no room but stays rendered: a live region that is display:none when its text lands may never speak.
   assert.match(PAGE, /#upd-command-msg:empty \{ margin: 0; \}/);

@@ -28,7 +28,7 @@ function base(over = {}) {
     isCloud: () => true,
     updatesOn: () => ({ on: true, ok: true }),
     home: '/nowhere',
-    now: 1e12,
+    clock: () => 1e12,
     startedAge: () => null,
     signed: () => ({ ok: true }),
     status: async () => { const s = statuses[looks.length]; looks.push(s); if (s instanceof Error) throw s; return s; },
@@ -72,6 +72,22 @@ test('an install started under 30 minutes ago skips; an older marker (an interru
   assert.equal(fresh.run, false); assert.match(fresh.why, /less than 30 minutes/);
   const old = await cn.decide(base({ startedAge: () => cn.INSTALL_FRESH_MS + 1 }).opts);
   assert.deepEqual(old, { run: true });
+});
+
+test('an install started during the wait between the looks skips the night', async () => {
+  let n = 0;
+  const { opts, waits } = base({ startedAge: () => (n++ === 0 ? null : 1000) });
+  const d = await cn.decide(opts);
+  assert.equal(d.run, false); assert.match(d.why, /while it was checking/);
+  assert.equal(waits.length, 1, 'checked again after the wait');
+});
+
+test('the real command entry prints one line: off Linux, a quiet skip', () => {
+  const { spawnSync } = require('node:child_process');
+  const r = spawnSync(process.execPath, [require('node:path').join(__dirname, 'cloudnightly.js'), 'decide'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, process.platform === 'linux' ? r.stdout : 'skip\tquiet\tnot Linux\n');
+  assert.match(r.stdout, /^(run|skip\t(quiet|said)\t[^\t\n]+)\n$/, 'the shape cmd_cloud_update reads');
 });
 
 test('no signed check skips the night with the reason', async () => {

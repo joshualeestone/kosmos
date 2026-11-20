@@ -185,6 +185,19 @@ WantedBy=timers.target
 /* Test seam: whether installBoard treats this computer as a Kosmos Cloud box. The board passes nothing. */
 let isCloudFn = () => require('./cloudmachine').isCloudMachine();
 function setCloudForTests(fn) { isCloudFn = typeof fn === 'function' ? fn : () => require('./cloudmachine').isCloudMachine(); }
+/* Whether the latch is positively absent (ENOENT), not merely unreadable: isCloudMachine reads any failure as "not a
+   Cloud box", which is right for writing the units and wrong for deleting them, since a state folder that cannot be
+   read for a moment would otherwise remove a real Cloud box's nightly update. */
+function latchGoneReal() {
+  try {
+    fs.lstatSync(path.join(require('./remote').stateDir(), require('./cloudmachine').LATCH));
+    return false;
+  } catch (err) {
+    return Boolean(err && err.code === 'ENOENT');
+  }
+}
+let latchGoneFn = latchGoneReal;
+function setLatchGoneForTests(fn) { latchGoneFn = typeof fn === 'function' ? fn : latchGoneReal; }
 
 /* The two values an install carries from its own environment into the board's unit (#4918 review 2, #5519), in one
    place: an update re-runs setup.sh from the environment of whatever ran it, and the nightly service (kosmos#8786) must
@@ -281,8 +294,8 @@ function installBoard(kosmosHome, port) {
   if (nightly) {
     fs.writeFileSync(path.join(path.dirname(target), nightly.names.service), nightly.service, 'utf8');
     fs.writeFileSync(path.join(path.dirname(target), nightly.names.timer), nightly.timer, 'utf8');
-  } else {
-    // No longer a Cloud box (the latch was removed): an earlier install's nightly units go, as removeBoard removes them.
+  } else if ((() => { try { return latchGoneFn(); } catch { return false; } })()) {
+    // No longer a Cloud box (the latch is gone): an earlier install's nightly units go, as removeBoard removes them.
     const stale = cloudUpdateNames(kosmosHome);
     if (fs.existsSync(path.join(path.dirname(target), stale.timer))) runner('systemctl', ['--user', 'disable', '--now', stale.timer]);
     for (const f of [stale.timer, stale.service, path.join('timers.target.wants', stale.timer)]) {
@@ -410,6 +423,7 @@ module.exports = {
   cloudUpdateNames,
   cloudUpdateUnitsFor,
   setCloudForTests,
+  setLatchGoneForTests,
   installBoard,
   removeBoard,
   loadedBoardJob,
