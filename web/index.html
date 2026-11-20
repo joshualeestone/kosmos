@@ -21503,8 +21503,8 @@ window.addEventListener('unhandledrejection', (e) => {
      page and image previews, and the service worker's own fetches (web/sw.js).
      🛑 It rests on one rule this page must keep: no route the page's own fetches reach redirects them OFF this origin.
      fetch keeps this header across a redirect, so such a route, bounced back, would arrive with it; the connector's
-     refusal of that request's Origin: null is then the only guard. web.boardpage-header-8781.test.js lists the board's
-     redirects; add one, and check it there. */
+     refusal of that request's Origin: null is then the only guard. web.boardpage-header-8781.test.js has a tripwire for
+     the board's writeHead(30x) redirects (not every way to redirect); add one, and check it there. */
   function withBoardPageHeader(args) {
     try {
       const input = args[0];

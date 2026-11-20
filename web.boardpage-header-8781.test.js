@@ -107,10 +107,13 @@ test('kosmos#8781: the board makes exactly one redirect, its boot redirect, whic
   for (const f of files) {
     const text = fs.readFileSync(path.join(__dirname, f), 'utf8');
     // The redirect codes only: 301, 302, 303, 307, 308 (a 304 is "not modified", not a redirect).
-    for (const m of text.matchAll(/writeHead\(\s*30[12378]\b[^\n]*/g)) found.push(f + ': ' + m[0].trim());
+    for (const m of text.matchAll(/writeHead\(\s*(30[12378])\b/g)) found.push(f + ' ' + m[1]);
   }
-  assert.deepEqual(found, ["server.js: writeHead(302, { location: boot.location, 'set-cookie': boot.setCookie, 'cache-control': 'no-store' });"],
-    'the board writes a redirect this rule has not checked: make sure it stays on this origin, then list it here');
+  // A tripwire for redirects written with writeHead(30x, ...), by file and code only, so an edit to the one known line
+  // does not trip it. It cannot see a redirect made another way (setHeader('location') with a 3xx statusCode, or one
+  // outside server.js and engine/); the board makes none today, and that stays the rule the wrapper's comment names.
+  assert.deepEqual(found, ['server.js 302'],
+    'the board writes a redirect this rule has not checked: make sure the page\'s own fetches cannot reach it off this origin, then list it here');
 });
 
 test('kosmos#8781: a request the wrapper cannot read goes out exactly as it was', async () => {
