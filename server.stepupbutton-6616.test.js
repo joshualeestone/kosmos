@@ -37,9 +37,9 @@ const BOTH = new Set(['session-headers', 'fresh-signin']);
 
 test('R01b: a stale remote session is offered Sign in again only when the connector lists fresh-signin', () => {
   const t = now();
-  // kosmos#8785: a full sign-in of any age now passes, so the request still refused through the gate is one whose
-  // sign-in time did not arrive in a form this board reads (an hour-old full sign-in was this case before #8785).
-  const stale = { 'x-kosmos-session-second': '1' };
+  // kosmos#8785: a full sign-in of any age now passes. What a real gate still sends that is refused: a sign-in without
+  // the second factor, from a gate set not to require one (both headers, second 0).
+  const stale = { 'x-kosmos-session-iat': String(t - 3600), 'x-kosmos-session-second': '0' };
   const got = remoteStepUpRefusal(req(stale), '/api/agents', t, BOTH);
   assert.equal(got, REMOTE_STEP_UP_SIGNIN);
   assert.equal(got.code, 'remote_step_up', 'the code changed, so every page reading it would miss it');
@@ -47,15 +47,17 @@ test('R01b: a stale remote session is offered Sign in again only when the connec
   assert.match(got.error, /Press Sign in again/);
   // The fallback stays in the sentence: the button may be closed, or the running tunnel older than the binary.
   assert.match(got.error, /Sign out of Kosmos\+ on this page and on the Kosmos\+ sign-in site/);
-  // CONTROL: the same request through a connector without fresh-signin gets the log-out kind (kosmos#7625), not this one.
+  // CONTROL: the same request through a connector without fresh-signin gets no button: with no second factor, logging
+  // out and in again would be refused the same way (kosmos#7625 review 1).
   const plain = remoteStepUpRefusal(req(stale), '/api/agents', t, new Set(['session-headers']));
-  assert.equal(plain, REMOTE_STEP_UP_LOGOUT);
-  assert.notEqual(plain.via, REMOTE_STEP_UP_SIGNIN.via);
+  assert.equal(plain, REMOTE_STEP_UP);
 });
 
 test('kosmos#7625: through the gate, a connector without fresh-signin still gets Sign in again, by logging out', () => {
   const t = now();
-  const stale = { 'x-kosmos-session-second': '1' };   // kosmos#8785: see the R01b test above
+  // kosmos#8785: this kind now needs the second factor vouched with no readable time, which today's gate never sends
+  // (both headers or neither, kosmos-relay proxy.rs). Kept so its sentence stays tested if a gate ever does.
+  const stale = { 'x-kosmos-session-second': '1' };
   const got = remoteStepUpRefusal(req(stale), '/api/agents', t, new Set(['session-headers']));
   assert.equal(got, REMOTE_STEP_UP_LOGOUT);
   assert.equal(got.code, 'remote_step_up', 'the code changed, so every page reading it would miss it');

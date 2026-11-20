@@ -5591,11 +5591,15 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
    request is not asked: the person is at the computer. Taking things away (deleting a key, forgetting a token) is
    not asked either. */
 /* kosmos#8785 (Josh, 20:49 11-19: "A full sign in should basically hold forever"): a FULL sign-in, one the gate says
-   proved the second factor, counts for as long as that sign-in lasts. It used to count for 12 minutes, which on a
-   cloud machine (where every session is remote) asked its owner to sign in again for every new agent. What still
-   ends one: the sign-in's own expiry at the gate, Sign out (this browser) and Sign out everywhere (every browser of
-   the account, through the cutoffs the gate hears), and Remove of the device. A sign-in WITHOUT the second factor is
-   still refused, and a time more than a minute ahead of this clock is still told apart (REMOTE_STEP_UP_CLOCK). */
+   proved the second factor, passes at any age. It used to pass for 12 minutes, which on a cloud machine (where every
+   session is remote) asked its owner to sign in again for every new agent. Where "fresh" or "stale" appears in this
+   block and the route notes below, it now means vouched as a full sign-in or not, never an age.
+   What that leaves this gate doing, said plainly: the Kosmos+ gate admits only sign-ins with the second factor by
+   default and sends both headers or neither, so almost every session it forwards passes. The step-up now refuses a
+   gate session without the second factor (a gate set not to require one), a request whose headers this board cannot
+   vouch for, and a sign-in time from the future. Against a STOLEN full session it no longer helps; what ends one is
+   the gate itself: the session's expiry (a year), Log out, Sign out everywhere (the cutoffs the gate hears) and Remove
+   of the device. The residual risk is written on kosmos#8785. */
 /* The gate's two headers, read one way: { second, iat }, iat null unless it is a plain decimal (a value Node joined
    from repeated headers, "a, b", is not). */
 function remoteSessionHeaders(headers) {
@@ -5655,8 +5659,8 @@ const REMOTE_STEP_UP_EXACT = new Set([
   // Stop too: it can cut a restore off in the middle of moving files into its new Kosmos.
   'POST /api/personal-backup/backups', 'POST /api/personal-backup/files', 'POST /api/personal-backup/stop',
   'POST /api/personal-backup/checkout',   // #7404 plan screen: opening a payment page is a write, like on and off
-  // Resetting the account's second factor: from a stolen session it would let the thief enrol their own, and then
-  // pass this very step-up. At the computer it needs nothing more.
+  // Resetting the account's second factor: from a session the gate does not vouch for as a full sign-in, it would let
+  // the holder enrol a factor of their own and from then on pass this step-up. At the computer it needs nothing more.
   'POST /api/remote/second-reset',
 ]);
 /* The gated routes whose path carries a name: a service's token, a provider runner's install, an agent brought back,

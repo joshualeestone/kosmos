@@ -129,6 +129,9 @@ test('R01 CONTROL: a fresh remote sign-in, and a local request, pass the gate (a
     const remoteFresh = await post(route, { ...VIA_PLUS, ...fresh() }, 'not json');
     assert.notEqual(remoteFresh.body && remoteFresh.body.code, 'remote_step_up', route + ' refused a fresh remote session');
     assert.equal(remoteFresh.status, 400, route + ' fresh remote: ' + JSON.stringify(remoteFresh.body));
+    // kosmos#8785: a full sign-in from yesterday, over HTTP too.
+    const dayOld = await post(route, { ...VIA_PLUS, 'x-kosmos-session-iat': String(now() - 24 * 3600), 'x-kosmos-session-second': '1' }, 'not json');
+    assert.equal(dayOld.status, 400, route + ' a day-old full sign-in: ' + JSON.stringify(dayOld.body));
     const local = await post(route, PAGE, 'not json');
     assert.notEqual(local.body && local.body.code, 'remote_step_up', route + ' refused a local request');
     assert.equal(local.status, 400, route + ' local: ' + JSON.stringify(local.body));
