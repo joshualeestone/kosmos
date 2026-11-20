@@ -28,16 +28,25 @@ test('a path that normalises to two leading slashes is answered as a path on thi
   assert.strictEqual(boardauth.pathWithoutParam(nav('/a/..///x.test/y?token=T&tab=a'), BASE, 'token'), '/x.test/y?tab=a', 'other params are kept');
 });
 
-test('a backslash at the start is treated the same', () => {
-  for (const url of ['/\\x.test/y?token=T', '/a/..\\\\x.test/y?token=T']) {
+test('an absolute URL of another scheme still answers a path on this board', () => {
+  // These have no leading slash at all once parsed; a server would refuse most of them, the helper does not rely on it.
+  for (const url of ['foo:http://x.test/?token=T', 'blob:http://x.test/y?token=T', 'foo:https:x.test?token=T', 'foo://x.test?token=T']) {
     const loc = boardauth.pathWithoutToken(nav(url), BASE);
     assert.ok(sameOrigin(loc), url + ' -> ' + loc);
   }
+  assert.strictEqual(boardauth.pathWithoutToken(nav('foo://x.test?token=T'), BASE), '/', 'an empty path answers the board root');
 });
 
 test('bootstrap answers the same path: a valid token on that input signs in and stays on this board', () => {
   const b = boardauth.bootstrap({ token: 'T', req: nav('/a/..//x.test/y?token=T'), routingBase: BASE, method: 'GET' });
   assert.ok(b, 'fixture: a valid token on a nav bootstraps');
+  assert.ok(sameOrigin(b.location), b.location);
+});
+
+test('bootstrap answers a path on this board for a valid ?boot= too', () => {
+  const n = boardauth.mintNonce();
+  const b = boardauth.bootstrap({ token: 'T', req: nav('/a/..//x.test/y?boot=' + n), routingBase: BASE, method: 'GET' });
+  assert.ok(b, 'fixture: a valid boot nonce on a nav bootstraps');
   assert.ok(sameOrigin(b.location), b.location);
 });
 
