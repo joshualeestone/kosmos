@@ -90,4 +90,21 @@ case "$out" in *"not the one this release built"*) ok "a kosmos-se from another 
 _calls="$(grep -c 'release_bundle_matches_tree .*sourced}\\"" "\$SE_SHA" ||' "$REPO/tools/release.sh")"
 [ "$_calls" -eq 2 ] && ok "release.sh passes \$SE_SHA at both comparator calls" || no "release.sh passes \$SE_SHA at $_calls of the 2 comparator calls"
 
+# Baron's review of #8772: tools/build-kosmos-bundle.sh runs under set -e and pipefail, so the swiftc pipeline must carry
+# its own refusal; bare, a compile error would end the build before the "failed to compile" sentence. The swiftc line is
+# run here as the build runs it, with a swiftc that fails, from the script's own text (the line and its continuation).
+_build="$REPO/tools/build-kosmos-bundle.sh"
+_cmd="$(awk '/^swiftc .*native-se\/main.swift/ { print; if ($0 ~ /\\$/) { getline; print } exit }' "$_build")"
+if [ -z "$_cmd" ]; then no "the swiftc line for kosmos-se was not found in build-kosmos-bundle.sh"; else
+  mkdir -p "$T/fakebin" "$T/stage/app/bin"
+  printf '#!/bin/sh\necho "error: boom" >&2\nexit 1\n' > "$T/fakebin/swiftc"; chmod +x "$T/fakebin/swiftc"
+  printf '13.0\n' > "$T/macos-floor"
+  _out="$(PATH="$T/fakebin:$PATH" REPO="$T/repo" STAGE="$T/stage" bash -c "set -euo pipefail; mkdir -p \"\$REPO/tools\"; cp '$T/macos-floor' \"\$REPO/tools/macos-floor\"; $_cmd; echo REACHED" 2>&1)"
+  case "$_out" in
+    *"failed to compile"*) ok "a swiftc failure says the signer failed to compile, under set -e and pipefail" ;;
+    *) no "a swiftc failure did not say so (got: $(printf '%s' "$_out" | tr '\n' ' '))" ;;
+  esac
+  case "$_out" in *REACHED*) no "the build went on after swiftc failed" ;; *) ok "the build stops when swiftc fails" ;; esac
+fi
+
 [ "$fails" -eq 0 ] && echo "test-kosmos-se-bundle-7116: all passed" || { echo "test-kosmos-se-bundle-7116: $fails failed"; exit 1; }

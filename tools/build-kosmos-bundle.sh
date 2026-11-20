@@ -763,7 +763,8 @@ echo "==> native app: kosmos-app signed $_app_bin_sha"
 # this Mac's Enclave can use, so it needs no keychain group and no signed app (measured 2026-11-03, native-se/main.swift).
 # release-freeze.sh requires it in every sealed bundle whose tree has native-se/main.swift, verified by its signature.
 echo "==> compiling the Secure Enclave admin signer (native-se/main.swift)"
-swiftc -target "arm64-apple-macos$(cat "$REPO/tools/macos-floor")" -O "$REPO/native-se/main.swift" -o "$STAGE/app/bin/kosmos-se" 2>&1 | sed 's/^/    /'
+swiftc -target "arm64-apple-macos$(cat "$REPO/tools/macos-floor")" -O "$REPO/native-se/main.swift" -o "$STAGE/app/bin/kosmos-se" 2>&1 | sed 's/^/    /' \
+  || { echo "the Secure Enclave admin signer failed to compile" >&2; exit 1; }   # Baron's review of #8772: under pipefail a bare pipeline exits before the line below
 [ -x "$STAGE/app/bin/kosmos-se" ] || { echo "the Secure Enclave admin signer failed to compile" >&2; exit 1; }
 codesign_ts_retry --force --options runtime --timestamp -s "$_codesign_id" "$STAGE/app/bin/kosmos-se" || {
   printf '%s\n' "could not Developer ID sign the Secure Enclave admin signer as \"$_codesign_id\". NOT falling back to ad-hoc." >&2; exit 1; }
