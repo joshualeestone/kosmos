@@ -1191,12 +1191,16 @@ function roomCopyPaths(ctx, project) {
     const base = env.KOSMOS_HOME ? path.join(env.KOSMOS_HOME, 'state', 'room-copies')
       : path.join(env.LOCALAPPDATA || os.tmpdir(), 'Kosmos', 'state', 'room-copies');
     const tok = /^[0-9a-f]+$/.test(String(env.KOSMOS_AGENT_TOKEN || '')) ? String(env.KOSMOS_AGENT_TOKEN) : 'board';
-    const key = require('crypto').createHash('sha256').update(String(project) + '|' + tok).digest('hex').slice(0, 24);
+    const key = require('crypto').createHash('sha256').update(String(env.KOSMOS_PORT || '') + '|' + String(project) + '|' + tok).digest('hex').slice(0, 24);   // review 1: which board too
     return { dir: base, file: path.join(base, key + '.txt'), since: path.join(base, key + '.busy-since') };
   } catch (_) { return null; }
 }
 function roomCopyClock(epoch) {
-  try { return new Date(epoch * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }); } catch (_) { return 'a while ago'; }
+  try {
+    const d = new Date(epoch * 1000);
+    const t = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZoneName: 'short' });
+    return d.toDateString() === new Date().toDateString() ? t : d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }) + ' ' + t;
+  } catch (_) { return 'a while ago'; }
 }
 
 async function verbRoom(ctx, args) {
@@ -1226,16 +1230,20 @@ async function verbRoom(ctx, args) {
      board is too busy to answer shows that copy, headed with its age and since when reads have failed, and exits 1. */
   const copy = given || unanswered ? null : roomCopyPaths(ctx, project);
   if (!r.reached) {
-    if (copy && r.timedOut) {
+    /* Review 1: busy as the Mac counts it (curl 18/28/52/56): a timeout, or an answer cut off after the request went. */
+    if (copy && (r.timedOut || (!r.notConnected && !r.refused))) {
       let first = NaN;
       try { first = Number(fs.readFileSync(copy.since, 'utf8').trim()); } catch (_) { /* none yet */ }
-      if (!Number.isInteger(first)) { first = Math.floor(Date.now() / 1000); try { fs.mkdirSync(copy.dir, { recursive: true, mode: 0o700 }); fs.writeFileSync(copy.since, String(first), { mode: 0o600 }); } catch (_) { /* best effort */ } }
-      const since = ' Kosmos has not answered a room read here since ' + roomCopyClock(first) + '.';
+      const nowS = Math.floor(Date.now() / 1000);
+      if (Number.isInteger(first) && nowS - first > 86400) first = NaN;   // a mark over a day old says nothing about now
+      if (!Number.isInteger(first)) { first = nowS; try { fs.mkdirSync(copy.dir, { recursive: true, mode: 0o700 }); fs.writeFileSync(copy.since, String(first), { mode: 0o600 }); } catch (_) { /* best effort */ } }
+      const since = ' Kosmos has not answered a read of this room here since ' + roomCopyClock(first) + '.';
       let held = null;
-      try { held = { text: fs.readFileSync(copy.file, 'utf8'), at: fs.statSync(copy.file).mtimeMs }; } catch (_) { /* no copy */ }
+      try { held = { text: fs.readFileSync(copy.file, 'utf8'), at: Math.floor(fs.statSync(copy.file).mtimeMs) }; } catch (_) { /* no copy */ }
       if (held && held.text) {
-        ctx.err('Kosmos is running but did not answer in time, so this is NOT the room now: it is the last copy this computer read, '
-          + Math.floor((Date.now() - held.at) / 60000) + ' minute(s) ago.' + since + ' Read again in a minute for the room as it is.');
+        /* Review 1: on the same stream as the copy and first, so nothing that keeps only stdout reads it as the room now. */
+        ctx.out('Kosmos is running but did not answer in time, so this is NOT the room now: it is the last copy this computer read, '
+          + Math.max(0, Math.floor((Date.now() - held.at) / 60000)) + ' minute(s) ago.' + since + ' Read again in a minute for the room as it is.');
         ctx.out(held.text.replace(/\n$/, ''));
         return 1;
       }
@@ -1252,8 +1260,8 @@ async function verbRoom(ctx, args) {
     try {
       fs.mkdirSync(copy.dir, { recursive: true, mode: 0o700 });
       const tmp = copy.file + '.' + process.pid + '.tmp';
-      fs.writeFileSync(tmp, String(r.text || ''), { mode: 0o600 });
-      fs.renameSync(tmp, copy.file);
+      try { fs.writeFileSync(tmp, String(r.text || ''), { mode: 0o600 }); fs.renameSync(tmp, copy.file); }
+      catch (e) { try { fs.rmSync(tmp, { force: true }); } catch (_) { /* best effort */ } throw e; }
     } catch (_) { /* a copy is a convenience: never fail the read for it */ }
   }
   // #4926, as install/kosmos: without the board's filtered-view line, the board ignored the flag and sent the whole room.

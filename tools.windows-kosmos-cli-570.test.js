@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope');   // kosmos#8769 item 4: a room read keeps a copy; keep test copies out of the real temp folder
 /**
  * #570: the Windows agent's `kosmos` command (tools/windows/kosmos-cli.js).
  *
@@ -1141,9 +1142,13 @@ test('kosmos#8769 item 4: room on a busy board shows the kept copy (exit 1); non
     assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.busy-since')).length, 0, 'a good read ends the failing spell');
     const held = await run(['room', 'proj-1'], busy, env);
     assert.equal(held.code, 1);
-    assert.match(held.err, /this is NOT the room now: it is the last copy this computer read, 0 minute\(s\) ago/);
-    assert.match(held.err, /has not answered a room read here since/);
+    assert.match(held.out, /this is NOT the room now: it is the last copy this computer read, 0 minute\(s\) ago/);
+    assert.match(held.out, /has not answered a read of this room here since \d\d:\d\d/);
     assert.match(held.out, /first look/);
+    assert.ok(held.out.indexOf('NOT the room now') < held.out.indexOf('first look'), 'warning first, on the same stream as the copy');
+    assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.busy-since')).length, 1, 'presence first: the busy read left its mark');
+    const other = await run(['room', 'proj-1'], busy, { KOSMOS_AGENT_TOKEN: 'feedbeef', KOSMOS_HOME: home });
+    assert.doesNotMatch(other.out, /first look/, 'another reader is not shown this reader\'s copy');
     const copies = fs.readdirSync(dir).filter((f) => f.endsWith('.txt'));
     assert.equal(copies.length, 1);
     assert.ok(!fs.readFileSync(path.join(dir, copies[0]), 'utf8').includes(AGENT), 'no token kept');

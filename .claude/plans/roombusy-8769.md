@@ -16,7 +16,7 @@ decide something. Ask: fall back to the last copy held, marked with its age, and
    replaces the copy and clears the failing-since mark; a filtered read neither writes nor shows the copy.
 
 ## Design (decided; weakest premise below)
-- Where: the CLI's data dir (AGENT_WORKFORCE_DATA), one file per (room, reader): name from the project id and a hash of
+- Where: $KOSMOS_HOME/state/room-copies (Windows: KOSMOS_HOME or %LOCALAPPDATA%\Kosmos\state), one file per (board, room, reader): name from a hash of the board, the project id and
   the reader (agent token or "person"), so one agent never shows another reader's view. Mode 600, written atomically.
 - Only the plain read is kept: filtered reads answer a different question.
 - Busy means the curl timeout (the "too busy" arm, rc 28 / say_unreached's busy branch), not "not running" (healthy

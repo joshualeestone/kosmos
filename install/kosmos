@@ -5802,7 +5802,7 @@ cmd_room() {
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
   # kosmos#8769 item 4: KOSMOS_ROOM_TIMEOUT_S (digits) is a test seam for the 15 s limit, so a busy board is tested fast.
-  local _rmt=15; case "${KOSMOS_ROOM_TIMEOUT_S:-}" in ''|*[!0-9]*) ;; *) _rmt=$((10#${KOSMOS_ROOM_TIMEOUT_S:0:3})) ;; esac
+  local _rmt=15; case "${KOSMOS_ROOM_TIMEOUT_S:-}" in ''|*[!0-9]*|0|00|000) ;; *) _rmt=$((10#${KOSMOS_ROOM_TIMEOUT_S:0:3})) ;; esac
   _body=$(kosmos_curl "$_bt" "$_tok" -sS -m "$_rmt" -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text${_n:+&n=$_n}${_unans}${_byid:+&$_byid=$_byidval}" 2>/dev/null) || _rc=$?
   # kosmos#8769 item 4: the last copy of a PLAIN read (no -n, --unanswered or by-id: those answer other questions) is
   # kept per room and per reader (a hash of the token, never the token), mode 600, so a read that Kosmos is too busy to
@@ -5810,28 +5810,35 @@ cmd_room() {
   # the last good one, so a one-minute spell and a stuck board can be told apart; it is what THIS computer saw.
   local _rb_dir="$KOSMOS_HOME/state/room-copies" _rb_key="" _rb_copy="" _rb_since=""
   if [ -z "${_n}${_unans}${_byid}" ]; then
-    _rb_key="$(printf '%s|%s' "$project" "${_tok:-${_bt:+board}}" | shasum -a 256 2>/dev/null | cut -c1-24)"
+    _rb_key="$(printf '%s|%s|%s' "$URL" "$project" "${_tok:-${_bt:+board}}" | shasum -a 256 2>/dev/null | cut -c1-24 || true)"
     if [ -n "$_rb_key" ]; then _rb_copy="$_rb_dir/$_rb_key.txt"; _rb_since="$_rb_dir/$_rb_key.busy-since"; fi
   fi
   if [ "$_rc" -ne 0 ]; then
     case "$_rc" in
       18|28|52|56)
         if [ -n "$_rb_since" ]; then
-          [ -s "$_rb_since" ] || { mkdir -p "$_rb_dir" 2>/dev/null && chmod 700 "$_rb_dir" 2>/dev/null; date +%s > "$_rb_since" 2>/dev/null; }
-          local _rb_first; _rb_first="$(head -n 1 "$_rb_since" 2>/dev/null)"
+          # Review 1: every step here is allowed to fail (a sandbox, a read-only home): the busy sentence must still be said.
+          [ -s "$_rb_since" ] || { { mkdir -p "$_rb_dir" && chmod 700 "$_rb_dir" && date +%s > "$_rb_since"; } 2>/dev/null || true; }
+          local _rb_first="" _rb_now; _rb_now="$(date +%s)"
+          _rb_first="$(head -n 1 "$_rb_since" 2>/dev/null || true)"
           case "$_rb_first" in ''|*[!0-9]*) _rb_first="" ;; esac
-          local _rb_hhmm=""
-          [ -z "$_rb_first" ] || _rb_hhmm="$(date -r "$_rb_first" '+%H:%M %Z' 2>/dev/null || date -d "@$_rb_first" '+%H:%M %Z' 2>/dev/null)"
+          # A mark more than a day old says nothing about now: start the spell again from this read.
+          if [ -n "$_rb_first" ] && [ $((_rb_now - _rb_first)) -gt 86400 ]; then _rb_first="$_rb_now"; { printf '%s\n' "$_rb_now" > "$_rb_since"; } 2>/dev/null || true; fi
+          local _rb_hhmm="" _rb_fmt='+%H:%M %Z'
+          [ "$(date -r "${_rb_first:-0}" +%F 2>/dev/null || date -d "@${_rb_first:-0}" +%F 2>/dev/null || true)" = "$(date +%F)" ] || _rb_fmt='+%b %d %H:%M %Z'
+          [ -z "$_rb_first" ] || _rb_hhmm="$(date -r "$_rb_first" "$_rb_fmt" 2>/dev/null || date -d "@$_rb_first" "$_rb_fmt" 2>/dev/null || true)"
           if [ -n "$_rb_copy" ] && [ -s "$_rb_copy" ]; then
             local _rb_at _rb_age
-            _rb_at="$(stat -f %m "$_rb_copy" 2>/dev/null || stat -c %Y "$_rb_copy" 2>/dev/null)"
-            case "$_rb_at" in ''|*[!0-9]*) _rb_age="at an unknown time" ;; *) _rb_age="$(( ($(date +%s) - _rb_at) / 60 )) minute(s) ago" ;; esac
-            say "Kosmos is running but did not answer in time, so this is NOT the room now: it is the last copy this computer read, ${_rb_age}.${_rb_hhmm:+ Kosmos has not answered a room read here since ${_rb_hhmm}.} Read again in a minute for the room as it is."
-            cat "$_rb_copy"
+            # Review 1: BSD stat first, then GNU, and only a number counts (GNU stat -f prints file-system text first).
+            _rb_at="$(stat -f %m "$_rb_copy" 2>/dev/null || true)"
+            case "$_rb_at" in ''|*[!0-9]*) _rb_at="$(stat -c %Y "$_rb_copy" 2>/dev/null || true)" ;; esac
+            case "$_rb_at" in ''|*[!0-9]*) _rb_age="at an unknown time" ;; *) _rb_age="$(( (_rb_now - _rb_at) < 0 ? 0 : (_rb_now - _rb_at) / 60 )) minute(s) ago" ;; esac
+            say "Kosmos is running but did not answer in time, so this is NOT the room now: it is the last copy this computer read, ${_rb_age}.${_rb_hhmm:+ Kosmos has not answered a read of this room here since ${_rb_hhmm}.} Read again in a minute for the room as it is."
+            cat "$_rb_copy" 2>/dev/null || true
             exit 1
           fi
           say_unreached "read that room" "$_rc"
-          [ -z "$_rb_hhmm" ] || say "Kosmos has not answered a room read here since ${_rb_hhmm}, and this computer has no earlier copy of this room to show."
+          [ -z "$_rb_hhmm" ] || say "Kosmos has not answered a read of this room here since ${_rb_hhmm}, and this computer has no earlier copy of this room to show."
           exit 1
         fi ;;
     esac
