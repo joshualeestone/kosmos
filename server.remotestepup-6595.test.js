@@ -179,8 +179,13 @@ test('kosmos#8785: the identity-change routes still need a RECENT full sign-in; 
   const caps = new Set(['session-headers']);
   const full = (age) => ({ ...VIA_PLUS, 'x-kosmos-session-iat': String(t - age), 'x-kosmos-session-second': '1' });
   assert.equal(REMOTE_RECENT_SECS, 12 * 60);
-  assert.ok(REMOTE_RECENT_ONLY.size >= 10, 'the time-bounded set lost routes');
-  for (const path of REMOTE_RECENT_ONLY) {
+  // The members, named: the second factor, this computer's enrolment, a company, another computer, another Kosmos.
+  for (const path of ['/api/remote/second-reset', '/api/remote/signin-start', '/api/remote/signin-register',
+    '/api/remote/setup-start', '/api/remote/setup-complete', '/api/remote/company/start', '/api/remote/forget',
+    '/api/org/enroll', '/api/federation/own-allow', '/api/federation/own-confirm', '/api/federation/join',
+    '/api/federation/invite', '/api/federation/own-code']) assert.ok(REMOTE_RECENT_ONLY.has(path), path + ' is no longer time-bounded');
+  assert.equal(REMOTE_RECENT_ONLY.size, 13, 'a route was added to or dropped from the time-bounded set; name it above');
+  for (const path of [...REMOTE_RECENT_ONLY, '/api/project/p1/webhooks']) {
     assert.equal(needsRemoteStepUp(path, 'POST'), true, path + ' is time-bounded but not gated at all');
     for (const method of ['POST', 'PUT', 'PATCH']) {
       const req = (headers) => ({ method, headers });
@@ -195,10 +200,11 @@ test('kosmos#8785: the identity-change routes still need a RECENT full sign-in; 
   }
   assert.match(REMOTE_STEP_UP_RECENT.error, /within 10 minutes/);
   assert.equal(REMOTE_STEP_UP_RECENT.signInAgain, true);
-  // CONTROL: the same day-old sign-in makes an agent and updates.
+  // CONTROL: the same day-old sign-in makes an agent, updates, enters a key and makes a backup key: the owner's own work.
   const post = (headers) => ({ method: 'POST', headers });
-  assert.equal(remoteStepUpRefusal(post(full(24 * 3600)), '/api/agents', t, caps), null);
-  assert.equal(remoteStepUpRefusal(post(full(24 * 3600)), '/api/update', t, caps), null);
+  for (const route of ['/api/agents', '/api/update', '/api/accounts/gemini/apikey', '/api/svc/brave-search/token', '/api/personal-backup/key']) {
+    assert.equal(remoteStepUpRefusal(post(full(24 * 3600)), route, t, caps), null, route);
+  }
 });
 
 test('R01: the gate passes update and agent creation for a fresh remote session and for a local one (function only)', () => {

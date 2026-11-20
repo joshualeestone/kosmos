@@ -35,3 +35,11 @@ setup-start, setup-complete, company/start) and forgetting its enrolment, joinin
 and handing a sealed room's key to another computer (federation own-allow, own-confirm). Each outlives Sign out
 everywhere on the owner's account, the same reason as second-reset. Matched by path for POST, PUT and PATCH, as
 needsRemoteStepUp matches. Too-old refusals there get REMOTE_STEP_UP_RECENT, which says "within 10 minutes".
+
+## Review round 4: the rule, stated
+The bound covers acts that let ANOTHER PARTY in or replace who the account is: the set above plus federation join,
+invite and own-code, and project webhooks (a pattern). Left out on purpose, though they also last past Sign out
+everywhere: agents, keys and tokens, updates, personal backups. Those are the owner's own work on their own computer,
+which is what the ruling is for. The test names all 13 paths and the webhook pattern, and checks the left-out kinds pass.
+Deferred: the fresh-signin branch offering Sign in again before it looks at the second factor (older than this card,
+reached by no connector today, noted on the test).
