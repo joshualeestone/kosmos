@@ -334,8 +334,9 @@ function inputsHere(deps = {}) {
    kosmos#8528: and those accepted words must NAME something backed up (a line under backsUp that is not blank), the rule
    the coordinator applies to a company grant (backup_not_in_words). A personal backup also needs a backsUp line
    (personalbackup.mayBackUp), checked there by count.
-   A company's words list nothing under backsUp today, so a company computer backs up nothing until new words that do are
-   accepted here. */
+   A company's words listed nothing under backsUp until kosmos-relay #867 (#8528) named what a company backup sends; a
+   computer still on words that list nothing backs up nothing until it takes the newer words (#5791 does that itself).
+   The coordinator also needs KOSMOS_COMPANY_BACKUP=1 for any company upload (kosmos#7404). */
 function mayBackUp() {
   try {
     // acceptedConsent is null unless orgenroll.mayReport() is true, so this one call keeps that gate too.
