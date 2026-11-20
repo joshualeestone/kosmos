@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: apostrophe-8784
-diff_hash: d66c4e7cdafd26f7747ad5f8438d22cf4f7a8fcdcc151fd2bf1975f64cacf456
+diff_hash: 28d5c9f28cf56c75dcfa95f75d3b65ed901d0e65b5913c6e6d6df49642690b9d
 validation: passed
 subdir_audit: passed
 timestamp: 2026-11-20T04:37:21Z
@@ -28,3 +28,5 @@ suite run on this branch here.
 Full validation on this Mac (Agent1s) at HEAD 892a4001f5, base 86fd9e2809: PASSED,
 "status":"clean", hash d66c4e7cdafd, 30,144 node tests, 0 failed, 0 cancelled, all four shell shards (84, 75, 79, 80
 passed); subdir audit passed.
+
+After the PR's first CI: Windows ran the new test unstubbed (it had never run there) and createAgent returned PARTIAL. The test now states the same win32 seams as create.test.js (setPark, setAnchorer, the /Run arm recording the session). A test-only change; Windows CI on this head is its check.
