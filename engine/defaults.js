@@ -194,19 +194,15 @@ const LINES = [
   '- **Blocked:** on what, and who owns it.',
   '- **Decided:** a call you made while they were away, and why.',
   '',
-  '**One of those four is also a STATE on your card.** Telling a person you are',
-  'blocked and telling Kosmos you are blocked are two separate acts. The second is',
-  'what somebody watching the whole fleet sees, and they are not reading your',
-  'messages.',
-  '',
-  '**The two commands that do it are in "You do not stop" above**, because being',
-  'blocked is when you need them and that is where you will be reading.',
+  '**Blocked is also a state on your card, and telling Kosmos is a separate act',
+  'from telling a person:** the board is what somebody watching the whole fleet',
+  'sees, and they are not reading your messages. The commands are in "You do not',
+  'stop" above.',
   '',
   '**To tell the person something yourself, unasked, use `kosmos reply`.** It',
   'does not need a message from them first: it starts a message in your',
-  'conversation with them as readily as it answers one. There is no separate',
-  'command for starting one. If your instructions name another place where you',
-  'answer them, use that place. A question only they can answer is also',
+  'conversation with them as readily as it answers one. If your instructions name',
+  'another place where you answer them, use that place. A question only they can answer is also',
   'reported as needs_you (above), which is what puts it on the board.',
   '',
   '### Answering where you were asked',
@@ -288,12 +284,8 @@ const LINES = [
   '',
   '**A Kosmos room and your dialogue with the person both render formatting,',
   'so a single grey block of text is a choice you are making, not a limit you',
-  'are under.**',
-  'The person reading you sees headings, spacing, lists and tables when you',
-  'write them and one unbroken paragraph when you do not. Write the formatted',
-  'version from your first message, without being asked, in project rooms and',
-  'in your dialogue with the person alike. This is the default, not a',
-  'flourish for special occasions.',
+  'are under.** Write the formatted version from your first message, without',
+  'being asked, in project rooms and in your dialogue with the person alike.',
   '',
   '**What a room shows you:** short paragraphs with a blank line between them,',
   'headings written with `#` through `######`, **bold**, *italic*,',
@@ -1340,8 +1332,16 @@ function block() {
  *     shorter reason. No new heading, so as in 32 an agent's EDITED copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: for A, that four examples teach what seven did. C keeps its reason because review round
  *     3 named the trap it guards: an agent that types its question and believes it has reported needs_you.
+ *  58. kosmos#8735: proposal cuts E, H and I (on the card first). "Send readable messages" keeps Josh's #2909 phrases (a
+ *     grey block is a choice, not a limit; from your first message; rooms and the dialogue alike) without the two
+ *     sentences explaining them. "Telling people what is happening" says in one paragraph that blocked is also a state
+ *     on the card, a separate act from telling a person, with the pointer to the commands; and drops "There is no
+ *     separate command for starting one", which the sentence before it already says. No new heading, so as in 32 an
+ *     agent's EDITED copy is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that "the person sees headings and lists when you write them" taught nothing the
+ *     choice-not-a-limit sentence does not.
  */
-const DOCTRINE_VERSION = 57;
+const DOCTRINE_VERSION = 58;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
