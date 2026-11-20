@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.8.10",
+  "lastProd": "0.8.11",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -2352,30 +2352,33 @@
     },
     {
       "since": "0.8.11",
-      "status": "pending",
+      "status": "shown",
       "title": "A room post that names you can reach your phone",
       "icon": "phone",
-      "rank": 9.0,
-      "line": "When an agent's room post names you, by @-name or in its opening line, your phone can get the notice a reply to you gets."
+      "rank": 9,
+      "line": "When an agent's room post names you, by @-name or in its opening line, your phone can get the notice a reply to you gets.",
+      "shownIn": "0.8.11"
     },
     {
       "since": "0.8.11",
-      "status": "pending",
+      "status": "shown",
       "title": "A window Kosmos cannot confirm says so",
       "icon": "swarm",
       "rank": 9.2,
-      "line": "A window Kosmos cannot confirm it started reads Not linked to Kosmos on the board, and a message to it says why it was not sent."
+      "line": "A window Kosmos cannot confirm it started reads Not linked to Kosmos on the board, and a message to it says why it was not sent.",
+      "shownIn": "0.8.11"
     },
     {
       "since": "0.8.11",
-      "status": "pending",
+      "status": "shown",
       "title": "A refused download asks where to save",
       "icon": "shield",
       "rank": 9.4,
       "platforms": [
         "mac"
       ],
-      "line": "When macOS refuses a download into Downloads, the Mac app says why and where to allow Kosmos, and offers Choose Where to Save."
+      "line": "When macOS refuses a download into Downloads, the Mac app says why and where to allow Kosmos, and offers Choose Where to Save.",
+      "shownIn": "0.8.11"
     },
     {
       "since": "0.8.11",
@@ -2414,19 +2417,69 @@
     },
     {
       "since": "0.8.11",
-      "status": "pending",
+      "status": "shown",
       "title": "A restarted computer says it is still starting",
       "icon": "shield",
       "rank": 8.8,
-      "line": "After a restart, a protected action sent through Kosmos+ may say Kosmos+ is still starting: try again in a minute, not update Kosmos."
+      "line": "After a restart, a protected action sent through Kosmos+ may say Kosmos+ is still starting: try again in a minute, not update Kosmos.",
+      "shownIn": "0.8.11"
     },
     {
       "since": "0.8.11",
-      "status": "pending",
+      "status": "shown",
       "title": "A remote Claude sign-in stays on your screen",
       "icon": "phone",
       "rank": 8.7,
-      "line": "From a laptop or phone, a Claude sign-in opens no browser on the far computer, and Sign in again reopens its dialog after a Kosmos+ sign-in."
+      "line": "From a laptop or phone, a Claude sign-in opens no browser on the far computer, and Sign in again reopens its dialog after a Kosmos+ sign-in.",
+      "shownIn": "0.8.11"
+    },
+    {
+      "since": "0.8.12",
+      "status": "pending",
+      "title": "Older Safari opens your board",
+      "icon": "phone",
+      "rank": 8,
+      "line": "Opening a computer through Kosmos+ in Safari older than 16.4 now shows its board, not a signed-out page. Pictures and downloads come later."
+    },
+    {
+      "since": "0.8.12",
+      "status": "pending",
+      "title": "Update Kosmos from the board on Linux",
+      "icon": "shield",
+      "rank": 8.1,
+      "line": "An installed Linux computer can press Update to install a newer Kosmos when its service keeps the installer running."
+    },
+    {
+      "since": "0.8.12",
+      "status": "pending",
+      "title": "Kosmos Cloud machines stay up to date",
+      "icon": "shield",
+      "rank": 8.2,
+      "line": "A Kosmos Cloud machine installs the newest release once a night, skipping a night when an agent is working. Settings, Updates turns it off."
+    },
+    {
+      "since": "0.8.12",
+      "status": "pending",
+      "title": "An agent's name can hold an apostrophe",
+      "icon": "swarm",
+      "rank": 8.3,
+      "line": "A name like O'Brien's helper now works when you make an agent: the name you see keeps the apostrophe."
+    },
+    {
+      "since": "0.8.12",
+      "status": "pending",
+      "title": "A full sign-in on Kosmos Cloud lasts the day",
+      "icon": "shield",
+      "rank": 8.4,
+      "line": "On a Kosmos Cloud machine a full sign-in now lasts as long as it says, so making an agent stops asking you to sign in again."
+    },
+    {
+      "since": "0.8.12",
+      "status": "pending",
+      "title": "A crashed session's block clears",
+      "icon": "swarm",
+      "rank": 8.6,
+      "line": "A provider block left by a crashed session now clears at the next session's first normal turn, not hours later."
     }
   ]
 }
