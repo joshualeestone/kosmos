@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: whatsnew-0812
-diff_hash: 8fb14b0c56241ba59731f492d63ce5c0d125f8aae97976d60281fd31afcf5383
+diff_hash: 29e1241d74351b42a5f153cf1137c2339c937726f0299f7634695d0e75c9c393
 validation: passed (targeted: the six What's New test files, 72 tests, after every round; data-only change, the full suite runs in PR CI and in the cut's step 3 on the frozen pin)
 subdir_audit: passed
-timestamp: 2026-11-20T08:52:13Z
-iterations: 8
+timestamp: 2026-11-20T13:19:31Z
+iterations: 10
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8
-**Converged:** Yes: round 8 raised only NITs (no BLOCKER, WARNING or CONVENTION).
-**Total findings:** 0 BLOCKERs, 15 WARNINGs, 0 CONVENTIONs, NITs per round
-**Fixed:** 14 | **Deferred:** 1 | **Asked (awaiting user):** 0
+**Iterations:** 10
+**Converged:** Yes, twice: round 8 raised only NITs; then 0.8.12 was cut without this window, the window was rebuilt for 0.8.13 (rounds 9 and 10), and round 10 raised only NITs.
+**Total findings:** 1 BLOCKER, 16 WARNINGs, 0 CONVENTIONs, NITs per round
+**Fixed:** 16 | **Deferred:** 1 | **Asked (awaiting user):** 0
 
 **6.0 deviation, stated:** the local validation helper was not run (one heavy run at a time on Agent1s). The branch changes two data files and a plan only (release/whats-new-pool.json, web/whats-new.json built by tools/whats-new-pool.js). After every round: the pool tool's own build (it checks the window with engine/whatsnew.js's rules) and the six What's New test files (web.whatsnew-3955, tools.whats-new-pool-5711, tools.whats-new-pool-sync-5713, tools.whats-new-check-3955, web.whatsnew-phone-7839, engine/whatsnew; 72 tests, 0 fail), plus tools/test-whats-new-early-7349.sh once. The full suite runs in PR CI and again in the cut's step 3.
 
@@ -86,6 +86,18 @@ converged: true
 **Self-generated:** 0
 **Converged.**
 - NITs not changed: "authenticator code" where SMS is also a second step; the Linux line on an unusual setup; the Cloud nightly starts after a machine installs 0.8.12; the first-run line names the Cloud case. Each is narrower than the code, not wrong.
+
+#### Iteration 9 (after the 0.8.13 rebuild)
+**Reviewer model:** sonnet
+**New findings:** 1 BLOCKER, 1 WARNING
+**Self-generated:** 1 (the Safari line this loop wrote)
+- [BLOCKER] the Safari line said pictures and previews do not load, but #8790's pictures step merged after the 0.8.12 cut and ships in 0.8.13 --> FIXED (cf93b5ac84): pictures and previews included, nothing said about downloads (#8816 may or may not land first)
+- [WARNING] the plan did not mention #8790 --> FIXED (cf93b5ac84)
+
+#### Iteration 10
+**Reviewer model:** opus (default)
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 3 NITs (plan wording)
+**Converged.** NITs FIXED in the plan: its title, and the iPhone app items (#8809, #8815) and #8806 named as left out.
 
 ### Final Ledger (deferrals)
 
