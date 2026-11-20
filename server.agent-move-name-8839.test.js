@@ -129,3 +129,14 @@ test('#8839 review 1: when the agents cannot be read, a listed name is a read th
     assert.equal(id.json.name, 'subzero');
   } finally { register.survey = realSurvey; }
 });
+
+test('#8839 review 2: a listed agent with no launch job is real: told it has nothing to move, never "no agent called"', async () => {
+  agent('raiden8839', 'Raiden 8839');
+  delete JOBS.raiden8839;   // on the list (its folder and profile), but no startup job
+  const r = await plan({ name: 'Raiden 8839', account: 'spare', resolve: '1' });
+  assert.equal(r.code, 409, r.text.slice(0, 200));
+  assert.match(r.json.because, /Raiden 8839 has no startup job of its own on this computer/);
+  assert.doesNotMatch(r.json.because, /no agent called/);
+  // CONTROL: a name on no card is still "no agent called".
+  assert.match((await plan({ name: 'Nobody Else 8839', account: 'spare', resolve: '1' })).json.because, /there is no agent called Nobody Else 8839/);
+});

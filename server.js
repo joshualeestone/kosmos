@@ -17513,6 +17513,11 @@ const server = http.createServer(async (req, res) => {
     /* Review 1: the cards could not be read, so a name as the list prints it was not resolved and reads as no agent's
        name at all. That is a read that failed, never "no agent called" (the agent model route's Review 6, the same case). */
     if (!job && cards === null) { sendJson(res, 503, { ok: false, readFailed: true, name, because: 'we could not read the agents just now, so we could not tell which agent that name is' }); return; }
+    /* Review 2: a name on a card (one `agent list` prints: a session-only or connected agent too) that has no launch job is
+       real, so it is never "no agent called"; it has nothing here to move to another account. */
+    if (!job && Array.isArray(cards) && cards.some((c) => c && c.name === name)) {
+      sendJson(res, 409, { ok: false, name, because: `${asked} has no startup job of its own on this computer, so it cannot be moved to another account` }); return;
+    }
     if (!job) { sendJson(res, 404, { ok: false, name, because: `there is no agent called ${asked} on this computer` }); return; }
     let provider = null;
     try { provider = create.jobProvider(job); } catch { provider = null; }

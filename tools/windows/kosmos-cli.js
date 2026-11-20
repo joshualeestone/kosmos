@@ -3237,6 +3237,8 @@ async function agentMove(ctx, args) {
   const agent = typeof plan.name === 'string' && plan.name ? plan.name : name;
   if (plan.ok !== true && !plan.dir) {
     const why = clause(plan.because || plan.error || '');
+    // kosmos#8839 review 2: a read that failed is said as that, with what to do, never as a refusal.
+    if (plan.readFailed === true) { ctx.err('Kosmos could not tell which agent ' + name + ' is just now: ' + (why || 'it could not read its agents') + '. Nothing was moved; try again in a moment.'); return 1; }
     ctx.err('Kosmos will not move ' + name + ': ' + (why || 'it did not say why') + (/[?!]$/.test(why) ? '' : '.'));
     return 1;
   }

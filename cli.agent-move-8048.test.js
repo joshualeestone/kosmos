@@ -323,3 +323,14 @@ test('kosmos#8839 Mac and Windows: an ambiguous name is refused in the board\'s 
   assert.match(w.err, /Kosmos will not move Twin: more than one agent is called Twin/);
   assert.equal(posts(seen).length, 0, 'an ambiguous name moved something');
 }));
+const READFAIL = [503, { ok: false, readFailed: true, name: 'Sub-Zero', because: 'we could not read the agents just now, so we could not tell which agent that name is' }];
+test('kosmos#8839 review 2: a plan that could not read the agents is said as a failed read with what to do, in both CLIs', () => withStub({ plan: READFAIL }, async (port, seen) => {
+  const r = await cli(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /Kosmos could not tell which agent Sub-Zero is just now: .*Nothing was moved; try again in a moment\./);
+  assert.doesNotMatch(r.out, /will not move/);
+  const w = await winRun(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
+  assert.equal(w.code, 1, w.err);
+  assert.match(w.err, /Kosmos could not tell which agent Sub-Zero is just now: .*Nothing was moved; try again in a moment\./);
+  assert.equal(posts(seen).length, 0);
+}));
