@@ -1486,7 +1486,8 @@ LAUNCHCTL="${KOSMOS_LAUNCHCTL:-/bin/launchctl}"
 # #4918: the systemctl this file drives on Linux, overridable so a test can stub it.
 SYSTEMCTL="${KOSMOS_SYSTEMCTL:-systemctl}"
 # #4918 review 13: systemctl --user needs XDG_RUNTIME_DIR, which a kosmos run from cron or after logout lacks.
-if [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Linux ] && [ -z "${XDG_RUNTIME_DIR:-}" ] && [ -d "/run/user/$(id -u 2>/dev/null)" ]; then
+# kosmos#8786: and one inherited from another user (a root login's /run/user/0 through runuser) is not ours either.
+if [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Linux ] && { [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -O "$XDG_RUNTIME_DIR" ]; } && [ -d "/run/user/$(id -u 2>/dev/null)" ]; then
   export XDG_RUNTIME_DIR="/run/user/$(id -u)"
 fi
 
