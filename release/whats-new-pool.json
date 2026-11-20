@@ -2439,7 +2439,7 @@
       "title": "Older Safari opens your board",
       "icon": "phone",
       "rank": 8.0,
-      "line": "In Safari older than 16.4, a computer opened through Kosmos+ shows its board, not a signed-out page. Pictures and downloads do not load yet."
+      "line": "In Safari older than 16.4, a computer opened through Kosmos+ shows its board, not a signed-out page. Pictures and downloads do not load."
     },
     {
       "since": "0.8.12",
@@ -2463,15 +2463,15 @@
       "title": "Update Kosmos from the board on Linux",
       "icon": "shield",
       "rank": 8.3,
-      "line": "On an installed Linux computer, Update on the board now installs a newer Kosmos, with no command to type."
+      "line": "On a Linux computer where Kosmos runs as its usual background service, Update on the board now installs a newer Kosmos."
     },
     {
       "since": "0.8.12",
       "status": "pending",
-      "title": "Kosmos Cloud machines stay up to date",
+      "title": "Kosmos Cloud machines update themselves",
       "icon": "shield",
       "rank": 8.4,
-      "line": "A Kosmos Cloud machine installs the newest release each night, skipping a night when an agent is working. Settings can turn it off."
+      "line": "A Kosmos Cloud machine installs the newest released version each night, skipping a night when an agent is working. Settings can turn it off."
     },
     {
       "since": "0.8.12",
@@ -2487,7 +2487,7 @@
       "title": "The iPhone first-run shows the code field",
       "icon": "phone",
       "rank": 9.8,
-      "line": "On an iPhone, a Kosmos Cloud machine's first Claude sign-in scrolls the code field into view, with a fade while more is below."
+      "line": "On an iPhone, a Kosmos Cloud machine's first Claude sign-in scrolls the box for the Claude code into view, with a fade while more is below."
     },
     {
       "since": "0.8.12",
