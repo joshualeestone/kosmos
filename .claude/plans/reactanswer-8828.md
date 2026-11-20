@@ -36,3 +36,15 @@ Items 2 and 3 of #8828 were first planned as separate slices; from 2026-11-20 al
   same screen can flag a working seat by the clock, #8298). "stays listed for now" became "it still shows here".
   Rejected NITs: a backslash prints doubled in the macOS CLI (cosmetic, no truncation, and checks with one are rare);
   results vs doneWhen count (the two arrays are kept the same length by every writer). 161/161.
+- Review 5 (blind, whole branch), no blocker. Taken: a colleague's confirmation now says it "can stay listed for up to
+  3 days" (UNANSWERED_DAYS) and needs nothing more; NIT made real: the done-when and check routes read a 404 by matching
+  the message, and the refusal now carries check words, so a check saying "no task by that number" turned 409 into 404
+  (MEASURED: 404 !== 409 before the fix). Both routes anchored to /^there is no (project|task) .../ (all 23 not-found
+  errors start that way, counted); a test per route, each failing un-anchored, with a missing-task 404 control.
+  Typographic quotes in a check now tested (line-scoped mutation fails it). 167/167.
+  Rejected: "for this seat" (the worked state can apply to a seat working inside the wake grace, so "while not working"
+  would be false); per-post reactions line not room-scoped (pre-existing, #7365 comment says deliberate).
+
+## Finished means
+All three items on a served (prod) build: room --unanswered names a reacted post with both ways out; project show's
+not-due line reads as above; a "no check N" refusal lists the checks, through both CLIs. Card closes only then.

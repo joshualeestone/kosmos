@@ -25472,7 +25472,8 @@ const server = http.createServer(async (req, res) => {
             + ', but a reaction does not take a post off this list. If ' + (reactedListed.length === 1 ? 'it' : 'one')
             + ' asked you something, answer with a post that cites it: kosmos post --in-reply-to '
             + (reactedListed.length === 1 ? reactedListed[0] : '<its id>') + ' ' + id + ' <your answer>.'
-            + (reactedColleague ? ' If a colleague was only confirming something already settled, your reaction answered that, and it still shows here.' : '')
+            + (reactedColleague ? ' If a colleague was only confirming something already settled, your reaction answered that and nothing more is needed;'
+              + ' it can stay listed for up to ' + UNANSWERED_DAYS + ' days.' : '')
             + '\n'
           : '';
         const shownClaimed = claimedAsks.slice(-textRows);
@@ -27248,7 +27249,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { task: taskForCaller(req, body, t) });
       } catch (err) {
         const msg = String((err && err.message) || '');
-        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,
+        sendJson(res, /^there is no (project by that name|task by that number)/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,   // kosmos#8828: anchored, a "no check N" refusal carries the checks' own words
           { error: msg || 'we could not change that task' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
@@ -27324,7 +27325,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { task: taskForCaller(req, body, out.task), changed: out.changed });
       } catch (err) {
         const msg = String((err && err.message) || '');
-        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,
+        sendJson(res, /^there is no (project by that name|task by that number)/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,   // kosmos#8828: anchored, a "no check N" refusal carries the checks' own words
           { error: msg || 'we could not report that check' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
