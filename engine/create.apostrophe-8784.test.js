@@ -14,10 +14,15 @@ const os = require('node:os');
 const nodePath = require('node:path');
 
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'apostrophe-8784-'));
-for (const [k, d] of Object.entries({ WORKERS: 'workers', LAUNCH: 'LaunchAgents', SYSTEMD_DIR: 'systemd-user', HOME: 'home',
-  DATA: 'support', PROJECTS: 'projects', CLAUDE_CONFIG: 'claude.json', CONFIG_ROOT: 'config-root' })) {
-  process.env['AGENT_WORKFORCE_' + k] = nodePath.join(SANDBOX, d);
-}
+// Each root by name (fixture-discipline.test.js reads these lines as text: a loop that builds the names hides them).
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'LaunchAgents');
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = nodePath.join(SANDBOX, 'systemd-user');
+process.env.AGENT_WORKFORCE_HOME = nodePath.join(SANDBOX, 'home');
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'support');
+process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_CONFIG_ROOT = nodePath.join(SANDBOX, 'config-root');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const create = require('./create');

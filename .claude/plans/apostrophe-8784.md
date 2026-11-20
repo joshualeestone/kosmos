@@ -62,3 +62,12 @@ Not done here: seeing it on a served build from the board and the iPhone app, me
 - No BLOCKER, no WARNING; converged. Confirmed by search: slugFor is the only copy of the fold in engine/, server.js,
   web/, ios/ and tools/windows/; takenKey refuses every spelling before any folder lookup; spokenName names the right
   agent and cannot throw. NIT fixed: the NAME_RE export comment now says slugFor drops apostrophes.
+
+## First full validation (Mortals, 21:2x CST): FAILED on two of the suite's own guards, fixed
+- fixture-discipline.test.js: every suite that creates an agent must sandbox Claude Code's config, read as TEXT; my loop
+  built the variable names, so the guard could not see AGENT_WORKFORCE_CLAUDE_CONFIG set. Now each root is set by name.
+- engine/windows-tests-1777.test.js: a test file that branches on a win32 host must run on Windows or be excluded with a
+  reason. create.apostrophe-8784.test.js is added to the Windows list beside create.test.js, so its "no file a shell
+  reads" walk also covers the Windows files (the PowerShell scripts and scheduled task), which round 1 noted it could
+  not on a Mac.
+- The third red (#6668, a TERM-to-runner watchdog test) is re-checked alone; the second run decides it.
