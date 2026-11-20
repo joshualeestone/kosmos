@@ -279,11 +279,59 @@ function windowsLocationRefusal() {
 function installOffer() {
   if (!installedRoot()) return null;
   if (windowsLocationRefusal()) return null;
-  // kosmos#7935: a platform that cannot replace itself in place (Linux) never gets an [Update] button, which only
-  // led to a refusal; it gets manualOffer()'s command instead.
-  if (!platformGate.canSelfInstall(updatePlatform())) return null;
+  // kosmos#7935: a platform that cannot replace itself in place never gets an [Update] button, which only led to a
+  // refusal; it gets manualOffer()'s command instead. kosmos#8786: a Linux board whose unit survives the press can.
+  if (!canPressUpdate()) return null;
   return available();
 }
+
+/* ---- kosmos#8786 slice 1: the person's press on an installed Linux board. ----
+ * A Linux board replaces itself with the SAME detached run-setup the Mac's press spawns (beginInstall below): the
+ * installer stops the board's systemd unit, installs, and starts it again. That survives only when stopping the unit
+ * leaves the installer alive, which is the unit's KillMode=process (engine/linuxboard.js writes it; setup.sh rewrites
+ * an older unit to it). Measured on a real Ubuntu 24.04 box under systemd, both ways (#8786, 2026-11-19): with
+ * KillMode=process an update started inside the unit's cgroup went 0.8.10 -> 0.8.11 and the board came back; with a
+ * drop-in forcing control-group the stop killed the installer mid-install and left the computer with NO board.
+ * So the press is offered only when both hold, read from the system and not from the unit file (a drop-in or a hand
+ * edit overrides the file, and setup.sh's own check reads only the file):
+ *   - this board process is in its own unit's cgroup (/proc/self/cgroup), so systemd is what restarts it;
+ *   - `systemctl --user show <unit> -p KillMode` reads `process`.
+ * Otherwise the card keeps today's command (manualOffer), and a stray press is refused with it.
+ * 🛑 NOT SELF_INSTALL, ON PURPOSE. canSelfInstall also gates the UNATTENDED install (autoInstallWouldStart), and a
+ * Linux entry there would install automatically on every Linux board, following its own channel; Kosmos Cloud boxes
+ * are created on staging. That path stays off on Linux (slice 2 brings a prod-only schedule of its own).
+ * Read at most every five minutes for the card (the status poll asks often), fresh at a press. */
+const LINUX_PRESS_TTL_MS = 5 * 60 * 1000;
+let linuxPressFn = null;     // test seam: () => boolean
+let linuxPressMemo = null;   // { at, ok }
+/** The cgroup v2 line of /proc/self/cgroup names this unit as the process's own (".../app.slice/<unit>"). Pure. */
+function cgroupIsUnit(text, unit) {
+  if (!unit) return false;
+  return String(text || '').split('\n').some((l) => l.startsWith('0::') && l.trim().endsWith('/' + unit));
+}
+function linuxUnitTakesPress({ fresh = false } = {}) {
+  if (linuxPressFn) return Boolean(linuxPressFn());
+  const now = Date.now();
+  if (!fresh && linuxPressMemo && now - linuxPressMemo.at < LINUX_PRESS_TTL_MS) return linuxPressMemo.ok;
+  let ok = false;
+  try {
+    const unit = require('./linuxboard').boardUnitName(installedHomeAsInstalled() || undefined);
+    if (cgroupIsUnit(fs.readFileSync('/proc/self/cgroup', 'utf8'), unit)) {
+      const r = require('child_process').spawnSync('systemctl', ['--user', 'show', unit, '-p', 'KillMode', '--value'],
+        { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
+      ok = Boolean(r) && r.status === 0 && String(r.stdout || '').trim() === 'process';
+    }
+  } catch { ok = false; }
+  linuxPressMemo = { at: now, ok };
+  return ok;
+}
+/** Can a press on this board install in place? The SELF_INSTALL platforms, or an installed Linux board whose unit
+    survives the press (above). Never read by the unattended path. */
+function canPressUpdate(platform = updatePlatform(), opts) {
+  if (platformGate.canSelfInstall(platform)) return true;
+  return platform === 'linux' && Boolean(installedRoot()) && linuxUnitTakesPress(opts);
+}
+function setLinuxPress(f) { linuxPressFn = typeof f === 'function' ? f : null; linuxPressMemo = null; }
 
 /**
  * 🪟 S5: the "Roll back" offer -- the kept previous build a person can restore, `{ version }`, or null.
@@ -321,9 +369,10 @@ function updateCommand(platform = updatePlatform()) {
 
 function manualOffer() {
   if (updatePlatform() !== 'win32') {
-    // kosmos#7935: an installed Linux board (which cannot replace itself) is told the command, not offered a button.
+    // kosmos#7935: an installed Linux board that cannot take a press is told the command, not offered a button.
     // Linux by name, because install/kosmos waives its board guards for Linux only; a source checkout gets nothing.
-    if (updatePlatform() !== 'linux' || platformGate.canSelfInstall('linux') || !installedRoot()) return null;
+    // kosmos#8786: one whose unit survives the press gets the button (installOffer) instead.
+    if (updatePlatform() !== 'linux' || canPressUpdate('linux') || !installedRoot()) return null;
     const newer = available();
     const command = updateCommand();
     return newer && command ? { version: newer.version, command } : null;
@@ -796,7 +845,8 @@ function setupUrl() {
  * unless a test overrides it), so both arms are testable from either OS.
  */
 function selfInstallRefusal(platform = updatePlatform()) {
-  if (platformGate.canSelfInstall(platform)) return null;
+  // kosmos#8786: read fresh, because this is the press (the route and beginInstall), not the card's poll.
+  if (canPressUpdate(platform, { fresh: true })) return null;
   const command = updateCommand(platform);
   return 'Kosmos cannot update itself on this platform (' + String(platform) + ').'
     + (command ? ' To update, run this in a terminal: ' + command : '');
@@ -1579,6 +1629,7 @@ async function pauseRefusalNow({ fetchImpl } = {}) {
 }
 
 module.exports = {
+  canPressUpdate, cgroupIsUnit, setLinuxPress, // kosmos#8786 slice 1: the Linux press
   noteAutoUpdateAtBoot, setAutoLog, // kosmos#8421: the board log says an automatic update started, and how it ended
   paused, pauseRefusalNow, // kosmos#6620
   PAUSED_SENTENCE: manifestVerify.PAUSED_SENTENCE, // kosmos#6620
