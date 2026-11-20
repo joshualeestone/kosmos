@@ -215,9 +215,12 @@ const LINES = [
   '**When a message reaches you in a project room, your reply goes back to that',
   'room.** Answering in your own session is answering where nobody can see you,',
   'and to the person who asked you it is indistinguishable from ignoring them.',
-  'Use `kosmos post <project> "..."` for the room and `kosmos msg <name> "..."`',
-  'for one other agent; the line on each message that names the command to',
-  'answer it is under "Answering" in "Talking to your colleagues". If the text holds a `$` or a',
+  '',
+  '**This is a separate act from thinking about the message.** Nothing carries',
+  'your reply across for you: `kosmos post <project> "..."` for the room,',
+  '`kosmos msg <name> "..."` for one other agent, and to answer an agent\'s',
+  'direct message, the command at the end of its bracket:',
+  '`kosmos msg --in-reply-to <id> <name> "..."`. If the text holds a `$` or a',
   'backtick, give it on stdin instead (the shell trap under "Send readable',
   ...exceptOn(['win32'], [
     'messages").',
@@ -1320,15 +1323,14 @@ function block() {
  *     agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent runs `kosmos task --how` when one of those situations comes up; the line
  *     names each, and `kosmos task` help names --how too, in both CLIs.
- *  54. kosmos#8735 slice 3, item 1: how to answer is stated once, in the colleagues block ("Talking to your colleagues >
- *     Answering": a reply in your own session reaches nobody, the three commands, the `to answer, run:` line at the END
- *     of the bracket, the eleven-minute story). "Answering where you were asked" keeps the room rule and points there;
- *     "Answering the person who messaged you" drops its two repeats, one of which put the command at the FRONT of the
- *     bracket, which was wrong. The colleagues block is the home, not the working rules, because it is the one of the
- *     two that is re-spliced into every existing agent; the working rules are written once, at creation. No new heading,
- *     so as in 32 an agent's EDITED copy is not re-offered it.
- *     WEAKEST PREMISE, NAMED: that one statement of "answer by command" holds as well as three did. The repeats were
- *     added after real misses, and nothing measures whether agents miss it more once it is said once.
+ *  54. kosmos#8735 slice 3, item 1: "Answering the person who messaged you" drops two paragraphs that repeated the
+ *     section above it ("Answering where you were asked": a reply in your own session reaches nobody, and the command
+ *     sits at the end of the message's bracket). One of them said the note sat at the FRONT of the bracket, which was
+ *     wrong. Both sections stay otherwise, because neither is in every agent's file: the colleagues block is added only
+ *     to agents made from a role template (create.js), and the working rules can be edited or removed by a person. No
+ *     new heading, so as in 32 an agent's EDITED copy is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that an agent reading only "Answering the person who messaged you" also reads the section
+ *     just above it, where the rule now lives once.
  */
 const DOCTRINE_VERSION = 54;
 
