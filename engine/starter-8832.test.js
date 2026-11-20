@@ -118,3 +118,18 @@ test('the seeded goal is not put to an idle member; control: a goal the person w
   assert.equal(projects.isStarterGoal(w, seededGoal), true);
   assert.equal(projects.isStarterGoal(w, '  ' + seededGoal.replace(/ /g, '\n') + ' '), true, 'spacing changed the match');
 });
+
+/* isStarter trusts made.via 'kosmos' as the seed's mark. This fails if any other shipped source writes that mark onto a
+   project, so a second writer is a decision someone makes here rather than a silent new starter project. */
+test('only the welcome seed writes made.via \'kosmos\' (control: the seed itself is found)', () => {
+  const { execFileSync } = require('node:child_process');
+  const root = path.join(__dirname, '..');
+  const out = execFileSync('git', ['-C', root, 'grep', '-n', '-E', "made: *\\{[^}]*via: *'kosmos'|made\\.via *= *'kosmos'",
+    '--', '*.js', ':!*.test.js', ':!node_modules'], { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+  assert.equal(out.length, 1, 'writers of the seed mark:\n' + out.join('\n'));
+  assert.match(out[0], /^engine\/projects\.js:\d+:\s*made: \{ via: 'kosmos' \},$/);
+  const at = Number(out[0].split(':')[1]);
+  const src = fs.readFileSync(path.join(root, 'engine', 'projects.js'), 'utf8').split('\n');
+  const fnStart = src.slice(0, at).map((l, i) => [l, i]).reverse().find(([l]) => /^function /.test(l));
+  assert.match(fnStart[0], /^function seedWelcomeHome\(/, 'the mark is written outside seedWelcomeHome');
+});
