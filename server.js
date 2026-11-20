@@ -1701,9 +1701,9 @@ const assigner = require('./engine/assigner'); // #3595 phase 2: the Assigner's 
 const autobalanceSetting = require('./engine/autobalance-setting'); // kosmos#7152 slice 2
 const autobalanceSweep = require('./engine/autobalance-sweep'); // kosmos#7152 slice 3: the record of what auto-balance would move
 const AUTOBALANCE_RECORD = path.join(path.dirname(autobalanceSetting.FILE), autobalanceSweep.FILE);
-const automove = require('./engine/automove'); // kosmos#7548 (slice 3b): the moving half, off unless AGENT_WORKFORCE_AUTOMOVE=1
+const automove = require('./engine/automove'); // kosmos#7548 (slice 3b): the moving half, off unless AGENT_WORKFORCE_AUTOMOVE=1 (or kept from an earlier start, kosmos#8841)
 let autobalanceSweepRun = null;   // the sweep, once its record has been read at start (it is off otherwise)
-let automoveRun = null;           // kosmos#7548: the mover, made at start only with AGENT_WORKFORCE_AUTOMOVE=1 and its record read
+let automoveRun = null;           // kosmos#7548: the mover, made at start only with moves switched on (automove.movesOn) and its record read
 const keepAwakeSetting = require('./engine/keepawake-setting'); // kosmos#7416 slice 3
 const keepAwake = require('./engine/keepawake'); // kosmos#7416 slice 3: caffeinate -i while the switch is on and a card reads working
 const landedcheck = require('./engine/landedcheck'); // kosmos#7508 slice 2: is a code fix's commit still kept, and on a remote
@@ -15316,7 +15316,12 @@ const server = http.createServer(async (req, res) => {
           }
         }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...compat, ...museSub], unlistedAccounts, unlistedComplete,
-          ...(autobalance ? { autobalance } : {}) });
+          ...(autobalance ? { autobalance } : {}),
+          /* kosmos#8841: the switches this board has on from an earlier start, with when each was first switched on
+             ({ usagePoll, automove }: a time, absent when not kept), so Settings can say so. Beside the decision, not
+             in it: the usage poll runs with one account and with auto-balance switched off. `keptNotApplied`: a record
+             was found and not applied, because it was written under another computer name. */
+          ...(wantAgents ? (() => { try { const ks = require('./engine/keptswitch'); return { kept: ks.keptNow(), ...(ks.ignoredElsewhere() ? { keptNotApplied: true } : {}) }; } catch { return { kept: {} }; } })() : {}) });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
@@ -30306,9 +30311,15 @@ function start(port = PORT) {
       if (accountSweep && typeof accountSweep.unref === 'function') accountSweep.unref();
       /* kosmos#7152 slice 1: read every Claude account's weekly and five-hour usage from the usage endpoint
          (engine/usagepoll.js), idle accounts included, into each account folder, where accountsweekly reads it. Same
-         gating as the sweeps above, OFF unless AGENT_WORKFORCE_USAGE_POLL=1 (review 19), brake AGENT_WORKFORCE_USAGE_POLL_OFF=1, own 10-min timer, unref'd,
+         gating as the sweeps above, OFF unless AGENT_WORKFORCE_USAGE_POLL=1 at this start or kept from an earlier one (review 19, kosmos#8841), brake AGENT_WORKFORCE_USAGE_POLL_OFF=1, own 10-min timer, unref'd,
          asynchronous (one account at a time, never on the board's request path), best-effort. accounts.list() is the
          cheap read: listLive() checks every account live and must not run on a timer. */
+      /* kosmos#8841: a switch an earlier start recorded and this start left unset is kept (engine/keptswitch.js), so a
+         restart does not silently undo the operator's choice. */
+      try {
+        const keptAtStart = require('./engine/keptswitch').atBoardStart(process.env, { liveExecutionAllowed: liveExecution.liveExecutionAllowed() });
+        for (const line of keptAtStart.lines) process.stdout.write(line + '\n');
+      } catch (err) { process.stdout.write(`kept-switches: not applied (${String((err && err.message) || err)})\n`); }
       const usagePoll = require('./engine/usagepoll');
       let usagePollBusy = 0;   // when the running sweep started, or 0
       const usagePollTick = () => {
@@ -30341,7 +30352,7 @@ function start(port = PORT) {
       catch (err) { process.stdout.write(`autobalance-sweep: off, its record could not be read (${String((err && err.message) || err)})\n`); }
       const abSweep = autobalanceSweepRun;
       /* kosmos#7548 (slice 3b): the moving half, run after the sweep's tick each period and only when moves are switched
-         on (AGENT_WORKFORCE_AUTOMOVE=1). Built from the same record; one that cannot be read leaves the mover off. */
+         on (automove.movesOn). Built from the same record; one that cannot be read leaves the mover off. */
       const abSweepMs = Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS)) : usagePoll.POLL_MS;
       if (abSweep && automove.movesOn()) {
         /* kosmos#7548 review round 5: the mover's "previous tick" is measured in this period, which an operator can set. */

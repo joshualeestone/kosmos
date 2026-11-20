@@ -7,6 +7,8 @@
  * 🛑 OFF UNLESS AGENT_WORKFORCE_AUTOMOVE=1 (the card's call, comment 6521685101): a day of recorded decisions never
  * exercised a move, so moving stays an operator's switch. AGENT_WORKFORCE_AUTOMOVE_OFF=1 is the brake. Both are read
  * from the board's environment, which does not change while it runs, so either takes effect at a board restart.
+ * kosmos#8841: a start with the variable unset keeps what an earlier start switched on (engine/keptswitch.js);
+ * AGENT_WORKFORCE_AUTOMOVE=0 at a start switches it off for good.
  *
  * Plan: .claude/plans/automove-3b-7548.md, with the twelve rules it must satisfy; each is named below where it lands.
  * The board wires it (server.js automoveDeps(), run after the sweep's tick); every effect is a dep, so a test drives
@@ -49,7 +51,8 @@ const SKIP_SAID_MS = 60 * 60 * 1000;   // a skipped line for one agent at most o
    the next candidate gets its turn (the first candidate is always tried first, so one such agent blocked every move). */
 const RECHECK_HOLD_MS = 10 * 60 * 1000;   // review 3: long enough for the next candidate, short for one bad roster read
 
-function movesOn(env = process.env) { return env.AGENT_WORKFORCE_AUTOMOVE === '1' && env.AGENT_WORKFORCE_AUTOMOVE_OFF !== '1'; }
+/* A kept switch counts only for the board's own process.env object (keptswitch.test.js: a copy reads off). */
+function movesOn(env = process.env) { return require('./keptswitch').on('automove', env) && env.AGENT_WORKFORCE_AUTOMOVE_OFF !== '1'; }
 
 /**
  * Rule 7: a person's move wins for a day. The account-move routes call this for every agent whose account they wrote,

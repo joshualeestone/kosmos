@@ -120,10 +120,13 @@ const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
    Review 19: and it is OFF unless AGENT_WORKFORCE_USAGE_POLL=1. It sends each person's subscription token to an
    endpoint Anthropic has not documented, and if Anthropic objects the cost may fall on the account itself, which no
    backoff undoes. So nobody's board reads this way until it is switched on deliberately; the status line is
-   unchanged either way. */
+   unchanged either way.
+   kosmos#8841: a start with the variable unset keeps what an earlier start switched on (engine/keptswitch.js);
+   AGENT_WORKFORCE_USAGE_POLL=0 at a start switches it off for good. */
 /* Review 20: whether the reader is switched on at all, which also decides whether its records are shown, so a board
    switched off shows nothing it measured earlier. */
-function enabled(env = process.env) { return env.AGENT_WORKFORCE_USAGE_POLL === '1' && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1'; }
+/* A kept switch counts only for the board's own process.env object (keptswitch.test.js: a copy reads off). */
+function enabled(env = process.env) { return require('./keptswitch').on('usagePoll', env) && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1'; }
 
 function liveAllowed(env = process.env) {
   return enabled(env)

@@ -277,3 +277,32 @@ test('kosmos#8056: armed is the mover\'s own gate, without the sweep\'s last-wri
   assert.doesNotMatch(src, /autobalance\.armed = [^;]*recording/, 'armed went false with a failed sweep write, while the mover can still move');
 });
 
+
+test('kosmos#8841: a switch kept on from an earlier start reaches Settings on the accounts read, beside the decision', async () => {
+  const keptswitch = require('./engine/keptswitch');
+  const record = path.join(SANDBOX, 'kept-switches-8841.json');
+  const at = Date.UTC(2026, 10, 6, 9, 17);
+  fs.writeFileSync(record, JSON.stringify({ computer: keptswitch.markOf(os.hostname()), usagePoll: { on: true, at } }));
+  const had = process.env.AGENT_WORKFORCE_USAGE_POLL;
+  delete process.env.AGENT_WORKFORCE_USAGE_POLL;
+  try {
+    const none = await call('GET', '/api/accounts?agents=1');
+    assert.deepEqual(none.json.kept, {}, 'CONTROL: nothing is kept before a start keeps it');
+    keptswitch.applyAtStart(process.env, { live: true, file: record });   // what a live board start does
+    const got = await call('GET', '/api/accounts?agents=1');
+    assert.equal(got.status, 200);
+    assert.deepEqual(got.json.kept, { usagePoll: at });
+    assert.equal(got.json.autobalance && got.json.autobalance.kept, undefined, 'kept is beside the decision, not in it');
+    assert.equal('keptNotApplied' in got.json, false);
+    const plain = await call('GET', '/api/accounts');
+    assert.equal('kept' in plain.json, false, 'only Settings (?agents=1) is told');
+    // A record written under another computer name: nothing kept, and Settings is told it was not applied.
+    fs.writeFileSync(record, JSON.stringify({ computer: keptswitch.markOf('some-other-mac.invalid'), usagePoll: { on: true, at } }));
+    keptswitch.applyAtStart(process.env, { live: true, file: record });
+    const other = await call('GET', '/api/accounts?agents=1');
+    assert.deepEqual([other.json.kept, other.json.keptNotApplied], [{}, true]);
+  } finally {
+    keptswitch.applyAtStart(process.env, { live: false });
+    if (had === undefined) delete process.env.AGENT_WORKFORCE_USAGE_POLL; else process.env.AGENT_WORKFORCE_USAGE_POLL = had;
+  }
+});

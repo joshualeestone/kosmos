@@ -83,6 +83,13 @@ const CASES = {
     { kind: 'held-loss', at: now - 1 * 60e3, pairs: [{ from: '/home/.claude-full', to: '/home/.claude-spare' }, { from: '/home/.claude-full', to: '/home/.claude-x', toLabel: '<b>X</b>' }] }] } },
   /* CONTROL: the same record with moving left out says nothing moves on its own. */
   armedNotRecording: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: false, moving: false, armed: true, recent: [] } },
+  /* kosmos#8841: on only because an earlier start switched it on; the page says so and since when. */
+  keptBoth: { accounts: TWO, kept: { usagePoll: Date.UTC(2026, 10, 6, 15), automove: Date.UTC(2026, 10, 8, 15) }, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, moving: true, armed: true, recent: [] } },
+  /* One account, so the auto-balance row is hidden; and auto-balance switched off. The usage poll runs in both. */
+  keptOne: { accounts: [TWO[0]], kept: { usagePoll: 0 }, autobalance: { on: true, eligible: 1, moves: [], held: [] } },
+  keptOff: { accounts: TWO, kept: { usagePoll: Date.UTC(2026, 10, 6, 15) }, autobalance: { on: false, eligible: 2, moves: [], held: [] } },
+  /* A record written under another computer name was found and not applied. */
+  keptElsewhere: { accounts: [TWO[0]], kept: {}, keptNotApplied: true, autobalance: { on: true, eligible: 1, moves: [], held: [] } },
   movingOff: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, recent: [] } },
   /* Review round 6: moves switched off after a run: the mover's lines are still in the record. */
   movedThenOff: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, recent: [
@@ -168,6 +175,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
             dry: document.getElementById('ab-dry').hidden,
             markup: !!document.querySelector('#ab-lines b'),
             recent: [...document.querySelectorAll('#ab-recent p')].map((p) => p.textContent.trim()),
+            kept: [...document.querySelectorAll('#kept-lines p')].map((p) => p.textContent.trim()),
             recentMarkup: !!document.querySelector('#ab-recent b'),
             sideways: document.documentElement.scrollWidth > window.innerWidth + 1,
           };
@@ -179,6 +187,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         out.beforeFail = look();
         current = 'fail'; await paintAccounts();
         out.failed = look();
+        /* kosmos#8841: and the kept lines with it. Painted first, so the failed read has something to take away. */
+        current = cases.keptBoth; await paintAccounts();
+        out.keptBeforeFail = look();
+        current = 'fail'; await paintAccounts();
+        out.keptFailed = look();
         /* Review 3: pressing the switch while a list read is out starts no second read over it (the page's own flag
            stands in for the read), clears the lines at once, and reads once that read is over. */
         current = cases.moves; await paintAccounts();
@@ -252,6 +265,22 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         tag + ' pressing the switch sends off once and draws the next read', JSON.stringify(r.pressed));
       say(r.beforeFail && r.beforeFail.lines.length === 2 && r.failed && !r.failed.shown && r.failed.lines.length === 0, tag + ' a failed read takes the earlier lines away (shown before it: the control)', JSON.stringify(r.failed));
       say(Object.values(r).filter((x) => x && 'sideways' in x).length >= 10 && Object.values(r).every((x) => !x || x.sideways !== true), tag + ' nothing scrolls sideways (in every state drawn)', '');
+      /* kosmos#8841. The day is the viewer's own (locale and time zone), so it is matched loosely and the two are compared. */
+      const KEPT = (what) => new RegExp('^' + what + ' switched on when Kosmos started on (.+2026.*)\\. That switch is still on\\.$');
+      const kb = (r.keptBoth && r.keptBoth.kept) || [];
+      const kd = [KEPT('Usage readings were').exec(kb[0] || ''), KEPT('Automatic moves were').exec(kb[1] || '')];
+      say(kb.length === 2 && kd[0] && kd[1] && kd[0][1] !== kd[1][1], tag + ' kept from an earlier start: each is said with its own day', JSON.stringify(kb));
+      const ko = (r.keptOne && r.keptOne.kept) || [];
+      say(r.keptOne && !r.keptOne.shown && ko.length === 1 && ko[0] === 'Usage readings were switched on when Kosmos started on an earlier day. That switch is still on.',
+        tag + ' kept with one account: said though the auto-balance row is hidden, with no date as "an earlier day"', JSON.stringify(r.keptOne));
+      say(r.keptOff && r.keptOff.checked === 'false' && r.keptOff.kept.length === 1 && KEPT('Usage readings were').test(r.keptOff.kept[0]),
+        tag + ' kept with auto-balance switched off: still said', JSON.stringify(r.keptOff));
+      say(r.moving && r.moving.kept.length === 0 && r.one && r.one.kept.length === 0, tag + ' CONTROL: nothing kept says nothing is kept', JSON.stringify([r.moving && r.moving.kept, r.one && r.one.kept]));
+      say(r.keptBeforeFail && r.keptBeforeFail.kept.length === 2 && r.keptFailed && r.keptFailed.kept.length === 0,
+        tag + ' a failed read takes the kept lines away (two shown before it: the control)', JSON.stringify([r.keptBeforeFail && r.keptBeforeFail.kept, r.keptFailed && r.keptFailed.kept]));
+      const ke = (r.keptElsewhere && r.keptElsewhere.kept) || [];
+      say(ke.length === 1 && ke[0] === 'Kosmos found a record of switches that were kept on under another computer name, and did not apply it on this computer.',
+        tag + ' a record not applied here is said, alone', JSON.stringify(ke));
       /* Slice 3. */
       const NONE = 'Kosmos does not move agents on its own yet. It keeps a record of what it would have moved.';
       const nr = r.notRecording && r.notRecording.recent;
