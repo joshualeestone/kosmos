@@ -40,6 +40,7 @@ render-autohello-switch-2716
 render-avatar-4038
 render-avatar-crop-6722
 render-barelinks-7239
+render-boardpic-8790
 render-brief-note-agents
 render-bubblepop-2407
 render-build-marker-2066
