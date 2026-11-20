@@ -21510,9 +21510,10 @@ window.addEventListener('unhandledrejection', (e) => {
      force a preflight. A Request object passes as it is (the page makes none). Note: a same-origin init's headers
      reach the native fetch as a Headers object, whatever shape the caller gave them.
      Not covered, and refused on such a browser (fail closed): everything the page loads as a navigation or a
-     subresource rather than through fetch: file downloads, folder zips, the diagnostics download, and the service
-     worker's own fetches (web/sw.js). The one exception is the worker's second ask for a refused board picture (agent
-     avatars, image and PDF-page previews), which carries the header itself (kosmos#8790).
+     subresource rather than through fetch: the service worker's own fetches (web/sw.js). Two exceptions, both
+     kosmos#8790: the worker's second ask for a refused board picture (agent avatars, image and PDF-page previews)
+     carries the header itself, and downloads (files, folder zips, exports, attachments, diagnostics) take a one-use
+     key through this fetch first (dlKeyClick).
      🛑 It rests on one rule this page must keep: no route the page's own fetches reach redirects them OFF this origin.
      fetch keeps this header across a redirect, so such a route, bounced back, would arrive with it. Two guards would
      then stand, both by the spec and neither measured on a browser with no Sec-Fetch-Site: the preflight a redirected
@@ -22066,7 +22067,9 @@ function kplusRemote() {
    so one listener takes them all: the click first asks the board for a download key with the page's own marked fetch,
    then opens the same address with ?bdl=<key>, which the board accepts once, for that address only, within a minute
    (server.js downloadKeyTarget, the same list of routes). If no key comes (an older board, a refusal), the link opens
-   as it always did. At the computer itself (not over Kosmos+) nothing here runs. */
+   as it always did. A browser that sends Sec-Fetch-Site is told no key is needed, and from then on its links are left
+   alone. Listens on window in the bubble phase and leaves a click another handler took (an attachment card opening its preview,
+   the viewer's own Mac-app link) alone, and a click with a modifier key. At the computer itself nothing here runs. */
 const DL_KEY_LINK_ROUTES = [
   /^\/api\/agent\/[^/]+\/files\/(?:download|download-folder)$/,
   /^\/api\/project\/[^/]+\/file-download$/,
@@ -22075,6 +22078,7 @@ const DL_KEY_LINK_ROUTES = [
   /^\/api\/diagnostics$/,
 ];
 const DL_KEY_OWN_LINKS = new WeakSet();   // the links this opens itself, which it must not take again
+let DL_KEY_NOT_NEEDED = false;   // the board said this browser needs no key (it sends Sec-Fetch-Site)
 function dlKeyLinkAddress(a) {
   if (!a || DL_KEY_OWN_LINKS.has(a)) return null;
   const raw = a.getAttribute('href');
@@ -22096,7 +22100,7 @@ function dlKeyOpen(u, name) {
   go.remove();
 }
 function dlKeyClick(e) {
-  if (!e || e.defaultPrevented || e.button > 0 || !kplusRemote()) return;
+  if (!e || e.defaultPrevented || e.button > 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || DL_KEY_NOT_NEEDED || !kplusRemote()) return;
   const a = e.target && e.target.closest && e.target.closest('a[download]');
   const u = dlKeyLinkAddress(a);
   if (!u) return;
@@ -22109,12 +22113,15 @@ function dlKeyClick(e) {
   fetch('/api/download-key', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: out.pathname + out.search }) })
     .then((res) => (res && res.ok ? res.json() : null)).catch(() => null)
     .then((b) => {
+      if (b && b.needed === false) DL_KEY_NOT_NEEDED = true;
       const key = b && typeof b.key === 'string' && /^[0-9a-f]{64}$/.test(b.key) ? b.key : null;
       if (key) out.searchParams.set('bdl', key);
       dlKeyOpen(key ? out : u, name);   // no key: the link's own address, exactly as it was
     });
 }
-if (typeof document !== 'undefined') document.addEventListener('click', dlKeyClick, true);
+// On window, in the bubble phase: a click reaches window after every listener on document, so any handler there that
+// takes the click (it calls preventDefault) has already run, whatever order the page registered them in.
+if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('click', dlKeyClick);
 /* #6724: the stamp the data-remote-hide rule keys on, set once at load (a page's own address does not change). */
 if (typeof document !== 'undefined' && document.documentElement && kplusRemote()) document.documentElement.setAttribute('data-kplus-remote', '');
 /* #5165 (a Kosmos+ user on a Windows laptop clicked a .pptx in a project's Files and it tried to open on the HOST):
