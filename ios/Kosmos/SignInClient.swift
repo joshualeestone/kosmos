@@ -233,6 +233,14 @@ final class SignInClient {
         return SignIn.allowRead(status: answer.statusCode, json: try? JSONSerialization.jsonObject(with: data))
     }
 
+    /// kosmos#8791/#8795: the signed-in account's address (SignIn.accountEmail), for a fresh sign-in's code step.
+    func accountEmail(token: String) async -> String? {
+        var request = URLRequest(url: coordinator.appendingPathComponent(SignIn.mePath))
+        request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        guard let (data, response) = try? await http.data(for: request), let answer = response as? HTTPURLResponse else { return nil }
+        return SignIn.accountEmail(status: answer.statusCode, json: try? JSONSerialization.jsonObject(with: data))
+    }
+
     // kosmos#7046: setting up a required second step, with the enrol-only token verify gave (never a session).
     func enrol(token: String) async throws -> SignIn.Enrolled {
         let (status, json) = try await post(SignIn.enrolPath, SignIn.enrolBody(), bearer: token)

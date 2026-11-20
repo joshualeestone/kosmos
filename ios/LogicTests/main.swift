@@ -5003,6 +5003,41 @@ check(SignIn.allowRead(status: 200, json: jsonBody(#"{"device_status":"acked"}"#
 check(SignIn.allowRead(status: 200, json: jsonBody(#"{"device_status":"pending","match_code":"K7Q2","addresses":["mini.kosmosplus.com"]}"#)) == .status(.pending, matchCode: "K7Q2", hasComputer: true), "a computer connected meanwhile, and its code")
 check(SignIn.allowRead(status: 401, json: jsonBody(#"{"device_status":"acked"}"#)) == .ended, "a refused session ends the watch, whatever else the answer says")
 check(SignIn.allowRead(status: 503, json: nil) == .unknown && SignIn.allowRead(status: nil, json: nil) == .unknown && SignIn.allowRead(status: 200, json: jsonBody(#"{"device_status":"new"}"#)) == .unknown, "no answer, a server error, or a status not known: asked again")
+// kosmos#8791/#8795: the account's own address from GET /v1/account/me, for a fresh sign-in's code step.
+check(SignIn.accountEmail(status: 200, json: ["email": "  ada@example.com\n"]) == "ada@example.com", "account email: read and trimmed")
+check(SignIn.accountEmail(status: 200, json: ["email": "not-an-address"]) == nil && SignIn.accountEmail(status: 200, json: ["email": ""]) == nil, "account email: only an address counts")
+check(SignIn.accountEmail(status: 401, json: ["email": "ada@example.com"]) == nil && SignIn.accountEmail(status: nil, json: nil) == nil && SignIn.accountEmail(status: 200, json: [String: Any]()) == nil, "CONTROL: no 2xx, no answer or no field gives nil (then no inline code step)")
+// kosmos#8791/#8795: the fresh sign-in's words, its no-loop rule, and the one account change the sheet may stay through.
+check(SignIn.Fresh.offer(email: "ada@example.com") == "This needs you to sign in again. We will send a code to ada@example.com.", "fresh: Mona Lisa's words, with the account's address")
+check([SignIn.Fresh.offer(email: "a@b.c"), SignIn.Fresh.still, SignIn.Fresh.noAddress, SignIn.Fresh.signedOut, SignIn.Fresh.notHere,
+       SignIn.Fresh.edited].allSatisfy { !$0.contains("\u{2014}") && !$0.isEmpty }, "fresh: no em dash in any of its words")
+check(SignIn.Fresh.afterRefusal(alreadyFresh: false) == .offer, "fresh: a first step-up refusal offers the fresh sign-in")
+check(SignIn.Fresh.afterRefusal(alreadyFresh: true) == .still, "CONTROL: a refusal after a fresh sign-in for the same action says so, and offers no second one")
+do {
+    var p = SignIn.FreshPasses()
+    check(!p.spendAccount(signedOut: false) && !p.spendEpoch(), "fresh passes: none until a fresh sign-in arms them (the sheet closes as before)")
+    p.arm()
+    check(p.spendAccount(signedOut: false), "fresh passes: the fresh sign-in's own account change keeps the sheet")
+    check(!p.spendAccount(signedOut: false), "CONTROL: a second account change closes it (spent once)")
+    check(p.spendEpoch() && !p.spendEpoch(), "fresh passes: the chats moving on keeps it once, then closes it")
+    var q = SignIn.FreshPasses(); q.arm()
+    check(!q.spendAccount(signedOut: true) && !q.spendEpoch(), "CONTROL: a sign-out never keeps the sheet, and spends both passes")
+    var r = SignIn.FreshPasses(); r.arm(); r.clear()
+    check(r == SignIn.FreshPasses(), "fresh passes: Not now (or a fresh sign-in that issued nothing) clears them")
+}
+// Review 1: the retry waits for the board let in under the NEW session (phase can still read .live from before).
+check(SignIn.Fresh.retryNow(finished: true, startedUnder: "old", admittedUnder: "new", heldNow: "new"), "fresh retry: finished, and let in under the new session held now")
+check(!SignIn.Fresh.retryNow(finished: true, startedUnder: "old", admittedUnder: "old", heldNow: "new"), "CONTROL: a board still on its connection from before the reset is not tried on")
+check(!SignIn.Fresh.retryNow(finished: true, startedUnder: "old", admittedUnder: nil, heldNow: "new"), "fresh retry: not while the board is not let in yet")
+check(!SignIn.Fresh.retryNow(finished: false, startedUnder: "old", admittedUnder: "new", heldNow: "new"), "fresh retry: not before the fresh sign-in finished (the code screen still up)")
+check(!SignIn.Fresh.retryNow(finished: true, startedUnder: "old", admittedUnder: "other", heldNow: "new"), "fresh retry: not on a connection under a session no longer held")
+check(!SignIn.Fresh.retryNow(finished: true, startedUnder: "same", admittedUnder: "same", heldNow: "same"), "CONTROL: nothing new issued, nothing retried")
+check(!SignIn.Fresh.signedOut.contains("reached") && SignIn.Fresh.noAddress.contains("reached"), "fresh: signed out is not said as a connection problem")
+// Review 3: the retry goes only to the computer that refused, and never sends a form changed meanwhile.
+check(SignIn.Fresh.landing(refusedOn: "mac-a", admittedOn: "mac-a", unchangedForm: true) == .retry, "fresh landing: same computer, same form: tried once more")
+check(SignIn.Fresh.landing(refusedOn: "mac-a", admittedOn: "mac-b", unchangedForm: true) == .otherComputer, "CONTROL: let in on another computer: the sheet closes, nothing is sent")
+check(SignIn.Fresh.landing(refusedOn: nil, admittedOn: "mac-b", unchangedForm: true) == .otherComputer, "fresh landing: no computer recorded at the refusal: never sent")
+check(SignIn.Fresh.landing(refusedOn: "mac-a", admittedOn: "mac-a", unchangedForm: false) == .edited, "fresh landing: the form changed: said, not sent")
 
 section("sign-in: the steps")
 let s1 = SignIn.Session(token: "t", deviceStatus: .pending, matchCode: "AB12", hasComputer: true)

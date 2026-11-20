@@ -25,6 +25,19 @@ struct NewAgentView: View {
     @State private var loadFailed = false
     @State private var sending = false
     @State private var message: String?
+    /// kosmos#8791: a step-up refusal offers a fresh sign-in (FreshSignInCenter) for the single create or the team run,
+    /// which is tried once more after it, once the board is connected again. A refusal after one says so (no loop).
+    @EnvironmentObject private var fresh: FreshSignInCenter
+    private enum FreshFor: Equatable { case single, team }
+    @State private var freshOffer: FreshFor?
+    @State private var freshWaiting: FreshFor?     // signed in again: tried once the board is live again
+    @State private var freshTried = false
+    @State private var freshWhy: String?
+    @State private var freshTakenAtStart = 0        // fresh.taken when this sheet's fresh sign-in opened
+    @State private var freshStartedUnder: String?   // the session held then: the retry waits for a board let in under another
+    @State private var freshMac: String?            // review 3: the computer that refused; the retry goes only there
+    @State private var freshForm: NewAgent.Draft?   // review 3: the form as refused; an edited one is not sent unseen
+    @State private var freshNames: [String: String] = [:]
     @State private var made: (session: String, shownAs: String)?
     @State private var seen = false
     @State private var timedOut = false          // 30 s and the board still cannot see it (the desktop's "has not come up")
@@ -110,6 +123,15 @@ struct NewAgentView: View {
         .textCase(nil)   // the desktop's sentences as headers, not capitals
         .interactiveDismissDisabled(sending || (made != nil && !seen && !timedOut) || teamRunning)
         .onChange(of: client.agents) { rows in agentsChanged(rows) }
+        // kosmos#8791: the fresh sign-in shows over this sheet (a cover from the root cannot show above a sheet).
+        .fullScreenCover(isPresented: Binding(get: { fresh.model != nil && fresh.place == .newAgent }, set: { if !$0, fresh.model != nil { fresh.end() } })) {
+            // Review 1: the web page's steps cannot run over this sheet, so it closes and says why.
+            if let m = fresh.model { SignInView(model: m, useWeb: { fresh.end(); freshWaiting = nil; freshWhy = SignIn.Fresh.notHere }, notNow: { fresh.end() }).tint(Palette.primary) }
+        }
+        .onChange(of: fresh.taken) { _ in retryAfterFresh() }
+        .onChange(of: client.admissions) { _ in retryAfterFresh() }
+        // Not now (or a fresh sign-in that finished without a session): the offer stays; nothing is waiting.
+        .onChange(of: fresh.model == nil) { closed in if closed && fresh.taken == freshTakenAtStart { freshWaiting = nil } }
         // As the desktop's refillDetails: another role starts from the mark again, not a photo chosen for the last one.
         // Here, on the sheet, because the role is changed on a screen before Set up.
         .onChange(of: draft.roleKey) { _ in
@@ -547,6 +569,7 @@ struct NewAgentView: View {
             guard epoch == client.chatEpoch else { return }
             switch NewAgent.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
             case .made(let session, let shown):
+                freshTried = false   // review 1: a later refusal in this sheet is a new one, offered again
                 if s.slot == lead { leadMade = true }
                 states[s.slot] = .made(session: session, shownAs: shown)
                 memberWarnings[s.slot] = NewAgent.madeWarnings(got?.0)
@@ -554,11 +577,17 @@ struct NewAgentView: View {
                 tellLater(session, NewAgent.addedProjects(got?.0), portraitFor(s.slot, name: shown, team: d))
                 announce(shown + ": " + NewTeam.Words.made)
             case .refused(let why):
+                freshTried = false   // review 3: answered otherwise, so a later step-up refusal is a new one
                 states[s.slot] = .failed(NewTeam.sentence(why))
                 announce(s.name + ": " + NewTeam.sentence(why))
+            case .signInAgain(let why):
+                let said = stepUp(why, for: .team)
+                states[s.slot] = .failed(said)
+                announce(s.name + ": " + said)
             case .unknown:
                 // Sent, and no answer: it may be on the board soon. Only a name checked free can be taken as this member
                 // when it turns up (the desktop's firstName rule); a renamed one may be someone else's agent.
+                freshTried = false
                 if s.name == checkedNames[s.slot] { maybeMade[s.slot] = s.session }
                 states[s.slot] = .failed(NewAgent.unsureWords)
                 announce(s.name + ": " + NewAgent.unsureWords)
@@ -597,11 +626,65 @@ struct NewAgentView: View {
     // teamRunning is set here, before the task starts, so a second tap in between starts nothing.
     private func runTeam() {
         guard !teamRunning, !teamBusy else { return }
+        freshWaiting = nil   // review 2, as create()
         teamRunning = true
         teamBusy = true
         Task { @MainActor in
             await makeTeam()
             teamBusy = false
+        }
+    }
+
+    /// kosmos#8791: the sentence for a step-up refusal, and the Sign in again offer (SignIn.Fresh: none after one).
+    private func stepUp(_ why: String, for which: FreshFor) -> String {
+        switch SignIn.Fresh.afterRefusal(alreadyFresh: freshTried) {
+        case .offer: freshOffer = which; freshWhy = nil; return NewTeam.sentence(why)
+        case .still: freshOffer = nil; return SignIn.Fresh.still
+        }
+    }
+
+    private func startFresh(_ which: FreshFor) {
+        Task { @MainActor in
+            freshTakenAtStart = fresh.taken
+            freshStartedUnder = SessionKeychain.live.load()
+            freshMac = client.admittedAddress
+            freshForm = draft; freshNames = names
+            if let why = await fresh.begin(at: .newAgent) { freshWhy = why }
+            else if fresh.model != nil, fresh.place == .newAgent { freshWaiting = which }
+        }
+    }
+
+    /// Signed in again and the board live again: the refused create, once. Known gap (review 2): a session the Keychain
+    /// could not save is held only in memory, so heldNow reads nil and no retry runs; the sheet then says to press Create.
+    private func retryAfterFresh() {
+        guard let which = freshWaiting,
+              SignIn.Fresh.retryNow(finished: fresh.taken > freshTakenAtStart, startedUnder: freshStartedUnder,
+                                    admittedUnder: client.admittedUnder, heldNow: SessionKeychain.live.load()) else { return }
+        freshWaiting = nil; freshOffer = nil
+        let same = which == .single ? draft == freshForm : names == freshNames
+        switch SignIn.Fresh.landing(refusedOn: freshMac, admittedOn: client.admittedAddress, unchangedForm: same) {
+        case .otherComputer: dismiss(); return   // #7488: the sheet never outlives its computer
+        case .edited:
+            if which == .single { message = SignIn.Fresh.edited } else { teamMessage = SignIn.Fresh.edited }
+            return
+        case .retry: break
+        }
+        freshTried = true
+        switch which {
+        case .single: Task { await create() }
+        case .team: runTeam()
+        }
+    }
+
+    /// The Sign in again button under a step-up refusal, and why none could be shown.
+    @ViewBuilder private func freshButton(_ which: FreshFor) -> some View {
+        if freshOffer == which {
+            Section {
+                if let freshWhy { Text(freshWhy).foregroundColor(Palette.dangerWord) }
+                // Review 2: say what the wait is for (the computer connecting again under the new sign-in).
+                if freshWaiting == which && fresh.model == nil { Text(NewTeam.Words.freshWaiting).foregroundColor(Palette.secondary) }
+                Button(NewTeam.Words.signInAgain) { startFresh(which) }.disabled(fresh.opening || freshWaiting != nil)
+            }
         }
     }
 
@@ -644,6 +727,7 @@ struct NewAgentView: View {
                 }
             } header: { Text(allMade ? (detail?.label ?? "") : detail.map { NewAgent.Words.makingNamed($0.label) } ?? NewAgent.Words.making) }
             if let teamMessage { Section { Text(teamMessage).foregroundColor(Palette.dangerWord) } }
+            if !teamRunning { freshButton(.team) }
             // All made and the lead not seen yet: say what the screen is waiting for, then the desktop's words.
             if allMade && !leadSeen(members) {
                 Section {
@@ -742,6 +826,7 @@ struct NewAgentView: View {
             if let message {
                 Section { Text(message).foregroundColor(Palette.dangerWord) }
             }
+            freshButton(.single)
         }
         // Create is off from the moment of the pick, not from when the load starts.
         .onChange(of: photoPick) { item in
@@ -972,6 +1057,7 @@ struct NewAgentView: View {
 
     private func create() async {
         guard !sending, let c = catalogue, NewAgent.canCreate(draft, c) else { return }
+        freshWaiting = nil   // review 2: pressed by hand meanwhile, so no retry follows it (a second agent)
         sending = true
         message = nil
         let sent = draft
@@ -990,6 +1076,7 @@ struct NewAgentView: View {
         guard epoch == client.chatEpoch else { return }
         switch NewAgent.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
         case .made(let session, let shown):
+            freshTried = false   // review 1, as the team's
             made = (session, shown)
             madeWarnings = NewAgent.madeWarnings(got?.0)
             seen = client.agents.contains { $0.session == session && $0.boardSeesIt }
@@ -1002,10 +1089,15 @@ struct NewAgentView: View {
             path.append(.made)
             tellLater(session, NewAgent.addedProjects(got?.0), .init(photo: sent.photo, name: sent.name))
         case .refused(let why):
+            freshTried = false   // review 3, as the team's
             message = NewTeam.sentence(why)
             announce(NewTeam.sentence(why))
+        case .signInAgain(let why):
+            message = stepUp(why, for: .single)
+            announce(message ?? "")
         case .unknown:
             // It may have been made: the same name is not sent again until it is changed (a second agent otherwise).
+            freshTried = false
             unsureName = NewProject.trimmed(sent.name)
             message = NewAgent.unsureWords
             announce(NewAgent.unsureWords)

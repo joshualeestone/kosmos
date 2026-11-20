@@ -525,6 +525,9 @@ struct AgentsView: View {
 // The states before a list can be shown, and after a refusal (kosmos#6838 slice 1's frames), for every tab that reads
 // the agents list: Agents, and Today (kosmos#7030). `empty` is what a live Mac with nothing to list shows.
 struct BoardStates<Empty: View>: View {
+    /// kosmos#8795: a cloud machine's Open refused for an old sign-in offers a fresh one (FreshSignInCenter, given by
+    /// ContentView to every tab).
+    @EnvironmentObject private var fresh: FreshSignInCenter
     @ObservedObject var client: BoardClient
     let openBoard: () -> Void
     /// The signed-out line under "Sign in to Kosmos+": each tab names what it shows (kosmos#8054).
@@ -587,12 +590,22 @@ struct BoardStates<Empty: View>: View {
         case .macRefused(let mac):
             message("\(mac) did not accept this iPhone's sign-in.", detail: "Try again in a moment. If it keeps happening, log out under Settings, Kosmos+, and sign in again.", retry: true)
         case .signInAgain(let mac):
-            // kosmos#4903: the remedy the macRefused line already names, for a cloud machine that takes only a recent
-            // sign-in (nobody can press Allow on it). No Sign in button: openBoard opens the board's Today, which keeps
-            // the same (not recent) sign-in; a one-tap way needs a log out wired here (recorded on kosmos#7337).
-            message("Sign in again to open \(mac).",
-                    detail: "Your cloud machine takes only a recent sign-in. Log out under Settings, Kosmos+, sign in again, then come back here.",
-                    retry: true)
+            // kosmos#4903: a cloud machine takes only a recent sign-in (nobody can press Allow on it). kosmos#8795: a
+            // Sign in again button, the fresh sign-in (a code to this account's address), whose account change connects
+            // the board again. After one, a refusal says so and offers none (SignIn.Fresh, no loop).
+            switch SignIn.Fresh.afterRefusal(alreadyFresh: fresh.openTried) {
+            case .offer:
+                VStack(spacing: 12) {
+                    message("Sign in again to open \(mac).",
+                            detail: fresh.openWhy ?? "Your cloud machine takes only a recent sign-in. We will send a code to your email.",
+                            retry: false)
+                    // Review 2: the card colour on ink, as Try again (the tint is near-white in dark); a 44 pt target.
+                    Button { Task { await fresh.beginOpen() } } label: { Text("Sign in again").foregroundColor(Palette.card) }
+                        .buttonStyle(.borderedProminent).controlSize(.large).disabled(fresh.opening || fresh.model != nil)
+                }
+            case .still:
+                message("Sign in again to open \(mac).", detail: SignIn.Fresh.still, retry: true)
+            }
         case .signInHere(let mac):
             // Review 5: not "recent" but "here": the cloud machine needs this iPhone's own key, kept only by signing in in the app.
             message("Sign in on this iPhone to open \(mac).",

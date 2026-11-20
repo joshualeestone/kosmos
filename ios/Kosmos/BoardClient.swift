@@ -357,7 +357,16 @@ final class BoardClient: ObservableObject {
     #endif
     // The Mac this client holds a session for and the Kosmos+ session it was opened under: a sign-out or another
     // account in the board's web tabs drops it (start()).
-    private var admitted: (mac: Board.Mac, url: URL, session: String)?
+    private var admitted: (mac: Board.Mac, url: URL, session: String)? {
+        didSet { if admitted != nil { admissions &+= 1 } }
+    }
+    /// kosmos#8791: bumped each time the board is let in on a computer, and the Kosmos+ session it was let in under, so
+    /// a retry after a fresh sign-in waits for a connection made under the NEW session (phase can still read .live from
+    /// before the account change: accountChanged does not reset it).
+    @Published private(set) var admissions = 0
+    var admittedUnder: String? { admitted?.session }
+    /// Review 3: which computer it was let in on, so a retry never goes to another one.
+    var admittedAddress: String? { admitted?.mac.address }
     private var failedRefreshes = 0
     private var skipSaved = false
     // The Mac answers 401 for a moment after it starts, while keeping the session (kosmos-relay proxy.rs
