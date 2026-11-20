@@ -194,6 +194,21 @@ function isAutoProviderBlock(standing) {
     && TRANSIENT_PROVIDER_BLOCK.test(String(standing.on || ''));
 }
 
+/* kosmos#8782: an automatic provider block of ANY kind, written by a different run of the agent than the one now
+   reporting. Both instances must be known and differ. An idle from that new run is a turn that ended normally in a new
+   session, so the old session's failed turn is over whatever its kind ("an api error" included, which the same-run
+   rule above keeps). */
+function isAutoProviderBlockFromAnotherRun(standing, entry) {
+  return !!standing
+    && standing.found === true
+    && standing.state === 'blocked'
+    && standing.by === 'auto'
+    && /^provider api \(/i.test(String(standing.on || ''))
+    && typeof standing.instance === 'string' && standing.instance !== ''
+    && !!entry && typeof entry.instance === 'string' && entry.instance !== ''
+    && entry.instance !== standing.instance;
+}
+
 /* #6209 review 1: true when a line under a standing automatic provider block is a wait on a person that an automatic
    idle may not clear: any blocked/needs_you (deliberate, unmarked, or another automatic blocked) but an automatic
    permission prompt. */
@@ -206,12 +221,17 @@ function hidesWait(w) {
    just before the run (reviews 1 and 5: one window and one set of rules, so project carry, the cut-tail rule, until
    and askedAt agree): { wait } (read()'s reading, found or not), or { unknown: true } when the record cannot be read
    or the run reaches the front of a cut tail. */
-function lineUnderProviderBlock(sessionName) {
+function lineUnderProviderBlock(sessionName, anyKind) {
   const tail = readTail(sessionName);
   if (!tail.rows) return { unknown: true };
   const rows = tail.rows;
+  /* kosmos#8782: when the block ends because a new run reported (anyKind), the run stepped over is every automatic
+     provider block, whatever its kind; the same-run rule (#6209) still steps over only the transient kinds. */
+  const inRun = anyKind
+    ? (r) => !!r && r.state === 'blocked' && r.by === 'auto' && /^provider api \(/i.test(String(r.on || ''))
+    : (r) => isAutoProviderBlock({ found: true, ...r });
   let i = rows.length - 1;
-  while (i >= 0 && isAutoProviderBlock({ found: true, ...rows[i] })) i -= 1;
+  while (i >= 0 && inRun(rows[i])) i -= 1;
   if (i < 0) return tail.cut ? { unknown: true } : { wait: { found: false } };
   return { wait: latestOf(rows.slice(0, i + 1), tail.cut) };
 }
@@ -351,8 +371,10 @@ function record(sessionName, entry) {
        is over and an automatic idle clears it, unless the block had replaced a wait on a person (anything but an
        automatic permission prompt) or what it replaced is unknown (an unreadable record, a run of blocks past the tail
        read): then the block stays, as before #6209. */
-    if (state === 'idle' && isAutoProviderBlock(standing)) {
-      const under = lineUnderProviderBlock(sessionName);
+    const fromAnotherRun = state === 'idle' && isAutoProviderBlockFromAnotherRun(standing, entry);   // kosmos#8782
+    const providerBlockEnds = state === 'idle' && (isAutoProviderBlock(standing) || fromAnotherRun);
+    if (providerBlockEnds) {
+      const under = lineUnderProviderBlock(sessionName, fromAnotherRun);
       if (under.unknown) {
         return { recorded: false, skipped: 'waiting', because: 'it is blocked on the provider and Kosmos could not tell what that block replaced, so an automatic idle did not overwrite it' };
       }
@@ -366,7 +388,7 @@ function record(sessionName, entry) {
     const standingIsProtectedWait = standing.found === true
       && WAITING_ON_A_PERSON.includes(standing.state)
       && !standingIsAutoPermissionWait
-      && !(state === 'idle' && isAutoProviderBlock(standing));   // #6209: handled above (cleared, or the block kept)
+      && !providerBlockEnds;   // #6209, kosmos#8782: handled above (cleared, or the block kept)
     if (standingIsProtectedWait) {
       return {
         recorded: false,
