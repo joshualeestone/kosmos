@@ -19,6 +19,9 @@ the cut's version and built from the pool. Nothing merged since 0.8.11 added a p
 - The sign-in line says the sign-in "counts for as long as it lasts", not "until you sign out": a sign-in also ends at
   its own expiry, Sign out everywhere, or removing the device. Two reviews asked for opposite wordings; this one is
   true of every ending, so it stays.
+- The two Linux and Kosmos Cloud items (8.3, 8.4) rank above the crashed-session fix (9.7), which every platform
+  gets: getting paying Cloud machines to update was tonight's priority (kosmos#8786), and the crashed-session fix is in
+  every build's release notes either way.
 - Left out on purpose: the iPhone app's empty Agents tab (#8793), which ships with the iPhone app, not in this
   release; and changes with nothing to see (the sign-in redirect hardening, the enrolment engine side, hand-over
   internals, the new agent's brief text).
