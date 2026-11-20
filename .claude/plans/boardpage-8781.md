@@ -13,8 +13,12 @@ The connector (oldsafari-8781) then gives the token to a request with no Sec-Fet
 ## Tests
 `web.boardpage-header-8781.test.js` runs the page's real wrapper, sliced from web/index.html: the header on relative, absolute and URL reads of this board; none, and the init untouched, for another computer's board; the page's own method, body and headers kept; no doubled header; a Request-like input left alone. Red-capability: without the line that applies it, "a relative read" fails (measured). `server.stepupbutton-6616.test.js` (the wrapper's other tests) still passes.
 
+## Known limits (fail closed)
+- Images (agent avatars) and the service worker's own fetches (web/sw.js) do not pass through the wrapper, so on such a browser avatars may show broken and the offline shell may not warm.
+
 ## Weakest premise
-That Safari 15 sends a custom header on a same-origin fetch GET without a preflight. Same-origin requests are never preflighted in any browser; measured only in Node's fetch here, not in a real Safari 15.
+That Safari 15 sends a custom header on a same-origin fetch GET without a preflight. Same-origin requests are never preflighted in any browser. Proven against a recording stub; preflight behaviour was not measured in any engine, and not in a real Safari 15.
 
 ## Review log
 - Review of the connector half (iteration 2 there) found the image gap above; the wrapper's comment and this plan are corrected.
+- Iteration 1 (opus): WARNING, the "not doubled" assertion could not fail without its guard (set replaces): it now pre-sets "0" in lower case and asserts the caller's value is kept (a mutant without the guard fails it, see below). WARNING, untested input shapes: protocol-relative to another host and to this one, data:, about:, a Headers object, pairs, all asserted. NITs taken: the comment says a same-origin init's headers become a Headers object, says "nothing on this computer approves", and names the service worker's fetches as not covered (also under Known limits); the plan's measurement claim says a recording stub, not a real engine.
