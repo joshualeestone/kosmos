@@ -22070,7 +22070,7 @@ function kplusRemote() {
    as it always did. At load the page asks the board once whether this browser needs keys at all (it makes none): a
    browser that sends Sec-Fetch-Site is told no, and its links are left alone from the first click, so its downloads
    still start in the click itself. Listens on window in the bubble phase and leaves a click another handler took (an
-   attachment card opening its preview, the viewer's own Mac-app link) alone, and a Cmd or Ctrl click. At the computer
+   attachment card opening its preview, the viewer's own Mac-app link) alone, and a Cmd, Ctrl or Shift click. At the computer
    itself (not over Kosmos+) it takes no click and asks nothing. */
 const DL_KEY_LINK_ROUTES = [
   /^\/api\/agent\/[^/]+\/files\/(?:download|download-folder)$/,
@@ -22102,9 +22102,9 @@ function dlKeyOpen(u, name) {
   go.remove();
 }
 function dlKeyClick(e) {
-  // Cmd and Ctrl clicks are the browser's (a new tab); Shift and Option are still downloads (Safari's Option-click is
-  // "download linked file"), so they take a key too.
-  if (!e || e.defaultPrevented || e.button > 0 || e.metaKey || e.ctrlKey || DL_KEY_NOT_NEEDED || !kplusRemote()) return;
+  // Cmd, Ctrl and Shift clicks are the browser's (a new tab or window; Safari's Shift-click adds to the Reading List).
+  // Option-click is Safari's "download linked file", so it takes a key like a plain click.
+  if (!e || e.defaultPrevented || e.button > 0 || e.metaKey || e.ctrlKey || e.shiftKey || DL_KEY_NOT_NEEDED || !kplusRemote()) return;
   const a = e.target && e.target.closest && e.target.closest('a[download]');
   const u = dlKeyLinkAddress(a);
   if (!u) return;
