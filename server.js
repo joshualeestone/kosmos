@@ -25098,22 +25098,6 @@ const server = http.createServer(async (req, res) => {
             answeredBy.set(m.replyTo, list);
           }
         }
-        /* kosmos#8828 item 1: the posts the reader has a live reaction on (its latest add per emoji; never the claim 🙋,
-           which says "mine"), from the stored reaction rows, this room's only (roomRows leaves reactions out). A reaction
-           does not answer a post addressed to the reader (engine/defaults.js: "A reaction never answers a message
-           addressed to you"), so such a post stays listed; the list says why, below, so a reaction is not read as lost. */
-        const reactedBy = new Set();
-        if (readerName) {
-          const latest = new Map();   // post id -> Map(emoji -> 'add'|'remove'), the reader's own reactions, in order
-          for (const m of (rec && Array.isArray(rec.rows) ? rec.rows : [])) {
-            if (!m || m.kind !== 'reaction' || m.project !== id || m.operator === true || m.from !== readerName || m.claim === true) continue;
-            if (typeof m.emoji !== 'string' || messages.isClaimEmoji(m.emoji)) continue;
-            const of = String(m.of);
-            if (!latest.has(of)) latest.set(of, new Map());
-            latest.get(of).set(m.emoji, m.op === 'remove' ? 'remove' : 'add');
-          }
-          for (const [of, byEmoji] of latest) if ([...byEmoji.values()].includes('add')) reactedBy.add(of);
-        }
         /* Asked of the reader: it named the reader (an @name, or an agent's `Sender -> Name:` header; messages.namedIn,
            the claim guard's own reading), or the person posted and it reached the reader, unless the claim guard reads it
            as asking only other agents (kosmos#8734, see namedOthersOnly below). A colleague's post that only
@@ -25461,12 +25445,30 @@ const server = http.createServer(async (req, res) => {
            the list entry comes back by itself if the claim goes, a dropped reminder never does. */
         // kosmos#7969: a claimed ask more than UNANSWERED_DAYS old whose claim ends comes back into the count of older
         // posts below, not the list; "comes back here" stays as it is, since that count is part of this same view.
-        // kosmos#8828 item 1: a listed post the reader only reacted to, named, so the reaction is not read as lost.
-        const reactedListed = onlyUnanswered ? tail.filter((m) => m && reactedBy.has(String(m.id))).map((m) => String(m.id)) : [];
+        /* kosmos#8828 item 1: a listed post the reader has a live reaction on is named under the list, so the reaction
+           is not read as lost. A reaction does not answer a post that asked the reader something (engine/defaults.js: "A
+           reaction never answers a message addressed to you"), so the post stays listed. Only under --unanswered, and only
+           from the listed posts' own reaction rows (reactionRowsOf, grouped once per request; kosmos#7365), this room's
+           only. Live: the reader's latest op per emoji, any still added. Every raised hand is left out, marked as a claim
+           or not, since a 🙋 says "mine", not an answer. */
+        const reactedListed = [];
+        if (onlyUnanswered && readerName) {
+          for (const m of tail) {
+            if (!m) continue;
+            const byEmoji = new Map();
+            for (const x of (reactionRowsOf.get(String(m.id)) || NO_REACTIONS)) {
+              if (x.project !== id || x.operator === true || x.from !== readerName) continue;
+              if (typeof x.emoji !== 'string' || messages.isClaimEmoji(x.emoji)) continue;
+              byEmoji.set(x.emoji, x.op === 'remove' ? 'remove' : 'add');
+            }
+            if ([...byEmoji.values()].includes('add')) reactedListed.push(String(m.id));
+          }
+        }
         const reactedLine = reactedListed.length
           ? '[kosmos] You reacted to ' + reactedListed.map((x) => '[' + x + ']').join(', ')
-            + ', but a reaction does not answer a post addressed to you, so ' + (reactedListed.length === 1 ? 'it stays' : 'each stays')
-            + ' here until you answer it with a post: kosmos post --in-reply-to <id>.\n'
+            + ', but a reaction does not answer a post that asked you something, so ' + (reactedListed.length === 1 ? 'it is' : 'each is')
+            + ' still listed. Answer with a post that cites it: kosmos post --in-reply-to '
+            + (reactedListed.length === 1 ? reactedListed[0] : '<its id>') + ' ' + id + ' <your answer>\n'
           : '';
         const shownClaimed = claimedAsks.slice(-textRows);
         const moreClaimed = claimedAsks.length - shownClaimed.length;

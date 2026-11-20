@@ -86,8 +86,31 @@ test('kosmos#8828: a post I reacted to stays listed, and the list says why', asy
   assert.ok(listed(r.text, confirm) && listed(r.text, plain), 'a reaction answered a post addressed to me:\n' + r.text);
   const line = reactedLine(r.text);
   assert.ok(line.includes('[' + confirm + ']') && !line.includes('[' + plain + ']'), 'the line does not name exactly the post I reacted to:\n' + r.text);
-  assert.match(line, /does not answer a post addressed to you/);
-  assert.match(line, /--in-reply-to/);
+  assert.match(line, /does not answer a post that asked you something/);
+  assert.ok(line.endsWith('kosmos post --in-reply-to ' + confirm + ' ' + pid + ' <your answer>'), 'the command is not runnable as printed:\n' + line);
+  const plainRead = await room(pid, ME, '');
+  assert.equal(plainRead.status, 200, plainRead.text);
+  assert.equal(reactedLine(plainRead.text), '', 'a plain read carries the line:\n' + plainRead.text);
+});
+
+test('kosmos#8828: several emojis, one removed, still named; two posts get the placeholder; a post cut by -n is not named', async () => {
+  const pid = newRoom('Reacted8828d');
+  const cut = post(pid, { text: '@readerseat the inspection is booked.', mentioned: [ME] });
+  const multi = post(pid, { text: '@readerseat the deposit is paid.', mentioned: [ME] });
+  const second = post(pid, { text: '@readerseat the utilities are in your name.', mentioned: [ME] });
+  react(pid, cut, ME, '\u{1F44D}');
+  react(pid, multi, ME, '\u{1F440}');
+  react(pid, multi, ME, '\u{1F44D}');
+  react(pid, multi, ME, '\u{1F44D}', 'remove');
+  react(pid, second, ME, '\u{2705}');
+  let r = await room(pid, ME, '&unanswered=1');
+  let line = reactedLine(r.text);
+  assert.ok([cut, multi, second].every((x) => line.includes('[' + x + ']')), 'a post with a live reaction is not named:\n' + r.text);
+  assert.ok(line.endsWith('kosmos post --in-reply-to <its id> ' + pid + ' <your answer>'), 'several posts: the command is not the placeholder form:\n' + line);
+  r = await room(pid, ME, '&unanswered=1&n=1');
+  assert.ok(listed(r.text, second) && !listed(r.text, cut), 'fixture: -n 1 lists only the newest:\n' + r.text);
+  line = reactedLine(r.text);
+  assert.ok(line.includes('[' + second + ']') && !line.includes('[' + cut + ']') && !line.includes('[' + multi + ']'), 'a post cut by -n is named:\n' + r.text);
 });
 
 test('kosmos#8828: a claim, a reaction taken back, another agent\'s, or one in another room is not named', async () => {
@@ -97,12 +120,16 @@ test('kosmos#8828: a claim, a reaction taken back, another agent\'s, or one in a
   const takenBack = post(pid, { text: '@readerseat the signing is moved to Monday.', mentioned: [ME] });
   const others = post(pid, { text: '@readerseat the landlord agreed to the date.', mentioned: [ME] });
   const elsewhere = post(pid, { text: '@readerseat the keys are at the office.', mentioned: [ME] });
+  const oldHand = post(pid, { text: '@readerseat the parking pass is ready.', mentioned: [ME] });
+  const toneHand = post(pid, { text: '@readerseat the mail is forwarded.', mentioned: [ME] });
   claim(pid, claimed, ME);
+  react(pid, oldHand, ME, '\u{1F64B}');   // a raised hand from before claims were marked (no claim: true)
+  react(pid, toneHand, ME, '\u{1F64B}\u{1F3FD}');   // a skin-tone raised hand, unmarked
   react(pid, takenBack, ME, '\u{1F44D}');
   react(pid, takenBack, ME, '\u{1F44D}', 'remove');
   react(pid, others, BYSTANDER, '\u{1F44D}');
   react(other, elsewhere, ME, '\u{1F44D}');
   const r = await room(pid, ME, '&unanswered=1');
   assert.equal(reactedLine(r.text), '', 'one of these was named as my reaction:\n' + r.text);
-  assert.ok(listed(r.text, takenBack) && listed(r.text, others) && listed(r.text, elsewhere), 'fixture: these stay listed:\n' + r.text);
+  assert.ok([claimed, takenBack, others, elsewhere].every((x) => listed(r.text, x)), 'fixture: these stay listed:\n' + r.text);
 });
