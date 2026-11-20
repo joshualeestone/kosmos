@@ -151,6 +151,65 @@ function quietWhy(projectId, from, asked, to) {
   } catch { return {}; }
 }
 
+/* kosmos#8769 item 3: the line an agent reads in `kosmos room` BEFORE it posts, while a post asking more than one member
+   here would wake no one, so it need not learn it only from the answer to a post already sent. '' when a post would wake
+   as usual. Reads only: unlike paused() it never starts, ends or moves a pause, so a read cannot change when one began.
+   At the cap with no pause recorded yet (review 2): the next agent post starts the pause and is under it, but only
+   while the count stays at the cap, so the line names when it drops below (the wake that must age out, in the window).
+   `clock(ms)` writes times the way the view writes its others (review 1); without one, the board's own. Review 2: "your
+   person", since a person's post on another computer of a shared room does not end it (messages.js clears it for this
+   computer's person, a Reopen, and their own other computer). No final newline. */
+/* Review 5 (Splinter's settlement, from Mona Lisa's and Ice Cream Kitty's reviews): `opts.held` (the room is also held
+   by the valve, which refuses the one-member post the pause would let through, so that clause is left out); `opts.from`
+   and `opts.members` (the reading agent and the room's members, when known: a reader that has used its per-pair wakes
+   on every other member is told so, not to address one member). */
+function readerNote(projectId, now = Date.now(), clock = null, opts = {}) {
+  try {
+    const p = String(projectId);
+    const live = pausedAt.has(p) && now - pausedAt.get(p) < LOOP_WINDOW_MS;
+    // Review 4: a sorted copy, so a wall clock stepped back between two wakes cannot pick the wrong one below.
+    const inWindow = pausedAt.has(p) ? [] : (wakes.get(p) || []).filter((t) => now - t < LOOP_WINDOW_MS).sort((x, y) => x - y);
+    const atCap = !pausedAt.has(p) && inWindow.length > 0 && inWindow.length >= cap;   // review 3: never with no wake
+    if (!live && !atCap) return '';
+    const at = (ms) => {
+      let w = '';
+      // Review 3: only a string counts; null or undefined would otherwise print as a word.
+      try { const v = typeof clock === 'function' ? clock(ms) : ''; w = typeof v === 'string' ? v : ''; } catch { w = ''; }
+      return w || new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+    };
+    const why = ' (an automatic limit: agents\' posts here woke one another ' + cap + ' times within an hour). ';
+    const o = opts && typeof opts === 'object' ? opts : {};
+    // Review 7: `held` may be a function, asked only here, after a line is known to be said (the read behind it can walk
+    // the project folder); one that throws reads as not held.
+    let held = false;
+    try { held = typeof o.held === 'function' ? Boolean(o.held()) : o.held === true; } catch { held = false; }
+    const from = typeof o.from === 'string' && o.from ? o.from : null;
+    const others = from && Array.isArray(o.members) ? o.members.filter((m) => typeof m === 'string' && m && m !== from) : [];
+    const pairsSpent = live && others.length > 0 && others.every((m) => (pairWakes.get(p + '\u0000' + from + '\u0000' + m) || 0) >= PAIR_CAP);
+    const ends = ' Your person\'s post here ends the pause.';
+    const startsOver = ' Your person\'s post here starts the count over.';   // review 4: at the cap there is no pause yet
+    if (live) {
+      const left = Math.max(0, THROUGH_CAP - (throughWakes.get(p) || 0));
+      return '[kosmos] Agents waking each other is paused in this room until about ' + at(pausedAt.get(p) + LOOP_WINDOW_MS) + why
+        + 'A post that asks more than one member will wake no one.'
+        + (held ? ''
+          : left <= 0 ? ' The posts to exactly one member that may get through during this pause are used up.'
+          : pairsSpent ? ' You have used your posts to one member for every member here during this pause (' + PAIR_CAP + ' to each).'
+          : ' A post to exactly one member may still get through: ' + left + ' more in this pause, at most ' + PAIR_CAP + ' to the same member from you.')
+        + ends;
+    }
+    // wakes are kept oldest first: the count drops below the cap when the (length - cap + 1)th newest ages out.
+    const below = inWindow[inWindow.length - cap] + LOOP_WINDOW_MS;
+    return '[kosmos] Agents waking each other is at its limit in this room' + why
+      // Review 3: "starts a pause and is under it", not "is paused itself": a post to exactly one member still gets through.
+      + 'An agent post made before about ' + at(below) + ' starts a pause of an hour and is under it: during it, a post '
+      + 'that asks more than one member wakes no one'
+      + (held ? '.' : ', and a post to exactly one member may still get through (' + THROUGH_CAP
+        + ' in the pause, at most ' + PAIR_CAP + ' to the same member from you).')
+      + startsOver;
+  } catch { return ''; }
+}
+
 /* Round 3: a person posted in `projectId`, so its count starts over and the next pause is said at once. */
 function clear(projectId) {
   try { const p = String(projectId); wakes.delete(p); said.delete(p); pausedAt.delete(p); forgetPairs(p); } catch { /* the pause runs out instead */ }
@@ -163,4 +222,4 @@ function liveCap() { return cap; }
 function setCapForTests(n) { cap = n; }
 function resetForTests() { wakes.clear(); said.clear(); pausedAt.clear(); pairWakes.clear(); throughWakes.clear(); cap = LOOP_CAP; }
 
-module.exports = { LOOP_CAP, LOOP_WINDOW_MS, paused, noteWake, clear, liveCap, freesAt, pauseNote, senderNote, quietWhy, setCapForTests, resetForTests, pairCan, pairTake, pairRefund, PAIR_CAP, THROUGH_CAP };
+module.exports = { LOOP_CAP, LOOP_WINDOW_MS, paused, noteWake, clear, liveCap, freesAt, pauseNote, senderNote, readerNote, quietWhy, setCapForTests, resetForTests, pairCan, pairTake, pairRefund, PAIR_CAP, THROUGH_CAP };
