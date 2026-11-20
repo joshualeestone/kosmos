@@ -1,4 +1,4 @@
-# whatsnew-0812: What's New for the 0.8.12 staging cut
+# whatsnew-0812: What's New for the next cut (0.8.13)
 
 ## Goal
 The What's New window for the next cut. It was written for 0.8.12, but 0.8.12 was cut at 04:07 without it
@@ -26,8 +26,9 @@ version. The highlights are the same; their pool entries keep since 0.8.12, the 
   every build's release notes either way.
 - The Safari line says nothing about downloads: #8790's download key (#8816) may or may not land before the next cut,
   and a line about it would be wrong one way or the other. If it lands, it gets its own entry.
-- Left out on purpose: the iPhone app's empty Agents tab (#8793), which ships with the iPhone app, not in this
-  release; and changes with nothing to see (the sign-in redirect hardening, the enrolment engine side, hand-over
+- Left out on purpose: the iPhone app's changes (#8793 the empty Agents tab, #8809 and #8815 Sign in again), which
+  ship with the iPhone app, not in this release; #8806 (busy kosmos room refinements), which the existing notes-only
+  line still describes; and changes with nothing to see (the sign-in redirect hardening, the enrolment engine side, hand-over
   internals, the new agent's brief text).
 
 ## Weakest premise
