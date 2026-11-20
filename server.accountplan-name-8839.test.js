@@ -110,7 +110,7 @@ test('CONTROL: the agent\'s own name still plans, with resolve=1 and without it'
   assert.deepEqual([bare.code, bare.j.ok, bare.j.dir], [200, true, SPARE], bare.text.slice(0, 300));
 });
 
-test('without resolve=1 (Settings, which sends the card\'s own name) a display name is not taken for another agent', async () => {
+test('without resolve=1 the name is taken exactly as sent: a display name is not taken for another agent', async () => {
   const r = await plan({ name: 'Sub-Zero', account: 'spare' });
   assert.equal(r.code, 404, 'a plan without resolve=1 was resolved: ' + r.text.slice(0, 200));
   assert.match(r.j.because, /there is no agent called Sub-Zero on this computer/);

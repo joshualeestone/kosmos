@@ -357,3 +357,44 @@ test('kosmos#8839 Windows CONTROL: the agent\'s own name moves that agent; an am
     assert.equal(posts(seen).length, 0, 'an ambiguous name was moved');
   });
 });
+
+const UNREAD = [503, { ok: false, readFailed: true, because: 'Kosmos could not read its agents just now, so it cannot tell which agent Sub-Zero is; try again' }];
+const sameFor = (name, shown) => [200, { ok: true, same: true, name, shown, dir: '/u/.claude-spare', label: 'spare', skills: [], hooks: [] }];
+
+test('kosmos#8839 Mac: a board that could not read its agents is said as that, not as a refusal; "already there" names the agent', async () => {
+  await withStub({ plan: UNREAD }, async (port, seen) => {
+    const r = await cli(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /Kosmos could not read its agents just now, so it cannot tell which agent Sub-Zero is; try again\. Nothing was moved\./);
+    assert.doesNotMatch(r.out, /will not move/);
+    assert.equal(posts(seen).length, 0);
+  });
+  await withStub({ plan: sameFor('subzero', 'Sub-Zero') }, async (port, seen) => {
+    const r = await cli(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Sub-Zero \(subzero\) is already on spare\. Nothing was moved\./);
+    assert.equal(posts(seen).length, 0);
+  });
+});
+
+test('kosmos#8839 Windows: the same two answers, and an older board (no name in the plan) leaves the typed name', async () => {
+  await withStub({ plan: UNREAD }, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /Kosmos could not read its agents just now, so it cannot tell which agent Sub-Zero is; try again\. Nothing was moved\./);
+    assert.doesNotMatch(r.err, /will not move/);
+    assert.equal(posts(seen).length, 0);
+  });
+  await withStub({ plan: sameFor('subzero', 'Sub-Zero') }, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.out, /Sub-Zero \(subzero\) is already on spare\. Nothing was moved\./);
+    assert.equal(posts(seen).length, 0);
+  });
+  await withStub({ plan: CLEAN }, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'move', 'subzero', 'spare', '--yes']);
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(JSON.parse(posts(seen)[0].body).names, ['subzero']);
+    assert.match(r.out, /Moving restarts subzero on spare\./);
+  });
+});

@@ -3233,6 +3233,8 @@ async function agentMove(ctx, args) {
   if (!p.reached) return ctx.unreachable('read what moving ' + name + ' would do');
   if (!p.json) { ctx.err('Kosmos gave an answer we could not read when asked about moving ' + name + '.'); return 1; }   // review 3: as the Mac says it
   const plan = p.json;
+  // kosmos#8839: a board that could not read its agents has not refused anything; said as that, not as "will not move".
+  if (plan.readFailed === true) { ctx.err((clause(plan.because || '') || 'Kosmos could not read its agents just now') + '. Nothing was moved.'); return 1; }
   if (plan.ok !== true && !plan.dir) {
     const why = clause(plan.because || plan.error || '');
     ctx.err('Kosmos will not move ' + name + ': ' + (why || 'it did not say why') + (/[?!]$/.test(why) ? '' : '.'));
@@ -3242,8 +3244,9 @@ async function agentMove(ctx, args) {
      which is what the move below is sent; the move route itself resolves nothing, as remove's does not. The agent is
      said by its card and its own name whenever those differ (as agent model does), so a word that is one agent's folder
      and another's display name never reads as the agent the person meant. */
-  const agent = typeof plan.name === 'string' && plan.name ? plan.name : typed;
-  const shown = typeof plan.shown === 'string' ? plan.shown.replace(/[\u0000-\u001f\u007f]+/g, ' ') : '';
+  const plain = (v) => (typeof v === 'string' ? v.replace(/[\t\r\n]+/g, ' ') : '');   // as the Mac CLI's one()
+  const agent = plain(plan.name) || typed;
+  const shown = plain(plan.shown);
   if (shown && shown !== agent) name = shown + ' (' + agent + ')'; else if (agent !== typed) name = agent;
   const label = plan.label || account;
   if (plan.same === true) { ctx.out(name + ' is already on ' + label + '. Nothing was moved.'); return 0; }

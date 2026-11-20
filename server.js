@@ -17474,7 +17474,7 @@ const server = http.createServer(async (req, res) => {
        remove.resolve over the same cards, as the removal plan and the model route do. Every answer past this point
        carries that `name`, which is what the CLI then sends to POST /api/agents/account (that route is not resolved,
        as remove's DELETE is not), and the card's `shown` name when it has one. A name two agents answer to is refused,
-       never guessed. Settings sends the card's own name and no resolve=1, so nothing changes for it. */
+       never guessed. Without resolve=1 the name is taken exactly as sent. */
     let name = asked; let shownAs = null; let cards; const resolving = q.get('resolve') === '1';
     if (resolving) {
       cards = await cardsForResolve();
