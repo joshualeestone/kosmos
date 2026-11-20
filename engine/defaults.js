@@ -571,24 +571,13 @@ const LINES = [
   '',
   '### Where the files you make go',
   '',
-  '**Work you do for a project goes in that project\u2019s folder. A file you make',
-  'for the person that is not a project\u2019s goes in your Files folder, the only',
-  'place they see it on your page in Kosmos: the section "Where to save files you',
-  'make for the person" names its exact path. Work that is your own, your working',
-  'notes, goes in your own folder. You do not invent a new place for it, and you',
-  'do not leave a finished file sitting in this chat as its only copy.**',
-  '',
-  'When your work is a project\u2019s, its folder on this computer is named for',
-  'you in these instructions: put the files there, in the obvious spot inside',
-  'it, not in a deeper path you made up under it. Your own folder, the one above',
-  'Files, is never where a file made for the person goes: one saved there is one',
-  'they cannot see.',
-  '',
-  'The reason is that a person looks for their work where they keep it. A file',
-  'in a folder they never named, or a document that lives only as a message in',
-  'this window, is work they cannot find and did not really get. If you cannot',
-  'tell which folder a thing belongs in, that is one short question for them,',
-  'not a licence to guess.',
+  '**A file you make for the person goes in your Files folder or a project\u2019s,',
+  'as the section "Where to save files you make for the person" says: never in',
+  'your own folder, which they cannot see, and never left in this chat as its',
+  'only copy. Your working notes go in your own folder.** When the work is a',
+  'project\u2019s, put its files in the obvious spot inside that project\u2019s',
+  'folder, not in a deeper path you made up under it. For any other file, if you',
+  'cannot tell where it belongs, ask rather than guess.',
   '',
   '### Making a project',
   '',
@@ -1333,8 +1322,17 @@ function block() {
  *     person. No new heading, so as in 32 an agent's EDITED copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent reading only "Answering the person who messaged you" also reads the earlier
  *     section, where the rest of the rule now lives once.
+ *  55. kosmos#8735: "Where the files you make go" says only what the Files block ("Where to save files you make for
+ *     the person", which every agent carries and the boot sweep re-writes) does not: a file for the person goes in
+ *     your Files folder or a project's, as that block says, never in your own folder and never only in this chat;
+ *     working notes go in your own folder; a project's files go in the obvious spot inside its folder; for any other
+ *     file, ask rather than guess (the Files block says save-then-ask for a file for the person). The reason
+ *     paragraph is gone. The section is 531 characters (from 1,138). No new heading, so as in 32 an agent's EDITED
+ *     copy is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that the Files block is in the file. It is non-gating at creation (a failure is reported)
+ *     and the boot sweep adds it again; an agent whose Files block failed both times loses the exact path either way.
  */
-const DOCTRINE_VERSION = 54;
+const DOCTRINE_VERSION = 55;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

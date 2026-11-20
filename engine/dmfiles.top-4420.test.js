@@ -68,9 +68,9 @@ test('#4420: the pointer sits ABOVE the doctrine section that says "your own fol
 
 test('#4420: the doctrine sends a file made for the person to Files, and names the rule that carries its path', () => {
   const flat = require('./defaults').sections().find((x) => x.heading === '### Where the files you make go').text.replace(/\s+/g, ' ');
-  assert.match(flat, /A file you make for the person that is not a project\u2019s goes in your Files folder, the only place they see it on your page in Kosmos/);
-  assert.match(flat, /"Where to save files you make for the person"/, 'the doctrine does not point at the section with the path');
-  assert.match(flat, /Your own folder, the one above Files, is never where a file made for the person goes/);
+  // kosmos#8735: the section points at the Files block for the place, and keeps the agent's own folder out by name.
+  assert.match(flat, /A file you make for the person goes in your Files folder or a project\u2019s, as the section "Where to save files you make for the person" says/, 'the doctrine does not point at the section with the path');
+  assert.match(flat, /never in your own folder, which they cannot see/);
   assert.doesNotMatch(flat, /your own folder is where it goes/, 'the sentence the agent stopped at is back');
   /* 18, not 16: #4467 and #4475 took 16 and 17 first. At least, not equal: a later bump must not red this. */
   assert.ok(require('./defaults').DOCTRINE_VERSION >= 18, 'DOCTRINE_VERSION must be at least 18, the #4420 bump');

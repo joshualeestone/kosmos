@@ -712,3 +712,86 @@ test('kosmos#8735 slice 3: a different line removed from that section gets no su
   assert.ok(body.includes('- ' + other), 'fixture: the removed line is not in the changes file');
   assert.ok(!body.includes(ANSWER_NOTE), 'a removal that is not the v54 one was pointed at the earlier section');
 });
+
+/* kosmos#8735 (doctrine 55): "Where the files you make go" kept only what the Files block does not say. A running agent
+   re-reading its file must be told the removed rules are in that block, reworded. The old text is the current working
+   rules with v54's section put back, word for word. */
+const V54_FILES = [
+  '### Where the files you make go',
+  '',
+  '**Work you do for a project goes in that project’s folder. A file you make',
+  'for the person that is not a project’s goes in your Files folder, the only',
+  'place they see it on your page in Kosmos: the section "Where to save files you',
+  'make for the person" names its exact path. Work that is your own, your working',
+  'notes, goes in your own folder. You do not invent a new place for it, and you',
+  'do not leave a finished file sitting in this chat as its only copy.**',
+  '',
+  'When your work is a project’s, its folder on this computer is named for',
+  'you in these instructions: put the files there, in the obvious spot inside',
+  'it, not in a deeper path you made up under it. Your own folder, the one above',
+  'Files, is never where a file made for the person goes: one saved there is one',
+  'they cannot see.',
+  '',
+  'The reason is that a person looks for their work where they keep it. A file',
+  'in a folder they never named, or a document that lives only as a message in',
+  'this window, is work they cannot find and did not really get. If you cannot',
+  'tell which folder a thing belongs in, that is one short question for them,',
+  'not a licence to guess.',
+  '',
+].join('\n');
+function withFilesSectionBack() {
+  const block = require('./defaults').blockFor(process.platform);
+  const sec = require('./defaults').sections(process.platform).find((x) => x.heading === '### Where the files you make go');
+  assert.ok(sec && block.includes(sec.text), 'fixture: the files section is not in the working rules');
+  return { block, before: block.replace(sec.text, V54_FILES) };
+}
+const FILES_NOTE = 'A line marked - under Where the files you make go may be in the section "Where to save files you make for the person", in this file too, reworded';
+const REASON = 'The reason is that a person looks for their work where they keep it. A file';
+
+test('kosmos#8735 doctrine 55: the removed files lines stay marked and the note names the Files block', () => {
+  const projects = require('./projects');
+  const dm = require('./dmfiles');
+  const { block, before } = withFilesSectionBack();
+  const tail = projects.spliceBlock('', dm.blockBody('/x/Files'), dm.START, dm.END) + '\n';
+  agentFile('tfa', '# You are Tfa\n\n' + block + '\n' + tail);
+  assert.equal(ir.remember('tfa', '# You are Tfa\n\n' + before + '\n' + tail), true);
+  const body = fs.readFileSync(ir.prepareChanges('tfa').path, 'utf8');
+  assert.ok(body.includes('- ' + REASON), 'a removed line was hidden; nothing should be left out');
+  assert.ok(body.includes(FILES_NOTE), 'the note naming the Files block is missing');
+});
+
+test('kosmos#8735 doctrine 55: with no Files block in the file, no note claims the rules are there (CONTROL)', () => {
+  const { block, before } = withFilesSectionBack();
+  agentFile('tfb', '# You are Tfb\n\n' + block + '\n');
+  assert.equal(ir.remember('tfb', '# You are Tfb\n\n' + before + '\n'), true);
+  const body = fs.readFileSync(ir.prepareChanges('tfb').path, 'utf8');
+  assert.ok(body.includes('- ' + REASON), 'fixture: the removed line is not in the changes file');
+  assert.ok(!body.includes(FILES_NOTE), 'a file with no Files block was pointed at one');
+});
+
+test('kosmos#8735 doctrine 55: a different line removed from the files section gets no such note (CONTROL)', () => {
+  const projects = require('./projects');
+  const dm = require('./dmfiles');
+  const block = require('./defaults').blockFor(process.platform);
+  const head = '### Where the files you make go\n';
+  const other = 'A rule a person wrote under this heading and later deleted.';
+  assert.equal(block.split(head).length, 2, 'fixture: the files heading is not unique');
+  const tail = projects.spliceBlock('', dm.blockBody('/x/Files'), dm.START, dm.END) + '\n';
+  agentFile('tfc', '# You are Tfc\n\n' + block + '\n' + tail);
+  assert.equal(ir.remember('tfc', '# You are Tfc\n\n' + block.replace(head, head + '\n' + other + '\n') + '\n' + tail), true);
+  const body = fs.readFileSync(ir.prepareChanges('tfc').path, 'utf8');
+  assert.ok(body.includes('- ' + other), 'fixture: the removed line is not in the changes file');
+  assert.ok(!body.includes(FILES_NOTE), 'a removal that is not the v55 one was pointed at the Files block');
+});
+
+test('kosmos#8735 doctrine 55: a Files block without its heading gets no note naming that heading (CONTROL)', () => {
+  const projects = require('./projects');
+  const dm = require('./dmfiles');
+  const { block, before } = withFilesSectionBack();
+  const tail = projects.spliceBlock('', 'a Files block a person rewrote, without its heading', dm.START, dm.END) + '\n';
+  agentFile('tfd', '# You are Tfd\n\n' + block + '\n' + tail);
+  assert.equal(ir.remember('tfd', '# You are Tfd\n\n' + before + '\n' + tail), true);
+  const body = fs.readFileSync(ir.prepareChanges('tfd').path, 'utf8');
+  assert.ok(body.includes('- ' + REASON), 'fixture: the removed line is not in the changes file');
+  assert.ok(!body.includes(FILES_NOTE), 'the note named a heading that is not in the file');
+});
