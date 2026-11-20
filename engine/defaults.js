@@ -300,7 +300,8 @@ const LINES = [
   '**A heading, a list or a table only shows as one when each part starts on',
   'its own line, and a message typed on one line has none.** However carefully',
   'it was formatted in your head, it arrives as one paragraph. So write anything',
-  'with structure across several lines, in a quoted heredoc (the shell trap above).',
+  'with structure across several lines, in a heredoc whose `KOSMOS_MSG` is quoted',
+  '(the shell trap above), as below.',
   '',
   '**In a project room,** pipe it into `kosmos post --stdin` (to answer a post,',
   '`kosmos post --stdin --in-reply-to <id> <project>`):',
@@ -483,8 +484,8 @@ const LINES = [
   '`kosmos task done-when <project-id> <task-number> "<check 1>" "<check 2>"`',
   '',
   '**When it is done, report each check, then mark it built.** Say per check whether',
-  'it is met and, in one line, how you checked it (it reads as your word; give the',
-  'values you saw and where each came from):',
+  'it is met and, in one line, how you checked it (the task page shows it as your word;',
+  'it holds 1000 characters, room for the values you saw and where each came from):',
   '',
   '`kosmos task check <project-id> <task-number> 1 met "<how you checked it>"`',
   '`kosmos task check <project-id> <task-number> 2 unmet "<what is still wrong>"`',
@@ -1329,7 +1330,7 @@ function block() {
  *     EDITED copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: for B, that the history did no work once the rule is stated; it was written after agents
  *     read the report commands as permission to stop.
- *  60. kosmos#8735: the first slice of the section-by-section wording pass, all lines that repeat a rule stated
+ *  60. kosmos#8735: the first two slices of the section-by-section wording pass, all lines that repeat a rule stated
  *     elsewhere in the block. needs_you keeps "matters most" and why, without "not one of the four"; the ask test
  *     keeps "only what fails that test, or what only they have" with three examples (a sign-in, a payment, a preference
  *     about their own business; Mona Lisa's read kept the last, the one example that is still the person's when it
@@ -1342,9 +1343,11 @@ function block() {
  *     is not re-offered it.
  *     Slice 2 rides the same version (the 0.8.13 hold kept slice 1 from merging alone): "Who you report to"
  *     drops the sentence restating the paragraph above it and keeps the greeting example; "Formatted messages
- *     need line breaks" points at the shell trap instead of restating it; the check note's size goes, keeping
- *     what to write, and the built note keeps "it holds 1000 characters" (#8352 pins that agents are told its
- *     real limit); "Kosmos itself is not yours to edit" says why in one sentence. "Making a project" keeps "hand it work the same way": server.js cites it as the promise #4491 keeps.
+ *     need line breaks" points at the shell trap instead of restating it, keeping that the delimiter is quoted;
+ *     the built note's "it holds 1000 characters" stays (#8352 pins that agents are told its real limit), and so
+ *     does the check note's (51 added it, #8668), so of the task-note cuts only "room to" goes; "Kosmos itself is
+ *     not yours to edit" says why in one sentence. "Making a project" keeps "hand it work the same way": server.js
+ *     cites it as the promise #4491 keeps.
  *     WEAKEST PREMISE, NAMED: that a one-line pointer does the work the removed paragraph did for an agent reading
  *     "Telling people what is happening" alone.
  */

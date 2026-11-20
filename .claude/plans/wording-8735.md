@@ -1,6 +1,6 @@
 # wording-8735: first slice of the section-by-section wording pass (#8735)
 
-Goal: pm brief under 40,000 (NEW_AGENT_GOAL). On main: 45,054. Slice 1 alone: 44,369; with slice 2: 44,027.
+Goal: pm brief under 40,000 (NEW_AGENT_GOAL). On main: 45,054. Slice 1 alone: 44,369; with slice 2: 44,027, and 44,103 after round 4 put the check note's 1000 back. Ratchet 44,200.
 
 Cuts (all repeat a rule stated elsewhere in the block, no heading changed):
 1. needs_you: "not one of the four ... the one that matters most" -> "It matters most: it is the only state ...".
@@ -11,7 +11,7 @@ Cuts (all repeat a rule stated elsewhere in the block, no heading changed):
 6. "Use their name": why the lines say "the person", in one clause.
 7. Copied reference: the room-name gloss removed.
 
-DOCTRINE_VERSION 59 -> 60, fingerprints pinned, doctrine-past regenerated, ratchet 45,100 -> 44,400.
+DOCTRINE_VERSION 59 -> 60, fingerprints pinned, doctrine-past regenerated, ratchet 45,100 -> 44,400 (slice 1 alone; final value below).
 Tests: 141 related files (defaults/doctrine/instructionreread/dmfiles/claimguide + cli-verbs parity): 4360, 0 failed.
 Weakest premise: the Blocked pointer in "Telling people" did work for an agent reading that section alone.
 
@@ -26,3 +26,5 @@ Not built, and why: e ("hand it work the same way"), server.js cites it as the p
 c on the built note, #8352 pins that agents are told its real limit ("it holds 1000 characters").
 pm: 44,027 (measured). Ratchet 44,100. Related tests 4,382, 0 failed (#5786 tunnel tests flaked once under load;
 engine/remote.test.js alone passes on the branch, 247, and on main, 246).
+
+Round 4 (opus, whole branch): no blocker. Taken: the check note keeps its 1000 (doctrine 51, #8668, states it nowhere else), the heredoc line says the delimiter is quoted, the ratchet history line, the log wrap and "first two slices". Not taken: "a password" back in the ask test (a sign-in covers it; Mona Lisa's read agreed).
