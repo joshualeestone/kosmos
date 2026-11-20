@@ -15,7 +15,8 @@ function guideText() {
     'under "How you work, whatever the job", in "Answering where you were asked".',
     '',
     // Answering where you were asked: the claim protocol's cases. From "post where they do." on, the lines are word for
-    // word from the working rules (so a running agent's changes file can leave them out as moved); the opening is new.
+    // word from the working rules, so a running agent's changes file leaves them out as moved; the two lines before it
+    // are re-wrapped and the opening is new, so those old lines stay marked, with the note that they may be reworded.
     '**If someone else holds it,** read the room, and offer them help if you have',
     'some; if they hand it to you, claim the',
     'post where they do. `kosmos room` shows a claimed post',
