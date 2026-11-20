@@ -38,7 +38,9 @@ const BOTH = new Set(['session-headers', 'fresh-signin']);
 test('R01b: a stale remote session is offered Sign in again only when the connector lists fresh-signin', () => {
   const t = now();
   // kosmos#8785: a full sign-in of any age now passes. What a real gate still sends that is refused: a sign-in without
-  // the second factor, from a gate set not to require one (both headers, second 0).
+  // the second factor, from a gate set not to require one (both headers, second 0). The fresh-signin branch offers the
+  // button before it looks at the second factor, which the plain-logout path below does not; no connector serves
+  // fresh-signin yet, so that difference reaches nobody, and it is older than #8785.
   const stale = { 'x-kosmos-session-iat': String(t - 3600), 'x-kosmos-session-second': '0' };
   const got = remoteStepUpRefusal(req(stale), '/api/agents', t, BOTH);
   assert.equal(got, REMOTE_STEP_UP_SIGNIN);

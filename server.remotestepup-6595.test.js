@@ -35,7 +35,7 @@ process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_LOGOUT, REMOTE_RECENT_SECS } = require('./server');
+const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_RECENT, REMOTE_RECENT_SECS, REMOTE_RECENT_ONLY } = require('./server');
 /* kosmos#7625: a stale request the gate forwarded (it wrote a session header) is offered Sign in again by logging out;
    one with no gate header (a proxy the owner set up), or with no second factor (signing in again cannot help:
    review 1), keeps the plain refusal. */
@@ -174,22 +174,31 @@ test('R01 (kosmos#8785): a full sign-in counts at any age; the second factor and
   assert.equal(remoteSessionFresh(undefined, t), false);
 });
 
-test('kosmos#8785: resetting the second factor still needs a RECENT full sign-in; every other gated route takes one of any age', () => {
+test('kosmos#8785: the identity-change routes still need a RECENT full sign-in; every other gated route takes one of any age', () => {
   const t = now();
-  const req = (headers) => ({ method: 'POST', headers });
   const caps = new Set(['session-headers']);
   const full = (age) => ({ ...VIA_PLUS, 'x-kosmos-session-iat': String(t - age), 'x-kosmos-session-second': '1' });
   assert.equal(REMOTE_RECENT_SECS, 12 * 60);
-  assert.equal(remoteStepUpRefusal(req(full(30)), '/api/remote/second-reset', t, caps), null, 'a sign-in from half a minute ago');
-  assert.equal(remoteStepUpRefusal(req(full(REMOTE_RECENT_SECS)), '/api/remote/second-reset', t, caps), null, 'the edge');
-  // A day-old full sign-in: refused, with the log-out button (it has the second factor, so signing in again helps).
-  assert.equal(remoteStepUpRefusal(req(full(REMOTE_RECENT_SECS + 1)), '/api/remote/second-reset', t, caps), REMOTE_STEP_UP_LOGOUT);
-  assert.equal(remoteStepUpRefusal(req(full(24 * 3600)), '/api/remote/second-reset', t, caps), REMOTE_STEP_UP_LOGOUT);
+  assert.ok(REMOTE_RECENT_ONLY.size >= 10, 'the time-bounded set lost routes');
+  for (const path of REMOTE_RECENT_ONLY) {
+    assert.equal(needsRemoteStepUp(path, 'POST'), true, path + ' is time-bounded but not gated at all');
+    for (const method of ['POST', 'PUT', 'PATCH']) {
+      const req = (headers) => ({ method, headers });
+      assert.equal(remoteStepUpRefusal(req(full(30)), path, t, caps), null, `${method} ${path}: half a minute old`);
+      assert.equal(remoteStepUpRefusal(req(full(REMOTE_RECENT_SECS)), path, t, caps), null, `${method} ${path}: the edge`);
+      // Too old for these: its own sentence, which says the time, with the log-out button.
+      assert.equal(remoteStepUpRefusal(req(full(REMOTE_RECENT_SECS + 1)), path, t, caps), REMOTE_STEP_UP_RECENT, `${method} ${path}: just past`);
+      assert.equal(remoteStepUpRefusal(req(full(24 * 3600)), path, t, caps), REMOTE_STEP_UP_RECENT, `${method} ${path}: a day old`);
+      // From the future is still a clock problem.
+      assert.equal(remoteStepUpRefusal(req(full(-600)), path, t, caps), REMOTE_STEP_UP_CLOCK, `${method} ${path}: ahead`);
+    }
+  }
+  assert.match(REMOTE_STEP_UP_RECENT.error, /within 10 minutes/);
+  assert.equal(REMOTE_STEP_UP_RECENT.signInAgain, true);
   // CONTROL: the same day-old sign-in makes an agent and updates.
-  assert.equal(remoteStepUpRefusal(req(full(24 * 3600)), '/api/agents', t, caps), null);
-  assert.equal(remoteStepUpRefusal(req(full(24 * 3600)), '/api/update', t, caps), null);
-  // From the future is still a clock problem there too.
-  assert.equal(remoteStepUpRefusal(req(full(-600)), '/api/remote/second-reset', t, caps), REMOTE_STEP_UP_CLOCK);
+  const post = (headers) => ({ method: 'POST', headers });
+  assert.equal(remoteStepUpRefusal(post(full(24 * 3600)), '/api/agents', t, caps), null);
+  assert.equal(remoteStepUpRefusal(post(full(24 * 3600)), '/api/update', t, caps), null);
 });
 
 test('R01: the gate passes update and agent creation for a fresh remote session and for a local one (function only)', () => {

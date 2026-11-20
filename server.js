@@ -5579,7 +5579,7 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
   acceptKey: Object.freeze({ code: 'remote_not_allowed', error: 'A changed Kosmos+ key is accepted at the computer itself, not from a remote session.' }),
 });
 /* kosmos#6595 (R01, the step-up half; Splinter's ruling 09:44 2026-10-19): from a remote session, entering a key or
-   token, updating Kosmos, and making an agent (every agent here runs with an unsandboxed shell) need a FRESH sign-in
+   token, updating Kosmos, and making an agent (every agent here runs with an unsandboxed shell) need a full sign-in
    with the second factor. The Kosmos+ gate states the session it admitted in two headers it writes over any client
    value and strips on every other path (kosmos-relay sessioniat-6595): x-kosmos-session-iat, the decimal second the
    session's email code was proven, and x-kosmos-session-second, 1 when the second factor was. Missing or malformed
@@ -5600,10 +5600,16 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
    vouch for, and a sign-in time from the future. Against a STOLEN full session it no longer helps on any route but
    one; what ends one is the gate itself: the session's expiry (a year), Log out, Sign out everywhere (the cutoffs the
    gate hears) and Remove of the device. The residual risk is written on kosmos#8785.
-   The one route kept on a time bound (REMOTE_RECENT_ONLY): resetting the account's second factor. From a stolen full
-   session it would put the thief's own factor on the account, which outlives every bound above (a new sign-in with
-   that factor passes Sign out everywhere), so it is the identity change the ruling's new-device exception keeps. */
-const REMOTE_RECENT_ONLY = new Set(['POST /api/remote/second-reset']);
+   The routes kept on a time bound (REMOTE_RECENT_ONLY) are the ones whose effect outlives Sign out everywhere on the
+   owner's account, the identity changes the ruling's new-device exception keeps: resetting the account's second
+   factor (the thief's own factor would then pass every sign-in), signing this computer in to a Kosmos+ account or
+   forgetting its enrolment (it could then be signed in to the thief's account), joining a company or family (its
+   policy and reporting stay), and handing a sealed room's key to another computer of the account. Matched by path for
+   every writing method, as needsRemoteStepUp matches. */
+const REMOTE_RECENT_ONLY = new Set(['/api/remote/second-reset',
+  '/api/remote/signin-start', '/api/remote/signin-register', '/api/remote/setup-start', '/api/remote/setup-complete',
+  '/api/remote/company/start', '/api/remote/forget', '/api/org/enroll',
+  '/api/federation/own-allow', '/api/federation/own-confirm']);
 /* Twelve minutes, a little longer than the coordinator's own STEP_UP_SECS (ten), so a sign-in made for this just
    before the coordinator's window closed still counts here. */
 const REMOTE_RECENT_SECS = 12 * 60;
@@ -5716,6 +5722,15 @@ const REMOTE_STEP_UP_LOGOUT = Object.freeze({
   signInAgain: true,
   via: 'logout',
 });
+/* kosmos#8785: a full sign-in too old for a time-bounded route (REMOTE_RECENT_ONLY). The button as REMOTE_STEP_UP_LOGOUT
+   (it has the second factor, so signing in again helps). The sentence says ten, the coordinator's figure, so the person
+   is never told more time than they have (the bound here is twelve). */
+const REMOTE_STEP_UP_RECENT = Object.freeze({
+  code: 'remote_step_up',
+  error: 'From a remote session this needs a sign-in from the last few minutes. Press Sign in again at the foot of the page, sign in with your email code and authenticator code, then try again within 10 minutes. No Sign in again there? Log out in Settings, Kosmos+, then sign in again.',
+  signInAgain: true,
+  via: 'logout',
+});
 /* A sign-in that the gate says happened more than a minute AHEAD of this clock: signing in again cannot help, the
    clocks disagree, so it is told apart (review iteration 8). */
 const REMOTE_STEP_UP_CLOCK = Object.freeze({
@@ -5746,10 +5761,12 @@ function remoteStepUpRefusal(req, pathname, nowSecs, caps) {
   /* kosmos#8728: "not known yet" and "this connector lacks it" are different, and only the second is fixed by an
      update. A caller that hands in its own caps (tests) is describing a connector that answered. */
   if (!said.has('session-headers')) return (!caps && remote.connectorCapabilitiesPending()) ? REMOTE_STEP_UP_STARTING : REMOTE_STEP_UP_CONNECTOR;
-  const recentOnly = REMOTE_RECENT_ONLY.has(req.method + ' ' + pathname) ? REMOTE_RECENT_SECS : undefined;
+  const recentOnly = REMOTE_RECENT_ONLY.has(pathname) ? REMOTE_RECENT_SECS : undefined;
   if (remoteSessionFresh(req.headers, nowSecs, recentOnly)) return null;
   const { second, iat } = remoteSessionHeaders(req.headers);
   if (second && iat !== null && iat - nowSecs > 60) return REMOTE_STEP_UP_CLOCK;
+  // A full sign-in that is only too OLD for one of the time-bounded routes: its own sentence, which says the time.
+  if (recentOnly !== undefined && second && iat !== null) return REMOTE_STEP_UP_RECENT;
   /* A UI hint, not a trust decision (anyone can write these headers; they only choose which sentence a refusal
      carries). The button only for a request the Kosmos+ gate forwarded (it wrote a session header), not one through a proxy the
      person put in front of the board, which never serves /_kosmos/signin (review iteration 3). A gate session from
@@ -31571,7 +31588,7 @@ module.exports = { _setStartedProofPlatformForTest, _setStartWaitForTest,   // k
   _sendJsonForTest: sendJson, _sendTextForTest: sendText, _refuseDownloadForTest: refuseDownload, // kosmos#7686: never a second head, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
-  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_STARTING /* kosmos#8728 */, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, REMOTE_RECENT_SECS, // kosmos#6595 R01 step-up, #6616, #7625, #8785
+  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_STARTING /* kosmos#8728 */, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_RECENT, REMOTE_RECENT_SECS, REMOTE_RECENT_ONLY, // kosmos#6595 R01 step-up, #6616, #7625, #8785
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   claudeObservationsFor, overlayStuckCards, // #7212 slice 3 reviews 6-7: the badge's evidence and the route's step, for their test
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
