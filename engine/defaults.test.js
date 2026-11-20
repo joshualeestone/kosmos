@@ -40,7 +40,7 @@ test('the doctrine version and the block text move together', () => {
   const print = defaults.DOCTRINE_VERSION >= 50 ? perPlatform() : printOf(defaults.block());
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d', 27: '72f53800599edd5c', 28: '2d83463db37f9c28', 29: '52783dd7981ce771', 30: '459a0b50b68e5660', 31: 'abc33c9b62fa12ae', 32: '73e44376fbc76c20', 33: '2133561e3eab26ea', 34: 'a39a0bc29b3835a1', 35: '6b57ebef325d31bd', 36: '5a663e79f786d9d1', 37: '3b7a0343b77de055', 38: 'd1101aed44310c79', 39: 'fb51f108efd5d1a4', 40: '25e4303042b14af1', 41: '9886a04b66bca4c1', 42: '6dc0b29879f7fc3d', 43: 'e9e1378a3d20145a', 44: '68f2a8f66a49177b', 45: '3711e533b1a4e500', 46: '402a26bcb32c2af7', 47: 'cd1f2e4c64228956', 48: '4e7599776278c915', 49: '1d13807c5e08095d', 50: { darwin: 'ce21a502d452adf1', linux: 'e9d2a81d9ac959df', win32: 'c12d49b5a7b13306' }, 51: { darwin: '329c5140dc069164', linux: '59cbbca192babc45', win32: 'd3227e5a84e90c1b' }, 52: { darwin: 'd88d4bb3657fa4f4', linux: '0b42fe59e587b1f7', win32: '0a5890bcd8fcbf2f' }, 53: { darwin: 'b8e34d38eb98cdea', linux: '96e063236923f24d', win32: 'aefdf8da05eaa4cd' }, 54: { darwin: 'f919b39ec73cb49f', linux: '49df382d950cba9e', win32: 'c520c87f567a29cf' } };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d', 27: '72f53800599edd5c', 28: '2d83463db37f9c28', 29: '52783dd7981ce771', 30: '459a0b50b68e5660', 31: 'abc33c9b62fa12ae', 32: '73e44376fbc76c20', 33: '2133561e3eab26ea', 34: 'a39a0bc29b3835a1', 35: '6b57ebef325d31bd', 36: '5a663e79f786d9d1', 37: '3b7a0343b77de055', 38: 'd1101aed44310c79', 39: 'fb51f108efd5d1a4', 40: '25e4303042b14af1', 41: '9886a04b66bca4c1', 42: '6dc0b29879f7fc3d', 43: 'e9e1378a3d20145a', 44: '68f2a8f66a49177b', 45: '3711e533b1a4e500', 46: '402a26bcb32c2af7', 47: 'cd1f2e4c64228956', 48: '4e7599776278c915', 49: '1d13807c5e08095d', 50: { darwin: 'ce21a502d452adf1', linux: 'e9d2a81d9ac959df', win32: 'c12d49b5a7b13306' }, 51: { darwin: '329c5140dc069164', linux: '59cbbca192babc45', win32: 'd3227e5a84e90c1b' }, 52: { darwin: 'd88d4bb3657fa4f4', linux: '0b42fe59e587b1f7', win32: '0a5890bcd8fcbf2f' }, 53: { darwin: 'b8e34d38eb98cdea', linux: '96e063236923f24d', win32: 'aefdf8da05eaa4cd' }, 54: { darwin: 'f919b39ec73cb49f', linux: '49df382d950cba9e', win32: 'c520c87f567a29cf' }, 55: { darwin: '87d10b7af55c561c', linux: '69851a07b9cb6df4', win32: '36ae0949b1d96b5d' } };
   const shown = JSON.stringify(print).replace(/"/g, "'");
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: ${shown}} here and a line to the version log in defaults.js`);
@@ -302,20 +302,20 @@ test('#1253 CONTROL: the delivery guard fails when the verbs move to an old head
  */
 test('#1943: the block says where a file belongs', () => {
   const b = defaults.block();
-  assert.match(b, /Work you do for a project goes in that project’s folder/,
-    'project work is not pointed at the project folder');
-  /* #4420: "your own work" is now said to be the agent's working notes; a file made for the person goes to Files
-     (a Gemini agent read "work not tied to a project goes in your own folder" as where Josh's document went). */
-  assert.match(b, /Work that is your own, your working\s+notes, goes in your own folder/,
-    'own work is not pointed at your own folder');
-  assert.match(b, /A file you make\s+for the person that is not a project\u2019s goes in your Files folder/,
-    '#4420: a file for the person is not sent to Files');
-  assert.match(b, /do not invent a new place/,
-    'the invented-folder failure the card reports is not forbidden');
-  assert.match(b, /only as a message in\s+this window/,
+  /* kosmos#8735: the section now says each rule the Files block ("Where to save files you make for the person", in
+     every agent and re-written by the boot sweep) does not: where it points, never your own folder, never only in the
+     chat, and the obvious spot inside a project's folder. The Files block carries the exact path, the project rule, and
+     save-then-ask when unsure (pinned in dmfiles.test.js). */
+  assert.match(b, /goes where the section "Where to save files\s+you make for the person" says/,
+    'a file for the person is not pointed at the section with its path');
+  /* #4420: a Gemini agent read "work not tied to a project goes in your own folder" as where Josh's document went. */
+  assert.match(b, /never in your own folder, which they cannot\s+see/,
+    '#4420: a file for the person is not kept out of the agent\'s own folder');
+  assert.match(b, /never left in this chat as its only copy/,
     'the chat-artifact failure the card reports is not forbidden');
-  // A missing tellAgent path degrades to a question, not a guess.
-  assert.match(b, /not a licence to guess/);
+  assert.match(b, /Your working notes go in\s+your own folder/, 'own work is not pointed at your own folder');
+  assert.match(b, /the\s+obvious spot inside that project\u2019s folder, not in a deeper path you made up/,
+    'the invented-folder failure the card reports is not forbidden');
 });
 
 /**

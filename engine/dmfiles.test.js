@@ -69,7 +69,7 @@ test('#3759: the block names BOTH destinations and when each applies, says where
   assert.match(flat, /a section you have only while you are on a project\)/);
   assert.match(flat, /If they name a project you are not on, do not guess another: save it in your Files folder, say you are not on that project, and say it can move there once you are added to it/);
   assert.match(flat, /tell them in one line where you put it: which project, the file's name, and the folder inside the project if it is not at the top/);
-  // Unsure: no project is guessed (the doctrine's "not a licence to guess") and nothing waits unsaved:
+  // Unsure: no project is guessed and nothing waits unsaved:
   // save it here, say so, and ask which project in the same line.
   assert.match(flat, /When you cannot tell whether the file belongs to a project, or to which one, do not guess a project\. Save it in your Files folder\. In the same line where you tell them it is under Files on your page, ask which project it belongs to/);
   // The doctrine's general "ask, do not guess" is carried out this way for these files (round 15): kosmos#8735 slice 3 cut

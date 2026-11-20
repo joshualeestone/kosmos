@@ -465,7 +465,23 @@ function prepareChanges(session) {
         movedAnswer = { under: PERSON_HEAD, lines: new Set(), where: 'the section "Answering where you were asked", earlier in this file' };
       }
     } catch { movedAnswer = null; }
-    const diff = changedLines(seen, got.text, [moved, movedTask, movedAnswer]);
+    /* kosmos#8735 (doctrine 55): "Where the files you make go" kept only what the Files block does not say; the rest is
+       in that block, reworded. The same form as the entry above: nothing hidden, a note, only for that removal (the
+       last-read copy holds the first v54 line) and only while the new file has that heading and one whole Files block. */
+    let movedFiles = null;
+    try {
+      const FILES_HEAD = '### Where the files you make go';
+      const V54_FIRST = '**Work you do for a project goes in that project\u2019s folder. A file you make';
+      const lineSet = (t) => new Set(String(t).split('\n').map((l) => l.replace(/\r$/, '')));
+      const was = lineSet(seen);
+      const now = lineSet(got.text);
+      const dm = require('./dmfiles');
+      const blk = projectsMod ? projectsMod.findBlock(got.text, dm.START, dm.END) : null;
+      if (was.has(V54_FIRST) && !now.has(V54_FIRST) && now.has(FILES_HEAD) && blk && !blk.ambiguous) {
+        movedFiles = { under: FILES_HEAD, lines: new Set(), where: 'the section "Where to save files you make for the person", in this file' };
+      }
+    } catch { movedFiles = null; }
+    const diff = changedLines(seen, got.text, [moved, movedTask, movedAnswer, movedFiles]);
     // A path with a double quote is not named: the #5304 reader takes quoted text in the line for section headings.
     // Review 2: nor one with whitespace or a control character, which would make the unquoted path in the line ambiguous.
     if (!diff || !p || /["\s\u0000-\u001f\u007f]/.test(p)) return none();
