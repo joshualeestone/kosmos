@@ -195,6 +195,15 @@ _kosmos_linux_unit_name() {
     printf 'kosmos-board.%s.service' "$(printf '%s' "$KOSMOS_HOME" | (sha256sum 2>/dev/null || shasum -a 256 2>/dev/null) | cut -c1-8)"
   fi
 }
+# kosmos#8786: the user systemd runtime folder for THIS user. An inherited XDG_RUNTIME_DIR that is not this user's own
+# (a root login's /run/user/0 passed through `runuser -u kosmos`, measured on a Cloud box) makes every `systemctl --user`
+# fail with "Failed to connect to bus", so installBoard writes the units and enables none. Unset, missing or owned by
+# someone else: /run/user/<uid>, as su and cron always needed.
+_kosmos_own_runtime_dir() {
+  if [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -d "$XDG_RUNTIME_DIR" ] || [ ! -O "$XDG_RUNTIME_DIR" ]; then
+    export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"
+  fi
+}
 # kosmos#6667: the board's pause check (linuxboard.pauseCheckNames): kosmos-board[.<hash>].service gives
 # kosmos-pause-check[.<hash>].service and .timer. Prints the shared base; callers add .timer or .service. Pure shell,
 # no sed: install.linux-board-4920.test.js runs these blocks with a PATH that has none.
@@ -247,7 +256,7 @@ _kosmos_linux_unit_killmode() {
   [ "$(uname -s)" = "Linux" ] || return 0
   command -v systemctl >/dev/null 2>&1 || return 0
   if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ] && [ -z "${AGENT_WORKFORCE_SYSTEMD_DIR:-}" ]; then return 0; fi
-  [ -n "${XDG_RUNTIME_DIR:-}" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"   # su or cron
+  _kosmos_own_runtime_dir   # su or cron
   _lk_dir="${AGENT_WORKFORCE_SYSTEMD_DIR:-$HOME/.config/systemd/user}"
   _lk_file="$_lk_dir/$(_kosmos_linux_unit_name)"
   [ -f "$_lk_file" ] || return 0
@@ -2342,7 +2351,7 @@ uninstall() {
     # #4920: piece B's removeBoard (stop, disable, delete, reload), the same derivation of the unit's name and path as
     # installBoard. Run before the app folder is deleted, since it is the app's own code.
     # As the install step does: systemctl --user needs the user bus, which su and cron do not set up.
-    [ -n "${XDG_RUNTIME_DIR:-}" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"
+    _kosmos_own_runtime_dir
     # kosmos#6667: the pause check goes first, before any branch below touches the board. Only this home's (its name
     # carries this home's hash, as the board's does): another install's units, its pause check included, are not
     # touched. Skipped exactly when linuxboard's runner refuses systemd (LAUNCH set, no
@@ -6024,7 +6033,7 @@ if [ "$(uname -s)" = "Linux" ]; then
   else
     step "Keeping Kosmos running with systemd."
   fi
-  [ -n "${XDG_RUNTIME_DIR:-}" ] || export XDG_RUNTIME_DIR="/run/user/$(id -u 2>/dev/null || echo 1000)"
+  _kosmos_own_runtime_dir
   # 🔑 #4920: ONE BOARD UNIT, piece B's (engine/linuxboard.js installBoard), never a second copy written here. The
   # shell copy this replaced had drifted: Restart=always restarted a stopped board every 5 seconds (measured by #4918),
   # and it lacked KillMode=process (a stop must not kill the shared tmux server). installBoard writes and enables the
