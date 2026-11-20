@@ -43,3 +43,7 @@ file unsaved while it asks which project.
     nothing about where an agent saves a person's files.
 - NIT fixed: the code comment that named the cut sentence now names the kept one.
 - NIT kept: the subfolder assertion may duplicate one in the #4420 test file (harmless).
+
+## Review 2 (Sonnet)
+- No BLOCKER, no WARNING; converged. NIT kept: no doesNotMatch guards the cut sentences against coming back (that pins
+  prose, not behaviour; the kept statements are pinned and perturbed).
