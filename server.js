@@ -5592,20 +5592,23 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
    not asked either. */
 /* kosmos#8785 (Josh, 20:49 11-19: "A full sign in should basically hold forever"): a FULL sign-in, one the gate says
    proved the second factor, passes at any age. It used to pass for 12 minutes, which on a cloud machine (where every
-   session is remote) asked its owner to sign in again for every new agent. Where "fresh" or "stale" appears in this
-   block and the route notes below, it now means vouched as a full sign-in or not, never an age.
+   session is remote) asked its owner to sign in again for every new agent. In older notes below, "fresh" and "stale"
+   mean vouched as a full sign-in or not, except on the time-bounded routes, where an old full sign-in is stale.
    What that leaves this gate doing, said plainly: the Kosmos+ gate admits only sign-ins with the second factor by
    default and sends both headers or neither, so almost every session it forwards passes. The step-up now refuses a
    gate session without the second factor (a gate set not to require one), a request whose headers this board cannot
-   vouch for, and a sign-in time from the future. Against a STOLEN full session it no longer helps on any route but
-   one; what ends one is the gate itself: the session's expiry (a year), Log out, Sign out everywhere (the cutoffs the
-   gate hears) and Remove of the device. The residual risk is written on kosmos#8785.
+   vouch for, a sign-in time from the future, and a full sign-in too old for a time-bounded route (below).
+   It is NOT a boundary against a STOLEN full session: one can make an agent, and an agent's shell reaches every route
+   here over loopback, which is never asked. What ends a stolen session is the gate: its expiry (a year), Log out,
+   Sign out everywhere (the cutoffs the gate hears) and Remove of the device. The residual risk is on kosmos#8785.
    The routes kept on a time bound (REMOTE_RECENT_ONLY, REMOTE_RECENT_PATTERNS) are the ones that let ANOTHER PARTY in,
    or replace who the account is, the new-device exception the ruling keeps: resetting the account's second factor
    (the thief's own factor then passes every sign-in), signing this computer in to a Kosmos+ account or forgetting its
    enrolment (it could then belong to the thief's account), joining a company or family (its policy and reporting),
    handing a sealed room's key to another computer, joining or inviting another Kosmos into a project or sharing its
-   code, and making a project webhook (an outside address that posts tasks). Each lasts past Sign out everywhere.
+   code, and making a project webhook (an outside address that posts tasks). Each lasts past Sign out everywhere. The
+   bound keeps these rare acts behind a recent sign-in in the page and the apps; for the reason above it slows a thief
+   who holds a full session, and does not stop one.
    Left out on purpose, though they also last: making agents, entering keys and tokens, updating, and personal backups.
    Those are the owner's own evening's work on their own computer, which is what the ruling is for. Matched by path
    for every writing method, as needsRemoteStepUp matches. */
@@ -5663,8 +5666,8 @@ const REMOTE_STEP_UP_EXACT = new Set([
   // kosmos#4658: an Allow hands a sealed room's key to another computer of this account; a confirm decides whose key
   // this computer seals its posts to.
   'POST /api/federation/own-allow', 'POST /api/federation/own-confirm',
-  // Signing this computer in to Kosmos+ anew, enrolling it, or forgetting its enrolment (review iteration 17): from a
-  // stale remote session, someone could sign this computer in to THEIR account, then make a fresh sign-in of their
+  // Signing this computer in to Kosmos+ anew, enrolling it, or forgetting its enrolment (review iteration 17): from an
+  // old remote session (REMOTE_RECENT_ONLY), someone could sign this computer in to THEIR account, then make a sign-in of their
   // own and pass every gate here. The steps after a start (verify, second, enrol, confirm, cancel) follow it.
   'POST /api/remote/signin-start', 'POST /api/remote/signin-register', 'POST /api/remote/setup-start',
   'POST /api/remote/setup-complete', 'POST /api/remote/company/start', 'POST /api/remote/forget',
@@ -5684,7 +5687,8 @@ const REMOTE_STEP_UP_EXACT = new Set([
   'POST /api/remote/second-reset',
 ]);
 /* The gated routes whose path carries a name: a service's token, a provider runner's install, an agent brought back,
-   and a project webhook (making one mints a secret address an outside party can post tasks to, for as long as it lives). */
+   and a project webhook (making one mints a secret address an outside party can post tasks to, for as long as it lives;
+   it also needs a recent sign-in, REMOTE_RECENT_PATTERNS). */
 const REMOTE_STEP_UP_PATTERNS = [
   /^\/api\/svc\/[a-z0-9-]+\/token$/, /^\/api\/runners\/[a-z]+\/install$/, /^\/api\/agent\/[^/]+\/restore$/,
   /* kosmos#8719: linking a window gives Kosmos a typing channel into a Claude window kept outside it, the same class as
