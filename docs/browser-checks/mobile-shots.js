@@ -2832,6 +2832,25 @@ const SCREENS = [
       if (row) row.closest('.llm').scrollIntoView({ block: 'center' });
     });
   } },
+  /* kosmos#8783: first run's Model step on a CLOUD machine, at the Claude sign-in step waiting for a code, with the
+     link already there. The page is made a cloud machine the way it reads it (the served kosmos-cloud-machine meta,
+     then applyPlatformCopy), and the step is drawn by the page's own painter, frPaintConnect. */
+  { name: 'firstrun-claude-code-8783', owner: 'Angel', go: async (page) => {
+    await at(page, '?first-run=1&fr-step=5');
+    await page.waitForSelector('#fr-pane-5', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => {
+      const meta = document.querySelector('meta[name="kosmos-cloud-machine"]');
+      if (meta) meta.setAttribute('content', '1');
+      applyPlatformCopy(document);
+      FR_CONN_LAST = null;
+      frPaintConnect({ phase: 'signin-awaiting-code', url: 'https://claude.ai/oauth/authorize?example' });
+    });
+    await page.waitForSelector('#fr-conn-code', { state: 'visible', timeout: 5000 });
+    await page.waitForTimeout(600);   // the reveal scroll (one animation frame, smooth on some engines) and the edge fade settle
+  },
+  verify: async (page) => {
+    if (!(await page.isVisible('#fr-conn-code'))) throw new Error('the code field is not drawn');
+  } },
   { name: 'agent-files', owner: 'unowned', go: async (page, data) => {
     await at(page, '?tab=detail&agent=' + data.chatAgent);
     /* On a phone the agent page opens on its conversation, which hides this short Files list
