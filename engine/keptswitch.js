@@ -74,10 +74,11 @@ function keptNow() {
  *   kept: switches on from the record; recorded / cleared: changes to the record; wrote: null when nothing was
  *   written; lines: what to print in the board log (none when there is nothing to say).
  */
-function applyAtStart(env, { live, file: to = file(), nowMs = Date.now() } = {}) {
+function applyAtStart(env, { live, file: given, nowMs = Date.now() } = {}) {
   const out = { kept: [], recorded: [], cleared: [], readOk: true, wrote: null, lines: [] };
   kept = {}; keptFor = null;
   if (live !== true || !env) return out;
+  const to = given || file();
   const rec = read(to);
   out.readOk = rec.ok;
   const next = { ...rec.on };

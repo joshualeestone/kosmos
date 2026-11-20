@@ -140,6 +140,8 @@ test('a record that cannot be read keeps nothing, says so, and is never written 
 });
 
 test('a record that cannot be written is said, and this start is still on', () => {
+  // A read-only folder stops nothing for root, or on Windows; the arm proves nothing there.
+  if (process.platform === 'win32' || (process.getuid && process.getuid() === 0)) return;
   const locked = path.join(DIR, 'locked');
   fs.mkdirSync(locked);
   fs.chmodSync(locked, 0o555);   // the record's folder cannot be made inside it; reading there is "no record yet"
@@ -152,8 +154,11 @@ test('a record that cannot be written is said, and this start is still on', () =
 
 test('the board makes the one call at start, with nothing of its own decided there', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.equal(src.split("require('./engine/keptswitch').atBoardStart(process.env, { liveExecutionAllowed: liveExecution.liveExecutionAllowed() })").length, 2,
-    'server.js does not make exactly one atBoardStart call for its own environment');
+  const CALL = "require('./engine/keptswitch').atBoardStart(process.env, { liveExecutionAllowed: liveExecution.liveExecutionAllowed() })";
+  assert.equal(src.split(CALL).length, 2, 'server.js does not make exactly one atBoardStart call for its own environment');
+  // The mover is made once, at start, by asking movesOn: a kept switch applied after that would read on with no mover.
+  const made = src.indexOf('if (abSweep && automove.movesOn())');
+  assert.ok(made > 0 && src.indexOf(CALL) < made, 'the kept switches are applied after the start decides whether to make the mover');
 });
 
 test('a recorded time no date can say reads as no day, not as an invalid one', () => {

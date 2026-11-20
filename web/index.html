@@ -19328,6 +19328,8 @@ window.kosmosMeasureScrollbarWidth();
           <p class="dhint" id="ab-msg" role="status" style="margin:8px 0 0;"></p></div>
         <button class="toggle" id="ab-toggle" role="switch" aria-label="Move agents off an account that is running out" hidden><i></i></button>
       </div>
+      <!-- kosmos#8841: switches kept on from an earlier start (paintKept). Empty unless the accounts read names one. -->
+      <div id="kept-lines"></div>
       <!-- #248, LIVE: the browser sign-in the first run already has, on this
            button. POST /api/connect/start { another: true } (Angel's frozen
            contract): the engine picks the next free work directory itself
@@ -31170,7 +31172,7 @@ function paintAutobalance(ab, list) {
   if (recentBox && known && ab.on === true) {
     recentBox.innerHTML = ab.recording !== true
       ? line('Kosmos is not keeping a record of what it would move on this computer.')   // review 10: what is known, not why
-      /* kosmos#7548: moving is an operator's switch on this computer (AGENT_WORKFORCE_AUTOMOVE=1); said only when the
+      /* kosmos#7548: moving is an operator's switch on this computer (AGENT_WORKFORCE_AUTOMOVE=1, or kept from an earlier start); said only when the
          board reports it moves (ab.moving), so the page never says it moves where it does not. */
       : (ab.moving === true
         /* Review round 6: a moving board whose record could not take a line moves nobody until it can, and says so. */
@@ -31185,17 +31187,24 @@ function paintAutobalance(ab, list) {
         /* Review 20: said when the last check could not measure every account, so a quiet record is not read as calm. */
         + (ab.lastTick === 'gap' || ab.lastTick === 'unreadable' || ab.unmeasuredNow === true ? line('Kosmos could not check everything at its last check, so the record may be missing a change.') : '')   // review 21: and while a written gap lasts
         + abRecentHtml(Array.isArray(ab.recent) ? ab.recent : [], label, who, line);
-    /* kosmos#8841: usage readings or moves that are on only because an earlier start switched them on. The board kept
-       that through its restarts, so the page says so, and since when. */
-    const kept = ab.kept && typeof ab.kept === 'object' ? ab.kept : {};
-    for (const [key, what] of [['usagePoll', 'Usage readings were'], ['automove', 'Automatic moves were']]) {
-      if (!Number.isFinite(kept[key])) continue;
-      const when = new Date(kept[key]);
-      const day = kept[key] > 0 && !Number.isNaN(when.getTime()) ? 'on ' + when.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : 'on an earlier day';
-      recentBox.innerHTML += line(what + ' switched on when Kosmos started ' + esc(day) + ', and Kosmos has kept that on through every restart since.');
-    }
   }
   if (lines) lines.innerHTML = html;
+}
+/* kosmos#8841: a switch that is on only because an earlier start of Kosmos switched it on (the read's `kept`). Under
+   the accounts, outside the auto-balance row, since usage readings do not depend on that row being shown. It says the
+   switch is on and since when, not that anything is being read or moved now. */
+function paintKept(kept) {
+  const box = document.getElementById('kept-lines');
+  if (!box) return;
+  const k = kept && typeof kept === 'object' ? kept : {};
+  let html = '';
+  for (const [key, what] of [['usagePoll', 'Usage readings were'], ['automove', 'Automatic moves were']]) {
+    if (!Number.isFinite(k[key])) continue;
+    const when = new Date(k[key]);
+    const day = k[key] > 0 && !Number.isNaN(when.getTime()) ? 'on ' + when.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : 'on an earlier day';
+    html += '<p class="dhint" style="margin:8px 0 0;">' + what + ' switched on when Kosmos started ' + esc(day) + ', and that switch has stayed on since.</p>';
+  }
+  box.innerHTML = html;
 }
 /* Slice 3: the newest record entries (engine/autobalance-sweep.js), newest first, a line per would-move, and (kosmos#7548)
    a line per move, sighting, skip or release the mover wrote. Accounts by
@@ -31328,6 +31337,7 @@ async function paintAccounts(opts) {
   if (msg && !followUp) msg.textContent = 'Checking your accounts…';
   let list = [];
   let abRead = null;   // kosmos#7152 slice 2: what auto-balance would do, from this read
+  let keptRead = null;   // kosmos#8841: the switches kept on from an earlier start, from this read
   acctReadOpen = mine; acctReadOpenAt = Date.now();   // #6176: a read is out, so a look on window return does not start a second one beside it
   try {
     const res = await fetch('/api/accounts?agents=1', { cache: 'no-store' });   // #6108: only Settings asks for each account's agents
@@ -31336,6 +31346,7 @@ async function paintAccounts(opts) {
     const body = (await res.json()) || {};
     list = body.accounts || [];
     abRead = body.autobalance || null;   // kosmos#7152 slice 2 (review 9: this read's own, not a page-wide global)
+    keptRead = body.kept || null;
     if (acctReadOpen === mine) acctReadOpen = 0;
     if (mine !== ACCT_EPOCH) return;
   } catch {
@@ -31353,6 +31364,7 @@ async function paintAccounts(opts) {
     // ⚠️ Never "one account": a failed read must not shrink the list.
     box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">We could not read the accounts on this computer.</p>';
     paintAutobalance(null, []);   // kosmos#7152 review 2: no lines from an earlier read under a failed one
+    paintKept(null);
     /* This branch used to leave the flags untouched, so a failure here could not be told
        apart from never having asked, and a stale LOADED from an earlier read outlived it. */
     accountsUnreadable();
@@ -31368,6 +31380,7 @@ async function paintAccounts(opts) {
   }
   accountsRead(list);
   paintAutobalance(abRead, list);   // kosmos#7152 slice 2
+  paintKept(keptRead);
   /* #3997: a sign-in (ChatGPT or Grok) whose free check, or an Antigravity row whose usage reading (#6176), is still under way is read again a few seconds on, so it turns green
      (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */
   const pendingRows = list.filter((a) => a && a.connection && a.connection.liveCheckPending);

@@ -1701,9 +1701,9 @@ const assigner = require('./engine/assigner'); // #3595 phase 2: the Assigner's 
 const autobalanceSetting = require('./engine/autobalance-setting'); // kosmos#7152 slice 2
 const autobalanceSweep = require('./engine/autobalance-sweep'); // kosmos#7152 slice 3: the record of what auto-balance would move
 const AUTOBALANCE_RECORD = path.join(path.dirname(autobalanceSetting.FILE), autobalanceSweep.FILE);
-const automove = require('./engine/automove'); // kosmos#7548 (slice 3b): the moving half, off unless AGENT_WORKFORCE_AUTOMOVE=1
+const automove = require('./engine/automove'); // kosmos#7548 (slice 3b): the moving half, off unless AGENT_WORKFORCE_AUTOMOVE=1 (or kept from an earlier start, kosmos#8841)
 let autobalanceSweepRun = null;   // the sweep, once its record has been read at start (it is off otherwise)
-let automoveRun = null;           // kosmos#7548: the mover, made at start only with AGENT_WORKFORCE_AUTOMOVE=1 and its record read
+let automoveRun = null;           // kosmos#7548: the mover, made at start only with moves switched on (automove.movesOn) and its record read
 const keepAwakeSetting = require('./engine/keepawake-setting'); // kosmos#7416 slice 3
 const keepAwake = require('./engine/keepawake'); // kosmos#7416 slice 3: caffeinate -i while the switch is on and a card reads working
 const landedcheck = require('./engine/landedcheck'); // kosmos#7508 slice 2: is a code fix's commit still kept, and on a remote
@@ -15308,9 +15308,6 @@ const server = http.createServer(async (req, res) => {
              tick does not ask, so a board can move while `moving` is false. A throw reads armed if a mover was made: this
              only takes away the page's flat "Nothing is moved". */
           try { autobalance.armed = !!automoveRun && automove.movesOn(); } catch { autobalance.armed = !!automoveRun; }
-          /* kosmos#8841: the switches this board has on from an earlier start, with when each was first switched on
-             ({ usagePoll, automove }: a time, absent when not kept), so the page can say so. */
-          try { autobalance.kept = require('./engine/keptswitch').keptNow(); } catch { autobalance.kept = {}; }
           /* Review round 6: why a moving board moves nobody now (lines its record could not take yet), so the page says so. */
           try { autobalance.movePaused = autobalance.moving === true ? automoveRun.paused() : null; } catch { autobalance.movePaused = null; }
           autobalance.recent = [];
@@ -15319,7 +15316,11 @@ const server = http.createServer(async (req, res) => {
           }
         }
         sendJson(res, 200, { accounts: [...claude, ...openai, ...gemini, ...agySub, ...grok, ...qwen, ...compat, ...museSub], unlistedAccounts, unlistedComplete,
-          ...(autobalance ? { autobalance } : {}) });
+          ...(autobalance ? { autobalance } : {}),
+          /* kosmos#8841: the switches this board has on from an earlier start, with when each was first switched on
+             ({ usagePoll, automove }: a time, absent when not kept), so Settings can say so. Beside the decision, not
+             in it: the usage poll runs with one account and with auto-balance switched off. */
+          ...(wantAgents ? { kept: (() => { try { return require('./engine/keptswitch').keptNow(); } catch { return {}; } })() } : {}) });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;
@@ -30350,7 +30351,7 @@ function start(port = PORT) {
       catch (err) { process.stdout.write(`autobalance-sweep: off, its record could not be read (${String((err && err.message) || err)})\n`); }
       const abSweep = autobalanceSweepRun;
       /* kosmos#7548 (slice 3b): the moving half, run after the sweep's tick each period and only when moves are switched
-         on (AGENT_WORKFORCE_AUTOMOVE=1). Built from the same record; one that cannot be read leaves the mover off. */
+         on (automove.movesOn). Built from the same record; one that cannot be read leaves the mover off. */
       const abSweepMs = Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS)) : usagePoll.POLL_MS;
       if (abSweep && automove.movesOn()) {
         /* kosmos#7548 review round 5: the mover's "previous tick" is measured in this period, which an operator can set. */

@@ -26,9 +26,11 @@ Mortals' board; part 1, switching the poll back on there, stays with Josh).
 environment object the board started with. It is not written into the environment, so nothing the board starts (an
 agent's shell, a test run from one) inherits a switch.
 
-Settings, AI Models says when usage readings or moves are on only because an earlier start switched them on, each on
-its own line with its own day (`autobalance.kept` on the accounts read). A switch the brake is holding off is not
-said to be kept on.
+Settings, AI Models says, under the accounts, when usage readings or moves are switched on only because an earlier
+start switched them on, each on its own line with its own day (`kept` on the accounts read, beside the decision). It
+is outside the auto-balance row, because the usage poll also runs with one account and with auto-balance switched off.
+The line says the switch has stayed on, not that anything is being read or moved now. A switch the brake is holding
+off is not listed.
 
 The default does not change: a board nobody switched on has no record, writes none, and stays off.
 
@@ -56,9 +58,13 @@ switch each time.
 ## Checks
 - `engine/keptswitch.test.js` (11): nothing kept by default (control); on at one start, kept at the next, with the
   exact log lines; the environment is not changed and no other environment reads as on; `=0` off for good; odd and
-  empty values; the brake and its wording; no effect under a test, a dry run or without live execution (with a live
-  control); an unreadable record never written over; an unwritable record; the board's one call.
-- `docs/browser-checks/render-autobalance-7152.js`: two kept cases and a control. NOT RUN locally (the machine was
-  reserved for a release); CI runs it.
-- Run locally: every test file that reads the two switches or the page's painter, and the guards for raw writes,
-  flushed setting saves, reachable engine modules and fixture discipline: 200 of 200.
+  empty values; the brake, its wording, and that a braked switch is not reported as kept; no effect under a test, a
+  dry run or without live execution (with a live control); an unreadable record never written over; an unwritable
+  record; a time no date can say; the board's one call, placed before the start decides whether to make the mover.
+- `server.autobalance-7152.test.js`: `kept` reaches the Settings read after a start keeps a switch, is empty before
+  (control), and is not sent to other readers.
+- `docs/browser-checks/render-autobalance-7152.js`: kept with two accounts (each with its own day), with one account
+  (row hidden), with auto-balance off, and a control (nothing kept, and a failed read). NOT RUN locally (the machine
+  was reserved for a release); CI runs it.
+- Run locally: every test file that reads the two switches or lifts the page's accounts painter, 333 of 333, plus the
+  route test above.
