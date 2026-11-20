@@ -29,6 +29,8 @@ const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const projects = require('./engine/projects');
 const roomloop = require('./engine/roomloop');
+const messages = require('./engine/messages');
+const limits = require('./engine/limits');
 
 let base;
 test.before(async () => {
@@ -68,6 +70,48 @@ test('#8769 item 3: the room text view an agent reads before posting says the wa
     assert.doesNotMatch((await roomText(q.id)).text, /Agents waking each other is paused/);
     roomloop.clear(p.id);
     assert.doesNotMatch((await roomText(p.id)).text, /Agents waking each other is paused/, 'the line outlived a person\'s post');
+  } finally {
+    roomloop.resetForTests();
+  }
+});
+
+/* Rows in the shape sendPost and the valve append (as server.room-held-5800.test.js does), so the room is really HELD. */
+const MIN = 60 * 1000;
+const iso = (ms) => new Date(ms).toISOString();
+function append(row) {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  fs.appendFileSync(messages.LOG, JSON.stringify(row) + '\n');
+}
+let seq = 9100;
+function madeLongAgo(name) {
+  const made = projects.create({ name });
+  const back = new Date(Date.now() - 3 * 24 * 60 * MIN).toISOString();
+  projects.writeAll(projects.readAll().map((q) => (q.id === made.id ? { ...q, createdAt: back } : q)));
+  const folder = projects.readAll().find((q) => q.id === made.id).folder;
+  for (const f of fs.readdirSync(folder)) fs.utimesSync(path.join(folder, f), new Date(back), new Date(back));
+  return made;
+}
+
+test('review 5 (Kitty): a room both HELD and paused shows the hold line and a pause line with no one-member way through', async () => {
+  const p = madeLongAgo('Held And Paused');
+  projects.addAgent(p.id, 'ann');
+  const now = Date.now();
+  const n = limits.caps().roomArrivalsPerWindow;
+  append({ kind: 'post', id: 'm' + (++seq), from: 'ann', project: p.id, text: 'x', at: iso(now - 12 * MIN),
+    to: Array.from({ length: n }, (_, i) => 'mem' + i), outcomes: Object.fromEntries(Array.from({ length: n }, (_, i) => ['mem' + i, 'placed'])) });
+  append({ kind: 'valve', from: 'ann', to: p.id, project: p.id, at: iso(now - 10 * MIN),
+    because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.', stopped: true });
+  roomloop.resetForTests();
+  roomloop.setCapForTests(2);
+  try {
+    roomloop.noteWake(p.id, now - 2000); roomloop.noteWake(p.id, now - 1000);
+    assert.equal(roomloop.paused(p.id, now), true);
+    const { code, text } = await roomText(p.id);
+    assert.equal(code, 200, text);
+    assert.match(text, /This room is at its limit for agent posts/, 'CONTROL: the room is not held, so this tests nothing');
+    const line = text.split('\n').find((l) => /Agents waking each other is paused/.test(l));
+    assert.ok(line, 'no pause line: ' + text);
+    assert.doesNotMatch(line, /exactly one member/, 'held and paused, the pause line still offers a way the hold refuses');
   } finally {
     roomloop.resetForTests();
   }

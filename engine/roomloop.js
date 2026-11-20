@@ -159,7 +159,11 @@ function quietWhy(projectId, from, asked, to) {
    `clock(ms)` writes times the way the view writes its others (review 1); without one, the board's own. Review 2: "your
    person", since a person's post on another computer of a shared room does not end it (messages.js clears it for this
    computer's person, a Reopen, and their own other computer). No final newline. */
-function readerNote(projectId, now = Date.now(), clock = null) {
+/* Review 5 (Splinter's settlement, from Mona Lisa's and Ice Cream Kitty's reviews): `opts.held` (the room is also held
+   by the valve, which refuses the one-member post the pause would let through, so that clause is left out); `opts.from`
+   and `opts.members` (the reading agent and the room's members, when known: a reader that has used its per-pair wakes
+   on every other member is told so, not to address one member). */
+function readerNote(projectId, now = Date.now(), clock = null, opts = {}) {
   try {
     const p = String(projectId);
     const live = pausedAt.has(p) && now - pausedAt.get(p) < LOOP_WINDOW_MS;
@@ -174,15 +178,21 @@ function readerNote(projectId, now = Date.now(), clock = null) {
       return w || new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
     };
     const why = ' (an automatic limit: agents\' posts here woke one another ' + cap + ' times within an hour). ';
+    const o = opts && typeof opts === 'object' ? opts : {};
+    const held = o.held === true;
+    const from = typeof o.from === 'string' && o.from ? o.from : null;
+    const others = from && Array.isArray(o.members) ? o.members.filter((m) => typeof m === 'string' && m && m !== from) : [];
+    const pairsSpent = live && others.length > 0 && others.every((m) => (pairWakes.get(p + '\u0000' + from + '\u0000' + m) || 0) >= PAIR_CAP);
     const ends = ' Your person\'s post here ends the pause.';
     const startsOver = ' Your person\'s post here starts the count over.';   // review 4: at the cap there is no pause yet
     if (live) {
       const left = Math.max(0, THROUGH_CAP - (throughWakes.get(p) || 0));
       return '[kosmos] Agents waking each other is paused in this room until about ' + at(pausedAt.get(p) + LOOP_WINDOW_MS) + why
-        + 'A post that asks more than one member will wake no one. '
-        + (left > 0
-          ? 'A post to exactly one member may still get through: ' + left + ' more in this pause, at most ' + PAIR_CAP + ' to the same member from you.'
-          : 'The posts to exactly one member that may get through during this pause are used up.')
+        + 'A post that asks more than one member will wake no one.'
+        + (held ? ''
+          : left <= 0 ? ' The posts to exactly one member that may get through during this pause are used up.'
+          : pairsSpent ? ' You have used your posts to one member for every member here during this pause (' + PAIR_CAP + ' to each).'
+          : ' A post to exactly one member may still get through: ' + left + ' more in this pause, at most ' + PAIR_CAP + ' to the same member from you.')
         + ends;
     }
     // wakes are kept oldest first: the count drops below the cap when the (length - cap + 1)th newest ages out.
@@ -190,8 +200,10 @@ function readerNote(projectId, now = Date.now(), clock = null) {
     return '[kosmos] Agents waking each other is at its limit in this room' + why
       // Review 3: "starts a pause and is under it", not "is paused itself": a post to exactly one member still gets through.
       + 'An agent post made before about ' + at(below) + ' starts a pause of an hour and is under it: during it, a post '
-      + 'that asks more than one member wakes no one, and a post to exactly one member may still get through (' + THROUGH_CAP
-      + ' in the pause, at most ' + PAIR_CAP + ' to the same member from you).' + startsOver;
+      + 'that asks more than one member wakes no one'
+      + (held ? '.' : ', and a post to exactly one member may still get through (' + THROUGH_CAP
+        + ' in the pause, at most ' + PAIR_CAP + ' to the same member from you).')
+      + startsOver;
   } catch { return ''; }
 }
 

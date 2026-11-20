@@ -112,3 +112,34 @@ test('review 4: a cap of 0 with no wake says nothing (never "Invalid Date"); wak
   roomloop.readerNote('q', now, (ms) => { seen.push(ms); return 'x'; });
   assert.deepEqual(seen, [now - 20 + HOUR], 'three wakes over a cap of two drop below it when the two oldest (-40, -20) have aged out');
 });
+
+test('review 5: in a room of two, a reader that has used its wakes of the other member is not told to address one member (CONTROL: the other reader is)', () => {
+  const now = 1_000_000_000_000;
+  for (const d of [30, 20, 10]) roomloop.noteWake('p', now - d);
+  roomloop.paused('p', now);
+  for (let i = 0; i < roomloop.PAIR_CAP; i++) roomloop.pairTake('p', 'ann', 'bo');
+  const ann = roomloop.readerNote('p', now + 1, null, { from: 'ann', members: ['ann', 'bo'] });
+  assert.match(ann, /You have used your posts to one member for every member here during this pause \(3 to each\)/);
+  assert.doesNotMatch(ann, /may still get through/, 'told to address one member it can no longer wake');
+  const bo = roomloop.readerNote('p', now + 1, null, { from: 'bo', members: ['ann', 'bo'] });
+  assert.match(bo, /A post to exactly one member may still get through: 7 more in this pause/, 'CONTROL: bo has spent nothing on ann');
+  // A room of three: ann can still wake cy, so the way through stays offered.
+  const three = roomloop.readerNote('p', now + 1, null, { from: 'ann', members: ['ann', 'bo', 'cy'] });
+  assert.match(three, /may still get through/);
+  // Reader unknown: the project's count alone, as before.
+  assert.match(roomloop.readerNote('p', now + 1), /may still get through: 7 more/);
+});
+
+test('review 5: held AND paused, the one-member way through is not offered (the hold refuses it), in both forms', () => {
+  const now = 1_000_000_000_000;
+  for (const d of [30, 20, 10]) roomloop.noteWake('p', now - d);
+  const atCapHeld = roomloop.readerNote('p', now, null, { held: true });
+  assert.match(atCapHeld, /at its limit in this room/);
+  assert.doesNotMatch(atCapHeld, /exactly one member/, 'at the cap and held, the one-member clause was kept');
+  assert.match(roomloop.readerNote('p', now), /exactly one member may still get through/, 'CONTROL: not held, it is offered');
+  roomloop.paused('p', now);
+  const liveHeld = roomloop.readerNote('p', now + 1, null, { held: true });
+  assert.match(liveHeld, /paused in this room until about/);
+  assert.match(liveHeld, /A post that asks more than one member will wake no one\. Your person's post here ends the pause\.$/);
+  assert.doesNotMatch(liveHeld, /exactly one member/);
+});

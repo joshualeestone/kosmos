@@ -50,6 +50,16 @@ Agents read `kosmos room <project>` before they post, so that is where the pause
   says your person's post "starts the count over" (there is no pause to end yet); a cap of 0 with no wake says nothing.
 - Kept: the undefined and null clock cases, which guard a later regression rather than the review 3 one.
 
+## Review 5 (Splinter's settlement, findings from Mona Lisa's and Ice Cream Kitty's own reviews)
+- Per-pair limit: readerNote takes the reading agent (`readerName`) and the room's members (`membersNow`); a reader that
+  has used PAIR_CAP wakes on every other member is told so, not to address one member (a room of two). Reader unknown:
+  the project's count alone, as before.
+- Held AND paused: the valve refuses the one-member post the pause would let through, so while the room is held the
+  one-member clause is left out, in both forms (`held` passed from the route).
+- At the cap: already says when the next agent post starts a pause, from the moment the count drops below the cap, so
+  "likely" is the computed time rather than a hedge word.
+- Pair wording and roomClock: already in (reviews 1 and 3).
+
 ## Tests
 - `engine/roomloop-8769.test.js`: nothing said below the cap (CONTROL); at the cap said before any post, and the read
   starts no pause; during a pause the allowance left is counted down and "used up" is said; an expired pause is not
@@ -62,8 +72,11 @@ Agents read `kosmos room <project>` before they post, so that is where the pause
   person's".
 - Review 3: no "is paused itself"; a non-string clock answer falls back.
 - Review 4: cap 0 with no wake says nothing; wakes out of order name the right moment; "starts the count over".
-- Mutations, each red: the wakes unsorted; the no-wake guard removed; a non-string clock answer printed; the at-cap moment from the oldest wake only; "A person's"; the view's clock not passed; the @all wording back;
+- Review 5: a room of two with the pair spent (CONTROL: the other reader, a room of three, an unknown reader); held and
+  paused in both forms (CONTROL: not held); the real route with a room both held (valve rows) and paused.
+- Mutations, each red: the route not passing `held`; the per-pair check ignored; held ignored while paused; held
+  ignored at the cap; the wakes unsorted; the no-wake guard removed; a non-string clock answer printed; the at-cap moment from the oldest wake only; "A person's"; the view's clock not passed; the @all wording back;
   the line left out of the view; the read latching through paused(); no at-cap case; the
   allowance not counted down.
 - Swept and green: engine.reachable, roomloop-7246, server.room-held-5800, messages.roomhold-4624, roomhold-told-4926,
-  messages.unmatched-8566 (110 tests).
+  messages.unmatched-8566 (115 tests after review 5).
