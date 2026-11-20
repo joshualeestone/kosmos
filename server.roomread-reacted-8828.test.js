@@ -1,8 +1,8 @@
 'use strict';
 /**
- * kosmos#8828 item 1: the working rules say a confirmation is answered with a reaction, not another post. So a post the
- * reader reacted to (not a 🙋 claim, not a reaction taken back) leaves its `kosmos room <id> --unanswered` list when the
- * post asks no question (no "?"); a question still needs a post. Follows #4926 and #7848.
+ * kosmos#8828 item 1: a reaction does not answer a post addressed to the reader (engine/defaults.js), so on
+ * `kosmos room <id> --unanswered` such a post stays listed, and a line under the list names the ones the reader reacted
+ * to and says why, so the reaction is not read as lost. Follows #4926 and #7848.
  */
 require('./test-support/tmpscope');
 const test = require('node:test');
@@ -65,38 +65,44 @@ const room = async (project, who, query) => {
   return { status: res.status, text: await res.text() };
 };
 const listed = (text, id) => text.split('\n').some((l) => l.includes('[' + id + '] ' + POSTER));
-const CLAIMED = '[kosmos] Claimed, each by an agent the post also asked, so not counted as waiting on you: ';
 
 function react(project, of, from, emoji, op) {
   clock += 1000;
   append({ kind: 'reaction', project, of, at: new Date(clock).toISOString(), emoji, op: op || 'add', from });
 }
 
-test('kosmos#8828: a reaction answers a confirmation, never a question', async () => {
+const REACTED = '[kosmos] You reacted to ';
+const reactedLine = (text) => text.split('\n').find((l) => l.startsWith(REACTED)) || '';
+
+test('kosmos#8828: a post I reacted to stays listed, and the list says why', async () => {
   const pid = newRoom('Reacted8828a');
   const confirm = post(pid, { text: '@readerseat noted, I take the deposit clause and you keep the rent clause.', mentioned: [ME] });
-  const question = post(pid, { text: '@readerseat can you take the rent clause today?', mentioned: [ME] });
+  const plain = post(pid, { text: '@readerseat the lease is in the folder.', mentioned: [ME] });
   let r = await room(pid, ME, '&unanswered=1');
   assert.equal(r.status, 200, r.text);
-  assert.ok(listed(r.text, confirm) && listed(r.text, question), 'fixture: before any reaction both are waiting on me:\n' + r.text);
+  assert.equal(reactedLine(r.text), '', 'CONTROL: no reaction yet, no line:\n' + r.text);
   react(pid, confirm, ME, '\u{1F44D}');
-  react(pid, question, ME, '\u{1F44D}');
   r = await room(pid, ME, '&unanswered=1');
-  assert.ok(!listed(r.text, confirm), 'a confirmation I reacted to is still listed as waiting on me:\n' + r.text);
-  assert.ok(listed(r.text, question), 'a question I only reacted to left the list; a question needs a post:\n' + r.text);
+  assert.ok(listed(r.text, confirm) && listed(r.text, plain), 'a reaction answered a post addressed to me:\n' + r.text);
+  const line = reactedLine(r.text);
+  assert.ok(line.includes('[' + confirm + ']') && !line.includes('[' + plain + ']'), 'the line does not name exactly the post I reacted to:\n' + r.text);
+  assert.match(line, /does not answer a post addressed to you/);
+  assert.match(line, /--in-reply-to/);
 });
 
-test('kosmos#8828: a claim, a reaction taken back, or someone else\'s reaction is not my answer', async () => {
+test('kosmos#8828: a claim, a reaction taken back, another agent\'s, or one in another room is not named', async () => {
   const pid = newRoom('Reacted8828b');
+  const other = newRoom('Reacted8828c');
   const claimed = post(pid, { text: '@readerseat the lease draft is in the shared folder.', mentioned: [ME] });
   const takenBack = post(pid, { text: '@readerseat the signing is moved to Monday.', mentioned: [ME] });
   const others = post(pid, { text: '@readerseat the landlord agreed to the date.', mentioned: [ME] });
+  const elsewhere = post(pid, { text: '@readerseat the keys are at the office.', mentioned: [ME] });
   claim(pid, claimed, ME);
   react(pid, takenBack, ME, '\u{1F44D}');
   react(pid, takenBack, ME, '\u{1F44D}', 'remove');
   react(pid, others, BYSTANDER, '\u{1F44D}');
+  react(other, elsewhere, ME, '\u{1F44D}');
   const r = await room(pid, ME, '&unanswered=1');
-  assert.ok(listed(r.text, claimed), 'my own claim counted as an answer:\n' + r.text);
-  assert.ok(listed(r.text, takenBack), 'a reaction I took back still counted:\n' + r.text);
-  assert.ok(listed(r.text, others), 'another agent\'s reaction answered for me:\n' + r.text);
+  assert.equal(reactedLine(r.text), '', 'one of these was named as my reaction:\n' + r.text);
+  assert.ok(listed(r.text, takenBack) && listed(r.text, others) && listed(r.text, elsewhere), 'fixture: these stay listed:\n' + r.text);
 });
