@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: apostrophe-8784
-diff_hash: fef0e6ba70979b43b65560899916e57cdcb83c09d24202b67c96121cb7134e3e
+diff_hash: a267f2d1825ca2c69073a331d649f7da4c5d8df3724a3afb70ea91401cb7fb80
 validation: passed
 subdir_audit: passed
 timestamp: 2026-11-20T04:37:21Z
@@ -32,3 +32,5 @@ passed); subdir audit passed.
 After the PR's first CI: Windows ran the new test unstubbed (it had never run there) and createAgent returned PARTIAL. The test now states the same win32 seams as create.test.js (setPark, setAnchorer, the /Run arm recording the session). A test-only change; Windows CI on this head is its check.
 
 Second Windows CI: the second-spelling test reached the folder-without-a-job refusal (the stub reports no Scheduled Task), which still named the spelling typed: round 1's kept NIT, now fixed (spokenName, as the agent refusal). create.test.js 245 and the two other readers pass.
+
+Third CI: my previous fix broke setup-assistant.adopt-8484 (a leftover folder with no profile read as 'josh', not the 'Josh' typed): I had run the 13 wording files BEFORE that fix, not after. takenName now uses the existing agent's own display name only when it differs from its session name, else the typed name. All 14 wording files (455 tests, create.test.js included) re-run on this exact head: 0 failed.
