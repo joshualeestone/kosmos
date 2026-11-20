@@ -1329,8 +1329,8 @@ function block() {
  *     taking it, post only if the claim is yours, do not post if someone else holds it, give it back with --release if
  *     you stop and keep it when done, a raised hand from the person agrees with a claim, and what to do when Kosmos
  *     does not answer) and a pointer to `kosmos claim --how` (engine/claimguide.js), which prints the rest, most lines word for
- *     word: when someone else holds it, how `kosmos room` shows a claim, how long it lasts,
- *     a raised hand, a stale claim, and a room shared with another computer. No new heading, so as in 32 an agent's
+ *     word: when someone else holds it, how `kosmos room` shows a claim, how long it lasts, a stale claim, and a room
+ *     shared with another computer (the raised hand is in both, reworded in the brief). No new heading, so as in 32 an agent's
  *     EDITED copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent runs `kosmos claim --how` when one of those cases comes up; the pointer
  *     names each, and both CLIs' claim usage names --how.

@@ -485,11 +485,17 @@ function prepareChanges(session) {
     } catch { movedFiles = null; }
     /* kosmos#8735 (doctrine 56): the claim protocol's cases moved from "Answering where you were asked" to `kosmos claim
        --how` (engine/claimguide.js), most lines word for word, so those are left out as moved, as the task guide's are.
-       The one condition is that the new file still has that heading. */
+       Only for that move: the last-read copy holds a v55-only claim line and the new file does not, and the new file
+       still has that heading. The section also holds the rules for posting and reacting, so a later change to one of
+       those must not be pointed at the claim guide. */
     let movedClaim = null;
     try {
+      const V55_CLAIM_ONLY = 'did not answer, run the same claim again; if it still cannot be reached, say in';
+      const claimLineSet = (t) => new Set(String(t).split('\n').map((l) => l.replace(/\r$/, '')));
+      const claimWas = claimLineSet(seen);
+      const claimNow = claimLineSet(got.text);
       const claimHead = (require('./defaults').sections().find((x) => x.heading === '### Answering where you were asked') || {}).heading;
-      if (claimHead && got.text.split('\n').some((l) => l.replace(/\r$/, '') === claimHead)) {
+      if (claimHead && claimNow.has(claimHead) && claimWas.has(V55_CLAIM_ONLY) && !claimNow.has(V55_CLAIM_ONLY)) {
         const claimLines = require('./claimguide').guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '');
         movedClaim = { under: claimHead, lines: new Set(claimLines), where: 'kosmos claim --how' };
       }

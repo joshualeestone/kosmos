@@ -851,3 +851,15 @@ test('kosmos#8735 doctrine 56: a file whose section heading is gone hides nothin
   assert.ok(body.includes('- ' + MOVED_LINE), 'a line of a deleted section was hidden');
   assert.ok(!/that kosmos claim --how prints/.test(body), 'a deleted section was told it still applies');
 });
+
+test('kosmos#8735 doctrine 56: a later change to a non-claim line in that section is not pointed at the claim guide (CONTROL)', () => {
+  const block = require('./defaults').blockFor(process.platform);
+  const line = '**You can also react to a room post** with `kosmos react <project> <postId>';
+  assert.ok(block.split('\n').includes(line), 'fixture: the react line is not in the working rules');
+  const before = block.replace(line + '\n', line + '\nA rule about reacting that a later version removed.\n');
+  agentFile('tcc', '# You are Tcc\n\n' + block + '\n');
+  assert.equal(ir.remember('tcc', '# You are Tcc\n\n' + before + '\n'), true);
+  const body = fs.readFileSync(ir.prepareChanges('tcc').path, 'utf8');
+  assert.ok(body.includes('- A rule about reacting that a later version removed.'), 'fixture: the removed line is not in the changes file');
+  assert.ok(!/kosmos claim --how/.test(body), 'a removal unrelated to the claim move was pointed at the claim guide');
+});

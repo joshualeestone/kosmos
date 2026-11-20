@@ -19,6 +19,9 @@ regenerated from main came out identical to the table on the branch (the v55 row
 match main's), and the v56 pins and the brief size were re-checked on the rebased tree.
 
 ## Rejected
+- Keeping "if a claim looks stale, ask its holder or the person, not the room" in the brief: the pointer names a stale
+  claim, and seeing a claim at all already means do not post that you are taking it. "And say so in the room" when it
+  is done also moved; the CLI's own success message tells the agent to say in the room what it is doing.
 - Moving "post only if the claim is yours" or "do not post if someone else holds it" too: those are the rule at the
   moment of claiming, and a wrong post is what the protocol exists to stop.
 
@@ -30,7 +33,8 @@ match main's), and the v56 pins and the brief size were re-checked on the rebase
   not the brief.
 - Re-read: exactly 10 word-for-word lines are left out as moved ("Left out: 10 lines ... that kosmos claim --how
   prints"); re-wrapped lines stay marked and the conditional sentence covers them; a file whose heading is gone hides
-  nothing (control). Fixture equals the base's paragraph (1,242 characters). Perturbed red.
+  nothing (control); the note fires only for the v55 move (round 5: the section also holds posting and reacting rules,
+  so a later change there gets no claim note; control). Fixture equals the base's paragraph (1,242 characters). Perturbed red.
 - 1,768 related tests (defaults, doctrine, dmfiles, messages, instructionreread, claim CLI, Windows parity), 0 failed,
   on the rebased tree.
 
