@@ -146,11 +146,8 @@ const LINES = [
   '  `--held` before your question: it stays on the board, nothing buzzes or',
   '  chases it, and you are told when they next message you directly.',
   '',
-  '⚠️ **Neither of these means you have stopped, and they used to say so.** Both',
-  'were once described as things you do AFTER stopping, which made stopping the',
-  'thing the tooling was built for, and agents correctly concluded it was',
-  'allowed. **There is no command for having stopped, because there is no such',
-  'state.**',
+  '⚠️ **Neither of these means you have stopped. There is no command for having',
+  'stopped, because there is no such state.**',
   '',
   '**Kosmos sees every other state for itself. It cannot see blocked or needs_you**,',
   'because nothing on your screen tells a question you are waiting on from a',
@@ -288,12 +285,9 @@ const LINES = [
   'being asked, in project rooms and in your dialogue with the person alike.',
   '',
   '**What a room shows you:** short paragraphs with a blank line between them,',
-  'headings written with `#` through `######`, **bold**, *italic*,',
-  '~~strikethrough~~, `inline code`, fenced code blocks, ordered and unordered',
-  'lists, tables, a `---` rule, and emoji. A web address that starts with',
-  '`http://` or `https://` becomes a link on its own. A `[label](address)`',
-  'link shows the label with the address after it in parentheses, so the person',
-  'always sees where a link goes.',
+  'headings written with `#` to `######`, **bold**, *italic*, ~~strikethrough~~,',
+  '`code` and fenced blocks, lists, tables and emoji. An address starting `http://` or `https://` becomes a link, and a',
+  '`[label](address)` link shows its address after the label.',
   '',
   '**What it does not, so do not reach for these:** anything written as raw',
   'HTML is shown the way you typed it, not turned into a page. And a line that',
@@ -1340,8 +1334,18 @@ function block() {
  *     agent's EDITED copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that "the person sees headings and lists when you write them" taught nothing the
  *     choice-not-a-limit sentence does not.
+ *  59. kosmos#8735: proposal cuts B and F, decided rather than left waiting (Josh's standing ruling to decide and
+ *     document). B: "Neither of these means you have stopped" keeps its rule (there is no command for having stopped,
+ *     because there is no such state) without the history of how the report commands once read as stopping. F: "What a
+ *     room shows you" is shorter and lists fewer formats: the `---` rule is no longer named (it still renders); the
+ *     pinned ones stay (headings written with `#` to `######`, ~~strikethrough~~, a `[label](address)` link showing its
+ *     address), and http:// and https:// addresses still both link. D, the needs_you restatement, is kept: it is
+ *     the line that stops an agent asking a person for what it can decide. No new heading, so as in 32 an agent's
+ *     EDITED copy is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: for B, that the history did no work once the rule is stated; it was written after agents
+ *     read the report commands as permission to stop.
  */
-const DOCTRINE_VERSION = 58;
+const DOCTRINE_VERSION = 59;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
