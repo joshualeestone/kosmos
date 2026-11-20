@@ -5590,10 +5590,12 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
    remote_step_up_unavailable. A local
    request is not asked: the person is at the computer. Taking things away (deleting a key, forgetting a token) is
    not asked either. */
-/* Twelve minutes, a little longer than the coordinator's own STEP_UP_SECS (ten): a handoff minted near the end of the
-   coordinator's window must still be fresh when the page reaches this board (Renet, 13:54). The refusal still says
-   ten, the coordinator's figure, so the person is never told more time than they have. */
-const REMOTE_STEP_UP_SECS = 12 * 60;
+/* kosmos#8785 (Josh, 20:49 11-19: "A full sign in should basically hold forever"): a FULL sign-in, one the gate says
+   proved the second factor, counts for as long as that sign-in lasts. It used to count for 12 minutes, which on a
+   cloud machine (where every session is remote) asked its owner to sign in again for every new agent. What still
+   ends one: the sign-in's own expiry at the gate, Sign out (this browser) and Sign out everywhere (every browser of
+   the account, through the cutoffs the gate hears), and Remove of the device. A sign-in WITHOUT the second factor is
+   still refused, and a time more than a minute ahead of this clock is still told apart (REMOTE_STEP_UP_CLOCK). */
 /* The gate's two headers, read one way: { second, iat }, iat null unless it is a plain decimal (a value Node joined
    from repeated headers, "a, b", is not). */
 function remoteSessionHeaders(headers) {
@@ -5604,9 +5606,8 @@ function remoteSessionHeaders(headers) {
 function remoteSessionFresh(headers, nowSecs) {
   const { second, iat } = remoteSessionHeaders(headers);
   if (!second || iat === null) return false;
-  const age = nowSecs - iat;
-  // Bounded both sides: an issue time ahead of this clock is fresh only within a minute of drift.
-  return age >= -60 && age <= REMOTE_STEP_UP_SECS;
+  // Any age (kosmos#8785); ahead of this clock only within a minute of drift.
+  return nowSecs - iat >= -60;
 }
 /* kosmos#7404 plan screen: the plans read shared by every caller (see the plans route). */
 let PB_PLANS_READ = { at: 0, p: null };
@@ -5676,7 +5677,7 @@ function needsRemoteStepUp(pathname, method) {
 }
 const REMOTE_STEP_UP = Object.freeze({
   code: 'remote_step_up',
-  error: 'From a remote session this needs a fresh sign-in. Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, sign in again with your email code and authenticator code, then try again within 10 minutes. Not using Kosmos+? Do this at the computer itself.',
+  error: 'From a remote session this needs a sign-in with your second step. Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, sign in again with your email code and authenticator code, then try again. Not using Kosmos+? Do this at the computer itself.',
 });
 /* kosmos#6616 (R01b): the same refusal when the connector also serves `/_kosmos/signin?fresh=1` (it lists
    fresh-signin): the board page then offers a Sign in again button there, which ends the gate's session and asks the
@@ -5687,7 +5688,7 @@ const REMOTE_STEP_UP = Object.freeze({
    page that asked still shows this sentence. */
 const REMOTE_STEP_UP_SIGNIN = Object.freeze({
   code: 'remote_step_up',
-  error: 'From a remote session this needs a fresh sign-in. Press Sign in again at the foot of the page, sign in with your email code and authenticator code, then try again within 10 minutes. No Sign in again there? Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, then sign in again. Not using Kosmos+? Do this at the computer itself.',
+  error: 'From a remote session this needs a sign-in with your second step. Press Sign in again at the foot of the page, sign in with your email code and authenticator code, then try again. No Sign in again there? Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, then sign in again. Not using Kosmos+? Do this at the computer itself.',
   signInAgain: true,
 });
 /* kosmos#7625: the same refusal through the gate when the connector does NOT serve /_kosmos/signin?fresh=1 (no
@@ -5698,7 +5699,7 @@ const REMOTE_STEP_UP_SIGNIN = Object.freeze({
    the person is using Kosmos+, and on a cloud machine there is no other computer. */
 const REMOTE_STEP_UP_LOGOUT = Object.freeze({
   code: 'remote_step_up',
-  error: 'From a remote session this needs a fresh sign-in. Press Sign in again at the foot of the page, sign in with your email code and authenticator code, then try again within 10 minutes. No Sign in again there? Log out in Settings, Kosmos+, then sign in again.',
+  error: 'From a remote session this needs a sign-in with your second step. Press Sign in again at the foot of the page, sign in with your email code and authenticator code, then try again. No Sign in again there? Log out in Settings, Kosmos+, then sign in again.',
   signInAgain: true,
   via: 'logout',
 });
@@ -31556,7 +31557,7 @@ module.exports = { _setStartedProofPlatformForTest, _setStartWaitForTest,   // k
   _sendJsonForTest: sendJson, _sendTextForTest: sendText, _refuseDownloadForTest: refuseDownload, // kosmos#7686: never a second head, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
-  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_STARTING /* kosmos#8728 */, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616, #7625
+  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_STARTING /* kosmos#8728 */, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, // kosmos#6595 R01 step-up, #6616, #7625
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   claudeObservationsFor, overlayStuckCards, // #7212 slice 3 reviews 6-7: the badge's evidence and the route's step, for their test
   safeRoster, // #5811: its rows carry no geminiSeen, for its test

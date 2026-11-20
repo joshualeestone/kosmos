@@ -35,7 +35,7 @@ process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_SECS } = require('./server');
+const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_LOGOUT } = require('./server');
 /* kosmos#7625: a stale request the gate forwarded (it wrote a session header) is offered Sign in again by logging out;
    one with no gate header (a proxy the owner set up), or with no second factor (signing in again cannot help:
    review 1), keeps the plain refusal. */
@@ -94,7 +94,7 @@ test('R01: PUT /api/autoupdate from a stale remote session is refused (on the fu
 const STALE = [
   ['no session headers', {}],
   ['a fresh time but no second factor', { 'x-kosmos-session-iat': String(now() - 30), 'x-kosmos-session-second': '0' }],
-  ['the second factor but a stale time', { 'x-kosmos-session-iat': String(now() - REMOTE_STEP_UP_SECS - 5), 'x-kosmos-session-second': '1' }],
+  ['an old time and no second factor', { 'x-kosmos-session-iat': String(now() - 40 * 24 * 3600), 'x-kosmos-session-second': '0' }],
   ['a malformed time', { 'x-kosmos-session-iat': '1e9', 'x-kosmos-session-second': '1' }],
 ];
 /* 🛑 Only these routes are sent real requests, and with an unreadable body: each reads and parses its body before it
@@ -151,12 +151,14 @@ test('R01: taking things away is not gated (forget a token, sign a provider out)
   assert.equal(needsRemoteStepUp('/api/org/leave', 'POST'), false, 'leaving takes away');
 });
 
-test('R01: freshness needs the second factor and a time within the window, bounded both sides', () => {
+test('R01 (kosmos#8785): a full sign-in counts at any age; the second factor and a well-formed time are still needed', () => {
   const t = 1_800_000_000;
   const h = (iat, second) => ({ 'x-kosmos-session-iat': iat, 'x-kosmos-session-second': second });
   assert.equal(remoteSessionFresh(h(String(t - 30), '1'), t), true);
-  assert.equal(remoteSessionFresh(h(String(t - REMOTE_STEP_UP_SECS), '1'), t), true, 'the edge of the window');
-  assert.equal(remoteSessionFresh(h(String(t - REMOTE_STEP_UP_SECS - 1), '1'), t), false, 'one second past it');
+  // Josh 11-19: "A full sign in should basically hold forever". Was false past 12 minutes.
+  assert.equal(remoteSessionFresh(h(String(t - 12 * 60 - 1), '1'), t), true, 'past the old 12-minute window');
+  assert.equal(remoteSessionFresh(h(String(t - 364 * 24 * 3600), '1'), t), true, 'a sign-in near the end of its year');
+  assert.equal(remoteSessionFresh(h(String(t - 364 * 24 * 3600), '0'), t), false, 'old and without the second factor');
   assert.equal(remoteSessionFresh(h(String(t + 60), '1'), t), true, 'a minute of clock drift');
   assert.equal(remoteSessionFresh(h(String(t + 61), '1'), t), false, 'further ahead is not fresh');
   assert.equal(remoteSessionFresh(h(String(t - 30), '0'), t), false, 'no second factor');
@@ -174,6 +176,9 @@ test('R01: the gate passes update and agent creation for a fresh remote session 
   const req = (headers) => ({ method: 'POST', headers });
   for (const route of ['/api/update', '/api/agents', '/api/team', '/api/connect-agent', '/api/connect/start']) {
     assert.equal(remoteStepUpRefusal(req({ ...VIA_PLUS, ...fresh() }), route, t), null, route + ' fresh remote');
+    // kosmos#8785: a cloud owner's evening. A full sign-in from yesterday still makes agents.
+    const dayOld = { ...VIA_PLUS, 'x-kosmos-session-iat': String(t - 24 * 3600), 'x-kosmos-session-second': '1' };
+    assert.equal(remoteStepUpRefusal(req(dayOld), route, t), null, route + ' a day-old full sign-in');
     assert.equal(remoteStepUpRefusal(req(PAGE), route, t), null, route + ' local');
     assert.equal(remoteStepUpRefusal(req(VIA_PLUS), route, t), REMOTE_STEP_UP, route + ' stale remote');
   }
