@@ -68,7 +68,7 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   'feedbackday-7875.test.js',   // #7875: kosmos feedback day, run through the Windows CLI's own handler
   'communityguide.test.js', 'taskguide.test.js',   // kosmos#8735: kosmos community --how and kosmos task --how through the Windows CLI; their bash halves skip there with a reason
   'agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'platform.test.js', 'store.test.js', 'windows-coupling-audit-1732.test.js', 'runners.win-runnable-2270.test.js',
-  'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',
+  'create.test.js', 'create.apostrophe-8784.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',
   'setup-assistant.winrules-4752.test.js',   // #4752: the guide's real rules, read on a Windows host
   'securewrite.fsync-5434.test.js',   // #5434: its Windows-only skips (EPERM, EISDIR) run only there
   'projects.linuxopen-5881.test.js',   // #5881: its Linux arms and its Mac and Windows controls run there (the Windows one through a spy); the stand-in arm skips

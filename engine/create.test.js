@@ -430,8 +430,10 @@ test('the display name and the machine name differ only in case and folded white
    * and a run of periods (#2605), each to a hyphen. Every OTHER character
    * survives `slugFor` unchanged and is then caught by `NAME_RE`, which admits
    * only `[a-z0-9_-]`. So an accepted display name is made of exactly
-   * `[A-Za-z0-9 ._-]` (the alnum/underscore/hyphen NAME_RE passes, plus the
-   * space and period slugFor folds), starting with an alnum. Asserted as a
+   * `[A-Za-z0-9 ._'-]` plus the other apostrophes create.js drops (U+2018 U+2019
+   * U+02BC U+02BB U+FF07) (the alnum/underscore/hyphen NAME_RE passes, plus the
+   * space and period slugFor folds, and the apostrophes it drops, kosmos#8784),
+   * starting with an alnum. Asserted as a
    * property over the whole dangerous alphabet, rather than trusted.
    *
    * 🔑 THE PERIOD IS SAFE IN THAT FILE, WHICH IS WHY #2605 COULD WIDEN THIS.
@@ -443,7 +445,7 @@ test('the display name and the machine name differ only in case and folded white
    * use the period-free SLUG (`plistFor(clean, …)`), and the display name goes
    * only to the markdown file, the profile JSON, and HTML-escaped UI.
    */
-  const alphabet = ' \t\n\'"`$();|&<>*?![]{}\\/#~^%+=:,.@abzAZ09_-*';
+  const alphabet = ' \t\n\'"`$();|&<>*?![]{}\\/#~^%+=:,.@abzAZ09_-*\u2018\u2019\u02BC\u02BB\uFF07\u2032\u00B4';
   let accepted = 0;
   for (const ch of alphabet) {
     for (const candidate of [`a${ch}b`, `${ch}ab`, `ab${ch}`, `A${ch}B`]) {
@@ -465,15 +467,22 @@ test('the display name and the machine name differ only in case and folded white
         `'${candidate}' is shown as something other than what was typed`);
       /* #740 + #2605: a run of whitespace OR periods becomes one hyphen; nothing
          else changes but case. The raw candidate stays the independent reference,
-         so a period that STRIPPED instead of folding would fail here. */
-      assert.equal(create.slugFor(candidate), candidate.trim().toLowerCase().replace(/[\s.]+/g, '-'),
+         so a period that STRIPPED instead of folding would fail here.
+         kosmos#8784: the apostrophe (straight here; the curly forms are pinned in
+         create.apostrophe-8784.test.js) is the ONE character dropped, on purpose: it
+         sits inside a word, and every spelling lands on one machine name, so a second
+         spelling is refused as taken, by name, never filed beside the first in silence.
+         It reaches the boot file only as literal markdown prose, like the period. Any
+         other character a slugFor started to strip still fails this line. */
+      assert.equal(create.slugFor(candidate), candidate.trim().toLowerCase().replace(/['\u2018\u2019\u02BC\u02BB\uFF07]/g, '').replace(/[\s.]+/g, '-'),
         `'${candidate}' is shown as something that is not just the machine name in another case (spaces and periods folded)`);
       /* #2605: the boot-file alphabet gains the period and NOTHING else. The
          period is inert as markdown prose (see the header); every other
          dangerous character in `alphabet` still fails NAME_RE and never reaches
          this assertion. The leading anchor is unchanged, so a name still starts
-         with an alnum. */
-      assert.match(shown, /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/,
+         with an alnum. kosmos#8784 adds the apostrophe, inert as markdown prose for
+         the same reason, and nothing else. */
+      assert.match(shown, /^[A-Za-z0-9][A-Za-z0-9 ._'\u2018\u2019\u02BC\u02BB\uFF07-]*$/,
         `'${candidate}' would put something other than a name into the file an agent boots from`);
     }
   }
