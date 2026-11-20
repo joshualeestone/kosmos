@@ -45,3 +45,6 @@ the FIRST line and the exit code is non-zero.
   "did not answer in time" must be true when said. A deliberate difference: Windows shows the copy in fewer cases.
 - Copies only in an installed Kosmos (an app folder under KOSMOS_HOME, or %LOCALAPPDATA%\Kosmos on Windows), so no
   checkout, test or profile that did not set one up is written to.
+- Residual, recorded (review 7): an existing room test that spreads process.env would write copies into a real
+  install only if the shell running it sets KOSMOS_HOME to that install (agent shells here do not; the default is the
+  checkout, which has no app folder). On Windows, "nothing kept" still uses the existing "too busy to answer" sentence.

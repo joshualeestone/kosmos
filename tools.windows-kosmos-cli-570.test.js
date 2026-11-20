@@ -1169,7 +1169,7 @@ test('kosmos#8769 item 4: room on a busy board shows the kept copy (exit 1); non
     const threeH = (Date.now() - 3 * 3600000) / 1000; fs.utimesSync(copyFile, threeH, threeH);
     assert.match((await run(['room', 'proj-1'], busy, env)).out, /last copy this computer read, 3 hour\(s\) ago/);
     const stale = path.join(dir, 'stale-from-a-deleted-room.txt'); fs.writeFileSync(stale, 'x');
-    const eightD = (Date.now() - 8 * 86400000) / 1000; fs.utimesSync(stale, eightD, eightD);
+    const eightD = (Date.now() - 7.5 * 86400000) / 1000; fs.utimesSync(stale, eightD, eightD);   // 7.5 days, as the Mac test
     await run(['room', 'proj-1'], () => ({ body: 'm1 leo: fresh\n' }), env);
     assert.ok(!fs.existsSync(stale), 'a copy not refreshed for 7 days is pruned');
     assert.ok(fs.existsSync(copyFile), 'CONTROL: the fresh copy stays');

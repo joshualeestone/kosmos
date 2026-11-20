@@ -139,13 +139,15 @@ test('kosmos#8769 item 4: one reader never sees another reader\'s copy of the sa
   assert.match(a2.out, /seen-by-reader-a/, 'CONTROL: reader A still gets its own copy');
 }));
 
-test('kosmos#8769 item 4: a state folder that cannot be written still says the board is busy', { skip: SKIP }, () => withBoard(async (port, room) => {
-  const home = path.join(HOME, 'not-a-folder');
-  fs.writeFileSync(home, 'a file where the home folder would be');
+test('kosmos#8769 item 4: a state folder that cannot be written still says the board is busy, with no since clause', { skip: SKIP }, () => withBoard(async (port, room) => {
+  const home = mkHome('j-');   // an installed layout, so the feature is ON (review 7: it must reach the write path)
+  fs.writeFileSync(path.join(home, 'state'), 'a file where the state folder would be');
   room.stall = true;
   const busy = await runCli(['room', 'proj'], envFor(port, home));
   assert.equal(busy.code, 1, busy.out);
   assert.match(busy.out, /Kosmos is running but did not answer in time, so we could not read that room/);
+  assert.doesNotMatch(busy.out, /has not answered a read of this room here since/, 'no mark could be written, so no since claim');
+  assert.doesNotMatch(busy.out, /No such file|Not a directory|line \d+:/, 'no shell error leaks');
 }));
 
 test('kosmos#8769 item 4: a good FILTERED read also ends the failing spell (the since line stays true)', { skip: SKIP }, () => withBoard(async (port, room) => {
@@ -195,7 +197,7 @@ test('kosmos#8769 item 4: the age is said in hours past two hours, and a copy no
   const busy = await runCli(['room', 'proj'], envFor(port, home));
   assert.match(busy.out, /last copy this computer read, 3 hour\(s\) ago/);
   const stale = path.join(dir, 'stale-from-a-deleted-room.txt'); fs.writeFileSync(stale, 'x');
-  const nineD = (Date.now() - 9 * 86400000) / 1000; fs.utimesSync(stale, nineD, nineD);
+  const old = (Date.now() - 7.5 * 86400000) / 1000; fs.utimesSync(stale, old, old);   // 7.5 days: past 7, under 8
   room.stall = false;
   await runCli(['room', 'proj'], envFor(port, home));
   assert.ok(!fs.existsSync(stale), 'a copy not refreshed for 7 days is pruned');

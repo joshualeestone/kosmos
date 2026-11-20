@@ -5875,7 +5875,7 @@ cmd_room() {
       { _rb_tmp="$(mktemp "$_rb_dir/.copy.XXXXXX")" && chmod 600 "$_rb_tmp" && printf '%s' "$_body" > "$_rb_tmp" \
         && mv -f "$_rb_tmp" "$_rb_copy"; } 2>/dev/null || { [ -z "$_rb_tmp" ] || rm -f "$_rb_tmp" 2>/dev/null || true; }
       # Review 3: copies are not kept for ever: any not refreshed for 7 days (a room deleted, a token changed) goes.
-      find "$_rb_dir" -maxdepth 1 -type f -mtime +7 -delete 2>/dev/null || true
+      find "$_rb_dir" -maxdepth 1 -type f -mtime +6 -delete 2>/dev/null || true   # +6: more than 7 whole days (find rounds up)
     fi
   fi
   # #4926: a filtered answer has a line starting with this; without one, this board does not know --unanswered and
