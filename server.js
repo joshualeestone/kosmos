@@ -25098,6 +25098,23 @@ const server = http.createServer(async (req, res) => {
             answeredBy.set(m.replyTo, list);
           }
         }
+        /* kosmos#8828 item 1: the working rules (engine/defaults.js) say a confirmation is answered with a reaction, not
+           another post. So a post the reader has a reaction on (its latest add, never the claim 🙋, which says "mine")
+           counts as answered when the post asks no question: it has no "?". A question still needs a post, so a reaction
+           never hides one. From the stored reaction rows, this room's only (roomRows leaves reactions out). */
+        const reactedBy = new Set();
+        if (readerName) {
+          const latest = new Map();   // post id -> Map(emoji -> 'add'|'remove'), the reader's own reactions, in order
+          for (const m of (rec && Array.isArray(rec.rows) ? rec.rows : [])) {
+            if (!m || m.kind !== 'reaction' || m.project !== id || m.operator === true || m.from !== readerName || m.claim === true) continue;
+            if (typeof m.emoji !== 'string' || messages.isClaimEmoji(m.emoji)) continue;
+            const of = String(m.of);
+            if (!latest.has(of)) latest.set(of, new Map());
+            latest.get(of).set(m.emoji, m.op === 'remove' ? 'remove' : 'add');
+          }
+          for (const [of, byEmoji] of latest) if ([...byEmoji.values()].includes('add')) reactedBy.add(of);
+        }
+        const answeredByReaction = (m) => !!m && reactedBy.has(String(m.id)) && !String(m.text || '').includes('?');
         /* Asked of the reader: it named the reader (an @name, or an agent's `Sender -> Name:` header; messages.namedIn,
            the claim guard's own reading), or the person posted and it reached the reader, unless the claim guard reads it
            as asking only other agents (kosmos#8734, see namedOthersOnly below). A colleague's post that only
@@ -25242,7 +25259,7 @@ const server = http.createServer(async (req, res) => {
           /* #4926: --unanswered walks the whole live room, not just the last N rows, so an ask further back that is still
              open is found; N then caps how many are listed (the newest), and the count says how many there are. */
           if (onlyUnanswered) {
-            if (askedOfReader(rows[i]) && !answeredBy.has(String(rows[i].id))) {
+            if (askedOfReader(rows[i]) && !answeredBy.has(String(rows[i].id)) && !answeredByReaction(rows[i])) {
               const c = claimedByOther(rows[i]);
               if (c) { claimedAsks.unshift({ id: String(rows[i].id), by: c.by, at: c.at }); continue; }
               // kosmos#7969: after the claim check on purpose: a claimed ask is named on the claimed line whatever its age.
