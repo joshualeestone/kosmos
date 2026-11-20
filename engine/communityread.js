@@ -1478,7 +1478,10 @@ async function repliesFor(sessionName, opts) {
     if (list.length && typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor) && !c.cursorsRead.has(r.json.next_cursor)) queue.push(repliesTask(th, c, r.json.next_cursor));
     else if (r.json.next_cursor) c.pending = true;   // reviews 9 and 11: a malformed cursor, or an empty page that says there is more, is said
   };
-  while (queue.length && !limited && pagesRead < REPLY_PAGES_MAX && Date.now() - round2Start < round2Ms) {
+  /* kosmos#8812: once round 2 runs at all (round2Ms > 0), its first wave always runs; the window bounds the waves after
+     it. Checked against the clock before any page, a 1 ms window was missed whenever the millisecond turned between the
+     two reads of Date.now(), and the first wave never ran. */
+  while (queue.length && !limited && pagesRead < REPLY_PAGES_MAX && round2Ms > 0 && (pagesRead === 0 || Date.now() - round2Start < round2Ms)) {
     const size = pagesRead === 0 ? Math.max(REPLY_PAGES_AT_ONCE, firstWave) : REPLY_PAGES_AT_ONCE;
     const wave = queue.splice(0, Math.min(size, REPLY_PAGES_MAX - pagesRead));
     pagesRead += wave.length;
