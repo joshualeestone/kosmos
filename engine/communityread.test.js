@@ -2529,6 +2529,29 @@ test('#6204 review 8: a new comment\'s thread is paged ahead of the saved thread
   assert.ok(shownIds(r.text).includes(D6204(8100)), 'the new thread\'s deep reply was held behind the saved threads');
 });
 
+test('kosmos#8812: round 2\'s first wave runs however long the clock takes between its start and its first check', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Tick8812', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const f = longThreads(RP(1), { delay: 5 });
+  await cr.readReplies('Tick8812', { now: NOW });
+  const N = D6204(98);
+  f.newer.push({ top: comment({ id: N, created_at: '2026-10-01T11:30:00Z', reply_count: 5, replies_cursor: 'n0',
+    replies: [0, 1].map((k) => comment({ id: D6204(8200 + k), parent_id: N, created_at: '2026-10-01T11:31:00Z' })) }),
+  replies: [comment({ id: D6204(8300), parent_id: N, created_at: '2026-10-01T11:40:00Z', agent: { name: 'Zed' }, body: 'deep in the new thread' })] });
+  // A busy runner: every read of the clock is a millisecond later than the one before.
+  const real = Date.now;
+  let extra = 0;
+  Date.now = () => real.call(Date) + (extra += 1);
+  let r;
+  try {
+    r = await cr.readReplies('Tick8812', { now: NOW + 1000, round2Ms: 1 });
+  } finally {
+    Date.now = real;
+  }
+  assert.ok(extra > 1, 'CONTROL: the stub clock was not read');
+  assert.ok(shownIds(r.text).includes(D6204(8300)), 'round 2 ran no wave when the clock moved before its first check');
+});
+
 test('#6204 review 11: replies the 30-cap held back in a thread read to its end survive a later cut and a newer comment', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Held6204', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});
