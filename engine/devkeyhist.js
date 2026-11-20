@@ -30,14 +30,11 @@
  * backfill entry, which confirms it (replay). The key keeps that `from` (a time the coordinator recorded): a manifest
  * must still verify under the key, which only the confirmed computer holds, and restore checks the key at the
  * manifest's own grant time, also the coordinator's record, so dating trust from the confirm would stop nothing more.
- * escrowd's side is #8768's relay half, and it is in TWO places in devkeyhist.rs: append(), which answers
- * AlreadyEnrolled to any repeat today, and well_formed(), which open_record runs on every start and which refuses any
- * second enrol of a key. Changing only append() would write confirms that escrowd then refuses to open: on its next
- * start it records start_refused and exits (kosmos-escrowd.rs), so it is down for every org until well_formed()
- * changes too. The file is kept, nothing is lost.
- * Deploy order: a Kosmos without this rule refuses a member's whole history once it holds a confirm (fail closed), so
- * escrowd writes no confirm until this board half is served on prod, and older builds refuse those members until
- * they update.
+ * escrowd's side is #8768's relay half (kosmos-relay backfillconfirm-8768): one rule, devkeyhist.rs confirms_backfill,
+ * used by append(), by well_formed() (which open_record runs on every start, so a record holding a confirm still opens)
+ * and by rosterops' devkey_enrol. escrowd WRITES a confirm only once started with KOSMOS_ESCROWD_DEVKEY_CONFIRM=1.
+ * Deploy order: set that only after this board half is served on prod. A Kosmos without this rule refuses a member's
+ * whole history once it holds a confirm (fail closed), and older builds refuse those members until they update.
  * As JSON, a revoke entry carries no `backfill` (absent or null; both encode as 0), an enrol entry carries true or false.
  *
  * What escrowd must uphold when it WRITES the log (slice 2), because the log is append-only and verify() refuses a
