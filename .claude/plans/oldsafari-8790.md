@@ -11,8 +11,9 @@ browser that sends Sec-Fetch-Site; a picture that really fails still fails the w
   only its own pages' requests, so another site's image of this board never gets the header.
 - web/index.html: for the first two minutes of every page, the board pictures that fail (<img src>, SVG <image href>)
   are noted; when a worker takes charge (first visit, hard reload, a worker update) each one still on the page and not
-  shown is asked for again at the same address, and one refused only after the takeover is asked for again at once
-  (each element at most once), and only those addresses leave kosmos#8636's failed-preview list. A
+  shown is asked for again at the same address, and a board picture still LOADING at the takeover (asked
+  before the worker) that fails afterwards is asked for again too (each element at most once); any other later failure
+  went through the worker and is left as it was, and only those addresses leave kosmos#8636's failed-preview list. A
   ready worker is asked to take charge ('claim', handled in sw.js) only once a board picture has failed on a page no
   worker controls. No address is changed, no error is held back. The worker cancels the body of a refusal it discards.
 - Round 1's page-side retry was dropped: swapping an element to a blob: address broke the page's "only redraw when it
