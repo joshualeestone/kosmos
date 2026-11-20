@@ -30349,13 +30349,27 @@ function start(port = PORT) {
         usagePollBusy = started;
         let list = [];
         try { list = accounts.list(); } catch { list = []; }
-        usagePoll.pollAll(list)
-          .then((n) => { process.stdout.write(`usage-poll: measured ${n} of ${list.filter((a) => a && !a.apiKey).length} signed-in account(s)\n`); })
+        /* kosmos#8846: accounts with an agent on them every sweep; the empty ones only while the sweep's last decision has
+           an account at risk, when one may be needed as a target (usagePoll.accountsToPoll). */
+        let needTargets = false;
+        try { needTargets = !!(autobalanceSweepRun && autobalanceSweepRun.state.last && autobalanceSweepRun.state.last.atRisk.length > 0); } catch { needTargets = false; }
+        let walk = null;
+        try { walk = autobalanceSweepDeps(); } catch { walk = null; }
+        const hasAgents = (a) => { if (!walk) throw new Error('no walk'); const on = walk.agentsOn(a.dir, a.isDefault === true); if (!on || on.complete !== true) throw new Error('incomplete'); return on.names.length > 0; };
+        const asked = usagePoll.accountsToPoll(list, { hasAgents, needTargets });
+        const onRefused = (a, state) => { process.stdout.write(`usage-poll: ${a.isDefault ? 'the default account' : 'account ' + String(a.label || 'unnamed')} was refused (${state}); not asked again for ${Math.round(usagePoll.BACKOFF_MS / 3600000)} h or until it signs in again\n`); };
+        usagePoll.pollAll(asked, { onRefused })
+          .then((n) => { process.stdout.write(`usage-poll: measured ${n} of ${asked.length} asked (${list.filter((a) => a && !a.apiKey).length} signed in${needTargets ? ', empty ones included: an account is at risk' : ''})\n`); })
           .catch(() => { /* best-effort, like the sweeps above */ })
           .finally(() => { if (usagePollBusy === started) usagePollBusy = 0; });
       };
-      const usagePollSweep = setInterval(usagePollTick, Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) : usagePoll.POLL_MS); // the env is the test seam only
-      if (usagePollSweep && typeof usagePollSweep.unref === 'function') usagePollSweep.unref();
+      /* kosmos#8846: each wait is POLL_MS give or take 15% (usagePoll.pollDelay), so boards do not ask in step. */
+      const usagePollNext = () => {
+        const ms = Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) : usagePoll.pollDelay(); // the env is the test seam only
+        const h = setTimeout(() => { try { usagePollTick(); } catch { /* best-effort */ } usagePollNext(); }, ms);
+        if (h && typeof h.unref === 'function') h.unref();
+      };
+      usagePollNext();
       /* The first read 30 s after start, off the start path, so a restarted board does not go ten minutes with no reading
          for an idle account. Same gating, inside the tick. */
       const usagePollFirst = setTimeout(usagePollTick, 30 * 1000);

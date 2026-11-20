@@ -499,9 +499,9 @@ test('#7152 review 14: after a refusal the token is not sent again for an hour',
   assert.equal(seen.calls.length, 1, 'CONTROL: the first read was sent');
   await usagepoll.pollAll([{ dir: d, email: EMAIL.toUpperCase() }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 0, 'a refused token was sent again ten minutes later (the same login, spelled in capitals)');
-  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 61 * 60000, { code: 200, body: BODY }));
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + usagepoll.BACKOFF_MS + 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 2, 'the account was never read again after its hour');
-  assert.equal(usagepoll.readUsage(d, NOW + 61 * 60000).state, 'ok');
+  assert.equal(usagepoll.readUsage(d, NOW + usagepoll.BACKOFF_MS + 60000).state, 'ok');
   const e = tmpDir(t);
   await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW, { code: 500, body: '' }));
   await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
@@ -676,7 +676,7 @@ test('#7152 review 21: a sweep that could not use the token does not erase a ref
   token = cred({ expiresAt: NOW + 10 * 3600000 });   // the same refused token again
   await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 20 * 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 0, 'a failed Keychain read in between let the refused token be sent');
-  await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 61 * 60000, { code: 200, body: BODY }));
+  await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + usagepoll.BACKOFF_MS + 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 2, 'CONTROL: after its hour the account is read');
 });
 
@@ -727,7 +727,7 @@ test('#7152 review 22: a folder that cannot be written keeps its refusal in memo
   assert.equal(fs.existsSync(path.join(d, usagepoll.FILE)), false, 'CONTROL: the record could not be written');
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 0, 'a refusal that could not be written was forgotten, and the token sent again');
-  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 61 * 60000, { code: 200, body: BODY }));
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + usagepoll.BACKOFF_MS + 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 2, 'CONTROL: after its hour the account is read');
 });
 

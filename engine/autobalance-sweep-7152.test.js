@@ -407,9 +407,9 @@ test('#7152 slice 3 run 26: the end of a gap is written even when the rest of th
   for (let i = 1; i <= sweep.GAP_TICKS; i += 1) await run.tick(gap, NOW + i * 1000);
   const gapLine = sweep.readLines(file).pop();
   assert.deepEqual(gapLine.unmeasured, ['/u/.claude-spare'], 'CONTROL: the gap was written');
-  /* Spare measured again at 80%: too full to take the agents (TARGET_MAX_PCT 70), not at risk itself (AT_RISK_PCT 90).
+  /* Spare measured again at 75%: too full to take the agents (TARGET_MAX_PCT 70), not at risk itself (AT_RISK_PCT 80).
      The same hold, now with nothing unmeasured. */
-  const full = deps({ usage: { ...USAGE, '/u/.claude-spare': reading(80, 100, { email: 's@example.test' }) } });
+  const full = deps({ usage: { ...USAGE, '/u/.claude-spare': reading(75, 100, { email: 's@example.test' }) } });
   assert.equal((await run.tick(full, NOW + 20000)).did, 'recorded', 'an account measured again left the record saying it was not measured');
   const line = sweep.readLines(file).pop();
   assert.deepEqual([line.moves, line.held.map((h) => h.from), line.atRisk.map((x) => x.from)],

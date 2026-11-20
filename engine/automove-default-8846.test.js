@@ -74,3 +74,62 @@ test('kosmos#8846: the board card carries backgroundShells', () => {
   const b = fleet.install([fleet.agent('ada', { state: 'idle' })]);
   assert.equal(typeof b.card('ada').backgroundShells, 'number', 'the card does not carry the count, so movableFor can never see it');
 });
+
+/* Splinter's call on review 19's risk (11-20): the usage poll is gentle now that it is on by default. */
+test('kosmos#8846: the poll waits about 30 minutes, give or take 15%, and a reading is used for three polls', () => {
+  assert.equal(usagepoll.POLL_MS, 30 * 60 * 1000, 'the poll is not every 30 minutes');
+  assert.equal(usagepoll.FRESH_MS, 3 * usagepoll.POLL_MS, 'a reading went stale before the third poll');
+  assert.equal(usagepoll.pollDelay(() => 0), Math.round(usagepoll.POLL_MS * 0.85));
+  assert.equal(usagepoll.pollDelay(() => 1), Math.round(usagepoll.POLL_MS * 1.15));
+  assert.equal(usagepoll.pollDelay(() => 0.5), usagepoll.POLL_MS, 'CONTROL: the middle of the jitter is the period');
+  assert.equal(usagepoll.pollDelay(() => NaN), usagepoll.POLL_MS, 'a broken random number gave a wait outside the range');
+  assert.equal(usagepoll.pollDelay(() => 9), Math.round(usagepoll.POLL_MS * 1.15), 'a random number above 1 was not held to the range');
+});
+
+test('kosmos#8846: accounts with agents are asked every sweep; empty ones only while an account is at risk', () => {
+  const list = [{ dir: '/u/busy' }, { dir: '/u/empty' }, { dir: '/u/unknown' }, { dir: '/u/key', apiKey: true }, null];
+  const hasAgents = (a) => { if (a.dir === '/u/unknown') throw new Error('walk incomplete'); return a.dir === '/u/busy'; };
+  const dirs = (o) => usagepoll.accountsToPoll(list, o).map((a) => a.dir);
+  assert.deepEqual(dirs({ hasAgents }), ['/u/busy', '/u/unknown'], 'an empty account was asked with nothing at risk, or a busy or untellable one was not');
+  assert.deepEqual(dirs({ hasAgents, needTargets: true }), ['/u/busy', '/u/empty', '/u/unknown'], 'with an account at risk the empty one (the target) was not asked');
+  assert.deepEqual(dirs({}), ['/u/busy', '/u/empty', '/u/unknown'], 'CONTROL: with no way to tell, every subscription account is asked');
+  assert.deepEqual(usagepoll.accountsToPoll(null, { hasAgents }), []);
+});
+
+test('kosmos#8846: the at-risk line is 80%, leaving headroom for the slower poll, and under it the targets stay below 70%', () => {
+  assert.equal(ab.AT_RISK_PCT, 80);
+  assert.ok(ab.AT_RISK_PCT - ab.TARGET_MAX_PCT >= 10, 'at risk and target overlap: an account could be both');
+});
+
+test('kosmos#8846: a 401, 403 or 429 holds the account for six hours, is said once, and is never retried in the sweep', async (t) => {
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-8846-poll-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  assert.equal(usagepoll.BACKOFF_MS, 6 * 60 * 60 * 1000);
+  for (const code of [401, 403, 429]) {
+    const a = { dir: path.join(dir, 'acct-' + code), email: 'x@example.test', label: 'acct' };
+    fs.mkdirSync(a.dir);
+    let sent = 0; const said = [];
+    const deps = {
+      now: NOW, platform: 'darwin', realHome: '/',
+      readCred: async () => JSON.stringify({ claudeAiOauth: { accessToken: 'tok', expiresAt: NOW + 86400000 } }),
+      request: (opts, cb) => {   // https.request's shape, as usagepoll-7152.test.js fakes it
+        const { EventEmitter } = require('node:events');
+        const req = new EventEmitter(); req.destroy = () => {};
+        req.end = () => { sent += 1; setImmediate(() => { const res = new EventEmitter(); res.statusCode = code; res.setEncoding = () => {}; cb(res); res.emit('data', '{}'); res.emit('end'); }); };
+        return req;
+      },
+      identityOf: () => null,
+      onRefused: (acct, state) => said.push(state),
+    };
+    await usagepoll.pollAll([a], deps);
+    const firstSent = sent;
+    assert.ok(firstSent >= 1 && firstSent <= 2, `a ${code} was retried within the sweep (${firstSent} requests)`);
+    assert.equal(said.length, 1, `a ${code} was not said once`);
+    await usagepoll.pollAll([a], { ...deps, now: NOW + 5.9 * 3600000 });
+    assert.equal(sent, firstSent, `a ${code} was asked again inside six hours`);
+    assert.equal(said.length, 1, `a held ${code} was said again`);
+    await usagepoll.pollAll([a], { ...deps, now: NOW + 6.1 * 3600000 });
+    assert.ok(sent > firstSent, `CONTROL: after six hours a ${code} account is asked again`);
+  }
+});

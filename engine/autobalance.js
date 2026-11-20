@@ -20,7 +20,13 @@
  * An account that is NOT MEASURED is never a target: a working login is not headroom (the card's 10-24 incident).
  */
 
-const AT_RISK_PCT = 90;
+/* kosmos#8846: 80, where it was 90. The gentle usage poll (every 30 min) puts up to about two hours between a reading
+   and a move (a reading up to a sweep old, a sweep for the empty accounts to be read, and the mover's two sweeps), so
+   the headroom has to cover that: 20 points over two hours is a burn of about 10% of a week an hour, where 90 left 5%.
+   Not lower: targets must be under TARGET_MAX_PCT (70), and the two need a gap. An account that burns faster still
+   runs out, and its agents are then moved off the limit (#8048's rescue). A judgement, from timings; no burn rate was
+   measured (no usage history is kept). */
+const AT_RISK_PCT = 80;
 const TARGET_MAX_PCT = 70;
 const RESET_SOON_MS = 6 * 60 * 60 * 1000;
 /* Slice 3 (slice 2's review 11): a target this far into its five-hour window would stall the agents sent there for hours. */

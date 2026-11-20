@@ -38,8 +38,12 @@ const BETA = 'oauth-2025-04-20';
 /* Review 5: Node sends no User-Agent by default, and the real response was read with a client that sends one. Sending
    our own means the read does not depend on the endpoint accepting a request without one. */
 const USER_AGENT = 'Kosmos usage reader';
-const POLL_MS = 10 * 60 * 1000;   // the board's timer: often enough to see a week run down, rare enough to cost nothing
-const FRESH_MS = 30 * 60 * 1000;  // older than three missed polls: the reading is not used
+/* kosmos#8846 (Splinter's call, 11-20, on review 19's risk now that it is on by default): gentle. Every 30 minutes, with
+   jitter (pollDelay), where it was 10. A reading is used for three polls (FRESH_MS), as before. */
+const POLL_MS = 30 * 60 * 1000;   // the board's timer: often enough to see a week run down, rare enough to cost nothing
+const FRESH_MS = 3 * POLL_MS;     // older than three polls: the reading is not used
+const JITTER = 0.15;              // each wait is POLL_MS, give or take 15%, so boards do not ask in step
+function pollDelay(rand = Math.random) { const r = Number(rand()); return Math.round(POLL_MS * (1 - JITTER + 2 * JITTER * (Number.isFinite(r) ? Math.min(Math.max(r, 0), 1) : 0.5))); }
 const TIMEOUT_MS = 15000;
 /* Review 4: the endpoint computes a reset time with a fraction of a second, and the fraction moves between reads (measured
    2026-10-25: one account's weekly reset read 14:00:00.447, then 13:59:59.569, then 13:59:59.863). Two resets this
@@ -49,8 +53,10 @@ const SAME_RESET_SECONDS = 60;
    a refusal rather than the expiry it is. */
 const EXPIRY_MARGIN_MS = 60 * 1000;
 /* How long a refusal holds an account. The token is the one Claude Code itself uses, so refused requests must not
-   repeat every ten minutes; which answers are refusals, and for whom it holds, is the rule below. */
-const BACKOFF_MS = 60 * 60 * 1000;
+   repeat; which answers are refusals, and for whom it holds, is the rule below. kosmos#8846 (Splinter's call): six
+   hours, where it was one, so a 401, 403 or 429 stops that account until it signs in again (a new token) or six hours
+   pass, and a 429 holds across a new token. Nothing is retried within a sweep: a 5xx or no answer waits for the next. */
+const BACKOFF_MS = 6 * 60 * 60 * 1000;
 
 /* Review 22: the backoff as one rule, replacing the case-by-case additions of reviews 14 to 21.
    - A REFUSAL is every answer to a request that was sent, other than a reading, a server error (5xx) or no answer at
@@ -59,7 +65,7 @@ const BACKOFF_MS = 60 * 60 * 1000;
      organization when the folder names one), and another login's token. Only a 5xx or no answer is read again on the
      next sweep. A state from a sweep that sent nothing (no credential, an expired token, no email listed) is not a
      refusal.
-   - A refusal holds the account for an hour, for the login that was refused (a new login is read at once), and for
+   - A refusal holds the account for BACKOFF_MS (six hours since kosmos#8846; "the hour" below), for the login that was refused (a new login is read at once), and for
      the token that was refused (identified by its expiry time, not a secret), except a 429, which is the account's
      rate limit and holds across a renewed token. A credential with no expiry time cannot be told from its renewal,
      so it is held for the hour (review 25: errs to fewer requests).
@@ -103,6 +109,19 @@ function holds(ref, a, t, nowMs) {
   if (!ref || !t || t.state !== 'ok' || !withinHour(ref, nowMs)) return false;
   if (typeof ref.refusedEmail !== 'string' || typeof a.email !== 'string' || ref.refusedEmail.toLowerCase() !== a.email.toLowerCase()) return false;
   return ref.refusedState.endsWith('429') || t.expiresAt === ref.refusedExpiresAt;
+}
+/* kosmos#8846 (Splinter's call, adjusted): which accounts a sweep asks about. An account with an agent on it, every
+   sweep. An account with no agent on it only while some account is at risk (`needTargets`, the sweep's last decision),
+   because then it may be where an agent goes: autobalance takes a target only on a fresh reading, so never asking about
+   empty accounts would mean never moving anyone. Usually nothing is at risk and the empty ones are not asked at all.
+   `hasAgents(a)` answers true, false, or throws when it cannot tell; an account it cannot tell about is asked (a busy
+   account missed is the worse error). API-key accounts are never asked (pollAll skips them anyway). */
+function accountsToPoll(list, { hasAgents, needTargets = false } = {}) {
+  return (Array.isArray(list) ? list : []).filter((a) => {
+    if (!a || typeof a !== 'object' || a.apiKey === true) return false;
+    if (needTargets === true) return true;
+    try { return typeof hasAgents === 'function' ? hasAgents(a) !== false : true; } catch { return true; }
+  });
 }
 /* A week cannot reset further out than this; a reset beyond it is a bad answer, not a reading. */
 const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
@@ -379,6 +398,8 @@ async function pollAll(list, deps = {}) {
         const fresh = { refusedState: rec.state, refusedAt: rec.at, refusedEmail: a.email, refusedExpiresAt: t && t.state === 'ok' ? t.expiresAt : null };
         refusals.set(a.dir, fresh);
         Object.assign(rec, fresh);
+        /* kosmos#8846: said once per refusal (a held account is skipped above, so it is not said again until it is asked). */
+        try { if (typeof deps.onRefused === 'function') deps.onRefused(a, rec.state); } catch { /* a log line, never the sweep */ }
       } else if (ref && withinHour(ref, nowMs)) {
         Object.assign(rec, ref);   // review 21/22: not a reading, so a refusal still within its hour is kept
       }
@@ -422,5 +443,5 @@ function readUsage(dir, nowMs = Date.now()) {
 
 module.exports = {
   enabled, liveAllowed, claudeAccountsLinked, resetLinkedCacheForTests, LINKED_CACHE_MS, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
-  FILE, POLL_MS, FRESH_MS, HOST, USAGE_PATH, BETA,
+  FILE, POLL_MS, FRESH_MS, pollDelay, JITTER, BACKOFF_MS, accountsToPoll, HOST, USAGE_PATH, BETA,
 };
