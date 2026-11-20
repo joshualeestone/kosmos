@@ -25,6 +25,7 @@ test('kosmos#8783: the empty Agents tab offers "Set up Kosmos", which opens the 
   assert.match(view, /accessibilityIdentifier\("agents-empty"\)/, 'CONTROL: this is the empty state');
   assert.match(view, /Button \{ openBoard\(\) \} label: \{ Text\("Set up Kosmos"\)/, 'no button into setup');
   assert.match(view, /accessibilityIdentifier\("agents-empty-setup"\)/, 'the button has no identifier for a UI test');
+  assert.match(view, /Text\("It takes a few steps, and you can stop at any point\."\)/, 'Mona Lisa\'s line under the heading (11-19)');
 });
 
 test('kosmos#8783: the empty Agents tab no longer sends a cloud-only person to "your computer"', () => {
