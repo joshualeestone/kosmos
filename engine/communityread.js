@@ -350,6 +350,11 @@ function markHere(reader, items, comments) {
    known", never "no", and the read says so when the follow list could not be checked (followNote). */
 const COMMENTED_MARK = 'you commented on this post';
 const COMMENT_WAITING_MARK = 'you already have a comment on this post that has not gone out yet or was not confirmed; check kosmos community status before writing another';
+/* kosmos#8845 item 1 (feedback 11-20): a reply the agent had already answered came back in its Following feed as a
+   "Reply to:" entry, with nothing to say so, and could be answered twice. The entry's header now says it, from the same
+   records and the same three state sets as the comment marks. */
+const ANSWERED_MARK = 'you answered this reply';
+const ANSWER_WAITING_MARK = 'you already have an answer to this reply that has not gone out yet or was not confirmed; check kosmos community status before writing another';
 const FOLLOWING_MARK = 'you follow this agent';
 const FOLLOWING_ASKED = 100;   // the service's page; past it a followed author can go unmarked (followNote says so)
 /* The comment states that mean it reached the post, and those that mean it is not there and will not be. Review 1:
@@ -373,8 +378,13 @@ function markCommented(reader, items) {
   try { mine = require('./communitystatus').itemsFor(reader); } catch { return false; }
   if (!Array.isArray(mine)) return false;
   const there = new Set(); const waiting = new Set();
+  const answered = new Set(); const answering = new Set();   // #8845: the comment ids this reader answered with --reply-to
   mine.forEach((x) => {
     if (!x || x.kind !== 'comment' || typeof x.post !== 'string') return;
+    if (x.reply && typeof x.replyTo === 'string' && x.replyTo) {
+      if (COMMENT_THERE.has(x.state)) answered.add(x.replyTo.toLowerCase());
+      else if (!COMMENT_GONE.has(x.state)) answering.add(x.replyTo.toLowerCase());
+    }
     /* Review 8: a --reply-to answer to one comment is not a comment on the post: marking the post from it would steer the
        agent away from answering someone else under the same post. Only top-level comments mark it. */
     if (x.reply) return;
@@ -384,6 +394,9 @@ function markCommented(reader, items) {
   });
   (items || []).forEach((it) => {
     const id = it && typeof it.id === 'string' ? it.id.toLowerCase() : '';
+    // #8845: a Following "Reply to:" entry is a reply, so it is marked by its own comment id, never by the post's.
+    const cid = it && it.label && typeof it.commentId === 'string' ? it.commentId.toLowerCase() : '';
+    if (cid) { if (answered.has(cid)) it.answered = 'there'; else if (answering.has(cid)) it.answered = 'waiting'; }
     if (!id || it.label) return;   // a Following "Reply to:" entry is a reply, not the post
     if (there.has(id)) it.commented = 'there';
     else if (waiting.has(id)) it.commented = 'waiting';
@@ -465,7 +478,8 @@ function followNote(follows, items) {
 /* The words a post's header line ends with, from the marks above. */
 function doneNote(it) {
   return (it.following ? ' (' + FOLLOWING_MARK + ')' : '')
-    + (it.commented === 'there' ? ' (' + COMMENTED_MARK + ')' : it.commented === 'waiting' ? ' (' + COMMENT_WAITING_MARK + ')' : '');
+    + (it.commented === 'there' ? ' (' + COMMENTED_MARK + ')' : it.commented === 'waiting' ? ' (' + COMMENT_WAITING_MARK + ')' : '')
+    + (it.answered === 'there' ? ' (' + ANSWERED_MARK + ')' : it.answered === 'waiting' ? ' (' + ANSWER_WAITING_MARK + ')' : '');
 }
 
 /** The framed text an agent reads. PURE. #4833: `thread` (one post's comments) goes inside the same frame. */
@@ -1654,4 +1668,4 @@ function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setRetry(waitMs, pauseMs) { retryTimeoutMs = waitMs; retryPauseMs = pauseMs; }   // tests: kosmos#8722
 
-module.exports = { COMMENTED_MARK, COMMENT_WAITING_MARK, COMMENT_THERE, COMMENT_GONE, COMMENT_WAITING, FOLLOWS_WAIT_MS, FOLLOWING_MARK, FOLLOWING_ASKED, markCommented, commentNote, followingOf, markFollowing, followNote, postsToRead, postActivity, REPLIES_OLDER_MAX, HERE_MARK, markHere, REPLIES_TEXT_BUDGET, OWED_TEXT_BUDGET, shownWithin, replySizeOf, THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, publicReadRefusal, setSpaceFetcher: (f) => { spaceFetcher = f || null; }, COMPANY_RULE, COMPANY_HEADING, setTimeoutMs, setRetry, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { COMMENTED_MARK, COMMENT_WAITING_MARK, ANSWERED_MARK, ANSWER_WAITING_MARK, COMMENT_THERE, COMMENT_GONE, COMMENT_WAITING, FOLLOWS_WAIT_MS, FOLLOWING_MARK, FOLLOWING_ASKED, markCommented, commentNote, followingOf, markFollowing, followNote, postsToRead, postActivity, REPLIES_OLDER_MAX, HERE_MARK, markHere, REPLIES_TEXT_BUDGET, OWED_TEXT_BUDGET, shownWithin, replySizeOf, THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, publicReadRefusal, setSpaceFetcher: (f) => { spaceFetcher = f || null; }, COMPANY_RULE, COMPANY_HEADING, setTimeoutMs, setRetry, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
