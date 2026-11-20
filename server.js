@@ -25347,7 +25347,7 @@ const server = http.createServer(async (req, res) => {
         /* Review 6: "held" for the pause line is whether a post to ONE member would be held (charged 1), not the hold
            line's reading at the latest post's size, which can be held while a one-member post passes. */
         let loopLine = '';
-        try { const n = require('./engine/roomloop').readerNote(id, Date.now(), (ms) => messages.roomClock(new Date(ms).toISOString(), zone), { held: Boolean(held && messages.roomHeldForOne(id, Date.now(), roomRecord ? messages.roomRecipientsOf(roomRecord.agents) : undefined)), from: readerName, members: membersNow }); loopLine = n ? n + '\n' : ''; } catch { loopLine = ''; }
+        try { const n = require('./engine/roomloop').readerNote(id, Date.now(), (ms) => messages.roomClock(new Date(ms).toISOString(), zone), { held: () => Boolean(held && messages.roomHeldForOne(id, Date.now(), roomRecord ? messages.roomRecipientsOf(roomRecord.agents) : undefined)), from: readerName, members: membersNow }); loopLine = n ? n + '\n' : ''; } catch { loopLine = ''; }
         res.end(shared + onHold + loopLine + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + coveredLine + agedLine);
         return;
       }

@@ -143,3 +143,15 @@ test('review 5: held AND paused, the one-member way through is not offered (the 
   assert.match(liveHeld, /A post that asks more than one member will wake no one\. Your person's post here ends the pause\.$/);
   assert.doesNotMatch(liveHeld, /exactly one member/);
 });
+
+test('review 7: `held` as a function is asked only when a line is said, and one that throws reads as not held', () => {
+  const now = 1_000_000_000_000;
+  let asked = 0;
+  assert.equal(roomloop.readerNote('p', now, null, { held: () => { asked++; return true; } }), '');
+  assert.equal(asked, 0, 'the held read ran for a room with nothing to say');
+  for (const d of [30, 20, 10]) roomloop.noteWake('p', now - d);
+  roomloop.paused('p', now);
+  assert.doesNotMatch(roomloop.readerNote('p', now + 1, null, { held: () => { asked++; return true; } }), /exactly one member/);
+  assert.equal(asked, 1);
+  assert.match(roomloop.readerNote('p', now + 1, null, { held: () => { throw new Error('x'); } }), /may still get through/);
+});

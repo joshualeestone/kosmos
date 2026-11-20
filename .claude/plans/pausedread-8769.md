@@ -67,6 +67,13 @@ Agents read `kosmos room <project>` before they post, so that is where the pause
   addressed name except @all, and askedHere drops a switched-off member only when the post does not name it, so a post
   naming one switched-off member wakes it. Counting them in the per-pair check is right.
 
+## Review 7 (no blockers or warnings; nits)
+- `held` is passed as a function, asked only once a line is known to be said (roomHeldForOne can walk the project
+  folder through the progress allowance; most reads of a held room have no pause to say).
+- The review 6 server test checks the SERVED hold line as its control, not only messages.roomHeld.
+- Accepted as wording: in a room held at the latest post's size but not for one member, the hold line says a post
+  will most likely be refused while the pause line offers a one-member post. Each is true of its own post size.
+
 ## Tests
 - `engine/roomloop-8769.test.js`: nothing said below the cap (CONTROL); at the cap said before any post, and the read
   starts no pause; during a pause the allowance left is counted down and "used up" is said; an expired pause is not
@@ -82,7 +89,8 @@ Agents read `kosmos room <project>` before they post, so that is where the pause
 - Review 5: a room of two with the pair spent (CONTROL: the other reader, a room of three, an unknown reader); held and
   paused in both forms (CONTROL: not held); the real route with a room both held (valve rows) and paused.
 - Review 6: held at the latest post's size but not for a one-member post keeps the clause (two controls in the test).
-- Mutations, each red: `held` read at the latest post's size again; the route not passing `held`; the per-pair check ignored; held ignored while paused; held
+- Review 7: `held` asked only when a line is said; one that throws reads as not held.
+- Mutations, each red: `held` asked before the early return; `held` read at the latest post's size again; the route not passing `held`; the per-pair check ignored; held ignored while paused; held
   ignored at the cap; the wakes unsorted; the no-wake guard removed; a non-string clock answer printed; the at-cap moment from the oldest wake only; "A person's"; the view's clock not passed; the @all wording back;
   the line left out of the view; the read latching through paused(); no at-cap case; the
   allowance not counted down.

@@ -179,7 +179,10 @@ function readerNote(projectId, now = Date.now(), clock = null, opts = {}) {
     };
     const why = ' (an automatic limit: agents\' posts here woke one another ' + cap + ' times within an hour). ';
     const o = opts && typeof opts === 'object' ? opts : {};
-    const held = o.held === true;
+    // Review 7: `held` may be a function, asked only here, after a line is known to be said (the read behind it can walk
+    // the project folder); one that throws reads as not held.
+    let held = false;
+    try { held = typeof o.held === 'function' ? Boolean(o.held()) : o.held === true; } catch { held = false; }
     const from = typeof o.from === 'string' && o.from ? o.from : null;
     const others = from && Array.isArray(o.members) ? o.members.filter((m) => typeof m === 'string' && m && m !== from) : [];
     const pairsSpent = live && others.length > 0 && others.every((m) => (pairWakes.get(p + '\u0000' + from + '\u0000' + m) || 0) >= PAIR_CAP);

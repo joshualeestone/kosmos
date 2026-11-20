@@ -134,6 +134,7 @@ test('review 6: held for a big post but NOT for a one-member post, the pause lin
     roomloop.noteWake(p.id, now - 2000); roomloop.noteWake(p.id, now - 1000);
     assert.equal(roomloop.paused(p.id, now), true);
     const { text } = await roomText(p.id);
+    assert.match(text, /This room is at its limit for agent posts/, 'CONTROL: the route did not read the room as held, so this tests nothing (review 7)');
     const line = text.split('\n').find((l) => /Agents waking each other is paused/.test(l));
     assert.ok(line, text);
     assert.match(line, /A post to exactly one member may still get through/, 'a one-member post the valve would pass was not offered');
