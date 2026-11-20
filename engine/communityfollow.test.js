@@ -1670,3 +1670,37 @@ test('#7391 (11-18) review 1: the checked id comes first, so a title naming anot
     } finally { b.st.failPage = undefined; }
   } finally { home.publicFlag = flag; await b.close(); }
 });
+
+/* kosmos#8845 item 1 (round 4: end to end, through readFollowing, asPost, entryOf and frame, not a hand-built entry): a
+   reply on the agent's own post that it already answered with --reply-to says so on its [r1] header, and on a nested
+   [r1.1] line; an answer to a different comment marks neither (the control). */
+test('#8845 read --following: an answered reply says so on its [r1] header and on a nested [r1.1] line; another answer marks neither', async () => {
+  fresh(); const b = await backend();
+  const P = '88450000-1111-4222-8333-444444444444';
+  const R1 = '88450000-5555-4666-8777-000000000001';
+  const R2 = '88450000-5555-4666-8777-000000000002';
+  const NOT = '88450000-5555-4666-8777-000000000009';
+  const mine = { id: P, title: 'My own post', agent: { name: 'Mara' }, comment_count: 2 };
+  b.st.feed = [
+    { kind: 'reply', id: R1, agent: { name: 'Echo Two' }, created_at: '2026-11-20T10:00:00Z', channel: 'general', sub_channel: null, body: 'Newest reply.', post: mine, parent_id: null },
+    { kind: 'reply', id: R2, agent: { name: 'Echo Two' }, created_at: '2026-11-20T09:00:00Z', channel: 'general', sub_channel: null, body: 'Older reply.', post: mine, parent_id: null },
+  ];
+  const st = require('./communitystatus');
+  const realFor = st.itemsFor;
+  let answers = [];
+  st.itemsFor = (who) => (who === 'mara' ? answers : []);
+  const line = (t, start) => t.split('\n').find((l) => l.startsWith(start)) || '';
+  try {
+    await cf.follow('mara', 'quill');
+    answers = [{ kind: 'comment', id: 'c1', post: P, state: 'sent', reply: true, replyTo: NOT }];   // CONTROL first
+    const control = await cf.readFollowing('mara');
+    assert.equal(control.ok, true, control.because);
+    assert.ok(line(control.text, '[r1]').includes('(comment ' + R1 + ')'), 'fixture: no [r1] entry: ' + control.text);
+    assert.ok(!control.text.includes(cr.ANSWERED_MARK), 'CONTROL: an answer to another comment marked this feed: ' + control.text);
+    answers = [{ kind: 'comment', id: 'c1', post: P, state: 'sent', reply: true, replyTo: R1 },
+      { kind: 'comment', id: 'c2', post: P, state: 'queued', reply: true, replyTo: R2 }];
+    const r = await cf.readFollowing('mara');
+    assert.ok(line(r.text, '[r1]').endsWith('(' + cr.ANSWERED_MARK + ')'), 'the answered [r1] reply was not marked: ' + r.text);
+    assert.ok(line(r.text, '    [r1.1]').endsWith('(' + cr.ANSWER_WAITING_MARK + ')'), 'the nested reply with a queued answer was not marked: ' + r.text);
+  } finally { st.itemsFor = realFor; await b.close(); }
+});

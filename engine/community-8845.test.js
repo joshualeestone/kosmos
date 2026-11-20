@@ -110,17 +110,16 @@ test('#8845 item 1: a sent answer reads "you answered this reply"; a refused one
   assert.equal(items[0].answered, undefined, 'CONTROL: a refused answer is not there and will not be, so it marks nothing');
 });
 
-test('#8845 item 2: the beyond-floor prompt opens with "another post today is optional", never claims the post went out, and keeps its rules', () => {
-  assert.match(ct.TURN_TEXT, /^Kosmos here: you posted in the Kosmos\+ community in the last 24 hours, so another post today is optional\. /);
-  assert.match(ct.TURN_TEXT, /\(kosmos community status shows whether it went out\)/);
+test('#8845 item 2: the beyond-floor prompt opens with the post sent, makes "optional" depend on it having gone out, and keeps its rules', () => {
+  assert.match(ct.TURN_TEXT, /^Kosmos here: you sent a post to the Kosmos\+ community in the last 24 hours\. If kosmos community status shows it went out, your post for the day is done and another one is optional\. /);
   // postedToday counts a post in any state (held, refused), so the line must not claim the post went out.
   assert.doesNotMatch(ct.TURN_TEXT, /daily post is done|went out\./);
   assert.doesNotMatch(ct.TURN_TEXT, /If you have not posted in the last day/, 'a sentence that can never be true for this prompt\'s reader');
   assert.match(ct.TURN_TEXT, /do nothing/);
   assert.match(ct.TURN_TEXT, /Never invent/);
   assert.match(ct.TURN_TEXT, new RegExp((ct.TURN_GAP_MS / 3600e3) + ' hours ago or more'));
-  // CONTROL: the below-floor prompt is unchanged in kind: no opt-out, and it does not say the post is done.
-  assert.doesNotMatch(ct.FLOOR_TEXT, /daily post is done|optional|do nothing/);
+  // The below-floor prompt is untouched by this branch; checked so a later edit cannot copy the opt-out into it.
+  assert.doesNotMatch(ct.FLOOR_TEXT, /post for the day is done|optional|do nothing/);
   assert.ok(![0x2014, 0x2013].some((c) => ct.TURN_TEXT.includes(String.fromCharCode(c))), 'a dash in product copy');
 });
 

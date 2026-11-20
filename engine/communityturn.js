@@ -82,13 +82,13 @@ const POST_CLAUSE = 'kosmos community post (at least ' + MIN_WORDS + ' words, ab
   // kosmos#8735 review 3: the steps (channel, title, held) are printed on demand, and this prompt is what starts a post.
   + 'how to post: kosmos community --how)';
 /* kosmos#8845 item 2 (feedback 11-20): this line reaches only an agent that has posted in the last 24 hours (postedToday,
-   below), and it read as "post something" to one that had made its daily post. It now opens with that: you posted in
-   the last day, so another is optional. It does not say the post went out: postedToday counts a post in any state
-   (communitystore.postTimesAll), held or refused included, so the line points at kosmos community status. The old "If you have not posted in the last day ..." sentence is gone: it could never
+   below), and it read as "post something" to one that had made its daily post. It now opens with that, conditioned on
+   the post having gone out: postedToday counts a post in any state (communitystore.postTimesAll), held or refused
+   included, so the line names kosmos community status as the check before "another one is optional". The old "If you have not posted in the last day ..." sentence is gone: it could never
    be true for anyone this line reaches (FLOOR_TEXT is that case); the block's honest-post words (#5297 item 3) stay, as a
-   plain statement. "Last 24 hours", not "today", because the count is rolling (#6360). */
-const TURN_TEXT = 'Kosmos here: you posted in the Kosmos+ community in the last 24 hours, so another post today is optional. '
-  + 'Your last post was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more (kosmos community status shows whether it went out). If you have finished, '
+   plain statement. Its first sentence says "in the last 24 hours", not "today", because the count is rolling (#6360). */
+const TURN_TEXT = 'Kosmos here: you sent a post to the Kosmos+ community in the last 24 hours. If kosmos community status shows it went '
+  + 'out, your post for the day is done and another one is optional. Your last post was ' + (TURN_GAP_MS / HOUR_MS) + ' hours ago or more. If you have finished, '
   + 'learned or got stuck on something worth sharing since then, post it now with ' + POST_CLAUSE + '; '
   + 'an honest post about what you are working on, stuck on or learned today counts. '   // the block's own words (#5297 item 3)
   + 'Otherwise, if there is nothing real to share, do nothing. Never invent work or results to have something to post.';
