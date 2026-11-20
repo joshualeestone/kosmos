@@ -6309,14 +6309,42 @@ cmd_feedback() {
         # with any words added to it. Node exits 4 for no earlier report, 5 for a report already saved today, and 1 if
         # the reports cannot be read; each refuses and saves nothing. It prints the day it checked, then the body.
         if [ -n "$KOSMOS_BODY_FILE" ]; then say "--unchanged takes a short line, not --body-file, so nothing was saved."; exit 2; fi
-        local _u_rc=0
-        body="$(KOSMOS_FEEDBACK_NOTE="$*" "$NODE" -e '
-          let u;   /* review round 3: a read that throws exits 1 quietly, so only the sentence below is shown */
-          try { const fb = require(process.argv[1] + "/engine/feedback"); u = fb.unchanged(fb.writer(process.env), process.env.KOSMOS_FEEDBACK_NOTE || ""); } catch { process.exit(1); }
-          if (u && u.why === "today") process.exit(5);
-          if (!u || !u.ok) { process.stdout.write(u && u.newest ? u.newest : ""); process.exit(4); }   /* kosmos#8269: the newest day of another writer */
-          process.stdout.write(u.day + "\n" + u.body);
+        # kosmos#8844: the daily nudge says to add a line after --unchanged, and a line piped in on stdin was dropped while
+        # the command said the report was saved. With no words, node reads that line from stdin (a terminal is not read),
+        # stopping once the input ends or has been quiet for 3 seconds, as the Windows CLI does, so an open pipe nobody
+        # writes to cannot hang a plain --unchanged. A line that stopped without ending exits 6: it may be cut short.
+        # Words, when given, are the line and stdin is not read, as for a plain write.
+        local _u_rc=0 _u_stdin=0
+        [ $# -eq 0 ] && _u_stdin=1
+        body="$(KOSMOS_FEEDBACK_NOTE="$*" KOSMOS_FEEDBACK_NOTE_STDIN="$_u_stdin" "$NODE" -e '
+          const go = (note) => {
+            let u;   /* review round 3: a read that throws exits 1 quietly, so only the sentence below is shown */
+            try { const fb = require(process.argv[1] + "/engine/feedback"); u = fb.unchanged(fb.writer(process.env), note); } catch { process.exit(1); }
+            if (u && u.why === "today") process.exit(5);
+            if (!u || !u.ok) { process.stdout.write(u && u.newest ? u.newest : ""); process.exit(4); }   /* kosmos#8269: the newest day of another writer */
+            process.stdout.write(u.day + "\n" + u.body);
+          };
+          const input = process.stdin;
+          if (process.env.KOSMOS_FEEDBACK_NOTE_STDIN !== "1" || input.isTTY) { go(process.env.KOSMOS_FEEDBACK_NOTE || ""); }
+          else {
+            const chunks = []; let timer = null; let done = false;
+            const finish = (ended) => {
+              if (done) return; done = true; clearTimeout(timer);
+              input.pause(); if (typeof input.destroy === "function") input.destroy();
+              let s = Buffer.concat(chunks).toString("utf8");
+              if (s.charCodeAt(0) === 0xFEFF) s = s.slice(1);
+              s = s.trim();
+              if (s && !ended) process.exit(6);
+              go(s);
+            };
+            const quiet = () => { clearTimeout(timer); timer = setTimeout(() => finish(false), 3000); };
+            input.on("data", (d) => { chunks.push(Buffer.isBuffer(d) ? d : Buffer.from(String(d))); quiet(); });
+            input.once("end", () => finish(true));
+            input.once("error", () => finish(false));
+            quiet();
+          }
         ' "$KOSMOS_HOME/app")" || _u_rc=$?
+        if [ "$_u_rc" -eq 6 ]; then say "Nothing was saved: the line piped in after --unchanged stopped arriving for 3 seconds without ending, so it may be cut short. Give it as words instead: kosmos feedback write --unchanged \"the one new thing\""; exit 2; fi
         if [ "$_u_rc" -eq 5 ]; then say "You already saved a report today, so nothing was changed. To change it, write the whole report again."; exit 2; fi
         if [ "$_u_rc" -eq 4 ] && [ -n "$body" ]; then say "There is no earlier report of yours to point back to: the newest report here, of $body, is another agent's, and --unchanged points back only to your own. Nothing was saved. Write today's report instead."; exit 2; fi
         if [ "$_u_rc" -eq 4 ]; then say "There is no earlier report of yours to point back to, so nothing was saved. Write today's report instead."; exit 2; fi
@@ -6473,7 +6501,7 @@ cmd_feedback() {
       ;;
     ""|help|-h|--help)
       say "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin)"
-      say "       kosmos feedback write --unchanged [text]  (nothing new since your last report; any text is added to it)"
+      say "       kosmos feedback write --unchanged [text]  (nothing new since your last report; any text, as words or piped in, is added to it)"
       say "       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)"
       say "       kosmos feedback list [--mine]      (--mine: only the days holding your own report)"
       say "       kosmos feedback day                (your own day on this computer, for writing the report)"

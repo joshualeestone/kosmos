@@ -42,6 +42,11 @@ function run(args, { home, data }) {
   });
 }
 
+// kosmos#8844: with no words, --unchanged reads its one line from stdin (here: nothing piped); with words it must not read it.
+const stdinFor = (argv) => async () => {
+  if (argv.some((a) => !['feedback', 'write', '--unchanged'].includes(a))) throw new Error('stdin was read on a write that has words');
+  return { text: '', ended: true };
+};
 const reports = (data) => { try { return fs.readdirSync(fbDir(data)).filter((n) => /^\d{4}-\d{2}-\d{2}\.md$/.test(n)).sort(); } catch { return []; } };
 
 test('kosmos#7886 item 6 (Mac): --unchanged with no earlier report refuses and saves nothing', async () => {
@@ -94,7 +99,7 @@ test('kosmos#7886 item 6 (Windows): --unchanged writes the engine\'s pointer, an
   };
   const go = async (argv) => {
     const err = [];
-    const code = await cli.main(argv, { env: {}, engine, readStdin: () => { throw new Error('stdin was read on --unchanged'); },
+    const code = await cli.main(argv, { env: {}, engine, readStdin: stdinFor(argv),
       out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call expected'); } });
     return { code, err: err.join('\n') };
   };
@@ -133,7 +138,7 @@ test('kosmos#7886 item 6 (Windows): --unchanged after the words, saved under the
     unchanged: (from, note) => (why ? { ok: false, why } : { ok: true, since: OLD, day: '2026-11-03', body: 'Nothing new since my report of ' + OLD + (note ? ', except: ' + note : '.') }) } };
   const go = async (argv) => {
     const err = [];
-    const code = await cli.main(argv, { env: {}, engine, readStdin: () => { throw new Error('stdin was read on --unchanged'); }, out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call'); } });
+    const code = await cli.main(argv, { env: {}, engine, readStdin: stdinFor(argv), out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call'); } });
     return { code, err: err.join('\n') };
   };
   assert.equal((await go(['feedback', 'write', 'one', 'thing', '--unchanged'])).code, 0);
@@ -158,7 +163,7 @@ test('kosmos#7886 item 6: after a bare --, --unchanged is a word of the report o
     unchanged: () => { throw new Error('EACCES: permission denied, open /Users/someone/secret/feedback/2020-01-02.md'); } } };
   const go = async (argv) => {
     const err = [];
-    const code = await cli.main(argv, { env: {}, engine, readStdin: () => { throw new Error('stdin read'); }, out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call'); } });
+    const code = await cli.main(argv, { env: {}, engine, readStdin: stdinFor(argv), out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call'); } });
     return { code, err: err.join('\n') };
   };
   assert.equal((await go(['feedback', 'write', '--', 'said', '--unchanged'])).code, 0);
