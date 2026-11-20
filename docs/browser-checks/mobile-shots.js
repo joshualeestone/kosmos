@@ -2846,7 +2846,7 @@ const SCREENS = [
       frPaintConnect({ phase: 'signin-awaiting-code', url: 'https://claude.ai/oauth/authorize?example' });
     });
     await page.waitForSelector('#fr-conn-code', { state: 'visible', timeout: 5000 });
-    await page.waitForTimeout(600);   // the reveal scroll (one animation frame, smooth on some engines) and the edge fade settle
+    await page.waitForTimeout(600);   // the reveal scroll (one animation frame, after the reveal's animation frame) and the edge fade settle
   },
   verify: async (page) => {
     if (!(await page.isVisible('#fr-conn-code'))) throw new Error('the code field is not drawn');
@@ -2858,7 +2858,7 @@ const SCREENS = [
       const go = document.getElementById('fr-conn-code-go');
       if (!body || !go) return null;
       const b = body.getBoundingClientRect(); const g = go.getBoundingClientRect();
-      return { inside: g.top >= b.top - 1 && g.bottom <= b.bottom + 1, edge: body.dataset.edge || '' };
+      return { inside: g.top >= b.top - 1 && g.bottom <= b.bottom + 1 };
     });
     if (!r || !r.inside) throw new Error('the code field and Use code are not inside the visible wizard body (kosmos#8783)');
   } },

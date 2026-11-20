@@ -49103,8 +49103,8 @@ document.getElementById('s-nav').addEventListener('click', (e) => {
   // One pending frame at a time: a busy step (a progress bar's style on every tick) cannot pile frames up.
   let pending = false;
   const soon = () => { if (pending) return; pending = true; requestAnimationFrame(() => { pending = false; mark(); }); };
-  // The body's own box, and its content's (fonts or images loading grow it with no DOM change).
-  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(soon); ro.observe(body); if (body.firstElementChild) ro.observe(body.firstElementChild); }
+  // The body's own box, and every child's (fonts or images loading grow the content with no DOM change).
+  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(soon); ro.observe(body); for (const c of Array.from(body.children || [])) ro.observe(c); }
   // data-edge is NOT in the filter, so this script's own write never wakes it again.
   if (typeof MutationObserver === 'function') new MutationObserver(soon).observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'style', 'class'] });
   window.addEventListener('resize', mark);
@@ -92138,8 +92138,8 @@ function frConnPaintUrl(url, st) {
       ? '<a class="btn uprime" href="' + esc(key) + '" target="_blank" rel="noopener">Open the Claude sign-in page</a>'
       : '<div class="fr-cdetail">Browser did not open?</div>'
         + '<a class="btn" href="' + esc(key) + '" target="_blank" rel="noopener">Open the sign-in page</a>';
-  /* kosmos#8783 review 1: on a cloud machine the link arrives a tick AFTER the code step was drawn, and pushes the
-     field down again; so the box is brought into view again now (once per new link, never on a repeat poll). */
+  /* kosmos#8783 review 1: the link arrives a tick AFTER the code step was drawn (on a cloud machine the sign-in link,
+     on a Mac the "Browser did not open?" fallback), and pushes the field down again; so the box is brought into view again now (once per new link, never on a repeat poll). */
   if (key && document.getElementById('fr-conn-code')) frConnRevealCode();
 }
 /* kosmos#8783: on a phone the wizard body scrolls and the sign-in box (the link to open, then the code field) can sit
@@ -92149,7 +92149,16 @@ function frConnPaintUrl(url, st) {
 function frConnRevealCode() {
   const box = document.getElementById('fr-sub');
   if (!box || typeof box.scrollIntoView !== 'function' || typeof requestAnimationFrame !== 'function') return;
-  requestAnimationFrame(() => { try { box.scrollIntoView({ block: 'nearest' }); } catch (_) { /* old engines */ } });
+  requestAnimationFrame(() => {
+    try {
+      box.scrollIntoView({ block: 'nearest' });
+      /* Review 3: a box taller than the visible body (a short phone, landscape, a "that code did not work" note) is
+         lined up by its top, which can leave the field under the footer; so the field's row last, also nearest. */
+      const field = document.getElementById('fr-conn-code');
+      const row = field && field.parentNode;
+      if (row && typeof row.scrollIntoView === 'function') row.scrollIntoView({ block: 'nearest' });
+    } catch (_) { /* old engines */ }
+  });
 }
 
 function frConnPaintProgress(progress) {
