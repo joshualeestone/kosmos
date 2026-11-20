@@ -15,8 +15,15 @@ const path = require('node:path');
 const cn = require('./cloudnightly');
 
 const dir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'aw-cloudnightly-8786-'));
-const idle = { agents: [{ sessionName: 'a', state: 'idle' }, { sessionName: 'b', state: 'needs_you' }] };
-const working = { agents: [{ sessionName: 'a', state: 'idle' }, { sessionName: 'b', state: 'working' }] };
+const fleet = require('../test-support/fleet');
+/* The board's REAL cards for a fleet in these states (test-support/fleet runs status.snapshot() over fake panes), as
+   /api/status carries them. Strict: busyAgents reading a field the producer does not emit throws here. */
+function board(states) {
+  const f = fleet.install(states.map(([name, state]) => fleet.agent(name, { state })));
+  try { return { agents: f.agents }; } finally { f.restore(); }
+}
+const idle = board([['a', 'idle'], ['b', 'needs_you']]);
+const working = board([['a', 'idle'], ['b', 'working']]);
 
 /* Everything passes: a Cloud Linux box, updates on, no install under way, the signed check there, nobody working. */
 function base(over = {}) {
@@ -100,15 +107,17 @@ test('no signed check skips the night with the reason', async () => {
 test('an agent working at the first look skips at once; at the second look, skips too', async () => {
   const first = base({ statuses: [working, idle] });
   const d1 = await cn.decide(first.opts);
-  assert.equal(d1.run, false); assert.match(d1.why, /an agent is working \(b\)$/);
+  assert.equal(d1.run, false); assert.match(d1.why, /^an agent is working \(b[^,)]*\)$/);
+  assert.equal(cn.busyAgents(working).length, 1, 'exactly the working card counts');
   assert.equal(first.waits.length, 0, 'no wait once the first look is busy');
   const second = base({ statuses: [idle, working] });
   const d2 = await cn.decide(second.opts);
-  assert.equal(d2.run, false); assert.match(d2.why, /\(b\), at the second look/);
+  assert.equal(d2.run, false); assert.match(d2.why, /\(b[^,)]*\), at the second look/);
 });
 
 test('needs_you is not working: an agent asking the person does not hold the night', async () => {
-  assert.deepEqual(await cn.decide(base({ statuses: [{ agents: [{ sessionName: 'q', state: 'needs_you' }] }, idle] }).opts), { run: true });
+  assert.deepEqual(await cn.decide(base({ statuses: [board([['q', 'needs_you']]), idle] }).opts), { run: true });
+  assert.deepEqual(cn.busyAgents(idle), [], 'CONTROL: idle and needs_you cards are not busy');
 });
 
 test('a board that cannot be read, or answers without an agents list, skips the night', async () => {

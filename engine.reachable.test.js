@@ -20,6 +20,8 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  setCloudForTests: 'test seam (kosmos#8786 S2): engine/linuxboard.js answers "is this a Kosmos Cloud computer" from this instead of the tunnel latch, so engine/linuxboard.cloudupdate-8786.test.js can show installBoard writes the nightly units only on one. Production reads cloudmachine.isCloudMachine().',
+  setLatchGoneForTests: 'test seam (kosmos#8786 S2): engine/linuxboard.js answers "is the Cloud latch positively gone" from this, so engine/linuxboard.cloudupdate-8786.test.js can show an unreadable latch never removes the nightly units. Production lstat()s the latch.',
   heldSentenceForTests: 'test seam (kosmos#8484): engine/setup-assistant.js\'s rewrite of a create refusal into the setup guide\'s sentence, so engine/setup-assistant.adopt-8484.test.js can check the Linux command form and the refusals it must leave alone on any host. Production reaches it through seedSetupAssistant.',
   setLinuxTimeoutForTests: 'test seam (kosmos#8384): engine/machine.js\'s time limit on its Linux reads (systemctl, loginctl, gsettings), which engine/machine.linux-8384.test.js shortens and resets to reach the hung-read path in milliseconds. Production keeps the default limit.',
   __linuxRunForTests: 'test seam (kosmos#8384): engine/machine.js\'s one Linux command runner, so engine/machine.linux-8384.test.js can run it with a stand-in command and check its time limit and exit-code handling. Production reaches it through the Linux restart and sleep rows.',
