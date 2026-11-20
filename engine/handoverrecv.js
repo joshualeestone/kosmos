@@ -67,7 +67,9 @@ const PLAIN = /^[A-Za-z0-9_-]{1,64}$/;
 const SPKI_ED25519 = Buffer.from('302a300506032b6570032100', 'hex');
 
 let allowHttp = false;
-function allowHttpForTests(on) { allowHttp = on === true; }
+// kosmos#8738: only inside a node test process (NODE_TEST_CONTEXT, as devkeyhist's test key), so a call outside a test
+// cannot turn off the link rules.
+function allowHttpForTests(on) { allowHttp = on === true && !!process.env.NODE_TEST_CONTEXT; }
 
 const b64 = (buf) => Buffer.from(buf).toString('base64');
 
@@ -449,6 +451,9 @@ const MISSING_RECHECK_MS = 10 * 60 * 1000;   // how often a manifest still being
 async function tick(state, deps) {
   const d = deps || {};
   if (state.running) return { skipped: true };
+  // kosmos#8738: a tick that threw waits MISSING_RECHECK_MS before the next, never every tick.
+  // A wait further off than one wait (the clock was set back) is dropped, never held for however long it went back.
+  { const t = (d.now || Date.now)(); if (typeof state.thrownUntil === 'number' && state.thrownUntil > t + MISSING_RECHECK_MS) state.thrownUntil = undefined; if (typeof state.thrownUntil === 'number' && state.thrownUntil > t) return { ok: false, because: 'the hand-over could not be checked' }; }
   state.running = true;
   try {
     const org = (d.org || (() => { const oe = require('./orgenroll'); const r = oe.mayReport() ? oe.readEnrollment() : null; return r ? r.org.id : null; }))();
@@ -585,6 +590,7 @@ async function tick(state, deps) {
     if (last) return last;
     return { ok: true, none: true };
   } catch {
+    state.thrownUntil = (d.now || Date.now)() + MISSING_RECHECK_MS;
     return { ok: false, because: 'the hand-over could not be checked' };
   } finally { state.running = false; }
 }

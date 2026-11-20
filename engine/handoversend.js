@@ -70,6 +70,7 @@ const fs = require('fs');
 const path = require('path');
 
 const MINE_ROUTE = '/v1/mac/org/handover/mine';
+const DONE_ROUTE = '/v1/mac/org/handover/done';   // kosmos#8738: the leaving computer ends a part it gave up ({ok: false})
 const SESSION_BYTES = 50 * 1024 * 1024;
 const EVERY_MS = 5 * 60 * 1000;
 const RETRY_MS = 60 * 60 * 1000;
@@ -199,7 +200,10 @@ function rootsFor(names, inputs, deps) {
     // Only this agent's own folder (as the backup refuses a root that would hold the workers folder): never one that is
     // or holds the workers or projects folder or a project, nor one that holds, or sits inside, another agent's.
     const roots0 = [inputs.workersDir, inputs.projectsDir, ...(inputs.projects || []).map((p) => p && p.folder)].map((x) => (typeof x === 'string' && path.isAbsolute(x) ? real(x) : null)).filter(Boolean);
-    const others = (inputs.agents || []).filter((a) => a && a.id !== name && typeof a.dir === 'string' && path.isAbsolute(a.dir)).map((a) => real(a.dir)).filter(Boolean);
+    // Another agent's folder is any listed folder that is not THIS one, by path: inputsHere lists an agent both by its
+    // profile key (lowercased, safeKey) and by its folder's own name, so an id comparison counted a mixed-case agent's
+    // own folder as another's and refused it for good (kosmos#8738 review).
+    const others = (inputs.agents || []).filter((a) => a && typeof a.dir === 'string' && path.isAbsolute(a.dir)).map((a) => real(a.dir)).filter((q) => q && q !== rd);
     if (roots0.some((q) => inside(q, rd)) || others.some((q) => inside(q, rd) || inside(rd, q))) {
       return { ok: false, final: true, because: `the folder of ${label} holds other work (the workers or projects folder, or another agent's), so it is not handed over` };
     }
@@ -273,6 +277,9 @@ function sendable(data) {
 async function tick(state, deps) {
   const d = deps || {};
   if (state.running) return { skipped: true };
+  // kosmos#8738: a tick that threw (a step documented never to) waits SOFT_RETRY_MS before the next, never every tick.
+  // A wait further off than one wait (the clock was set back) is dropped, never held for however long it went back.
+  { const t = (d.now || Date.now)(); if (typeof state.thrownUntil === 'number' && state.thrownUntil > t + SOFT_RETRY_MS) state.thrownUntil = undefined; if (typeof state.thrownUntil === 'number' && state.thrownUntil > t) return { ok: false, because: 'the hand-over could not be checked' }; }
   state.running = true;
   try {
     const org = (d.org || (() => { const oe = require('./orgenroll'); const r = oe.mayReport() ? oe.readEnrollment() : null; return r && r.org ? r.org.id : null; }))();
@@ -301,11 +308,31 @@ async function tick(state, deps) {
             state.attempts.set(part.id, (state.attempts.get(part.id) || 0) + 1);
             state.spent.add(part.id);
           }
-          if (typeof rec.final === 'string') state.failed.set(part.id, { key, because: rec.final });
+          if (typeof rec.final === 'string') state.failed.set(part.id, { key, because: rec.final, stopped: rec.stopped === true });
         }
       }
       const f = state.failed.get(part.id);
-      if (f && f.key === key) continue;   // decided already; a changed part is tried again
+      if (f && f.key === key) {
+        // kosmos#8738: decided already. Tell Kosmos+ once that this computer gave up, so the record ends `failed` and the
+        // company can start a new hand-over (it stayed `packing` before). Answered only by an accept, or by the refusal
+        // that says the part is already past this (handover_wrong_state). Anything else is asked again next tick:
+        // no answer, a 5xx, a rate limit or clock refusal, and not_yours too (an older Kosmos+ without the step answers
+        // that, and must still get the stop once it has it). The part stays listed only while it is open, so this ends.
+        // Once it ends, /mine no longer lists it and the leaving member's notice goes with it: nothing is moving any
+        // more, and the company's audit list keeps the record (review 2: decided, not an omission).
+        if (!f.stopped) {
+          let r = null;
+          try { r = await mac('POST', DONE_ROUTE, { id: part.id, ok: false }); } catch { r = null; }
+          const code = r && !r.ok ? ((r.refusal && r.refusal.code) || require('./backupupload').refusalOf(r.because).code) : null;
+          const answered = Boolean(r && (r.ok || code === 'handover_wrong_state'));
+          if (answered) {
+            f.stopped = true;
+            const rec = readSend(part.id, d.root);
+            writeSend(part.id, d.root, Object.assign({}, rec, { key, final: f.because, stopped: true }));
+          }
+        }
+        continue;   // a changed part is tried again
+      }
       if (f) { state.failed.delete(part.id); state.attempts.delete(part.id); state.soft.delete(part.id); state.tieSoft.delete(part.id); state.spent.delete(part.id); dropSend(part.id, d.root); }
       if (state.packed.has(part.id)) continue;   // packed in this run; the record moves on its own
       if ((state.retryAt.get(part.id) || 0) > now) continue;
@@ -366,6 +393,7 @@ async function tick(state, deps) {
     return { ok: true, none: true };
   } catch {
     state.open = [];   // nothing known: say nothing rather than an old line
+    state.thrownUntil = (d.now || Date.now)() + SOFT_RETRY_MS;
     return { ok: false, because: 'the hand-over could not be checked' };
   } finally { state.running = false; }
 }
