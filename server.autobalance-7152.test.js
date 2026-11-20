@@ -273,7 +273,8 @@ test('#7152 slice 3 review 2: the real guide check: a guide folder with its mark
 
 test('kosmos#8056: armed is the mover\'s own gate, without the sweep\'s last-write condition that moving carries', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
-  assert.match(src, /autobalance\.armed = !!automoveRun && automove\.movesOn\(\); \} catch \{ autobalance\.armed = !!automoveRun; \}/);
+  /* kosmos#8846 review 1: and the gates the mover's tick uses (autobalanceSweepRuns forTick, which leaves out the last write). */
+  assert.match(src, /autobalance\.armed = !!automoveRun && automove\.movesOn\(\) && autobalanceSweepRuns\(\{ forTick: true \}\); \} catch \{ autobalance\.armed = false; \}/);
   assert.doesNotMatch(src, /autobalance\.armed = [^;]*recording/, 'armed went false with a failed sweep write, while the mover can still move');
 });
 

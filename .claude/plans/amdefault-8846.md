@@ -19,3 +19,11 @@
 ## Weakest premise
 - Review 19 of #7152 slice 1: on by default sends each customer's subscription token to an endpoint Anthropic has not documented every 10 minutes; if Anthropic objects, the cost may land on the account. Josh's ruling covers the default; whether he weighed this specific risk is not on record. Flagged to Splinter as a Decided, overridable before the release.
 - The footer reading: a pane too narrow to show the footer, or a future Claude Code that words it differently, reads as no shells (fails toward moving, as today).
+
+## Round 2 of the design (Splinter, 11-20 17:40, on the weakest premise above)
+- Gentle poll: every 30 min with 15% jitter; a 401/403/429 holds that account 6 h or until a new sign-in (a 429 across sign-ins), said once in the log; no retry in a sweep. FRESH_MS = 3 polls.
+- Changed by me from "only accounts with an agent": empty accounts are polled only while an account is at risk, because an unmeasured account is never a target.
+- AT_RISK_PCT 90 -> 80: up to ~2 h from reading to move; 20 points of headroom covers ~10%/h of a week's burn. Not lower: targets must stay under 70.
+
+## Review round 1 (blind), all fixed
+- =0 kept off; test and dry-run boards never take the default (one shared rule, usagepoll.defaultOn); logins counted, not folders; Settings `armed` uses the tick's own gates; card test now reads a real idle screen; cut footers and the older `>` prompt read.

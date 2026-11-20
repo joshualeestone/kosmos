@@ -70,9 +70,46 @@ test('kosmos#8846: an idle agent with a background shell job is not movable; at 
   assert.equal(ab.movableFor({ cards: [{ ...base, backgroundShells: 2 }], records: [], readCommitment: () => ({ state: 'clear' }), isGuide: () => false, guideName: () => null, strict: true })('ada'), false, 'the mover\'s re-check moved an agent running a job');
 });
 
-test('kosmos#8846: the board card carries backgroundShells', () => {
-  const b = fleet.install([fleet.agent('ada', { state: 'idle' })]);
-  assert.equal(typeof b.card('ada').backgroundShells, 'number', 'the card does not carry the count, so movableFor can never see it');
+/* Review 1: through the board's own card, from a real idle screen with the footer Claude Code draws (April's pane,
+   11-20 17:3x, at her prompt with one background job). */
+const RULE = '─'.repeat(80);
+const idleScreen = (footer) => `Worked for 1m 02s\n\n${RULE}\n\u276f\u00a0\n${RULE}\n  april · Opus 5.5 · ctx 20%\n${footer}\n`;
+test('kosmos#8846: the board card reads the shell count off a real idle screen, and movableFor acts on it', () => {
+  const b = fleet.install([
+    fleet.agent('ada', { state: 'idle', screen: idleScreen('  ⏵⏵ bypass permissions on · 1 shell · ↓ to manage') }),
+    fleet.agent('bea', { state: 'idle', screen: idleScreen('  ⏵⏵ bypass permissions on (shift+tab to cycle)') }),
+  ]);
+  const ada = b.card('ada'); const bea = b.card('bea');
+  assert.equal(ada.state, 'idle', 'CONTROL: the screen reads idle');
+  assert.equal(ada.backgroundShells, 1, 'the card did not carry the footer\'s shell');
+  assert.equal(bea.backgroundShells, 0, 'CONTROL: no shell in the footer reads 0');
+  const m = (name) => ab.movableFor({ cards: [{ ...ada }, { ...bea }], records: [], readCommitment: () => ({ state: 'clear' }), isGuide: () => false, guideName: () => null, nowMs: NOW })(name);
+  assert.equal(m('ada'), false, 'an idle agent with a background job on its real screen was movable');
+  assert.equal(m('bea'), true, 'CONTROL: the same idle agent with none is movable');
+});
+
+test('kosmos#8846 review 1: a cut footer still counts, and an older > prompt is read', () => {
+  assert.equal(status.backgroundShellsIn(box('  ⏵⏵ bypass permissions on · 1 sh…')), 1, 'a footer cut by a narrow pane read no shells');
+  assert.equal(status.backgroundShellsIn(box('  ⏵⏵ bypass permissions on · 2 shells · ↓ to ma…')), 2, 'CONTROL: a cut after the count still reads it');
+  assert.equal(status.backgroundShellsIn(box('  ⏵⏵ bypass permissions on · auto…')), 0, 'a cut word with no count counted');
+  assert.equal(status.backgroundShellsIn(`> \n${RULE}\n  ⏵⏵ accept edits on · 1 shell`), 1, 'the older > prompt was not read');
+});
+
+test('kosmos#8846 review 1: =0 stays off, a test or dry-run board never takes the default, and logins are counted not folders', () => {
+  for (const [force, on] of [['AGENT_WORKFORCE_USAGE_POLL', (e, n) => usagepoll.enabled(e, n)], ['AGENT_WORKFORCE_AUTOMOVE', (e, n) => automove.movesOn(e, n)]]) {
+    assert.equal(on({ [force]: '0' }, 4), false, `${force}=0 was turned on by four accounts`);
+    assert.equal(on({ [force]: 'false' }, 4), false, `${force}=false was turned on`);
+    assert.equal(on({ [force]: '' }, 4), true, 'CONTROL: an empty value is unset');
+    assert.equal(on({ NODE_TEST_CONTEXT: 'child-v8' }, 4), false, `a test board took the default (${force})`);
+    assert.equal(on({ AGENT_WORKFORCE_DRY_RUN: '1' }, 4), false, `a dry-run board took the default (${force})`);
+    assert.equal(on({ NODE_TEST_CONTEXT: 'child-v8', [force]: '1' }, 1), true, 'CONTROL: forcing it on still works under a test');
+  }
+  usagepoll.resetLinkedCacheForTests();
+  const sameLogin = [{ dir: '/h/.claude', email: 'A@x.test', organization: 'o1' }, { dir: '/h/.claude-b', email: 'a@x.test', organization: 'o1' }];
+  assert.equal(usagepoll.claudeAccountsLinked(NOW, () => sameLogin), 1, 'two folders on one login counted as two accounts');
+  usagepoll.resetLinkedCacheForTests();
+  assert.equal(usagepoll.claudeAccountsLinked(NOW, () => [...sameLogin, { dir: '/h/.claude-c', email: 'a@x.test', organization: 'o2' }]), 2, 'CONTROL: the same email in another organization is another account');
+  usagepoll.resetLinkedCacheForTests();
 });
 
 /* Splinter's call on review 19's risk (11-20): the usage poll is gentle now that it is on by default. */

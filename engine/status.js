@@ -1920,18 +1920,23 @@ function oneStepOf(pane, status, tied, now = Date.now(), find = transcriptFor, s
    older wording) counts too. ⚠️ A pane whose footer is off screen, or a wording not here, reads 0, which fails toward
    moving, as before this card. A gather with no text keeps the last count (as unsentInputOf). */
 const BG_SHELLS = /(?:^|·)\s*(\d+)\s+(?:shells?|background tasks?)\s*(?=·|$)/;
+/* Review 1 (nit): a narrow pane cuts the row with an ellipsis ("· 1 sh…"). A cut count is still counted, so an agent
+   whose footer may be saying it has a job is not moved. */
+const BG_SHELLS_CUT = /(?:^|·)\s*(\d+)\s+(?:s|sh|she|shel|shell|b|ba|bac|back\w*(?:\s+t\w*)?)?\s*…$/;
 const shellsSeen = new Map();   // pane name -> the last count read
 function backgroundShellsIn(text) {
   const rows = String(text == null ? '' : text).split('\n');
   let at = -1;
-  for (let i = 0; i < rows.length; i += 1) if (/^\u276f(?:[\u00a0 ]|$)/.test(rows[i])) at = i;
+  /* Review 1 (nit): an older Claude Code draws its prompt as `> `, as test-support/fleet.js's idle screen does. */
+  for (let i = 0; i < rows.length; i += 1) if (/^(?:\u276f|>)(?:[\u00a0 ]|$)/.test(rows[i])) at = i;
   if (at < 0) return 0;
   let rule = -1;
   for (let i = at + 1; i < rows.length; i += 1) if (COMPOSER_RULE.test(rows[i])) { rule = i; break; }
   if (rule < 0) return 0;
   let n = 0;
   for (let i = rule + 1; i < rows.length; i += 1) {
-    const m = BG_SHELLS.exec(rows[i].replace(/\u00a0/g, ' ').trim());
+    const row = rows[i].replace(/\u00a0/g, ' ').trim();
+    const m = BG_SHELLS.exec(row) || BG_SHELLS_CUT.exec(row);
     if (m) n = Math.max(n, Number(m[1]) || 0);
   }
   return n;

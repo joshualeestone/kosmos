@@ -151,23 +151,42 @@ const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
    endpoint every POLL_MS. The ruling decides the default; the risk is carried on #8846. */
 const LINKED_CACHE_MS = 60 * 1000;
 let linkedCache = { at: 0, n: 0 };
-/* How many Claude subscription accounts are linked (accounts.list(), the cheap read; an API-key account has no token the
-   endpoint reads, so it does not count). Cached a minute, since accountsweekly asks per request. 0 when it cannot read. */
+/* How many Claude logins are linked: accounts.list()'s subscription rows (an API-key account has no token the endpoint
+   reads), counted by LOGIN, not by folder (review 1: two folders signed in to the same email and organization are one
+   account, and "nothing at all with one account" must hold for them). Cached a minute, since accountsweekly asks per
+   request. 0 when it cannot read. */
 function claudeAccountsLinked(nowMs = Date.now(), list = () => require('./accounts').list()) {
   if (nowMs - linkedCache.at < LINKED_CACHE_MS && linkedCache.at > 0) return linkedCache.n;
   let n = 0;
-  try { const rows = list(); n = (Array.isArray(rows) ? rows : []).filter((a) => a && typeof a === 'object' && a.apiKey !== true).length; } catch { n = 0; }
+  try {
+    const rows = (Array.isArray(list()) ? list() : []).filter((a) => a && typeof a === 'object' && a.apiKey !== true);
+    n = new Set(rows.map((a) => (typeof a.email === 'string' && a.email ? a.email.trim().toLowerCase() : 'dir:' + String(a.dir))
+      + '\n' + (typeof a.organization === 'string' ? a.organization : ''))).size;
+  } catch { n = 0; }
   linkedCache = { at: nowMs, n };
   return n;
 }
 const resetLinkedCacheForTests = () => { linkedCache = { at: 0, n: 0 }; };
-/* `linked`: the count, or a function giving it (tests pass one; the board reads accounts.list()). */
-function enabled(env = process.env, linked = claudeAccountsLinked) {
-  if (env.AGENT_WORKFORCE_USAGE_POLL_OFF === '1') return false;
-  if (env.AGENT_WORKFORCE_USAGE_POLL === '1') return true;
+/* kosmos#8846: the one rule both switches use (this reader's, and engine/automove.js movesOn).
+   - `<off>=1` is the brake and wins.
+   - `<force>=1` turns it on whatever the count.
+   - `<force>` set to anything else (`0`, `false`) keeps it OFF (review 1: an operator who wrote =0 to keep it off must
+     not find it on after an upgrade).
+   - A board under node's test runner, or a dry run, never takes the default (review 1): it would read this computer's
+     real accounts, so its result would depend on the computer it runs on. Only `<force>=1` turns it on there.
+   - Otherwise: on with two or more Claude logins linked, off with one. `linked` is the count or a function giving it. */
+function defaultOn(env, force, off, linked) {
+  if (env[off] === '1') return false;
+  if (env[force] === '1') return true;
+  if (env[force] !== undefined && env[force] !== '') return false;
+  if (env.NODE_TEST_CONTEXT || env.AGENT_WORKFORCE_DRY_RUN === '1') return false;
   let n = 0;
   try { n = typeof linked === 'function' ? linked() : linked; } catch { n = 0; }
   return Number.isFinite(n) && n >= 2;
+}
+/* `linked`: the count, or a function giving it (tests pass one; the board reads accounts.list()). */
+function enabled(env = process.env, linked = claudeAccountsLinked) {
+  return defaultOn(env, 'AGENT_WORKFORCE_USAGE_POLL', 'AGENT_WORKFORCE_USAGE_POLL_OFF', linked);
 }
 
 function liveAllowed(env = process.env, linked = claudeAccountsLinked) {
@@ -442,6 +461,6 @@ function readUsage(dir, nowMs = Date.now()) {
 }
 
 module.exports = {
-  enabled, liveAllowed, claudeAccountsLinked, resetLinkedCacheForTests, LINKED_CACHE_MS, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
+  enabled, liveAllowed, claudeAccountsLinked, defaultOn, resetLinkedCacheForTests, LINKED_CACHE_MS, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
   FILE, POLL_MS, FRESH_MS, pollDelay, JITTER, BACKOFF_MS, accountsToPoll, HOST, USAGE_PATH, BETA,
 };

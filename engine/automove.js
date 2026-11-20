@@ -58,11 +58,7 @@ const RECHECK_HOLD_MS = 10 * 60 * 1000;   // review 3: long enough for the next 
    still the brake. The person's switch is Settings (deps.settingOn() in tick). Read per call, so linking a second
    account switches it on without a restart. */
 function movesOn(env = process.env, linked = require('./usagepoll').claudeAccountsLinked) {
-  if (env.AGENT_WORKFORCE_AUTOMOVE_OFF === '1') return false;
-  if (env.AGENT_WORKFORCE_AUTOMOVE === '1') return true;
-  let n = 0;
-  try { n = typeof linked === 'function' ? linked() : linked; } catch { n = 0; }
-  return Number.isFinite(n) && n >= 2;
+  return require('./usagepoll').defaultOn(env, 'AGENT_WORKFORCE_AUTOMOVE', 'AGENT_WORKFORCE_AUTOMOVE_OFF', linked);
 }
 
 /**
