@@ -239,7 +239,11 @@ test('#7152 review 4: a token about to run out is expired, and a weekly reset ye
 });
 
 test('#7152 review 5: the sweep never reads real logins under a test, and the brake stops it', () => {
-  assert.equal(usagepoll.liveAllowed({}), false, 'review 19: a board read subscription tokens without being switched on');
+  /* kosmos#8846: on by default with 2+ Claude accounts (Josh's 10-25 ruling); with one, only the variable turns it on. */
+  assert.equal(usagepoll.liveAllowed({}, 1), false, 'a one-account board read subscription tokens without being switched on');
+  assert.equal(usagepoll.liveAllowed({}, 2), true, 'kosmos#8846: a two-account board with nothing set did not read');
+  assert.equal(usagepoll.liveAllowed({ NODE_TEST_CONTEXT: 'child-v8' }, 2), false, 'a test-spawned two-account server would read real logins');
+  assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_DRY_RUN: '1' }, 2), false, 'a dry-run two-account board would read real logins');
   assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_USAGE_POLL: '1' }), true, 'CONTROL: a board switched on may read');
   assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_USAGE_POLL: '1', NODE_TEST_CONTEXT: 'child-v8' }), false, 'a test-spawned server would read real logins');
   assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_USAGE_POLL: '1', AGENT_WORKFORCE_USAGE_POLL_OFF: '1' }), false, 'the brake did not stop it');
@@ -628,8 +632,9 @@ test('#7152 review 20: switched off, the board shows nothing the reader measured
   const resets = Math.floor((NOW + 86400000) / 1000);
   usagepoll.write(d, { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', email: EMAIL, weekly: { usedPct: 70, resetsAt: resets, changedAt: NOW - 60000 }, fiveHour: null });
   assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW).usedPct, 70, 'CONTROL: switched on, the record is shown');
-  process.env.AGENT_WORKFORCE_USAGE_POLL = '0';
-  t.after(() => { process.env.AGENT_WORKFORCE_USAGE_POLL = '1'; });
+  /* kosmos#8846: '0' no longer switches it off on a computer with 2+ accounts (on by default there), so the brake does. */
+  process.env.AGENT_WORKFORCE_USAGE_POLL_OFF = '1';
+  t.after(() => { delete process.env.AGENT_WORKFORCE_USAGE_POLL_OFF; });
   assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW), null, 'switched off, an earlier reading was still shown');
   assert.equal(accountsweekly.weeklyBlockedOf({ dir: d, email: EMAIL }, 'darwin', NOW), 'not-wired', 'switched off, an earlier reading hid the reason');
 });

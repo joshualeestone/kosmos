@@ -1701,9 +1701,9 @@ const assigner = require('./engine/assigner'); // #3595 phase 2: the Assigner's 
 const autobalanceSetting = require('./engine/autobalance-setting'); // kosmos#7152 slice 2
 const autobalanceSweep = require('./engine/autobalance-sweep'); // kosmos#7152 slice 3: the record of what auto-balance would move
 const AUTOBALANCE_RECORD = path.join(path.dirname(autobalanceSetting.FILE), autobalanceSweep.FILE);
-const automove = require('./engine/automove'); // kosmos#7548 (slice 3b): the moving half, off unless AGENT_WORKFORCE_AUTOMOVE=1
+const automove = require('./engine/automove'); // kosmos#7548 (slice 3b): the moving half; kosmos#8846: on with 2+ Claude accounts (automove.movesOn)
 let autobalanceSweepRun = null;   // the sweep, once its record has been read at start (it is off otherwise)
-let automoveRun = null;           // kosmos#7548: the mover, made at start only with AGENT_WORKFORCE_AUTOMOVE=1 and its record read
+let automoveRun = null;           // kosmos#7548: the mover, made at start with its record read (kosmos#8846: unless AGENT_WORKFORCE_AUTOMOVE_OFF=1); it moves only while automove.movesOn()
 const keepAwakeSetting = require('./engine/keepawake-setting'); // kosmos#7416 slice 3
 const keepAwake = require('./engine/keepawake'); // kosmos#7416 slice 3: caffeinate -i while the switch is on and a card reads working
 const landedcheck = require('./engine/landedcheck'); // kosmos#7508 slice 2: is a code fix's commit still kept, and on a remote
@@ -30334,7 +30334,8 @@ function start(port = PORT) {
       if (accountSweep && typeof accountSweep.unref === 'function') accountSweep.unref();
       /* kosmos#7152 slice 1: read every Claude account's weekly and five-hour usage from the usage endpoint
          (engine/usagepoll.js), idle accounts included, into each account folder, where accountsweekly reads it. Same
-         gating as the sweeps above, OFF unless AGENT_WORKFORCE_USAGE_POLL=1 (review 19), brake AGENT_WORKFORCE_USAGE_POLL_OFF=1, own 10-min timer, unref'd,
+         gating as the sweeps above, ON with 2+ Claude accounts linked or AGENT_WORKFORCE_USAGE_POLL=1 (kosmos#8846; it was
+         off by default, review 19), brake AGENT_WORKFORCE_USAGE_POLL_OFF=1, own 10-min timer, unref'd,
          asynchronous (one account at a time, never on the board's request path), best-effort. accounts.list() is the
          cheap read: listLive() checks every account live and must not run on a timer. */
       const usagePoll = require('./engine/usagepoll');
@@ -30368,10 +30369,12 @@ function start(port = PORT) {
       try { autobalanceSweepRun = autobalanceSweep.create({ file: AUTOBALANCE_RECORD }); }
       catch (err) { process.stdout.write(`autobalance-sweep: off, its record could not be read (${String((err && err.message) || err)})\n`); }
       const abSweep = autobalanceSweepRun;
-      /* kosmos#7548 (slice 3b): the moving half, run after the sweep's tick each period and only when moves are switched
-         on (AGENT_WORKFORCE_AUTOMOVE=1). Built from the same record; one that cannot be read leaves the mover off. */
+      /* kosmos#7548 (slice 3b): the moving half, run after the sweep's tick each period and only when moves are on
+         (automove.movesOn(): kosmos#8846, 2+ Claude accounts linked, or AGENT_WORKFORCE_AUTOMOVE=1). Built at start
+         unless the brake is set, so a second account linked later switches it on without a restart; it only reads the
+         record until then. Built from the same record; one that cannot be read leaves the mover off. */
       const abSweepMs = Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS)) : usagePoll.POLL_MS;
-      if (abSweep && automove.movesOn()) {
+      if (abSweep && process.env.AGENT_WORKFORCE_AUTOMOVE_OFF !== '1') {
         /* kosmos#7548 review round 5: the mover's "previous tick" is measured in this period, which an operator can set. */
         try { automoveRun = automove.create({ file: AUTOBALANCE_RECORD, periodMs: abSweepMs }); }
         catch (err) { process.stdout.write(`automove: off, its record could not be read (${String((err && err.message) || err)})\n`); }
@@ -30389,7 +30392,7 @@ function start(port = PORT) {
         const settingUnread = !setting || setting.ok === false;
         const startState = offNow ? 'not running now: ' + offNow
           : settingOff ? 'not running now: ' + (settingUnread ? 'its Settings switch could not be read' : 'auto-balance is switched off in Settings') : 'running';
-        process.stdout.write(`autobalance-sweep: timer set, every ${Math.round(abSweepMs / 60000)} min, ${startState}; the mover is ${automoveRun ? 'on' : 'off'}\n`);
+        process.stdout.write(`autobalance-sweep: timer set, every ${Math.round(abSweepMs / 60000)} min, ${startState}; the mover is ${automoveRun && automove.movesOn() ? 'on' : 'off'}\n`);
         if (offNow || settingOff) autobalanceSweep.quietLine(abTickMem.quiet, { nowMs: Date.now(), offWhy: offNow, did: settingOff ? 'off' : null, because: settingUnread ? 'setting-unreadable' : null, logged: true });   // the start line said it
       }
       const abSayQuiet = (opts) => { try { const line = autobalanceSweep.quietLine(abTickMem.quiet, { nowMs: Date.now(), ...opts }); if (line) process.stdout.write(line + '\n'); } catch { /* best-effort: never into the timer */ } };

@@ -123,10 +123,36 @@ const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
    unchanged either way. */
 /* Review 20: whether the reader is switched on at all, which also decides whether its records are shown, so a board
    switched off shows nothing it measured earlier. */
-function enabled(env = process.env) { return env.AGENT_WORKFORCE_USAGE_POLL === '1' && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1'; }
+/* kosmos#8846: Josh's ruling (2026-10-25, on #7152): "Default ON with 2+ accounts, a switch in Settings to turn it off, and
+   nothing at all with one account." So it is ON with no variable once two or more Claude subscription accounts are
+   linked, and off with one. AGENT_WORKFORCE_USAGE_POLL=1 still forces it on (a one-account test board, an operator);
+   AGENT_WORKFORCE_USAGE_POLL_OFF=1 is still the brake. The Settings switch is the sweep's (autobalance-setting), so the
+   person's switch stops the decision and the moves; this reader keeps the account readings Settings shows.
+   ⚠️ Review 19's risk is NOT retired by this: the default now sends each linked account's token to the undocumented
+   endpoint every POLL_MS. The ruling decides the default; the risk is carried on #8846. */
+const LINKED_CACHE_MS = 60 * 1000;
+let linkedCache = { at: 0, n: 0 };
+/* How many Claude subscription accounts are linked (accounts.list(), the cheap read; an API-key account has no token the
+   endpoint reads, so it does not count). Cached a minute, since accountsweekly asks per request. 0 when it cannot read. */
+function claudeAccountsLinked(nowMs = Date.now(), list = () => require('./accounts').list()) {
+  if (nowMs - linkedCache.at < LINKED_CACHE_MS && linkedCache.at > 0) return linkedCache.n;
+  let n = 0;
+  try { const rows = list(); n = (Array.isArray(rows) ? rows : []).filter((a) => a && typeof a === 'object' && a.apiKey !== true).length; } catch { n = 0; }
+  linkedCache = { at: nowMs, n };
+  return n;
+}
+const resetLinkedCacheForTests = () => { linkedCache = { at: 0, n: 0 }; };
+/* `linked`: the count, or a function giving it (tests pass one; the board reads accounts.list()). */
+function enabled(env = process.env, linked = claudeAccountsLinked) {
+  if (env.AGENT_WORKFORCE_USAGE_POLL_OFF === '1') return false;
+  if (env.AGENT_WORKFORCE_USAGE_POLL === '1') return true;
+  let n = 0;
+  try { n = typeof linked === 'function' ? linked() : linked; } catch { n = 0; }
+  return Number.isFinite(n) && n >= 2;
+}
 
-function liveAllowed(env = process.env) {
-  return enabled(env)
+function liveAllowed(env = process.env, linked = claudeAccountsLinked) {
+  return enabled(env, linked)
     && !env.NODE_TEST_CONTEXT && env.AGENT_WORKFORCE_DRY_RUN !== '1' && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1';
 }
 
@@ -395,6 +421,6 @@ function readUsage(dir, nowMs = Date.now()) {
 }
 
 module.exports = {
-  enabled, liveAllowed, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
+  enabled, liveAllowed, claudeAccountsLinked, resetLinkedCacheForTests, LINKED_CACHE_MS, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
   FILE, POLL_MS, FRESH_MS, HOST, USAGE_PATH, BETA,
 };

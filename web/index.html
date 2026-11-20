@@ -31170,7 +31170,7 @@ function paintAutobalance(ab, list) {
   if (recentBox && known && ab.on === true) {
     recentBox.innerHTML = ab.recording !== true
       ? line('Kosmos is not keeping a record of what it would move on this computer.')   // review 10: what is known, not why
-      /* kosmos#7548: moving is an operator's switch on this computer (AGENT_WORKFORCE_AUTOMOVE=1); said only when the
+      /* kosmos#7548, kosmos#8846: moving is on by default with 2+ Claude accounts (Settings turns it off); said only when the
          board reports it moves (ab.moving), so the page never says it moves where it does not. */
       : (ab.moving === true
         /* Review round 6: a moving board whose record could not take a line moves nobody until it can, and says so. */

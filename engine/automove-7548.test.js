@@ -81,11 +81,15 @@ const ON = { AGENT_WORKFORCE_AUTOMOVE: '1' };
 /* Rule 2: an agent moves only when it was movable on the previous tick too, so a move takes two ticks. */
 async function twoTicks(run, d, at = NOW) { await run.tick(d, at); return run.tick(d, at + 1000); }
 
-test('#7548: moves are switched on only by AGENT_WORKFORCE_AUTOMOVE=1, and the brake wins', () => {
-  assert.equal(automove.movesOn({}), false, 'moves were on with nothing set');
-  assert.equal(automove.movesOn({ AGENT_WORKFORCE_AUTOMOVE: '1' }), true, 'CONTROL: the switch turns them on');
-  assert.equal(automove.movesOn({ AGENT_WORKFORCE_AUTOMOVE: 'true' }), false, 'a value other than 1 turned them on');
-  assert.equal(automove.movesOn({ AGENT_WORKFORCE_AUTOMOVE: '1', AGENT_WORKFORCE_AUTOMOVE_OFF: '1' }), false, 'the brake did not win');
+/* kosmos#8846: moves are ON by default with 2+ Claude accounts (engine/automove-default-8846.test.js); with one account
+   only AGENT_WORKFORCE_AUTOMOVE=1 turns them on, and the brake always wins. The count is passed, never read from this
+   computer's real accounts. */
+test('#7548, kosmos#8846: with one account moves are switched on only by AGENT_WORKFORCE_AUTOMOVE=1, and the brake wins', () => {
+  assert.equal(automove.movesOn({}, 1), false, 'moves were on with nothing set and one account');
+  assert.equal(automove.movesOn({ AGENT_WORKFORCE_AUTOMOVE: '1' }, 1), true, 'CONTROL: the switch turns them on');
+  assert.equal(automove.movesOn({ AGENT_WORKFORCE_AUTOMOVE: 'true' }, 1), false, 'a value other than 1 turned them on');
+  assert.equal(automove.movesOn({ AGENT_WORKFORCE_AUTOMOVE: '1', AGENT_WORKFORCE_AUTOMOVE_OFF: '1' }, 1), false, 'the brake did not win');
+  assert.equal(automove.movesOn({ AGENT_WORKFORCE_AUTOMOVE_OFF: '1' }, 3), false, 'the brake did not win over three accounts');
 });
 
 test('#7548: with moves off, or the setting off, the mover does nothing and writes nothing', async () => {
@@ -415,7 +419,7 @@ test('#7548 rule 7 (new): a person\'s move through the routes, with no move of K
   /* Review round 1: with moves off the routes write nothing, so the mover is inert, routes included. */
   for (const env of [{}, { AGENT_WORKFORCE_AUTOMOVE: '1', AGENT_WORKFORCE_AUTOMOVE_OFF: '1' }]) {
     const off = fileFor();
-    assert.equal(automove.personMoved(off, ['ada'], '/x', NOW, env), true);
+    assert.equal(automove.personMoved(off, ['ada'], '/x', NOW, env, 1), true);   // kosmos#8846: one account, so moves are off
     assert.equal(fs.existsSync(off), false, 'a person\'s move wrote the record with moves off');
   }
   /* A record that cannot be read: at start the mover is not made; while it runs, a tick moves nothing. */
@@ -625,7 +629,8 @@ test('#7548: the board wires the mover through the bulk move\'s own deps, and on
   assert.match(src, /automove\.personMoved\(AUTOBALANCE_RECORD, started\.body\.agents\.filter\(\(x\) => x && x\.outcome !== 'refused'\)/,
     'the bulk route names refused agents as moved by a person');
   /* Inert unless switched on: the mover is made, ticked and shown as moving only when moves are on. */
-  assert.match(src, /if \(abSweep && automove\.movesOn\(\)\) \{\s*(?:\/\*[^*]*\*\/\s*)?try \{ automoveRun = automove\.create\(/, 'the mover is made with moves off');
+  /* kosmos#8846: made whenever the sweep is, unless the brake is set, so a second account linked later turns it on. */
+  assert.match(src, /if \(abSweep && process\.env\.AGENT_WORKFORCE_AUTOMOVE_OFF !== '1'\) \{\s*(?:\/\*[^*]*\*\/\s*)?try \{ automoveRun = automove\.create\(/, 'the mover is made with the brake set');
   assert.match(src, /\.then\(\(\) => \(automoveRun && automove\.movesOn\(\) && autobalanceSweepRuns\(\{ forTick: true \}\) \? automoveRun\.tick\(automoveDeps\(sweepDeps\)\)/, 'the mover ticks with moves off');
   assert.match(src, /autobalance\.moving = autobalance\.recording === true && !!automoveRun && automove\.movesOn\(\);/, 'Settings says moving with moves off');
 });

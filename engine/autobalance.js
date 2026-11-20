@@ -228,6 +228,11 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
        status.js's UNSENT_SHOW_MS (3 minutes), so words typed more recently are not seen; the two-tick rule narrows
        that and does not close it. */
     try { if (c.unsentInput) return false; } catch { return cannot('its box could not be read'); }
+    /* kosmos#8846: #7548's weakest premise. An idle agent whose footer says a background shell job is running (a test
+       run, a watcher) would lose it to the move's restart, so it is not movable while it shows one. An agent at its
+       limit still is (#8048 review 2: its model can serve nothing where it is), and the move's message says the restart
+       ended what was running. */
+    if (!atLimit && Number(c.backgroundShells) > 0) return false;
     /* Not from the card: a roster card carries no isGuide (only the status rows are marked); a test pins that. */
     try {
       if (isGuide(session) !== false) return false;

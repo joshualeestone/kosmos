@@ -174,7 +174,7 @@ test('kosmos#8083: no memory or no clock says nothing and never throws', () => {
    #7152), so this pins that both ends of a tick reach quietLine and that the start line is written. */
 test('kosmos#8083: server.js says the start line and calls quietLine where the tick returns early and where it ends', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /autobalance-sweep: timer set, every \$\{Math\.round\(abSweepMs \/ 60000\)\} min, \$\{startState\}; the mover is \$\{automoveRun \? 'on' : 'off'\}/);
+  assert.match(src, /autobalance-sweep: timer set, every \$\{Math\.round\(abSweepMs \/ 60000\)\} min, \$\{startState\}; the mover is \$\{automoveRun && automove\.movesOn\(\) \? 'on' : 'off'\}/);   // kosmos#8846: made with moves off, so it asks
   assert.match(src, /settingOff \? 'not running now: ' \+ \(settingUnread \? 'its Settings switch could not be read' : 'auto-balance is switched off in Settings'\) : 'running';/);
   assert.match(src, /\.catch\(\(err\) => \{ abSayQuiet\(\{ did: 'unreadable', because: 'the tick failed: ' \+ /, 'a tick that throws leaves no trace');
   assert.match(src, /if \(!abSweep \|\| !autobalanceSweepRuns\(\{ forTick: true \}\)\) \{ abSayQuiet\(\{ offWhy: autobalanceSweepOffWhy\(\) \|\| 'unknown' \}\); return; \}/,
