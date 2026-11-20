@@ -22060,6 +22060,61 @@ function kplusRemote() {
   const h = String((typeof location !== 'undefined' && location.hostname) || '').replace(/^\[|\]$/g, '').toLowerCase();
   return !!h && !['127.0.0.1', 'localhost', '::1'].includes(h);
 }
+/* kosmos#8790: over Kosmos+, a browser that sends no Sec-Fetch-Site (Safari before 16.4) gets no board token from the
+   computer's connector on a navigation, so a download link was refused there. Every download link on the page (a file,
+   a folder zip, an agent's export, an attachment, the diagnostics file) is an <a download> to one of the routes below,
+   so one listener takes them all: the click first asks the board for a download key with the page's own marked fetch,
+   then opens the same address with ?bdl=<key>, which the board accepts once, for that address only, within a minute
+   (server.js downloadKeyTarget, the same list of routes). If no key comes (an older board, a refusal), the link opens
+   as it always did. At the computer itself (not over Kosmos+) nothing here runs. */
+const DL_KEY_LINK_ROUTES = [
+  /^\/api\/agent\/[^/]+\/files\/(?:download|download-folder)$/,
+  /^\/api\/project\/[^/]+\/file-download$/,
+  /^\/api\/agent\/[^/]+\/export$/,
+  /^\/api\/attachment\/[0-9a-f]{24}$/,
+  /^\/api\/diagnostics$/,
+];
+const DL_KEY_OWN_LINKS = new WeakSet();   // the links this opens itself, which it must not take again
+function dlKeyLinkAddress(a) {
+  if (!a || DL_KEY_OWN_LINKS.has(a)) return null;
+  const raw = a.getAttribute('href');
+  if (!raw) return null;
+  let u;
+  try { u = new URL(raw, location.href); } catch { return null; }
+  if (u.origin !== location.origin || !DL_KEY_LINK_ROUTES.some((re) => re.test(u.pathname))) return null;
+  if (u.searchParams.has('bdl') || u.searchParams.get('check') === '1') return null;
+  return u;
+}
+function dlKeyOpen(u, name) {
+  const go = document.createElement('a');
+  DL_KEY_OWN_LINKS.add(go);
+  go.href = u.pathname + u.search + u.hash;
+  go.download = name;
+  go.hidden = true;
+  document.body.appendChild(go);
+  go.click();
+  go.remove();
+}
+function dlKeyClick(e) {
+  if (!e || e.defaultPrevented || e.button > 0 || !kplusRemote()) return;
+  const a = e.target && e.target.closest && e.target.closest('a[download]');
+  const u = dlKeyLinkAddress(a);
+  if (!u) return;
+  e.preventDefault();
+  const name = a.getAttribute('download') || '';
+  /* The query written out once, the way URLSearchParams writes it (a space as +), so the address the key is asked for
+     and the address opened with it are spelled the same; adding bdl below writes it the same way again. */
+  const out = new URL(u.href);
+  out.search = out.searchParams.toString();
+  fetch('/api/download-key', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: out.pathname + out.search }) })
+    .then((res) => (res && res.ok ? res.json() : null)).catch(() => null)
+    .then((b) => {
+      const key = b && typeof b.key === 'string' && /^[0-9a-f]{64}$/.test(b.key) ? b.key : null;
+      if (key) out.searchParams.set('bdl', key);
+      dlKeyOpen(key ? out : u, name);   // no key: the link's own address, exactly as it was
+    });
+}
+if (typeof document !== 'undefined') document.addEventListener('click', dlKeyClick, true);
 /* #6724: the stamp the data-remote-hide rule keys on, set once at load (a page's own address does not change). */
 if (typeof document !== 'undefined' && document.documentElement && kplusRemote()) document.documentElement.setAttribute('data-kplus-remote', '');
 /* #5165 (a Kosmos+ user on a Windows laptop clicked a .pptx in a project's Files and it tried to open on the HOST):

@@ -86,6 +86,7 @@ render-detail-ring-1915
 render-device-remove-4824
 render-dialog-gutter-4506
 render-disconnect-stop-2570
+render-dlkey-8790
 render-dm-badges-2863
 render-dm-chatfirst-718
 render-dm-earlier-5841

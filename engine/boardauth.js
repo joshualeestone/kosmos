@@ -565,6 +565,41 @@ function redeemNonce(nonce) {
   return exp > _nonceNow();
 }
 
+// --- Download keys (kosmos#8790) ---------------------------------------------
+// A browser that sends no Sec-Fetch-Site (Safari before 16.4) gets no board token from a Kosmos+ computer's connector on
+// a navigation, so a download, a folder zip or the diagnostics download is refused there. The page then asks for a key
+// with its own marked fetch (which does carry the token), and opens the download with `?bdl=<key>`. A key opens ONE
+// response: the exact path and query it was minted for (minus `bdl`), on a GET, once, within DL_KEY_TTL_MS. It is no
+// session and sets nothing. The same in-memory store and clock seam as the nonces above; its own random value, never
+// the token.
+const DL_KEY_TTL_MS = 60000;
+const DL_KEY_MAX = 200;   // a page asks for one per click; more than this live at once is not a person clicking
+const _dlKeys = new Map(); // key -> { target, exp }
+function _sweepDlKeys(now) { for (const [k, v] of _dlKeys) { if (v.exp <= now) _dlKeys.delete(k); } }
+
+/** Mint a download key for `target` (a path and query, already checked by the caller to be a download route). */
+function mintDownloadKey(target) {
+  const now = _nonceNow();
+  _sweepDlKeys(now);
+  while (_dlKeys.size >= DL_KEY_MAX) _dlKeys.delete(_dlKeys.keys().next().value);   // the oldest goes first
+  const key = crypto.randomBytes(32).toString('hex');
+  _dlKeys.set(key, { target: String(target), exp: now + DL_KEY_TTL_MS });
+  return key;
+}
+
+/** Redeem a download key for exactly `target`. True only for a known, unexpired key minted for that same target, and
+ *  then the key is gone. A key presented for another target is NOT burned (it opens nothing there, and a wrong guess
+ *  must not cost the person their download); an expired key is dropped. */
+function redeemDownloadKey(key, target) {
+  if (typeof key !== 'string' || !/^[0-9a-f]{64}$/.test(key)) return false;
+  const v = _dlKeys.get(key);
+  if (!v) return false;
+  if (v.exp <= _nonceNow()) { _dlKeys.delete(key); return false; }
+  if (String(target) !== v.target) return false;   // the target is no secret: a plain comparison
+  _dlKeys.delete(key);
+  return true;
+}
+
 /** The `?boot=<nonce>` query value, or null. */
 function bootNonce(req, routingBase) {
   try { return new URL(req.url, routingBase).searchParams.get('boot') || null; } catch { return null; }
@@ -736,6 +771,7 @@ module.exports = {
   ownerOnlyModeIsEnforced,
   // #1979: single-use browser-open nonces.
   mintNonce, redeemNonce, bootNonce, _setNonceClock,
+  mintDownloadKey, redeemDownloadKey, DL_KEY_TTL_MS,
   // #6358: browser sessions (the cookie's value).
   mintSession, sessionToken, sessionLeftMs, presentsCredential, liveSessionIds, SESSION_MAX_MS, SESSION_MAX_COUNT, _resetSessions, clearedCookieHeader,
   // #2030: reauth-seeded marker, written on `?boot=` redemption not at dispatch.

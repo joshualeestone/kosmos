@@ -1226,7 +1226,48 @@ function boardCookieHere(req, state = boardAuthState, check = boardTokenOk) {
   const cookieOnly = { url: String((req && req.url) || '/').split('?')[0], method: req && req.method, headers: { cookie: headers.cookie } };
   return !!boardauth.cookieToken(req) && check(cookieOnly);
 }
+/* kosmos#8790: a download key (boardauth.mintDownloadKey). On a browser that sends no Sec-Fetch-Site (Safari before
+   16.4) a Kosmos+ computer's connector gives no board token to a navigation, so the board's downloads were refused
+   there. The page asks for a key with its own marked fetch (POST /api/download-key, which needs the board token) and
+   opens the download with ?bdl=<key>. A key opens ONE response: a GET (never a HEAD) of the exact path and query it
+   was minted for, without bdl, on one of these routes, once, within a minute. It is checked last at the gate, only
+   when the request presents nothing else, and it sets no cookie and starts no session. */
+const DL_KEY_ROUTES = [
+  /^\/api\/agent\/[^/]+\/files\/(?:download|download-folder)$/,
+  /^\/api\/project\/[^/]+\/file-download$/,
+  /^\/api\/agent\/[^/]+\/export$/,
+  /^\/api\/attachment\/[0-9a-f]{24}$/,
+  /^\/api\/diagnostics$/,
+];
+const DL_KEY_PARAM = 'bdl';
+/* The address a key is minted for and checked against: the path as the board routes it, and the query without bdl,
+   written out the one way URLSearchParams writes it, so the mint and the download are compared on the same spelling.
+   Null for anything that is not one of the download routes, or that is a ?check=1 look (a look opens nothing). */
+function downloadKeyTarget(rawUrl) {
+  let u;
+  try { u = new URL(String(rawUrl || ''), ROUTING_BASE); } catch { return null; }
+  if (u.origin !== new URL(ROUTING_BASE).origin) return null;
+  if (!DL_KEY_ROUTES.some((re) => re.test(u.pathname))) return null;
+  u.searchParams.delete(DL_KEY_PARAM);
+  if (u.searchParams.get('check') === '1') return null;
+  const q = u.searchParams.toString();
+  return u.pathname + (q ? '?' + q : '');
+}
+const DL_KEY_REQS = new WeakSet();   // the requests a key opened: boardTokenOk answers yes for that request, and only it
+/* Redeems the request's key, once per request (the gate and the handlers below may ask boardTokenOk more than once). */
+function downloadKeyOk(req) {
+  if (!req || req.method !== 'GET') return false;
+  if (DL_KEY_REQS.has(req)) return true;
+  let key = null;
+  try { key = new URL(req.url, ROUTING_BASE).searchParams.get(DL_KEY_PARAM); } catch { key = null; }
+  if (!key) return false;
+  const target = downloadKeyTarget(req.url);
+  if (!target || !boardauth.redeemDownloadKey(key, target)) return false;
+  DL_KEY_REQS.add(req);
+  return true;
+}
 function boardTokenOk(req) {
+  if (DL_KEY_REQS.has(req)) return true;   // kosmos#8790: this one request was opened by a download key, at the gate
   // A tokenless request is a 403 either way (no candidate can match nothing), so
   // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
   // filesystem-free for the unauthenticated case, not only the active-token one.
@@ -7418,7 +7459,7 @@ const GATE_LOG = process.env.KOSMOS_INSTALL_GATE === '1' || process.env.KOSMOS_I
    call's secret path (/hooks/<id>/<secret>) cut after "hooks". gateLog and the kosmos#6721 slow-request line share it,
    so a second log cannot leak what the first one learned to hide. */
 function safeLogUrl(url) {
-  const queryless = String(url || '').replace(/([?&](?:token|boot)=)[^&]*/gi, '$1REDACTED');
+  const queryless = String(url || '').replace(/([?&](?:token|boot|bdl)=)[^&]*/gi, '$1REDACTED');   // kosmos#8790: bdl, a download key
   /* Everything after "hooks", in any spelling: an absolute-form target, a backslash, or dot
      segments (/hooks/./<id>/<secret>) all reach the route, so no pattern for the secret's exact
      position is safe. A webhook call logs as .../hooks/REDACTED. But when the path only names hooks
@@ -7854,7 +7895,7 @@ const server = http.createServer(async (req, res) => {
     // AGENT_TOKEN_ROUTES and AGENT_TOKEN_ROUTE_PATTERNS). A function, called last, so a caller that already holds the board
     // token never pays for the token-store scan.
     const exemptAgentToken = () => agentTokenRoute(`${req.method} ${pathname}`) && agentTokenOk(req);
-    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptProof && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
+    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptProof && !exemptHook && !boardTokenOk(req) && !exemptAgentToken() && !downloadKeyOk(req)) {   // kosmos#8790: a download key last, only when nothing else is presented  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: boardTokenRefusal(req, '') });
       return;
     }
@@ -7904,6 +7945,23 @@ const server = http.createServer(async (req, res) => {
      the nonce it returns is inert there: `bootstrap`'s redeem arm runs only inside
      the `if (boardAuthState.on)` gate, so a nonce is never redeemed on a board that
      is not enforcing. */
+  /* kosmos#8790: mint a download key for one download address (see downloadKeyTarget). Like the nonce below, it takes
+     the board token itself (the header the connector adds to the page's marked fetch), never a session cookie alone,
+     and never a key: a key cannot mint its successor. Answered no-store. */
+  if (pathname === '/api/download-key' && req.method === 'POST') {
+    if (boardAuthState.on && !boardTokenOkWithoutCookie(req)) {
+      sendJson(res, 403, { error: boardTokenRefusal(req, '') });
+      return;
+    }
+    readBody(req, 4096).then((buf) => {
+      let body = null;
+      try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+      const target = body && typeof body.path === 'string' ? downloadKeyTarget(body.path) : null;
+      if (!target) { sendJson(res, 400, { ok: false, because: 'that is not a download on this computer' }); return; }
+      sendJson(res, 200, { ok: true, key: boardauth.mintDownloadKey(target) });   // sendJson answers no-store
+    }).catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
+    return;
+  }
   if (pathname === '/api/board-nonce' && req.method === 'POST') {
     /* #6358: a nonce redeems for a NEW session, so minting one takes a board token itself (header or query), never
        a session cookie. Otherwise a session could mint its own successor in one request and renew itself past
