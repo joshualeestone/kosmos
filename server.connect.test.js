@@ -1132,6 +1132,16 @@ test('kosmos#4903 S5 design: a cloud machine says "below" once the link is there
   assert.doesNotMatch(code, /If Claude gives you a code to paste/, 'the code step still asks twice');
   assert.match(code, /<input id="fr-conn-code"[^>]*placeholder="Paste the code from Claude"/);
   assert.match(code, /<input id="fr-conn-code"[^>]*aria-describedby="fr-conn-cloudsay-code"/, 'the code field lost its description');
+  /* kosmos#8783: the field is brought into view (it sat below the fold on a phone), and not focused (the keyboard would
+     cover the sign-in link). Read from the awaiting-code branch of the page itself. */
+  {
+    const html = require('node:fs').readFileSync(require('node:path').join(__dirname, 'web', 'index.html'), 'utf8');
+    const at = html.indexOf("if (phase === 'signin-awaiting-code') {\n    box.innerHTML");
+    assert.ok(at > 0, 'the awaiting-code branch was not found');
+    const branch = html.slice(at, html.indexOf('\n    return;\n  }', at));
+    assert.match(branch, /getElementById\('fr-conn-code'\)[\s\S]*parentNode[\s\S]*scrollIntoView\(\{ block: 'nearest' \}\)/, 'kosmos#8783: the code field is not brought into view');
+    assert.doesNotMatch(branch, /fr-conn-code'\)\.focus\(/, 'the field must not be focused (the keyboard covers the sign-in link)');
+  }
   assert.match(code, /<span id="fr-conn-cloudsay-code">/, 'the field is described by an element that is not there');
   // CONTROL: the Mac keeps its label (a code is the exception there) and has no placeholder, and its words are unchanged.
   const mac = connectHarness({ phase: 'signin-awaiting-code', url: URL }).els['fr-sub'].innerHTML;

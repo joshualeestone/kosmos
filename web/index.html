@@ -91870,6 +91870,14 @@ function frPaintConnect(st) {
     };
     frConnPaintUrl(shownUrl, st);
     frActions(null, { label: 'Cancel', go: frConnCancel });
+    /* kosmos#8783: on a phone the wizard body scrolls and this field lands below its fold, under the pinned footer,
+       with nothing to say more is there (a customer's first setup, 11-19). Bring it into view, without focusing it:
+       a focused field raises the keyboard over the sign-in link the person must open first. */
+    { const field = document.getElementById('fr-conn-code');
+      const row = field && field.parentNode;
+      if (row && typeof row.scrollIntoView === 'function' && typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => { try { row.scrollIntoView({ block: 'nearest' }); } catch (_) { /* old engines */ } });
+      } }
     return;
   }
 
