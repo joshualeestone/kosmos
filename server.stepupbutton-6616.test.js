@@ -37,8 +37,9 @@ const BOTH = new Set(['session-headers', 'fresh-signin']);
 
 test('R01b: a stale remote session is offered Sign in again only when the connector lists fresh-signin', () => {
   const t = now();
-  // A stale session the gate forwarded: it writes both headers, here with a sign-in an hour old.
-  const stale = { 'x-kosmos-session-iat': String(t - 3600), 'x-kosmos-session-second': '1' };
+  // kosmos#8785: a full sign-in of any age now passes, so the request still refused through the gate is one whose
+  // sign-in time did not arrive in a form this board reads (an hour-old full sign-in was this case before #8785).
+  const stale = { 'x-kosmos-session-second': '1' };
   const got = remoteStepUpRefusal(req(stale), '/api/agents', t, BOTH);
   assert.equal(got, REMOTE_STEP_UP_SIGNIN);
   assert.equal(got.code, 'remote_step_up', 'the code changed, so every page reading it would miss it');
@@ -54,7 +55,7 @@ test('R01b: a stale remote session is offered Sign in again only when the connec
 
 test('kosmos#7625: through the gate, a connector without fresh-signin still gets Sign in again, by logging out', () => {
   const t = now();
-  const stale = { 'x-kosmos-session-iat': String(t - 3600), 'x-kosmos-session-second': '1' };
+  const stale = { 'x-kosmos-session-second': '1' };   // kosmos#8785: see the R01b test above
   const got = remoteStepUpRefusal(req(stale), '/api/agents', t, new Set(['session-headers']));
   assert.equal(got, REMOTE_STEP_UP_LOGOUT);
   assert.equal(got.code, 'remote_step_up', 'the code changed, so every page reading it would miss it');
