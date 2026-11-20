@@ -5811,7 +5811,7 @@ cmd_room() {
   local _rb_dir="$KOSMOS_HOME/state/room-copies" _rb_key="" _rb_copy="" _rb_since="" _rb_mark=""
   # Review 2: shasum (macOS) or sha256sum (most Linux); neither means no copy, the refusal as before.
   _rb_key="$(printf '%s|%s|%s' "$URL" "$project" "${_tok:-${_bt:+board}}" | { shasum -a 256 2>/dev/null || sha256sum 2>/dev/null; } | cut -c1-24 || true)"
-  case "$_rb_key" in *[!0-9a-f]*) _rb_key="" ;; esac
+  case "$_rb_key" in *[!0-9a-f]*|e3b0c44298fc1c149afbf4c8) _rb_key="" ;; esac   # review 3: the empty-input hash would share one key
   # The failing mark is per room and reader for EVERY read (a good filtered read ends a spell too, review 2); the copy is
   # kept and shown for plain reads only.
   [ -z "$_rb_key" ] || _rb_mark="$_rb_dir/$_rb_key.busy-since"
@@ -5821,12 +5821,14 @@ cmd_room() {
       18|28|52|56)
         if [ -n "$_rb_since" ]; then
           # Review 1: every step here is allowed to fail (a sandbox, a read-only home): the busy sentence must still be said.
-          [ -s "$_rb_since" ] || { { mkdir -p "$_rb_dir" && chmod 700 "$_rb_dir" && date +%s > "$_rb_since"; } 2>/dev/null || true; }
-          local _rb_first="" _rb_now; _rb_now="$(date +%s)"
-          _rb_first="$(head -n 1 "$_rb_since" 2>/dev/null || true)"
-          case "$_rb_first" in ''|*[!0-9]*) _rb_first="" ;; esac
-          # A mark more than a day old says nothing about now: start the spell again from this read.
-          if [ -n "$_rb_first" ] && [ $((_rb_now - _rb_first)) -gt 86400 ]; then _rb_first="$_rb_now"; { printf '%s\n' "$_rb_now" > "$_rb_since"; } 2>/dev/null || true; fi
+          # The mark is "<first failed read> <last failed read>". Review 3: a spell whose last failure is over 30 minutes
+          # old is over (nobody read in between, so nothing says the board stayed stuck): this read starts a new one.
+          local _rb_first="" _rb_last="" _rb_now; _rb_now="$(date +%s)"
+          read -r _rb_first _rb_last < "$_rb_since" 2>/dev/null || true
+          case "$_rb_first" in ''|*[!0-9]*) _rb_first="" ;; *) _rb_first=$((10#$_rb_first)) ;; esac
+          case "$_rb_last" in ''|*[!0-9]*) _rb_last="$_rb_first" ;; *) _rb_last=$((10#$_rb_last)) ;; esac
+          if [ -z "$_rb_first" ] || [ $((_rb_now - ${_rb_last:-0})) -gt 1800 ]; then _rb_first="$_rb_now"; fi
+          { mkdir -p "$_rb_dir" && chmod 700 "$_rb_dir" && printf '%s %s\n' "$_rb_first" "$_rb_now" > "$_rb_since"; } 2>/dev/null || _rb_first=""
           local _rb_hhmm="" _rb_fmt='+%H:%M %Z'
           [ "$(date -r "${_rb_first:-0}" +%F 2>/dev/null || date -d "@${_rb_first:-0}" +%F 2>/dev/null || true)" = "$(date +%F)" ] || _rb_fmt='+%b %d %H:%M %Z'
           [ -z "$_rb_first" ] || _rb_hhmm="$(date -r "$_rb_first" "$_rb_fmt" 2>/dev/null || date -d "@$_rb_first" "$_rb_fmt" 2>/dev/null || true)"
@@ -5868,7 +5870,9 @@ cmd_room() {
     if mkdir -p "$_rb_dir" 2>/dev/null && chmod 700 "$_rb_dir" 2>/dev/null; then
       local _rb_tmp=""
       _rb_tmp="$(mktemp "$_rb_dir/.copy.XXXXXX" 2>/dev/null)" && chmod 600 "$_rb_tmp" && printf '%s' "$_body" > "$_rb_tmp" \
-        && mv -f "$_rb_tmp" "$_rb_copy" || { [ -z "$_rb_tmp" ] || rm -f "$_rb_tmp"; }
+        && mv -f "$_rb_tmp" "$_rb_copy" || { [ -z "$_rb_tmp" ] || rm -f "$_rb_tmp" || true; }
+      # Review 3: copies are not kept for ever: any not refreshed for 7 days (a room deleted, a token changed) goes.
+      find "$_rb_dir" -maxdepth 1 -type f -mtime +7 -delete 2>/dev/null || true
     fi
   fi
   # #4926: a filtered answer has a line starting with this; without one, this board does not know --unanswered and

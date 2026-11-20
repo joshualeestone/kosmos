@@ -156,3 +156,20 @@ test('kosmos#8769 item 4: a good FILTERED read also ends the failing spell (the 
   assert.equal(filtered.code, 0, filtered.out);
   assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.busy-since')).length, 0, 'the answered filtered read cleared it');
 }));
+
+test('kosmos#8769 item 4: a spell whose last failed read is over 30 minutes old starts again (no false "stuck since")', { skip: SKIP }, () => withBoard(async (port, room) => {
+  const home = fs.mkdtempSync(path.join(HOME, 'g-'));
+  await runCli(['room', 'proj'], envFor(port, home));
+  room.stall = true;
+  await runCli(['room', 'proj'], envFor(port, home));
+  const dir = path.join(home, 'state', 'room-copies');
+  const mark = path.join(dir, fs.readdirSync(dir).find((f) => f.endsWith('.busy-since')));
+  const old = Math.floor(Date.now() / 1000) - 7200;
+  fs.writeFileSync(mark, old + ' ' + (old + 60) + '\n');
+  await runCli(['room', 'proj'], envFor(port, home));
+  const first = Number(fs.readFileSync(mark, 'utf8').trim().split(/\s+/)[0]);
+  assert.ok(first > old + 3600, 'the old spell was not carried on: ' + first + ' vs ' + old);
+  fs.writeFileSync(mark, (old + 7000) + ' ' + Math.floor(Date.now() / 1000) + '\n');
+  await runCli(['room', 'proj'], envFor(port, home));
+  assert.equal(Number(fs.readFileSync(mark, 'utf8').trim().split(/\s+/)[0]), old + 7000, 'CONTROL: a recent last failure keeps the spell');
+}));

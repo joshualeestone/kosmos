@@ -1191,7 +1191,7 @@ function roomCopyPaths(ctx, project) {
     const base = env.KOSMOS_HOME ? path.join(env.KOSMOS_HOME, 'state', 'room-copies')
       : path.join(env.LOCALAPPDATA || os.tmpdir(), 'Kosmos', 'state', 'room-copies');
     const tok = /^[0-9a-f]+$/.test(String(env.KOSMOS_AGENT_TOKEN || '')) ? String(env.KOSMOS_AGENT_TOKEN) : 'board';
-    const key = require('crypto').createHash('sha256').update(String(env.KOSMOS_PORT || '') + '|' + String(project) + '|' + tok).digest('hex').slice(0, 24);   // review 1: which board too
+    const key = require('crypto').createHash('sha256').update(String(ctx.url || env.KOSMOS_PORT || '') + '|' + String(project) + '|' + tok).digest('hex').slice(0, 24);   // which board too, as the Mac's $URL
     return { dir: base, file: path.join(base, key + '.txt'), since: path.join(base, key + '.busy-since') };
   } catch (_) { return null; }
 }
@@ -1202,7 +1202,7 @@ function roomCopyAge(ms) {
 function roomCopyClock(epoch) {
   try {
     const d = new Date(epoch * 1000);
-    const t = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZoneName: 'short' });
+    const t = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZoneName: 'short' });   // "18:02 CST", as the Mac's date
     return d.toDateString() === new Date().toDateString() ? t : d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }) + ' ' + t;
   } catch (_) { return 'a while ago'; }
 }
@@ -1237,14 +1237,13 @@ async function verbRoom(ctx, args) {
   if (!r.reached) {
     /* Review 1: busy as the Mac counts it (curl 18/28/52/56): a timeout, or an answer cut off after the request went. */
     if (copy && (r.timedOut || (!r.notConnected && !r.refused))) {
-      let first = NaN;
-      try { first = Number(fs.readFileSync(copy.since, 'utf8').trim()); } catch (_) { /* none yet */ }
+      /* As install/kosmos: the mark is "<first failed read> <last failed read>"; a spell whose last failure is over 30
+         minutes old is over (review 3), and a mark that cannot be written says nothing, never "since now" (review 2). */
+      let first = NaN; let last = NaN;
+      try { const parts = fs.readFileSync(copy.since, 'utf8').trim().split(/\s+/); first = Number(parts[0]); last = parts.length > 1 ? Number(parts[1]) : first; } catch (_) { /* none yet */ }
       const nowS = Math.floor(Date.now() / 1000);
-      if (Number.isInteger(first) && nowS - first > 86400) first = NaN;   // a mark over a day old says nothing about now
-      if (!Number.isInteger(first)) {
-        /* Review 2: a mark that cannot be written says nothing, as on the Mac, never "since now". */
-        try { fs.mkdirSync(copy.dir, { recursive: true, mode: 0o700 }); fs.writeFileSync(copy.since, String(nowS), { mode: 0o600 }); first = nowS; } catch (_) { first = NaN; }
-      }
+      if (!Number.isInteger(first) || !Number.isInteger(last) || nowS - last > 1800) first = nowS;
+      try { fs.mkdirSync(copy.dir, { recursive: true, mode: 0o700 }); fs.writeFileSync(copy.since, first + ' ' + nowS, { mode: 0o600 }); } catch (_) { first = NaN; }
       const since = Number.isInteger(first) ? ' Kosmos has not answered a read of this room here since ' + roomCopyClock(first) + '.' : '';
       let held = null;
       try { held = { text: fs.readFileSync(copy.file, 'utf8'), at: Math.floor(fs.statSync(copy.file).mtimeMs) }; } catch (_) { /* no copy */ }
@@ -1270,6 +1269,8 @@ async function verbRoom(ctx, args) {
       const tmp = copy.file + '.' + process.pid + '.tmp';
       try { fs.writeFileSync(tmp, String(r.text || ''), { mode: 0o600 }); fs.renameSync(tmp, copy.file); }
       catch (e) { try { fs.rmSync(tmp, { force: true }); } catch (_) { /* best effort */ } throw e; }
+      /* Review 3, as install/kosmos: a copy not refreshed for 7 days goes. */
+      for (const f of fs.readdirSync(copy.dir)) { try { const fp = path.join(copy.dir, f); if (Date.now() - fs.statSync(fp).mtimeMs > 7 * 86400000) fs.rmSync(fp, { force: true }); } catch (_) { /* best effort */ } }
     } catch (_) { /* a copy is a convenience: never fail the read for it */ }
   }
   // #4926, as install/kosmos: without the board's filtered-view line, the board ignored the flag and sent the whole room.

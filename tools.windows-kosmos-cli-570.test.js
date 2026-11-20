@@ -1135,7 +1135,7 @@ test('kosmos#8769 item 4: room on a busy board shows the kept copy (exit 1); non
     const none = await run(['room', 'proj-1'], busy, env);
     assert.equal(none.code, 1);
     assert.match(none.err, /no earlier copy of this room to show/);
-    assert.doesNotMatch(none.err, /NOT the room now/);
+    assert.doesNotMatch(none.out + none.err, /NOT the room now/);
     const good = await run(['room', 'proj-1'], () => ({ body: 'm1 leo: first look\n' }), env);
     assert.equal(good.code, 0, good.err);
     const dir = path.join(home, 'state', 'room-copies');
@@ -1154,6 +1154,6 @@ test('kosmos#8769 item 4: room on a busy board shows the kept copy (exit 1); non
     assert.ok(!fs.readFileSync(path.join(dir, copies[0]), 'utf8').includes(AGENT), 'no token kept');
     const filtered = await run(['room', 'proj-1', '-n', '5'], busy, env);
     assert.equal(filtered.code, 1);
-    assert.doesNotMatch(filtered.err, /NOT the room now/, 'a filtered read is not answered with the plain copy');
+    assert.doesNotMatch(filtered.out + filtered.err, /NOT the room now|first look/, 'a filtered read is not answered with the plain copy');
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });
