@@ -4,7 +4,7 @@
 Ranked #2 on #8735. "Answering where you were asked" kept a 1,242-character claim paragraph. It now keeps the rule
 (claim before you say you are taking it; post only if the claim is yours; do not post if someone else holds it; give it
 back with --release if you stop, keep it when done; a raised hand from the person agrees with a claim, round 1: decided
-at the moment of claiming) and a pointer naming the cases. The cases print from engine/claimguide.js through
+at the moment of claiming; and round 2: what to do when Kosmos does not answer) and a pointer naming the cases. The cases print from engine/claimguide.js through
 `kosmos claim --how` in both CLIs, most lines word for word: Kosmos not answering, someone else holding it, how
 `kosmos room` shows a claim, how long it lasts, a raised hand, a stale claim, a room shared with another computer; plus
 `--status`. Doctrine 56. Same pattern as slice 2's `kosmos task --how`.
@@ -19,7 +19,7 @@ rows are merged in by hand from #8814's table until then, because tools/doctrine
   moment of claiming, and a wrong post is what the protocol exists to stop.
 
 ## Measured
-- pm brief 46,305 -> 45,835 (darwin), 470 characters. Ratchet 46,400 -> 45,900.
+- pm brief 46,305 -> 45,919 (darwin), 386 characters. Ratchet 46,400 -> 46,000.
 - engine/claimguide.test.js: both CLIs print the guide byte for byte, refuse extra words, and name --how in the usage; the
   working rules keep the four rules and the pointer on every platform; the moved lines are in the guide and not the brief.
 - Re-read: the moved lines are left out as moved ("Left out: N lines ... that kosmos claim --how prints"); a file whose

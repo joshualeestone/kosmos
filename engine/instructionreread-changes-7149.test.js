@@ -835,6 +835,9 @@ test('kosmos#8735 doctrine 56: the claim lines that moved to kosmos claim --how 
   const body = fs.readFileSync(ir.prepareChanges('tca').path, 'utf8');
   assert.ok(!body.includes('- ' + MOVED_LINE), 'a moved claim line is marked as no longer applying');
   assert.match(body, /Left out: \d+ lines removed from Answering where you were asked that kosmos claim --how prints, where they still apply\./);
+  // A re-wrapped line cannot be matched, so it stays marked, and the conditional sentence says where it may be.
+  assert.ok(body.includes('- room, and offer them help if you have some; if they hand it to you, claim the'), 'fixture: the re-wrapped line is not marked');
+  assert.match(body, /A line marked - under Answering where you were asked may be in kosmos claim --how too, reworded/);
 });
 
 test('kosmos#8735 doctrine 56: a file whose section heading is gone hides nothing as moved (CONTROL)', () => {

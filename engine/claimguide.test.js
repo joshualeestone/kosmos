@@ -47,7 +47,7 @@ test('kosmos#8735: the claim guide requires nothing, carries what moved, and the
   const g = guide.guideText();
   for (const line of ['as "is claimed by", with how long ago. A claim lasts until its holder gives it',
     'agrees with the claim; it is not a claim of theirs. If a claim looks stale, ask',
-    'not see it: there, still say in the room that you are taking it.', '**If Kosmos did not answer,** run the same claim again; if it still cannot be']) {
+    'not see it: there, still say in the room that you are taking it.', '**If someone else holds it,** read the room, and offer them help if you have']) {
     assert.ok(g.includes(line), 'the claim guide lost: ' + line);
     for (const p of require('./defaults').PLATFORMS) assert.ok(!require('./defaults').blockFor(p).includes(line), p + ': back in the working rules: ' + line);
   }
@@ -59,6 +59,7 @@ test('kosmos#8735: the claim guide requires nothing, carries what moved, and the
     assert.match(flat, /give it back with `kosmos claim <project> <postId> --release`; when it is done, keep it claimed\./, p + ': the release rule left the working rules');
     assert.match(flat, /A raised hand from the person agrees with a claim; it is not a claim of theirs\./, p + ': the raised-hand rule, needed at the moment of claiming, left the working rules');
     assert.match(flat, /run `kosmos claim --how`/, p + ': the pointer to the guide is missing');
+    assert.match(flat, /if Kosmos does not answer, run it again; if it still cannot be reached, say in the room that you are taking it/, p + ': the unreachable fallback, needed at the moment of claiming, left the working rules');
   }
   assert.doesNotMatch(g, /\u2014|&mdash;|&#8212;|&#x2014;/i, 'an em dash in the guide');
 });

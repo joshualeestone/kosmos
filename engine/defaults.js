@@ -244,15 +244,16 @@ const LINES = [
   '',
   '**Claim a request before you say you are taking it.** When a post in a room',
   'asks for work that one agent should do, run `kosmos claim <project> <postId>`',
-  'first, and post that you are taking it only if the claim is yours. If it says',
+  'first, and post that you are taking it only if the claim is yours (if Kosmos',
+  'does not answer, run it again; if it still cannot be reached, say in the room',
+  'that you are taking it). If it says',
   'someone already claimed it, or that the post asks someone else, do not post',
   'that you are taking it. If you stop before it is done, give it back with',
   '`kosmos claim <project> <postId> --release`; when it is done, keep it claimed.',
   'A raised hand from the person agrees with a claim; it is not a claim of',
   'theirs. **The first time you claim, and whenever you are unsure, run',
-  '`kosmos claim --how`**: what to do when Kosmos does not answer, when someone',
-  'else holds it, how long a claim lasts, a stale claim, and a room shared with',
-  'another computer.',
+  '`kosmos claim --how`**: what to do when someone else holds it, how long a claim',
+  'lasts, a stale claim, and a room shared with another computer.',
   '',
   '### Who a room post wakes',
   '',
@@ -1326,8 +1327,9 @@ function block() {
  *     and the boot sweep adds it again; an agent whose Files block failed both times loses the exact path either way.
  *  56. kosmos#8735: the claim protocol in "Answering where you were asked" keeps the rule (claim before you say you are
  *     taking it, post only if the claim is yours, do not post if someone else holds it, give it back with --release if
- *     you stop and keep it when done, a raised hand from the person agrees with a claim) and a pointer to `kosmos claim --how` (engine/claimguide.js), which prints the rest, most lines word for
- *     word: when Kosmos does not answer, when someone else holds it, how `kosmos room` shows a claim, how long it lasts,
+ *     you stop and keep it when done, a raised hand from the person agrees with a claim, and what to do when Kosmos
+ *     does not answer) and a pointer to `kosmos claim --how` (engine/claimguide.js), which prints the rest, most lines word for
+ *     word: when someone else holds it, how `kosmos room` shows a claim, how long it lasts,
  *     a raised hand, a stale claim, and a room shared with another computer. No new heading, so as in 32 an agent's
  *     EDITED copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent runs `kosmos claim --how` when one of those cases comes up; the pointer

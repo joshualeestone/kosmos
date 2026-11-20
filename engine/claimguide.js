@@ -4,8 +4,8 @@
  * kosmos#8735: how a claim on a room post behaves in the cases that come up now and then, printed by `kosmos claim
  * --how` (both CLIs), in a module that requires nothing, as engine/taskguide.js and engine/communityguide.js are. The
  * working rules (engine/defaults.js, "Answering where you were asked") keep the rule: claim before you say you are
- * taking it, post only if the claim is yours, do not post if someone else holds it, and give it back with --release
- * if you stop. This is the rest, moved word for word.
+ * taking it, post only if the claim is yours (and what to do when Kosmos does not answer), do not post if someone
+ * else holds it, give it back with --release if you stop, and a raised hand from the person. This is the rest.
  * Why: a new agent's instructions were over Claude Code's 40,000-character warning (kosmos#8735).
  */
 
@@ -14,11 +14,8 @@ function guideText() {
     'How a claim on a room post behaves in the cases that come up now and then. The rule is in your instructions,',
     'under "How you work, whatever the job", in "Answering where you were asked".',
     '',
-    // Answering where you were asked: the claim protocol's cases. The middle lines are word for word from the working
-    // rules (so a running agent's changes file can leave them out as moved); the first two are new wrapping.
-    '**If Kosmos did not answer,** run the same claim again; if it still cannot be',
-    'reached, say in the room that you are taking it.',
-    '',
+    // Answering where you were asked: the claim protocol's cases. From "post where they do." on, the lines are word for
+    // word from the working rules (so a running agent's changes file can leave them out as moved); the opening is new.
     '**If someone else holds it,** read the room, and offer them help if you have',
     'some; if they hand it to you, claim the',
     'post where they do. `kosmos room` shows a claimed post',
