@@ -72,8 +72,8 @@ test('#3759: the block names BOTH destinations and when each applies, says where
   // Unsure: no project is guessed and nothing waits unsaved:
   // save it here, say so, and ask which project in the same line.
   assert.match(flat, /When you cannot tell whether the file belongs to a project, or to which one, do not guess a project\. Save it in your Files folder\. In the same line where you tell them it is under Files on your page, ask which project it belongs to/);
-  // The doctrine's general "ask, do not guess" is carried out this way for these files (round 15): kosmos#8735 slice 3 cut
-  // the sentence that said so and kept the rule it described, so the save comes before the question and nothing waits.
+  // For these files the save comes before the question and nothing waits (round 15); the doctrine's "ask rather than
+  // guess" covers other files only (kosmos#8735).
   assert.match(flat, /ask which project it belongs to, so they can have you move it\. Never wait with the file unsaved\./);
   // Conditional on purpose: an agent without the doctrine section must not be told a rule is in its file (round 17).
   assert.doesNotMatch(flat, /wherever it appears in your instructions/);

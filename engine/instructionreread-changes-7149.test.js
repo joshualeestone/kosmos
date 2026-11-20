@@ -768,3 +768,18 @@ test('kosmos#8735 doctrine 55: with no Files block in the file, no note claims t
   assert.ok(body.includes('- ' + REASON), 'fixture: the removed line is not in the changes file');
   assert.ok(!body.includes(FILES_NOTE), 'a file with no Files block was pointed at one');
 });
+
+test('kosmos#8735 doctrine 55: a different line removed from the files section gets no such note (CONTROL)', () => {
+  const projects = require('./projects');
+  const dm = require('./dmfiles');
+  const block = require('./defaults').blockFor(process.platform);
+  const head = '### Where the files you make go\n';
+  const other = 'A rule a person wrote under this heading and later deleted.';
+  assert.equal(block.split(head).length, 2, 'fixture: the files heading is not unique');
+  const tail = projects.spliceBlock('', 'the Files block', dm.START, dm.END) + '\n';
+  agentFile('tfc', '# You are Tfc\n\n' + block + '\n' + tail);
+  assert.equal(ir.remember('tfc', '# You are Tfc\n\n' + block.replace(head, head + '\n' + other + '\n') + '\n' + tail), true);
+  const body = fs.readFileSync(ir.prepareChanges('tfc').path, 'utf8');
+  assert.ok(body.includes('- ' + other), 'fixture: the removed line is not in the changes file');
+  assert.ok(!body.includes(FILES_NOTE), 'a removal that is not the v55 one was pointed at the Files block');
+});

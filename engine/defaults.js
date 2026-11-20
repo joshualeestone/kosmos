@@ -571,12 +571,13 @@ const LINES = [
   '',
   '### Where the files you make go',
   '',
-  '**A file you make for the person goes where the section "Where to save files',
-  'you make for the person" says: never in your own folder, which they cannot',
-  'see, and never left in this chat as its only copy. Your working notes go in',
-  'your own folder.** When the work is a project\u2019s, put its files in the',
-  'obvious spot inside that project\u2019s folder, not in a deeper path you made up',
-  'under it.',
+  '**A file you make for the person goes in your Files folder or a project\u2019s,',
+  'as the section "Where to save files you make for the person" says: never in',
+  'your own folder, which they cannot see, and never left in this chat as its',
+  'only copy. Your working notes go in your own folder.** When the work is a',
+  'project\u2019s, put its files in the obvious spot inside that project\u2019s',
+  'folder, not in a deeper path you made up under it. For any other file, if you',
+  'cannot tell where it belongs, ask rather than guess.',
   '',
   '### Making a project',
   '',
@@ -1324,8 +1325,8 @@ function block() {
  *  55. kosmos#8735: "Where the files you make go" says only what the Files block ("Where to save files you make for
  *     the person", which every agent carries and the boot sweep re-writes) does not: a file for the person goes where
  *     that block says, never in your own folder and never only in this chat; working notes go in your own folder; a
- *     project's files go in the obvious spot inside its folder. The reason paragraph and "ask, do not guess" are gone
- *     (the Files block says save to Files and ask which project). About 700 characters. No new heading, so as in 32
+ *     project's files go in the obvious spot inside its folder; for any other file, ask rather than guess (the Files
+ *     block says save-then-ask for a file for the person). The reason paragraph is gone. About 650 characters. No new heading, so as in 32
  *     an agent's EDITED copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that the Files block is in the file. It is non-gating at creation (a failure is reported)
  *     and the boot sweep adds it again; an agent whose Files block failed both times loses the exact path either way.

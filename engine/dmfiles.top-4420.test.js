@@ -69,7 +69,7 @@ test('#4420: the pointer sits ABOVE the doctrine section that says "your own fol
 test('#4420: the doctrine sends a file made for the person to Files, and names the rule that carries its path', () => {
   const flat = require('./defaults').sections().find((x) => x.heading === '### Where the files you make go').text.replace(/\s+/g, ' ');
   // kosmos#8735: the section points at the Files block for the place, and keeps the agent's own folder out by name.
-  assert.match(flat, /A file you make for the person goes where the section "Where to save files you make for the person" says/, 'the doctrine does not point at the section with the path');
+  assert.match(flat, /A file you make for the person goes in your Files folder or a project\u2019s, as the section "Where to save files you make for the person" says/, 'the doctrine does not point at the section with the path');
   assert.match(flat, /never in your own folder, which they cannot see/);
   assert.doesNotMatch(flat, /your own folder is where it goes/, 'the sentence the agent stopped at is back');
   /* 18, not 16: #4467 and #4475 took 16 and 17 first. At least, not equal: a later bump must not red this. */
