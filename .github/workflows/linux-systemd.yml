@@ -24,6 +24,9 @@ on:
       - "bin/agent-supervisor.sh"
       - "tools/test-linux-systemd-live-4918.sh"
       - "tools/test-linux-pause-check-live-6667.sh"
+      - "tools/test-linux-cloud-update-live-8786.sh"
+      - "engine/cloudnightly.js"
+      - "engine/cloudmachine.js"
       - "tools/test-board-supervised-linux-4918.sh"
       - ".github/workflows/linux-systemd.yml"
   pull_request:
@@ -47,6 +50,9 @@ on:
       - "bin/agent-supervisor.sh"
       - "tools/test-linux-systemd-live-4918.sh"
       - "tools/test-linux-pause-check-live-6667.sh"
+      - "tools/test-linux-cloud-update-live-8786.sh"
+      - "engine/cloudnightly.js"
+      - "engine/cloudmachine.js"
       - "tools/test-board-supervised-linux-4918.sh"
       - ".github/workflows/linux-systemd.yml"
 
@@ -106,3 +112,8 @@ jobs:
       - name: run live pause check test (kosmos#6667)
         run: |
           bash tools/test-linux-pause-check-live-6667.sh
+      # kosmos#8786 S2: the Cloud box's nightly update units on real systemd: written only with the latch, accepted by
+      # systemd-analyze verify, run by systemd through the real install/kosmos (each skip logged), quiet without the latch.
+      - name: run live Cloud nightly update test (kosmos#8786)
+        run: |
+          bash tools/test-linux-cloud-update-live-8786.sh
