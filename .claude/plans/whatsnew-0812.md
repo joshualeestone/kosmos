@@ -1,7 +1,7 @@
 # whatsnew-0812: What's New for the 0.8.12 staging cut
 
 ## Goal
-main is 55 commits past staging 0.8.11 (gap alarm, #1050). The cut's step 1b-ii requires web/whats-new.json to be for
+main had run past staging 0.8.11 beyond the gap alarm's limit (#1050). The cut's step 1b-ii requires web/whats-new.json to be for
 the cut's version and built from the pool. Nothing merged since 0.8.11 added a pool entry.
 
 ## Done
@@ -23,3 +23,6 @@ the cut's version and built from the pool. Nothing merged since 0.8.11 added a p
 ## Weakest premise
 That each line describes the shipped behaviour exactly. Every line was written from the card and PR, not from using
 the build.
+The lead line (older Safari) is not yet tried on a real Safari before 16.4: the board's header was proven with a recording
+stub, and the connector half reaches the build only through the cut's rebuild from relay main (step 1d refuses a stale one).
+The first real check is the customer's iMac (kosmos#8781).
