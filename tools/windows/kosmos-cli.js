@@ -1186,6 +1186,33 @@ async function verbAway(ctx, args) {
   return 0;
 }
 
+/* kosmos#8769 item 4: where a room's last plain read is kept for this reader (a hash of the token, never the token).
+   KOSMOS_HOME when set, as on the Mac; otherwise the Windows user's own LOCALAPPDATA. */
+function roomCopyPaths(ctx, project) {
+  try {
+    const env = ctx.env || {};
+    /* Review 5 and 6, as the Mac's $KOSMOS_HOME/app check: only in an installed Kosmos (its app folder), never a shared
+       temp folder or a profile a test did not set up. */
+    const home = env.KOSMOS_HOME || (env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, 'Kosmos') : '');
+    if (!home || !fs.existsSync(path.join(home, 'app'))) return null;
+    const base = path.join(home, 'state', 'room-copies');
+    const tok = /^[0-9a-f]+$/.test(String(env.KOSMOS_AGENT_TOKEN || '')) ? String(env.KOSMOS_AGENT_TOKEN) : 'board';
+    const key = require('crypto').createHash('sha256').update(String(ctx.url || env.KOSMOS_PORT || '') + '|' + String(project) + '|' + tok).digest('hex').slice(0, 24);   // which board too, as the Mac's $URL
+    return { dir: base, file: path.join(base, key + '.txt'), since: path.join(base, key + '.busy-since') };
+  } catch (_) { return null; }
+}
+function roomCopyAge(ms) {
+  const m = Math.max(0, Math.floor(ms / 60000));
+  return m < 120 ? m + ' minute(s) ago' : m < 2880 ? Math.floor(m / 60) + ' hour(s) ago' : Math.floor(m / 1440) + ' day(s) ago';
+}
+function roomCopyClock(epoch) {
+  try {
+    const d = new Date(epoch * 1000);
+    const t = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'short' });   // "18:02 CST", as the Mac's date
+    return d.toDateString() === new Date().toDateString() ? t : d.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }) + ' ' + t;
+  } catch (_) { return 'a while ago'; }
+}
+
 async function verbRoom(ctx, args) {
   /* #4891 N8, as install/kosmos cmd_room: -n N / --limit N / --limit=N, either side of the project id. */
   let project = '';
@@ -1209,9 +1236,50 @@ async function verbRoom(ctx, args) {
   if (given && !(/^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200)) { ctx.err('-n takes a whole number from 1 to 200.'); return 2; }
   // #4491 slice 4: the agent's own token rides too (the default), as on the Mac, so the read works without the board token.
   const r = await ctx.call('GET', '/api/project/' + projectSlug(project) + '/room?as=text' + (given ? '&n=' + n : '') + (unanswered ? '&unanswered=1' + (all ? '&all=1' : '') : ''));
-  if (!r.reached) return ctx.unreachable('read that room');
+  /* kosmos#8769 item 4, as install/kosmos cmd_room: a plain read keeps a private copy per room and reader; a read the
+     board is too busy to answer shows that copy, headed with its age and since when reads have failed, and exits 1. */
+  const paths = roomCopyPaths(ctx, project);
+  const copy = given || unanswered ? null : paths;   // the copy is for plain reads; the failing mark is for every read
+  if (!r.reached) {
+    /* Review 5: busy is a timeout only. The fetch error carries no code that tells a cut-off answer (the Mac's curl
+       52/56) from any other failure, and "did not answer in time" must be true when it is said. */
+    if (copy && r.timedOut) {
+      /* As install/kosmos: the mark is "<first failed read> <last failed read>"; a spell whose last failure is over 30
+         minutes old is over (review 3), and a mark that cannot be written says nothing, never "since now" (review 2). */
+      let first = NaN; let last = NaN;
+      try { const parts = fs.readFileSync(copy.since, 'utf8').trim().split(/\s+/); first = Number(parts[0]); last = parts.length > 1 ? Number(parts[1]) : first; } catch (_) { /* none yet */ }
+      const nowS = Math.floor(Date.now() / 1000);
+      if (!Number.isInteger(first) || !Number.isInteger(last) || nowS - last > 1800) first = nowS;
+      try { fs.mkdirSync(copy.dir, { recursive: true, mode: 0o700 }); fs.writeFileSync(copy.since, first + ' ' + nowS, { mode: 0o600 }); } catch (_) { first = NaN; }
+      const since = Number.isInteger(first) ? ' Kosmos has not answered a read of this room here since ' + roomCopyClock(first) + '.' : '';
+      let held = null;
+      try { held = { text: fs.readFileSync(copy.file, 'utf8'), at: Math.floor(fs.statSync(copy.file).mtimeMs) }; } catch (_) { /* no copy */ }
+      if (held && held.text) {
+        /* Review 1: on the same stream as the copy and first, so nothing that keeps only stdout reads it as the room now. */
+        ctx.out('Kosmos is running but did not answer in time, so this is NOT the room now: it is the last copy this computer read, '
+          + roomCopyAge(Date.now() - held.at) + '.' + since + ' Read again in a minute for the room as it is.');
+        ctx.out(held.text.replace(/\n$/, ''));
+        return 1;
+      }
+      const rc = ctx.unreachable('read that room');
+      if (since) ctx.err(since.trim().replace(/\.$/, '') + ', and this computer has no earlier copy of this room to show.');
+      return rc;
+    }
+    return ctx.unreachable('read that room');
+  }
   ctx.out(String(r.text || '').replace(/\n$/, ''));
+  if (paths) { try { fs.rmSync(paths.since, { force: true }); } catch (_) { /* best effort */ } }   // any ANSWERED read ends the spell (review 5)
   if (r.status >= 400) return 1;
+  if (copy) {
+    try {
+      fs.mkdirSync(copy.dir, { recursive: true, mode: 0o700 });
+      const tmp = copy.file + '.' + process.pid + '.tmp';
+      try { fs.writeFileSync(tmp, String(r.text || ''), { mode: 0o600 }); fs.renameSync(tmp, copy.file); }
+      catch (e) { try { fs.rmSync(tmp, { force: true }); } catch (_) { /* best effort */ } throw e; }
+      /* Review 3, as install/kosmos: a copy not refreshed for 7 days goes. */
+      for (const f of fs.readdirSync(copy.dir)) { try { const fp = path.join(copy.dir, f); if (Date.now() - fs.statSync(fp).mtimeMs > 7 * 86400000) fs.rmSync(fp, { force: true }); } catch (_) { /* best effort */ } }
+    } catch (_) { /* a copy is a convenience: never fail the read for it */ }
+  }
   // #4926, as install/kosmos: without the board's filtered-view line, the board ignored the flag and sent the whole room.
   if (unanswered && !/^Waiting on an answer from you: /m.test(String(r.text || ''))) {
     ctx.err('This Kosmos does not know --unanswered yet, so what is above is the whole room, not only what is waiting on you. Update Kosmos to use it.');

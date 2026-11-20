@@ -5808,8 +5808,58 @@ cmd_room() {
   # once the CLI stops holding the person's board token.
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
-  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text${_n:+&n=$_n}${_unans}${_byid:+&$_byid=$_byidval}" 2>/dev/null) || _rc=$?
+  # kosmos#8769 item 4: KOSMOS_ROOM_TIMEOUT_S (digits) is a test seam for the 15 s limit, so a busy board is tested fast.
+  local _rmt=15; case "${KOSMOS_ROOM_TIMEOUT_S:-}" in ''|*[!0-9]*) ;; *) [ $((10#${KOSMOS_ROOM_TIMEOUT_S:0:3})) -lt 1 ] || _rmt=$((10#${KOSMOS_ROOM_TIMEOUT_S:0:3})) ;; esac
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m "$_rmt" -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text${_n:+&n=$_n}${_unans}${_byid:+&$_byid=$_byidval}" 2>/dev/null) || _rc=$?
+  # kosmos#8769 item 4: the last copy of a PLAIN read (no -n, --unanswered or by-id: those answer other questions) is
+  # kept per room and per reader (a hash of the token, never the token), mode 600, so a read that Kosmos is too busy to
+  # answer can still show what this reader last saw, headed with its age. `_rb_since` marks the first failed read since
+  # the last good one, so a one-minute spell and a stuck board can be told apart; it is what THIS computer saw.
+  local _rb_dir="$KOSMOS_HOME/state/room-copies" _rb_key="" _rb_copy="" _rb_since="" _rb_mark=""
+  # Review 2: shasum (macOS) or sha256sum (most Linux); neither means no copy, the refusal as before.
+  _rb_key="$(printf '%s|%s|%s' "$URL" "$project" "${_tok:-${_bt:+board}}" | { shasum -a 256 2>/dev/null || sha256sum 2>/dev/null; } | cut -c1-24 || true)"
+  case "$_rb_key" in *[!0-9a-f]*|e3b0c44298fc1c149afbf4c8) _rb_key="" ;; esac   # review 3: the empty-input hash would share one key
+  # The failing mark is per room and reader: any answered read clears it (a filtered one too, review 2), and a failed
+  # PLAIN read starts or extends it. The copy is kept and shown for plain reads only.
+  # Review 5: only in an installed Kosmos (its app/ folder), never a checkout or a test that did not ask for it.
+  [ -d "$KOSMOS_HOME/app" ] || _rb_key=""
+  [ -z "$_rb_key" ] || _rb_mark="$_rb_dir/$_rb_key.busy-since"
+  if [ -n "$_rb_key" ] && [ -z "${_n}${_unans}${_byid}" ]; then _rb_copy="$_rb_dir/$_rb_key.txt"; _rb_since="$_rb_mark"; fi
   if [ "$_rc" -ne 0 ]; then
+    case "$_rc" in
+      18|28|52|56)
+        if [ -n "$_rb_since" ]; then
+          # Review 1: every step here is allowed to fail (a sandbox, a read-only home): the busy sentence must still be said.
+          # The mark is "<first failed read> <last failed read>". Review 3: a spell whose last failure is over 30 minutes
+          # old is over (nobody read in between, so nothing says the board stayed stuck): this read starts a new one.
+          local _rb_first="" _rb_last="" _rb_now; _rb_now="$(date +%s)"
+          { read -r _rb_first _rb_last < "$_rb_since"; } 2>/dev/null || true   # review 4: braces, so a missing mark says nothing
+          case "$_rb_first" in ''|*[!0-9]*) _rb_first="" ;; *) _rb_first=$((10#$_rb_first)) ;; esac
+          case "$_rb_last" in ''|*[!0-9]*) _rb_last="$_rb_first" ;; *) _rb_last=$((10#$_rb_last)) ;; esac
+          if [ -z "$_rb_first" ] || [ $((_rb_now - ${_rb_last:-0})) -gt 1800 ]; then _rb_first="$_rb_now"; fi
+          { mkdir -p "$_rb_dir" && chmod 700 "$_rb_dir" && printf '%s %s\n' "$_rb_first" "$_rb_now" > "$_rb_since"; } 2>/dev/null || _rb_first=""
+          local _rb_hhmm="" _rb_fmt='+%H:%M %Z'
+          [ "$(date -r "${_rb_first:-0}" +%F 2>/dev/null || date -d "@${_rb_first:-0}" +%F 2>/dev/null || true)" = "$(date +%F)" ] || _rb_fmt='+%b %d %H:%M %Z'
+          [ -z "$_rb_first" ] || _rb_hhmm="$(date -r "$_rb_first" "$_rb_fmt" 2>/dev/null || date -d "@$_rb_first" "$_rb_fmt" 2>/dev/null || true)"
+          if [ -n "$_rb_copy" ] && [ -s "$_rb_copy" ]; then
+            local _rb_at _rb_age
+            # Review 1: BSD stat first, then GNU, and only a number counts (GNU stat -f prints file-system text first).
+            _rb_at="$(stat -f %m "$_rb_copy" 2>/dev/null || true)"
+            case "$_rb_at" in ''|*[!0-9]*) _rb_at="$(stat -c %Y "$_rb_copy" 2>/dev/null || true)" ;; esac
+            case "$_rb_at" in ''|*[!0-9]*) _rb_age="at an unknown time" ;; *)
+              local _rb_m=$(( (_rb_now - _rb_at) < 0 ? 0 : (_rb_now - _rb_at) / 60 ))
+              if [ "$_rb_m" -lt 120 ]; then _rb_age="$_rb_m minute(s) ago"
+              elif [ "$_rb_m" -lt 2880 ]; then _rb_age="$((_rb_m / 60)) hour(s) ago"
+              else _rb_age="$((_rb_m / 1440)) day(s) ago"; fi ;; esac
+            say "Kosmos is running but did not answer in time, so this is NOT the room now: it is the last copy this computer read, ${_rb_age}.${_rb_hhmm:+ Kosmos has not answered a read of this room here since ${_rb_hhmm}.} Read again in a minute for the room as it is."
+            cat "$_rb_copy" 2>/dev/null || true
+            exit 1
+          fi
+          say_unreached "read that room" "$_rc"
+          [ -z "$_rb_hhmm" ] || say "Kosmos has not answered a read of this room here since ${_rb_hhmm}, and this computer has no earlier copy of this room to show."
+          exit 1
+        fi ;;
+    esac
     say_unreached "read that room" "$_rc"
     exit 1
   fi
@@ -5820,9 +5870,21 @@ cmd_room() {
   # trailing newline, which survived the split above -- a '%s\n' would double it
   # and leave a spurious blank line after every `kosmos room`.
   printf '%s' "$_body"
+  # kosmos#8769 item 4: any ANSWERED read, an error answer too (review 5), ends a failing spell; never fails the read.
+  [ -z "$_rb_mark" ] || rm -f "$_rb_mark" 2>/dev/null || true
   case "$_code" in
     4??|5??) exit 1 ;;
   esac
+  # A good plain read becomes the copy kept for a busy board.
+  if [ -n "$_rb_copy" ]; then
+    if mkdir -p "$_rb_dir" 2>/dev/null && chmod 700 "$_rb_dir" 2>/dev/null; then
+      local _rb_tmp=""
+      { _rb_tmp="$(mktemp "$_rb_dir/.copy.XXXXXX")" && chmod 600 "$_rb_tmp" && printf '%s' "$_body" > "$_rb_tmp" \
+        && mv -f "$_rb_tmp" "$_rb_copy"; } 2>/dev/null || { [ -z "$_rb_tmp" ] || rm -f "$_rb_tmp" 2>/dev/null || true; }
+      # Review 3: copies are not kept for ever: any not refreshed for 7 days (a room deleted, a token changed) goes.
+      find "$_rb_dir" -maxdepth 1 -type f -mtime +6 -delete 2>/dev/null || true   # +6: more than 7 whole days (find rounds up)
+    fi
+  fi
   # #4926: a filtered answer has a line starting with this; without one, this board does not know --unanswered and
   # what printed is the whole room.
   # kosmos#7969: matched in the shell, not by piping the body into grep -q: under pipefail grep -q exiting at its first
