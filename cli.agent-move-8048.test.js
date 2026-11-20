@@ -79,7 +79,7 @@ async function cli(port, args, extra = {}) {
 test('kosmos#8048 Mac: --yes reads the plan by the account\'s name, moves to its folder, and says how it ended', () => withStub({ plan: CLEAN }, async (port, seen) => {
   const r = await cli(port, ['agent', 'move', 'ada', 'Spare', '--yes']);
   assert.equal(r.code, 0, r.out);
-  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agents/account-plan?name=ada&account=Spare', 'POST /api/agents/account', 'GET /api/agents/account-moves/mv1']);
+  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agents/account-plan?name=ada&account=Spare&resolve=1', 'POST /api/agents/account', 'GET /api/agents/account-moves/mv1']);
   assert.deepEqual(JSON.parse(posts(seen)[0].body), { dir: '/u/.claude-spare', names: ['ada'] }, 'the move was not sent to the plan\'s folder');
   assert.match(r.out, /On spare it keeps every skill and hook script it has now \(each skill compared by its whole folder; plugins are not checked\)\./);
   assert.match(r.out, /Moving restarts ada on spare\. Anything it has running stops\./);
@@ -171,7 +171,7 @@ async function winRun(port, argv, seams) {
 test('kosmos#8048 Windows: --yes reads the plan, moves to its folder, waits on the move, and says how it ended', () => withStub({ plan: CLEAN }, async (port, seen) => {
   const r = await winRun(port, ['agent', 'move', 'ada', 'Spare', '--yes']);
   assert.equal(r.code, 0, r.err);
-  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agents/account-plan?name=ada&account=Spare', 'POST /api/agents/account', 'GET /api/agents/account-moves/mv1']);
+  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agents/account-plan?name=ada&account=Spare&resolve=1', 'POST /api/agents/account', 'GET /api/agents/account-moves/mv1']);
   assert.deepEqual(JSON.parse(posts(seen)[0].body), { dir: '/u/.claude-spare', names: ['ada'] });
   assert.deepEqual(r.slept, [3000], 'the progress was not waited for between reads');
   assert.equal(r.asked.length, 0, '--yes still asked');
@@ -289,4 +289,27 @@ test('kosmos#8048 review 5 Mac: a progress answer with no outcome for the agent 
   const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /ada runs on spare now/);
+}));
+
+/* kosmos#8839: the plan resolves the name `kosmos agent list` prints (Sub-Zero) to its agent (subzero); the move is sent
+   to THAT agent, never the typed words again, and what is said keeps the typed name. */
+const RESOLVED = [200, { ok: true, name: 'subzero', dir: '/u/.claude-spare', label: 'spare', skills: [], hooks: [], sentence: null }];
+test('kosmos#8839 Mac: --yes asks the plan to resolve, and moves the agent it resolved', () => withStub({ plan: RESOLVED }, async (port, seen) => {
+  const r = await cli(port, ['agent', 'move', 'Sub-Zero', 'spare', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(seen[0].url, '/api/agents/account-plan?name=Sub-Zero&account=spare&resolve=1');
+  assert.deepEqual(JSON.parse(posts(seen)[0].body), { dir: '/u/.claude-spare', names: ['subzero'] }, 'the typed name was sent, not the resolved agent');
+  assert.match(r.out, /Moving restarts Sub-Zero on spare/);
+}));
+test('kosmos#8839 Mac CONTROL: a plan with no name (an older board) moves the name as typed', () => withStub({ plan: CLEAN }, async (port, seen) => {
+  const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(JSON.parse(posts(seen)[0].body).names, ['ada']);
+}));
+test('kosmos#8839 Windows: --yes asks the plan to resolve, and moves the agent it resolved', () => withStub({ plan: RESOLVED }, async (port, seen) => {
+  const r = await winRun(port, ['agent', 'move', 'Sonya Blade', 'spare', '--yes']);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(seen[0].url, '/api/agents/account-plan?name=Sonya+Blade&account=spare&resolve=1');
+  assert.deepEqual(JSON.parse(posts(seen)[0].body).names, ['subzero'], 'the typed name was sent, not the resolved agent');
+  assert.match(r.out, /Moving restarts Sonya Blade on spare/);
 }));

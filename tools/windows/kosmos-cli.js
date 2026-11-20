@@ -3228,10 +3228,13 @@ async function agentMove(ctx, args) {
   for (const w of [name, account]) if (/^--[A-Za-z]/.test(w)) { refuseOption(ctx, 'agent move', AGENT_MOVE_USAGE, w, 'target'); return 2; }
   if (tooManyWords(ctx, 'agent move', 2, AGENT_MOVE_USAGE, words)) return 2;
   if (!yes && !ctx.canAsk()) { ctx.err('Nothing was moved: there is no terminal here to confirm on. To move ' + name + ' without being asked, add --yes.'); return 2; }
-  const p = await ctx.call('GET', '/api/agents/account-plan?' + new URLSearchParams({ name, account }).toString(), undefined, { person: true });
+  // kosmos#8839: resolve=1 asks the plan to take the name `kosmos agent list` prints (Sub-Zero) to its agent (subzero).
+  const p = await ctx.call('GET', '/api/agents/account-plan?' + new URLSearchParams({ name, account, resolve: '1' }).toString(), undefined, { person: true });
   if (!p.reached) return ctx.unreachable('read what moving ' + name + ' would do');
   if (!p.json) { ctx.err('Kosmos gave an answer we could not read when asked about moving ' + name + '.'); return 1; }   // review 3: as the Mac says it
   const plan = p.json;
+  // kosmos#8839: the move goes to the agent the plan resolved, never the typed words again; the typed name is what is said.
+  const agent = typeof plan.name === 'string' && plan.name ? plan.name : name;
   if (plan.ok !== true && !plan.dir) {
     const why = clause(plan.because || plan.error || '');
     ctx.err('Kosmos will not move ' + name + ': ' + (why || 'it did not say why') + (/[?!]$/.test(why) ? '' : '.'));
@@ -3252,7 +3255,7 @@ async function agentMove(ctx, args) {
     if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was moved.'); return 1; }
   }
   // Review 1: Settings' own route, sent as the person (token-only mode would refuse it after the confirm).
-  const r = await ctx.call('POST', '/api/agents/account', { dir: plan.dir, names: [name] }, { timeoutMs: POST_TIMEOUT_MS, person: true });
+  const r = await ctx.call('POST', '/api/agents/account', { dir: plan.dir, names: [agent] }, { timeoutMs: POST_TIMEOUT_MS, person: true });
   if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + name + ' may be moving; look at Settings, AI Models before trying again.') : ctx.unreachable('move ' + name);
   const first = r.json || {};
   let a = (Array.isArray(first.agents) ? first.agents : [])[0] || {};
