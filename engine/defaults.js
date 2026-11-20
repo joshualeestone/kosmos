@@ -152,7 +152,9 @@ const LINES = [
   'allowed. **There is no command for having stopped, because there is no such',
   'state.**',
   '',
-  '**Kosmos sees every other state for itself; it cannot see blocked or needs_you.**',
+  '**Kosmos sees every other state for itself. It cannot see blocked or needs_you**,',
+  'because nothing on your screen tells a question you are waiting on from a',
+  'sentence you happened to write.',
   '',
   '**Clear it when it is answered** (`kosmos report clear`), **wherever the answer',
   'came**: a message here, a room, another app. A card reading needs_you after you have the',
@@ -1331,14 +1333,13 @@ function block() {
  *     EDITED copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent runs `kosmos claim --how` when one of those cases comes up; the pointer
  *     names each, and both CLIs' claim usage names --how.
- *  57. kosmos#8735: two low-risk cuts in "You do not stop", proposed on the card first (A and C): the definition of
- *     an item keeps Josh's two phrases (WHATEVER YOUR SYSTEM CALLS IT; the rule does not require a tracking system at
- *     all), four of its examples (a checklist line among them) and the four-things example, without its introduction; the note on the two states
- *     the board cannot see names them (blocked, needs_you) and drops the explanation of why. No new heading, so as in
- *     32 an agent's EDITED copy is not re-offered it.
- *     WEAKEST PREMISES, NAMED: for A, that four examples teach what seven did; for C, that "the board is a separate
- *     listener and it is not reading either one", earlier in the section, carries the reason the board cannot see
- *     these two.
+ *  57. kosmos#8735: two low-risk cuts in "You do not stop", proposed on the card first (A and C). A: the definition
+ *     of an item keeps Josh's two phrases (WHATEVER YOUR SYSTEM CALLS IT; the rule does not require a tracking system
+ *     at all), four of its examples (a checklist line among them) and the four-things example, without its
+ *     introduction. C: the note on the two states the board cannot see names them (blocked, needs_you) and keeps a
+ *     shorter reason. No new heading, so as in 32 an agent's EDITED copy is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: for A, that four examples teach what seven did. C keeps its reason because review round
+ *     3 named the trap it guards: an agent that types its question and believes it has reported needs_you.
  */
 const DOCTRINE_VERSION = 57;
 
