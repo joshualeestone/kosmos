@@ -8,7 +8,8 @@ that a decision of mine, so: build B and F, keep D.
 - F, "Send readable messages": "What a room shows you" is shorter and names fewer formats: the `---` rule is no longer
   named (it still renders). It keeps the three the #2909 test pins (headings written with `#` to `######`,
   ~~strikethrough~~, a `[label](address)` link showing its address) and says http:// and https:// addresses both link
-  (round 1: "a bare https:// address" claimed less than the renderer does). The "does not render" paragraph (raw HTML,
+  (round 1: "a bare https:// address" claimed less than the renderer does), and keeps "short paragraphs with a blank
+  line between them" (round 2: the one item that is a habit to adopt, which the section's heading asks for). The "does not render" paragraph (raw HTML,
   `>` in a room) and the shell trap are untouched.
 Doctrine 59.
 
@@ -18,7 +19,7 @@ Doctrine 59.
 - A re-read note: each removed line is replaced by a shorter line in the same section.
 
 ## Measured
-- pm brief 45,382 -> 45,017 (darwin), 365 characters. Ratchet 45,400 -> 45,100.
+- pm brief 45,382 -> 45,054 (darwin), 328 characters. Ratchet 45,400 -> 45,100.
 - 1,750 related tests, 0 failed.
 
 ## Weakest premise

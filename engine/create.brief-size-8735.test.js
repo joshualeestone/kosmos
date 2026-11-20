@@ -20,7 +20,7 @@
  * kosmos#7374); 46,912 after slice 3 item 1 (the person section's answering repeats); 46,305 after the working rules'
  * files section kept only what the Files block does not say; 45,919 after the claim cases moved to `kosmos claim --how`;
  * 45,761 after two cuts in "You do not stop"; 45,382 after cuts in the formatting and reporting sections;
- * 45,017 after the render list and the stop history.
+ * 45,054 after the render list and the stop history.
  * Every platform counts a brief as its Mac form (PLATFORM_DELTA, below), so one ceiling holds
  * everywhere, Linux CI and Windows included.
  *
