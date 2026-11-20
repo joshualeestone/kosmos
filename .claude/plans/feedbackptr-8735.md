@@ -63,3 +63,13 @@ third copy of a routine the board already delivers).
   two failed, and both fail the same way on main when run outside the checkout's root (web.role-picker reads
   web/index.html by a relative path; server.test's #1304 probe resolves engine/ from the cwd); full validation runs them
   from the root.
+
+## Review 3 (Opus)
+- No BLOCKER. Ran the 13 test files that read the removed text or the ask, from the worktree root: all pass.
+- WARNING fixed: the size ceiling is lowered to 50,400 (pm 50,322), with the slice 3 figure in the test's header. It
+  will conflict on that line with slice 2 (#8774, 48,900); whichever merges second takes the lower measured figure.
+- NIT fixed: no role, the PM included, may teach `kosmos feedback write` (the ask is its one teacher), with the ask as
+  the control. Perturbed: the verb added to the director role -> red.
+- NITs kept: the sending-off trade-off is recorded in Decided; "first" means first among agents that worked (#8572),
+  which is fine for a brief; feedback-triage.test.js:200's comment about how roles.js wrapped the question; a long line
+  in feedbacknudge.js's header.

@@ -86,4 +86,10 @@ test('the daily-feedback instruction is PM-scoped, not fleet-wide', () => {
   // meaningful rather than passing because the string appears in no role at all.
   assert.match(roles.byKey('pm').instructions, /Once a day: help make Kosmos better/,
     'the pm role must carry it (control for the negative sweep)');
+  // kosmos#8735 slice 3 review 3: the routine's commands are the ask's alone, so NO role teaches the write verb, the PM
+  // included; a role that did would have a second agent writing the day's report (the clobbering this test guards).
+  for (const r of roles.ROLES) {
+    assert.doesNotMatch(r.instructions, /kosmos feedback write/, `role '${r.key}' teaches kosmos feedback write`);
+  }
+  assert.match(require('./engine/feedbacknudge').nudgeText(), /kosmos feedback write/, 'control: the ask teaches it');
 });
