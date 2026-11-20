@@ -214,8 +214,8 @@ test('refusals end the hand-over as failed, once, and leave no Kosmos: a foreign
     // kosmos#8733: the packing key checked against escrowd's signed history for the LEAVING member.
     ['a packing key escrowd lists for the leaving member but revoked', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-leave', c.sender.publicKey, null, [{ kind: 'revoke', key: seal.keyHex(c.sender.publicKey), at: 1 }]); }, /no longer the leaving member's/],
     ['a history for another member', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-other', c.sender.publicKey); }, /names a different member/],
-    // Review 5: revoked an hour ago, and this pack was made just now, so after the revocation: refused at the pack's own
-    // signed time (kosmos#8764), as it was at now.
+    // Review 5: revoked an hour ago, before the hand-over's start (a minute ago), so refused before anything is fetched
+    // (kosmos#8764: no pack can be dated before the start).
     ['a packing key revoked an hour ago', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-leave', c.sender.publicKey, null, [{ kind: 'revoke', key: seal.keyHex(c.sender.publicKey), at: Math.floor(Date.now() / 1000) - 3600 }]); }, /no longer the leaving member's/],
     ['a backfilled packing key (escrowd never upgrades it)', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-leave', c.sender.publicKey, { backfill: true }); }, /carried over from before/],
     ['manifest not the recorded one', (c) => { c.rec.manifest.sha256 = sha256b(Buffer.from('other')); }, /not the one Kosmos\+ recorded/],
@@ -971,7 +971,7 @@ test('kosmos#8764: the leaving member is escrowd\'s record\'s, and the packing k
     const r = await hr.tick(st, Object.assign({}, deps, { macRequest: recv }));
     // Another tick later, with the same tweak (review 4: to show a wait's own clock ends it).
     const again = () => hr.tick(stateNew(), Object.assign({}, deps, { macRequest: recv }));
-    return { r, c, root, again };
+    return { r, c, root, again, st };
   }
   // CONTROL: unchanged, it is received.
   assert.equal((await run('hctl', () => ({}))).r.ok, true);
@@ -1009,7 +1009,9 @@ test('kosmos#8764: the leaving member is escrowd\'s record\'s, and the packing k
   {
     // A wait (round 2: either clock may be off), on its own clock (review 4), retried at the pack's own time.
     const t0 = Date.now();
-    const { r, c, root, again } = await run('hfuture', () => ({}), 0, t0 + 3600 * 1000);
+    const { r, c, root, again, st } = await run('hfuture', () => ({}), 0, t0 + 3600 * 1000);
+    // Retried when real time reaches the pack's date (less the allowance), not every few minutes.
+    assert.ok(st.retryAt.get('hfuture') >= t0 + 3600 * 1000 - 300 * 1000 - 2000, `retry at the pack's time: ${st.retryAt.get('hfuture') - t0}`);
     assert.equal(r.ok, false);
     assert.match(r.because, /later than this computer's clock/);
     assert.notEqual(c.rec.state, 'failed');
@@ -1065,11 +1067,17 @@ test('kosmos#8764: the leaving member is escrowd\'s record\'s, and the packing k
     const { r } = await run('hrevlate', (c) => ({ sender_history: signedHistory(ORG, 'm-leave', c.sender.publicKey, undefined, [{ kind: 'revoke', key: seal.keyHex(c.sender.publicKey), at: Math.floor(Date.now() / 1000) }]) }), 2100);
     assert.equal(r.ok, true, r.because);
   }
-  // ... and one revoked BEFORE the pack does not (CONTROL for the arm above: the same revocation, earlier).
+  // ... and one revoked AFTER the start but BEFORE the pack does not (review 5: the CONTROL for the arm above, and the
+  // only case that reaches the check at the pack's own time: it is fetched, then refused).
   {
-    const { r, c } = await run('hrevearly', (c) => ({ sender_history: signedHistory(ORG, 'm-leave', c.sender.publicKey, undefined, [{ kind: 'revoke', key: seal.keyHex(c.sender.publicKey), at: 1 }]) }));
+    const nowS2 = Math.floor(Date.now() / 1000);
+    const { r, c } = await run('hrevmid', (c) => ({
+      record: signedRecord('hrevmid', c.rec.agents, { issuedAt: nowS2 - 3600 }),
+      sender_history: signedHistory(ORG, 'm-leave', c.sender.publicKey, undefined, [{ kind: 'revoke', key: seal.keyHex(c.sender.publicKey), at: nowS2 - 1800 }]),
+    }));
     assert.equal(r.ok, false);
     assert.match(r.because, /no longer the leaving member's/);
     assert.equal(c.rec.state, 'failed', 'final: the hand-over is ended as failed');
+    assert.ok(c.calls.some(([x]) => x === hr.READ_ROUTE), 'fetched: refused by the check at the pack\'s time, not before');
   }
 });
