@@ -5024,6 +5024,14 @@ do {
     var r = SignIn.FreshPasses(); r.arm(); r.clear()
     check(r == SignIn.FreshPasses(), "fresh passes: Not now (or a fresh sign-in that issued nothing) clears them")
 }
+// Review 1: the retry waits for the board let in under the NEW session (phase can still read .live from before).
+check(SignIn.Fresh.retryNow(finished: true, startedUnder: "old", admittedUnder: "new", heldNow: "new"), "fresh retry: finished, and let in under the new session held now")
+check(!SignIn.Fresh.retryNow(finished: true, startedUnder: "old", admittedUnder: "old", heldNow: "new"), "CONTROL: a board still on its connection from before the reset is not tried on")
+check(!SignIn.Fresh.retryNow(finished: true, startedUnder: "old", admittedUnder: nil, heldNow: "new"), "fresh retry: not while the board is not let in yet")
+check(!SignIn.Fresh.retryNow(finished: false, startedUnder: "old", admittedUnder: "new", heldNow: "new"), "fresh retry: not before the fresh sign-in finished (the code screen still up)")
+check(!SignIn.Fresh.retryNow(finished: true, startedUnder: "old", admittedUnder: "other", heldNow: "new"), "fresh retry: not on a connection under a session no longer held")
+check(!SignIn.Fresh.retryNow(finished: true, startedUnder: "same", admittedUnder: "same", heldNow: "same"), "CONTROL: nothing new issued, nothing retried")
+check(!SignIn.Fresh.signedOut.contains("reached") && SignIn.Fresh.noAddress.contains("reached"), "fresh: signed out is not said as a connection problem")
 
 section("sign-in: the steps")
 let s1 = SignIn.Session(token: "t", deviceStatus: .pending, matchCode: "AB12", hasComputer: true)

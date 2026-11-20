@@ -34,6 +34,7 @@ struct NewAgentView: View {
     @State private var freshTried = false
     @State private var freshWhy: String?
     @State private var freshTakenAtStart = 0        // fresh.taken when this sheet's fresh sign-in opened
+    @State private var freshStartedUnder: String?   // the session held then: the retry waits for a board let in under another
     @State private var made: (session: String, shownAs: String)?
     @State private var seen = false
     @State private var timedOut = false          // 30 s and the board still cannot see it (the desktop's "has not come up")
@@ -121,10 +122,11 @@ struct NewAgentView: View {
         .onChange(of: client.agents) { rows in agentsChanged(rows) }
         // kosmos#8791: the fresh sign-in shows over this sheet (a cover from the root cannot show above a sheet).
         .fullScreenCover(isPresented: Binding(get: { fresh.model != nil && fresh.place == .newAgent }, set: { if !$0 { fresh.end() } })) {
-            if let m = fresh.model { SignInView(model: m, useWeb: { fresh.end() }, notNow: { fresh.end() }).tint(Palette.primary) }
+            // Review 1: the web page's steps cannot run over this sheet, so it closes and says why.
+            if let m = fresh.model { SignInView(model: m, useWeb: { fresh.end(); freshWaiting = nil; freshWhy = SignIn.Fresh.notHere }, notNow: { fresh.end() }).tint(Palette.primary) }
         }
         .onChange(of: fresh.taken) { _ in retryAfterFresh() }
-        .onChange(of: client.phase) { _ in retryAfterFresh() }
+        .onChange(of: client.admissions) { _ in retryAfterFresh() }
         // Not now (or a fresh sign-in that finished without a session): the offer stays; nothing is waiting.
         .onChange(of: fresh.model == nil) { closed in if closed && fresh.taken == freshTakenAtStart { freshWaiting = nil } }
         // As the desktop's refillDetails: another role starts from the mark again, not a photo chosen for the last one.
@@ -564,6 +566,7 @@ struct NewAgentView: View {
             guard epoch == client.chatEpoch else { return }
             switch NewAgent.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
             case .made(let session, let shown):
+                freshTried = false   // review 1: a later refusal in this sheet is a new one, offered again
                 if s.slot == lead { leadMade = true }
                 states[s.slot] = .made(session: session, shownAs: shown)
                 memberWarnings[s.slot] = NewAgent.madeWarnings(got?.0)
@@ -637,13 +640,17 @@ struct NewAgentView: View {
     private func startFresh(_ which: FreshFor) {
         Task { @MainActor in
             freshTakenAtStart = fresh.taken
-            if let why = await fresh.begin(at: .newAgent) { freshWhy = why } else if fresh.model != nil { freshWaiting = which }
+            freshStartedUnder = SessionKeychain.live.load()
+            if let why = await fresh.begin(at: .newAgent) { freshWhy = why }
+            else if fresh.model != nil, fresh.place == .newAgent { freshWaiting = which }
         }
     }
 
     /// Signed in again and the board live again: the refused create, once.
     private func retryAfterFresh() {
-        guard let which = freshWaiting, fresh.passes.account == false, case .live = client.phase else { return }
+        guard let which = freshWaiting,
+              SignIn.Fresh.retryNow(finished: fresh.taken > freshTakenAtStart, startedUnder: freshStartedUnder,
+                                    admittedUnder: client.admittedUnder, heldNow: SessionKeychain.live.load()) else { return }
         freshWaiting = nil; freshOffer = nil; freshTried = true
         switch which {
         case .single: Task { await create() }
@@ -1048,6 +1055,7 @@ struct NewAgentView: View {
         guard epoch == client.chatEpoch else { return }
         switch NewAgent.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
         case .made(let session, let shown):
+            freshTried = false   // review 1, as the team's
             made = (session, shown)
             madeWarnings = NewAgent.madeWarnings(got?.0)
             seen = client.agents.contains { $0.session == session && $0.boardSeesIt }

@@ -219,7 +219,8 @@ struct ContentView: View {
             pendingTells = [:]   // kosmos#7488: a tell names a project on the computer of the account that made it
             // kosmos#7488: the sheet sits above the tabs, so it never outlives the account. kosmos#8791: a fresh sign-in of
             // the same account (its address fixed) keeps it through its own change, once, so the sheet can try again.
-            if !fresh.passes.spendAccount(signedOut: pushManager.lastChangeSignedOut || SessionKeychain.live.load() == nil) { newAgentOpen = false }
+            // Review 1: any other change also ends a fresh sign-in still showing, so it never outlives its account.
+            if !fresh.passes.spendAccount(signedOut: pushManager.lastChangeSignedOut || SessionKeychain.live.load() == nil) { newAgentOpen = false; fresh.end() }
             // kosmos#7042 review round 5: signed out later in the launch (on the account page, a session that ended),
             // the next sign-in is the native one too, or the web page's own device key would make this iPhone a second
             // device on the Mac. Recorded gap: the Mac's "fresh sign-in" link then lands here, not on the page.
@@ -282,6 +283,8 @@ struct ContentView: View {
         .onChange(of: tab) { _ in newProjectOpen = false }
         // kosmos#7488: another computer: the sheet's roles, managers and projects were the last one's.
         .onChange(of: board.chatEpoch) { _ in if !fresh.passes.spendEpoch() { newAgentOpen = false } }
+        // Review 1: the sheet gone (closed, or by any reset above), its fresh sign-in goes with it.
+        .onChange(of: newAgentOpen) { open in if !open, fresh.place == .newAgent, fresh.model != nil { fresh.end() } }
         // kosmos#8795: opened (live), or signed out: a later refusal of the cloud Open is a new one, offered again.
         .onChange(of: board.phase) { phase in
             switch phase { case .live, .signedOut: fresh.openSettled(); default: break }

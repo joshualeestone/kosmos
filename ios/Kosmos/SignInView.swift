@@ -456,6 +456,9 @@ struct SignInView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     content
+                    // Review 1: on EVERY step of a fresh sign-in (a cover cannot be swiped away, and a Mac's no or a
+                    // second step to set up would otherwise leave no way out). After a session was issued it stays in use.
+                    notNowLink
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 36)   // equal above and below, so a short step sits at the true centre (review 5)
@@ -479,7 +482,6 @@ struct SignInView: View {
             line(SignIn.Fresh.offer(email: model.email))
             errorLine
             primary("Send code", action: model.sendCode)
-            notNowLink
         case .email:
             title("Sign in to Kosmos+").task { async let passkeys: Void = model.checkPasskeys(); await model.checkReviewDoor(); await passkeys }
             line("Use the email address of your Kosmos+ account. We will send you a six-digit code.")
@@ -510,10 +512,10 @@ struct SignInView: View {
             errorLine
             primary("Sign in", action: model.verify)
             VStack(spacing: 0) {
-                if model.companyURL != nil { link("Sign in with your company's account instead", action: model.companySignIn).disabled(model.busy) }
+                // Review 1: not on a fresh sign-in: a company sign-in can come back as whoever signs in there.
+                if model.companyURL != nil && !model.fixedEmail { link("Sign in with your company's account instead", action: model.companySignIn).disabled(model.busy) }
                 link("Send the code again", action: model.sendCode).disabled(model.busy)
                 if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
-                notNowLink
             }
         case .password:
             title("Sign in with a password")
@@ -537,7 +539,6 @@ struct SignInView: View {
             errorLine
             primary("Sign in", action: model.verifySecond)
             if !model.fixedEmail { link("Use a different email", action: model.differentEmail) }
-            notNowLink
         case .allow(let matchCode, let hasComputer):
             title(hasComputer ? "Allow this iPhone on your Mac" : "Signed in")
             if hasComputer {
@@ -602,9 +603,9 @@ struct SignInView: View {
         }
     }
 
-    /// kosmos#8791/#8795: only on a fresh sign-in (one with a way out that ends nothing).
+    /// kosmos#8791/#8795: only on a fresh sign-in (one with a way out that ends nothing), never once it is done.
     @ViewBuilder private var notNowLink: some View {
-        if model.fixedEmail, let notNow { link("Not now", action: notNow).disabled(model.busy) }
+        if model.fixedEmail, model.step != .done, let notNow { link("Not now", action: notNow).disabled(model.busy) }
     }
 
     private func title(_ text: String) -> some View {
@@ -689,7 +690,7 @@ final class FreshSignInCenter: ObservableObject {
     /// nil when the fresh sign-in shows; otherwise the sentence to say instead.
     func begin(at place: Place) async -> String? {
         guard model == nil, !opening else { return nil }
-        guard let token = SessionKeychain.live.load() else { return SignIn.Fresh.noAddress }
+        guard let token = SessionKeychain.live.load() else { return SignIn.Fresh.signedOut }
         opening = true
         defer { opening = false }
         guard let email = await client.accountEmail(token: token) else { return SignIn.Fresh.noAddress }
@@ -709,6 +710,8 @@ final class FreshSignInCenter: ObservableObject {
                 self.passes.arm()
                 self.onIssued(token)
             },
+            // An issued session that then ended before the Mac answered (watchAllow's .ended): signed out, as the main
+            // sign-in's is. The session held before was already replaced at `issued`, so this is a full sign-out.
             m.$abandoned.dropFirst().sink { [weak self, weak m] _ in self?.onAbandoned(m?.lastAbandoned) },
             m.$step.dropFirst().sink { [weak self] step in
                 guard let self, step == .done else { return }

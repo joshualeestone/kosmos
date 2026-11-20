@@ -374,6 +374,17 @@ enum SignIn {
         static let still = "Kosmos+ still sees an older sign-in, so this cannot be done right now. Log out under Settings, Kosmos+, sign in again, then try it straight away."
         /// The account's address could not be read, so no code can be sent to it (a typed address could be another account's).
         static let noAddress = "This needs you to sign in again, and Kosmos+ could not be reached to send the code. Check your connection and try again."
+        /// No session on this iPhone at all: not a connection problem (review 1).
+        static let signedOut = "This iPhone is not signed in to Kosmos+ now. Sign in under Settings, Kosmos+, then try again."
+        /// The fresh sign-in needed the web page (a key this iPhone cannot keep): it cannot finish over this screen.
+        static let notHere = "This sign-in cannot finish here. Log out under Settings, Kosmos+, sign in again, then try it straight away."
+        /// Review 1: the refused thing is tried again only once the fresh sign-in finished AND the board was let in again
+        /// under the session it issued: the one held now, and not the one held when it started. A board still showing
+        /// its connection from before the account change (or none yet) is not tried on.
+        static func retryNow(finished: Bool, startedUnder: String?, admittedUnder: String?, heldNow: String?) -> Bool {
+            guard finished, let admittedUnder, admittedUnder == heldNow else { return false }
+            return admittedUnder != startedUnder
+        }
         enum Next: Equatable { case offer, still }
         /// After a step-up refusal: offer a fresh sign-in, or, one already done for this same action, say so (no loop).
         static func afterRefusal(alreadyFresh: Bool) -> Next { alreadyFresh ? .still : .offer }
