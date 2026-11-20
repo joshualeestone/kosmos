@@ -19,10 +19,18 @@ function signedHistory(org, member, publicKey, t, extra) {
   const entries = [Object.assign({ kind: 'enrol', key: seal.keyHex(publicKey), at: 0, backfill: false }, extra || {})];
   return { org, member, entries, issuedAt: t, signature: crypto.sign(null, dkh.encodeHead(org, member, entries, t), ESCROWD.privateKey).toString('base64url') };
 }
+// kosmos#8764: this (leaving) computer's device key, listed in escrowd's history for its member m-leave.
+const LEAVER = crypto.generateKeyPairSync('ed25519');
+/* escrowd's signed hand-over record for a part, issued at t: an admin approved m-leave -> m-succ for these agents. */
+function signedRecord(p, t, over) {
+  const r = Object.assign({ org: 'org1', id: p.id, from: 'm-leave', to: 'm-succ', agents: p.agents, issuedAt: t }, over || {});
+  return Object.assign(r, { signature: crypto.sign(null, seal.encodeRecord(r), ESCROWD.privateKey).toString('base64url') });
+}
 /* A send part's seal fields for its seal_pub, issued at t (Unix s; the test's clock): what the coordinator relays. */
 const tie = (p, t = Math.floor(Date.now() / 1000)) => Object.assign({
   seal_sig: seal.signSeal(p.id, p.seal_pub, SUCC.privateKey), seal_signer: seal.keyHex(SUCC.publicKey), seal_member: 'm-succ',
   seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, t),
+  record: signedRecord(p, t), own_member: 'm-leave', own_history: signedHistory('org1', 'm-leave', LEAVER.publicKey, t),
 }, p);
 const up = require('./backupupload');
 
@@ -91,7 +99,7 @@ const depsFor = (w, extra) => Object.assign({
     sessions: (dir, seg) => [{ name: `sessions/${seg}/claude`, path: w.sess, optional: true, only: ['one.jsonl'] }] }),
   workerDir: (n) => path.join(w.workers, n),
   profilesDir: w.profiles,
-  deviceKey: () => ({ ok: true, privateKey: crypto.generateKeyPairSync('ed25519').privateKey }),
+  deviceKey: () => ({ ok: true, privateKey: LEAVER.privateKey }),
 }, extra || {});
 const part = (extra, t) => tie(Object.assign({ id: 'ho1', side: 'send', state: 'packing', seal_pub: sealPub(), agents: ['Ledger'] }, extra || {}), t);
 
@@ -445,7 +453,9 @@ test('kosmos#8733: never packs to a key the successor\'s computer did not sign; 
     const cases = [
       ['signed by another computer (the coordinator swapping in its own key)', (p) => ({ seal_sig: seal.signSeal(p.id, p.seal_pub, other.privateKey) }), /not signed by the colleague's own computer/],
       ['no signature', () => ({ seal_sig: null }), /did not sign the key/],
-      ['a history for another member', () => ({ seal_member: 'm-other' }), /could not be checked/],
+      // kosmos#8764: the successor is the RECORD's, so Kosmos+ renaming seal_member changes nothing (see the test below);
+      // a record escrowd signed for another colleague meets that colleague's history, which is not the one relayed.
+      ['a record naming another colleague', (p) => ({ record: signedRecord(p, t, { to: 'm-other' }) }), /could not be checked/],
       ['a history of another company', () => ({ seal_history: signedHistory('org2', 'm-succ', SUCC.publicKey, t) }), /could not be checked/],
       ['a history escrowd did not sign', (p) => ({ seal_history: Object.assign({}, p.seal_history, { signature: Buffer.alloc(64).toString('base64url') }) }), /could not be checked/],
       ['a backfilled entry (escrowd never upgrades it)', () => ({ seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, t, { backfill: true }) }), /carried over from before/],
@@ -489,7 +499,8 @@ test('kosmos#8733: a run of the tie\'s waits ends when the key checks out, and r
     assert.equal(st.soft.get('htie') || 0, 0, 'the tie\'s waits are not the network run');
     assert.equal(hs.notice(st).stopped, undefined);
     // The key now checks out; the pack then meets a network refusal. Its run starts from one, not from MAX_SOFT.
-    rows = [Object.assign({}, one, { seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, Math.floor(clock / 1000)) })];   // escrowd answers now; the history made at 0 has aged a day
+    rows = [Object.assign({}, one, { seal_history: signedHistory('org1', 'm-succ', SUCC.publicKey, Math.floor(clock / 1000)),
+      own_history: signedHistory('org1', 'm-leave', LEAVER.publicKey, Math.floor(clock / 1000)) })];   // escrowd answers now; the histories made at 0 have aged a day
     await hs.tick(st, d);
     assert.equal(st.soft.get('htie'), 1, 'the tie\'s waits do not count against the network run');
     assert.equal(st.tieSoft.get('htie') || 0, 0, 'the key checked out: its waits are over');
@@ -499,7 +510,9 @@ test('kosmos#8733: a run of the tie\'s waits ends when the key checks out, and r
     assert.match(hs.notice(st).stopped || '', /kept asking this computer to wait/);
     // Running out of tie waits says the cause, not "kept asking".
     const st2 = hs.newSendState();
-    const d2 = Object.assign({}, d, { root: path.join(w.base, 'data2'), macRequest: async () => ({ ok: true, data: { handovers: [Object.assign({}, part({ id: 'htie2' }, 0), { seal_history: null })] } }) });
+    const d2 = Object.assign({}, d, { root: path.join(w.base, 'data2'), macRequest: async () => ({ ok: true, data: { handovers: [Object.assign({}, part({ id: 'htie2' }, 0), { seal_history: null,
+      // kosmos#8764: escrowd answers this computer's own history fresh on every poll, so the wait below is the successor's.
+      own_history: signedHistory('org1', 'm-leave', LEAVER.publicKey, Math.floor(clock / 1000)) })] } }) });
     for (let i = 0; i < hs.MAX_TIE_SOFT; i++) { await hs.tick(st2, d2); clock += hs.SOFT_RETRY_MS + 1; }
     assert.match(hs.notice(st2).stopped || '', /could not get its device keys.*did not change for a day/);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
@@ -646,6 +659,64 @@ test('kosmos#8738: a part this computer gave up on is ended on Kosmos+ once; no 
       const s3 = hs.newSendState();
       for (let k = 0; k < 4; k += 1) await hs.tick(s3, dd);   // final, then three stop attempts
       assert.equal(sent.length, want === 'once' ? 1 : 3, `${label}: sent ${sent.length} times`);
+    }
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('kosmos#8764: the successor and the agents come from escrowd\'s record, and the record must be for this computer', () => {
+  const w = world();
+  try {
+    const t = Math.floor(Date.now() / 1000);
+    // CONTROL: the honest part packs, so each refusal below is the record's.
+    assert.equal(hs.packInput(part(), 'org1', depsFor(w)).ok, true);
+    // THE CARD'S ATTACK: Kosmos+ names ANOTHER enrolled colleague as the successor and relays that colleague's own real
+    // signature, key and escrowd history. Every #8733 check passes for them; the record still names m-succ.
+    const colleague = crypto.generateKeyPairSync('ed25519');
+    const swapped = (p) => ({ seal_member: 'm-colleague', seal_sig: seal.signSeal(p.id, p.seal_pub, colleague.privateKey),
+      seal_signer: seal.keyHex(colleague.publicKey), seal_history: signedHistory('org1', 'm-colleague', colleague.publicKey, t) });
+    {
+      const p = part();
+      // Before #8764 this was enough: checkSeal on its own accepts the colleague (the premise of the attack).
+      const x = swapped(p);
+      assert.equal(seal.checkSeal({ org: 'org1', member: 'm-colleague', id: p.id, sealPub: p.seal_pub, sig: x.seal_sig, signer: x.seal_signer, history: x.seal_history, now: t }).ok, true);
+      const r = hs.packInput(Object.assign(p, x), 'org1', depsFor(w));
+      assert.equal(r.ok, false);
+      assert.equal(r.final, true);
+      assert.equal(r.input, undefined, 'nothing packed');
+      assert.match(r.because, /names a different member/);
+    }
+    const other = crypto.generateKeyPairSync('ed25519');
+    const forged = (p) => { const r = signedRecord(p, t, { to: 'm-colleague' }); r.signature = crypto.sign(null, seal.encodeRecord(r), other.privateKey).toString('base64url'); return r; };
+    const finals = [
+      ['this computer retired from the leaving member', () => ({ own_history: (() => { const entries = [{ kind: 'enrol', key: seal.keyHex(LEAVER.publicKey), at: 0, backfill: false }, { kind: 'revoke', key: seal.keyHex(LEAVER.publicKey), at: 1 }]; return { org: 'org1', member: 'm-leave', entries, issuedAt: t, signature: crypto.sign(null, dkh.encodeHead('org1', 'm-leave', entries, t), ESCROWD.privateKey).toString('base64url') }; })() }), /no longer the leaving member's/],
+      ['a record not signed by escrowd', (p) => ({ record: forged(p) }), /signature on the hand-over record did not check/],
+      ['a record for another hand-over', (p) => ({ record: signedRecord(p, t, { id: 'ho-other' }) }), /for a different hand-over/],
+      ['a record for another company', (p) => ({ record: signedRecord(p, t, { org: 'org2' }) }), /for a different hand-over/],
+      ['more agents than the admin approved', (p) => ({ agents: ['Ledger', 'Payroll'], record: signedRecord(p, t) }), /not the ones your company's admin approved/],
+      ['a record over a month old', (p) => ({ record: signedRecord(p, t - seal.RECORD_MAX_AGE_SECS - 1) }), /too old/],
+      ['a record that is not one', () => ({ record: { org: 'org1' } }), /not in the form escrowd signs/],
+    ];
+    for (const [why, patch, re] of finals) {
+      const p = part();
+      const r = hs.packInput(Object.assign(p, patch(p)), 'org1', depsFor(w));
+      assert.equal(r.ok, false, why);
+      assert.equal(r.final, true, why);
+      assert.equal(r.input, undefined, `${why}: nothing to pack`);
+      assert.match(r.because, re, why);
+    }
+    const waits = [
+      ['no record yet (no admin has signed the start)', () => ({ record: null }), /not been signed by one of your company's admins/],
+      ['a record from a colleague, not this computer\'s member', (p) => ({ record: signedRecord(p, t, { from: 'm-colleague' }),
+        own_history: signedHistory('org1', 'm-colleague', colleague.publicKey, t) }), /not enrolled as/],
+      ['escrowd could not give this computer\'s own history', () => ({ own_history: null }), /could not get its device keys/],
+    ];
+    for (const [why, patch, re] of waits) {
+      const p = part();
+      const r = hs.packInput(Object.assign(p, patch(p)), 'org1', depsFor(w));
+      assert.equal(r.ok, false, why);
+      assert.equal(r.retryLater, true, why);
+      assert.equal(r.final, undefined, why);
+      assert.match(r.because, re, why);
     }
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

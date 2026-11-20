@@ -57,9 +57,10 @@
  *
  * kosmos#8733: the colleague's one-time key (seal_pub) is packed to only when handoverseal.checkSeal holds: the
  * colleague's computer signed it (seal_sig) with a device key (seal_signer) that escrowd's signed history for the
- * colleague (seal_history, seal_member) lists as theirs now, enrolled by two admins.
- * KNOWN, kosmos#8764: WHICH member the colleague is (seal_member) is still Kosmos+'s word, so a breached Kosmos+ could
- * name another enrolled member. Hand-over is off everywhere until that is closed.
+ * colleague lists as theirs now, enrolled by two admins.
+ * kosmos#8764: WHICH member the colleague is, and which agents move, come from escrowd's signed hand-over record
+ * (handoverseal.checkRecord: an admin signed the start), never from seal_member; the record's `from` must be this
+ * computer's own member, by escrowd's history for them (own_history).
  *
  * KNOWN, for slice 4: the coordinator moves the record to `packed` when it grants the manifest, before the upload. A
  * manifest upload that then fails leaves a `packed` record with no manifest, and a new pack cannot replace it (a new
@@ -68,6 +69,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const MINE_ROUTE = '/v1/mac/org/handover/mine';
 const DONE_ROUTE = '/v1/mac/org/handover/done';   // kosmos#8738: the leaving computer ends a part it gave up ({ok: false})
@@ -239,7 +241,16 @@ function packInput(part, org, deps) {
   // a retryLater, bounded by MAX_TIE_SOFT; any other refusal is final. Nothing is packed either way. Every answer after
   // the check carries tieOk, so the tick ends a run of the check's waits even when a later step then fails (review 4).
   const nowSec = Math.floor(((d.now || Date.now)()) / 1000);
-  const tie = require('./handoverseal').checkSeal({ org, member: part.seal_member, id: part.id, sealPub: part.seal_pub, sig: part.seal_sig, signer: part.seal_signer, history: part.seal_history, now: nowSec });
+  // kosmos#8764: WHO the colleague is comes from escrowd's signed hand-over record (an admin signed the start), never
+  // from part.seal_member alone, and the record must name these agents and this computer's own member as `from`.
+  const hs = require('./handoverseal');
+  const own = (d.deviceKey || (() => require('./backupdevicekey').deviceKey()))();
+  if (!own || !own.ok) return { ok: false, retryLater: !!(own && own.retry), because: (own && own.because) || 'the device key could not be read' };
+  let ownKeyHex = null;
+  try { ownKeyHex = hs.keyHex(crypto.createPublicKey(own.privateKey)); } catch { ownKeyHex = null; }
+  const rec = hs.checkRecord({ org, id: part.id, agents: part.agents, record: part.record, ownHistory: part.own_history, ownKeyHex, now: nowSec });
+  if (!rec.ok) return rec.wait ? { ok: false, retryLater: true, tieWait: true, because: rec.because } : { ok: false, final: true, because: rec.because };
+  const tie = hs.checkSeal({ org, member: rec.to, id: part.id, sealPub: part.seal_pub, sig: part.seal_sig, signer: part.seal_signer, history: part.seal_history, now: nowSec });
   if (!tie.ok) return tie.wait ? { ok: false, retryLater: true, tieWait: true, because: tie.because } : { ok: false, final: true, because: tie.because };
   return Object.assign(packAfterTie(part, org, d, pk), { tieOk: true });
 }
