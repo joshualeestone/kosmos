@@ -8828,16 +8828,22 @@ cmd_agent() {
       # plan that could not tell, is said before the confirm; without a terminal it needs --yes, as any move does.
       local mv_name="$1" mv_acct="$2" mv_q mv_plan mv_ok mv_same mv_dir mv_label mv_says mv_why mv_id mv_seen mv_out mv_because mv_end mv_i
       local _mvparse='let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");'
-      mv_q=$(KOSMOS_MV_NAME="$mv_name" KOSMOS_MV_ACCT="$mv_acct" "$_node" -e 'process.stdout.write(new URLSearchParams({name:process.env.KOSMOS_MV_NAME,account:process.env.KOSMOS_MV_ACCT}).toString())') || { say "We could not use that name."; exit 1; }
+      # kosmos#8839: resolve=1 asks the plan to take the name `kosmos agent list` prints (Sub-Zero) to its agent (subzero).
+      mv_q=$(KOSMOS_MV_NAME="$mv_name" KOSMOS_MV_ACCT="$mv_acct" "$_node" -e 'process.stdout.write(new URLSearchParams({name:process.env.KOSMOS_MV_NAME,account:process.env.KOSMOS_MV_ACCT,resolve:"1"}).toString())') || { say "We could not use that name."; exit 1; }
       body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 30 "$URL/api/agents/account-plan?$mv_q" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then say_unreached "read what moving $mv_name would do" "$rc"; exit 1; fi
-      # Fields, tab-separated: ok, same, dir, label, the loss sentence, why (refused or could not tell).
-      mv_plan=$(printf '%s' "$body" | "$_node" -e "$_mvparse"'console.log([j.ok===true?"ok":"no",j.same===true?"same":"",one(j.dir),one(j.label),one(j.sentence),one(j.because||j.error),j.loses===true?"loses":""].join("\t"))})') \
+      # Fields, tab-separated: ok, same, dir, label, the loss sentence, why (refused or could not tell), loses, and (kosmos#8839)
+      # the agent the plan resolved the name to.
+      mv_plan=$(printf '%s' "$body" | "$_node" -e "$_mvparse"'console.log([j.ok===true?"ok":"no",j.same===true?"same":"",one(j.dir),one(j.label),one(j.sentence),one(j.because||j.error),j.loses===true?"loses":"",one(j.name),j.readFailed===true?"readfailed":""].join("\t"))})') \
         || { say "Kosmos gave an answer we could not read when asked about moving $mv_name."; exit 1; }
       mv_ok=$(cut -f1 <<<"$mv_plan"); mv_same=$(cut -f2 <<<"$mv_plan"); mv_dir=$(cut -f3 <<<"$mv_plan")
       mv_label=$(cut -f4 <<<"$mv_plan"); mv_says=$(cut -f5 <<<"$mv_plan"); mv_why=$(cut -f6 <<<"$mv_plan"); local mv_loses; mv_loses=$(cut -f7 <<<"$mv_plan")
+      # kosmos#8839: the move goes to the agent the plan resolved, never the typed words again; the typed name is what is said.
+      local mv_agent; mv_agent=$(cut -f8 <<<"$mv_plan"); mv_agent="${mv_agent:-$mv_name}"
       while [[ "$mv_why" == *[.[:space:]] ]]; do mv_why="${mv_why%?}"; done
       if [ "$mv_ok" != ok ] && [ -z "$mv_dir" ]; then
+        # kosmos#8839 review 2: a read that failed is said as that, with what to do, never as a refusal.
+        if [ "$(cut -f9 <<<"$mv_plan")" = readfailed ]; then say "Kosmos could not tell which agent $mv_name is just now: ${mv_why:-it could not read its agents}. Nothing was moved; try again in a moment."; exit 1; fi
         say "Kosmos will not move $mv_name: ${mv_why:-it did not say why}."; exit 1
       fi
       mv_label="${mv_label:-$mv_acct}"
@@ -8865,7 +8871,7 @@ cmd_agent() {
         case "$(printf '%s' "$mv_answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" in y|yes) ;; *) say "Cancelled. Nothing was moved."; exit 1 ;; esac
       fi
       rc=0
-      body=$(KOSMOS_MV_NAME="$mv_name" KOSMOS_MV_DIR="$mv_dir" "$_node" -e 'process.stdout.write(JSON.stringify({dir:process.env.KOSMOS_MV_DIR,names:[process.env.KOSMOS_MV_NAME]}))' \
+      body=$(KOSMOS_MV_NAME="$mv_agent" KOSMOS_MV_DIR="$mv_dir" "$_node" -e 'process.stdout.write(JSON.stringify({dir:process.env.KOSMOS_MV_DIR,names:[process.env.KOSMOS_MV_NAME]}))' \
         | kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 120 -X POST "$URL/api/agents/account" -H 'content-type: application/json' --data-binary @- 2>/dev/null) || rc=$?   # review 1: Settings' own route, sent as the person (token-only mode would refuse it after the confirm)
       case "$rc" in
         0) ;;
