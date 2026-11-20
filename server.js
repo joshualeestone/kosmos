@@ -30309,6 +30309,15 @@ function start(port = PORT) {
          gating as the sweeps above, OFF unless AGENT_WORKFORCE_USAGE_POLL=1 (review 19), brake AGENT_WORKFORCE_USAGE_POLL_OFF=1, own 10-min timer, unref'd,
          asynchronous (one account at a time, never on the board's request path), best-effort. accounts.list() is the
          cheap read: listLive() checks every account live and must not run on a timer. */
+      /* kosmos#8841: before anything below reads them, a switch an earlier start recorded and this start left unset is
+         turned on again (engine/keptswitch.js), so a restart does not silently undo the operator's choice. Nothing is
+         read or changed under a test or a dry run. */
+      try {
+        const kept = require('./engine/keptswitch').applyAtStart(process.env, {
+          live: liveExecution.liveExecutionAllowed() && !process.env.NODE_TEST_CONTEXT && process.env.AGENT_WORKFORCE_DRY_RUN !== '1',
+        });
+        for (const line of kept.lines) process.stdout.write(line + '\n');
+      } catch (err) { process.stdout.write(`kept-switches: not applied (${String((err && err.message) || err)})\n`); }
       const usagePoll = require('./engine/usagepoll');
       let usagePollBusy = 0;   // when the running sweep started, or 0
       const usagePollTick = () => {
