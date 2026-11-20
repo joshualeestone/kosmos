@@ -6,8 +6,9 @@
  * on stdin saved exactly what no stdin saved, while the same note as words was kept.
  *
  * Now, with no words, --unchanged reads its line from stdin (a terminal is not read), ending when the input ends or has
- * been quiet for 3 seconds, so an open pipe nobody writes to cannot hang it. A line that stops without ending is refused
- * before anything is saved. Words, when given, are the line and stdin is not read, as for a plain write.
+ * been quiet for 3 seconds, so an open pipe nobody writes to cannot hang it. Refused before anything is saved: a line that
+ * stops without ending, more than one line, more than 64 KB, and (Windows) a PowerShell pipeline. A stdin that cannot be
+ * read at all is nothing piped, as before. Words, when given, are the line and stdin is not read, as for a plain write.
  *
  * Mac: the real CLI and the real engine against a throwaway data folder (the cli.feedback-unchanged-7886 harness),
  * sending to a dead loopback. Windows: the CLI's write path against an engine stub.
@@ -175,7 +176,7 @@ test('kosmos#8844 (Windows): more than one line is refused, and a PowerShell pip
   fs.writeFileSync(f, JSON.stringify(['feedback', 'write', '--unchanged']));
   const ps = await go([cli.ARGV_FILE_FLAG, f, '--kosmos-ps-pipeline'], { text: 'never read', ended: true });
   assert.equal(ps.code, 2, ps.err);
-  assert.match(ps.err, /text piped into kosmos in PowerShell does not reach it\. Give the one new thing as words instead: kosmos feedback write --unchanged "the one new thing"/);
+  assert.match(ps.err, /text piped into kosmos in PowerShell does not reach it\. Give the one new thing as words instead: kosmos feedback write --unchanged 'the one new thing'/);
   assert.doesNotMatch(ps.err, /file/, 'the refusal sends the person to a file, which --unchanged refuses');
   assert.deepEqual(written, []);
   // CONTROL: the same launcher path without the pipeline flag saves the pointer, so the refusal above is the flag's.
@@ -209,4 +210,23 @@ test('kosmos#8844 (Windows): a piped line over the cap is refused unsaved', asyn
   assert.equal(cap, 65536, 'the reader was not given the cap');
   assert.match(err.join('\n'), /Nothing was saved: --unchanged takes one short line, and more than that was piped in/);
   assert.deepEqual(written, []);
+});
+
+test('kosmos#8844 (Mac): a stdin that cannot be read (write-only) is nothing piped, as before: the pointer alone is saved', async () => {
+  const h = makeHome();
+  const env = { ...process.env, KOSMOS_HOME: h.home, AGENT_WORKFORCE_DATA: h.data, KOSMOS_PORT: '9',
+    AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback', KOSMOS_AGENT_TOKEN: '', TMUX: '', TMUX_PANE: '' };
+  const fd = fs.openSync(path.join(h.data, 'write-only'), 'w');   // node's process.stdin errors on it (EBADF)
+  const r = await new Promise((resolve, reject) => {
+    const child = spawn('bash', [CLI, 'feedback', 'write', '--unchanged'], { env, stdio: [fd, 'pipe', 'pipe'] });
+    let both = '';
+    child.stdout.on('data', (d) => { both += d; });
+    child.stderr.on('data', (d) => { both += d; });
+    child.on('error', reject);
+    child.on('close', (exitCode) => { const res = { code: exitCode, both }; if (typeof res.code !== 'number') { reject(new Error('no exit code')); return; } resolve(res); });
+  });
+  fs.closeSync(fd);
+  assert.equal(r.code, 0, r.both);
+  assert.doesNotMatch(r.both, /could not be read/);
+  assert.match(savedBody(h.data), new RegExp('\\n---\\nNothing new since my report of ' + OLD + '\\.\\n$'));
 });

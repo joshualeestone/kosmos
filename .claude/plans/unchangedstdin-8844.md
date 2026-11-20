@@ -26,11 +26,11 @@ pinned a reader that throws).
   saved and sent as the note (review round 1).
 - More than 64 KB piped in is refused the same way, so a stream nobody meant as the note is never held whole (review
   round 2). Mac `_u_max`, Windows `FEEDBACK_UNCHANGED_MAX_BYTES`, both 65536; tested at 65536 (saved) and 65537 (refused).
-- A stdin read error is its own refusal on the Mac (exit 7), with or without data. NOT TESTED: no harness here makes
-  node's process.stdin emit an error (a directory as stdin, the obvious try, emits only "end", measured). Windows'
-  shared readStandardInput answers an error and a quiet pipe alike ({ ended: false }), so there an error with no data
-  is read as "nothing piped" and saves the pointer alone; telling them apart would change a reader other commands
-  share, so it is left (review round 2).
+- A stdin read error AFTER some of the line arrived is its own refusal on the Mac (exit 7), not the "stopped arriving"
+  sentence. A stdin that cannot be read at all is nothing piped, so a plain --unchanged still saves the pointer alone,
+  as before this change and as on Windows (whose shared readStandardInput answers an error like a quiet pipe).
+  Tested with a write-only stdin (node errors EBADF on it). The error-after-data arm has no test (review rounds 2, 3).
+- The examples in the refusals are single-quoted, as the PowerShell notes in the Windows CLI require (review round 3).
 - Windows PowerShell pipeline (text does not reach kosmos): refused with its own sentence pointing at the words form. The
   shared psPipelineRefused says "save the text in a file", which --unchanged refuses (review round 1).
 

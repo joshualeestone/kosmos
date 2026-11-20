@@ -6307,13 +6307,14 @@ cmd_feedback() {
       if [ "$_fb_unchanged" = 1 ]; then
         # kosmos#7886 item 6: --unchanged points back to this writer's own latest earlier report (engine/feedback.unchanged),
         # with any words added to it. Node exits 4 for no earlier report, 5 for a report already saved today, and 1 if
-        # the reports cannot be read; each refuses and saves nothing. It prints the day it checked, then the body.
+        # the reports cannot be read (6, 7 and 8, for a line piped in, are below); each refuses and saves nothing. It prints the
+        # day it checked, then the body.
         if [ -n "$KOSMOS_BODY_FILE" ]; then say "--unchanged takes a short line, not --body-file, so nothing was saved."; exit 2; fi
         # kosmos#8844: the daily nudge says to add a line after --unchanged, and a line piped in on stdin was dropped while
         # the command said the report was saved. With no words, node reads that line from stdin (a terminal is not read),
         # stopping once the input ends or has been quiet for _u_quiet seconds, as the Windows CLI does, so an open pipe
         # nobody writes to cannot hang a plain --unchanged. Exit 6: the line stopped without ending (it may be cut short);
-        # 7: stdin could not be read; 8: more than one line, or more than _u_max bytes, was piped in. Each refuses before
+        # 7: stdin failed after some of the line had arrived (a failure before any data is nothing piped, as on Windows); 8: more than one line, or more than _u_max bytes, was piped in. Each refuses before
         # anything is saved.
         # Words, when given, are the line and stdin is not read, as for a plain write.
         local _u_rc=0 _u_stdin=0 _u_quiet=3 _u_max=65536
@@ -6337,7 +6338,7 @@ cmd_feedback() {
               if (s.charCodeAt(0) === 0xFEFF) s = s.slice(1);
               s = s.trim();
               if (how === "big") process.exit(8);
-              if (how === "error") process.exit(7);
+              if (how === "error" && total > 0) process.exit(7);
               if (s && how === "quiet") process.exit(6);
               if (/[\r\n]/.test(s)) process.exit(8);
               go(s);
@@ -6354,9 +6355,9 @@ cmd_feedback() {
             quiet();
           }
         ' "$KOSMOS_HOME/app")" || _u_rc=$?
-        if [ "$_u_rc" -eq 6 ]; then say "Nothing was saved: the line piped in after --unchanged stopped arriving for $_u_quiet seconds without ending, so it may be cut short. Give it as words instead: kosmos feedback write --unchanged \"the one new thing\""; exit 2; fi
-        if [ "$_u_rc" -eq 7 ]; then say "Nothing was saved: the line piped in after --unchanged could not be read. Give it as words instead: kosmos feedback write --unchanged \"the one new thing\""; exit 2; fi
-        if [ "$_u_rc" -eq 8 ]; then say "Nothing was saved: --unchanged takes one short line, and more than that was piped in. Give the one new thing as words: kosmos feedback write --unchanged \"the one new thing\". For more than that, write the whole report."; exit 2; fi
+        if [ "$_u_rc" -eq 6 ]; then say "Nothing was saved: the line piped in after --unchanged stopped arriving for $_u_quiet seconds without ending, so it may be cut short. Give it as words instead: kosmos feedback write --unchanged 'the one new thing'"; exit 2; fi
+        if [ "$_u_rc" -eq 7 ]; then say "Nothing was saved: the line piped in after --unchanged could not be read. Give it as words instead: kosmos feedback write --unchanged 'the one new thing'"; exit 2; fi
+        if [ "$_u_rc" -eq 8 ]; then say "Nothing was saved: --unchanged takes one short line, and more than that was piped in. Give the one new thing as words: kosmos feedback write --unchanged 'the one new thing'. For more than that, write the whole report."; exit 2; fi
         if [ "$_u_rc" -eq 5 ]; then say "You already saved a report today, so nothing was changed. To change it, write the whole report again."; exit 2; fi
         if [ "$_u_rc" -eq 4 ] && [ -n "$body" ]; then say "There is no earlier report of yours to point back to: the newest report here, of $body, is another agent's, and --unchanged points back only to your own. Nothing was saved. Write today's report instead."; exit 2; fi
         if [ "$_u_rc" -eq 4 ]; then say "There is no earlier report of yours to point back to, so nothing was saved. Write today's report instead."; exit 2; fi
@@ -6513,7 +6514,7 @@ cmd_feedback() {
       ;;
     ""|help|-h|--help)
       say "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin)"
-      say "       kosmos feedback write --unchanged [text]  (nothing new since your last report; any text, as words or piped in, is added to it)"
+      say "       kosmos feedback write --unchanged [text]  (nothing new since your last report; a line, as words or piped in, is added to it)"
       say "       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)"
       say "       kosmos feedback list [--mine]      (--mine: only the days holding your own report)"
       say "       kosmos feedback day                (your own day on this computer, for writing the report)"

@@ -200,7 +200,7 @@ const USAGE = {
   ].join('\n'),
   feedback: [
     'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)',
-    '       kosmos feedback write --unchanged [text]  (nothing new since your last report; any text, as words or piped in, is added to it)',
+    '       kosmos feedback write --unchanged [text]  (nothing new since your last report; a line, as words or piped in, is added to it)',
     '       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)',
     '       kosmos feedback list [--mine]      (--mine: only the days holding your own report)',
     '       kosmos feedback day                (your own day on this computer, for writing the report)',
@@ -475,10 +475,10 @@ const CARDS_STDIN_QUIET_LIMIT_MS = 120000;   /* also post --stdin's limit (#2909
 /* A report that arrived and then stopped without the input ending may be a slow
    writer cut short, so it is refused whole rather than saved in part (review round 2). */
 const FEEDBACK_WRITE_NOT_ENDED = 'Nothing was saved: the piped report stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save it in a file instead and give its path: kosmos feedback write --body-file <file>';
-const FEEDBACK_UNCHANGED_NOT_ENDED = 'Nothing was saved: the line piped in after --unchanged stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Give it as words instead: kosmos feedback write --unchanged "the one new thing"';   /* kosmos#8844 */
+const FEEDBACK_UNCHANGED_NOT_ENDED = 'Nothing was saved: the line piped in after --unchanged stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Give it as words instead: kosmos feedback write --unchanged \'the one new thing\'';   /* kosmos#8844 */
 const FEEDBACK_UNCHANGED_MAX_BYTES = 65536;   /* kosmos#8844: one short line; install/kosmos _u_max is the same */
-const FEEDBACK_UNCHANGED_MANY_LINES = 'Nothing was saved: --unchanged takes one short line, and more than that was piped in. Give the one new thing as words: kosmos feedback write --unchanged "the one new thing". For more than that, write the whole report.';   /* kosmos#8844 */
-const FEEDBACK_UNCHANGED_PS = 'Nothing was saved: text piped into kosmos in PowerShell does not reach it. Give the one new thing as words instead: kosmos feedback write --unchanged "the one new thing"';   /* kosmos#8844 */
+const FEEDBACK_UNCHANGED_MANY_LINES = 'Nothing was saved: --unchanged takes one short line, and more than that was piped in. Give the one new thing as words: kosmos feedback write --unchanged \'the one new thing\'. For more than that, write the whole report.';   /* kosmos#8844 */
+const FEEDBACK_UNCHANGED_PS = 'Nothing was saved: text piped into kosmos in PowerShell does not reach it. Give the one new thing as words instead: kosmos feedback write --unchanged \'the one new thing\'';   /* kosmos#8844 */
 const POST_BODY_MAX_BYTES = 6 * 1024 * 1024; /* #2909: the board's request-READ limit (server.js MAX_UPLOAD); the room's text cap is lower and refuses with its own reason */
 
 // ── the verbs ───────────────────────────────────────────────────────────────
