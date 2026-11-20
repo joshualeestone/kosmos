@@ -36,14 +36,17 @@ const SWITCHES = [
 ];
 const unset = (v) => v === undefined || v === '';
 
-/* What applyAtStart kept, and the environment object it kept it for (the board's own). */
+/* What applyAtStart kept, and the environment object it kept it for (the board's own); and whether it found a record
+   it did not apply because another computer (or this one under another name) wrote it. */
 let kept = {};
 let keptFor = null;
+let notApplied = false;
 
 const thisComputer = () => { try { return String(os.hostname() || ''); } catch { return ''; } };
 
 /** @returns {{ok:boolean, on:Object<string,{at:number}>, elsewhere?:boolean}} missing file: ok, nothing kept;
- *  unreadable or corrupt: not ok, nothing kept; written on another computer (or naming none): ok, nothing kept, elsewhere. */
+ *  unreadable or corrupt: not ok, nothing kept; written under another computer name (or naming none, or this
+ *  computer's name cannot be read): ok, nothing kept, elsewhere, when it holds a switch at all. */
 function read(from = file(), host = thisComputer()) {
   let raw;
   try { raw = fs.readFileSync(from, 'utf8'); }
@@ -51,12 +54,12 @@ function read(from = file(), host = thisComputer()) {
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return { ok: false, on: {} }; }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ok: false, on: {} };
-  if (!host || parsed.host !== host) return { ok: true, on: {}, elsewhere: true };
   const on = {};
   for (const s of SWITCHES) {
     const v = parsed[s.key];
     if (v && typeof v === 'object' && v.on === true) on[s.key] = { at: Number.isFinite(v.at) && v.at > 0 && v.at < 8.64e15 ? v.at : 0 };   // 0: no day a Date can say
   }
+  if (!host || parsed.host !== host) return { ok: true, on: {}, elsewhere: Object.keys(on).length > 0 };
   return { ok: true, on };
 }
 
@@ -75,6 +78,10 @@ function keptNow() {
   return out;
 }
 
+/** Whether this start found a record of kept switches it did not apply, because it was written under another
+ *  computer name. Settings says so, since the switch going off is otherwise silent. */
+function ignoredElsewhere() { return notApplied; }
+
 /**
  * Called once as the board starts. Brings the record up to date with what this start was told, and keeps (for `on`)
  * each switch a start recorded and this start left unset. `env` is never changed.
@@ -84,17 +91,19 @@ function keptNow() {
  */
 function applyAtStart(env, { live, file: given, nowMs = Date.now(), host = thisComputer() } = {}) {
   const out = { kept: [], recorded: [], cleared: [], readOk: true, wrote: null, lines: [] };
-  kept = {}; keptFor = null;
+  kept = {}; keptFor = null; notApplied = false;
   if (live !== true || !env) return out;
   const to = given || file();
   const rec = read(to, host);
   out.readOk = rec.ok;
+  notApplied = rec.elsewhere === true;
   const next = { ...rec.on };
   for (const s of SWITCHES) {
     const v = env[s.name];
     if (v === '1') { if (!next[s.key]) { next[s.key] = { at: nowMs }; out.recorded.push(s.key); } }
     else if (v === '0') { if (next[s.key]) { delete next[s.key]; out.cleared.push(s.key); } }
     else if (unset(v) && next[s.key]) out.kept.push(s.key);
+    else if (!unset(v) && next[s.key]) out.odd = (out.odd || []).concat(s.key);   // neither 1, 0 nor unset: off at this start, record untouched
   }
   /* A record that could not be read is never written over: it may hold a choice this start knows nothing about, and
      a file that is unreadable for a moment must not be replaced by a partial one. This start still does what its own
@@ -127,7 +136,12 @@ function applyAtStart(env, { live, file: given, nowMs = Date.now(), host = thisC
   if (out.cleared.length) {
     out.lines.push(`kept-switches: ${said(out.cleared)} ${be(out.cleared)} switched off, ${out.wrote === true ? 'and will stay off at later starts' : 'but that could not be written down, so a later start may switch it on again'}`);
   }
-  if (rec.elsewhere) out.lines.push('kept-switches: the record of what was switched on was written on another computer, so nothing was kept from it');
+  if (out.odd) out.lines.push(`kept-switches: ${said(out.odd)} ${be(out.odd)} recorded as switched on, but ${of(out.odd).map((s) => s.name + '=' + env[s.name]).join(' and ')} is neither 1 nor 0, so ${out.odd.length > 1 ? 'they are' : 'it is'} off at this start`);
+  if (rec.elsewhere) {
+    out.lines.push(host
+      ? 'kept-switches: the record of what was switched on was written under another computer name (a restored backup, or this computer was renamed), so nothing was kept from it; a start with the variable set to 1 switches it on here'
+      : 'kept-switches: this computer\'s name could not be read, so the record of what was switched on was not applied');
+  }
   if (!rec.ok) {
     const told = of(SWITCHES.map((s) => s.key)).filter((s) => env[s.name] === '1' || env[s.name] === '0');
     out.lines.push('kept-switches: the record of what was switched on could not be read, so nothing was kept from an earlier start'
@@ -146,4 +160,4 @@ function atBoardStart(env, { liveExecutionAllowed, ...opts } = {}) {
   return applyAtStart(env, { ...opts, live });
 }
 
-module.exports = { file, SWITCHES, read, on, keptNow, applyAtStart, atBoardStart };
+module.exports = { file, SWITCHES, read, on, keptNow, ignoredElsewhere, applyAtStart, atBoardStart };

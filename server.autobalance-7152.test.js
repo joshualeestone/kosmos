@@ -293,8 +293,14 @@ test('kosmos#8841: a switch kept on from an earlier start reaches Settings on th
     assert.equal(got.status, 200);
     assert.deepEqual(got.json.kept, { usagePoll: at });
     assert.equal(got.json.autobalance && got.json.autobalance.kept, undefined, 'kept is beside the decision, not in it');
+    assert.equal('keptNotApplied' in got.json, false);
     const plain = await call('GET', '/api/accounts');
     assert.equal('kept' in plain.json, false, 'only Settings (?agents=1) is told');
+    // A record written under another computer name: nothing kept, and Settings is told it was not applied.
+    fs.writeFileSync(record, JSON.stringify({ host: 'some-other-mac.invalid', usagePoll: { on: true, at } }));
+    keptswitch.applyAtStart(process.env, { live: true, file: record });
+    const other = await call('GET', '/api/accounts?agents=1');
+    assert.deepEqual([other.json.kept, other.json.keptNotApplied], [{}, true]);
   } finally {
     keptswitch.applyAtStart(process.env, { live: false });
     if (had === undefined) delete process.env.AGENT_WORKFORCE_USAGE_POLL; else process.env.AGENT_WORKFORCE_USAGE_POLL = had;

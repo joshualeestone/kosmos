@@ -15319,8 +15319,9 @@ const server = http.createServer(async (req, res) => {
           ...(autobalance ? { autobalance } : {}),
           /* kosmos#8841: the switches this board has on from an earlier start, with when each was first switched on
              ({ usagePoll, automove }: a time, absent when not kept), so Settings can say so. Beside the decision, not
-             in it: the usage poll runs with one account and with auto-balance switched off. */
-          ...(wantAgents ? { kept: (() => { try { return require('./engine/keptswitch').keptNow(); } catch { return {}; } })() } : {}) });
+             in it: the usage poll runs with one account and with auto-balance switched off. `keptNotApplied`: a record
+             was found and not applied, because it was written under another computer name. */
+          ...(wantAgents ? (() => { try { const ks = require('./engine/keptswitch'); return { kept: ks.keptNow(), ...(ks.ignoredElsewhere() ? { keptNotApplied: true } : {}) }; } catch { return { kept: {} }; } })() : {}) });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
     return;

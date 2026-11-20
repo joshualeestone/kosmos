@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+const { skipOnWin32 } = require('../test-support/skip-on-win32');
 const keptswitch = require('./keptswitch');
 const usagePoll = require('./usagepoll');
 const automove = require('./automove');
@@ -60,9 +61,14 @@ test('a record written on another computer (a restored backup) keeps nothing her
   const here = {};
   const r = start(here, file, 2000, 'new-mac.local');
   assert.deepEqual([r.kept, r.readOk, r.wrote, usagePoll.enabled(here), automove.movesOn(here), keptswitch.keptNow()], [[], true, null, false, false, {}]);
-  assert.deepEqual(r.lines, ['kept-switches: the record of what was switched on was written on another computer, so nothing was kept from it']);
-  // CONTROL: on the computer that wrote it, the same file keeps both.
+  assert.deepEqual(r.lines, ['kept-switches: the record of what was switched on was written under another computer name (a restored backup, or this computer was renamed), so nothing was kept from it; a start with the variable set to 1 switches it on here']);
+  assert.equal(keptswitch.ignoredElsewhere(), true, 'the page would not be told a record was left unapplied');
+  // CONTROL: on the computer that wrote it, the same file keeps both, and nothing is reported as left unapplied.
   assert.deepEqual(start({}, file, 3000, 'old-mac.local').kept, ['usagePoll', 'automove']);
+  assert.equal(keptswitch.ignoredElsewhere(), false);
+  // A computer whose own name cannot be read applies nothing either, and says that, not "another computer".
+  const unnamed = start({}, file, 3500, '');
+  assert.deepEqual([unnamed.kept, unnamed.lines], [[], ['kept-switches: this computer\'s name could not be read, so the record of what was switched on was not applied']]);
   // Switched on here, the record becomes this computer's.
   start({ [POLL]: '1' }, file, 4000, 'new-mac.local');
   assert.deepEqual(keptswitch.read(file, 'new-mac.local').on, { usagePoll: { at: 4000 } });
@@ -102,6 +108,7 @@ test('a value that is neither 1, 0 nor unset is off at this start and leaves the
   const odd = { [POLL]: 'true' };
   const r = start(odd, file);
   assert.deepEqual([r.kept, r.cleared, r.wrote, usagePoll.enabled(odd)], [[], [], null, false]);
+  assert.deepEqual(r.lines, ['kept-switches: the usage poll is recorded as switched on, but AGENT_WORKFORCE_USAGE_POLL=true is neither 1 nor 0, so it is off at this start']);
   const empty = { [POLL]: '' };
   start(empty, file);
   assert.equal(usagePoll.enabled(empty), true, 'an empty value did not read as unset');
@@ -155,9 +162,9 @@ test('a record that cannot be read keeps nothing, says so, and is never written 
   assert.match(s.lines.join('\n'), /what this start was told \(AGENT_WORKFORCE_USAGE_POLL=1\) was not written down/);
 });
 
-test('a record that cannot be written is said, and this start is still on', () => {
-  // A read-only folder stops nothing for root, or on Windows; the arm proves nothing there.
-  if (process.platform === 'win32' || (process.getuid && process.getuid() === 0)) return;
+/* A read-only folder stops nothing for root, so the arm would prove nothing there; said as a skip, not a pass. */
+const AS_ROOT = typeof process.getuid === 'function' && process.getuid() === 0 ? 'a read-only folder does not stop root from writing in it' : false;
+test('a record that cannot be written is said, and this start is still on', { skip: skipOnWin32('it makes a folder read-only with a POSIX file mode, which does not stop a write on Windows') || AS_ROOT }, () => {
   const locked = path.join(DIR, 'locked');
   fs.mkdirSync(locked);
   fs.chmodSync(locked, 0o555);   // the record's folder cannot be made inside it; reading there is "no record yet"

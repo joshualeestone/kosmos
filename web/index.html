@@ -31192,8 +31192,8 @@ function paintAutobalance(ab, list) {
 }
 /* kosmos#8841: a switch that is on only because an earlier start of Kosmos switched it on (the read's `kept`). Under
    the accounts, outside the auto-balance row, since usage readings do not depend on that row being shown. It says the
-   switch is on and since when, not that anything is being read or moved now. */
-function paintKept(kept) {
+   switch is on and when it was switched on, not that anything is being read or moved now. */
+function paintKept(kept, notApplied) {
   const box = document.getElementById('kept-lines');
   if (!box) return;
   const k = kept && typeof kept === 'object' ? kept : {};
@@ -31202,8 +31202,11 @@ function paintKept(kept) {
     if (!Number.isFinite(k[key])) continue;
     const when = new Date(k[key]);
     const day = k[key] > 0 && !Number.isNaN(when.getTime()) ? 'on ' + when.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : 'on an earlier day';
-    html += '<p class="dhint" style="margin:8px 0 0;">' + what + ' switched on when Kosmos started ' + esc(day) + ', and that switch has stayed on since.</p>';
+    html += '<p class="dhint" style="margin:8px 0 0;">' + what + ' switched on when Kosmos started ' + esc(day) + '. That switch is still on.</p>';
   }
+  /* A record written under another computer name (a restored backup, or a renamed computer) is not applied. Said here,
+     because a switch that went off that way is otherwise silent. */
+  if (notApplied === true) html += '<p class="dhint" style="margin:8px 0 0;">Kosmos found a record of switches that were kept on under another computer name, and did not apply it on this computer.</p>';
   box.innerHTML = html;
 }
 /* Slice 3: the newest record entries (engine/autobalance-sweep.js), newest first, a line per would-move, and (kosmos#7548)
@@ -31338,6 +31341,7 @@ async function paintAccounts(opts) {
   let list = [];
   let abRead = null;   // kosmos#7152 slice 2: what auto-balance would do, from this read
   let keptRead = null;   // kosmos#8841: the switches kept on from an earlier start, from this read
+  let keptNotApplied = false;
   acctReadOpen = mine; acctReadOpenAt = Date.now();   // #6176: a read is out, so a look on window return does not start a second one beside it
   try {
     const res = await fetch('/api/accounts?agents=1', { cache: 'no-store' });   // #6108: only Settings asks for each account's agents
@@ -31347,6 +31351,7 @@ async function paintAccounts(opts) {
     list = body.accounts || [];
     abRead = body.autobalance || null;   // kosmos#7152 slice 2 (review 9: this read's own, not a page-wide global)
     keptRead = body.kept || null;
+    keptNotApplied = body.keptNotApplied === true;
     if (acctReadOpen === mine) acctReadOpen = 0;
     if (mine !== ACCT_EPOCH) return;
   } catch {
@@ -31380,7 +31385,7 @@ async function paintAccounts(opts) {
   }
   accountsRead(list);
   paintAutobalance(abRead, list);   // kosmos#7152 slice 2
-  paintKept(keptRead);
+  paintKept(keptRead, keptNotApplied);
   /* #3997: a sign-in (ChatGPT or Grok) whose free check, or an Antigravity row whose usage reading (#6176), is still under way is read again a few seconds on, so it turns green
      (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */
   const pendingRows = list.filter((a) => a && a.connection && a.connection.liveCheckPending);
