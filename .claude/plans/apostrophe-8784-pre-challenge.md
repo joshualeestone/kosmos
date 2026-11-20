@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: apostrophe-8784
-diff_hash: 28d5c9f28cf56c75dcfa95f75d3b65ed901d0e65b5913c6e6d6df49642690b9d
+diff_hash: fef0e6ba70979b43b65560899916e57cdcb83c09d24202b67c96121cb7134e3e
 validation: passed
 subdir_audit: passed
 timestamp: 2026-11-20T04:37:21Z
@@ -30,3 +30,5 @@ Full validation on this Mac (Agent1s) at HEAD 892a4001f5, base 86fd9e2809: PASSE
 passed); subdir audit passed.
 
 After the PR's first CI: Windows ran the new test unstubbed (it had never run there) and createAgent returned PARTIAL. The test now states the same win32 seams as create.test.js (setPark, setAnchorer, the /Run arm recording the session). A test-only change; Windows CI on this head is its check.
+
+Second Windows CI: the second-spelling test reached the folder-without-a-job refusal (the stub reports no Scheduled Task), which still named the spelling typed: round 1's kept NIT, now fixed (spokenName, as the agent refusal). create.test.js 245 and the two other readers pass.
