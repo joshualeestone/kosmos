@@ -5597,9 +5597,16 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
    What that leaves this gate doing, said plainly: the Kosmos+ gate admits only sign-ins with the second factor by
    default and sends both headers or neither, so almost every session it forwards passes. The step-up now refuses a
    gate session without the second factor (a gate set not to require one), a request whose headers this board cannot
-   vouch for, and a sign-in time from the future. Against a STOLEN full session it no longer helps; what ends one is
-   the gate itself: the session's expiry (a year), Log out, Sign out everywhere (the cutoffs the gate hears) and Remove
-   of the device. The residual risk is written on kosmos#8785. */
+   vouch for, and a sign-in time from the future. Against a STOLEN full session it no longer helps on any route but
+   one; what ends one is the gate itself: the session's expiry (a year), Log out, Sign out everywhere (the cutoffs the
+   gate hears) and Remove of the device. The residual risk is written on kosmos#8785.
+   The one route kept on a time bound (REMOTE_RECENT_ONLY): resetting the account's second factor. From a stolen full
+   session it would put the thief's own factor on the account, which outlives every bound above (a new sign-in with
+   that factor passes Sign out everywhere), so it is the identity change the ruling's new-device exception keeps. */
+const REMOTE_RECENT_ONLY = new Set(['POST /api/remote/second-reset']);
+/* Twelve minutes, a little longer than the coordinator's own STEP_UP_SECS (ten), so a sign-in made for this just
+   before the coordinator's window closed still counts here. */
+const REMOTE_RECENT_SECS = 12 * 60;
 /* The gate's two headers, read one way: { second, iat }, iat null unless it is a plain decimal (a value Node joined
    from repeated headers, "a, b", is not). */
 function remoteSessionHeaders(headers) {
@@ -5607,11 +5614,13 @@ function remoteSessionHeaders(headers) {
   const raw = h['x-kosmos-session-iat'];
   return { second: h['x-kosmos-session-second'] === '1', iat: typeof raw === 'string' && /^[0-9]{1,12}$/.test(raw) ? Number(raw) : null };
 }
-function remoteSessionFresh(headers, nowSecs) {
+function remoteSessionFresh(headers, nowSecs, maxAgeSecs) {
   const { second, iat } = remoteSessionHeaders(headers);
   if (!second || iat === null) return false;
-  // Any age (kosmos#8785); ahead of this clock only within a minute of drift.
-  return nowSecs - iat >= -60;
+  const age = nowSecs - iat;
+  // Ahead of this clock only within a minute of drift. Any age (kosmos#8785) unless the route asks for a recent one.
+  if (age < -60) return false;
+  return maxAgeSecs === undefined || age <= maxAgeSecs;
 }
 /* kosmos#7404 plan screen: the plans read shared by every caller (see the plans route). */
 let PB_PLANS_READ = { at: 0, p: null };
@@ -5659,8 +5668,8 @@ const REMOTE_STEP_UP_EXACT = new Set([
   // Stop too: it can cut a restore off in the middle of moving files into its new Kosmos.
   'POST /api/personal-backup/backups', 'POST /api/personal-backup/files', 'POST /api/personal-backup/stop',
   'POST /api/personal-backup/checkout',   // #7404 plan screen: opening a payment page is a write, like on and off
-  // Resetting the account's second factor: from a session the gate does not vouch for as a full sign-in, it would let
-  // the holder enrol a factor of their own and from then on pass this step-up. At the computer it needs nothing more.
+  // Resetting the account's second factor: it would let the holder put a factor of their own on the account. It also
+  // needs a RECENT full sign-in (REMOTE_RECENT_ONLY). At the computer it needs nothing more.
   'POST /api/remote/second-reset',
 ]);
 /* The gated routes whose path carries a name: a service's token, a provider runner's install, an agent brought back,
@@ -5711,14 +5720,14 @@ const REMOTE_STEP_UP_LOGOUT = Object.freeze({
    clocks disagree, so it is told apart (review iteration 8). */
 const REMOTE_STEP_UP_CLOCK = Object.freeze({
   code: 'remote_step_up_clock',
-  error: "This computer's clock is behind Kosmos+, so a fresh sign-in reads as from the future. Set this computer's clock to the right time, then try again.",
+  error: "This computer's clock is behind Kosmos+, so your sign-in reads as from the future. Set this computer's clock to the right time, then try again.",
 });
 /* A connector that does not say it strips client copies of the session headers (an older one, on any platform)
    cannot vouch for them, so nothing it forwards is fresh (review iteration 11: the cut's stale-connector check runs
    for the Mac build only, so merge order alone could not keep an old connector away). */
 const REMOTE_STEP_UP_CONNECTOR = Object.freeze({
   code: 'remote_step_up_unavailable',
-  error: "This computer's Kosmos+ connector cannot vouch for a fresh sign-in right now, so this cannot be done from a remote session. Do it at the computer, or try again in a minute; if this keeps happening, update Kosmos.",
+  error: "This computer's Kosmos+ connector cannot vouch for your sign-in right now, so this cannot be done from a remote session. Do it at the computer, or try again in a minute; if this keeps happening, update Kosmos.",
 });
 /* kosmos#8728: the same refusal while the connector has not said yet: just started, a slow start that did not answer
    in time (it is asked again by itself), a tunnel between a crash and its relaunch, or an earlier board's tunnel still
@@ -5737,7 +5746,8 @@ function remoteStepUpRefusal(req, pathname, nowSecs, caps) {
   /* kosmos#8728: "not known yet" and "this connector lacks it" are different, and only the second is fixed by an
      update. A caller that hands in its own caps (tests) is describing a connector that answered. */
   if (!said.has('session-headers')) return (!caps && remote.connectorCapabilitiesPending()) ? REMOTE_STEP_UP_STARTING : REMOTE_STEP_UP_CONNECTOR;
-  if (remoteSessionFresh(req.headers, nowSecs)) return null;
+  const recentOnly = REMOTE_RECENT_ONLY.has(req.method + ' ' + pathname) ? REMOTE_RECENT_SECS : undefined;
+  if (remoteSessionFresh(req.headers, nowSecs, recentOnly)) return null;
   const { second, iat } = remoteSessionHeaders(req.headers);
   if (second && iat !== null && iat - nowSecs > 60) return REMOTE_STEP_UP_CLOCK;
   /* A UI hint, not a trust decision (anyone can write these headers; they only choose which sentence a refusal
@@ -31561,7 +31571,7 @@ module.exports = { _setStartedProofPlatformForTest, _setStartWaitForTest,   // k
   _sendJsonForTest: sendJson, _sendTextForTest: sendText, _refuseDownloadForTest: refuseDownload, // kosmos#7686: never a second head, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
-  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_STARTING /* kosmos#8728 */, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, // kosmos#6595 R01 step-up, #6616, #7625
+  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_STARTING /* kosmos#8728 */, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, REMOTE_RECENT_SECS, // kosmos#6595 R01 step-up, #6616, #7625, #8785
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   claudeObservationsFor, overlayStuckCards, // #7212 slice 3 reviews 6-7: the badge's evidence and the route's step, for their test
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
