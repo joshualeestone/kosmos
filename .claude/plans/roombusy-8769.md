@@ -32,3 +32,9 @@ the FIRST line and the exit code is non-zero.
 2. Add the save after a 2xx plain read in cmd_room; the fallback in the rc != 0 arm when it is the busy case.
 3. Windows parity; tests in a new cli.room-busy-8769.test.js (stub board that sleeps past -m) + the Windows test.
 4. Review loop, proof, PR, merge after the 0.8.11 hold lifts.
+
+## Built (18:2x CST)
+- install/kosmos cmd_room: KOSMOS_ROOM_TIMEOUT_S test seam for the 15 s limit; copy at $KOSMOS_HOME/state/room-copies.
+- tools/windows/kosmos-cli.js verbRoom: same; copy at KOSMOS_HOME or %LOCALAPPDATA%\Kosmos\state\room-copies.
+- Tests: cli.room-busy-8769.test.js (4, real CLI vs a stalling stub board; perturbed, fallback off: 2 fail) and one
+  Windows test in tools.windows-kosmos-cli-570.test.js (perturbed: fails). Listed in tools/windows-tests.js.
