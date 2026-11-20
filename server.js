@@ -5600,16 +5600,21 @@ const REMOTE_NOT_ALLOWED = Object.freeze({
    vouch for, and a sign-in time from the future. Against a STOLEN full session it no longer helps on any route but
    one; what ends one is the gate itself: the session's expiry (a year), Log out, Sign out everywhere (the cutoffs the
    gate hears) and Remove of the device. The residual risk is written on kosmos#8785.
-   The routes kept on a time bound (REMOTE_RECENT_ONLY) are the ones whose effect outlives Sign out everywhere on the
-   owner's account, the identity changes the ruling's new-device exception keeps: resetting the account's second
-   factor (the thief's own factor would then pass every sign-in), signing this computer in to a Kosmos+ account or
-   forgetting its enrolment (it could then be signed in to the thief's account), joining a company or family (its
-   policy and reporting stay), and handing a sealed room's key to another computer of the account. Matched by path for
-   every writing method, as needsRemoteStepUp matches. */
+   The routes kept on a time bound (REMOTE_RECENT_ONLY, REMOTE_RECENT_PATTERNS) are the ones that let ANOTHER PARTY in,
+   or replace who the account is, the new-device exception the ruling keeps: resetting the account's second factor
+   (the thief's own factor then passes every sign-in), signing this computer in to a Kosmos+ account or forgetting its
+   enrolment (it could then belong to the thief's account), joining a company or family (its policy and reporting),
+   handing a sealed room's key to another computer, joining or inviting another Kosmos into a project or sharing its
+   code, and making a project webhook (an outside address that posts tasks). Each lasts past Sign out everywhere.
+   Left out on purpose, though they also last: making agents, entering keys and tokens, updating, and personal backups.
+   Those are the owner's own evening's work on their own computer, which is what the ruling is for. Matched by path
+   for every writing method, as needsRemoteStepUp matches. */
 const REMOTE_RECENT_ONLY = new Set(['/api/remote/second-reset',
   '/api/remote/signin-start', '/api/remote/signin-register', '/api/remote/setup-start', '/api/remote/setup-complete',
   '/api/remote/company/start', '/api/remote/forget', '/api/org/enroll',
-  '/api/federation/own-allow', '/api/federation/own-confirm']);
+  '/api/federation/own-allow', '/api/federation/own-confirm',
+  '/api/federation/join', '/api/federation/invite', '/api/federation/own-code']);
+const REMOTE_RECENT_PATTERNS = [/^\/api\/project\/[^/]+\/webhooks$/];
 /* Twelve minutes, a little longer than the coordinator's own STEP_UP_SECS (ten), so a sign-in made for this just
    before the coordinator's window closed still counts here. */
 const REMOTE_RECENT_SECS = 12 * 60;
@@ -5761,7 +5766,7 @@ function remoteStepUpRefusal(req, pathname, nowSecs, caps) {
   /* kosmos#8728: "not known yet" and "this connector lacks it" are different, and only the second is fixed by an
      update. A caller that hands in its own caps (tests) is describing a connector that answered. */
   if (!said.has('session-headers')) return (!caps && remote.connectorCapabilitiesPending()) ? REMOTE_STEP_UP_STARTING : REMOTE_STEP_UP_CONNECTOR;
-  const recentOnly = REMOTE_RECENT_ONLY.has(pathname) ? REMOTE_RECENT_SECS : undefined;
+  const recentOnly = REMOTE_RECENT_ONLY.has(pathname) || REMOTE_RECENT_PATTERNS.some((re) => re.test(pathname)) ? REMOTE_RECENT_SECS : undefined;
   if (remoteSessionFresh(req.headers, nowSecs, recentOnly)) return null;
   const { second, iat } = remoteSessionHeaders(req.headers);
   if (second && iat !== null && iat - nowSecs > 60) return REMOTE_STEP_UP_CLOCK;
