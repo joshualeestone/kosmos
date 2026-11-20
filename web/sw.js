@@ -98,12 +98,42 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
+/* kosmos#8790: a request for a picture. `destination` says so where the browser has it; an older one is told by the
+   Accept header an image load sends. A page's own fetch has destination '' and is not a picture. */
+function isImageRequest(req) {
+  if (typeof req.destination === 'string') return req.destination === 'image';
+  let accept = '';
+  try { accept = String((req.headers && req.headers.get && req.headers.get('accept')) || ''); } catch (_e) { accept = ''; }
+  return /^image\//i.test(accept);
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;               // never touch writes
   let url;
   try { url = new URL(req.url); } catch (_e) { return; }
   if (url.origin !== self.location.origin) return; // only our own origin
+  /* kosmos#8790: the board's own pictures (agent avatars, your picture, image and PDF-page previews) are images, and
+     an image load cannot carry X-Kosmos-Board-Page. A browser that sends no Sec-Fetch-Site (Safari before 16.4) is then
+     refused them by a Kosmos+ computer's connector (401 or 403). Only for such a refusal, the picture is asked for once
+     more with that header (kosmos-relay proxy.rs same_origin_without_fetch_site), and that answer is the picture.
+     The page's elements keep their own addresses, so its "only redraw when it changed" checks still match. A worker
+     sees only the requests of this origin's own pages, never another site's image of this board, so another site
+     cannot get the header put on its request. Any other answer (a picture, a 404, a network error) is the browser's
+     as it was, and on a browser that sends Sec-Fetch-Site a picture is never refused this way. Never cached here. */
+  if (req.mode !== 'navigate' && url.pathname.startsWith('/api/') && isImageRequest(req)) {
+    event.respondWith((async () => {
+      const res = await fetch(req);
+      if (!res || (res.status !== 401 && res.status !== 403)) return res;
+      try {
+        const again = await fetch(url.href, { headers: { 'X-Kosmos-Board-Page': '1' }, credentials: 'same-origin' });
+        return again && again.ok ? again : res;
+      } catch (_e) {
+        return res;   // the first answer stands
+      }
+    })());
+    return;
+  }
   // Live data is never cached -- let the API and the push routes reach the
   // network untouched, so a cached account response can never be served.
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/v1/')) return;
