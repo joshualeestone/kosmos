@@ -8,6 +8,7 @@
 #      and logs why it skipped: here the signed check, since this home has no installed verifier;
 #   4. with the Updates switch off it logs that reason instead (the off switch reaches the nightly run);
 #   5. with the latch gone it skips QUIETLY: no new line;
+#   5b. an install run with ANOTHER user's XDG_RUNTIME_DIR still enables the timer (kosmos#8786);
 #   6. removeBoard takes both units away.
 # It installs nothing: no case here reaches the update look. The board is the #4918 test's stub.
 set -uo pipefail
@@ -137,6 +138,23 @@ after="$(lines)"
 [ "$res" = ran ] && [ "$after" = "$before" ] \
   && ok "without the latch the run skips quietly (no new line)" \
   || bad "the latch-gone run: result $res, cloud-update lines $before -> $after"
+
+# --- 5b. A FOREIGN XDG_RUNTIME_DIR (kosmos#8786, measured on a Hetzner box): an install run with another user's runtime ---
+# folder, as a root login passes it through `runuser`, must still enable the timer. Before the fix installBoard reached the
+# wrong bus ("Failed to connect to bus") and left the units written but disabled. The folder is made by root (sudo).
+FOREIGN="$ROOT/foreign-rt"
+if sudo -n mkdir -p "$FOREIGN" 2>/dev/null && sudo -n chown root:root "$FOREIGN" 2>/dev/null; then
+  : > "$STATE/hosted"
+  systemctl --user disable --now "$TIMER" >/dev/null 2>&1 || true
+  [ "$(systemctl --user is-enabled "$TIMER" 2>/dev/null)" != enabled ] || bad "premise: the timer is still enabled before the foreign-folder install"
+  out="$(XDG_RUNTIME_DIR="$FOREIGN" install_board)" || bad "installBoard failed with a foreign XDG_RUNTIME_DIR: $out"
+  [ "$out" = '{"ok":true}' ] && [ "$(systemctl --user is-enabled "$TIMER" 2>/dev/null)" = enabled ] \
+    && ok "with another user's XDG_RUNTIME_DIR the install still enables the nightly timer" \
+    || bad "foreign XDG_RUNTIME_DIR: cloudUpdate=$out, timer $(systemctl --user is-enabled "$TIMER" 2>/dev/null)"
+  sudo -n rm -rf "${FOREIGN:?}" 2>/dev/null || true
+else
+  bad "premise: could not make a root-owned folder with sudo -n (the runner has passwordless sudo)"
+fi
 
 # --- 6. removeBoard takes both units away ----------------------------------------------------------------------------
 node -e 'const r = require("./engine/linuxboard").removeBoard(process.argv[1]); if (!r.ok) { console.error(JSON.stringify(r)); process.exit(3); }' "$H" \
