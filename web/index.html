@@ -22114,9 +22114,15 @@ function dlKeyClick(e) {
      and the address opened with it are spelled the same; adding bdl below writes it the same way again. */
   const out = new URL(u.href);
   out.search = out.searchParams.toString();
+  // A key that does not come within 8 s (a board that does not answer) is given up: the link opens as it always did.
+  let done = false;
+  const giveUp = setTimeout(() => { if (!done) { done = true; dlKeyOpen(u, name); } }, 8000);
   fetch('/api/download-key', { method: 'POST', cache: 'no-store', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: out.pathname + out.search }) })
     .then((res) => (res && res.ok ? res.json() : null)).catch(() => null)
     .then((b) => {
+      if (done) return;
+      done = true;
+      clearTimeout(giveUp);
       if (b && b.needed === false) DL_KEY_NOT_NEEDED = true;
       const key = b && typeof b.key === 'string' && /^[0-9a-f]{64}$/.test(b.key) ? b.key : null;
       if (key) out.searchParams.set('bdl', key);

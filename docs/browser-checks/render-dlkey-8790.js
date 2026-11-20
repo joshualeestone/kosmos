@@ -64,7 +64,9 @@ const html = (remote) => `<!doctype html><html><head><meta charset="utf-8"><titl
 const keys = new Map();   // key -> target
 let MODERN = false;       // the board's rule: a mint from a browser that sends Sec-Fetch-Site needs no key
 let REFUSE_ASK = false;   // a board that refuses the load-time look (403)
-let LATE_NOT_NEEDED = false;   // the look said keys are needed, but a mint answers needed:false (a click before the look)
+let LATE_NOT_NEEDED = false;
+let MINT_DELAY_MS = 0;    // a slow board: the key comes back long after the click
+let MINT_HANG = false;    // a board that never answers the mint   // the look said keys are needed, but a mint answers needed:false (a click before the look)
 const seen = [];
 const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
@@ -72,7 +74,7 @@ const server = http.createServer((req, res) => {
   if (u.pathname === '/api/download-key' && req.method === 'POST') {
     let body = '';
     req.on('data', (c) => { body += c; });
-    req.on('end', () => {
+    req.on('end', async () => {
       let b = {};
       try { b = JSON.parse(body) || {}; } catch { b = {}; }
       if (b.ask === true) {   // the page's one look at load: no key made
@@ -84,6 +86,8 @@ const server = http.createServer((req, res) => {
       }
       const p = typeof b.path === 'string' ? b.path : '';
       seen.push({ mint: p });
+      if (MINT_HANG) return;   // never answered
+      if (MINT_DELAY_MS) await new Promise((r) => setTimeout(r, MINT_DELAY_MS));
       if ((MODERN && req.headers['sec-fetch-site']) || LATE_NOT_NEEDED) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"ok":true,"key":null,"needed":false}'); return; }
       if (p.startsWith('/api/agent/max/export')) { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"an older board"}'); return; }
       const k = crypto.randomBytes(32).toString('hex');
@@ -108,8 +112,8 @@ const server = http.createServer((req, res) => {
   res.writeHead(404); res.end();
 });
 
-async function saved(page, act) {
-  const dl = page.waitForEvent('download', { timeout: 5000 }).catch(() => null);
+async function saved(page, act, timeout = 5000) {
+  const dl = page.waitForEvent('download', { timeout }).catch(() => null);
   await act();
   const d = await dl;
   if (!d) return null;
@@ -198,6 +202,21 @@ async function saved(page, act) {
       chk(l1 === 'file for /api/agent/max/export' && l2 === 'file for /api/agent/max/export' && seen.filter((x) => 'mint' in x).length === 1,
         tag + 'a mint answered "not needed" stops the next click asking', JSON.stringify({ l1, l2, seen }));
       LATE_NOT_NEEDED = false;
+
+      // A slow key (6.5 s): the download starts long after the click's own moment, and still saves.
+      MINT_DELAY_MS = 6500;
+      await page.goto(base + '/remote');
+      seen.length = 0;
+      const slow = await saved(page, () => page.click('a.diag'), 12000);
+      chk(slow === 'file for /api/diagnostics' && seen.some((x) => x.get === '/api/diagnostics' && x.ok), tag + 'a key that comes 6.5 s after the click still saves the file', JSON.stringify({ slow, seen }));
+      MINT_DELAY_MS = 0;
+
+      // A board that never answers the mint: after 8 s the link opens as it always did (here, the plain address).
+      MINT_HANG = true;
+      seen.length = 0;
+      const hang = await saved(page, () => page.click('a.exp'), 12000);
+      chk(hang === 'file for /api/agent/max/export' && seen.some((x) => x.get === '/api/agent/max/export' && !x.key), tag + 'a mint that never answers: after 8 s the link opens as before', JSON.stringify({ hang, seen }));
+      MINT_HANG = false;
 
       await page.goto(base + '/local');
       seen.length = 0;

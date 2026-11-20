@@ -1258,7 +1258,7 @@ function downloadKeyTarget(rawUrl) {
 }
 /* The requests a key opened, at the gate. A key opens the gate and nothing after it: boardTokenOk still answers no for
    such a request, so a handler that later asks it (none on the five routes does today) refuses, failing closed. Used
-   by downloadKeyOk (one redeem per request) and refuseDownload (a refusal saves nothing). */
+   by downloadKeyOk (one redeem per request), refuseDownload and the attachment route (a refusal saves nothing). */
 const DL_KEY_REQS = new WeakSet();
 /* A GET that carries a literal bdl= for one of the download routes (not a ?check=1 look): the browser's own keyed
    download. Refused, it gets refuseDownload's 204 with nothing to save, never a JSON body WebKit could save as the
@@ -1270,7 +1270,7 @@ function keyedDownloadAttempt(req) {
   if (qAt < 0 || !/(?:^|&)bdl=/.test(raw.slice(qAt + 1))) return false;
   return downloadKeyTarget(raw) !== null;
 }
-/* Redeems the request's key, once per request (the gate and the handlers below may ask boardTokenOk more than once). */
+/* Redeems the request's key, once per request (the gate is its only caller; DL_KEY_REQS makes a second ask harmless). */
 function downloadKeyOk(req) {
   if (!req || req.method !== 'GET') return false;
   if (DL_KEY_REQS.has(req)) return true;
