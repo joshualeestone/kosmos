@@ -40,3 +40,8 @@ not, the room still renders the formatting, so the cost is a plainer message, no
 ## Next
 Review rounds (alternate models, max 8, last whole-branch), then wait for slices 1 and 2 to merge, rebase,
 regenerate doctrine-past, validate, PR.
+
+## Round 1 (sonnet, blind): nothing above nit
+- nit 2 taken: "Two things it does not do fail silently" had "it" read as the guide; now "Two things fail silently". Re-pinned 61, doctrine-past rows regenerated (draft 61 rows kept, as the generator keeps rows). 141 files, 4,365 tests, 0 failed.
+- nit 1 not taken, MEASURED false: main's v59 holds the exact marker line, and movedPost keys on the line, not the version.
+- nit 3 not taken: the reply route stays in prose; listing the old example's opener as removed is accurate.
