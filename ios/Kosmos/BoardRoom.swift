@@ -1290,11 +1290,14 @@ enum NewProject {
     enum Result: Equatable {
         case made(id: String)
         case refused(String)
+        // kosmos#8791: Kosmos+ wants a fresh sign-in first (a 403 with code step_up_required), as NewAgent.Result.
+        case signInAgain(String)
         // No answer came back (none at all, or a server error with no sentence of the Mac's), so it may have been made.
         case unknown
     }
 
     static let fallback = "We could not make that project."
+    static let stepUpWords = "This needs a fresh sign-in first. Sign in again, and Kosmos tries it once more."
     static let unsureWords = "Kosmos could not tell whether that went through. Look in Projects before you try again."
 
     // Any 2xx with the new project's id is made; otherwise the Mac's own sentence; a server error with none, or no answer,
@@ -1307,7 +1310,9 @@ enum NewProject {
             if let id = obj?["id"] as? String, Board.isProjectId(id) { return .made(id: id) }
             return .unknown   // made, by its status, but with no id to open it by: say so rather than guess
         }
-        if let e = obj?["error"] as? String, !trimmed(e).isEmpty { return .refused(e) }
+        let said = (obj?["error"] as? String).flatMap { trimmed($0).isEmpty ? nil : $0 }
+        if status == 403, Board.isStepUpRequired(body) { return .signInAgain(said ?? stepUpWords) }
+        if let said { return .refused(said) }
         return status >= 500 ? .unknown : .refused(fallback)
     }
 

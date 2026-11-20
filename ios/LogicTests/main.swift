@@ -5008,7 +5008,7 @@ check(SignIn.accountEmail(status: 200, json: ["email": "  ada@example.com\n"]) =
 check(SignIn.accountEmail(status: 200, json: ["email": "not-an-address"]) == nil && SignIn.accountEmail(status: 200, json: ["email": ""]) == nil, "account email: only an address counts")
 check(SignIn.accountEmail(status: 401, json: ["email": "ada@example.com"]) == nil && SignIn.accountEmail(status: nil, json: nil) == nil && SignIn.accountEmail(status: 200, json: [String: Any]()) == nil, "CONTROL: no 2xx, no answer or no field gives nil (then no inline code step)")
 // kosmos#8791/#8795: the fresh sign-in's words, its no-loop rule, and the one account change the sheet may stay through.
-check(SignIn.Fresh.offer(email: "ada@example.com") == "This needs you to sign in again. We will send a code to ada@example.com.", "fresh: Mona Lisa's words, with the account's address")
+check(SignIn.Fresh.offer(email: "ada@example.com") == "This needs a fresh sign-in. We will send a code to ada@example.com.", "fresh: Mona Lisa's words (her trim), with the account's address")
 check([SignIn.Fresh.offer(email: "a@b.c"), SignIn.Fresh.still, SignIn.Fresh.noAddress, SignIn.Fresh.signedOut, SignIn.Fresh.notHere,
        SignIn.Fresh.edited].allSatisfy { !$0.contains("\u{2014}") && !$0.isEmpty }, "fresh: no em dash in any of its words")
 check(SignIn.Fresh.afterRefusal(alreadyFresh: false) == .offer, "fresh: a first step-up refusal offers the fresh sign-in")
