@@ -62,5 +62,8 @@ question, recorded, not decided here.
 3. One admin, not two: starting a hand-over always needed one admin, and an admin can already remove members.
 4. Replay: a record from an EARLIER hand-over of the same member (its own id, agents, successor) can be replayed within
    30 days; the worst it does is complete a hand-over an admin once approved.
-5. The receiver does not check that the record's `to` is itself (the pack is sealed to its own one-time key, which checkSeal
+5. (review 1) A pack's takenAt is the packing key's own claim: a stolen computer could date a pack before its own
+   revocation. It then also needs a breached coordinator to name its key and grant its uploads. Closing it needs a pack
+   time from outside the packing computer (a later card).
+6. The receiver does not check that the record's `to` is itself (the pack is sealed to its own one-time key, which checkSeal
    tied to the successor's computer on the other side).

@@ -303,13 +303,16 @@ async function receive(part, org, kp, deps) {
   // Kosmos+'s sender_member. Checked before anything is fetched.
   const nowSec = Math.floor(((d.now || Date.now)()) / 1000);
   const hs = require('./handoverseal');
-  const rec = hs.checkRecordSender({ org, id: part.id, agents: part.agents, record: part.record, now: nowSec });
+  // Its age is asked after the pack opens, at the pack's own time (ageAt null here).
+  const rec = hs.checkRecordSender({ org, id: part.id, agents: part.agents, record: part.record, now: nowSec, ageAt: null });
   if (!rec.ok) return rec.wait ? { ok: false, tieWait: true, because: rec.because } : fail(rec.because);
-  // Before fetching anything: the history at this computer's clock, acted on only when it WAITS (escrowd not reachable, a
-  // stale history, the key not listed yet). Passing ends that wait (waitSince). Its other refusals are not final here: a
-  // key revoked since the pack still opens it, so the full check is below, at the pack's own time.
+  // Before fetching anything: the history at this computer's clock. A wait (escrowd not reachable, a stale history, the
+  // key not listed yet) waits; a refusal no time could change (another member's or company's history, not escrowd's, a
+  // backfilled key) is final now, before up to 256 MB is fetched. Only "revoked" depends on the time asked: a key revoked
+  // since the pack still opens it, so that one is left to the check below, at the pack's own time. Passing ends the wait.
   const pre = hs.checkSender({ org, member: rec.from, senderPub, history: part.sender_history, at: nowSec, now: nowSec });
   if (!pre.ok && pre.wait) return { ok: false, tieWait: true, because: pre.because };
+  if (!pre.ok && !pre.revoked) return fail(pre.because);
   if (kp && Number.isSafeInteger(kp.waitSince)) { try { updateKey(part.id, d.root, { waitSince: null }); } catch { /* cleared next pass */ } }
   const m = part.manifest || {};
   const prefix = `handover/${org}/${part.id}/`;
@@ -335,13 +338,18 @@ async function receive(part, org, kp, deps) {
   // WAS MADE: the manifest's own takenAt, which the packing key signed (openManifest checked that signature), never a
   // time from Kosmos+. It may be no earlier than the admin's start (escrowd's issuedAt, so a key can never be used to
   // backdate a pack before the hand-over existed) and no later than this computer's clock. A key revoked AFTER the pack
-  // (an off-boarded computer) still opens it; one revoked before does not. checkSender's wait (escrowd not reachable, a
+  // (an off-boarded computer) still opens it; one revoked before does not.
+  // KNOWN (review 1): takenAt is the packing key's own claim. Whoever holds that key after the start (a stolen computer)
+  // can date a pack before its revocation; it then also needs a breached Kosmos+ to name its key as the sender and
+  // grant its uploads (Kosmos+ refuses a retired computer's requests). Closing it needs a pack time from outside the
+  // packing computer; recorded on kosmos#8764. checkSender's wait (escrowd not reachable, a
   // stale history, an enrolment not finished) is taken above, before the fetch.
   const takenMs = typeof opened.takenAt === 'string' ? Date.parse(opened.takenAt) : NaN;
   const packedAt = Number.isFinite(takenMs) ? Math.floor(takenMs / 1000) : null;
   if (packedAt === null) return fail('the pack does not say when it was made');
   if (packedAt < rec.issuedAt - PACK_SKEW_SECS) return fail('the pack says it was made before the hand-over was started');
   if (packedAt > nowSec + PACK_SKEW_SECS) return fail('the pack says it was made later than this computer\'s clock');
+  if (packedAt - rec.issuedAt > hs.RECORD_MAX_AGE_SECS) return fail('the pack was made more than a month after the hand-over was started; an admin has to start it again');
   // The same history passed the check above, so a wait here can only be a key escrowd lists from AFTER the pack was made
   // (enrolled later, which a backdated pack would need): final.
   const tie = hs.checkSender({ org, member: rec.from, senderPub, history: part.sender_history, at: Math.min(packedAt, nowSec), now: nowSec });

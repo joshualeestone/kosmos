@@ -77,8 +77,10 @@ function coordinator(b, id) {
   const rec = { id, state: 'requested', seal_pub: null, manifest: null, agents: ['Ledger'] };
   const calls = [];
   let n = 0;
+  // kosmos#8764: the leaving computer's clock for its grants, when a test packs at another time (null: the real clock).
+  const clock = { ms: null };
   const urlOf = (key, signed) => {
-    const expMs = Date.now() + 15 * 60 * 1000, at = Math.floor(expMs / 1000) * 1000 - 15 * 60 * 1000;
+    const expMs = (clock.ms || Date.now()) + 15 * 60 * 1000, at = Math.floor(expMs / 1000) * 1000 - 15 * 60 * 1000;
     return `${b.base}/bucket/${key.split('/').map(encodeURIComponent).join('/')}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIDTEST%2F20261119%2Fus-east-2%2Fs3%2Faws4_request&X-Amz-Date=${amzDate(at)}&X-Amz-Expires=900&X-Amz-SignedHeaders=${encodeURIComponent(signed)}&X-Amz-Signature=00`;
   };
   const sender = crypto.generateKeyPairSync('ed25519');
@@ -114,17 +116,17 @@ function coordinator(b, id) {
   /* The leaving computer's half, through the real snapshot. */
   const send = async (method, route, body) => {
     if (route === up.HANDOVER_GRANT_ROUTE) {
-      const expMs = Date.now() + 15 * 60 * 1000;
+      const expMs = (clock.ms || Date.now()) + 15 * 60 * 1000;
       return { ok: true, data: { expires_at: iso(expMs), uploads: body.chunks.map((c) => { const key = `${prefix}c${++n}`; return { key, url: urlOf(key, 'content-length;content-md5;host;if-none-match'), headers: { 'content-md5': c.md5, 'if-none-match': '*' } }; }) } };
     }
     if (route === up.HANDOVER_MANIFEST_ROUTE) {
       const key = `${prefix}manifest`;
       rec.state = 'packed'; rec.manifest = { key, sha256: body.sha256, size: body.size };
-      return { ok: true, data: { expires_at: iso(Date.now() + 15 * 60 * 1000), upload: { key, url: urlOf(key, 'content-length;host;if-none-match;x-amz-checksum-sha256'), headers: { 'x-amz-checksum-sha256': body.sha256, 'if-none-match': '*' } } } };
+      return { ok: true, data: { expires_at: iso((clock.ms || Date.now()) + 15 * 60 * 1000), upload: { key, url: urlOf(key, 'content-length;host;if-none-match;x-amz-checksum-sha256'), headers: { 'x-amz-checksum-sha256': body.sha256, 'if-none-match': '*' } } } };
     }
     return { ok: false, because: 'refused' };
   };
-  return { rec, calls, recv, send, sender, prefix };
+  return { rec, calls, recv, send, sender, prefix, clock };
 }
 
 function agentFolder(t) {
@@ -136,11 +138,11 @@ function agentFolder(t) {
   return dir;
 }
 
-async function pack(c, dir) {
+async function pack(c, dir, atMs) {
   const pk = Buffer.from(c.rec.seal_pub, 'base64');
   const nk = crypto.randomBytes(32);
   const r = await snap.takeSnapshot({ roots: [{ name: 'workers/ledger', path: dir }], memberPk: pk, namingKey: nk, namingKeyId: require('./backupkeys').namingKeyId(nk),
-    deviceKey: c.sender.privateKey, ctx: snap.handoverContext(ORG, c.rec.id), handover: { id: c.rec.id, prefix: c.prefix } }, { macRequest: c.send, fetch, sleep: async () => {} });
+    deviceKey: c.sender.privateKey, ctx: snap.handoverContext(ORG, c.rec.id), handover: { id: c.rec.id, prefix: c.prefix } }, Object.assign({ macRequest: c.send, fetch, sleep: async () => {} }, atMs ? { now: () => atMs } : {}));
   assert.equal(r.ok, true, r.because);
 }
 
@@ -212,8 +214,8 @@ test('refusals end the hand-over as failed, once, and leave no Kosmos: a foreign
     // kosmos#8733: the packing key checked against escrowd's signed history for the LEAVING member.
     ['a packing key escrowd lists for the leaving member but revoked', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-leave', c.sender.publicKey, null, [{ kind: 'revoke', key: seal.keyHex(c.sender.publicKey), at: 1 }]); }, /no longer the leaving member's/],
     ['a history for another member', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-other', c.sender.publicKey); }, /names a different member/],
-    // Review 5: revoked an hour ago, so only a check AT NOW refuses it (a check at an earlier time, which #8764 must
-    // sign, not take from the coordinator, would let it open).
+    // Review 5: revoked an hour ago, and this pack was made just now, so after the revocation: refused at the pack's own
+    // signed time (kosmos#8764), as it was at now.
     ['a packing key revoked an hour ago', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-leave', c.sender.publicKey, null, [{ kind: 'revoke', key: seal.keyHex(c.sender.publicKey), at: Math.floor(Date.now() / 1000) - 3600 }]); }, /no longer the leaving member's/],
     ['a backfilled packing key (escrowd never upgrades it)', (c) => { c.rec.sender_history = signedHistory(ORG, 'm-leave', c.sender.publicKey, { backfill: true }); }, /carried over from before/],
     ['manifest not the recorded one', (c) => { c.rec.manifest.sha256 = sha256b(Buffer.from('other')); }, /not the one Kosmos\+ recorded/],
@@ -951,13 +953,15 @@ test('kosmos#8764: the leaving member is escrowd\'s record\'s, and the packing k
   const b = await bucket();
   t.after(() => b.close());
   /* One hand-over packed for real, then received once with `tweak` applied to /mine's receive row. */
-  async function run(id, tweak, gapMs = 0) {
+  async function run(id, tweak, gapMs = 0, packAtMs) {
     const root = fresh(t, 'data'), base = fresh(t, 'base');
     const c = coordinator(b, id);
     const deps = { org: () => ORG, deviceKey: SUCC_DK, macRequest: c.recv, root, base, member: 'Ann Lee', fetch };
     const st = stateNew();
     await hr.tick(st, deps);
-    await pack(c, agentFolder(t));
+    c.clock.ms = packAtMs || null;
+    await pack(c, agentFolder(t), packAtMs);
+    c.clock.ms = null;
     if (gapMs) await new Promise((res) => setTimeout(res, gapMs));   // so "after the pack" is a later second than it
     const recv = async (m, route, body) => {
       const r = await c.recv(m, route, body);
@@ -984,13 +988,48 @@ test('kosmos#8764: the leaving member is escrowd\'s record\'s, and the packing k
     const { r } = await run('hother', (c) => ({ record: signedRecord('hother', c.rec.agents, { from: 'm-someone' }), sender_history: signedHistory(ORG, 'm-someone', c.sender.publicKey) }));
     assert.equal(r.ok, true, 'escrowd lists this key for m-someone too, so the RECORD decides whose it is');
   }
-  // The pack is made after the admin's start; a record issued an hour AFTER the pack says the pack predates the hand-over.
+  // A record dated an hour ahead of this clock waits (escrowd's clock or ours may be off), and opens nothing.
   {
-    const { r, c } = await run('hlate', (c) => ({ record: signedRecord('hlate', c.rec.agents, { issuedAt: Math.floor(Date.now() / 1000) + 3600 }) }));
+    const { r, c } = await run('hahead', (c) => ({ record: signedRecord('hahead', c.rec.agents, { issuedAt: Math.floor(Date.now() / 1000) + 3600 }) }));
     assert.equal(r.ok, false);
-    // A record dated an hour ahead of this clock waits first (escrowd's clock or ours may be off), never opens.
     assert.match(r.because, /dated ahead/);
     assert.notEqual(c.rec.state, 'done');
+  }
+  const nowS = () => Math.floor(Date.now() / 1000);
+  // The pack's signed time must be no earlier than the admin's start: a pack dated an hour before it is final.
+  {
+    const { r, c } = await run('hbefore', (c) => ({ record: signedRecord('hbefore', c.rec.agents, { issuedAt: nowS() - 60 }) }), 0, Date.now() - 3600 * 1000);
+    assert.equal(r.ok, false);
+    assert.match(r.because, /made before the hand-over was started/);
+    assert.equal(c.rec.state, 'failed');
+  }
+  // ... and no later than this computer's clock.
+  {
+    const { r, c } = await run('hfuture', () => ({}), 0, Date.now() + 3600 * 1000);
+    assert.equal(r.ok, false);
+    assert.match(r.because, /later than this computer's clock/);
+    assert.equal(c.rec.state, 'failed');
+  }
+  // A packing key escrowd lists only from AFTER the pack was made: final (a backdated pack would need exactly this).
+  {
+    const { r, c } = await run('henrolled', (c) => ({ sender_history: signedHistory(ORG, 'm-leave', c.sender.publicKey, { at: nowS() - 60 }),
+      record: signedRecord('henrolled', c.rec.agents, { issuedAt: nowS() - 4 * 3600 }) }), 0, Date.now() - 3600 * 1000);
+    assert.equal(r.ok, false);
+    assert.match(r.because, /was not the leaving member's when the pack was made/);
+    assert.equal(c.rec.state, 'failed');
+  }
+  // The record's age is measured at the PACK's time: started 40 days ago, packed 29 days after, opens today.
+  {
+    const start = nowS() - 40 * 86400;
+    const { r } = await run('hslow', (c) => ({ record: signedRecord('hslow', c.rec.agents, { issuedAt: start }) }), 0, (start + 29 * 86400) * 1000);
+    assert.equal(r.ok, true, r.because);
+  }
+  // CONTROL for it: packed 31 days after the start, it is refused.
+  {
+    const start = nowS() - 40 * 86400;
+    const { r } = await run('hstale', (c) => ({ record: signedRecord('hstale', c.rec.agents, { issuedAt: start }) }), 0, (start + 31 * 86400) * 1000);
+    assert.equal(r.ok, false);
+    assert.match(r.because, /more than a month after the hand-over was started/);
   }
   // THE FIX FOR "now": the packing key revoked AFTER the pack (an off-boarded computer) still opens it ...
   {

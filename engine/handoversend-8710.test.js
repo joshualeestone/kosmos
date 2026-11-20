@@ -688,12 +688,11 @@ test('kosmos#8764: the successor and the agents come from escrowd\'s record, and
     const other = crypto.generateKeyPairSync('ed25519');
     const forged = (p) => { const r = signedRecord(p, t, { to: 'm-colleague' }); r.signature = crypto.sign(null, seal.encodeRecord(r), other.privateKey).toString('base64url'); return r; };
     const finals = [
+      ['this computer retired from the leaving member', () => ({ own_history: (() => { const entries = [{ kind: 'enrol', key: seal.keyHex(LEAVER.publicKey), at: 0, backfill: false }, { kind: 'revoke', key: seal.keyHex(LEAVER.publicKey), at: 1 }]; return { org: 'org1', member: 'm-leave', entries, issuedAt: t, signature: crypto.sign(null, dkh.encodeHead('org1', 'm-leave', entries, t), ESCROWD.privateKey).toString('base64url') }; })() }), /no longer the leaving member's/],
       ['a record not signed by escrowd', (p) => ({ record: forged(p) }), /signature on the hand-over record did not check/],
       ['a record for another hand-over', (p) => ({ record: signedRecord(p, t, { id: 'ho-other' }) }), /for a different hand-over/],
       ['a record for another company', (p) => ({ record: signedRecord(p, t, { org: 'org2' }) }), /for a different hand-over/],
       ['more agents than the admin approved', (p) => ({ agents: ['Ledger', 'Payroll'], record: signedRecord(p, t) }), /not the ones your company's admin approved/],
-      ['a record from a colleague, not this computer\'s member', (p) => ({ record: signedRecord(p, t, { from: 'm-colleague' }),
-        own_history: signedHistory('org1', 'm-colleague', colleague.publicKey, t) }), /not for the member this computer belongs to/],
       ['a record over a month old', (p) => ({ record: signedRecord(p, t - seal.RECORD_MAX_AGE_SECS - 1) }), /too old/],
       ['a record that is not one', () => ({ record: { org: 'org1' } }), /not in the form escrowd signs/],
     ];
@@ -707,6 +706,8 @@ test('kosmos#8764: the successor and the agents come from escrowd\'s record, and
     }
     const waits = [
       ['no record yet (no admin has signed the start)', () => ({ record: null }), /not been signed by one of your company's admins/],
+      ['a record from a colleague, not this computer\'s member', (p) => ({ record: signedRecord(p, t, { from: 'm-colleague' }),
+        own_history: signedHistory('org1', 'm-colleague', colleague.publicKey, t) }), /not enrolled as/],
       ['escrowd could not give this computer\'s own history', () => ({ own_history: null }), /could not get its device keys/],
     ];
     for (const [why, patch, re] of waits) {

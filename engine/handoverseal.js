@@ -130,7 +130,10 @@ function readRecord(x) {
   if (!asked || asked.length !== signed.length || asked.some((a, i) => a !== signed[i])) return no('the agents to pack are not the ones your company\'s admin approved');
   if (!Number.isSafeInteger(x.now) || x.now < 0) return no('the hand-over record was checked against a clock that is not a time');
   if (c.issuedAt > x.now + RECORD_SKEW_SECS) return later('the hand-over record is dated ahead of this computer\'s clock');
-  if (x.now - c.issuedAt > RECORD_MAX_AGE_SECS) return no('the hand-over record is too old; an admin has to start the hand-over again');
+  // The age is asked at x.ageAt when given (the receiver: the pack's own time, after it opens), else at now; null skips
+  // it (the receiver before it has opened the pack). A successor offline for a month still receives a pack made in time.
+  const ageAt = x.ageAt === undefined ? x.now : x.ageAt;
+  if (ageAt !== null && ageAt - c.issuedAt > RECORD_MAX_AGE_SECS) return no('the hand-over record is too old; an admin has to start the hand-over again');
   return { ok: true, c };
 }
 
@@ -145,7 +148,11 @@ function checkRecord(o) {
     if (x.ownHistory == null) return later('this computer could not be checked yet: Kosmos+ could not get its device keys from the key service');
     const h = devkeyhist.verify(x.ownHistory, { org: x.org, member: c.from, now: x.now });
     if (!h.ok) return (STALE.test(h.because) ? later : no)(`this computer could not be checked: ${h.because}`);
-    if (!devkeyhist.keyAt(h.keys, x.ownKeyHex, x.now)) return no('the hand-over record is for a colleague, not for the member this computer belongs to');
+    // Listed and retired: final. Not listed (yet): an enrolment not finished may still list it, so wait; a record for a
+    // colleague never will, and the bounded wait ends it.
+    const mine = entryAt(h.keys, x.ownKeyHex, x.now);
+    if (mine.revoked) return no('this computer is no longer the leaving member\'s, so it cannot hand their agents over');
+    if (mine.absent) return later('the hand-over record is for a member this computer is not enrolled as (yet): it is for a colleague, or this computer\'s enrolment is not finished');
     return { ok: true, to: c.to };
   } catch { return no('the hand-over record could not be checked'); }
 }
@@ -188,8 +195,9 @@ function checkSender(o) {
     if (!h.ok) return (STALE.test(h.because) ? later : no)(`the computer that packed these agents could not be checked: ${h.because}`);
     const at = entryAt(h.keys, hex, x.at);
     if (at.absent) return later('the computer that packed these agents has not been enrolled by your company\'s admins yet, or the pack did not come from the leaving member\'s computer');
-    // Revoked at the time asked (the pack's time): the computer was retired before it packed.
-    if (at.revoked) return no('the computer that packed these agents is no longer the leaving member\'s');
+    // Revoked at the time asked. `revoked` marks the one refusal that depends on the time asked, so the receiver's check
+    // before it fetches (at now) can leave it to the check at the pack's own time.
+    if (at.revoked) return Object.assign(no('the computer that packed these agents is no longer the leaving member\'s'), { revoked: true });
     if (at.e.backfill !== false) return no('the computer that packed these agents was only carried over from before your company\'s admins enrolled computers, so it has to be enrolled again before it can hand agents over');
     return { ok: true };
   } catch { return no('the computer that packed these agents could not be checked'); }

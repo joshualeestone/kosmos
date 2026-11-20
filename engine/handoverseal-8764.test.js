@@ -51,7 +51,6 @@ test('every substitution is refused, and says whether it may pass later', () => 
     ['another company', { org: 'org2', ownHistory: history('m-leave', ME.publicKey) }, /different hand-over/],
     ['fewer agents asked than approved', { agents: ['helper'] }, /not the ones/],
     ['other agents asked', { agents: ['helper', 'payroll'] }, /not the ones/],
-    ['this computer is not the record\'s from', { ownKeyHex: seal.keyHex(stranger.publicKey) }, /not for the member this computer belongs to/],
     ['a history for another member passed as our own', { ownHistory: history('m-succ', ME.publicKey) }, /could not be checked: the device key history names a different member/],
     ['over a month old', { now: T + seal.RECORD_MAX_AGE_SECS + 1, ownHistory: history('m-leave', ME.publicKey, T + seal.RECORD_MAX_AGE_SECS) }, /too old/],
     ['not a record at all', { record: 'nope' }, /not in the form/],
@@ -69,6 +68,8 @@ test('every substitution is refused, and says whether it may pass later', () => 
     ['dated ahead of this clock', { now: T - 3600 }, /dated ahead/],
     ['no own history', { ownHistory: null }, /could not get its device keys/],
     ['an own history too old', { ownHistory: history('m-leave', ME.publicKey, T - 2 * 86400) }, /too old to trust/],
+    // A record for a colleague, or this computer's enrolment not finished: the same state, waited on, bounded by the tick.
+    ['this computer is not (yet) the record\'s from', { ownKeyHex: seal.keyHex(stranger.publicKey) }, /not enrolled as/],
   ];
   for (const [why, over, re] of waits) {
     const r = ask(over);
