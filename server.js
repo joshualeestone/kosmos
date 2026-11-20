@@ -5740,6 +5740,13 @@ const REMOTE_STEP_UP_RECENT = Object.freeze({
   signInAgain: true,
   via: 'logout',
 });
+/* The same, through a connector that serves /_kosmos/signin?fresh=1 (it lists fresh-signin), whose button asks the
+   sign-in site for a new sign-in in one press, as REMOTE_STEP_UP_SIGNIN does. */
+const REMOTE_STEP_UP_RECENT_SIGNIN = Object.freeze({
+  code: 'remote_step_up',
+  error: 'From a remote session this needs a sign-in from the last few minutes. Press Sign in again at the foot of the page, sign in with your email code and authenticator code, then try again within 10 minutes. No Sign in again there? Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, then sign in again.',
+  signInAgain: true,
+});
 /* A sign-in that the gate says happened more than a minute AHEAD of this clock: signing in again cannot help, the
    clocks disagree, so it is told apart (review iteration 8). */
 const REMOTE_STEP_UP_CLOCK = Object.freeze({
@@ -5775,7 +5782,7 @@ function remoteStepUpRefusal(req, pathname, nowSecs, caps) {
   const { second, iat } = remoteSessionHeaders(req.headers);
   if (second && iat !== null && iat - nowSecs > 60) return REMOTE_STEP_UP_CLOCK;
   // A full sign-in that is only too OLD for one of the time-bounded routes: its own sentence, which says the time.
-  if (recentOnly !== undefined && second && iat !== null) return REMOTE_STEP_UP_RECENT;
+  if (recentOnly !== undefined && second && iat !== null) return said.has('fresh-signin') ? REMOTE_STEP_UP_RECENT_SIGNIN : REMOTE_STEP_UP_RECENT;
   /* A UI hint, not a trust decision (anyone can write these headers; they only choose which sentence a refusal
      carries). The button only for a request the Kosmos+ gate forwarded (it wrote a session header), not one through a proxy the
      person put in front of the board, which never serves /_kosmos/signin (review iteration 3). A gate session from
@@ -31596,7 +31603,7 @@ module.exports = { _setStartedProofPlatformForTest, _setStartWaitForTest,   // k
   _sendJsonForTest: sendJson, _sendTextForTest: sendText, _refuseDownloadForTest: refuseDownload, // kosmos#7686: never a second head, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
-  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_STARTING /* kosmos#8728 */, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_RECENT, REMOTE_RECENT_SECS, REMOTE_RECENT_ONLY, // kosmos#6595 R01 step-up, #6616, #7625, #8785
+  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_STARTING /* kosmos#8728 */, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_RECENT, REMOTE_STEP_UP_RECENT_SIGNIN, REMOTE_RECENT_SECS, REMOTE_RECENT_ONLY, // kosmos#6595 R01 step-up, #6616, #7625, #8785
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   claudeObservationsFor, overlayStuckCards, // #7212 slice 3 reviews 6-7: the badge's evidence and the route's step, for their test
   safeRoster, // #5811: its rows carry no geminiSeen, for its test

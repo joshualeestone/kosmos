@@ -51,3 +51,10 @@ stop one; it keeps those rare acts behind a recent sign-in in the page and the a
 ends a stolen session is the gate (expiry, Log out, Sign out everywhere, Remove). Kept because it is cheap and those
 acts are rare. Deferred: REMOTE_STEP_UP_RECENT uses the log-out button even where a connector lists fresh-signin
 (none does today).
+
+## Review rounds 6 and 7
+- Round 6 FIXED what round 4 deferred: through the gate the Sign in again button now needs the second factor vouched,
+  whichever connector; a session without one gets the plain refusal. (The round 4 "Deferred" line above is superseded.)
+- Round 7: the too-old refusal picks its button by connector, like the others (REMOTE_STEP_UP_RECENT_SIGNIN where the
+  connector lists fresh-signin). Federation join, invite and own-code, and webhooks, keeping the bound is my product
+  call, beyond the ruling's wording; stated on kosmos#8785 for Josh to overrule.

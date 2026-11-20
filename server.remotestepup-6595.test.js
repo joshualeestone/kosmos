@@ -35,7 +35,7 @@ process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_RECENT, REMOTE_RECENT_SECS, REMOTE_RECENT_ONLY } = require('./server');
+const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_RECENT, REMOTE_STEP_UP_RECENT_SIGNIN, REMOTE_RECENT_SECS, REMOTE_RECENT_ONLY } = require('./server');
 /* kosmos#7625: a stale request the gate forwarded (it wrote a session header) is offered Sign in again by logging out;
    one with no gate header (a proxy the owner set up), or with no second factor (signing in again cannot help:
    review 1), keeps the plain refusal. */
@@ -201,6 +201,13 @@ test('kosmos#8785: the identity-change routes still need a RECENT full sign-in; 
     }
   }
   assert.match(REMOTE_STEP_UP_RECENT.error, /within 10 minutes/);
+  // Through a connector that serves the one-press fresh sign-in, the same refusal uses that button (no via: logout).
+  const both = new Set(['session-headers', 'fresh-signin']);
+  const viaFresh = remoteStepUpRefusal({ method: 'POST', headers: full(24 * 3600) }, '/api/org/enroll', t, both);
+  assert.equal(viaFresh, REMOTE_STEP_UP_RECENT_SIGNIN);
+  assert.equal(viaFresh.signInAgain, true);
+  assert.equal('via' in viaFresh, false);
+  assert.match(viaFresh.error, /within 10 minutes/);
   assert.equal(REMOTE_STEP_UP_RECENT.signInAgain, true);
   // CONTROL: the same day-old sign-in makes an agent, updates, enters a key and makes a backup key: the owner's own work.
   const post = (headers) => ({ method: 'POST', headers });
