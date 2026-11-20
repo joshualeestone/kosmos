@@ -84,8 +84,9 @@ function keyFile(id, root) { return path.join(keyDir(root), `${id}.key.json`); }
 
 /* Kept beside the key: received / restoring (a Kosmos id), expect (the agent folders a restore produced, noted before
    its finish), attempts (a count), missingSince / outageSince / waitSince (ms, when the wait began; waitSince is the
-   packing key's check waiting, kosmos#8733), final (why it ended). */
-const META = ['received', 'restoring', 'expect', 'attempts', 'missingSince', 'outageSince', 'waitSince', 'final'];
+   packing key's check waiting, kosmos#8733; aheadSince is a pack dated ahead of this clock waiting, kosmos#8764, kept
+   apart because the check before the fetch clears waitSince on every pass), final (why it ended). */
+const META = ['received', 'restoring', 'expect', 'attempts', 'missingSince', 'outageSince', 'waitSince', 'aheadSince', 'final'];
 /* { sk, pk, ...META } from disk, null when there is none, or { problem } when there is one that cannot be used. */
 function readKey(id, root) {
   let text;
@@ -361,9 +362,11 @@ async function receive(part, org, kp, deps) {
   // reaches it within that day, so the wait ends by itself (no stored clock: the check before the fetch clears waitSince
   // on every pass, review 3). Further ahead than a day is no clock error worth waiting for: final.
   if (packedAt > nowSec + PACK_AHEAD_MAX_SECS) return fail('the pack says it was made more than a day later than this computer\'s clock');
-  if (packedAt > nowSec + PACK_SKEW_SECS) return { ok: false, tieWait: true, because: 'the pack says it was made later than this computer\'s clock' };
-  // The same history passed the check above, so a wait here can only be a key escrowd lists from AFTER the pack was made
-  // (enrolled later, which a backdated pack would need): final.
+  // Review 4: its own clock (aheadSince, which nothing before the fetch clears), and the next try at the pack's own time
+  // rather than every few minutes, so the manifest is fetched again once or twice, not every tick.
+  if (packedAt > nowSec + PACK_SKEW_SECS) return { ok: false, aheadWait: true, untilMs: (packedAt - PACK_SKEW_SECS) * 1000, because: 'the pack says it was made later than this computer\'s clock' };
+  // The history here is the one the check before the fetch read; a wait at the pack's own time can only be a key escrowd
+  // lists from AFTER the pack was made (enrolled later, which a backdated pack would need): final.
   const tie = hs.checkSender({ org, member: rec.from, senderPub, history: part.sender_history, at: Math.min(packedAt, nowSec), now: nowSec });
   if (!tie.ok) return fail(tie.wait ? 'the computer that packed these agents was not the leaving member\'s when the pack was made' : tie.because);
   const objects = opened.objects && typeof opened.objects === 'object' ? opened.objects : {};
@@ -598,6 +601,16 @@ async function tick(state, deps) {
         if (!Number.isSafeInteger(kp.missingSince)) { try { updateKey(part.id, d.root, { missingSince: now }); } catch { /* counted from now again next tick */ } }
         if (now - since >= MISSING_GRACE_MS) { if ((z = await closing(part, false, 'the pack never finished arriving'))) return z; continue; }
         state.retryAt.set(part.id, now + MISSING_RECHECK_MS);
+        last = { ok: false, id: part.id, because: r.because };
+        continue;
+      }
+      if (r.aheadWait) {
+        // kosmos#8764: a pack dated ahead of this clock. No attempt spent; bounded by its own clock, and retried when real
+        // time reaches the pack's date (at most a day: further ahead is final in receive).
+        const since = Number.isSafeInteger(kp.aheadSince) ? kp.aheadSince : now;
+        if (!Number.isSafeInteger(kp.aheadSince)) { try { updateKey(part.id, d.root, { aheadSince: now }); } catch { /* from now again */ } }
+        if (now - since >= OUTAGE_LIMIT_MS) { if ((z = await closing(part, false, `${r.because}, and that did not change for a day; your company can start the hand-over again`))) return z; continue; }
+        state.retryAt.set(part.id, Math.max(now + MISSING_RECHECK_MS, Number.isSafeInteger(r.untilMs) ? r.untilMs : 0));
         last = { ok: false, id: part.id, because: r.because };
         continue;
       }

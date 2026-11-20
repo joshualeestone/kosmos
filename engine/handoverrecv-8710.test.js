@@ -969,7 +969,9 @@ test('kosmos#8764: the leaving member is escrowd\'s record\'s, and the packing k
       return r;
     };
     const r = await hr.tick(st, Object.assign({}, deps, { macRequest: recv }));
-    return { r, c, root };
+    // Another tick later, with the same tweak (review 4: to show a wait's own clock ends it).
+    const again = () => hr.tick(stateNew(), Object.assign({}, deps, { macRequest: recv }));
+    return { r, c, root, again };
   }
   // CONTROL: unchanged, it is received.
   assert.equal((await run('hctl', () => ({}))).r.ok, true);
@@ -1005,12 +1007,21 @@ test('kosmos#8764: the leaving member is escrowd\'s record\'s, and the packing k
   }
   // ... and no later than this computer's clock.
   {
-    // A wait (round 2: either clock may be off); real time reaches it within a day (the case below bounds it).
-    const { r, c } = await run('hfuture', () => ({}), 0, Date.now() + 3600 * 1000);
+    // A wait (round 2: either clock may be off), on its own clock (review 4), retried at the pack's own time.
+    const t0 = Date.now();
+    const { r, c, root, again } = await run('hfuture', () => ({}), 0, t0 + 3600 * 1000);
     assert.equal(r.ok, false);
     assert.match(r.because, /later than this computer's clock/);
     assert.notEqual(c.rec.state, 'failed');
     assert.notEqual(c.rec.state, 'done');
+    const kept = hr.readKey('hfuture', root);
+    assert.ok(Number.isSafeInteger(kept.aheadSince), 'its own clock started');
+    assert.equal(Number.isSafeInteger(kept.waitSince), false, 'not the clock the pre-fetch check clears');
+    assert.equal(kept.attempts || 0, 0, 'no attempt spent');
+    // Its clock is not cleared by the check before the fetch: begun over a day ago, the next tick ends it.
+    hr.updateKey('hfuture', root, { aheadSince: t0 - 25 * 3600 * 1000 });
+    await again();
+    assert.equal(c.rec.state, 'failed', 'a day of an ahead-dated pack ends it');
   }
   // Review 3: dated more than a day ahead is final (its wait could otherwise never end), once.
   {
