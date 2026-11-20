@@ -15,14 +15,14 @@ report clears it, and the agent never sees that it needs one.
 ## Change
 
 In `selfreport.record`, an automatic `idle` also ends an automatic provider block (any `provider api (...)` kind)
-when the block was written by a run that has ENDED: both rows carry an `instance` (from the launch token), they
+when the block's run no longer holds a token: both rows carry an `instance` (from the launch token), they
 differ, and the token store says the old run's token is gone (`sendertoken.instanceState` = 'gone'). Two live runs of
 one agent can overlap (#570), so a sibling run's turn end must not end the other's block; 'held' or 'unknown' keeps
 it. Measured on 11-19: April's, Angel's and Splinter's token files hold only their new instances, so their crashed
 runs read 'gone'.
 What sits under the run of blocks is read with the existing #6209 rule: a block that covered a deliberate wait, or
-an unreadable record, keeps the block. For this case the walk steps over every automatic provider block, not only
-the transient ones (`lineUnderProviderBlock(sessionName, anyKind)`).
+an unreadable record, keeps the block. For this case the walk steps over that gone run's automatic provider blocks of
+any kind, and stops at another run's block (`lineUnderProviderBlock(sessionName, goneInstance)`).
 
 Unchanged: the same run keeps #6209's rule ("an api error" stays within a session); a mid-turn `working` never
 clears a provider block; deliberate blocks and automatic blocks that are not about the provider are untouched; an
@@ -52,10 +52,11 @@ restart for those agents. That is a separate question about #8548.
 
 ## Tests
 
-- `engine/selfreport.anotherrun-8782.test.js`: 10 tests (with overlapping live runs, no token file, and the mixed
-  residual added in review 1); first version 7 tests (the 11-19 case; same-run control; new-run working vs idle;
-  any kind and a run of several; a deliberate question under the block; unknown instances; deliberate and
-  non-provider blocks).
-- Mutations: main's `selfreport.js` fails 3 of the 7 (the three clear cases); the transient-only walk fails 3; without
-  the token gate, the overlap and no-token-file tests fail (2).
-- Existing: `engine/selfreport.autoclear-2456.test.js` and `engine/selfreport.test.js` pass (64 tests together).
+- `engine/selfreport.anotherrun-8782.test.js`, 11 tests: the 11-19 case; a same-run control; a new run's working
+  vs its idle; any kind, and a run of several; a deliberate question under the block; unknown instances on either
+  side; deliberate and non-provider blocks; two live runs overlapping (with a flip to gone as the control); no token
+  file; the new run's own block over the old one (the residual); a live sibling's block under the gone run's.
+- Mutation checks: main's `selfreport.js` fails the clear cases; the token check removed fails the overlap and
+  no-token-file tests.
+- The existing `engine/selfreport.autoclear-2456.test.js` and `engine/selfreport.test.js` pass.
+- Full validation on the final head.

@@ -35,6 +35,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 const { cutUnits } = require('./textcut');
+const sendertoken = require('./sendertoken');   // kosmos#8782: whether the run behind a provider block still holds a token
 
 const STATES = Object.freeze(['started', 'working', 'idle', 'needs_you', 'blocked', 'stopped']);
 
@@ -200,17 +201,14 @@ function isAnyAutoProviderBlockRow(r) {
   return !!r && r.state === 'blocked' && r.by === 'auto' && PROVIDER_BLOCK_ON.test(String(r.on || ''));
 }
 
-/* kosmos#8782: an automatic provider block of ANY kind, written by a run of the agent that has ENDED, while a different
-   run is now reporting. Both instances must be known and differ, and the token store must say the old run's token is
-   gone (sendertoken.instanceState): two live runs of one agent can overlap (#570), and one's normal turn end says
-   nothing about the other's failure. 'held' or 'unknown' keeps the block. */
-function isAutoProviderBlockFromAnEndedRun(sessionName, standing, entry) {
+/* kosmos#8782: an automatic provider block of ANY kind whose run's token is gone from the token store
+   (sendertoken.instanceState 'gone'), while a different run reports. Both instances must be known and differ. 'held'
+   (two live runs can overlap, #570) or 'unknown' keeps the block. */
+function isAutoProviderBlockFromAGoneRun(sessionName, standing, entry) {
   if (!(standing && standing.found === true && isAnyAutoProviderBlockRow(standing))) return false;
   if (typeof standing.instance !== 'string' || standing.instance === '') return false;
   if (!entry || typeof entry.instance !== 'string' || entry.instance === '' || entry.instance === standing.instance) return false;
-  try {
-    return require('./sendertoken').instanceState(sessionName, standing.instance) === 'gone';
-  } catch { return false; }
+  return sendertoken.instanceState(sessionName, standing.instance) === 'gone';
 }
 
 /* #6209 review 1: true when a line under a standing automatic provider block is a wait on a person that an automatic
@@ -225,13 +223,15 @@ function hidesWait(w) {
    just before the run (reviews 1 and 5: one window and one set of rules, so project carry, the cut-tail rule, until
    and askedAt agree): { wait } (read()'s reading, found or not), or { unknown: true } when the record cannot be read
    or the run reaches the front of a cut tail. */
-function lineUnderProviderBlock(sessionName, anyKind) {
+function lineUnderProviderBlock(sessionName, goneInstance) {
   const tail = readTail(sessionName);
   if (!tail.rows) return { unknown: true };
   const rows = tail.rows;
-  /* kosmos#8782: when the block ends because a new run reported (anyKind), the run stepped over is every automatic
-     provider block, whatever its kind; the same-run rule (#6209) still steps over only the transient kinds. */
-  const inRun = anyKind ? isAnyAutoProviderBlockRow : (r) => isAutoProviderBlock({ found: true, ...r });
+  /* kosmos#8782: given the instance of a run whose token is gone, the rows stepped over are that run's automatic
+     provider blocks of any kind (another run's block under them stops the walk); otherwise (#6209) the transient kinds. */
+  const inRun = goneInstance
+    ? (r) => isAnyAutoProviderBlockRow(r) && r.instance === goneInstance
+    : (r) => isAutoProviderBlock({ found: true, ...r });
   let i = rows.length - 1;
   while (i >= 0 && inRun(rows[i])) i -= 1;
   if (i < 0) return tail.cut ? { unknown: true } : { wait: { found: false } };
@@ -363,7 +363,7 @@ function record(sessionName, entry) {
          had replaced a wait on a person, which keeps the block (review 7);
          only for the transient kinds (TRANSIENT_PROVIDER_BLOCK), except
          (kosmos#8782) an idle from a different run when the blocking run's
-         token is gone, which ends a provider block of any kind.
+         token is gone from the token store, for a provider block of any kind.
      An AGENT re-reporting its own `needs_you` is by:'agent' (entry.auto is
      falsey), so it still lands and can always update its own question; a
      permission prompt fired when nothing is waiting still shows, because there is
@@ -375,10 +375,10 @@ function record(sessionName, entry) {
        is over and an automatic idle clears it, unless the block had replaced a wait on a person (anything but an
        automatic permission prompt) or what it replaced is unknown (an unreadable record, a run of blocks past the tail
        read): then the block stays, as before #6209. */
-    const fromAnotherRun = state === 'idle' && isAutoProviderBlockFromAnEndedRun(sessionName, standing, entry);   // kosmos#8782
-    const providerBlockEnds = state === 'idle' && (isAutoProviderBlock(standing) || fromAnotherRun);
+    const fromGoneRun = state === 'idle' && isAutoProviderBlockFromAGoneRun(sessionName, standing, entry);   // kosmos#8782
+    const providerBlockEnds = state === 'idle' && (isAutoProviderBlock(standing) || fromGoneRun);
     if (providerBlockEnds) {
-      const under = lineUnderProviderBlock(sessionName, fromAnotherRun);
+      const under = lineUnderProviderBlock(sessionName, fromGoneRun ? standing.instance : null);
       if (under.unknown) {
         return { recorded: false, skipped: 'waiting', because: 'it is blocked on the provider and Kosmos could not tell what that block replaced, so an automatic idle did not overwrite it' };
       }

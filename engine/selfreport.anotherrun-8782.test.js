@@ -141,3 +141,14 @@ test('kosmos#8782: a NEW run\'s own block over the old run\'s keeps #6209\'s sam
   assert.equal(selfreport.record(who, block('rate_limit', NEW)).recorded, true);
   assert.equal(selfreport.record(who, idle(NEW)).recorded, false, 'the new run\'s own rate_limit was cleared by its own idle');
 });
+
+test('kosmos#8782: a live sibling\'s block under the gone run\'s block stops the walk, so the block stays', () => {
+  const who = 'sibling-under-8782';
+  const SIB = 'c0c0c0c0c003';
+  liveRuns(who, [SIB, NEW]);
+  assert.equal(selfreport.record(who, block('rate_limit', SIB)).recorded, true);
+  assert.equal(selfreport.record(who, block('an api error', OLD)).recorded, true);
+  const r = selfreport.record(who, idle(NEW));
+  assert.equal(r.recorded, false, 'the gone run\'s idle-clear also swept a live sibling\'s block');
+  assert.equal(selfreport.read(who).state, 'blocked');
+});
