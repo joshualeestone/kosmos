@@ -116,3 +116,15 @@ test('a bad body is a 400, a missing check or closed task a 409, a missing task 
   assert.equal((await report(id, n, { check: 1, met: true, how: 'x' }, h)).status, 409);
   assert.deepEqual(results(id, n), [null, null]);
 });
+
+// kosmos#8828 review 5: the "no check N" refusal lists the checks' own words, so one that says "no task by that number"
+// must not turn the 409 into a 404 (the route matches the message for its not-found reading).
+test('kosmos#8828 a check whose words say "no task by that number" is still refused as 409 on a report', async (t) => {
+  const { id, n } = freshTask({ doneWhen: ['the CLI says no task by that number for 99'] });
+  const tok = agents(t);
+  const h = { 'x-kosmos-agent-token': tok.mara };
+  const r = await report(id, n, { check: 2, met: true, how: 'x' }, h);
+  assert.equal(r.status, 409, JSON.stringify(r.json));
+  assert.match(r.json.error, /so there is no check 2: 1\. 'the CLI says no task by that number for 99'$/);
+  assert.equal((await report(id, 999, { check: 1, met: true, how: 'x' }, h)).status, 404, 'CONTROL: a missing task is still a 404');
+});

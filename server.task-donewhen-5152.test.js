@@ -245,3 +245,15 @@ test('#7990 an agent cannot change one check the person set, and it cannot chang
   tasks.close(p.id, t.number);
   assert.throws(() => tasks.setDoneWhenCheck(p.id, t.number, 1, 'x', { person: true }), (e) => e.status === 409);
 });
+
+// kosmos#8828 review 5: the "no check N" refusal now lists the checks' own words, so a check that happens to say "no task
+// by that number" must not turn the 409 into a 404 (the route matches the message for its not-found reading).
+test('kosmos#8828 a check whose words say "no task by that number" is still refused as 409, not 404', async () => {
+  const p = projects.create({ name: 'Lookalike check' });
+  const t = tasks.create(p.id, { sentence: 'a task', doneWhen: ['the CLI says no task by that number for 99'], made: { via: 'screen' } });
+  const r = await setDoneWhen(p.id, t.number, { check: 2, text: 'x' }, { 'sec-fetch-site': 'same-origin' });
+  assert.equal(r.status, 409, JSON.stringify(r.json));
+  assert.match(r.json.error, /so there is no check 2: 1\. 'the CLI says no task by that number for 99'$/);
+  const missing = await setDoneWhen(p.id, 999, { check: 1, text: 'x' }, { 'sec-fetch-site': 'same-origin' });
+  assert.equal(missing.status, 404, 'CONTROL: a task that is not there still reads as not found: ' + JSON.stringify(missing.json));
+});

@@ -46,10 +46,10 @@ test('kosmos#8828: reporting a check the task does not have names the checks it 
 
 test('kosmos#8828: changing a check the task does not have names the checks it has, whole, with no double quote', () => {
   const long = 'x'.repeat(200);
-  const { id, n } = withChecks(['the page says "Saved"', long]);
+  const { id, n } = withChecks(['the page says "Saved" and \u201Cdone\u201D', long]);
   const [code, msg] = status(() => tasks.setDoneWhenCheck(id, n, 3, 'new words', { by: 'x', person: true }));
   assert.equal(code, 409);
-  assert.match(msg, /so there is no check 3: 1\. 'the page says 'Saved''; 2\. 'x{200}'$/);
+  assert.match(msg, /so there is no check 3: 1\. 'the page says 'Saved' and 'done''; 2\. 'x{200}'$/);
   // install/kosmos reads the refusal with a sed that stops at the first double quote (doneWhenProblem).
   assert.ok(!msg.includes('"'), 'a double quote in the error cuts the CLI\'s reading of it: ' + msg);
   // CONTROL: a check the task has is changed, with no error.
