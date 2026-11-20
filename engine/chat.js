@@ -3145,8 +3145,8 @@ function limitHeldVerdict(sessionName, roster, now = Date.now()) {
    look. Released when the card no longer reads auth_failed (signed in again, or restarted).
    #7369: a Claude agent is held too, but ONLY on the other class of auth_failed: the one READ (the Mac's screen line,
    Windows' stream result; stateReported false), never the reported one. Two different clearing stories decide it:
-     - reported (StopFailure's "provider api (authentication_failed)"): nothing ever writes the report that ends it for
-       Claude (plan signedout-5948.md, "Why not Claude"), so a hold would last a day. Still refused here.
+     - reported (StopFailure's "provider api (authentication_failed)"): within one run nothing writes the report that
+       ends it for Claude (plan signedout-5948.md, "Why not Claude"), so a hold would last a day. Still refused here.
      - read: while the card reads it, status kicks authprobe (`claude auth status` for the agent's own account, async,
        30 s cache) and drops the auth_failed once that reads HEALTHY (reconcileReport, #1930), and a Windows turn that
        succeeds clears it at the source. So the release needs no turn, which a held queue would never give it.
