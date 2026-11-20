@@ -5,9 +5,11 @@ B and F were proposed on #8735 as "wait for a reader". Josh's standing ruling (d
 that a decision of mine, so: build B and F, keep D.
 - B, "You do not stop": "Neither of these means you have stopped" keeps its rule (there is no command for having
   stopped, because there is no such state) and drops the history of how the report commands once read as stopping.
-- F, "Send readable messages": "What a room shows you" lists the same formats shorter, keeping the three the #2909 test
-  pins (headings written with `#`, ~~strikethrough~~, a `[label](address)` link showing its address). The "does not
-  render" paragraph (raw HTML, `>` in a room) and the shell trap are untouched.
+- F, "Send readable messages": "What a room shows you" is shorter and names fewer formats: the `---` rule is no longer
+  named (it still renders). It keeps the three the #2909 test pins (headings written with `#` to `######`,
+  ~~strikethrough~~, a `[label](address)` link showing its address) and says http:// and https:// addresses both link
+  (round 1: "a bare https:// address" claimed less than the renderer does). The "does not render" paragraph (raw HTML,
+  `>` in a room) and the shell trap are untouched.
 Doctrine 59.
 
 ## Rejected
@@ -16,7 +18,7 @@ Doctrine 59.
 - A re-read note: each removed line is replaced by a shorter line in the same section.
 
 ## Measured
-- pm brief 45,382 -> 44,987 (darwin), 395 characters. Ratchet 45,400 -> 45,000.
+- pm brief 45,382 -> 45,017 (darwin), 365 characters. Ratchet 45,400 -> 45,100.
 - 1,750 related tests, 0 failed.
 
 ## Weakest premise

@@ -284,10 +284,10 @@ const LINES = [
   'are under.** Write the formatted version from your first message, without',
   'being asked, in project rooms and in your dialogue with the person alike.',
   '',
-  '**What a room shows you:** paragraphs, headings written with `#`, **bold**,',
-  '*italic*, ~~strikethrough~~, `code` and fenced blocks, lists, tables and',
-  'emoji. A bare `https://` address becomes a link, and a `[label](address)`',
-  'link shows its address after the label.',
+  '**What a room shows you:** paragraphs, headings written with `#` to `######`,',
+  '**bold**, *italic*, ~~strikethrough~~, `code` and fenced blocks, lists, tables',
+  'and emoji. An address starting `http://` or `https://` becomes a link, and a',
+  '`[label](address)` link shows its address after the label.',
   '',
   '**What it does not, so do not reach for these:** anything written as raw',
   'HTML is shown the way you typed it, not turned into a page. And a line that',
@@ -1337,8 +1337,9 @@ function block() {
  *  59. kosmos#8735: proposal cuts B and F, decided rather than left waiting (Josh's standing ruling to decide and
  *     document). B: "Neither of these means you have stopped" keeps its rule (there is no command for having stopped,
  *     because there is no such state) without the history of how the report commands once read as stopping. F: "What a
- *     room shows you" lists the same formats shorter, keeping the pinned ones (headings written with `#`,
- *     ~~strikethrough~~, a `[label](address)` link showing its address). D, the needs_you restatement, is kept: it is
+ *     room shows you" is shorter and lists fewer formats: the `---` rule is no longer named (it still renders); the
+ *     pinned ones stay (headings written with `#` to `######`, ~~strikethrough~~, a `[label](address)` link showing its
+ *     address), and http:// and https:// addresses still both link. D, the needs_you restatement, is kept: it is
  *     the line that stops an agent asking a person for what it can decide. No new heading, so as in 32 an agent's
  *     EDITED copy is not re-offered it.
  *     WEAKEST PREMISE, NAMED: for B, that the history did no work once the rule is stated; it was written after agents
