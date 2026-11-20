@@ -20,3 +20,11 @@ sign-in, or a new device.
 server.remotestepup-6595.test.js: a 12-minute-and-one-second, a day-old and a 364-day-old full sign-in pass; red with
 the old bound restored. server.stepupbutton-6616.test.js: the stale case is now a full sign-in whose time did not
 arrive (an hour-old full sign-in no longer is one).
+
+## Review round 2 decision: one route keeps a time bound
+`POST /api/remote/second-reset` still needs a full sign-in from the last 12 minutes (REMOTE_RECENT_ONLY,
+REMOTE_RECENT_SECS). From a stolen full session it would put the thief's own second factor on the account, which
+outlives every other bound (a new sign-in with that factor passes Sign out everywhere): the identity change the
+ruling's new-device exception keeps. Every other gated route takes a full sign-in of any age. Verified in the relay:
+the gate requires the second factor by default (gate.rs require_second_from_env), and the iat header is the verified
+token's own sign-in time (proxy.rs SESSION_IAT_HEADER), never refreshed.
