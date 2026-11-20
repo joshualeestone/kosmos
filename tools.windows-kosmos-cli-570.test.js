@@ -1154,13 +1154,14 @@ test('kosmos#8769 item 4: room on a busy board shows the kept copy (exit 1); non
     assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.busy-since')).length, 0, 'a good read ends the failing spell');
     const held = await run(['room', 'proj-1'], busy, env);
     assert.equal(held.code, 1);
-    assert.match(held.out, /this is NOT the room now: it is the last copy this computer read, 0 minute\(s\) ago/);
-    assert.match(held.out, /has not answered a read of this room here since \d\d:\d\d/);
-    assert.match(held.out, /first look/);
-    assert.ok(held.out.indexOf('NOT the room now') < held.out.indexOf('first look'), 'warning first, on the same stream as the copy');
+    assert.match(held.err, /this is NOT the room now: it is the last copy this computer read, 0 minute\(s\) ago/);
+    assert.match(held.err, /has not answered a read of this room here since \d\d:\d\d/);
+    assert.match(held.err, /first look/);
+    assert.ok(held.err.indexOf('NOT the room now') < held.err.indexOf('first look'), 'warning first, on the same stream as the copy');
+    assert.equal(held.out, '', 'Baron\'s #8776 follow-up 2: nothing on stdout, so a script reading only stdout cannot take the copy for the room');
     assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.busy-since')).length, 1, 'presence first: the busy read left its mark');
     const other = await run(['room', 'proj-1'], busy, { KOSMOS_AGENT_TOKEN: 'feedbeef', KOSMOS_HOME: home });
-    assert.doesNotMatch(other.out, /first look/, 'another reader is not shown this reader\'s copy');
+    assert.doesNotMatch(other.out + other.err, /first look/, 'another reader is not shown this reader\'s copy');
     const copies = fs.readdirSync(dir).filter((f) => f.endsWith('.txt'));
     assert.equal(copies.length, 1);
     assert.ok(!fs.readFileSync(path.join(dir, copies[0]), 'utf8').includes(AGENT), 'no token kept');
@@ -1178,7 +1179,7 @@ test('kosmos#8769 item 4: room on a busy board shows the kept copy (exit 1); non
     /* The age in hours, and the 7-day prune on the next good read. */
     const copyFile = path.join(dir, copies[0]);
     const threeH = (Date.now() - 3 * 3600000) / 1000; fs.utimesSync(copyFile, threeH, threeH);
-    assert.match((await run(['room', 'proj-1'], busy, env)).out, /last copy this computer read, 3 hour\(s\) ago/);
+    assert.match((await run(['room', 'proj-1'], busy, env)).err, /last copy this computer read, 3 hour\(s\) ago/);
     const stale = path.join(dir, 'stale-from-a-deleted-room.txt'); fs.writeFileSync(stale, 'x');
     const eightD = (Date.now() - 7.5 * 86400000) / 1000; fs.utimesSync(stale, eightD, eightD);   // 7.5 days, as the Mac test
     await run(['room', 'proj-1'], () => ({ body: 'm1 leo: fresh\n' }), env);
@@ -1187,5 +1188,17 @@ test('kosmos#8769 item 4: room on a busy board shows the kept copy (exit 1); non
     const filtered = await run(['room', 'proj-1', '-n', '5'], busy, env);
     assert.equal(filtered.code, 1);
     assert.doesNotMatch(filtered.out + filtered.err, /NOT the room now|first look/, 'a filtered read is not answered with the plain copy');
+    /* Baron's #8776 follow-up 3: a 5xx keeps the copy (control); a 403 drops it, so a later busy read shows none. */
+    await run(['room', 'proj-1'], () => ({ status: 503, body: { error: 'busy' } }), env);
+    assert.ok(fs.existsSync(copyFile), 'CONTROL: a 5xx is the board, not the reader: the copy stays');
+    for (const status of [403, 401, 404]) {
+      await run(['room', 'proj-1'], () => ({ body: 'm1 leo: kept again\n' }), env);
+      assert.ok(fs.existsSync(copyFile), 'presence first: a copy is held before the refusal');
+      const refused = await run(['room', 'proj-1', '-n', '5'], () => ({ status, body: { error: 'not allowed' } }), env);
+      assert.equal(refused.code, 1);
+      assert.ok(!fs.existsSync(copyFile), status + ' (a filtered read too) drops the kept copy');
+      const after = await run(['room', 'proj-1'], busy, env);
+      assert.doesNotMatch(after.out + after.err, /kept again|NOT the room now/, status + ': a later busy read shows no copy');
+    }
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
 });

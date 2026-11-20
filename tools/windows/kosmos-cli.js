@@ -1256,10 +1256,11 @@ async function verbRoom(ctx, args) {
       let held = null;
       try { held = { text: fs.readFileSync(copy.file, 'utf8'), at: Math.floor(fs.statSync(copy.file).mtimeMs) }; } catch (_) { /* no copy */ }
       if (held && held.text) {
-        /* Review 1: on the same stream as the copy and first, so nothing that keeps only stdout reads it as the room now. */
-        ctx.out('Kosmos is running but did not answer in time, so this is NOT the room now: it is the last copy this computer read, '
+        /* Review 1: on the same stream as the copy and first. Baron's #8776 follow-up 2, as install/kosmos: that stream is
+           stderr, so a script reading only stdout (kosmos room p | findstr ...) finds nothing rather than an old room. */
+        ctx.err('Kosmos is running but did not answer in time, so this is NOT the room now: it is the last copy this computer read, '
           + roomCopyAge(Date.now() - held.at) + '.' + since + ' Read again in a minute for the room as it is.');
-        ctx.out(held.text.replace(/\n$/, ''));
+        ctx.err(held.text.replace(/\n$/, ''));
         return 1;
       }
       const rc = ctx.unreachable('read that room');
@@ -1270,6 +1271,9 @@ async function verbRoom(ctx, args) {
   }
   ctx.out(String(r.text || '').replace(/\n$/, ''));
   if (paths) { try { fs.rmSync(paths.since, { force: true }); } catch (_) { /* best effort */ } }   // any ANSWERED read ends the spell (review 5)
+  /* Baron's #8776 follow-up 3, as install/kosmos: refused (not signed in, not allowed, no such room), so a copy kept from
+     before is not this reader's any more. A 5xx, 408 or 429 is the board, not the reader: the copy stays. */
+  if (paths && [401, 403, 404].includes(r.status)) { try { fs.rmSync(paths.file, { force: true }); } catch (_) { /* best effort */ } }
   if (r.status >= 400) return 1;
   if (copy) {
     try {
