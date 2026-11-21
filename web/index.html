@@ -25610,12 +25610,15 @@ async function restartLineCheck() {
    and that Kosmos has not changed it; a good copy goes back only on its button; the X hides the note until the next
    start. Every action says when it did not work, as the restart note's X does. */
 const DAMAGED_PROBLEM = { empty: 'is empty', nul: 'is blank, as a crash can leave a file', unreadable: 'cannot be read',
-  unopenable: 'cannot be opened', toobig: 'is too large for Kosmos to check' };
+  unopenable: 'cannot be opened', toobig: 'is too large for Kosmos to check',
+  nulpart: 'has a blank stretch, as a crash can leave a file, and what was written there is lost' };   // kosmos#8863
 function damagedRowWords(f) {
   // One shape that reads with every store (review 1): "The file with <what it holds> (<name>) <what is wrong>."
   return asSentence('the file with ' + String(f.holds || 'a record Kosmos keeps') + ' (' + f.file + ') '
     + (DAMAGED_PROBLEM[f.problem] || 'cannot be read'))
-    + (f.savedOver ? ' Kosmos has saved over it since it started.' : ' Kosmos has not changed it.');
+    // kosmos#8863: an append-only record is added to, never saved over, and has nothing to put back.
+    + (f.log ? ' Kosmos keeps adding to it after the blank stretch, so there is nothing to put back.'
+      : f.savedOver ? ' Kosmos has saved over it since it started.' : ' Kosmos has not changed it.');
 }
 function paintDamagedFiles(files) {
   const slot = document.getElementById('damaged-slot');
@@ -25630,7 +25633,7 @@ function paintDamagedFiles(files) {
       // Saved over since start: no button (putting an older copy back would undo that), only where the copy is kept.
       + (f.backup && f.savedOver ? ' The copy saved ' + esc(when || 'before') + ' is kept at ' + esc(f.backup.file) + '.'
         : f.backup ? ' <button type="button" class="dmgput" data-i="' + i + '">Put back the copy saved ' + esc(when || 'before') + '</button>'
-        : f.secret ? ' It holds a key or something you can take back, so Kosmos keeps no copy of it.' : ' There is no good copy to put back.')
+        : f.secret ? ' It holds a key or something you can take back, so Kosmos keeps no copy of it.' : f.log ? '' : ' There is no good copy to put back.')
       + '</small>';
   }).join('');
   slot.innerHTML = '<div class="utoast reboot dmg">'

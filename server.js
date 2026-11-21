@@ -31236,6 +31236,8 @@ if (require.main === module) {
     try { require('./engine/storecheck').atStart({ base }); } catch (err) {
       process.stderr.write('Kosmos could not check its own files at start (' + ((err && err.code) || 'an error') + ').\n');
     }
+    // kosmos#8863: and keep the last good copies fresh once a day while the board runs (atStart made the first ones).
+    try { require('./engine/storecheck').startKeepingLastGood(); } catch { /* best effort */ }
   }
   /* kosmos#1765: on Windows, a board serving from a folder outside the profile that other accounts on this PC can
      change says so on the board (GET /api/board/run-folder). Asked of that folder's own Kosmos.exe, off the board's

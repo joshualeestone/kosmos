@@ -23,6 +23,8 @@ const FILES = [
   { file: 'removed.json', holds: 'the agents you removed', problem: 'empty', backup: null },
   { file: 'settings.json', holds: 'your settings', problem: 'unreadable', savedOver: true, backup: { file: 'settings.json.bak', at: new Date(Date.now() - 7200e3).toISOString() } },
   { file: 'service-keys.json', holds: 'the keys for services you connected', problem: 'empty', secret: true, backup: null },
+  // kosmos#8863: an append-only record with a crash's blank stretch; the board keeps adding to it, so it reads saved over.
+  { file: 'messages.jsonl', holds: 'the messages your agents sent each other', problem: 'nulpart', savedOver: true, log: true, backup: null },
 ];
 
 (async () => {
@@ -71,8 +73,8 @@ const FILES = [
           buttonH: s && s.querySelector('.dmgput') ? Math.round(s.querySelector('.dmgput').getBoundingClientRect().height) : 0,
         };
       });
-      chk(note.shown && /Kosmos found 4 damaged files/.test(note.text), t + 'the note names how many files are damaged', note.text.slice(0, 80));
-      chk(note.rows.length === 4 && note.rowsShown, t + 'one visible row per file (a phone keeps them)', JSON.stringify(note.rows));
+      chk(note.shown && /Kosmos found 5 damaged files/.test(note.text), t + 'the note names how many files are damaged', note.text.slice(0, 80));
+      chk(note.rows.length === 5 && note.rowsShown, t + 'one visible row per file (a phone keeps them)', JSON.stringify(note.rows));
       chk(/^The file with your projects, their tasks and who is on them \(projects\.json\) is blank, as a crash can leave a file\. Kosmos has not changed it\. Put back the copy saved /.test(note.rows[0] || ''),
         t + 'a row says what the file holds, its name, what is wrong and that Kosmos has not changed it', note.rows[0]);
       chk(/^The file with the agents you removed \(removed\.json\) is empty\. Kosmos has not changed it\. There is no good copy to put back\.$/.test(note.rows[1] || ''),
@@ -80,6 +82,8 @@ const FILES = [
       chk(/^The file with your settings \(settings\.json\) cannot be read\. Kosmos has saved over it since it started\. The copy saved .+ is kept at settings\.json\.bak\.$/.test(note.rows[2] || ''),
         t + 'a file saved over since start says so, and where its copy is kept, with no button (review 2)', note.rows[2]);
       chk(/It holds a key or something you can take back, so Kosmos keeps no copy of it\.$/.test(note.rows[3] || ''), t + 'a file holding a secret offers no copy and says why', note.rows[3]);
+      chk(/^The file with the messages your agents sent each other \(messages\.jsonl\) has a blank stretch, as a crash can leave a file, and what was written there is lost\. Kosmos keeps adding to it after the blank stretch, so there is nothing to put back\.$/.test(note.rows[4] || ''),
+        t + 'kosmos#8863: an append-only record with a blank stretch says what was lost and that there is nothing to put back, never "saved over"', note.rows[4]);
       chk(note.buttons.length === 1 && /^Put back the copy saved /.test(note.buttons[0]), t + 'a put-back button only for the file still damaged, with a good copy', JSON.stringify(note.buttons));
       chk(!/—/.test(note.text), t + 'no em dash in the note');
 

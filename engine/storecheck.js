@@ -43,6 +43,12 @@ const HOLDS = {
   'org-enrollment.json': 'your company\'s Kosmos+ enrollment',
   'service-keys.json': 'the keys for services you connected',
   'stall-pushes.json': 'when Kosmos last told your phone that an agent\'s messages were stuck',   // kosmos#7212
+  // kosmos#8863: the append-only records in the data root (a .jsonl is checked for a crash's blank stretch only).
+  'messages.jsonl': 'the messages your agents sent each other',
+  'messages.ids.jsonl': 'which of your agents\' messages were already delivered',
+  'created.jsonl': 'a record of the agents created here',
+  'ended-agents.jsonl': 'a record of the agents ended here',
+  'autobalance-record.jsonl': 'what automatic account balancing decided',
 };
 // Store folders, one level deep, and what one file in each holds.
 const FOLDERS = {
@@ -54,8 +60,15 @@ const FOLDERS = {
   communitysend: 'what your agents sent to the Community',
   catalogue: 'the catalogue',
   remote: 'Kosmos+ connection state',
+  limitqueue: 'messages kept for an agent until its usage resets',   // kosmos#8863: the send queue a crash can stop
+  chats: 'a conversation with an agent',                              // kosmos#8863
 };
 const MAX_BYTES = 64 * 1024 * 1024;   // larger is not one of these stores; never read it whole
+/* kosmos#8863: Kosmos keeps its own last good copy of each .json store the start scan read as good, here, at the same
+   path relative to the data root. One copy per store, replaced only by a good one. */
+const LAST_GOOD = 'last-good';
+const LAST_GOOD_MAX = 8 * 1024 * 1024;     // a larger store is not copied
+const LAST_GOOD_EVERY_MS = 24 * 60 * 60 * 1000;
 /* Stores whose older copy must never come back by itself: a secret (a key, a token, a sign-in), or something the person
    can take back (a webhook, an agent's permission, a company consent). Their damage is named, but no copy is kept or
    put back: a kept secret outlives its own revocation (engine/securewrite.js), and an older copy would revive what was
@@ -75,6 +88,18 @@ let FOUND = [];          // the damaged stores this start found
 let UNREAD = 0;          // kosmos#8287: folders and files this scan could not read, so it cannot say they are fine
 let SCANNED = null;      // kosmos#8287: what this start's scan found, before anyone repairs or dismisses it; null if it did not finish
 let BASE_ROOT = null;    // where worlds.json lives, captured at start
+const DAMAGED_THIS_RUN = new Set();   // kosmos#8863: a store found damaged this run never refreshes its last good copy
+
+const isLog = (file) => file.endsWith('.jsonl');
+/* kosmos#8863: an append-only record (.jsonl). Empty is a normal state, and a torn line is what an ordinary append crash
+   or a concurrent writer leaves (its readers skip it), so neither is reported. A NUL byte is: raw NUL never appears in
+   JSON text, and a crash that grew the file before its bytes reached the disk leaves exactly that. Lines are not parsed. */
+function classifyLog(buf) {
+  if (!buf.length || buf.indexOf(0) === -1) return null;
+  for (const b of buf) if (b !== 0) return 'nulpart';
+  return 'nul';
+}
+const classifyFor = (file, buf) => (isLog(file) ? classifyLog(buf) : classify(buf));
 
 /** 'empty', 'nul' or 'unreadable', or null when the bytes are a JSON value. */
 function classify(buf) {
@@ -87,7 +112,8 @@ function classify(buf) {
   try { JSON.parse(text); return null; } catch { return 'unreadable'; }
 }
 const PROBLEM = { empty: 'is empty', nul: 'is blank, as a crash can leave a file', unreadable: 'cannot be read as Kosmos data',
-  unopenable: 'cannot be opened (its permissions changed)', toobig: 'is too large for Kosmos to check' };
+  unopenable: 'cannot be opened (its permissions changed)', toobig: 'is too large for Kosmos to check',
+  nulpart: 'has a blank stretch, as a crash can leave a file, and what was written there is lost' };   // kosmos#8863
 
 function rel(abs) {
   // Said relative to the data root (or the base), never as a home path: board.log and the screen carry it.
@@ -97,12 +123,12 @@ function rel(abs) {
   return b && !b.startsWith('..') && !path.isAbsolute(b) ? b : path.basename(abs);   // never an absolute path (Windows drives)
 }
 
-function candidates(dir) {
+function candidates(dir, withLogs) {
   const out = [];
   let names = [];
   try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch (err) { if (!err || err.code !== 'ENOENT') UNREAD += 1; return out; }
   for (const d of names) {
-    if (d.name.startsWith('.') || !d.name.endsWith('.json')) continue;
+    if (d.name.startsWith('.') || !(d.name.endsWith('.json') || (withLogs && d.name.endsWith('.jsonl')))) continue;
     if (!d.isFile() && !d.isSymbolicLink()) continue;   // a linked store is checked at its target (statSync below)
     out.push(path.join(dir, d.name));
   }
@@ -111,7 +137,8 @@ function candidates(dir) {
 
 /** The newest copy beside `file` that reads as JSON and is not empty, or null. */
 function goodCopy(file) {
-  if (holdsSecret(file)) return null;
+  // kosmos#8863: no copy of an append-only record: the board keeps appending, and an older copy drops every record since.
+  if (holdsSecret(file) || isLog(file)) return null;
   const dir = path.dirname(file);
   const base = path.basename(file);
   let names = [];
@@ -129,6 +156,16 @@ function goodCopy(file) {
     try { buf = fs.readFileSync(p); } catch { continue; }
     if (classify(buf) !== null) continue;
     if (!best || st.mtimeMs > best.mtimeMs) best = { path: p, mtimeMs: st.mtimeMs, st, isTmp };
+  }
+  // kosmos#8863: Kosmos's own last good copy, at the same path under last-good/, when it is newer than anything above.
+  const lg = lastGoodPath(file);
+  if (lg) {
+    try {
+      const st = fs.lstatSync(lg);
+      if (st.isFile() && st.size <= MAX_BYTES && classify(fs.readFileSync(lg)) === null && (!best || st.mtimeMs > best.mtimeMs)) {
+        best = { path: lg, mtimeMs: st.mtimeMs, st, isTmp: false };
+      }
+    } catch { /* none kept */ }
   }
   if (!best) return null;
   if (best.isTmp) {
@@ -148,7 +185,7 @@ function goodCopy(file) {
 function scan(opts) {
   BASE_ROOT = (opts && opts.base) || null;
   UNREAD = 0;
-  const files = candidates(store.ROOT);
+  const files = candidates(store.ROOT, true);
   for (const f of Object.keys(FOLDERS)) files.push(...candidates(path.join(store.ROOT, f)));
   if (BASE_ROOT && path.resolve(BASE_ROOT) !== path.resolve(store.ROOT)) {
     const reg = path.join(BASE_ROOT, 'worlds.json');
@@ -164,7 +201,7 @@ function scan(opts) {
     else {
       let buf = null;
       try { buf = fs.readFileSync(file); } catch (err) { problem = err && (err.code === 'EACCES' || err.code === 'EPERM') ? 'unopenable' : null; if (!problem && (!err || err.code !== 'ENOENT')) UNREAD += 1; }
-      if (buf) problem = classify(buf);
+      if (buf) problem = classifyFor(file, buf);
     }
     if (!problem) continue;
     const folder = path.basename(path.dirname(file));
@@ -176,6 +213,7 @@ function scan(opts) {
     found.push({ file: rel(file), holds, problem, backup: copy ? { file: rel(copy.path), at: copy.at } : null, secret: holdsSecret(file), abs: file, copyAbs: copy ? copy.path : null, size: st.size, mtimeMs: st.mtimeMs });
   }
   FOUND = found;
+  for (const d of found) DAMAGED_THIS_RUN.add(d.abs);
   SCANNED = { checked: UNREAD === 0 || found.length > 0, damaged: found.length, unread: UNREAD };
   return found;
 }
@@ -189,9 +227,63 @@ function atStart(opts, write) {
     say('Kosmos found a damaged file at start: ' + d.file + ' ' + PROBLEM[d.problem] + ' (it holds ' + d.holds + '). '
       + 'Kosmos left it as it is. '
       + (d.backup ? 'A good copy saved ' + d.backup.at + ' is at ' + d.backup.file + '; the person can put it back.'
-        : d.secret ? 'It holds a key or something you can take back, so Kosmos keeps no copy of it to put back.' : 'No good copy of it was found.'));
+        : d.secret ? 'It holds a key or something you can take back, so Kosmos keeps no copy of it to put back.'
+          : isLog(d.abs) ? 'Kosmos keeps adding to it after the blank stretch; there is nothing to put back.' : 'No good copy of it was found.'));
   }
+  // kosmos#8863: then keep a last good copy of each store that read as good. Never fatal.
+  try { keepLastGood(); } catch (err) { say('Kosmos could not keep a last good copy of its files (' + ((err && err.code) || 'an error') + ').'); }
   return found;
+}
+
+/* kosmos#8863: where the last good copy of `file` lives, or null for a store that gets none (outside the data root, a
+   secret, an append-only record, the copies themselves). */
+function lastGoodPath(file) {
+  const r = path.relative(store.ROOT, file);
+  if (!r || r.startsWith('..') || path.isAbsolute(r) || isLog(file) || holdsSecret(file)) return null;
+  if (r.split(path.sep)[0] === LAST_GOOD) return null;
+  return path.join(store.ROOT, LAST_GOOD, r);
+}
+
+/**
+ * kosmos#8863: copy each .json store that reads as good into last-good/, replacing that store's earlier copy. A store
+ * this run found damaged is never copied, even once a reader has saved over it. Each copy is flushed and renamed into
+ * place, so a crash mid-copy leaves the old copy or the new one, never a blank one, and it keeps
+ * the store's own modified time, which is when what it holds was written. Returns how many were copied.
+ */
+function keepLastGood() {
+  const files = candidates(store.ROOT, false);
+  for (const f of Object.keys(FOLDERS)) files.push(...candidates(path.join(store.ROOT, f), false));
+  let n = 0;
+  for (const file of files) {
+    const to = lastGoodPath(file);
+    if (!to || DAMAGED_THIS_RUN.has(file)) continue;
+    let st;
+    try { st = fs.lstatSync(file); } catch { continue; }
+    if (!st.isFile() || st.size > LAST_GOOD_MAX) continue;   // lstat: a linked store is not copied through its link
+    let buf;
+    try { buf = fs.readFileSync(file); } catch { continue; }
+    if (classify(buf) !== null) continue;
+    try {
+      const was = fs.statSync(to);
+      if (was.size === buf.length && was.mtimeMs === st.mtimeMs) continue;   // unchanged since the last copy
+    } catch { /* no copy yet */ }
+    try {
+      fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });
+      // At the store's own permissions (a private store's copy is private too), flushed and renamed into place.
+      if (process.platform === 'win32') require('./securewrite').writeSecret(to, buf, null, { atomicOnly: true, umaskDefault: true });
+      else require('./securewrite').writeSecret(to, buf, st.mode & 0o777, { atomicOnly: true });
+      fs.utimesSync(to, st.atime, st.mtime);
+      n += 1;
+    } catch { /* best effort: the next pass tries again */ }
+  }
+  return n;
+}
+let lastGoodTimer = null;
+/** kosmos#8863: refresh the last good copies every day while the board runs. The timer never holds the process open. */
+function startKeepingLastGood() {
+  if (lastGoodTimer) return;
+  lastGoodTimer = setInterval(() => { try { keepLastGood(); } catch { /* best effort */ } }, LAST_GOOD_EVERY_MS);
+  if (lastGoodTimer.unref) lastGoodTimer.unref();
 }
 
 /** Whether a store was written since this start found it damaged: its size or its time moved. */
@@ -208,7 +300,8 @@ function current() {
     let savedOver = false;
     // One rule for every size (review 3): its size or time moved since start, even if it is still not readable.
     try { savedOver = changedSince(d); } catch { savedOver = false; }
-    return { file: d.file, holds: d.holds, problem: d.problem, backup: d.backup, secret: d.secret, savedOver };
+    // kosmos#8863: `log`: an append-only record, which the board adds to and which has no copy to put back.
+    return { file: d.file, holds: d.holds, problem: d.problem, backup: d.backup, secret: d.secret, savedOver, log: isLog(d.abs) };
   });
 }
 
@@ -266,4 +359,4 @@ function dismiss() { FOUND = []; return true; }
  */
 function lastScan() { return SCANNED ? { ...SCANNED } : { checked: false }; }
 
-module.exports = { atStart, scan, current, restore, dismiss, classify, lastScan };
+module.exports = { atStart, scan, current, restore, dismiss, classify, classifyLog, lastScan, keepLastGood, startKeepingLastGood, LAST_GOOD };
