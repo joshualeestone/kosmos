@@ -6632,8 +6632,8 @@ cmd_task() {
       [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built | --stale [<days>]]   (or --all, or --mine)"; exit 2; }
       # kosmos#7992: --mine is --all kept to the tasks this agent holds. `--mine ...` and `--all --mine ...` are the same; the
       # word is taken out here, so the --all checks below read the rest exactly as they read --all's.
-      if [ "${1:-}" = "--mine" ]; then _tmine=1; shift; set -- --all "$@"
-      elif [ "${1:-}" = "--all" ] && [ "${2:-}" = "--mine" ]; then _tmine=1; shift 2; set -- --all "$@"
+      if [ "${1:-}" = "--mine" ]; then _tmine=1; _tform="--mine"; shift; set -- --all "$@"
+      elif [ "${1:-}" = "--all" ] && [ "${2:-}" = "--mine" ]; then _tmine=1; _tform="--all --mine"; shift 2; set -- --all "$@"
       # kosmos#8867: `<project-id> --mine ...` is that project's list kept to this agent's tasks. It was taken as the
       # plain project list and --mine dropped without a word. Read on as --all's words, with the project kept aside.
       elif [ "${2:-}" = "--mine" ]; then _tmine=1; _tmproj="${1:-}"; _tform="<project-id> --mine"; shift 2; set -- --all "$@"; fi

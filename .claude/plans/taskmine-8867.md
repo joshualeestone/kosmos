@@ -26,7 +26,15 @@ list; the Windows CLI the same; and the board refused mine=1 without all=1 (so n
   `<project> --mine --state done`; that is refused (not ignored), and the reason names the forms that work.
 
 ## Tests (cli.task-list-mine-7992.test.js)
-Engine lines; board project+mine (control: without mine lists everyone's); Windows and Mac `<project> --mine`
-(control: the plain list still lists another agent's task); --mine elsewhere refused; no token refused. Against main's
-four source files: 5 FAIL; on this branch: 8 pass. Related task/CLI suites: 1,346 tests, 0 fail.
-Not tested: a new CLI against an older board (the "older than --mine in one project" line).
+- Engine: one project with mine ("of yours in"), none, stale; an older board that ignored mine=1 refused.
+- Board: project=&mine=1 keeps the caller's tasks and says mine (control: without mine lists everyone's); a project the
+  caller is not on lists none of its tasks as the caller's (control: without mine lists them); neither all nor project
+  refused.
+- Windows and Mac: `<project> --mine` lists only the caller's (control: the plain list still lists another agent's);
+  --blocked, --stale; `--mine` elsewhere refused (--state, --stale, twice, --all --blocked --mine); an unknown word after
+  it names the form typed; no agent token refused; an empty project word refused (it is, by the existing first-word
+  check: measured before this branch's tests pinned it).
+- Older board: the Windows CLI against a stub board that answers the 0.8.13 board's exact refusal; the Mac CLI's
+  older-board case line run from install/kosmos itself with the same words (a stub cannot pass the Mac CLI's check
+  that the answering board is this Kosmos).
+Against main's four source files the first version of these tests failed 5; on this branch all 10 pass.
