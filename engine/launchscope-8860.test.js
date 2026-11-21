@@ -116,3 +116,23 @@ test('the launchd fleet probes answer in this board\'s scope: a throwaway board 
     assert.deepEqual([...create.disabledJobs('darwin')], ['theirs']);
   } finally { create.setLaunchScopeForTests(null); create.setRunner(null); }
 });
+
+test('with the gate open, a dry-run board and a board with a test runner both keep the bare label (neither reaches launchd)', () => {
+  const liveExec = require('./live-execution');
+  const saved = process.env.AGENT_WORKFORCE_LAUNCH;
+  try {
+    process.env.AGENT_WORKFORCE_LAUNCH = tmp('notlive');
+    create.setProbePlatformForTests('darwin');
+    liveExec.allowLiveExecution();   // only label strings are built under it: nothing here calls run()
+    create.setRunner(null);          // no runner, and (by setRunner's own rule) dry-run on
+    assert.equal(create.serviceLabel('ava'), 'com.kosmos.agent.ava', 'dry-run: run() returns before the gate');
+    create.setRunner(() => ({ ok: true, stdout: '' }));
+    create.setDryRun(false);         // a runner and dry-run off: only the runner stands between this and launchd
+    assert.equal(create.serviceLabel('ava'), 'com.kosmos.agent.ava', 'a test runner: nothing reaches launchd');
+  } finally {
+    create.setRunner(null);
+    liveExec.resetForTests();
+    create.setProbePlatformForTests(null);
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = saved;
+  }
+});
