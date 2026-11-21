@@ -1138,9 +1138,29 @@ function logFile(name) { return path.join(workerDir(name), 'start.log'); }
    cannot use serviceLabel('') for the prefix any more, because that is now
    world-dependent (a named board's serviceLabel('') is `...agent.+<world>`). */
 const SERVICE_LABEL_PREFIX = 'com.kosmos.agent.';
-function serviceLabel(name, worldId) {
+/* kosmos#8860: the key a launchd label is built from. A named world keeps its own id (#1704). The default world's
+   board keeps the bare name ONLY when its job files go in the account's real ~/Library/LaunchAgents. A board writing
+   them anywhere else (a throwaway board with its own AGENT_WORKFORCE_LAUNCH, HOME or AGENT_WORKFORCE_HOME) still
+   registers in the account's one gui/<uid> domain, so with bare names its agents shared labels with the real board's:
+   measured 11-21 on the 0.8.13 walk, com.kosmos.agent.obriens-helper beside the real agents'. Such a board's labels
+   get `+launch-<hash of its job folder>`. The real folder comes from the account record (os.userInfo), not HOME,
+   because a throwaway board sets HOME. Only the label moves: data roots and tmux sessions keep the world's rules,
+   which is why this is not a derived KOSMOS_WORLD (a named world nests the store roots, worlds.applyWorldEnv). */
+const LAUNCH_SCOPE_PREFIX = 'launch-';
+function accountLaunchAgentsDir() {
+  try { return path.join(os.userInfo().homedir, 'Library', 'LaunchAgents'); } catch { return null; }
+}
+function launchScope(worldId) {
   const world = worldId === undefined ? launchidentity.currentWorldId() : worldId;
-  return `${SERVICE_LABEL_PREFIX}${launchidentity.launchKey(name, world)}`;
+  if (!launchidentity.isDefaultWorld(world)) return String(world);
+  const here = path.resolve(agentsDir());
+  const real = accountLaunchAgentsDir();
+  // An account record that cannot be read keeps today's bare labels: renaming a real board's jobs would orphan them.
+  if (!real || here === path.resolve(real)) return launchidentity.DEFAULT_WORLD_ID;
+  return LAUNCH_SCOPE_PREFIX + require('node:crypto').createHash('sha256').update(here).digest('hex').slice(0, 8);
+}
+function serviceLabel(name, worldId) {
+  return `${SERVICE_LABEL_PREFIX}${launchidentity.launchKey(name, launchScope(worldId))}`;
 }
 function plistPath(name, worldId) { return path.join(agentsDir(), `${serviceLabel(name, worldId)}.plist`); }
 
@@ -4371,7 +4391,7 @@ function binPaths(opts) {
    Kosmos's keys, so a caller can ask `.has(name)` and never read another world's
    agent. The one filter both probes share (launchidentity.nameInWorld). */
 function nameInThisWorld(key) {
-  return launchidentity.nameInWorld(key, launchidentity.currentWorldId());
+  return launchidentity.nameInWorld(key, launchScope());   // #8860: this board's label scope, not only its world
 }
 
 /* #2977: the SAME probe, but it says whether it could look. `disabledJobs` below
@@ -8096,6 +8116,7 @@ module.exports = {
   installSupervisor,
   serviceLabel,
   SERVICE_LABEL_PREFIX,
+  launchScope,
   parseServiceLabel,
   workerDir,
   workersDir,   // #4896: discover's one-folder rule asks whether a folder is a created agent's default home

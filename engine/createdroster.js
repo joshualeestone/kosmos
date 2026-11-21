@@ -138,7 +138,7 @@ function make(opts) {
         if (parsed) jobs.push(parsed);
       }
     }
-    const myWorld = launchidentity.currentWorldId();
+    const myWorld = create.launchScope();   // #8860: the scope this board's labels carry (its world, or its job folder)
     const seen = new Set();
     const out = [];
     for (const parsed of jobs) {
