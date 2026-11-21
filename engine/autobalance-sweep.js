@@ -154,7 +154,7 @@ function create({ file, nowMs = Date.now() }) {
       rows = ab.rowsFromReadings({ list, readUsage: deps.readUsage, agentsOn: deps.agentsOn, nowMs, ...(deps.sameLogin ? { sameLogin: deps.sameLogin } : {}) });
       const movable = ab.movableOnDemand(() => ab.movableFor({ cards: deps.roster(), records: deps.records, readCommitment: deps.readCommitment,
         ...(deps.isGuide ? { isGuide: deps.isGuide } : {}), ...(deps.guideName ? { guideName: deps.guideName } : {}) }));
-      decision = ab.decide({ rows, movable, nowMs });
+      decision = ab.decide({ rows, movable, nowMs, modelOf: ab.modelOfFrom(() => deps.roster()) });   // kosmos#8862
     } catch (err) { return { did: 'unreadable', because: String((err && err.message) || err) }; }   // review 17: the board logs why
     /* Review 14, 16, 18, 20: WHEN IT CANNOT MEASURE, IT SAYS SO. An account is in a gap when it cannot be read now (no
        figure still fresh, no refused login) and the last recorded decision named it (at risk, the target of a

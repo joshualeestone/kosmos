@@ -14886,6 +14886,8 @@ const server = http.createServer(async (req, res) => {
             /* #6176: the five-hour limit, from the same status line, or null when there is no current reading (a key,
                none recorded, or the window has reset). Same units as weekly: resetsAt and at in epoch ms. */
             fiveHour: require('./engine/accountsweekly').fiveHourOf(a, nowMs),
+            /* kosmos#8862: each model's own weekly limit from the usage endpoint ([] when none): { model, usedPct, resetsAt (ms) }. */
+            scoped: require('./engine/accountsweekly').scopedOf(a, nowMs),
             /* #6108: why there can be NO reading for this account, when that is known (on Windows too since #6213): 'own-statusline' (the account already has a status line of its own, which
                Kosmos leaves alone) or 'not-wired' (no status line: nothing records a reading; Kosmos wires one when an account is added, or when the person asks on the row via POST /api/accounts/claude/usage-reading, #6175).
                null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess.
@@ -15305,7 +15307,7 @@ const server = http.createServer(async (req, res) => {
                  names a move the mover would not make. */
               let skipTarget = null;
               try { skipTarget = automoveRun && automove.movesOn() ? automoveRun.skipTarget(sentAt, moveWouldLose) : null; } catch { skipTarget = null; }   // kosmos#8048: the page holds what the mover holds
-              decision = ab.decide({ rows: claude, movable, nowMs: sentAt, ...(skipTarget ? { skipTarget } : {}) });
+              decision = ab.decide({ rows: claude, movable, nowMs: sentAt, ...(skipTarget ? { skipTarget } : {}), modelOf: ab.modelOfFrom(cards) });   // kosmos#8862
               /* Review round 7: an agent the mover leaves alone now (moved by a person or by Kosmos, refused, or set aside after a
                  re-check that could not be made: kosmos#7621) is marked, so the page does not say Kosmos will move it. */
               if (skipTarget) {
