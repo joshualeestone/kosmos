@@ -579,7 +579,7 @@ function strays(profileNames, jobs) {
     } catch { failed = true; }
   } else {
     try {
-      const myWorld = launchidentity.currentWorldId();
+      const myWorld = create.launchScope();   // #8860: the scope this board's labels carry (its world, or its job folder)
       for (const f of readRoot(create.AGENTS_DIR)) {
         if (!f.endsWith('.plist')) continue;
         /* #1704: the LaunchAgents folder holds every Kosmos's agents; a board

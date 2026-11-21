@@ -44,6 +44,9 @@ function harness(over) {
       // isolation this harness exists for).
       SERVICE_LABEL_PREFIX: realCreate.SERVICE_LABEL_PREFIX,
       parseServiceLabel: realCreate.parseServiceLabel,
+      // #8860: the scope this board's labels carry. Default here is today's rule (its world), so a test that
+      // does not pass one is not changed by whatever job folder the test process happens to have.
+      launchScope: o.launchScope || (() => require('./launchidentity').currentWorldId()),
       readJob: (n) => { calls.readJob.push(n); return Object.prototype.hasOwnProperty.call(jobs, n) ? jobs[n] : null; },
       workerDir: (n) => `/workers/${n}`,
       cleanName: (n) => String(n == null ? '' : n).trim(),
@@ -181,4 +184,19 @@ test('#1704 a board rosters ONLY its own Kosmos: a named-world plist is not a de
   } finally {
     if (saved === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = saved;
   }
+});
+
+test('#8860 a throwaway board rosters its OWN scoped jobs and not the real board\'s bare ones', () => {
+  // A board whose job folder is not the account's ~/Library/LaunchAgents labels its agents
+  // `<name>+launch-<hash>`. Its roster must keep those (its own agents) and drop a bare-label job,
+  // which belongs to the real board on the same Mac.
+  const opts = {
+    plists: ['com.kosmos.agent.alpha.plist', 'com.kosmos.agent.beta+launch-0a1b2c3d.plist'],
+    jobs: { alpha: { runner: 'claude' }, beta: { runner: 'claude' } },
+    dirs: { alpha: true, beta: true },
+  };
+  assert.deepEqual(harness(Object.assign({ launchScope: () => 'launch-0a1b2c3d' }, opts)).src().sort(), ['beta'],
+    'the throwaway board keeps beta (its scope) and drops alpha (the real board\'s)');
+  assert.deepEqual(harness(Object.assign({ launchScope: () => 'default' }, opts)).src().sort(), ['alpha'],
+    'control: the real board keeps alpha and drops the throwaway\'s beta');
 });
