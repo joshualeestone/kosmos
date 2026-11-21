@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  setLaunchScopeForTests: 'test seam (kosmos#8860): engine/create.js answers launchScope from this, so engine/register.test.js and engine/launchscope-8860.test.js can read a throwaway board\'s scoped labels through a runner, which otherwise turns scoping off.',
   resetLinkedCacheForTests: 'test seam (kosmos#8846): engine/usagepoll.js caches the linked Claude account count for a minute, and engine/automove-default-8846.test.js clears it between cases so each reads its own list. Production never clears it; the minute passes.',
   setCloudForTests: 'test seam (kosmos#8786 S2): engine/linuxboard.js answers "is this a Kosmos Cloud computer" from this instead of the tunnel latch, so engine/linuxboard.cloudupdate-8786.test.js can show installBoard writes the nightly units only on one. Production reads cloudmachine.isCloudMachine().',
   setLatchGoneForTests: 'test seam (kosmos#8786 S2): engine/linuxboard.js answers "is the Cloud latch positively gone" from this, so engine/linuxboard.cloudupdate-8786.test.js can show an unreadable latch never removes the nightly units. Production lstat()s the latch.',
