@@ -301,7 +301,9 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
          for (state 'holding': a stale or future-dated one is 'unknown'), so hours-old text is not told as a current
          promise, and never an entry with an @ in it (agent-written text, and an email must not reach the thread). */
       const owed = m.offLimit ? ' It had stopped at its usage limit, and the restart ended anything it had running, so it may need to pick its work back up.' + (m.promisedText || '') : '';
-      try { deps.tell(m.agent, `Kosmos moved this agent from ${m.fromLabel || 'its account'} to ${m.toLabel || 'another account'}, because ${m.fromLabel || 'its account'} was running out (${m.why}).${owed}`); }
+      /* kosmos#8862 review 1: the reason is the account's or this agent's model's ("its Fable limit is at 100%..."), so the
+         sentence does not say the whole account was running out. */
+      try { deps.tell(m.agent, `Kosmos moved this agent from ${m.fromLabel || 'its account'} to ${m.toLabel || 'another account'}, because on ${m.fromLabel || 'its account'} ${m.why}.${owed}`); }
       catch { /* telling is best-effort; the record has it */ }
     }
     /* kosmos#7621 item 4: a move that did not finish cleanly is told too, so the thread says where the agent may be. */

@@ -91,13 +91,14 @@ function riskOf(row, nowMs) {
 }
 
 /* kosmos#8862: a model's own weekly limit. The endpoint names it by its family ("Fable"); a card names the agent's model
-   with its version ("Fable 5.2", measured on Agent1s 11-21: the one scoped limit seen there, 60 times, is "Fable"), and
-   a card with no display name carries the model's id ("claude-fable-5-2", status.js modelDisplayName). So the family is
-   the first word, without case, after any "claude-" and split at a space or a dash. A name with no word is no model. */
+   with "Claude" and its version (status.js modelDisplayName: "Claude Fable 5.2"; measured on Agent1s 11-21, the one
+   scoped limit seen there, 60 times, is "Fable"), and an id when it has no display name ("claude-fable-5-2", or an older
+   "claude-3-5-sonnet-20241022"). So the family is the first word that has a letter in it, without case, once a leading
+   "Claude" is dropped, split at spaces and dashes. A name with no such word is no model (review 1: never "3"). */
 function modelKey(name) {
   if (typeof name !== 'string') return null;
-  const w = name.trim().toLowerCase().replace(/^claude[-\s]+/, '').split(/[\s-]+/)[0];
-  return w || null;
+  const words = name.trim().toLowerCase().replace(/^claude[-\s]+/, '').split(/[\s-]+/);
+  return words.find((w) => /[a-z]/.test(w)) || null;
 }
 /* The row's live scoped limits, resets still ahead. */
 function scopedNow(row, nowMs) {
@@ -205,22 +206,31 @@ function decide({ rows, movable, nowMs, skipTarget, modelOf }) {
     /* kosmos#8862: an account whose overall limit is fine is still at risk for the agents whose own model's limit is
        full there. Each agent carries its own reason; the account's line names the first such model. */
     const whyFor = (n) => acctWhy || modelRiskOf(from, model(n), nowMs);
-    const why = acctWhy || names.map(whyFor).find(Boolean) || null;
+    const complete = !!from.agentsHere && from.agentsHere.complete === true;
+    /* Review 1: a list that may be short can be missing the very agent on the full model, so with an incomplete list any
+       model limit there that passes the rule makes the account at risk (and short), as an overall risk always did. */
+    const anyModelWhy = () => scopedNow(from, nowMs).map((s) => modelRiskOf(from, s.model, nowMs)).find(Boolean) || null;
+    const modelWhy = acctWhy ? null : (names.map(whyFor).find(Boolean) || (!complete ? anyModelWhy() : null));
+    const why = acctWhy || modelWhy;
     if (!why) continue;
-    atRisk.push({ from: from.dir, why, kind: acctWhy && loginStopped(from) ? 'login' : 'usage' });   // review 9: the page words the two apart
-    if (!from.agentsHere || from.agentsHere.complete !== true) short.push(from.dir);
+    /* Review 1: `model` marks a risk that is one model's limit alone, so the page can say the agents on that model are
+       the ones at risk, not the whole account. */
+    const modelOnly = !acctWhy ? (scopedNow(from, nowMs).find((s) => modelRiskOf(from, s.model, nowMs) === modelWhy) || {}).model || null : null;
+    atRisk.push({ from: from.dir, why, kind: acctWhy && loginStopped(from) ? 'login' : 'usage', ...(modelOnly ? { model: modelOnly } : {}) });   // review 9: the page words the two apart
+    if (!complete) short.push(from.dir);
     /* Review 2: an agent already being moved is not named again. */
     const moving = new Set(from.agentsHere && Array.isArray(from.agentsHere.moving) ? from.agentsHere.moving : []);
     const going = names.filter((n) => !moving.has(n) && whyFor(n) && typeof movable === 'function' && movable(n) === true);
     if (!going.length) continue;
-    let anyHeld = false;
+    const stuck = [];
     for (const agent of going.slice().sort()) {
       /* kosmos#8862: each agent's target is judged for its own model, so two agents can go two ways, or one be held. */
       const to = targetFor(from, all, nowMs, skipTarget, model(agent));
-      if (!to) { anyHeld = true; continue; }
+      if (!to) { stuck.push(agent); continue; }
       moves.push({ agent, from: from.dir, to: to.dir, why: whyFor(agent) });
     }
-    if (anyHeld) held.push({ from: from.dir, why });
+    /* Review 1: the held line names who is held, since others on the same account may be moving. */
+    if (stuck.length) held.push({ from: from.dir, why: whyFor(stuck[0]) || why, agents: stuck });
   }
   return { moves, held, short, atRisk };
 }

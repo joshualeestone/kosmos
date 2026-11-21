@@ -166,3 +166,52 @@ test('kosmos#8862: a successful read of the real answer writes its model limits 
   assert.equal(rec.weekly.usedPct, 55, 'CONTROL: the overall figure was read');
   assert.deepEqual(rec.scoped, [{ model: 'Fable', usedPct: 100, resetsAt: Math.floor(Date.parse(RESETS) / 1000) }], 'a successful read did not keep the Fable limit');
 });
+
+/* Review 1. */
+const status = require('./status');
+test('kosmos#8862 review 1: models are matched as the board itself names them (status.js modelDisplayName)', () => {
+  const shown = status.modelDisplayName('claude-fable-5-2');
+  assert.equal(shown, 'Claude Fable 5.2', 'CONTROL: the board names the model with "Claude" in front');
+  assert.equal(ab.modelKey(shown), 'fable', 'the board\'s own display name did not match the endpoint\'s "Fable" (the bug: every key was "claude")');
+  assert.equal(ab.modelKey(status.modelDisplayName('claude-opus-5-5')), 'opus');
+  assert.equal(ab.modelKey('claude-3-5-sonnet-20241022'), 'sonnet', 'an older id keyed to a number');
+  assert.equal(ab.modelKey('3 5'), null, 'a name with no letters was taken for a model');
+});
+
+test('kosmos#8862 review 1: through real card shapes, the Fable agent leaves the full Fable limit and the Opus agent stays', () => {
+  const card = (sessionName, id) => ({ sessionName, model: id, modelName: status.modelDisplayName(id) });
+  const modelOf = ab.modelOfFrom([card('lyra', 'claude-fable-5-2'), card('otto', 'claude-opus-5-5')]);
+  const rows = [
+    row('/u/.claude-c', { weekly: { usedPct: 55, resetsAt: NOW + 41 * H }, scoped: fable(100), agentsHere: { names: ['lyra', 'otto'], complete: true } }),
+    row('/u/.claude-e', { weekly: { usedPct: 30, resetsAt: NOW + 90 * H }, scoped: fable(5) }),
+  ];
+  const d = ab.decide({ rows, movable: all, nowMs: NOW, modelOf });
+  assert.deepEqual(d.moves.map((m) => [m.agent, m.to]), [['lyra', '/u/.claude-e']], 'a real Fable card was not moved off its full limit');
+  assert.equal(d.atRisk[0].model, 'Fable', 'a risk from one model\'s limit was not marked as such for the page');
+});
+
+test('kosmos#8862 review 1: each agent carries its own model\'s reason, and a held line names who is held', () => {
+  const MODELS = { lyra: 'Claude Fable 5.2', otto: 'Claude Opus 5.5' };
+  const opus = (pct) => [{ model: 'Opus', usedPct: pct, resetsAt: NOW + 30 * H }];
+  const rows = [
+    row('/u/.claude-c', { weekly: { usedPct: 50, resetsAt: NOW + 41 * H }, scoped: [...fable(100), ...opus(85)], agentsHere: { names: ['lyra', 'otto'], complete: true } }),
+    row('/u/.claude-e', { weekly: { usedPct: 30, resetsAt: NOW + 90 * H }, scoped: fable(95) }),   // room for Opus only
+  ];
+  const d = ab.decide({ rows, movable: all, nowMs: NOW, modelOf: (n) => MODELS[n] });
+  assert.deepEqual(d.moves.map((m) => [m.agent, m.to]), [['otto', '/u/.claude-e']]);
+  assert.match(d.moves[0].why, /its Opus limit is at 85%/, 'the Opus agent was given the Fable agent\'s reason');
+  assert.deepEqual(d.held.map((h) => [h.from, h.agents]), [['/u/.claude-c', ['lyra']]], 'the held line did not name the one agent held');
+  assert.match(d.held[0].why, /its Fable limit is at 100%/, 'the held line gave another agent\'s reason');
+});
+
+test('kosmos#8862 review 1: with an agent list that may be short, a full model limit still makes the account at risk', () => {
+  const rows = [
+    row('/u/.claude-c', { weekly: { usedPct: 55, resetsAt: NOW + 41 * H }, scoped: fable(100), agentsHere: { names: ['otto'], complete: false } }),
+    row('/u/.claude-e', { weekly: { usedPct: 30, resetsAt: NOW + 90 * H } }),
+  ];
+  const d = ab.decide({ rows, movable: all, nowMs: NOW, modelOf: (n) => (n === 'otto' ? 'Claude Opus 5.5' : null) });
+  assert.deepEqual([d.atRisk.map((x) => [x.from, x.model]), d.short], [[['/u/.claude-c', 'Fable']], ['/u/.claude-c']], 'a short list hid the full Fable limit (the Fable agent may be the one missing)');
+  assert.deepEqual(d.moves, [], 'CONTROL: the Opus agent, not at risk, is not moved');
+  const whole = ab.decide({ rows: [{ ...rows[0], agentsHere: { names: ['otto'], complete: true } }, rows[1]], movable: all, nowMs: NOW, modelOf: () => 'Claude Opus 5.5' });
+  assert.deepEqual(whole.atRisk, [], 'CONTROL: with the whole list and no agent on Fable, nothing is at risk');
+});

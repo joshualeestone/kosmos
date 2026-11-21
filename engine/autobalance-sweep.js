@@ -204,8 +204,8 @@ function create({ file, nowMs = Date.now() }) {
          account that could have taken the agents was not measured, rather than reading as "none could"). */
       ...(state.unmeasuredNow.length ? { notMeasured: state.unmeasuredNow } : {}),
       moves: decision.moves.map((m) => ({ agent: m.agent, from: m.from, to: m.to, fromLabel: label(m.from), toLabel: label(m.to), why: m.why, kind: kindOf(m.from) })),
-      held: decision.held.map((h) => ({ from: h.from, fromLabel: label(h.from), why: h.why })),
-      atRisk: decision.atRisk.map((x) => ({ from: x.from, fromLabel: label(x.from), why: x.why, kind: x.kind })) });
+      held: decision.held.map((h) => ({ from: h.from, fromLabel: label(h.from), why: h.why, ...(Array.isArray(h.agents) ? { agents: h.agents } : {}) })),   // kosmos#8862: who is held
+      atRisk: decision.atRisk.map((x) => ({ from: x.from, fromLabel: label(x.from), why: x.why, kind: x.kind, ...(x.model ? { model: x.model } : {}) })) });   // kosmos#8862: a model's own limit
     state.writeFailed = !written;   // review 10: the board says so (once) and stops saying it records
     if (!written) return { did: 'nothing', because: 'write-failed' };   // tried again next tick
     state.lastKey = key;

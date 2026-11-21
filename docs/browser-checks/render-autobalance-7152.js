@@ -41,12 +41,18 @@ const claude = (id, extra) => ({ provider: 'anthropic', providerName: 'Anthropic
 const TWO = [claude('full', { name: 'Work', weekly: { usedPct: 93, resetsAt: now + 35 * H, at: now - H }, agentsHere: { names: ['s-a', 's-x'], complete: true } }), claude('spare', { name: 'Spare' })];
 const AGENTS = [{ sessionName: 's-a', name: 'Ada', state: 'idle' }, { sessionName: 's-x', name: '<b>Bo</b>', state: 'idle' }];
 const WHY = 'it is at 93% of its weekly limit, which resets in 35 h';
+const MWHY = 'its Fable limit is at 100% of the week, which resets in 41 h';   // kosmos#8862: a model's own limit
 const CASES = {
   one: { accounts: [TWO[0]], autobalance: { on: true, eligible: 1, moves: [], held: [] } },
   moves: { accounts: TWO, autobalance: { on: true, eligible: 2, held: [], moves: [
     { agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY },
     { agent: 's-x', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY }] } },
   held: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [{ from: '/home/.claude-full', why: WHY }] } },
+  /* kosmos#8862: one agent moving and one held on the same account, the held one named (and markup in its name shown as text). */
+  heldNamed: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY }],
+    held: [{ from: '/home/.claude-full', why: MWHY, agents: ['s-x'] }] } },
+  /* kosmos#8862: an account at risk by one model's own limit, with none of that model's agents free. */
+  modelrisk: { accounts: TWO, autobalance: { on: true, ok: true, eligible: 2, moves: [], held: [], short: [], atRisk: [{ from: '/home/.claude-full', why: MWHY, kind: 'usage', model: 'Fable' }] } },
   none: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [] } },
   short: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: ['/home/.claude-full'] } },
   off: { accounts: TWO, autobalance: { on: false, eligible: 2, moves: [], held: [] } },
@@ -243,6 +249,12 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.loginrisk && r.loginrisk.lines[0] === 'Work cannot be used right now, because its login has stopped working, but none of its agents is free to move.', tag + ' a stopped login is said as such, not as running out', JSON.stringify(r.loginrisk && r.loginrisk.lines));
       say(r.heldshort && r.heldshort.lines.length === 2 && r.heldshort.lines.filter((x) => x.indexOf(WHY) !== -1).length === 1 && r.heldshort.lines[1] === 'Kosmos could not read every agent on Work, so there may be more to move.', tag + ' held and short: the reason is said once', JSON.stringify(r.heldshort && r.heldshort.lines));
       say(r.shortrisk && r.shortrisk.lines.length === 1 && r.shortrisk.lines[0] === 'Work is running out, because ' + WHY + '. Kosmos could not read every agent on Work, so there may be more to move.', tag + ' a short list still says why the account is running out', JSON.stringify(r.shortrisk && r.shortrisk.lines));
+      /* kosmos#8862: a held line names who is held when others on the account move; a model-only risk says which model. */
+      say(r.heldNamed && r.heldNamed.lines.length === 2 && r.heldNamed.lines[0] === 'Would move Ada from Work to Spare, because ' + WHY + '.'
+        && r.heldNamed.lines[1] === 'Would move <b>Bo</b> off Work, because ' + MWHY + ', but no other account can take them right now.' && !r.heldNamed.markup,
+        tag + ' a held line names the agent held, beside another that moves', JSON.stringify(r.heldNamed && r.heldNamed.lines));
+      say(r.modelrisk && r.modelrisk.lines.length === 1 && r.modelrisk.lines[0] === 'Work is running out for Fable, because ' + MWHY + ', but none of its agents on Fable is free to move.',
+        tag + ' a risk from one model\'s limit names the model, not the whole account', JSON.stringify(r.modelrisk && r.modelrisk.lines));
       say(r.busy && r.busy.lines.length === 1 && r.busy.lines[0] === 'Work is running out, because ' + WHY + ', but none of its agents is free to move.', tag + ' an account running out with no idle agent is said, not silent', JSON.stringify(r.busy && r.busy.lines));
       say(r.overRead && r.overRead.extra === 0 && r.overRead.lines.length === 0 && r.overRead.checked === 'false', tag + ' pressed while a read is out: no read over it, and the lines go at once', JSON.stringify(r.overRead));
       say(r.afterRead && r.afterRead.extra === 1, tag + ' once that read is over, exactly one read follows', JSON.stringify(r.afterRead));
