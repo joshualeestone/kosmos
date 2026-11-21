@@ -1106,8 +1106,8 @@ test('#8860 a throwaway board reconciles its OWN scoped jobs and not the real bo
     fs.writeFileSync(path.join(create.AGENTS_DIR, `${label}.plist`), '<plist/>', 'utf8');
   }
   const strayJobs = () => mac.survey().agents.filter((a) => a.job && !a.profile).map((a) => a.name).sort();
-  create.setLaunchScopeForTests('launch-0a1b2c3d');
   try {
+    create.setLaunchScopeForTests('launch-0a1b2c3d');
     assert.deepEqual(strayJobs(), ['mine'], 'the throwaway board sees its own job and leaves the real board\'s alone');
   } finally { create.setLaunchScopeForTests(null); }
   assert.deepEqual(strayJobs(), ['theirs'], 'control: the default board sees the bare job, not the throwaway\'s');

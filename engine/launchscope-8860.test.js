@@ -97,7 +97,8 @@ test('on Linux (systemd units, keyed by the world) a throwaway job folder keeps 
   assert.equal(label, 'com.kosmos.agent.ava', 'the scope is the Mac arm only; Linux readers compare unit keys with the world');
 });
 
-test('a folder that IS the account\'s LaunchAgents by another spelling (a symlink) keeps the bare label', () => {
+test('a folder that IS the account\'s LaunchAgents by another spelling (a symlink) keeps the bare label',
+  { skip: fs.existsSync(REAL_LAUNCH) ? false : 'this account has no ~/Library/LaunchAgents to link to (a Linux runner, a fresh account)' }, () => {
   const link = path.join(tmp('link'), 'la');
   fs.symlinkSync(REAL_LAUNCH, link);
   const label = withEnv({ live: true, AGENT_WORKFORCE_LAUNCH: link, KOSMOS_WORLD: undefined }, () => create.serviceLabel('ava'));
