@@ -167,7 +167,8 @@ function acrossLines(body, flag, opts = {}) {
   const group = stale ? 'open' : COMPACT[flag];
   if (!group) throw new Error('not a list flag: ' + flag);
   const every = !opts.project;
-  /* kosmos#8867: one project prints here for --stale, and for --mine (that project's tasks the caller holds). */
+  /* kosmos#8867: one project prints here for --stale, and for --mine (that project's tasks the caller holds). Keep the
+     "kosmos#8867" in this comment: install/kosmos greps the module for it before it prints `<project-id> --mine`. */
   if (!every && !stale && opts.mine !== true) throw new Error('one project: use compactLines (acrossLines is --stale or --mine there)');
   const days = stale ? opts.days : null;
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();

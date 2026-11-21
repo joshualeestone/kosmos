@@ -180,6 +180,66 @@ test('#8867 Windows: <project> --mine lists only this agent\'s tasks there; the 
   const none = await win(['task', 'list', A, '--mine'], null);
   assert.equal(none.code, 2);
   assert.match(none.err, /needs an agent's token/);
+  // Round 1: the forms after --mine, each filtered and said.
+  const blocked = await win(['task', 'list', A, '--mine', '--blocked'], 'mara');
+  assert.equal(blocked.code, 0, blocked.err);
+  assert.deepEqual(blocked.out, ['No blocked tasks of yours in ' + A + '.']);
+  const stale = await win(['task', 'list', A, '--mine', '--stale', '3'], 'mara');
+  assert.equal(stale.code, 0, stale.err);
+  assert.deepEqual(stale.out, ['No open task of yours in ' + A + ' has been quiet for 3 days or more.']);
+  const allBlocked = await win(['task', 'list', '--all', '--blocked', '--mine'], 'mara');
+  assert.equal(allBlocked.code, 2);
+  assert.match(allBlocked.err, /Put --mine right after the project/);
+  const mineBad = await win(['task', 'list', '--mine', '--nope'], 'mara');
+  assert.match(mineBad.err, /After --mine: nothing/, 'the refusal names the form typed');
+  const empty = await win(['task', 'list', '', '--mine'], 'mara');
+  assert.equal(empty.code, 2, 'an empty project word is refused, never read as every project');
+});
+test('#8867 board: an agent asking for its own tasks in a project it is not on gets none of them, and no one else\'s', async () => {
+  // Mara holds a task in Gamma but is not on it (fixture). This test board answers a local call as the board itself, so
+  // the token-only 403 ("not on this project") does not apply here; the mine filter (projects she is on) still keeps
+  // every Gamma task out: hers and otto's alike.
+  const notOn = await get('project=' + C + '&order=state&state=open&mine=1', asAgent('mara'));
+  assert.equal(notOn.code, 200, JSON.stringify(notOn.json));
+  assert.equal(notOn.json.mine, true);
+  assert.deepEqual(ids(notOn), [], 'a task in a project she is not on was listed as hers');
+  // CONTROL: the same project without mine lists Gamma's tasks, so the empty list above is the filter's doing.
+  const every = await get('project=' + C + '&order=state&state=open', asAgent('mara'));
+  assert.ok(ids(every).includes(C + '#' + N['c-mara-not-on']) && ids(every).includes(C + '#' + N['c-otto']), JSON.stringify(ids(every)));
+});
+test('#8867: against an older board, which refuses mine with one project, both CLIs say the board is older', async () => {
+  const http = require('node:http');
+  const OLD = 'mine goes with all: the tasks you hold in every project you are on';   // the 0.8.13 board's words
+  const stub = http.createServer((req, res) => {
+    const json = (code, body) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+    if (req.url.startsWith('/api/tasks')) return json(400, { error: OLD });
+    return json(200, { ok: true, app: 'kosmos' });   // the health answer install/kosmos looks for
+  });
+  await new Promise((r) => stub.listen(0, '127.0.0.1', r));
+  try {
+    const url = `http://127.0.0.1:${stub.address().port}`;
+    const out = []; const err = [];
+    const code = await cli.main(['task', 'list', 'alpha', '--mine'], { env: {}, url,
+      hook: { resolveUrl: () => url, readBoardToken: () => null, agentToken: () => TOK.mara }, out: (x) => out.push(x), err: (x) => err.push(x) });
+    assert.equal(code, 1, out.join('|'));
+    assert.match(err.join('\n'), /This board is older than --mine in one project/);
+    assert.deepEqual(out, [], 'nothing is printed as yours');
+    if (!SKIP_POSIX_SHELL) {
+      /* The Mac CLI first checks the answering board is this Kosmos and knows the token, which a stub cannot honestly
+         pass; so its older-board line is run as it stands in install/kosmos (that one case line, read from the file,
+         not a copy), fed the 0.8.13 board's exact words. */
+      const src = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8').split('\n');
+      const line = src.find((l) => l.includes('case "$_tmproj:$_xwhy" in'));
+      assert.ok(line, 'FIXTURE: the older-board case line is not in install/kosmos');
+      const run = (proj) => require('node:child_process').spawnSync('/bin/bash', ['-c', 'say() { printf "%s\\n" "$*"; }; ' + line.trim() + '\necho fell-through'],
+        { env: { ...process.env, _tmproj: proj, _xwhy: OLD }, encoding: 'utf8' });
+      const hit = run('alpha');
+      assert.equal(hit.status, 1, hit.stdout + hit.stderr);
+      assert.match(hit.stdout, /This board is older than --mine in one project/);
+      // CONTROL: without a project (plain --mine) the same refusal is not taken for this line.
+      assert.match(run('').stdout, /fell-through/);
+    }
+  } finally { await new Promise((r) => stub.close(r)); }
 });
 
 // ── Windows ─────────────────────────────────────────────────────────────────
@@ -248,11 +308,22 @@ test('Mac: the same forms print the same lines as Windows; without an agent toke
     const plain = await mac(['task', 'list', A], 'mara');
     assert.equal(plain.code, 0, plain.out);
     assert.ok(plain.out.includes('Task a-otto'), 'CONTROL: the unfiltered list lost a task: ' + plain.out);
-    for (const args of [[A, '--state', 'open', '--mine'], [A, '--stale', '--mine']]) {
+    for (const args of [[A, '--state', 'open', '--mine'], [A, '--stale', '--mine'], [A, '--mine', '--mine'], ['--all', '--blocked', '--mine']]) {
       const bad = await mac(['task', 'list', ...args], 'mara');
       assert.equal(bad.code, 2, args.join(' ') + ': ' + bad.out);
       assert.match(bad.out, /Put --mine right after the project/, args.join(' '));
     }
+    const after = await mac(['task', 'list', A, '--mine', '--nope'], 'mara');
+    assert.equal(after.code, 2, after.out);
+    assert.match(after.out, /After <project-id> --mine: nothing/);
+    const stale = await mac(['task', 'list', A, '--mine', '--stale', '3'], 'mara');
+    assert.equal(stale.code, 0, stale.out);
+    assert.deepEqual(stale.out.trimEnd().split('\n'), ['No open task of yours in ' + A + ' has been quiet for 3 days or more.']);
+    const noTok = await mac(['task', 'list', A, '--mine'], null);
+    assert.equal(noTok.code, 2, noTok.out);
+    assert.match(noTok.out, /needs an agent's token/);
+    const empty = await mac(['task', 'list', '', '--mine'], 'mara');
+    assert.equal(empty.code, 2, 'an empty project word is refused, never read as every project: ' + empty.out);
   }
   const winHelp = await win(['task', 'help'], null);
   assert.match(winHelp.out.join('\n') + winHelp.err, /kosmos task list --mine/, 'the Windows help names --mine too');
