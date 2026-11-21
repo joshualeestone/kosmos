@@ -1147,9 +1147,10 @@ const SERVICE_LABEL_PREFIX = 'com.kosmos.agent.';
    (os.userInfo), not HOME, because a throwaway board sets HOME. Only the label moves: data roots and tmux sessions
    keep the world's rules, which is why this is not a derived KOSMOS_WORLD (a named world nests the store roots,
    worlds.applyWorldEnv). macOS only (Linux units and Windows tasks are keyed by the world), and only while run() is
-   really live (server.js opens the gate on the real-start path, and no test runner is installed): that is when a
-   label can reach launchd at all. A test or dry run, whose temporary job folder stands in for the real board's,
-   keeps the bare label the rest of the suite asserts. */
+   really live (server.js opens the gate on the real-start path, no test runner is installed, and dry-run is off):
+   that is when a label can reach launchd at all. A folder already holding a bare-labelled job also keeps bare
+   labels (folderHasBareJob). A test or dry run, whose temporary job folder stands in for the real board's, keeps
+   the bare label the rest of the suite asserts. */
 const LAUNCH_SCOPE_PREFIX = 'launch-';
 function accountLaunchAgentsDir() {
   try { return path.join(os.userInfo().homedir, 'Library', 'LaunchAgents'); } catch { return null; }
@@ -1168,24 +1169,49 @@ function canonicalDir(dir) {
     head = up;
   }
 }
+/* Whether a job folder already holds a bare-labelled agent job (`com.kosmos.agent.<name>.plist`, no `+`). Such a folder
+   belongs to a board that labels bare, so it keeps doing so: a real board whose HOME is not the account record's
+   spelling, a throwaway board made before kosmos#8860, or jobs a tool seeded in another process. Read only when the
+   other tests say "scope it". */
+function folderHasBareJob(dir) {
+  try {
+    return fs.readdirSync(dir).some((f) => f.startsWith(SERVICE_LABEL_PREFIX) && f.endsWith('.plist')
+      && !f.slice(SERVICE_LABEL_PREFIX.length).includes(launchidentity.WORLD_SEPARATOR));
+  } catch { return false; }
+}
+/* The decision, with every input passed in, so a test can drive each arm (a test process cannot be "really live":
+   it has a runner, or setRunner(null) has turned dry-run on). `hasBareJob` is a function, read last. */
+function launchScopeFor(o) {
+  if (!launchidentity.isDefaultWorld(o.world)) return String(o.world);
+  // macOS only: Linux units (linuxjob) and Windows tasks (win32job) are keyed by the world, and their readers here
+  // (nameInThisWorld on a unit key) must keep comparing with that.
+  if (o.platform !== 'darwin') return launchidentity.DEFAULT_WORLD_ID;
+  // Not live: nothing this process does can reach launchd, so there is nothing to collide with.
+  if (!o.live) return launchidentity.DEFAULT_WORLD_ID;
+  // An account record that cannot be read keeps today's bare labels: renaming a real board's jobs would orphan them.
+  if (!o.account) return launchidentity.DEFAULT_WORLD_ID;
+  const here = canonicalDir(o.folder);
+  if (here === canonicalDir(o.account)) return launchidentity.DEFAULT_WORLD_ID;
+  if (o.hasBareJob && o.hasBareJob(here)) return launchidentity.DEFAULT_WORLD_ID;
+  return LAUNCH_SCOPE_PREFIX + require('node:crypto').createHash('sha256').update(here).digest('hex').slice(0, 8);
+}
 let launchScopeOverride = null;
 function setLaunchScopeForTests(scope) { launchScopeOverride = scope || null; }
 function launchScope(worldId) {
   const world = worldId === undefined ? launchidentity.currentWorldId() : worldId;
   if (!launchidentity.isDefaultWorld(world)) return String(world);
   if (launchScopeOverride) return launchScopeOverride;
-  // macOS only: Linux units (linuxjob) and Windows tasks (win32job) are keyed by the world, and their readers here
-  // (nameInThisWorld on a unit key) must keep comparing with that.
-  if (probePlatform() !== 'darwin') return launchidentity.DEFAULT_WORLD_ID;
-  // Live means run() would really call launchctl: the gate is open and no test runner stands in for it. remove.js
-  // builds its labels through serviceLabel too, so its own runner seam cannot give it a different label.
-  if (runner || !liveExec.liveExecutionAllowed()) return launchidentity.DEFAULT_WORLD_ID;
-  const real = accountLaunchAgentsDir();
-  // An account record that cannot be read keeps today's bare labels: renaming a real board's jobs would orphan them.
-  if (!real) return launchidentity.DEFAULT_WORLD_ID;
-  const here = canonicalDir(agentsDir());
-  if (here === canonicalDir(real)) return launchidentity.DEFAULT_WORLD_ID;
-  return LAUNCH_SCOPE_PREFIX + require('node:crypto').createHash('sha256').update(here).digest('hex').slice(0, 8);
+  return launchScopeFor({
+    world,
+    platform: probePlatform(),
+    /* Live means run() really calls launchctl: the gate is open (server.js, real start), no test runner stands in,
+       and dry-run is off (run() returns before the gate under AGENT_WORKFORCE_DRY_RUN=1). remove.js builds its
+       labels through serviceLabel too, so its own runner seam cannot give it a different label. */
+    live: !runner && !DRY_RUN && liveExec.liveExecutionAllowed(),
+    folder: agentsDir(),
+    account: accountLaunchAgentsDir(),
+    hasBareJob: folderHasBareJob,
+  });
 }
 function serviceLabel(name, worldId) {
   return `${SERVICE_LABEL_PREFIX}${launchidentity.launchKey(name, launchScope(worldId))}`;
@@ -8151,6 +8177,7 @@ module.exports = {
   serviceLabel,
   SERVICE_LABEL_PREFIX,
   launchScope,
+  launchScopeFor,
   setLaunchScopeForTests,
   parseServiceLabel,
   workerDir,
