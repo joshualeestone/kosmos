@@ -3342,6 +3342,17 @@ _read_piped_message() {
 
 cmd_post() {
   local project text body because _a
+  # kosmos#8735 slice 4: --how prints engine/postguide.js guideText, what a room and a dialogue render. A local
+  # read, like `kosmos claim --how`: no board needed.
+  if [ "${1:-}" = "--how" ]; then
+    [ $# -eq 1 ] || { say "Usage: kosmos post --how"; exit 2; }
+    local _gn _gm; _gn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    _gm="$(kosmos_engine_module postguide).js"   # requires nothing, so only this file can fail
+    [ -f "$_gm" ] || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    "$_gn" -e 'process.stdout.write(require(process.argv[1]).guideText() + "\n")' "$_gm" 2>/dev/null \
+      || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    exit 0
+  fi
   # #1955: attaching a FILE to a room post is not supported yet. Detect the
   # attempt -- a --file / --attach flag (or its `=` form), which today would
   # otherwise be swept into `text="$*"` and posted as LITERAL room text
@@ -6132,7 +6143,7 @@ kosmos_command_list() {
   printf '  kosmos version       say which version and build of Kosmos this is (also --version or -v)\n'
   printf '  kosmos update        install a newer Kosmos when one is published (only on a computer set to connect elsewhere; the app runs it)\n'
   printf '  kosmos msg           send a message to one agent\n'
-  printf '  kosmos post          post in a project room\n'
+  printf '  kosmos post          post in a project room (--how: what a room shows)\n'
   printf '  kosmos reply         message the person in your conversation with them (an answer, or one you start)\n'
   printf '  kosmos reply-channel say where you answer the person, when it is not kosmos reply\n'
   printf '  kosmos inbox         read your recent messages with the person (a notice can arrive without them)\n'

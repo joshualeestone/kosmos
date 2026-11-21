@@ -500,7 +500,22 @@ function prepareChanges(session) {
         movedClaim = { under: claimHead, lines: new Set(claimLines), where: 'kosmos claim --how' };
       }
     } catch { movedClaim = null; }
-    const diff = changedLines(seen, got.text, [moved, movedTask, movedAnswer, movedFiles, movedClaim]);
+    /* kosmos#8735 slice 4 (doctrine 61): the render list moved from "Send readable messages" to `kosmos post --how`
+       (engine/postguide.js), word for word, so those lines are left out as moved, as the claim guide's are. Only for
+       that move: the last-read copy holds the old list's first line and the new file does not. */
+    let movedPost = null;
+    try {
+      const V60_POST_ONLY = '**What a room shows you:** short paragraphs with a blank line between them,';
+      const postLineSet = (t) => new Set(String(t).split('\n').map((l) => l.replace(/\r$/, '')));
+      const postWas = postLineSet(seen);
+      const postNow = postLineSet(got.text);
+      const postHead = (require('./defaults').sections().find((x) => x.heading === '### Send readable messages, not a wall of text') || {}).heading;
+      if (postHead && postNow.has(postHead) && postWas.has(V60_POST_ONLY) && !postNow.has(V60_POST_ONLY)) {
+        const postLines = require('./postguide').guideText().split('\n').map((l) => l.trim()).filter((l) => l !== '');
+        movedPost = { under: postHead, lines: new Set(postLines), where: 'kosmos post --how' };
+      }
+    } catch { movedPost = null; }
+    const diff = changedLines(seen, got.text, [moved, movedTask, movedAnswer, movedFiles, movedClaim, movedPost]);
     // A path with a double quote is not named: the #5304 reader takes quoted text in the line for section headings.
     // Review 2: nor one with whitespace or a control character, which would make the unquoted path in the line ambiguous.
     if (!diff || !p || /["\s\u0000-\u001f\u007f]/.test(p)) return none();

@@ -40,7 +40,7 @@ test('the doctrine version and the block text move together', () => {
   const print = defaults.DOCTRINE_VERSION >= 50 ? perPlatform() : printOf(defaults.block());
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d', 27: '72f53800599edd5c', 28: '2d83463db37f9c28', 29: '52783dd7981ce771', 30: '459a0b50b68e5660', 31: 'abc33c9b62fa12ae', 32: '73e44376fbc76c20', 33: '2133561e3eab26ea', 34: 'a39a0bc29b3835a1', 35: '6b57ebef325d31bd', 36: '5a663e79f786d9d1', 37: '3b7a0343b77de055', 38: 'd1101aed44310c79', 39: 'fb51f108efd5d1a4', 40: '25e4303042b14af1', 41: '9886a04b66bca4c1', 42: '6dc0b29879f7fc3d', 43: 'e9e1378a3d20145a', 44: '68f2a8f66a49177b', 45: '3711e533b1a4e500', 46: '402a26bcb32c2af7', 47: 'cd1f2e4c64228956', 48: '4e7599776278c915', 49: '1d13807c5e08095d', 50: { darwin: 'ce21a502d452adf1', linux: 'e9d2a81d9ac959df', win32: 'c12d49b5a7b13306' }, 51: { darwin: '329c5140dc069164', linux: '59cbbca192babc45', win32: 'd3227e5a84e90c1b' }, 52: { darwin: 'd88d4bb3657fa4f4', linux: '0b42fe59e587b1f7', win32: '0a5890bcd8fcbf2f' }, 53: { darwin: 'b8e34d38eb98cdea', linux: '96e063236923f24d', win32: 'aefdf8da05eaa4cd' }, 54: { darwin: 'f919b39ec73cb49f', linux: '49df382d950cba9e', win32: 'c520c87f567a29cf' }, 55: { darwin: 'd20896975e23b071', linux: '4ef5e5e131e35f18', win32: '67781c54ee662b65' }, 56: { darwin: 'c1b918ab35769161', linux: 'e4d93dd55011cd2a', win32: 'c8eb72e47cee5951' }, 57: { darwin: '147ab63c8c0753d5', linux: '7929739a114e3165', win32: '2fa51158f54dcc78' }, 58: { darwin: '44fc5b0c02ab3d31', linux: 'ee44b1a55e2348af', win32: 'f17e681eb398da78' }, 59: { darwin: 'f84339a25b0bacb7', linux: '4e246bfd4c74527f', win32: '4763236e10e799a9' }, 60: { darwin: '6cf469dd7deaa1c9', linux: 'c74673138296d4be', win32: 'a2f7d0abfe13cc10' } };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'd6043a51e7c6b5b7', 11: '7264c62fb8605bcc', 12: '0a27542356985c22', 13: 'a1369c0c9db5dd06', 14: '0310a25a51649642', 15: '48ac419c5b7aadf7', 16: 'a5a8b014f0bf207d', 17: 'f9535c046e6d92c5', 18: '06878b58888750af', 19: '573e956577430b3f', 20: '6f0045422d969273', 21: '2211bf1f791a9399', 22: '03e6a056085231c8', 23: '91ad3a6c31f4b409', 24: 'a660bad12cb659d6', 25: 'f0ceb95a6b07007f', 26: 'a440157c2d9efd2d', 27: '72f53800599edd5c', 28: '2d83463db37f9c28', 29: '52783dd7981ce771', 30: '459a0b50b68e5660', 31: 'abc33c9b62fa12ae', 32: '73e44376fbc76c20', 33: '2133561e3eab26ea', 34: 'a39a0bc29b3835a1', 35: '6b57ebef325d31bd', 36: '5a663e79f786d9d1', 37: '3b7a0343b77de055', 38: 'd1101aed44310c79', 39: 'fb51f108efd5d1a4', 40: '25e4303042b14af1', 41: '9886a04b66bca4c1', 42: '6dc0b29879f7fc3d', 43: 'e9e1378a3d20145a', 44: '68f2a8f66a49177b', 45: '3711e533b1a4e500', 46: '402a26bcb32c2af7', 47: 'cd1f2e4c64228956', 48: '4e7599776278c915', 49: '1d13807c5e08095d', 50: { darwin: 'ce21a502d452adf1', linux: 'e9d2a81d9ac959df', win32: 'c12d49b5a7b13306' }, 51: { darwin: '329c5140dc069164', linux: '59cbbca192babc45', win32: 'd3227e5a84e90c1b' }, 52: { darwin: 'd88d4bb3657fa4f4', linux: '0b42fe59e587b1f7', win32: '0a5890bcd8fcbf2f' }, 53: { darwin: 'b8e34d38eb98cdea', linux: '96e063236923f24d', win32: 'aefdf8da05eaa4cd' }, 54: { darwin: 'f919b39ec73cb49f', linux: '49df382d950cba9e', win32: 'c520c87f567a29cf' }, 55: { darwin: 'd20896975e23b071', linux: '4ef5e5e131e35f18', win32: '67781c54ee662b65' }, 56: { darwin: 'c1b918ab35769161', linux: 'e4d93dd55011cd2a', win32: 'c8eb72e47cee5951' }, 57: { darwin: '147ab63c8c0753d5', linux: '7929739a114e3165', win32: '2fa51158f54dcc78' }, 58: { darwin: '44fc5b0c02ab3d31', linux: 'ee44b1a55e2348af', win32: 'f17e681eb398da78' }, 59: { darwin: 'f84339a25b0bacb7', linux: '4e246bfd4c74527f', win32: '4763236e10e799a9' }, 60: { darwin: '6cf469dd7deaa1c9', linux: 'c74673138296d4be', win32: 'a2f7d0abfe13cc10' }, 61: { darwin: '9d40633815b9c290', linux: 'e83cddc548553d0d', win32: '71767892058ec8c7' } };
   const shown = JSON.stringify(print).replace(/"/g, "'");
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: ${shown}} here and a line to the version log in defaults.js`);
@@ -355,11 +355,8 @@ test('#2909: the block tells the agent to send rich-text-formatted messages', ()
     'the from-first-message default (Josh: agents print solid blocks) is not stated');
   assert.match(b, /in your dialogue with the person alike/,
     'the rooms-AND-dialogues scope Josh named is not both covered');
-  // The supported subset the room renderer actually renders.
-  assert.match(b, /headings written with/, 'the supported subset is not listed');
-  assert.match(b, /~~strikethrough~~/, 'the subset list dropped a supported element');
-  // The two things a room does NOT render, so an agent does not reach for them.
-  assert.match(b, /\[label\]\(address\)/, 'the label-only link caveat is missing');
+  // kosmos#8735 slice 4: the render list moved to `kosmos post --how` (engine/postguide.test.js asserts it there).
+  assert.match(b, /listed by `kosmos post --how`/, 'the pointer to the render list is missing');
   // The > asymmetry: renders in a dialogue, literal in a room (pjRich styles .mdq; pjProse does not).
   assert.match(b, /becomes a quote in your dialogue with the person but stays\s+literal text in a project room/,
     'the room-vs-dialogue blockquote asymmetry is missing');
@@ -475,7 +472,12 @@ test('#2909 v15: the section\'s shell examples run as written in bash and zsh, a
   const path = require('node:path');
   const sec = defaults.sections().find((x) => x.heading === '### Formatted messages need line breaks');
   const fences = [...sec.text.matchAll(/```\n([\s\S]*?)\n```/g)].map((m) => m[1]).filter((f) => !f.includes("@'"));
-  assert.equal(fences.length, 2, 'the room example and the reply example');
+  assert.equal(fences.length, 1, 'the room example');
+  /* kosmos#8735 doctrine 61: the reply example became its opener in a pointer, so the opener as written gets the
+     room example's body, as #6653 does for msg below. The reply route is still RUN. */
+  const opener = sec.text.match(/`(kosmos reply --stdin <<'KOSMOS_MSG')`/);
+  assert.ok(opener, 'the reply pointer lost its heredoc opener (#4582)');
+  fences.push(opener[1] + '\n## What changed\n\n- the first point\nKOSMOS_MSG');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-doctrine-2909-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const out = path.join(dir, 'got');
