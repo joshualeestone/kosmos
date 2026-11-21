@@ -200,7 +200,7 @@ const USAGE = {
   ].join('\n'),
   feedback: [
     'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)',
-    '       kosmos feedback write --unchanged [text]  (nothing new since your last report; any text is added to it)',
+    '       kosmos feedback write --unchanged [text]  (nothing new since your last report; a line, as words or piped in, is added to it)',
     '       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)',
     '       kosmos feedback list [--mine]      (--mine: only the days holding your own report)',
     '       kosmos feedback day                (your own day on this computer, for writing the report)',
@@ -475,6 +475,10 @@ const CARDS_STDIN_QUIET_LIMIT_MS = 120000;   /* also post --stdin's limit (#2909
 /* A report that arrived and then stopped without the input ending may be a slow
    writer cut short, so it is refused whole rather than saved in part (review round 2). */
 const FEEDBACK_WRITE_NOT_ENDED = 'Nothing was saved: the piped report stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save it in a file instead and give its path: kosmos feedback write --body-file <file>';
+const FEEDBACK_UNCHANGED_NOT_ENDED = 'Nothing was saved: the line piped in after --unchanged stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Give it as words instead: kosmos feedback write --unchanged \'the one new thing\'';   /* kosmos#8844 */
+const FEEDBACK_UNCHANGED_MAX_BYTES = 65536;   /* kosmos#8844: one short line; install/kosmos _u_max is the same */
+const FEEDBACK_UNCHANGED_MANY_LINES = 'Nothing was saved: --unchanged takes one short line, and more than that was piped in. Give the one new thing as words: kosmos feedback write --unchanged \'the one new thing\'. For more than that, write the whole report.';   /* kosmos#8844 */
+const FEEDBACK_UNCHANGED_PS = 'Nothing was saved: text piped into kosmos in PowerShell does not reach it. Give the one new thing as words instead: kosmos feedback write --unchanged \'the one new thing\'';   /* kosmos#8844 */
 const POST_BODY_MAX_BYTES = 6 * 1024 * 1024; /* #2909: the board's request-READ limit (server.js MAX_UPLOAD); the room's text cap is lower and refuses with its own reason */
 
 // ── the verbs ───────────────────────────────────────────────────────────────
@@ -3324,6 +3328,17 @@ async function feedbackWrite(ctx, args) {
   let unchangedDay = null;
   if (unchangedAsked) {
     if (bf.file !== null) { ctx.err('--unchanged takes a short line, not --body-file, so nothing was saved.'); return 2; }
+    /* kosmos#8844: the daily nudge says to add a line after --unchanged, and an agent that pipes it in must not lose it
+       while the command says the report was saved. With no words, the line is read from stdin, as a plain write reads
+       its report; words, when given, are the line and stdin is not read (as for a plain write). */
+    if (!args.length) {
+      if (ctx.psPipeline) { ctx.err(FEEDBACK_UNCHANGED_PS); return 2; }
+      const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, FEEDBACK_UNCHANGED_MAX_BYTES);
+      if (piped.overflow) { ctx.err(FEEDBACK_UNCHANGED_MANY_LINES); return 2; }
+      if (String(piped.text).trim() && !piped.ended) { ctx.err(FEEDBACK_UNCHANGED_NOT_ENDED); return 2; }
+      body = String(piped.text).trim();
+      if (/[\r\n]/.test(body)) { ctx.err(FEEDBACK_UNCHANGED_MANY_LINES); return 2; }
+    }
     let u;
     try { const fb = ctx.engine('feedback'); u = fb.unchanged(typeof fb.writer === 'function' ? fb.writer(ctx.env) : null, body); } catch {
       ctx.err('We could not read your earlier reports, so nothing was saved.');   // as the Mac: no raw error, which can carry a path
