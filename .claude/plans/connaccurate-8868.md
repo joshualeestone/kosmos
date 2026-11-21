@@ -21,7 +21,9 @@ credential, on every regeneration; and a guard in CI fails if that ever stops be
 - On Agent1s, 24 agent files: 21 hold today's block, 2 old throwaway agents (zz-test-*) hold a long block from the
   09-29 to 10-07 window (file mtime 10-01; it has the phrase AND the billing warning; not rewritten since), 1 another. Every `CLAUDE.md.previous` (what the last write replaced) equals its current
   block: no flip on this computer.
-- The report's install id is neither Agent1s nor Mortals; `mini` did not answer ssh. The flipping copy was not seen.
+- The report's install id (885080d4) is neither Agent1s nor Mortals. Splinter, 17:23: it is a WINDOWS board (its 20
+  reports since 10-13 all name PowerShell), not Homer's install (45461372). Homer was asked over Slack whether
+  pizzarama runs a second install with that id; nobody here touches that box. The flipping copy was not seen.
 
 ## The call
 
