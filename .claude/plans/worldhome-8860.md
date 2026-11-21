@@ -90,4 +90,10 @@ A throwaway board started before this change has bare-label jobs; after the chan
 With the bare-job guard, a folder still holding such a job keeps bare labels, so the old board keeps working as it
 did. Once all its bare jobs are gone it scopes, and its old removed-agent records (bare labels) no longer match in
 `reapplyRemovedDisables` (remove.js). Accepted: throwaway boards are torn down, not upgraded. Tear such a board down with
-the old procedure (stop it, then `launchctl remove`). Real boards are unchanged.
+the old procedure (stop it, then `launchctl remove`).
+
+Real boards: an installed board (HOME is the account's home, no AGENT_WORKFORCE_LAUNCH or _HOME) is unchanged. A
+real board run with a job folder that is NOT the account's and holds no agent job yet (a non-standard install: its
+own AGENT_WORKFORCE_HOME, or HOME not the account record's) scopes its first agent and every one after it, since its
+scoped jobs are not bare jobs and the latch holds. That is consistent, not orphaning, but it is a change for such an
+install. One with bare jobs already in its folder keeps bare labels.
