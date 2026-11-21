@@ -1180,8 +1180,8 @@ function folderHasBareJob(dir) {
       && !f.slice(SERVICE_LABEL_PREFIX.length).includes(launchidentity.WORLD_SEPARATOR));
   } catch { return false; }
 }
-/* The decision, with every input passed in, so a test can drive each arm (a test process cannot be "really live":
-   it has a runner, or setRunner(null) has turned dry-run on). `hasBareJob` is a function, read last. */
+/* The decision, with every input passed in, so a test can drive each arm (an ordinary test process is not "really
+   live": its live-execution gate is closed). `hasBareJob` is a function, read last. */
 function launchScopeFor(o) {
   if (!launchidentity.isDefaultWorld(o.world)) return String(o.world);
   // macOS only: Linux units (linuxjob) and Windows tasks (win32job) are keyed by the world, and their readers here
@@ -1201,22 +1201,32 @@ function setLaunchScopeForTests(scope) { launchScopeOverride = scope || null; }
 /* Forces only the "live" input (true, false, or null for the real answer), so a test can drive launchScope's own
    wiring (its folder, the account's folder, the bare-job check) on the live path no test process can reach. */
 let launchLiveOverride = null;
-function setLaunchLiveForTests(on) { launchLiveOverride = on === null || on === undefined ? null : Boolean(on); }
+function setLaunchLiveForTests(on) {
+  launchLiveOverride = on === null || on === undefined ? null : Boolean(on);
+  launchScopeLatch.clear();
+}
+/* A live board's answer, kept per job folder for the life of the process: once a throwaway board has scoped (or
+   kept bare labels), a job file that appears later (a bare one another process wrote) cannot flip it and strand the
+   agents it already registered. Keyed on the folder as configured, so the lookup is a string compare. */
+const launchScopeLatch = new Map();
 function launchScope(worldId) {
   const world = worldId === undefined ? launchidentity.currentWorldId() : worldId;
   if (!launchidentity.isDefaultWorld(world)) return String(world);
   if (launchScopeOverride) return launchScopeOverride;
-  return launchScopeFor({
-    world,
-    platform: probePlatform(),
-    /* Live means run() really calls launchctl: the gate is open (server.js, real start), no test runner stands in,
-       and dry-run is off (run() returns before the gate under AGENT_WORKFORCE_DRY_RUN=1). remove.js builds its
-       labels through serviceLabel too, so its own runner seam cannot give it a different label. */
-    live: launchLiveOverride !== null ? launchLiveOverride : (!runner && !DRY_RUN && liveExec.liveExecutionAllowed()),
-    folder: agentsDir(),
-    account: accountLaunchAgentsDir(),
-    hasBareJob: folderHasBareJob,
-  });
+  const folder = agentsDir();
+  const platform = probePlatform();
+  /* Live means run() really calls launchctl: the gate is open (server.js, real start), no test runner stands in,
+     and dry-run is off (run() returns before the gate under AGENT_WORKFORCE_DRY_RUN=1). remove.js builds its
+     labels through serviceLabel too, so its own runner seam cannot give it a different label. */
+  const live = launchLiveOverride !== null ? launchLiveOverride : (!runner && !DRY_RUN && liveExec.liveExecutionAllowed());
+  if (!live || platform !== 'darwin') {
+    return launchScopeFor({ world, platform, live, folder, account: null, hasBareJob: folderHasBareJob });
+  }
+  const latched = launchScopeLatch.get(folder);
+  if (latched !== undefined) return latched;
+  const decided = launchScopeFor({ world, platform, live, folder, account: accountLaunchAgentsDir(), hasBareJob: folderHasBareJob });
+  launchScopeLatch.set(folder, decided);
+  return decided;
 }
 function serviceLabel(name, worldId) {
   return `${SERVICE_LABEL_PREFIX}${launchidentity.launchKey(name, launchScope(worldId))}`;
@@ -4128,9 +4138,9 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
   /* #1704: the Kosmos this agent belongs to is the board's own world. The tmux
      session name is keyed by it (launchidentity.launchKey), so a named world's agent
      runs in session `<name>+<world>`. The launchd label is keyed by serviceLabel's
-     scope, which is the same world except on a live throwaway board whose job folder
-     is not the account's LaunchAgents (kosmos#8860): there it is `<name>+launch-<hash>`
-     while the session stays `<name>`. */
+     scope, which is the same world except on a live macOS throwaway board whose job
+     folder is not the account's LaunchAgents and holds no bare job (kosmos#8860): there
+     it is `<name>+launch-<hash>` while the session stays `<name>`. */
   const world = launchidentity.currentWorldId();
   const label = serviceLabel(name, world);
   const session = launchidentity.launchKey(name, world);

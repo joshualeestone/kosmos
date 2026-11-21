@@ -89,7 +89,13 @@ test('live end to end: launchScope scopes a throwaway folder from its real input
     fs.writeFileSync(path.join(dir, 'com.kosmos.agent.notes.txt'), 'x');
     assert.equal(create.serviceLabel('ava'), label, 'its own scoped job and a non-plist file are not bare jobs');
     fs.writeFileSync(path.join(dir, 'com.kosmos.agent.ava.plist'), '<plist/>');
-    assert.equal(create.serviceLabel('ava'), 'com.kosmos.agent.ava', 'a bare job in the folder keeps bare labels');
+    assert.equal(create.serviceLabel('ava'), label,
+      'LATCHED: a bare job written later (by another process) cannot flip a running board and strand its agents');
+
+    const bare = tmp('bare');
+    fs.writeFileSync(path.join(bare, 'com.kosmos.agent.ava.plist'), '<plist/>');
+    process.env.AGENT_WORKFORCE_LAUNCH = bare;
+    assert.equal(create.serviceLabel('ava'), 'com.kosmos.agent.ava', 'a folder holding a bare job when first asked keeps bare labels');
 
     process.env.AGENT_WORKFORCE_LAUNCH = ACCOUNT;   // a string only: nothing is read from or written to it here
     assert.equal(create.serviceLabel('ava'), 'com.kosmos.agent.ava', 'CONTROL: the account\'s own folder is never scoped');
@@ -152,6 +158,7 @@ test('with the gate open, a dry-run board and a board with a test runner both ke
     create.setDryRun(false);         // a runner and dry-run off: only the runner stands between this and launchd
     assert.equal(create.serviceLabel('ava'), 'com.kosmos.agent.ava', 'a test runner: nothing reaches launchd');
   } finally {
+    // setRunner(null) leaves dry-run ON (its own rule), not as it was: the safe direction for anything after this.
     create.setRunner(null);
     liveExec.resetForTests();
     create.setProbePlatformForTests(null);

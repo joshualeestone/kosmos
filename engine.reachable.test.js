@@ -21,7 +21,7 @@ const path = require('node:path');
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
   setLaunchLiveForTests: 'test seam (kosmos#8860): forces only the live input of engine/create.js launchScope, so engine/launchscope-8860.test.js can drive its real folder, account and bare-job wiring on the live path no test process can reach.',
-  launchScopeFor: 'test seam (kosmos#8860): engine/create.js decides a board\'s launchd label scope in this pure function so engine/launchscope-8860.test.js can drive each arm; a test process can never be really live (it has a runner, or dry-run is on).',
+  launchScopeFor: 'test seam (kosmos#8860): engine/create.js decides a board\'s launchd label scope in this pure function so engine/launchscope-8860.test.js can drive each arm; an ordinary test process is not really live (its live-execution gate is closed).',
   setLaunchScopeForTests: 'test seam (kosmos#8860): engine/create.js answers launchScope from this, so engine/register.test.js and engine/launchscope-8860.test.js can read a throwaway board\'s scoped labels through a runner, which otherwise turns scoping off.',
   resetLinkedCacheForTests: 'test seam (kosmos#8846): engine/usagepoll.js caches the linked Claude account count for a minute, and engine/automove-default-8846.test.js clears it between cases so each reads its own list. Production never clears it; the minute passes.',
   setCloudForTests: 'test seam (kosmos#8786 S2): engine/linuxboard.js answers "is this a Kosmos Cloud computer" from this instead of the tunnel latch, so engine/linuxboard.cloudupdate-8786.test.js can show installBoard writes the nightly units only on one. Production reads cloudmachine.isCloudMachine().',
