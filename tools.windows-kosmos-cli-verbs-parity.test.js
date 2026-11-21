@@ -322,6 +322,7 @@ test('the texts agents are actually given name only verbs the Windows command ha
     ['engine/taskguide.js guideText()', require('./engine/taskguide').guideText()],   // kosmos#8735 slice 2
     ['engine/claimguide.js guideText()', require('./engine/claimguide').guideText()],   // kosmos#8735: kosmos claim --how
     ['engine/postguide.js guideText()', require('./engine/postguide').guideText()],   // kosmos#8735 slice 4: kosmos post --how
+    ['engine/agentguide.js guideText()', require('./engine/agentguide').guideText()],   // kosmos#8735 slice 7: kosmos agent --how
     ...require('./engine/roles').ROLES.map((r) => ['engine/roles.js ' + r.key, r.instructions]),
     // kosmos#8735 slice 3: the board's daily ask is now the one text that teaches the feedback verbs.
     ['engine/feedbacknudge.js nudgeText()', require('./engine/feedbacknudge').nudgeText()],

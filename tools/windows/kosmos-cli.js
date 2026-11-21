@@ -176,6 +176,7 @@ const USAGE = {
     '                                                  zz-livecheck-<something>, which the test suites\' check for stray agents skips',
     '                                                  (<something> 19 characters at most). Remove it when you are done: that check never reports it',
     '  kosmos agent roles [<word>]                     list the roles an agent can be made with, or those matching <word>',
+    '  kosmos agent --how                              how to write a role of your own, when none on the list fits',
     '  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)',
     '  kosmos agent instructions-add "<name>" --from <file>',
     '                                                  propose an addition to an agent\'s instructions; the person applies it',
@@ -4141,6 +4142,19 @@ async function verbTask(ctx, args) {
   return subcommandRequired('task')(ctx, args);
 }
 
+/* kosmos#8735 slice 7, as install/kosmos cmd_agent: --how prints engine/agentguide.js guideText, the new-role steps. A flag,
+   not a subcommand; anything else not a subcommand is subcommandRequired's answer, as before. */
+async function verbAgent(ctx, args) {
+  if (args && args[0] === '--how') {
+    if (args.length > 1) { ctx.err('Usage: kosmos agent --how'); return 2; }
+    let guide;
+    try { guide = ctx.engine('agentguide').guideText(); } catch { ctx.err('Kosmos could not find its own runtime to print this.'); return 1; }
+    ctx.out(guide);
+    return 0;
+  }
+  return subcommandRequired('agent')(ctx, args);
+}
+
 /* kosmos#8735, as install/kosmos cmd_community: --how prints how to take part (engine/communityguide.js guideText), the
    routine an agent's instructions point at. A local read; communityguide requires nothing, so only that one file can fail.
    A flag, not a subcommand, on both commands (the parity test reads `-`-led words as flags). Reached only when the first
@@ -4310,7 +4324,7 @@ const VERB_HANDLERS = {
   notice: verbNotice,
   task: verbTask,   // kosmos#8735 slice 2: --how, as install/kosmos; anything else not a subcommand is the usage
   project: subcommandRequired('project'),
-  agent: subcommandRequired('agent'),
+  agent: verbAgent,   // kosmos#8735 slice 7: --how, as install/kosmos; anything else not a subcommand is the usage
   feedback: subcommandRequired('feedback'),
   community: verbCommunity,   // kosmos#8735: --how, as install/kosmos; anything else not a subcommand is the usage
   connections: verbConnections,
