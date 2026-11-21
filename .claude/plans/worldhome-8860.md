@@ -10,9 +10,10 @@ real `com.kosmos.agent.<name>` jobs in the account's one launchd domain, beside 
     Windows tasks stay keyed by the world, and so do their readers); run() is really live (the live-execution gate
     is open, no runner seam is installed, and dry-run is off); the agent job folder (`agentsDir()`) is not the account's real
     `~/Library/LaunchAgents` (from `os.userInfo().homedir`, not HOME); and the folder holds no bare-labelled agent
-    job (`folderHasBareJob`). Then `launch-<first 8 hex of sha256(folder)>`.
+    job (`folderHasBareJob`), unless it already holds a job with this folder's own scope (`folderHasScopedJob`, checked
+    first, so a restarted throwaway board keeps its agents). Then `launch-<first 8 hex of sha256(folder)>`.
   - The decision is the pure `launchScopeFor(inputs)`; `launchScope()` gathers the inputs. A test process can never
-    be really live (it has a runner, or `setRunner(null)` turned dry-run on), so the arms are tested through it.
+    be really live in an ordinary test process (its live-execution gate is closed), so the arms are tested through it.
   - The bare-job guard keeps bare labels for a folder already holding a bare job: a real board whose HOME is not the
     account record's spelling (it would otherwise rename its jobs and start a second set), a throwaway board made
     before this change, and jobs a tool seeded in another process (docs/browser-checks/mobile-shots.js seeds bare
