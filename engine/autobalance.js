@@ -176,19 +176,25 @@ function eligible(rows) {
  * so an at-risk account with no idle agent on it is said, not silent (review 3).
  */
 /* kosmos#8862: `modelOf` for decide, from a roster read only when first asked (as movableOnDemand): the agent's model as
-   its card names it (modelName, else model), or null when the card or the roster cannot say. */
-function modelOfFrom(getCards) {
+   its card names it (modelName, else model), or null when the card or the roster cannot say. Review 2: a fresh session
+   that has not replied yet carries no model, only its previous session's (earlierModelName, status.js
+   splitModelReading); for which limit it draws on that is the best evidence there is, so it is the last fallback. The
+   function also answers `atLimit(session)`: whether the card says the agent is stopped at a usage limit (stoppedAtLimit),
+   so decide can act on an agent whose model is unknown but which has plainly hit a limit. */
+function modelOfFrom(getCards, nowMs = null) {
   let bySession = null;
-  return (session) => {
+  const card = (session) => {
     if (!bySession) {
       let cards = null;
       try { cards = typeof getCards === 'function' ? getCards() : getCards; } catch { cards = null; }
       bySession = new Map((Array.isArray(cards) ? cards : []).filter((c) => c && c.sessionName).map((c) => [c.sessionName, c]));
     }
-    const c = bySession.get(session);
-    const m = c && (typeof c.modelName === 'string' && c.modelName ? c.modelName : typeof c.model === 'string' ? c.model : null);
-    return m || null;
+    return bySession.get(session) || null;
   };
+  const str = (v) => (typeof v === 'string' && v.trim() ? v : null);
+  const of = (session) => { const c = card(session); return c ? (str(c.modelName) || str(c.model) || str(c.earlierModelName)) : null; };
+  of.atLimit = (session) => { const c = card(session); try { return !!c && stoppedAtLimit(c, Number.isFinite(nowMs) ? nowMs : Date.now()); } catch { return false; } };
+  return of;
 }
 
 function decide({ rows, movable, nowMs, skipTarget, modelOf }) {
@@ -205,7 +211,12 @@ function decide({ rows, movable, nowMs, skipTarget, modelOf }) {
     const acctWhy = riskOf(from, nowMs);
     /* kosmos#8862: an account whose overall limit is fine is still at risk for the agents whose own model's limit is
        full there. Each agent carries its own reason; the account's line names the first such model. */
-    const whyFor = (n) => acctWhy || modelRiskOf(from, model(n), nowMs);
+    /* Review 2: an agent whose model cannot be told but which is stopped at a usage limit, on an account whose overall
+       limit is fine, almost certainly hit a model's own limit there (the card's stated fallback), so it is at risk by
+       the first model limit there that passes the rule. */
+    const atLimit = (n) => { try { return typeof modelOf === 'function' && typeof modelOf.atLimit === 'function' && modelOf.atLimit(n) === true; } catch { return false; } };
+    const unknownAtLimitWhy = (n) => (!modelKey(model(n)) && atLimit(n) ? (scopedNow(from, nowMs).map((s) => modelRiskOf(from, s.model, nowMs)).find(Boolean) || null) : null);
+    const whyFor = (n) => acctWhy || modelRiskOf(from, model(n), nowMs) || unknownAtLimitWhy(n);
     const complete = !!from.agentsHere && from.agentsHere.complete === true;
     /* Review 1: a list that may be short can be missing the very agent on the full model, so with an incomplete list any
        model limit there that passes the rule makes the account at risk (and short), as an overall risk always did. */
@@ -229,8 +240,11 @@ function decide({ rows, movable, nowMs, skipTarget, modelOf }) {
       if (!to) { stuck.push(agent); continue; }
       moves.push({ agent, from: from.dir, to: to.dir, why: whyFor(agent) });
     }
-    /* Review 1: the held line names who is held, since others on the same account may be moving. */
-    if (stuck.length) held.push({ from: from.dir, why: whyFor(stuck[0]) || why, agents: stuck });
+    /* Review 1: the held line names who is held, since others on the same account may be moving. Review 2: one entry
+       per reason, so an Opus agent is never given the Fable agent's reason. */
+    const byWhy = new Map();
+    for (const a of stuck) { const w = whyFor(a) || why; byWhy.set(w, [...(byWhy.get(w) || []), a]); }
+    for (const [w, agents] of byWhy) held.push({ from: from.dir, why: w, agents });
   }
   return { moves, held, short, atRisk };
 }

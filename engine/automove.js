@@ -394,7 +394,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       }
       const rows = ab.rowsFromReadings({ list, readUsage: deps.readUsage, agentsOn: deps.agentsOn, nowMs, ...(deps.sameLogin ? { sameLogin: deps.sameLogin } : {}) });
       const movable = ab.movableOnDemand(() => ab.movableFor(movableArgs(deps.roster())));
-      decision = ab.decide({ rows, movable, nowMs, skipTarget: skip, modelOf: ab.modelOfFrom(() => deps.roster()) });   // kosmos#8862
+      decision = ab.decide({ rows, movable, nowMs, skipTarget: skip, modelOf: ab.modelOfFrom(() => deps.roster(), nowMs) });   // kosmos#8862
     } catch (err) { state.lastMovable = new Set(); state.limitSeenAt = new Map(); return { did: 'unreadable', because: String((err && err.message) || err) }; }
     const label = (dir) => { try { return deps.labelOf(dir); } catch { return null; } };
     const kindOf = (dir) => (decision.atRisk.find((x) => x.from === dir) || {}).kind || null;

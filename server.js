@@ -15307,7 +15307,7 @@ const server = http.createServer(async (req, res) => {
                  names a move the mover would not make. */
               let skipTarget = null;
               try { skipTarget = automoveRun && automove.movesOn() ? automoveRun.skipTarget(sentAt, moveWouldLose) : null; } catch { skipTarget = null; }   // kosmos#8048: the page holds what the mover holds
-              decision = ab.decide({ rows: claude, movable, nowMs: sentAt, ...(skipTarget ? { skipTarget } : {}), modelOf: ab.modelOfFrom(cards) });   // kosmos#8862
+              decision = ab.decide({ rows: claude, movable, nowMs: sentAt, ...(skipTarget ? { skipTarget } : {}), modelOf: ab.modelOfFrom(cards, sentAt) });   // kosmos#8862
               /* Review round 7: an agent the mover leaves alone now (moved by a person or by Kosmos, refused, or set aside after a
                  re-check that could not be made: kosmos#7621) is marked, so the page does not say Kosmos will move it. */
               if (skipTarget) {

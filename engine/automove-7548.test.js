@@ -917,7 +917,7 @@ test('#7548 review round 6: while the mover runs, Settings skips its held target
   assert.equal(run.skipTarget(NOW + automove.FAILED_HOLD_MS + 6000)(held[0]), false, 'CONTROL: a day later it is not held');
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /automoveRun && automove\.movesOn\(\) \? automoveRun\.skipTarget\(sentAt, moveWouldLose\) : null/, 'Settings does not use the mover\'s held targets');
-  assert.match(src, /decision = ab\.decide\(\{ rows: claude, movable, nowMs: sentAt, \.\.\.\(skipTarget \? \{ skipTarget \} : \{\}\), modelOf: ab\.modelOfFrom\(cards\) \}\)/);   // kosmos#8862: and each agent's model
+  assert.match(src, /decision = ab\.decide\(\{ rows: claude, movable, nowMs: sentAt, \.\.\.\(skipTarget \? \{ skipTarget \} : \{\}\), modelOf: ab\.modelOfFrom\(cards, sentAt\) \}\)/);   // kosmos#8862: and each agent's model
   assert.match(src, /autobalance\.movePaused = autobalance\.moving === true \? automoveRun\.paused\(\) : null/, 'Settings is not told the mover waits');
   assert.match(src, /const said = why !== null && why === automoveSaid;/, 'the board logs the same reason every tick');
 });

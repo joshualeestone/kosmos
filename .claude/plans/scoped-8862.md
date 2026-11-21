@@ -25,3 +25,8 @@ Splinter's probe of account c, 11-21 04:45 UTC: `limits` = weekly_all 55%, weekl
 - Fixed: Settings copy names one model's own limit; held entries name who is held (page says them); a model-only risk is marked (`model`) and the page says "running out for Fable" / "none of its agents on Fable"; a short agent list cannot hide a model risk; an old id never keys to a digit; each agent keeps its own reason (tested with two models full); the mover's message no longer says the whole account ran out.
 - ACCEPTED, on the card: the page's own bulk move (a person moving many agents) is not model-aware; the mover's re-check reads the model from the tick's earlier roster (a change inside one tick is seen next tick).
 - Browser check render-autobalance-7152: two new cases (held named beside a move; a model-only risk), run through tools/browser-checks.sh on the frozen head: PASS in chromium and webkit, both widths.
+
+## Review round 2 (blind): 0 BLOCKER, 1 WARNING, 1 NIT, all fixed
+- WARNING: a fresh session has no model on its card (only earlierModelName), so an agent whose first turn hit a full Fable limit was never moved. Fixed: modelOfFrom falls back to earlierModelName; and an agent with no model at all that is stopped at a limit (stoppedAtLimit) is at risk by the first model limit there that passes the rule (the card's fallback). Both tested with the reviewer's card shape and a real fleet card; mutations red.
+- NIT: held agents are grouped by their own reason (one entry per reason).
+- Decided again (round 1 stands): an IDLE agent with no model is never at risk by a model limit.

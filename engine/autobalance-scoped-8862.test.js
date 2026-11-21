@@ -215,3 +215,50 @@ test('kosmos#8862 review 1: with an agent list that may be short, a full model l
   const whole = ab.decide({ rows: [{ ...rows[0], agentsHere: { names: ['otto'], complete: true } }, rows[1]], movable: all, nowMs: NOW, modelOf: () => 'Claude Opus 5.5' });
   assert.deepEqual(whole.atRisk, [], 'CONTROL: with the whole list and no agent on Fable, nothing is at risk');
 });
+
+/* Review 2. */
+const fleet = require('../test-support/fleet');
+test('kosmos#8862 review 2: a fresh session with no model yet is judged by its previous one', () => {
+  const x = { sessionName: 'x', model: null, modelName: null, earlierModelName: 'Claude Fable 5.2' };
+  const y = { sessionName: 'y', model: 'claude-fable-5-2', modelName: 'Claude Fable 5.2' };
+  const modelOf = ab.modelOfFrom([x, y]);
+  assert.equal(modelOf('x'), 'Claude Fable 5.2', 'the previous session\'s model was not used');
+  const rows = [
+    row('/c', { weekly: { usedPct: 55, resetsAt: NOW + 41 * H }, scoped: fable(100), agentsHere: { names: ['x', 'y'], complete: true } }),
+    row('/d', { weekly: { usedPct: 20, resetsAt: NOW + 90 * H } }),
+  ];
+  const d = ab.decide({ rows, movable: all, nowMs: NOW, modelOf });
+  assert.deepEqual(d.moves.map((m) => m.agent).sort(), ['x', 'y'], 'the agent in a fresh session was left on the full Fable limit (the reviewer\'s probe)');
+});
+
+test('kosmos#8862 review 2: an agent with no model at all, stopped at a limit where a model limit is full, is moved', () => {
+  const [base] = (() => { const b = fleet.install([fleet.agent('zed', { state: 'idle' })]); return [b.card('zed')]; })();
+  const reset = new Date(NOW + 41 * H);
+  const mon = reset.toLocaleString('en-US', { month: 'short', timeZone: 'America/Chicago' });
+  const day = reset.toLocaleString('en-US', { day: 'numeric', timeZone: 'America/Chicago' });
+  const weekly = `You've hit your weekly limit · resets ${mon} ${day} at 4pm (America/Chicago)`;   // as Claude Code prints it
+  const stopped = { ...base, state: 'rate_limited', stateEvidence: weekly, model: null, modelName: null, earlierModelName: null };
+  const modelOf = ab.modelOfFrom([stopped], NOW);
+  assert.equal(modelOf('zed'), null, 'CONTROL: nothing names its model');
+  assert.equal(modelOf.atLimit('zed'), true, 'CONTROL: the card reads stopped at a dated weekly limit');
+  const rows = [
+    row('/c', { weekly: { usedPct: 55, resetsAt: NOW + 41 * H }, scoped: fable(100), agentsHere: { names: ['zed'], complete: true } }),
+    row('/d', { weekly: { usedPct: 20, resetsAt: NOW + 90 * H } }),
+  ];
+  const d = ab.decide({ rows, movable: all, nowMs: NOW, modelOf });
+  assert.deepEqual(d.moves.map((m) => [m.agent, m.to]), [['zed', '/d']], 'an agent stopped at a model limit it could not be told was left there');
+  const idle = ab.modelOfFrom([{ ...base, model: null, modelName: null }], NOW);
+  assert.deepEqual(ab.decide({ rows, movable: all, nowMs: NOW, modelOf: idle }).moves, [], 'CONTROL: an idle agent with no model is not moved by a model limit');
+});
+
+test('kosmos#8862 review 2: held agents are grouped by their own reason', () => {
+  const MODELS = { f: 'Claude Fable 5.2', o: 'Claude Opus 5.5' };
+  const both = [...fable(100), { model: 'Opus', usedPct: 95, resetsAt: NOW + 30 * H }];
+  const rows = [
+    row('/c', { weekly: { usedPct: 55, resetsAt: NOW + 41 * H }, scoped: both, agentsHere: { names: ['f', 'o'], complete: true } }),
+    row('/d', { weekly: { usedPct: 20, resetsAt: NOW + 90 * H }, scoped: both }),
+  ];
+  const d = ab.decide({ rows, movable: all, nowMs: NOW, modelOf: (n) => MODELS[n] });
+  assert.deepEqual(d.held.map((h) => [h.agents, /Fable/.test(h.why) ? 'Fable' : /Opus/.test(h.why) ? 'Opus' : '?']), [[['f'], 'Fable'], [['o'], 'Opus']],
+    'the Opus agent was held under the Fable agent\'s reason');
+});
