@@ -7,9 +7,10 @@
  * the features of the block before #4451 (2026-09-29): "there is no one-word verb that prints accounts, so it is a
  * direct read of" GET /api/accounts with the board token, and no Connections part at all. Current main writes neither.
  *
- * This guards what the agent actually receives, not only the source string: the block as it lands in an agent's file,
- * on every regeneration, and the repair of a file that already holds the old text. connections.test.js pins the
- * source wording; this pins the file.
+ * This guards the block as current Kosmos writes it into an agent's file, and the repair of a file that already holds
+ * the old text; connections.test.js pins the source wording. It cannot see a writer running other code (an older
+ * Kosmos, or a board started from an old checkout), which is where the reported flip most likely came from; it makes
+ * sure the next write from this code puts the accurate block back, and that every writer here uses the one text.
  */
 
 const fs = require('node:fs');
@@ -55,7 +56,8 @@ function assertAccurate(flat, where) {
   assert.doesNotMatch(flat, /board token|Authorization:|Bearer /i, where + ': it sends the agent to a read carrying a credential');
 }
 
-/* The old block's own words (engine/connections.js before #4451, 6a4741fd0b^), trimmed to the lines the report names. */
+/* Paraphrased from the block of 2026-09-03 to 09-29 (engine/connections.js at 6a4741fd0b^, lines 116-121), keeping the
+   features the report names: no command, a direct read carrying the board token, and no billing warning. */
 const OLD_BLOCK = [
   '## How connecting a provider works',
   '',
@@ -67,8 +69,23 @@ const OLD_BLOCK = [
   '`GET /api/accounts`.',
 ].join('\n');
 
-test('kosmos#8868: CONTROL, the checks catch the old block the report describes', () => {
-  /* Without this, a check that could never fail would pass the arms below. */
+test('kosmos#8868: CONTROL, each check fails on its own bad feature, and the accurate block passes them all', () => {
+  /* One control per check: a single assert.throws on the old block stops at the first check that fires, so the
+     no-command and credential checks would never be shown to work (review round 1). */
+  const good = connections.blockBody().replace(/\s+/g, ' ');
+  assertAccurate(good, 'today\'s block');
+  const cases = [
+    [good.replace('`kosmos connections`', '`the connections list`'), /the command that lists connected services is not named/],
+    [good.replace('`kosmos accounts`', '`the accounts list`'), /the command that lists AI providers is not named/],
+    [good.replace(/never read `GET \/api\/connections` yourself/i, 'read `GET /api/connections`'), /the direct read is not forbidden/],
+    [good.replace(/bill the person/, 'cost nothing'), /the billing warning is missing/],
+    [good + ' There is no one-word verb that prints accounts.', /it says there is no command/],
+    [good + ' Send the board token with the read.', /it sends the agent to a read carrying a credential/],
+  ];
+  for (const [text, why] of cases) {
+    assert.notEqual(text, good, 'a control case did not change the text: ' + why);
+    assert.throws(() => assertAccurate(text, 'control'), why);
+  }
   assert.throws(() => assertAccurate(OLD_BLOCK.replace(/\s+/g, ' '), 'old block'));
 });
 
@@ -79,6 +96,7 @@ test('kosmos#8868: the section written into an agent file is accurate, and stays
   for (let i = 0; i < 3; i++) {
     const r = connections.tellAgent('steady', roster);
     assert.equal(r.state, projects.TOLD.TOLD, r.because || '');
+    assert.equal(r.changed, i === 0, 'only the first write changes the file; regeneration ' + (i + 1));
     const text = fs.readFileSync(fileOf('steady'), 'utf8');
     assertAccurate(section(text), 'regeneration ' + (i + 1));
     if (first === null) first = text;
@@ -104,4 +122,31 @@ test('kosmos#8868: the on-demand guide keeps the billing warning and never says 
   assert.match(flat, /To see what is connected, run `kosmos connections`/);
   assert.match(flat, /bill the person for every check/);
   assert.doesNotMatch(flat, /one-word verb|no such command|there is no (?:command|kosmos)/i);
+});
+
+test('kosmos#8868: every writer of the Connections markers writes blockBody(), so no second text exists in this code', () => {
+  /* The block is written by connections.tellAgent and, for an imported agent, by discover.js (review round 1). A third
+     writer with its own words would bring the flip back from current code; this fails when one appears. Writers are
+     found by the marker: a spliceBlock call naming the Connections markers, or a file that binds CONNECTIONS_START to a
+     name of its own and calls spliceBlock (only connections.js may, and its START is checked to be that marker). */
+  assert.equal(connections.START, projects.CONNECTIONS_START);
+  assert.equal(connections.END, projects.CONNECTIONS_END);
+  const writers = [];
+  const aliasing = [];
+  for (const f of fs.readdirSync(__dirname)) {
+    if (!f.endsWith('.js') || f.endsWith('.test.js') || f === 'projects.js') continue;
+    const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
+    if (/CONNECTIONS_START/.test(src) && /spliceBlock\(/.test(src)) aliasing.push(f);
+    src.split('\n').forEach((line, i) => {
+      if (/spliceBlock\(/.test(line) && /CONNECTIONS_START|connMod\.START|connections\.START/.test(line)) writers.push({ where: f + ':' + (i + 1), line });
+    });
+  }
+  assert.deepEqual(aliasing, ['connections.js'], 'a file other than connections.js binds the Connections marker and splices');
+  // CONTROL: the sweep sees the import writer, so an empty result can never pass for "no stray writer".
+  assert.ok(writers.some((w) => w.where.startsWith('discover.js')), 'the sweep did not find the import writer: ' + JSON.stringify(writers));
+  for (const w of writers) {
+    assert.match(w.line, /\bblockBody\(\)/, w.where + ' writes the Connections markers without blockBody(): ' + w.line.trim());
+  }
+  // connections.js splices with its own START/END, bound above to the real markers: its call must pass blockBody().
+  assert.match(fs.readFileSync(path.join(__dirname, 'connections.js'), 'utf8'), /spliceBlock\([^)]*blockBody\(\), START, END\)/);
 });
