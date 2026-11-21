@@ -901,3 +901,43 @@ test('kosmos#8735 doctrine 56: a later change to a non-claim line in that sectio
   assert.ok(body.includes('- A rule about reacting that a later version removed.'), 'fixture: the removed line is not in the changes file');
   assert.ok(!/kosmos claim --how/.test(body), 'a removal unrelated to the claim move was pointed at the claim guide');
 });
+
+// kosmos#8735 doctrine 62 (review 1): --moved-to moved word for word to kosmos task --how; the --held detail and
+// "Kosmos sees every other state" left "You do not stop" but still hold, so a note says where.
+const V61_MOVED_TO = ["When an unmet check's part goes to another task, add `--moved-to <that task's number>`",
+  'after the words, so both tasks show where it went.'];
+const V61_SEES_PARA = ['**Kosmos sees every other state for itself. It cannot see blocked or needs_you**,',
+  'because nothing on your screen tells a question you are waiting on from a',
+  'sentence you happened to write.'];
+function withV61Back() {
+  const block = require('./defaults').blockFor(process.platform);
+  const built = block.indexOf('Then mark it built with a short note');
+  const clear = block.indexOf('**Clear it when it is answered**');
+  assert.ok(built > 0 && clear > 0, 'fixture: the anchors are not where they were');
+  let before = block.slice(0, clear) + V61_SEES_PARA.join('\n') + '\n\n' + block.slice(clear);
+  const b2 = before.indexOf('Then mark it built with a short note');
+  before = before.slice(0, b2) + V61_MOVED_TO.join('\n') + '\n\n' + before.slice(b2);
+  return { block, before };
+}
+
+test('kosmos#8735 doctrine 62: --moved-to is left out as moved, and the removed held lines get a note', () => {
+  const { block, before } = withV61Back();
+  agentFile('tqa', '# You are Tqa\n\n' + block + '\n');
+  assert.equal(ir.remember('tqa', '# You are Tqa\n\n' + before + '\n'), true);
+  const body = fs.readFileSync(ir.prepareChanges('tqa').path, 'utf8');
+  for (const l of V61_MOVED_TO) assert.ok(!body.includes('- ' + l), 'a moved --moved-to line is marked as no longer applying: ' + l);
+  assert.match(body, /Left out: 2 lines removed from Put the work on a task first that kosmos task --how prints/);
+  assert.ok(body.includes('- ' + V61_SEES_PARA[0]), 'fixture: the removed line is not marked, so the note below proves nothing');
+  assert.match(body, /A line marked - under You do not stop\. A blocker parks the item, not you\. may be in `kosmos report --help` and the rest of that section too, reworded/);
+});
+
+test('kosmos#8735 doctrine 62: without the v61 line in the last-read copy, nothing is pointed at kosmos report --help (CONTROL)', () => {
+  const { block } = withV61Back();
+  const line = '**You can also react to a room post** with `kosmos react <project> <postId>';
+  const before = block.replace(line + '\n', line + '\nA rule about reacting that a later version removed.\n');
+  agentFile('tqb', '# You are Tqb\n\n' + block + '\n');
+  assert.equal(ir.remember('tqb', '# You are Tqb\n\n' + before + '\n'), true);
+  const body = fs.readFileSync(ir.prepareChanges('tqb').path, 'utf8');
+  assert.ok(body.includes('- A rule about reacting that a later version removed.'), 'fixture: the removed line is not in the changes file');
+  assert.ok(!/kosmos report --help/.test(body), 'a removal unrelated to the held cut was pointed at kosmos report --help');
+});

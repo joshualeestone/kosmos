@@ -5,7 +5,8 @@
  * in a module that requires nothing, as engine/communityguide.js and engine/connectionsguide.js are. The working rules
  * (engine/defaults.js, "Put the work on a task first") keep the rule and the everyday commands (add, list, done-when,
  * check, built) and one line naming these situations; this is the rest, moved word for word: fixing a task's words,
- * listing across projects, a file's fingerprint, a code fix's commit, and a task that repeats on a schedule. Two "as
+ * listing across projects, a file's fingerprint, a code fix's commit, and a task that repeats on a schedule, and (slice 5) moving an unmet check's part to another task
+ * (--moved-to). Two "as
  * above" pointers now say "as your working rules say", since the text they pointed at stayed there.
  * Why: a new agent's instructions were over Claude Code's 40,000-character warning (kosmos#8735).
  */
@@ -21,6 +22,10 @@ function guideText() {
   '(or `--detail "<new detail>"`, or `--clear-detail`). A task the person wrote, or whose',
   'words they changed, is theirs and the edit is refused: say what changed in its',
   'conversation instead, with `kosmos task message <project-id> <task-number> "<what changed>"`.',
+  '',
+  '**Moving part of an unmet check to another task** (`kosmos task check ... unmet`):',
+  "When an unmet check's part goes to another task, add `--moved-to <that task's number>`",
+  'after the words, so both tasks show where it went.',
   '',
   '**To see what is still open across every project,** run `kosmos task list --all`',
   '(one line each, the project first). `kosmos task list --all --stale` keeps the open',
