@@ -1137,7 +1137,8 @@ function logFile(name) { return path.join(workerDir(name), 'start.log'); }
    stray sweeps (createdroster / register) that ENUMERATE every Kosmos agent's
    plist match on it and then attribute each to a world. They
    cannot use serviceLabel('') for the prefix any more, because that is now
-   world-dependent (a named board's serviceLabel('') is `...agent.+<world>`). */
+   scope-dependent (a named board's serviceLabel('') is `...agent.+<world>`, a live
+   macOS throwaway board's `...agent.+launch-<hash>`, kosmos#8860). */
 const SERVICE_LABEL_PREFIX = 'com.kosmos.agent.';
 /* kosmos#8860: the key a launchd label is built from. A named world keeps its own id (#1704). The default world's
    board keeps the bare name ONLY when its job files go in the account's real ~/Library/LaunchAgents. A board

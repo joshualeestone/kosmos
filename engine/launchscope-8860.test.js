@@ -17,6 +17,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { skipOnWin32 } = require('../test-support/skip-on-win32');   // HOME and symlinks are POSIX-shaped here
 const create = require('./create');
 
 const ACCOUNT = path.join(os.userInfo().homedir, 'Library', 'LaunchAgents');
@@ -65,7 +66,7 @@ test('a folder\'s scope does not change when it is first created', () => {
   assert.equal(scope({ folder: dir }), before, 'spelled from its nearest existing parent, so /tmp and /private/tmp do not split it');
 });
 
-test('the account\'s folder by another spelling (a symlink) keeps the bare label', () => {
+test('the account\'s folder by another spelling (a symlink) keeps the bare label', { skip: skipOnWin32('a symlink needs a privilege on Windows') }, () => {
   const real = tmp('real');
   const link = path.join(tmp('link'), 'la');
   fs.symlinkSync(real, link);
@@ -99,10 +100,6 @@ test('live end to end: launchScope scopes a throwaway folder from its real input
 
     process.env.AGENT_WORKFORCE_LAUNCH = ACCOUNT;   // a string only: nothing is read from or written to it here
     assert.equal(create.serviceLabel('ava'), 'com.kosmos.agent.ava', 'CONTROL: the account\'s own folder is never scoped');
-
-    delete process.env.AGENT_WORKFORCE_LAUNCH;
-    process.env.HOME = tmp('home');
-    assert.match(create.serviceLabel('ava'), /\+launch-[0-9a-f]{8}$/, 'HOME alone moves the job folder (the 11-21 walk\'s shape)');
   } finally {
     create.setLaunchLiveForTests(null);
     create.setProbePlatformForTests(null);
@@ -163,5 +160,23 @@ test('with the gate open, a dry-run board and a board with a test runner both ke
     liveExec.resetForTests();
     create.setProbePlatformForTests(null);
     if (saved === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = saved;
+  }
+});
+
+test('live: HOME alone moves the job folder, and that folder is scoped (the 11-21 walk\'s shape)', { skip: skipOnWin32('os.homedir() reads USERPROFILE on Windows, not HOME') }, () => {
+  const VARS = ['AGENT_WORKFORCE_LAUNCH', 'AGENT_WORKFORCE_HOME', 'HOME'];
+  const saved = {};
+  for (const k of VARS) saved[k] = process.env[k];
+  try {
+    create.setLaunchLiveForTests(true);
+    create.setProbePlatformForTests('darwin');
+    delete process.env.AGENT_WORKFORCE_LAUNCH;
+    delete process.env.AGENT_WORKFORCE_HOME;
+    process.env.HOME = tmp('home');
+    assert.match(create.serviceLabel('ava'), /^com\.kosmos\.agent\.ava\+launch-[0-9a-f]{8}$/);
+  } finally {
+    create.setLaunchLiveForTests(null);
+    create.setProbePlatformForTests(null);
+    for (const k of VARS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
   }
 });
