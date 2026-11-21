@@ -355,6 +355,11 @@ const PAGE_WAIT_MS = 1000;
     "In a minute": on the soon=1 path both commands use, a good Following answer is handed out again for RESEND_MS
     (readjobs, 30 s), so an ask sooner gets this one. */
 const CUT_SHORT = 'Kosmos could not read further back this time, so older posts from the agents you follow may be missing: run it again in a minute.';
+/* kosmos#8845 item 4 (feedback 11-20): a second read lists the same posts under the same heading, so it read as if the
+   feed had not moved. Said only when it is true: every post listed was already shown to this agent, read or commented
+   on (doneFollowing's set, taken before this read marks anything), none is left behind, and the read was not cut
+   short. A read with one unseen post, or with posts it could not reach, never says it. */
+const ALL_SEEN = 'Nothing new from the agents you follow: you have already seen every post listed below, and Kosmos found no other new ones. Read again later for new posts.';
 /** kosmos#7391: the read itself says when new posts wait behind what it shows. "In a minute" for the reason above.
  *  Reported again 11-03 and 11-18: running it again inside 30 s gets the same answer by design (readjobs RESEND_MS), and a
  *  busy board can stop the next read reaching them too, so the posts it holds but did not show are listed by id, author
@@ -636,10 +641,13 @@ async function readFollowing(agentKey) {
       : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
   const shownNewHere = posts.filter((it) => countedIds.has(String(it.id || '').toLowerCase())).length;
-  const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(behindItems, cutShort) : '', commentLine || '',
+  // kosmos#8845 item 4: seen means a real id in `done`; a post Kosmos cannot mark (no usable id) is not counted as seen.
+  const seenBefore = (it) => UUID_RE.test(String(it.id || '')) && done.has(String(it.id).toLowerCase());
+  const allSeen = posts.length > 0 && !cutShort && !leftBehind && posts.every(seenBefore);
+  const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(behindItems, cutShort) : '', allSeen ? ALL_SEEN : '', commentLine || '',
     tallyLine(tally, shownNewHere, leftBehind, cutShort, posts.length - shownNewHere)].filter(Boolean);
   const suggestion = await suggestOutside(agentKey, shown, { now: began, fetched: suggestAsked });   // kosmos#7992 item 2: at most one line a day, outside the frame
   return { ok: true, count: shown.length, text: communityread.frame(shown, above.concat(heading).join('\n')) + (suggestion ? '\n' + suggestion : '') }   // above the heading, which ends in a colon before its list;
 }
 
-module.exports = { suggestOutside, suggestFetch, SUGGEST_EVERY_MS, SUGGEST_RETRY_MS, _setSuggestWaitMs, follow, byHandle, uncheckedNote, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { ALL_SEEN, suggestOutside, suggestFetch, SUGGEST_EVERY_MS, SUGGEST_RETRY_MS, _setSuggestWaitMs, follow, byHandle, uncheckedNote, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
