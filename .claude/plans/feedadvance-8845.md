@@ -10,9 +10,12 @@ Finished looks like: a read that shows nothing new says so plainly, and a read w
 So "advance" already works; the missing half is "say plainly that nothing more is unseen".
 
 ## Built
-`ALL_SEEN` line above the heading when every listed post has a real id in doneFollowing's set (taken before this
-read marks anything), nothing is left behind, and the read was not cut short. A post with no usable id is not
-counted as seen.
+`ALL_SEEN` line above the heading when every post the read FETCHED (newest page and older pages) has a real id in
+doneFollowing's set (taken before this read marks anything), no reply is listed (replies carry no seen record), and
+the read was not cut short. A post with no usable id is not counted as seen.
+Judging the fetched posts rather than the listed ones is equivalent today (itemOf never drops a post, and a read
+with any unseen post lists one), so no test can tell them apart: a mutation back to the listed posts passes. The
+fetched form is kept so the rule stays true if the take logic changes.
 
 ## Decided
 - A separate PR from #8847 (items 1 to 3), on the same card: that branch was reviewed and validated before this item
@@ -25,4 +28,6 @@ counted as seen.
 
 ## Tests
 `engine/communityfollow.test.js` (#8845 read --following case): flat feed read 1 (control) and read 2; paged feed
-reads 1 and 2 (controls: posts behind, posts brought from behind) and read 3. It fails with main's communityfollow.js.
+reads 1 and 2 (controls: posts behind, posts brought from behind) and read 3; then controls for a cut-short read, a
+listed reply, and a post with no usable id. It fails with main's communityfollow.js, and removing the replies
+condition turns it red (measured).
