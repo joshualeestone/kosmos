@@ -140,3 +140,25 @@ test('kosmos#8862: rows built from the readings carry the model limits in ms', (
   });
   assert.deepEqual(rows[0].scoped, [{ model: 'Fable', usedPct: 100, resetsAt: resetsAt * 1000 }]);
 });
+
+test('kosmos#8862: a successful read of the real answer writes its model limits into the record', async (t) => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-8862-read-'));
+  t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const { EventEmitter } = require('node:events');
+  const USAGE = JSON.stringify({ seven_day: { utilization: 55, resets_at: '2026-11-22T21:59:59.823627+00:00' }, five_hour: null, limits: REAL_LIMITS });
+  const request = (opts, cb) => {   // https.request's shape: the usage answer, then the profile naming this login
+    const req = new EventEmitter(); req.destroy = () => {};
+    req.end = () => setImmediate(() => {
+      const res = new EventEmitter(); res.statusCode = 200; res.setEncoding = () => {}; cb(res);
+      res.emit('data', opts.path === usagepoll.USAGE_PATH ? USAGE : JSON.stringify({ account: { email: 'c@example.test' } }));
+      res.emit('end');
+    });
+    return req;
+  };
+  await usagepoll.pollAll([{ dir: d, email: 'c@example.test' }], { now: NOW, platform: 'darwin', realHome: '/', identityOf: () => null,
+    readCred: async () => JSON.stringify({ claudeAiOauth: { accessToken: 'tok', expiresAt: NOW + 10 * H } }), request });
+  const rec = JSON.parse(fs.readFileSync(path.join(d, usagepoll.FILE), 'utf8'));
+  assert.equal(rec.state, 'ok', 'CONTROL: the read worked');
+  assert.equal(rec.weekly.usedPct, 55, 'CONTROL: the overall figure was read');
+  assert.deepEqual(rec.scoped, [{ model: 'Fable', usedPct: 100, resetsAt: Math.floor(Date.parse(RESETS) / 1000) }], 'a successful read did not keep the Fable limit');
+});

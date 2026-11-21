@@ -92,6 +92,7 @@ test('#7152: a good answer gives weekly and five-hour usage with reset times in 
     at: NOW, state: 'ok',
     weekly: { usedPct: 56, resetsAt: Math.floor(Date.parse('2026-10-30T14:00:00.447704Z') / 1000) },
     fiveHour: { usedPct: 4, resetsAt: Math.floor(Date.parse('2026-10-26T01:20:00.447680Z') / 1000) },
+    scoped: [],   // kosmos#8862: this answer has no limits list, so no model limits
   });
   const o = seen.calls[0];
   assert.equal(o.host, 'api.anthropic.com');
