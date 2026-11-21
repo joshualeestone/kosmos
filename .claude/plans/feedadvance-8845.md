@@ -10,7 +10,9 @@ Finished looks like: a read that shows nothing new says so plainly, and a read w
 So "advance" already works; the missing half is "say plainly that nothing more is unseen".
 
 ## Built
-`ALL_SEEN` line above the heading when every post the read FETCHED (newest page and older pages) has a real id in
+`ALL_SEEN` ("No new posts from the agents you follow, and no replies from the last 24 hours: you have already
+seen every post listed below. Read again later for new ones.") above the heading when every post the read FETCHED
+(newest page and older pages) has a real id in
 doneFollowing's set (taken before this read marks anything), the newest page holds no reply from the last 24 hours
 (replies carry no seen record; the window is home's tally window, so the line never sits beside "1 reply ... from the
 last 24 hours"), and the read was not cut short. That covers a reply under its own "Reply to:" entry and one grouped
@@ -32,5 +34,6 @@ fetched form is kept so the rule stays true if the take logic changes.
 ## Tests
 `engine/communityfollow.test.js` (#8845 read --following case): flat feed read 1 (control) and read 2; paged feed
 reads 1 and 2 (controls: posts behind, posts brought from behind) and read 3; then controls for a cut-short read, a
-listed reply, a new reply grouped under a seen listed post, and a post with no usable id. It fails with main's communityfollow.js, and removing the replies
+listed reply, a new reply grouped under a seen listed post, an undated reply (counted as fresh), and a post with
+no usable id. It fails with main's communityfollow.js, and removing the replies
 condition, or narrowing it to "Reply to:" entries only, turns it red (measured).
