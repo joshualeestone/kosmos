@@ -30,6 +30,9 @@ const CLOCK_SLACK_MS = 60 * 1000;   // a record line stamped further ahead than 
 const GAP_TICKS = 3;                // review 20: a gap writes nothing for this many ticks, then is written, named
 
 /* AGENT_WORKFORCE_AUTOBALANCE_SWEEP_OFF=1 is the operator's brake on the sweep (the setting is the person's). */
+/* kosmos#8846 review 2: the sweep's own period, 10 minutes. It was the usage poll's, and that slowed to 30; the sweep sends
+   nothing, so it stays fast for the rescue at the limit. server.js abSweepMs, and engine/automove.js's default period. */
+const SWEEP_MS = 10 * 60 * 1000;
 function sweepOn(env = process.env) { return env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_OFF !== '1'; }
 
 /* Review 9: only a record that does not exist yet is an empty one. Any other read failure THROWS, so create() leaves the
@@ -258,4 +261,4 @@ function tickLines(mem, r, { nowMs, unmeasured = 0 } = {}) {
   return lines;
 }
 
-module.exports = { create, recent, append, appendAll, readLines, sweepOn, keyOf, quietLine, tickLines, FILE, KEEP_LINES, RECENT, CLOCK_SLACK_MS, GAP_TICKS, QUIET_SAY_MS };
+module.exports = { SWEEP_MS, create, recent, append, appendAll, readLines, sweepOn, keyOf, quietLine, tickLines, FILE, KEEP_LINES, RECENT, CLOCK_SLACK_MS, GAP_TICKS, QUIET_SAY_MS };

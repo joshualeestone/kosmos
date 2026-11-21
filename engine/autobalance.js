@@ -261,7 +261,7 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
    usage or the profile call) stands for a login that stopped working. A blip after a fresh measurement keeps it signed
    in (review 12, 14: BLIP_STATES only); anything else says nothing (no badge: not a target, and not at risk by login).
    Review 2: that includes usagepoll's other refusals, a 429 above all (the usage
-   endpoint's own rate limit, held for an hour), an answer it could not read, and a token that belongs to another
+   endpoint's own rate limit, held for six hours since kosmos#8846), an answer it could not read, and a token that belongs to another
    login: none of them says the agents' login has stopped. `agentsOn(dir, isDefault)` gives { names, complete, moving }.
    The record's resets are seconds; rows carry ms, as /api/accounts does. */
 const LOGIN_REFUSED = /^(profile-)?http-40[13]$/;

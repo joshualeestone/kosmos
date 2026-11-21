@@ -39,8 +39,8 @@ const REFUSED_HOLD_MS = 60 * 60 * 1000;   // an agent whose move was refused bef
 const REFUSED_TIMES = 3;          // refused this many times in a day, it is passed over for the day
 /* Rule 2's "previous tick": a reading older than two and a half sweep periods is not the previous tick's (review round 4:
    a tick hours late moved on one idle reading). The period is the board's (server.js abSweepMs, which an operator can
-   set), passed to create(); engine/usagepoll.js's POLL_MS when none is. */
-const PERIOD_MS = require('./usagepoll').POLL_MS;
+   set), passed to create(); the sweep's own SWEEP_MS when none is (kosmos#8846: no longer the usage poll's, now 30 min). */
+const PERIOD_MS = sweep.SWEEP_MS;
 const previousTickMs = (periodMs) => 2.5 * (Number.isFinite(periodMs) && periodMs > 0 ? periodMs : PERIOD_MS);
 /* kosmos#8056: each promise is agent-written, up to 300 characters, and goes into the person's thread, so it is cut to what
    a reader takes in at a glance. 120 is a judgement, not a measurement. */

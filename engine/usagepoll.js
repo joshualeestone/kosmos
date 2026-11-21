@@ -116,12 +116,36 @@ function holds(ref, a, t, nowMs) {
    empty accounts would mean never moving anyone. Usually nothing is at risk and the empty ones are not asked at all.
    `hasAgents(a)` answers true, false, or throws when it cannot tell; an account it cannot tell about is asked (a busy
    account missed is the worse error). API-key accounts are never asked (pollAll skips them anyway). */
-function accountsToPoll(list, { hasAgents, needTargets = false } = {}) {
+function accountsToPoll(list, { hasAgents, needTargets = false, also = null } = {}) {
   return (Array.isArray(list) ? list : []).filter((a) => {
     if (!a || typeof a !== 'object' || a.apiKey === true) return false;
     if (needTargets === true) return true;
+    if (also instanceof Set && also.has(a.dir)) return true;   // review 2: named by the last decision (a target, or unmeasured)
     try { return typeof hasAgents === 'function' ? hasAgents(a) !== false : true; } catch { return true; }
   });
+}
+/* kosmos#8846 review 2: one sweep's poll, decided in one place so it can be tested.
+   - The Settings switch off: nothing is asked. The person's switch turns auto-balance off, its reading included.
+   - Empty accounts are asked (needTargets) only while an account WITH AGENTS ON IT is at risk, in a decision the sweep
+     actually made (lastDid not 'off'): an empty account at risk, one already moved off, or an empty login that stopped,
+     needs no target, and counting it kept every empty account polled until its reset.
+   - Accounts the last decision names as a move's target, or as unmeasured, are asked too, so a target stays fresh and
+     an unmeasured one can become measured (otherwise Settings would say it is unmeasured forever).
+   `last`: the sweep's state.last ({ atRisk, moves, unmeasured }); `hasAgents(a)` as accountsToPoll. Returns
+   { asked, needTargets, off }. */
+function planPoll({ list, last = null, lastDid = null, settingOn = false, hasAgents } = {}) {
+  const rows = (Array.isArray(list) ? list : []).filter((a) => a && typeof a === 'object' && a.apiKey !== true);
+  if (settingOn !== true) return { asked: [], needTargets: false, off: true };
+  const byDir = new Map(rows.map((a) => [a.dir, a]));
+  const busy = (dir) => {
+    const a = byDir.get(dir);
+    if (!a) return false;   // an account gone from the list needs no target
+    try { return typeof hasAgents === 'function' ? hasAgents(a) !== false : true; } catch { return true; }
+  };
+  const arr = (x) => (Array.isArray(x) ? x : []);
+  const needTargets = lastDid !== 'off' && !!last && arr(last.atRisk).some((x) => x && busy(x.from));
+  const also = new Set([...arr(last && last.moves).map((m) => m && m.to), ...arr(last && last.unmeasured)].filter((d) => typeof d === 'string'));
+  return { asked: accountsToPoll(rows, { hasAgents, needTargets, also }), needTargets, off: false };
 }
 /* A week cannot reset further out than this; a reset beyond it is a bad answer, not a reading. */
 const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
@@ -159,14 +183,19 @@ function claudeAccountsLinked(nowMs = Date.now(), list = () => require('./accoun
   if (nowMs - linkedCache.at < LINKED_CACHE_MS && linkedCache.at > 0) return linkedCache.n;
   let n = 0;
   try {
-    const rows = (Array.isArray(list()) ? list() : []).filter((a) => a && typeof a === 'object' && a.apiKey !== true);
-    n = new Set(rows.map((a) => (typeof a.email === 'string' && a.email ? a.email.trim().toLowerCase() : 'dir:' + String(a.dir))
-      + '\n' + (typeof a.organization === 'string' ? a.organization : ''))).size;
+    const got = list();   // review 2: read once
+    n = new Set((Array.isArray(got) ? got : []).filter((a) => a && typeof a === 'object' && a.apiKey !== true).map(loginKey)).size;
   } catch { n = 0; }
   linkedCache = { at: nowMs, n };
   return n;
 }
 const resetLinkedCacheForTests = () => { linkedCache = { at: 0, n: 0 }; };
+/* One login: its email (any case) and organization; a row with no email stands for its folder alone. Settings counts the
+   same way (server.js, the auto-balance row), so the page and the default agree on "two or more accounts". */
+function loginKey(a) {
+  return (a && typeof a.email === 'string' && a.email ? a.email.trim().toLowerCase() : 'dir:' + String(a && a.dir))
+    + '\n' + (a && typeof a.organization === 'string' ? a.organization : '');
+}
 /* kosmos#8846: the one rule both switches use (this reader's, and engine/automove.js movesOn).
    - `<off>=1` is the brake and wins.
    - `<force>=1` turns it on whatever the count.
@@ -462,5 +491,5 @@ function readUsage(dir, nowMs = Date.now()) {
 
 module.exports = {
   enabled, liveAllowed, claudeAccountsLinked, defaultOn, resetLinkedCacheForTests, LINKED_CACHE_MS, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
-  FILE, POLL_MS, FRESH_MS, pollDelay, JITTER, BACKOFF_MS, accountsToPoll, HOST, USAGE_PATH, BETA,
+  FILE, POLL_MS, FRESH_MS, pollDelay, JITTER, BACKOFF_MS, accountsToPoll, planPoll, loginKey, HOST, USAGE_PATH, BETA,
 };

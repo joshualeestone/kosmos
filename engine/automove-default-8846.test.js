@@ -161,7 +161,7 @@ test('kosmos#8846: a 401, 403 or 429 holds the account for six hours, is said on
     };
     await usagepoll.pollAll([a], deps);
     const firstSent = sent;
-    assert.ok(firstSent >= 1 && firstSent <= 2, `a ${code} was retried within the sweep (${firstSent} requests)`);
+    assert.equal(firstSent, 1, `a ${code} was retried within the sweep (${firstSent} requests)`);   // review 2: exactly one
     assert.equal(said.length, 1, `a ${code} was not said once`);
     await usagepoll.pollAll([a], { ...deps, now: NOW + 5.9 * 3600000 });
     assert.equal(sent, firstSent, `a ${code} was asked again inside six hours`);
@@ -169,4 +169,35 @@ test('kosmos#8846: a 401, 403 or 429 holds the account for six hours, is said on
     await usagepoll.pollAll([a], { ...deps, now: NOW + 6.1 * 3600000 });
     assert.ok(sent > firstSent, `CONTROL: after six hours a ${code} account is asked again`);
   }
+});
+
+/* Review 2: which accounts a sweep asks about. */
+test('kosmos#8846 review 2: empty accounts are asked only while an account WITH AGENTS is at risk, in a decision the sweep made', () => {
+  const list = [{ dir: '/u/busy' }, { dir: '/u/empty' }, { dir: '/u/spare' }];
+  const hasAgents = (a) => a.dir === '/u/busy';
+  const plan = (o) => usagepoll.planPoll({ list, hasAgents, settingOn: true, ...o });
+  const dirs = (o) => plan(o).asked.map((a) => a.dir);
+  assert.deepEqual(dirs({ last: null }), ['/u/busy'], 'with no decision an empty account was asked');
+  assert.deepEqual(dirs({ last: { atRisk: [{ from: '/u/busy' }], moves: [], unmeasured: [] } }), ['/u/busy', '/u/empty', '/u/spare'], 'a busy account at risk did not get its targets read');
+  assert.deepEqual(dirs({ last: { atRisk: [{ from: '/u/empty' }], moves: [], unmeasured: [] } }), ['/u/busy'], 'an EMPTY account at risk (one already moved off, or a stopped empty login) kept every empty account polled');
+  assert.deepEqual(dirs({ last: { atRisk: [{ from: '/u/gone' }] } }), ['/u/busy'], 'an account gone from the list needed targets');
+  assert.deepEqual(dirs({ lastDid: 'off', last: { atRisk: [{ from: '/u/busy' }] } }), ['/u/busy'], 'a decision from before the switch went off still read every empty account');
+  assert.deepEqual(dirs({ last: { atRisk: [], moves: [{ to: '/u/spare' }], unmeasured: ['/u/empty'] } }), ['/u/busy', '/u/empty', '/u/spare'], 'a named target or an unmeasured account was never read again');
+  assert.equal(plan({ last: { atRisk: [{ from: '/u/busy' }] } }).needTargets, true);
+  const unsure = usagepoll.planPoll({ list, settingOn: true, hasAgents: (a) => { if (a.dir === '/u/busy') throw new Error('incomplete'); return false; }, last: { atRisk: [{ from: '/u/busy' }] } });
+  assert.equal(unsure.needTargets, true, 'an at-risk account whose agents could not be told was taken as empty');
+});
+
+test('kosmos#8846 review 2: with auto-balance off in Settings nothing is asked', () => {
+  const list = [{ dir: '/u/busy' }, { dir: '/u/empty' }];
+  const off = usagepoll.planPoll({ list, hasAgents: () => true, settingOn: false, last: { atRisk: [{ from: '/u/busy' }] } });
+  assert.deepEqual([off.asked, off.off, off.needTargets], [[], true, false], 'the switch off still sent tokens');
+  assert.equal(usagepoll.planPoll({ list, hasAgents: () => true, settingOn: true }).asked.length, 2, 'CONTROL: on, the busy accounts are asked');
+});
+
+test('kosmos#8846 review 2: the sweep keeps its own 10-minute period, and the mover\'s default follows it', () => {
+  const sweep = require('./autobalance-sweep');
+  assert.equal(sweep.SWEEP_MS, 10 * 60 * 1000);
+  assert.equal(automove.PERIOD_MS, sweep.SWEEP_MS, 'the mover measures its two ticks in the 30-minute poll period');
+  assert.ok(usagepoll.FRESH_MS >= 2 * sweep.SWEEP_MS + usagepoll.POLL_MS, 'a reading goes stale between polls while the sweep needs it');
 });

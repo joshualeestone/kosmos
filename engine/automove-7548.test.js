@@ -849,7 +849,8 @@ test('#7548 review rounds 4 and 6: a move\'s lines the record did not take wait,
 });
 
 test('#7548 review round 5: the previous tick is measured in the board\'s sweep period, which an operator can set', async () => {
-  const POLL = require('./usagepoll').POLL_MS;
+  /* kosmos#8846 review 2: the sweep's own period (10 min), no longer the usage poll's (30 min). */
+  const POLL = require('./autobalance-sweep').SWEEP_MS;
   assert.equal(automove.PERIOD_MS, POLL);
   assert.ok(automove.previousTickMs() >= 2 * POLL && automove.previousTickMs() <= 4 * POLL, 'the default window is not about two sweep periods');
   /* A board sweeping every 40 minutes: two ticks one period apart are consecutive. */

@@ -27,3 +27,9 @@
 
 ## Review round 1 (blind), all fixed
 - =0 kept off; test and dry-run boards never take the default (one shared rule, usagepoll.defaultOn); logins counted, not folders; Settings `armed` uses the tick's own gates; card test now reads a real idle screen; cut footers and the older `>` prompt read.
+
+## Review round 2 (blind), all fixed
+- Poll plan in one tested function (usagepoll.planPoll, wired by server.js usagePollPlan): empty accounts only while an account WITH AGENTS is at risk in a decision the sweep made (not 'off'); accounts named as a target or unmeasured are read too; Settings off asks nothing (decided: the person's switch stops the token calls as well).
+- Sweep keeps its own 10-min period (autobalance-sweep SWEEP_MS); the mover's default period follows it. The first sweep that needs targets reads the empty accounts in 5 s rather than at the next poll.
+- Settings counts logins as the default does; stale comments fixed (one ships in the page); no-retry test asserts exactly one request; a real-wiring test for the plan.
+- Accepted, said on the card: the Accounts page no longer shows a fresh usage figure for an empty account while nothing is at risk (Slice 1 showed one).

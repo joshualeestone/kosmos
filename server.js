@@ -3428,6 +3428,25 @@ function autobalanceSweepOffWhy() {
    list at most once). A function, not inline in the sweep, so a test can drive a real tick against the real wiring.
    It reads only, with one exception it shares with the route: walk.moving() may prune an accountmoving note that has
    ended (review 14), the same cleanup Settings' own read does. */
+/* kosmos#8846 review 2: the board's poll plan (engine/usagepoll.js planPoll) from its real wiring: the account list given,
+   the sweep's last decision and what its last tick did, the Settings switch, and the agents walk. A function, so a test
+   runs it against the real wiring (server.usagepoll-plan-8846.test.js). An account whose agents cannot be told is asked. */
+function usagePollPlan(list, sweepRun = autobalanceSweepRun) {
+  const usagePoll = require('./engine/usagepoll');
+  let settingOn = false;
+  try { settingOn = autobalanceSetting.read().on === true; } catch { settingOn = false; }
+  let walk = null;
+  const hasAgents = (a) => {
+    if (!walk) walk = autobalanceSweepDeps();
+    const on = walk.agentsOn(a.dir, a.isDefault === true);
+    if (!on || on.complete !== true) throw new Error('incomplete');
+    return on.names.length > 0;
+  };
+  let last = null; let lastDid = null;
+  try { last = sweepRun && sweepRun.state ? sweepRun.state.last : null; lastDid = sweepRun && sweepRun.state ? sweepRun.state.lastDid : null; } catch { last = null; }
+  return usagePoll.planPoll({ list, last, lastDid, settingOn, hasAgents });
+}
+
 function autobalanceSweepDeps() {
   const usagePoll = require('./engine/usagepoll');
   let walk = null;
@@ -15268,7 +15287,7 @@ const server = http.createServer(async (req, res) => {
              instead of hiding the row. */
           let setting = { on: null, ok: false };
           try { setting = autobalanceSetting.read(); } catch { setting = { on: null, ok: false }; }
-          const eligibleCount = ab.eligible(claude).length;
+          const eligibleCount = new Set(ab.eligible(claude).map((r) => require('./engine/usagepoll').loginKey(r))).size;   // kosmos#8846 review 2: logins, as the default counts them
           try {
             let decision = { moves: [], held: [], short: [], atRisk: [] };
             if (setting.on && eligibleCount >= 2) {
@@ -30333,30 +30352,28 @@ function start(port = PORT) {
       const accountSweep = setInterval(accountTick, Number(process.env.AGENT_WORKFORCE_ACCOUNT_NOTIFY_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_ACCOUNT_NOTIFY_MS) : 60 * 1000); // the env is the test seam only
       if (accountSweep && typeof accountSweep.unref === 'function') accountSweep.unref();
       /* kosmos#7152 slice 1: read every Claude account's weekly and five-hour usage from the usage endpoint
-         (engine/usagepoll.js), idle accounts included, into each account folder, where accountsweekly reads it. Same
+         (engine/usagepoll.js), accounts with agents on them and (kosmos#8846) empty ones only while one is at risk, into each account folder, where accountsweekly reads it. Same
          gating as the sweeps above, ON with 2+ Claude accounts linked or AGENT_WORKFORCE_USAGE_POLL=1 (kosmos#8846; it was
-         off by default, review 19), brake AGENT_WORKFORCE_USAGE_POLL_OFF=1, own 10-min timer, unref'd,
+         off by default, review 19), brake AGENT_WORKFORCE_USAGE_POLL_OFF=1, own 30-min jittered timer (kosmos#8846), unref'd,
          asynchronous (one account at a time, never on the board's request path), best-effort. accounts.list() is the
          cheap read: listLive() checks every account live and must not run on a timer. */
       const usagePoll = require('./engine/usagepoll');
       let usagePollBusy = 0;   // when the running sweep started, or 0
+      let usagePollOffSaid = false;   // kosmos#8846: the Settings-off line is said once, until it is on again
       const usagePollTick = () => {
         /* Review 12: a sweep that somehow never settles must not stop every later one, so a busy flag older than three
            poll periods is taken as stale. Every await inside has its own deadline, so this is a backstop. */
         if (usagePollBusy && Date.now() - usagePollBusy < 3 * usagePoll.POLL_MS) return;
         if (!liveExecution.liveExecutionAllowed() || !usagePoll.liveAllowed()) return;   // never under a test (it reads real logins)
-        const started = Date.now();
-        usagePollBusy = started;
         let list = [];
         try { list = accounts.list(); } catch { list = []; }
-        /* kosmos#8846: accounts with an agent on them every sweep; the empty ones only while the sweep's last decision has
-           an account at risk, when one may be needed as a target (usagePoll.accountsToPoll). */
-        let needTargets = false;
-        try { needTargets = !!(autobalanceSweepRun && autobalanceSweepRun.state.last && autobalanceSweepRun.state.last.atRisk.length > 0); } catch { needTargets = false; }
-        let walk = null;
-        try { walk = autobalanceSweepDeps(); } catch { walk = null; }
-        const hasAgents = (a) => { if (!walk) throw new Error('no walk'); const on = walk.agentsOn(a.dir, a.isDefault === true); if (!on || on.complete !== true) throw new Error('incomplete'); return on.names.length > 0; };
-        const asked = usagePoll.accountsToPoll(list, { hasAgents, needTargets });
+        /* kosmos#8846: which accounts this sweep asks about, and none while auto-balance is off in Settings
+           (usagePoll.planPoll, review 2 of the card). Decided before the busy flag is set, so an off sweep leaves none. */
+        const { asked, needTargets, off } = usagePollPlan(list);
+        if (off) { if (!usagePollOffSaid) process.stdout.write('usage-poll: not asking about any account: auto-balance is switched off in Settings\n'); usagePollOffSaid = true; return; }
+        usagePollOffSaid = false;
+        const started = Date.now();
+        usagePollBusy = started;
         const onRefused = (a, state) => { process.stdout.write(`usage-poll: ${a.isDefault ? 'the default account' : 'account ' + String(a.label || 'unnamed')} was refused (${state}); not asked again for ${Math.round(usagePoll.BACKOFF_MS / 3600000)} h or until it signs in again\n`); };
         usagePoll.pollAll(asked, { onRefused })
           .then((n) => { process.stdout.write(`usage-poll: measured ${n} of ${asked.length} asked (${list.filter((a) => a && !a.apiKey).length} signed in${needTargets ? ', empty ones included: an account is at risk' : ''})\n`); })
@@ -30387,7 +30404,9 @@ function start(port = PORT) {
          (automove.movesOn(): kosmos#8846, 2+ Claude accounts linked, or AGENT_WORKFORCE_AUTOMOVE=1). Built at start
          unless the brake is set, so a second account linked later switches it on without a restart; it only reads the
          record until then. Built from the same record; one that cannot be read leaves the mover off. */
-      const abSweepMs = Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS)) : usagePoll.POLL_MS;
+      /* kosmos#8846 review 2: the sweep reads local files only and sends nothing, so it stays every 10 minutes when the
+         usage poll slowed to 30 (a stopped agent's rescue needs two sightings, so its period is how long it waits). */
+      const abSweepMs = Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS)) : autobalanceSweep.SWEEP_MS;
       if (abSweep && process.env.AGENT_WORKFORCE_AUTOMOVE_OFF !== '1') {
         /* kosmos#7548 review round 5: the mover's "previous tick" is measured in this period, which an operator can set. */
         try { automoveRun = automove.create({ file: AUTOBALANCE_RECORD, periodMs: abSweepMs }); }
@@ -30411,11 +30430,12 @@ function start(port = PORT) {
       }
       const abSayQuiet = (opts) => { try { const line = autobalanceSweep.quietLine(abTickMem.quiet, { nowMs: Date.now(), ...opts }); if (line) process.stdout.write(line + '\n'); } catch { /* best-effort: never into the timer */ } };
       let abSweepBusy = 0;   // when the running tick started, or 0
+      let abNeededTargets = false;   // kosmos#8846 review 2: whether the last sweep's plan needed targets
       let automoveSaid = null;   // kosmos#7548 review round 6: the last reason the mover could not move, so it is logged once
       const abSweepTick = () => {
         /* Review 9: nothing here may throw out of a timer into the board, and a throw must not leave the busy flag set. */
         try {
-          if (abSweepBusy && Date.now() - abSweepBusy < 3 * usagePoll.POLL_MS) return;   // a backstop (slice 1's review 12). kosmos#7548 review round 8: the chain now awaits the mover's move, which can take minutes; the mover's own running guard is what stops a second move, and this only keeps a sweep from starting beside it
+          if (abSweepBusy && Date.now() - abSweepBusy < 3 * Math.max(abSweepMs, autobalanceSweep.SWEEP_MS)) return;   // a backstop (slice 1's review 12). kosmos#7548 review round 8: the chain now awaits the mover's move, which can take minutes; the mover's own running guard is what stops a second move, and this only keeps a sweep from starting beside it
           /* Review 16: asked without the write arm, so a failed write is tried again; the flag clears only when a write
              succeeds, so Settings says "not recording" until one does. */
           if (!abSweep || !autobalanceSweepRuns({ forTick: true })) { abSayQuiet({ offWhy: autobalanceSweepOffWhy() || 'unknown' }); return; }
@@ -30426,6 +30446,14 @@ function start(port = PORT) {
           try { ticking = abSweep.tick(sweepDeps); } catch (err) { ticking = Promise.reject(err); }
           ticking
             .then((r) => {
+              /* kosmos#8846 review 2: the first sweep that finds an account with agents at risk reads the empty accounts
+                 now (once, in five seconds), not at the next 30-minute poll, so a target is measured a poll sooner. */
+              try {
+                let list = []; try { list = accounts.list(); } catch { list = []; }
+                const need = usagePollPlan(list).needTargets === true;
+                if (need && !abNeededTargets) { const h = setTimeout(() => { try { usagePollTick(); } catch { /* best-effort */ } }, 5000); if (h && typeof h.unref === 'function') h.unref(); }
+                abNeededTargets = need;
+              } catch { /* never into the timer */ }
               let unmeasured = 0;
               try { unmeasured = (abSweep.state.unmeasuredNow || []).length; } catch { /* a count, never a failed tick */ }
               for (const line of autobalanceSweep.tickLines(abTickMem, r, { nowMs: Date.now(), unmeasured })) process.stdout.write(line + '\n');
@@ -31766,6 +31794,7 @@ module.exports = { _setStartedProofPlatformForTest, _setStartWaitForTest,   // k
   _promptCommunityOnTaskDoneForTest: promptCommunityOnTaskDone,   // kosmos#7649: the task-done chain, for its test
   _agentInCommunityForTest: agentInCommunity,   // kosmos#8156: a test seat is never a community member
   _tellOwnBoundForTest: tellOwnBound, _ownBoundToldForTest: ownBoundTold, _ownboundsPushedForTest: ownboundsPushed, _ownboundsPushKeyForTest: ownboundsPushKey, // kosmos#7633: the stall push's own-bounds question, for its test
+  _usagePollPlanForTest: usagePollPlan, // kosmos#8846 review 2
   _automoveDepsForTest: automoveDeps, _accountMoveDepsForTest: accountMoveDeps, // kosmos#7548: the mover's wiring, for its test
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test

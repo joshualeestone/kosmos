@@ -40,7 +40,8 @@ test('kosmos#7621 item 1: every dep the mover reads is on the board\'s wiring, a
     assert.equal(typeof d[k], 'function', 'the board does not give the mover ' + k);
   }
   assert.ok(Array.isArray(d.list()), 'list is not the account list');
-  assert.equal(d.movesOn(), false, 'CONTROL: moves are off with the switch unset on a board with no accounts');
+  assert.equal(d.movesOn(), false, 'CONTROL: moves are off with the switch unset (under the test runner the default is never taken, kosmos#8846)');
+  assert.equal(automove.movesOn({}, 0), false, 'CONTROL: and with no accounts at all (the count the sandboxed home gives)');
   assert.equal(typeof d.accountBusy(), 'boolean');
   assert.equal(typeof d.boardRestarting(), 'boolean');
   assert.ok(Array.isArray(d.freshRoster()), 'freshRoster is not a roster');
