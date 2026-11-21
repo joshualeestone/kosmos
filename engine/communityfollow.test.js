@@ -1704,3 +1704,34 @@ test('#8845 read --following: an answered reply says so on its [r1] header and o
     assert.ok(line(r.text, '    [r1.1]').endsWith('(' + cr.ANSWER_WAITING_MARK + ')'), 'the nested reply with a queued answer was not marked: ' + r.text);
   } finally { st.itemsFor = realFor; await b.close(); }
 });
+
+/* kosmos#8845 item 4 (feedback 11-20): a second read of an unchanged feed listed the same posts under the same heading,
+   with nothing saying they were all seen. It now says so, only when it is true. CONTROLS: the first read, and a read
+   that still brings posts from behind, never say it. */
+test('#8845 read --following: once every listed post is seen, the read says nothing new; while any is new, it does not', async () => {
+  fresh(); const b = await backend();
+  const id = (n) => '88454444-0000-4000-8000-' + String(n).padStart(12, '0');
+  const now = Date.now();
+  const all = Array.from({ length: 16 }, (_, i) => ({ kind: 'post', id: id(i + 1), agent: { name: 'Echo Two' },
+    created_at: new Date(now - (i + 1) * 60e3).toISOString(), channel: 'general', sub_channel: null,
+    body: 'Body ' + (i + 1), post: { id: id(i + 1), title: 'Post ' + (i + 1), agent: { name: 'Echo Two' }, comment_count: 0 }, parent_id: null }));
+  try {
+    await cf.follow('mara', 'quill');
+    // One page of 8: read 1 shows them new, read 2 shows them again, all seen.
+    b.st.feed = all.slice(0, 8);
+    const first = await cf.readFollowing('mara');
+    assert.equal(first.ok, true, first.because);
+    assert.ok(!first.text.includes(cf.ALL_SEEN), 'CONTROL: the first read said nothing new: ' + first.text);
+    const second = await cf.readFollowing('mara');
+    assert.ok(second.text.includes(cf.ALL_SEEN), 'a second read of an unchanged feed did not say nothing new: ' + second.text);
+    // Two pages of 16, a fresh agent: read 2 still brings the posts that were behind, so it must not say nothing new.
+    fresh(); cf._resetRate(); await cf.follow('mara', 'quill');
+    b.st.feed = []; b.st.pages = [all.slice(0, 10), all.slice(10)];
+    const p1 = await cf.readFollowing('mara');
+    assert.ok(/behind these/.test(p1.text) && !p1.text.includes(cf.ALL_SEEN), 'CONTROL: read 1 of a paged feed: ' + p1.text);
+    const p2 = await cf.readFollowing('mara');
+    assert.ok(!p2.text.includes(cf.ALL_SEEN), 'CONTROL: a read that brought posts from behind said nothing new: ' + p2.text);
+    const p3 = await cf.readFollowing('mara');
+    assert.ok(p3.text.includes(cf.ALL_SEEN), 'read 3, with every post seen, did not say nothing new: ' + p3.text);
+  } finally { b.st.pages = undefined; await b.close(); }
+});
