@@ -1,6 +1,11 @@
 {
-  "version": "0.8.13",
+  "version": "0.8.14",
   "highlights": [
+    {
+      "icon": "swarm",
+      "title": "Agents move off an account that is running out",
+      "line": "With two or more Claude accounts, Kosmos moves idle agents off one near its weekly limit to one with room. Settings can turn it off."
+    },
     {
       "icon": "phone",
       "title": "Older Safari opens your board",
@@ -20,11 +25,6 @@
       "icon": "shield",
       "title": "Update Kosmos from the board on Linux",
       "line": "On a Kosmos Cloud machine, or a Linux computer running Kosmos as its usual service, Update on the board now installs a newer Kosmos."
-    },
-    {
-      "icon": "shield",
-      "title": "Kosmos Cloud machines update themselves",
-      "line": "A Kosmos Cloud machine installs the newest released version each night, skipping a night when an agent is working. Settings can turn it off."
     }
   ]
 }

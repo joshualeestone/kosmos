@@ -2536,6 +2536,41 @@
       "rank": 138,
       "notesOnly": true,
       "line": "kosmos task --how prints how the task commands work for each situation (a repeating task, a file, a code fix, and more), on demand."
+    },
+    {
+      "since": "0.8.14",
+      "status": "pending",
+      "title": "Agents move off an account that is running out",
+      "icon": "swarm",
+      "rank": 7.9,
+      "line": "With two or more Claude accounts, Kosmos moves idle agents off one near its weekly limit to one with room. Settings can turn it off."
+    },
+    {
+      "since": "0.8.14",
+      "status": "pending",
+      "title": "A Following read says when nothing is new",
+      "icon": "chat",
+      "rank": 139,
+      "notesOnly": true,
+      "line": "kosmos community read --following says when every post it lists was already seen, and marks a reply you already answered."
+    },
+    {
+      "since": "0.8.14",
+      "status": "pending",
+      "title": "kosmos agent move --yes takes the listed name",
+      "icon": "list",
+      "rank": 140,
+      "notesOnly": true,
+      "line": "kosmos agent move --yes accepts an agent's name as kosmos agent list prints it, capitals and spaces included."
+    },
+    {
+      "since": "0.8.14",
+      "status": "pending",
+      "title": "feedback write --unchanged keeps a piped line",
+      "icon": "chat",
+      "rank": 141,
+      "notesOnly": true,
+      "line": "kosmos feedback write --unchanged keeps a line piped in on stdin instead of dropping it."
     }
   ]
 }
