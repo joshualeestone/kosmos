@@ -229,6 +229,14 @@ function decide({ rows, movable, nowMs, skipTarget, modelOf }) {
     const unknownAtLimitWhy = (n) => ((!modelKey(model(n)) || earlier(n)) && atLimit(n)
       ? (scopedNow(from, nowMs).filter((s) => s.usedPct >= MODEL_FULL_PCT).map((s) => modelRiskOf(from, s.model, nowMs)).find(Boolean) || null) : null);
     const whyFor = (n) => acctWhy || modelRiskOf(from, model(n), nowMs) || unknownAtLimitWhy(n);
+    /* Review 5: WHICH limit holds an agent, as a stable identity (null: the account's own; else the model's name, as
+       the limit names it), for the record's key. The reason's words carry a countdown, so they change every hour. */
+    const limitOf = (n) => {
+      if (acctWhy) return null;
+      const w = whyFor(n);
+      const s = w ? scopedNow(from, nowMs).find((x) => modelRiskOf(from, x.model, nowMs) === w) : null;
+      return s ? s.model : null;
+    };
     const complete = !!from.agentsHere && from.agentsHere.complete === true;
     /* Review 1: a list that may be short can be missing the very agent on the full model, so with an incomplete list any
        model limit there that passes the rule makes the account at risk (and short), as an overall risk always did. */
@@ -256,9 +264,9 @@ function decide({ rows, movable, nowMs, skipTarget, modelOf }) {
     }
     /* Review 1: the held line names who is held, since others on the same account may be moving. Review 2: one entry
        per reason, so an Opus agent is never given the Fable agent's reason. */
-    const byWhy = new Map();
-    for (const a of stuck) { const w = whyFor(a) || why; byWhy.set(w, [...(byWhy.get(w) || []), a]); }
-    for (const [w, agents] of byWhy) held.push({ from: from.dir, why: w, agents });
+    const byLimit = new Map();   // review 5: grouped by which limit holds them, not by the words
+    for (const a of stuck) { const k = limitOf(a) || ''; const g = byLimit.get(k) || { why: whyFor(a) || why, agents: [] }; g.agents.push(a); byLimit.set(k, g); }
+    for (const [k, g] of byLimit) held.push({ from: from.dir, why: g.why, agents: g.agents, ...(k ? { model: k } : {}) });
   }
   return { moves, held, short, atRisk };
 }

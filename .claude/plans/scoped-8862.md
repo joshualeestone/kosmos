@@ -41,3 +41,6 @@ Splinter's probe of account c, 11-21 04:45 UTC: `limits` = weekly_all 55%, weekl
 - WARNING: a model-only risk named the model of the first agent in roster-walk order (unsorted), so the record could flap between two models. Fixed: names sorted first; pinned (two orders, one key).
 - NIT: held keyed by agents wrote a line on every idle change through a long hold. Fixed: held keys by [from, why]; names stay in the line.
 - NIT: 99.5 named MODEL_FULL_PCT and exported.
+
+## Review round 5 (blind, the round-4 commit): 1 WARNING, fixed
+- WARNING: keying held by [from, why] re-created the flap, worse: the words carry an hourly countdown ("resets in 30 h"). Fixed: a held entry carries `model` (which limit holds it; none for the account's own) and keys by [from, model]; the same hold an hour later is pinned to the same key; keying by the words again turns two tests red.

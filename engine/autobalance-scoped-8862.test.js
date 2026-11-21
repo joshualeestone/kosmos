@@ -304,7 +304,9 @@ test('kosmos#8862 review 3: the sweep records a change of who is held or of a mo
   const sweep = require('./autobalance-sweep');
   const base = { moves: [], held: [{ from: '/c', why: 'x', agents: ['a'] }], atRisk: [{ from: '/c', why: 'x', kind: 'usage', model: 'Fable' }], unmeasured: [] };
   assert.equal(sweep.keyOf(base), sweep.keyOf({ ...base, held: [{ from: '/c', why: 'x', agents: ['b'] }] }), 'review 4: a change of who is idle on a hold wrote a new decision');
-  assert.notEqual(sweep.keyOf(base), sweep.keyOf({ ...base, held: [{ from: '/c', why: 'y', agents: ['a'] }] }), 'a change of a held reason was not a new decision');
+  const byModel = { ...base, held: [{ from: '/c', why: 'x', agents: ['a'], model: 'Fable' }] };
+  assert.notEqual(sweep.keyOf(base), sweep.keyOf(byModel), 'a hold by one model\'s limit keyed like a hold by the account\'s');
+  assert.equal(sweep.keyOf(byModel), sweep.keyOf({ ...byModel, held: [{ from: '/c', why: 'other words', agents: ['a'], model: 'Fable' }] }), 'review 5: the reason\'s words (a countdown) changed the key');
   assert.notEqual(sweep.keyOf(base), sweep.keyOf({ ...base, atRisk: [{ from: '/c', why: 'x', kind: 'usage' }] }), 'a model-only risk turning into an overall one was not a new decision');
   const old = { moves: [], held: [{ from: '/c', why: 'x' }], atRisk: [{ from: '/c', why: 'x', kind: 'usage' }], unmeasured: [] };
   assert.equal(sweep.keyOf(old), JSON.stringify({ m: [], h: [JSON.stringify('/c')], r: [JSON.stringify(['/c', 'usage'])], u: [] }), 'an older record line no longer keys as it did (a restart would record it again)');
@@ -320,4 +322,14 @@ test('kosmos#8862 review 4: the model an account is at risk for does not follow 
   const sweep = require('./autobalance-sweep');
   assert.equal(sweep.keyOf({ ...one, unmeasured: [] }), sweep.keyOf({ ...two, unmeasured: [] }), 'the record would write a new line for a reordered roster');
   assert.equal(ab.MODEL_FULL_PCT, 99.5);
+});
+
+test('kosmos#8862 review 5: the same hold an hour later is the same decision (the reason counts down, the key does not)', () => {
+  const sweep = require('./autobalance-sweep');
+  const rows = [row('/a', { weekly: { usedPct: 50, resetsAt: NOW + 41 * H }, scoped: fable(100), agentsHere: { names: ['x'], complete: true } }), row('/b', { scoped: fable(100) })];
+  const at = (t) => ab.decide({ rows, movable: all, nowMs: t, modelOf: () => 'Claude Fable 5.2' });
+  const now = at(NOW); const later = at(NOW + H);
+  assert.notEqual(now.held[0].why, later.held[0].why, 'CONTROL: the words count down');
+  assert.equal(now.held[0].model, 'Fable', 'a hold by the Fable limit did not say so');
+  assert.equal(sweep.keyOf({ ...now, unmeasured: [] }), sweep.keyOf({ ...later, unmeasured: [] }), 'the same hold an hour later would write a new record line');
 });

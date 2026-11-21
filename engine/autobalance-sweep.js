@@ -102,10 +102,10 @@ function keyOf(d) {
   /* Review 17: each list sorted, so the order entries arrive in never makes one decision look like two. */
   const sorted = (xs) => xs.map((x) => JSON.stringify(x)).sort();
   const dirs = (xs) => (Array.isArray(xs) ? xs : []).filter((x) => typeof x === 'string').sort();
-  /* kosmos#8862 review 3: a model-only risk is part of the decision too, and so is each held reason (review 4: not who
-     is held, which follows every idle or busy change through a hold that can last days; the names stay in the line).
-     An older record line has neither, and reads as it always did. */
-  const heldKey = (x) => (Array.isArray(x.agents) && typeof x.why === 'string' ? [x.from, x.why] : x.from);
+  /* kosmos#8862 review 3: a model-only risk is part of the decision too, and so is which limit holds an account's agents
+     (review 4: not who is held, which follows every idle or busy change through a hold that can last days; review 5:
+     not the reason's words, which carry an hourly countdown). An older record line has neither, and keys as before. */
+  const heldKey = (x) => (Array.isArray(x.agents) ? [x.from, typeof x.model === 'string' ? x.model : ''] : x.from);
   return JSON.stringify({ m: sorted(objects(d.moves).map((x) => [x.agent, x.from, x.to])), h: sorted(objects(d.held).map(heldKey)),
     r: sorted(objects(d.atRisk).map((x) => (typeof x.model === 'string' && x.model ? [x.from, x.kind, x.model] : [x.from, x.kind]))), u: dirs(d.unmeasured) });   // review 20: what was not measured is part of it
 }
@@ -208,7 +208,7 @@ function create({ file, nowMs = Date.now() }) {
          account that could have taken the agents was not measured, rather than reading as "none could"). */
       ...(state.unmeasuredNow.length ? { notMeasured: state.unmeasuredNow } : {}),
       moves: decision.moves.map((m) => ({ agent: m.agent, from: m.from, to: m.to, fromLabel: label(m.from), toLabel: label(m.to), why: m.why, kind: kindOf(m.from) })),
-      held: decision.held.map((h) => ({ from: h.from, fromLabel: label(h.from), why: h.why, ...(Array.isArray(h.agents) ? { agents: h.agents } : {}) })),   // kosmos#8862: who is held
+      held: decision.held.map((h) => ({ from: h.from, fromLabel: label(h.from), why: h.why, ...(Array.isArray(h.agents) ? { agents: h.agents } : {}), ...(h.model ? { model: h.model } : {}) })),   // kosmos#8862: who is held, and by which model's limit
       atRisk: decision.atRisk.map((x) => ({ from: x.from, fromLabel: label(x.from), why: x.why, kind: x.kind, ...(x.model ? { model: x.model } : {}) })) });   // kosmos#8862: a model's own limit
     state.writeFailed = !written;   // review 10: the board says so (once) and stops saying it records
     if (!written) return { did: 'nothing', because: 'write-failed' };   // tried again next tick
