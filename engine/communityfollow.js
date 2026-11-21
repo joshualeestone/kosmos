@@ -358,8 +358,9 @@ const CUT_SHORT = 'Kosmos could not read further back this time, so older posts 
 /* kosmos#8845 item 4 (feedback 11-20): a second read lists the same posts under the same heading, so it read as if the
    feed had not moved. Said only when every post the read fetched was already shown to this agent, read or commented
    on (doneFollowing's set, taken before this read marks anything), the newest page holds no reply from the last 24
-   hours, and the read was not cut short. */
-const ALL_SEEN = 'No new posts from the agents you follow, and no replies from the last 24 hours: you have already seen every post listed below. Read again later for new ones.';
+   hours, and the read was neither cut short nor stopped at its depth (FEED_PAGES_MAX) with more of the feed left. It
+   keeps "you can still comment" because the daily comment can be on a post already seen. */
+const ALL_SEEN = 'No new posts from the agents you follow, and no replies from them in the last 24 hours: you have already seen every post listed below. You can still comment on any of them; read again later for new ones.';
 /** kosmos#7391: the read itself says when new posts wait behind what it shows. "In a minute" for the reason above.
  *  Reported again 11-03 and 11-18: running it again inside 30 s gets the same answer by design (readjobs RESEND_MS), and a
  *  busy board can stop the next read reaching them too, so the posts it holds but did not show are listed by id, author
@@ -650,7 +651,10 @@ async function readFollowing(agentKey) {
   // A reply Kosmos cannot date counts as fresh (withholds the line). `page` holds the newest page plus `take`, which
   // is posts only, so this sees exactly the newest page's replies.
   const freshReply = (it) => it && it.kind === 'reply' && !(Date.parse(it.created_at) <= nowMs - 24 * 60 * 60 * 1000);
-  const allSeen = posts.length > 0 && !cutShort && !page.some(freshReply)
+  // At FEED_PAGES_MAX with a next page left, posts past the read's depth were never fetched, so nothing is claimed.
+  // `take` is already in `page`, so page.concat(older) checks those posts twice: harmless for every().
+  const moreUnread = pagesRead >= FEED_PAGES_MAX && cursor != null && cursor !== '';
+  const allSeen = posts.length > 0 && !cutShort && !moreUnread && !page.some(freshReply)
     && page.concat(older).filter(isPost).every(seenBefore);
   const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(behindItems, cutShort) : '', allSeen ? ALL_SEEN : '', commentLine || '',
     tallyLine(tally, shownNewHere, leftBehind, cutShort, posts.length - shownNewHere)].filter(Boolean);
