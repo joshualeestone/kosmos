@@ -91,12 +91,13 @@ function riskOf(row, nowMs) {
 }
 
 /* kosmos#8862: a model's own weekly limit. The endpoint names it by its family ("Fable"); a card names the agent's model
-   with its version ("Fable 5.2", measured on Agent1s 11-21: the one scoped limit seen there, 60 times, is "Fable"). So
-   both are compared by their first word, without case. A name with no word is no model. */
+   with its version ("Fable 5.2", measured on Agent1s 11-21: the one scoped limit seen there, 60 times, is "Fable"), and
+   a card with no display name carries the model's id ("claude-fable-5-2", status.js modelDisplayName). So the family is
+   the first word, without case, after any "claude-" and split at a space or a dash. A name with no word is no model. */
 function modelKey(name) {
   if (typeof name !== 'string') return null;
-  const w = name.trim().split(/\s+/)[0];
-  return w ? w.toLowerCase() : null;
+  const w = name.trim().toLowerCase().replace(/^claude[-\s]+/, '').split(/[\s-]+/)[0];
+  return w || null;
 }
 /* The row's live scoped limits, resets still ahead. */
 function scopedNow(row, nowMs) {

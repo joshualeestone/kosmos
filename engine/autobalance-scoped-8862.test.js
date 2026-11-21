@@ -106,6 +106,10 @@ test('kosmos#8862: an agent leaving an account at risk overall goes only where i
 test('kosmos#8862: models are matched by family, and a full limit that resets soon is waited out', () => {
   assert.equal(ab.modelKey('Fable 5.2'), 'fable');
   assert.equal(ab.modelKey('fable'), 'fable');
+  assert.equal(ab.modelKey('claude-fable-5-2'), 'fable', 'a card holding the model id did not match its family');
+  assert.equal(ab.modelKey('claude-opus-4-8-20251001'), 'opus');
+  assert.equal(ab.modelKey('Opus 5.5'), 'opus');
+  assert.notEqual(ab.modelKey('claude-opus-5-5'), ab.modelKey('Fable'), 'CONTROL: two families stay apart');
   assert.equal(ab.modelKey('  '), null);
   assert.equal(ab.modelKey(null), null);
   const c = row('/u/.claude-c', { scoped: fable(100) });
