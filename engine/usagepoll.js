@@ -234,6 +234,14 @@ function defaultOn(env, force, off, linked) {
   try { n = typeof linked === 'function' ? linked() : linked; } catch { n = 0; }
   return Number.isFinite(n) && n >= 2;
 }
+/* kosmos#8841: whether the start environment itself switched this off (the brake, or `<force>` set to anything but 1),
+   as against the default reading off (one login, a test, a dry run). Settings says so, because on main an off from the
+   environment is the one off the page cannot otherwise explain. */
+function offByEnv(env, force, off) {
+  if (!env) return false;
+  if (env[off] === '1') return true;
+  return env[force] !== undefined && env[force] !== '' && env[force] !== '1';
+}
 /* `linked`: the count, or a function giving it (tests pass one; the board reads accounts.list()). */
 function enabled(env = process.env, linked = claudeAccountsLinked) {
   return defaultOn(env, 'AGENT_WORKFORCE_USAGE_POLL', 'AGENT_WORKFORCE_USAGE_POLL_OFF', linked);
@@ -538,6 +546,6 @@ function readUsage(dir, nowMs = Date.now()) {
 }
 
 module.exports = {
-  enabled, liveAllowed, claudeAccountsLinked, defaultOn, resetLinkedCacheForTests, LINKED_CACHE_MS, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, scopedOf, write, ccdFor,
+  enabled, liveAllowed, claudeAccountsLinked, defaultOn, offByEnv, resetLinkedCacheForTests, LINKED_CACHE_MS, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, scopedOf, write, ccdFor,
   FILE, POLL_MS, FRESH_MS, pollDelay, JITTER, BACKOFF_MS, accountsToPoll, planPoll, loginKey, triggerStep, afterTrigger, timedNext, RETRY_MS, HOST, USAGE_PATH, BETA,
 };

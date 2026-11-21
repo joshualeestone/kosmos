@@ -15363,6 +15363,13 @@ const server = http.createServer(async (req, res) => {
           try { autobalance.armed = !!automoveRun && automove.movesOn() && autobalanceSweepRuns({ forTick: true }); } catch { autobalance.armed = false; }   // kosmos#8846 review 1: the gates the mover's tick uses, so Settings never says it moves where nothing does
           /* Review round 6: why a moving board moves nobody now (lines its record could not take yet), so the page says so. */
           try { autobalance.movePaused = autobalance.moving === true ? automoveRun.paused() : null; } catch { autobalance.movePaused = null; }
+          /* kosmos#8841: what the start environment switched off, so Settings can say why nothing is read or moved where it
+             would otherwise only say that. Settings' own switch is `on`; one login hides the row. */
+          try {
+            const up = require('./engine/usagepoll');
+            autobalance.offOutside = { readings: up.offByEnv(process.env, 'AGENT_WORKFORCE_USAGE_POLL', 'AGENT_WORKFORCE_USAGE_POLL_OFF') || !autobalanceSweep.sweepOn(),
+              moves: up.offByEnv(process.env, 'AGENT_WORKFORCE_AUTOMOVE', 'AGENT_WORKFORCE_AUTOMOVE_OFF') };
+          } catch { autobalance.offOutside = { readings: false, moves: false }; }
           autobalance.recent = [];
           if (setting.on === true) {   // review 13: the page shows the record only with the switch on, so read it only then
             try { autobalance.recent = autobalanceSweep.recent(AUTOBALANCE_RECORD); } catch { autobalance.recent = []; }
