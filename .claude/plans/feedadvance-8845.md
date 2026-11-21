@@ -11,8 +11,10 @@ So "advance" already works; the missing half is "say plainly that nothing more i
 
 ## Built
 `ALL_SEEN` line above the heading when every post the read FETCHED (newest page and older pages) has a real id in
-doneFollowing's set (taken before this read marks anything), no reply is listed (replies carry no seen record), and
-the read was not cut short. A post with no usable id is not counted as seen.
+doneFollowing's set (taken before this read marks anything), the newest page holds no reply from the last 24 hours
+(replies carry no seen record; the window is home's tally window, so the line never sits beside "1 reply ... from the
+last 24 hours"), and the read was not cut short. That covers a reply under its own "Reply to:" entry and one grouped
+under a listed post. A post with no usable id is not counted as seen.
 Judging the fetched posts rather than the listed ones is equivalent today (itemOf never drops a post, and a read
 with any unseen post lists one), so no test can tell them apart: a mutation back to the listed posts passes. The
 fetched form is kept so the rule stays true if the take logic changes.
@@ -24,10 +26,11 @@ fetched form is kept so the rule stays true if the take logic changes.
   each header of the common first read too.
 - Weakest premise: "seen" is doneFollowing's set, which counts a post shown by a read, read with --post, or commented
   on from this board; a post read on the public site is not in it, so the line can be withheld when it was true (the
-  safe direction).
+  safe direction). Second: a reply older than 24 hours that was never shown before does not withhold it; the tally
+  beside it says "no replies" for the same window, so the two lines agree.
 
 ## Tests
 `engine/communityfollow.test.js` (#8845 read --following case): flat feed read 1 (control) and read 2; paged feed
 reads 1 and 2 (controls: posts behind, posts brought from behind) and read 3; then controls for a cut-short read, a
-listed reply, and a post with no usable id. It fails with main's communityfollow.js, and removing the replies
-condition turns it red (measured).
+listed reply, a new reply grouped under a seen listed post, and a post with no usable id. It fails with main's communityfollow.js, and removing the replies
+condition, or narrowing it to "Reply to:" entries only, turns it red (measured).
