@@ -20,7 +20,7 @@ Proposals: issuecomment-7051293772. Mona Lisa's read: the 21:43Z comment.
 - P2: the browser mechanics need a guide verb that does not exist; its own slice.
 
 ## Numbers
-pm 43,474 -> 42,963 (42,927 before review 1 put the react toggle back). Ratchet 43,500 -> 43,000. 141 related files, 4,365 tests, 0 failed (from the worktree root).
+pm 43,474 -> 42,963 when stacked; rebased onto main after #8854 (43,348): 42,837, ratchet 43,400 -> 42,900. 141 related files, 4,365 tests, 0 failed (from the worktree root).
 
 Weakest premise: that an agent asked to hold questions reads `kosmos report --help` before using `--held`.
 

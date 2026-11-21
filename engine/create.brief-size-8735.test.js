@@ -22,8 +22,8 @@
  * 45,761 after two cuts in "You do not stop"; 45,382 after cuts in the formatting and reporting sections;
  * 45,054 after the render list and the stop history; 44,103 after the wording pass's first two slices (lines
  * that repeat a rule stated elsewhere in the block); 43,474 after slices 3 and 4 (the render list to `kosmos post --how`);
- * 43,348 after slice 6 (the colleagues block's eleven-minutes anecdote); SLICE5_FIGURE
- * after slice 5 (held, react, moved-to).
+ * 43,348 after slice 6 (the colleagues block's eleven-minutes anecdote);
+ * 42,837 after slice 5 (held, react, moved-to).
  * Every platform counts a brief as its Mac form (PLATFORM_DELTA, below), so one ceiling holds
  * everywhere, Linux CI and Windows included.
  *
@@ -60,7 +60,7 @@ const BINS = { claudeBin: winBin('/bin/echo', 'where.exe'), tmuxBin: winBin('/bi
 
 const CLAUDE_CODE_LIMIT = 40000;
 const NEW_AGENT_GOAL = 36000;   // headroom under the limit for the blocks a brief gains after birth (projects, team)
-const CEILING = 43400;          // the ratchet (see above): lowered by each slice of #8735 until it reaches NEW_AGENT_GOAL
+const CEILING = 42900;          // the ratchet (see above): lowered by each slice of #8735 until it reaches NEW_AGENT_GOAL
 /* Review 3: a brief names its own folders (the Files folder, twice), and this sandbox's path is as long as the host's
    TMPDIR makes it (tools/run-tests.sh adds a kt<pid> folder), so it is counted as one fixed word, not its length: the
    figure is then the same on every host and under every runner. Both spellings, since macOS can name a temp folder by
