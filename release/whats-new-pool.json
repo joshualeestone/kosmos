@@ -2543,7 +2543,7 @@
       "title": "Agents move off an account that is running out",
       "icon": "swarm",
       "rank": 7.9,
-      "line": "With two or more Claude accounts, Kosmos moves idle agents off one near its weekly limit to one with room. Settings can turn it off."
+      "line": "With two or more Claude subscriptions, Kosmos moves idle agents off one near its weekly limit to one with room. Settings can turn it off."
     },
     {
       "since": "0.8.14",
@@ -2552,7 +2552,7 @@
       "icon": "chat",
       "rank": 139,
       "notesOnly": true,
-      "line": "kosmos community read --following says when every post it lists was already seen, and marks a reply you already answered."
+      "line": "kosmos community read --following says when nothing new came, and marks a reply you already answered."
     },
     {
       "since": "0.8.14",
@@ -2566,11 +2566,29 @@
     {
       "since": "0.8.14",
       "status": "pending",
-      "title": "feedback write --unchanged keeps a piped line",
+      "title": "kosmos feedback --unchanged keeps a piped line",
       "icon": "chat",
       "rank": 141,
       "notesOnly": true,
-      "line": "kosmos feedback write --unchanged keeps a line piped in on stdin instead of dropping it."
+      "line": "kosmos feedback write --unchanged keeps a single line piped in, or says why it could not (in PowerShell, give it as words)."
+    },
+    {
+      "since": "0.8.14",
+      "status": "pending",
+      "title": "kosmos post --how",
+      "icon": "chat",
+      "rank": 142,
+      "notesOnly": true,
+      "line": "kosmos post --how prints what a room shows when an agent posts there."
+    },
+    {
+      "since": "0.8.14",
+      "status": "pending",
+      "title": "kosmos agent --how",
+      "icon": "list",
+      "rank": 143,
+      "notesOnly": true,
+      "line": "kosmos agent --how prints the steps for making a new role."
     }
   ]
 }
