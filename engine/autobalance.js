@@ -105,6 +105,9 @@ function scopedNow(row, nowMs) {
   return (row && Array.isArray(row.scoped) ? row.scoped : [])
     .filter((s) => s && modelKey(s.model) && Number.isFinite(s.usedPct) && Number.isFinite(s.resetsAt) && s.resetsAt > nowMs);
 }
+/* Review 4: a model limit this full is FULL: what can have stopped an agent. 99.5, not 100, so a 100 that arrives a
+   little under is caught (the page shows 99.5 and up as 100%); a whole 99 is not, which fails toward the old rule. */
+const MODEL_FULL_PCT = 99.5;
 const whenOf = (ms) => { const hours = Math.ceil(ms / 3600000); return hours > 48 ? `${Math.round(hours / 24)} days` : `${hours} h`; };
 /* Why an agent on `model` is at risk on this row by its model's own limit alone, or null: that limit at AT_RISK_PCT or
    more, not resetting within RESET_SOON_MS, as the overall rule. An agent whose model is unknown is never at risk this
@@ -224,13 +227,15 @@ function decide({ rows, movable, nowMs, skipTarget, modelOf }) {
     const sure = (n) => (earlier(n) ? null : model(n));   // the model to choose a target by
     /* Review 3: only a model limit that is actually FULL there can be what stopped it (85% stopped nobody). */
     const unknownAtLimitWhy = (n) => ((!modelKey(model(n)) || earlier(n)) && atLimit(n)
-      ? (scopedNow(from, nowMs).filter((s) => s.usedPct >= 99.5).map((s) => modelRiskOf(from, s.model, nowMs)).find(Boolean) || null) : null);
+      ? (scopedNow(from, nowMs).filter((s) => s.usedPct >= MODEL_FULL_PCT).map((s) => modelRiskOf(from, s.model, nowMs)).find(Boolean) || null) : null);
     const whyFor = (n) => acctWhy || modelRiskOf(from, model(n), nowMs) || unknownAtLimitWhy(n);
     const complete = !!from.agentsHere && from.agentsHere.complete === true;
     /* Review 1: a list that may be short can be missing the very agent on the full model, so with an incomplete list any
        model limit there that passes the rule makes the account at risk (and short), as an overall risk always did. */
     const anyModelWhy = () => scopedNow(from, nowMs).map((s) => modelRiskOf(from, s.model, nowMs)).find(Boolean) || null;
-    const modelWhy = acctWhy ? null : (names.map(whyFor).find(Boolean) || (!complete ? anyModelWhy() : null));
+    /* Review 4: from the names in a fixed order, so the model an account is said at risk for does not follow the order
+       the roster walk returns them in (it is not sorted), and the record does not flap between two models. */
+    const modelWhy = acctWhy ? null : (names.slice().sort().map(whyFor).find(Boolean) || (!complete ? anyModelWhy() : null));
     const why = acctWhy || modelWhy;
     if (!why) continue;
     /* Review 1: `model` marks a risk that is one model's limit alone, so the page can say the agents on that model are
@@ -415,4 +420,4 @@ function movableOnDemand(build) {
   return (session) => (fn || (fn = build()))(session);
 }
 
-module.exports = { modelKey, modelRiskOf, modelRoomOn, modelOfFrom, decide, movableFor, stoppedAtLimit, movableOnDemand, markTargets, bulkTargetable, eligible, rowsFromReadings, AT_RISK_PCT, TARGET_MAX_PCT, RESET_SOON_MS, FIVE_HOUR_MAX_PCT };
+module.exports = { MODEL_FULL_PCT, modelKey, modelRiskOf, modelRoomOn, modelOfFrom, decide, movableFor, stoppedAtLimit, movableOnDemand, markTargets, bulkTargetable, eligible, rowsFromReadings, AT_RISK_PCT, TARGET_MAX_PCT, RESET_SOON_MS, FIVE_HOUR_MAX_PCT };

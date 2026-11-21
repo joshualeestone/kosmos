@@ -303,8 +303,21 @@ test('kosmos#8862 review 3: an unknown agent at a limit is blamed only on a mode
 test('kosmos#8862 review 3: the sweep records a change of who is held or of a model-only risk', () => {
   const sweep = require('./autobalance-sweep');
   const base = { moves: [], held: [{ from: '/c', why: 'x', agents: ['a'] }], atRisk: [{ from: '/c', why: 'x', kind: 'usage', model: 'Fable' }], unmeasured: [] };
-  assert.notEqual(sweep.keyOf(base), sweep.keyOf({ ...base, held: [{ from: '/c', why: 'x', agents: ['b'] }] }), 'a change of who is held was not a new decision');
+  assert.equal(sweep.keyOf(base), sweep.keyOf({ ...base, held: [{ from: '/c', why: 'x', agents: ['b'] }] }), 'review 4: a change of who is idle on a hold wrote a new decision');
+  assert.notEqual(sweep.keyOf(base), sweep.keyOf({ ...base, held: [{ from: '/c', why: 'y', agents: ['a'] }] }), 'a change of a held reason was not a new decision');
   assert.notEqual(sweep.keyOf(base), sweep.keyOf({ ...base, atRisk: [{ from: '/c', why: 'x', kind: 'usage' }] }), 'a model-only risk turning into an overall one was not a new decision');
   const old = { moves: [], held: [{ from: '/c', why: 'x' }], atRisk: [{ from: '/c', why: 'x', kind: 'usage' }], unmeasured: [] };
   assert.equal(sweep.keyOf(old), JSON.stringify({ m: [], h: [JSON.stringify('/c')], r: [JSON.stringify(['/c', 'usage'])], u: [] }), 'an older record line no longer keys as it did (a restart would record it again)');
+});
+
+test('kosmos#8862 review 4: the model an account is at risk for does not follow the roster order', () => {
+  const MODELS = { x: 'Claude Fable 5.2', y: 'Claude Opus 5.5' };
+  const both = [...fable(100), { model: 'Opus', usedPct: 90, resetsAt: NOW + 30 * H }];
+  const at = (names) => [row('/a', { weekly: { usedPct: 50, resetsAt: NOW + 41 * H }, scoped: both, agentsHere: { names, complete: true } }), row('/b', { scoped: both })];
+  const one = ab.decide({ rows: at(['x', 'y']), movable: () => false, nowMs: NOW, modelOf: (n) => MODELS[n] });
+  const two = ab.decide({ rows: at(['y', 'x']), movable: () => false, nowMs: NOW, modelOf: (n) => MODELS[n] });
+  assert.deepEqual(one.atRisk, two.atRisk, 'the same account was said at risk for a different model when the roster came back in another order');
+  const sweep = require('./autobalance-sweep');
+  assert.equal(sweep.keyOf({ ...one, unmeasured: [] }), sweep.keyOf({ ...two, unmeasured: [] }), 'the record would write a new line for a reordered roster');
+  assert.equal(ab.MODEL_FULL_PCT, 99.5);
 });

@@ -102,10 +102,11 @@ function keyOf(d) {
   /* Review 17: each list sorted, so the order entries arrive in never makes one decision look like two. */
   const sorted = (xs) => xs.map((x) => JSON.stringify(x)).sort();
   const dirs = (xs) => (Array.isArray(xs) ? xs : []).filter((x) => typeof x === 'string').sort();
-  /* kosmos#8862 review 3: who is held and a model-only risk are part of the decision too. An older record line has
-     neither, and reads as it always did (no agents, no model). */
-  const agentsOf = (x) => (Array.isArray(x.agents) ? x.agents.filter((a) => typeof a === 'string').slice().sort() : []);
-  return JSON.stringify({ m: sorted(objects(d.moves).map((x) => [x.agent, x.from, x.to])), h: sorted(objects(d.held).map((x) => (agentsOf(x).length ? [x.from, agentsOf(x)] : x.from))),
+  /* kosmos#8862 review 3: a model-only risk is part of the decision too, and so is each held reason (review 4: not who
+     is held, which follows every idle or busy change through a hold that can last days; the names stay in the line).
+     An older record line has neither, and reads as it always did. */
+  const heldKey = (x) => (Array.isArray(x.agents) && typeof x.why === 'string' ? [x.from, x.why] : x.from);
+  return JSON.stringify({ m: sorted(objects(d.moves).map((x) => [x.agent, x.from, x.to])), h: sorted(objects(d.held).map(heldKey)),
     r: sorted(objects(d.atRisk).map((x) => (typeof x.model === 'string' && x.model ? [x.from, x.kind, x.model] : [x.from, x.kind]))), u: dirs(d.unmeasured) });   // review 20: what was not measured is part of it
 }
 
