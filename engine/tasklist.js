@@ -167,7 +167,8 @@ function acrossLines(body, flag, opts = {}) {
   const group = stale ? 'open' : COMPACT[flag];
   if (!group) throw new Error('not a list flag: ' + flag);
   const every = !opts.project;
-  if (!every && !stale) throw new Error('one project: use compactLines (acrossLines is --stale there)');
+  /* kosmos#8867: one project prints here for --stale, and for --mine (that project's tasks the caller holds). */
+  if (!every && !stale && opts.mine !== true) throw new Error('one project: use compactLines (acrossLines is --stale or --mine there)');
   const days = stale ? opts.days : null;
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   const tasks = body && Array.isArray(body.tasks) ? body.tasks : null;
@@ -193,7 +194,9 @@ function acrossLines(body, flag, opts = {}) {
         : (stale ? 'No open task in any project has been quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more.' : 'No ' + label + ' tasks in any project.'));
   } else {
     lines.push(n ? what + ' in ' + one(opts.project) + '.'
-      : 'No open task in ' + one(opts.project) + ' has been quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more.');
+      : mine ? (stale ? 'No open task of yours in ' + one(opts.project) + ' has been quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more.'
+        : 'No ' + label + ' tasks of yours in ' + one(opts.project) + '.')   // kosmos#8867
+        : 'No open task in ' + one(opts.project) + ' has been quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more.');
   }
   /* kosmos#7151: the tasks the board offers for retiring (leftUnder), with the rule, once. Nothing is retired for you. */
   const left = stale ? tasks.filter((x) => Number.isSafeInteger(x.leftUnder)).length : 0;

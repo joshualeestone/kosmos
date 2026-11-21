@@ -6573,6 +6573,7 @@ cmd_task() {
     exit 0
   fi
   local _tmine=""   # kosmos#7992: `task list --mine` / `task list --all --mine`: only the tasks this agent holds
+  local _tmproj="" _tform="--all"   # kosmos#8867: `task list <project-id> --mine`: that one project, kept the same way
   case "$sub" in
     ''|help|-h|--help)
       say "Usage: kosmos task <list|add|assign|close|reopen|message|activity|show|files|built|done-when|check|hold|unhold|repeat|ran|told|wake|edit>"
@@ -6580,6 +6581,7 @@ cmd_task() {
       say "  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each"
       say "  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first"
       say "  kosmos task list --mine [--blocked|--built|--stale [<days>]]  open (or blocked, built, stale) tasks you hold, in every project you are on"
+      say "  kosmos task list <project-id> --mine [--blocked|--built|--stale [<days>]]  the same, in that one project"
       say "  kosmos task list <project-id> --stale [<days>]               the same for one project"
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
       say "      --parent <task-number>                                   make it a subtask of that task"
@@ -6631,18 +6633,25 @@ cmd_task() {
       # kosmos#7992: --mine is --all kept to the tasks this agent holds. `--mine ...` and `--all --mine ...` are the same; the
       # word is taken out here, so the --all checks below read the rest exactly as they read --all's.
       if [ "${1:-}" = "--mine" ]; then _tmine=1; shift; set -- --all "$@"
-      elif [ "${1:-}" = "--all" ] && [ "${2:-}" = "--mine" ]; then _tmine=1; shift 2; set -- --all "$@"; fi
+      elif [ "${1:-}" = "--all" ] && [ "${2:-}" = "--mine" ]; then _tmine=1; shift 2; set -- --all "$@"
+      # kosmos#8867: `<project-id> --mine ...` is that project's list kept to this agent's tasks. It was taken as the
+      # plain project list and --mine dropped without a word. Read on as --all's words, with the project kept aside.
+      elif [ "${2:-}" = "--mine" ]; then _tmine=1; _tmproj="${1:-}"; _tform="<project-id> --mine"; shift 2; set -- --all "$@"; fi
+      # kosmos#8867: --mine anywhere else is refused, never ignored.
+      local _tw; for _tw in "$@"; do
+        [ "$_tw" != "--mine" ] || { say "Put --mine right after the project, or use it alone: kosmos task list <project-id> --mine [--blocked|--built|--stale [<days>]], or kosmos task list --mine"; exit 2; }
+      done
       if [ -n "$_tmine" ]; then
         case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) say "--mine lists an agent's own tasks, so it needs an agent's token (run it from an agent's session)."; exit 2 ;; esac
       fi
       # kosmos#7057: --all (every project) and --stale [<days>]; the days are checked here, so only a number reaches the URL.
       if [ "${1:-}" = "--all" ]; then
         # Review 1 (nit 4), as the Windows CLI: an empty word after --all is not "nothing after it".
-        [ "$#" -lt 2 ] || [ -n "${2}" ] || { say "After --all: nothing (open tasks), --blocked, --built, or --stale [<days>]."; exit 2; }
+        [ "$#" -lt 2 ] || [ -n "${2}" ] || { say "After ${_tform}: nothing (open tasks), --blocked, --built, or --stale [<days>]."; exit 2; }
         case "${2:-}" in
-          ''|--open|--blocked|--built) [ "$#" -le 2 ] || { say "${2} takes nothing after it: kosmos task list --all ${2}"; exit 2; } ;;
-          --stale) _task_stale_days "${3:-}"; [ "$#" -le 3 ] || { say "--stale takes one number of days at most: kosmos task list --all --stale [<days>]"; exit 2; } ;;
-          *) say "After --all: nothing (open tasks), --blocked, --built, or --stale [<days>]."; exit 2 ;;
+          ''|--open|--blocked|--built) [ "$#" -le 2 ] || { say "${2} takes nothing after it: kosmos task list ${_tform} ${2}"; exit 2; } ;;
+          --stale) _task_stale_days "${3:-}"; [ "$#" -le 3 ] || { say "--stale takes one number of days at most: kosmos task list ${_tform} --stale [<days>]"; exit 2; } ;;
+          *) say "After ${_tform}: nothing (open tasks), --blocked, --built, or --stale [<days>]."; exit 2 ;;
         esac
       elif [ "${2:-}" = "--stale" ]; then
         _task_stale_days "${3:-}"; [ "$#" -le 3 ] || { say "--stale takes one number of days at most: kosmos task list <project-id> --stale [<days>]"; exit 2; }
@@ -7021,6 +7030,7 @@ cmd_task() {
     local _xproj="" _xflag=open _xdays="" _xq _xtok="" _xbody _xrc=0 _xnode _xmod
     if [ "${1:-}" = "--all" ]; then
       case "${2:-}" in --blocked) _xflag=blocked ;; --built) _xflag=built ;; --stale) _xflag=stale; _xdays="${3:-7}" ;; esac
+      [ -z "$_tmproj" ] || { require_valid_project_id "$_tmproj"; _xproj="$_tmproj"; }   # kosmos#8867
     else
       require_valid_project_id "${1:-}"; _xproj="${1:-}"; _xflag=stale; _xdays="${3:-7}"
     fi
@@ -7036,6 +7046,8 @@ cmd_task() {
       # Review 1 (warning 4): a board older than all=1 refuses an agent's own token with "say which project"; that is
       # the board's age, not a missing project, so say so as every other older-board case does.
       case "$_xproj:$_xwhy" in ':say which project'*) say "This board is older than --all, so it did not list what was asked. Update Kosmos."; exit 1 ;; esac
+      # kosmos#8867: a board from before it refuses mine with one project; that is its age, never a reason to list everyone's.
+      case "$_tmproj:$_xwhy" in ?*':mine goes with all'*) say "This board is older than --mine in one project, so it did not list what was asked. Update Kosmos."; exit 1 ;; esac
       say "Kosmos refused that: ${_xwhy:-it did not say why}."; exit 1 ;;
     esac
     _xnode="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print that list." >&2; exit 1; }
@@ -7045,6 +7057,8 @@ cmd_task() {
     # kosmos#7992 review 1: a printer from before --mine would ignore the word and pass an older board's whole list as
     # yours, so --mine needs one that knows it.
     [ -z "$_tmine" ] || grep -q "older('--mine')" "$_xmod" || { say "This install of Kosmos cannot list your own tasks yet; update Kosmos." >&2; exit 1; }
+    # kosmos#8867: and one that prints one project's own tasks (a printer from before it refuses that form).
+    [ -z "$_tmproj" ] || grep -q 'kosmos#8867' "$_xmod" || { say "This install of Kosmos cannot list your own tasks in one project yet; update Kosmos." >&2; exit 1; }
     printf '%s' "$_xbody" | "$_xnode" "$_xmod" across "$_xflag" "$_xproj" "$_xdays" ${_tmine:+mine}
     exit $?
   fi

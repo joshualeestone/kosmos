@@ -111,6 +111,7 @@ const USAGE = {
     '  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each',
     '  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first',
     '  kosmos task list --mine [--blocked|--built|--stale [<days>]]  open (or blocked, built, stale) tasks you hold, in every project you are on',
+    '  kosmos task list <project-id> --mine [--blocked|--built|--stale [<days>]]  the same, in that one project',
     '  kosmos task list <project-id> --stale [<days>]               the same for one project',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',
@@ -1381,6 +1382,8 @@ function staleDays(v) {
 }
 /* kosmos#7057, as install/kosmos: `--all [--open|--blocked|--built|--stale [<days>]]` (every project; on an agent's own
    token, the projects it is on) and `<project> --stale [<days>]`, printed by engine/tasklist.js acrossLines. */
+/* kosmos#8867: --mine anywhere but right after the project (or alone) is refused, never silently dropped. */
+const MINE_PLACE = 'Put --mine right after the project, or use it alone: kosmos task list <project-id> --mine [--blocked|--built|--stale [<days>]], or kosmos task list --mine';
 async function taskListAcross(ctx, args) {
   let project = '';
   let flag = 'open';
@@ -1388,22 +1391,27 @@ async function taskListAcross(ctx, args) {
   /* kosmos#7992, as install/kosmos: `--mine ...` and `--all --mine ...` are --all kept to the tasks this agent holds; the
      word is taken out, so the checks below read the rest exactly as they read --all's. */
   let mine = false;
+  let form = '--all';   // kosmos#8867: how the refusals below name the form
   if (args[0] === '--mine') { mine = true; args = ['--all', ...args.slice(1)]; }
   else if (args[0] === '--all' && args[1] === '--mine') { mine = true; args = ['--all', ...args.slice(2)]; }
+  /* kosmos#8867, as install/kosmos: `<project-id> --mine ...` is that project's list kept to this agent's tasks, read on
+     as --all's words with the project kept aside. It was taken as the plain project list, with --mine dropped. */
+  else if (args[1] === '--mine') { mine = true; project = args[0]; form = '<project-id> --mine'; args = ['--all', ...args.slice(2)]; }
+  if (args.includes('--mine')) { ctx.err(MINE_PLACE); return 2; }
   if (mine && !ctx.agentToken()) {
     ctx.err("--mine lists an agent's own tasks, so it needs an agent's token (run it from an agent's session)."); return 2;
   }
   if (args[0] === '--all') {
     const f = args[1];
     if (f === undefined || f === '--open' || f === '--blocked' || f === '--built') {
-      if (args.length > 2) { ctx.err(f + ' takes nothing after it: kosmos task list --all ' + f); return 2; }
+      if (args.length > 2) { ctx.err(f + ' takes nothing after it: kosmos task list ' + form + ' ' + f); return 2; }
       if (f) flag = f.slice(2);
     } else if (f === '--stale') {
       days = staleDays(args[2]);
       if (days === null) { ctx.err(STALE_DAYS_WORDS); return 2; }
-      if (args.length > 3) { ctx.err('--stale takes one number of days at most: kosmos task list --all --stale [<days>]'); return 2; }
+      if (args.length > 3) { ctx.err('--stale takes one number of days at most: kosmos task list ' + form + ' --stale [<days>]'); return 2; }
       flag = 'stale';
-    } else { ctx.err('After --all: nothing (open tasks), --blocked, --built, or --stale [<days>].'); return 2; }
+    } else { ctx.err('After ' + form + ': nothing (open tasks), --blocked, --built, or --stale [<days>].'); return 2; }
   } else {
     project = args[0];
     days = staleDays(args[2]);
@@ -1421,6 +1429,8 @@ async function taskListAcross(ctx, args) {
     /* Review 1 (warning 4), as install/kosmos: a board older than all=1 refuses an agent's own token with "say which
        project"; that is the board's age, not a missing project. */
     if (!project && /^say which project/.test(ctx.refusedBy(r))) { ctx.err('This board is older than --all, so it did not list what was asked. Update Kosmos.'); return 1; }
+    /* kosmos#8867: a board from before it refuses mine with one project; that is its age, never a reason to list everyone's. */
+    if (project && mine && /^mine goes with all/.test(ctx.refusedBy(r))) { ctx.err('This board is older than --mine in one project, so it did not list what was asked. Update Kosmos.'); return 1; }
     ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1;
   }
   const shown = tasklist.acrossLines(r.json, flag, { project, days, mine });
@@ -1431,7 +1441,8 @@ async function taskListAcross(ctx, args) {
 async function taskList(ctx, args) {
   const project = args[0];
   if (!project) { ctx.err('Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built | --stale [<days>]]   (or --all, or --mine)'); return 2; }
-  if (project === '--all' || project === '--mine' || args[1] === '--stale') return taskListAcross(ctx, args);
+  if (project === '--all' || project === '--mine' || args[1] === '--stale' || args[1] === '--mine') return taskListAcross(ctx, args);   // kosmos#8867: <project-id> --mine
+  if (args.includes('--mine')) { ctx.err(MINE_PLACE); return 2; }   // kosmos#8867: anywhere else, refused, never ignored
   /* #5705, as install/kosmos: grouped (open, built, on hold, done); --state keeps one group, checked here. */
   let only = '';
   if (args[1] === '--state') {
