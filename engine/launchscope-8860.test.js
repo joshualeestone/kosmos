@@ -7,6 +7,7 @@
  *
  *   node --test engine/launchscope-8860.test.js
  */
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
