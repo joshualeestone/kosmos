@@ -21,3 +21,4 @@ Weakest premise: that a PM about to write a role runs `kosmos agent --how` first
 comes first, in the brief itself, so the step with a consequence never depends on reading the guide.
 
 ## Round 1 (opus, blind): nothing above nit. Both nits taken: the guide says "a role the setup guide wrote", and names `kosmos agent roles` so "that list" has its referent.
+## Round 2 (sonnet, whole branch, blind): nothing above nit (the moved-step asserts are word for word, as intended; process history in a header comment, as elsewhere). Converged.
