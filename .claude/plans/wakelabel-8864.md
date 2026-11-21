@@ -16,8 +16,9 @@
 - engine/feedbackday.js skips automatic rows (not the person's words).
 
 ## Decided not to change
-- chat.dmOwes and firstreply-nudge: a restart hello has always been something the board expects an answer to; leaving
-  that behaviour alone keeps this card to labelling and counting.
+- chat.dmOwes and firstreply-nudge's firing: a restart hello has always been something the board expects an answer to;
+  that stays. (Round 3: the bracket keeps the "to answer, run:" cue, and the reminder's WORDS no longer say the person
+  sent an automatic line.)
 - engine/awaydigest.js (reverted in round 1): it is how an agent recovers a line that never reached it, and a script's
   boot notice can ask for work, so a failed one stays listed.
 - The handoff-restart pickup has its own route and is not touched here.
@@ -43,5 +44,20 @@ that does not keeps the old behaviour; nothing here can tell its POST from the p
 
 ## Round 2 (sonnet, whole branch, blind): nothing above nit
 - Nit 2 taken: a Muse agent's queue and "dropped unread" notes named an automatic line "a message from your operator"
-  (the misattribution this card removes). They now name it as sent automatically. musefront.test.js 85/85.
+  (the misattribution this card removes). They now name it as sent automatically. musefront.test.js 77/77 (corrected
+  in round 3: the 85 was this file plus the new one).
 - Nit 1 not taken: the guard refuses a post quoting the bracket verbatim, as it does for every marker.
+
+## Round 3 (opus, whole branch, blind): two should-fix, both taken; four nits, taken
+- The bracket ended "to tell your person something, run: kosmos reply", dropping the "to answer, run:" cue agents are
+  taught marks a message that waits on them, while dmOwes still counts the hello as owed. It now ends
+  "to answer, run: kosmos reply", like operatorDirect; musefront's DM_ENVELOPE follows.
+- firstreply-nudge said "the person you work for sent you a message" of an automatic first line, against its own rule
+  that its words are true of the row. firstContact now reports `automatic: true` (only when true, so its old shape is
+  kept), and the sweep sends NUDGE_TEXT_AUTOMATIC ("a line was sent to you automatically for the person you work for").
+- Muse: an automatic "stop" no longer stops it (only the person does); the stop notes list dropped automatic lines in
+  their own sentence (droppedParts), so "from your operator" is only ever about what the person typed. Both are now
+  tested (the queue note too), and perturbing the stop exclusion turns its test red.
+- Plan count corrected (musefront.test.js was 77, now 79 with the two new tests).
+- Related set after round 3: 192 files, 5,161 tests, 4 failed, all in engine/remote.test.js (#4756, #5786) at a 1-minute
+  load of 28 on 12 cores; that file alone passes 247/247 on the branch and on main.

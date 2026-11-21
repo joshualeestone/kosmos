@@ -1289,3 +1289,34 @@ test('#5636 F7a: logTurn appends JSON lines in .kosmos, moves a full file aside,
     assert.equal(JSON.parse(fsx.readFileSync(file, 'utf8')).at, 'E', 'logging went on past a blocked rotation');
   } finally { fsx.rmSync(ws, { recursive: true, force: true }); }
 });
+
+/* kosmos#8864: a line sent automatically (messages.automaticWake's bracket) rides as the person's DM, so it is queued
+   and answered like theirs, but it is named for what it is, it cannot stop Muse, and a stop note lists it apart. */
+const AUTO = (t) => require('./messages').automaticWake('11:52 AM') + ' ' + t;
+
+test('kosmos#8864: an automatic line is queued with the person\'s, and the pane names it as sent automatically', async () => {
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok ' + i)));
+  h.f.feed('long job\r');
+  h.f.feed(COL('can you check X') + '\r');
+  h.f.feed(AUTO('The box just rebooted.') + '\r');
+  assert.match(h.out(), /queued ahead of other waiting messages: a line sent automatically on this computer/, 'the automatic line was named as the person\'s');
+  assert.doesNotMatch(h.out(), /queued ahead of other waiting messages: a message from your operator/);
+  h.pending[0](OK('done'));
+  await within(h.f.drained(), 'the queue did not drain');
+  assert.deepEqual(h.calls.map((c) => c.prompt), ['long job', AUTO('The box just rebooted.'), COL('can you check X')]);
+});
+
+test('kosmos#8864: an automatic line saying "stop" does not stop Muse; the person saying it does', async () => {
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  h.f.feed(AUTO('stop') + '\r');
+  assert.equal(h.stops[0], 0, 'an automatic "stop" stopped the running turn');
+  h.f.feed(OP('waiting from Josh') + '\r');
+  h.f.feed(OP('Stop.') + '\r');
+  await within(h.f.drained(), 'CONTROL: the person\'s "stop" did not end the running turn');
+  assert.equal(h.stops[0], 1, 'CONTROL: the person\'s "stop" did not stop the turn');
+  const note = h.calls[1].prompt;
+  assert.match(note, /these earlier messages from your operator were dropped unread: "waiting from Josh"/, 'the person\'s dropped message is not named as theirs');
+  assert.match(note, /these lines sent automatically on this computer were dropped unread: "stop"/, 'the automatic line is not listed apart');
+  assert.doesNotMatch(note, /from your operator were dropped unread: "stop"/, 'the automatic line was listed as the person\'s');
+});

@@ -567,12 +567,13 @@ function operatorDirect(nowLabel, answers) {
    senders use it: the board's own wake 'hello' after a restart or a team create, and a script on this computer (an
    installed agent's listener posts its boot notice there after a reboot, the 11-21 report). Before, both rode in
    operatorDirect's bracket, so the agent read them as the person's words and its day summary counted them as theirs.
-   It names neither sender nor says "nothing to answer", since a script's line can ask for work; it says only that the
-   person did not type it, and where an answer to the person goes. It does not open '[message from your operator', so
+   It names neither sender nor says "nothing to answer", since a script's line can ask for work; it says that the person
+   did not type it, and ends "to answer, run: kosmos reply" like operatorDirect, the cue agents are taught marks a message
+   that waits on them (round 3: without it a wake hello read as not waiting on the agent). It does not open '[message from your operator', so
    the MARKERS guard (which refuses a body forging that opening) is untouched. PURE. */
 function automaticWake(nowLabel) {
   const at = nowLabel ? (' at ' + nowLabel) : '';   // as operatorDirect: the person's local time, when one is set
-  return '[sent automatically on this computer' + at + ', not typed by your person \u00b7 to tell your person something, run: kosmos reply]';
+  return '[sent automatically on this computer' + at + ', not typed by your person \u00b7 to answer, run: kosmos reply]';
 }
 
 /**

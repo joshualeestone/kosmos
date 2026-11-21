@@ -462,3 +462,22 @@ test('kosmos#5805: a skip for a declared channel is logged once per channel, boo
   assert.equal(sent.length, 1, 'clearing the channel did not bring the nudge back');
   assert.equal(logged[2].act, 'nudge');
 });
+
+test('kosmos#8864: the reminder for an unanswered line sent automatically does not say the person sent it', () => {
+  const sent = [];
+  const sweep = (row) => nudge.sweepOnce({ roster: rosterOf('idle'), book: new Map(), now: NOW, thread: () => ({ messages: [row] }),
+    deliver: (sess, text) => { sent.push(text); return { state: DELIVERY.PLACED }; }, DELIVERY });
+  assert.equal(nudge.firstContact({ messages: [{ ...personRow(), automatic: true }] }).automatic, true);
+  sweep({ ...personRow(), automatic: true });
+  assert.equal(sent.length, 1, 'no reminder for the automatic first line: ' + JSON.stringify(sent));
+  assert.equal(sent[0], nudge.NUDGE_TEXT_AUTOMATIC);
+  assert.doesNotMatch(sent[0], /the person you work for sent you a message/, 'the reminder says the person sent a line they did not type');
+  assert.match(sent[0], /a line was sent to you automatically for the person you work for, and nothing has reached them yet/);
+});
+
+test('kosmos#8864 CONTROL: the person\'s own unanswered message still gets the reminder in its old words', () => {
+  const sent = [];
+  nudge.sweepOnce({ roster: rosterOf('idle'), book: new Map(), now: NOW, thread: () => ({ messages: [personRow()] }),
+    deliver: (sess, text) => { sent.push(text); return { state: DELIVERY.PLACED }; }, DELIVERY });
+  assert.deepEqual(sent, [nudge.NUDGE_TEXT], 'the person\'s own message lost the reminder or its words');
+});

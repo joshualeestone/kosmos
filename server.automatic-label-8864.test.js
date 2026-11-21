@@ -72,7 +72,7 @@ test('kosmos#8864: the automatic bracket says the person did not type it, and is
   assert.match(b, /^\[sent automatically on this computer, not typed by your person/);
   assert.match(messages.automaticWake('10:41 AM CST'), /^\[sent automatically on this computer at 10:41 AM CST, not typed by your person/, 'the person\'s local time does not ride with the bracket, as it does with the operator\'s');
   assert.doesNotMatch(b, /message from your operator/, 'the automatic bracket still reads as the person');
-  assert.match(b, /to tell your person something, run: kosmos reply\]$/, 'the bracket does not say where an answer to the person goes');
+  assert.match(b, / \u00b7 to answer, run: kosmos reply\]$/, 'the bracket lost the "to answer, run:" cue agents are taught marks a message that waits on them');
   assert.doesNotMatch(b, /nothing to answer/i, 'a script\'s line can ask for work, so the bracket must not say there is nothing to answer');
   assert.doesNotMatch(b, /\u2014|&mdash;|&#8212;|&#x2014;/i);
 });
