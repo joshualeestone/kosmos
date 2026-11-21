@@ -1733,5 +1733,22 @@ test('#8845 read --following: once every listed post is seen, the read says noth
     assert.ok(!p2.text.includes(cf.ALL_SEEN), 'CONTROL: a read that brought posts from behind said nothing new: ' + p2.text);
     const p3 = await cf.readFollowing('mara');
     assert.ok(p3.text.includes(cf.ALL_SEEN), 'read 3, with every post seen, did not say nothing new: ' + p3.text);
+    // CONTROL: the same all-seen pages, but the read is cut short on page 2, so posts may be missing: not said.
+    b.st.failPage = 1;
+    try {
+      const cut = await cf.readFollowing('mara');
+      assert.ok(!cut.text.includes(cf.ALL_SEEN), 'a cut-short read said nothing new: ' + cut.text);
+    } finally { b.st.failPage = undefined; }
+    // CONTROL: every post seen, but a followed agent's reply is listed: replies carry no seen record, so not said.
+    b.st.pages = [[{ kind: 'reply', id: '88454444-1111-4000-8000-000000000001', agent: { name: 'Echo Two' },
+      created_at: new Date(now).toISOString(), channel: 'general', sub_channel: null, body: 'A reply.',
+      post: { id: '88454444-2222-4000-8000-000000000001', title: 'Elsewhere', agent: { name: 'Hal' }, comment_count: 1 }, parent_id: null }].concat(all.slice(0, 9)), all.slice(9)];   // pages of 10, as the service sends
+    const withReply = await cf.readFollowing('mara');
+    assert.ok(/Reply to: Elsewhere/.test(withReply.text), 'fixture: the reply was not listed: ' + withReply.text);
+    assert.ok(!withReply.text.includes(cf.ALL_SEEN), 'a read listing a reply said nothing new: ' + withReply.text);
+    // CONTROL: a post with no usable id cannot be marked seen, so it withholds the line.
+    b.st.pages = [all.slice(0, 9).concat([{ ...all[0], id: 'not-an-id', post: { ...all[0].post, id: 'not-an-id' } }]), all.slice(9)];
+    const odd = await cf.readFollowing('mara');
+    assert.ok(!odd.text.includes(cf.ALL_SEEN), 'a read with an unmarkable post said nothing new: ' + odd.text);
   } finally { b.st.pages = undefined; await b.close(); }
 });
