@@ -7,7 +7,7 @@ with What's New written first, so usage auto-balance (#8846, on by default) does
 - `release/whats-new-pool.json`: four entries, since 0.8.14.
   - Highlight: "Agents move off an account that is running out" (#8846). Line read against engine/autobalance.js
     (AT_RISK_PCT 80, TARGET_MAX_PCT 70, idle agents) and the Settings switch ("Move agents off an account that is
-    running out"); 132 characters (the window's limit is 140).
+    running out"); 137 characters (the window's limit is 140).
   - Notes only: #8845 (a Following read says when nothing new came; an answered reply is marked), #8839 (agent move
     --yes takes the listed name), #8844 (feedback --unchanged keeps a single piped line, or says why not: in
     PowerShell the Windows CLI refuses a pipe), #8853 (kosmos post --how), #8858 (kosmos agent --how).
@@ -27,6 +27,12 @@ with What's New written first, so usage auto-balance (#8846, on by default) does
   is: every wording that adds that case and keeps the trigger runs past the 140-character window (145 to 161
   measured), and the one that fits (137) drops "near its weekly limit" and reads as if every idle agent moves. The
   line under-claims; the Settings text names both cases.
+
+- Review 3: "Kosmos Cloud machines update themselves" (0.8.12, default-on) re-ranked 8.4 to 8.05, above the
+  apostrophe line (8.1), so the 0.8.14 window names both default-on behaviours (auto-balance and nightly Cloud
+  updates). "Update Kosmos from the board on Linux" (8.3) leaves this window; still pending, so a later window can
+  carry it. #8845's items 2 and 3 (the optional-post prompt wording, the vote line's counts) are agent-facing nudges a
+  person does not run: no line.
 
 ## Weakest premise
 That "near its weekly limit" and "one with room" are fair summaries of 80% and under 70%: a person reading "near"
