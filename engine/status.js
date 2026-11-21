@@ -1912,6 +1912,46 @@ function oneStepOf(pane, status, tied, now = Date.now(), find = transcriptFor, s
   } catch { return null; }
 }
 
+/* kosmos#8846: how many background shell jobs a Claude Code agent's footer says are running, or 0. Measured on Claude
+   Code 2.x, 2026-11-20: with one `run_in_background` command running, the row under the box reads
+   "⏵⏵ bypass permissions on · 1 shell · esc to interrupt · ↓ to manage". The usage mover refuses an IDLE agent showing
+   one (autobalance.movableFor), because its restart would end the job: #7548's weakest premise. Only rows BELOW the rule
+   under the live box are read, so a transcript line quoting the words is never counted. "N background task(s)" (an
+   older wording) counts too. ⚠️ A pane whose footer is off screen, or a wording not here, reads 0, which fails toward
+   moving, as before this card. A gather with no text keeps the last count (as unsentInputOf). */
+const BG_SHELLS = /(?:^|·)\s*(\d+)\s+(?:shells?|background tasks?)\s*(?=·|$)/;
+/* Review 1 (nit): a narrow pane cuts the row with an ellipsis ("· 1 sh…"). A cut count is still counted, so an agent
+   whose footer may be saying it has a job is not moved. */
+const BG_SHELLS_CUT = /(?:^|·)\s*(\d+)\s+(?:s|sh|she|shel|shell|b|ba|bac|back\w*(?:\s+t\w*)?)?\s*…$/;
+const shellsSeen = new Map();   // pane name -> the last count read
+function backgroundShellsIn(text) {
+  const rows = String(text == null ? '' : text).split('\n');
+  let at = -1;
+  /* Review 1 (nit): an older Claude Code draws its prompt as `> `, as test-support/fleet.js's idle screen does. */
+  for (let i = 0; i < rows.length; i += 1) if (/^(?:\u276f|>)(?:[\u00a0 ]|$)/.test(rows[i])) at = i;
+  if (at < 0) return 0;
+  let rule = -1;
+  for (let i = at + 1; i < rows.length; i += 1) if (COMPOSER_RULE.test(rows[i])) { rule = i; break; }
+  if (rule < 0) return 0;
+  let n = 0;
+  for (let i = rule + 1; i < rows.length; i += 1) {
+    const row = rows[i].replace(/\u00a0/g, ' ').trim();
+    const m = BG_SHELLS.exec(row) || BG_SHELLS_CUT.exec(row);
+    if (m) n = Math.max(n, Number(m[1]) || 0);
+  }
+  return n;
+}
+function backgroundShellsOf(pane, text) {
+  try {
+    const name = pane && pane.name;
+    if (text === null && pane && gatheredNote(pane.target)) return shellsSeen.get(name) || 0;
+    const claude = !!pane && (!pane.runner || pane.runner === 'claude')
+      && !isCodexCommand(pane.command) && !isGrokCommand(pane.command) && !isAntigravityCommand(pane.command);
+    const n = claude ? backgroundShellsIn(text) : 0;
+    if (name) { if (n > 0) shellsSeen.set(name, n); else shellsSeen.delete(name); }
+    return n;
+  } catch { return 0; }
+}
 /* #6249: the card's unsentInput, { since } (ISO) once the same text has sat in a Claude agent's box UNSENT_SHOW_MS,
    else null. The plain capture this pass already made decides whether to look; only a pane showing something there
    is captured again with colours, and only when what it shows changed since the last colour read. */
@@ -10268,6 +10308,8 @@ function snapshot() {
       limitUntil: claudeLimitUntilIso(pane, status),
       /* #6249: text has sat unsent in its input box for a few minutes ({ since }), else null. */
       unsentInput: unsentInputOf(pane, text),
+      /* kosmos#8846: background shell jobs its footer says are running (0 when none or unread); see backgroundShellsOf. */
+      backgroundShells: backgroundShellsOf(pane, text),
       /* #7212 slice 2: no message has been seen to reach it for half an hour, whatever the cause ({ since, count,
          lastWhy }), else null. A run of usage-limit holds alone is not said while the card shows the limit itself. */
       deliveryStall: deliveryStallOf(pane, status),
@@ -10700,7 +10742,7 @@ function sessionStartIn(text, want) {
 }
 
 module.exports = { panesWithCommands /* kosmos#8719 */, boardTmux /* kosmos#8719 */, isClaudeCommand /* kosmos#8719 */, paneLook /* kosmos#8640 */, paneFolders /* kosmos#8640 */, paneFoldersAsync /* kosmos#8644 */, setPaneFolderSource /* kosmos#8640, tests */, setWin32FolderSource /* kosmos#8640 Windows */, readWin32ProcessFolders, win32PathsIn, win32ReadText, win32LongForm, win32Powershell, twinSessions /* #8321 */, tailBytes /* #8293 */, oneStepOf /* kosmos#8286 */, neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
-  composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
+  backgroundShellsIn, backgroundShellsOf /* kosmos#8846 */, composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
   waitingTotal,   // #3996: the Dock badge's number

@@ -29,7 +29,7 @@ const realCards = (...specs) => {
   return specs.map(([name]) => b.card(name));
 };
 
-test('#7152: agents on an account at 90% that does not reset soon would move to the emptiest measured account', () => {
+test('#7152, kosmos#8846: agents on an account at 93% (at risk from 80%) that does not reset soon would move to the emptiest measured account', () => {
   const rows = [
     row('/u/.claude-a', { weekly: { usedPct: 93, resetsAt: NOW + 35 * H }, agentsHere: { names: ['raph', 'leo'] } }),
     row('/u/.claude-b', { weekly: { usedPct: 40, resetsAt: NOW + 50 * H } }),
@@ -38,8 +38,10 @@ test('#7152: agents on an account at 90% that does not reset soon would move to 
   const d = ab.decide({ rows, movable: all, nowMs: NOW });
   assert.deepEqual(d.moves.map((m) => [m.agent, m.from, m.to]), [['leo', '/u/.claude-a', '/u/.claude-c'], ['raph', '/u/.claude-a', '/u/.claude-c']]);
   assert.match(d.moves[0].why, /93% of its weekly limit, which resets in 35 h/);
-  rows[0].weekly.usedPct = 89;
-  assert.deepEqual(ab.decide({ rows, movable: all, nowMs: NOW }).moves, [], 'CONTROL: at 89% nothing is at risk');
+  rows[0].weekly.usedPct = 80;
+  assert.equal(ab.decide({ rows, movable: all, nowMs: NOW }).moves.length, 2, 'kosmos#8846: at 80% it is at risk');
+  rows[0].weekly.usedPct = 79;
+  assert.deepEqual(ab.decide({ rows, movable: all, nowMs: NOW }).moves, [], 'CONTROL: at 79% nothing is at risk');
 });
 
 test('#7152: an account that resets within six hours is waited out, not left', () => {

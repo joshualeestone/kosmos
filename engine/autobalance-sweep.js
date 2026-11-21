@@ -30,6 +30,9 @@ const CLOCK_SLACK_MS = 60 * 1000;   // a record line stamped further ahead than 
 const GAP_TICKS = 3;                // review 20: a gap writes nothing for this many ticks, then is written, named
 
 /* AGENT_WORKFORCE_AUTOBALANCE_SWEEP_OFF=1 is the operator's brake on the sweep (the setting is the person's). */
+/* kosmos#8846 review 2: the sweep's own period, 10 minutes. It was the usage poll's, and that slowed to 30; the sweep sends
+   nothing, so it stays fast for the rescue at the limit. server.js abSweepMs, and engine/automove.js's default period. */
+const SWEEP_MS = 10 * 60 * 1000;
 function sweepOn(env = process.env) { return env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_OFF !== '1'; }
 
 /* Review 9: only a record that does not exist yet is an empty one. Any other read failure THROWS, so create() leaves the
@@ -110,7 +113,7 @@ function keyOf(d) {
 function create({ file, nowMs = Date.now() }) {
   /* last: the newest decision line (moves, held, atRisk, unmeasured). gapTicks: ticks in a row that were a gap.
      lastDid: what the last tick did, for Settings (review 20). */
-  const state = { lastKey: null, last: null, writeFailed: false, gapTicks: 0, lastDid: null, unmeasuredNow: [] };
+  const state = { lastKey: null, last: null, writeFailed: false, gapTicks: 0, lastDid: null, unmeasuredNow: [], busyAtRiskNow: false };   // kosmos#8846: busyAtRiskNow
   for (const l of readLines(file)) {
     if (l.kind === 'decision' && Number.isFinite(l.at) && l.at <= nowMs + CLOCK_SLACK_MS) {
       state.lastKey = keyOf(l);
@@ -132,6 +135,7 @@ function create({ file, nowMs = Date.now() }) {
   }
 
   async function step(deps, nowMs) {
+    state.busyAtRiskNow = false;   // kosmos#8846 review 5: true only when THIS tick measured it, so an early return cannot keep it
     if (deps.settingOn() !== true) {
       // kosmos#8083: a switch that could not be read reads off; the board log says which (deps.settingUnreadable is optional).
       let unreadable = false;
@@ -161,7 +165,20 @@ function create({ file, nowMs = Date.now() }) {
        line is true as written: with those accounts unmeasured, this is the decision. It stays the decision while they
        stay unmeasured, and the next line, once they are measured again, says what changed. Reviews 16 and 17 tried
        carrying the unmeasured account's old entries instead; that kept old reasons alive past their reset. */
-    const unmeasured = new Set(rows.filter((r) => r.measured === false).map((r) => r.dir));
+    /* kosmos#8846 review 3: an account the usage poll chose not to read is RESTING, not unmeasured: it has no agents on
+       it, the last decision did not name it, and no account with agents on it is at risk for usage (usagepoll.planPoll
+       reads empty accounts only then). Counting it kept a calm board saying "could not check everything" forever. */
+    const namedBefore = new Set(state.last ? [...state.last.atRisk.map((x) => x.from), ...state.last.moves.map((x) => x.to), ...(state.last.unmeasured || [])] : []);
+    const byDir = new Map(rows.map((r) => [r.dir, r]));
+    const noAgents = (r) => !!r && !!r.agentsHere && r.agentsHere.complete === true && Array.isArray(r.agentsHere.names) && r.agentsHere.names.length === 0;
+    const busyAtRisk = decision.atRisk.some((x) => x && x.kind === 'usage' && !noAgents(byDir.get(x.from)));
+    /* Review 4 (nit): a held line says no account could take the agents, so while one is written the resting spares are
+       named as not measured, rather than the line claiming they could not. */
+    const resting = (r) => noAgents(r) && !namedBefore.has(r.dir) && !busyAtRisk && !decision.held.length;
+    /* Review 4: whether a busy account is at risk for usage on THIS tick, written or not (a gap tick writes nothing for up
+       to GAP_TICKS), so the usage poll reads the targets without waiting for the decision to be recorded. */
+    state.busyAtRiskNow = busyAtRisk;
+    const unmeasured = new Set(rows.filter((r) => r.measured === false && !resting(r)).map((r) => r.dir));
     state.unmeasuredNow = [...unmeasured].sort();   // review 22: every account not measured this tick, named or not
     const named = state.last ? [...state.last.atRisk.map((x) => x.from), ...state.last.moves.map((x) => x.to), ...(state.last.unmeasured || [])] : [];
     const gapDirs = [...new Set(named.filter((dir) => unmeasured.has(dir)))];
@@ -258,4 +275,4 @@ function tickLines(mem, r, { nowMs, unmeasured = 0 } = {}) {
   return lines;
 }
 
-module.exports = { create, recent, append, appendAll, readLines, sweepOn, keyOf, quietLine, tickLines, FILE, KEEP_LINES, RECENT, CLOCK_SLACK_MS, GAP_TICKS, QUIET_SAY_MS };
+module.exports = { SWEEP_MS, create, recent, append, appendAll, readLines, sweepOn, keyOf, quietLine, tickLines, FILE, KEEP_LINES, RECENT, CLOCK_SLACK_MS, GAP_TICKS, QUIET_SAY_MS };

@@ -28,6 +28,7 @@
   "limitUntil": null,
   "twinSession": null,
   "unsentInput": null,
+  "backgroundShells": 0,
   "deliveryStall": null,
   "lastWorked": {
     "at": "2026-09-03T00:00:00.000Z",

@@ -20,7 +20,13 @@
  * An account that is NOT MEASURED is never a target: a working login is not headroom (the card's 10-24 incident).
  */
 
-const AT_RISK_PCT = 90;
+/* kosmos#8846: 80, where it was 90. The gentle usage poll (every 30 min) puts up to about two hours between a reading
+   and a move (a reading up to a sweep old, a sweep for the empty accounts to be read, and the mover's two sweeps), so
+   the headroom has to cover that: 20 points over two hours is a burn of about 10% of a week an hour, where 90 left 5%.
+   Not lower: targets must be under TARGET_MAX_PCT (70), and the two need a gap. An account that burns faster still
+   runs out, and its agents are then moved off the limit (#8048's rescue). A judgement, from timings; no burn rate was
+   measured (no usage history is kept). */
+const AT_RISK_PCT = 80;
 const TARGET_MAX_PCT = 70;
 const RESET_SOON_MS = 6 * 60 * 60 * 1000;
 /* Slice 3 (slice 2's review 11): a target this far into its five-hour window would stall the agents sent there for hours. */
@@ -228,6 +234,11 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
        status.js's UNSENT_SHOW_MS (3 minutes), so words typed more recently are not seen; the two-tick rule narrows
        that and does not close it. */
     try { if (c.unsentInput) return false; } catch { return cannot('its box could not be read'); }
+    /* kosmos#8846: #7548's weakest premise. An idle agent whose footer says a background shell job is running (a test
+       run, a watcher) would lose it to the move's restart, so it is not movable while it shows one. An agent at its
+       limit still is (#8048 review 2: its model can serve nothing where it is), and the move's message says the restart
+       ended what was running. */
+    if (!atLimit && Number(c.backgroundShells) > 0) return false;
     /* Not from the card: a roster card carries no isGuide (only the status rows are marked); a test pins that. */
     try {
       if (isGuide(session) !== false) return false;
@@ -250,7 +261,7 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
    usage or the profile call) stands for a login that stopped working. A blip after a fresh measurement keeps it signed
    in (review 12, 14: BLIP_STATES only); anything else says nothing (no badge: not a target, and not at risk by login).
    Review 2: that includes usagepoll's other refusals, a 429 above all (the usage
-   endpoint's own rate limit, held for an hour), an answer it could not read, and a token that belongs to another
+   endpoint's own rate limit, held for six hours since kosmos#8846), an answer it could not read, and a token that belongs to another
    login: none of them says the agents' login has stopped. `agentsOn(dir, isDefault)` gives { names, complete, moving }.
    The record's resets are seconds; rows carry ms, as /api/accounts does. */
 const LOGIN_REFUSED = /^(profile-)?http-40[13]$/;
@@ -287,7 +298,7 @@ function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
     try { here = agentsOn(a.dir, a.isDefault === true) || here; } catch { here = { names: [], complete: false }; }
     out.push({ provider: 'anthropic', dir: a.dir, label: a.label || null, isDefault: a.isDefault === true,
       email: a.email || null, organization: a.organization || null, memoryShared: a.memoryShared === true, apiKey: false,
-      /* Review 9: the figures whatever the latest state. readUsage has already aged them out (30 minutes), and slice 1
+      /* Review 9: the figures whatever the latest state. readUsage has already aged them out (FRESH_MS, 90 minutes since kosmos#8846), and slice 1
          keeps the last good ones through a failed read on purpose, so one network blip does not empty the decision. The
          badge alone says whether the latest read worked, and only a 'working' one is ever a target. */
       connection: { badge }, weekly: rec ? ms(rec.weekly) : null, fiveHour: rec ? ms(rec.fiveHour) : null, agentsHere: here,

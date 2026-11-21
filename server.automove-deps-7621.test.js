@@ -22,6 +22,10 @@ process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+/* kosmos#8846: moves are on by default with 2+ Claude accounts, and the account list reads this home, so it is the
+   sandbox's (no accounts) and the board here has fewer than two, as this file says; never the computer's real ones. */
+process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
+fs.mkdirSync(process.env.AGENT_WORKFORCE_HOME, { recursive: true });
 fs.writeFileSync(path.join(SANDBOX, 'panes.txt'), '');
 
 const server = require('./server');
@@ -36,7 +40,8 @@ test('kosmos#7621 item 1: every dep the mover reads is on the board\'s wiring, a
     assert.equal(typeof d[k], 'function', 'the board does not give the mover ' + k);
   }
   assert.ok(Array.isArray(d.list()), 'list is not the account list');
-  assert.equal(d.movesOn(), false, 'CONTROL: moves are off with the switch unset');
+  assert.equal(d.movesOn(), false, 'CONTROL: moves are off with the switch unset (under the test runner the default is never taken, kosmos#8846)');
+  assert.equal(automove.movesOn({}, 0), false, 'CONTROL: and with no accounts at all (the count the sandboxed home gives)');
   assert.equal(typeof d.accountBusy(), 'boolean');
   assert.equal(typeof d.boardRestarting(), 'boolean');
   assert.ok(Array.isArray(d.freshRoster()), 'freshRoster is not a roster');

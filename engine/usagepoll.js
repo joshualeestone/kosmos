@@ -38,8 +38,12 @@ const BETA = 'oauth-2025-04-20';
 /* Review 5: Node sends no User-Agent by default, and the real response was read with a client that sends one. Sending
    our own means the read does not depend on the endpoint accepting a request without one. */
 const USER_AGENT = 'Kosmos usage reader';
-const POLL_MS = 10 * 60 * 1000;   // the board's timer: often enough to see a week run down, rare enough to cost nothing
-const FRESH_MS = 30 * 60 * 1000;  // older than three missed polls: the reading is not used
+/* kosmos#8846 (Splinter's call, 11-20, on review 19's risk now that it is on by default): gentle. Every 30 minutes, with
+   jitter (pollDelay), where it was 10. A reading is used for three polls (FRESH_MS), as before. */
+const POLL_MS = 30 * 60 * 1000;   // the board's timer: often enough to see a week run down, rare enough to cost nothing
+const FRESH_MS = 3 * POLL_MS;     // older than three polls: the reading is not used
+const JITTER = 0.15;              // each wait is POLL_MS, give or take 15%, so boards do not ask in step
+function pollDelay(rand = Math.random) { const r = Number(rand()); return Math.round(POLL_MS * (1 - JITTER + 2 * JITTER * (Number.isFinite(r) ? Math.min(Math.max(r, 0), 1) : 0.5))); }
 const TIMEOUT_MS = 15000;
 /* Review 4: the endpoint computes a reset time with a fraction of a second, and the fraction moves between reads (measured
    2026-10-25: one account's weekly reset read 14:00:00.447, then 13:59:59.569, then 13:59:59.863). Two resets this
@@ -49,8 +53,10 @@ const SAME_RESET_SECONDS = 60;
    a refusal rather than the expiry it is. */
 const EXPIRY_MARGIN_MS = 60 * 1000;
 /* How long a refusal holds an account. The token is the one Claude Code itself uses, so refused requests must not
-   repeat every ten minutes; which answers are refusals, and for whom it holds, is the rule below. */
-const BACKOFF_MS = 60 * 60 * 1000;
+   repeat; which answers are refusals, and for whom it holds, is the rule below. kosmos#8846 (Splinter's call): six
+   hours, where it was one, so a 401, 403 or 429 stops that account until it signs in again (a new token) or six hours
+   pass, and a 429 holds across a new token. Nothing is retried within a sweep: a 5xx or no answer waits for the next. */
+const BACKOFF_MS = 6 * 60 * 60 * 1000;
 
 /* Review 22: the backoff as one rule, replacing the case-by-case additions of reviews 14 to 21.
    - A REFUSAL is every answer to a request that was sent, other than a reading, a server error (5xx) or no answer at
@@ -59,11 +65,12 @@ const BACKOFF_MS = 60 * 60 * 1000;
      organization when the folder names one), and another login's token. Only a 5xx or no answer is read again on the
      next sweep. A state from a sweep that sent nothing (no credential, an expired token, no email listed) is not a
      refusal.
-   - A refusal holds the account for an hour, for the login that was refused (a new login is read at once), and for
+   - A refusal holds the account for BACKOFF_MS (six hours since kosmos#8846; it was an hour, and "its hour" below
+     means BACKOFF_MS), for the login that was refused (a new login is read at once), and for
      the token that was refused (identified by its expiry time, not a secret), except a 429, which is the account's
      rate limit and holds across a renewed token. A credential with no expiry time cannot be told from its renewal,
-     so it is held for the hour (review 25: errs to fewer requests).
-   - A clock that steps back inside the hour still holds; a refusal stamped more than an hour away either way has
+     so it is held for the whole BACKOFF_MS (review 25: errs to fewer requests).
+   - A clock that steps back inside BACKOFF_MS still holds; a refusal stamped more than BACKOFF_MS away either way has
      expired (review 18).
    - The refusal is kept in memory as well as in the record; a copy still within its hour wins, and between two such
      copies the newer (review 23), so a folder that cannot be
@@ -104,6 +111,63 @@ function holds(ref, a, t, nowMs) {
   if (typeof ref.refusedEmail !== 'string' || typeof a.email !== 'string' || ref.refusedEmail.toLowerCase() !== a.email.toLowerCase()) return false;
   return ref.refusedState.endsWith('429') || t.expiresAt === ref.refusedExpiresAt;
 }
+/* kosmos#8846 (Splinter's call, adjusted): which accounts a sweep asks about. An account with an agent on it, every
+   sweep. An account with no agent on it only while an account WITH agents is at risk for usage (`needTargets`, see planPoll),
+   because then it may be where an agent goes: autobalance takes a target only on a fresh reading, so never asking about
+   empty accounts would mean never moving anyone. Usually nothing is at risk and the empty ones are not asked at all.
+   `hasAgents(a)` answers true, false, or throws when it cannot tell; an account it cannot tell about is asked (a busy
+   account missed is the worse error). API-key accounts are never asked (pollAll skips them anyway). */
+function accountsToPoll(list, { hasAgents, needTargets = false, also = null } = {}) {
+  return (Array.isArray(list) ? list : []).filter((a) => {
+    if (!a || typeof a !== 'object' || a.apiKey === true) return false;
+    if (needTargets === true) return true;
+    if (also instanceof Set && also.has(a.dir)) return true;   // review 2: named by the last decision (a target, or unmeasured)
+    try { return typeof hasAgents === 'function' ? hasAgents(a) !== false : true; } catch { return true; }
+  });
+}
+/* kosmos#8846 review 2: one sweep's poll, decided in one place so it can be tested.
+   - The Settings switch off: nothing is asked. The person's switch turns auto-balance off, its reading included.
+   - Empty accounts are asked (needTargets) only while an account WITH AGENTS ON IT is at risk, in a decision the sweep
+     actually made (lastDid not 'off'): an empty account at risk, one already moved off, or an empty login that stopped,
+     needs no target, and counting it kept every empty account polled until its reset.
+   - Accounts the last decision names as a move's target, or as unmeasured, are asked too, so a target stays fresh and
+     an unmeasured one can become measured (otherwise Settings would say it is unmeasured forever).
+   `last`: the sweep's state.last ({ atRisk, moves, unmeasured }); `hasAgents(a)` as accountsToPoll. Returns
+   { asked, needTargets, off }. */
+function planPoll({ list, last = null, lastDid = null, settingOn = false, hasAgents, emptyOnly = false, busyAtRiskNow = false } = {}) {
+  const rows = (Array.isArray(list) ? list : []).filter((a) => a && typeof a === 'object' && a.apiKey !== true);
+  if (settingOn !== true) return { asked: [], needTargets: false, off: true };
+  const byDir = new Map(rows.map((a) => [a.dir, a]));
+  const busy = (dir) => {
+    const a = byDir.get(dir);
+    if (!a) return false;   // an account gone from the list needs no target
+    try { return typeof hasAgents === 'function' ? hasAgents(a) !== false : true; } catch { return true; }
+  };
+  const arr = (x) => (Array.isArray(x) ? x : []);
+  /* Review 3: usage risk only. The mover moves for usage; a login that stopped needs a person, not a target, and counting
+     it kept every empty account polled for as long as nobody signed it back in. */
+  const needTargets = lastDid !== 'off' && ((!!last && arr(last.atRisk).some((x) => x && x.kind === 'usage' && busy(x.from)))
+    || busyAtRiskNow === true);   // review 4: this tick's, so a gap tick does not hold the targets back
+  /* Review 3: and an account the last decision names as at risk, so an emptied account at risk stays measured rather
+     than lapsing into a gap and back every few hours. One account, one request a poll. */
+  const also = new Set([...arr(last && last.moves).map((m) => m && m.to), ...arr(last && last.unmeasured), ...arr(last && last.atRisk).map((x) => x && x.from)]
+    .filter((d) => typeof d === 'string'));
+  let asked = accountsToPoll(rows, { hasAgents, needTargets, also });
+  /* Review 3: the read a sweep triggers when targets are first needed asks only the accounts with no agents (the ones
+     the timed poll skipped); the busy ones were read by the timed poll, and asking again would send their tokens twice. */
+  if (emptyOnly === true) asked = asked.filter((a) => { try { return typeof hasAgents === 'function' && hasAgents(a) === false; } catch { return false; } });
+  return { asked, needTargets, off: false };
+}
+/* kosmos#8846 review 4: the sweep's trigger, as a rule a test can run. `before`: whether the last sweep needed targets;
+   `now`: whether this one does. It fires a read only when targets become needed; a read that did not start (a poll
+   already running) is retried by forgetting it was needed, so the next sweep fires again. */
+function triggerStep(before, now) { return { fire: now === true && before !== true, needed: now === true }; }
+function afterTrigger(needed, ran) { return ran === true ? needed : false; }
+/* Review 5: the timed poll's next wait. A poll that did not start BECAUSE a read was already running (`busy`) tries again
+   in RETRY_MS; one that did not start for any other reason (off, braked, a test board) keeps the jittered period, so it
+   never retries every two minutes while switched off. */
+const RETRY_MS = 2 * 60 * 1000;
+function timedNext(started, busy, rand = Math.random) { return started !== true && busy === true ? RETRY_MS : pollDelay(rand); }
 /* A week cannot reset further out than this; a reset beyond it is a bad answer, not a reading. */
 const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
 
@@ -117,16 +181,66 @@ const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
    the real home's .claude, which covers every harness that sandboxes HOME or AGENT_WORKFORCE_HOME. A board started
    with the real home, no NODE_TEST_CONTEXT and no DRY_RUN is not covered: it reads the real logins exactly as the
    real board would, and writes the same accurate figures. AGENT_WORKFORCE_USAGE_POLL_OFF=1 is the operator's brake.
-   Review 19: and it is OFF unless AGENT_WORKFORCE_USAGE_POLL=1. It sends each person's subscription token to an
-   endpoint Anthropic has not documented, and if Anthropic objects the cost may fall on the account itself, which no
-   backoff undoes. So nobody's board reads this way until it is switched on deliberately; the status line is
-   unchanged either way. */
+   Review 19 kept it off unless AGENT_WORKFORCE_USAGE_POLL=1: it sends each person's subscription token to an endpoint
+   Anthropic has not documented, and if Anthropic objects the cost may fall on the account itself, which no backoff
+   undoes. kosmos#8846 turned it on by default with 2+ logins (Josh's ruling), gently (POLL_MS, BACKOFF_MS, planPoll),
+   and that risk is carried on the card. */
 /* Review 20: whether the reader is switched on at all, which also decides whether its records are shown, so a board
    switched off shows nothing it measured earlier. */
-function enabled(env = process.env) { return env.AGENT_WORKFORCE_USAGE_POLL === '1' && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1'; }
+/* kosmos#8846: Josh's ruling (2026-10-25, on #7152): "Default ON with 2+ accounts, a switch in Settings to turn it off, and
+   nothing at all with one account." So it is ON with no variable once two or more Claude subscription accounts are
+   linked, and off with one. AGENT_WORKFORCE_USAGE_POLL=1 still forces it on (a one-account test board, an operator);
+   AGENT_WORKFORCE_USAGE_POLL_OFF=1 is still the brake. The Settings switch is the sweep's (autobalance-setting), so the
+   person's switch stops the decision, the moves, and (review 2) this reader too: server.js usagePollPlan asks nothing while it is off.
+   ⚠️ Review 19's risk is NOT retired by this: the default now sends each linked account's token to the undocumented
+   endpoint every POLL_MS. The ruling decides the default; the risk is carried on #8846. */
+const LINKED_CACHE_MS = 60 * 1000;
+let linkedCache = { at: 0, n: 0 };
+/* How many Claude logins are linked: accounts.list()'s subscription rows (an API-key account has no token the endpoint
+   reads), counted by LOGIN, not by folder (review 1: two folders signed in to the same email and organization are one
+   account, and "nothing at all with one account" must hold for them). Cached a minute, since accountsweekly asks per
+   request. 0 when it cannot read. */
+function claudeAccountsLinked(nowMs = Date.now(), list = () => require('./accounts').list()) {
+  if (nowMs - linkedCache.at < LINKED_CACHE_MS && linkedCache.at > 0) return linkedCache.n;
+  let n = 0;
+  try {
+    const got = list();   // review 2: read once
+    n = new Set((Array.isArray(got) ? got : []).filter((a) => a && typeof a === 'object' && a.apiKey !== true).map(loginKey)).size;
+  } catch { n = 0; }
+  linkedCache = { at: nowMs, n };
+  return n;
+}
+const resetLinkedCacheForTests = () => { linkedCache = { at: 0, n: 0 }; };
+/* One login: its email (any case) and organization; a row with no email stands for its folder alone. Settings counts the
+   same way (server.js, the auto-balance row), so the page and the default agree on "two or more accounts". */
+function loginKey(a) {
+  return (a && typeof a.email === 'string' && a.email ? a.email.trim().toLowerCase() : 'dir:' + String(a && a.dir))
+    + '\n' + (a && typeof a.organization === 'string' ? a.organization : '');
+}
+/* kosmos#8846: the one rule both switches use (this reader's, and engine/automove.js movesOn).
+   - `<off>=1` is the brake and wins.
+   - `<force>=1` turns it on whatever the count.
+   - `<force>` set to anything else (`0`, `false`) keeps it OFF (review 1: an operator who wrote =0 to keep it off must
+     not find it on after an upgrade).
+   - A board under node's test runner, or a dry run, never takes the default (review 1): it would read this computer's
+     real accounts, so its result would depend on the computer it runs on. Only `<force>=1` turns it on there.
+   - Otherwise: on with two or more Claude logins linked, off with one. `linked` is the count or a function giving it. */
+function defaultOn(env, force, off, linked) {
+  if (env[off] === '1') return false;
+  if (env[force] === '1') return true;
+  if (env[force] !== undefined && env[force] !== '') return false;
+  if (env.NODE_TEST_CONTEXT || env.AGENT_WORKFORCE_DRY_RUN === '1') return false;
+  let n = 0;
+  try { n = typeof linked === 'function' ? linked() : linked; } catch { n = 0; }
+  return Number.isFinite(n) && n >= 2;
+}
+/* `linked`: the count, or a function giving it (tests pass one; the board reads accounts.list()). */
+function enabled(env = process.env, linked = claudeAccountsLinked) {
+  return defaultOn(env, 'AGENT_WORKFORCE_USAGE_POLL', 'AGENT_WORKFORCE_USAGE_POLL_OFF', linked);
+}
 
-function liveAllowed(env = process.env) {
-  return enabled(env)
+function liveAllowed(env = process.env, linked = claudeAccountsLinked) {
+  return enabled(env, linked)
     && !env.NODE_TEST_CONTEXT && env.AGENT_WORKFORCE_DRY_RUN !== '1' && env.AGENT_WORKFORCE_USAGE_POLL_OFF !== '1';
 }
 
@@ -335,7 +449,7 @@ async function pollAll(list, deps = {}) {
       if (!rec.org && typeof org === 'string' && org) rec.org = org;   // review 11: and in which organization (review 13: the profile's first)
       /* Review 3: each window carries when its figure last CHANGED, as the status line's `at` means (it is written
          only when the figure moves). A read that finds the same figure and reset keeps the earlier changedAt, so an
-         idle account does not claim a fresh change every ten minutes, and accountsweekly compares like with like. */
+         idle account does not claim a fresh change at every poll, and accountsweekly compares like with like. */
       const prev = readRaw(a.dir);
       for (const key of ['weekly', 'fiveHour']) {
         const w = rec[key];
@@ -353,6 +467,8 @@ async function pollAll(list, deps = {}) {
         const fresh = { refusedState: rec.state, refusedAt: rec.at, refusedEmail: a.email, refusedExpiresAt: t && t.state === 'ok' ? t.expiresAt : null };
         refusals.set(a.dir, fresh);
         Object.assign(rec, fresh);
+        /* kosmos#8846: said once per refusal (a held account is skipped above, so it is not said again until it is asked). */
+        try { if (typeof deps.onRefused === 'function') deps.onRefused(a, rec.state); } catch { /* a log line, never the sweep */ }
       } else if (ref && withinHour(ref, nowMs)) {
         Object.assign(rec, ref);   // review 21/22: not a reading, so a refusal still within its hour is kept
       }
@@ -395,6 +511,6 @@ function readUsage(dir, nowMs = Date.now()) {
 }
 
 module.exports = {
-  enabled, liveAllowed, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
-  FILE, POLL_MS, FRESH_MS, HOST, USAGE_PATH, BETA,
+  enabled, liveAllowed, claudeAccountsLinked, defaultOn, resetLinkedCacheForTests, LINKED_CACHE_MS, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
+  FILE, POLL_MS, FRESH_MS, pollDelay, JITTER, BACKOFF_MS, accountsToPoll, planPoll, loginKey, triggerStep, afterTrigger, timedNext, RETRY_MS, HOST, USAGE_PATH, BETA,
 };

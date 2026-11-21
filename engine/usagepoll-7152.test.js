@@ -239,7 +239,11 @@ test('#7152 review 4: a token about to run out is expired, and a weekly reset ye
 });
 
 test('#7152 review 5: the sweep never reads real logins under a test, and the brake stops it', () => {
-  assert.equal(usagepoll.liveAllowed({}), false, 'review 19: a board read subscription tokens without being switched on');
+  /* kosmos#8846: on by default with 2+ Claude accounts (Josh's 10-25 ruling); with one, only the variable turns it on. */
+  assert.equal(usagepoll.liveAllowed({}, 1), false, 'a one-account board read subscription tokens without being switched on');
+  assert.equal(usagepoll.liveAllowed({}, 2), true, 'kosmos#8846: a two-account board with nothing set did not read');
+  assert.equal(usagepoll.liveAllowed({ NODE_TEST_CONTEXT: 'child-v8' }, 2), false, 'a test-spawned two-account server would read real logins');
+  assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_DRY_RUN: '1' }, 2), false, 'a dry-run two-account board would read real logins');
   assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_USAGE_POLL: '1' }), true, 'CONTROL: a board switched on may read');
   assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_USAGE_POLL: '1', NODE_TEST_CONTEXT: 'child-v8' }), false, 'a test-spawned server would read real logins');
   assert.equal(usagepoll.liveAllowed({ AGENT_WORKFORCE_USAGE_POLL: '1', AGENT_WORKFORCE_USAGE_POLL_OFF: '1' }), false, 'the brake did not stop it');
@@ -352,14 +356,14 @@ test('#7152 review 8: an account with no email listed is not measured, and its t
 
 test('#7152 review 8: the server\'s sweep asks liveAllowed before it reads any login', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const start = src.indexOf('const usagePollTick = () => {');
+  const start = src.indexOf('const usagePollTick = (');   // kosmos#8846: it now takes { emptyOnly } and says whether it ran
   assert.ok(start > 0, 'CONTROL: the sweep is where this test looks');
   const body = src.slice(start, src.indexOf('\n      };', start));
   const gate = body.indexOf('usagePoll.liveAllowed()');
   const list = body.indexOf('accounts.list()');
   assert.ok(list > 0 && body.includes('usagePoll.pollAll('), 'CONTROL: the sweep body was found whole');
   assert.ok(gate > 0 && gate < list, 'the sweep reads logins without asking liveAllowed first');
-  assert.match(body, /\n\s*if \([^\n]*!usagePoll\.liveAllowed\(\)\) return;/, 'liveAllowed is called but does not stop the sweep');
+  assert.match(body, /\n\s*if \([^\n]*!usagePoll\.liveAllowed\(\)\) return(?: false)?;/, 'liveAllowed is called but does not stop the sweep');
   assert.match(body, /if \(usagePollBusy && Date\.now\(\) - usagePollBusy < /, 'review 12: a sweep that never settles stops every later one');
 });
 
@@ -495,9 +499,9 @@ test('#7152 review 14: after a refusal the token is not sent again for an hour',
   assert.equal(seen.calls.length, 1, 'CONTROL: the first read was sent');
   await usagepoll.pollAll([{ dir: d, email: EMAIL.toUpperCase() }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 0, 'a refused token was sent again ten minutes later (the same login, spelled in capitals)');
-  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 61 * 60000, { code: 200, body: BODY }));
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + usagepoll.BACKOFF_MS + 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 2, 'the account was never read again after its hour');
-  assert.equal(usagepoll.readUsage(d, NOW + 61 * 60000).state, 'ok');
+  assert.equal(usagepoll.readUsage(d, NOW + usagepoll.BACKOFF_MS + 60000).state, 'ok');
   const e = tmpDir(t);
   await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW, { code: 500, body: '' }));
   await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
@@ -628,8 +632,9 @@ test('#7152 review 20: switched off, the board shows nothing the reader measured
   const resets = Math.floor((NOW + 86400000) / 1000);
   usagepoll.write(d, { at: NOW - 60000, measuredAt: NOW - 60000, state: 'ok', email: EMAIL, weekly: { usedPct: 70, resetsAt: resets, changedAt: NOW - 60000 }, fiveHour: null });
   assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW).usedPct, 70, 'CONTROL: switched on, the record is shown');
-  process.env.AGENT_WORKFORCE_USAGE_POLL = '0';
-  t.after(() => { process.env.AGENT_WORKFORCE_USAGE_POLL = '1'; });
+  /* kosmos#8846: '0' no longer switches it off on a computer with 2+ accounts (on by default there), so the brake does. */
+  process.env.AGENT_WORKFORCE_USAGE_POLL_OFF = '1';
+  t.after(() => { delete process.env.AGENT_WORKFORCE_USAGE_POLL_OFF; });
   assert.equal(accountsweekly.weeklyOf({ dir: d, email: EMAIL }, NOW), null, 'switched off, an earlier reading was still shown');
   assert.equal(accountsweekly.weeklyBlockedOf({ dir: d, email: EMAIL }, 'darwin', NOW), 'not-wired', 'switched off, an earlier reading hid the reason');
 });
@@ -671,7 +676,7 @@ test('#7152 review 21: a sweep that could not use the token does not erase a ref
   token = cred({ expiresAt: NOW + 10 * 3600000 });   // the same refused token again
   await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 20 * 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 0, 'a failed Keychain read in between let the refused token be sent');
-  await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + 61 * 60000, { code: 200, body: BODY }));
+  await usagepoll.pollAll([{ dir: e, email: EMAIL }], at(NOW + usagepoll.BACKOFF_MS + 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 2, 'CONTROL: after its hour the account is read');
 });
 
@@ -722,7 +727,7 @@ test('#7152 review 22: a folder that cannot be written keeps its refusal in memo
   assert.equal(fs.existsSync(path.join(d, usagepoll.FILE)), false, 'CONTROL: the record could not be written');
   await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 10 * 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 0, 'a refusal that could not be written was forgotten, and the token sent again');
-  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + 61 * 60000, { code: 200, body: BODY }));
+  await usagepoll.pollAll([{ dir: d, email: EMAIL }], at(NOW + usagepoll.BACKOFF_MS + 60000, { code: 200, body: BODY }));
   assert.equal(seen.calls.length, 2, 'CONTROL: after its hour the account is read');
 });
 

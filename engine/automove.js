@@ -4,9 +4,10 @@
  * Kosmos would move; this makes ONE such move per tick through the board's own account move (engine/accountmove.js),
  * then watches whether the moved agent works on its new account.
  *
- * 🛑 OFF UNLESS AGENT_WORKFORCE_AUTOMOVE=1 (the card's call, comment 6521685101): a day of recorded decisions never
- * exercised a move, so moving stays an operator's switch. AGENT_WORKFORCE_AUTOMOVE_OFF=1 is the brake. Both are read
- * from the board's environment, which does not change while it runs, so either takes effect at a board restart.
+ * kosmos#8846: ON BY DEFAULT with two or more Claude accounts linked, off with one (Josh's ruling, 2026-10-25, on
+ * #7152), and the Settings switch turns it off. It was off unless AGENT_WORKFORCE_AUTOMOVE=1 (#7548's call), which still
+ * forces it on; AGENT_WORKFORCE_AUTOMOVE_OFF=1 is still the brake. The variables take effect at a board restart; the
+ * account count is read each tick.
  *
  * Plan: .claude/plans/automove-3b-7548.md, with the twelve rules it must satisfy; each is named below where it lands.
  * The board wires it (server.js automoveDeps(), run after the sweep's tick); every effect is a dep, so a test drives
@@ -20,8 +21,11 @@
  * 🛑 THE DECISION IT ACTS ON IS ITS OWN. It runs decide() fresh, with skipTarget (held and unproven targets), so the
  * mover never picks a target it holds, and the sweep's record stays the rule Settings shows.
  *
- * ⚠️ WEAKEST PREMISE, unchanged: an agent at its prompt with a background SHELL job reads idle, and a restart kills the
- * job. Two idle ticks narrow it; they do not close it. That is why moves are off unless switched on.
+ * #7548's weakest premise (an agent at its prompt with a background SHELL job reads idle, and a restart kills the job)
+ * is closed for the idle path by kosmos#8846: Claude Code's footer says "· N shell(s)" while one runs, the card carries
+ * it (status.js backgroundShellsOf), and autobalance.movableFor refuses an idle agent showing it. ⚠️ What remains: a
+ * pane whose footer is not on screen, or a Claude Code that words it differently, reads as none. An agent at its limit
+ * is still moved with a job running (#8048 review 2), and its message says the restart ended what was running.
  */
 
 const ab = require('./autobalance');
@@ -35,8 +39,8 @@ const REFUSED_HOLD_MS = 60 * 60 * 1000;   // an agent whose move was refused bef
 const REFUSED_TIMES = 3;          // refused this many times in a day, it is passed over for the day
 /* Rule 2's "previous tick": a reading older than two and a half sweep periods is not the previous tick's (review round 4:
    a tick hours late moved on one idle reading). The period is the board's (server.js abSweepMs, which an operator can
-   set), passed to create(); engine/usagepoll.js's POLL_MS when none is. */
-const PERIOD_MS = require('./usagepoll').POLL_MS;
+   set), passed to create(); the sweep's own SWEEP_MS when none is (kosmos#8846: no longer the usage poll's, now 30 min). */
+const PERIOD_MS = sweep.SWEEP_MS;
 const previousTickMs = (periodMs) => 2.5 * (Number.isFinite(periodMs) && periodMs > 0 ? periodMs : PERIOD_MS);
 /* kosmos#8056: each promise is agent-written, up to 300 characters, and goes into the person's thread, so it is cut to what
    a reader takes in at a glance. 120 is a judgement, not a measurement. */
@@ -49,7 +53,13 @@ const SKIP_SAID_MS = 60 * 60 * 1000;   // a skipped line for one agent at most o
    the next candidate gets its turn (the first candidate is always tried first, so one such agent blocked every move). */
 const RECHECK_HOLD_MS = 10 * 60 * 1000;   // review 3: long enough for the next candidate, short for one bad roster read
 
-function movesOn(env = process.env) { return env.AGENT_WORKFORCE_AUTOMOVE === '1' && env.AGENT_WORKFORCE_AUTOMOVE_OFF !== '1'; }
+/* kosmos#8846: ON by default once two or more Claude subscription accounts are linked (Josh, 2026-10-25, on #7152), the
+   same count the usage reader uses; AGENT_WORKFORCE_AUTOMOVE=1 still forces it on, AGENT_WORKFORCE_AUTOMOVE_OFF=1 is
+   still the brake. The person's switch is Settings (deps.settingOn() in tick). Read per call, so linking a second
+   account switches it on without a restart. */
+function movesOn(env = process.env, linked = require('./usagepoll').claudeAccountsLinked) {
+  return require('./usagepoll').defaultOn(env, 'AGENT_WORKFORCE_AUTOMOVE', 'AGENT_WORKFORCE_AUTOMOVE_OFF', linked);
+}
 
 /**
  * Rule 7: a person's move wins for a day. The account-move routes call this for every agent whose account they wrote,
@@ -60,8 +70,8 @@ function movesOn(env = process.env) { return env.AGENT_WORKFORCE_AUTOMOVE === '1
  * Only the two move routes call it (review round 6): an agent created on an account a person chose is placed, not
  * moved, and leaves no `person` line.
  */
-function personMoved(file, names, to, nowMs = Date.now(), env = process.env) {
-  if (!movesOn(env)) return true;
+function personMoved(file, names, to, nowMs = Date.now(), env = process.env, linked = undefined) {
+  if (!(linked === undefined ? movesOn(env) : movesOn(env, linked))) return true;   // kosmos#8846: `linked`, the account count, for tests
   let lines = [];
   try {
     /* Trimmed as engine/create.js cleanName trims the routes' names, so the line names the agent the move did. */

@@ -8,8 +8,8 @@
  * weeklyOf and weeklyBlockedOf here.
  *
  * kosmos#7152: a reading comes from one of two sources, the status line (kosmos-statusline.js, written when an agent
- * on the account takes a turn) or the usage endpoint (usagepoll.js, read every ten minutes for every account, idle ones
- * included). weeklyOf and fiveHourOf give the higher figure within one window and the more recent reading across
+ * on the account takes a turn) or the usage endpoint (usagepoll.js, read every 30 minutes for each account with agents on
+ * it, and an empty one only while an account is at risk, kosmos#8846). weeklyOf and fiveHourOf give the higher figure within one window and the more recent reading across
  * windows (see newer), so `at` can come from either.
  *
  * summary() is what /api/status sends. The status poll runs every five seconds, so the summary is kept for CACHE_MS and
@@ -106,7 +106,7 @@ function fiveHourOf(a, nowMs = Date.now()) {
 function weeklyBlockedOf(a, platform = process.platform, nowMs = Date.now()) {
   if (!a || a.apiKey || typeof a.dir !== 'string' || !a.dir) return null;   // no folder: nothing to say about it
   if (platform === 'win32') return null;
-  /* kosmos#7152 review 3: the usage endpoint reads this account every ten minutes, so a fresh reading from it IS
+  /* kosmos#7152 review 3: the usage endpoint reads this account on its own timer (every 30 minutes, kosmos#8846), so a fresh reading from it IS
      updating, and "it will not update" would be false next to it. None of these reasons stops a reading then. */
   if (polledOf(a, nowMs, 'weekly') && (require('./usagepoll').readUsage(a.dir, nowMs) || {}).state === 'ok') return null;   // review 6: only while the endpoint is still answering
   const sp = path.join(a.dir, 'settings.json');
