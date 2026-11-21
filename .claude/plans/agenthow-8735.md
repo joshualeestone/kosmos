@@ -19,3 +19,5 @@ pm 42,837 -> 42,440. Ratchet 42,900 -> 42,500. 173 related files: 4,475 tests, 0
 
 Weakest premise: that a PM about to write a role runs `kosmos agent --how` first. The pointer says the confirmation
 comes first, in the brief itself, so the step with a consequence never depends on reading the guide.
+
+## Round 1 (opus, blind): nothing above nit. Both nits taken: the guide says "a role the setup guide wrote", and names `kosmos agent roles` so "that list" has its referent.

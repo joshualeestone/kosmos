@@ -51,7 +51,7 @@ test('kosmos#8735: the agent guide requires nothing, opens with who it is for, a
   const flat = g.replace(/\s+/g, ' ');
   // Mona Lisa's read: it says who it is for, and names the setup guide's refusal before anyone meets it.
   assert.match(g.split('\n')[0], /for an agent that makes agents/);
-  assert.match(flat, /The setup guide makes agents only from the roles on the list, and Kosmos refuses a role it wrote\./);
+  assert.match(flat, /The setup guide makes agents only from the roles on the list \(`kosmos agent roles`\), and Kosmos refuses a role the setup guide wrote\./);
   // Moved from engine/roles.test.js (#4474).
   assert.match(flat, /If no role on that list fits, write one, in a file named for it: run `kosmos agent role-draft --to role-<short-name>\.md`/);
   assert.match(flat, /then tell the operator the role's name and what it does, and only after they say yes run/);

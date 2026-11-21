@@ -15,8 +15,8 @@
 function guideText() {
   return [
     'How to make an agent with a role of your own, for an agent that makes agents (a Project Manager). The setup guide',
-    'makes agents only from the roles on the list, and Kosmos refuses a role it wrote. The rule (confirm in one line',
-    'before you make any agent) is in your instructions, under "How you work".',
+    'makes agents only from the roles on the list (`kosmos agent roles`), and Kosmos refuses a role the setup guide',
+    'wrote. The rule (confirm in one line before you make any agent) is in your instructions, under "How you work".',
     '',
     // NEW_ROLE_LINES before kosmos#8735 slice 7, word for word, so the steps and their confirmation are unchanged.
     'If no role on that list fits, write one, in a file named for it: run',
