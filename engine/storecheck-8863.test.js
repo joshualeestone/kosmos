@@ -115,6 +115,8 @@ test('kosmos#8863: only allowed stores get a last good copy; secrets, the send q
   put(root, 'devkey-join-codes.json', '{"codes":["x"]}');   // not named anywhere: an unknown store is never copied
   put(root, 'removed.json', '{"removed":["bob"]}');          // an older copy would bring a removed agent back
   put(root, 'policy.json', '{"p":1}');
+  put(root, 'federation.json', '{"joined":["x"]}');         // an older copy would bring back an unjoined computer
+  put(root, 'community.json', '{"optedOut":true}');
   put(root, 'messages.jsonl', '{"a":1}\n');
   put(root, 'settings.json', '{"theme":"dark"}');
   put(root, 'profiles/alice.json', '{"name":"alice"}');
@@ -126,10 +128,11 @@ test('kosmos#8863: only allowed stores get a last good copy; secrets, the send q
   sc.keepLastGood();
   const lg = (r) => fs.existsSync(path.join(root, sc.LAST_GOOD, r));
   for (const r of ['remote.json', 'service-keys.json', 'devkey-join-codes.json', 'removed.json', 'policy.json', 'messages.jsonl',
-    path.join('limitqueue', 'alice.json'), path.join('commitments', 'big.json')]) {
+    'federation.json', 'community.json', path.join('limitqueue', 'alice.json'), path.join('commitments', 'big.json'),
+    path.join('chats', 'direct..alice.json')]) {
     assert.equal(lg(r), false, r + ' got a last good copy');
   }
-  for (const r of ['settings.json', path.join('profiles', 'alice.json'), path.join('chats', 'direct..alice.json')]) {
+  for (const r of ['settings.json', path.join('profiles', 'alice.json')]) {
     assert.equal(lg(r), true, r + ' got no last good copy');
   }
   assert.equal(fs.existsSync(path.join(root, sc.LAST_GOOD, sc.LAST_GOOD)), false, 'the copies were copied');
@@ -185,4 +188,56 @@ test('kosmos#8863: the start check itself writes no copy; copying is its own pas
   assert.equal(fs.readFileSync(path.join(root, sc.LAST_GOOD, 'profiles', 'alice.json'), 'utf8'), '{"name":"alice"}');
   assert.equal(fs.existsSync(path.join(root, sc.LAST_GOOD, 'profiles', 'bob.json')), false, 'the stepped pass kept a removed store\'s copy');
   assert.equal(sc.keepLastGood(), 0, 'the stepped pass left something for the next one to copy');
+});
+
+test('kosmos#8863: nothing "Delete your history" deletes is ever copied, so no copy survives a forget', () => {
+  const { root, sc } = fresh();
+  const { KINDS } = require('./forget');
+  assert.ok(KINDS.length > 0, 'CONTROL: forget names no kinds, so this test checks nothing');
+  for (const k of KINDS) {
+    const rel = path.relative(root, k.dir());
+    fs.mkdirSync(path.join(root, rel), { recursive: true });
+    put(root, path.join(rel, 'one.json'), '{"text":"private"}');
+    for (const d of (k.derived || [])) {
+      const drel = path.relative(root, d.dir());
+      fs.mkdirSync(path.join(root, drel), { recursive: true });
+      put(root, path.join(drel, 'one.json'), '{"text":"private"}');
+    }
+  }
+  sc.keepLastGood();
+  const copied = [];
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const q = path.join(d, e.name); if (e.isDirectory()) walk(q); else copied.push(path.relative(root, q)); } };
+  if (fs.existsSync(path.join(root, sc.LAST_GOOD))) walk(path.join(root, sc.LAST_GOOD));
+  assert.deepEqual(copied, [], 'a store "Delete your history" deletes has a last good copy: ' + JSON.stringify(copied));
+});
+
+test('kosmos#8863: a long log is checked by its tail: never "too large", and a blank stretch at its end is named', () => {
+  const { root, sc } = fresh();
+  const big = path.join(root, 'messages.jsonl');
+  fs.writeFileSync(big, '');
+  fs.truncateSync(big, 65 * 1024 * 1024);                 // longer than a store is ever read whole
+  fs.appendFileSync(big, Buffer.from('{"a":1}\n'.repeat(1200000)));   // a good tail longer than the part read
+  assert.deepEqual(sc.atStart({ base: root }, quiet), [], 'a long log with a good tail was reported');
+  fs.appendFileSync(big, Buffer.alloc(64));                // a crash's blank stretch at the end
+  delete require.cache[require.resolve('./storecheck')];
+  const sc2 = require('./storecheck');
+  const found = sc2.atStart({ base: root }, quiet);
+  assert.deepEqual(found.map((d) => [d.file, d.problem]), [['messages.jsonl', 'nulpart']]);
+});
+
+test('kosmos#8863: of a .bak and the last good copy, the newer is the one offered', () => {
+  const { root, sc } = fresh();
+  fs.mkdirSync(path.join(root, sc.LAST_GOOD), { recursive: true });
+  put(root, path.join(sc.LAST_GOOD, 'settings.json'), '{"from":"last-good"}');
+  put(root, 'settings.json.bak', '{"from":"bak"}');
+  const older = new Date('2026-11-01T00:00:00Z');
+  const newer = new Date('2026-11-10T00:00:00Z');
+  fs.utimesSync(path.join(root, 'settings.json.bak'), older, older);
+  fs.utimesSync(path.join(root, sc.LAST_GOOD, 'settings.json'), newer, newer);
+  put(root, 'settings.json', nul(20));
+  assert.equal(sc.atStart({ base: root }, quiet)[0].backup.file, path.join(sc.LAST_GOOD, 'settings.json'));
+  fs.utimesSync(path.join(root, 'settings.json.bak'), newer, newer);
+  fs.utimesSync(path.join(root, sc.LAST_GOOD, 'settings.json'), older, older);
+  delete require.cache[require.resolve('./storecheck')];
+  assert.equal(require('./storecheck').atStart({ base: root }, quiet)[0].backup.file, 'settings.json.bak');
 });

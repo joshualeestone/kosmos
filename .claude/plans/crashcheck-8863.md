@@ -22,13 +22,19 @@ Branch `crashcheck-8863`, worktree `~/work/kosmos-crashcheck-8863`, from origin/
    NUL reads a new problem, `nulpart` ("has a blank stretch, as a crash can leave a file; what was written there is
    lost"). Lines are not parsed: a torn line is what an ordinary append crash or a concurrent writer leaves, and the
    readers already skip it. No repair is offered for a `.jsonl`: the board keeps appending, so the existing "saved
-   since start" guard would refuse any put-back, and an older copy would drop every record since it.
+   since start" guard would refuse any put-back, and an older copy would drop every record since it. A log is read
+   only in its last 8 MB (review 3), where a crash leaves its blank stretch, so a long log is never reported as too
+   large and never read whole at start; NULs further back are not seen.
 2. **A last good copy.** After the start scan, and every 24 hours, each ALLOWED `.json` store that reads as GOOD is
    copied to `<data>/last-good/<same relative path>` with `securewrite.writeSecret` at the store's own mode (flushed,
    then renamed: a crash mid-copy leaves the old copy or the new, never a blank one) and given the store's own
-   modified time. Allowed (review 1): the root stores named in HOLDS minus the secret list and minus removed.json,
-   policy.json and limits.json (an older copy would undo a removal or a tightening); the folders profiles, commitments,
-   chats, community and catalogue. Never limitqueue (a put-back copy would type delivered messages again). None over
+   modified time. Allowed, by name (reviews 1 and 3): settings, projects, you, instruction-adds, agent-stars,
+   first-run, agent-language and autoupdate, and the profiles and catalogue folders. Left out on purpose: secrets;
+   the send queue (limitqueue: a copy put back would type delivered messages again); chats and commitments, which
+   "Delete your history" (engine/forget.js) deletes for good, so a copy would survive the forget (a test reads
+   forget's KINDS and fails if one is ever copied); and stores whose older copy would undo something the person took
+   back: removed agents, policies, limits, joined computers (federation), the Community choice, the Kosmos list
+   (worlds) and the community folder. None over
    8 MB, none this run found damaged. Unchanged stores are skipped by comparing content. Copies whose store is gone or
    no longer allowed are removed in the same pass. The copying is NOT part of the start check (review 2): it runs a
    minute after start and then daily, one store per turn of the event loop. Measured on a copy of a busy board's

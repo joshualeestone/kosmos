@@ -66,8 +66,7 @@ const FOLDERS = {
   chats: 'a conversation with an agent',                              // kosmos#8863
 };
 const MAX_BYTES = 64 * 1024 * 1024;   // larger is not one of these stores; never read it whole
-/* kosmos#8863: Kosmos keeps its own last good copy of each .json store the start scan read as good, here, at the same
-   path relative to the data root. One copy per store, replaced only by a good one. */
+/* kosmos#8863: where Kosmos keeps its own last good copies, at each store's path relative to the data root. */
 const LAST_GOOD = 'last-good';
 const LAST_GOOD_MAX = 8 * 1024 * 1024;     // a larger store is not copied
 const LAST_GOOD_EVERY_MS = 24 * 60 * 60 * 1000;
@@ -102,6 +101,27 @@ function classifyLog(buf) {
   return 'nul';
 }
 const classifyFor = (file, buf) => (isLog(file) ? classifyLog(buf) : classify(buf));
+const LOG_TAIL = 8 * 1024 * 1024;
+/* kosmos#8863: classifyLog on the last LOG_TAIL bytes of an append-only record, so a long log is neither read whole at
+   start nor reported as too large. An all-NUL tail of a longer file is 'nulpart': only its end was read. null when the
+   file is gone; 'unopenable' when it cannot be opened. */
+function logTail(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    const len = Math.min(size, LOG_TAIL);
+    const buf = Buffer.alloc(len);
+    let got = 0;
+    while (got < len) { const n = fs.readSync(fd, buf, got, len - got, size - len + got); if (!n) break; got += n; }
+    const r = classifyLog(buf.subarray(0, got));
+    return r === 'nul' && size > got ? 'nulpart' : r;
+  } catch (err) {
+    if (err && (err.code === 'EACCES' || err.code === 'EPERM')) return 'unopenable';
+    if (!err || err.code !== 'ENOENT') UNREAD += 1;   // not looked at, so the scan cannot call it fine
+    return null;
+  } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* closed */ } }
+}
 
 /** 'empty', 'nul' or 'unreadable', or null when the bytes are a JSON value. */
 function classify(buf) {
@@ -199,7 +219,8 @@ function scan(opts) {
     try { st = fs.statSync(file); } catch (err) { if (!err || err.code !== 'ENOENT') UNREAD += 1; continue; }   // a dangling link or a file gone meanwhile: nothing to name
     if (!st.isFile()) continue;
     let problem;
-    if (st.size > MAX_BYTES) problem = 'toobig';
+    if (isLog(file)) problem = logTail(file);   // kosmos#8863: a log of any size; its tail is where a crash leaves NULs
+    else if (st.size > MAX_BYTES) problem = 'toobig';
     else {
       let buf = null;
       try { buf = fs.readFileSync(file); } catch (err) { problem = err && (err.code === 'EACCES' || err.code === 'EPERM') ? 'unopenable' : null; if (!problem && (!err || err.code !== 'ENOENT')) UNREAD += 1; }
@@ -235,14 +256,12 @@ function atStart(opts, write) {
   return found;
 }
 
-/* kosmos#8863: the stores Kosmos keeps a last good copy of: an ALLOWLIST, not the secret list above. That list decides
-   what may be offered; this one decides what Kosmos copies on its own and keeps, so a store is copied only when it is
-   named here. Left out on purpose: anything not in HOLDS (a store added later is not copied until someone names it),
-   the send queue (limitqueue: a copy put back would type messages again that were already delivered), and stores
-   whose older copy would undo something the person took back or tightened (removed agents, policies, limits). */
-const LAST_GOOD_FILES = new Set(Object.keys(HOLDS).filter((f) => f.endsWith('.json')
-  && !SENSITIVE_FILES.has(f) && !['removed.json', 'policy.json', 'limits.json'].includes(f)));
-const LAST_GOOD_FOLDERS = new Set(['profiles', 'commitments', 'chats', 'community', 'catalogue']);
+/* kosmos#8863: the stores Kosmos keeps a last good copy of, by name: an ALLOWLIST, not the secret list above (that list
+   decides what may be offered; this one decides what Kosmos copies on its own and keeps). A store not named here is not
+   copied. Why the others are not, in .claude/plans/crashcheck-8863.md; the forget kinds are pinned by a test. */
+const LAST_GOOD_FILES = new Set(['settings.json', 'projects.json', 'you.json', 'instruction-adds.json', 'agent-stars.json',
+  'first-run.json', 'agent-language.json', 'autoupdate.json']);
+const LAST_GOOD_FOLDERS = new Set(['profiles', 'catalogue']);
 
 /* kosmos#8863: where the last good copy of `file` lives, or null for a store that gets none. */
 function lastGoodPath(file) {
@@ -408,6 +427,7 @@ function restore(file, write) {
   say('Kosmos put back the good copy of ' + d.file + ' saved ' + d.backup.at + ', at the person\'s request; '
     + 'the damaged one is kept at ' + rel(aside) + '.');
   FOUND = FOUND.filter((x) => x !== d);
+  DAMAGED_THIS_RUN.delete(d.abs);   // kosmos#8863: it holds a good copy again, so its last good copy may follow it
   return { ok: true };
 }
 
