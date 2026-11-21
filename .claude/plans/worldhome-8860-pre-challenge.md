@@ -55,7 +55,7 @@ converged: false
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 1 (the bare-job test passed its own lambda instead of the real function this loop wrote)
-- [WARNING] folderHasBareJob never ran in a test --> FIXED (2ae3...): live end-to-end test through setLaunchLiveForTests
+- [WARNING] folderHasBareJob never ran in a test --> FIXED (72212e39af): live end-to-end test through setLaunchLiveForTests
 - [WARNING] launchScope's live wiring tested only negatively --> FIXED: the same test; mutants on folder, account and bare-job wiring each red
 - [WARNING] removed-record drift --> DEFERRED (duplicate of iteration 2, wording added to the plan)
 - [NIT] garbled status comment, crypto require per call --> FIXED; [NIT] per-call cost --> left
@@ -64,7 +64,7 @@ converged: false
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
 **Self-generated:** 1 (the test header's "it has a runner" reason)
-- [WARNING] the decision was not latched: a bare job written later flipped a running throwaway board and stranded its agents --> FIXED: latched per job folder (launchScopeLatch)
+- [WARNING] the decision was not latched: a bare job written later flipped a running throwaway board and stranded its agents --> FIXED (66e77d22e3): latched per job folder (launchScopeLatch)
 - [WARNING] wrong stated reason a test process is not live --> FIXED: the closed gate
 - [NIT] plistFor comment conditions, plan's gate location, test teardown leaves dry-run on (noted), per-call cost --> FIXED or noted
 
@@ -81,7 +81,7 @@ converged: false
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0
-- [WARNING] a restarted throwaway board whose folder holds its own scoped jobs and a later bare job would switch to bare labels --> FIXED: the folder's own scoped job is checked first (folderHasScopedJob)
+- [WARNING] a restarted throwaway board whose folder holds its own scoped jobs and a later bare job would switch to bare labels --> FIXED (594115a36d): the folder's own scoped job is checked first (folderHasScopedJob)
 - [NIT] probePlatformOverride read before its declaration --> FIXED (moved up); status comment names --> FIXED; test header reason --> FIXED
 
 #### Iteration 8
@@ -103,10 +103,10 @@ converged: false
 | 3 | 1 | WARNING | register.js, probes | BRANCH | readers untested | FIXED | ba5780a90c |
 | 4 | 3 | BLOCKER | engine/create.js | SELF | dry-run treated as live | FIXED | 59e8864fd5 |
 | 5 | 3 | WARNING | engine/create.js | BRANCH | real board with odd HOME | FIXED | 59e8864fd5 |
-| 6 | 4 | WARNING | launchscope test | SELF | bare-job check untested | FIXED | review 4 commit |
-| 7 | 5 | WARNING | engine/create.js | BRANCH | no latch | FIXED | review 5 commit |
+| 6 | 4 | WARNING | launchscope test | SELF | bare-job check untested | FIXED | 72212e39af |
+| 7 | 5 | WARNING | engine/create.js | BRANCH | no latch | FIXED | 66e77d22e3 |
 | 8 | 6 | WARNING | launchscope test | BRANCH | Windows arms | FIXED | 145ead62ea |
-| 9 | 7 | WARNING | engine/create.js | BRANCH | restart with own scoped jobs | FIXED | review 7 commit |
+| 9 | 7 | WARNING | engine/create.js | BRANCH | restart with own scoped jobs | FIXED | 594115a36d |
 | 10 | 2,4,8 | WARNING | remove.js | BRANCH | removed-record label drift | DEFERRED | accepted residual, plan |
 | 11 | 2,6,8 | WARNING | engine/create.js | BRANCH | label depends on process state | DEFERRED | weakest premise, plan |
 | 12 | 3 | WARNING | engine/create.js | BRANCH | other processes without the gate | DEFERRED | accepted residual, plan |
