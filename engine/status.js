@@ -6990,9 +6990,10 @@ function fileBefore(file, jobAt) {
    rule (writtenBeforeJob) and the Claude rule (readBeforeJob) share, one stat per call.
    kosmos#8605: no worldId is passed, so each lookup (plistPath, unitPath, taskFilePath) falls back to THIS process's
    own jobs, never another world's: plistPath through create.launchScope (its world, or on a live macOS throwaway
-   board its job folder's scope, kosmos#8860), unitPath and taskFilePath through launchidentity.currentWorldId. readModel's own-session test (kosmos#8610) takes
-   the bare name or this world's launch key, the two shapes this world's own agents' sessions come in (Windows rows
-   are the bare name in every world); another world's sessions are filtered out before readModel (parsePanes). */
+   board its job folder's scope, kosmos#8860), unitPath and taskFilePath through launchidentity.currentWorldId.
+   readModel's own-session test (kosmos#8610) takes the bare name or this world's launch key, the two shapes this
+   world's own agents' sessions come in (Windows rows are the bare name in every world); another world's sessions are
+   filtered out before readModel (parsePanes). */
 function jobMtime(agentName) {
   try {
     // #4918 review 11: on Linux the job file is the agent's systemd unit, not a plist (which never exists there).
