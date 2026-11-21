@@ -23,6 +23,11 @@ with What's New written first, so usage auto-balance (#8846, on by default) does
   #8862 (the mover ignores per-model limits) is open; Splinter's condition on #1050: 0.8.14 is not promoted to prod
   until #8862 is in or auto-balance is off by default again.
 
+- Review 2: the highlight says "idle agents", and the mover also moves agents stopped at their limit (#8048). Kept as
+  is: every wording that adds that case and keeps the trigger runs past the 140-character window (145 to 161
+  measured), and the one that fits (137) drops "near its weekly limit" and reads as if every idle agent moves. The
+  line under-claims; the Settings text names both cases.
+
 ## Weakest premise
 That "near its weekly limit" and "one with room" are fair summaries of 80% and under 70%: a person reading "near"
 might expect a lower trigger. The Settings text gives the exact numbers.
