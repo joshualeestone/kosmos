@@ -24,7 +24,9 @@ Branch `crashcheck-8863`, worktree `~/work/kosmos-crashcheck-8863`, from origin/
    readers already skip it. No repair is offered for a `.jsonl`: the board keeps appending, so the existing "saved
    since start" guard would refuse any put-back, and an older copy would drop every record since it. A log is read
    only in its last 8 MB (review 3), where a crash leaves its blank stretch, so a long log is never reported as too
-   large and never read whole at start; NULs further back are not seen.
+   large and never read whole at start; NULs further back are not seen. Nothing repairs a log, so when the person
+   dismisses the note, how far each named log's NULs reach is kept in damaged-logs-seen.json (review 5); a later
+   start names that log again only for NULs past that point.
 2. **A last good copy.** After the start scan, and every 24 hours, each ALLOWED `.json` store that reads as GOOD is
    copied to `<data>/last-good/<same relative path>` with `securewrite.writeSecret` at the store's own mode (flushed,
    then renamed: a crash mid-copy leaves the old copy or the new, never a blank one) and given the store's own
@@ -41,6 +43,9 @@ Branch `crashcheck-8863`, worktree `~/work/kosmos-crashcheck-8863`, from origin/
    allowed stores (137 files, about 5 MB): a first pass at once took 5.0 s on the board's one thread, because every
    copy is flushed; an unchanged second pass took 19 ms. `goodCopy` offers it as a
    candidate beside the existing `.bak` / `.prev` / temp copies, newest first, so the page's existing Put back works.
+   When it is the one offered, it is first kept as `<file>.recovered-<when>` beside the store (review 5), as a crash's
+   temp copy already was, because the next copy pass replaces last-good/ and the page says where the copy is kept.
+   No copy is written through a last-good/ that is a link.
 3. **Page.** `DAMAGED_PROBLEM` gains `nulpart`.
 
 ## Rejected

@@ -102,9 +102,16 @@ function classifyLog(buf) {
 }
 const classifyFor = (file, buf) => (isLog(file) ? classifyLog(buf) : classify(buf));
 const LOG_TAIL = 8 * 1024 * 1024;
+/* kosmos#8863: nothing repairs a log's blank stretch, so once the person has dismissed it, how far into each log the
+   NULs they saw reach is kept here, and a later start names that log again only for NULs past that point. */
+const LOGS_SEEN = 'damaged-logs-seen.json';
+function readLogsSeen() {
+  try { const v = JSON.parse(fs.readFileSync(path.join(store.ROOT, LOGS_SEEN), 'utf8')); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; }
+}
 /* kosmos#8863: classifyLog on the last LOG_TAIL bytes of an append-only record, so a long log is neither read whole at
-   start nor reported as too large. An all-NUL tail of a longer file is 'nulpart': only its end was read. null when the
-   file is gone; 'unopenable' when it cannot be opened. */
+   start nor reported as too large. An all-NUL tail of a longer file is 'nulpart': only its end was read. Returns
+   { problem, nulEnd }: problem null when the file is fine or gone, 'unopenable' when it cannot be opened; nulEnd the
+   offset just past its last NUL byte. */
 function logTail(file) {
   let fd;
   try {
@@ -114,12 +121,14 @@ function logTail(file) {
     const buf = Buffer.alloc(len);
     let got = 0;
     while (got < len) { const n = fs.readSync(fd, buf, got, len - got, size - len + got); if (!n) break; got += n; }
-    const r = classifyLog(buf.subarray(0, got));
-    return r === 'nul' && size > got ? 'nulpart' : r;
+    const tail = buf.subarray(0, got);
+    const r = classifyLog(tail);
+    const nulEnd = r ? size - got + tail.lastIndexOf(0) + 1 : 0;
+    return { problem: r === 'nul' && size > got ? 'nulpart' : r, nulEnd };
   } catch (err) {
-    if (err && (err.code === 'EACCES' || err.code === 'EPERM')) return 'unopenable';
+    if (err && (err.code === 'EACCES' || err.code === 'EPERM')) return { problem: 'unopenable', nulEnd: 0 };
     if (!err || err.code !== 'ENOENT') UNREAD += 1;   // not looked at, so the scan cannot call it fine
-    return null;
+    return { problem: null, nulEnd: 0 };
   } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* closed */ } }
 }
 
@@ -185,13 +194,14 @@ function goodCopy(file) {
     try {
       const st = fs.lstatSync(lg);
       if (st.isFile() && st.size <= MAX_BYTES && classify(fs.readFileSync(lg)) === null && (!best || st.mtimeMs > best.mtimeMs)) {
-        best = { path: lg, mtimeMs: st.mtimeMs, st, isTmp: false };
+        best = { path: lg, mtimeMs: st.mtimeMs, st, isTmp: false, lastGood: true };
       }
     } catch { /* none kept */ }
   }
   if (!best) return null;
-  if (best.isTmp) {
-    // Kept under a new name before anything deletes the temp file; 'wx' never writes over an existing file.
+  /* Kept under a new name before anything can replace it: a temp file is deleted by the next write into its folder, and
+     (kosmos#8863) a last good copy is replaced by the next copy pass. COPYFILE_EXCL never writes over an existing file. */
+  if (best.isTmp || best.lastGood) {
     const kept = path.join(dir, base + '.recovered-' + new Date(best.mtimeMs).toISOString().replace(/[:.]/g, '-'));
     try {
       fs.copyFileSync(best.path, kept, fs.constants.COPYFILE_EXCL);
@@ -203,11 +213,12 @@ function goodCopy(file) {
   return { path: best.path, at: new Date(best.mtimeMs).toISOString() };
 }
 
-/** Look at every store once and remember what is damaged. Reads only, except keeping a crash's good temp copy. */
+/** Look at every store once and remember what is damaged. Reads only, except keeping an offered copy under a new name. */
 function scan(opts) {
   BASE_ROOT = (opts && opts.base) || null;
   UNREAD = 0;
   const files = candidates(store.ROOT, true);
+  const seenLogs = readLogsSeen();
   for (const f of Object.keys(FOLDERS)) files.push(...candidates(path.join(store.ROOT, f)));
   if (BASE_ROOT && path.resolve(BASE_ROOT) !== path.resolve(store.ROOT)) {
     const reg = path.join(BASE_ROOT, 'worlds.json');
@@ -219,8 +230,11 @@ function scan(opts) {
     try { st = fs.statSync(file); } catch (err) { if (!err || err.code !== 'ENOENT') UNREAD += 1; continue; }   // a dangling link or a file gone meanwhile: nothing to name
     if (!st.isFile()) continue;
     let problem;
-    if (isLog(file)) problem = logTail(file);   // kosmos#8863: a log of any size; its tail is where a crash leaves NULs
-    else if (st.size > MAX_BYTES) problem = 'toobig';
+    let nulEnd = 0;
+    if (isLog(file)) {   // kosmos#8863: a log of any size; its tail is where a crash leaves NULs
+      ({ problem, nulEnd } = logTail(file));
+      if ((problem === 'nul' || problem === 'nulpart') && Number(seenLogs[rel(file)]) >= nulEnd) problem = null;   // already seen
+    } else if (st.size > MAX_BYTES) problem = 'toobig';
     else {
       let buf = null;
       try { buf = fs.readFileSync(file); } catch (err) { problem = err && (err.code === 'EACCES' || err.code === 'EPERM') ? 'unopenable' : null; if (!problem && (!err || err.code !== 'ENOENT')) UNREAD += 1; }
@@ -233,7 +247,7 @@ function scan(opts) {
     const atRoot = path.dirname(file) === store.ROOT || path.basename(file) === 'worlds.json';
     const holds = (atRoot && HOLDS[path.basename(file)]) || (!atRoot && FOLDERS[folder]) || 'a record Kosmos keeps';
     const copy = problem === 'toobig' || problem === 'unopenable' ? null : goodCopy(file);
-    found.push({ file: rel(file), holds, problem, backup: copy ? { file: rel(copy.path), at: copy.at } : null, secret: holdsSecret(file), abs: file, copyAbs: copy ? copy.path : null, size: st.size, mtimeMs: st.mtimeMs });
+    found.push({ file: rel(file), holds, problem, backup: copy ? { file: rel(copy.path), at: copy.at } : null, secret: holdsSecret(file), abs: file, copyAbs: copy ? copy.path : null, size: st.size, mtimeMs: st.mtimeMs, nulEnd });
   }
   FOUND = found;
   for (const d of found) DAMAGED_THIS_RUN.add(d.abs);
@@ -320,6 +334,10 @@ function copyOne(file) {
   if (classify(buf) !== null) return 0;
   // Unchanged since the last copy: compared by content, since a copied time keeps only whole milliseconds.
   try { if (fs.readFileSync(to).equals(buf)) return 0; } catch { /* no copy yet */ }
+  // Never through a link: last-good/ and its folder must be real folders (or not yet there).
+  for (const d of [path.join(store.ROOT, LAST_GOOD), path.dirname(to)]) {
+    try { if (!fs.lstatSync(d).isDirectory()) return 0; } catch { /* not there yet: made below */ }
+  }
   try {
     fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });
     if (process.platform === 'win32') require('./securewrite').writeSecret(to, buf, null, { atomicOnly: true, umaskDefault: true });
@@ -432,7 +450,17 @@ function restore(file, write) {
 }
 
 /** The person said they have seen it: not shown again until the next start. */
-function dismiss() { FOUND = []; return true; }
+function dismiss() {
+  // kosmos#8863: remember how far the NULs reach in each log the person saw, so the same stretch is not named again.
+  const logs = FOUND.filter((d) => isLog(d.abs) && d.nulEnd > 0);
+  if (logs.length) {
+    const seen = readLogsSeen();
+    for (const d of logs) seen[d.file] = Math.max(Number(seen[d.file]) || 0, d.nulEnd);
+    try { require('./securewrite').writeSecret(path.join(store.ROOT, LOGS_SEEN), JSON.stringify(seen) + '\n', process.platform === 'win32' ? null : 0o600, { atomicOnly: true, umaskDefault: process.platform === 'win32' }); } catch { /* shown again next start */ }
+  }
+  FOUND = [];
+  return true;
+}
 
 /**
  * kosmos#8287, #8297: what this start's scan may say, as { checked, damaged, unread }.

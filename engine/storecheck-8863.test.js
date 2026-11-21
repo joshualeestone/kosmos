@@ -88,8 +88,12 @@ test('kosmos#8863: a good store gets a last good copy, and a later crash can put
   const lines = [];
   const found = sc2.atStart({ base: root }, (l) => lines.push(l));
   assert.equal(found.length, 1);
-  assert.deepEqual(found[0].backup, { file: path.join(sc2.LAST_GOOD, 'settings.json'), at: t.toISOString() });
-  assert.match(lines[0], /A good copy saved 2026-11-20T10:00:00\.000Z is at last-good.settings\.json/);
+  // Offered under a name of its own beside the store, which no pass ever writes, so it outlives the next copy pass.
+  assert.equal(found[0].backup.at, t.toISOString());
+  assert.match(found[0].backup.file, /^settings\.json\.recovered-2026-11-20T10-00-00-000Z$/);
+  assert.match(lines[0], /A good copy saved 2026-11-20T10:00:00\.000Z is at settings\.json\.recovered-/);
+  put(root, path.join(sc2.LAST_GOOD, 'settings.json'), '{"theme":"replaced by a later pass"}');
+  assert.equal(fs.readFileSync(path.join(root, found[0].backup.file), 'utf8'), good, 'the offered copy changed when the last good copy did');
   assert.deepEqual(sc2.restore('settings.json', quiet), { ok: true });
   assert.equal(fs.readFileSync(path.join(root, 'settings.json'), 'utf8'), good);
 });
@@ -235,9 +239,48 @@ test('kosmos#8863: of a .bak and the last good copy, the newer is the one offere
   fs.utimesSync(path.join(root, 'settings.json.bak'), older, older);
   fs.utimesSync(path.join(root, sc.LAST_GOOD, 'settings.json'), newer, newer);
   put(root, 'settings.json', nul(20));
-  assert.equal(sc.atStart({ base: root }, quiet)[0].backup.file, path.join(sc.LAST_GOOD, 'settings.json'));
+  assert.match(sc.atStart({ base: root }, quiet)[0].backup.file, /^settings\.json\.recovered-2026-11-10/, 'the newer last good copy was not the one offered');
   fs.utimesSync(path.join(root, 'settings.json.bak'), newer, newer);
   fs.utimesSync(path.join(root, sc.LAST_GOOD, 'settings.json'), older, older);
   delete require.cache[require.resolve('./storecheck')];
+  fs.rmSync(path.join(root, 'settings.json.recovered-2026-11-10T00-00-00-000Z'));   // the copy the first start kept
   assert.equal(require('./storecheck').atStart({ base: root }, quiet)[0].backup.file, 'settings.json.bak');
+});
+
+test('kosmos#8863: the blank stretch in a log is named until the person dismisses it, and again only if new damage follows', () => {
+  const { root, sc } = fresh();
+  put(root, 'ended-agents.jsonl', Buffer.concat([Buffer.from('{"a":1}\n'), nul(30), Buffer.from('{"a":2}\n')]));
+  assert.equal(sc.atStart({ base: root }, quiet).length, 1);
+  sc.dismiss();
+  delete require.cache[require.resolve('./storecheck')];
+  let sc2 = require('./storecheck');
+  assert.deepEqual(sc2.atStart({ base: root }, quiet), [], 'a blank stretch already dismissed was named again');
+  fs.appendFileSync(path.join(root, 'ended-agents.jsonl'), Buffer.concat([Buffer.from('{"a":3}\n'), nul(10)]));
+  delete require.cache[require.resolve('./storecheck')];
+  sc2 = require('./storecheck');
+  assert.equal(sc2.atStart({ base: root }, quiet).length, 1, 'new damage after the one dismissed was not named');
+  // CONTROL: a different log with damage is named even after another was dismissed.
+  put(root, 'created.jsonl', nul(12));
+  delete require.cache[require.resolve('./storecheck')];
+  assert.ok(require('./storecheck').atStart({ base: root }, quiet).some((d) => d.file === 'created.jsonl'));
+});
+
+test('kosmos#8863: an allowed store over 8 MB gets no copy', () => {
+  const { root, sc } = fresh();
+  put(root, 'settings.json', '{"pad":"' + 'x'.repeat(9 * 1024 * 1024) + '"}');
+  put(root, 'projects.json', '{"projects":[]}');
+  sc.keepLastGood();
+  assert.equal(fs.existsSync(path.join(root, sc.LAST_GOOD, 'settings.json')), false, 'a store over 8 MB was copied');
+  assert.equal(fs.existsSync(path.join(root, sc.LAST_GOOD, 'projects.json')), true, 'CONTROL: a small allowed store was not copied');
+});
+
+test('kosmos#8863: no copy is written through a last-good folder that is a link', { skip: process.platform === 'win32' ? 'links need extra rights on Windows' : false }, () => {
+  const { root, sc } = fresh();
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-storecheck-8863-elsewhere-'));
+  try {
+    fs.symlinkSync(elsewhere, path.join(root, sc.LAST_GOOD));
+    put(root, 'settings.json', '{"theme":"dark"}');
+    assert.equal(sc.keepLastGood(), 0);
+    assert.deepEqual(fs.readdirSync(elsewhere), [], 'a copy was written through the link');
+  } finally { fs.rmSync(elsewhere, { recursive: true, force: true }); }
 });
