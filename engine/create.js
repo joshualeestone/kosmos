@@ -1181,8 +1181,6 @@ function folderHasBareJob(dir) {
       && !f.slice(SERVICE_LABEL_PREFIX.length).includes(launchidentity.WORLD_SEPARATOR));
   } catch { return false; }
 }
-/* The decision, with every input passed in, so a test can drive each arm (an ordinary test process is not "really
-   live": its live-execution gate is closed). `hasBareJob` is a function, read last. */
 /* Whether a job folder holds a job already carrying `scope` (`com.kosmos.agent.<name>+<scope>.plist`): this board's own
    scoped jobs, which a restarted board must go on reading whatever else has landed in the folder since. */
 function folderHasScopedJob(dir, scope) {
@@ -1191,6 +1189,8 @@ function folderHasScopedJob(dir, scope) {
     return fs.readdirSync(dir).some((f) => f.startsWith(SERVICE_LABEL_PREFIX) && f.endsWith(tail));
   } catch { return false; }
 }
+/* The decision, with every input passed in, so a test can drive each arm (an ordinary test process is not "really
+   live": its live-execution gate is closed). `hasBareJob` is a function, read last. */
 function launchScopeFor(o) {
   if (!launchidentity.isDefaultWorld(o.world)) return String(o.world);
   // macOS only: Linux units (linuxjob) and Windows tasks (win32job) are keyed by the world, and their readers here
