@@ -185,7 +185,7 @@ function acrossLines(body, flag, opts = {}) {
   const label = stale ? 'open' : flag;
   const lines = tasks.map((x) => (every ? one(x.projectId || '?') + '  ' : '') + '#' + (x.number != null ? x.number : '?') + '  ' + label
     + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x) + whoLeftWords(x) + (stale ? '  (' + quietWords(x.lastActivityAt, now) + leftWords(x) + ')' : '')
-    + (stale || !every ? '' : nextWords(x, now)) + (group === 'built' ? seenWords(x) : ''));
+    + (stale || (!every && !mine) ? '' : nextWords(x, now)) + (group === 'built' ? seenWords(x) : ''));   // kosmos#8867: one project's own rows read as --mine's
   const n = tasks.length;
   const what = n + ' ' + label + ' task' + (n === 1 ? '' : 's') + (mine ? ' of yours' : '') + (stale ? ' quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more' : '');
   if (every) {

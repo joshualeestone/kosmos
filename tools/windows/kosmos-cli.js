@@ -1396,7 +1396,10 @@ async function taskListAcross(ctx, args) {
   else if (args[0] === '--all' && args[1] === '--mine') { mine = true; form = '--all --mine'; args = ['--all', ...args.slice(2)]; }
   /* kosmos#8867, as install/kosmos: `<project-id> --mine ...` is that project's list kept to this agent's tasks, read on
      as --all's words with the project kept aside. It was taken as the plain project list, with --mine dropped. */
-  else if (args[1] === '--mine') { mine = true; project = args[0]; form = '<project-id> --mine'; args = ['--all', ...args.slice(2)]; }
+  else if (args[1] === '--mine') {
+    if (/^-/.test(args[0] || '')) { ctx.err(MINE_PLACE); return 2; }   // a flag in the project's place: the words out of order
+    mine = true; project = args[0]; form = '<project-id> --mine'; args = ['--all', ...args.slice(2)];
+  }
   if (args.includes('--mine')) { ctx.err(MINE_PLACE); return 2; }
   if (mine && !ctx.agentToken()) {
     ctx.err("--mine lists an agent's own tasks, so it needs an agent's token (run it from an agent's session)."); return 2;
