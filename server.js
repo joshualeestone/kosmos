@@ -15367,9 +15367,10 @@ const server = http.createServer(async (req, res) => {
              would otherwise only say that. Settings' own switch is `on`; one login hides the row. */
           try {
             const up = require('./engine/usagepoll');
-            autobalance.offOutside = { readings: up.offByEnv(process.env, 'AGENT_WORKFORCE_USAGE_POLL', 'AGENT_WORKFORCE_USAGE_POLL_OFF') || !autobalanceSweep.sweepOn(),
+            autobalance.offOutside = { readings: up.offByEnv(process.env, 'AGENT_WORKFORCE_USAGE_POLL', 'AGENT_WORKFORCE_USAGE_POLL_OFF'),
+              record: !autobalanceSweep.sweepOn(),   // review 1: the record's own brake; usage readings go on under it
               moves: up.offByEnv(process.env, 'AGENT_WORKFORCE_AUTOMOVE', 'AGENT_WORKFORCE_AUTOMOVE_OFF') };
-          } catch { autobalance.offOutside = { readings: false, moves: false }; }
+          } catch { autobalance.offOutside = { readings: false, record: false, moves: false }; }
           autobalance.recent = [];
           if (setting.on === true) {   // review 13: the page shows the record only with the switch on, so read it only then
             try { autobalance.recent = autobalanceSweep.recent(AUTOBALANCE_RECORD); } catch { autobalance.recent = []; }
