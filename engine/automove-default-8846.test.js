@@ -274,3 +274,23 @@ test('kosmos#8846 review 4: the sweep says a busy account is at risk on a gap ti
   assert.equal(heldRun.state.busyAtRiskNow, false, 'CONTROL: a login risk is not a usage risk');
   assert.ok((line.notMeasured || []).includes('/u/spare'), 'a held line claimed no account could take them while a spare was simply not read');
 });
+
+/* Review 5. */
+test('kosmos#8846 review 5: a timed poll retries in two minutes only when a read was already running', () => {
+  assert.equal(usagepoll.timedNext(false, true), usagepoll.RETRY_MS, 'a poll blocked by a running read waited a whole period');
+  assert.equal(usagepoll.timedNext(false, false, () => 0.5), usagepoll.POLL_MS, 'a poll that did not start because it is off retried every two minutes');
+  assert.equal(usagepoll.timedNext(true, false, () => 0.5), usagepoll.POLL_MS, 'CONTROL: a poll that ran waits the period');
+  assert.equal(usagepoll.timedNext(true, true, () => 0.5), usagepoll.POLL_MS, 'a poll that ran was retried');
+  assert.equal(usagepoll.RETRY_MS, 2 * 60 * 1000);
+});
+
+test('kosmos#8846 review 5: busyAtRiskNow is cleared when the sweep stops before measuring', async (t) => {
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const sweep = require('./autobalance-sweep');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-8846-r5-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const run = sweep.create({ file: path.join(dir, 'r.jsonl'), nowMs: NOW });
+  run.state.busyAtRiskNow = true;   // left by an earlier tick
+  await run.tick({ settingOn: () => true, list: () => { throw new Error('unreadable'); } }, NOW);
+  assert.equal(run.state.busyAtRiskNow, false, 'a tick that could not read the accounts kept an earlier tick\'s at-risk');
+});

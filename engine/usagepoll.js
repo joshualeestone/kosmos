@@ -163,6 +163,11 @@ function planPoll({ list, last = null, lastDid = null, settingOn = false, hasAge
    already running) is retried by forgetting it was needed, so the next sweep fires again. */
 function triggerStep(before, now) { return { fire: now === true && before !== true, needed: now === true }; }
 function afterTrigger(needed, ran) { return ran === true ? needed : false; }
+/* Review 5: the timed poll's next wait. A poll that did not start BECAUSE a read was already running (`busy`) tries again
+   in RETRY_MS; one that did not start for any other reason (off, braked, a test board) keeps the jittered period, so it
+   never retries every two minutes while switched off. */
+const RETRY_MS = 2 * 60 * 1000;
+function timedNext(started, busy, rand = Math.random) { return started !== true && busy === true ? RETRY_MS : pollDelay(rand); }
 /* A week cannot reset further out than this; a reset beyond it is a bad answer, not a reading. */
 const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
 
@@ -507,5 +512,5 @@ function readUsage(dir, nowMs = Date.now()) {
 
 module.exports = {
   enabled, liveAllowed, claudeAccountsLinked, defaultOn, resetLinkedCacheForTests, LINKED_CACHE_MS, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
-  FILE, POLL_MS, FRESH_MS, pollDelay, JITTER, BACKOFF_MS, accountsToPoll, planPoll, loginKey, triggerStep, afterTrigger, HOST, USAGE_PATH, BETA,
+  FILE, POLL_MS, FRESH_MS, pollDelay, JITTER, BACKOFF_MS, accountsToPoll, planPoll, loginKey, triggerStep, afterTrigger, timedNext, RETRY_MS, HOST, USAGE_PATH, BETA,
 };

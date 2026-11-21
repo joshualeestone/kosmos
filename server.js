@@ -30388,15 +30388,15 @@ function start(port = PORT) {
         return true;
       };
       /* kosmos#8846: each wait is POLL_MS give or take 15% (usagePoll.pollDelay), so boards do not ask in step. */
-      const usagePollNext = (soonMs = null) => {
-        const ms = Number.isFinite(soonMs) && soonMs > 0 ? soonMs
-          : Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) : usagePoll.pollDelay(); // the env is the test seam only
+      const usagePollNext = (nextMs = null) => {
+        const ms = Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS)   // the env is the test seam only
+          : Number.isFinite(nextMs) && nextMs > 0 ? nextMs : usagePoll.pollDelay();
         const h = setTimeout(() => {
           /* the timed poll: busy accounts, and empty ones per the plan. Review 4: one that found a read already running
              (the sweep's triggered read) tries again in two minutes rather than a whole period later. */
-          let ran = true;
-          try { ran = usagePollTick() === true || !usagePollBusy; } catch { ran = true; }
-          usagePollNext(ran ? null : 2 * 60 * 1000);
+          let started = false;
+          try { started = usagePollTick() === true; } catch { started = false; }
+          usagePollNext(usagePoll.timedNext(started, !started && !!usagePollBusy));
         }, ms);
         if (h && typeof h.unref === 'function') h.unref();
       };
@@ -30444,7 +30444,10 @@ function start(port = PORT) {
       }
       const abSayQuiet = (opts) => { try { const line = autobalanceSweep.quietLine(abTickMem.quiet, { nowMs: Date.now(), ...opts }); if (line) process.stdout.write(line + '\n'); } catch { /* best-effort: never into the timer */ } };
       let abSweepBusy = 0;   // when the running tick started, or 0
-      let abNeededTargets = false;   // kosmos#8846 review 2: whether the last sweep's plan needed targets
+      /* kosmos#8846 review 2: whether the last sweep's plan needed targets. Review 5: started from the record's decision, so
+         the first sweep after a restart does not read the empty accounts again right after the 30-second first read. */
+      let abNeededTargets = false;
+      try { abNeededTargets = liveExecution.liveExecutionAllowed() && usagePoll.liveAllowed() && usagePollPlan(accounts.list(), abSweep).needTargets === true; } catch { abNeededTargets = false; }   // only where the poll runs: no walk on a test or dry-run board
       let automoveSaid = null;   // kosmos#7548 review round 6: the last reason the mover could not move, so it is logged once
       const abSweepTick = () => {
         /* Review 9: nothing here may throw out of a timer into the board, and a throw must not leave the busy flag set. */

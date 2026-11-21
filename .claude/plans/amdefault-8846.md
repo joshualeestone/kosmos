@@ -49,3 +49,7 @@
 - A timed poll that finds a triggered read running retries in 2 minutes.
 - A held line names resting spares as not measured (a stopped login on a busy account: no usage risk, so the spares are not read).
 - Stale comments: review 19's paragraph, accountsToPoll's docstring, the sweep timer's period.
+
+## Review round 5 (blind): no BLOCKER, no WARNING. Converged.
+- Fixed: busyAtRiskNow cleared at the start of each sweep step; abNeededTargets starts from the record's decision (only where the poll runs), so a restart does not read the empty accounts twice; the timed poll's 2-minute retry is usagepoll.timedNext, tested (busy only, never while off).
+- ACCEPTED: while a busy account's login stays stopped, its spare is not read (a stopped login needs a person, not a target), so Settings keeps "could not check everything" until it signs in again. It is true, and the held line is a would-move.

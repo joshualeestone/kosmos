@@ -135,6 +135,7 @@ function create({ file, nowMs = Date.now() }) {
   }
 
   async function step(deps, nowMs) {
+    state.busyAtRiskNow = false;   // kosmos#8846 review 5: true only when THIS tick measured it, so an early return cannot keep it
     if (deps.settingOn() !== true) {
       // kosmos#8083: a switch that could not be read reads off; the board log says which (deps.settingUnreadable is optional).
       let unreadable = false;
