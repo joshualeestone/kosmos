@@ -72,14 +72,36 @@ test('the account\'s folder by another spelling (a symlink) keeps the bare label
   assert.equal(scope({ folder: link, account: real }), 'default', 'compared in its on-disk spelling, so a real board reached by another path is never renamed');
 });
 
-test('a folder holding a bare-labelled job keeps bare labels; a scoped job alone does not', () => {
-  const dir = tmp('bare');
-  const real = (d) => create.launchScopeFor({ world: 'default', platform: 'darwin', live: true, folder: d, account: ACCOUNT,
-    hasBareJob: (x) => fs.readdirSync(x).some((f) => /^com\.kosmos\.agent\.[^+]+\.plist$/.test(f)) });
-  fs.writeFileSync(path.join(dir, 'com.kosmos.agent.ava+launch-0a1b2c3d.plist'), '<plist/>');
-  assert.match(real(dir), SCOPE, 'a scoped job is this board\'s own');
-  fs.writeFileSync(path.join(dir, 'com.kosmos.agent.ava.plist'), '<plist/>');
-  assert.equal(real(dir), 'default', 'a bare job means this folder\'s board labels bare');
+test('live end to end: launchScope scopes a throwaway folder from its real inputs, and its real bare-job check keeps bare labels', () => {
+  const VARS = ['AGENT_WORKFORCE_LAUNCH', 'AGENT_WORKFORCE_HOME', 'HOME'];
+  const saved = {};
+  for (const k of VARS) saved[k] = process.env[k];
+  try {
+    create.setLaunchLiveForTests(true);        // the one input a test process cannot reach; everything else is real
+    create.setProbePlatformForTests('darwin');
+    delete process.env.AGENT_WORKFORCE_HOME;
+    const dir = tmp('live');
+    process.env.AGENT_WORKFORCE_LAUNCH = dir;
+    const label = create.serviceLabel('ava');
+    assert.match(label, /^com\.kosmos\.agent\.ava\+launch-[0-9a-f]{8}$/, 'a throwaway job folder is scoped');
+    assert.equal(create.launchScope(), scope({ folder: dir }), 'built from agentsDir() and the account record, not anything else');
+    fs.writeFileSync(path.join(dir, `${label}.plist`), '<plist/>');
+    fs.writeFileSync(path.join(dir, 'com.kosmos.agent.notes.txt'), 'x');
+    assert.equal(create.serviceLabel('ava'), label, 'its own scoped job and a non-plist file are not bare jobs');
+    fs.writeFileSync(path.join(dir, 'com.kosmos.agent.ava.plist'), '<plist/>');
+    assert.equal(create.serviceLabel('ava'), 'com.kosmos.agent.ava', 'a bare job in the folder keeps bare labels');
+
+    process.env.AGENT_WORKFORCE_LAUNCH = ACCOUNT;   // a string only: nothing is read from or written to it here
+    assert.equal(create.serviceLabel('ava'), 'com.kosmos.agent.ava', 'CONTROL: the account\'s own folder is never scoped');
+
+    delete process.env.AGENT_WORKFORCE_LAUNCH;
+    process.env.HOME = tmp('home');
+    assert.match(create.serviceLabel('ava'), /\+launch-[0-9a-f]{8}$/, 'HOME alone moves the job folder (the 11-21 walk\'s shape)');
+  } finally {
+    create.setLaunchLiveForTests(null);
+    create.setProbePlatformForTests(null);
+    for (const k of VARS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+  }
 });
 
 test('CONTROL: in this test process (not live) a temporary job folder keeps the bare label end to end', () => {

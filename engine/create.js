@@ -51,6 +51,7 @@
 const fs = require('node:fs');
 const { envDelete, envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 const os = require('node:os');
+const crypto = require('node:crypto');
 const path = require('node:path');
 const codexupdate = require('./codexupdate');
 const { execFileSync, execFile } = require('node:child_process');
@@ -1193,10 +1194,14 @@ function launchScopeFor(o) {
   const here = canonicalDir(o.folder);
   if (here === canonicalDir(o.account)) return launchidentity.DEFAULT_WORLD_ID;
   if (o.hasBareJob && o.hasBareJob(here)) return launchidentity.DEFAULT_WORLD_ID;
-  return LAUNCH_SCOPE_PREFIX + require('node:crypto').createHash('sha256').update(here).digest('hex').slice(0, 8);
+  return LAUNCH_SCOPE_PREFIX + crypto.createHash('sha256').update(here).digest('hex').slice(0, 8);
 }
 let launchScopeOverride = null;
 function setLaunchScopeForTests(scope) { launchScopeOverride = scope || null; }
+/* Forces only the "live" input (true, false, or null for the real answer), so a test can drive launchScope's own
+   wiring (its folder, the account's folder, the bare-job check) on the live path no test process can reach. */
+let launchLiveOverride = null;
+function setLaunchLiveForTests(on) { launchLiveOverride = on === null || on === undefined ? null : Boolean(on); }
 function launchScope(worldId) {
   const world = worldId === undefined ? launchidentity.currentWorldId() : worldId;
   if (!launchidentity.isDefaultWorld(world)) return String(world);
@@ -1207,7 +1212,7 @@ function launchScope(worldId) {
     /* Live means run() really calls launchctl: the gate is open (server.js, real start), no test runner stands in,
        and dry-run is off (run() returns before the gate under AGENT_WORKFORCE_DRY_RUN=1). remove.js builds its
        labels through serviceLabel too, so its own runner seam cannot give it a different label. */
-    live: !runner && !DRY_RUN && liveExec.liveExecutionAllowed(),
+    live: launchLiveOverride !== null ? launchLiveOverride : (!runner && !DRY_RUN && liveExec.liveExecutionAllowed()),
     folder: agentsDir(),
     account: accountLaunchAgentsDir(),
     hasBareJob: folderHasBareJob,
@@ -8179,6 +8184,7 @@ module.exports = {
   launchScope,
   launchScopeFor,
   setLaunchScopeForTests,
+  setLaunchLiveForTests,
   parseServiceLabel,
   workerDir,
   workersDir,   // #4896: discover's one-folder rule asks whether a folder is a created agent's default home

@@ -6989,7 +6989,8 @@ function fileBefore(file, jobAt) {
 /* The agent's job file's time (ms), or null when it has none or it cannot be read: the one job-file lookup the Codex
    rule (writtenBeforeJob) and the Claude rule (readBeforeJob) share, one stat per call.
    kosmos#8605: no worldId is passed, so each lookup (plistPath, unitPath, taskFilePath) falls back to THIS process's
-   own jobs, never another world's: its world, or on macOS its label scope (create.launchScope, kosmos#8860). readModel's own-session test (kosmos#8610) takes
+   own label scope (create.launchScope: its world, or on a live macOS throwaway board its job folder's, kosmos#8860),
+   never another world's job. readModel's own-session test (kosmos#8610) takes
    the bare name or this world's launch key, the two shapes this world's own agents' sessions come in (Windows rows
    are the bare name in every world); another world's sessions are filtered out before readModel (parsePanes). */
 function jobMtime(agentName) {
