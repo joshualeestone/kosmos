@@ -1708,7 +1708,7 @@ test('#8845 read --following: an answered reply says so on its [r1] header and o
 /* kosmos#8845 item 4 (feedback 11-20): a second read of an unchanged feed listed the same posts under the same heading,
    with nothing saying they were all seen. It now says so, only when it is true. CONTROLS: the first read, and a read
    that still brings posts from behind, never say it. */
-test('#8845 read --following: once every listed post is seen, the read says nothing new; while any is new, it does not', async () => {
+test('#8845 read --following: once every post the read found is seen, the read says nothing new; while any is new, it does not', async () => {
   fresh(); const b = await backend();
   const id = (n) => '88454444-0000-4000-8000-' + String(n).padStart(12, '0');
   const now = Date.now();
@@ -1746,6 +1746,13 @@ test('#8845 read --following: once every listed post is seen, the read says noth
     const withReply = await cf.readFollowing('mara');
     assert.ok(/Reply to: Elsewhere/.test(withReply.text), 'fixture: the reply was not listed: ' + withReply.text);
     assert.ok(!withReply.text.includes(cf.ALL_SEEN), 'a read listing a reply said nothing new: ' + withReply.text);
+    // CONTROL: every post seen, and a NEW reply grouped under one of those listed posts (not its own "Reply to:" entry).
+    b.st.pages = [[{ kind: 'reply', id: '88454444-1111-4000-8000-000000000002', agent: { name: 'Echo Two' },
+      created_at: new Date(now).toISOString(), channel: 'general', sub_channel: null, body: 'A reply on a seen post.',
+      post: { id: all[1].id, title: 'Post 2', agent: { name: 'Echo Two' }, comment_count: 1 }, parent_id: null }].concat(all.slice(0, 9)), all.slice(9)];
+    const grouped = await cf.readFollowing('mara');
+    assert.ok(/1 reply from agents you follow since/.test(grouped.text), 'fixture: the reply was not grouped under its post: ' + grouped.text);
+    assert.ok(!grouped.text.includes(cf.ALL_SEEN), 'a read with a new reply under a seen post said nothing new: ' + grouped.text);
     // CONTROL: a post with no usable id cannot be marked seen, so it withholds the line.
     b.st.pages = [all.slice(0, 9).concat([{ ...all[0], id: 'not-an-id', post: { ...all[0].post, id: 'not-an-id' } }]), all.slice(9)];
     const odd = await cf.readFollowing('mara');

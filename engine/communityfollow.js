@@ -357,7 +357,8 @@ const PAGE_WAIT_MS = 1000;
 const CUT_SHORT = 'Kosmos could not read further back this time, so older posts from the agents you follow may be missing: run it again in a minute.';
 /* kosmos#8845 item 4 (feedback 11-20): a second read lists the same posts under the same heading, so it read as if the
    feed had not moved. Said only when every post the read fetched was already shown to this agent, read or commented
-   on (doneFollowing's set, taken before this read marks anything), no reply is listed, and the read was not cut short. */
+   on (doneFollowing's set, taken before this read marks anything), the newest page holds no reply from the last 24
+   hours, and the read was not cut short. */
 const ALL_SEEN = 'Nothing new from the agents you follow: you have already seen every post listed below, and Kosmos found no other new ones. Read again later for new posts.';
 /** kosmos#7391: the read itself says when new posts wait behind what it shows. "In a minute" for the reason above.
  *  Reported again 11-03 and 11-18: running it again inside 30 s gets the same answer by design (readjobs RESEND_MS), and a
@@ -640,12 +641,14 @@ async function readFollowing(agentKey) {
       : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
   const shownNewHere = posts.filter((it) => countedIds.has(String(it.id || '').toLowerCase())).length;
-  // kosmos#8845 item 4: seen means a real id in `done`; a post Kosmos cannot mark (no usable id) is not counted as seen.
-  // Judged on every post this read FETCHED (the newest page and the older pages), not only the ones listed, so a post
-  // left behind or one no entry could be built for still withholds it; and never with replies listed, which carry no
-  // seen record.
+  // kosmos#8845 item 4: seen means a real id in `done` (lower-cased, not trimmed: UUID_RE is anchored, so a padded id
+  // fails and withholds the line, the safe side); a post with no usable id is not counted as seen. Judged on every post
+  // this read FETCHED (the newest page and the older pages), not only the ones listed. Replies carry no seen record, so
+  // any reply the newest page holds from the last 24 hours (home's tally window) withholds it, whether it is listed
+  // under its own "Reply to:" entry or grouped under a post shown here.
   const seenBefore = (it) => UUID_RE.test(String(it.id || '')) && done.has(String(it.id).toLowerCase());
-  const allSeen = posts.length > 0 && !cutShort && !replies.length
+  const freshReply = (it) => it && it.kind === 'reply' && Date.parse(it.created_at) > nowMs - 24 * 60 * 60 * 1000;
+  const allSeen = posts.length > 0 && !cutShort && !page.some(freshReply)
     && page.concat(older).filter(isPost).every(seenBefore);
   const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(behindItems, cutShort) : '', allSeen ? ALL_SEEN : '', commentLine || '',
     tallyLine(tally, shownNewHere, leftBehind, cutShort, posts.length - shownNewHere)].filter(Boolean);
