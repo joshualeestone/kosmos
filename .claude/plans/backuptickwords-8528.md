@@ -20,6 +20,9 @@ It now says:
 ## Weakest premise
 "#5791 does that itself": that a company's board accepts changed words on its own. It was measured for #8528's
 review (round 1 corrected my premise that a member reads them). If it is wrong, the sentence overstates.
+Checked in code 23:2x: orgenroll.reacceptWords runs after a report is refused for changed words (rollup 409
+org_consent_changed, agentevents.js) and on the rollup's own retry for words that ask for no reports. So it holds,
+from the next report on, not at once; the comment does not claim at once.
 
 ## Validation
 Comment only. Full kosmos validation on Mortals (mortals-validate.sh) before the PR, as for any kosmos change.
