@@ -2470,7 +2470,7 @@
       "status": "pending",
       "title": "Kosmos Cloud machines update themselves",
       "icon": "shield",
-      "rank": 8.4,
+      "rank": 8.05,
       "line": "A Kosmos Cloud machine installs the newest released version each night, skipping a night when an agent is working. Settings can turn it off."
     },
     {
@@ -2566,7 +2566,7 @@
     {
       "since": "0.8.14",
       "status": "pending",
-      "title": "kosmos feedback --unchanged keeps a piped line",
+      "title": "kosmos feedback write --unchanged reads a pipe",
       "icon": "chat",
       "rank": 141,
       "notesOnly": true,
