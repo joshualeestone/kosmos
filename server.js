@@ -22171,7 +22171,8 @@ const server = http.createServer(async (req, res) => {
         /* #4256: the quote is Kosmos's framing, so it rides in the ENVELOPE, after the operator's bracket: the
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
-        const envelope = replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix;
+        // kosmos#8864: an automatic send (the board's wake 'hello', or a script on this computer) is not the person's: its own bracket.
+        const envelope = automatic ? messages.automaticWake() : (replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix);
         /* #4588 ask 3: the automatic hello is the page's wake after the person's own restart or team-create click, so the
            Gemini cap does not hold it (cap: false); the shared-quota hold still does. */
         /* #5406 part 2: Claude Code's question menu takes an answer only by key (measured: the message path's paste is
@@ -22458,6 +22459,8 @@ const server = http.createServer(async (req, res) => {
         const kept = chat.appendMessage(chat.DIRECT, name, {
           ...attachments.rowFields(files.recs),
           text: chose || body.text,
+          // kosmos#8864: sent automatically (the wake 'hello', or a script on this computer); the day summary does not count it as theirs.
+          ...(automatic ? { automatic: true } : {}),
           /**
            * The PERSON'S words as they reached the pane, when they are not the
            * words the bubble shows.

@@ -4614,6 +4614,10 @@ function appendLocked(projectId, agent, entry, bornAt) {
          the agent having said something only while it stands (noticeStands: paused, and written in this pause). Kept only as `true`, and only when set: every
          row already on disk reads as the agent's own words, as it always has. */
       ...(entry && entry.kosmos === true ? { kosmos: true } : {}),
+      /* kosmos#8864: a row sent FOR the person without their typing it (POST /thread {automatic: true}: the board's wake
+         'hello', or a script on this computer). Still the person's side of the thread (no `from`), so the page shows it where it showed
+         before, but engine/feedbackday.js does not count it as their words. Kept only as `true`, and only when set. */
+      ...(entry && entry.automatic === true && !(typeof entry.from === 'string' && entry.from.trim()) ? { automatic: true } : {}),
       /**
        * 🛑 A ROW WITH A SENDER HAS NO DELIVERY, and the default here was
        * claiming one. `state` falls back to COULD_NOT — which is right for the
