@@ -4,7 +4,7 @@
     {
       "icon": "swarm",
       "title": "Agents move off an account that is running out",
-      "line": "With two or more Claude accounts, Kosmos moves idle agents off one near its weekly limit to one with room. Settings can turn it off."
+      "line": "With two or more Claude subscriptions, Kosmos moves idle agents off one near its weekly limit to one with room. Settings can turn it off."
     },
     {
       "icon": "phone",
