@@ -19,3 +19,9 @@ Splinter's probe of account c, 11-21 04:45 UTC: `limits` = weekly_all 55%, weekl
 
 ## Weakest premise
 - First-word matching is measured on one family only ("Fable"). A future scoped limit named differently from the board's model name (e.g. by id with no display name) is skipped, which fails toward the old behaviour.
+
+## Review round 1 (blind): 1 BLOCKER (already fixed at 48a0538bae), 5 WARNINGs, 6 NITs
+- BLOCKER: the board names a model "Claude Fable 5.2" (status.js modelDisplayName), so every key was "claude" and nothing matched. Fixed: drop a leading "Claude", first word with a letter. Now pinned through modelDisplayName itself, and a decide() case on real card shapes.
+- Fixed: Settings copy names one model's own limit; held entries name who is held (page says them); a model-only risk is marked (`model`) and the page says "running out for Fable" / "none of its agents on Fable"; a short agent list cannot hide a model risk; an old id never keys to a digit; each agent keeps its own reason (tested with two models full); the mover's message no longer says the whole account ran out.
+- ACCEPTED, on the card: the page's own bulk move (a person moving many agents) is not model-aware; the mover's re-check reads the model from the tick's earlier roster (a change inside one tick is seen next tick).
+- Browser check render-autobalance-7152: two new cases (held named beside a move; a model-only risk), run through tools/browser-checks.sh on the frozen head: PASS in chromium and webkit, both widths.

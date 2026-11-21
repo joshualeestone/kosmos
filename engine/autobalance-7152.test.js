@@ -74,7 +74,8 @@ test('#7152: an account that is not measured is never a target, however empty it
   ];
   const d = ab.decide({ rows, movable: all, nowMs: NOW });
   assert.deepEqual(d.moves, [], 'an unmeasured account was taken as headroom');
-  assert.deepEqual(d.held, [{ from: '/u/.claude-a', why: d.held[0].why }], 'the page was not told nothing could take them');
+  assert.deepEqual(d.held, [{ from: '/u/.claude-a', why: d.held[0].why, agents: d.held[0].agents }], 'the page was not told nothing could take them');
+  assert.ok(Array.isArray(d.held[0].agents) && d.held[0].agents.length > 0, 'kosmos#8862: the held entry does not name who is held');
   rows[1].weekly = { usedPct: 60, resetsAt: NOW + 10 * H };
   assert.equal(ab.decide({ rows, movable: all, nowMs: NOW }).moves[0].to, '/u/.claude-b', 'CONTROL: once measured, it is a target');
 });
