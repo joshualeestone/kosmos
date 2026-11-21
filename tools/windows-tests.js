@@ -145,6 +145,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'engine/launchscope-8860.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378) on two arms, a symlink needs a privilege on Windows, and os.homedir() reads USERPROFILE on Windows, not HOME; the launchd label scope it tests is macOS-only, and every other arm forces the macOS platform',
   'engine/create.brief-size-8735.test.js': 'it counts each brief as its Mac form, swapping only the working rules and the quoting rule by length; a Windows brief may differ in more than those (paths, runner lines), and no Windows host has measured one, so it is selected here once a Windows run shows its figure (a later #8735 slice)',
   'cli.adopt-link-8724.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do; linking a window is refused on Windows anyway (engine/linkwindow.js)',
   'cli.adopt-link-real-8724.test.js': 'its only win32 branch is skipOnWin32 (kosmos#8378), which skips the arms that need it: it runs install/kosmos (the Mac and Linux CLI, a bash script) directly by its shebang line, which Windows cannot do, with the POSIX fake-tmux.sh; linking a window is refused on Windows anyway (engine/linkwindow.js)',
