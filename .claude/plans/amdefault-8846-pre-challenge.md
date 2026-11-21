@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: amdefault-8846
-diff_hash: 44ae491bcea74ad590f8c15eca3a6263f7af9b2a144ce97535f568849efa6130
+diff_hash: a4f72752bc8ae19b29cd5b8403e6435d31cb3884836efff864d4891e61e876b6
 validation: local: 921/921 across every test touching the usage poll, sweep, mover or account weekly reading, all 52 status test files, engine.reachable and the two new files (automove-default-8846, server.usagepoll-plan-8846); every fix shown red with it removed (19 mutations). Read-only measurement on Agent1s (8 Claude accounts): defaults on, 5 of 21 live agents with a background shell. The full suite runs on the PR's CI.
 subdir_audit: not run (no CLAUDE.md in the diff)
-timestamp: 2026-11-21T00:25:14Z
+timestamp: 2026-11-21T00:50:08Z
 iterations: 6
 converged: true
 ---
@@ -77,5 +77,9 @@ converged: true
 - The Accounts page shows no fresh endpoint figure for a spare account while nothing is at risk (the price of not sending its token).
 - While a busy account's login stays stopped, its spare is not read, so Settings keeps "could not check everything" (true; a stopped login needs a person).
 - Narrow timer edges from round 6 (a stale busy flag or a switch toggled within the first 30 s): harmless, self-correcting.
+
+### After convergence (CI)
+- [NIT] the card's new backgroundShells was not registered in the golden card fixture or the non-string inventory (render-talk-goldencard-2519) --> FIXED (fixture and test only, no product code; 349/349 card-shape tests).
+- [NIT] the browser-check gate wanted a Browser-check trailer for the one Settings copy line --> FIXED (trailer; gate passes, and refuses with the trailer removed).
 
 Full record: .claude/plans/amdefault-8846.md.
