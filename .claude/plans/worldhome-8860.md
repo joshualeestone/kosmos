@@ -21,6 +21,8 @@ real `com.kosmos.agent.<name>` jobs in the account's one launchd domain, beside 
     parent plus the rest), so a symlinked or differently cased path to the real folder is never scoped, and a
     throwaway folder's label does not change when the folder is first created.
   - An unreadable account record keeps `default`: renaming a real board's jobs would orphan them.
+  - A live macOS board's answer is LATCHED per job folder for the life of the process (`launchScopeLatch`): a bare job
+    another process writes later cannot flip a running board and strand the agents it already registered.
   - `setLaunchScopeForTests` forces the scope, because any runner turns scoping off and the readers can only be
     tested through a runner. `setLaunchLiveForTests` forces only the live input, so `launchScope()`'s own wiring
     (its folder, the account's folder, the real bare-job check) is tested on the live path. All three, and
@@ -67,7 +69,8 @@ real `com.kosmos.agent.<name>` jobs in the account's one launchd domain, beside 
 ## Weakest premise
 A label now depends on process state (the gate, a runner, the platform, the job folder), so anything that caches or
 persists a label must have been made in the same state it is read in. In particular, nothing must build a label for
-this board before `allowLiveExecution()` runs in `start()`. Read: the sweeps before it
+this board before `allowLiveExecution()` runs (server.js's `require.main === module` block, after `start()`'s
+synchronous setup; the timers and setImmediate jobs run after it). Read: the sweeps before it
 run on timers, and requests that arrive before it would see bare labels, but nothing can reach launchd before the
 gate opens either. A board whose label is built in that window and cached would mix the two.
 
