@@ -17,7 +17,11 @@ list; the Windows CLI the same; and the board refused mine=1 without all=1 (so n
   older board's "mine goes with all" refusal is said as "This board is older than --mine in one project".
 - engine/tasklist.js acrossLines: one project with mine prints "N open tasks of yours in <project>." and "No open tasks
   of yours in <project>." (stale: "No open task of yours in <project> has been quiet ...").
-- Help line for the new form in both CLIs.
+- Help line for the new form in both CLIs, and a clause in `kosmos task --how` (engine/taskguide.js).
+- The board adds each row's activity note (the `listing` pass) for a one-project mine list too, so its rows read as
+  --mine's ("(last activity ...)"); it costs one transcript read per open row of the caller's own tasks there.
+- A flag in the project's place (`--open --mine`) is refused as words out of order, not sent as a project called
+  "--open".
 
 ## Decided
 - Filter, not refuse: the board already had the filter; only the project pairing was refused.

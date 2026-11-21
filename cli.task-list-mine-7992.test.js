@@ -160,7 +160,7 @@ test('#8867 board: project=&mine=1 keeps the caller\'s own tasks in that project
 test('#8867 Windows: <project> --mine lists only this agent\'s tasks there; the plain list still lists all; --mine elsewhere is refused', async () => {
   const r = await win(['task', 'list', A, '--mine'], 'mara');
   assert.equal(r.code, 0, r.err);
-  assert.deepEqual(r.out, ['#' + N['a-mara'] + '  open  mara  Task a-mara', '1 open task of yours in ' + A + '.']);
+  assert.deepEqual(r.out, ['#' + N['a-mara'] + '  open  mara  Task a-mara  (' + ACT() + ')', '1 open task of yours in ' + A + '.']);   // round 2: the row's note, as --mine's
   const built = await win(['task', 'list', A, '--mine', '--built'], 'mara');
   assert.equal(built.code, 0, built.err);
   assert.equal(built.out.length, 2, built.out.join('|'));
@@ -187,6 +187,9 @@ test('#8867 Windows: <project> --mine lists only this agent\'s tasks there; the 
   const stale = await win(['task', 'list', A, '--mine', '--stale', '3'], 'mara');
   assert.equal(stale.code, 0, stale.err);
   assert.deepEqual(stale.out, ['No open task of yours in ' + A + ' has been quiet for 3 days or more.']);
+  const order = await win(['task', 'list', '--open', '--mine'], 'mara');
+  assert.equal(order.code, 2);
+  assert.match(order.err, /Put --mine right after the project/, 'a flag in the project slot is the words out of order');
   const allBlocked = await win(['task', 'list', '--all', '--blocked', '--mine'], 'mara');
   assert.equal(allBlocked.code, 2);
   assert.match(allBlocked.err, /Put --mine right after the project/);
@@ -300,11 +303,18 @@ test('Mac: the same forms print the same lines as Windows; without an agent toke
     assert.match(none.out, /needs an agent's token/);
     const help = await mac(['task', 'help'], null);
     assert.match(help.out, /kosmos task list --mine/, 'the help names --mine');
+    assert.match(help.out, /kosmos task list <project-id> --mine/, 'the help names the one-project form (kosmos#8867)');
   }
   if (!SKIP_POSIX_SHELL) {   // kosmos#8867: <project> --mine, as the Windows test above
     const r = await mac(['task', 'list', A, '--mine'], 'mara');
     assert.equal(r.code, 0, r.out);
-    assert.deepEqual(r.out.trimEnd().split('\n'), ['#' + N['a-mara'] + '  open  mara  Task a-mara', '1 open task of yours in ' + A + '.']);
+    assert.deepEqual(r.out.trimEnd().split('\n'), ['#' + N['a-mara'] + '  open  mara  Task a-mara  (' + ACT() + ')', '1 open task of yours in ' + A + '.']);
+    const mbuilt = await mac(['task', 'list', A, '--mine', '--built'], 'mara');
+    assert.equal(mbuilt.code, 0, mbuilt.out);
+    assert.equal(mbuilt.out.trimEnd().split('\n').pop(), '1 built task of yours in ' + A + '.');
+    const order = await mac(['task', 'list', '--open', '--mine'], 'mara');
+    assert.equal(order.code, 2, order.out);
+    assert.match(order.out, /Put --mine right after the project/, 'a flag in the project slot is the words out of order');
     const plain = await mac(['task', 'list', A], 'mara');
     assert.equal(plain.code, 0, plain.out);
     assert.ok(plain.out.includes('Task a-otto'), 'CONTROL: the unfiltered list lost a task: ' + plain.out);
@@ -327,4 +337,5 @@ test('Mac: the same forms print the same lines as Windows; without an agent toke
   }
   const winHelp = await win(['task', 'help'], null);
   assert.match(winHelp.out.join('\n') + winHelp.err, /kosmos task list --mine/, 'the Windows help names --mine too');
+  assert.match(winHelp.out.join('\n') + winHelp.err, /kosmos task list <project-id> --mine/, 'and the one-project form (kosmos#8867)');
 });

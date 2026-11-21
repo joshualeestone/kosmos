@@ -23935,7 +23935,7 @@ const server = http.createServer(async (req, res) => {
          built), where --stale reads the open group only; a closed row reads none. `kosmos task files --all` (no
          order=state) prints none of it, so it pays nothing. On a held row too, whether its reopening condition is met
          (tasks.holdUntilState: the task it waits on is closed or gone, or its time has passed). */
-      const listing = allProjects && listOrder;
+      const listing = (allProjects || (projectScope && mineCaller)) && listOrder;   // kosmos#8867: one project's own list reads as --mine's
       const projectOf = listing ? new Map((everyProject || []).filter((x) => x && x.id).map((x) => [x.id, x])) : null;
       /* kosmos#8577 item 1: a registry that stores one id twice keeps only the last record in projectOf, while the rows
          come from every record, so a held row from the earlier one could be checked against the wrong record. Such an id

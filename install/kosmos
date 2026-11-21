@@ -6668,7 +6668,10 @@ cmd_task() {
       elif [ "${1:-}" = "--all" ] && [ "${2:-}" = "--mine" ]; then _tmine=1; _tform="--all --mine"; shift 2; set -- --all "$@"
       # kosmos#8867: `<project-id> --mine ...` is that project's list kept to this agent's tasks. It was taken as the
       # plain project list and --mine dropped without a word. Read on as --all's words, with the project kept aside.
-      elif [ "${2:-}" = "--mine" ]; then _tmine=1; _tmproj="${1:-}"; _tform="<project-id> --mine"; shift 2; set -- --all "$@"; fi
+      elif [ "${2:-}" = "--mine" ]; then
+        # A flag in the project's place (`--open --mine`) is the words out of order, not a project called "--open".
+        case "${1:-}" in -*) say "Put --mine right after the project, or use it alone: kosmos task list <project-id> --mine [--blocked|--built|--stale [<days>]], or kosmos task list --mine"; exit 2 ;; esac
+        _tmine=1; _tmproj="${1:-}"; _tform="<project-id> --mine"; shift 2; set -- --all "$@"; fi
       # kosmos#8867: --mine anywhere else is refused, never ignored.
       local _tw; for _tw in "$@"; do
         [ "$_tw" != "--mine" ] || { say "Put --mine right after the project, or use it alone: kosmos task list <project-id> --mine [--blocked|--built|--stale [<days>]], or kosmos task list --mine"; exit 2; }
