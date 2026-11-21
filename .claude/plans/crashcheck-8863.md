@@ -30,7 +30,10 @@ Branch `crashcheck-8863`, worktree `~/work/kosmos-crashcheck-8863`, from origin/
    policy.json and limits.json (an older copy would undo a removal or a tightening); the folders profiles, commitments,
    chats, community and catalogue. Never limitqueue (a put-back copy would type delivered messages again). None over
    8 MB, none this run found damaged. Unchanged stores are skipped by comparing content. Copies whose store is gone or
-   no longer allowed are removed in the same pass. `goodCopy` offers it as a
+   no longer allowed are removed in the same pass. The copying is NOT part of the start check (review 2): it runs a
+   minute after start and then daily, one store per turn of the event loop. Measured on a copy of a busy board's
+   allowed stores (137 files, about 5 MB): a first pass at once took 5.0 s on the board's one thread, because every
+   copy is flushed; an unchanged second pass took 19 ms. `goodCopy` offers it as a
    candidate beside the existing `.bak` / `.prev` / temp copies, newest first, so the page's existing Put back works.
 3. **Page.** `DAMAGED_PROBLEM` gains `nulpart`.
 
@@ -47,6 +50,12 @@ Branch `crashcheck-8863`, worktree `~/work/kosmos-crashcheck-8863`, from origin/
 - One generation of last-good copy: a store damaged by a crash, then saved over as empty by a reader in a later run,
   can have its copy refreshed with that empty value at the next start. This run's damaged stores are never refreshed,
   and the person sees the notice at the start that found the damage.
+
+- Review 2, deferred: a store damaged MID-RUN and then saved over as empty, which the daily pass would copy. NUL
+  damage comes from the computer going down, which also restarts the board, so the start scan sees it first and that
+  store is never refreshed this run. A writer outside the board failing without a flush is the residual.
+- Review 2, accepted: chats are copied too, so their text exists twice (about 1 MB on the measured board), in a 0700
+  folder at each chat's own mode; a deleted chat's copy is removed at the next pass, within a day.
 
 ## Done when
 

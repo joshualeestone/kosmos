@@ -14,7 +14,7 @@
  * stores; this is the list.
  *
  * The good copy (kosmos#8863): Kosmos keeps its own copy of the stores LAST_GOOD_FILES and LAST_GOOD_FOLDERS name, in
- * last-good/, made at start and daily (keepLastGood). Besides that, a copy a crash left
+ * last-good/, made a minute after start and then daily (startKeepingLastGood). Besides that, a copy a crash left
  * behind can be offered: a write's temp file (`<file>.kosmos-<pid>-...tmp`, engine/securewrite.js) that still reads as JSON, or a
  * `.bak` / `.prev` beside it. A temp file is deleted by the next write into its folder, so a good one is first copied
  * to `<file>.recovered-<when>` (a new name, never over anything) and that copy is what is offered.
@@ -220,7 +220,7 @@ function scan(opts) {
   return found;
 }
 
-/** At board start: scan, say each damaged store in the board log, then keep the last good copies. Never throws. */
+/** At board start: scan, and say each one in the board log. Never throws. */
 function atStart(opts, write) {
   const say = write || ((line) => process.stderr.write(line + '\n'));
   let found = [];
@@ -232,8 +232,6 @@ function atStart(opts, write) {
         : d.secret ? 'It holds a key or something you can take back, so Kosmos keeps no copy of it to put back.'
           : isLog(d.abs) ? 'Kosmos keeps adding new records to it, so there is nothing to put back.' : 'No good copy of it was found.'));
   }
-  // kosmos#8863: then keep a last good copy of each store that read as good. Never fatal.
-  try { keepLastGood(); } catch (err) { say('Kosmos could not keep a last good copy of its files (' + ((err && err.code) || 'an error') + ').'); }
   return found;
 }
 
@@ -282,42 +280,74 @@ function pruneLastGood() {
   return n;
 }
 
-/**
- * kosmos#8863: copy each allowed store that reads as good into last-good/, replacing that store's earlier copy, then
- * prune. A store this run found damaged is never copied. Each copy is flushed and renamed into place, at the store's
- * own permissions, with the store's modified time. Returns how many were copied.
- */
-function keepLastGood() {
+/* kosmos#8863: the stores keepLastGood looks at. */
+function lastGoodCandidates() {
   const files = candidates(store.ROOT, false);
   for (const f of LAST_GOOD_FOLDERS) files.push(...candidates(path.join(store.ROOT, f), false));
+  return files;
+}
+
+/* kosmos#8863: copy one store into last-good/ if it is allowed, reads as good, was not found damaged this run and
+   differs from its copy. Flushed and renamed into place at the store's own permissions, with its modified time.
+   Returns 1 when it copied, else 0. */
+function copyOne(file) {
+  const to = lastGoodPath(file);
+  if (!to || DAMAGED_THIS_RUN.has(file)) return 0;
+  let st;
+  try { st = fs.lstatSync(file); } catch { return 0; }
+  if (!st.isFile() || st.size > LAST_GOOD_MAX) return 0;   // lstat: a linked store is not copied through its link
+  let buf;
+  try { buf = fs.readFileSync(file); } catch { return 0; }
+  if (classify(buf) !== null) return 0;
+  // Unchanged since the last copy: compared by content, since a copied time keeps only whole milliseconds.
+  try { if (fs.readFileSync(to).equals(buf)) return 0; } catch { /* no copy yet */ }
+  try {
+    fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });
+    if (process.platform === 'win32') require('./securewrite').writeSecret(to, buf, null, { atomicOnly: true, umaskDefault: true });
+    else require('./securewrite').writeSecret(to, buf, st.mode & 0o777, { atomicOnly: true });
+    fs.utimesSync(to, st.atime, st.mtime);
+    return 1;
+  } catch { return 0; }   // best effort: the next pass tries again
+}
+
+/** kosmos#8863: one whole pass at once, then prune. Returns how many were copied. */
+function keepLastGood() {
   let n = 0;
-  for (const file of files) {
-    const to = lastGoodPath(file);
-    if (!to || DAMAGED_THIS_RUN.has(file)) continue;
-    let st;
-    try { st = fs.lstatSync(file); } catch { continue; }
-    if (!st.isFile() || st.size > LAST_GOOD_MAX) continue;   // lstat: a linked store is not copied through its link
-    let buf;
-    try { buf = fs.readFileSync(file); } catch { continue; }
-    if (classify(buf) !== null) continue;
-    // Unchanged since the last copy: compared by content, since a copied time keeps only whole milliseconds.
-    try { if (fs.readFileSync(to).equals(buf)) continue; } catch { /* no copy yet */ }
-    try {
-      fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });
-      if (process.platform === 'win32') require('./securewrite').writeSecret(to, buf, null, { atomicOnly: true, umaskDefault: true });
-      else require('./securewrite').writeSecret(to, buf, st.mode & 0o777, { atomicOnly: true });
-      fs.utimesSync(to, st.atime, st.mtime);
-      n += 1;
-    } catch { /* best effort: the next pass tries again */ }
-  }
+  for (const file of lastGoodCandidates()) n += copyOne(file);
   pruneLastGood();
   return n;
 }
+
+/* kosmos#8863: the same pass one store per turn of the event loop, so the board keeps answering while it runs (each
+   copy is flushed to disk). Calls done(copied). */
+let stepping = false;
+function keepLastGoodInSteps(done) {
+  if (stepping) return false;
+  stepping = true;
+  const files = lastGoodCandidates();
+  let i = 0;
+  let n = 0;
+  const step = () => {
+    try {
+      if (i < files.length) { n += copyOne(files[i]); i += 1; setImmediate(step); return; }
+      pruneLastGood();
+    } catch { /* best effort */ }
+    stepping = false;
+    if (done) done(n);
+  };
+  setImmediate(step);
+  return true;
+}
+
 let lastGoodTimer = null;
-/** kosmos#8863: refresh the last good copies every day while the board runs. The timer never holds the process open. */
+const LAST_GOOD_FIRST_MS = 60 * 1000;   // after start, so the copies never hold up the board coming back
+/** kosmos#8863: a pass a minute after start, then every day, each in steps. The timers never hold the process open. */
 function startKeepingLastGood() {
   if (lastGoodTimer) return;
-  lastGoodTimer = setInterval(() => { try { keepLastGood(); } catch { /* best effort */ } }, LAST_GOOD_EVERY_MS);
+  const run = () => { try { keepLastGoodInSteps(); } catch { /* best effort */ } };
+  const first = setTimeout(run, LAST_GOOD_FIRST_MS);
+  if (first.unref) first.unref();
+  lastGoodTimer = setInterval(run, LAST_GOOD_EVERY_MS);
   if (lastGoodTimer.unref) lastGoodTimer.unref();
 }
 
@@ -394,4 +424,4 @@ function dismiss() { FOUND = []; return true; }
  */
 function lastScan() { return SCANNED ? { ...SCANNED } : { checked: false }; }
 
-module.exports = { atStart, scan, current, restore, dismiss, classify, classifyLog, lastScan, keepLastGood, startKeepingLastGood, LAST_GOOD };
+module.exports = { atStart, scan, current, restore, dismiss, classify, classifyLog, lastScan, keepLastGood, keepLastGoodInSteps, startKeepingLastGood, LAST_GOOD };

@@ -69,13 +69,14 @@ test('kosmos#8863: a zeroed held-send queue, chat and message record are named; 
   assert.equal(cur[path.join('limitqueue', 'alice.json')], false, 'a JSON store is marked as an append-only record');
 });
 
-test('kosmos#8863: a good store gets a last good copy at start, and a later crash can put it back from there', () => {
+test('kosmos#8863: a good store gets a last good copy, and a later crash can put it back from there', () => {
   const { root, sc } = fresh();
   const good = '{"timezone":"America/Chicago"}';
   put(root, 'settings.json', good);
   const t = new Date('2026-11-20T10:00:00Z');
   fs.utimesSync(path.join(root, 'settings.json'), t, t);
   sc.atStart({ base: root }, quiet);
+  sc.keepLastGood();
   const lg = path.join(root, sc.LAST_GOOD, 'settings.json');
   assert.equal(fs.readFileSync(lg, 'utf8'), good, 'no last good copy was kept');
   assert.equal(fs.statSync(lg).mtimeMs, t.getTime(), 'the copy does not carry the time its contents were written');
@@ -100,6 +101,7 @@ test('kosmos#8863: a store found damaged this run never refreshes its copy, even
   put(root, path.join(sc.LAST_GOOD, 'settings.json'), kept);
   put(root, 'settings.json', nul(30));
   sc.atStart({ base: root }, quiet);
+  sc.keepLastGood();
   assert.equal(fs.readFileSync(path.join(root, sc.LAST_GOOD, 'settings.json'), 'utf8'), kept, 'a damaged store replaced its copy');
   put(root, 'settings.json', '{}');                     // a reader treated it as empty and saved
   sc.keepLastGood();
@@ -121,6 +123,7 @@ test('kosmos#8863: only allowed stores get a last good copy; secrets, the send q
   fs.mkdirSync(path.join(root, 'commitments'), { recursive: true });
   put(root, 'commitments/big.json', '[' + '0,'.repeat(4.5 * 1024 * 1024) + '0]');   // over 8 MB
   sc.atStart({ base: root }, quiet);
+  sc.keepLastGood();
   const lg = (r) => fs.existsSync(path.join(root, sc.LAST_GOOD, r));
   for (const r of ['remote.json', 'service-keys.json', 'devkey-join-codes.json', 'removed.json', 'policy.json', 'messages.jsonl',
     path.join('limitqueue', 'alice.json'), path.join('commitments', 'big.json')]) {
@@ -138,6 +141,7 @@ test('kosmos#8863: an unchanged store is not copied again, and a removed store l
   put(root, 'profiles/alice.json', '{"name":"alice"}');
   put(root, path.join('profiles', 'bob.json'), '{"name":"bob"}');
   sc.atStart({ base: root }, quiet);
+  sc.keepLastGood();
   assert.equal(sc.keepLastGood(), 0, 'an unchanged store was copied again');
   put(root, 'settings.json', '{"theme":"light"}');
   assert.equal(sc.keepLastGood(), 1, 'a changed store was not copied');
@@ -160,7 +164,25 @@ test('kosmos#8863: a private store\'s copy is private too', { skip: NO_POSIX_MOD
   put(root, 'projects.json', '{"projects":[]}');
   fs.chmodSync(path.join(root, 'projects.json'), 0o644);
   sc.atStart({ base: root }, quiet);
+  sc.keepLastGood();
   assert.equal(fs.statSync(path.join(root, sc.LAST_GOOD, 'settings.json')).mode & 0o777, 0o600);
   assert.equal(fs.statSync(path.join(root, sc.LAST_GOOD, 'projects.json')).mode & 0o777, 0o644);
   assert.equal(fs.statSync(path.join(root, sc.LAST_GOOD)).mode & 0o777, 0o700);
+});
+
+test('kosmos#8863: the start check itself writes no copy; copying is its own pass, which the stepped run does the same', async () => {
+  const { root, sc } = fresh();
+  put(root, 'settings.json', '{"theme":"dark"}');
+  put(root, 'profiles/alice.json', '{"name":"alice"}');
+  sc.atStart({ base: root }, quiet);
+  assert.equal(fs.existsSync(path.join(root, sc.LAST_GOOD)), false, 'the start check wrote a copy, so it holds up the board coming back');
+  // A copy whose store is gone, left from an earlier pass: the stepped pass (the one the timers run) removes it too.
+  fs.mkdirSync(path.join(root, sc.LAST_GOOD, 'profiles'), { recursive: true });
+  put(root, path.join(sc.LAST_GOOD, 'profiles', 'bob.json'), '{"name":"bob"}');
+  const copied = await new Promise((resolve) => { assert.equal(sc.keepLastGoodInSteps(resolve), true); });
+  assert.equal(copied, 2);
+  assert.equal(fs.readFileSync(path.join(root, sc.LAST_GOOD, 'settings.json'), 'utf8'), '{"theme":"dark"}');
+  assert.equal(fs.readFileSync(path.join(root, sc.LAST_GOOD, 'profiles', 'alice.json'), 'utf8'), '{"name":"alice"}');
+  assert.equal(fs.existsSync(path.join(root, sc.LAST_GOOD, 'profiles', 'bob.json')), false, 'the stepped pass kept a removed store\'s copy');
+  assert.equal(sc.keepLastGood(), 0, 'the stepped pass left something for the next one to copy');
 });

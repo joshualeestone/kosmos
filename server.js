@@ -31227,8 +31227,8 @@ function start(port = PORT) {
  */
 if (require.main === module) {
   /* kosmos#7248: FIRST, before anything reads or writes a store: name any of Kosmos's own JSON stores a crash left
-     empty, NUL-filled or unreadable, in board.log and (through /api/board/damaged-files) on the screen. It changes
-     no store; then it writes last-good/ copies of good ones (kosmos#8863). Never fatal. Several readers treat a damaged store as empty and a later write replaces it, so this is the one
+     empty, NUL-filled or unreadable, in board.log and (through /api/board/damaged-files) on the screen. Reads only;
+     never fatal. Several readers treat a damaged store as empty and a later write replaces it, so this is the one
      moment the damage is still there to name. */
   {
     let base = null;
@@ -31236,7 +31236,7 @@ if (require.main === module) {
     try { require('./engine/storecheck').atStart({ base }); } catch (err) {
       process.stderr.write('Kosmos could not check its own files at start (' + ((err && err.code) || 'an error') + ').\n');
     }
-    // kosmos#8863: and keep the last good copies fresh once a day while the board runs (atStart made the first ones).
+    // kosmos#8863: last good copies of the good stores, a minute after start and then daily (engine/storecheck.js).
     try { require('./engine/storecheck').startKeepingLastGood(); } catch { /* best effort */ }
   }
   /* kosmos#1765: on Windows, a board serving from a folder outside the profile that other accounts on this PC can
