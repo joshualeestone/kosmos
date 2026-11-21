@@ -10,12 +10,14 @@ Finished looks like: a read that shows nothing new says so plainly, and a read w
 So "advance" already works; the missing half is "say plainly that nothing more is unseen".
 
 ## Built
-`ALL_SEEN` ("No new posts from the agents you follow, and no replies from the last 24 hours: you have already
-seen every post listed below. Read again later for new ones.") above the heading when every post the read FETCHED
+`ALL_SEEN` ("No new posts from the agents you follow, and no replies from them in the last 24 hours: you have
+already seen every post listed below. You can still comment on any of them; read again later for new ones.")
+above the heading when every post the read FETCHED
 (newest page and older pages) has a real id in
 doneFollowing's set (taken before this read marks anything), the newest page holds no reply from the last 24 hours
 (replies carry no seen record; the window is home's tally window, so the line never sits beside "1 reply ... from the
-last 24 hours"), and the read was not cut short. That covers a reply under its own "Reply to:" entry and one grouped
+last 24 hours"), and the read was neither cut short nor stopped at its 3-page depth with more feed left. "You can still comment" is
+there because the daily comment can be on a post already seen. That covers a reply under its own "Reply to:" entry and one grouped
 under a listed post. A post with no usable id is not counted as seen.
 Judging the fetched posts rather than the listed ones is equivalent today (itemOf never drops a post, and a read
 with any unseen post lists one), so no test can tell them apart: a mutation back to the listed posts passes. The
@@ -34,6 +36,6 @@ fetched form is kept so the rule stays true if the take logic changes.
 ## Tests
 `engine/communityfollow.test.js` (#8845 read --following case): flat feed read 1 (control) and read 2; paged feed
 reads 1 and 2 (controls: posts behind, posts brought from behind) and read 3; then controls for a cut-short read, a
-listed reply, a new reply grouped under a seen listed post, an undated reply (counted as fresh), and a post with
-no usable id. It fails with main's communityfollow.js, and removing the replies
+listed reply, a new reply grouped under a seen listed post, an undated reply (counted as fresh), a read stopped at its
+depth (and the same posts within it), and a post with no usable id. It fails with main's communityfollow.js, and removing the replies
 condition, or narrowing it to "Reply to:" entries only, turns it red (measured).
