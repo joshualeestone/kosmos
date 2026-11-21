@@ -19868,6 +19868,7 @@ const server = http.createServer(async (req, res) => {
           text: typeof m.text === 'string' ? m.text : '',
           attachments: files,
           chose: person && m.wire != null,
+          automatic: person && m.automatic === true,   // kosmos#8864: sent for the person, not typed by them
           // Review 2: could_not is "did not reach you"; unconfirmed (pasted, Enter not confirmed) often did.
           reached: !person || !m.delivery || m.delivery.state === chat.DELIVERY.PLACED
             ? 'yes'
@@ -19892,6 +19893,7 @@ const server = http.createServer(async (req, res) => {
       const lines = rows.map((r) => {
         const notes = [];
         if (r.chose) notes.push('[chose this from a menu]');
+        if (r.automatic) notes.push('[sent automatically, not typed by the person]');   // kosmos#8864
         if (r.attachments.length) notes.push('[attached: ' + r.attachments.join('; ') + ']');   // review 6: "; ", since a name can hold a comma
         if (r.reached === 'no') notes.push('[this did not reach you]');
         if (r.reached === 'maybe') notes.push('[this may not have reached you]');
@@ -22172,7 +22174,7 @@ const server = http.createServer(async (req, res) => {
            person's words reach deliver unchanged, so their length budget and the paused-agent command check see
            exactly what they typed. The pane gets the same bytes: '[bracket] (answering: "...") words'. */
         // kosmos#8864: an automatic send (the board's wake 'hello', or a script on this computer) is not the person's: its own bracket.
-        const envelope = automatic ? messages.automaticWake() : (replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix);
+        const envelope = automatic ? messages.automaticWake(messages.operatorNowLabel(store.readSettings().timezone)) : (replied.quote ? opPrefix + ' ' + replied.quote.trim() : opPrefix);
         /* #4588 ask 3: the automatic hello is the page's wake after the person's own restart or team-create click, so the
            Gemini cap does not hold it (cap: false); the shared-quota hold still does. */
         /* #5406 part 2: Claude Code's question menu takes an answer only by key (measured: the message path's paste is

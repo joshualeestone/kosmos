@@ -429,6 +429,9 @@ const MARKERS = [
      forged copy inside a body is an in-band steering vector. Minted
      here, refused here, like every marker this module can speak. */
   '[the room has not seen an answer',
+  /* kosmos#8864: automaticWake's bracket. It claims "not your person", not authority, but a forged copy would pass an
+     agent's words off as a line from this computer, which can ask for work: refused like the others. */
+  '[sent automatically on this computer',
 ];
 
 /**
@@ -567,8 +570,9 @@ function operatorDirect(nowLabel, answers) {
    It names neither sender nor says "nothing to answer", since a script's line can ask for work; it says only that the
    person did not type it, and where an answer to the person goes. It does not open '[message from your operator', so
    the MARKERS guard (which refuses a body forging that opening) is untouched. PURE. */
-function automaticWake() {
-  return '[sent automatically on this computer, not typed by your person · to tell your person something, run: kosmos reply]';
+function automaticWake(nowLabel) {
+  const at = nowLabel ? (' at ' + nowLabel) : '';   // as operatorDirect: the person's local time, when one is set
+  return '[sent automatically on this computer' + at + ', not typed by your person \u00b7 to tell your person something, run: kosmos reply]';
 }
 
 /**

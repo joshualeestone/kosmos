@@ -127,7 +127,10 @@ function printable(t) {
 }
 
 /* #4569: who a typed message is from, by the envelope the board put on it. */
-const OPERATOR_PREFIXES = ['[message from your operator', '[from your operator'];
+/* kosmos#8864: a line sent automatically for the person (messages.automaticWake, the wake hello or a script's boot notice)
+   rides under the person's DM like theirs, so it is queued and answered as the person's (its answer is the DM's). */
+const AUTOMATIC_PREFIX = '[sent automatically on this computer';
+const OPERATOR_PREFIXES = ['[message from your operator', '[from your operator', AUTOMATIC_PREFIX];
 const BACKGROUND_PREFIX = '[background from your colleague';
 function kindOf(text) {
   if (OPERATOR_PREFIXES.some((p) => text.startsWith(p))) return 'operator';
@@ -347,7 +350,8 @@ function finalCopy(text) {
    background post is not: its answer belongs to the room, never under the person's DM.
    The envelope must START the prompt, or start the line after a stop note's own first line (a stop note is that line
    and then the person's stop DM): a room post that quotes the envelope further down is not the person's DM. */
-const DM_ENVELOPE = /^\[message from your operator[^\]\n]*to answer, run: kosmos reply\]/;
+// kosmos#8864: or messages.automaticWake's bracket, which also sends its answer with kosmos reply.
+const DM_ENVELOPE = /^\[(?:message from your operator[^\]\n]*to answer|sent automatically on this computer[^\]\n]*to tell your person something), run: kosmos reply\]/;
 const STOP_NOTE_HEAD = /^\[Kosmos: your operator asked you to stop[^\n]*\]\n/;
 function answersTheDm(prompt) { return DM_ENVELOPE.test(String(prompt).replace(STOP_NOTE_HEAD, '')); }
 /* #4569 fix 4: the window for telling the board a new waiting count (each report starts a node process). */

@@ -13,13 +13,13 @@
 - server.js thread route: an `automatic: true` send is typed under that bracket, and its row is stored with
   `automatic: true` (the held and duplicate paths are already `!automatic`, so only the final write is reached).
 - chat.appendMessage keeps `automatic: true` only on the person's side (a row with no `from`).
-- engine/feedbackday.js and engine/awaydigest.js skip automatic rows (neither the person's words nor a person message
-  that failed to reach the agent).
+- engine/feedbackday.js skips automatic rows (not the person's words).
 
 ## Decided not to change
 - chat.dmOwes and firstreply-nudge: a restart hello has always been something the board expects an answer to; leaving
   that behaviour alone keeps this card to labelling and counting.
-- `kosmos inbox`: it lists the whole conversation, the agent's side included, so it is not a count of the person's words.
+- engine/awaydigest.js (reverted in round 1): it is how an agent recovers a line that never reached it, and a script's
+  boot notice can ask for work, so a failed one stays listed.
 - The handoff-restart pickup has its own route and is not touched here.
 
 ## Tests
@@ -30,3 +30,13 @@ skip each turns it red (restored). 164 related files: 4,578 tests, 0 failed.
 
 Weakest premise: that a local script will send `automatic: true` (Homer said he will switch once it is served). A script
 that does not keeps the old behaviour; nothing here can tell its POST from the person's.
+
+## Round 1 (opus, blind): no blocker, three should-fix, all taken
+- musefront: a Muse agent read the new bracket as "other", so its answer to a wake hello stopped reaching the
+  conversation. It is now in OPERATOR_PREFIXES and DM_ENVELOPE (the answer still goes by kosmos reply).
+- `kosmos inbox` printed an automatic line as the person's: it is now marked `[sent automatically, not typed by the
+  person]`, before the colon, as a menu answer is.
+- The bracket was missing from the MARKERS forgery guard: added, so a body forging it is refused.
+- Nits: the bracket now carries the person's local time as operatorDirect does; the away-digest skip is reverted (above);
+  the test-order dependency is guarded by a fixture assertion and left as is.
+- Tests: 8 in server.automatic-label-8864.test.js (guard, Muse, inbox added). 190 related files: 5,129 tests, 0 failed.

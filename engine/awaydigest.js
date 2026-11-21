@@ -130,8 +130,7 @@ function build({ name, sinceMs, untilMs, rows, direct, namedIn }) {
   let dms = 0;
   for (const m of Array.isArray(direct) ? direct : []) {
     // As `kosmos inbox` lists them: Kosmos's own words kept in the thread (`kosmos: true`) are not the person's.
-    // kosmos#8864: nor is a line sent automatically for them (`automatic: true`: the wake hello, or a script on this computer).
-    if (!m || typeof m !== 'object' || (m.from !== undefined && m.from !== null) || m.kosmos === true || m.automatic === true || !inWindow(m)) continue;
+    if (!m || typeof m !== 'object' || (m.from !== undefined && m.from !== null) || m.kosmos === true || !inWindow(m)) continue;
     if (typeof m.text !== 'string' && !m.attachment && !m.attachments) continue;
     // A menu answer owes nothing (as `kosmos inbox --unanswered` reads it); only a message whose own delivery says it did
     // not reach the agent counts (could_not). One held for after a reset is still typed later, and one with no delivery
