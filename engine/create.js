@@ -1139,16 +1139,17 @@ function logFile(name) { return path.join(workerDir(name), 'start.log'); }
    world-dependent (a named board's serviceLabel('') is `...agent.+<world>`). */
 const SERVICE_LABEL_PREFIX = 'com.kosmos.agent.';
 /* kosmos#8860: the key a launchd label is built from. A named world keeps its own id (#1704). The default world's
-   board keeps the bare name ONLY when its job files go in the account's real ~/Library/LaunchAgents. A board writing
-   them anywhere else (a throwaway board with its own AGENT_WORKFORCE_LAUNCH, HOME or AGENT_WORKFORCE_HOME) still
-   registers in the account's one gui/<uid> domain, so with bare names its agents shared labels with the real board's:
-   measured 11-21 on the 0.8.13 walk, com.kosmos.agent.obriens-helper beside the real agents'. Such a board's labels
-   get `+launch-<hash of its job folder>`. The real folder comes from the account record (os.userInfo), not HOME,
-   because a throwaway board sets HOME. Only the label moves: data roots and tmux sessions keep the world's rules,
-   which is why this is not a derived KOSMOS_WORLD (a named world nests the store roots, worlds.applyWorldEnv).
-   Scoped only while run() is really live (server.js opens the gate on the real-start path, and no test runner is
-   installed): that is when a label can reach launchd at all. A test or dry run, whose temporary job folder stands in for the real board's, keeps the bare
-   label the rest of the suite asserts. */
+   board keeps the bare name ONLY when its job files go in the account's real ~/Library/LaunchAgents. A board
+   writing them anywhere else (a throwaway board with its own AGENT_WORKFORCE_LAUNCH, HOME or AGENT_WORKFORCE_HOME)
+   still registers in the account's one gui/<uid> domain, so with bare names its agents shared labels with the real
+   board's: measured 11-21 on the 0.8.13 walk, com.kosmos.agent.obriens-helper beside the real agents'. Such a
+   board's labels get `+launch-<hash of its job folder>`. The real folder comes from the account record
+   (os.userInfo), not HOME, because a throwaway board sets HOME. Only the label moves: data roots and tmux sessions
+   keep the world's rules, which is why this is not a derived KOSMOS_WORLD (a named world nests the store roots,
+   worlds.applyWorldEnv). macOS only (Linux units and Windows tasks are keyed by the world), and only while run() is
+   really live (server.js opens the gate on the real-start path, and no test runner is installed): that is when a
+   label can reach launchd at all. A test or dry run, whose temporary job folder stands in for the real board's,
+   keeps the bare label the rest of the suite asserts. */
 const LAUNCH_SCOPE_PREFIX = 'launch-';
 function accountLaunchAgentsDir() {
   try { return path.join(os.userInfo().homedir, 'Library', 'LaunchAgents'); } catch { return null; }
