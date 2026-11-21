@@ -41,7 +41,7 @@ test('kosmos#8846 review 2: through the board\'s wiring, the Settings switch off
   const on = server._usagePollPlanForTest(list, run(null));
   assert.equal(on.off, false, 'CONTROL: the switch on is read');
   assert.deepEqual(on.asked, [], 'an empty account (no panes on this board) was asked with nothing at risk: the walk was not consulted');
-  const atRiskEmpty = server._usagePollPlanForTest(list, run({ atRisk: [{ from: list[0].dir }], moves: [], unmeasured: [] }));
+  const atRiskEmpty = server._usagePollPlanForTest(list, run({ atRisk: [{ from: list[0].dir, kind: 'usage' }], moves: [], unmeasured: [] }));   // review 4: usage, so the walk is what keeps it false
   assert.equal(atRiskEmpty.needTargets, false, 'an at-risk account with no agents (by the real walk) needed targets');
   const named = server._usagePollPlanForTest(list, run({ atRisk: [], moves: [{ to: list[1].dir }], unmeasured: [] }));
   assert.deepEqual(named.asked.map((a) => a.label), ['b'], 'a named target was not asked');

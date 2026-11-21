@@ -3431,20 +3431,24 @@ function autobalanceSweepOffWhy() {
 /* kosmos#8846 review 2: the board's poll plan (engine/usagepoll.js planPoll) from its real wiring: the account list given,
    the sweep's last decision and what its last tick did, the Settings switch, and the agents walk. A function, so a test
    runs it against the real wiring (server.usagepoll-plan-8846.test.js). An account whose agents cannot be told is asked. */
-function usagePollPlan(list, sweepRun = autobalanceSweepRun, { emptyOnly = false } = {}) {
+function usagePollPlan(list, sweepRun = autobalanceSweepRun, { emptyOnly = false, walkDeps = null } = {}) {
   const usagePoll = require('./engine/usagepoll');
   let settingOn = false;
   try { settingOn = autobalanceSetting.read().on === true; } catch { settingOn = false; }
-  let walk = null;
+  let walk = walkDeps;   // review 4: the sweep's own walk when it asks, so a tick walks the agents once (kosmos#7621 item 7)
   const hasAgents = (a) => {
     if (!walk) walk = autobalanceSweepDeps();
     const on = walk.agentsOn(a.dir, a.isDefault === true);
     if (!on || on.complete !== true) throw new Error('incomplete');
     return on.names.length > 0;
   };
-  let last = null; let lastDid = null;
-  try { last = sweepRun && sweepRun.state ? sweepRun.state.last : null; lastDid = sweepRun && sweepRun.state ? sweepRun.state.lastDid : null; } catch { last = null; }
-  return usagePoll.planPoll({ list, last, lastDid, settingOn, hasAgents, emptyOnly });
+  let last = null; let lastDid = null; let busyAtRiskNow = false;
+  try {
+    last = sweepRun && sweepRun.state ? sweepRun.state.last : null;
+    lastDid = sweepRun && sweepRun.state ? sweepRun.state.lastDid : null;
+    busyAtRiskNow = !!(sweepRun && sweepRun.state && sweepRun.state.busyAtRiskNow === true);   // review 4
+  } catch { last = null; }
+  return usagePoll.planPoll({ list, last, lastDid, settingOn, hasAgents, emptyOnly, busyAtRiskNow });
 }
 
 function autobalanceSweepDeps() {
@@ -30384,9 +30388,16 @@ function start(port = PORT) {
         return true;
       };
       /* kosmos#8846: each wait is POLL_MS give or take 15% (usagePoll.pollDelay), so boards do not ask in step. */
-      const usagePollNext = () => {
-        const ms = Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) : usagePoll.pollDelay(); // the env is the test seam only
-        const h = setTimeout(() => { try { usagePollTick(); } catch { /* best-effort */ } usagePollNext(); }, ms);   // the timed poll: busy accounts, and empty ones per the plan
+      const usagePollNext = (soonMs = null) => {
+        const ms = Number.isFinite(soonMs) && soonMs > 0 ? soonMs
+          : Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) : usagePoll.pollDelay(); // the env is the test seam only
+        const h = setTimeout(() => {
+          /* the timed poll: busy accounts, and empty ones per the plan. Review 4: one that found a read already running
+             (the sweep's triggered read) tries again in two minutes rather than a whole period later. */
+          let ran = true;
+          try { ran = usagePollTick() === true || !usagePollBusy; } catch { ran = true; }
+          usagePollNext(ran ? null : 2 * 60 * 1000);
+        }, ms);
         if (h && typeof h.unref === 'function') h.unref();
       };
       usagePollNext();
@@ -30396,7 +30407,7 @@ function start(port = PORT) {
       if (usagePollFirst && typeof usagePollFirst.unref === 'function') usagePollFirst.unref();
       /* kosmos#7152 slice 3: usage auto-balance's record (engine/autobalance-sweep.js; plan .claude/plans/automove-7152.md).
          It needs slice 1's readings (an idle account is unmeasured otherwise), so it runs only where the usage poll
-         runs, with the same gating (autobalanceSweepRuns), on its own timer of the same period, reading the newest records
+         runs, with the same gating (autobalanceSweepRuns), on its own 10-minute timer (kosmos#8846; the poll is 30), reading the newest records
          the poll has written (at most one period old; the timers are not chained). It writes the decision when it changes
          and MOVES NOTHING. Cheap inputs only: accounts.list(), the usage records, the agents walk; never listLive(). A
          record that cannot be read leaves the sweep off (with a log line), never the board. */
@@ -30453,11 +30464,12 @@ function start(port = PORT) {
                  now (once, in five seconds), not at the next 30-minute poll, so a target is measured a poll sooner. */
               try {
                 let list = []; try { list = accounts.list(); } catch { list = []; }
-                const need = usagePollPlan(list).needTargets === true;
                 /* Review 3: only the empty accounts, and a read that did not start (a poll already running) is tried again
-                   at the next sweep rather than lost until the next timed poll. */
-                if (need && !abNeededTargets) { const h = setTimeout(() => { let ran = false; try { ran = usagePollTick({ emptyOnly: true }) === true; } catch { ran = false; } if (!ran) abNeededTargets = false; }, 5000); if (h && typeof h.unref === 'function') h.unref(); }
-                abNeededTargets = need;
+                   at the next sweep rather than lost until the next timed poll (usagePoll.triggerStep / afterTrigger).
+                   Review 4: with this tick's walk, so the plan walks no agents of its own. */
+                const step = usagePoll.triggerStep(abNeededTargets, usagePollPlan(list, abSweep, { walkDeps: sweepDeps }).needTargets === true);
+                abNeededTargets = step.needed;
+                if (step.fire) { const h = setTimeout(() => { let ran = false; try { ran = usagePollTick({ emptyOnly: true }) === true; } catch { ran = false; } abNeededTargets = usagePoll.afterTrigger(abNeededTargets, ran); }, 5000); if (h && typeof h.unref === 'function') h.unref(); }
               } catch { /* never into the timer */ }
               let unmeasured = 0;
               try { unmeasured = (abSweep.state.unmeasuredNow || []).length; } catch { /* a count, never a failed tick */ }

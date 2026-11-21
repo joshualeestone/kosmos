@@ -226,3 +226,51 @@ test('kosmos#8846 review 2: the sweep keeps its own 10-minute period, and the mo
   assert.equal(automove.PERIOD_MS, sweep.SWEEP_MS, 'the mover measures its two ticks in the 30-minute poll period');
   assert.ok(usagepoll.FRESH_MS >= 2 * sweep.SWEEP_MS + usagepoll.POLL_MS, 'a reading goes stale between polls while the sweep needs it');
 });
+
+/* Review 4. */
+test('kosmos#8846 review 4: the sweep trigger fires once when targets become needed, and again after a read that did not start', () => {
+  assert.deepEqual(usagepoll.triggerStep(false, true), { fire: true, needed: true }, 'targets newly needed did not fire a read');
+  assert.deepEqual(usagepoll.triggerStep(true, true), { fire: false, needed: true }, 'a read fired every sweep while targets stayed needed');
+  assert.deepEqual(usagepoll.triggerStep(true, false), { fire: false, needed: false });
+  assert.deepEqual(usagepoll.triggerStep(false, false), { fire: false, needed: false });
+  assert.equal(usagepoll.afterTrigger(true, false), false, 'a read that did not start was not retried at the next sweep');
+  assert.equal(usagepoll.afterTrigger(true, true), true, 'CONTROL: a read that started is not fired again');
+  assert.deepEqual(usagepoll.triggerStep(usagepoll.afterTrigger(true, false), true).fire, true, 'the next sweep did not fire after a lost read');
+});
+
+test('kosmos#8846 review 4: a busy account at risk on this tick needs targets before any decision is recorded', () => {
+  const list = [{ dir: '/u/busy' }, { dir: '/u/empty' }];
+  const p = usagepoll.planPoll({ list, hasAgents: (a) => a.dir === '/u/busy', settingOn: true, last: null, busyAtRiskNow: true });
+  assert.equal(p.needTargets, true, 'a gap tick held the targets back until the decision was written');
+  assert.deepEqual(p.asked.map((a) => a.dir), ['/u/busy', '/u/empty']);
+  assert.equal(usagepoll.planPoll({ list, hasAgents: () => true, settingOn: true, lastDid: 'off', busyAtRiskNow: true }).needTargets, false, 'CONTROL: not while the sweep is off');
+});
+
+test('kosmos#8846 review 4: the sweep says a busy account is at risk on a gap tick, and a held line names the resting spares', async (t) => {
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const sweep = require('./autobalance-sweep');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-8846-r4-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const resets = Math.floor((NOW + 4 * 86400000) / 1000);
+  const deps = ({ complete = true, movable = true, stopped = false } = {}) => ({
+    list: () => [{ dir: '/u/busy', label: 'busy', email: 'b@example.test' }, { dir: '/u/spare', label: 'spare', email: 's@example.test' }],
+    readUsage: (d) => (d !== '/u/busy' ? null
+      : stopped ? { at: NOW, state: 'http-401', email: 'b@example.test', weekly: null, fiveHour: null }   // a login that stopped: risk of kind 'login'
+        : { at: NOW, measuredAt: NOW, state: 'ok', email: 'b@example.test', weekly: { usedPct: 85, resetsAt: resets }, fiveHour: null }),
+    agentsOn: (d) => ({ names: d === '/u/busy' ? ['ada'] : [], complete: d === '/u/busy' ? complete : true, moving: [] }),
+    roster: () => (movable ? [{ ...fleet.install([fleet.agent('ada', { state: 'idle' })]).card('ada') }] : []),
+    records: () => [], readCommitment: () => ({ state: 'clear' }), settingOn: () => true, labelOf: (d) => d,
+    isGuide: () => false, guideName: () => null,
+  });
+  const gapRun = sweep.create({ file: path.join(dir, 'gap.jsonl'), nowMs: NOW });
+  const r = await gapRun.tick(deps({ complete: false }), NOW);
+  assert.equal(r.did, 'gap', 'CONTROL: an incomplete agent list on the at-risk account is a gap tick');
+  assert.equal(gapRun.state.busyAtRiskNow, true, 'a gap tick did not say a busy account is at risk, so the poll waits for the write');
+  const heldRun = sweep.create({ file: path.join(dir, 'held.jsonl'), nowMs: NOW });
+  /* A STOPPED LOGIN (not usage), so busyAtRisk is false and only the held clause keeps the spare named. */
+  await heldRun.tick(deps({ stopped: true }), NOW);
+  const line = sweep.readLines(path.join(dir, 'held.jsonl')).pop();
+  assert.deepEqual([line.atRisk.map((x) => x.kind), line.held.map((h) => h.from)], [['login'], ['/u/busy']], 'CONTROL: a stopped login with an idle agent and no measured target is held');
+  assert.equal(heldRun.state.busyAtRiskNow, false, 'CONTROL: a login risk is not a usage risk');
+  assert.ok((line.notMeasured || []).includes('/u/spare'), 'a held line claimed no account could take them while a spare was simply not read');
+});

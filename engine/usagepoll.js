@@ -112,7 +112,7 @@ function holds(ref, a, t, nowMs) {
   return ref.refusedState.endsWith('429') || t.expiresAt === ref.refusedExpiresAt;
 }
 /* kosmos#8846 (Splinter's call, adjusted): which accounts a sweep asks about. An account with an agent on it, every
-   sweep. An account with no agent on it only while some account is at risk (`needTargets`, the sweep's last decision),
+   sweep. An account with no agent on it only while an account WITH agents is at risk for usage (`needTargets`, see planPoll),
    because then it may be where an agent goes: autobalance takes a target only on a fresh reading, so never asking about
    empty accounts would mean never moving anyone. Usually nothing is at risk and the empty ones are not asked at all.
    `hasAgents(a)` answers true, false, or throws when it cannot tell; an account it cannot tell about is asked (a busy
@@ -134,7 +134,7 @@ function accountsToPoll(list, { hasAgents, needTargets = false, also = null } = 
      an unmeasured one can become measured (otherwise Settings would say it is unmeasured forever).
    `last`: the sweep's state.last ({ atRisk, moves, unmeasured }); `hasAgents(a)` as accountsToPoll. Returns
    { asked, needTargets, off }. */
-function planPoll({ list, last = null, lastDid = null, settingOn = false, hasAgents, emptyOnly = false } = {}) {
+function planPoll({ list, last = null, lastDid = null, settingOn = false, hasAgents, emptyOnly = false, busyAtRiskNow = false } = {}) {
   const rows = (Array.isArray(list) ? list : []).filter((a) => a && typeof a === 'object' && a.apiKey !== true);
   if (settingOn !== true) return { asked: [], needTargets: false, off: true };
   const byDir = new Map(rows.map((a) => [a.dir, a]));
@@ -146,7 +146,8 @@ function planPoll({ list, last = null, lastDid = null, settingOn = false, hasAge
   const arr = (x) => (Array.isArray(x) ? x : []);
   /* Review 3: usage risk only. The mover moves for usage; a login that stopped needs a person, not a target, and counting
      it kept every empty account polled for as long as nobody signed it back in. */
-  const needTargets = lastDid !== 'off' && !!last && arr(last.atRisk).some((x) => x && x.kind === 'usage' && busy(x.from));
+  const needTargets = lastDid !== 'off' && ((!!last && arr(last.atRisk).some((x) => x && x.kind === 'usage' && busy(x.from)))
+    || busyAtRiskNow === true);   // review 4: this tick's, so a gap tick does not hold the targets back
   /* Review 3: and an account the last decision names as at risk, so an emptied account at risk stays measured rather
      than lapsing into a gap and back every few hours. One account, one request a poll. */
   const also = new Set([...arr(last && last.moves).map((m) => m && m.to), ...arr(last && last.unmeasured), ...arr(last && last.atRisk).map((x) => x && x.from)]
@@ -157,6 +158,11 @@ function planPoll({ list, last = null, lastDid = null, settingOn = false, hasAge
   if (emptyOnly === true) asked = asked.filter((a) => { try { return typeof hasAgents === 'function' && hasAgents(a) === false; } catch { return false; } });
   return { asked, needTargets, off: false };
 }
+/* kosmos#8846 review 4: the sweep's trigger, as a rule a test can run. `before`: whether the last sweep needed targets;
+   `now`: whether this one does. It fires a read only when targets become needed; a read that did not start (a poll
+   already running) is retried by forgetting it was needed, so the next sweep fires again. */
+function triggerStep(before, now) { return { fire: now === true && before !== true, needed: now === true }; }
+function afterTrigger(needed, ran) { return ran === true ? needed : false; }
 /* A week cannot reset further out than this; a reset beyond it is a bad answer, not a reading. */
 const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
 
@@ -170,10 +176,10 @@ const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
    the real home's .claude, which covers every harness that sandboxes HOME or AGENT_WORKFORCE_HOME. A board started
    with the real home, no NODE_TEST_CONTEXT and no DRY_RUN is not covered: it reads the real logins exactly as the
    real board would, and writes the same accurate figures. AGENT_WORKFORCE_USAGE_POLL_OFF=1 is the operator's brake.
-   Review 19: and it is OFF unless AGENT_WORKFORCE_USAGE_POLL=1. It sends each person's subscription token to an
-   endpoint Anthropic has not documented, and if Anthropic objects the cost may fall on the account itself, which no
-   backoff undoes. So nobody's board reads this way until it is switched on deliberately; the status line is
-   unchanged either way. */
+   Review 19 kept it off unless AGENT_WORKFORCE_USAGE_POLL=1: it sends each person's subscription token to an endpoint
+   Anthropic has not documented, and if Anthropic objects the cost may fall on the account itself, which no backoff
+   undoes. kosmos#8846 turned it on by default with 2+ logins (Josh's ruling), gently (POLL_MS, BACKOFF_MS, planPoll),
+   and that risk is carried on the card. */
 /* Review 20: whether the reader is switched on at all, which also decides whether its records are shown, so a board
    switched off shows nothing it measured earlier. */
 /* kosmos#8846: Josh's ruling (2026-10-25, on #7152): "Default ON with 2+ accounts, a switch in Settings to turn it off, and
@@ -501,5 +507,5 @@ function readUsage(dir, nowMs = Date.now()) {
 
 module.exports = {
   enabled, liveAllowed, claudeAccountsLinked, defaultOn, resetLinkedCacheForTests, LINKED_CACHE_MS, readOne, pollAll, readUsage, sameLogin, tokenStateFor, getUsage, windowOf, write, ccdFor,
-  FILE, POLL_MS, FRESH_MS, pollDelay, JITTER, BACKOFF_MS, accountsToPoll, planPoll, loginKey, HOST, USAGE_PATH, BETA,
+  FILE, POLL_MS, FRESH_MS, pollDelay, JITTER, BACKOFF_MS, accountsToPoll, planPoll, loginKey, triggerStep, afterTrigger, HOST, USAGE_PATH, BETA,
 };

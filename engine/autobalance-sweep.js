@@ -113,7 +113,7 @@ function keyOf(d) {
 function create({ file, nowMs = Date.now() }) {
   /* last: the newest decision line (moves, held, atRisk, unmeasured). gapTicks: ticks in a row that were a gap.
      lastDid: what the last tick did, for Settings (review 20). */
-  const state = { lastKey: null, last: null, writeFailed: false, gapTicks: 0, lastDid: null, unmeasuredNow: [] };
+  const state = { lastKey: null, last: null, writeFailed: false, gapTicks: 0, lastDid: null, unmeasuredNow: [], busyAtRiskNow: false };   // kosmos#8846: busyAtRiskNow
   for (const l of readLines(file)) {
     if (l.kind === 'decision' && Number.isFinite(l.at) && l.at <= nowMs + CLOCK_SLACK_MS) {
       state.lastKey = keyOf(l);
@@ -171,7 +171,12 @@ function create({ file, nowMs = Date.now() }) {
     const byDir = new Map(rows.map((r) => [r.dir, r]));
     const noAgents = (r) => !!r && !!r.agentsHere && r.agentsHere.complete === true && Array.isArray(r.agentsHere.names) && r.agentsHere.names.length === 0;
     const busyAtRisk = decision.atRisk.some((x) => x && x.kind === 'usage' && !noAgents(byDir.get(x.from)));
-    const resting = (r) => noAgents(r) && !namedBefore.has(r.dir) && !busyAtRisk;
+    /* Review 4 (nit): a held line says no account could take the agents, so while one is written the resting spares are
+       named as not measured, rather than the line claiming they could not. */
+    const resting = (r) => noAgents(r) && !namedBefore.has(r.dir) && !busyAtRisk && !decision.held.length;
+    /* Review 4: whether a busy account is at risk for usage on THIS tick, written or not (a gap tick writes nothing for up
+       to GAP_TICKS), so the usage poll reads the targets without waiting for the decision to be recorded. */
+    state.busyAtRiskNow = busyAtRisk;
     const unmeasured = new Set(rows.filter((r) => r.measured === false && !resting(r)).map((r) => r.dir));
     state.unmeasuredNow = [...unmeasured].sort();   // review 22: every account not measured this tick, named or not
     const named = state.last ? [...state.last.atRisk.map((x) => x.from), ...state.last.moves.map((x) => x.to), ...(state.last.unmeasured || [])] : [];

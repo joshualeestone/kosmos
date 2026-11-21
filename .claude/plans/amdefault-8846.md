@@ -41,3 +41,11 @@
 - The 5-second trigger reads only the empty accounts (busy ones were just read) and retries at the next sweep if a poll was already running.
 - The wiring test now has a busy account through the real walk (a launch job with no account folder = the default account).
 - Stale comments: Settings off stops the reader; FRESH_MS 90 min; BACKOFF wording.
+
+## Review round 4 (blind), all fixed
+- The wiring test's empty at-risk entry carries kind 'usage', so the real walk is what keeps needTargets false.
+- The sweep exposes busyAtRiskNow (this tick's, written or not), and planPoll needs targets on it, so a gap tick does not hold the targets back for up to GAP_TICKS.
+- The sweep trigger reuses the tick's own walk (kosmos#7621 item 7); its rule is usagepoll.triggerStep/afterTrigger, tested.
+- A timed poll that finds a triggered read running retries in 2 minutes.
+- A held line names resting spares as not measured (a stopped login on a busy account: no usage risk, so the spares are not read).
+- Stale comments: review 19's paragraph, accountsToPoll's docstring, the sweep timer's period.
