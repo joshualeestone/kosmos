@@ -30,3 +30,9 @@ Splinter's probe of account c, 11-21 04:45 UTC: `limits` = weekly_all 55%, weekl
 - WARNING: a fresh session has no model on its card (only earlierModelName), so an agent whose first turn hit a full Fable limit was never moved. Fixed: modelOfFrom falls back to earlierModelName; and an agent with no model at all that is stopped at a limit (stoppedAtLimit) is at risk by the first model limit there that passes the rule (the card's fallback). Both tested with the reviewer's card shape and a real fleet card; mutations red.
 - NIT: held agents are grouped by their own reason (one entry per reason).
 - Decided again (round 1 stands): an IDLE agent with no model is never at risk by a model limit.
+
+## Review round 3 (blind): 0 BLOCKER, 2 WARNINGs, 1 NIT, all fixed
+- WARNING: a model known only from the previous session counted as sure, so it blocked the at-limit rescue and chose targets loosely. Fixed: modelOfFrom says `earlier(session)`; such a model counts for its own limit, still allows the at-limit inference, and its target uses the unknown-model rule. Probes A and B pinned.
+- WARNING: the at-limit inference blamed any model limit at 80%+. Fixed: only a model limit that is actually full (99.5%+) can be what stopped it. Probes C and D pinned.
+- NIT: the sweep's decision key now includes who is held and a model-only risk; an older record line keys exactly as before (pinned).
+- Not done, and decided: matching the scoped limit's reset to the card's own reset line. A full model limit plus a stop at a dated limit is enough to act on, the unknown-model target rule is strict, and the move still passes the mover's two sightings and re-check.

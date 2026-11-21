@@ -193,6 +193,9 @@ function modelOfFrom(getCards, nowMs = null) {
   };
   const str = (v) => (typeof v === 'string' && v.trim() ? v : null);
   const of = (session) => { const c = card(session); return c ? (str(c.modelName) || str(c.model) || str(c.earlierModelName)) : null; };
+  /* Review 3: whether that model came only from the previous session, so decide can trust it less (an agent can switch
+     models between sessions, or the previous one was another runner's). */
+  of.earlier = (session) => { const c = card(session); return !!c && !str(c.modelName) && !str(c.model) && !!str(c.earlierModelName); };
   of.atLimit = (session) => { const c = card(session); try { return !!c && stoppedAtLimit(c, Number.isFinite(nowMs) ? nowMs : Date.now()); } catch { return false; } };
   return of;
 }
@@ -215,7 +218,13 @@ function decide({ rows, movable, nowMs, skipTarget, modelOf }) {
        limit is fine, almost certainly hit a model's own limit there (the card's stated fallback), so it is at risk by
        the first model limit there that passes the rule. */
     const atLimit = (n) => { try { return typeof modelOf === 'function' && typeof modelOf.atLimit === 'function' && modelOf.atLimit(n) === true; } catch { return false; } };
-    const unknownAtLimitWhy = (n) => (!modelKey(model(n)) && atLimit(n) ? (scopedNow(from, nowMs).map((s) => modelRiskOf(from, s.model, nowMs)).find(Boolean) || null) : null);
+    /* Review 3: a model read only from the previous session is a guess: it counts for its own limit, but does not stop
+       the at-limit inference, and its target is chosen by the stricter unknown-model rule. */
+    const earlier = (n) => { try { return typeof modelOf === 'function' && typeof modelOf.earlier === 'function' && modelOf.earlier(n) === true; } catch { return false; } };
+    const sure = (n) => (earlier(n) ? null : model(n));   // the model to choose a target by
+    /* Review 3: only a model limit that is actually FULL there can be what stopped it (85% stopped nobody). */
+    const unknownAtLimitWhy = (n) => ((!modelKey(model(n)) || earlier(n)) && atLimit(n)
+      ? (scopedNow(from, nowMs).filter((s) => s.usedPct >= 99.5).map((s) => modelRiskOf(from, s.model, nowMs)).find(Boolean) || null) : null);
     const whyFor = (n) => acctWhy || modelRiskOf(from, model(n), nowMs) || unknownAtLimitWhy(n);
     const complete = !!from.agentsHere && from.agentsHere.complete === true;
     /* Review 1: a list that may be short can be missing the very agent on the full model, so with an incomplete list any
@@ -236,7 +245,7 @@ function decide({ rows, movable, nowMs, skipTarget, modelOf }) {
     const stuck = [];
     for (const agent of going.slice().sort()) {
       /* kosmos#8862: each agent's target is judged for its own model, so two agents can go two ways, or one be held. */
-      const to = targetFor(from, all, nowMs, skipTarget, model(agent));
+      const to = targetFor(from, all, nowMs, skipTarget, sure(agent));
       if (!to) { stuck.push(agent); continue; }
       moves.push({ agent, from: from.dir, to: to.dir, why: whyFor(agent) });
     }

@@ -262,3 +262,49 @@ test('kosmos#8862 review 2: held agents are grouped by their own reason', () => 
   assert.deepEqual(d.held.map((h) => [h.agents, /Fable/.test(h.why) ? 'Fable' : /Opus/.test(h.why) ? 'Opus' : '?']), [[['f'], 'Fable'], [['o'], 'Opus']],
     'the Opus agent was held under the Fable agent\'s reason');
 });
+
+/* Review 3. */
+const stoppedCard = (sessionName, extra = {}) => {
+  const b = fleet.install([fleet.agent(sessionName, { state: 'idle' })]);
+  const reset = new Date(NOW + 41 * H);
+  const mon = reset.toLocaleString('en-US', { month: 'short', timeZone: 'America/Chicago' });
+  const day = reset.toLocaleString('en-US', { day: 'numeric', timeZone: 'America/Chicago' });
+  return { ...b.card(sessionName), state: 'rate_limited', stateEvidence: `You've hit your weekly limit · resets ${mon} ${day} at 4pm (America/Chicago)`,
+    model: null, modelName: null, earlierModelName: null, ...extra };
+};
+test('kosmos#8862 review 3: a model known only from the previous session does not stop the rescue, and chooses targets strictly', () => {
+  const a = stoppedCard('ari', { earlierModelName: 'Claude Opus 4.1' });   // ran Opus last time, now stopped on a full Fable limit
+  const modelOf = ab.modelOfFrom([a], NOW);
+  assert.equal(modelOf.earlier('ari'), true, 'CONTROL: the model is the previous session\'s');
+  const rows = [
+    row('/c', { weekly: { usedPct: 55, resetsAt: NOW + 41 * H }, scoped: fable(100), agentsHere: { names: ['ari'], complete: true } }),
+    row('/d', { weekly: { usedPct: 10, resetsAt: NOW + 90 * H }, scoped: fable(100) }),   // emptiest, but its Fable limit is full too
+    row('/e', { weekly: { usedPct: 30, resetsAt: NOW + 90 * H } }),
+  ];
+  const dA = ab.decide({ rows, movable: all, nowMs: NOW, modelOf });
+  assert.deepEqual(dA.moves.map((m) => [m.agent, m.to]), [['ari', '/e']],
+    'probe A/B: an agent stopped on a full Fable limit was left there because its previous session ran Opus, or was sent to another full Fable limit');
+  const sure = ab.modelOfFrom([{ ...a, modelName: 'Claude Opus 4.1' }], NOW);
+  assert.deepEqual(ab.decide({ rows, movable: all, nowMs: NOW, modelOf: sure }).moves, [], 'CONTROL: an agent whose card names Opus now is not moved by the Fable limit');
+});
+
+test('kosmos#8862 review 3: an unknown agent at a limit is blamed only on a model limit that is actually full', () => {
+  const z = stoppedCard('zed');
+  const modelOf = ab.modelOfFrom([z], NOW);
+  const at = (pct, weekly = { usedPct: 55, resetsAt: NOW + 41 * H }) => [
+    row('/c', { weekly, scoped: fable(pct), agentsHere: { names: ['zed'], complete: true } }),
+    row('/d', { weekly: { usedPct: 20, resetsAt: NOW + 90 * H } }),
+  ];
+  assert.deepEqual(ab.decide({ rows: at(85), movable: all, nowMs: NOW, modelOf }).moves, [], 'probe C: a Fable limit at 85% was blamed for stopping the agent');
+  assert.deepEqual(ab.decide({ rows: at(85, null), movable: all, nowMs: NOW, modelOf }).atRisk, [], 'probe D: with the overall reading gone, an 85% Fable limit was named the cause');
+  assert.deepEqual(ab.decide({ rows: at(100), movable: all, nowMs: NOW, modelOf }).moves.map((m) => m.agent), ['zed'], 'CONTROL: a full Fable limit is what stopped it, and it moves');
+});
+
+test('kosmos#8862 review 3: the sweep records a change of who is held or of a model-only risk', () => {
+  const sweep = require('./autobalance-sweep');
+  const base = { moves: [], held: [{ from: '/c', why: 'x', agents: ['a'] }], atRisk: [{ from: '/c', why: 'x', kind: 'usage', model: 'Fable' }], unmeasured: [] };
+  assert.notEqual(sweep.keyOf(base), sweep.keyOf({ ...base, held: [{ from: '/c', why: 'x', agents: ['b'] }] }), 'a change of who is held was not a new decision');
+  assert.notEqual(sweep.keyOf(base), sweep.keyOf({ ...base, atRisk: [{ from: '/c', why: 'x', kind: 'usage' }] }), 'a model-only risk turning into an overall one was not a new decision');
+  const old = { moves: [], held: [{ from: '/c', why: 'x' }], atRisk: [{ from: '/c', why: 'x', kind: 'usage' }], unmeasured: [] };
+  assert.equal(sweep.keyOf(old), JSON.stringify({ m: [], h: [JSON.stringify('/c')], r: [JSON.stringify(['/c', 'usage'])], u: [] }), 'an older record line no longer keys as it did (a restart would record it again)');
+});
