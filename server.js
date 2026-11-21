@@ -23828,10 +23828,11 @@ const server = http.createServer(async (req, res) => {
     /* Review 1 (nit 2): all and quietDays are the list's, never the Tasks view's; refused there rather than ignored. */
     if (forTasksView && (allProjects || quietRaw !== null)) { sendJson(res, 400, { error: 'all and quietDays are for the task list, not the Tasks view' }); return; }
     /* kosmos#7992: mine=1 is an agent's own list across its projects, so it goes with all=1 and needs a token that names
-       an agent (the board token alone names nobody). Refused rather than ignored, so it is never read as the whole list. */
+       an agent (the board token alone names nobody). Refused rather than ignored, so it is never read as the whole list.
+       kosmos#8867: or with one project=, for that project's tasks the caller holds (`kosmos task list <project-id> --mine`). */
     let mineCaller = null;
     if (mine) {
-      if (!allProjects) { sendJson(res, 400, { error: 'mine goes with all: the tasks you hold in every project you are on' }); return; }
+      if (!allProjects && !projectScope) { sendJson(res, 400, { error: 'mine goes with all, or with one project: the tasks you hold there' }); return; }
       mineCaller = agentTokenCaller(req);
       if (!mineCaller) { sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read its tasks' }); return; }
     }

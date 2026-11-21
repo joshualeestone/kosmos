@@ -121,15 +121,65 @@ test('board: all=1&mine=1 keeps the calling agent\'s own tasks, in every project
   assert.ok(ids(every).includes(A + '#' + N['a-otto']) && ids(every).includes(B + '#' + N['b-nobody']), JSON.stringify(ids(every)));
   assert.equal(every.json.mine, undefined, 'a list that is not kept to the caller does not say mine');
 });
-test('board: mine=1 is refused without all=1, and without a token that names an agent', async () => {
-  const noAll = await get('order=state&state=open&mine=1&project=' + A, asAgent('mara'));
-  assert.equal(noAll.code, 400);
-  assert.match(noAll.json.error, /mine goes with all/);
+test('board: mine=1 is refused with neither all=1 nor one project, and without a token that names an agent', async () => {
+  // kosmos#8867: mine=1 goes with one project= now too (next test); with neither it is still refused, never ignored.
+  const neither = await get('order=state&state=open&mine=1', asAgent('mara'));
+  assert.equal(neither.code, 400);
+  assert.match(neither.json.error, /mine goes with all, or with one project/);
   const nobody = await get('all=1&order=state&state=open&mine=1');
   assert.equal(nobody.code, 403);
   assert.match(nobody.json.error, /could not tell which agent/);
   const unknown = await get('all=1&order=state&state=open&mine=1', { 'x-kosmos-agent-token': 'ab'.repeat(32) });
   assert.equal(unknown.code, 403);
+});
+
+// ── kosmos#8867: <project-id> --mine ───────────────────────────────────────
+test('#8867 engine: one project with --mine says "of yours in" that project; none says so too', () => {
+  const one = tasklist.acrossLines({ mine: true, listState: 'open', count: 1, tasks: [{ projectId: 'web', number: 4, sentence: 'Fix it', whoNames: ['ada'] }] }, 'open', { project: 'web', mine: true });
+  assert.equal(one.rc, 0);
+  assert.deepEqual(one.lines, ['#4  open  ada  Fix it', '1 open task of yours in web.']);
+  assert.deepEqual(tasklist.acrossLines({ mine: true, listState: 'built', count: 0, tasks: [] }, 'built', { project: 'web', mine: true }).lines, ['No built tasks of yours in web.']);
+  assert.deepEqual(tasklist.acrossLines({ mine: true, listState: 'open', quietDays: 3, count: 0, tasks: [] }, 'stale', { project: 'web', mine: true, days: 3 }).lines, ['No open task of yours in web has been quiet for 3 days or more.']);
+  // An older board that ignored mine=1 sends everyone's: refused, never printed as yours.
+  assert.match(tasklist.acrossLines({ listState: 'open', count: 1, tasks: [{ projectId: 'web', number: 1, sentence: 'x' }] }, 'open', { project: 'web', mine: true }).lines[0], /older than --mine/);
+  // CONTROL: one project without --mine and without --stale is still compactLines' job here.
+  assert.throws(() => tasklist.acrossLines({ listState: 'open', tasks: [] }, 'open', { project: 'web' }), /one project/);
+});
+test('#8867 board: project=&mine=1 keeps the caller\'s own tasks in that project, and says so', async () => {
+  const mara = await get('project=' + A + '&order=state&state=open&mine=1', asAgent('mara'));
+  assert.equal(mara.code, 200, JSON.stringify(mara.json));
+  assert.equal(mara.json.mine, true);
+  assert.deepEqual(ids(mara), [A + '#' + N['a-mara']]);
+  const otto = await get('project=' + A + '&order=state&state=open&mine=1', asAgent('otto'));
+  assert.deepEqual(ids(otto), [A + '#' + N['a-otto']], 'one agent\'s token never returns another\'s tasks');
+  // CONTROL: the same project without mine lists everyone's open tasks there, and does not say mine.
+  const every = await get('project=' + A + '&order=state&state=open', asAgent('mara'));
+  assert.deepEqual(ids(every), [A + '#' + N['a-mara'], A + '#' + N['a-otto']].sort());
+  assert.equal(every.json.mine, undefined);
+});
+test('#8867 Windows: <project> --mine lists only this agent\'s tasks there; the plain list still lists all; --mine elsewhere is refused', async () => {
+  const r = await win(['task', 'list', A, '--mine'], 'mara');
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(r.out, ['#' + N['a-mara'] + '  open  mara  Task a-mara', '1 open task of yours in ' + A + '.']);
+  const built = await win(['task', 'list', A, '--mine', '--built'], 'mara');
+  assert.equal(built.code, 0, built.err);
+  assert.equal(built.out.length, 2, built.out.join('|'));
+  assert.equal(built.out[1], '1 built task of yours in ' + A + '.');
+  // CONTROL: the plain project list still lists otto's task too.
+  const plain = await win(['task', 'list', A], 'mara');
+  assert.equal(plain.code, 0, plain.err);
+  assert.ok(plain.out.join('\n').includes('Task a-otto'), 'the unfiltered list lost a task: ' + plain.out.join('|'));
+  for (const args of [[A, '--state', 'open', '--mine'], [A, '--stale', '--mine'], [A, '--mine', '--mine']]) {
+    const bad = await win(['task', 'list', ...args], 'mara');
+    assert.equal(bad.code, 2, args.join(' ') + ': ' + bad.out.join('|'));
+    assert.match(bad.err, /Put --mine right after the project/, args.join(' '));
+  }
+  const after = await win(['task', 'list', A, '--mine', '--nope'], 'mara');
+  assert.equal(after.code, 2);
+  assert.match(after.err, /After <project-id> --mine: nothing/);
+  const none = await win(['task', 'list', A, '--mine'], null);
+  assert.equal(none.code, 2);
+  assert.match(none.err, /needs an agent's token/);
 });
 
 // ── Windows ─────────────────────────────────────────────────────────────────
@@ -190,6 +240,19 @@ test('Mac: the same forms print the same lines as Windows; without an agent toke
     assert.match(none.out, /needs an agent's token/);
     const help = await mac(['task', 'help'], null);
     assert.match(help.out, /kosmos task list --mine/, 'the help names --mine');
+  }
+  if (!SKIP_POSIX_SHELL) {   // kosmos#8867: <project> --mine, as the Windows test above
+    const r = await mac(['task', 'list', A, '--mine'], 'mara');
+    assert.equal(r.code, 0, r.out);
+    assert.deepEqual(r.out.trimEnd().split('\n'), ['#' + N['a-mara'] + '  open  mara  Task a-mara', '1 open task of yours in ' + A + '.']);
+    const plain = await mac(['task', 'list', A], 'mara');
+    assert.equal(plain.code, 0, plain.out);
+    assert.ok(plain.out.includes('Task a-otto'), 'CONTROL: the unfiltered list lost a task: ' + plain.out);
+    for (const args of [[A, '--state', 'open', '--mine'], [A, '--stale', '--mine']]) {
+      const bad = await mac(['task', 'list', ...args], 'mara');
+      assert.equal(bad.code, 2, args.join(' ') + ': ' + bad.out);
+      assert.match(bad.out, /Put --mine right after the project/, args.join(' '));
+    }
   }
   const winHelp = await win(['task', 'help'], null);
   assert.match(winHelp.out.join('\n') + winHelp.err, /kosmos task list --mine/, 'the Windows help names --mine too');
