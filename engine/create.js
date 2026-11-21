@@ -1145,7 +1145,10 @@ const SERVICE_LABEL_PREFIX = 'com.kosmos.agent.';
    measured 11-21 on the 0.8.13 walk, com.kosmos.agent.obriens-helper beside the real agents'. Such a board's labels
    get `+launch-<hash of its job folder>`. The real folder comes from the account record (os.userInfo), not HOME,
    because a throwaway board sets HOME. Only the label moves: data roots and tmux sessions keep the world's rules,
-   which is why this is not a derived KOSMOS_WORLD (a named world nests the store roots, worlds.applyWorldEnv). */
+   which is why this is not a derived KOSMOS_WORLD (a named world nests the store roots, worlds.applyWorldEnv).
+   Scoped only while run() is really live (server.js opens the gate on the real-start path, and no test runner is
+   installed): that is when a label can reach launchd at all. A test or dry run, whose temporary job folder stands in for the real board's, keeps the bare
+   label the rest of the suite asserts. */
 const LAUNCH_SCOPE_PREFIX = 'launch-';
 function accountLaunchAgentsDir() {
   try { return path.join(os.userInfo().homedir, 'Library', 'LaunchAgents'); } catch { return null; }
@@ -1153,6 +1156,8 @@ function accountLaunchAgentsDir() {
 function launchScope(worldId) {
   const world = worldId === undefined ? launchidentity.currentWorldId() : worldId;
   if (!launchidentity.isDefaultWorld(world)) return String(world);
+  // Live means run() would really call launchctl: the gate is open and no test runner stands in for it.
+  if (runner || !liveExec.liveExecutionAllowed()) return launchidentity.DEFAULT_WORLD_ID;
   const here = path.resolve(agentsDir());
   const real = accountLaunchAgentsDir();
   // An account record that cannot be read keeps today's bare labels: renaming a real board's jobs would orphan them.

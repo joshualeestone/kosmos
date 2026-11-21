@@ -13,12 +13,14 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const create = require('./create');
+const liveExec = require('./live-execution');
 
 const VARS = ['AGENT_WORKFORCE_LAUNCH', 'AGENT_WORKFORCE_HOME', 'HOME', 'KOSMOS_WORLD'];
 function withEnv(set, fn) {
   const saved = {};
   for (const k of VARS) saved[k] = process.env[k];
   try {
+    if (set.live) liveExec.allowLiveExecution();   // only a label building call runs under it: nothing reaches launchctl
     for (const k of VARS) {
       if (Object.prototype.hasOwnProperty.call(set, k)) {
         if (set[k] === undefined) delete process.env[k]; else process.env[k] = set[k];
@@ -26,6 +28,7 @@ function withEnv(set, fn) {
     }
     return fn();
   } finally {
+    if (set.live) liveExec.resetForTests();
     for (const k of VARS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
   }
 }
@@ -35,20 +38,20 @@ const tmp = (tag) => fs.mkdtempSync(path.join(os.tmpdir(), `launchscope-8860-${t
 const SCOPED = /^com\.kosmos\.agent\.ava\+launch-[0-9a-f]{8}$/;
 
 test('CONTROL: a board writing to the account\'s real LaunchAgents keeps today\'s bare label', () => {
-  const viaLaunch = withEnv({ AGENT_WORKFORCE_LAUNCH: REAL_LAUNCH, AGENT_WORKFORCE_HOME: undefined, KOSMOS_WORLD: undefined },
+  const viaLaunch = withEnv({ live: true, AGENT_WORKFORCE_LAUNCH: REAL_LAUNCH, AGENT_WORKFORCE_HOME: undefined, KOSMOS_WORLD: undefined },
     () => ({ label: create.serviceLabel('ava'), scope: create.launchScope() }));
   assert.equal(viaLaunch.label, 'com.kosmos.agent.ava');
   assert.equal(viaLaunch.scope, 'default');
-  const viaHome = withEnv({ AGENT_WORKFORCE_LAUNCH: undefined, AGENT_WORKFORCE_HOME: undefined, HOME: ACCOUNT_HOME, KOSMOS_WORLD: undefined },
+  const viaHome = withEnv({ live: true, AGENT_WORKFORCE_LAUNCH: undefined, AGENT_WORKFORCE_HOME: undefined, HOME: ACCOUNT_HOME, KOSMOS_WORLD: undefined },
     () => create.serviceLabel('ava'));
   assert.equal(viaHome, 'com.kosmos.agent.ava', 'the installed board sets none of these and must not be renamed');
 });
 
 test('a throwaway board with its own job folder cannot share the real board\'s label', () => {
-  const real = withEnv({ AGENT_WORKFORCE_LAUNCH: REAL_LAUNCH, AGENT_WORKFORCE_HOME: undefined, KOSMOS_WORLD: undefined },
+  const real = withEnv({ live: true, AGENT_WORKFORCE_LAUNCH: REAL_LAUNCH, AGENT_WORKFORCE_HOME: undefined, KOSMOS_WORLD: undefined },
     () => create.serviceLabel('ava'));
   const dir = tmp('launch');
-  const sbx = withEnv({ AGENT_WORKFORCE_LAUNCH: dir, KOSMOS_WORLD: undefined },
+  const sbx = withEnv({ live: true, AGENT_WORKFORCE_LAUNCH: dir, KOSMOS_WORLD: undefined },
     () => ({ label: create.serviceLabel('ava'), scope: create.launchScope(), plist: create.plistPath('ava') }));
   assert.match(sbx.label, SCOPED);
   assert.notEqual(sbx.label, real, 'same agent name, different label');
@@ -59,7 +62,7 @@ test('a throwaway board with its own job folder cannot share the real board\'s l
 
 test('a throwaway board that only moves HOME (the 11-21 walk\'s shape) is scoped too', () => {
   const home = tmp('home');
-  const label = withEnv({ AGENT_WORKFORCE_LAUNCH: undefined, AGENT_WORKFORCE_HOME: undefined, HOME: home, KOSMOS_WORLD: undefined },
+  const label = withEnv({ live: true, AGENT_WORKFORCE_LAUNCH: undefined, AGENT_WORKFORCE_HOME: undefined, HOME: home, KOSMOS_WORLD: undefined },
     () => create.serviceLabel('ava'));
   assert.match(label, SCOPED, 'HOME moved the job folder, and the account record (not HOME) names the real one');
 });
@@ -67,13 +70,19 @@ test('a throwaway board that only moves HOME (the 11-21 walk\'s shape) is scoped
 test('two throwaway boards get different labels, and one board\'s label is stable', () => {
   const a = tmp('a');
   const b = tmp('b');
-  const at = (dir) => withEnv({ AGENT_WORKFORCE_LAUNCH: dir, KOSMOS_WORLD: undefined }, () => create.serviceLabel('ava'));
+  const at = (dir) => withEnv({ live: true, AGENT_WORKFORCE_LAUNCH: dir, KOSMOS_WORLD: undefined }, () => create.serviceLabel('ava'));
   assert.notEqual(at(a), at(b));
   assert.equal(at(a), at(a));
 });
 
 test('a named world keeps its own label, with or without its own job folder (#1704 unchanged)', () => {
   const dir = tmp('world');
-  assert.equal(withEnv({ AGENT_WORKFORCE_LAUNCH: dir, KOSMOS_WORLD: 'qa' }, () => create.serviceLabel('ava')), 'com.kosmos.agent.ava+qa');
-  assert.equal(withEnv({ AGENT_WORKFORCE_LAUNCH: REAL_LAUNCH, KOSMOS_WORLD: 'qa' }, () => create.serviceLabel('ava')), 'com.kosmos.agent.ava+qa');
+  assert.equal(withEnv({ live: true, AGENT_WORKFORCE_LAUNCH: dir, KOSMOS_WORLD: 'qa' }, () => create.serviceLabel('ava')), 'com.kosmos.agent.ava+qa');
+  assert.equal(withEnv({ live: true, AGENT_WORKFORCE_LAUNCH: REAL_LAUNCH, KOSMOS_WORLD: 'qa' }, () => create.serviceLabel('ava')), 'com.kosmos.agent.ava+qa');
+});
+
+test('CONTROL: with live execution not allowed (a test or dry run) a temporary job folder keeps the bare label', () => {
+  const dir = tmp('dry');
+  const label = withEnv({ AGENT_WORKFORCE_LAUNCH: dir, KOSMOS_WORLD: undefined }, () => create.serviceLabel('ava'));
+  assert.equal(label, 'com.kosmos.agent.ava', 'nothing can reach launchd here, so the suite keeps the labels it asserts');
 });
