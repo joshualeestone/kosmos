@@ -236,7 +236,8 @@ function defaultOn(env, force, off, linked) {
 }
 /* kosmos#8841: whether the start environment itself switched this off (the brake, or `<force>` set to anything but 1),
    as against the default reading off (one login, a test, a dry run). Settings says so, because on main an off from the
-   environment is the one off the page cannot otherwise explain. */
+   environment is the one off the page cannot otherwise explain. AGENT_WORKFORCE_DRY_RUN=1 is left out on purpose: it is
+   a test and rehearsal mode, not an operator's off, and the page says nothing moves for real there anyway. */
 function offByEnv(env, force, off) {
   if (!env) return false;
   if (env[off] === '1') return true;

@@ -31319,7 +31319,9 @@ function paintAutobalance(ab, list) {
     const offOut = ab.offOutside && typeof ab.offOutside === 'object' ? ab.offOutside : {};
     recentBox.innerHTML = ab.recording !== true
       ? (offOut.readings === true
-        ? line('Kosmos is not keeping a record of what it would move on this computer, because usage readings are switched off where Kosmos is started, not here in Settings.')
+        ? line('Kosmos is not keeping a record of what it would move on this computer, because usage readings are switched off in how Kosmos starts on this computer. The switch here cannot turn them back on.')
+        : offOut.record === true
+        ? line('Kosmos is not keeping a record of what it would move on this computer, because that record is switched off in how Kosmos starts on this computer. The switch here cannot turn it back on.')
         : line('Kosmos is not keeping a record of what it would move on this computer.'))   // review 10: what is known, not why
       /* kosmos#7548, kosmos#8846: moving is on by default with 2+ Claude accounts (Settings turns it off); said only when the
          board reports it moves (ab.moving), so the page never says it moves where it does not. */
@@ -31331,7 +31333,7 @@ function paintAutobalance(ab, list) {
         /* Review round 6: moves switched off after a run leave the mover's lines in the record, so "not yet" would be
            false above them. */
         : offOut.moves === true
-          ? line('Kosmos does not move agents on this computer, because automatic moves are switched off where Kosmos is started, not here in Settings. It keeps a record of what it would have moved.')
+          ? line('Kosmos does not move agents on this computer, because automatic moves are switched off in how Kosmos starts on this computer. The switch here cannot turn them back on. It keeps a record of what it would have moved.')
         : (Array.isArray(ab.recent) && ab.recent.some((e) => e && e.kind !== 'decision')
           ? line('Kosmos is not moving agents on this computer now. It keeps a record of what it would have moved.')
           : line('Kosmos does not move agents on its own yet. It keeps a record of what it would have moved.')))

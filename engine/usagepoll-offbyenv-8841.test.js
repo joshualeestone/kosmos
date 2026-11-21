@@ -34,8 +34,14 @@ test('a default off (one login, a test, a dry run) is not reported as an off fro
   }
 });
 
-test('whenever offByEnv says off, defaultOn is off, whatever the login count', () => {
-  for (const env of [{ [O]: '1' }, { [F]: '0' }, { [O]: '1', [F]: '1' }]) {
+test('whenever offByEnv says off, defaultOn is off, over every value of both variables and any login count', () => {
+  const vals = [undefined, '', '0', '1', 'true', 'false'];
+  let offs = 0;
+  for (const f of vals) for (const o of vals) {
+    const env = {}; if (f !== undefined) env[F] = f; if (o !== undefined) env[O] = o;
+    if (!offByEnv(env, F, O)) continue;
+    offs++;
     for (const n of [0, 1, 2, 5]) assert.equal(defaultOn(env, F, O, n), false, JSON.stringify(env) + ' n=' + n);
   }
+  assert.ok(offs >= 10, 'CONTROL: the grid reached too few environment offs (' + offs + ') to mean anything');
 });

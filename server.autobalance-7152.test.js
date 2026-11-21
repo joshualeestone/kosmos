@@ -279,17 +279,20 @@ test('kosmos#8056: armed is the mover\'s own gate, without the sweep\'s last-wri
 });
 
 test('kosmos#8841: the route says when the start environment switched readings or moves off, and only then', async () => {
-  const keys = ['AGENT_WORKFORCE_AUTOMOVE', 'AGENT_WORKFORCE_AUTOMOVE_OFF', 'AGENT_WORKFORCE_USAGE_POLL', 'AGENT_WORKFORCE_USAGE_POLL_OFF'];
+  const keys = ['AGENT_WORKFORCE_AUTOMOVE', 'AGENT_WORKFORCE_AUTOMOVE_OFF', 'AGENT_WORKFORCE_USAGE_POLL', 'AGENT_WORKFORCE_USAGE_POLL_OFF', 'AGENT_WORKFORCE_AUTOBALANCE_SWEEP_OFF'];
   const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
   const read = async () => (await call('GET', '/api/accounts?agents=1')).json.autobalance.offOutside;
   try {
     for (const k of keys) delete process.env[k];
-    assert.deepEqual(await read(), { readings: false, moves: false }, 'CONTROL: nothing set, yet the route named an off from outside Settings');
+    assert.deepEqual(await read(), { readings: false, record: false, moves: false }, 'CONTROL: nothing set, yet the route named an off from outside Settings');
     process.env.AGENT_WORKFORCE_AUTOMOVE_OFF = '1';
-    assert.deepEqual(await read(), { readings: false, moves: true }, 'the mover brake was not reported');
+    assert.deepEqual(await read(), { readings: false, record: false, moves: true }, 'the mover brake was not reported');
     delete process.env.AGENT_WORKFORCE_AUTOMOVE_OFF;
     process.env.AGENT_WORKFORCE_USAGE_POLL = '0';
-    assert.deepEqual(await read(), { readings: true, moves: false }, 'a usage poll set to 0 was not reported');
+    assert.deepEqual(await read(), { readings: true, record: false, moves: false }, 'a usage poll set to 0 was not reported');
+    delete process.env.AGENT_WORKFORCE_USAGE_POLL;
+    process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_OFF = '1';
+    assert.deepEqual(await read(), { readings: false, record: true, moves: false }, 'the record brake was not reported, or was reported as usage readings off');
   } finally {
     for (const k of keys) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
   }

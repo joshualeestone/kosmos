@@ -31,7 +31,7 @@ function paint(ab) {
   return els['ab-recent'].innerHTML;
 }
 const base = { on: true, ok: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recent: [], recording: true, moving: false };
-const OUTSIDE = 'where Kosmos is started, not here in Settings';
+const OUTSIDE = 'in how Kosmos starts on this computer';
 
 test('CONTROL: with nothing switched off outside Settings the lines are as before', () => {
   assert.match(paint(base), /Kosmos does not move agents on its own yet/);
@@ -42,7 +42,7 @@ test('CONTROL: with nothing switched off outside Settings the lines are as befor
 
 test('moves switched off where Kosmos is started are named as the reason nothing moves', () => {
   const html = paint({ ...base, offOutside: { readings: false, moves: true } });
-  assert.match(html, /does not move agents on this computer, because automatic moves are switched off where Kosmos is started/);
+  assert.match(html, /does not move agents on this computer, because automatic moves are switched off in how Kosmos starts on this computer\. The switch here cannot turn them back on/);
   assert.ok(!html.includes('on its own yet'), 'the "not yet" line was drawn beside the reason');
   /* After a run, the record holds mover lines: the reason still replaces the "not moving now" line. */
   const after = paint({ ...base, recent: [{ kind: 'moved' }], offOutside: { readings: false, moves: true } });
@@ -58,7 +58,13 @@ test('a board that moves says it moves, whatever offOutside says (the page never
 
 test('readings switched off where Kosmos is started are named as the reason nothing is recorded', () => {
   const html = paint({ ...base, recording: false, offOutside: { readings: true, moves: true } });
-  assert.match(html, /not keeping a record .* because usage readings are switched off where Kosmos is started/);
+  assert.match(html, /not keeping a record .* because usage readings are switched off in how Kosmos starts/);
+});
+
+test('the record switched off (usage readings still on) is named as the record, not as usage readings', () => {
+  const html = paint({ ...base, recording: false, offOutside: { readings: false, record: true, moves: false } });
+  assert.match(html, /because that record is switched off in how Kosmos starts/);
+  assert.ok(!html.includes('usage readings'), 'a record brake was explained as usage readings being off');
 });
 
 test('Settings switched off shows no record lines at all, so no outside reason either', () => {
