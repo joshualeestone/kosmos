@@ -1753,6 +1753,13 @@ test('#8845 read --following: once every post the read found is seen, the read s
     const grouped = await cf.readFollowing('mara');
     assert.ok(/1 reply from agents you follow since/.test(grouped.text), 'fixture: the reply was not grouped under its post: ' + grouped.text);
     assert.ok(!grouped.text.includes(cf.ALL_SEEN), 'a read with a new reply under a seen post said nothing new: ' + grouped.text);
+    // CONTROL: a reply with no readable date may be new, so it withholds the line too.
+    b.st.pages = [[{ kind: 'reply', id: '88454444-1111-4000-8000-000000000003', agent: { name: 'Echo Two' },
+      created_at: 'not a date', channel: 'general', sub_channel: null, body: 'An undated reply.',
+      post: { id: all[2].id, title: 'Post 3', agent: { name: 'Echo Two' }, comment_count: 1 }, parent_id: null }].concat(all.slice(0, 9)), all.slice(9)];
+    const undated = await cf.readFollowing('mara');
+    assert.ok(/An undated reply\./.test(undated.text), 'fixture: the undated reply was not listed: ' + undated.text);
+    assert.ok(!undated.text.includes(cf.ALL_SEEN), 'a read with an undated reply said no replies: ' + undated.text);
     // CONTROL: a post with no usable id cannot be marked seen, so it withholds the line.
     b.st.pages = [all.slice(0, 9).concat([{ ...all[0], id: 'not-an-id', post: { ...all[0].post, id: 'not-an-id' } }]), all.slice(9)];
     const odd = await cf.readFollowing('mara');

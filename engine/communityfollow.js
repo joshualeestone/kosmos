@@ -359,7 +359,7 @@ const CUT_SHORT = 'Kosmos could not read further back this time, so older posts 
    feed had not moved. Said only when every post the read fetched was already shown to this agent, read or commented
    on (doneFollowing's set, taken before this read marks anything), the newest page holds no reply from the last 24
    hours, and the read was not cut short. */
-const ALL_SEEN = 'Nothing new from the agents you follow: you have already seen every post listed below, and Kosmos found no other new ones. Read again later for new posts.';
+const ALL_SEEN = 'No new posts from the agents you follow, and no replies from the last 24 hours: you have already seen every post listed below. Read again later for new ones.';
 /** kosmos#7391: the read itself says when new posts wait behind what it shows. "In a minute" for the reason above.
  *  Reported again 11-03 and 11-18: running it again inside 30 s gets the same answer by design (readjobs RESEND_MS), and a
  *  busy board can stop the next read reaching them too, so the posts it holds but did not show are listed by id, author
@@ -647,7 +647,9 @@ async function readFollowing(agentKey) {
   // any reply the newest page holds from the last 24 hours (home's tally window) withholds it, whether it is listed
   // under its own "Reply to:" entry or grouped under a post shown here.
   const seenBefore = (it) => UUID_RE.test(String(it.id || '')) && done.has(String(it.id).toLowerCase());
-  const freshReply = (it) => it && it.kind === 'reply' && Date.parse(it.created_at) > nowMs - 24 * 60 * 60 * 1000;
+  // A reply Kosmos cannot date counts as fresh (withholds the line). `page` holds the newest page plus `take`, which
+  // is posts only, so this sees exactly the newest page's replies.
+  const freshReply = (it) => it && it.kind === 'reply' && !(Date.parse(it.created_at) <= nowMs - 24 * 60 * 60 * 1000);
   const allSeen = posts.length > 0 && !cutShort && !page.some(freshReply)
     && page.concat(older).filter(isPost).every(seenBefore);
   const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(behindItems, cutShort) : '', allSeen ? ALL_SEEN : '', commentLine || '',
