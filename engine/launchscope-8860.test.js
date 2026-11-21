@@ -5,9 +5,9 @@
  * one launchd domain, so its labels must not be the real board's. These tests only build label strings: nothing is
  * written to a real LaunchAgents folder and launchctl is never run.
  *
- * The decision is driven through launchScopeFor with every input passed in, because a test process cannot be
- * "really live" (it has a runner, or setRunner(null) has turned dry-run on). The readers are driven through
- * setLaunchScopeForTests.
+ * The decision is driven through launchScopeFor with every input passed in, because an ordinary test process is not
+ * "really live" (its live-execution gate is closed). The readers are driven through setLaunchScopeForTests, and
+ * launchScope's own wiring through setLaunchLiveForTests.
  *
  *   node --test engine/launchscope-8860.test.js
  */
@@ -178,5 +178,35 @@ test('live: HOME alone moves the job folder, and that folder is scoped (the 11-2
     create.setLaunchLiveForTests(null);
     create.setProbePlatformForTests(null);
     for (const k of VARS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+  }
+});
+
+test('a folder holding this board\'s OWN scoped job keeps its scope even beside a bare job', () => {
+  const dir = tmp('own');
+  const mine = scope({ folder: dir });
+  assert.match(mine, SCOPE);
+  assert.equal(scope({ folder: dir, hasScopedJob: (d, s) => s === mine, hasBareJob: () => true }), mine,
+    'its own scoped job wins over a bare one');
+  assert.equal(scope({ folder: dir, hasScopedJob: () => false, hasBareJob: () => true }), 'default',
+    'control: a bare job alone keeps bare labels');
+});
+
+test('live, restarted: a throwaway board whose folder holds its own scoped jobs and a bare one keeps its scope', () => {
+  const saved = process.env.AGENT_WORKFORCE_LAUNCH;
+  try {
+    create.setLaunchLiveForTests(true);
+    create.setProbePlatformForTests('darwin');
+    const dir = tmp('restart');
+    process.env.AGENT_WORKFORCE_LAUNCH = dir;
+    const label = create.serviceLabel('ava');
+    assert.match(label, /\+launch-[0-9a-f]{8}$/);
+    fs.writeFileSync(path.join(dir, `${label}.plist`), '<plist/>');
+    fs.writeFileSync(path.join(dir, 'com.kosmos.agent.bob.plist'), '<plist/>');   // a bare job from another process
+    create.setLaunchLiveForTests(true);   // clears the latch: as a restarted board deciding again
+    assert.equal(create.serviceLabel('ava'), label, 'the restarted board still reads its own agents');
+  } finally {
+    create.setLaunchLiveForTests(null);
+    create.setProbePlatformForTests(null);
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = saved;
   }
 });

@@ -1183,6 +1183,14 @@ function folderHasBareJob(dir) {
 }
 /* The decision, with every input passed in, so a test can drive each arm (an ordinary test process is not "really
    live": its live-execution gate is closed). `hasBareJob` is a function, read last. */
+/* Whether a job folder holds a job already carrying `scope` (`com.kosmos.agent.<name>+<scope>.plist`): this board's own
+   scoped jobs, which a restarted board must go on reading whatever else has landed in the folder since. */
+function folderHasScopedJob(dir, scope) {
+  try {
+    const tail = `${launchidentity.WORLD_SEPARATOR}${scope}.plist`;
+    return fs.readdirSync(dir).some((f) => f.startsWith(SERVICE_LABEL_PREFIX) && f.endsWith(tail));
+  } catch { return false; }
+}
 function launchScopeFor(o) {
   if (!launchidentity.isDefaultWorld(o.world)) return String(o.world);
   // macOS only: Linux units (linuxjob) and Windows tasks (win32job) are keyed by the world, and their readers here
@@ -1194,9 +1202,15 @@ function launchScopeFor(o) {
   if (!o.account) return launchidentity.DEFAULT_WORLD_ID;
   const here = canonicalDir(o.folder);
   if (here === canonicalDir(o.account)) return launchidentity.DEFAULT_WORLD_ID;
+  const mine = LAUNCH_SCOPE_PREFIX + crypto.createHash('sha256').update(here).digest('hex').slice(0, 8);
+  // This folder's own scoped jobs come first: a restarted throwaway board keeps reading its agents even if a bare job
+  // (from a dry-run board, a tool, an older build) has landed beside them since.
+  if (o.hasScopedJob && o.hasScopedJob(here, mine)) return mine;
   if (o.hasBareJob && o.hasBareJob(here)) return launchidentity.DEFAULT_WORLD_ID;
-  return LAUNCH_SCOPE_PREFIX + crypto.createHash('sha256').update(here).digest('hex').slice(0, 8);
+  return mine;
 }
+/* Declared here, above launchScope, which reads it; setProbePlatformForTests (further down) sets it. */
+let probePlatformOverride = null;
 let launchScopeOverride = null;
 function setLaunchScopeForTests(scope) { launchScopeOverride = scope || null; }
 /* Forces only the "live" input (true, false, or null for the real answer), so a test can drive launchScope's own
@@ -1221,11 +1235,12 @@ function launchScope(worldId) {
      labels through serviceLabel too, so its own runner seam cannot give it a different label. */
   const live = launchLiveOverride !== null ? launchLiveOverride : (!runner && !DRY_RUN && liveExec.liveExecutionAllowed());
   if (!live || platform !== 'darwin') {
-    return launchScopeFor({ world, platform, live, folder, account: null, hasBareJob: folderHasBareJob });
+    return launchScopeFor({ world, platform, live, folder, account: null });
   }
   const latched = launchScopeLatch.get(folder);
   if (latched !== undefined) return latched;
-  const decided = launchScopeFor({ world, platform, live, folder, account: accountLaunchAgentsDir(), hasBareJob: folderHasBareJob });
+  const decided = launchScopeFor({ world, platform, live, folder, account: accountLaunchAgentsDir(),
+    hasScopedJob: folderHasScopedJob, hasBareJob: folderHasBareJob });
   launchScopeLatch.set(folder, decided);
   return decided;
 }
@@ -4480,7 +4495,6 @@ function nameInThisWorld(key, scope) {
 /* #5445: the platform the two fleet probes below ask (disabledJobsResult, runningJobs) when the caller names none.
    A test that drives the board on a launchctl fake pins 'darwin' here, as worldstarts.setPlatformForTests does, so a
    Linux CI runner does not send its fake systemctl questions. */
-let probePlatformOverride = null;
 function setProbePlatformForTests(platform) { probePlatformOverride = platform || null; }
 function probePlatform(platform) { return platform || probePlatformOverride || process.platform; }   // switchedOffSentence reads it too
 function disabledJobsResult(runner, platform) {   // #5445: platform injectable, as readJob's is
