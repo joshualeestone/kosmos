@@ -529,7 +529,8 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
       let at = 0;
       while (at < queue.length && (kindOf(queue[at]) === 'operator' || STOP_NOTES.has(queue[at]))) at++;
       queue.splice(at, 0, text);
-      if (running) write('(queued ahead of other waiting messages: a message from your operator; Muse is still on the last message)\n');
+      // kosmos#8864: an automatic line is queued as the person's, but named for what it is.
+      if (running) write('(queued ahead of other waiting messages: ' + (text.startsWith(AUTOMATIC_PREFIX) ? 'a line sent automatically on this computer' : 'a message from your operator') + '; Muse is still on the last message)\n');
     } else {
       queue.push(text);
       if (running) write('(queued: Muse is still on the last message)\n');
@@ -573,7 +574,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         /* Review round 4: notes are tracked by their text, so an identical note already waiting says it already;
            a second copy would leave one copy untracked. */
         const said = [];
-        if (mine.length) said.push('these messages from them, sent in between, were dropped unread: ' + mine.map((t) => '"' + shortOf(t) + '"').join(', '));
+        if (mine.length) said.push('these messages from them, sent in between, were dropped unread: ' + mine.map((t) => '"' + shortOf(t) + '"' + (t.startsWith(AUTOMATIC_PREFIX) ? ' (sent automatically, not by them)' : '')).join(', '));
         if (asked) said.push(asked + (asked === 1 ? ' message addressed to you was' : ' messages addressed to you were') + ' dropped too');
         const more = '[Kosmos: your operator asked you to stop again, and ' + said.join('; ') + '.]\n' + text;
         if (!queue.includes(more)) { STOP_NOTES.add(more); queue.push(more); received(more, at); arrive(more, at); }
@@ -590,7 +591,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     const parts = [];
     if (ended) parts.push('the turn you were on was ended');
     if (others) parts.push(others + (others === 1 ? ' other waiting message was' : ' other waiting messages were') + ' dropped');
-    if (mine.length) parts.push('these earlier messages from your operator were dropped unread: ' + mine.map((t) => '"' + shortOf(t) + '"').join(', '));
+    if (mine.length) parts.push('these earlier messages from your operator were dropped unread: ' + mine.map((t) => '"' + shortOf(t) + '"' + (t.startsWith(AUTOMATIC_PREFIX) ? ' (sent automatically, not by them)' : '')).join(', '));
     const note = '[Kosmos: your operator asked you to stop, so ' + (parts.join('; ') || 'nothing else was waiting') + '. Stop the work you were doing.]\n' + text;
     STOP_NOTES.add(note);
     queue.push(note);

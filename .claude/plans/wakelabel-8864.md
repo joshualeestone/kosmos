@@ -40,3 +40,8 @@ that does not keeps the old behaviour; nothing here can tell its POST from the p
 - Nits: the bracket now carries the person's local time as operatorDirect does; the away-digest skip is reverted (above);
   the test-order dependency is guarded by a fixture assertion and left as is.
 - Tests: 8 in server.automatic-label-8864.test.js (guard, Muse, inbox added). 190 related files: 5,129 tests, 0 failed.
+
+## Round 2 (sonnet, whole branch, blind): nothing above nit
+- Nit 2 taken: a Muse agent's queue and "dropped unread" notes named an automatic line "a message from your operator"
+  (the misattribution this card removes). They now name it as sent automatically. musefront.test.js 85/85.
+- Nit 1 not taken: the guard refuses a post quoting the bracket verbatim, as it does for every marker.
