@@ -82,7 +82,7 @@ const FILES = [
       chk(/^The file with your settings \(settings\.json\) cannot be read\. Kosmos has saved over it since it started\. The copy saved .+ is kept at settings\.json\.bak\.$/.test(note.rows[2] || ''),
         t + 'a file saved over since start says so, and where its copy is kept, with no button (review 2)', note.rows[2]);
       chk(/It holds a key or something you can take back, so Kosmos keeps no copy of it\.$/.test(note.rows[3] || ''), t + 'a file holding a secret offers no copy and says why', note.rows[3]);
-      chk(/^The file with the messages your agents sent each other \(messages\.jsonl\) has a blank stretch, as a crash can leave a file, and what was written there is lost\. Kosmos keeps adding to it after the blank stretch, so there is nothing to put back\.$/.test(note.rows[4] || ''),
+      chk(/^The file with the messages your agents sent each other \(messages\.jsonl\) has a blank stretch, as a crash can leave a file, and what was written there is lost\. Kosmos keeps adding new records to it, so there is nothing to put back\.$/.test(note.rows[4] || ''),
         t + 'kosmos#8863: an append-only record with a blank stretch says what was lost and that there is nothing to put back, never "saved over"', note.rows[4]);
       chk(note.buttons.length === 1 && /^Put back the copy saved /.test(note.buttons[0]), t + 'a put-back button only for the file still damaged, with a good copy', JSON.stringify(note.buttons));
       chk(!/—/.test(note.text), t + 'no em dash in the note');

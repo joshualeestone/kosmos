@@ -31227,8 +31227,8 @@ function start(port = PORT) {
  */
 if (require.main === module) {
   /* kosmos#7248: FIRST, before anything reads or writes a store: name any of Kosmos's own JSON stores a crash left
-     empty, NUL-filled or unreadable, in board.log and (through /api/board/damaged-files) on the screen. Reads only;
-     never fatal. Several readers treat a damaged store as empty and a later write replaces it, so this is the one
+     empty, NUL-filled or unreadable, in board.log and (through /api/board/damaged-files) on the screen. It changes
+     no store; then it writes last-good/ copies of good ones (kosmos#8863). Never fatal. Several readers treat a damaged store as empty and a later write replaces it, so this is the one
      moment the damage is still there to name. */
   {
     let base = null;

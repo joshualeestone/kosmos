@@ -9,11 +9,13 @@
  * settings, worlds.json, the sender tokens), so the only moment the damage is still there to name is before anything
  * else has read the store. An agent found one by hand after a crash (feedback, 2026-10-26).
  *
- * Which files: every .json directly in the data root, the store folders below, and the worlds registry at the base
- * (it lives above a named world's root). There is no central list of stores; this is the list.
+ * Which files: every .json directly in the data root, the store folders below, the worlds registry at the base (it
+ * lives above a named world's root), and (kosmos#8863) the data root's .jsonl records. There is no central list of
+ * stores; this is the list.
  *
- * The good copy: Kosmos keeps no backups of these files, so the only good copy there can be is one a crash left
- * behind: a write's temp file (`<file>.kosmos-<pid>-...tmp`, engine/securewrite.js) that still reads as JSON, or a
+ * The good copy (kosmos#8863): Kosmos keeps its own copy of the stores LAST_GOOD_FILES and LAST_GOOD_FOLDERS name, in
+ * last-good/, made at start and daily (keepLastGood). Besides that, a copy a crash left
+ * behind can be offered: a write's temp file (`<file>.kosmos-<pid>-...tmp`, engine/securewrite.js) that still reads as JSON, or a
  * `.bak` / `.prev` beside it. A temp file is deleted by the next write into its folder, so a good one is first copied
  * to `<file>.recovered-<when>` (a new name, never over anything) and that copy is what is offered.
  */
@@ -218,7 +220,7 @@ function scan(opts) {
   return found;
 }
 
-/** At board start: scan, and say each one in the board log. Never throws. */
+/** At board start: scan, say each damaged store in the board log, then keep the last good copies. Never throws. */
 function atStart(opts, write) {
   const say = write || ((line) => process.stderr.write(line + '\n'));
   let found = [];
@@ -228,31 +230,66 @@ function atStart(opts, write) {
       + 'Kosmos left it as it is. '
       + (d.backup ? 'A good copy saved ' + d.backup.at + ' is at ' + d.backup.file + '; the person can put it back.'
         : d.secret ? 'It holds a key or something you can take back, so Kosmos keeps no copy of it to put back.'
-          : isLog(d.abs) ? 'Kosmos keeps adding to it after the blank stretch; there is nothing to put back.' : 'No good copy of it was found.'));
+          : isLog(d.abs) ? 'Kosmos keeps adding new records to it, so there is nothing to put back.' : 'No good copy of it was found.'));
   }
   // kosmos#8863: then keep a last good copy of each store that read as good. Never fatal.
   try { keepLastGood(); } catch (err) { say('Kosmos could not keep a last good copy of its files (' + ((err && err.code) || 'an error') + ').'); }
   return found;
 }
 
-/* kosmos#8863: where the last good copy of `file` lives, or null for a store that gets none (outside the data root, a
-   secret, an append-only record, the copies themselves). */
+/* kosmos#8863: the stores Kosmos keeps a last good copy of: an ALLOWLIST, not the secret list above. That list decides
+   what may be offered; this one decides what Kosmos copies on its own and keeps, so a store is copied only when it is
+   named here. Left out on purpose: anything not in HOLDS (a store added later is not copied until someone names it),
+   the send queue (limitqueue: a copy put back would type messages again that were already delivered), and stores
+   whose older copy would undo something the person took back or tightened (removed agents, policies, limits). */
+const LAST_GOOD_FILES = new Set(Object.keys(HOLDS).filter((f) => f.endsWith('.json')
+  && !SENSITIVE_FILES.has(f) && !['removed.json', 'policy.json', 'limits.json'].includes(f)));
+const LAST_GOOD_FOLDERS = new Set(['profiles', 'commitments', 'chats', 'community', 'catalogue']);
+
+/* kosmos#8863: where the last good copy of `file` lives, or null for a store that gets none. */
 function lastGoodPath(file) {
   const r = path.relative(store.ROOT, file);
-  if (!r || r.startsWith('..') || path.isAbsolute(r) || isLog(file) || holdsSecret(file)) return null;
-  if (r.split(path.sep)[0] === LAST_GOOD) return null;
-  return path.join(store.ROOT, LAST_GOOD, r);
+  if (!r || r.startsWith('..') || path.isAbsolute(r) || !r.endsWith('.json')) return null;
+  const parts = r.split(path.sep);
+  const allowed = parts.length === 1 ? LAST_GOOD_FILES.has(parts[0]) : parts.length === 2 && LAST_GOOD_FOLDERS.has(parts[0]);
+  return allowed ? path.join(store.ROOT, LAST_GOOD, r) : null;
+}
+
+/* kosmos#8863: remove each copy whose store is gone or is no longer one that gets a copy, so a removed store's data
+   is not kept, or offered again under its name. Only files under last-good/, by name. */
+function pruneLastGood() {
+  const base = path.join(store.ROOT, LAST_GOOD);
+  const copies = [];
+  const walk = (dir, depth) => {
+    let ents = [];
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory() && depth === 0) walk(p, 1);
+      else if (e.isFile() && e.name.endsWith('.json')) copies.push(p);
+    }
+  };
+  walk(base, 0);
+  let n = 0;
+  for (const copy of copies) {
+    const src = path.join(store.ROOT, path.relative(base, copy));
+    let gone = false;
+    try { fs.lstatSync(src); } catch (err) { gone = Boolean(err && err.code === 'ENOENT'); }
+    if (gone || lastGoodPath(src) !== copy) {
+      try { fs.unlinkSync(copy); n += 1; } catch { /* the next pass tries again */ }
+    }
+  }
+  return n;
 }
 
 /**
- * kosmos#8863: copy each .json store that reads as good into last-good/, replacing that store's earlier copy. A store
- * this run found damaged is never copied, even once a reader has saved over it. Each copy is flushed and renamed into
- * place, so a crash mid-copy leaves the old copy or the new one, never a blank one, and it keeps
- * the store's own modified time, which is when what it holds was written. Returns how many were copied.
+ * kosmos#8863: copy each allowed store that reads as good into last-good/, replacing that store's earlier copy, then
+ * prune. A store this run found damaged is never copied. Each copy is flushed and renamed into place, at the store's
+ * own permissions, with the store's modified time. Returns how many were copied.
  */
 function keepLastGood() {
   const files = candidates(store.ROOT, false);
-  for (const f of Object.keys(FOLDERS)) files.push(...candidates(path.join(store.ROOT, f), false));
+  for (const f of LAST_GOOD_FOLDERS) files.push(...candidates(path.join(store.ROOT, f), false));
   let n = 0;
   for (const file of files) {
     const to = lastGoodPath(file);
@@ -263,19 +300,17 @@ function keepLastGood() {
     let buf;
     try { buf = fs.readFileSync(file); } catch { continue; }
     if (classify(buf) !== null) continue;
-    try {
-      const was = fs.statSync(to);
-      if (was.size === buf.length && was.mtimeMs === st.mtimeMs) continue;   // unchanged since the last copy
-    } catch { /* no copy yet */ }
+    // Unchanged since the last copy: compared by content, since a copied time keeps only whole milliseconds.
+    try { if (fs.readFileSync(to).equals(buf)) continue; } catch { /* no copy yet */ }
     try {
       fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });
-      // At the store's own permissions (a private store's copy is private too), flushed and renamed into place.
       if (process.platform === 'win32') require('./securewrite').writeSecret(to, buf, null, { atomicOnly: true, umaskDefault: true });
       else require('./securewrite').writeSecret(to, buf, st.mode & 0o777, { atomicOnly: true });
       fs.utimesSync(to, st.atime, st.mtime);
       n += 1;
     } catch { /* best effort: the next pass tries again */ }
   }
+  pruneLastGood();
   return n;
 }
 let lastGoodTimer = null;

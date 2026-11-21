@@ -23,10 +23,14 @@ Branch `crashcheck-8863`, worktree `~/work/kosmos-crashcheck-8863`, from origin/
    lost"). Lines are not parsed: a torn line is what an ordinary append crash or a concurrent writer leaves, and the
    readers already skip it. No repair is offered for a `.jsonl`: the board keeps appending, so the existing "saved
    since start" guard would refuse any put-back, and an older copy would drop every record since it.
-2. **A last good copy.** After the start scan, and every 24 hours, each `.json` store the scan read as GOOD (root,
-   the folders, never a sensitive one, none over 8 MB, never one this run found damaged) is copied to
-   `<data>/last-good/<same relative path>` with `store.saveFlushed` (flushed, then renamed: a crash mid-copy leaves
-   the old copy or the new, never a blank one) and given the store's own modified time. `goodCopy` offers it as a
+2. **A last good copy.** After the start scan, and every 24 hours, each ALLOWED `.json` store that reads as GOOD is
+   copied to `<data>/last-good/<same relative path>` with `securewrite.writeSecret` at the store's own mode (flushed,
+   then renamed: a crash mid-copy leaves the old copy or the new, never a blank one) and given the store's own
+   modified time. Allowed (review 1): the root stores named in HOLDS minus the secret list and minus removed.json,
+   policy.json and limits.json (an older copy would undo a removal or a tightening); the folders profiles, commitments,
+   chats, community and catalogue. Never limitqueue (a put-back copy would type delivered messages again). None over
+   8 MB, none this run found damaged. Unchanged stores are skipped by comparing content. Copies whose store is gone or
+   no longer allowed are removed in the same pass. `goodCopy` offers it as a
    candidate beside the existing `.bak` / `.prev` / temp copies, newest first, so the page's existing Put back works.
 3. **Page.** `DAMAGED_PROBLEM` gains `nulpart`.
 

@@ -60,7 +60,7 @@ test('kosmos#8863: a zeroed held-send queue, chat and message record are named; 
   });
   const msg = lines.find((l) => l.includes('messages.jsonl'));
   assert.match(msg, /has a blank stretch, as a crash can leave a file, and what was written there is lost \(it holds the messages your agents sent each other\)/);
-  assert.match(msg, /nothing to put back/);
+  assert.match(msg, /Kosmos keeps adding new records to it, so there is nothing to put back\./);
   assert.match(lines.find((l) => l.includes('limitqueue')), /it holds messages kept for an agent until its usage resets/);
   assert.equal(found.find((d) => d.file === 'messages.jsonl').backup, null, 'an append-only record is offered an older copy');
   // What the page reads: the record is marked as one the board adds to, the JSON stores are not.
@@ -106,34 +106,61 @@ test('kosmos#8863: a store found damaged this run never refreshes its copy, even
   assert.equal(fs.readFileSync(path.join(root, sc.LAST_GOOD, 'settings.json'), 'utf8'), kept, 'the saved-over empty value replaced the good copy');
 });
 
-test('kosmos#8863: no last good copy of a secret, an append-only record or a large store; profiles and queues get one', () => {
+test('kosmos#8863: only allowed stores get a last good copy; secrets, the send queue, take-backs and big stores do not', () => {
   const { root, sc } = fresh();
   put(root, 'remote.json', '{"token":"x"}');
   put(root, 'service-keys.json', '{"k":"x"}');
+  put(root, 'devkey-join-codes.json', '{"codes":["x"]}');   // not named anywhere: an unknown store is never copied
+  put(root, 'removed.json', '{"removed":["bob"]}');          // an older copy would bring a removed agent back
+  put(root, 'policy.json', '{"p":1}');
   put(root, 'messages.jsonl', '{"a":1}\n');
+  put(root, 'settings.json', '{"theme":"dark"}');
   put(root, 'profiles/alice.json', '{"name":"alice"}');
-  put(root, 'limitqueue/alice.json', '{"kept":[]}');
-  put(root, 'big.json', '[' + '0,'.repeat(4.5 * 1024 * 1024) + '0]');   // over 8 MB
+  put(root, 'chats/direct..alice.json', '{"messages":[]}');
+  put(root, 'limitqueue/alice.json', '{"kept":[]}');         // a copy put back would type delivered messages again
+  fs.mkdirSync(path.join(root, 'commitments'), { recursive: true });
+  put(root, 'commitments/big.json', '[' + '0,'.repeat(4.5 * 1024 * 1024) + '0]');   // over 8 MB
   sc.atStart({ base: root }, quiet);
   const lg = (r) => fs.existsSync(path.join(root, sc.LAST_GOOD, r));
-  assert.equal(lg('remote.json'), false, 'a secret got a copy');
-  assert.equal(lg('service-keys.json'), false, 'a secret got a copy');
-  assert.equal(lg('messages.jsonl'), false, 'an append-only record got a copy');
-  assert.equal(lg('big.json'), false, 'a store over 8 MB got a copy');
-  assert.equal(lg(path.join('profiles', 'alice.json')), true);
-  assert.equal(lg(path.join('limitqueue', 'alice.json')), true);
-  // The copies are never themselves checked or copied again.
-  assert.equal(fs.existsSync(path.join(root, sc.LAST_GOOD, sc.LAST_GOOD)), false);
+  for (const r of ['remote.json', 'service-keys.json', 'devkey-join-codes.json', 'removed.json', 'policy.json', 'messages.jsonl',
+    path.join('limitqueue', 'alice.json'), path.join('commitments', 'big.json')]) {
+    assert.equal(lg(r), false, r + ' got a last good copy');
+  }
+  for (const r of ['settings.json', path.join('profiles', 'alice.json'), path.join('chats', 'direct..alice.json')]) {
+    assert.equal(lg(r), true, r + ' got no last good copy');
+  }
+  assert.equal(fs.existsSync(path.join(root, sc.LAST_GOOD, sc.LAST_GOOD)), false, 'the copies were copied');
+});
+
+test('kosmos#8863: an unchanged store is not copied again, and a removed store loses its copy', () => {
+  const { root, sc } = fresh();
+  put(root, 'settings.json', '{"theme":"dark"}');           // an ordinary write: its time has a fraction of a millisecond
+  put(root, 'profiles/alice.json', '{"name":"alice"}');
+  put(root, path.join('profiles', 'bob.json'), '{"name":"bob"}');
+  sc.atStart({ base: root }, quiet);
+  assert.equal(sc.keepLastGood(), 0, 'an unchanged store was copied again');
+  put(root, 'settings.json', '{"theme":"light"}');
+  assert.equal(sc.keepLastGood(), 1, 'a changed store was not copied');
+  fs.unlinkSync(path.join(root, 'profiles', 'bob.json'));
+  sc.keepLastGood();
+  assert.equal(fs.existsSync(path.join(root, sc.LAST_GOOD, 'profiles', 'bob.json')), false, 'a removed store kept its copy');
+  assert.equal(fs.existsSync(path.join(root, sc.LAST_GOOD, 'profiles', 'alice.json')), true, 'CONTROL: a store still there lost its copy');
+  // A copy left from a store that is no longer allowed is removed too.
+  fs.mkdirSync(path.join(root, sc.LAST_GOOD, 'limitqueue'), { recursive: true });
+  put(root, path.join(sc.LAST_GOOD, 'limitqueue', 'alice.json'), '{"kept":[1]}');
+  put(root, 'limitqueue/alice.json', '{"kept":[]}');
+  sc.keepLastGood();
+  assert.equal(fs.existsSync(path.join(root, sc.LAST_GOOD, 'limitqueue', 'alice.json')), false, 'a copy of a store that gets none was kept');
 });
 
 test('kosmos#8863: a private store\'s copy is private too', { skip: NO_POSIX_MODES }, () => {
   const { root, sc } = fresh();
-  put(root, 'assigner-asked.json', '{"a":1}');
-  fs.chmodSync(path.join(root, 'assigner-asked.json'), 0o600);
+  put(root, 'settings.json', '{"a":1}');
+  fs.chmodSync(path.join(root, 'settings.json'), 0o600);
   put(root, 'projects.json', '{"projects":[]}');
   fs.chmodSync(path.join(root, 'projects.json'), 0o644);
   sc.atStart({ base: root }, quiet);
-  assert.equal(fs.statSync(path.join(root, sc.LAST_GOOD, 'assigner-asked.json')).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(path.join(root, sc.LAST_GOOD, 'settings.json')).mode & 0o777, 0o600);
   assert.equal(fs.statSync(path.join(root, sc.LAST_GOOD, 'projects.json')).mode & 0o777, 0o644);
   assert.equal(fs.statSync(path.join(root, sc.LAST_GOOD)).mode & 0o777, 0o700);
 });

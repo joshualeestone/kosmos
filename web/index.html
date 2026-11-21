@@ -25617,7 +25617,7 @@ function damagedRowWords(f) {
   return asSentence('the file with ' + String(f.holds || 'a record Kosmos keeps') + ' (' + f.file + ') '
     + (DAMAGED_PROBLEM[f.problem] || 'cannot be read'))
     // kosmos#8863: an append-only record is added to, never saved over, and has nothing to put back.
-    + (f.log ? ' Kosmos keeps adding to it after the blank stretch, so there is nothing to put back.'
+    + (f.log ? ' Kosmos keeps adding new records to it, so there is nothing to put back.'
       : f.savedOver ? ' Kosmos has saved over it since it started.' : ' Kosmos has not changed it.');
 }
 function paintDamagedFiles(files) {
