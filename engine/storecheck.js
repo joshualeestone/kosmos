@@ -14,9 +14,9 @@
  * stores; this is the list.
  *
  * The good copy (kosmos#8863): Kosmos keeps its own copy of the stores LAST_GOOD_FILES and LAST_GOOD_FOLDERS name, in
- * last-good/, made a minute after start and then daily (startKeepingLastGood). Besides that, a copy a crash left
- * behind can be offered: a write's temp file (`<file>.kosmos-<pid>-...tmp`, engine/securewrite.js) that still reads as JSON, or a
- * `.bak` / `.prev` beside it. A temp file is deleted by the next write into its folder, so a good one is first copied
+ * last-good/, made a minute after start and then daily (startKeepingLastGood). Besides that, a copy a crash
+ * left behind can be offered: a write's temp file (`<file>.kosmos-<pid>-...tmp`, engine/securewrite.js) that still
+ * reads as JSON, or a `.bak` / `.prev` beside it. A temp file is deleted by the next write into its folder, so a good one is first copied
  * to `<file>.recovered-<when>` (a new name, never over anything) and that copy is what is offered.
  */
 const fs = require('fs');
@@ -157,7 +157,7 @@ function candidates(dir, withLogs) {
   return out;
 }
 
-/** The newest copy beside `file` that reads as JSON and is not empty, or null. */
+/** The newest copy of `file` that reads as JSON and is not empty (beside it, or its last good copy), or null. */
 function goodCopy(file) {
   // kosmos#8863: no copy of an append-only record: the board keeps appending, and an older copy drops every record since.
   if (holdsSecret(file) || isLog(file)) return null;

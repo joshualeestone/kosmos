@@ -60,8 +60,8 @@ Branch `crashcheck-8863`, worktree `~/work/kosmos-crashcheck-8863`, from origin/
 - Review 2, deferred: a store damaged MID-RUN and then saved over as empty, which the daily pass would copy. NUL
   damage comes from the computer going down, which also restarts the board, so the start scan sees it first and that
   store is never refreshed this run. A writer outside the board failing without a flush is the residual.
-- Review 2, accepted: chats are copied too, so their text exists twice (about 1 MB on the measured board), in a 0700
-  folder at each chat's own mode; a deleted chat's copy is removed at the next pass, within a day.
+- Review 4, deferred: the start scan now also reads the chats and limitqueue files whole. Measured on a copy of a busy
+  board's stores (37 such files, 0.9 MB): the scan took 9 to 12 ms on main and 10 to 16 ms with this change.
 
 ## Done when
 
