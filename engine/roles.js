@@ -40,14 +40,12 @@ const HANDS_OFF_LINES = [
    role; Kosmos keeps no list of made-up roles. Not the setup guide: it is kept away from the person's secrets (#3769),
    and a role it wrote would give an agent without those guards instructions the guide may not act on (the server refuses
    it, team.vetAgentMember); it walks the person through New agent instead. */
-const NEW_ROLE_LINES = [
-  '  If no role on that list fits, write one, in a file named for it: run',
-  '  `kosmos agent role-draft --to role-<short-name>.md`, make it say what this',
-  '  agent is for and how it works (keep its first line, the one that starts',
-  '  `You are`, and say there what the agent is), then tell the operator the role\'s',
-  '  name and what it does, and only after they say yes run `kosmos agent create',
-  '  "<name>" --new-role "<role name>" --from role-<short-name>.md "<why>"`. To make',
-  '  another agent with that role later, use the same file.',
+/* kosmos#8735 slice 7: the PM's instructions point at those steps, which `kosmos agent --how` prints word for word
+   (engine/agentguide.js). The same confirmation comes first, said here so it never depends on the guide being read.
+   Only the PM gets this pointer; the setup guide is never taught role-writing (#3769). */
+const NEW_ROLE_POINTER = [
+  '  If no role on that list fits, `kosmos agent --how` shows how to write one;',
+  '  the same one-line confirmation comes first.',
 ];
 /* #3734: the setup guide may make agents for the person, after confirming in one line. Its verb asks
    for a one-member team (POST /api/team, #1279) with its launch token. The guide and the Project
@@ -81,7 +79,7 @@ const PM_MAKE_AGENTS_LINES = [
   '  prints. If Kosmos refuses, tell the operator its reason in plain words.',
   '  If it says the agent may have been made, look at the board before trying',
   '  again.',
-  ...NEW_ROLE_LINES,
+  ...NEW_ROLE_POINTER,
 ];
 /* The hands-off paragraph every guide was born with before #3734. An existing guide still carries it,
    so setup-assistant.refreshGuideRole replaces it with the two lists above. */

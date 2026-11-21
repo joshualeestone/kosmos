@@ -8416,6 +8416,16 @@ _refuse_if_self() {
 cmd_agent() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
+    --how)
+      # kosmos#8735 slice 7: prints engine/agentguide.js guideText, the new-role steps the PM's instructions point at.
+      # A local read, like `kosmos claim --how`: no board needed. A flag, not a subcommand (the parity test reads it so).
+      [ $# -eq 0 ] || { say "Usage: kosmos agent --how"; exit 2; }
+      local _gn _gm; _gn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+      _gm="$(kosmos_engine_module agentguide).js"   # requires nothing, so only this file can fail
+      [ -f "$_gm" ] || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+      "$_gn" -e 'process.stdout.write(require(process.argv[1]).guideText() + "\n")' "$_gm" 2>/dev/null \
+        || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+      exit 0 ;;
     ''|help|-h|--help)
       say "Usage: kosmos agent <list|create|roles|role-draft|instructions-add|move|restart|model|remove|delete-leftovers>"
       say "  kosmos agent list                               every agent on this board, its role, whether it is running, its model as its card shows it, and any unsent text or long tool call (Claude agents only), stalled delivery or restart loop Kosmos has seen, and, for one whose state Kosmos cannot tell, why"
@@ -8426,6 +8436,7 @@ cmd_agent() {
       say "                                                  zz-livecheck-<something>, which the test suites' check for stray agents skips"
       say "                                                  (<something> 19 characters at most). Remove it when you are done: that check never reports it"
       say "  kosmos agent roles [<word>]                     list the roles an agent can be made with, or those matching <word>"
+      say "  kosmos agent --how                              how to write a role of your own, when none on the list fits"
       say "  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)"
       say "  kosmos agent instructions-add \"<name>\" --from <file>"
       say "                                                  propose an addition to an agent's instructions; the person applies it"

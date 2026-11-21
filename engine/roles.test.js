@@ -117,15 +117,17 @@ test('#1279: a Project Manager can build the team, after confirming in one line;
 test('#4474: when no role fits, the PM writes one from the default text, after the same confirmation; the guide does not', () => {
   const roles = require('./roles');
   // The guide is kept away from secrets (#3769); a role it wrote would steer an agent without those guards (the server refuses it).
-  assert.doesNotMatch(roles.instructionsFor('setup', 'X').replace(/\s+/g, ' '), /role-draft|--new-role/, 'the guide was taught to write roles');
-  {
-    const key = 'pm';
-    const who = 'the operator';
-    const flat = roles.instructionsFor(key, 'X').replace(/\s+/g, ' ');
-    assert.match(flat, /If no role on that list fits, write one, in a file named for it: run `kosmos agent role-draft --to role-<short-name>\.md`/, `${key} is not told to start from the default text, in a file per role`);
-    assert.match(flat, new RegExp('then tell ' + who + ' the role\'s name and what it does, and only after they say yes run'), `${key} is not told to confirm before it makes an agent with a new role`);
-    assert.match(flat, /kosmos agent create "<name>" --new-role "<role name>" --from role-<short-name>\.md "<why>"/, `${key} is not told the new-role verb`);
-    assert.match(flat, /To make another agent with that role later, use the same file\./);
+  // kosmos#8735 slice 7 (Mona Lisa's read): the guide is not pointed at `kosmos agent --how` either.
+  assert.doesNotMatch(roles.instructionsFor('setup', 'X').replace(/\s+/g, ' '), /role-draft|--new-role|agent --how/, 'the guide was taught to write roles');
+  // kosmos#8735 slice 7: the steps moved word for word to `kosmos agent --how` (engine/agentguide.test.js asserts them
+  // there). The PM keeps a pointer and the confirmation, in its own lines only.
+  const flat = roles.instructionsFor('pm', 'X').replace(/\s+/g, ' ');
+  assert.match(flat, /If no role on that list fits, `kosmos agent --how` shows how to write one; the same one-line confirmation comes first\./, 'the PM is not pointed at the new-role steps');
+  assert.doesNotMatch(flat, /role-draft --to/, 'the new-role steps are back in the PM brief');
+  // CONTROL, the opposite arm: only the PM is pointed at the guide.
+  for (const r of roles.ROLES) {
+    if (r.key === 'pm') continue;
+    assert.doesNotMatch(roles.instructionsFor(r.key, 'X').replace(/\s+/g, ' '), /kosmos agent --how/, `role ${r.key} was pointed at the new-role steps`);
   }
 });
 
