@@ -8,14 +8,21 @@ real `com.kosmos.agent.<name>` jobs in the account's one launchd domain, beside 
   - A named world: its own id, unchanged (#1704).
   - The default world: `default` (bare labels, today's) unless ALL of: the platform is macOS (Linux units and
     Windows tasks stay keyed by the world, and so do their readers); run() is really live (the live-execution gate
-    is open AND no runner seam is installed); and the agent job folder (`agentsDir()`) is not the account's real
-    `~/Library/LaunchAgents` (from `os.userInfo().homedir`, not HOME). Then `launch-<first 8 hex of sha256(folder)>`.
+    is open, no runner seam is installed, and dry-run is off); the agent job folder (`agentsDir()`) is not the account's real
+    `~/Library/LaunchAgents` (from `os.userInfo().homedir`, not HOME); and the folder holds no bare-labelled agent
+    job (`folderHasBareJob`). Then `launch-<first 8 hex of sha256(folder)>`.
+  - The decision is the pure `launchScopeFor(inputs)`; `launchScope()` gathers the inputs. A test process can never
+    be really live (it has a runner, or `setRunner(null)` turned dry-run on), so the arms are tested through it.
+  - The bare-job guard keeps bare labels for a folder already holding a bare job: a real board whose HOME is not the
+    account record's spelling (it would otherwise rename its jobs and start a second set), a throwaway board made
+    before this change, and jobs a tool seeded in another process (docs/browser-checks/mobile-shots.js seeds bare
+    plists, then starts a dry-run board).
   - Folders are compared and hashed in their on-disk spelling (`canonicalDir`: realpath, or the nearest existing
     parent plus the rest), so a symlinked or differently cased path to the real folder is never scoped, and a
     throwaway folder's label does not change when the folder is first created.
   - An unreadable account record keeps `default`: renaming a real board's jobs would orphan them.
   - `setLaunchScopeForTests` forces the scope, because any runner turns scoping off and the readers can only be
-    tested through a runner. Excused in `engine.reachable.test.js`.
+    tested through a runner. It and `launchScopeFor` are excused in `engine.reachable.test.js`.
 - `serviceLabel` builds on `launchScope`. The three places that read labels back into "this board's agents" compare
   with `launchScope()` instead of `currentWorldId()`: `nameInThisWorld` (create.js, the launchd fleet probes),
   `createdroster` (the created-never-run roster) and `register` (the reconcile listing).
@@ -35,13 +42,13 @@ real `com.kosmos.agent.<name>` jobs in the account's one launchd domain, beside 
   follow-up if a throwaway board ever runs there beside a real one.
 
 ## Tests
-- `engine/launchscope-8860.test.js`: control (the real folder, by AGENT_WORKFORCE_LAUNCH and by HOME, keeps
-  `com.kosmos.agent.ava`); a throwaway folder gets `ava+launch-<8 hex>`, never the real label, and parses back into
-  its own scope; HOME-only throwaway is scoped; two folders differ, one is stable; a named world is unchanged;
-  control: a dry run keeps the bare label.
-- `engine/launchscope-8860.test.js` also: Linux keeps the bare key; a symlink to the real folder keeps it (skipped
-  where the account has no ~/Library/LaunchAgents); a folder's label is the same before and after it is created; the
-  launchd fleet probes (`runningJobs`, `disabledJobs`) read only this board's scope, control both ways.
+- `engine/launchscope-8860.test.js`, through `launchScopeFor`: control (the account's folder keeps `default`); a
+  throwaway folder is scoped; each arm keeps `default` alone (not live, Linux, Windows, unreadable account, a bare
+  job in the folder); a named world is unchanged; two folders differ and one is stable; a folder's scope is the same
+  before and after it exists; a symlink to the account's folder is not scoped; a real bare job in the folder keeps
+  `default` while a scoped one does not. End to end: this test process (not live) keeps bare labels for a temporary
+  folder; a scoped board's serviceLabel / plistPath / parseServiceLabel round-trip; the launchd fleet probes
+  (`runningJobs`, `disabledJobs`) read only this board's scope, control both ways.
 - `engine/createdroster.test.js`: a throwaway board rosters its own scoped job and drops the real board's bare one;
   control the other way.
 - `engine/register.test.js`: the stray survey sees only this board's scope's jobs, control both ways.
@@ -57,8 +64,17 @@ this board before `allowLiveExecution()` runs in `start()`. Read: the sweeps bef
 run on timers, and requests that arrive before it would see bare labels, but nothing can reach launchd before the
 gate opens either. A board whose label is built in that window and cached would mix the two.
 
+Also known and accepted (review 3):
+- Another process acting for a throwaway board that requires create.js without opening the gate (a CLI tool that
+  loads the engine) computes bare labels while the board uses scoped ones. Throwaway boards only.
+- `install/setup.sh`'s uninstall derives a tmux session name from the label; for a scoped label it misses the session
+  (`<name>`, not `<name>+launch-...`), and the sweep after it catches leftovers. Throwaway boards only.
+- `launch-<hex>` shares the world-id namespace: a named world called exactly `launch-<8 hex>` would collide with a
+  throwaway scope. Theoretical; worlds are named by people.
+
 ## Upgrade
 A throwaway board started before this change has bare-label jobs; after the change it reads them as another board's.
-Its removed-agent records also carry bare labels, so `reapplyRemovedDisables` (remove.js) no longer matches them and
-does not re-apply their disable. Accepted: throwaway boards are torn down, not upgraded. Tear such a board down with
+With the bare-job guard, a folder still holding such a job keeps bare labels, so the old board keeps working as it
+did. Once all its bare jobs are gone it scopes, and its old removed-agent records (bare labels) no longer match in
+`reapplyRemovedDisables` (remove.js). Accepted: throwaway boards are torn down, not upgraded. Tear such a board down with
 the old procedure (stop it, then `launchctl remove`). Real boards are unchanged.

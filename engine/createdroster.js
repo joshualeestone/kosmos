@@ -64,8 +64,8 @@ const fs = require('node:fs');
  *
  * @param {object} [opts]
  * @param {object} [opts.create] the create module (default the real one),
- *   injectable for tests. Uses AGENTS_DIR, serviceLabel, readJob, workerDir,
- *   cleanName.
+ *   injectable for tests. Uses AGENTS_DIR, SERVICE_LABEL_PREFIX, parseServiceLabel,
+ *   launchScope, readJob, workerDir, cleanName.
  * @param {object} [opts.remove] the remove module (default the real one). Uses
  *   removedNames.
  * @param {object} [opts.status] the status module (default the real one). Uses
@@ -87,7 +87,6 @@ function make(opts) {
   const remove = o.remove || require('./remove');
   const status = o.status || require('./status');
   const store = o.store || require('./store');
-  const launchidentity = o.launchidentity || require('./launchidentity'); // #1704: this board's Kosmos
   // #5445 (display parity): on Linux the jobs are systemd user units, not plists (linuxjob.listUnits).
   const platform = o.platform || process.platform;
   const linuxjob = o.linuxjob || (platform === 'linux' ? require('./linuxjob') : null);
