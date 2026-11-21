@@ -1096,3 +1096,19 @@ test('#6714 review 17: a closed "could not check" notice does not hide the "will
   assert.equal(register.hide('brigitte', { platform: 'darwin' }).ok, true);
   assert.deepEqual(mac.survey().missing, []);
 });
+
+test('#8860 a throwaway board reconciles its OWN scoped jobs and not the real board\'s bare ones', { skip: skipOnWin32('it drives the macOS arm (platform darwin)') }, () => {
+  /* A throwaway board labels its agents `<name>+launch-<hash>`; the account's one LaunchAgents domain also holds the
+     real board's bare labels. Each board's stray survey must see only its own. */
+  reset();
+  fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+  for (const label of ['com.kosmos.agent.mine+launch-0a1b2c3d', 'com.kosmos.agent.theirs']) {
+    fs.writeFileSync(path.join(create.AGENTS_DIR, `${label}.plist`), '<plist/>', 'utf8');
+  }
+  const strayJobs = () => mac.survey().agents.filter((a) => a.job && !a.profile).map((a) => a.name).sort();
+  create.setLaunchScopeForTests('launch-0a1b2c3d');
+  try {
+    assert.deepEqual(strayJobs(), ['mine'], 'the throwaway board sees its own job and leaves the real board\'s alone');
+  } finally { create.setLaunchScopeForTests(null); }
+  assert.deepEqual(strayJobs(), ['theirs'], 'control: the default board sees the bare job, not the throwaway\'s');
+});

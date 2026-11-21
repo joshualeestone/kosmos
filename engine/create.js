@@ -1153,15 +1153,37 @@ const LAUNCH_SCOPE_PREFIX = 'launch-';
 function accountLaunchAgentsDir() {
   try { return path.join(os.userInfo().homedir, 'Library', 'LaunchAgents'); } catch { return null; }
 }
+/* A folder in its on-disk spelling (case, symlinks), so `/USERS/x` and a symlinked HOME compare equal to the account's
+   folder on a case-insensitive volume. A folder not made yet is spelled from its nearest existing parent, so a
+   throwaway board's label does not change when its job folder is first created. */
+function canonicalDir(dir) {
+  let head = path.resolve(dir);
+  const tail = [];
+  for (;;) {
+    try { return path.join(fs.realpathSync.native(head), ...tail); } catch { /* not there yet: one level up */ }
+    const up = path.dirname(head);
+    if (up === head) return path.resolve(dir);
+    tail.unshift(path.basename(head));
+    head = up;
+  }
+}
+let launchScopeOverride = null;
+function setLaunchScopeForTests(scope) { launchScopeOverride = scope || null; }
 function launchScope(worldId) {
   const world = worldId === undefined ? launchidentity.currentWorldId() : worldId;
   if (!launchidentity.isDefaultWorld(world)) return String(world);
-  // Live means run() would really call launchctl: the gate is open and no test runner stands in for it.
+  if (launchScopeOverride) return launchScopeOverride;
+  // macOS only: Linux units (linuxjob) and Windows tasks (win32job) are keyed by the world, and their readers here
+  // (nameInThisWorld on a unit key) must keep comparing with that.
+  if (probePlatform() !== 'darwin') return launchidentity.DEFAULT_WORLD_ID;
+  // Live means run() would really call launchctl: the gate is open and no test runner stands in for it. remove.js
+  // builds its labels through serviceLabel too, so its own runner seam cannot give it a different label.
   if (runner || !liveExec.liveExecutionAllowed()) return launchidentity.DEFAULT_WORLD_ID;
-  const here = path.resolve(agentsDir());
   const real = accountLaunchAgentsDir();
   // An account record that cannot be read keeps today's bare labels: renaming a real board's jobs would orphan them.
-  if (!real || here === path.resolve(real)) return launchidentity.DEFAULT_WORLD_ID;
+  if (!real) return launchidentity.DEFAULT_WORLD_ID;
+  const here = canonicalDir(agentsDir());
+  if (here === canonicalDir(real)) return launchidentity.DEFAULT_WORLD_ID;
   return LAUNCH_SCOPE_PREFIX + require('node:crypto').createHash('sha256').update(here).digest('hex').slice(0, 8);
 }
 function serviceLabel(name, worldId) {
@@ -4071,10 +4093,12 @@ function boardPort() {
 }
 
 function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
-  /* #1704: the Kosmos this agent belongs to is the board's own world. The launchd
-     label and the tmux session name are BOTH keyed by it (launchidentity.launchKey),
-     so a named world's agent is `com.kosmos.agent.<name>+<world>` with a tmux session
-     `<name>+<world>`, and the default world's are byte-for-byte what they were. */
+  /* #1704: the Kosmos this agent belongs to is the board's own world. The tmux
+     session name is keyed by it (launchidentity.launchKey), so a named world's agent
+     runs in session `<name>+<world>`. The launchd label is keyed by serviceLabel's
+     scope, which is the same world except on a live throwaway board whose job folder
+     is not the account's LaunchAgents (kosmos#8860): there it is `<name>+launch-<hash>`
+     while the session stays `<name>`. */
   const world = launchidentity.currentWorldId();
   const label = serviceLabel(name, world);
   const session = launchidentity.launchKey(name, world);
@@ -4395,8 +4419,10 @@ function binPaths(opts) {
    answer in the agent names of THIS board's Kosmos, dropping every other
    Kosmos's keys, so a caller can ask `.has(name)` and never read another world's
    agent. The one filter both probes share (launchidentity.nameInWorld). */
-function nameInThisWorld(key) {
-  return launchidentity.nameInWorld(key, launchScope());   // #8860: this board's label scope, not only its world
+function nameInThisWorld(key, scope) {
+  // #8860: this board's LABEL scope (its world, or its job folder's on a throwaway board). A probe reads it once and
+  // passes it in, rather than resolving the folder again for every line launchctl prints.
+  return launchidentity.nameInWorld(key, scope === undefined ? launchScope() : scope);
 }
 
 /* #2977: the SAME probe, but it says whether it could look. `disabledJobs` below
@@ -4434,8 +4460,9 @@ function disabledJobsResult(runner, platform) {   // #5445: platform injectable,
     if (out && out.ok === false) return { ok: false };
     const text = String((out && out.stdout) || '');
     const names = new Set();
+    const scope = launchScope();
     for (const m of text.matchAll(/"com\.kosmos\.agent\.([^"]+)"\s*=>\s*(?:true|disabled)/g)) {
-      const name = nameInThisWorld(m[1]);
+      const name = nameInThisWorld(m[1], scope);
       if (name !== null) names.add(name);
     }
     return { ok: true, jobs: names };
@@ -4506,9 +4533,10 @@ function runningJobs(platform, opts) {
     const out = run('/bin/launchctl', ['list']);
     const text = String((out && out.stdout) || '');
     const names = new Set();
+    const scope = launchScope();
     for (const m of text.matchAll(/^(\d+)\t\S+\tcom\.kosmos\.agent\.(.+)$/gm)) {
       if (Number(m[1]) <= 0) continue;
-      const name = nameInThisWorld(m[2]);
+      const name = nameInThisWorld(m[2], scope);
       if (name !== null) names.add(name);
     }
     return names;
@@ -8122,6 +8150,7 @@ module.exports = {
   serviceLabel,
   SERVICE_LABEL_PREFIX,
   launchScope,
+  setLaunchScopeForTests,
   parseServiceLabel,
   workerDir,
   workersDir,   // #4896: discover's one-folder rule asks whether a folder is a created agent's default home

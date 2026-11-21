@@ -142,8 +142,8 @@ function make(opts) {
     const seen = new Set();
     const out = [];
     for (const parsed of jobs) {
-      /* #1704: this board rosters ONLY its own world (a default board drops `*+*`, a named board keeps only its
-         own), and `name` is the BARE agent name -- never the `<name>+<world>` key -- so readJob/workerDir/safeKey
+      /* #1704 / #8860: this board rosters ONLY its own label scope (a default board drops `*+*`, a named board keeps
+         only its own world, a throwaway board only its `+launch-<hash>`), and `name` is the BARE agent name -- never the `<name>+<world>` key -- so readJob/workerDir/safeKey
          below re-key it correctly to this world instead of double-keying it. */
       if (!parsed || parsed.worldId !== myWorld) continue;
       const name = parsed.name;

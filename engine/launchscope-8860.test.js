@@ -21,7 +21,10 @@ function withEnv(set, fn) {
   const saved = {};
   for (const k of VARS) saved[k] = process.env[k];
   try {
-    if (set.live) liveExec.allowLiveExecution();   // only a label building call runs under it: nothing reaches launchctl
+    if (set.live) {
+      liveExec.allowLiveExecution();   // only a label building call runs under it: nothing reaches launchctl
+      create.setProbePlatformForTests(set.platform || 'darwin');   // the macOS arm on any runner
+    }
     for (const k of VARS) {
       if (Object.prototype.hasOwnProperty.call(set, k)) {
         if (set[k] === undefined) delete process.env[k]; else process.env[k] = set[k];
@@ -29,7 +32,7 @@ function withEnv(set, fn) {
     }
     return fn();
   } finally {
-    if (set.live) liveExec.resetForTests();
+    if (set.live) { liveExec.resetForTests(); create.setProbePlatformForTests(null); }
     for (const k of VARS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
   }
 }
@@ -86,4 +89,40 @@ test('CONTROL: with live execution not allowed (a test or dry run) a temporary j
   const dir = tmp('dry');
   const label = withEnv({ AGENT_WORKFORCE_LAUNCH: dir, KOSMOS_WORLD: undefined }, () => create.serviceLabel('ava'));
   assert.equal(label, 'com.kosmos.agent.ava', 'nothing can reach launchd here, so the suite keeps the labels it asserts');
+});
+
+test('on Linux (systemd units, keyed by the world) a throwaway job folder keeps the bare key', () => {
+  const dir = tmp('linux');
+  const label = withEnv({ live: true, platform: 'linux', AGENT_WORKFORCE_LAUNCH: dir, KOSMOS_WORLD: undefined }, () => create.serviceLabel('ava'));
+  assert.equal(label, 'com.kosmos.agent.ava', 'the scope is the Mac arm only; Linux readers compare unit keys with the world');
+});
+
+test('a folder that IS the account\'s LaunchAgents by another spelling (a symlink) keeps the bare label', () => {
+  const link = path.join(tmp('link'), 'la');
+  fs.symlinkSync(REAL_LAUNCH, link);
+  const label = withEnv({ live: true, AGENT_WORKFORCE_LAUNCH: link, KOSMOS_WORLD: undefined }, () => create.serviceLabel('ava'));
+  assert.equal(label, 'com.kosmos.agent.ava', 'compared in its on-disk spelling, so a real board reached by another path is never renamed');
+});
+
+test('a throwaway board\'s label does not change when its job folder is first created', () => {
+  const dir = path.join(tmp('later'), 'not-made-yet');
+  const at = () => withEnv({ live: true, AGENT_WORKFORCE_LAUNCH: dir, KOSMOS_WORLD: undefined }, () => create.serviceLabel('ava'));
+  const before = at();
+  fs.mkdirSync(dir);
+  assert.match(before, SCOPED);
+  assert.equal(at(), before, 'spelled from its nearest existing parent, so /tmp and /private/tmp do not split it');
+});
+
+test('the launchd fleet probes answer in this board\'s scope: a throwaway board reads its own jobs, not the real board\'s', () => {
+  const list = '123\t0\tcom.kosmos.agent.mine+launch-0a1b2c3d\n124\t0\tcom.kosmos.agent.theirs\n';
+  const off = '\t"com.kosmos.agent.mine+launch-0a1b2c3d" => disabled\n\t"com.kosmos.agent.theirs" => disabled\n';
+  create.setRunner((file, args) => ({ ok: true, stdout: args[0] === 'list' ? list : off }));
+  try {
+    create.setLaunchScopeForTests('launch-0a1b2c3d');
+    assert.deepEqual([...create.runningJobs('darwin')], ['mine']);
+    assert.deepEqual([...create.disabledJobs('darwin')], ['mine']);
+    create.setLaunchScopeForTests(null);
+    assert.deepEqual([...create.runningJobs('darwin')], ['theirs'], 'control: the real board reads the bare job');
+    assert.deepEqual([...create.disabledJobs('darwin')], ['theirs']);
+  } finally { create.setLaunchScopeForTests(null); create.setRunner(null); }
 });

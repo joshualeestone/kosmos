@@ -582,8 +582,9 @@ function strays(profileNames, jobs) {
       const myWorld = create.launchScope();   // #8860: the scope this board's labels carry (its world, or its job folder)
       for (const f of readRoot(create.AGENTS_DIR)) {
         if (!f.endsWith('.plist')) continue;
-        /* #1704: the LaunchAgents folder holds every Kosmos's agents; a board
-           reconciles only its own world's, and note() is keyed on the BARE agent
+        /* #1704 / #8860: the LaunchAgents folder holds every Kosmos's agents; a board
+           reconciles only its own label scope's (its world, or a throwaway board's
+           `+launch-<hash>`), and note() is keyed on the BARE agent
            name (NAME_RE rejects the `+` in a launch key anyway). */
         const parsed = create.parseServiceLabel(f.slice(0, f.length - '.plist'.length));
         if (!parsed || parsed.worldId !== myWorld) continue;
