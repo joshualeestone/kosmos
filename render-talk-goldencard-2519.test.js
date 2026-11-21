@@ -1002,6 +1002,9 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
       'neverTurned',
       /* #7915: whether the agent's own question is held until the person is back. One boolean, nothing identifying. */
       'stateHeld',
+      /* kosmos#8846: how many background shell jobs the agent's footer says are running. A small count read off the
+         agent's own screen, nothing identifying (0 on a fleet card), passed through. */
+      'backgroundShells',
     ];
     const PINNED_BOOLEAN = ['hasAvatar'];
     /* #2698: avatarVer is a PINNED NUMBER (category 1), forced to a constant in
