@@ -95,6 +95,10 @@ const CASES = {
     { kind: 'move', at: now - 10 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', outcome: 'changed', why: WHY }] } },
   /* Review round 6: a moving board waiting for its record, and a moving board's move lines (a usage move, and one off a
      stopped login, which the mover leaves). */
+  /* kosmos#8841: an off set in how Kosmos starts is named, for moves, usage readings and the record each. */
+  offOutMoves: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, offOutside: { readings: false, record: false, moves: true }, recent: [] } },
+  offOutReadings: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: false, offOutside: { readings: true, record: false, moves: false }, recent: [] } },
+  offOutRecord: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: false, offOutside: { readings: false, record: true, moves: false }, recent: [] } },
   movingPaused: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, moving: true, movePaused: 'record', recent: [] } },
   /* kosmos#7621 review 1: a held account whose login stopped, while moving: the mover leaves it to the person. */
   movingHeldLogin: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [{ from: '/home/.claude-full', why: 'its login has stopped working' }], short: [], recording: true, moving: true, recent: [],
@@ -309,6 +313,13 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         tag + ' kosmos#8048: a hold because the agents would lose skills or hooks is said, one line per account, markup shown as text', JSON.stringify(hl));
       say(r.heldLoss && !r.heldLoss.recentMarkup, tag + ' kosmos#8048: a label with markup in a hold line is shown as text', '');
       say(r.movingOff && r.movingOff.recent[0] === NONE, tag + ' CONTROL: without moving, it does not say it moves', JSON.stringify(r.movingOff && r.movingOff.recent));
+      /* kosmos#8841 */
+      say(r.offOutMoves && r.offOutMoves.recent[0] === 'Kosmos does not move agents on this computer, because automatic moves are switched off in how Kosmos starts on this computer. The switch here cannot turn them back on. It keeps a record of what it would have moved.',
+        tag + ' kosmos#8841: moves switched off in how Kosmos starts are named as the reason', JSON.stringify(r.offOutMoves && r.offOutMoves.recent));
+      say(r.offOutReadings && r.offOutReadings.recent.length === 1 && r.offOutReadings.recent[0] === 'Kosmos is not keeping a record of what it would move on this computer, because usage readings are switched off in how Kosmos starts on this computer. The switch here cannot turn them back on.',
+        tag + ' kosmos#8841: usage readings switched off in how Kosmos starts are named as the reason nothing is recorded', JSON.stringify(r.offOutReadings && r.offOutReadings.recent));
+      say(r.offOutRecord && r.offOutRecord.recent.length === 1 && r.offOutRecord.recent[0] === 'Kosmos is not keeping a record of what it would move on this computer, because that record is switched off in how Kosmos starts on this computer. The switch here cannot turn it back on.',
+        tag + ' kosmos#8841: the record switched off in how Kosmos starts is named as the record', JSON.stringify(r.offOutRecord && r.offOutRecord.recent));
       /* Review round 6 */
       say(r.movedThenOff && r.movedThenOff.recent[0] === 'Kosmos is not moving agents on this computer now. It keeps a record of what it would have moved.' && /Kosmos moved Ada/.test(r.movedThenOff.recent[2] || ''),
         tag + ' moves switched off after a run: the header does not say "not yet" above a move', JSON.stringify(r.movedThenOff && r.movedThenOff.recent));
