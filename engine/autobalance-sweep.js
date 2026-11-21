@@ -164,7 +164,15 @@ function create({ file, nowMs = Date.now() }) {
        line is true as written: with those accounts unmeasured, this is the decision. It stays the decision while they
        stay unmeasured, and the next line, once they are measured again, says what changed. Reviews 16 and 17 tried
        carrying the unmeasured account's old entries instead; that kept old reasons alive past their reset. */
-    const unmeasured = new Set(rows.filter((r) => r.measured === false).map((r) => r.dir));
+    /* kosmos#8846 review 3: an account the usage poll chose not to read is RESTING, not unmeasured: it has no agents on
+       it, the last decision did not name it, and no account with agents on it is at risk for usage (usagepoll.planPoll
+       reads empty accounts only then). Counting it kept a calm board saying "could not check everything" forever. */
+    const namedBefore = new Set(state.last ? [...state.last.atRisk.map((x) => x.from), ...state.last.moves.map((x) => x.to), ...(state.last.unmeasured || [])] : []);
+    const byDir = new Map(rows.map((r) => [r.dir, r]));
+    const noAgents = (r) => !!r && !!r.agentsHere && r.agentsHere.complete === true && Array.isArray(r.agentsHere.names) && r.agentsHere.names.length === 0;
+    const busyAtRisk = decision.atRisk.some((x) => x && x.kind === 'usage' && !noAgents(byDir.get(x.from)));
+    const resting = (r) => noAgents(r) && !namedBefore.has(r.dir) && !busyAtRisk;
+    const unmeasured = new Set(rows.filter((r) => r.measured === false && !resting(r)).map((r) => r.dir));
     state.unmeasuredNow = [...unmeasured].sort();   // review 22: every account not measured this tick, named or not
     const named = state.last ? [...state.last.atRisk.map((x) => x.from), ...state.last.moves.map((x) => x.to), ...(state.last.unmeasured || [])] : [];
     const gapDirs = [...new Set(named.filter((dir) => unmeasured.has(dir)))];

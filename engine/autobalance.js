@@ -298,7 +298,7 @@ function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
     try { here = agentsOn(a.dir, a.isDefault === true) || here; } catch { here = { names: [], complete: false }; }
     out.push({ provider: 'anthropic', dir: a.dir, label: a.label || null, isDefault: a.isDefault === true,
       email: a.email || null, organization: a.organization || null, memoryShared: a.memoryShared === true, apiKey: false,
-      /* Review 9: the figures whatever the latest state. readUsage has already aged them out (30 minutes), and slice 1
+      /* Review 9: the figures whatever the latest state. readUsage has already aged them out (FRESH_MS, 90 minutes since kosmos#8846), and slice 1
          keeps the last good ones through a failed read on purpose, so one network blip does not empty the decision. The
          badge alone says whether the latest read worked, and only a 'working' one is ever a target. */
       connection: { badge }, weekly: rec ? ms(rec.weekly) : null, fiveHour: rec ? ms(rec.fiveHour) : null, agentsHere: here,

@@ -46,3 +46,23 @@ test('kosmos#8846 review 2: through the board\'s wiring, the Settings switch off
   const named = server._usagePollPlanForTest(list, run({ atRisk: [], moves: [{ to: list[1].dir }], unmeasured: [] }));
   assert.deepEqual(named.asked.map((a) => a.label), ['b'], 'a named target was not asked');
 });
+
+/* Review 3: the busy path through the real agents walk. One agent of ours with no account folder of its own runs on the
+   default account, so the default account is busy by the board's own walk. */
+test('kosmos#8846 review 3: through the real walk, a busy account at risk gets its targets read; the triggered read skips it', () => {
+  setting.write({ on: true });
+  const fleet = require('./test-support/fleet');
+  fleet.install([fleet.agent('ada', { state: 'idle' })]);
+  /* The walk counts an agent by its launch job; one with no account folder runs on the default account. */
+  const jobfix = require('./test-support/jobfixture');
+  fs.mkdirSync(path.dirname(jobfix.jobPath('ada')), { recursive: true });
+  fs.writeFileSync(jobfix.jobPath('ada'), jobfix.jobFor('ada', '/usr/local/bin/claude', '/opt/homebrew/bin/tmux', null, null, 'claude'), 'utf8');
+  const withDefault = [{ dir: path.join(SANDBOX, 'home', '.claude'), isDefault: true, label: null, email: 'd@example.test' }, ...list];
+  const calm = server._usagePollPlanForTest(withDefault, run(null));
+  assert.deepEqual(calm.asked.map((a) => a.isDefault === true), [true], 'the real walk did not see the agent on the default account, or an empty one was asked');
+  const risk = server._usagePollPlanForTest(withDefault, run({ atRisk: [{ from: withDefault[0].dir, kind: 'usage' }], moves: [], unmeasured: [] }));
+  assert.equal(risk.needTargets, true, 'a busy account at risk, by the real walk, did not need targets');
+  assert.deepEqual(risk.asked.map((a) => a.label), [null, 'a', 'b'], 'the empty targets were not asked');
+  const trig = server._usagePollPlanForTest(withDefault, run({ atRisk: [{ from: withDefault[0].dir, kind: 'usage' }], moves: [], unmeasured: [] }), { emptyOnly: true });
+  assert.deepEqual(trig.asked.map((a) => a.label), ['a', 'b'], 'the triggered read asked the busy account again');
+});

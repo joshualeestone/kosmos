@@ -65,11 +65,12 @@ const BACKOFF_MS = 6 * 60 * 60 * 1000;
      organization when the folder names one), and another login's token. Only a 5xx or no answer is read again on the
      next sweep. A state from a sweep that sent nothing (no credential, an expired token, no email listed) is not a
      refusal.
-   - A refusal holds the account for BACKOFF_MS (six hours since kosmos#8846; "the hour" below), for the login that was refused (a new login is read at once), and for
+   - A refusal holds the account for BACKOFF_MS (six hours since kosmos#8846; it was an hour, and "its hour" below
+     means BACKOFF_MS), for the login that was refused (a new login is read at once), and for
      the token that was refused (identified by its expiry time, not a secret), except a 429, which is the account's
      rate limit and holds across a renewed token. A credential with no expiry time cannot be told from its renewal,
-     so it is held for the hour (review 25: errs to fewer requests).
-   - A clock that steps back inside the hour still holds; a refusal stamped more than an hour away either way has
+     so it is held for the whole BACKOFF_MS (review 25: errs to fewer requests).
+   - A clock that steps back inside BACKOFF_MS still holds; a refusal stamped more than BACKOFF_MS away either way has
      expired (review 18).
    - The refusal is kept in memory as well as in the record; a copy still within its hour wins, and between two such
      copies the newer (review 23), so a folder that cannot be
@@ -133,7 +134,7 @@ function accountsToPoll(list, { hasAgents, needTargets = false, also = null } = 
      an unmeasured one can become measured (otherwise Settings would say it is unmeasured forever).
    `last`: the sweep's state.last ({ atRisk, moves, unmeasured }); `hasAgents(a)` as accountsToPoll. Returns
    { asked, needTargets, off }. */
-function planPoll({ list, last = null, lastDid = null, settingOn = false, hasAgents } = {}) {
+function planPoll({ list, last = null, lastDid = null, settingOn = false, hasAgents, emptyOnly = false } = {}) {
   const rows = (Array.isArray(list) ? list : []).filter((a) => a && typeof a === 'object' && a.apiKey !== true);
   if (settingOn !== true) return { asked: [], needTargets: false, off: true };
   const byDir = new Map(rows.map((a) => [a.dir, a]));
@@ -143,9 +144,18 @@ function planPoll({ list, last = null, lastDid = null, settingOn = false, hasAge
     try { return typeof hasAgents === 'function' ? hasAgents(a) !== false : true; } catch { return true; }
   };
   const arr = (x) => (Array.isArray(x) ? x : []);
-  const needTargets = lastDid !== 'off' && !!last && arr(last.atRisk).some((x) => x && busy(x.from));
-  const also = new Set([...arr(last && last.moves).map((m) => m && m.to), ...arr(last && last.unmeasured)].filter((d) => typeof d === 'string'));
-  return { asked: accountsToPoll(rows, { hasAgents, needTargets, also }), needTargets, off: false };
+  /* Review 3: usage risk only. The mover moves for usage; a login that stopped needs a person, not a target, and counting
+     it kept every empty account polled for as long as nobody signed it back in. */
+  const needTargets = lastDid !== 'off' && !!last && arr(last.atRisk).some((x) => x && x.kind === 'usage' && busy(x.from));
+  /* Review 3: and an account the last decision names as at risk, so an emptied account at risk stays measured rather
+     than lapsing into a gap and back every few hours. One account, one request a poll. */
+  const also = new Set([...arr(last && last.moves).map((m) => m && m.to), ...arr(last && last.unmeasured), ...arr(last && last.atRisk).map((x) => x && x.from)]
+    .filter((d) => typeof d === 'string'));
+  let asked = accountsToPoll(rows, { hasAgents, needTargets, also });
+  /* Review 3: the read a sweep triggers when targets are first needed asks only the accounts with no agents (the ones
+     the timed poll skipped); the busy ones were read by the timed poll, and asking again would send their tokens twice. */
+  if (emptyOnly === true) asked = asked.filter((a) => { try { return typeof hasAgents === 'function' && hasAgents(a) === false; } catch { return false; } });
+  return { asked, needTargets, off: false };
 }
 /* A week cannot reset further out than this; a reset beyond it is a bad answer, not a reading. */
 const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
@@ -170,7 +180,7 @@ const WEEK_MAX_AHEAD_SECONDS = 8 * 86400;
    nothing at all with one account." So it is ON with no variable once two or more Claude subscription accounts are
    linked, and off with one. AGENT_WORKFORCE_USAGE_POLL=1 still forces it on (a one-account test board, an operator);
    AGENT_WORKFORCE_USAGE_POLL_OFF=1 is still the brake. The Settings switch is the sweep's (autobalance-setting), so the
-   person's switch stops the decision and the moves; this reader keeps the account readings Settings shows.
+   person's switch stops the decision, the moves, and (review 2) this reader too: server.js usagePollPlan asks nothing while it is off.
    ⚠️ Review 19's risk is NOT retired by this: the default now sends each linked account's token to the undocumented
    endpoint every POLL_MS. The ruling decides the default; the risk is carried on #8846. */
 const LINKED_CACHE_MS = 60 * 1000;
@@ -428,7 +438,7 @@ async function pollAll(list, deps = {}) {
       if (!rec.org && typeof org === 'string' && org) rec.org = org;   // review 11: and in which organization (review 13: the profile's first)
       /* Review 3: each window carries when its figure last CHANGED, as the status line's `at` means (it is written
          only when the figure moves). A read that finds the same figure and reset keeps the earlier changedAt, so an
-         idle account does not claim a fresh change every ten minutes, and accountsweekly compares like with like. */
+         idle account does not claim a fresh change at every poll, and accountsweekly compares like with like. */
       const prev = readRaw(a.dir);
       for (const key of ['weekly', 'fiveHour']) {
         const w = rec[key];

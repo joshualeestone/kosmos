@@ -3431,7 +3431,7 @@ function autobalanceSweepOffWhy() {
 /* kosmos#8846 review 2: the board's poll plan (engine/usagepoll.js planPoll) from its real wiring: the account list given,
    the sweep's last decision and what its last tick did, the Settings switch, and the agents walk. A function, so a test
    runs it against the real wiring (server.usagepoll-plan-8846.test.js). An account whose agents cannot be told is asked. */
-function usagePollPlan(list, sweepRun = autobalanceSweepRun) {
+function usagePollPlan(list, sweepRun = autobalanceSweepRun, { emptyOnly = false } = {}) {
   const usagePoll = require('./engine/usagepoll');
   let settingOn = false;
   try { settingOn = autobalanceSetting.read().on === true; } catch { settingOn = false; }
@@ -3444,7 +3444,7 @@ function usagePollPlan(list, sweepRun = autobalanceSweepRun) {
   };
   let last = null; let lastDid = null;
   try { last = sweepRun && sweepRun.state ? sweepRun.state.last : null; lastDid = sweepRun && sweepRun.state ? sweepRun.state.lastDid : null; } catch { last = null; }
-  return usagePoll.planPoll({ list, last, lastDid, settingOn, hasAgents });
+  return usagePoll.planPoll({ list, last, lastDid, settingOn, hasAgents, emptyOnly });
 }
 
 function autobalanceSweepDeps() {
@@ -30360,17 +30360,19 @@ function start(port = PORT) {
       const usagePoll = require('./engine/usagepoll');
       let usagePollBusy = 0;   // when the running sweep started, or 0
       let usagePollOffSaid = false;   // kosmos#8846: the Settings-off line is said once, until it is on again
-      const usagePollTick = () => {
+      /* Returns whether it started a read (kosmos#8846 review 3: the sweep's trigger retries when it did not).
+         `emptyOnly`: only the accounts with no agents (the trigger's read; the timed poll read the busy ones). */
+      const usagePollTick = ({ emptyOnly = false } = {}) => {
         /* Review 12: a sweep that somehow never settles must not stop every later one, so a busy flag older than three
            poll periods is taken as stale. Every await inside has its own deadline, so this is a backstop. */
-        if (usagePollBusy && Date.now() - usagePollBusy < 3 * usagePoll.POLL_MS) return;
-        if (!liveExecution.liveExecutionAllowed() || !usagePoll.liveAllowed()) return;   // never under a test (it reads real logins)
+        if (usagePollBusy && Date.now() - usagePollBusy < 3 * usagePoll.POLL_MS) return false;
+        if (!liveExecution.liveExecutionAllowed() || !usagePoll.liveAllowed()) return false;   // never under a test (it reads real logins)
         let list = [];
         try { list = accounts.list(); } catch { list = []; }
         /* kosmos#8846: which accounts this sweep asks about, and none while auto-balance is off in Settings
            (usagePoll.planPoll, review 2 of the card). Decided before the busy flag is set, so an off sweep leaves none. */
-        const { asked, needTargets, off } = usagePollPlan(list);
-        if (off) { if (!usagePollOffSaid) process.stdout.write('usage-poll: not asking about any account: auto-balance is switched off in Settings\n'); usagePollOffSaid = true; return; }
+        const { asked, needTargets, off } = usagePollPlan(list, autobalanceSweepRun, { emptyOnly });
+        if (off) { if (!usagePollOffSaid) process.stdout.write('usage-poll: not asking about any account: auto-balance is switched off in Settings\n'); usagePollOffSaid = true; return false; }
         usagePollOffSaid = false;
         const started = Date.now();
         usagePollBusy = started;
@@ -30379,11 +30381,12 @@ function start(port = PORT) {
           .then((n) => { process.stdout.write(`usage-poll: measured ${n} of ${asked.length} asked (${list.filter((a) => a && !a.apiKey).length} signed in${needTargets ? ', empty ones included: an account is at risk' : ''})\n`); })
           .catch(() => { /* best-effort, like the sweeps above */ })
           .finally(() => { if (usagePollBusy === started) usagePollBusy = 0; });
+        return true;
       };
       /* kosmos#8846: each wait is POLL_MS give or take 15% (usagePoll.pollDelay), so boards do not ask in step. */
       const usagePollNext = () => {
         const ms = Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_USAGE_POLL_MS) : usagePoll.pollDelay(); // the env is the test seam only
-        const h = setTimeout(() => { try { usagePollTick(); } catch { /* best-effort */ } usagePollNext(); }, ms);
+        const h = setTimeout(() => { try { usagePollTick(); } catch { /* best-effort */ } usagePollNext(); }, ms);   // the timed poll: busy accounts, and empty ones per the plan
         if (h && typeof h.unref === 'function') h.unref();
       };
       usagePollNext();
@@ -30451,7 +30454,9 @@ function start(port = PORT) {
               try {
                 let list = []; try { list = accounts.list(); } catch { list = []; }
                 const need = usagePollPlan(list).needTargets === true;
-                if (need && !abNeededTargets) { const h = setTimeout(() => { try { usagePollTick(); } catch { /* best-effort */ } }, 5000); if (h && typeof h.unref === 'function') h.unref(); }
+                /* Review 3: only the empty accounts, and a read that did not start (a poll already running) is tried again
+                   at the next sweep rather than lost until the next timed poll. */
+                if (need && !abNeededTargets) { const h = setTimeout(() => { let ran = false; try { ran = usagePollTick({ emptyOnly: true }) === true; } catch { ran = false; } if (!ran) abNeededTargets = false; }, 5000); if (h && typeof h.unref === 'function') h.unref(); }
                 abNeededTargets = need;
               } catch { /* never into the timer */ }
               let unmeasured = 0;

@@ -33,3 +33,11 @@
 - Sweep keeps its own 10-min period (autobalance-sweep SWEEP_MS); the mover's default period follows it. The first sweep that needs targets reads the empty accounts in 5 s rather than at the next poll.
 - Settings counts logins as the default does; stale comments fixed (one ships in the page); no-retry test asserts exactly one request; a real-wiring test for the plan.
 - Accepted, said on the card: the Accounts page no longer shows a fresh usage figure for an empty account while nothing is at risk (Slice 1 showed one).
+
+## Review round 3 (blind), all fixed
+- A calm board with an idle spare said "could not check everything" forever: an empty account the plan does not read (not named, nothing busy at risk for usage) is RESTING, not unmeasured (autobalance-sweep).
+- An emptied account at risk cycled into a gap and back: accounts named at risk are polled too (one request a poll).
+- Only usage risk needs targets (a stopped login needs a person, not a target).
+- The 5-second trigger reads only the empty accounts (busy ones were just read) and retries at the next sweep if a poll was already running.
+- The wiring test now has a busy account through the real walk (a launch job with no account folder = the default account).
+- Stale comments: Settings off stops the reader; FRESH_MS 90 min; BACKOFF wording.

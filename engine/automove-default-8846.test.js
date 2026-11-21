@@ -172,25 +172,50 @@ test('kosmos#8846: a 401, 403 or 429 holds the account for six hours, is said on
 });
 
 /* Review 2: which accounts a sweep asks about. */
-test('kosmos#8846 review 2: empty accounts are asked only while an account WITH AGENTS is at risk, in a decision the sweep made', () => {
+test('kosmos#8846 reviews 2 and 3: empty accounts are asked only while an account WITH AGENTS is at risk for usage, in a decision the sweep made', () => {
   const list = [{ dir: '/u/busy' }, { dir: '/u/empty' }, { dir: '/u/spare' }];
   const hasAgents = (a) => a.dir === '/u/busy';
   const plan = (o) => usagepoll.planPoll({ list, hasAgents, settingOn: true, ...o });
   const dirs = (o) => plan(o).asked.map((a) => a.dir);
+  const usage = (from) => ({ from, kind: 'usage' });
   assert.deepEqual(dirs({ last: null }), ['/u/busy'], 'with no decision an empty account was asked');
-  assert.deepEqual(dirs({ last: { atRisk: [{ from: '/u/busy' }], moves: [], unmeasured: [] } }), ['/u/busy', '/u/empty', '/u/spare'], 'a busy account at risk did not get its targets read');
-  assert.deepEqual(dirs({ last: { atRisk: [{ from: '/u/empty' }], moves: [], unmeasured: [] } }), ['/u/busy'], 'an EMPTY account at risk (one already moved off, or a stopped empty login) kept every empty account polled');
-  assert.deepEqual(dirs({ last: { atRisk: [{ from: '/u/gone' }] } }), ['/u/busy'], 'an account gone from the list needed targets');
-  assert.deepEqual(dirs({ lastDid: 'off', last: { atRisk: [{ from: '/u/busy' }] } }), ['/u/busy'], 'a decision from before the switch went off still read every empty account');
+  assert.deepEqual(dirs({ last: { atRisk: [usage('/u/busy')], moves: [], unmeasured: [] } }), ['/u/busy', '/u/empty', '/u/spare'], 'a busy account at risk did not get its targets read');
+  assert.deepEqual(dirs({ last: { atRisk: [usage('/u/empty')], moves: [], unmeasured: [] } }), ['/u/busy', '/u/empty'],
+    'an EMPTY account at risk either kept every empty account polled (review 2) or was itself not read, so it lapsed into a gap and back (review 3)');
+  assert.deepEqual(dirs({ last: { atRisk: [{ from: '/u/busy', kind: 'login' }], moves: [], unmeasured: [] } }), ['/u/busy'], 'review 3: a stopped login (not usage) kept every empty account polled');
+  assert.deepEqual(dirs({ last: { atRisk: [usage('/u/gone')] } }), ['/u/busy'], 'an account gone from the list needed targets');
+  assert.deepEqual(dirs({ lastDid: 'off', last: { atRisk: [usage('/u/busy')] } }), ['/u/busy'], 'a decision from before the switch went off still read every empty account');
   assert.deepEqual(dirs({ last: { atRisk: [], moves: [{ to: '/u/spare' }], unmeasured: ['/u/empty'] } }), ['/u/busy', '/u/empty', '/u/spare'], 'a named target or an unmeasured account was never read again');
-  assert.equal(plan({ last: { atRisk: [{ from: '/u/busy' }] } }).needTargets, true);
-  const unsure = usagepoll.planPoll({ list, settingOn: true, hasAgents: (a) => { if (a.dir === '/u/busy') throw new Error('incomplete'); return false; }, last: { atRisk: [{ from: '/u/busy' }] } });
+  assert.equal(plan({ last: { atRisk: [usage('/u/busy')] } }).needTargets, true);
+  const unsure = usagepoll.planPoll({ list, settingOn: true, hasAgents: (a) => { if (a.dir === '/u/busy') throw new Error('incomplete'); return false; }, last: { atRisk: [usage('/u/busy')] } });
   assert.equal(unsure.needTargets, true, 'an at-risk account whose agents could not be told was taken as empty');
+  assert.deepEqual(dirs({ emptyOnly: true, last: { atRisk: [usage('/u/busy')] } }), ['/u/empty', '/u/spare'], 'review 3: the triggered read asked the busy account again (its token twice in minutes)');
+});
+
+test('kosmos#8846 review 3: a calm board with an idle spare is not "could not check everything"; with a busy account at risk it is', async (t) => {
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const sweep = require('./autobalance-sweep');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-8846-rest-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const resets = Math.floor((NOW + 4 * 86400000) / 1000);
+  const ok = (pct) => ({ at: NOW, measuredAt: NOW, state: 'ok', email: 'b@example.test', weekly: { usedPct: pct, resetsAt: resets }, fiveHour: null });   // the busy account's own login
+  const deps = (busyPct) => ({
+    list: () => [{ dir: '/u/busy', label: 'busy', email: 'b@example.test' }, { dir: '/u/spare', label: 'spare', email: 's@example.test' }],
+    readUsage: (d) => (d === '/u/busy' ? ok(busyPct) : null),   // the spare is not read: resting
+    agentsOn: (d) => ({ names: d === '/u/busy' ? ['ada'] : [], complete: true, moving: [] }),
+    roster: () => [], records: () => [], readCommitment: () => ({ state: 'clear' }), settingOn: () => true, labelOf: (d) => d,
+    isGuide: () => false, guideName: () => null,
+  });
+  const run = sweep.create({ file: path.join(dir, 'record.jsonl'), nowMs: NOW });
+  await run.tick(deps(40), NOW);
+  assert.deepEqual(run.state.unmeasuredNow, [], 'a resting spare on a calm board read as unmeasured (Settings says it could not check everything)');
+  await run.tick(deps(85), NOW + 1000);
+  assert.deepEqual(run.state.unmeasuredNow, ['/u/spare'], 'CONTROL: with the busy account at risk, the spare the move needs and has no reading for is unmeasured');
 });
 
 test('kosmos#8846 review 2: with auto-balance off in Settings nothing is asked', () => {
   const list = [{ dir: '/u/busy' }, { dir: '/u/empty' }];
-  const off = usagepoll.planPoll({ list, hasAgents: () => true, settingOn: false, last: { atRisk: [{ from: '/u/busy' }] } });
+  const off = usagepoll.planPoll({ list, hasAgents: () => true, settingOn: false, last: { atRisk: [{ from: '/u/busy', kind: 'usage' }] } });
   assert.deepEqual([off.asked, off.off, off.needTargets], [[], true, false], 'the switch off still sent tokens');
   assert.equal(usagepoll.planPoll({ list, hasAgents: () => true, settingOn: true }).asked.length, 2, 'CONTROL: on, the busy accounts are asked');
 });

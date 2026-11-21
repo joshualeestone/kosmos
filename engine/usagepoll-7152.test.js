@@ -356,14 +356,14 @@ test('#7152 review 8: an account with no email listed is not measured, and its t
 
 test('#7152 review 8: the server\'s sweep asks liveAllowed before it reads any login', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const start = src.indexOf('const usagePollTick = () => {');
+  const start = src.indexOf('const usagePollTick = (');   // kosmos#8846: it now takes { emptyOnly } and says whether it ran
   assert.ok(start > 0, 'CONTROL: the sweep is where this test looks');
   const body = src.slice(start, src.indexOf('\n      };', start));
   const gate = body.indexOf('usagePoll.liveAllowed()');
   const list = body.indexOf('accounts.list()');
   assert.ok(list > 0 && body.includes('usagePoll.pollAll('), 'CONTROL: the sweep body was found whole');
   assert.ok(gate > 0 && gate < list, 'the sweep reads logins without asking liveAllowed first');
-  assert.match(body, /\n\s*if \([^\n]*!usagePoll\.liveAllowed\(\)\) return;/, 'liveAllowed is called but does not stop the sweep');
+  assert.match(body, /\n\s*if \([^\n]*!usagePoll\.liveAllowed\(\)\) return(?: false)?;/, 'liveAllowed is called but does not stop the sweep');
   assert.match(body, /if \(usagePollBusy && Date\.now\(\) - usagePollBusy < /, 'review 12: a sweep that never settles stops every later one');
 });
 
