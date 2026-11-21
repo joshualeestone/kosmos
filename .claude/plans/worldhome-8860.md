@@ -22,7 +22,9 @@ real `com.kosmos.agent.<name>` jobs in the account's one launchd domain, beside 
     throwaway folder's label does not change when the folder is first created.
   - An unreadable account record keeps `default`: renaming a real board's jobs would orphan them.
   - `setLaunchScopeForTests` forces the scope, because any runner turns scoping off and the readers can only be
-    tested through a runner. It and `launchScopeFor` are excused in `engine.reachable.test.js`.
+    tested through a runner. `setLaunchLiveForTests` forces only the live input, so `launchScope()`'s own wiring
+    (its folder, the account's folder, the real bare-job check) is tested on the live path. All three, and
+    `launchScopeFor`, are excused in `engine.reachable.test.js`.
 - `serviceLabel` builds on `launchScope`. The three places that read labels back into "this board's agents" compare
   with `launchScope()` instead of `currentWorldId()`: `nameInThisWorld` (create.js, the launchd fleet probes),
   `createdroster` (the created-never-run roster) and `register` (the reconcile listing).
@@ -47,14 +49,19 @@ real `com.kosmos.agent.<name>` jobs in the account's one launchd domain, beside 
   job in the folder); a named world is unchanged; two folders differ and one is stable; a folder's scope is the same
   before and after it exists; a symlink to the account's folder is not scoped; a real bare job in the folder keeps
   `default` while a scoped one does not. End to end: this test process (not live) keeps bare labels for a temporary
-  folder; a scoped board's serviceLabel / plistPath / parseServiceLabel round-trip; the launchd fleet probes
+  folder; with gate open, a dry-run board and a board with a runner keep bare labels; live (forced) end to end, a
+  throwaway folder is scoped from agentsDir() and the account record, its own scoped job and a non-plist file are
+  not bare jobs, a bare job keeps bare labels, the account's folder is never scoped, and HOME alone moves the folder;
+  a scoped board's serviceLabel / plistPath / parseServiceLabel round-trip; the launchd fleet probes
   (`runningJobs`, `disabledJobs`) read only this board's scope, control both ways.
 - `engine/createdroster.test.js`: a throwaway board rosters its own scoped job and drops the real board's bare one;
   control the other way.
 - `engine/register.test.js`: the stray survey sees only this board's scope's jobs, control both ways.
 - Mutants, each red: no runner check (worldstarts 3), no gate check (launchscope 1), the old label rule (launchscope 3),
   the old roster comparison (createdroster 1), the old register comparison (register 1), the probes on the world
-  (launchscope 1), no platform check (launchscope 1), a lexical folder compare (launchscope 1).
+  (launchscope 1), no platform check (launchscope 1), a lexical folder compare (launchscope 1), no dry-run check
+  (1), no runner check in launchScope (1), no bare-job check (2), folder from homeDir (1), account from agentsDir (1),
+  a bare-job check that counts scoped jobs (1) or non-plist files (1).
 - The 44 test files that name a label or read the roster: 1535 tests, 0 failed.
 
 ## Weakest premise
@@ -69,6 +76,9 @@ Also known and accepted (review 3):
   loads the engine) computes bare labels while the board uses scoped ones. Throwaway boards only.
 - `install/setup.sh`'s uninstall derives a tmux session name from the label; for a scoped label it misses the session
   (`<name>`, not `<name>+launch-...`), and the sweep after it catches leftovers. Throwaway boards only.
+- A removed-agent record written in one state (not live, or by another process) and read in the other carries a
+  different label, so `reapplyRemovedDisables` (remove.js) skips it silently. Throwaway boards only: a real board's
+  label never changes unless its HOME is not the account record's spelling AND its folder holds no bare job yet.
 - `launch-<hex>` shares the world-id namespace: a named world called exactly `launch-<8 hex>` would collide with a
   throwaway scope. Theoretical; worlds are named by people.
 
