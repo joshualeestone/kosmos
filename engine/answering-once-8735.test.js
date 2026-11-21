@@ -14,7 +14,8 @@ test('#8735: the colleagues block still states how to answer on its own', () => 
   assert.match(c, /A reply you write in your own session reaches nobody/, 'the core rule left the colleagues block');
   assert.match(c, /msg --in-reply-to <id> <name> "your message"` for a colleague/, 'the colleague command is missing');
   assert.match(c, /carries its command at the end of the bracket/, 'the end-of-bracket line is missing');
-  assert.match(c, /eleven minutes later/, 'the eleven-minute story was dropped');
+  // kosmos#8735 slice 6 (Mona Lisa's read): the eleven-minute story went; "Can you check X?" is the picture that stays.
+  assert.match(c, /"Can you check X\?" does not look like an instruction/, 'the picture of the failure was dropped');
 });
 
 for (const platform of defaults.PLATFORMS) {

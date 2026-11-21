@@ -696,7 +696,7 @@ test('the colleagues block says a reply in your own session reaches nobody, and 
    * ⚠️ AND STATING THE RULE IS NOT ENOUGH, which is why the wording is pinned
    * rather than just its presence. An agent broke this rule eleven minutes
    * after explaining it to two colleagues, on a message that read like a
-   * question. A rule keyed on a CATEGORY ("a room message") cannot fire when
+   * question. (The story itself left the block in #8735 slice 6.) A rule keyed on a CATEGORY ("a room message") cannot fire when
    * the reader has already filed the input under a different one ("a question
    * to answer"), so the paragraph names THE FEELING instead: "reads like an
    * ordinary question" is available to the reader at the exact moment the rule
