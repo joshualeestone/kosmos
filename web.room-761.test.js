@@ -40,8 +40,18 @@ test('the empty status line under the composer takes no room; the Tasks box is t
      had no tasks at all -- the arm it pinned as `''` was exactly the void Josh
      hit. So the assertion is strengthened rather than merely repointed: BOTH
      arms must now be a sentence, and neither may be empty. */
-  assert.match(SCRIPT, /list\.innerHTML = html \|\| \(all\.length\n\s+\? '<p class="tk-empty">[^']+<\/p>'\n\s+: '<p class="tk-empty">[^']+<\/p>'\);/,
-    'an arm of the empty-tasks message is blank again, so the Tasks column can render a void');
+  /* kosmos#8897: the statement gained the starter project's arms, so it is read as a whole rather than pinned as two
+     arms, keeping the strength: the done-only and the plain sentence are both there, every paragraph in it is a
+     tk-empty sentence, and no arm is an empty string. */
+  const at = SCRIPT.indexOf('list.innerHTML = html || (all.length');
+  assert.ok(at >= 0, 'the empty-tasks statement is gone');
+  const stmt = SCRIPT.slice(at, SCRIPT.indexOf("</p>');", at) + 7);
+  assert.match(stmt, /\n\s+\? '<p class="tk-empty">[^']+<\/p>'\n/, 'the done-only arm is no longer a sentence');
+  assert.match(stmt, /: '<p class="tk-empty">[^']+<\/p>'\);$/, 'the plain arm is no longer the last sentence');
+  assert.ok(!/[?:]\s*''/.test(stmt), 'an arm of the empty-tasks message is blank again, so the Tasks column can render a void');
+  const paras = stmt.match(/<p [^>]*>/g) || [];
+  assert.ok(paras.length >= 3 && paras.every((p) => /^<p class="tk-empty"( data-starter-empty)?>$/.test(p)),
+    'a paragraph in the empty-tasks message is not a tk-empty sentence: ' + paras.join(' '));
   assert.ok(!/list\.innerHTML = html \|\| \(all\.length\n\s+\? ''/.test(SCRIPT),
     'the empty arm is back: a project with only finished tasks shows nothing above its View all link');
 });
