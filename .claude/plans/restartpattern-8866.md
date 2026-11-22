@@ -22,7 +22,7 @@ checked (#8287). Nothing joins notes: each restart overwrote the last, so a patt
 - Never "unexpectedly": the engine cannot tell a crash from a person's restart (its own header says so), so the line
   says "while Kosmos was running" and gives the hardware or driver reading only "If you did not restart it yourself".
 - 3 in 7 days, the card's starting guess. The line rides the existing note (the card's "simplest"), no new notice.
-- Second weak premise: "the same restart read again" is told by the last-alive time alone (a note re-made from the
+- A weak premise: "the same restart read again" is told by the last-alive time alone (a note re-made from the
   same last-alive record, older than the newest kept boot). A 60 s same-boot rule was tried and removed in review: it
   rested on a claim (two real restarts cannot be that close) that a fast power cycle can break, and no test isolated it.
 - The hint also excludes updates ("and it was not installing updates"): an operating system update restarts a machine

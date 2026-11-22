@@ -3247,7 +3247,7 @@ UNWIREEOF
   # answered "this isn't an agent" about (found-agents-declined.json,
   # discover.js's DECLINED_FILE, #1531).
   #
-  # The last two are #5359's: when the board was
+  # The fifth and sixth are #5359's: when the board was
   # last alive (board-alive.json) and the "this computer restarted" note with
   # whether it was dismissed (board-restart-note.json), both from
   # engine/restartnote.js. Left behind, a reinstall within a day could show the
@@ -3261,7 +3261,7 @@ UNWIREEOF
   # reinstalled got a screen that still hid that folder and no way to know why.
   # That is the exact case an uninstall exists to prevent.
   #
-  # 📌 SO IF YOU ADD A SEVENTH, CHANGE THE WORD "SIX". The number is here to make
+  # 📌 SO IF YOU ADD AN EIGHTH, CHANGE THE WORD "SEVEN". The number is here to make
   # a missing member visible to a reader who is not looking for one, and the
   # family this belongs to is enumerated in engine/discover.js too. None of them
   # is the
