@@ -78,6 +78,22 @@ test('kosmos#8865: dismissed is set by dismiss(), carried by report() with the l
   assert.equal(storecheck.report().dismissed, false, 'a new scan kept the old dismissal');
 });
 
+test('kosmos#8865 review 2: a good copy put back is counted, and stays said after the person dismisses the rest', () => {
+  const root = plant();
+  fs.writeFileSync(path.join(root, 'projects.json'), Buffer.alloc(32));   // all NUL
+  fs.writeFileSync(path.join(root, 'projects.json.kosmos-4242-1793000000000-1.tmp'), JSON.stringify({ projects: [] }));   // its good copy
+  storecheck.scan({});
+  assert.equal(storecheck.report().restored, 0);
+  assert.deepEqual(storecheck.restore('projects.json', () => {}), { ok: true });
+  assert.equal(storecheck.report().restored, 1);
+  storecheck.dismiss();
+  const r = storecheck.report();
+  assert.equal(r.restored, 1, 'the dismissal lost the count of what was put back');
+  assert.equal(r.dismissed, true);
+  storecheck.scan({});
+  assert.equal(storecheck.report().restored, 0, 'a new scan kept the old count');
+});
+
 test('kosmos#8865: before any scan, report() says it did not run and carries no count', () => {
   /* A fresh module instance, so no scan has run in it. */
   delete require.cache[require.resolve('./storecheck')];

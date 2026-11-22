@@ -50,16 +50,22 @@ test('kosmos#8865: a dismissed list and a file already put back are said, never 
   const dismissed = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 5, dismissed: true, files: [] });
   assert.match(dismissed.join('\n'), /found 2 damaged/);
   assert.match(dismissed.join('\n'), /The person has seen the list and dismissed it for this start/);
-  const putBack = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 5, dismissed: false, files: [FILE()] });
-  assert.match(putBack.join('\n'), /The rest were put back from a good copy since the start\./);
+  const putBack = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 5, restored: 1, dismissed: false, files: [FILE()] });
+  assert.match(putBack.join('\n'), /1 of them was put back from a good copy since the start\./);
   assert.match(putBack.join('\n'), /- projects\.json is blank/);
   // CONTROL: with every damaged file still listed, neither sentence appears.
   const all = renderLines({ ran: true, checked: true, damaged: 1, unread: 0, looked: 5, files: [FILE()] }).join('\n');
   assert.doesNotMatch(all, /dismissed|put back from a good copy since/);
+  // review 2: put back and then dismissed says both; a shorter list alone is never read as put back.
+  const both = renderLines({ ran: true, checked: true, damaged: 3, unread: 0, looked: 5, restored: 1, dismissed: true, files: [] }).join('\n');
+  assert.match(both, /1 of them was put back from a good copy since the start\./);
+  assert.match(both, /dismissed it for this start/);
+  const shorter = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 5, restored: 0, files: [FILE()] }).join('\n');
+  assert.doesNotMatch(shorter, /put back/, 'a shorter list was read as put back');
 });
 
 test('kosmos#8865 review 1: every damaged file put back says so, and a malformed unchecked answer prints no false count', () => {
-  const all = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 5, dismissed: false, files: [] });
+  const all = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 5, restored: 2, dismissed: false, files: [] });
   assert.deepEqual(all, ['Kosmos checked its own files at this start (5 files) and found 2 damaged.', 'All of them were put back from a good copy since the start.']);
   const odd = renderLines({ ran: true, checked: false, damaged: 0, unread: 0, looked: 5, files: [] }).join('\n');
   assert.doesNotMatch(odd, NONE_DAMAGED);

@@ -77,6 +77,7 @@ let SCANNED = null;      // kosmos#8287: what this start's scan found, before an
 let BASE_ROOT = null;    // where worlds.json lives, captured at start
 let DISMISSED = false;   // kosmos#8865: the person dismissed this start's list, so an agent is told why it is empty
 let LOOKED = null;       // kosmos#8865: the files this start's scan looked at; kept out of SCANNED, whose shape the note stores
+let RESTORED = 0;        // kosmos#8865: how many damaged records were put back since the start, said even after a dismissal
 
 /** 'empty', 'nul' or 'unreadable', or null when the bytes are a JSON value. */
 function classify(buf) {
@@ -151,6 +152,9 @@ function scan(opts) {
   BASE_ROOT = (opts && opts.base) || null;
   UNREAD = 0;
   DISMISSED = false;
+  RESTORED = 0;
+  SCANNED = null;   // kosmos#8865 review 2: a scan that throws part way leaves no result, never the previous one
+  LOOKED = null;
   let looked = 0;   // kosmos#8865: the files this scan read, or found too large or locked, for "checked N files"
   const files = candidates(store.ROOT);
   for (const f of Object.keys(FOLDERS)) files.push(...candidates(path.join(store.ROOT, f)));
@@ -257,6 +261,7 @@ function restore(file, write) {
   say('Kosmos put back the good copy of ' + d.file + ' saved ' + d.backup.at + ', at the person\'s request; '
     + 'the damaged one is kept at ' + rel(aside) + '.');
   FOUND = FOUND.filter((x) => x !== d);
+  RESTORED += 1;
   return { ok: true };
 }
 
@@ -275,16 +280,15 @@ function lastScan() { return SCANNED ? { ...SCANNED } : { checked: false }; }
 
 /**
  * kosmos#8865: everything an agent may read about this start's check, for GET /api/board/start-check and
- * `kosmos start-check`: whether the scan ran, lastScan's counts (and `looked`: the files it read, or found too large
- * or locked), and the page's own
- * list (current()) with each problem in the board log's words. `dismissed` says the person dismissed the list, which is
- * why `files` can be empty while `damaged` is not. A damaged record that was put back has left `files`, so `damaged`
- * counts what the scan found at start, `files` what is still damaged now.
+ * `kosmos start-check`: whether the scan ran, lastScan's counts, `looked` (the files it read, or found too large or
+ * locked), `restored` (how many were put back since the start), and the page's own list (current()) with each problem
+ * in the board log's words. `dismissed` says the person dismissed the list, which is why `files` can be empty while
+ * `damaged` is not. `damaged` counts what the scan found at start, `files` what is still listed now.
  */
 function report() {
   const s = lastScan();
   const files = current().map((f) => ({ ...f, says: PROBLEM[f.problem] || 'is damaged' }));
-  return { ran: SCANNED !== null, ...s, ...(SCANNED !== null && Number.isInteger(LOOKED) ? { looked: LOOKED } : {}), dismissed: DISMISSED, files };
+  return { ran: SCANNED !== null, ...s, ...(SCANNED !== null && Number.isInteger(LOOKED) ? { looked: LOOKED } : {}), restored: RESTORED, dismissed: DISMISSED, files };
 }
 
 module.exports = { atStart, scan, current, restore, dismiss, classify, lastScan, report };

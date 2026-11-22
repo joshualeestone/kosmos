@@ -16,7 +16,7 @@ const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many);
 /** The lines to print for one report. Pure: the same report always gives the same lines. */
 function renderLines(r) {
   if (!r || typeof r !== 'object' || r.ran !== true) {
-    return ['Kosmos has no result from this start\'s check of its own files (it did not run, or has not finished), so it cannot say whether any is damaged.'];
+    return ['Kosmos has no result from this start\'s check of its own files (it did not run, has not finished, or its answer could not be read), so it cannot say whether any is damaged.'];
   }
   const looked = Number.isInteger(r.looked) && r.looked >= 0 ? r.looked : null;
   const seen = looked === null ? '' : ' (' + plural(looked, 'file', 'files') + ')';
@@ -35,16 +35,17 @@ function renderLines(r) {
   lines.push('Kosmos checked its own files at this start' + seen + ' and found ' + damaged + ' damaged.'
     + (unread > 0 ? ' It could not look at ' + plural(unread, 'other file or folder', 'other files or folders') + ', so there may be more.' : ''));
   const files = Array.isArray(r.files) ? r.files : [];
+  /* review 2: put back is counted by the board (`restored`), never inferred from a shorter list, which a dismissal
+     also empties. */
+  const restored = Number.isInteger(r.restored) && r.restored > 0 ? Math.min(r.restored, damaged) : 0;
+  if (restored > 0) {
+    lines.push(restored === damaged ? 'All of them were put back from a good copy since the start.'
+      : restored + ' of them ' + (restored === 1 ? 'was' : 'were') + ' put back from a good copy since the start.');
+  }
+  if (restored === damaged) return lines;
   if (r.dismissed === true && files.length === 0) {
     lines.push('The person has seen the list and dismissed it for this start, so it is not listed again until the next start.');
     return lines;
-  }
-  if (files.length === 0) {
-    lines.push('All of them were put back from a good copy since the start.');
-    return lines;
-  }
-  if (files.length < damaged) {
-    lines.push('The rest were put back from a good copy since the start.');
   }
   for (const f of files) {
     if (!f || typeof f.file !== 'string') continue;

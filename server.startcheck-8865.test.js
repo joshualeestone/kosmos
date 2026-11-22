@@ -86,8 +86,8 @@ function macCli(sb, url) {
     const env = { ...process.env, KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: path.join(sb, 'data'), KOSMOS_PORT: port,
       KOSMOS_AGENT_TOKEN: '', TMUX: '', TMUX_PANE: '' };
     execFile('bash', [path.join(REPO, 'install', 'kosmos'), 'start-check'], { env, timeout: 30000 }, (e, stdout, stderr) => {
-      if (e && typeof e.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (e.signal || e.code) + ')')); return; }
       fs.rmSync(home, { recursive: true, force: true });
+      if (e && typeof e.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (e.signal || e.code) + ')')); return; }
       resolve({ code: e ? e.code : 0, both: `${stdout}${stderr}` });
     });
   });
