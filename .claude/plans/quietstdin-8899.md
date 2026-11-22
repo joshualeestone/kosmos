@@ -34,3 +34,12 @@ is the documented way for such a writer, and the refusal says so.
   $(cat) reads (community post, comment, edit, endorse, feedback triage --cards -).
 
 ## Round 2 (sonnet, whole branch): nothing above nit. Plan count wording corrected (the perturbation was run on the first 6 tests; the round 1 white-space test is a 7th, related set now 166/0).
+
+## Round 3 (opus, whole branch): one should-fix, taken
+- Measured: `( sleep 4; echo report ) | kosmos feedback write` was refused with "pipe it in on stdin", the very thing
+  done. Windows does the same, but on the Mac the helper now returns 5 when the pipe stayed open and nothing at all
+  arrived, and each verb says "nothing arrived on stdin for 3 seconds" and points to --body-file. A pipe that ENDS
+  empty keeps the plain empty-body refusal (new CONTROL, which also checks it does not wait for the limit).
+- The helper's 5, 6 and 7 are internal; the verb exits 2 for each.
+- Weakest premise, widened: a report from a command slower than 3 seconds to start, or with a pause over 3 seconds,
+  is refused with a pointer to --body-file rather than saved. That is the Windows behaviour, said more plainly.

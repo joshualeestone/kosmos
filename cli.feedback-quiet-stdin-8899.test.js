@@ -73,7 +73,8 @@ test('kosmos#8899: feedback write with an open, silent pipe ends within the quie
   const h = makeHome({ earlier: false });
   const r = await run(['feedback', 'write'], h, { open: true });
   assert.equal(r.code, 2, r.both);
-  assert.match(r.both, /Nothing to write: a feedback report needs a body/);
+  assert.match(r.both, /Nothing was saved: nothing arrived on stdin for 3 seconds\. If the report comes from a slow command, save it in a file first/);   // review 3
+  assert.doesNotMatch(r.both, /pipe it in on stdin/, 'a person whose command was slow to start was told to pipe it in');
   assert.ok(r.ms < QUIET_MS + 8000, 'it took ' + r.ms + ' ms');
   assert.deepEqual(todays(h.data), [], 'a report was saved');
 });
@@ -104,7 +105,7 @@ test('kosmos#8899: feedback note with an open, silent pipe ends within the quiet
   const { h, before } = await withTodaysReport();
   const r = await run(['feedback', 'note'], h, { open: true });
   assert.equal(r.code, 2, r.both);
-  assert.match(r.both, /Nothing to add: a note needs some words/);
+  assert.match(r.both, /Nothing was saved: nothing arrived on stdin for 3 seconds\. Give the note as words/);   // review 3
   assert.ok(r.ms < QUIET_MS + 8000, 'it took ' + r.ms + ' ms');
   assert.equal(savedBody(h.data), before, 'the report changed');
 });
@@ -132,4 +133,14 @@ test('kosmos#8899 review 1: feedback write given only white space on an open pip
   assert.match(r.both, /Nothing to write: a feedback report needs a body/);
   assert.doesNotMatch(r.both, /may be cut short/);
   assert.deepEqual(todays(h.data), []);
+});
+
+/* Review 3 CONTROL: a pipe that ENDS with nothing in it is still the plain empty-body refusal, not "nothing arrived". */
+test('kosmos#8899 review 3 CONTROL: an empty pipe that ends at once still says the report needs a body', async () => {
+  const h = makeHome({ earlier: false });
+  const r = await run(['feedback', 'write'], h, '');
+  assert.equal(r.code, 2, r.both);
+  assert.match(r.both, /Nothing to write: a feedback report needs a body/);
+  assert.doesNotMatch(r.both, /nothing arrived on stdin/);
+  assert.ok(r.ms < 3000, 'an ended pipe waited for the quiet limit (' + r.ms + ' ms)');
 });
