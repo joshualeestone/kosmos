@@ -48,9 +48,12 @@ credential, on every regeneration; and a guard in CI fails if that ever stops be
    What it cannot see: a writer running other code. And the guide is checked as `guideText()`, not as the
    `kosmos connections --how` output (connections.test.js covers the CLI printing it).
 2. Make no change to the writer: it already replaces whatever sits between the markers, so the next write from current
-   Kosmos puts the accurate block back (the repair arm proves it). One shape it does NOT repair: a file holding TWO
-   Connections marker pairs is refused on purpose (it cannot tell which is ours; connections.test.js pins that), so a
-   stale block there stays until a person removes one pair. Left as is: changing that refusal is a different decision.
+   Kosmos puts the accurate block back (the repair arm proves it). Three shapes it does NOT repair, by the writer's own rules (review rounds 3 and 7): a file
+   holding TWO Connections marker pairs is refused on purpose (it cannot tell which is ours; connections.test.js pins
+   that); a file whose old block lost its END marker gets a fresh block appended, with the old words left outside it;
+   and a new agent whose file would pass the size limit gets no block (create.js reports the step failed). Each stays
+   until a person fixes the file. Left as is: spliceBlock and tellAgent serve every managed block, so changing them is
+   a different decision, and worth its own card if one of these shapes is ever seen.
 
 Rejected: rewriting the block's words (they are already accurate, and the card's ask is about a second writer);
 refusing writes from a throwaway board (touches #8860's area, Baron's, and the mechanism is not measured).

@@ -11,8 +11,10 @@
  * the old text; connections.test.js pins the source wording. It cannot see a writer running other code (an older
  * Kosmos, or a board started from an old checkout), which is where the reported flip most likely came from; it makes
  * sure the next write from this code puts the accurate block back, and that every writer here uses the one text.
- * One shape is not repaired: a file holding TWO Connections marker pairs is refused by tellAgent on purpose (we
- * cannot tell which is ours; connections.test.js pins that), so its text stays until someone removes one pair.
+ * Not repaired, by the writer's own rules (spliceBlock and tellAgent are shared, so changing them is another decision):
+ * a file holding TWO Connections marker pairs is refused on purpose (we cannot tell which is ours; connections.test.js
+ * pins that); a file whose old block lost its END marker gets a fresh block appended, with the old words left outside
+ * it; and a new agent whose file would pass the size limit gets no block at all (create.js reports the step failed).
  */
 
 const fs = require('node:fs');
@@ -51,7 +53,7 @@ function section(text) {
 /* "There is no command" in the spellings seen and their near rewordings ("no kosmos command", "no verb for this"). A
    tripwire, not the whole class: "cannot list" or "no way to see" are not caught. It matches words, so a future
    accurate text that says "there is no command for X yet" about something else would need this widened on purpose. */
-const NO_COMMAND = /one-word verb|no such command|\bno (?:\w+ ){0,2}(?:command|verb)(?![\w-])|there is no (?:command|kosmos|verb)/i;
+const NO_COMMAND = /one-word verb|no such command|\bno (?:`?\w+`? ){0,2}(?:command|verb)(?![\w-])|there is no `?(?:command|kosmos|verb)/i;
 
 /* What an accurate section must say, and what the reported bad one said. */
 function assertAccurate(flat, where) {
@@ -90,13 +92,17 @@ test('kosmos#8868: CONTROL, each check fails on its own bad feature, and the acc
     [good.replace(/bill the person/, 'cost nothing'), /the billing warning is missing/],
     [good + ' There is no one-word verb that prints accounts.', /it says there is no command/],
     [good + ' There is no kosmos command for this.', /it says there is no command/],
+    [good + ' There is no `kosmos` command for this.', /it says there is no command/],
     [good + ' Send the board token with the read.', /it sends the agent to a read carrying a credential/],
   ];
   for (const [text, why] of cases) {
     assert.notEqual(text, good, 'a control case did not change the text: ' + why);
     assert.throws(() => assertAccurate(text, 'control'), why);
   }
-  assert.throws(() => assertAccurate(OLD_BLOCK.replace(/\s+/g, ' '), 'old block'), /old block: /);
+  // The reported block itself carries both features the card is about.
+  const old = OLD_BLOCK.replace(/\s+/g, ' ');
+  assert.match(old, NO_COMMAND, 'the no-command check misses the reported block');
+  assert.match(old, /board token/, 'the credential check misses the reported block');
 });
 
 test('kosmos#8868: the section written into an agent file is accurate, and stays so on every regeneration', () => {
@@ -268,10 +274,11 @@ test('kosmos#8868: every writer of the Connections markers writes exactly blockB
   };
   walk(repo, false);
   for (const d of ['engine', 'bin', 'install', 'tools']) if (fs.existsSync(path.join(repo, d))) walk(path.join(repo, d), true);
-  // CONTROL: the walk reaches files below engine/ and outside it, so a recursion that silently stopped cannot pass.
+  // CONTROL: the walk reaches outside engine/ and into a nested folder, so a lost root or a stopped recursion fails.
   const engineTop = fs.readdirSync(__dirname).filter((n) => n.endsWith('.js') && !n.endsWith('.test.js')).length;
   assert.ok(files.length > engineTop, 'the sweep read ' + files.length + ' files, no more than engine/ alone holds (' + engineTop + ')');
   assert.ok(files.some((f) => f.includes(path.sep + 'tools' + path.sep)), 'the sweep did not reach tools/');
+  assert.ok(files.includes(path.join(repo, 'tools', 'lib', 'win-release-manifest.js')), 'the sweep did not recurse into tools/lib/');
   const found = [];
   for (const file of files) {
     const src = fs.readFileSync(file, 'utf8');
