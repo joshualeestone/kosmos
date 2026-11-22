@@ -585,7 +585,12 @@ function drainCorrections(now) {
     if (!st.ok || !st.pending || !st.pending.length) return;
     if (!st.on) { write({ pending: null }); return; }
     let list = st.pending;
-    while (list.length && list[0].tries >= PENDING_TRIES) list = list.slice(1);   // review 1: a used-up day does not cost the hour
+    const spent = [];
+    while (list.length && list[0].tries >= PENDING_TRIES) { spent.push(list[0].date); list = list.slice(1); }   // review 1: a used-up day does not cost the hour
+    /* Review 3: a used-up day that is also the record's day is marked handled (its current hash), so sweepTick's resend
+       of yesterday and flushChangedDay do not go on trying it past the three tries the note promised. */
+    const handled = spent.includes(st.sent) ? feedback.readBody(st.sent) : null;
+    if (handled != null) { if (!write({ sentHash: bodyHash(handled), pending: list.length ? list : null }).ok) return; }
     if (!list.length) { write({ pending: null }); return; }
     const first = list[0];
     const counted = [{ date: first.date, tries: first.tries + 1 }].concat(list.slice(1));
@@ -773,7 +778,8 @@ function noteEarlierDay(date, now) {
   if (!sender && sandboxed() && !loopback(endpoint())) return head + 'Not sent: this is a test run (or its data is in a temporary folder).';
   let q;
   try { q = queueCorrection(date, now); } catch { q = { ok: false }; }
-  if (q && !q.ok && q.why === 'unsent') return head + 'Kosmos has not sent a report for that day, so it will not send that day, and the note stays here.';
+  // Review 3: "no record", not "not sent": a file written before `offered` existed knows only the record's own day.
+  if (q && !q.ok && q.why === 'unsent') return head + 'Kosmos has no record of sending that day, so this note stays on this computer.';
   if (!q || !q.ok) return head + 'Kosmos could not record it to be sent, so it stays here.';
   return head + 'The changed report goes to the Kosmos team on one of Kosmos\'s hourly checks while it is running (tried up to three times; switching sending off cancels it), with home paths and the names and keys Kosmos recognises taken out first.';
 }

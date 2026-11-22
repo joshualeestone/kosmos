@@ -78,3 +78,14 @@ sentence says what will happen.
 - Kept: past 14 queued days the oldest is dropped; the sentence about the day just queued is still true.
 - Tests for each (flush-first, the in-flight note, a never-offered day before the last one sent, offered survives
   markSent); four mutations each red.
+
+## Review 3 (opus)
+- Fixed: on a settings file from before `offered`, a day really sent before the upgrade was called "not sent". The
+  sentence now says "Kosmos has no record of sending that day, so this note stays on this computer", true either way
+  (test with an old-shaped file, and a control that the record's own day is still queued).
+- Fixed: a queued yesterday that the collector kept refusing was tried more than three times: after the drain dropped
+  it, sweepTick's own resend of yesterday took over. A used-up day that is the record's day is now marked handled (its
+  current hash). Test: eleven hourly checks on the same day, exactly three posts. My first version of that test ticked
+  every three hours past midnight, so "yesterday" moved and the mutation stayed green; corrected, it now goes red.
+- Kept (NITs): past 14 queued days the oldest is dropped after the person was told it goes; the microsecond race
+  between a CLI write and the board's (as round 1).

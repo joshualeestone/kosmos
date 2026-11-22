@@ -46,7 +46,7 @@ test('--date adds to an earlier day\'s report and queues it for the hourly check
   plant('old report', '2026-11-05');
   const n = cli(['feedback', 'note', '--date', '2026-11-05', 'a correction']);
   assert.equal(n.code, 0, n.err);
-  assert.equal(n.out, 'Added the note to your report of 2026-11-05, on this computer. Kosmos has not sent a report for that day, so it will not send that day, and the note stays here.');   // kosmos#8900: nothing ever sent here
+  assert.equal(n.out, 'Added the note to your report of 2026-11-05, on this computer. Kosmos has no record of sending that day, so this note stays on this computer.');   // kosmos#8900: nothing ever sent here
   assert.match(cli(['feedback', 'show', '2026-11-05']).out, /^old report\n\nAdded later \(.* UTC\):\na correction$/);
 });
 

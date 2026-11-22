@@ -131,7 +131,7 @@ test('kosmos#8900 review 1: an OLDER day that is the last one sent goes on the h
 
 test('kosmos#8900 review 2: a day Kosmos never started sending is not queued, even one before the last day sent: the note stays here', () => {
   fresh();
-  const STAYS = /Kosmos has not sent a report for that day, so it will not send that day, and the note stays here\.$/;
+  const STAYS = /Kosmos has no record of sending that day, so this note stays on this computer\.$/;
   assert.match(fbs.noteEarlierDay(OLDER, NOW), STAYS, 'nothing ever sent');
   offer(YESTERDAY);   // a later day was sent, but OLDER never was (sending was off that day, say)
   assert.match(fbs.noteEarlierDay(OLDER, NOW), STAYS, 'a day before the last one sent, never itself sent');
@@ -173,6 +173,30 @@ test('kosmos#8900: a collector that refuses uses up three tries, then the day is
   assert.deepEqual(fbs.read().pending, [], 'a day was kept past three tries');
   assert.equal(posts.filter((p) => p.date === OLDER).length, 3, 'not exactly three tries were sent');
   assert.deepEqual(record(), before);
+});
+
+test('kosmos#8900 review 3: a queued YESTERDAY that the collector keeps refusing is tried exactly three times, not resent by the sweep after', async () => {
+  fresh();
+  const posts = [];
+  fbs.setSender(async (url, init) => { posts.push(JSON.parse(init.body)); return { ok: false, status: 503 }; });
+  fb.write('yesterday\'s report', { from: 'mara', date: YESTERDAY });
+  offer(YESTERDAY);
+  fb.note('mara', 'REFUSED yesterday', YESTERDAY, NOW);
+  fbs.noteEarlierDay(YESTERDAY, NOW);
+  // Hourly checks from noon to 23:00 the same day, so "yesterday" stays YESTERDAY for the sweep's own resend, and the
+  // three-hour floor passes several times after the third try.
+  for (let i = 1; i <= 11; i++) { fbs.sweepTick(NOW + i * 3600 * 1000); await settle(); }
+  assert.equal(fb.dateKey(new Date(NOW + 11 * 3600 * 1000)), TODAY, 'CONTROL: every check ran on the same day');
+  assert.equal(posts.filter((p) => p.date === YESTERDAY).length, 3, 'tries for yesterday: ' + posts.filter((p) => p.date === YESTERDAY).length);
+  assert.deepEqual(fbs.read().pending, []);
+});
+
+test('kosmos#8900 review 3: a file from before the offered list: a day it never recorded says "no record", not "not sent"', () => {
+  fresh();
+  fs.writeFileSync(fbs.FILE, JSON.stringify({ on: true, sent: YESTERDAY, sentHash: 'h', sentAt: NOW - 3600 * 1000 }) + '\n');
+  assert.match(fbs.noteEarlierDay(OLDER, NOW), /Kosmos has no record of sending that day, so this note stays on this computer\.$/);
+  assert.doesNotMatch(fbs.noteEarlierDay(OLDER, NOW), /has not sent/);
+  assert.match(fbs.noteEarlierDay(YESTERDAY, NOW), HOURLY, 'CONTROL: the record\'s own day is still queued from an old file');
 });
 
 test('kosmos#8900: switching sending off cancels the queue at once, so switching it back on sends nothing queued before', async () => {
