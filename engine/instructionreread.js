@@ -476,11 +476,24 @@ const NOTICE_LINE = /^## Notice (\d+), written /;
    that (a file anyone else wrote there, even one starting with the title, is never republished as Kosmos's). */
 const bodyHash = (t) => require('node:crypto').createHash('sha256').update(String(t)).digest('hex');
 function bodyFile(session) { const p = seenFile(session); return p ? p.replace(/\.md$/, '.changes') : null; }
-function rememberBody(session, body) {
+/* Round 2: the last notice number is kept with the hash, so a changes file the agent deleted or edited (or one whose
+   hash could not be read) does not make the next notice Notice 1 again. A session start (dropChanges) clears both, and
+   numbering then starts at 1, as the line's "since you started" says. If this file itself cannot be written, both are
+   lost and the next notice is Notice 1: the line then still says to read the sections themselves. */
+function rememberBody(session, body, notice) {
   const f = bodyFile(session);
   if (!f) return;
-  try { fs.mkdirSync(seenDir(), { recursive: true, mode: 0o700 }); require('./securewrite').writeSecret(f, bodyHash(body) + '\n', 0o600, { atomicOnly: true, ownTempsOnly: true }); }
+  try { fs.mkdirSync(seenDir(), { recursive: true, mode: 0o700 }); require('./securewrite').writeSecret(f, bodyHash(body) + '\n' + (Number.isSafeInteger(notice) && notice > 0 ? notice : 0) + '\n', 0o600, { atomicOnly: true, ownTempsOnly: true }); }
   catch { forgetBody(session); }
+}
+/* What rememberBody kept: { hash, notice }, or null. */
+function readBody(session) {
+  const f = bodyFile(session);
+  try {
+    const [hash, n] = fs.readFileSync(f, 'utf8').split('\n');
+    const notice = Number(n);
+    return { hash: String(hash || '').trim(), notice: Number.isSafeInteger(notice) && notice > 0 ? notice : 0 };
+  } catch { return null; }
 }
 function forgetBody(session) { const f = bodyFile(session); if (f) { try { fs.unlinkSync(f); } catch { /* none kept */ } } }
 /* The file at `p` read without following a link (O_NOFOLLOW where the platform has it, then the open file itself must be a
@@ -498,10 +511,8 @@ function readPlain(p) {
 function readOwnChanges(session, p) {
   const t = readPlain(p);
   if (t === null || !t.startsWith(CHANGES_TITLE)) return null;
-  const f = bodyFile(session);
-  let kept = null;
-  try { kept = f ? fs.readFileSync(f, 'utf8').trim() : null; } catch { kept = null; }
-  return kept && kept === bodyHash(t) ? t : null;
+  const kept = readBody(session);
+  return kept && kept.hash && kept.hash === bodyHash(t) ? t : null;
 }
 /* Pure: the entries of a changes file, each { n, text } with its text from its own heading line to the next. A heading
    line can only be Kosmos's: every diff line starts with + or -, and every note with a word or a bracket. */
@@ -534,7 +545,11 @@ function restoreChanges(session, previous, wrote) {
   const p = changesPath(session);
   if (!p || typeof wrote !== 'string' || readPlain(p) !== wrote) return;
   if (typeof previous !== 'string') { dropChanges(session); return; }
-  try { require('./securewrite').writeSecret(p, previous, 0o600, { atomicOnly: true, ownTempsOnly: true }); rememberBody(session, previous); }
+  try {
+    require('./securewrite').writeSecret(p, previous, 0o600, { atomicOnly: true, ownTempsOnly: true });
+    const es = entriesOf(previous);
+    rememberBody(session, previous, es.length ? es[es.length - 1].n : 0);
+  }
   catch { dropChanges(session); }
 }
 /* Before a line: the current file, and (when a copy of what the agent last read exists and differs) the path of the
@@ -669,12 +684,13 @@ function prepareChanges(session, now = new Date()) {
        file as it was, so a line that does not land puts it back (restoreChanges) rather than deleting earlier entries. */
     const previous = readOwnChanges(session, p);
     let earlier = previous === null ? [] : entriesOf(previous);
-    const notice = earlier.length ? earlier[earlier.length - 1].n + 1 : 1;
+    const kept = readBody(session);
+    const notice = Math.max(earlier.length ? earlier[earlier.length - 1].n : 0, kept ? kept.notice : 0) + 1;
     const entry = '## Notice ' + notice + ', written ' + noticeStamp(now) + '\n' + diff + '\n\n';
     const compose = (list) => {
       const firstKept = list.length ? list[0].n : notice;
       const gone = firstKept > 1
-        ? (firstKept === 2 ? 'Notice 1 was' : 'Notices 1 to ' + (firstKept - 1) + ' were') + ' removed to keep this file short. If you did not read '
+        ? (firstKept === 2 ? 'Notice 1 is' : 'Notices 1 to ' + (firstKept - 1) + ' are') + ' no longer in this file. If you did not read '
           + (firstKept === 2 ? 'it' : 'them') + ', read the sections ' + (firstKept === 2 ? 'its notice' : 'their notices') + ' named in full.\n\n'
         : '';
       return CHANGES_HEADER + gone + list.map((e) => e.text).join('') + entry;
@@ -684,7 +700,7 @@ function prepareChanges(session, now = new Date()) {
     while (earlier.length && Buffer.byteLength(body) > CHANGES_FILE_MAX) { earlier = earlier.slice(1); body = compose(earlier); }
     // Review 1 BLOCKER (kosmos#7149): through securewrite, so a link planted in the agent's folder is never followed; 0600.
     require('./securewrite').writeSecret(p, body, 0o600, { atomicOnly: true, ownTempsOnly: true });
-    rememberBody(session, body);
+    rememberBody(session, body, notice);
     return { text: got.text, path: p, notice, previous, wrote: body };
   } catch { return null; }
 }

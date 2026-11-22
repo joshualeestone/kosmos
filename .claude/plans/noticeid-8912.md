@@ -38,7 +38,7 @@ A line that did not land deleted the whole file.
 - `seen` and the marks move exactly as before.
 
 ## Tests
-- New `engine/instructionreread-noticeid-8912.test.js` (7 at first, 11 after round 1, which added the four listed under Review): two landed notices give entries 1 and 2 and the line
+- New `engine/instructionreread-noticeid-8912.test.js` (7 at first, 11 after round 1 and 12 after round 2, the additions listed under Review): two landed notices give entries 1 and 2 and the line
   names Notice 2 with the earlier-entries clause; a line that did not land keeps entry 1 byte for byte and the next
   landed one is Notice 2 (CONTROL: no restoreChanges drops the file); a session start clears, next is Notice 1; a
   stranger's file at the path is not carried; a `+ ## Notice 5` diff line is not an entry; past the bound entries 1
@@ -67,3 +67,15 @@ each time pays more than before; the bound (128 KB) caps that.
   with the same blank line a carried one does. NIT taken: tests for a held line, and UNCONFIRMED then a second notice.
 - Mutations after round 1, each red: overwrite as before (5), restore drops (3), restore ignores a start (1), no hash
   check (1), no size limit (1), unanchored heading (1), no bound (1), no earlier clause (1).
+- Round 2 (sonnet): WARNING, numbering restarted at 1 whenever the carried file was lost (the agent deleted or edited
+  it, or the hash was unreadable), so "Notice 1" could name two different notices. Fixed: the last number is kept with
+  the hash, so it continues; a session start clears both and restarts at 1. If the kept file itself cannot be written,
+  both are lost and the next is Notice 1 (stated in the comment). The removed note now reads "Notice 1 is no longer in
+  this file" (it was "removed to keep this file short", untrue when the agent deleted it). Test: the agent deletes its
+  file, the next notice is Notice 2 and says Notice 1 is gone; CONTROL a session start restarts at 1. WARNING, the
+  `none()` drops: a duplicate of round 1's deferral; the reviewer agreed it is safe and asked that the reasoning be on
+  the card (it goes in the PR). NITs not taken: a microsecond window between restoreChanges' check and its write (a
+  start landing exactly there is undone, as it always was before this change); no timezone in the stamp (it is read by
+  an agent, on the board's clock); stacked slice tags in the header comment.
+- Mutations after round 2, each red: overwrite as before (3), restore drops (3), restore ignores a start (1), no hash
+  check (1), no size limit (1), unanchored heading (1), no bound (1), no earlier clause (1), counter ignored (3).
