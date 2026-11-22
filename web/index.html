@@ -25389,8 +25389,13 @@ function rebootPattern(p) {
   const days = p.dates.map((iso) => new Date(iso)).filter((d) => !isNaN(d.getTime()))
     .map((d) => d.toLocaleDateString([], { month: 'short', day: 'numeric' }));
   if (days.length !== p.count) return '';
+  /* One day once, with how many times ("Nov 20 (twice)"). "Within a week": the note stays up a day, so "in the last 7
+     days" could be a day stale, while the dates stay true. */
+  const seen = [];
+  for (const d of days) { const f = seen.find((x) => x.d === d); if (f) f.n++; else seen.push({ d, n: 1 }); }
+  const listed = seen.map((x) => x.d + (x.n === 2 ? ' (twice)' : x.n > 2 ? ' (' + x.n + ' times)' : '')).join(', ');
   return (typeof ThisMachine === 'function' ? ThisMachine() : 'This computer') + ' has restarted ' + p.count
-    + ' times in the last 7 days while Kosmos was running (' + days.join(', ') + '). If you did not restart it yourself,'
+    + ' times within a week while Kosmos was running (' + listed + '). If you did not restart it yourself,'
     + ' restarts this often usually mean a hardware or driver problem worth having looked at.';
 }
 let REBOOT_RECHECK = null;   // kosmos#8287: agents return over minutes, so a list of who is not back is asked again soon

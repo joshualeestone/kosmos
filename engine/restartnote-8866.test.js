@@ -58,6 +58,11 @@ test('#8866: restarts spread wider than 7 days are no pattern; the same boot rea
   clean();
   restartAt(T0); restartAt(T0 + DAY);
   assert.equal(restartAt(T0 + DAY).pattern, undefined, 'the same boot twice is one restart');
+  // Round 1: the same restart read again with a boot time a few seconds off (two clocks) is still one restart.
+  clean();
+  restartAt(T0); restartAt(T0 + DAY);
+  assert.equal(restartAt(T0 + DAY + 3000).pattern, undefined, 'a boot 3 s from a kept one is the same restart');
+  assert.equal(restartAt(T0 + 2 * DAY).pattern.count, 3, 'CONTROL: a real third restart still makes the pattern');
 });
 
 test('#8866: patternOf is the rule on its own; a damaged history is no pattern, never a guessed one', () => {

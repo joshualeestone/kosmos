@@ -11,9 +11,11 @@ checked (#8287). Nothing joins notes: each restart overwrote the last, so a patt
 ## Built
 - engine/restartnote.js: each note's boot time is kept in board-restart-history.json (at most 20, for 30 days; a boot
   already kept is not counted twice; invalid entries dropped). A note made when 3 or more fall within 7 days carries
-  `pattern: { count, dates }`; current() and publicNote() pass it on, cleaned. Best effort: a history that cannot be
-  written is no pattern, never a guessed one.
-- web/index.html: rebootPattern() adds one <small class="rpat"> line to the existing note, inside its repaint key.
+  `pattern: { count, dates }`; current() and publicNote() pass it on, cleaned. A boot within 15 minutes of a kept one
+  is the same restart read again (boot times come from two clocks). The history is written only after the note is.
+- web/index.html: rebootPattern() adds one <small class="rpat"> line to the existing note, inside its repaint key:
+  "... has restarted N times within a week while Kosmos was running (Nov 18, Nov 20 (twice), ...)". "Within a week",
+  not "in the last 7 days": the note stays up a day, so the latter could be a day stale.
 
 ## Decided
 - Never "unexpectedly": the engine cannot tell a crash from a person's restart (its own header says so), so the line
