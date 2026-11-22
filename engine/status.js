@@ -2027,7 +2027,8 @@ function antigravityQueued(paneText) {
   const tail = paneText.split('\n').slice(-35).join('\n');
   const hasQueuePrompt = /to edit queued messages/i.test(tail) || /user-queued messages/i.test(tail);
   if (!hasQueuePrompt) return null;
-  const matches = tail.match(/(?:^|\n)\s*▸?\s*\[message from [^\n]+/g);
+  // kosmos#8883: and a line sent automatically for the person (messages.automaticWake, kosmos#8864), queued the same way.
+  const matches = tail.match(/(?:^|\n)\s*▸?\s*\[(?:message from |sent automatically on this computer)[^\n]+/g);
   const n = matches && matches.length > 0 ? matches.length : 1;
   return { n, yours: 0 };
 }
