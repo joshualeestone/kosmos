@@ -48,6 +48,16 @@ test('#8451: on Windows every plain piece is kept, the home is also read in its 
   assert.deepEqual(sc.splitPathValue('C:\\H\\T/x', true, ['C:\\H', 'C:\\H\\T']), ['C', '\\H\\T/x', 'C:/H/T/x'], 'nested values');
   assert.deepEqual(sc.splitPathValue('C:\\H/x', true, [undefined, '', 'rel', 'C:\\H']), ['C', '\\H/x', 'C:/H/x'], 'missing or relative values are skipped');
   assert.deepEqual(sc.splitPathValue('C:\\H/x', true), ['C', '\\H/x'], 'no converted list: the plain split');
+  // Review 7: one piece holding the home's text twice, once from CLAUDE_PROJECT_DIR (not converted) and once from $HOME
+  // (converted): bash holds C:\H\work\A/x/c/H/bin, which only the mixed choice names.
+  const mixed = sc.splitPathValue('C:\\H\\work\\A/xC:\\H/bin', true, ['C:\\H']);
+  assert.ok(mixed.includes('\\H\\work\\A/x/c/H/bin'), 'the unconverted copy split, the converted copy in /c/ form');
+  assert.ok(mixed.includes('C:/H\\work\\A/xC') && mixed.includes('C:/H\\work\\A/x/c/H/bin'), 'and the other choices');
+  assert.equal(mixed.unsure, undefined, 'two occurrences are within the cap');
+  // Past the cap the choices are too many to list: the caller is told, so the guard reports the PATH (fail closed).
+  const many = sc.splitPathValue(Array(9).fill('C:\\H').join('/'), true, ['C:\\H']);
+  assert.equal(many.unsure, true, 'nine occurrences: unsure');
+  assert.equal(sc.splitPathValue(Array(8).fill('C:\\H').join('/'), true, ['C:\\H']).unsure, undefined, 'eight: listed');
 });
 
 const WIN_ONLY = process.platform !== 'win32' && 'Windows only: it resolves Windows drive paths, which only the Windows path module does';
@@ -86,6 +96,10 @@ test('#8451: on Windows a PATH= value names the home folder whole AND every fold
   // searches x/d/H/bin under the agent folder for PATH=x$HOME/bin with HOME on D:).
   assert.ok(paths('PATH=x$HOME/bin:$PATH myhook').includes(cwd + '\\x\\d\\H\\bin\\myhook'), 'x$HOME/bin');
   assert.ok(paths('PATH=./$HOME/bin:$PATH myhook').includes(cwd + '\\d\\H\\bin\\myhook'), './$HOME/bin');
+  // Review 7, end to end: the project folder (not converted) and the home (converted) in one piece.
+  assert.ok(paths('PATH="$CLAUDE_PROJECT_DIR/x$HOME/bin:$PATH" myhook').includes('D:\\H\\work\\A\\x\\d\\H\\bin\\myhook'), 'mixed piece');
+  const crowded = sc.pathsOfWords(sc.shellWords('PATH="' + Array(9).fill('$HOME').join('/') + ':$PATH" myhook', v), cwd, v);
+  assert.ok(crowded.unsafe.some((u) => /too many home or temp folders/.test(u)), 'past the cap the PATH is reported, not guessed');
   // Review 4: TMPDIR (and TMP, TEMP) are converted by Git Bash too (measured), so a TMPDIR on another drive than the
   // home names its own folder, not only the plain split's <cwd>\E and \t\bin on the agent folder's drive.
   const vt = { HOME: 'C:\\H', TMPDIR: 'E:\\t', TMP: 'E:\\u', TEMP: 'E:\\v', PATH: '\u0000PATH' };

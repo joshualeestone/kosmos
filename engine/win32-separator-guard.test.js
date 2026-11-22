@@ -109,7 +109,7 @@ const ALLOW = [
   { file: 'runners.js', snippet: ".split(';').map((e) => e.trim().toUpperCase())", count: 1, why: 'the SAME PATHEXT list in hasExecutableExt (#2270): membership test for a path\'s extension, uppercased for the case-insensitive match Windows does. Always ;-separated on Windows, NOT path.delimiter -- same reasoning as the pathextCandidates entry above' },
   { file: 'restoresink.js', snippet: "line.split(':')", count: 1, why: 'an /etc/group line (name:password:gid:members); : is that file\'s field separator, not a path. In isPrivateGroup, reached only on the non-win32 branch (#5536)' },
   { file: 'startcommands.js', snippet: "value.split(':')", count: 2, why: 'a PATH= assignment inside a POSIX shell command line a hook or server runs: : is that shell syntax\'s own separator (Git Bash on Windows too, measured in #8451), not the host path.delimiter (#5774); splitPathValue splits that way off Windows and on Windows' },
-  { file: 'startcommands.js', snippet: "bashForm.split(':')", count: 1, why: 'the same PATH= value on Windows with the home rewritten as Git Bash holds it (/c/...): bash splits it on : too (measured, #8451)' },
+  { file: 'startcommands.js', snippet: "form.split(':')", count: 1, why: 'the same PATH= value on Windows with home/temp folders rewritten as Git Bash holds them (/c/...): bash splits it on : too (measured, #8451)' },
   { file: 'backupupload.js', snippet: ".split(';')", count: 1, why: 'AWS SigV4 X-Amz-SignedHeaders, a ;-joined list of header names fixed by the protocol on every platform, not a path list (#5535)' },
   { file: 'pagecompress.js', snippet: ".toLowerCase().split(';')", count: 1, why: 'HTTP Accept-Encoding: an encoding and its q parameter are ;-separated (RFC 9110), not a path list (#7490)' },
 ];
