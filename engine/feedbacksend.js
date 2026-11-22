@@ -126,8 +126,9 @@ function read() {
 
 function write(patchOrFn) {
   const cur = read();
-  /* kosmos#8900 review 5: a function patch is built from THIS read, so a list (pending, offered) is never rebuilt from
-     an older read that another process has since changed. It returns the patch, or null to write nothing. */
+  /* kosmos#8900 review 5: a function patch is built from THIS read, which NARROWS (does not close) the window in which
+     another process's change can be lost: there is still no lock between this read and the save below. It returns
+     the patch, or null to write nothing. */
   const patch = typeof patchOrFn === 'function' ? patchOrFn(cur) : patchOrFn;
   if (patch == null) return { ok: true, skipped: true };
   // Preserve every field across a partial write: setOn must not wipe the `sent`
@@ -602,8 +603,11 @@ function drainCorrections(now) {
        flushChangedDay do not go on trying it past the three tries the note promised. Review 4: with the hash its LAST
        try sent (`h`), never the report's hash now, so a rewrite after the last try is still a change and still goes. */
     const keep = (cur) => (cur.pending || []).filter((x) => x.tries < PENDING_TRIES);   // review 5: built from the write's own read
+    // A used-up day with no recorded hash (its report was gone at every try) needs no marking: the hourly check resends
+    // a record day only when its report exists and changed.
     if (spentRecordDay && spentRecordDay.h) {
-      if (!write((cur) => { const l = keep(cur); return { sentHash: spentRecordDay.h, pending: l.length ? l : null }; }).ok) return;
+      // Review 7: only while the record still names that day; a later day marked in between keeps its own hash.
+      if (!write((cur) => { const l = keep(cur); return { ...(cur.sent === spentRecordDay.date ? { sentHash: spentRecordDay.h } : {}), pending: l.length ? l : null }; }).ok) return;
     }
     if (!list.length) { write((cur) => { const l = keep(cur); return { pending: l.length ? l : null }; }); return; }
     const first = list[0];
@@ -801,7 +805,7 @@ function noteEarlierDay(date, now) {
   // Review 3: "no record", not "not sent": a file written before `offered` existed knows only the record's own day.
   if (q && !q.ok && q.why === 'full') return head + 'Kosmos already has ' + PENDING_MAX + ' earlier days waiting to be sent, so this note stays on this computer.';
   if (q && !q.ok && q.why === 'unsent') return head + 'Kosmos has no record of sending that day, so this note stays on this computer.';
-  if (!q || !q.ok) return head + 'Kosmos could not record it to be sent, so it stays here.';
+  if (!q || !q.ok) return head + 'Kosmos could not record it to be sent, so this note stays on this computer.';
   return head + 'The changed report goes to the Kosmos team on one of Kosmos\'s hourly checks while it is running (tried up to three times; switching sending off cancels it), with home paths and the names and keys Kosmos recognises taken out first.';
 }
 

@@ -20,7 +20,7 @@ exactly that.
    removed. Three tries without acceptance: dropped. One day per tick, so it cannot flood the collector. With
    sending switched off, the list is cleared: nothing queued while sending was on leaves later because it was turned
    back on. It never touches `sent`, `sentHash` or `sentAt`, so today's send timing is unchanged.
-4. Both CLIs: a note on an earlier day queues it (when sending is on), and earlierNoteMessage says the changed report
+4. Both CLIs: a note on an earlier day queues it (when sending is on), and noteEarlierDay (formerly earlierNoteMessage) says the changed report
    goes to the Kosmos team on one of Kosmos's hourly checks while it is running (or not sent, with the reason: off,
    unreadable, a test run).
 
@@ -115,3 +115,14 @@ sentence says what will happen.
 - No blockers. Fixed: the in-flight test now also runs the real command's order (a note, then noteEarlierDay) during
   the THIRD try; the late note still goes. Kept: the cross-process race (rounds 1, 4, 5, 6; narrowed by write()'s
   function form, not closed); `offered` means "started sending"; a sendNow of a queued day may add one extra send.
+
+## Review 7 (opus)
+- Fixed: marking a used-up record's day handled now checks that the record still names that day inside the write,
+  so a later day marked in between keeps its own hash (no extra resend of today). REASONED, not tested: the window is
+  inside one call (between the drain's read and its write), which a unit test cannot interleave; the added test checks
+  the neighbouring behaviour and stays green with the guard removed, as its comment says.
+- Fixed: the write() comment says the function form NARROWS the cross-process window; it does not close it.
+- Fixed (NITs): one comment on a used-up day with no recorded hash; "stays on this computer" in the could-not-record
+  sentence; the plan names noteEarlierDay.
+- Kept: the CLI tests reach only the "no record" sentence; the queueing itself is covered in the engine tests, and both
+  CLIs call the one function.

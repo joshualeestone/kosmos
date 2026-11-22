@@ -227,6 +227,24 @@ test('kosmos#8900 review 4: a rewrite of the record\'s day AFTER its last refuse
   assert.ok(posts.some((p) => JSON.stringify(p).includes('REWRITTEN after the tries')), 'the rewrite after the last try was marked handled and never sent');
 });
 
+/* Behaviour only: when today is marked BEFORE the drop's check, the check already sees today and never marks the old
+   day. The review 7 guard inside the write covers today being marked BETWEEN that check and the write, which this file
+   cannot interleave; that guard is reasoned from the code, not proven here (a mutation removing it stays green). */
+test('kosmos#8900 review 7: a used-up day whose record moved on before the check leaves today\'s hash alone', async () => {
+  fresh();
+  fbs.setSender(async () => ({ ok: false, status: 503 }));
+  fb.write('yesterday\'s report', { from: 'mara', date: YESTERDAY });
+  offer(YESTERDAY);
+  fb.note('mara', 'note', YESTERDAY, NOW);
+  fbs.noteEarlierDay(YESTERDAY, NOW);
+  for (let i = 1; i <= 3; i++) { fbs.sweepTick(NOW + i * 3600 * 1000); await settle(); }   // three refused tries
+  fbs.markSent(TODAY, 'today-hash', NOW + 3 * 3600 * 1000 + 1000);   // today is marked before the drop
+  fbs.sweepTick(NOW + 4 * 3600 * 1000);   // the drop of the used-up yesterday
+  await settle();
+  assert.equal(fbs.read().sent, TODAY);
+  assert.equal(fbs.read().sentHash, 'today-hash', 'today\'s hash was overwritten with yesterday\'s');
+});
+
 test('kosmos#8900 review 3: a file from before the offered list: a day it never recorded says "no record", not "not sent"', () => {
   fresh();
   fs.writeFileSync(fbs.FILE, JSON.stringify({ on: true, sent: YESTERDAY, sentHash: 'h', sentAt: NOW - 3600 * 1000 }) + '\n');
