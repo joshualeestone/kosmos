@@ -630,7 +630,9 @@ _body_file_and_words() {
 # for ever on an open pipe nobody writes to; this stops once the input ends or has been quiet for
 # KOSMOS_STDIN_QUIET_S seconds (3, fixed: the Windows CLI's STDIN_QUIET_LIMIT_MS and the --unchanged reader's _u_quiet).
 # Sets KOSMOS_STDIN_TEXT (trailing line breaks go, as $(cat) did). Returns 0 when the input ended, or when it went quiet
-# or failed with nothing but white space sent (an empty body, which each verb refuses as before, as on Windows); 6 when
+# or failed with nothing but white space sent (an empty body, which each body-reading verb then refuses with its own
+# empty check, as on Windows; kosmos#8905: a caller with no such check passes `strict` as the second argument, and
+# then input that did not end answers 6, or 7 when the read failed, even with no words); 6 when
 # text arrived and then stopped without ending (it may be cut short); 7 when the read failed part way or the reader
 # could not run (review 1: not the quiet sentence); 5 when the pipe stayed open and nothing at all arrived for the
 # limit (review 3: a command slow to start was told to pipe the report in, which it had). The caller saves nothing on
@@ -645,13 +647,15 @@ KOSMOS_STDIN_CARDS_QUIET_S=120
 _read_stdin_quiet() {
   KOSMOS_STDIN_TEXT=""
   KOSMOS_STDIN_LIMIT_S="${1:-$KOSMOS_STDIN_QUIET_S}"
+  local _strict=""
+  case "${2:-}" in '') ;; strict) _strict=1 ;; *) KOSMOS_STDIN_LIMIT_S=""; return 7 ;; esac
   case "$KOSMOS_STDIN_LIMIT_S" in ''|*[!0-9]*|0*) KOSMOS_STDIN_LIMIT_S=""; return 7 ;; esac   # a wrong limit is a bug here: refuse, never wait
   if [ -t 0 ]; then KOSMOS_STDIN_TEXT="$(cat)"; return 0; fi
   # kosmos#8905: the node every other step of these verbs runs (the bundle's, else the system's in a source checkout or
   # a partial install), not $NODE alone, which a source checkout does not have. With no node at all it answers 7: these verbs need node next anyway.
   local _rc=0 _qn
   _qn="$(kosmos_engine_node)" || return 7   # review (Mona Lisa): no node at all is refused, never a wait on a silent pipe
-  KOSMOS_STDIN_TEXT="$(KOSMOS_STDIN_QUIET_S="$KOSMOS_STDIN_LIMIT_S" "$_qn" -e '
+  KOSMOS_STDIN_TEXT="$(KOSMOS_STDIN_QUIET_S="$KOSMOS_STDIN_LIMIT_S" KOSMOS_STDIN_STRICT="$_strict" "$_qn" -e '
     const input = process.stdin; const chunks = []; let timer = null; let done = false; let total = 0;
     const finish = (ended, failed) => {
       if (done) return; done = true; clearTimeout(timer);
@@ -660,6 +664,7 @@ _read_stdin_quiet() {
       if (failed && words) process.exit(7);
       if (!ended && words) process.exit(6);
       if (!ended && !failed && total === 0) process.exit(5);   /* review 3: nothing at all came, e.g. a command slow to start */
+      if (!ended && process.env.KOSMOS_STDIN_STRICT === "1") process.exit(failed ? 7 : 6);   /* kosmos#8905: white space only, then quiet */
       process.stdout.write(Buffer.concat(chunks), () => process.exit(0));
     };
     const quiet = () => { clearTimeout(timer); timer = setTimeout(() => finish(false), Number(process.env.KOSMOS_STDIN_QUIET_S) * 1000); };
@@ -6623,7 +6628,7 @@ cmd_feedback() {
       done
       local t_cardlist=""
       if [ -n "$t_cards" ]; then
-        if [ "$t_cards" = "-" ]; then _read_stdin_quiet "$KOSMOS_STDIN_CARDS_QUIET_S" || _stdin_refused $? "triaged" "card list" "Part of a list would show filed items as new. Pass the titles in a file instead: --cards <file>"; t_cardlist="$KOSMOS_STDIN_TEXT"; else t_cardlist="$(cat "$t_cards" 2>/dev/null)" || { say "could not read cards file: $t_cards"; exit 2; }; fi
+        if [ "$t_cards" = "-" ]; then _read_stdin_quiet "$KOSMOS_STDIN_CARDS_QUIET_S" strict || _stdin_refused $? "triaged" "card list" "Part of a list would show filed items as new. Pass the titles in a file instead: --cards <file>"; t_cardlist="$KOSMOS_STDIN_TEXT"; else t_cardlist="$(cat "$t_cards" 2>/dev/null)" || { say "could not read cards file: $t_cards"; exit 2; }; fi
       fi
       # Which reports are read (store or --dir, --since, the guarded per-file read)
       # and the digest itself are engine functions, feedback.reportsForTriage and
