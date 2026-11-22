@@ -44,7 +44,7 @@ test('the last day sent: the sentence says it goes with a later send, and the sw
   fb.write('yesterday\'s report', { from: 'mara', date: YESTERDAY });
   fbs.markSent(YESTERDAY, 'hash-of-the-sent-version', NOW - 6 * 3600 * 1000);
   assert.equal(fb.note('mara', 'SECRET correction', YESTERDAY, NOW).ok, true);
-  assert.match(fbs.earlierNoteMessage(YESTERDAY, NOW), /^Added the note to your report of \d{4}-\d{2}-\d{2}, on this computer\. That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again while Kosmos is running \(on an hourly check, or with today's report when that is sent\)/);
+  assert.match(fbs.earlierNoteMessage(YESTERDAY, NOW), /^Added the note to your report of \d{4}-\d{2}-\d{2}, on this computer\. That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again while Kosmos is running: on an hourly check, or once with today's report when that is sent \(that one is not tried again if it fails\)/);
   fbs.sweepTick(NOW);
   await settle();
   assert.ok(posts.some((p) => JSON.stringify(p).includes('SECRET correction')), 'the sentence said it goes, and the sweep did not send it: ' + JSON.stringify(posts));
@@ -78,6 +78,16 @@ test('an OLDER day that is still the last one sent: the sweep does not send it; 
   await fbs.sendNow(TODAY, NOW);   // a later day's report goes: the older day is flushed with it
   await settle();
   assert.ok(posts.some((p) => JSON.stringify(p).includes('OLDER correction')), 'the sentence said the next later send takes it, and it did not: ' + JSON.stringify(posts));
+});
+
+test('a test run (data in a temp folder, no injected sender): the sentence says not sent, as sendNow\'s blocked does', () => {
+  fresh();
+  fbs.setSender(null);
+  process.env.AGENT_WORKFORCE_FEEDBACK_URL = 'https://installkosmos.com/api/feedback';   // a real address: only a stub may post
+  try {
+    fbs.markSent(YESTERDAY, 'h', NOW - 6 * 3600 * 1000);
+    assert.match(fbs.earlierNoteMessage(YESTERDAY, NOW), /Not sent: this is a test run \(or its data is in a temporary folder\)\.$/);
+  } finally { process.env.AGENT_WORKFORCE_FEEDBACK_URL = 'http://127.0.0.1:9/api/feedback'; }
 });
 
 test('sending switched off: the sentence says it will not be sent', () => {

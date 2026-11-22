@@ -6474,6 +6474,9 @@ cmd_feedback() {
         if (r.date !== fb.today()) { process.stdout.write(fbs.earlierNoteMessage(r.date)); process.exit(0); }   /* review 1: that day can still go out */
         fbs.sendNow(r.date).then((x) => process.stdout.write(fbs.noteMessage(x && x.state)), () => process.stdout.write(fbs.noteMessage("failed")));
       ' "$KOSMOS_HOME/app")" && fb_rc=0 || fb_rc=$?
+      # Review 5: node's own fatal exits can reuse 4 to 6 (5 is out of memory), so they mean "refused" only when the save
+      # line never printed. With SAVED, the note is on disk whatever the exit code.
+      case "$fb_msg" in "SAVED "*) fb_rc=0 ;; esac
       case "$fb_rc" in
         4) if [ -n "$_nd" ]; then say "There is no report of yours for $_nd to add a note to, so nothing was saved."
            else say "There is no report of yours for today to add a note to, so nothing was saved. Write today's report with kosmos feedback write, or add --date YYYY-MM-DD to add the note to an earlier day's."; fi; exit 2 ;;   # review 4
@@ -6608,7 +6611,7 @@ cmd_feedback() {
     ""|help|-h|--help)
       say "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin)"
       say "       kosmos feedback write --unchanged [text]  (nothing new since your last report; a line, as words or piped in, is added to it)"
-      say "       kosmos feedback note [--date YYYY-MM-DD] [text]  (add a note to a report you already wrote, marked as added later)"
+      say "       kosmos feedback note [--date YYYY-MM-DD] [--body-file <file>] [text]  (add a note to a report you already wrote, marked as added later)"
       say "       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)"
       say "       kosmos feedback list [--mine]      (--mine: only the days holding your own report)"
       say "       kosmos feedback day                (your own day on this computer, for writing the report)"

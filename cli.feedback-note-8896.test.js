@@ -128,7 +128,7 @@ test('--unchanged, refused because a report exists today, now names feedback not
 
 test('help lists feedback note', async () => {
   const h = makeHome();
-  assert.match((await run(['feedback', 'help'], h)).out, /kosmos feedback note \[--date YYYY-MM-DD\] \[text\]/);
+  assert.match((await run(['feedback', 'help'], h)).out, /kosmos feedback note \[--date YYYY-MM-DD\] \[--body-file <file>\] \[text\]/);
 });
 
 test('CONTROL: the report the CLI writes lands in the throwaway data folder', async () => {

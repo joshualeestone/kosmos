@@ -93,3 +93,17 @@ the same day is untouched.
   write and --date. Tested on both CLIs.
 - Fixed: NOTE_MESSAGES.later says "while Kosmos is running", as its siblings do.
 - Kept: the named-agent / legacy unnamed section and the unreachable `already` sentence (both as in rounds 1 and 3).
+
+## Review 5 (opus)
+- Fixed: yesterday's sentence now says its with-today's-report route is one send, not tried again if it fails.
+- Fixed: the earlier-day sentence answers a test run (data in a temp folder, no injected sender) as sendNow's `blocked`
+  does: not sent (test; mutation red).
+- Fixed: the Mac CLI read node exit codes 4 to 6 as refusals even after the save line printed (node's own fatal exits
+  reuse them, 5 is out of memory); with SAVED it is now treated as saved. Reasoned, not tested: forcing a node crash
+  after the save is not practical here.
+- Fixed: the daily nudge (feedbacknudge.js) used "note" for a report and never named the new verb; it now says a report
+  for today is left as it is, and that `kosmos feedback note` adds a line instead of writing it again.
+- Fixed: both help lines show --body-file for note.
+- Deferred to a follow-up card: the Mac CLI has no quiet limit on a piped body for note AND for write (Windows has one,
+  and the Mac --unchanged path got one in #8844). Raised twice; it is the same defect in write, so it is fixed in both
+  together, not here.

@@ -692,6 +692,8 @@ function earlierNoteMessage(date, now) {
   try { st = read(); } catch { st = { ok: false }; }
   if (!st || !st.ok) return head + 'Kosmos could not read its feedback-sending setting, so it cannot say whether the note will be sent.';
   if (!st.on) return head + 'Sending feedback to the Kosmos team is switched off (Settings, Automation), so it will not be sent.';
+  // Review 5: as sendNow's `blocked`, a test run (data in a temp folder, no injected sender) sends nothing.
+  if (!sender && sandboxed() && !loopback(endpoint())) return head + 'Not sent: this is a test run (or its data is in a temporary folder).';
   if (st.sent !== date) return head + 'Kosmos sends an earlier day only when it is the last day it sent, and this one is not, so this note stays here.';
   // Review 2: the two routes differ. Yesterday is re-sent by the board's hourly check (sweepTick, through sendDailyOnce's
   // three-hour floor); an older day only
@@ -699,7 +701,7 @@ function earlierNoteMessage(date, now) {
   const n = new Date(Number.isFinite(now) ? now : Date.now());
   const yesterday = feedback.dateKey(new Date(n.getFullYear(), n.getMonth(), n.getDate() - 1));
   const scrubbed = ', with home paths and the names and keys Kosmos recognises taken out first.';
-  if (date === yesterday) return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again while Kosmos is running (on an hourly check, or with today\'s report when that is sent)' + scrubbed;
+  if (date === yesterday) return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team again while Kosmos is running: on an hourly check, or once with today\'s report when that is sent (that one is not tried again if it fails)' + scrubbed;
   return head + 'That day is the last one Kosmos sent, so the changed report goes to the Kosmos team once, when a later day\'s report is next sent (if that send fails, it is not tried again)' + scrubbed;
 }
 
