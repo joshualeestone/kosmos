@@ -351,6 +351,32 @@ const INNER_ABS = /(?:^|[^A-Za-z0-9_.~/$-])(\/[^\s'"`()<>;|&,/][^\s'"`()<>;|&,]*
  * Kosmos knows. Returns { paths, unsafe }: candidate script paths (folders are filtered by startCommandScripts) and the
  * words whose value cannot be known.
  */
+/* kosmos#8451: the folders in a PATH= value, in order. A hook line runs in a POSIX shell on every platform (on Windows,
+   Claude Code runs hooks in Git Bash, measured: BASH_VERSION set, SHELL /bin/bash.exe, PATH ':'-separated in /c/ form),
+   so ':' is the separator, never path.delimiter. Measured in Git Bash on Windows:
+   - a drive path typed into the value (C:/x or "C:\x") is split on its colon by bash too, which searches a folder
+     named C where the command runs and then /x, so it splits here exactly as on the Mac;
+   - ~ and $HOME are the one exception: Git Bash gives the home as /c/... even when it was set as C:\..., so the home
+     folder is searched. Kosmos expands them to the Windows home (vars.HOME, C:\H), so a piece that starts with that
+     home keeps its drive colon;
+   - /c/x is the C: drive's folder x. */
+function splitPathValue(value, win = process.platform === 'win32', home = '') {
+  if (!win) return value.split(':');
+  const homeDrive = /^[A-Za-z]:[\\/]/.test(home) ? home.toLowerCase() : '';
+  const out = [];
+  let rest = value;
+  while (rest.length) {
+    const drive = homeDrive && rest.toLowerCase().startsWith(homeDrive) ? 2 : 0;   // the expanded home keeps its colon
+    const at = rest.indexOf(':', drive);
+    const piece = at === -1 ? rest : rest.slice(0, at);
+    out.push(piece.replace(/^\/([A-Za-z])(?=\/|$)/, (m, d) => d.toUpperCase() + ':'));   // Git Bash /c/x -> C:/x
+    if (at === -1) break;
+    rest = rest.slice(at + 1);
+    if (!rest.length) out.push('');   // a trailing ':' is an empty piece, the same as the plain split off Windows
+  }
+  return out;
+}
+
 function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredIn = true, deferRunners = false, pathDirsIn = null, whereIn = null) {
   const paths = [];
   const runPaths = [];   // the subset named where something runs
@@ -396,7 +422,7 @@ function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredI
       return;
     }
     if (w.dynamic) { unsafe.push('a PATH made when the command runs'); return; }
-    for (const c of value.split(':')) {
+    for (const c of splitPathValue(value, process.platform === 'win32', vars.HOME || '')) {
       if (!c || c === PATH_MARK) continue;
       for (const d of cwds) { const r = path.resolve(d, c); if (!pathDirs.includes(r)) pathDirs.push(r); }
     }
@@ -1028,4 +1054,4 @@ function startCommandScripts(dir, { homes = [], home, ownHome = null, platform, 
   return { files, runFiles: files.filter((f) => runRaw.has(f)), pluginDirs: [...new Set(plugins.filter((p) => !p.envRoot).map((p) => p.dir))], envPluginDirs, unsafe: [...new Set(unsafe)] };
 }
 
-module.exports = { startCommandScripts, shellWords, pathsOfWords, commandsIn, managedDir, HELPER_KEYS, CLAUDE_GLOBAL_CONFIG_SUFFIXES, PLUGIN_VARS, cachedReaders };
+module.exports = { startCommandScripts, shellWords, pathsOfWords, splitPathValue, commandsIn, managedDir, HELPER_KEYS, CLAUDE_GLOBAL_CONFIG_SUFFIXES, PLUGIN_VARS, cachedReaders };
