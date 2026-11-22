@@ -328,4 +328,8 @@ test('kosmos#8883 antigravityQueued counts a queued line sent automatically', ()
   assert.equal(status.antigravityQueued(mixed.replace('Press up to edit queued messages', '')), null);
   // CONTROL: the colleague lines alone still read 2, so the count is not inflated.
   assert.deepEqual(status.antigravityQueued(mixed.replace('▸ ' + auto + '\n', '')), { n: 2, yours: 0 });
+  // Round 1: the bracket with no time label (no timezone set), the ", not typed" shape, is counted too.
+  const bare = mixed.replace(auto, require('./messages').automaticWake() + ' hello');
+  assert.ok(bare.includes('[sent automatically on this computer, not typed'), 'fixture: the bare bracket is not in the pane');
+  assert.deepEqual(status.antigravityQueued(bare), { n: 3, yours: 0 }, 'the bracket with no time label was not counted');
 });
