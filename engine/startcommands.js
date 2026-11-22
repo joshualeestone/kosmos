@@ -346,36 +346,42 @@ function shellWords(cmd, vars = {}) {
 /* An absolute path inside a word that is not itself a path (require('/x.js'), --config=/x). */
 const INNER_ABS = /(?:^|[^A-Za-z0-9_.~/$-])(\/[^\s'"`()<>;|&,/][^\s'"`()<>;|&,]*)/g;   // review 21: jq's // is no path
 
+/* kosmos#8451: the folders a PATH= value may put in front, for a guard that denies writes to what the next start runs:
+   naming a folder too many is harmless, missing one is a hole. A hook line runs in a POSIX shell on every platform (on
+   Windows, Claude Code runs hooks in Git Bash, measured: BASH_VERSION set, SHELL /bin/bash.exe, PATH ':'-separated in
+   /c/ form), so ':' is the separator, never path.delimiter. Measured in Git Bash on Windows:
+   - a drive path in the value (C:/x, "C:\x", or a variable holding one, such as CLAUDE_PROJECT_DIR) is split on its
+     colon by bash too: it searches a folder named C where the command runs, then /x. So every plain piece is kept;
+   - ~ and $HOME reach bash as /c/... even when the home was set as C:\..., so bash searches the home folder itself.
+     Kosmos has already expanded them to the Windows home (C:\H) by now and cannot tell them from a variable or literal
+     with the same text, so a piece starting at the home (whole folder name) is ALSO named whole, with its drive colon;
+   - a one-letter first folder is that drive (cygpath -w: /c/x is C:\x, /x is X:\).
+   Off Windows the value splits on every ':' exactly as before. */
+function splitPathValue(value, win, home = '') {
+  if (!win) return value.split(':');
+  const drive = (p) => p.replace(/^\/([A-Za-z])(?=\/|$)/, (m, d) => d.toUpperCase() + ':');   // Git Bash /c/x -> C:/x
+  const out = value.split(':').map(drive);
+  const h = /^[A-Za-z]:[\\/]/.test(home) ? home.replace(/[\\/]+$/, '').toLowerCase() : '';
+  if (!h) return out;
+  // Where a piece starts (the value's start or just after a ':') with the home as a whole folder name, add that piece
+  // with the home's drive colon kept: C:\H/bin, not C and \H/bin. C:\Homer is not the home C:\H.
+  for (let at = 0; at <= value.length; at = value.indexOf(':', at) + 1) {
+    const rest = value.slice(at);
+    if (rest.toLowerCase().startsWith(h) && /^(?:[\\/:]|$)/.test(rest.slice(h.length))) {
+      const end = rest.indexOf(':', h.length);
+      const whole = end === -1 ? rest : rest.slice(0, end);
+      if (!out.includes(whole)) out.push(whole);
+    }
+    if (value.indexOf(':', at) === -1) break;
+  }
+  return out;
+}
+
 /*
  * The file paths a list of words names. `cwd` is where the command runs (the agent folder); `vars` are the variables
  * Kosmos knows. Returns { paths, unsafe }: candidate script paths (folders are filtered by startCommandScripts) and the
  * words whose value cannot be known.
  */
-/* kosmos#8451: the folders in a PATH= value, in order. A hook line runs in a POSIX shell on every platform (on Windows,
-   Claude Code runs hooks in Git Bash, measured: BASH_VERSION set, SHELL /bin/bash.exe, PATH ':'-separated in /c/ form),
-   so ':' is the separator, never path.delimiter. Measured in Git Bash on Windows:
-   - a drive path typed into the value (C:/x or "C:\x") is split on its colon by bash too, which searches a folder
-     named C where the command runs and then /x, so it splits here exactly as on the Mac;
-   - ~ and $HOME are the one exception: Git Bash gives the home as /c/... even when it was set as C:\..., so the home
-     folder is searched. Kosmos expands them to the Windows home (vars.HOME, C:\H), so a piece that starts with that
-     home keeps its drive colon;
-   - /c/x is the C: drive's folder x. */
-function splitPathValue(value, win = process.platform === 'win32', home = '') {
-  if (!win) return value.split(':');
-  const homeDrive = /^[A-Za-z]:[\\/]/.test(home) ? home.toLowerCase() : '';
-  const out = [];
-  let rest = value;
-  while (rest.length) {
-    const drive = homeDrive && rest.toLowerCase().startsWith(homeDrive) ? 2 : 0;   // the expanded home keeps its colon
-    const at = rest.indexOf(':', drive);
-    const piece = at === -1 ? rest : rest.slice(0, at);
-    out.push(piece.replace(/^\/([A-Za-z])(?=\/|$)/, (m, d) => d.toUpperCase() + ':'));   // Git Bash /c/x -> C:/x
-    if (at === -1) break;
-    rest = rest.slice(at + 1);
-    if (!rest.length) out.push('');   // a trailing ':' is an empty piece, the same as the plain split off Windows
-  }
-  return out;
-}
 
 function pathsOfWords(words, cwd, vars = {}, depth = 0, cwdsIn = null, anchoredIn = true, deferRunners = false, pathDirsIn = null, whereIn = null) {
   const paths = [];

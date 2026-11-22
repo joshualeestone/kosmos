@@ -19,15 +19,18 @@ Card: kosmos#8451, item 1 only. Items 2 (package folder on Windows) and 3 (POSIX
 
 - New pure `splitPathValue(value, win, home)` in `engine/startcommands.js`, used by the PATH arm with `process.platform === 'win32'` and `vars.HOME`.
   - Off Windows: `value.split(':')`, unchanged.
-  - On Windows: split on `:`, except the drive colon of a piece that starts with the expanded home (case-insensitive). A one-letter first folder (`/c/x`, `/x`) becomes that drive (`C:/x`, `X:`).
-- Tests: `engine/startcommands.win32-pathsplit-8451.test.js`. The splitter cases run on every platform with the Windows rule passed explicitly; the end-to-end `pathsOfWords` cases run on Windows only.
-- `engine/windows-coupling-audit-1732.test.js`: the inventory row for this file's `split(':')` follows the line to its new place.
+  - On Windows: every plain `:` piece is kept, exactly as before (a one-letter first folder, `/c/x` or `/x`, becomes that drive, `C:/x` or `X:`). IN ADDITION, a piece that starts at the expanded home (case-insensitive, as a whole folder name, so `C:\Homer` is not `C:\H`) is also named whole with its drive colon.
+  - Why both and not either: this feeds a deny guard, where naming a folder too many is harmless and missing one is a hole. The parser has already expanded `~`/`$HOME` by the time it splits, so it cannot tell them from a variable or literal with the same text. Bash searches the home whole for `~`/`$HOME` (measurement 3) but splits a Windows path from any other variable, such as `CLAUDE_PROJECT_DIR`, which sits under the home on a real box (challenge review 1, measured: bash ran `<cwd>/C/myhook`). Naming both covers both.
+- Tests: `engine/startcommands.win32-pathsplit-8451.test.js`. The splitter cases run on every platform with the Windows rule passed explicitly; the end-to-end `pathsOfWords` cases run on Windows only, including the review-1 case (a variable under the home still names `<cwd>\<drive>\myhook`).
+- `engine/windows-coupling-audit-1732.test.js` and `engine/win32-separator-guard.test.js`: the allow entries for this file's `split(':')` follow the lines to their new places (two lines now).
 
 ## Rejected
 
 - `path.delimiter`: Git Bash splits on `:`, so `;` names folders bash never searches.
-- Keeping every drive colon: Git Bash splits a typed drive path (measurement 2), so that would name `C:\x`, which bash does not search, and miss the folder it does.
+- Keeping the home's drive colon INSTEAD of the plain split (the first version): it dropped the folder bash really searches when the text came from a variable other than `~`/`$HOME`, a regression from a harmless extra name to a missed script (challenge review 1).
+- Tracking where `~`/`$HOME` were expanded inside `shellWords`: exact, but it changes the tokenizer every arm shares, for a gain (one fewer harmless name) that a deny guard does not need.
 
 ## Weakest part
 
-The rule depends on Claude Code running hooks in Git Bash on Windows. If it ever moves to a PowerShell or cmd hook runner, the separator rule changes. The probe is kept so it can be re-run (`work/trial-8451/probe`).
+1. The rule depends on Claude Code running hooks in Git Bash on Windows. If it ever moves to a PowerShell or cmd hook runner, the separator rule changes. The probe is kept so it can be re-run (`work/trial-8451/probe`).
+2. Only `~` and `$HOME` were measured as reaching bash in `/c/` form. Any other variable Kosmos expands into a PATH value (`CLAUDE_PROJECT_DIR`, settings env) is assumed to arrive Windows-form and be split. If one arrived as `/c/...` and did not start at the home, its whole folder would not be named. That is unmeasured; the plain split still names what bash would search if it were Windows-form.
