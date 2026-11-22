@@ -2065,6 +2065,19 @@ const SCREENS = [
     const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: false }) }).then((r) => r.status), data.projectId);
     if (st !== 200) throw new Error('could not unpause the project after the shot (' + st + ')');
   } },
+  /* kosmos#8897: the starter project's empty Tasks column says what it is. The project list is passed through and the
+     shot board's own project is sent as the starter Kosmos seeded (starter: true, no tasks, made by Kosmos, so no "Made by"
+     line, as on the real one), as engine/projects.js describe marks it; nothing on the board changes. The room's
+     messages are the shot board's fixture; a real starter room is new. */
+  { name: 'project-starter-8897', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    /* Review 3: the file's own helper (GET only, the fetch and the answer inside one try, #6022). */
+    await editProjects(page, data.projectId, (p) => Object.assign(p, { starter: true, tasks: [], made: { via: 'kosmos' } }));
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-tasklist [data-starter-empty]', { state: 'visible', timeout: 8000 });
+    await page.$eval('#pj-tasklist', (el) => el.scrollIntoView({ block: 'center' }));
+    await page.mouse.move(1, 1);
+  } },
   /* kosmos#7210: a project set to Muted: the label beside its title, then its settings with the notification choice.
      Set from the page (as the person) and put back to All after, so no later screen shoots it muted. */
   { name: 'project-muted-7210', owner: 'Ice Cream Kitty', go: async (page, data) => {

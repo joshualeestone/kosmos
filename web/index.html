@@ -73375,8 +73375,12 @@ function paintProjectTasks(p) {
   // ⚠️ Change-guarded, the removed-list's own pattern: the five-second poll
   // repaints this project every tick, and an unconditional innerHTML write
   // destroys a keyboard user's focus on a card even when nothing changed.
-  if (html !== TK_LIST_HTML) {
-    TK_LIST_HTML = html;
+  /* kosmos#8897: keyed on WHICH empty sentence too. Every empty column painted '' here, so the SAME project changing state
+     kept its old sentence: renamed while empty (the starter sentence stayed), or its finished tasks removed ("Nothing
+     open here" stayed). Switching projects already resets the guard (TK_LIST_HTML = null). */
+  const listKey = html || ('\u0000' + (all.length ? 'done-only' : p.starter === true ? ['starter-alone', 'starter-one'][(p.agents || []).length] || 'starter' : 'none'));
+  if (listKey !== TK_LIST_HTML) {
+    TK_LIST_HTML = listKey;
     /* #761 (Josh, 2026-08-24 21:56): "some kind of centered light gray text
        that just says something like 'Add a task' or 'Have your agent add a
        task to start tracking your progress'... inviting." Only when there is
@@ -73390,9 +73394,20 @@ function paintProjectTasks(p) {
        two different things and one sentence would be false in the other case.
        Nothing open, but finished tasks behind the door, must NOT say "Add a
        task" -- that contradicts the door line sitting directly under it. */
+    /* kosmos#8897: the starter project Kosmos made says so while it has no work at all, so nobody reads its empty list
+       as work its agents should invent; its agents are told the same (engine/projects.js STARTER_PROJECT_LINE). Once
+       any task arrives it reads as any project does. */
     list.innerHTML = html || (all.length
       ? '<p class="tk-empty">Nothing open here. The finished ones are behind View All.</p>'
-      : '<p class="tk-empty">Add a task, or have an agent add one, to start tracking progress.</p>');
+      : p.starter === true
+        /* Review 1: the starter can be seeded before any agent exists, and then it has none to be waiting. */
+        ? ((p.agents || []).length
+          /* Review 3: one agent is "Its agent is waiting ... give it". */
+          ? '<p class="tk-empty" data-starter-empty>This is the starter project Kosmos made to show you around. ' + ((p.agents || []).length === 1
+            ? 'Its agent is waiting for you: give it a task here, or start your own project.</p>'
+            : 'Its agents are waiting for you: give them a task here, or start your own project.</p>')
+          : '<p class="tk-empty" data-starter-empty>This is the starter project Kosmos made to show you around. Add an agent to it, or start your own project.</p>')
+        : '<p class="tk-empty">Add a task, or have an agent add one, to start tracking progress.</p>');
   }
   /* THE DOOR IS ALWAYS THERE NOW (#1382), and both halves of that are
      deliberate.

@@ -1419,6 +1419,9 @@ function describe(project, roster, all) {
        code-point cut could carry half an emoji, which made the phone refuse the whole answer. Left out of the answer. */
     needsDismissed: undefined,
     needsDismissGone: undefined,
+    /* kosmos#8897: the starter project Kosmos seeded (isStarter, the rule the agents' instructions use), so the page can
+       say what it is while it has no work. Only when true (undefined leaves the key out). */
+    starter: isStarter(project) ? true : undefined,
     folder: project.folder,
     // kosmos#7850: the listing's passing mark is for the listing routes, not this answer.
     folderState: (({ passing: _passing, ...state }) => state)(folderState(project.folder)),
