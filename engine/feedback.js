@@ -191,11 +191,51 @@ function write(body, opts) {
     const mine = { key, text: neutral(String(body == null ? '' : body).replace(/\s*$/, '')) };
     const at = prior.findIndex((x) => x.key.toLowerCase() === key.toLowerCase());   // review 1: Mara and mara are one agent
     if (at >= 0) prior[at] = mine; else prior.push(mine);
-    const content = header + (prior.length === 1 && prior[0].key === ''
-      ? prior[0].text + '\n'
-      : prior.map((x) => sectionMarker(x.key) + '\n' + sectionHeading(x.key) + '\n\n' + x.text + '\n').join('\n'));
+    const content = header + render(prior);
     require('./store').saveFlushed(dest, content);   // #5434 slice 21: flushed before the rename (a unique temp, removed on failure; the folder after on POSIX)
     return { ok: true, path: dest, date, from: key || null, writers: prior.length };
+  });
+}
+/* The stored body for a day's sections: a day with only the unnamed section is stored bare, as before #5317; otherwise
+   each section is its marker, heading and text. write() and note() both store through this, so they cannot drift. */
+function render(secs) {
+  return secs.length === 1 && secs[0].key === ''
+    ? secs[0].text + '\n'
+    : secs.map((x) => sectionMarker(x.key) + '\n' + sectionHeading(x.key) + '\n\n' + x.text + '\n').join('\n');
+}
+
+/**
+ * kosmos#8896: add a short note to a report already written, without rewriting it. The note goes at the end of THIS
+ * writer's section of that day (the same key match write() uses), after a line saying it was added later and when, in
+ * UTC so it reads the same on every install. The day's frontmatter is kept as it was; another writer's section is
+ * untouched. A later whole `write` still replaces the section, notes included, exactly as before.
+ * Returns { ok: true, path, date } or { ok: false, why }: 'none' (no report of this writer's that day), 'empty' (no
+ * text), 'date' (not a real day, or after today). Nothing is saved on a refusal.
+ */
+function note(from, text, date, now) {
+  const t = Number.isFinite(now) ? now : Date.now();
+  const day = date == null ? dateKey(new Date(t)) : date;
+  if (!isDateKey(day) || day > dateKey(new Date(t))) return { ok: false, why: 'date' };
+  const words = String(text == null ? '' : text).replace(/\s*$/, '').replace(/^\s*\n/, '');
+  if (!words.trim()) return { ok: false, why: 'empty' };
+  const key = writerKey(from).toLowerCase();
+  const dest = pathFor(day);
+  let exists = true;
+  try { fs.statSync(dest); } catch (err) { if (err && err.code === 'ENOENT') exists = false; else throw err; }
+  if (!exists) return { ok: false, why: 'none' };
+  return withLock(dest, () => {
+    let raw;
+    try { raw = fs.readFileSync(dest, 'utf8'); } catch (err) { if (err && err.code === 'ENOENT') return { ok: false, why: 'none' }; throw err; }
+    const fm = raw.match(/^---\n[\s\S]*?\n---\n?/);
+    const secs = sections(fm ? raw.slice(fm[0].length) : raw);
+    const at = secs.findIndex((x) => x.key.toLowerCase() === key && x.text.trim());
+    if (at < 0) return { ok: false, why: 'none' };
+    const stamp = new Date(t).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+    secs[at] = { key: secs[at].key, text: secs[at].text + '\n\nAdded later (' + stamp + '):\n' + neutral(words) };
+    const head = fm ? (fm[0].endsWith('\n') ? fm[0] : fm[0] + '\n') : '';
+    const content = head + render(secs);
+    require('./store').saveFlushed(dest, content);   // flushed before the rename, as write()
+    return { ok: true, path: dest, date: day };
   });
 }
 /** The raw file contents for a day, or null when there is no report. */
@@ -479,4 +519,4 @@ function mineLines(from) {
   const mine = daysOf(from);
   return mine.length ? mine : [noneOfYoursWords()];
 }
-module.exports = { noReportsWords, noneOfYoursWords, unreadableWords, mineLines, daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
+module.exports = { noReportsWords, noneOfYoursWords, unreadableWords, mineLines, daysOf, listNote, dir, dateKey, isDateKey, today, pathFor, write, note, writer, unchanged, sections, forSend, sendBody, read, readBody, noReportWords, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };

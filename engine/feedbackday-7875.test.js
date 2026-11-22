@@ -243,7 +243,7 @@ test('#7875: both CLIs carry the day subcommand and list it in their usage', () 
   // The Mac arm is checked by its source only: running it needs a staged Kosmos runtime ($NODE, $KOSMOS_HOME/app).
   assert.match(sh, /day\.recordWho\(process\.env\)/);
   assert.match(sh, /day\.digest\(who\)/);
-  assert.match(sh, /Try: write \| show \| list \| day \| pull/);
+  assert.match(sh, /Try: write \| note \| show \| list \| day \| pull/);
   assert.match(sh, /kosmos feedback day {16}\(your own day/);
   assert.match(win, /day: feedbackDay/);
   assert.match(win, /kosmos feedback day {16}\(your own day/);

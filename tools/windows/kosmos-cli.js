@@ -203,6 +203,7 @@ const USAGE = {
   feedback: [
     'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)',
     '       kosmos feedback write --unchanged [text]  (nothing new since your last report; a line, as words or piped in, is added to it)',
+    '       kosmos feedback note [--date YYYY-MM-DD] [text]  (add a note to a report you already wrote, marked as added later)',
     '       kosmos feedback show [YYYY-MM-DD]  (defaults to today; with no report yet, a sentence saying so on stdout, exit 0)',
     '       kosmos feedback list [--mine]      (--mine: only the days holding your own report)',
     '       kosmos feedback day                (your own day on this computer, for writing the report)',
@@ -3368,7 +3369,7 @@ async function feedbackWrite(ctx, args) {
       ctx.err('We could not read your earlier reports, so nothing was saved.');   // as the Mac: no raw error, which can carry a path
       return 1;
     }
-    if (u && u.why === 'today') { ctx.err('You already saved a report today, so nothing was changed. To change it, write the whole report again.'); return 2; }
+    if (u && u.why === 'today') { ctx.err('You already saved a report today, so nothing was changed. To add a line to it, run: kosmos feedback note \'the line\'. To change it, write the whole report again.'); return 2; }   // kosmos#8896
     if (!u || !u.ok) {
       /* kosmos#8269: the board's daily ask can reach an agent whose last report is not here; say whose the newest one is. */
       if (u && u.newest) ctx.err('There is no earlier report of yours to point back to: the newest report here, of ' + u.newest + ', is another agent\'s, and --unchanged points back only to your own. Nothing was saved. Write today\'s report instead.');
@@ -3412,6 +3413,67 @@ async function feedbackWrite(ctx, args) {
   return 0;
 }
 
+/* kosmos#8896, as install/kosmos: add a short note to a report this agent already wrote (today's, or --date
+   YYYY-MM-DD), kept with it and marked as added later, without rewriting it (engine/feedback.note). Text as words,
+   piped in, or --body-file. A note on today's report is sent as write sends it (noteMessage, not writeMessage: write's
+   advice to write the report again would replace the note); an earlier day's stays on this computer. */
+const FEEDBACK_NOTE_USAGE = 'Usage: kosmos feedback note [--date YYYY-MM-DD] [--body-file <file>] [text]      (or pipe it in on stdin; adds a note to a report you already wrote, today\'s unless --date)';
+async function feedbackNote(ctx, args) {
+  const bf = takeBodyFile(ctx, FEEDBACK_NOTE_USAGE, args, ['--date']);
+  if (!bf) return 2;
+  args = bf.args;
+  let day = null;
+  const rest = [];
+  for (let i = 0, past = false; i < args.length; i++) {
+    const a = args[i];
+    if (!past && a === '--') { past = true; rest.push(a); continue; }
+    if (!past && a === '--date') {
+      const v = args[i + 1];
+      if (v === undefined) { ctx.err('--date needs a day, as YYYY-MM-DD.'); ctx.err(FEEDBACK_NOTE_USAGE); return 2; }
+      if (/^--[A-Za-z]/.test(v)) { ctx.err('--date needs a value, and ' + v + ' is an option, so nothing was done.'); ctx.err(FEEDBACK_NOTE_USAGE); return 2; }
+      day = v; i++; continue;
+    }
+    if (!past && a.startsWith('--date=')) { ctx.err('Write it as --date YYYY-MM-DD, with a space.'); return 2; }
+    rest.push(a);
+  }
+  args = rest;
+  if (args.length) {
+    const t = textArgs(ctx, 'feedback note', FEEDBACK_NOTE_USAGE, args);
+    if (!t) return 2;
+    args = t;
+  }
+  let body = args.join(' ');
+  if (bf.file !== null) {
+    if (args.length) { ctx.err('Give the note as words or in --body-file, not both, so nothing was saved.'); return 2; }
+    const got = bodyFromFile(ctx, bf.file, 'Nothing was saved');
+    if (got.code !== undefined) return got.code;
+    body = got.text;
+  } else if (!args.length) {
+    if (ctx.psPipeline) return psPipelineRefused(ctx, 'Nothing was saved', 'kosmos feedback note --body-file <file>');
+    const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS);
+    body = piped.text;
+    if (String(body).trim() && !piped.ended) { ctx.err('Nothing was saved: the piped note stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Give it as words or with --body-file instead.'); return 2; }
+  }
+  let r;
+  let fb;
+  try { fb = ctx.engine('feedback'); r = fb.note(typeof fb.writer === 'function' ? fb.writer(ctx.env) : null, body, day == null ? undefined : day); } catch {
+    ctx.err('We could not add that note.');   // as the Mac: no raw error, which can carry a path
+    return 1;
+  }
+  if (!r || !r.ok) {
+    if (r && r.why === 'empty') { ctx.err('Nothing to add: a note needs some words (pass them as an argument, give --body-file <file>, or pipe them in on stdin).'); ctx.err(FEEDBACK_PS_NOTE); return 2; }
+    if (r && r.why === 'date') { ctx.err('--date must be a real day, as YYYY-MM-DD, and not after today, so nothing was saved.'); return 2; }
+    ctx.err('There is no report of yours for ' + (day || 'today') + ' to add a note to, so nothing was saved. Write the report first: kosmos feedback write');
+    return 2;
+  }
+  if (r.date !== fb.today()) { ctx.out('Added the note to your report of ' + r.date + ', on this computer. A note on an earlier day is kept here and not sent.'); return 0; }
+  let fbs;
+  try { fbs = ctx.engine('feedbacksend'); } catch { ctx.out('Added the note to today\'s report on this computer. Kosmos could not check whether it was sent.'); return 0; }
+  let sent;
+  try { sent = await fbs.sendNow(r.date); } catch { sent = { state: 'failed' }; }
+  ctx.out(typeof fbs.noteMessage === 'function' ? fbs.noteMessage(sent && sent.state) : 'Added the note to today\'s report on this computer.');
+  return 0;
+}
 async function feedbackShow(ctx, args) {
   const fb = ctx.engine('feedback');
   const date = args[0] || fb.today();
@@ -4377,7 +4439,7 @@ const SUBCOMMAND_HANDLERS = {
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, show: taskShow, files: taskFiles, built: taskBuilt, 'done-when': taskDoneWhen, check: taskCheck, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold, wake: taskWake, edit: taskEdit /* kosmos#8664 */ },
   project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, test: projectTest, role: projectRole, 'remove-member': projectRemoveMember },
   agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, move: agentMove, restart: agentRestart, model: agentModel, remove: agentRemove, 'delete-leftovers': agentDeleteLeftovers },
-  feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },
+  feedback: { write: feedbackWrite, note: feedbackNote, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
     status: (ctx, args) => {   // kosmos#8128: --limit N shows only the newest N (1 to 20), as install/kosmos
