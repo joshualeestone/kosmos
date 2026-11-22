@@ -125,7 +125,9 @@ test('only the welcome seed writes made.via \'kosmos\' (control: the seed itself
   const { execFileSync } = require('node:child_process');
   const root = path.join(__dirname, '..');
   const out = execFileSync('git', ['-C', root, 'grep', '-n', '-E', "made: *\\{[^}]*via: *'kosmos'|made\\.via *= *'kosmos'",
-    '--', '*.js', ':!*.test.js', ':!node_modules'], { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+    /* kosmos#8897: docs/browser-checks/ is left out: its fixtures stub a page's answer (the design-shots starter screen
+       sends a project made by Kosmos), they never write the store. */
+    '--', '*.js', ':!*.test.js', ':!node_modules', ':!docs/browser-checks/*'], { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
   assert.equal(out.length, 1, 'writers of the seed mark:\n' + out.join('\n'));
   assert.match(out[0], /^engine\/projects\.js:\d+:\s*made: \{ via: 'kosmos' \},$/);
   const at = Number(out[0].split(':')[1]);
