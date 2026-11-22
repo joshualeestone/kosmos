@@ -22671,6 +22671,14 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { files });
     return;
   }
+  /* kosmos#8865: the same facts for an agent (`kosmos start-check`): whether this start's check ran, how many files it
+     looked at, how many it could not, and the page's list. Read-only, like the route above. */
+  if (pathname === '/api/board/start-check' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let out;
+    try { out = require('./engine/storecheck').report(); } catch { out = { ran: false, checked: false, files: [] }; }
+    sendJson(res, 200, out);
+    return;
+  }
   if (pathname === '/api/board/damaged-files/restore' && req.method === 'POST') {
     readBody(req, 4096).then((buf) => {
       let body;

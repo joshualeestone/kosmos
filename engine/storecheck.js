@@ -75,6 +75,8 @@ let FOUND = [];          // the damaged stores this start found
 let UNREAD = 0;          // kosmos#8287: folders and files this scan could not read, so it cannot say they are fine
 let SCANNED = null;      // kosmos#8287: what this start's scan found, before anyone repairs or dismisses it; null if it did not finish
 let BASE_ROOT = null;    // where worlds.json lives, captured at start
+let DISMISSED = false;   // kosmos#8865: the person dismissed this start's list, so an agent is told why it is empty
+let LOOKED = null;       // kosmos#8865: the files this start's scan looked at; kept out of SCANNED, whose shape the note stores
 
 /** 'empty', 'nul' or 'unreadable', or null when the bytes are a JSON value. */
 function classify(buf) {
@@ -148,6 +150,8 @@ function goodCopy(file) {
 function scan(opts) {
   BASE_ROOT = (opts && opts.base) || null;
   UNREAD = 0;
+  DISMISSED = false;
+  let looked = 0;   // kosmos#8865: the files this scan read, or found too large or locked, for "checked N files"
   const files = candidates(store.ROOT);
   for (const f of Object.keys(FOLDERS)) files.push(...candidates(path.join(store.ROOT, f)));
   if (BASE_ROOT && path.resolve(BASE_ROOT) !== path.resolve(store.ROOT)) {
@@ -160,12 +164,14 @@ function scan(opts) {
     try { st = fs.statSync(file); } catch (err) { if (!err || err.code !== 'ENOENT') UNREAD += 1; continue; }   // a dangling link or a file gone meanwhile: nothing to name
     if (!st.isFile()) continue;
     let problem;
+    let lookedAt = true;   // kosmos#8865: false when it counts as unread instead, so the two counts never overlap
     if (st.size > MAX_BYTES) problem = 'toobig';
     else {
       let buf = null;
-      try { buf = fs.readFileSync(file); } catch (err) { problem = err && (err.code === 'EACCES' || err.code === 'EPERM') ? 'unopenable' : null; if (!problem && (!err || err.code !== 'ENOENT')) UNREAD += 1; }
+      try { buf = fs.readFileSync(file); } catch (err) { problem = err && (err.code === 'EACCES' || err.code === 'EPERM') ? 'unopenable' : null; if (!problem) lookedAt = false; if (!problem && (!err || err.code !== 'ENOENT')) UNREAD += 1; }
       if (buf) problem = classify(buf);
     }
+    if (lookedAt) looked += 1;
     if (!problem) continue;
     const folder = path.basename(path.dirname(file));
     // The root's own words only for a file at the root (or the worlds registry at the base): profiles/remote.json is
@@ -177,6 +183,7 @@ function scan(opts) {
   }
   FOUND = found;
   SCANNED = { checked: UNREAD === 0 || found.length > 0, damaged: found.length, unread: UNREAD };
+  LOOKED = looked;
   return found;
 }
 
@@ -254,7 +261,7 @@ function restore(file, write) {
 }
 
 /** The person said they have seen it: not shown again until the next start. */
-function dismiss() { FOUND = []; return true; }
+function dismiss() { FOUND = []; DISMISSED = true; return true; }
 
 /**
  * kosmos#8287, #8297: what this start's scan may say, as { checked, damaged, unread }.
@@ -266,4 +273,17 @@ function dismiss() { FOUND = []; return true; }
  */
 function lastScan() { return SCANNED ? { ...SCANNED } : { checked: false }; }
 
-module.exports = { atStart, scan, current, restore, dismiss, classify, lastScan };
+/**
+ * kosmos#8865: everything an agent may read about this start's check, for GET /api/board/start-check and
+ * `kosmos start-check`: whether the scan ran, lastScan's counts (and `looked`, the files it read), and the page's own
+ * list (current()) with each problem in the board log's words. `dismissed` says the person dismissed the list, which is
+ * why `files` can be empty while `damaged` is not. A damaged record that was put back has left `files`, so `damaged`
+ * counts what the scan found at start, `files` what is still damaged now.
+ */
+function report() {
+  const s = lastScan();
+  const files = current().map((f) => ({ ...f, says: PROBLEM[f.problem] || 'is damaged' }));
+  return { ran: SCANNED !== null, ...s, ...(SCANNED !== null && Number.isInteger(LOOKED) ? { looked: LOOKED } : {}), dismissed: DISMISSED, files };
+}
+
+module.exports = { atStart, scan, current, restore, dismiss, classify, lastScan, report };

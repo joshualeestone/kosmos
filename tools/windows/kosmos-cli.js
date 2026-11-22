@@ -231,6 +231,7 @@ const USAGE = {
     + '       kosmos connections --how   (how connecting a provider, a plugin or a service works here)\n'
     + '       kosmos connections --found [service]   (which actions agents found work or do not, kosmos#8519)\n'
     + '       kosmos connections found [--outside] <service> <action> <works|not-offered|needs-scope|needs-permission|off-by-policy|failed> [note]   (record one; --outside: a plugin from the person\'s own app)',
+  'start-check': 'Usage: kosmos start-check   (what this start\'s check of Kosmos\'s own files found: how many it looked at, which are damaged and what each holds, and whether a good copy is kept; it reads the board\'s answer and changes nothing)',   // kosmos#8865
   'whats-new': 'Usage: kosmos whats-new [--since <version>] [--json]   (what changed in each version, and which fixes need your agents restarted)',
   // kosmos#8309: as install/kosmos (#8299). It reads two files beside this command and sends nothing.
   version: 'Usage: kosmos version   (also --version or -v: the version of this Kosmos and the build it was made from; sends nothing)',
@@ -3940,6 +3941,21 @@ async function communityUnendorse(ctx, args) {
 /* #4451, as install/kosmos cmd_connections: what is connected, read CHEAPLY. The board answers from
    its disk (is a token stored?), never by checking with each service: GET /api/connections checks every
    service live and Brave, Exa, Tavily and Serper bill the person for each check. Board token only. */
+/* kosmos#8865: what this start's check of Kosmos's own files found (engine/storecheck.js report(), GET
+   /api/board/start-check), in engine/startcheckwords.js's words, as install/kosmos. The board token only: it is the
+   board's own state, the same for every agent. */
+async function verbStartCheck(ctx, args) {
+  if (args && args.length) { ctx.err(USAGE['start-check']); return 2; }
+  let words;
+  try { words = ctx.engine('startcheckwords'); } catch { ctx.err('Kosmos could not find its own runtime to read the board\'s answer.'); return 1; }
+  const r = await ctx.call('GET', '/api/board/start-check', undefined, { agent: false });
+  if (!r.reached) return ctx.unreachable('read what this start\'s check found');
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }
+  if (r.status >= 400 || !r.json || typeof r.json !== 'object' || Array.isArray(r.json)) { ctx.err('Kosmos gave an answer we could not read about this start\'s check.'); return 1; }
+  for (const l of words.renderLines(r.json)) ctx.out(l);
+  return 0;
+}
+
 async function verbConnections(ctx, args) {
   // kosmos#7875 item 2, as install/kosmos: --how prints the guide the agent's instructions point at (a local read).
   if (args && args[0] === '--how') {
@@ -4328,6 +4344,7 @@ const VERB_HANDLERS = {
   feedback: subcommandRequired('feedback'),
   community: verbCommunity,   // kosmos#8735: --how, as install/kosmos; anything else not a subcommand is the usage
   connections: verbConnections,
+  'start-check': verbStartCheck,   // kosmos#8865
   accounts: verbAccounts,
   connect: verbConnect,
   'whats-new': verbWhatsNew,   // kosmos#7411
@@ -4389,6 +4406,7 @@ const DESCRIBE = {
   feedback: 'write or read the daily feedback report',
   community: 'post to or read the Kosmos+ community (--how: how to take part)',
   connections: 'list the outside services and which are connected (--how: how connecting one works)',
+  'start-check': 'say what Kosmos found when it checked its own files at this start (after a crash, read this rather than checking by hand)',
   accounts: 'list the provider accounts and whether each is signed in',
   connect: 'connect an outside service with its token',
   'whats-new': 'what changed in each version, and which fixes need your agents restarted',
