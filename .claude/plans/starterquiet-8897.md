@@ -13,7 +13,8 @@
 1. /api/projects sends `starter: true` on the project Kosmos seeded (projects.describe, by the same isStarter rule the
    instructions use); every other project, the welcome one once the person renames it, and a test project, carry no key.
 2. That project's empty Tasks column reads "This is the starter project Kosmos made to show you around. Its agents are
-   waiting for you: give them a task here, or start your own project." (Mona Lisa's design read) while it has no task at all.
+   waiting for you: give them a task here, or start your own project." (Mona Lisa's design read) while it has no task at all; with no agent on it yet (it can be seeded
+   before any agent exists), "... Add an agent to it, or start your own project." (review 1).
 3. Once work arrives (any task, open or finished) it reads as any project does; renamed, it reads as any empty project.
    CONTROL: a real empty project keeps "Add a task, or have an agent add one, to start tracking progress."
 
@@ -26,9 +27,17 @@
   column was the same key: a project renamed while empty kept the starter sentence (and, before this change, a column
   with only finished tasks that lost them kept "Nothing open here"). Switching projects already resets the guard.
 
+## Deferred, not missed (review 1)
+- The scoped Tasks view behind View All says "No tasks match." for this project, and the iPhone app's Tasks screen says
+  "No tasks yet / Add one with +, or ask an agent to." Neither marks the starter. Left out on purpose: the project page
+  is where the person meets the starter project, the Tasks view is a filter across projects, and the iPhone app is a
+  separate build and release lane. A follow-up if the person ever lands on those first.
+
 ## Weakest premise
 That "placeholder" in the card means something the person sees on the project, not a new state in the data. If Josh
-wants a visible mark on the project CARD, that is a #4730 question for him, not a reversible call for me.
+wants a visible mark on the project CARD, that is a #4730 question for him, not a reversible call for me. Second
+(review 1): if the person rewrites the starter's brief but keeps its name, the Assigner asks about the new goal as usual
+(it is theirs now), while the page still calls it the starter project; both are true, but the agents are no longer quiet.
 
 ## Evidence
 - engine/starter-page-8897.test.js: the list marks the seeded starter, and not a real empty project, a test project or
@@ -36,5 +45,6 @@ wants a visible mark on the project CARD, that is a #4730 question for him, not 
   repo lints: 329 of 329 run (3 skipped); the 7 server.project*.test.js files 231 of 231.
 - docs/browser-checks/render-starter-empty-8897.js: 28 of 28 (chromium and webkit, 1100 and 390): starter empty; renamed
   in place; back; a task arrives; finished work only; a real empty project (CONTROL).
-- Mutations, each red: the page's starter branch removed; the old repaint guard; the engine marking every project.
+- Mutations, each red: the page's starter branch removed; the old repaint guard; the engine marking every project;
+  isStarter without its made-by-Kosmos check (the lookalike-name control); the no-agent sentence removed.
 - Design shots: ~/work/design-shots/kosmos-8897/ (screen project-starter-8897, desktop and iPhone, light and dark).
