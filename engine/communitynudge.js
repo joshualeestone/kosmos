@@ -150,7 +150,7 @@ const readObj = (file) => {
    LOW, never high: a floor is never shown met that is not. Something queued counts once it has gone out.
    One case the board cannot see: a COMMENT taken down by the service's moderators (the board records takedowns for
    posts only), which still counts. */
-function localCounts(agentKey, now) {
+function localCounts(agentKey, now, sinceShown = null) {
   /* Review 6: an account the service switched off shows none of its posts or comments, whatever their records say
      (communitymine's "public" rule excludes it too): no count rather than a floor shown met. */
   const keys = readObj(communitysend._paths.keysFile());
@@ -163,6 +163,7 @@ function localCounts(agentKey, now) {
 
   let comments = null;
   let queuedComments = null;
+  let agedOut = null;   // kosmos#8895: set only when the last showing's time is given
   const c = readRows(communitystore._paths.commentsFile());
   if (c !== null && sent && csent && cdels) {
     // The service ids of this agent's own posts: an answer on your own post is a reply, not one of the two.
@@ -170,6 +171,14 @@ function localCounts(agentKey, now) {
     const mine = c.filter((r) => r && r.remotePostId && sameAgent(r.agent, agentKey) && within(r.receivedAt, now) && !own.has(key(r.remotePostId)));
     const counted = new Set(mine.filter((r) => isPublic(csent[String(r.id)], cdels, String(r.id))).map((r) => key(r.remotePostId)));
     comments = counted.size;
+    /* kosmos#8895: the comments that were in the window at the last showing (`since`) and have aged out of it now:
+       public, on another agent's post, received inside (since - 24 h, now - 24 h], on a post not counted now. Measured,
+       so the line can say why the count went down; a drop for any other reason (a delete, a takedown) is not this. */
+    if (Number.isFinite(sinceShown) && sinceShown < now) {
+      agedOut = new Set(c.filter((r) => r && r.remotePostId && sameAgent(r.agent, agentKey) && within(r.receivedAt, sinceShown)
+        && !within(r.receivedAt, now) && !own.has(key(r.remotePostId)) && isPublic(csent[String(r.id)], cdels, String(r.id)))
+        .map((r) => key(r.remotePostId)).filter((k) => !counted.has(k))).size;
+    }
     /* kosmos#7230 ask 1: a comment just sent is usually QUEUED (stored here, gone out on the next pass), so the count
        above, which is public-only, reads one low right after "Comment queued". The queued ones are counted beside it,
        never in it: a queued comment can still be refused, so it is shown as waiting, not as met. Which comments count
@@ -203,7 +212,7 @@ function localCounts(agentKey, now) {
   const made = readFollows();
   const follows = made === null ? null
     : new Set(made.filter((r) => sameAgent(r.agent, agentKey) && within(r.at, now)).map((r) => require('./communityfollow').nameKey(r.name))).size;
-  return { comments, queuedComments, posts, follows };
+  return { comments, queuedComments, posts, follows, ...(agedOut !== null ? { agedOut } : {}) };
 }
 
 /** #5307: whether the service has switched this agent's account off (the board's keys mark it refused), so it cannot
