@@ -7195,7 +7195,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        not driven live here. */
     setvbuf(stdout, nil, _IONBF, 0)
     /* Above the worst case of a run where NOTHING saves (each expected-file wait, 5s, runs out, then the 20s
-       settle: well under 300s), so a product that saves nothing is judged, not timed out. */
+       settle: well under 300s), so a product that saves nothing is judged, not timed out. The three refused-folder
+       waits (refusedWaitTries, kosmos#8879) count toward it too: a run with all three run out measured 174s on
+       Agent1s, 11-21. */
     let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
     AppDelegate.keptStoreForSelftest = [:]   // kosmos#8121: the kept list in memory for this run, never on disk
     AppDelegate.accountListForSelftest = { _, done in done(.onAccount) }   // kosmos#8121: every computer on the account unless a row says not
@@ -7487,21 +7489,21 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         chmod(dl.path, 0o500)
         /* Review 1: restored once the failure is said, not after click's fixed wait, so a slow answer is
            still refused by the read-only folder rather than landing after it is writable again.
-           kosmos#8879: refusedWaitTries polls of 0.1s each, and ranOut's line before the run goes on. */
-        let refusedWaitTries = 150
+           kosmos#8879: refusedWaitTries polls of refusedPoll seconds each, and ranOut's line before the run goes on. */
+        let refusedWaitTries = 150, refusedPoll = 0.1
         func cannotCreate() -> Int { told.filter({ $0.contains("Cannot create file") }).count }
         func ranOut(_ n: Int) {
-            print("download selftest WAIT RAN OUT (kosmos#8879): \(refusedWaitTries / 10)s without \"Cannot create file\" number \(n) (seen \(cannotCreate()))")
+            print("download selftest WAIT RAN OUT (kosmos#8879): \(Int(Double(refusedWaitTries) * refusedPoll))s without \"Cannot create file\" number \(n) (seen \(cannotCreate()))")
         }
         func whenAsked(_ n: Int, _ tries: Int, _ then: @escaping () -> Void) {
             if cannotCreate() >= n { then(); return }
             if tries == 0 { ranOut(n); then(); return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenAsked(n, tries - 1, then) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + refusedPoll) { whenAsked(n, tries - 1, then) }
         }
         func whenDenied(_ tries: Int, _ then: @escaping () -> Void) {
             if cannotCreate() >= 3 { chmod(dl.path, 0o700); then(); return }
             if tries == 0 { ranOut(3); chmod(dl.path, 0o700); then(); return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenDenied(tries - 1, then) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + refusedPoll) { whenDenied(tries - 1, then) }
         }
         /* #5167 (11-18) review 3: a second refused file whose page changes while the person chooses (onChosen, as the
            start-void arm does for kosmos#7952) must not be saved: the restart's page guard can fail live. */

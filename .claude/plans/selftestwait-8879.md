@@ -16,7 +16,8 @@ native-app/main.swift, the three waits (whenAsked twice, whenDenied once):
 
 ## Rejected
 - 30 s per wait: measured, the run where all three run out took 277 s against the 300 s watchdog (and the build's
-  360 s alarm). Too close. At 15 s the same run took 174 s.
+  360 s alarm). Too close. At 15 s the same run took 174 s. The 103 s difference is more than the 45 s the
+  longer waits add; that is measured, not explained, so the 15 s figure rests on the 174 s run, not on arithmetic.
 - Exiting with "download selftest TIMED OUT" when a wait runs out: build-kosmos-bundle.sh reads that as "the gate could
   not judge", which would relabel a real product regression (the system's reason never said) as the gate's fault.
 - Raising the watchdog and the alarm instead: two more places changed, for no case that needs it.
