@@ -58,7 +58,10 @@ function renderLines(r) {
     let line = '- ' + f.file + ' ' + (typeof f.says === 'string' ? f.says : 'is damaged')
       + (typeof f.holds === 'string' ? ' (it holds ' + f.holds + ').' : '.');
     line += f.savedOver === true ? ' It has been saved since the start, so what it holds now is newer than what was found.' : ' Kosmos left it as it is.';
-    if (f.backup && typeof f.backup.file === 'string') {
+    if (f.backup && typeof f.backup.file === 'string' && f.savedOver === true) {
+      // review 5: storecheck.restore refuses a store saved since the start, and the page then drops its Put back button.
+      line += ' The copy' + (typeof f.backup.at === 'string' ? ' saved ' + f.backup.at : '') + ' is kept at ' + f.backup.file + '.';
+    } else if (f.backup && typeof f.backup.file === 'string') {
       line += ' A good copy' + (typeof f.backup.at === 'string' ? ' saved ' + f.backup.at : '') + ' is at ' + f.backup.file + '; the person can put it back in Kosmos.';
     } else if (f.secret === true) {
       line += ' It holds a key or something that can be taken back, so Kosmos keeps no copy of it.';

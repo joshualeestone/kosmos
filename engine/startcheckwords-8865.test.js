@@ -89,3 +89,13 @@ test('kosmos#8865 review 3: a locked or too-large file is not said to have no co
   const bare = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 4, restored: 0, dismissed: false, files: [] });
   assert.equal(bare[1], 'Kosmos no longer holds the list of them for this start.');
 });
+
+test('kosmos#8865 review 5: a store saved since the start keeps its copy named but never offers to put it back', () => {
+  const backup = { file: 'projects.json.recovered-x', at: '2026-11-21T10:00:00.000Z' };
+  const saved = renderLines({ ran: true, checked: true, damaged: 1, unread: 0, looked: 3, files: [FILE({ backup, savedOver: true })] })[1];
+  assert.match(saved, /The copy saved 2026-11-21T10:00:00\.000Z is kept at projects\.json\.recovered-x\.$/);
+  assert.doesNotMatch(saved, /can put it back/, 'restore refuses a store saved since the start');
+  // CONTROL: the same file not saved since still offers it.
+  const open = renderLines({ ran: true, checked: true, damaged: 1, unread: 0, looked: 3, files: [FILE({ backup, savedOver: false })] })[1];
+  assert.match(open, /the person can put it back in Kosmos\.$/);
+});
