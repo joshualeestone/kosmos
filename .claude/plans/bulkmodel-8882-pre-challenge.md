@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: bulkmodel-8882
-diff_hash: 71c0b5a513070c278b0e8a86ff6073fc2a40524407bef123b892465134832090
-validation: local: render-account-usage-6108 browser check 660 of 660 PASS at eb9aa0bbcb (chromium and webkit, 1100 and 390, light and dark); the gated browser-check run (queued-heavy, frozen at e8dc1e71cd) all good; fixture-discipline and engine.reachable 28 of 28. Every fix shown red with it removed (10 mutations). The full suite runs on the PR's CI.
+diff_hash: ecd087febc32f41f8a134e3e295ade958b4e363c830195203f8616bef47e40f7
+validation: local: (diff includes the design-shots screen added after review; shots taken, exit 0) render-account-usage-6108 browser check 660 of 660 PASS at eb9aa0bbcb (chromium and webkit, 1100 and 390, light and dark); the gated browser-check run (queued-heavy, frozen at e8dc1e71cd) all good; fixture-discipline and engine.reachable 28 of 28. Every fix shown red with it removed (10 mutations). The full suite runs on the PR's CI.
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-22T08:32:44Z
 iterations: 8
