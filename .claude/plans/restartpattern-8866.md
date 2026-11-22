@@ -30,8 +30,10 @@ checked (#8287). Nothing joins notes: each restart overwrote the last, so a patt
 - The count is a lower bound (only restarts that made a note are kept), so the line says "at least".
 - Uninstall removes the history with the other remembered-answer files (install/setup.sh; now seven).
 - On a Kosmos cloud machine (round 6's NIT, taken 11-22 00:4x): the restart note shows there too, and its hardware hint
-  is not the person's to act on. There the line keeps the count and dates and says "Kosmos+ runs it for you, so its
-  hardware is not yours to look after." (the join ask's own words). Rejected: hiding the line on cloud (the dates are still
+  is not the person's to act on. There the line keeps the count and dates and says "Kosmos+ runs its hardware, so it is
+  not yours to fix. This note is only on your board: Kosmos+ has not been told." (Ice Cream Kitty's review: "runs it for
+  you" read as if someone were already on it, and nothing reports the restarts). Rejected too: naming a way to report it,
+  since I could not confirm one a cloud customer can reach from the board; if one exists, the line should name it. Rejected: hiding the line on cloud (the dates are still
   true and worth knowing); "there is nothing for you to fix" (round 8: the board cannot know the cause); pointing to a help button (I could not confirm one is reachable on a cloud board). Weakest
   premise: that Kosmos+ sees a cloud machine's restarts on its own. The words do not claim that; they only say it is
   not the person's job. The browser check sets the served meta to 1 and repaints; with the old page the arm is red.

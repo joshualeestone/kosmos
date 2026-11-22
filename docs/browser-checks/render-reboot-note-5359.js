@@ -19,7 +19,7 @@
  *   restart    -> a new board start time under an open page brings the note (control: the same start time does not)
  *   midnight   -> with the page clock pinned at 23:30 then 00:10, the same note says "yesterday at"
  *   checked    -> kosmos#8287: the line of what was checked, all back / some not back / damage / partial; none without checks (control); a change repaints; a phone keeps it
- *   pattern    -> kosmos#8866: 3 restarts within a week are said once with the dates (a day twice: "twice on"); no line without a pattern (control) or with a damaged one; on a cloud machine, "Kosmos+ runs it for you" and no hardware-check advice; UTC and en-US pinned
+ *   pattern    -> kosmos#8866: 3 restarts within a week are said once with the dates (a day twice: "twice on"); no line without a pattern (control) or with a damaged one; on a cloud machine, "Kosmos+ runs its hardware" and "has not been told", with no hardware-check advice; UTC and en-US pinned
  *
  *   AGENT_WORKFORCE_DATA=/tmp/rn PORT=17372 node server.js &
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" \
@@ -243,7 +243,7 @@ const CASES = [
           // The served page already carries this meta (the board stamps it); a second one would be read after it, never.
           const cloud = await pg.evaluate(() => { const m = document.querySelector('meta[name="kosmos-cloud-machine"]'); if (m) m.setAttribute('content', '1');
             return fetch('/api/board/restart-note').then((r) => r.json()).then((j) => { paintRebootNote(j.note); const c = document.querySelector('#reboot-slot .rpat'); return c ? c.textContent : null; }); });
-          say(/^Your cloud machine has restarted at least 3 times within a week while Kosmos was running \(Nov 18, Nov 20, Nov 21\)\. Kosmos\+ runs it for you, so its hardware is not yours to look after\.$/.test(cloud || '')
+          say(/^Your cloud machine has restarted at least 3 times within a week while Kosmos was running \(Nov 18, Nov 20, Nov 21\)\. Kosmos\+ runs its hardware, so it is not yours to fix\. This note is only on your board: Kosmos\+ has not been told\.$/.test(cloud || '')
             && !/driver|worth having looked at/.test(cloud || ''), 'pattern on a cloud machine at ' + width + 'px', JSON.stringify(cloud));
         }
         await pg.close();

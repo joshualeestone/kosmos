@@ -57,7 +57,9 @@ test('#8866: restarts spread wider than 7 days are no pattern; the same boot rea
   assert.equal(restartAt(T0 + 9 * DAY).pattern, undefined, 'the first one is 9 days back, outside the window');
   clean();
   restartAt(T0); restartAt(T0 + DAY);
-  assert.equal(restartAt(T0 + DAY).pattern, undefined, 'the exact same boot twice is one restart (the last-alive rule catches this one, since restartAt writes alive before the kept boot; the Set in historyOf only dedupes repeated entries inside the file)');
+  assert.equal(restartAt(T0 + DAY).pattern, undefined, 'the same boot read twice was counted as two restarts');
+  // The last-alive rule catches this one (restartAt writes alive before the kept boot); the Set in historyOf only
+  // dedupes repeated entries inside the history file.
   // Round 2: a board that died before its first beat makes a second note from the SAME last-alive time: one restart,
   // even with its boot read minutes off.
   clean();
