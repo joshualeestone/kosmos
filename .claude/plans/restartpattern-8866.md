@@ -25,6 +25,9 @@ checked (#8287). Nothing joins notes: each restart overwrote the last, so a patt
 - Second weak premise: "the same restart read again" is told by the last-alive time alone (a note re-made from the
   same last-alive record, older than the newest kept boot). A 60 s same-boot rule was tried and removed in review: it
   rested on a claim (two real restarts cannot be that close) that a fast power cycle can break, and no test isolated it.
+- The hint also excludes updates ("and it was not installing updates"): an operating system update restarts a machine
+  without the person, a normal cause of several restarts in a week.
+- The count is a lower bound: only restarts that made a note are kept.
 - Weakest premise: a person who restarts their computer on purpose three times in a week gets the line; the "if you
   did not restart it yourself" clause is what keeps it true for them.
 

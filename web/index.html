@@ -1375,6 +1375,7 @@ body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display:
 .utoast.reboot { --utone: var(--label-2); }
 .utoast.reboot .utxt b { color: var(--label); }
 .utoast.reboot .utxt small.rchk { display: block; margin-top: 4px; }   /* kosmos#8287: what was checked */
+.utoast.reboot .utxt small.rpat { display: block; margin-top: 4px; }   /* kosmos#8866: several restarts within a week */
 /* kosmos#7248: one row per damaged file, its put-back button inline at the button size the notices use. */
 .utoast.dmg .utxt small.dmgrow { display: block; margin-top: 4px; }
 .utoast.runfolder .utxt small.rfmsg { display: block; margin-top: 4px; }
@@ -25383,6 +25384,7 @@ function rebootChecked(checks) {
    them). The board cannot tell a crash from a person's restart, so the line never says "unexpectedly": it names the
    hardware or driver reading only for the case the person did not restart it. */
 function rebootPattern(p) {
+  // 3: engine/restartnote.js PATTERN_COUNT, which decides when a pattern is sent; this only refuses a malformed one.
   if (!p || !Number.isInteger(p.count) || p.count < 3 || !Array.isArray(p.dates) || p.dates.length !== p.count) return '';
   const days = p.dates.map((iso) => new Date(iso)).filter((d) => !isNaN(d.getTime()))
     .map((d) => d.toLocaleDateString([], { month: 'short', day: 'numeric' }));
@@ -25393,8 +25395,8 @@ function rebootPattern(p) {
   for (const d of days) { const f = seen.find((x) => x.d === d); if (f) f.n++; else seen.push({ d, n: 1 }); }
   const listed = seen.map((x) => (x.n === 2 ? 'twice on ' : x.n > 2 ? x.n + ' times on ' : '') + x.d).join(', ');
   return (typeof ThisMachine === 'function' ? ThisMachine() : 'This computer') + ' has restarted ' + p.count
-    + ' times within a week while Kosmos was running (' + listed + '). If you did not restart it yourself,'
-    + ' restarts this often usually mean a hardware or driver problem worth having looked at.';
+    + ' times within a week while Kosmos was running (' + listed + '). If you did not restart it yourself and it was not'
+    + ' installing updates, restarts this often usually mean a hardware or driver problem worth having looked at.';
 }
 let REBOOT_RECHECK = null;   // kosmos#8287: agents return over minutes, so a list of who is not back is asked again soon
 /* kosmos#8297: ...but only for the first minutes after Kosmos came back (the note's upAt), which is when agents return.

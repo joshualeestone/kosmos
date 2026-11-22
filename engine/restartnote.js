@@ -207,7 +207,9 @@ function historyOf(now) {
 }
 /* kosmos#8866: the history with this note's boot time added, or null when it cannot be told. The same restart read
    again is not counted twice: a board that died before its first beat makes a second note for it, from the same last
-   alive time, which is then older than the newest boot kept. A real later restart always follows a beat after that boot.
+   alive time, which is then older than the newest boot kept. A real later restart almost always follows a beat after that
+   boot; one that does not (the board killed before its first beat, then a real restart soon after) is undercounted,
+   never overcounted.
    (A note needs a last-alive time at all, so a lost alive file makes no note to count.) */
 function historyWith(bootIso, lastAliveIso, now) {
   const boot = ms(bootIso);
