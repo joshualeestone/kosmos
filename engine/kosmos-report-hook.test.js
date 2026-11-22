@@ -34,6 +34,8 @@ test('reportFor maps every event to the bash hook word, with auto:true', () => {
   assert.equal(real.on, 'provider api (rate_limit)', 'a real usage-limit stop was not recorded as rate_limit (every real stop read as "an api error")');
   assert.equal(hook.reportFor({ hook_event_name: 'StopFailure', error: { type: 'x' }, matcher: 'rate_limit' }).on, 'provider api (rate_limit)', 'a non-string error hid the fallback');
   assert.equal(hook.reportFor({ hook_event_name: 'StopFailure' }).on, 'provider api (an api error)', 'CONTROL: no kind at all still reads as an api error');
+  assert.equal(hook.reportFor({ hook_event_name: 'StopFailure', error: 429, matcher: 'rate_limit' }).on, 'provider api (rate_limit)', 'review 1: a number in error was taken for a kind');
+  assert.equal(hook.reportFor({ hook_event_name: 'StopFailure', error: 'Line one\nline two' }).on, 'provider api (an api error)', 'review 1: a message with a newline reached the card');
   const blk = hook.reportFor({ hook_event_name: 'StopFailure', matcher: 'rate_limit' });   // the older shape, kept as a fallback
   assert.equal(blk.state, 'blocked');
   assert.equal(blk.on, 'provider api (rate_limit)');

@@ -654,9 +654,19 @@ case "$EVENT" in
   StopFailure)
     # kosmos#8877: Claude Code sends the kind as `error` (2.1.330: error, error_details, last_assistant_message); matcher
     # and error_type, which it does not send, stay as fallbacks. Only a string `error` counts (jq), as the node hook.
-    KIND=$(json_field '(.error | strings) // .matcher // .error_type' 'error')
-    # Without jq, json_field reads one key at a time, so the fallbacks are asked for in the same order.
-    [ -n "$KIND" ] || KIND=$(json_field '.matcher' 'matcher'); [ -n "$KIND" ] || KIND=$(json_field '.error_type' 'error_type'); KIND="${KIND:-an api error}"
+    # Review 1: a kind is a short lowercase word; anything else falls through to the next field, as the node hook.
+    # Without jq, the FIRST "error":"<kind>" on the line is taken (json_field's sed takes the last, and error_details can
+    # carry an "error" of its own), and each fallback is asked for in the same order.
+    if [ -n "$JQ" ]; then
+      KIND=$(printf '%s' "$INPUT" | "$JQ" -r '[.error, .matcher, .error_type] | map(select(type == "string" and test("^[a-z_]{1,40}$"))) | .[0] // empty' 2>/dev/null)
+    else
+      KIND=""
+      for K in error matcher error_type; do
+        KIND=$(printf '%s' "$INPUT" | grep -oE '"'"$K"'"[[:space:]]*:[[:space:]]*"[a-z_]{1,40}"' | head -1 | sed 's/.*"\([a-z_]*\)"$/\1/')
+        [ -n "$KIND" ] && break
+      done
+    fi
+    KIND="${KIND:-an api error}"
     rm -f "$MARK" 2>/dev/null || true
     report blocked --auto --on "provider api (${KIND})" --owner provider ;;
   SessionEnd)

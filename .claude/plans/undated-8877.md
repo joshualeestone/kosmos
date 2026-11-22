@@ -21,3 +21,10 @@
 
 ## Weakest premise
 - The `error` field is measured on one Claude Code build. Fallbacks keep older shapes as before.
+
+## Review round 1 (blind): 1 BLOCKER, 2 WARNINGs, 2 NITs
+- BLOCKER: nothing clears a rate_limit report within a run, so `limitReported` stayed true for hours after the reset; the mover would restart a recovered agent holding open work. Fixed: a reported limit counts only with `limitFull` (decide(): the account's weekly, or the agent's own model's limit, is FULL now; an agent cannot have recovered while it is). Passed through movableFor (ctx), modelOf.atLimit, and automove's three uses (two sightings, the re-check, the move message) via the move's own `limitFull`. Pinned: a recovered agent with open work at 85% weekly is not moved; the same agent on a full week is.
+- WARNING: a five-hour stop could move an agent. Fixed by the same gate (a five-hour stop does not make the week or the model full).
+- WARNING: the no-jq sed took the LAST "error" (a nested error_details). Fixed: the first `"error":"<kind>"` on the line; pinned with an object error_details decoy (the old decoy could not fail).
+- NIT: a kind must look like one (^[a-z_]{1,40}$) in both hooks; a number, a message or an object falls through.
+- NIT (accepted, for the PR text): real server_error stops now clear on an automatic idle (#6209 starts working); kinds like max_output_tokens now read as themselves.

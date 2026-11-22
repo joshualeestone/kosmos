@@ -51,7 +51,8 @@ test('kosmos#8877: a card blocked by the usage-limit report says so as a field; 
 test('kosmos#8877: the rescue sees a reported usage limit, and the decision moves it only off an account at risk', () => {
   const limited = { ...cardWith(LIMIT), modelName: 'Claude Fable 5.2' };
   const NOW = Date.now();
-  assert.equal(ab.stoppedAtLimit(limited, NOW), true, 'the at-limit rescue does not see a reported usage limit (the agent waits it out)');
+  assert.equal(ab.stoppedAtLimit(limited, NOW, undefined, { limitFull: true }), true, 'the at-limit rescue does not see a reported usage limit (the agent waits it out)');
+  assert.equal(ab.stoppedAtLimit(limited, NOW), false, 'review 1: a reported limit counted with nothing saying the limit is full now (it can be hours stale)');
   assert.equal(ab.stoppedAtLimit(cardWith(OTHER), NOW), false, 'CONTROL: an api error is not a stop at a limit');
   const H = 3600000;
   const row = (dir, o) => ({ provider: 'anthropic', dir, email: dir + '@example.test', memoryShared: true, apiKey: false, connection: { badge: 'working' },
@@ -66,4 +67,22 @@ test('kosmos#8877: the rescue sees a reported usage limit, and the decision move
     'an agent stopped by a reported Fable limit, on an account whose Fable limit is full, was not moved');
   assert.deepEqual(ab.decide({ rows: rows(10), movable, nowMs: NOW, modelOf }).moves, [],
     'CONTROL: with no limit at risk there (say a five-hour limit that resets soon), the reported stop moved it');
+});
+
+test('kosmos#8877 review 1: a reported limit that has passed (the agent recovered and works on) does not count', () => {
+  const recovered = { ...cardWith(LIMIT), modelName: 'Claude Fable 5.2' };   // the report stands for hours after the reset
+  const NOW = Date.now(); const H = 3600000;
+  const row = (dir, o) => ({ provider: 'anthropic', dir, email: dir + '@example.test', memoryShared: true, apiKey: false, connection: { badge: 'working' },
+    weekly: { usedPct: 20, resetsAt: NOW + 72 * H }, fiveHour: null, agentsHere: { names: [], complete: true }, scoped: [], ...o });
+  const movable = ab.movableFor({ cards: [recovered], records: [{ id: 'p', tasks: [{ id: 't', parts: [{ who: 'zed', title: 'open work' }] }] }],
+    readCommitment: () => ({ state: 'clear' }), isGuide: () => false, guideName: () => null, nowMs: NOW });
+  const modelOf = ab.modelOfFrom([recovered], NOW);
+  /* The account is at risk overall (85% weekly), but nothing it draws on is FULL: the reset passed, or it was a
+     five-hour stop. It holds open work. It must not be taken for an agent stuck at its limit and restarted. */
+  const rows = [row('/c', { weekly: { usedPct: 85, resetsAt: NOW + 40 * H }, scoped: [{ model: 'Fable', usedPct: 30, resetsAt: NOW + 40 * H }], agentsHere: { names: ['zed'], complete: true } }),
+    row('/d', { weekly: { usedPct: 10, resetsAt: NOW + 90 * H } })];
+  assert.deepEqual(ab.decide({ rows, movable, nowMs: NOW, modelOf }).moves, [], 'a recovered agent with open work was restarted as if stuck at its limit (review 1 blocker)');
+  /* CONTROL: the same agent while its week IS full is stuck, and moves despite its open work (#8048's rescue). */
+  const full = [{ ...rows[0], weekly: { usedPct: 100, resetsAt: NOW + 40 * H } }, rows[1]];
+  assert.deepEqual(ab.decide({ rows: full, movable, nowMs: NOW, modelOf }).moves.map((m) => [m.agent, m.limitFull]), [['zed', true]], 'CONTROL: stuck on a full week, it was not moved');
 });

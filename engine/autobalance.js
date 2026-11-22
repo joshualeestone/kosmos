@@ -199,7 +199,7 @@ function modelOfFrom(getCards, nowMs = null) {
   /* Review 3: whether that model came only from the previous session, so decide can trust it less (an agent can switch
      models between sessions, or the previous one was another runner's). */
   of.earlier = (session) => { const c = card(session); return !!c && !str(c.modelName) && !str(c.model) && !!str(c.earlierModelName); };
-  of.atLimit = (session) => { const c = card(session); try { return !!c && stoppedAtLimit(c, Number.isFinite(nowMs) ? nowMs : Date.now()); } catch { return false; } };
+  of.atLimit = (session, limitFull = false) => { const c = card(session); try { return !!c && stoppedAtLimit(c, Number.isFinite(nowMs) ? nowMs : Date.now(), undefined, { limitFull }); } catch { return false; } };
   return of;
 }
 
@@ -220,7 +220,17 @@ function decide({ rows, movable, nowMs, skipTarget, modelOf }) {
     /* Review 2: an agent whose model cannot be told but which is stopped at a usage limit, on an account whose overall
        limit is fine, almost certainly hit a model's own limit there (the card's stated fallback), so it is at risk by
        the first model limit there that passes the rule. */
-    const atLimit = (n) => { try { return typeof modelOf === 'function' && typeof modelOf.atLimit === 'function' && modelOf.atLimit(n) === true; } catch { return false; } };
+    /* kosmos#8877 review 1: whether the limit this agent draws on is FULL now (the account's weekly, or its own model's;
+       for a model that is unknown or only a guess, any model's), so a usage-limit report counts only while it is true. */
+    const fullNow = (n) => {
+      const w = weeklyNow(from, nowMs);
+      if (w && w.usedPct >= MODEL_FULL_PCT) return true;
+      const k = modelKey(model(n));
+      const list = scopedNow(from, nowMs).filter((s) => s.usedPct >= MODEL_FULL_PCT);
+      return k && !(typeof modelOf === 'function' && typeof modelOf.earlier === 'function' && modelOf.earlier(n) === true)
+        ? list.some((s) => modelKey(s.model) === k) : list.length > 0;
+    };
+    const atLimit = (n) => { try { return typeof modelOf === 'function' && typeof modelOf.atLimit === 'function' && modelOf.atLimit(n, fullNow(n)) === true; } catch { return false; } };
     /* Review 3: a model read only from the previous session is a guess: it counts for its own limit, but does not stop
        the at-limit inference, and its target is chosen by the stricter unknown-model rule. */
     const earlier = (n) => { try { return typeof modelOf === 'function' && typeof modelOf.earlier === 'function' && modelOf.earlier(n) === true; } catch { return false; } };
@@ -253,14 +263,14 @@ function decide({ rows, movable, nowMs, skipTarget, modelOf }) {
     if (!complete) short.push(from.dir);
     /* Review 2: an agent already being moved is not named again. */
     const moving = new Set(from.agentsHere && Array.isArray(from.agentsHere.moving) ? from.agentsHere.moving : []);
-    const going = names.filter((n) => !moving.has(n) && whyFor(n) && typeof movable === 'function' && movable(n) === true);
+    const going = names.filter((n) => !moving.has(n) && whyFor(n) && typeof movable === 'function' && movable(n, { limitFull: fullNow(n) }) === true);
     if (!going.length) continue;
     const stuck = [];
     for (const agent of going.slice().sort()) {
       /* kosmos#8862: each agent's target is judged for its own model, so two agents can go two ways, or one be held. */
       const to = targetFor(from, all, nowMs, skipTarget, sure(agent));
       if (!to) { stuck.push(agent); continue; }
-      moves.push({ agent, from: from.dir, to: to.dir, why: whyFor(agent) });
+      moves.push({ agent, from: from.dir, to: to.dir, why: whyFor(agent), ...(fullNow(agent) ? { limitFull: true } : {}) });   // kosmos#8877: for the mover's own at-limit checks
     }
     /* Review 1: the held line names who is held, since others on the same account may be moving. Review 2: one entry
        per reason, so an Opus agent is never given the Fable agent's reason. */
@@ -298,12 +308,14 @@ function markTargets(rows, nowMs) {
    (assigner.limitedCard: ours, rate_limited, a dated reset more than 10 minutes away), on a reading that is not a
    remembered one (#5949, as idleCard), and not a switched-off swarm (as idleCard, review 3). One function, so
    movableFor and the mover's message cannot disagree about which moves were off the limit. */
-function stoppedAtLimit(c, nowMs = Date.now(), assigner = require('./assigner')) {
-  /* kosmos#8877: or blocked by Claude Code's own usage-limit report (StopFailure, rate_limit), which carries no reset time.
-     That is enough to call it stopped at a limit here, because the decision moves an agent only off an account at risk
-     (overall, or for its own model, each with a reset more than RESET_SOON_MS away), so a five-hour limit that resets
-     soon still moves nobody. A report is an agent's own, so ours and not a remembered screen reading. */
-  const reportedLimit = !!c && c.isNamedOurs === true && c.state === 'blocked' && c.limitReported === true;
+function stoppedAtLimit(c, nowMs = Date.now(), assigner = require('./assigner'), { limitFull = false } = {}) {
+  /* kosmos#8877: or blocked by Claude Code's own usage-limit report (StopFailure, rate_limit), but ONLY while it is still
+     true (review 1). Nothing clears that report within a run, so the card keeps saying it for hours after the reset, and
+     the screen cannot tell (the measured Fable stop read idle while still limited). The endpoint can: `limitFull` is the
+     caller saying the limit this agent draws on (its account's weekly, or its own model's) is full NOW, and an agent
+     cannot have recovered while it is. Only decide() knows that, from the rows, and passes it down. That also keeps a
+     five-hour stop on an account whose week is not full from moving anyone (review 1's warning 2). */
+  const reportedLimit = limitFull === true && !!c && c.isNamedOurs === true && c.state === 'blocked' && c.limitReported === true;
   return (assigner.limitedCard(c, nowMs) || reportedLimit) && !require('./status').stateIsRemembered(c) && !(c.swarm && c.swarm.active === false);
 }
 
@@ -321,7 +333,7 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
      file); the guide check reads one record every agent shares, so it is everyone's, as a roster or the projects that
      could not be read at all (they throw elsewhere). */
   const cannot = (why, perAgent = true) => { if (strict) throw Object.assign(new Error(why), { perAgent }); return false; };
-  return (session) => {
+  return (session, ctx = {}) => {   // kosmos#8877: ctx.limitFull, decide()'s word that the agent's limit is full now
     const c = bySession.get(session);
     if (!c) return cannot('the agent is not on the roster');
     /* kosmos#8048: an agent already stopped at its limit is the one that most needs to move, and it never reads idle, so
@@ -339,7 +351,7 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
        opens; nothing re-surfaces its commitments or what was running, which is why the move's message names them.
        Not reached (review 3): a weekly limit under a day from its reset, which Claude Code prints with no date, reads
        as not limited, the same as a five-hour one. Reading undated lines would act on stale ones (#5031). */
-    const atLimit = stoppedAtLimit(c, Number.isFinite(nowMs) ? nowMs : Date.now(), assigner);   // kosmos#8056: the assigner this call was given
+    const atLimit = stoppedAtLimit(c, Number.isFinite(nowMs) ? nowMs : Date.now(), assigner, { limitFull: !!ctx && ctx.limitFull === true });   // kosmos#8056: the assigner this call was given
     if (!atLimit && !assigner.idleCard(c)) return false;
     /* Review 2 (slice 3): words sitting unsent in its box are a person's or a peer's, and a restart would drop them. A
        card that cannot say is not movable. Review 5: the card says so only once the same words have sat there for
@@ -430,7 +442,7 @@ function rowsFromReadings({ list, readUsage, agentsOn, nowMs, sameLogin }) {
    risk. `build()` returns a movable function, or throws. */
 function movableOnDemand(build) {
   let fn = null;
-  return (session) => (fn || (fn = build()))(session);
+  return (session, ctx) => (fn || (fn = build()))(session, ctx);   // kosmos#8877: ctx (limitFull) passed through
 }
 
 module.exports = { MODEL_FULL_PCT, modelKey, modelRiskOf, modelRoomOn, modelOfFrom, decide, movableFor, stoppedAtLimit, movableOnDemand, markTargets, bulkTargetable, eligible, rowsFromReadings, AT_RISK_PCT, TARGET_MAX_PCT, RESET_SOON_MS, FIVE_HOUR_MAX_PCT };

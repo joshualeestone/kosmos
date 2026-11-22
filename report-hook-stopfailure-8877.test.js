@@ -44,6 +44,12 @@ for (const [label, env] of [['with jq', {}], ['without jq', { KOSMOS_REPORT_HOOK
   test(`kosmos#8877 (${label}): a real usage-limit stop is recorded as provider api (rate_limit)`, () => {
     assert.equal(blockedOn(REAL, env), 'provider api (rate_limit)', 'a real usage-limit stop was recorded as an api error, so #5805 never sees it');
   });
+  test(`kosmos#8877 review 1 (${label}): an "error" inside error_details, or a value that is not a kind, is not taken`, () => {
+    const nested = { hook_event_name: 'StopFailure', session_id: 's', error: 'rate_limit', error_details: { type: 'error', error: 'usage_limit_reached' } };
+    assert.equal(blockedOn(nested, env), 'provider api (rate_limit)', 'the nested error_details "error" won (the no-jq sed takes the LAST match)');
+    assert.equal(blockedOn({ hook_event_name: 'StopFailure', error: 429, matcher: 'rate_limit' }, env), 'provider api (rate_limit)', 'a number in error was taken for a kind');
+    assert.equal(blockedOn({ hook_event_name: 'StopFailure', error: 'Something went wrong: try again' }, env), 'provider api (an api error)', 'a whole message was taken for a kind');
+  });
   test(`kosmos#8877 (${label}): the older shape still reads, and a stop with no kind is an api error`, () => {
     assert.equal(blockedOn({ hook_event_name: 'StopFailure', matcher: 'rate_limit' }, env), 'provider api (rate_limit)', 'the older matcher shape stopped reading');
     assert.equal(blockedOn({ hook_event_name: 'StopFailure', session_id: 's' }, env), 'provider api (an api error)', 'CONTROL: no kind at all reads as an api error');

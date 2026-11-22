@@ -146,7 +146,10 @@ function reportFor(evt, ctx) {
          hook_event_name:"StopFailure",error,error_details,last_assistant_message; a usage limit's transcript row says
          error "rate_limit"). Reading only `matcher` and `error_type`, neither of which it sends, recorded EVERY real stop
          as "an api error" (36 of 36 on Agent1s), so #5805's usage-limit handling never fired. They stay as fallbacks. */
-      const kind = field(evt, 'error') || field(evt, 'matcher') || field(evt, 'error_type') || 'an api error';
+      /* Review 1: a kind is a short lowercase word (rate_limit, server_error); anything else (a number, a whole message,
+         an object) is not one, and the next field is read. It goes into the card's sentence. */
+      const kindOf = (v) => (/^[a-z_]{1,40}$/.test(v) ? v : '');
+      const kind = kindOf(field(evt, 'error')) || kindOf(field(evt, 'matcher')) || kindOf(field(evt, 'error_type')) || 'an api error';
       return { ...base, state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider' };
     }
     case 'SessionEnd':

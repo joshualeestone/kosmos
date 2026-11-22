@@ -419,7 +419,8 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
        now sitting idle under a limit line that still counts) can still be moved, and by this route, not the idle one. */
     let cardsNow = [];
     try { const r = deps.roster(); cardsNow = Array.isArray(r) ? r : []; } catch { cardsNow = []; }
-    const atLimitNow = new Set(decision.moves.map((x) => x.agent).filter((a) => { const c = cardsNow.find((y) => y && y.sessionName === a); try { return !!c && ab.stoppedAtLimit(c, nowMs); } catch { return false; } }));
+    /* kosmos#8877: with decide()'s word on whether each agent's limit is full now, so a usage-limit report counts only then. */
+    const atLimitNow = new Set(decision.moves.filter((x) => { const c = cardsNow.find((y) => y && y.sessionName === x.agent); try { return !!c && ab.stoppedAtLimit(c, nowMs, undefined, { limitFull: x.limitFull === true }); } catch { return false; } }).map((x) => x.agent));
     for (const a of [...state.limitSeenAt.keys()]) if (!atLimitNow.has(a)) state.limitSeenAt.delete(a);
     for (const a of atLimitNow) if (!state.limitSeenAt.has(a)) state.limitSeenAt.set(a, nowMs);
     if (deps.accountBusy() || deps.boardRestarting()) return { did: 'nothing', because: 'busy' };
@@ -434,7 +435,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
        check that throws) writes nothing and moves nothing. */
     let stillFree;
     let fresh = null;
-    try { fresh = deps.freshRoster(); stillFree = ab.movableFor(movableArgs(fresh, deps.freshRecords, true))(m.agent); }
+    try { fresh = deps.freshRoster(); stillFree = ab.movableFor(movableArgs(fresh, deps.freshRecords, true))(m.agent, { limitFull: m.limitFull === true }); }   // kosmos#8877
     catch (err) {
       /* Reviews 1 and 2: only a re-check that failed for THIS agent (autobalance.movableFor marks it perAgent: not on the
          fresh roster, its box, the guide check or its commitments unreadable) sets it aside; a roster or a project that
@@ -461,7 +462,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
        watch (rules 8 and 10), so a record that cannot be written (a full disk, a read-only folder) moves nobody. */
     if (!sweep.appendAll(file, [])) return { did: 'unreadable', because: 'the record could not be written' };
     /* kosmos#8048 review 3: read from the same fresh roster the re-check passed, so the message says what this move was. */
-    try { const card = (Array.isArray(fresh) ? fresh : []).find((c) => c && c.sessionName === m.agent); m.offLimit = !!card && ab.stoppedAtLimit(card, nowMs); }
+    try { const card = (Array.isArray(fresh) ? fresh : []).find((c) => c && c.sessionName === m.agent); m.offLimit = !!card && ab.stoppedAtLimit(card, nowMs, undefined, { limitFull: m.limitFull === true }); }   // kosmos#8877
     catch { m.offLimit = false; }
     /* Read before the move, as the message says (review 5): a fresh session could write a record of its own. */
     if (m.offLimit) m.promisedText = promisedText(deps, m.agent, nowMs);
