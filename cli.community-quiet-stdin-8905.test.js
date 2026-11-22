@@ -82,16 +82,20 @@ for (const v of VERBS) {
     assert.equal(r.code, 2, r.both);
     assert.match(r.both, new RegExp('Nothing was ' + v.verbed + ': the piped ' + v.noun + ' stopped arriving for 3 seconds without ending, so it may be cut short'));
   });
-  test('#8905 ' + name + ': CONTROL, a body piped in whole is read and never refused by the quiet reader', async () => {
+  test('#8905 ' + name + ': CONTROL, a body piped in whole is read and reaches the send', async () => {
     const h = makeHome();
     const r = await run(CLI, v.args, h, 'a whole ' + v.noun + ', piped in and ended\n');
     assert.doesNotMatch(r.both, /Nothing was \w+: (nothing arrived on stdin|the piped)/, r.both);
+    /* A body lost on its way would be refused as empty ("Nothing to post: ..."); one that arrived goes on to the send,
+       which the dead port answers. */
+    assert.doesNotMatch(r.both, /Nothing to (post|send|change|review)|needs some (text|words)/, r.both);
+    assert.match(r.both, new RegExp('Kosmos is not running, so nothing was ' + v.verbed), r.both);
     assert.ok(r.ms < 15000, 'a whole body must not hang (' + r.ms + ' ms)');
   });
 }
 
 /* The triage card list, on a copy of the CLI whose card-list limit is 1 s. 1 s, not the default 3 s, so a triage line
-   that forgot to pass its own constant (and used the 3 s default) fails the timing below. */
+   that forgot to pass its own constant (and used the 3 s default) says "for 3 seconds" and fails the match below. */
 function cliWithCardsLimit(seconds) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cmquiet-cli-'));
   const src = fs.readFileSync(CLI, 'utf8');
@@ -117,10 +121,14 @@ test('#8905 kosmos feedback triage --cards -: a card list that stops without end
   assert.match(r.both, /Nothing was triaged: the piped card list stopped arriving for 1 seconds without ending, so it may be cut short/);
 });
 
-test('#8905 kosmos feedback triage --cards -: CONTROL, a card list piped in whole is read and never refused', async () => {
+test('#8905 kosmos feedback triage --cards -: CONTROL, a card list piped in whole is read and triage goes on', async () => {
   const h = makeHome();
   const r = await run(CLI, ['feedback', 'triage', '--cards', '-'], h, '#1234 a card\n');
   assert.doesNotMatch(r.both, /Nothing was triaged/, r.both);
+  /* It got past the reader and ran. With no reports there is nothing to match the list against, so this cannot show
+     the list's own effect; the refusal tests above are what pin the reading. */
+  assert.equal(r.code, 0, r.both);
+  assert.match(r.both, /triage read this computer's own reports/, r.both);
   assert.ok(r.ms < 15000, 'a whole list must not hang (' + r.ms + ' ms)');
 });
 
@@ -136,13 +144,13 @@ test('#8905 the Mac limits are the Windows CLI\'s: 3 s for a body, 120 s for a c
   assert.equal(macCards * 1000, winCards);
 });
 
-test('#8905 no Mac CLI verb reads stdin with a bare $(cat) any more, outside a terminal', () => {
+test('#8905 the literal $(cat) appears in no Mac CLI command line any more, except the terminal read', () => {
   const lines = fs.readFileSync(CLI, 'utf8').split('\n');
   const bare = lines.map((l, i) => [i + 1, l]).filter(([, l]) => /\$\(cat\)/.test(l) && !/^\s*#/.test(l) && !/\[ -t 0 \]/.test(l));   // the reader's own terminal read
   assert.deepEqual(bare.map(([n, l]) => n + ': ' + l.trim().slice(0, 120)), []);
 });
 
-test('#8905 review: with no node at all (no bundled one, none on PATH), a silent pipe is refused at once, never waited on', async () => {
+test('#8905 review: with no node at all (no bundled one, none on PATH), a silent pipe is refused at once, never waited on', async (t) => {
   const h = makeHome();
   fs.rmSync(path.join(h.home, 'runtime'), { recursive: true, force: true });   // no bundled node
   /* The CLI puts the chosen tmux's folder first on PATH (a system tmux in /opt/homebrew/bin brings that folder's node
@@ -151,6 +159,7 @@ test('#8905 review: with no node at all (no bundled one, none on PATH), a silent
   fs.mkdirSync(path.dirname(tmuxStub), { recursive: true });
   fs.writeFileSync(tmuxStub, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
   const bare = '/usr/bin:/bin';
+  if (fs.existsSync('/usr/bin/node') || fs.existsSync('/bin/node')) { t.skip('this machine has a node on the bare PATH, so the case cannot be made here'); return; }
   const r = await new Promise((resolve, reject) => {
     const env = { ...process.env, PATH: bare, KOSMOS_TMUX_KNOWN: '', AGENT_WORKFORCE_TMUX_BIN: tmuxStub, KOSMOS_HOME: h.home, AGENT_WORKFORCE_DATA: h.data, KOSMOS_PORT: '9', KOSMOS_AGENT_TOKEN: '', TMUX: '', TMUX_PANE: '' };
     const started = Date.now();
@@ -169,7 +178,6 @@ test('#8905 review: with no node at all (no bundled one, none on PATH), a silent
     });
     child.stdin.on('error', () => {});
   });
-  assert.ok(!fs.existsSync('/usr/bin/node') && !fs.existsSync('/bin/node'), 'this machine has a node on the bare PATH, so the case cannot be made here');
   assert.equal(r.code, 2, r.both);
   assert.match(r.both, /Nothing was posted: the piped post could not be read/);
   assert.ok(r.ms < 10000, 'it waited ' + r.ms + ' ms for a pipe it could never read');
