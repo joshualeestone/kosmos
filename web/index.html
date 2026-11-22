@@ -73375,8 +73375,12 @@ function paintProjectTasks(p) {
   // ⚠️ Change-guarded, the removed-list's own pattern: the five-second poll
   // repaints this project every tick, and an unconditional innerHTML write
   // destroys a keyboard user's focus on a card even when nothing changed.
-  if (html !== TK_LIST_HTML) {
-    TK_LIST_HTML = html;
+  /* kosmos#8897: keyed on WHICH empty sentence too. Every empty column painted '' here, so moving from one empty project to
+     another kept the first one's sentence (a project with only finished tasks, then one with none, kept "Nothing open
+     here"; the starter project's own sentence made it worse). */
+  const listKey = html || ('\u0000' + (all.length ? 'done-only' : p.starter === true ? 'starter' : 'none'));
+  if (listKey !== TK_LIST_HTML) {
+    TK_LIST_HTML = listKey;
     /* #761 (Josh, 2026-08-24 21:56): "some kind of centered light gray text
        that just says something like 'Add a task' or 'Have your agent add a
        task to start tracking your progress'... inviting." Only when there is
@@ -73390,9 +73394,14 @@ function paintProjectTasks(p) {
        two different things and one sentence would be false in the other case.
        Nothing open, but finished tasks behind the door, must NOT say "Add a
        task" -- that contradicts the door line sitting directly under it. */
+    /* kosmos#8897: the starter project Kosmos made says so while it has no work at all, so nobody reads its empty list
+       as work its agents should invent; its agents are told the same (engine/projects.js STARTER_PROJECT_LINE). Once
+       any task arrives it reads as any project does. */
     list.innerHTML = html || (all.length
       ? '<p class="tk-empty">Nothing open here. The finished ones are behind View All.</p>'
-      : '<p class="tk-empty">Add a task, or have an agent add one, to start tracking progress.</p>');
+      : p.starter === true
+        ? '<p class="tk-empty" data-starter-empty>This is the starter project Kosmos made to show you around. Its agents wait for work from you: give them a task here, or start a project of your own.</p>'
+        : '<p class="tk-empty">Add a task, or have an agent add one, to start tracking progress.</p>');
   }
   /* THE DOOR IS ALWAYS THERE NOW (#1382), and both halves of that are
      deliberate.
