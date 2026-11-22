@@ -127,7 +127,10 @@ function printable(t) {
 }
 
 /* #4569: who a typed message is from, by the envelope the board put on it. */
-const OPERATOR_PREFIXES = ['[message from your operator', '[from your operator'];
+/* kosmos#8864: a line sent automatically for the person (messages.automaticWake, the wake hello or a script's boot notice)
+   rides under the person's DM like theirs, so it is queued and answered as the person's (its answer is the DM's). */
+const AUTOMATIC_PREFIX = '[sent automatically on this computer';
+const OPERATOR_PREFIXES = ['[message from your operator', '[from your operator', AUTOMATIC_PREFIX];
 const BACKGROUND_PREFIX = '[background from your colleague';
 function kindOf(text) {
   if (OPERATOR_PREFIXES.some((p) => text.startsWith(p))) return 'operator';
@@ -157,6 +160,8 @@ const STOP_WORDS = new Set(['stop', 'stop now', 'stop it', 'please stop', 'stop 
   'pause', 'please pause', 'pause now', 'you can stop', 'you can pause', 'halt', 'stop stop', 'stfu']);
 function isStopRequest(text) {
   if (kindOf(text) !== 'operator') return false;
+  // kosmos#8864 round 3: a line sent automatically (a script's notice) is queued as the person's, but only the person stops Muse.
+  if (text.startsWith(AUTOMATIC_PREFIX)) return false;
   const said = wordsOf(text).toLowerCase().replace(/[.!,?\u2026]+/g, ' ').replace(/\s+/g, ' ').trim();
   return STOP_WORDS.has(said);
 }
@@ -165,6 +170,17 @@ function shortOf(text) {
   const b = wordsOf(text) || text;
   const one = b.replace(/\s+/g, ' ');
   return one.length > 60 ? one.slice(0, 57) + '...' : one;
+}
+/* kosmos#8864 round 3: the stop notes' list of dropped person-side messages, with lines sent automatically named apart,
+   so the sentence that says the person sent them is only ever about what they typed. [] when there are none. */
+function droppedParts(list, typedLead) {
+  const quote = (ts) => ts.map((t) => '"' + shortOf(t) + '"').join(', ');
+  const typed = list.filter((t) => !t.startsWith(AUTOMATIC_PREFIX));
+  const auto = list.filter((t) => t.startsWith(AUTOMATIC_PREFIX));
+  const out = [];
+  if (typed.length) out.push(typedLead + quote(typed));
+  if (auto.length) out.push('these lines sent automatically on this computer were dropped unread: ' + quote(auto));
+  return out;
 }
 
 /* #5636 F7a and #6065 N1: one line per message this front hands to Muse (logged before the turn, whatever its result), in the agent's own folder
@@ -347,7 +363,8 @@ function finalCopy(text) {
    background post is not: its answer belongs to the room, never under the person's DM.
    The envelope must START the prompt, or start the line after a stop note's own first line (a stop note is that line
    and then the person's stop DM): a room post that quotes the envelope further down is not the person's DM. */
-const DM_ENVELOPE = /^\[message from your operator[^\]\n]*to answer, run: kosmos reply\]/;
+// kosmos#8864: or messages.automaticWake's bracket, which also sends its answer with kosmos reply.
+const DM_ENVELOPE = /^\[(?:message from your operator[^\]\n]*to answer|sent automatically on this computer[^\]\n]*to answer), run: kosmos reply\]/;
 const STOP_NOTE_HEAD = /^\[Kosmos: your operator asked you to stop[^\n]*\]\n/;
 function answersTheDm(prompt) { return DM_ENVELOPE.test(String(prompt).replace(STOP_NOTE_HEAD, '')); }
 /* #4569 fix 4: the window for telling the board a new waiting count (each report starts a node process). */
@@ -525,7 +542,8 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
       let at = 0;
       while (at < queue.length && (kindOf(queue[at]) === 'operator' || STOP_NOTES.has(queue[at]))) at++;
       queue.splice(at, 0, text);
-      if (running) write('(queued ahead of other waiting messages: a message from your operator; Muse is still on the last message)\n');
+      // kosmos#8864: an automatic line is queued as the person's, but named for what it is.
+      if (running) write('(queued ahead of other waiting messages: ' + (text.startsWith(AUTOMATIC_PREFIX) ? 'a line sent automatically on this computer' : 'a message from your operator') + '; Muse is still on the last message)\n');
     } else {
       queue.push(text);
       if (running) write('(queued: Muse is still on the last message)\n');
@@ -569,7 +587,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         /* Review round 4: notes are tracked by their text, so an identical note already waiting says it already;
            a second copy would leave one copy untracked. */
         const said = [];
-        if (mine.length) said.push('these messages from them, sent in between, were dropped unread: ' + mine.map((t) => '"' + shortOf(t) + '"').join(', '));
+        said.push(...droppedParts(mine, 'these messages from them, sent in between, were dropped unread: '));
         if (asked) said.push(asked + (asked === 1 ? ' message addressed to you was' : ' messages addressed to you were') + ' dropped too');
         const more = '[Kosmos: your operator asked you to stop again, and ' + said.join('; ') + '.]\n' + text;
         if (!queue.includes(more)) { STOP_NOTES.add(more); queue.push(more); received(more, at); arrive(more, at); }
@@ -586,7 +604,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     const parts = [];
     if (ended) parts.push('the turn you were on was ended');
     if (others) parts.push(others + (others === 1 ? ' other waiting message was' : ' other waiting messages were') + ' dropped');
-    if (mine.length) parts.push('these earlier messages from your operator were dropped unread: ' + mine.map((t) => '"' + shortOf(t) + '"').join(', '));
+    parts.push(...droppedParts(mine, 'these earlier messages from your operator were dropped unread: '));
     const note = '[Kosmos: your operator asked you to stop, so ' + (parts.join('; ') || 'nothing else was waiting') + '. Stop the work you were doing.]\n' + text;
     STOP_NOTES.add(note);
     queue.push(note);

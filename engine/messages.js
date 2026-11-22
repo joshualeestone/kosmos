@@ -429,6 +429,9 @@ const MARKERS = [
      forged copy inside a body is an in-band steering vector. Minted
      here, refused here, like every marker this module can speak. */
   '[the room has not seen an answer',
+  /* kosmos#8864: automaticWake's bracket. It claims "not your person", not authority, but a forged copy would pass an
+     agent's words off as a line from this computer, which can ask for work: refused like the others. */
+  '[sent automatically on this computer',
 ];
 
 /**
@@ -558,6 +561,19 @@ function answeredParts(row) {
 function operatorDirect(nowLabel, answers) {
   const at = nowLabel ? (' at ' + nowLabel) : '';
   return '[message from your operator' + at + (answers || '') + ' \u00b7 to answer, run: kosmos reply]';
+}
+
+/* kosmos#8864: the bracket for a line sent FOR the person without their typing it: POST /thread {automatic: true}. Two
+   senders use it: the board's own wake 'hello' after a restart or a team create, and a script on this computer (an
+   installed agent's listener posts its boot notice there after a reboot, the 11-21 report). Before, both rode in
+   operatorDirect's bracket, so the agent read them as the person's words and its day summary counted them as theirs.
+   It names neither sender nor says "nothing to answer", since a script's line can ask for work; it says that the person
+   did not type it, and ends "to answer, run: kosmos reply" like operatorDirect, the cue agents are taught marks a message
+   that waits on them (round 3: without it a wake hello read as not waiting on the agent). It does not open '[message from your operator', so
+   the MARKERS guard (which refuses a body forging that opening) is untouched. PURE. */
+function automaticWake(nowLabel) {
+  const at = nowLabel ? (' at ' + nowLabel) : '';   // as operatorDirect: the person's local time, when one is set
+  return '[sent automatically on this computer' + at + ', not typed by your person \u00b7 to answer, run: kosmos reply]';
 }
 
 /**
@@ -5247,7 +5263,7 @@ module.exports = {
   deletePostAsync,   // kosmos#7614
   react, reactionsFor, normalizeReactionEmoji, claimOf, claimMembers, claimAge, isClaimEmoji, freeClaim,
   messageIdOf, // #4631
-  operatorDirect, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock,
+  operatorDirect, automaticWake, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,

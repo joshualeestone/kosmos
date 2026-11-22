@@ -60,6 +60,11 @@ const NUDGE_TEXT = 'Kosmos here, a one-time reminder: the person you work for se
      this reminder is the moment it is needed, and it says what the command is not for. */
   + 'Only if your instructions say to answer them somewhere else: answer there, then run kosmos reply-channel "<where>" '
   + '(it stops this reminder for good, so never run it just to quiet it)';
+/* kosmos#8864: the same reminder when the unanswered line was sent automatically for the person (chat row
+   `automatic: true`): this module's rule is that its words are true of the row, and "the person sent you a message"
+   is not true of a line they did not type. Only the first sentence differs. */
+const NUDGE_TEXT_AUTOMATIC = NUDGE_TEXT.replace('the person you work for sent you a message and ',
+  'a line was sent to you automatically for the person you work for, and ');
 
 /* Has this session's one nudge been spent? A book entry with a nudge time, however it went. */
 function nudged(entry) {
@@ -114,7 +119,9 @@ function firstContact(thread, pause) {
      the agent's own question, not a message the nudge's words can describe. */
   if (last.wire != null) return { state: 'clear', heardAt: null, because: 'the latest row is a menu answer, not a message' };
   if (!last.delivery || last.delivery.state !== 'placed') return { state: 'clear', heardAt: null, because: 'the person\'s latest message did not reach the pane' };
-  return { state: 'owes', heardAt: typeof last.at === 'string' ? last.at : null, because: null };
+  // kosmos#8864: whether that row was sent automatically for the person (the wake hello, a script's line), so the
+  // reminder's words stay true of it.
+  return { state: 'owes', heardAt: typeof last.at === 'string' ? last.at : null, because: null, ...(last.automatic === true ? { automatic: true } : {}) };
 }
 
 /*
@@ -245,7 +252,7 @@ function sweepOnce(o) {
       let state = null;
       let held = false;
       let heldBy = null;   // #4588 ask 3: which hold, so the log does not say "quota" for the Gemini limit
-      try { const r = o.deliver(session, NUDGE_TEXT, o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = r && (r.heldFor === 'signin' ? 'signin' : r.heldBy); }
+      try { const r = o.deliver(session, (fc && fc.automatic) ? NUDGE_TEXT_AUTOMATIC : NUDGE_TEXT, o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = r && (r.heldFor === 'signin' ? 'signin' : r.heldBy); }
       catch (err) { state = 'threw: ' + String((err && err.message) || err); }
       /* #4588 PR B: held (the shared Google quota, the Gemini cap, #5743 an answer awaited on its screen, or #5805 a usage limit), nothing typed: no try is spent, so the nudge still comes after the reset. */
       if (held) { results.push({ session, name: display, act: heldBy === 'input' ? 'input-held' : heldBy === 'menu' ? 'menu-held' : heldBy === 'signin' ? 'signin-held' : heldBy === 'limit' ? 'limit-held' : 'quota-held', delivered: false, delivery: state, because: p.because + (heldBy === 'input' ? '; held while its input box holds text not yet sent (#6249)' : heldBy === 'cap' ? '; held by a working-at-once limit you set' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'signin' ? '; held while it is signed out (#5948)' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota') }); continue; }
@@ -285,4 +292,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { plan, firstContact, directThread, sweepOnce, makeTick, nudgeEnabled, MIN_QUIET_MS, MAX_TRIES, NUDGE_TEXT };
+module.exports = { plan, firstContact, directThread, sweepOnce, makeTick, nudgeEnabled, MIN_QUIET_MS, MAX_TRIES, NUDGE_TEXT, NUDGE_TEXT_AUTOMATIC };

@@ -41,6 +41,7 @@ function conversation(messages, names, date, dateKey) {
   for (const m of Array.isArray(messages) ? messages : []) {
     if (!m || typeof m !== 'object') continue;
     if (m.kosmos === true) continue;   // Kosmos's own line in the agent's name (a menu answer, `wire`, is the person's and stays)
+    if (m.automatic === true) continue;   // kosmos#8864: sent automatically (the wake 'hello', or a script on this computer); not their words
     if (m.delivery && m.delivery.duplicateOf) continue;   // a resend recorded as a copy of one already counted
     const d = onDay(m.at, date, dateKey);
     if (!d) continue;
