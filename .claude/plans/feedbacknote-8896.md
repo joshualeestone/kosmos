@@ -107,3 +107,8 @@ the same day is untouched.
 - Deferred to a follow-up card: the Mac CLI has no quiet limit on a piped body for note AND for write (Windows has one,
   and the Mac --unchanged path got one in #8844). Raised twice; it is the same defect in write, so it is fixed in both
   together, not here.
+
+## Review 6 (sonnet): converged
+- NITs only, and no false claim found in any printed sentence. Kept: the unreachable `already` sentence; the
+  earlier-day "hourly check" wording (the three-hour floor makes the wait up to three hours, said for today's note
+  in NOTE_MESSAGES.later); the test-run guard errs toward under-claiming; the nudge line's length.
