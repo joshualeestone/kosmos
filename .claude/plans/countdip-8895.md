@@ -34,3 +34,5 @@ before.
   showing (the cap bounds it).
 
 ## Round 2 (sonnet, whole branch): no blocker; one should-fix taken (a test that the real nudge hands onCounts the comments number and the counting moment, and not the reason). Nits recorded: the cap can understate when a new comment offsets aging; isPublic is judged now.
+
+## Round 3 (opus, whole branch): nothing above nit. Converged. Nits recorded: the sentence follows the whole counts sentence; two-aged-on-one-post and the cap are untested.
