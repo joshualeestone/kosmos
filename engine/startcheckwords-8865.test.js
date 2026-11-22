@@ -49,7 +49,7 @@ test('kosmos#8865: each damaged file says what it holds and what can be done, an
 test('kosmos#8865: a dismissed list and a file already put back are said, never left as an unexplained gap', () => {
   const dismissed = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 5, dismissed: true, files: [] });
   assert.match(dismissed.join('\n'), /found 2 damaged/);
-  assert.match(dismissed.join('\n'), /The person has seen the list and dismissed it for this start/);
+  assert.match(dismissed.join('\n'), /The person has seen the list and dismissed it on the page for this start\./);
   const putBack = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 5, restored: 1, dismissed: false, files: [FILE()] });
   assert.match(putBack.join('\n'), /1 of them was put back from a good copy since the start\./);
   assert.match(putBack.join('\n'), /- projects\.json is blank/);
@@ -59,7 +59,7 @@ test('kosmos#8865: a dismissed list and a file already put back are said, never 
   // review 2: put back and then dismissed says both; a shorter list alone is never read as put back.
   const both = renderLines({ ran: true, checked: true, damaged: 3, unread: 0, looked: 5, restored: 1, dismissed: true, files: [] }).join('\n');
   assert.match(both, /1 of them was put back from a good copy since the start\./);
-  assert.match(both, /dismissed it for this start/);
+  assert.match(both, /dismissed it on the page for this start/);
   // Not a shape the board sends (it counts every put-back in `restored`); here only to show a gap is never read as put back.
   const shorter = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 5, restored: 0, files: [FILE()] }).join('\n');
   assert.doesNotMatch(shorter, /put back/, 'a shorter list was read as put back');
@@ -98,4 +98,13 @@ test('kosmos#8865 review 5: a store saved since the start keeps its copy named b
   // CONTROL: the same file not saved since still offers it.
   const open = renderLines({ ran: true, checked: true, damaged: 1, unread: 0, looked: 3, files: [FILE({ backup, savedOver: false })] })[1];
   assert.match(open, /the person can put it back in Kosmos\.$/);
+});
+
+test('kosmos#8865 review 6: a dismissed list is still named to an agent, file by file', () => {
+  const lines = renderLines({ ran: true, checked: true, damaged: 2, unread: 0, looked: 4, restored: 0, dismissed: true, files: [],
+    hidden: [FILE(), FILE({ file: 'removed.json', holds: 'the agents you removed', says: 'is empty' })] });
+  assert.equal(lines[1], 'The person has seen the list and dismissed it on the page for this start; still damaged:');
+  assert.match(lines[2], /^- projects\.json is blank/);
+  assert.match(lines[3], /^- removed\.json is empty/);
+  assert.equal(lines.length, 4);
 });

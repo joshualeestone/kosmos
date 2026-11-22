@@ -45,15 +45,16 @@ function renderLines(r) {
       : restored + ' of them ' + (restored === 1 ? 'was' : 'were') + ' put back from a good copy since the start.');
   }
   if (restored === damaged) return lines;
+  const hidden = Array.isArray(r.hidden) ? r.hidden : [];
   if (r.dismissed === true && files.length === 0) {
-    lines.push('The person has seen the list and dismissed it for this start, so it is not listed again until the next start.');
-    return lines;
+    lines.push('The person has seen the list and dismissed it on the page for this start' + (hidden.length ? '; still damaged:' : '.'));
+    if (!hidden.length) return lines;
   }
-  if (files.length === 0) {
+  if (files.length === 0 && hidden.length === 0) {
     lines.push('Kosmos no longer holds the list of them for this start.');
     return lines;
   }
-  for (const f of files) {
+  for (const f of files.concat(r.dismissed === true ? hidden : [])) {
     if (!f || typeof f.file !== 'string') continue;
     let line = '- ' + f.file + ' ' + (typeof f.says === 'string' ? f.says : 'is damaged')
       + (typeof f.holds === 'string' ? ' (it holds ' + f.holds + ').' : '.');

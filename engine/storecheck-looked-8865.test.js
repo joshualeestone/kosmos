@@ -53,7 +53,7 @@ test('kosmos#8865: a locked file is looked at and named, an unlistable folder is
     const r = storecheck.report();
     assert.equal(r.ran, true);
     assert.equal(r.unread, 1, 'the unlistable folder is not counted unread: ' + JSON.stringify(r));
-    assert.equal(r.looked, 3, 'the locked file is not counted as looked at, or a file is counted twice: ' + JSON.stringify(r));
+    assert.equal(r.looked, 2, 'a locked file was counted as looked at, or a file is counted twice: ' + JSON.stringify(r));
     assert.equal(r.damaged, 2, 'the locked file is not named: ' + JSON.stringify(r));
     assert.deepEqual(r.files.map((f) => f.file).sort(), ['removed.json', 'settings.json']);
     assert.equal(r.files.find((f) => f.file === 'settings.json').problem, 'unopenable');
@@ -73,6 +73,7 @@ test('kosmos#8865: dismissed is set by dismiss(), carried by report() with the l
   const after = storecheck.report();
   assert.equal(after.dismissed, true);
   assert.deepEqual(after.files, []);
+  assert.deepEqual(after.hidden.map((f) => f.file), before.files.map((f) => f.file), 'the dismissed list is not kept for an agent');
   assert.equal(after.damaged, before.damaged, 'the count of what the start found moved when the list was dismissed');
   storecheck.scan({});
   assert.equal(storecheck.report().dismissed, false, 'a new scan kept the old dismissal');

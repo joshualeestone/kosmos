@@ -13,10 +13,12 @@ how much it saw), and no CLI verb reads it.
 
 ## The call
 
-- `engine/storecheck.js`: the scan counts the files it looked at (`LOOKED`, never overlapping `unread`), `dismiss()`
+- `engine/storecheck.js`: the scan counts the files whose bytes it read (`LOOKED`; a locked or too-large file is
+  named damaged instead, and never overlaps `unread`), `dismiss()`
   records that the person dismissed the list, and `report()` returns `{ ran, checked, damaged, unread, looked,
-  restored, dismissed, files }`, where `restored` counts what was put back since the start (said even after a
-  dismissal; a shorter list is never read as put back), and `files` is the page's own list (current()) with each problem in the board log's words.
+  restored, dismissed, files, hidden }`, where `restored` counts what was put back since the start (said even after a
+  dismissal; a shorter list is never read as put back), `hidden` is what the person dismissed on the page (still named to an agent, since it is still damaged),
+  and `files` is the page's own list (current()) with each problem in the board log's words.
   `lastScan()` keeps its shape, because the restart note stores it and #8287's tests pin it.
 - `server.js`: GET /api/board/start-check answers report(), read-only, beside /api/board/damaged-files and under the
   same gate.

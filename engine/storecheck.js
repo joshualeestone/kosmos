@@ -78,6 +78,7 @@ let BASE_ROOT = null;    // where worlds.json lives, captured at start
 let DISMISSED = false;   // kosmos#8865: the person dismissed this start's list, so an agent is told why it is empty
 let LOOKED = null;       // kosmos#8865: the files this start's scan looked at; kept out of SCANNED, whose shape the note stores
 let RESTORED = 0;        // kosmos#8865: how many damaged records were put back since the start, said even after a dismissal
+let HIDDEN = [];         // kosmos#8865 review 6: the list the person dismissed, still named to an agent (the page hides it)
 
 /** 'empty', 'nul' or 'unreadable', or null when the bytes are a JSON value. */
 function classify(buf) {
@@ -153,10 +154,11 @@ function scan(opts) {
   UNREAD = 0;
   DISMISSED = false;
   RESTORED = 0;
+  HIDDEN = [];
   SCANNED = null;   // kosmos#8865 review 2: a scan that throws part way leaves no result, never the previous one
   LOOKED = null;
   FOUND = [];       // review 3: the list too, so a failed scan never shows the previous start's files
-  let looked = 0;   // kosmos#8865: the files this scan read, or found too large or locked, for "checked N files" (a locked or too-large one is also named damaged, with its reason)
+  let looked = 0;   // kosmos#8865: the files whose bytes this scan read, for "checked N files" (review 6: a locked or too-large one is not counted; it is named damaged, with its reason)
   const files = candidates(store.ROOT);
   for (const f of Object.keys(FOLDERS)) files.push(...candidates(path.join(store.ROOT, f)));
   if (BASE_ROOT && path.resolve(BASE_ROOT) !== path.resolve(store.ROOT)) {
@@ -169,11 +171,11 @@ function scan(opts) {
     try { st = fs.statSync(file); } catch (err) { if (!err || err.code !== 'ENOENT') UNREAD += 1; continue; }   // a dangling link or a file gone meanwhile: nothing to name
     if (!st.isFile()) continue;
     let problem;
-    let lookedAt = true;   // kosmos#8865: false when it counts as unread instead, so the two never overlap (a file gone between stat and read is in neither)
-    if (st.size > MAX_BYTES) problem = 'toobig';
+    let lookedAt = true;   // kosmos#8865: false unless its bytes were read (a file gone between stat and read is in neither count)
+    if (st.size > MAX_BYTES) { problem = 'toobig'; lookedAt = false; }
     else {
       let buf = null;
-      try { buf = fs.readFileSync(file); } catch (err) { problem = err && (err.code === 'EACCES' || err.code === 'EPERM') ? 'unopenable' : null; if (!problem) lookedAt = false; if (!problem && (!err || err.code !== 'ENOENT')) UNREAD += 1; }
+      try { buf = fs.readFileSync(file); } catch (err) { lookedAt = false; problem = err && (err.code === 'EACCES' || err.code === 'EPERM') ? 'unopenable' : null; if (!problem && (!err || err.code !== 'ENOENT')) UNREAD += 1; }
       if (buf) problem = classify(buf);
     }
     if (lookedAt) looked += 1;
@@ -213,10 +215,13 @@ function changedSince(d) {
 }
 
 /** What the page shows: the damaged stores this start found and has not been told to put back. */
-function current() {
+function current() { return describe(FOUND); }
+
+/* The page's per-file facts for a list of found records (current() for the page; report() adds the dismissed ones). */
+function describe(list) {
   /* Looked at again each time the page asks (review 1): a reader that treats a damaged store as empty writes over it
      on its next save, and then "Kosmos has not changed it" would no longer be true. `savedOver` says so. */
-  return FOUND.map((d) => {
+  return list.map((d) => {
     let savedOver = false;
     // One rule for every size (review 3): its size or time moved since start, even if it is still not readable.
     try { savedOver = changedSince(d); } catch { savedOver = false; }
@@ -267,7 +272,7 @@ function restore(file, write) {
 }
 
 /** The person said they have seen it: not shown again until the next start. */
-function dismiss() { FOUND = []; DISMISSED = true; return true; }
+function dismiss() { HIDDEN = HIDDEN.concat(FOUND); FOUND = []; DISMISSED = true; return true; }
 
 /**
  * kosmos#8287, #8297: what this start's scan may say, as { checked, damaged, unread }.
@@ -289,7 +294,9 @@ function lastScan() { return SCANNED ? { ...SCANNED } : { checked: false }; }
 function report() {
   const s = lastScan();
   const files = current().map((f) => ({ ...f, says: PROBLEM[f.problem] || 'is damaged' }));
-  return { ran: SCANNED !== null, ...s, ...(SCANNED !== null && Number.isInteger(LOOKED) ? { looked: LOOKED } : {}), restored: RESTORED, dismissed: DISMISSED, files };
+  /* review 6: what the person dismissed is hidden from the page, not from an agent: it is still damaged. */
+  const hidden = describe(HIDDEN).map((f) => ({ ...f, says: PROBLEM[f.problem] || 'is damaged' }));
+  return { ran: SCANNED !== null, ...s, ...(SCANNED !== null && Number.isInteger(LOOKED) ? { looked: LOOKED } : {}), restored: RESTORED, dismissed: DISMISSED, files, hidden };
 }
 
 module.exports = { atStart, scan, current, restore, dismiss, classify, lastScan, report };
